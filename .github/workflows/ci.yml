@@ -42,7 +42,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm --filter @crm/shared build
+      # Full build needed so vite generates routeTree.gen.ts before tsc runs.
+      # Turbo cache makes this a no-op on subsequent runs for unchanged packages.
+      - run: pnpm build
 
       - run: pnpm typecheck
 

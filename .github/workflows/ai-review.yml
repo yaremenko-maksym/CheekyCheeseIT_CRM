@@ -33,6 +33,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      id-token: write   # required for claude_code_oauth_token OIDC auth
 
     steps:
       - uses: actions/checkout@v4
@@ -43,7 +44,7 @@ jobs:
         uses: anthropics/claude-code-action@beta
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: |
+          direct_prompt: |
             Ты — Reviewer-агент для CRM Cheeky Cheese IT.
 
             Прочитай docs/agents/reviewer.md — это твой полный системный промпт и чек-лист.
@@ -85,6 +86,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      id-token: write   # required for claude_code_oauth_token OIDC auth
 
     services:
       postgres:
@@ -181,7 +183,7 @@ jobs:
         uses: anthropics/claude-code-action@beta
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: |
+          direct_prompt: |
             Ты — QA Manual Tester для CRM Cheeky Cheese IT.
 
             Прочитай docs/agents/qa.md — это твой полный системный промпт.
