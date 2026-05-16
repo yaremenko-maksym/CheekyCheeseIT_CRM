@@ -4,13 +4,18 @@ on:
   push:
     paths:
       - 'docs/business/**'
+    branches-ignore:
+      - main  # only from feature branches (via PR merge triggers docs changes)
   workflow_dispatch:
 
-jobs:
-  claude-autotest:
-    name: Generate/Update Tests from Docs
-    runs-on: ubuntu-latest
+concurrency:
+  group: autotest-${{ github.ref }}
+  cancel-in-progress: true
 
+jobs:
+  generate-tests:
+    name: Generate/Update Tests
+    runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
@@ -18,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2  # for git diff to see what changed in docs/
+          fetch-depth: 2
 
       - uses: pnpm/action-setup@v4
         with:
@@ -29,13 +34,19 @@ jobs:
           node-version: '20'
           cache: 'pnpm'
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
 
-      - name: Get changed docs files
-        id: changed-docs
+      - run: pnpm install --frozen-lockfile
+
+      - name: Get changed business docs
+        id: changed
         run: |
-          echo "files=$(git diff HEAD~1 --name-only -- docs/business/ | tr '\n' ' ')" >> $GITHUB_OUTPUT
+          CHANGED=$(git diff HEAD~1 --name-only -- docs/business/ | tr '\n' ' ')
+          echo "files=$CHANGED" >> $GITHUB_OUTPUT
 
       - name: Claude AutoTest Agent
         uses: anthropics/claude-code-action@beta
@@ -44,19 +55,15 @@ jobs:
           prompt: |
             Ты — AutoTest-агент для CRM Cheeky Cheese IT.
 
-            ОБЯЗАТЕЛЬНО прочитай перед началом:
-            1. Файл `docs/agents/autotest.md` — твой полный системный промпт
-            2. Изменённые файлы в docs/business/: ${{ steps.changed-docs.outputs.files }}
-            3. Существующие тесты в `apps/e2e/tests/` — не дублировать
-            4. Файл `apps/e2e/playwright.config.ts` — конфигурация
+            Прочитай docs/agents/autotest.md — это твой полный системный промпт.
 
-            Согласно промпту в `docs/agents/autotest.md`:
-            1. Определи какие user flows изменились
-            2. Напиши/обнови соответствующие тесты
-            3. Обнови `docs/test-cases/e2e-scenarios.md`
-            4. Создай PR с изменениями
+            Изменились следующие бизнес-документы:
+            ${{ steps.changed.outputs.files }}
 
-            Репозиторий: ${{ github.repository }}
+            Сгенерируй или обнови тесты согласно промпту в docs/agents/autotest.md.
+            Создай PR с изменёнными тестами.
+
+            Repo: ${{ github.repository }}
           allowed_tools: |
             Read
             Write
