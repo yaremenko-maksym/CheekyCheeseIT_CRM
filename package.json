@@ -1,0 +1,25 @@
+{
+  "name": "cheeky-cheese-crm",
+  "private": true,
+  "packageManager": "pnpm@7.32.4",
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "dev:start": "docker compose up -d && docker compose ps && pnpm dev",
+    "dev:stop": "docker compose stop",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "clean": "turbo clean"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.0",
+    "turbo": "^2.9.0",
+    "typescript": "^5.8.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "fastify": "^5.8.5"
+    }
+  }
+}

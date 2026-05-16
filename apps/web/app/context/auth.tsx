@@ -1,0 +1,48 @@
+import { createContext, useContext, type ReactNode } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import type { SessionUser } from '@crm/shared'
+import { api } from '../lib/axios'
+
+interface AuthContextValue {
+  user: SessionUser | null
+  isLoading: boolean
+  invalidate: () => void
+}
+
+const AuthContext = createContext<AuthContextValue>({
+  user: null,
+  isLoading: true,
+  invalidate: () => {},
+})
+
+async function fetchMe(): Promise<SessionUser | null> {
+  const res = await api.get<SessionUser>('/auth/me', {
+    validateStatus: (status) => status === 200 || status === 401,
+  })
+  if (res.status !== 200) return null
+  // API already validates shape via JWT — trust the response and cast directly
+  return res.data
+}
+
+export function AuthProvider({ children, skip }: { children: ReactNode; skip?: boolean }) {
+  const queryClient = useQueryClient()
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['auth', 'me'],
+    queryFn: fetchMe,
+    enabled: typeof window !== 'undefined' && !skip,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+    ...(skip ? { initialData: null } : {}),
+  })
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
+
+  return (
+    <AuthContext.Provider value={{ user: data ?? null, isLoading, invalidate }}>
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+export const useAuth = () => useContext(AuthContext)

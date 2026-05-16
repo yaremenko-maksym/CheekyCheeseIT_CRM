@@ -1,0 +1,139 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  /* Extended palette tokens */
+  --color-surface: var(--surface);
+  --color-surface-foreground: var(--surface-foreground);
+  --color-yellow-subtle: var(--yellow-subtle);
+  --color-yellow-muted: var(--yellow-muted);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: 'Inter', system-ui, sans-serif;
+}
+
+/*
+  Palette rationale (dark mode = default):
+  ─────────────────────────────────────────
+  Yellows  │ primary       0.84c 85h  — brand yellow, CTAs, badges
+           │ yellow-muted  0.78c 85h  — hover glow, ring
+           │ yellow-subtle 0.22c 85h  — very faint amber tint for surfaces
+  Blacks   │ background    L=0.08     — deepest bg, page canvas
+           │ card          L=0.12     — raised surface (cards)
+           │ surface       L=0.16     — sidebar active, input bg, popovers
+           │ secondary     L=0.20     — hover states
+  Whites   │ foreground    L=0.97     — primary text
+           │ card-fg       L=0.97     — text on cards
+           │ muted-fg      L=0.58     — secondary/caption text
+*/
+
+/* Light mode */
+:root {
+  --background:          oklch(0.98 0 0);
+  --foreground:          oklch(0.12 0 0);
+  --card:                oklch(1    0 0);
+  --card-foreground:     oklch(0.12 0 0);
+  --popover:             oklch(1    0 0);
+  --popover-foreground:  oklch(0.12 0 0);
+  --surface:             oklch(0.95 0.008 85);
+  --surface-foreground:  oklch(0.12 0 0);
+  --primary:             oklch(0.80 0.183 85.3);
+  --primary-foreground:  oklch(0.09 0 0);
+  --secondary:           oklch(0.94 0 0);
+  --secondary-foreground:oklch(0.20 0 0);
+  --muted:               oklch(0.94 0 0);
+  --muted-foreground:    oklch(0.50 0 0);
+  --accent:              oklch(0.93 0.018 85);
+  --accent-foreground:   oklch(0.20 0.04  85);
+  --yellow-muted:        oklch(0.75 0.14  85.3);
+  --yellow-subtle:       oklch(0.93 0.018 85);
+  --destructive:         oklch(0.58 0.245 27.3);
+  --border:              oklch(0.90 0 0);
+  --input:               oklch(0.92 0 0);
+  --ring:                oklch(0.80 0.183 85.3);
+  --radius: 0.625rem;
+}
+
+/* Dark mode — CheekyCheeseIT brand identity (default via .dark on <html>) */
+.dark {
+  /* ── Backgrounds (3 blacks) ── */
+  --background:          oklch(0.08 0 0);       /* deepest canvas */
+  --card:                oklch(0.12 0 0);       /* raised card */
+  --surface:             oklch(0.16 0.006 85);  /* sidebar active, popovers — faint amber warmth */
+  --surface-foreground:  oklch(0.97 0 0);
+
+  /* ── Foregrounds (3 whites) ── */
+  --foreground:          oklch(0.97 0 0);       /* primary text */
+  --card-foreground:     oklch(0.97 0 0);
+  --popover:             oklch(0.13 0 0);
+  --popover-foreground:  oklch(0.97 0 0);
+  --muted-foreground:    oklch(0.58 0 0);       /* captions, hints */
+
+  /* ── Yellows (3 shades) ── */
+  --primary:             oklch(0.84 0.183 85.3); /* brand yellow — buttons, badges */
+  --primary-foreground:  oklch(0.08 0 0);        /* near-black on yellow */
+  --yellow-muted:        oklch(0.72 0.13  85.3); /* dimmed yellow — hover rings */
+  --yellow-subtle:       oklch(0.22 0.04  85.3); /* dark amber tint — subtle highlights */
+
+  /* ── Interactive states ── */
+  --secondary:           oklch(0.20 0 0);
+  --secondary-foreground:oklch(0.97 0 0);
+  --muted:               oklch(0.16 0 0);
+
+  /*
+    accent = sidebar active state & ghost hover
+    Dark warm surface so text stays crisp white — NOT yellow bg
+  */
+  --accent:              oklch(0.19 0.012 85);  /* warm dark, clearly distinct from bg */
+  --accent-foreground:   oklch(0.97 0 0);       /* white text — always readable */
+
+  /* ── System ── */
+  --destructive:         oklch(0.65 0.21  22.2);
+  --border:              oklch(0.22 0.004 85);   /* subtle warm border */
+  --input:               oklch(0.16 0 0);
+  --ring:                oklch(0.84 0.183 85.3);
+}
+
+* {
+  box-sizing: border-box;
+  border-color: var(--border);
+  outline-color: var(--ring);
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type=number] {
+  -moz-appearance: textfield;
+}
