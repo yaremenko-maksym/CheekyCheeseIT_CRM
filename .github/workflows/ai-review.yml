@@ -164,7 +164,7 @@ jobs:
         run: nohup pnpm --filter @crm/api start > /tmp/api.log 2>&1 &
 
       - name: Start Web
-        run: nohup pnpm --filter @crm/web start -- --port 3000 > /tmp/web.log 2>&1 &
+        run: nohup pnpm --filter @crm/web start > /tmp/web.log 2>&1 &
 
       - name: Wait for services
         run: |
