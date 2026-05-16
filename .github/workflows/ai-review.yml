@@ -156,7 +156,7 @@ jobs:
 
       - run: pnpm build
 
-      - run: pnpm --filter @crm/api db:migrate
+      - run: pnpm --filter @crm/api db:push
 
       - run: pnpm --filter @crm/api db:seed
 
