@@ -1,0 +1,68 @@
+name: AutoTest
+
+on:
+  push:
+    paths:
+      - 'docs/business/**'
+  workflow_dispatch:
+
+jobs:
+  claude-autotest:
+    name: Generate/Update Tests from Docs
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # for git diff to see what changed in docs/
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 7.32.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Get changed docs files
+        id: changed-docs
+        run: |
+          echo "files=$(git diff HEAD~1 --name-only -- docs/business/ | tr '\n' ' ')" >> $GITHUB_OUTPUT
+
+      - name: Claude AutoTest Agent
+        uses: anthropics/claude-code-action@beta
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Ты — AutoTest-агент для CRM Cheeky Cheese IT.
+
+            ОБЯЗАТЕЛЬНО прочитай перед началом:
+            1. Файл `docs/agents/autotest.md` — твой полный системный промпт
+            2. Изменённые файлы в docs/business/: ${{ steps.changed-docs.outputs.files }}
+            3. Существующие тесты в `apps/e2e/tests/` — не дублировать
+            4. Файл `apps/e2e/playwright.config.ts` — конфигурация
+
+            Согласно промпту в `docs/agents/autotest.md`:
+            1. Определи какие user flows изменились
+            2. Напиши/обнови соответствующие тесты
+            3. Обнови `docs/test-cases/e2e-scenarios.md`
+            4. Создай PR с изменениями
+
+            Репозиторий: ${{ github.repository }}
+          allowed_tools: |
+            Read
+            Write
+            Edit
+            Bash
+            mcp__ast-grep__find_code
+            mcp__postgres__query
+            mcp__github__create_pull_request
+            mcp__github__create_branch

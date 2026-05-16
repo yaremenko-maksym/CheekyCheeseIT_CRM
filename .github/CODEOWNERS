@@ -1,0 +1,8 @@
+# Default owner for everything
+* @yaremenko-maksym
+
+# Business docs require owner review
+docs/business/ @yaremenko-maksym
+
+# Database schema changes require owner review
+apps/api/src/database/ @yaremenko-maksym

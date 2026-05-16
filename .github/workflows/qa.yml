@@ -1,0 +1,160 @@
+name: QA
+
+on:
+  pull_request:
+    types: [ready_for_review, labeled]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to test'
+        required: true
+        type: number
+
+jobs:
+  claude-qa:
+    name: Claude QA Manual Test
+    runs-on: ubuntu-latest
+    if: |
+      github.event.pull_request.draft == false &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'ai-review-ready')
+      )
+
+    permissions:
+      contents: write   # for escalation file commits
+      pull-requests: write
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: crm_db
+          POSTGRES_USER: crm_user
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_db
+      REDIS_URL: redis://localhost:6379
+      API_PORT: 3001
+      GOOGLE_CLIENT_ID: test-client-id
+      GOOGLE_CLIENT_SECRET: test-client-secret
+      GOOGLE_CALLBACK_URL: http://localhost:3001/api/auth/google/callback
+      JWT_SECRET: ci-jwt-secret-at-least-32-chars-long
+      SESSION_SECRET: ci-session-secret-32-chars-minimum
+      FRONTEND_URL: http://localhost:3000
+      VITE_API_URL: http://localhost:3001/api
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 7.32.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm build
+
+      - name: Apply migrations & seed
+        run: |
+          pnpm --filter @crm/api db:migrate
+          pnpm --filter @crm/api db:seed
+
+      - name: Start API
+        run: pnpm --filter @crm/api start &
+
+      - name: Start Web
+        run: pnpm --filter @crm/web preview --port 3000 &
+
+      - name: Wait for services
+        run: npx wait-on http://localhost:3001/api/health http://localhost:3000 --timeout 60000
+
+      - name: Install Playwright
+        run: |
+          pnpm --filter @crm/e2e exec playwright install --with-deps chromium
+
+      - name: Claude QA Manual Test
+        uses: anthropics/claude-code-action@beta
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Ты — QA Manual Tester для CRM Cheeky Cheese IT.
+
+            ОБЯЗАТЕЛЬНО прочитай перед началом:
+            1. Файл `docs/agents/qa.md` — твой полный системный промпт
+            2. Файл `docs/business/user-flows.md` — что тестировать
+            3. Файл `docs/business/user-stories.md` — acceptance criteria
+            4. Файл `docs/specs/active-task.md` — acceptance criteria текущей задачи
+            5. Файл `docs/test-cases/e2e-scenarios.md` — список сценариев
+
+            Приложение запущено:
+            - Frontend: http://localhost:3000
+            - API: http://localhost:3001/api
+            - БД: PostgreSQL с seed-данными из apps/api/src/database/seed.ts
+
+            Протестируй изменения из PR согласно промпту в `docs/agents/qa.md`.
+            Используй Playwright MCP для браузерной автоматизации.
+            Создай GitHub PR Review (APPROVE или REQUEST_CHANGES).
+
+            Если нашёл несостыковку в бизнес-логике:
+            1. Создай файл `docs/escalations/$(date +%Y-%m-%d)-logic-<slug>.md`
+            2. Оставь REQUEST_CHANGES с ссылкой на файл эскалации
+
+            PR номер: ${{ github.event.pull_request.number || inputs.pr_number }}
+            Репозиторий: ${{ github.repository }}
+          allowed_tools: |
+            Read
+            Bash
+            Write
+            mcp__playwright__browser_navigate
+            mcp__playwright__browser_click
+            mcp__playwright__browser_fill_form
+            mcp__playwright__browser_type
+            mcp__playwright__browser_snapshot
+            mcp__playwright__browser_take_screenshot
+            mcp__playwright__browser_wait_for
+            mcp__playwright__browser_evaluate
+            mcp__playwright__browser_press_key
+            mcp__playwright__browser_select_option
+            mcp__playwright__browser_network_requests
+            mcp__postgres__query
+            mcp__github__get_pull_request
+            mcp__github__create_pull_request_review
+            mcp__github__add_issue_comment
+
+      - name: Upload QA Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-screenshots-${{ github.run_id }}
+          path: /tmp/playwright-screenshots/
+          retention-days: 7
