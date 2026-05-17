@@ -195,27 +195,12 @@ jobs:
             --json number --jq '.[0].number // empty')
 
           if [ "$E2E_RESULT" = "failure" ] && [ -z "$OPEN" ]; then
+            BODY=$(printf "## E2E сломаны на \`main\`\n\n**Commit:** \`${{ github.sha }}\`\n**Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\n\n## Правило\n\nВсе текущие задачи ставятся на **паузу**. Coder, Reviewer и AutoTest не принимают новые задачи пока E2E на main не восстановлены.\n\nAI Review автоматически отклоняет новые PR пока этот issue открыт.\n\n## Как исправить\n\n1. Открыть Playwright report в артефактах CI run выше\n2. Найти упавший тест — регрессия в коде или устаревший тест\n3. Исправить в новой ветке → PR (пройдёт AI Review, E2E-блокировка на PR не распространяется — только на _новые_ задачи)\n4. После merge этот issue закроется автоматически")
             gh issue create \
               --repo "$REPO" \
               --title "🚨 E2E тесты упали на main — команда на паузе" \
               --label "e2e-broken" \
-              --body "## E2E сломаны на \`main\`
-
-**Commit:** \`${{ github.sha }}\`
-**Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-## Правило
-
-Все текущие задачи ставятся на **паузу**. Coder, Reviewer и AutoTest не принимают новые задачи пока E2E на main не восстановлены.
-
-AI Review автоматически отклоняет новые PR пока этот issue открыт.
-
-## Как исправить
-
-1. Открыть Playwright report в артефактах CI run выше
-2. Найти упавший тест — регрессия в коде или устаревший тест
-3. Исправить в новой ветке → PR (пройдёт AI Review, E2E-блокировка на PR не распространяется — только на _новые_ задачи)
-4. После merge этот issue закроется автоматически"
+              --body "$BODY"
 
           elif [ "$E2E_RESULT" = "success" ] && [ -n "$OPEN" ]; then
             gh issue close "$OPEN" --repo "$REPO" \
