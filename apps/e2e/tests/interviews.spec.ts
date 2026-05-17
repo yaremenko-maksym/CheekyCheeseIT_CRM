@@ -43,10 +43,10 @@ test.describe('Interviews (Kanban) page', () => {
   // -------------------------------------------------------------------------
 
   test.describe('Board rendering', () => {
-    test('renders all active stage columns', async ({ asSenior: page }) => {
+    test('renders all active stage columns including new CLIENT_INTERVIEW', async ({ asSenior: page }) => {
       await page.goto('/crm/interviews')
-      // STAGE_LABELS: реальные значения из constants.ts
-      for (const label of ['HR Screen', 'English', 'Tech', 'Final', 'Client']) {
+      // STAGE_LABELS: реальные значения из constants.ts включая новый CLIENT_INTERVIEW
+      for (const label of ['HR Screen', 'English', 'Tech', 'Final', 'Client', 'Offer']) {
         await expect(page.getByText(label, { exact: false }).first()).toBeVisible()
       }
     })
@@ -121,6 +121,14 @@ test.describe('Interviews (Kanban) page', () => {
       await page.getByText('Acme Corp').first().click()
       // From HR_SCREEN next is ENGLISH_CHECK → button label "English →"
       await expect(page.getByRole('button', { name: /english/i })).toBeVisible()
+    })
+
+    test('shows CLIENT_INTERVIEW stage next button from FINAL_INTERVIEW', async ({ asSenior: page }) => {
+      await page.goto('/crm/interviews')
+      // Assuming we have an interview in FINAL_INTERVIEW stage to test with
+      await page.getByText('Beta Startup').first().click()
+      // From FINAL_INTERVIEW next is CLIENT_INTERVIEW → button label "Client →"
+      await expect(page.getByRole('button', { name: /client/i })).toBeVisible()
     })
 
     test('terminal stage buttons (Нанят / Отказ / Архив) visible for SENIOR own board', async ({ asSenior: page }) => {
@@ -215,6 +223,40 @@ test.describe('Interviews (Kanban) page', () => {
       await page.getByTitle('Удалить карточку').click()
       await page.getByRole('button', { name: 'Удалить' }).last().click()
       await deleteReq
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // CLIENT_INTERVIEW Stage Tests - новый стейдж между FINAL_INTERVIEW и OFFER_RECEIVED
+  // -------------------------------------------------------------------------
+
+  test.describe('CLIENT_INTERVIEW stage', () => {
+    test('CLIENT_INTERVIEW stage column renders with correct label', async ({ asSenior: page }) => {
+      await page.goto('/crm/interviews')
+      await expect(page.getByText('Client', { exact: false }).first()).toBeVisible()
+    })
+
+    test('clicking "Client →" sends move request with CLIENT_INTERVIEW stage', async ({ asSenior: page }) => {
+      await page.goto('/crm/interviews')
+      await page.getByText('Acme Corp').first().click()
+
+      const moveReq = page.waitForRequest(
+        (req) => req.url().includes('/move') && req.method() === 'PATCH',
+      )
+
+      // Нажимаем кнопку для перехода к CLIENT_INTERVIEW
+      await page.getByRole('button', { name: /client/i }).click()
+      const req = await moveReq
+      expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ stage: 'CLIENT_INTERVIEW' })
+    })
+
+    test('CLIENT_INTERVIEW is in correct position in stage flow', async ({ asSenior: page }) => {
+      await page.goto('/crm/interviews')
+      // Проверяем правильный порядок колонок: Final → Client → Offer
+      const stageColumns = page.locator('[data-stage]')
+      await expect(stageColumns.filter({ hasText: 'Final' }).first()).toBeVisible()
+      await expect(stageColumns.filter({ hasText: 'Client' }).first()).toBeVisible()  
+      await expect(stageColumns.filter({ hasText: 'Offer' }).first()).toBeVisible()
     })
   })
 

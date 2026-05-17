@@ -50,6 +50,13 @@ const TX_VALIDATED_SENIOR: object = {
   validatedAt: '2026-05-02T10:00:00.000Z',
 }
 
+const TX_PENDING_PAYMENT_SENIOR: object = {
+  ...TX_VALIDATED_SENIOR,
+  id: 'tx-pending-payment-senior',
+  status: 'PENDING_PAYMENT',
+  payoutRequestId: 'payout-req-1',
+}
+
 const TX_SALARY_PENDING: object = {
   id: 'tx-salary-pending',
   type: 'SALARY',
@@ -584,5 +591,47 @@ test.describe('Finance — RBAC', () => {
     await mockTransactions(asSenior, [notMine])
     await asSenior.goto('/crm/finance')
     await expect(asSenior.getByRole('button', { name: /Исправить/i })).not.toBeVisible()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 13. PENDING_PAYMENT STATUS — новый статус после валидации
+// ═══════════════════════════════════════════════════════════════════════════════
+
+test.describe('Finance — PENDING_PAYMENT status', () => {
+  test('ADMIN: отображает статус-бейдж "Ожидает выплаты" на PENDING_PAYMENT транзакции', async ({ asAdmin }) => {
+    await mockTransactions(asAdmin, [TX_PENDING_PAYMENT_SENIOR])
+    await asAdmin.goto('/crm/finance')
+    await expect(asAdmin.getByText('Ожидает выплаты').first()).toBeVisible()
+  })
+
+  test('SENIOR: не видит кнопку Выплатить при наличии только PENDING_PAYMENT транзакций', async ({ asSenior }) => {
+    const myPendingPayment = { ...TX_PENDING_PAYMENT_SENIOR, senderId: USERS.senior.id }
+    await mockTransactions(asSenior, [myPendingPayment])
+    await asSenior.goto('/crm/finance')
+    await expect(asSenior.getByRole('button', { name: /Выплатить/i })).not.toBeVisible()
+  })
+
+  test('SENIOR: видит кнопку Выплатить только при наличии VALIDATED (не PENDING_PAYMENT) транзакций', async ({ asSenior }) => {
+    const myValidated = { ...TX_VALIDATED_SENIOR, senderId: USERS.senior.id }
+    const myPendingPayment = { ...TX_PENDING_PAYMENT_SENIOR, senderId: USERS.senior.id }
+    await mockTransactions(asSenior, [myValidated, myPendingPayment])
+    await asSenior.goto('/crm/finance')
+    await expect(asSenior.getByRole('button', { name: /Выплатить/i })).toBeVisible()
+  })
+
+  test('ACCOUNTANT: видит PENDING_PAYMENT статус без кнопок действий', async ({ page }) => {
+    await mockAuthAs(page, USERS.accountant)
+    await mockTransactions(page, [TX_PENDING_PAYMENT_SENIOR])
+    await page.goto('/crm/finance')
+    await expect(page.getByText('Ожидает выплаты').first()).toBeVisible()
+    // Нет кнопки "Проверить" для PENDING_PAYMENT статуса
+    await expect(page.getByRole('button', { name: /Проверить/i })).not.toBeVisible()
+  })
+
+  test('ADMIN: может редактировать PENDING_PAYMENT транзакцию', async ({ asAdmin }) => {
+    await mockTransactions(asAdmin, [TX_PENDING_PAYMENT_SENIOR])
+    await asAdmin.goto('/crm/finance')
+    await expect(asAdmin.getByTitle('Редактировать').first()).toBeVisible()
   })
 })
