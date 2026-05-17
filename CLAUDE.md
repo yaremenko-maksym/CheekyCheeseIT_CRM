@@ -384,8 +384,10 @@ legends: id, userId, fullName, birthDate, address, hobbies, notes(json), created
 
 ## Активный контекст
 - PHASE 1–5 полностью реализованы и работают
+- PHASE 7 (partial): Профили работают, страница Команды исправлена (роутинг team/index.tsx + $teamId.tsx, реальный счётчик активных проектов, убран блок подсчёта по ролям)
 - Finance модуль: transactions, expenses, invoices, payouts, juniorPayments, NBU exchange rates, PDF invoice generation, etherscan integration
 - Миграции: 0000–0011 применены (включая finance, partner_ledger, exchange_rate, project_logo)
+- CI/CD: ai-review.yml (AutoTest → Reviewer → Merge), coder.yml, devops.yml, ba-escalation.yml — все workflows рабочие
 - Следующий шаг: **PHASE 6** — База знаний + Документы
 
 ---

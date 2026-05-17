@@ -48,15 +48,27 @@ docs/
 ## Текущий статус фаз
 
 - ✅ PHASE 1: Layout (Sidebar + Header)
-- ✅ PHASE 2: Команды
+- ✅ PHASE 2: Команды (включая страницу детали команды с реальным счётчиком проектов)
 - ✅ PHASE 3: Проекты
 - ✅ PHASE 4: Интервью (Kanban)
 - ✅ PHASE 5: Финансы (мониторинг)
 - ✅ PHASE 7 (partial): Профили
-- ⬜ PHASE 6: База знаний + Документы
+- ⬜ PHASE 6: База знаний + Документы ← **СЛЕДУЮЩАЯ**
 - ⬜ PHASE 7 (full): Профиль
 - ⬜ PHASE 8: Смарт-контракти (USDT ERC-20)
 - ⬜ PHASE 9: Дашборд
+
+## CI/CD Pipeline (актуальный)
+
+```
+BA пишет docs/specs/active-task.md
+  → gh workflow run coder.yml          # Coder реализует, открывает PR
+  → gh workflow run ai-review.yml \
+      -f pr_number=N                   # AutoTest → Reviewer → Merge
+  → BA проверяет результат → обновляет CLAUDE.md
+```
+
+Workflows: `coder.yml` | `devops.yml` | `ai-review.yml` | `autotest.yml` | `ba-escalation.yml`
 
 ## Ключевые бизнес-ограничения
 
