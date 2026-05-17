@@ -44,8 +44,23 @@ jobs:
       review_state: ${{ steps.check_approved.outputs.review_state }}
 
     steps:
+      - name: Get PR head SHA
+        id: pr_head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "${{ github.event.pull_request.head.sha }}" ]; then
+            echo "sha=${{ github.event.pull_request.head.sha }}" >> $GITHUB_OUTPUT
+          else
+            SHA=$(gh pr view "${{ inputs.pr_number }}" \
+              --repo ${{ github.repository }} \
+              --json headRefSha --jq '.headRefSha')
+            echo "sha=${SHA}" >> $GITHUB_OUTPUT
+          fi
+
       - uses: actions/checkout@v4
         with:
+          ref: ${{ steps.pr_head.outputs.sha }}
           fetch-depth: 0  # full history for diff context
 
       - name: Dismiss stale CHANGES_REQUESTED reviews
