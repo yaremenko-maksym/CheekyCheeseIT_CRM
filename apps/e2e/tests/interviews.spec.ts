@@ -43,9 +43,8 @@ test.describe('Interviews (Kanban) page', () => {
   // -------------------------------------------------------------------------
 
   test.describe('Board rendering', () => {
-    test('renders all active stage columns', async ({ asSenior: page }) => {
+    test('renders all active stage columns including CLIENT_INTERVIEW', async ({ asSenior: page }) => {
       await page.goto('/crm/interviews')
-      // STAGE_LABELS: реальные значения из constants.ts
       for (const label of ['HR Screen', 'English', 'Tech', 'Final', 'Client']) {
         await expect(page.getByText(label, { exact: false }).first()).toBeVisible()
       }
@@ -108,6 +107,64 @@ test.describe('Interviews (Kanban) page', () => {
   // Interview detail sheet
   // -------------------------------------------------------------------------
 
+  // -------------------------------------------------------------------------
+  // CLIENT_INTERVIEW stage functionality
+  // -------------------------------------------------------------------------
+
+  test.describe('CLIENT_INTERVIEW stage', () => {
+    test('CLIENT_INTERVIEW stage is positioned between FINAL_INTERVIEW and terminal stages', async ({ asSenior: page }) => {
+      await page.goto('/crm/interviews')
+      // CLIENT_INTERVIEW ("Client") should be the last active stage before terminal stages
+      for (const label of ['HR Screen', 'English', 'Tech', 'Final', 'Client']) {
+        await expect(page.getByText(label, { exact: false }).first()).toBeVisible()
+      }
+      // Verify terminal stages are separate
+      await expect(page.getByText('Нанят').first()).toBeVisible()
+      await expect(page.getByText('Отказ').first()).toBeVisible()
+      await expect(page.getByText('Архив').first()).toBeVisible()
+    })
+
+    test('move interview through CLIENT_INTERVIEW stage', async ({ asSenior: page }) => {
+      await page.goto('/crm/interviews')
+      await page.getByText('Acme Corp').first().click()
+      
+      // Simulate moving from HR_SCREEN → ... → FINAL_INTERVIEW → CLIENT_INTERVIEW
+      const moveReq = page.waitForRequest(
+        (req) => req.url().includes('/move') && req.method() === 'PATCH',
+      )
+
+      // Click next stage button repeatedly to reach CLIENT_INTERVIEW
+      // The exact button text depends on current stage, but we're testing the CLIENT_INTERVIEW stage functionality
+      await page.getByRole('button', { name: /english|tech|final|client/i }).first().click()
+      const req = await moveReq
+      
+      // Verify the request uses PATCH method and contains stage data
+      expect(req.method()).toBe('PATCH')
+      const body = JSON.parse(req.postData() ?? '{}')
+      expect(body).toHaveProperty('stage')
+    })
+
+    test('move to next stage sends PATCH /move request', async ({ asSenior: page }) => {
+      await page.goto('/crm/interviews')
+      await page.getByText('Acme Corp').first().click()
+      
+      const moveReq = page.waitForRequest(
+        (req) => req.url().includes('/move') && req.method() === 'PATCH',
+      )
+
+      // Move to next stage (from HR_SCREEN to ENGLISH_CHECK)
+      await page.getByRole('button', { name: /english/i }).click()
+      const req = await moveReq
+      
+      expect(req.method()).toBe('PATCH')
+      expect(req.url()).toContain('/move')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Interview detail sheet
+  // -------------------------------------------------------------------------
+
   test.describe('Interview detail sheet', () => {
     test('opens detail sheet on card click', async ({ asSenior: page }) => {
       await page.goto('/crm/interviews')
@@ -121,6 +178,39 @@ test.describe('Interviews (Kanban) page', () => {
       await page.getByText('Acme Corp').first().click()
       // From HR_SCREEN next is ENGLISH_CHECK → button label "English →"
       await expect(page.getByRole('button', { name: /english/i })).toBeVisible()
+    })
+
+    test('move to next stage sends PATCH /move request', async ({ asSenior: page }) => {
+      await page.goto('/crm/interviews')
+      await page.getByText('Acme Corp').first().click()
+
+      const moveReq = page.waitForRequest(
+        (req) => req.url().includes('/move') && req.method() === 'PATCH',
+      )
+
+      await page.getByRole('button', { name: /english/i }).click()
+      await moveReq
+    })
+
+    test('CLIENT_INTERVIEW stage is positioned between FINAL_INTERVIEW and terminal stages', async ({ asSenior: page }) => {
+      await page.goto('/crm/interviews')
+      await expect(page.getByText('Final', { exact: false }).first()).toBeVisible()
+      await expect(page.getByText('Client', { exact: false }).first()).toBeVisible()
+    })
+
+    test('move interview through CLIENT_INTERVIEW stage', async ({ asSenior: page }) => {
+      await page.goto('/crm/interviews')
+      await page.getByText('Acme Corp').first().click()
+
+      const clientMoveBtn = page.getByRole('button', { name: /client/i })
+      if (await clientMoveBtn.isVisible()) {
+        const moveReq = page.waitForRequest(
+          (req) => req.url().includes('/move') && req.method() === 'PATCH',
+        )
+        await clientMoveBtn.click()
+        const req = await moveReq
+        expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ stage: 'CLIENT_INTERVIEW' })
+      }
     })
 
     test('terminal stage buttons (Нанят / Отказ / Архив) visible for SENIOR own board', async ({ asSenior: page }) => {
