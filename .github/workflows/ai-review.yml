@@ -13,7 +13,9 @@ on:
         type: number
 
 concurrency:
-  group: ai-review-${{ github.event.pull_request.number || inputs.pr_number }}
+  # Separate groups for workflow_dispatch vs pull_request so a branch-sync push
+  # cannot cancel an actively-running manual trigger (and vice-versa).
+  group: ai-review-${{ github.event.pull_request.number || inputs.pr_number }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -354,3 +356,33 @@ jobs:
             mcp__github__get_pull_request_files
             mcp__github__create_pull_request_review
             mcp__github__add_issue_comment
+
+  # ─────────────────────────────────────────────
+  # Job 4: Merge PR
+  # Runs ONLY after Reviewer (+ QA if triggered) + AutoTest all approve.
+  # Squash-merges the PR so test files written by AutoTest are included.
+  # ─────────────────────────────────────────────
+  merge:
+    name: Merge PR
+    runs-on: ubuntu-latest
+    needs: [reviewer, qa, autotest]
+    if: |
+      always() &&
+      needs.reviewer.outputs.approved == 'true' &&
+      (needs.qa.result == 'skipped' || needs.qa.outputs.approved == 'true') &&
+      needs.autotest.result == 'success' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'ai-review-ready')
+      )
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Merge PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
+          gh pr merge "$PR" --squash --repo ${{ github.repository }}
