@@ -20,6 +20,7 @@ jobs:
   # ─────────────────────────────────────────────
   # Job 1: Code Review (no infrastructure needed)
   # Fast: ~4-6 min. No services, no build.
+  # Decides whether QA testing is needed via qa-task.md artifact.
   # ─────────────────────────────────────────────
   reviewer:
     name: Code Review
@@ -34,6 +35,9 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write   # required for claude_code_oauth_token OIDC auth
+
+    outputs:
+      needs_qa: ${{ steps.check_qa.outputs.needs_qa }}
 
     steps:
       - uses: actions/checkout@v4
@@ -53,10 +57,14 @@ jobs:
             Проверь изменения этого PR по чек-листу из docs/agents/reviewer.md.
             Создай GitHub PR Review (APPROVE или REQUEST_CHANGES) через GitHub MCP.
 
+            Затем выполни Шаг 5 из docs/agents/reviewer.md:
+            реши нужно ли QA-тестирование и если да — создай файл qa-task.md.
+
             PR: ${{ github.event.pull_request.number || inputs.pr_number }}
             Repo: ${{ github.repository }}
           allowed_tools: |
             Read
+            Write
             mcp__ast-grep__find_code
             mcp__ast-grep__find_code_by_rule
             mcp__github__get_pull_request
@@ -66,10 +74,30 @@ jobs:
             mcp__context7__resolve-library-id
             mcp__context7__query-docs
 
+      - name: Check if QA needed
+        id: check_qa
+        if: always()
+        run: |
+          if [ -f qa-task.md ]; then
+            echo "needs_qa=true" >> $GITHUB_OUTPUT
+            echo "QA task found — QA Manual Test will run"
+            cat qa-task.md
+          else
+            echo "needs_qa=false" >> $GITHUB_OUTPUT
+            echo "No QA task — skipping QA Manual Test"
+          fi
+
+      - name: Upload QA task artifact
+        if: steps.check_qa.outputs.needs_qa == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-task-${{ github.event.pull_request.number || inputs.pr_number }}
+          path: qa-task.md
+          retention-days: 1
+
   # ─────────────────────────────────────────────
   # Job 2: QA Manual Test (full infrastructure)
-  # Runs after reviewer. Separate job so it can
-  # run in parallel with reviewer on re-runs.
+  # Runs ONLY if reviewer created qa-task.md.
   # ~12-18 min (dominated by app startup + AI).
   # ─────────────────────────────────────────────
   qa:
@@ -78,6 +106,7 @@ jobs:
     needs: reviewer
     if: |
       always() &&
+      needs.reviewer.outputs.needs_qa == 'true' &&
       github.event.pull_request.draft == false &&
       (
         github.event_name == 'workflow_dispatch' ||
@@ -179,6 +208,11 @@ jobs:
         if: steps.pw-cache.outputs.cache-hit == 'true'
         run: pnpm --filter @crm/e2e exec playwright install-deps chromium
 
+      - name: Download QA task from reviewer
+        uses: actions/download-artifact@v4
+        with:
+          name: qa-task-${{ github.event.pull_request.number || inputs.pr_number }}
+
       - name: Claude QA Manual Test
         uses: anthropics/claude-code-action@beta
         with:
@@ -187,14 +221,14 @@ jobs:
             Ты — QA Manual Tester для CRM Cheeky Cheese IT.
 
             Прочитай docs/agents/qa.md — это твой полный системный промпт.
-            Также прочитай docs/business/user-flows.md и docs/specs/active-task.md.
+            Прочитай qa-task.md — это задача от Reviewer агента с конкретными флоу для тестирования.
 
             Приложение запущено:
             - Web: http://localhost:3000
             - API: http://localhost:3001/api
             - БД: PostgreSQL + seed данные
 
-            Протестируй изменения PR согласно промпту в docs/agents/qa.md.
+            Тестируй ТОЛЬКО то, что указано в qa-task.md.
             Используй Playwright MCP для браузерной автоматизации.
             Создай PR Review (APPROVE или REQUEST_CHANGES) через GitHub MCP.
 
