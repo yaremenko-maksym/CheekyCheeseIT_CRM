@@ -156,7 +156,7 @@ export function TransactionRow({
   const canValidate = (isAdmin || isAccountant) && tx.type === 'SENIOR_INCOME' && tx.status === 'PENDING'
   const canEdit = isSenior && tx.type === 'SENIOR_INCOME' && tx.status === 'REJECTED'
   const canPaySalary = isAdmin && tx.type === 'SALARY' && tx.status === 'PENDING'
-  const canAdminEdit = isAdmin && tx.type !== 'PAYOUT' && tx.type !== 'PAYOUT_ADMIN' && !tx.payoutRequestId
+  const canAdminEdit = isAdmin && tx.type !== 'PAYOUT' && tx.type !== 'PAYOUT_ADMIN' && (tx.status === 'PENDING_PAYMENT' || !tx.payoutRequestId)
   const canAdminDelete = canAdminEdit
 
   return (

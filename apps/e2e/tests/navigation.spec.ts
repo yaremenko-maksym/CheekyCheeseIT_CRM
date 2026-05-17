@@ -158,11 +158,21 @@ test.describe('JUNIOR sidebar navigation', () => {
       await page.waitForLoadState('networkidle')
 
       await page.click(`a[href="${route.href}"]`)
-      await page.waitForURL(`**${route.href}**`, { timeout: 8_000 })
-      await page.waitForLoadState('networkidle')
-
-      await assertStayedInCrm(page, route.href)
-      await expect(page.locator('h1').filter({ hasText: route.heading }).first()).toBeVisible({ timeout: 10_000 })
+      
+      // Handle team redirect for JUNIOR users
+      if (route.href === '/crm/team') {
+        // JUNIOR gets redirected to /crm/team/:id, so wait for that
+        await page.waitForURL('**/crm/team/**', { timeout: 8_000 })
+        await page.waitForLoadState('networkidle')
+        await assertStayedInCrm(page, route.href)
+        // Heading will be the team name, just ensure we're still in team area and not logged out
+        await expect(page.getByRole('heading')).toBeVisible({ timeout: 10_000 })
+      } else {
+        await page.waitForURL(`**${route.href}**`, { timeout: 8_000 })
+        await page.waitForLoadState('networkidle')
+        await assertStayedInCrm(page, route.href)
+        await expect(page.locator('h1').filter({ hasText: route.heading }).first()).toBeVisible({ timeout: 10_000 })
+      }
     })
   }
 

@@ -11,7 +11,6 @@ import type { AdminUpdateUserDto, CreateUserDto, ProjectDto, UserProfileDto } fr
 import { adminUpdateUserSchema, createUserSchema, updateProfileSchema } from '@crm/shared'
 import type { AxiosError } from 'axios'
 import { useAuth } from '@/context/auth'
-import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -1026,9 +1025,25 @@ function DeleteUserDialog({
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 function UsersPage() {
-  const { denied } = useRoleGuard(['ADMIN'])
   const { user: me } = useAuth()
-  if (denied) return null
+  
+  // Handle access control manually to show proper denied message
+  if (!me) return null
+  
+  const hasAccess = me.role === 'ADMIN' || me.role === 'HR'
+  
+  if (!hasAccess) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Пользователи</h1>
+        </div>
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
+          <p className="text-sm font-medium text-muted-foreground">Доступ только для администратора</p>
+        </div>
+      </div>
+    )
+  }
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<Role | 'ALL'>('ALL')
   const [sortKey, setSortKey] = useState<SortKey>('displayName')

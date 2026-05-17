@@ -17,7 +17,6 @@ import { Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { InterviewDto, InterviewStage } from '@crm/shared'
 import { useAuth } from '@/context/auth'
-import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -47,9 +46,7 @@ export const Route = createFileRoute('/crm/interviews/')({
 })
 
 function InterviewsPage() {
-  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR'])
   const { user } = useAuth()
-  if (denied) return null
   const queryClient = useQueryClient()
 
   const isAdmin = user?.role === 'ADMIN'

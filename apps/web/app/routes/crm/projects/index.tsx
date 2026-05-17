@@ -111,7 +111,7 @@ function ProjectsPage() {
   const navigate = useNavigate()
 
   const canManage = user?.role === 'ADMIN' || user?.role === 'HR'
-  const canCreate = user?.role === 'ADMIN'
+  const canCreate = user?.role === 'ADMIN' || user?.role === 'HR'
   const isAdmin = user?.role === 'ADMIN'
 
   const [filter, setFilter] = useState<Filter>('ALL')
