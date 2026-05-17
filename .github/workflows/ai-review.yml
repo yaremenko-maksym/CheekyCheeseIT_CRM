@@ -4,7 +4,7 @@ name: AI Review
 # Controls cost: we pay for AI only when the author signals the code is ready.
 on:
   pull_request:
-    types: [ready_for_review, labeled]
+    types: [ready_for_review]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -329,15 +329,27 @@ AI Review не запущен. Сначала исправьте E2E — PR с �
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get review body
+      - name: Verify actual CHANGES_REQUESTED review exists
         id: review
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           PR="${{ github.event.pull_request.number || inputs.pr_number }}"
-          REVIEW_BODY=$(gh api repos/${{ github.repository }}/pulls/$PR/reviews \
-            --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | last | .body // "No review body found"')
           echo "pr=$PR" >> $GITHUB_OUTPUT
+
+          # Count real CHANGES_REQUESTED reviews — if 0, Claude didn't actually run
+          COUNT=$(gh api "repos/${{ github.repository }}/pulls/${PR}/reviews" \
+            --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | length')
+
+          if [ "$COUNT" = "0" ]; then
+            echo "No CHANGES_REQUESTED review found — Claude did not run (skipped trigger). Aborting Coder trigger."
+            echo "has_review=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          REVIEW_BODY=$(gh api "repos/${{ github.repository }}/pulls/${PR}/reviews" \
+            --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | last | .body')
+          echo "has_review=true" >> $GITHUB_OUTPUT
           {
             echo "body<<REVIEW_EOF"
             echo "$REVIEW_BODY"
@@ -345,6 +357,7 @@ AI Review не запущен. Сначала исправьте E2E — PR с �
           } >> $GITHUB_OUTPUT
 
       - name: Write active-task.md
+        if: steps.review.outputs.has_review == 'true'
         run: |
           PR="${{ steps.review.outputs.pr }}"
           BRANCH=$(gh pr view "$PR" --repo ${{ github.repository }} --json headRefName --jq '.headRefName')
@@ -371,6 +384,7 @@ AI Review не запущен. Сначала исправьте E2E — PR с �
           GH_TOKEN: ${{ github.token }}
 
       - name: Trigger Coder
+        if: steps.review.outputs.has_review == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
