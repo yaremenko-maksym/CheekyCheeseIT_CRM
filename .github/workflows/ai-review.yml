@@ -54,7 +54,7 @@ jobs:
           else
             SHA=$(gh pr view "${{ inputs.pr_number }}" \
               --repo ${{ github.repository }} \
-              --json headRefSha --jq '.headRefSha')
+              --json headRefOid --jq '.headRefOid')
             echo "sha=${SHA}" >> $GITHUB_OUTPUT
           fi
 
