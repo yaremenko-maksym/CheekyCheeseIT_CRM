@@ -148,7 +148,7 @@ test.describe('Projects page', () => {
         (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
       )
 
-      await page.getByRole('button', { name: 'Завершить проект' }).click()
+      await page.getByRole('button', { name: /завершить/i }).first().click()
       // Confirm in dialog
       await page.getByRole('button', { name: 'Завершить' }).last().click()
       const req = await patchReq
@@ -270,12 +270,11 @@ test.describe('Projects page', () => {
 
       const dialog = page.getByRole('dialog')
       
-      // Check for new metadata fields from PR #8
+      // Check for new metadata fields from PR #8 (only fields that actually exist in create dialog)
       await expect(dialog.getByPlaceholder(/стек технологий/i).or(dialog.getByLabel(/технологии/i))).toBeVisible()
       await expect(dialog.getByPlaceholder(/размер команды/i).or(dialog.getByLabel(/команда/i))).toBeVisible()
       await expect(dialog.getByPlaceholder(/benefi|льгот/i).or(dialog.getByLabel(/benefi|льгот/i))).toBeVisible()
-      await expect(dialog.getByPlaceholder(/тип оплаты/i).or(dialog.getByLabel(/оплат/i))).toBeVisible()
-      await expect(dialog.getByPlaceholder(/пересмотр зп/i).or(dialog.getByLabel(/зарплат/i))).toBeVisible()
+      // Note: paymentType and salaryReview are interview fields, not project fields
     })
 
     test('create project with all metadata fields filled', async ({ asAdmin: page }) => {

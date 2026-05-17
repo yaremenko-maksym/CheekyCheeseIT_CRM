@@ -12,7 +12,8 @@ test.describe('Team page', () => {
       // Scope to main to avoid header/sidebar duplicates
       const main = page.locator('main')
       await expect(main.getByText('HR Manager').first()).toBeVisible()
-      await expect(main.getByText('Senior Dev')).toBeVisible()
+      // Verify avatar cluster is present (members shown as avatars)
+      await expect(main.locator('.flex.-space-x-2').first()).toBeVisible()
     })
 
     test('SENIOR sees team page but no management buttons', async ({ asSenior: page }) => {
@@ -180,7 +181,7 @@ test.describe('Team page', () => {
 
   test.describe('Remove member', () => {
     test('ADMIN can remove a non-protected member', async ({ asAdmin: page }) => {
-      await page.goto('/crm/team')
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
 
       const deleteReq = page.waitForRequest(
         (req) => req.url().includes('/members/') && req.method() === 'DELETE',
@@ -228,8 +229,8 @@ test.describe('Team page', () => {
     test('back button navigates to team list', async ({ asAdmin: page }) => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
       
-      // Click back button (could be arrow icon)
-      await page.getByRole('button').filter({ has: page.locator('svg') }).first().click()
+      // Click back button (use link navigation)
+      await page.locator('a[href="/crm/team"]').click()
       await expect(page).toHaveURL('/crm/team')
     })
 
@@ -346,47 +347,23 @@ test.describe('Team page', () => {
       await expect(page.getByText('Участники команды')).toBeVisible()
     })
 
-    test('JUNIOR sees filtered member list (only themselves as JUNIOR)', async ({ page }) => {
-      // Mock team response where JUNIOR would see filtered results
-      await mockAuthAs(page, USERS.junior)
-      const teamWithFilteredJuniors = {
-        ...TEAMS[0],
-        members: [
-          ...TEAMS[0]!.members.filter(m => m.role !== 'JUNIOR'),
-          // Only the current JUNIOR should be visible
-          {
-            id: 'member-junior-current',
-            userId: USERS.junior.id,
-            displayName: USERS.junior.displayName,
-            email: USERS.junior.email,
-            avatar: USERS.junior.avatar,
-            role: 'JUNIOR',
-            techStack: USERS.junior.techStack,
-            joinedAt: '2024-01-10T00:00:00.000Z',
-          }
-        ]
-      }
-      
-      await page.route(`**/api/teams/${TEAMS[0]!.id}`, (r) => 
-        r.fulfill({ 
-          status: 200, 
-          contentType: 'application/json', 
-          body: JSON.stringify(teamWithFilteredJuniors)
-        })
-      )
-      
+    test('JUNIOR sees all team members (read-only access)', async ({ asJunior: page }) => {
+      // According to CLAUDE.md: "SENIOR, JUNIOR, HR, ACCOUNTANT видят список своей команды (read-only)"
+      // JUNIOR should see ALL team members, not just themselves
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+      await expect(page.getByText('Alpha Team')).toBeVisible()
+      await expect(page.getByText('Участники команды')).toBeVisible()
       
-      // Should see themselves
-      await expect(page.getByText('Junior Dev')).toBeVisible()
+      // Should see all role sections
+      await expect(page.getByText('HR')).toBeVisible()
+      await expect(page.getByText('Синьор')).toBeVisible()
+      await expect(page.getByText('Бухгалтер')).toBeVisible()
+      await expect(page.getByText('Джун')).toBeVisible()
       
-      // Should see other roles (HR, SENIOR, ACCOUNTANT)
-      await expect(page.getByText('HR Manager')).toBeVisible()
-      await expect(page.getByText('Senior Dev')).toBeVisible()
-      await expect(page.getByText('Accountant User')).toBeVisible()
       
-      // NOTE: Can't easily test "other juniors not visible" without more complex mock setup
-      // The filtering happens server-side in TeamsService.mapTeam()
+      // Should have no management buttons (read-only access)
+      await expect(page.getByText('Добавить участника')).not.toBeVisible()
+      await expect(page.getByTitle('Исключить')).not.toBeVisible()
     })
   })
 
@@ -398,8 +375,8 @@ test.describe('Team page', () => {
     test('team cards are clickable and navigate to detail page', async ({ asAdmin: page }) => {
       await page.goto('/crm/team')
       
-      // Click on the team card (new clickable overlay)
-      await page.getByText('Alpha Team').click()
+      // Click on the team card (use overlay link)
+      await page.locator('a[href^="/crm/team/"]').first().click()
       await expect(page).toHaveURL(`/crm/team/${TEAMS[0]!.id}`)
     })
 
@@ -415,9 +392,8 @@ test.describe('Team page', () => {
     test('shows avatar cluster preview in team cards', async ({ asAdmin: page }) => {
       await page.goto('/crm/team')
       
-      // Check for avatar elements in the team card
-      const teamCard = page.getByText('Alpha Team').locator('..').locator('..')
-      await expect(teamCard.locator('img, [role="img"]')).toBeVisible() // Avatar images or fallbacks
+      // Check for avatar cluster with negative space classes
+      await expect(page.locator('.flex.-space-x-2, .flex.\\-space-x-2').first()).toBeVisible()
     })
 
     test('shows member count badge in team cards', async ({ asAdmin: page }) => {

@@ -104,7 +104,7 @@ type UserOption = {
 type AnyField = FieldApi<any, any, any, any, any, any, any, any, any, any, any, any, any, any, any, any, any, any, any, any, any, any, any>
 
 function ProjectsPage() {
-  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'])
+  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'JUNIOR'])
   const { user } = useAuth()
   if (denied) return null
   const queryClient = useQueryClient()

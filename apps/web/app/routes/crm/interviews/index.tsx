@@ -52,7 +52,7 @@ function InterviewsPage() {
   const isAdmin = user?.role === 'ADMIN'
   const isHR = user?.role === 'HR'
   const isSenior = user?.role === 'SENIOR'
-  const canCreate = isAdmin || isHR
+  const canCreate = isAdmin || isHR || isSenior
   const isJunior = user?.role === 'JUNIOR'
 
   const search = useSearch({ from: '/crm/interviews/' })

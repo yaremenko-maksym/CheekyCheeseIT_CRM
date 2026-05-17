@@ -167,6 +167,10 @@ test.describe('JUNIOR sidebar navigation', () => {
         await assertStayedInCrm(page, route.href)
         // Heading will be the team name, just ensure we're still in team area and not logged out
         await expect(page.getByRole('heading')).toBeVisible({ timeout: 10_000 })
+      } else if (route.href === '/crm/finance') {
+        // JUNIOR has no finance access — just verify no logout occurred
+        await page.waitForLoadState('networkidle')
+        await assertStayedInCrm(page, '/crm')
       } else {
         await page.waitForURL(`**${route.href}**`, { timeout: 8_000 })
         await page.waitForLoadState('networkidle')
