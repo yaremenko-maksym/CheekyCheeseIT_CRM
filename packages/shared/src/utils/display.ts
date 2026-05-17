@@ -47,3 +47,4 @@ export function formatAmount(amount: number, currency: string): string {
   // Prefix for fiat symbols, suffix for crypto codes
   return symbol.length <= 1 ? `${symbol}${formatted}` : `${formatted} ${symbol}`
 }
+// AI Review pipeline verification — Sun May 17 10:08:04 EEST 2026
