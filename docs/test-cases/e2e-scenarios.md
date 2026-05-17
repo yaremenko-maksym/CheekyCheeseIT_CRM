@@ -28,9 +28,9 @@
 - [ ] Button move: переместить через кнопку в диалоге (PATCH method)
 - [ ] SENIOR: видит только свою доску
 - [ ] HR: переключение между досками синьоров (`?seniorId=`)
-- [x] CLIENT_INTERVIEW стейдж: позиция между FINAL_INTERVIEW и OFFER_RECEIVED
+- [x] CLIENT_INTERVIEW стейдж: последний активный стейдж после FINAL_INTERVIEW
 - [x] CLIENT_INTERVIEW стейдж: перемещение карточки в Client колонку
-- [x] Все активные стейджи отображаются: HR Screen, English, Tech, Final, Client, Offer Received
+- [x] Все активные стейджи отображаются: HR Screen, English, Tech, Final, Client
 
 ### Finance
 - [ ] SENIOR: добавить транзакцию
