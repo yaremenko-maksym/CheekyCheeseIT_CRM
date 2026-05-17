@@ -1,68 +1,83 @@
-name: AutoTest
+name: AutoTest (Docs → Tests)
 
+# Triggers when business docs change on main (after BA merges updates)
+# or manually to target a specific module.
 on:
   push:
     paths:
       - 'docs/business/**'
-    branches-ignore:
-      - main  # only from feature branches (via PR merge triggers docs changes)
+    branches:
+      - main
   workflow_dispatch:
+    inputs:
+      module:
+        description: 'Module to update tests for (e.g. finance, team, interviews) — empty = full scan'
+        required: false
+        type: string
 
 concurrency:
-  group: autotest-${{ github.ref }}
+  group: autotest-docs-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   generate-tests:
-    name: Generate/Update Tests
+    name: Generate/Update Tests from Docs
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
+      id-token: write   # required for claude_code_oauth_token OIDC auth
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 7.32.4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-
-      - uses: actions/cache@v4
-        with:
-          path: .turbo
-          key: turbo-${{ runner.os }}-${{ github.sha }}
-          restore-keys: turbo-${{ runner.os }}-
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: Get changed business docs
+      - name: Resolve changed docs
         id: changed
         run: |
-          CHANGED=$(git diff HEAD~1 --name-only -- docs/business/ | tr '\n' ' ')
-          echo "files=$CHANGED" >> $GITHUB_OUTPUT
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ -n "${{ inputs.module }}" ]; then
+              echo "files=docs/business/modules/${{ inputs.module }}.md" >> $GITHUB_OUTPUT
+              echo "hint=${{ inputs.module }}" >> $GITHUB_OUTPUT
+            else
+              echo "files=docs/business/" >> $GITHUB_OUTPUT
+              echo "hint=full-scan" >> $GITHUB_OUTPUT
+            fi
+          else
+            CHANGED=$(git diff HEAD~1 --name-only -- docs/business/ | tr '\n' ' ')
+            echo "files=$CHANGED" >> $GITHUB_OUTPUT
+            # derive hint from first changed file name for branch naming
+            FIRST=$(git diff HEAD~1 --name-only -- docs/business/ | head -1 | xargs basename -s .md)
+            echo "hint=${FIRST:-docs-update}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure git
+        run: |
+          git config user.email "autotest-agent@github-actions"
+          git config user.name "AutoTest Agent"
 
       - name: Claude AutoTest Agent
         uses: anthropics/claude-code-action@beta
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: |
+          direct_prompt: |
             Ты — AutoTest-агент для CRM Cheeky Cheese IT.
 
             Прочитай docs/agents/autotest.md — это твой полный системный промпт.
+            Работай в РЕЖИМЕ 2: docs/business/** Push.
 
             Изменились следующие бизнес-документы:
             ${{ steps.changed.outputs.files }}
 
-            Сгенерируй или обнови тесты согласно промпту в docs/agents/autotest.md.
-            Создай PR с изменёнными тестами.
+            Выполни шаги 1–5 из РЕЖИМА 2:
+            1. Понять что изменилось (git diff HEAD~1 -- docs/business/)
+            2. Прочитать существующие тесты для затронутых модулей
+            3. Написать/обновить тесты для новых user flows
+            4. Обновить docs/test-cases/e2e-scenarios.md
+            5. Создать ветку test/update-<hint>-$(date +%Y%m%d), закоммитить, открыть PR
 
+            hint для ветки: ${{ steps.changed.outputs.hint }}
             Repo: ${{ github.repository }}
           allowed_tools: |
             Read
@@ -70,6 +85,8 @@ jobs:
             Edit
             Bash
             mcp__ast-grep__find_code
-            mcp__postgres__query
+            mcp__ast-grep__find_code_by_rule
             mcp__github__create_pull_request
             mcp__github__create_branch
+            mcp__github__get_pull_request
+            mcp__github__add_issue_comment
