@@ -1,4 +1,5 @@
 name: CI
+# re-index: force GitHub to register workflow_dispatch trigger
 
 on:
   workflow_dispatch:
