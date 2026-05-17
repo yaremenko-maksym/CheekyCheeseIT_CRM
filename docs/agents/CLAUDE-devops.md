@@ -4,12 +4,12 @@
 
 ```
 .github/workflows/
-  ai-review.yml    # PR Review: Reviewer → QA (если нужно) → AutoTest → Merge
+  ai-review.yml    # PR Review: Reviewer → AutoTest → Merge
   autotest.yml     # Docs → Tests: обновляет E2E при изменении docs/business/
   coder.yml        # Реализует задачу из docs/specs/active-task.md
   devops.yml       # Реализует задачу из docs/specs/active-devops-task.md
   ba-escalation.yml # Эскалация от QA к BA
-  ci.yml           # Обычный CI (lint, typecheck, test) — теперь с workflow_dispatch
+  ci.yml           # CI: quality (lint, typecheck, unit) + E2E — теперь с workflow_dispatch
 ```
 
 ## claude-code-action@beta — критичные правила
@@ -43,10 +43,10 @@ concurrency:
 ## ai-review.yml — архитектура jobs (актуально)
 
 ```
-reviewer    → outputs: approved, needs_qa, review_state
-qa          → runs if qa-task.md exists
-autotest    → runs if reviewer + qa approved
-merge       → squash merge if autotest succeeded (NO update-branch — it invalidates CI)
+reviewer      → Check E2E health (блокирует если e2e-broken открыт)
+              → outputs: approved, review_state
+autotest      → runs if reviewer approved
+merge         → squash merge if autotest succeeded (NO update-branch — it invalidates CI)
 trigger_coder → runs if reviewer == CHANGES_REQUESTED or autotest failed
                → пишет active-task.md + gh workflow run coder.yml
 ```
@@ -54,8 +54,21 @@ trigger_coder → runs if reviewer == CHANGES_REQUESTED or autotest failed
 ## Флаги между jobs
 
 - `autotest-approved.flag` — reviewer создаёт при APPROVE → запускает autotest
-- `qa-autotest-approved.flag` — QA создаёт при APPROVE → разрешает autotest
 - Флаги создаются через Write tool в Claude шагах
+
+## E2E на main — правило "красного флага"
+
+**Когда E2E падают на `push` в main:**
+1. `ci.yml notify_e2e` job автоматически создаёт GitHub issue с меткой `e2e-broken`
+2. `ai-review.yml reviewer` job проверяет наличие этого issue — блокирует новые PR review
+3. Coder агент проверяет issue в шаге 0 — не начинает новые задачи
+
+**Разрешено пока E2E сломаны:**
+- PR с фиксом E2E тестов (AI Review не блокирует их — только "новые задачи")
+
+**Восстановление:**
+- После merge PR с фиксом → E2E проходят на main → `notify_e2e` закрывает issue автоматически
+- Команда видит закрытый issue → возобновляет работу
 
 ## Docker (локальная разработка)
 

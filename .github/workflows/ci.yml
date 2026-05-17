@@ -165,3 +165,58 @@ jobs:
         run: |
           echo "=== API LOG ===" && cat /tmp/api.log || true
           echo "=== WEB LOG ===" && cat /tmp/web.log || true
+
+  # When E2E fails on main — open a blocking issue.
+  # When E2E recovers — close it automatically.
+  # Only runs on push to main (not PRs).
+  notify_e2e:
+    name: E2E Health Gate
+    runs-on: ubuntu-latest
+    needs: e2e
+    if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      issues: write
+
+    steps:
+      - name: Open or close e2e-broken issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REPO="${{ github.repository }}"
+          E2E_RESULT="${{ needs.e2e.result }}"
+
+          gh label create "e2e-broken" --repo "$REPO" \
+            --color "d73a4a" --description "E2E failing on main — team on hold" \
+            2>/dev/null || true
+
+          OPEN=$(gh issue list --repo "$REPO" \
+            --label "e2e-broken" --state open \
+            --json number --jq '.[0].number // empty')
+
+          if [ "$E2E_RESULT" = "failure" ] && [ -z "$OPEN" ]; then
+            gh issue create \
+              --repo "$REPO" \
+              --title "🚨 E2E тесты упали на main — команда на паузе" \
+              --label "e2e-broken" \
+              --body "## E2E сломаны на \`main\`
+
+**Commit:** \`${{ github.sha }}\`
+**Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+## Правило
+
+Все текущие задачи ставятся на **паузу**. Coder, Reviewer и AutoTest не принимают новые задачи пока E2E на main не восстановлены.
+
+AI Review автоматически отклоняет новые PR пока этот issue открыт.
+
+## Как исправить
+
+1. Открыть Playwright report в артефактах CI run выше
+2. Найти упавший тест — регрессия в коде или устаревший тест
+3. Исправить в новой ветке → PR (пройдёт AI Review, E2E-блокировка на PR не распространяется — только на _новые_ задачи)
+4. После merge этот issue закроется автоматически"
+
+          elif [ "$E2E_RESULT" = "success" ] && [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --repo "$REPO" \
+              --comment "✅ E2E восстановлены на main (commit \`${{ github.sha }}\`). Команда возобновляет работу."
+          fi
