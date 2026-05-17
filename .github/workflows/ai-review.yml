@@ -250,46 +250,50 @@ AI Review не запущен. Сначала исправьте E2E — PR с �
       pull-requests: write
 
     steps:
-      - name: Ensure CI passed, then merge
+      - name: Ensure CI + E2E passed, then merge
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           PR="${{ github.event.pull_request.number || inputs.pr_number }}"
           REPO="${{ github.repository }}"
 
-          # Get current PR head SHA and branch
           HEAD_SHA=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq '.headRefOid')
           BRANCH=$(gh pr view "$PR" --repo "$REPO" --json headRefName --jq '.headRefName')
 
-          # Check if required CI check already passed for current HEAD
-          check_ci() {
+          check_run() {
+            local NAME="$1"
             gh api "repos/${REPO}/commits/${HEAD_SHA}/check-runs" \
-              --jq '[.check_runs[] | select(.name == "Typecheck · Lint · Unit Tests")] | first | .conclusion // empty' 2>/dev/null
+              --jq "[.check_runs[] | select(.name == \"${NAME}\")] | first | .conclusion // empty" 2>/dev/null
           }
 
-          CI_STATUS=$(check_ci)
-          if [ "$CI_STATUS" != "success" ]; then
-            echo "CI not passing (status: ${CI_STATUS:-absent}) for HEAD ${HEAD_SHA}. Triggering ci.yml on branch $BRANCH..."
+          QUALITY=$(check_run "Typecheck · Lint · Unit Tests")
+          E2E=$(check_run "E2E Tests")
+
+          if [ "$QUALITY" != "success" ] || [ "$E2E" != "success" ]; then
+            echo "Checks not passing — quality: ${QUALITY:-absent}, e2e: ${E2E:-absent}. Triggering ci.yml on $BRANCH..."
             gh workflow run ci.yml --repo "$REPO" --ref "$BRANCH"
             sleep 15
-            for i in $(seq 1 40); do
-              CI_STATUS=$(check_ci)
-              echo "Attempt $i/40: CI status=${CI_STATUS:-pending}"
-              if [ "$CI_STATUS" = "success" ]; then break; fi
-              if [ "$CI_STATUS" = "failure" ] || [ "$CI_STATUS" = "cancelled" ]; then
-                echo "CI failed with status: $CI_STATUS"
-                exit 1
+            for i in $(seq 1 60); do
+              QUALITY=$(check_run "Typecheck · Lint · Unit Tests")
+              E2E=$(check_run "E2E Tests")
+              echo "Attempt $i/60: quality=${QUALITY:-pending} e2e=${E2E:-pending}"
+              if [ "$QUALITY" = "success" ] && [ "$E2E" = "success" ]; then break; fi
+              if [ "$QUALITY" = "failure" ] || [ "$QUALITY" = "cancelled" ]; then
+                echo "Quality check failed: $QUALITY"; exit 1
+              fi
+              if [ "$E2E" = "failure" ] || [ "$E2E" = "cancelled" ]; then
+                echo "E2E check failed: $E2E"; exit 1
               fi
               sleep 15
             done
           fi
 
-          if [ "$CI_STATUS" != "success" ]; then
-            echo "CI did not complete in time (last status: ${CI_STATUS:-absent})"
+          if [ "$QUALITY" != "success" ] || [ "$E2E" != "success" ]; then
+            echo "Checks did not complete in time — quality: ${QUALITY:-absent}, e2e: ${E2E:-absent}"
             exit 1
           fi
 
-          echo "CI passed. Dismissing stale reviews and merging..."
+          echo "All checks passed. Dismissing stale reviews and merging..."
 
           # Dismiss any stale CHANGES_REQUESTED reviews so they don't block merge
           gh api "repos/${REPO}/pulls/${PR}/reviews" \
