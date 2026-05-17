@@ -9,7 +9,7 @@
   coder.yml        # Реализует задачу из docs/specs/active-task.md
   devops.yml       # Реализует задачу из docs/specs/active-devops-task.md
   ba-escalation.yml # Эскалация от QA к BA
-  ci.yml           # Обычный CI (lint, typecheck, test)
+  ci.yml           # Обычный CI (lint, typecheck, test) — теперь с workflow_dispatch
 ```
 
 ## claude-code-action@beta — критичные правила
@@ -26,7 +26,9 @@
 ## Branch Protection (main)
 
 - Требует PR для merge
-- Required checks: 4 status checks
+- Required checks: только "Typecheck · Lint · Unit Tests" (ci.yml job)
+- Required reviews: УБРАНЫ (AI Review pipeline является review)
+- `strict: false` — PR не обязан быть актуальным с main перед merge
 - Прямой push в main: разрешён только для bootstrap (CI pipeline fixes)
 
 ## Concurrency паттерн
@@ -38,15 +40,15 @@ concurrency:
 ```
 `${{ github.event_name }}` — обязателен, чтобы `workflow_dispatch` и `pull_request` не отменяли друг друга.
 
-## ai-review.yml — архитектура jobs
+## ai-review.yml — архитектура jobs (актуально)
 
 ```
-reviewer → (creates autotest-approved.flag if APPROVE)
-         → (creates qa-task.md if QA needed)
-qa       → runs if qa-task.md exists
-         → (creates qa-autotest-approved.flag if APPROVE)
-autotest → runs if reviewer + qa approved
-merge    → squash merge если autotest succeeded
+reviewer    → outputs: approved, needs_qa, review_state
+qa          → runs if qa-task.md exists
+autotest    → runs if reviewer + qa approved
+merge       → squash merge if autotest succeeded (NO update-branch — it invalidates CI)
+trigger_coder → runs if reviewer == CHANGES_REQUESTED or autotest failed
+               → пишет active-task.md + gh workflow run coder.yml
 ```
 
 ## Флаги между jobs
@@ -89,16 +91,65 @@ refusing to allow a GitHub App to create or update workflow without `workflows` 
 - Сообщи об ограничении в PR description
 - DevOps задачи с workflow файлами применяются вручную (bootstrap) владельцем репо
 
-## ai-review.yml — архитектура jobs (актуально)
+## CI — бот-коміти не тригерять workflow
 
+**Проблема:** GitHub Actions pushes (через `GITHUB_TOKEN`) НЕ тригерять нові workflow runs (анти-loop захист GitHub).
+Коли AutoTest/Coder пушають коміти в PR гілку — CI (`pull_request: synchronize`) НЕ запускається.
+Результат: `statusCheckRollup: []` → `mergeStateStatus: BLOCKED` при спробі merge.
+
+**Ознаки:**
+- `gh pr view N --json statusCheckRollup` повертає `[]`
+- `mergeStateStatus: "BLOCKED"` але `mergeable: "MERGEABLE"`
+- CI runs для гілки є, але для старих комітів — нові bot-коміти без CI
+
+**Рішення:**
+1. `gh workflow run ci.yml --ref <branch>` — ci.yml тепер має `workflow_dispatch`
+2. Або пушити порожній коміт від реального юзера: `git commit --allow-empty && git push`
+
+## Критичні правила для reviewer/autotest jobs (workflow_dispatch)
+
+**Проблема:** `actions/checkout@v4` без `ref:` при `workflow_dispatch` checkout-ить main, не PR ветку.
+**Рішення:** Обидва jobs (reviewer, autotest) починають з кроку "Get PR head ref":
+
+```yaml
+- name: Get PR head SHA
+  id: pr_head
+  env:
+    GH_TOKEN: ${{ github.token }}
+  run: |
+    if [ -n "${{ github.event.pull_request.head.sha }}" ]; then
+      echo "sha=${{ github.event.pull_request.head.sha }}" >> $GITHUB_OUTPUT
+    else
+      SHA=$(gh pr view "${{ inputs.pr_number }}" \
+        --repo ${{ github.repository }} \
+        --json headRefOid --jq '.headRefOid')
+      echo "sha=${SHA}" >> $GITHUB_OUTPUT
+    fi
+- uses: actions/checkout@v4
+  with:
+    ref: ${{ steps.pr_head.outputs.sha }}
+    fetch-depth: 0
 ```
-reviewer    → outputs: approved, needs_qa, review_state
-qa          → runs if qa-task.md exists
-autotest    → runs if reviewer + qa approved
-merge       → update-branch + squash merge if autotest succeeded
-trigger_coder → runs if reviewer == CHANGES_REQUESTED or autotest failed
-               → пишет active-task.md + gh workflow run coder.yml
-```
+
+Для reviewer: `headRefOid` (checkout by SHA для read-only review).
+Для autotest: `headRefName` (checkout by branch name — потрібен щоб пушати коміти назад).
+
+**КРИТИЧНО:** `headRefSha` — НЕ існує в `gh pr view --json`. Використовувати `headRefOid`.
+
+## Merge job — правила
+
+- **НЕ використовувати `gh pr update-branch`** — створює новий коміт, інвалідує CI перевірку
+- Dismiss CHANGES_REQUESTED reviews перед merge
+- `strict: false` в branch protection — PR не зобов'язаний бути актуальним з main
+- Required review НЕ потрібен (прибраний з branch protection — AI Review pipeline є review)
+- Required CI check: тільки "Typecheck · Lint · Unit Tests"
+
+## github-actions[bot] — обмеження на reviews
+
+- Bot з CHANGES_REQUESTED не може APPROVE ту ж PR без попереднього dismiss
+- **Рішення:** крок "Dismiss stale CHANGES_REQUESTED reviews" перед Claude Code Review
+- `dismiss_stale_reviews` в branch protection має бути відключений (або прибрати required reviews)
+  - Якщо увімкнено: AutoTest пушає коміти → GitHub авто-dismiss-ить APPROVE reviewer'а → merge блокується
 
 ## Git workflow DevOps агента
 

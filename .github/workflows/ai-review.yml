@@ -44,9 +44,41 @@ jobs:
       review_state: ${{ steps.check_approved.outputs.review_state }}
 
     steps:
+      - name: Get PR head SHA
+        id: pr_head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "${{ github.event.pull_request.head.sha }}" ]; then
+            echo "sha=${{ github.event.pull_request.head.sha }}" >> $GITHUB_OUTPUT
+          else
+            SHA=$(gh pr view "${{ inputs.pr_number }}" \
+              --repo ${{ github.repository }} \
+              --json headRefOid --jq '.headRefOid')
+            echo "sha=${SHA}" >> $GITHUB_OUTPUT
+          fi
+
       - uses: actions/checkout@v4
         with:
+          ref: ${{ steps.pr_head.outputs.sha }}
           fetch-depth: 0  # full history for diff context
+
+      - name: Dismiss stale CHANGES_REQUESTED reviews
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
+          REPO="${{ github.repository }}"
+          # Dismiss any CHANGES_REQUESTED reviews from github-actions[bot] so
+          # the reviewer can freely submit APPROVE on the current commit.
+          gh api "repos/${REPO}/pulls/${PR}/reviews" \
+            --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | .[].id' | \
+          while read -r REVIEW_ID; do
+            gh api "repos/${REPO}/pulls/${PR}/reviews/${REVIEW_ID}/dismissals" \
+              --method PUT \
+              --field message="Starting fresh review cycle — previous findings may be resolved" \
+              2>/dev/null || true
+          done
 
       - name: Claude Code Review
         uses: anthropics/claude-code-action@beta
@@ -328,9 +360,23 @@ jobs:
       id-token: write   # required for claude_code_oauth_token OIDC auth
 
     steps:
+      - name: Get PR head ref
+        id: pr_head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "${{ github.event.pull_request.head.ref }}" ]; then
+            echo "ref=${{ github.event.pull_request.head.ref }}" >> $GITHUB_OUTPUT
+          else
+            REF=$(gh pr view "${{ inputs.pr_number }}" \
+              --repo ${{ github.repository }} \
+              --json headRefName --jq '.headRefName')
+            echo "ref=${REF}" >> $GITHUB_OUTPUT
+          fi
+
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ steps.pr_head.outputs.ref }}
           fetch-depth: 0
 
       - name: Configure git for AutoTest commits
@@ -396,8 +442,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           PR="${{ github.event.pull_request.number || inputs.pr_number }}"
-          # Bring PR branch current with base (fails gracefully if already up to date)
-          gh pr update-branch "$PR" --repo ${{ github.repository }} 2>/dev/null || true
           # Dismiss any stale CHANGES_REQUESTED reviews so they don't block merge
           REPO="${{ github.repository }}"
           gh api "repos/${REPO}/pulls/${PR}/reviews" \

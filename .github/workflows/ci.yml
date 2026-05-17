@@ -1,6 +1,12 @@
 name: CI
 
 on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch or SHA to run CI on'
+        required: false
+        default: 'main'
   pull_request:
     branches: [main]
     paths-ignore:
