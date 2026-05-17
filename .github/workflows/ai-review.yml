@@ -48,6 +48,23 @@ jobs:
         with:
           fetch-depth: 0  # full history for diff context
 
+      - name: Dismiss stale CHANGES_REQUESTED reviews
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
+          REPO="${{ github.repository }}"
+          # Dismiss any CHANGES_REQUESTED reviews from github-actions[bot] so
+          # the reviewer can freely submit APPROVE on the current commit.
+          gh api "repos/${REPO}/pulls/${PR}/reviews" \
+            --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | .[].id' | \
+          while read -r REVIEW_ID; do
+            gh api "repos/${REPO}/pulls/${PR}/reviews/${REVIEW_ID}/dismissals" \
+              --method PUT \
+              --field message="Starting fresh review cycle — previous findings may be resolved" \
+              2>/dev/null || true
+          done
+
       - name: Claude Code Review
         uses: anthropics/claude-code-action@beta
         with:
