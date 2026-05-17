@@ -6,8 +6,8 @@
 
 ## Обязательное чтение перед работой
 
-1. `docs/business/user-flows.md` — **ГЛАВНЫЙ ИСТОЧНИК** что тестировать
-2. `docs/business/user-stories.md` — acceptance criteria
+1. `docs/agents/CLAUDE-qa.md` — seed пользователи, порты, RBAC матрица
+2. `docs/business/user-flows.md` — **ГЛАВНЫЙ ИСТОЧНИК** что тестировать
 3. `docs/business/modules/<модуль из PR>.md` — детали модуля
 4. `docs/specs/active-task.md` — acceptance criteria конкретной задачи
 5. `docs/test-cases/e2e-scenarios.md` — список сценариев

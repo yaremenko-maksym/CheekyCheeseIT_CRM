@@ -1,68 +1,67 @@
-# Auto-merge on PR approval
+# Обновить direct_prompt во всех воркфлоу — читать агентские CLAUDE файлы
 
 ## Контекст
 
-Сейчас после того как AI Review и AutoTest одобряют PR — мерж всё равно нужно делать вручную.
-Нужно автоматизировать: одобрение → все чеки прошли → PR мерджится сам.
-
----
+Каждый агент теперь имеет собственный файл с техническими заметками в `docs/agents/CLAUDE-<agent>.md`.
+Это заменяет чтение монолитного `/CLAUDE.md` (~500 строк) — агенты читают только релевантное им.
+Главный эффект: Code Review будет занимать ~3-4 мин вместо ~8 мин.
 
 ## Задача
 
-Создать workflow `.github/workflows/auto-merge.yml`, который:
-1. Срабатывает когда на PR выставляется review с состоянием `APPROVED`
-2. Включает auto-merge на этом PR через `gh pr merge --auto --squash`
-3. GitHub сам мерджит PR когда все required status checks пройдут
+Обновить `direct_prompt` в каждом воркфлоу — заменить инструкцию читать `CLAUDE.md` на чтение агентского файла.
 
 ### Что нужно изменить
 
-- [ ] Создать `.github/workflows/auto-merge.yml`
+**`.github/workflows/ai-review.yml`** — шаг `Claude Code Review` (reviewer job):
+```
+# Было:
+Также прочитай .clauderules и CLAUDE.md (раздел "Ключевые технические заметки").
 
-### Логика workflow
+# Стало:
+Також прочитай docs/agents/CLAUDE-reviewer.md — архитектурные решения и ограничения.
+```
 
-```yaml
-name: Auto Merge on Approval
+**`.github/workflows/ai-review.yml`** — шаг `Claude QA Manual Test` (qa job):
+```
+# Добавить в начало direct_prompt (после "Прочитай docs/agents/qa.md"):
+Прочитай docs/agents/CLAUDE-qa.md — seed пользователи, порты, RBAC матрица.
+```
 
-on:
-  pull_request_review:
-    types: [submitted]
+**`.github/workflows/ai-review.yml`** — шаг `Claude AutoTest` (autotest job):
+```
+# Добавить в direct_prompt (после "Прочитай docs/agents/autotest.md"):
+Прочитай docs/agents/CLAUDE-autotest.md — структура тестов, паттерны.
+```
 
-jobs:
-  auto-merge:
-    name: Enable auto-merge
-    runs-on: ubuntu-latest
-    # Только если review = APPROVED и PR не черновик
-    if: |
-      github.event.review.state == 'approved' &&
-      github.event.pull_request.draft == false
-    permissions:
-      contents: write
-      pull-requests: write
+**`.github/workflows/coder.yml`** — шаг `Claude Coder Agent`:
+```
+# Добавить строку после "Прочитай docs/agents/coder.md":
+Прочитай docs/agents/CLAUDE-coder.md — команды, структура, статус, gotchas.
+```
 
-    steps:
-      - name: Enable auto-merge
-        run: gh pr merge ${{ github.event.pull_request.number }} --auto --squash --repo ${{ github.repository }}
-        env:
-          GH_TOKEN: ${{ github.token }}
+**`.github/workflows/devops.yml`** — шаг `Claude DevOps Agent`:
+```
+# Добавить строку после "Прочитай docs/agents/devops.md":
+Прочитай docs/agents/CLAUDE-devops.md — архитектура пайплайна, concurrency, secrets.
+```
+
+**`.github/workflows/autotest.yml`** — шаг `Claude AutoTest Agent`:
+```
+# Добавить строку после "Прочитай docs/agents/autotest.md":
+Прочитай docs/agents/CLAUDE-autotest.md — структура тестов, паттерны, seed.
 ```
 
 ### Acceptance Criteria
 
-- [ ] После APPROVE review на PR — auto-merge включается автоматически
-- [ ] PR мерджится сам когда все required status checks проходят
-- [ ] Черновики (draft PR) не трогаются
-- [ ] Workflow не падает если auto-merge уже включён (gh pr merge --auto идемпотентен)
-
----
+- [ ] В `ai-review.yml` reviewer больше НЕ читает `/CLAUDE.md`
+- [ ] В `ai-review.yml` все три Claude шага имеют ссылку на свой CLAUDE-*.md
+- [ ] В `coder.yml` добавлена ссылка на `CLAUDE-coder.md`
+- [ ] В `devops.yml` добавлена ссылка на `CLAUDE-devops.md`
+- [ ] В `autotest.yml` добавлена ссылка на `CLAUDE-autotest.md`
 
 ## Файлы для изменения
 
-```
-.github/workflows/auto-merge.yml   ← создать
-```
-
-## Важное замечание
-
-`gh pr merge --auto` ставит PR в очередь авто-мержа. GitHub сам дождётся когда
-все required checks (CI, AI Review, AutoTest) пройдут и только тогда смержит.
-Если какой-то чек упадёт — авто-мерж не произойдёт, PR останется открытым.
+- `.github/workflows/ai-review.yml`
+- `.github/workflows/coder.yml`
+- `.github/workflows/devops.yml`
+- `.github/workflows/autotest.yml`

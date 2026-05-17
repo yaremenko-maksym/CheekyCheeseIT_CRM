@@ -63,6 +63,7 @@ jobs:
             Ты — AutoTest-агент для CRM Cheeky Cheese IT.
 
             Прочитай docs/agents/autotest.md — это твой полный системный промпт.
+            Прочитай docs/agents/CLAUDE-autotest.md — структура тестов, паттерны, seed.
             Работай в РЕЖИМЕ 2: docs/business/** Push.
 
             Изменились следующие бизнес-документы:

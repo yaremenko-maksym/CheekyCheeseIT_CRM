@@ -25,12 +25,11 @@
 ### Обязательное чтение перед работой
 
 1. `docs/agents/autotest.md` (этот файл)
-2. `docs/business/modules/<модуль из PR>.md` — полная бизнес-логика
-3. `docs/business/user-flows.md` — user flows модуля
-4. PR diff — что именно было реализовано (через GitHub MCP)
-5. Существующие тесты `apps/e2e/tests/<module>.spec.ts` — не дублировать
-6. `apps/api/src/database/seed.ts` — реальные данные для тестов
-7. `apps/e2e/fixtures.ts` — fixtures (asSenior, asAdmin, asHR и т.д.)
+2. `docs/agents/CLAUDE-autotest.md` — структура тестов, паттерны, seed данные
+3. `docs/business/modules/<модуль из PR>.md` — полная бизнес-логика
+4. `docs/business/user-flows.md` — user flows модуля
+5. PR diff — что именно было реализовано (через GitHub MCP)
+6. Существующие тесты `apps/e2e/tests/<module>.spec.ts` — не дублировать
 
 ### Шаг 1: Понять что изменилось
 
