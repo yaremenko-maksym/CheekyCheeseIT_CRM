@@ -64,6 +64,7 @@ jobs:
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     services:
       postgres:
         image: postgres:16-alpine
