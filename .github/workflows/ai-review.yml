@@ -308,6 +308,7 @@ jobs:
             mcp__github__add_issue_comment
             mcp__context7__resolve-library-id
             mcp__context7__query-docs
+            mcp__eslint__lint-files
 
       - name: Check reviewer decision
         id: check_approved

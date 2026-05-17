@@ -61,6 +61,60 @@ pattern: "await this.$DB.select().$$$"
 pattern: "@UseGuards(JwtGuard)"
 ```
 
+### Шаг 2.5: Security Review
+
+**ОБЯЗАТЕЛЕН** если PR трогает: `auth/`, `finance/`, `transactions`, `wallets`, USDT, смарт-контракты, API endpoints с пользовательскими данными.
+
+Для остальных PR — запустить только пункты 1 и 3.
+
+```
+# 1. Хардкоженные секреты
+mcp__ast-grep__find_code: pattern = "apiKey: \"$_\""
+mcp__ast-grep__find_code: pattern = "password: \"$_\""
+mcp__ast-grep__find_code: pattern = "secret: \"$_\""
+
+# 2. JWT — небезопасная конфигурация
+mcp__ast-grep__find_code: pattern = "algorithm: 'none'"
+mcp__ast-grep__find_code: pattern = "verify($TOKEN, null)"
+
+# 3. XSS
+mcp__ast-grep__find_code: pattern = "dangerouslySetInnerHTML"
+
+# 4. NestJS endpoints без Guard (новые в PR)
+mcp__ast-grep__find_code: pattern = "@Controller($PATH)"
+→ убедиться что каждый @Get/@Post/@Patch/@Delete покрыт @UseGuards(JwtGuard)
+
+# 5. SQL через template literals
+mcp__ast-grep__find_code: pattern = "sql\`\${$_}\`"
+→ проверить что $_ не user input
+
+# 6. USDT кошельки в логах
+mcp__ast-grep__find_code: pattern = "console.log($WALLET)"
+→ кошельки не логировать
+
+# 7. HttpOnly cookies
+mcp__ast-grep__find_code: pattern = "httpOnly: false"
+→ auth cookies обязаны быть httpOnly
+```
+
+**Security чеклист:**
+- [ ] Нет хардкоженных токенов, паролей, ключей в коде
+- [ ] JWT: алгоритм не `none`, secret из `process.env`
+- [ ] Все `/api/*` endpoints под `@UseGuards(JwtGuard)` (кроме `/api/auth/`)
+- [ ] USDT адреса не логируются, не в публичных API без RBAC
+- [ ] `dangerouslySetInnerHTML` → немедленный REQUEST_CHANGES
+
+### Шаг 2.7: Code Quality Analysis
+
+Запустить eslint MCP на всех изменённых `.ts` и `.tsx` файлах из PR:
+
+```
+mcp__eslint__lint-files: {filePaths: ["apps/api/src/<файл>", "apps/web/app/<файл>", ...]}
+```
+
+- **Ошибки (severity: error)** → добавить в REQUEST_CHANGES список
+- **Предупреждения (severity: warning)** → упомянуть как некритичные
+
 ### Шаг 3: Чек-лист проверки
 
 #### Критичные (REQUEST_CHANGES при любом нарушении)
@@ -190,10 +244,19 @@ pattern: "@UseGuards(JwtGuard)"
 
 ## MCP серверы
 
-- `mcp__ast-grep__find_code` — структурный поиск паттернов в коде PR
-- `mcp__github__get_pull_request_files` — список изменённых файлов
-- `mcp__github__create_pull_request_review` — создать review
-- `mcp__context7__resolve-library-id` → `query-docs` — проверить актуальный API если сомнения
+| MCP | Инструмент | Когда использовать |
+|-----|-----------|-------------------|
+| `ast-grep` | `find_code`, `find_code_by_rule` | Структурный поиск паттернов, Security Review (шаг 2.5) |
+| `eslint` | `lint-files` | Code Quality Analysis (шаг 2.7) — перед вынесением решения |
+| `github` | `get_pull_request_files`, `create_pull_request_review` | Список файлов + создание review |
+| `context7` | `resolve-library-id`, `query-docs` | Проверить актуальный API если есть сомнения |
+
+## Плагины
+
+| Плагин | Роль в review |
+|--------|--------------|
+| **security-guidance** | Фоновый hook — предупреждает о security-уязвимостях в реальном времени при чтении/редактировании файлов |
+| **code-review** | `/code-review` — альтернативный multi-agent review с confidence scoring (5 параллельных агентов). Запускать вручную для дополнительной валидации спорных PR |
 
 ## Token budget
 

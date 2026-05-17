@@ -92,6 +92,31 @@ Merge job ждёт только его. Когда добавят E2E job в ci.
 - После merge PR с фиксом → E2E проходят на main → `notify_e2e` закрывает issue автоматически
 - Команда видит закрытый issue → возобновляет работу
 
+## Установленные плагины (user scope)
+
+Установлены через `claude plugin install <name>@claude-plugins-official`:
+
+| Плагин | Тип | Роль |
+|--------|-----|------|
+| **security-guidance** | Hook (PreToolUse) | Автоматически предупреждает о security-уязвимостях при каждом Edit/Write в локальных сессиях |
+| **code-simplifier** | Background agent (Opus) | Автоматически упрощает изменённый код после написания. Сфокусирован на clarity, убирает лишнюю сложность |
+| **frontend-design** | Skill `/frontend-design` | Генерирует production-grade UI с сильным дизайном. Использовать при создании новых страниц/экранов |
+| **code-review** | Command `/code-review` | Multi-agent review PR: 5 параллельных Sonnet агентов, confidence scoring ≥80, комментирует в PR |
+| **superpowers** | Skills library | 14 skills: `/writing-plans`, `/test-driven-development`, `/systematic-debugging`, `/requesting-code-review` и др. |
+
+### Ограничения в CI (GitHub Actions)
+
+Плагины установлены в **user scope** локально. В GitHub Actions (`claude-code-action@beta`) они НЕ запускаются автоматически.
+
+**Компенсация в CI:**
+- `security-guidance` → reviewer job использует ast-grep security patterns (шаг 2.5 в reviewer.md)
+- `code-simplifier` → coder job запускает `mcp__eslint__lint-files` перед коммитом
+- `code-review` → reviewer job в ai-review.yml выполняет эквивалентную проверку
+- `frontend-design` → coder получает инструкции через CLAUDE-coder.md
+- `superpowers` → принципы TDD/planning встроены в coder.md
+
+> Claude Map и gstack — не используются.
+
 ## Docker (локальная разработка)
 
 ```yaml

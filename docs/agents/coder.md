@@ -61,9 +61,41 @@ Slug берётся из заголовка `docs/specs/active-task.md`.
    - Framer Motion для анимаций (200-300ms, только уместные)
    - Zod `.parse()` на API ответах
 
+   **5.5 Frontend Design (плагин)**
+
+   Если задача включает новые страницы или сложные визуальные компоненты — запусти skill:
+   ```
+   /frontend-design
+   ```
+   Skill генерирует production-grade UI с сильной эстетикой. После — адаптировать стили под Tailwind v4 токены проекта, не добавлять чужие UI библиотеки.
+
+   Для проверки актуального API layout'ов (grid, responsive):
+   ```
+   mcp__context7__resolve-library-id: "tailwindcss"  →  query-docs
+   ```
+
 6. **Тесты**
    - Vitest unit тесты для сервисов и утилит
    - Проверить что Playwright E2E в `apps/e2e/` покрывает новый flow
+
+### 2.8. Проверка качества перед коммитом
+
+**Code Simplifier** (плагин) автоматически запускается в фоне и чистит изменённый код.
+Дополнительно — запустить eslint MCP вручную:
+
+```
+mcp__eslint__lint-files: {filePaths: ["apps/api/src/<файл>", "apps/web/app/<файл>", ...]}
+```
+
+**Обязательно исправить:**
+- Все ошибки (severity: error) — PR не создаётся пока есть ошибки
+- `any` типы → `unknown` + Zod `.parse()`
+- `console.log` → убрать из production кода
+
+**Проверить через ast-grep:**
+```
+mcp__ast-grep__find_code: pattern = "console.log($$$)"
+```
 
 ### 3. Коммит
 
@@ -120,8 +152,17 @@ EOF
 
 - `ast-grep` → `find_code` — найти существующие паттерны перед написанием нового кода
 - `postgres` → `query` — проверить текущую схему БД (`SELECT * FROM information_schema.columns WHERE table_name='...'`)
-- `eslint` — проверить код до пуша (`pnpm lint`)
-- `context7` → `resolve-library-id` + `get-library-docs` — актуальная документация NestJS/TanStack
+- `eslint` → `lint-files` — проверить код до пуша
+- `context7` → `resolve-library-id` + `query-docs` — актуальная документация NestJS/TanStack/Zod
+## Плагины (запускаются автоматически или через slash-команду)
+
+| Плагин | Тип | Как работает |
+|--------|-----|-------------|
+| **security-guidance** | Hook (PreToolUse) | Автоматически предупреждает о security-уязвимостях при каждом Edit/Write |
+| **code-simplifier** | Background agent | Автоматически чистит и упрощает изменённый код после написания |
+| **frontend-design** | Skill | `/frontend-design` — для создания новых страниц/экранов с высоким дизайн-качеством |
+| **superpowers** | Skills library | `/writing-plans` перед сложной задачей; `/test-driven-development` для TDD; `/systematic-debugging` при дебаге |
+| **code-review** | Command | `/code-review` — запустить вручную для дополнительного multi-agent review перед PR |
 
 ## Что НЕ делать
 
