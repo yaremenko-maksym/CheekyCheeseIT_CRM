@@ -49,6 +49,8 @@ jobs:
         uses: anthropics/claude-code-action@beta
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          allowed_bots: '*'
           direct_prompt: |
             Ты — Reviewer-агент для CRM Cheeky Cheese IT.
 
@@ -232,6 +234,7 @@ jobs:
         uses: anthropics/claude-code-action@beta
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
           direct_prompt: |
             Ты — QA Manual Tester для CRM Cheeky Cheese IT.
 
@@ -325,6 +328,7 @@ jobs:
         uses: anthropics/claude-code-action@beta
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
           direct_prompt: |
             Ты — AutoTest-агент для CRM Cheeky Cheese IT.
 
