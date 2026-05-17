@@ -51,7 +51,7 @@ concurrency:
 ## ai-review.yml — архитектура jobs (актуально)
 
 ```
-autotest      → пишет E2E тесты ДО ревью; при logic error → BA escalation + trigger_coder
+autotest      → пишет E2E тесты ДО ревью; при logic error → trigger_coder (без BA issue)
 reviewer      → runs if autotest succeeded; Check E2E health (блокирует если e2e-broken)
               → outputs: approved, review_state
 merge         → squash merge if reviewer approved; triggers ci.yml and polls only Quality check

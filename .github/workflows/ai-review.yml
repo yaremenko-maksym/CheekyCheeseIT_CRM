@@ -489,37 +489,7 @@ jobs:
           fi
 
   # ─────────────────────────────────────────────
-  # Job 4: BA Escalation — AutoTest found logical error
-  # Creates GitHub issue for BA + user to decide next steps.
-  # ─────────────────────────────────────────────
-  ba_escalation:
-    name: BA Escalation
-    runs-on: ubuntu-latest
-    needs: [autotest]
-    if: |
-      always() &&
-      needs.autotest.result == 'failure'
-    permissions:
-      issues: write
-
-    steps:
-      - name: Create BA escalation issue
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
-          REPO="${{ github.repository }}"
-          PR_URL="https://github.com/${REPO}/pull/${PR}"
-          gh label create "needs-ba-action" --repo "$REPO" --color "e4e669" 2>/dev/null || true
-          gh label create "escalation" --repo "$REPO" --color "d93f0b" 2>/dev/null || true
-          gh issue create \
-            --repo "$REPO" \
-            --title "Логическая ошибка в PR #${PR} — требуется решение BA" \
-            --label "escalation,needs-ba-action" \
-            --body "AutoTest нашёл логическую ошибку в PR #${PR}. Coder получил задачу на исправление, но решение требует участия BA. PR: ${PR_URL}. BA читает review в PR, обсуждает с пользователем, обновляет docs/business/ при необходимости. После решения перезапустить: gh workflow run ai-review.yml -f pr_number=${PR}"
-
-  # ─────────────────────────────────────────────
-  # Job 5: Trigger Coder on REQUEST_CHANGES
+  # Job 4: Trigger Coder on REQUEST_CHANGES
   # Runs if AutoTest found logic error OR Reviewer gave CHANGES_REQUESTED.
   # Verifies a real CHANGES_REQUESTED review exists before triggering.
   # Commits active-task.md to the PR branch (not main — branch protection blocks that).
