@@ -1,55 +1,68 @@
-# Fix AI Review — allow bot-created PRs
+# Auto-merge on PR approval
 
 ## Контекст
 
-AI Review workflow завершается с ошибкой на PR-ах созданных `claude[bot]` (Coder, AutoTest агенты):
-
-```
-Workflow initiated by non-human actor: claude (type: Bot).
-Add bot to allowed_bots list or use '*' to allow all bots.
-```
-
-`mode: tag` в `anthropics/claude-code-action@beta` по умолчанию блокирует bot-акторов как security measure.
-Нам нужно разрешить `claude[bot]` запускать AI Review, так как весь цикл Coder → AI Review → AutoTest автоматизирован.
-
-Пример PR где это сломано: PR #8 (`fix(ba): fix business logic inconsistencies`).
+Сейчас после того как AI Review и AutoTest одобряют PR — мерж всё равно нужно делать вручную.
+Нужно автоматизировать: одобрение → все чеки прошли → PR мерджится сам.
 
 ---
 
 ## Задача
 
-Добавить `allowed_bots: 'claude'` в step **Claude Code Review** в `.github/workflows/ai-review.yml`.
+Создать workflow `.github/workflows/auto-merge.yml`, который:
+1. Срабатывает когда на PR выставляется review с состоянием `APPROVED`
+2. Включает auto-merge на этом PR через `gh pr merge --auto --squash`
+3. GitHub сам мерджит PR когда все required status checks пройдут
 
 ### Что нужно изменить
 
-- [ ] `.github/workflows/ai-review.yml` — в job `reviewer`, step `Claude Code Review`: добавить `allowed_bots: 'claude'`
+- [ ] Создать `.github/workflows/auto-merge.yml`
+
+### Логика workflow
+
+```yaml
+name: Auto Merge on Approval
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  auto-merge:
+    name: Enable auto-merge
+    runs-on: ubuntu-latest
+    # Только если review = APPROVED и PR не черновик
+    if: |
+      github.event.review.state == 'approved' &&
+      github.event.pull_request.draft == false
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Enable auto-merge
+        run: gh pr merge ${{ github.event.pull_request.number }} --auto --squash --repo ${{ github.repository }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+```
 
 ### Acceptance Criteria
 
-- [ ] Step `Claude Code Review` в `ai-review.yml` содержит `allowed_bots: 'claude'`
-- [ ] Workflow больше не падает с ошибкой "non-human actor" на PR-ах от `claude[bot]`
+- [ ] После APPROVE review на PR — auto-merge включается автоматически
+- [ ] PR мерджится сам когда все required status checks проходят
+- [ ] Черновики (draft PR) не трогаются
+- [ ] Workflow не падает если auto-merge уже включён (gh pr merge --auto идемпотентен)
 
 ---
 
 ## Файлы для изменения
 
 ```
-.github/workflows/ai-review.yml
+.github/workflows/auto-merge.yml   ← создать
 ```
 
-## Конкретное изменение
+## Важное замечание
 
-В блоке:
-```yaml
-- name: Claude Code Review
-  uses: anthropics/claude-code-action@beta
-  with:
-    claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-    direct_prompt: |
-      ...
-```
-
-Добавить строку:
-```yaml
-    allowed_bots: 'claude'
-```
+`gh pr merge --auto` ставит PR в очередь авто-мержа. GitHub сам дождётся когда
+все required checks (CI, AI Review, AutoTest) пройдут и только тогда смержит.
+Если какой-то чек упадёт — авто-мерж не произойдёт, PR останется открытым.
