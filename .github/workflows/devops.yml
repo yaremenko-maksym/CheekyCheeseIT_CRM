@@ -1,13 +1,9 @@
 name: DevOps
 
-# Triggers when BA finalises an infra task (docs/specs/active-devops-task.md lands on main)
-# or manually via workflow_dispatch.
+# claude-code-action supports only workflow_dispatch (not push).
+# BA commits active-devops-task.md → manually triggers this workflow via GitHub UI or:
+#   gh workflow run devops.yml --repo <owner>/<repo>
 on:
-  push:
-    paths:
-      - 'docs/specs/active-devops-task.md'
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       task_hint:

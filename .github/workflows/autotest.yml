@@ -1,13 +1,9 @@
 name: AutoTest (Docs → Tests)
 
-# Triggers when business docs change on main (after BA merges updates)
-# or manually to target a specific module.
+# claude-code-action supports only workflow_dispatch (not push).
+# BA commits docs/business/** → manually triggers this workflow via GitHub UI or:
+#   gh workflow run autotest.yml --repo <owner>/<repo>
 on:
-  push:
-    paths:
-      - 'docs/business/**'
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       module:

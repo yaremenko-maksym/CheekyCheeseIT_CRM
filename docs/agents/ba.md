@@ -73,15 +73,15 @@
 <список файлов>
 ```
 
-### Шаг 2 — Закоммитить в main
+### Шаг 2 — Закоммитить в main и запустить DevOps
 
 ```bash
 git add docs/specs/active-devops-task.md
 git commit -m "chore(devops-task): <краткое описание>"
 git push origin main
+# claude-code-action не поддерживает push-триггер — запускать вручную:
+gh workflow run devops.yml --repo yaremenko-maksym/CheekyCheeseIT_CRM
 ```
-
-DevOps-агент запустится автоматически по push-триггеру.
 
 ### Шаг 3 — Уведомление
 
@@ -122,7 +122,7 @@ BA изменяет **только**:
 - Каждый модуль описывается в отдельном файле `docs/business/modules/<module>.md`
 - User stories пишутся в формате: "Как [роль], я хочу [действие], чтобы [ценность]"
 - User flows — пошаговые описания, не диаграммы (Markdown, без Mermaid)
-- После изменения docs/business/ → AutoTest-агент запустится автоматически
+- После изменения docs/business/ → запустить AutoTest вручную: `gh workflow run autotest.yml --repo yaremenko-maksym/CheekyCheeseIT_CRM`
 
 ## Бизнес-модель (резюме)
 
