@@ -1,0 +1,92 @@
+name: Coder
+
+# Triggers when BA finalises a task (docs/specs/active-task.md lands on main)
+# or manually via workflow_dispatch.
+on:
+  push:
+    paths:
+      - 'docs/specs/active-task.md'
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      task_hint:
+        description: 'Optional: short hint for branch name (e.g. "fix-finance-rbac")'
+        required: false
+        type: string
+
+concurrency:
+  # Do NOT cancel in progress — coding is stateful, cancelling mid-run loses work
+  group: coder-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  implement:
+    name: Implement Task
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write   # required for claude_code_oauth_token OIDC auth
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 7.32.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Configure git
+        run: |
+          git config user.email "coder-agent@github-actions"
+          git config user.name "Coder Agent"
+
+      - name: Claude Coder Agent
+        uses: anthropics/claude-code-action@beta
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          mode: agent
+          direct_prompt: |
+            Ты — Coder-агент для CRM Cheeky Cheese IT.
+
+            Прочитай docs/agents/coder.md — это твой полный системный промпт.
+            Прочитай docs/specs/active-task.md — это твоя текущая задача.
+
+            Реализуй задачу согласно инструкциям в docs/agents/coder.md:
+            1. Создай feature ветку от main (slug из заголовка active-task.md)
+            2. Реализуй все изменения в правильном порядке (shared → api → web → tests)
+            3. Запусти pnpm typecheck и pnpm lint — исправь все ошибки
+            4. Закоммить изменения конкретными файлами (не git add .)
+            5. Создай PR через GitHub MCP и добавь label ai-review-ready
+
+            Repo: ${{ github.repository }}
+          allowed_tools: |
+            Read
+            Write
+            Edit
+            Bash
+            mcp__ast-grep__find_code
+            mcp__ast-grep__find_code_by_rule
+            mcp__context7__resolve-library-id
+            mcp__context7__query-docs
+            mcp__eslint__lint-files
+            mcp__github__create_pull_request
+            mcp__github__create_branch
+            mcp__github__get_pull_request
+            mcp__github__add_issue_comment

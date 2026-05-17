@@ -38,6 +38,7 @@ jobs:
 
     outputs:
       needs_qa: ${{ steps.check_qa.outputs.needs_qa }}
+      approved: ${{ steps.check_approved.outputs.approved }}
 
     steps:
       - uses: actions/checkout@v4
@@ -48,6 +49,8 @@ jobs:
         uses: anthropics/claude-code-action@beta
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          allowed_bots: '*'
           direct_prompt: |
             Ты — Reviewer-агент для CRM Cheeky Cheese IT.
 
@@ -95,6 +98,18 @@ jobs:
           path: qa-task.md
           retention-days: 1
 
+      - name: Check reviewer decision
+        id: check_approved
+        if: always()
+        run: |
+          if [ -f autotest-approved.flag ]; then
+            echo "approved=true" >> $GITHUB_OUTPUT
+            echo "Reviewer APPROVED — AutoTest may run"
+          else
+            echo "approved=false" >> $GITHUB_OUTPUT
+            echo "Reviewer REQUEST_CHANGES — AutoTest will not run"
+          fi
+
   # ─────────────────────────────────────────────
   # Job 2: QA Manual Test (full infrastructure)
   # Runs ONLY if reviewer created qa-task.md.
@@ -104,6 +119,8 @@ jobs:
     name: QA Manual Test
     runs-on: ubuntu-latest
     needs: reviewer
+    outputs:
+      approved: ${{ steps.check_qa_approved.outputs.approved }}
     if: |
       always() &&
       needs.reviewer.outputs.needs_qa == 'true' &&
@@ -217,6 +234,7 @@ jobs:
         uses: anthropics/claude-code-action@beta
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
           direct_prompt: |
             Ты — QA Manual Tester для CRM Cheeky Cheese IT.
 
@@ -253,8 +271,83 @@ jobs:
             mcp__github__create_pull_request_review
             mcp__github__add_issue_comment
 
+      - name: Check QA decision
+        id: check_qa_approved
+        if: always()
+        run: |
+          if [ -f qa-autotest-approved.flag ]; then
+            echo "approved=true" >> $GITHUB_OUTPUT
+            echo "QA APPROVED — AutoTest may run"
+          else
+            echo "approved=false" >> $GITHUB_OUTPUT
+            echo "QA REQUEST_CHANGES — AutoTest will not run"
+          fi
+
       - name: Print logs on failure
         if: failure()
         run: |
           echo "=== API LOG ===" && cat /tmp/api.log || true
           echo "=== WEB LOG ===" && cat /tmp/web.log || true
+
+  # ─────────────────────────────────────────────
+  # Job 3: AutoTest (writes E2E tests post-approval)
+  # Runs ONLY after Reviewer (+ QA if triggered) both approve.
+  # Fast: ~4-6 min. No services, no build — just Claude + git.
+  # On logical error found: REQUEST_CHANGES → full cycle restarts.
+  # ─────────────────────────────────────────────
+  autotest:
+    name: AutoTest
+    runs-on: ubuntu-latest
+    needs: [reviewer, qa]
+    if: |
+      always() &&
+      needs.reviewer.outputs.approved == 'true' &&
+      (needs.qa.result == 'skipped' || needs.qa.outputs.approved == 'true') &&
+      github.event.pull_request.draft == false &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'ai-review-ready')
+      )
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write   # required for claude_code_oauth_token OIDC auth
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Configure git for AutoTest commits
+        run: |
+          git config user.email "autotest-agent@github-actions"
+          git config user.name "AutoTest Agent"
+
+      - name: Claude AutoTest
+        uses: anthropics/claude-code-action@beta
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          direct_prompt: |
+            Ты — AutoTest-агент для CRM Cheeky Cheese IT.
+
+            Прочитай docs/agents/autotest.md — это твой полный системный промпт.
+            Работай в РЕЖИМЕ 1: PR Post-Approval.
+
+            Reviewer (и QA если запускался) уже проверили и одобрили этот PR.
+            Твоя задача: написать E2E тесты для нового функционала который был одобрен.
+            Если найдена логическая ошибка — оставь REQUEST_CHANGES review (не коммить тесты).
+
+            PR: ${{ github.event.pull_request.number || inputs.pr_number }}
+            Repo: ${{ github.repository }}
+          allowed_tools: |
+            Read
+            Write
+            Bash
+            mcp__ast-grep__find_code
+            mcp__ast-grep__find_code_by_rule
+            mcp__github__get_pull_request
+            mcp__github__get_pull_request_files
+            mcp__github__create_pull_request_review
+            mcp__github__add_issue_comment
