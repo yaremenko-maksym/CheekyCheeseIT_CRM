@@ -78,6 +78,28 @@ FRONTEND_URL=http://localhost:3000
 VITE_API_URL=http://localhost:3001/api
 ```
 
+## КРИТИЧНО: Workflow файлы требуют особых прав
+
+`GITHUB_TOKEN` (Actions) НЕ имеет `workflows` scope — пуш в `.github/workflows/` будет отклонён:
+```
+refusing to allow a GitHub App to create or update workflow without `workflows` permission
+```
+
+**Если задача затрагивает `.github/workflows/`:**
+- Сообщи об ограничении в PR description
+- DevOps задачи с workflow файлами применяются вручную (bootstrap) владельцем репо
+
+## ai-review.yml — архитектура jobs (актуально)
+
+```
+reviewer    → outputs: approved, needs_qa, review_state
+qa          → runs if qa-task.md exists
+autotest    → runs if reviewer + qa approved
+merge       → update-branch + squash merge if autotest succeeded
+trigger_coder → runs if reviewer == CHANGES_REQUESTED or autotest failed
+               → пишет active-task.md + gh workflow run coder.yml
+```
+
 ## Git workflow DevOps агента
 
 ```bash
@@ -87,4 +109,5 @@ git add <конкретные файлы>  # НЕ git add .
 git commit -m "chore(ci): ..."
 # push + создать PR через mcp__github__create_pull_request
 # добавить label ai-review-ready
+# ВНИМАНИЕ: если меняешь .github/workflows/ — push будет отклонён (см. выше)
 ```
