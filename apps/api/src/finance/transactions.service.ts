@@ -492,9 +492,9 @@ export class TransactionsService {
       status: 'PENDING',
     }).returning()
 
-    // Link transactions to this payout request
+    // Link transactions to this payout request and set status to PENDING_PAYMENT
     await this.db.db.update(transactions)
-      .set({ payoutRequestId: req!.id, updatedAt: new Date() })
+      .set({ payoutRequestId: req!.id, status: 'PENDING_PAYMENT', updatedAt: new Date() })
       .where(inArray(transactions.id, transactionIds))
 
     return this.findPayoutRequest(req!.id, currentUser)

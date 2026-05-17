@@ -13,6 +13,7 @@ export const TYPE_LABELS: Record<TransactionType, string> = {
 export const STATUS_LABELS: Record<TransactionStatus, string> = {
   PENDING: 'Ожидает',
   VALIDATED: 'Подтверждено',
+  PENDING_PAYMENT: 'Ожидает выплаты',
   REJECTED: 'Отклонено',
   PAID: 'Оплачено',
   LOCKED: 'Заблокировано',
@@ -21,6 +22,7 @@ export const STATUS_LABELS: Record<TransactionStatus, string> = {
 export const STATUS_COLORS: Record<TransactionStatus, string> = {
   PENDING: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
   VALIDATED: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+  PENDING_PAYMENT: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
   REJECTED: 'bg-red-500/15 text-red-400 border-red-500/30',
   PAID: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
   LOCKED: 'bg-gray-500/15 text-gray-400 border-gray-500/30',

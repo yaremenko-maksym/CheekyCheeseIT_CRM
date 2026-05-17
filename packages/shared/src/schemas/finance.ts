@@ -16,11 +16,12 @@ export const transactionTypeSchema = z.enum([
 export type TransactionType = z.infer<typeof transactionTypeSchema>
 
 export const transactionStatusSchema = z.enum([
-  'PENDING',   // Awaiting action
-  'VALIDATED', // Accountant/admin confirmed
-  'REJECTED',  // Accountant/admin rejected; senior must edit and resubmit
-  'PAID',      // Completed
-  'LOCKED',    // Junior salary locked until senior has validated income
+  'PENDING',         // Awaiting action
+  'VALIDATED',       // Accountant/admin confirmed
+  'PENDING_PAYMENT', // Senior created payout request, awaiting payment
+  'REJECTED',        // Accountant/admin rejected; senior must edit and resubmit
+  'PAID',            // Completed
+  'LOCKED',          // Junior salary locked until senior has validated income
 ])
 export type TransactionStatus = z.infer<typeof transactionStatusSchema>
 

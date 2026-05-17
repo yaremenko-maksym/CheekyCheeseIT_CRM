@@ -6,7 +6,7 @@
 
 ### Структура команды
 
-- 1 HR (владелец) + 1-N SENIOR + ACCOUNTANT (общий) + JUNIOR (производное состояние)
+- HR(ы) + SENIOR(ы) + ACCOUNTANT (общий) + JUNIOR (производное состояние)
 - JUNIOR в команде — **производное**: берётся из `project_members` WHERE `leftAt IS NULL` AND `project.seniorId` = синьор команды
 - JUNIOR не хранится в `team_members` напрямую
 - ADMIN исключён из всех команд (управляет, но не является членом)
@@ -29,9 +29,10 @@
 ## Таблицы БД
 
 ```sql
-teams: id, name, hrId, createdAt
+teams: id, name, createdAt
 team_members: id, teamId, userId, joinedAt
 -- Хранит только: HR, SENIOR, ACCOUNTANT. НЕ JUNIOR.
+-- "Своя команда" HR = команда где он есть в team_members
 ```
 
 ## Endpoints
