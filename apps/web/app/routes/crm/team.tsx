@@ -1,8 +1,8 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Check, Pencil, Plus, Trash2, UserMinus, UserPlus, Users } from 'lucide-react'
+import { Check, Pencil, Plus, Trash2, UserPlus, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
 import type { Value as PhoneValue } from 'react-phone-number-input'
@@ -500,8 +500,9 @@ function HrCreateSeniorDialog({
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 function TeamPage() {
-  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'])
+  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'])
   const { user } = useAuth()
+  const navigate = useNavigate()
   if (denied) return null
   const queryClient = useQueryClient()
 
@@ -514,6 +515,17 @@ function TeamPage() {
     queryFn: fetchTeams,
     enabled: !!user,
   })
+
+  // Auto-redirect for SENIOR and JUNIOR users who have only one team
+  useEffect(() => {
+    if (!teams || isLoading || !user) return
+    
+    if (user.role === 'SENIOR' || user.role === 'JUNIOR') {
+      if (teams.length === 1 && teams[0]) {
+        navigate({ to: '/crm/team/$teamId', params: { teamId: teams[0].id } })
+      }
+    }
+  }, [teams, isLoading, user, navigate])
 
   const { data: allUsers } = useQuery({
     queryKey: ['users'],
@@ -573,12 +585,6 @@ function TeamPage() {
     },
   })
 
-  // Remove member
-  const removeMemberMutation = useMutation({
-    mutationFn: ({ teamId, userId }: { teamId: string; userId: string }) =>
-      api.delete(`/teams/${teamId}/members/${userId}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['teams'] }),
-  })
 
   const availableUsers = allUsers?.filter(
     (u) => !addMemberTeam?.members.some((m) => m.userId === u.id),
@@ -637,10 +643,20 @@ function TeamPage() {
       >
         {teams?.map((team) => (
           <motion.div key={team.id} variants={item}>
-            <Card className="flex flex-col">
-              <CardHeader className="flex flex-row items-start justify-between gap-2 pb-3">
-                <div className="min-w-0">
-                  <CardTitle className="truncate text-base">{team.name}</CardTitle>
+            <Card className="group relative flex flex-col overflow-hidden transition-all duration-200 hover:shadow-lg hover:shadow-primary/5 cursor-pointer">
+              {/* Clickable overlay */}
+              <Link
+                to="/crm/team/$teamId"
+                params={{ teamId: team.id }}
+                className="absolute inset-0 z-10"
+                title={`Перейти к команде ${team.name}`}
+              />
+              
+              <CardHeader className="relative z-20 flex flex-row items-start justify-between gap-2 pb-3">
+                <div className="min-w-0 flex-1">
+                  <CardTitle className="truncate text-base group-hover:text-primary transition-colors">
+                    {team.name}
+                  </CardTitle>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {team.members.filter((m) => m.role === 'HR').map((m) => m.displayName).join(', ') || 'Нет HR'}
                   </p>
@@ -650,8 +666,12 @@ function TeamPage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7"
-                      onClick={() => { setAddMemberTeam(team); setAddMemberUserId('') }}
+                      className="relative z-30 h-7 w-7"
+                      onClick={(e) => { 
+                        e.preventDefault() 
+                        setAddMemberTeam(team)
+                        setAddMemberUserId('') 
+                      }}
                       title="Добавить участника"
                     >
                       <UserPlus className="h-3.5 w-3.5" />
@@ -659,8 +679,12 @@ function TeamPage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7"
-                      onClick={() => { setEditTeam(team); editForm.setFieldValue('name', team.name) }}
+                      className="relative z-30 h-7 w-7"
+                      onClick={(e) => { 
+                        e.preventDefault()
+                        setEditTeam(team)
+                        editForm.setFieldValue('name', team.name)
+                      }}
                       title="Переименовать"
                     >
                       <Pencil className="h-3.5 w-3.5" />
@@ -669,8 +693,11 @@ function TeamPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-destructive hover:text-destructive"
-                        onClick={() => setDeleteTeam(team)}
+                        className="relative z-30 h-7 w-7 text-destructive hover:text-destructive"
+                        onClick={(e) => { 
+                          e.preventDefault()
+                          setDeleteTeam(team)
+                        }}
                         title="Удалить команду"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -680,65 +707,69 @@ function TeamPage() {
                 )}
               </CardHeader>
 
-              <CardContent className="flex-1 space-y-2">
-                {team.members.length === 0 && (
-                  <p className="text-xs text-muted-foreground">Нет участников</p>
-                )}
-                {team.members.map((member) => (
-                  <div key={member.id} className="flex items-center gap-2.5">
-                    <Link
-                      to="/crm/users/$userId"
-                      params={{ userId: member.userId }}
-                      className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md hover:opacity-80 transition-opacity"
-                    >
-                      <Avatar className="h-7 w-7 shrink-0">
-                        {member.avatar && <AvatarImage src={member.avatar} alt={member.displayName} />}
-                        <AvatarFallback className="text-[10px]">
-                          {getInitials(member.displayName)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <p className="truncate text-sm font-medium leading-none">{member.displayName}</p>
-                    </Link>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <Badge variant={ROLE_VARIANT[member.role] ?? 'junior'} className="text-[10px]">
-                        {ROLE_LABELS[member.role] ?? member.role}
-                      </Badge>
-                      {member.techStack && (
-                        <Badge variant="outline" className="text-[9px] px-1 py-0 font-mono text-muted-foreground">
-                          {member.techStack}
-                        </Badge>
-                      )}
-                      {member.role === 'JUNIOR' && (
-                        <Badge variant="outline" className="text-[9px] px-1 py-0 text-muted-foreground">
-                          проект
-                        </Badge>
-                      )}
-                    </div>
-                    {canManage && (() => {
-                      const isSenior = member.role === 'SENIOR'
-                      const isJunior = member.role === 'JUNIOR'
-                      const isLastHr = member.role === 'HR' && team.members.filter((m) => m.role === 'HR').length <= 1
-                      const isLastAccountant = member.role === 'ACCOUNTANT' && team.members.filter((m) => m.role === 'ACCOUNTANT').length <= 1
-                      const isSelf = member.userId === user?.id
-                      // HR может удалить только себя; ADMIN может удалять всех кроме защищённых
-                      const canRemove = !isSenior && !isJunior && !isLastHr && !isLastAccountant &&
-                        (isAdmin ? true : isSelf)
-                      return canRemove ? (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
-                          onClick={() => removeMemberMutation.mutate({ teamId: team.id, userId: member.userId })}
-                          title="Исключить"
-                        >
-                          <UserMinus className="h-3 w-3" />
-                        </Button>
-                      ) : (
-                        <div className="h-6 w-6 shrink-0" />
-                      )
-                    })()}
+              <CardContent className="relative z-20 flex-1">
+                {team.members.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <Users className="h-8 w-8 text-muted-foreground/30" />
+                    <p className="mt-2 text-xs text-muted-foreground">Нет участников</p>
                   </div>
-                ))}
+                ) : (
+                  <div className="space-y-3">
+                    {/* Member avatars preview */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1">
+                        <div className="flex -space-x-2">
+                          {team.members.slice(0, 4).map((member, index) => (
+                            <Avatar 
+                              key={member.id} 
+                              className={`h-7 w-7 ring-2 ring-background ${index > 0 ? 'relative' : ''}`}
+                              style={{ zIndex: 4 - index }}
+                            >
+                              {member.avatar && <AvatarImage src={member.avatar} alt={member.displayName} />}
+                              <AvatarFallback className="text-[10px]">
+                                {getInitials(member.displayName)}
+                              </AvatarFallback>
+                            </Avatar>
+                          ))}
+                          {team.members.length > 4 && (
+                            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted ring-2 ring-background">
+                              <span className="text-[9px] font-medium text-muted-foreground">
+                                +{team.members.length - 4}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <Badge variant="outline" className="text-xs">
+                        {team.members.length} участник{team.members.length === 1 ? '' : team.members.length < 5 ? 'а' : 'ов'}
+                      </Badge>
+                    </div>
+
+                    {/* Role counts */}
+                    <div className="grid grid-cols-2 gap-2">
+                      {(['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'] as const).map(role => {
+                        const count = team.members.filter(m => m.role === role).length
+                        if (count === 0) return null
+                        return (
+                          <div key={role} className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground">{ROLE_LABELS[role]}</span>
+                            <Badge variant={ROLE_VARIANT[role]} className="text-[9px] px-1.5">
+                              {count}
+                            </Badge>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* Active projects placeholder */}
+                    <div className="pt-2 border-t border-border/50">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Активные проекты</span>
+                        <span>—</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </motion.div>

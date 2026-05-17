@@ -193,6 +193,242 @@ test.describe('Team page', () => {
   })
 
   // ---------------------------------------------------------------------------
+  // Team detail page
+  // ---------------------------------------------------------------------------
+
+  test.describe('Team detail page', () => {
+    test('renders team detail page with all sections', async ({ asAdmin: page }) => {
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+      
+      // Header with team name and back button
+      await expect(page.getByRole('heading', { level: 1 })).toContainText('Alpha Team')
+      await expect(page.getByTitle('Back').or(page.locator('[title*="назад"]').or(page.getByRole('button').filter({ has: page.locator('svg') }).first()))).toBeVisible()
+      await expect(page.getByText('Создана', { exact: false })).toBeVisible()
+      
+      // Main content - team members section
+      await expect(page.getByText('Участники команды')).toBeVisible()
+      await expect(page.getByText('HR Manager')).toBeVisible()
+      await expect(page.getByText('Senior Dev')).toBeVisible()
+      
+      // Sidebar - statistics
+      await expect(page.getByText('Статистика')).toBeVisible()
+      await expect(page.getByText('Всего участников')).toBeVisible()
+      await expect(page.getByText('Активность')).toBeVisible()
+    })
+
+    test('shows members grouped by role', async ({ asAdmin: page }) => {
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+      
+      // Check role sections are present
+      await expect(page.getByText('Синьор')).toBeVisible()
+      await expect(page.getByText('HR')).toBeVisible()
+      await expect(page.getByText('Бухгалтер')).toBeVisible()
+    })
+
+    test('back button navigates to team list', async ({ asAdmin: page }) => {
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+      
+      // Click back button (could be arrow icon)
+      await page.getByRole('button').filter({ has: page.locator('svg') }).first().click()
+      await expect(page).toHaveURL('/crm/team')
+    })
+
+    test('ADMIN sees management buttons on detail page', async ({ asAdmin: page }) => {
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+      await expect(page.getByText('Добавить участника')).toBeVisible()
+    })
+
+    test('SENIOR does not see management buttons on detail page', async ({ asSenior: page }) => {
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+      await expect(page.getByText('Добавить участника')).not.toBeVisible()
+    })
+
+    test('shows error state for non-existent team', async ({ page }) => {
+      await mockAuthAs(page, USERS.admin)
+      await page.route('**/api/teams/non-existent-id', (r) => 
+        r.fulfill({ status: 404, body: '{"message":"Team not found"}' })
+      )
+      
+      await page.goto('/crm/team/non-existent-id')
+      await expect(page.getByText('Команда не найдена')).toBeVisible()
+      await expect(page.getByText('Вернуться к списку')).toBeVisible()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Auto-redirect for SENIOR/JUNIOR
+  // ---------------------------------------------------------------------------
+
+  test.describe('Auto-redirect functionality', () => {
+    test('SENIOR with single team gets redirected to team detail', async ({ page }) => {
+      await mockAuthAs(page, USERS.senior)
+      await page.route('**/api/teams', (r) => 
+        r.fulfill({ 
+          status: 200, 
+          contentType: 'application/json', 
+          body: JSON.stringify([TEAMS[0]]) // Only one team
+        })
+      )
+      
+      await page.goto('/crm/team')
+      // Should auto-redirect to team detail
+      await expect(page).toHaveURL(`/crm/team/${TEAMS[0]!.id}`)
+    })
+
+    test('JUNIOR with single team gets redirected to team detail', async ({ page }) => {
+      await mockAuthAs(page, USERS.junior)
+      await page.route('**/api/teams', (r) => 
+        r.fulfill({ 
+          status: 200, 
+          contentType: 'application/json', 
+          body: JSON.stringify([TEAMS[0]]) // Only one team
+        })
+      )
+      
+      await page.goto('/crm/team')
+      // Should auto-redirect to team detail
+      await expect(page).toHaveURL(`/crm/team/${TEAMS[0]!.id}`)
+    })
+
+    test('ADMIN with single team does NOT get redirected (can manage)', async ({ asAdmin: page }) => {
+      await page.route('**/api/teams', (r) => 
+        r.fulfill({ 
+          status: 200, 
+          contentType: 'application/json', 
+          body: JSON.stringify([TEAMS[0]]) // Only one team
+        })
+      )
+      
+      await page.goto('/crm/team')
+      // Should stay on team list page
+      await expect(page).toHaveURL('/crm/team')
+      await expect(page.getByText('Alpha Team')).toBeVisible()
+    })
+
+    test('HR with single team does NOT get redirected (can manage)', async ({ asHr: page }) => {
+      await page.route('**/api/teams', (r) => 
+        r.fulfill({ 
+          status: 200, 
+          contentType: 'application/json', 
+          body: JSON.stringify([TEAMS[0]]) // Only one team
+        })
+      )
+      
+      await page.goto('/crm/team')
+      // Should stay on team list page
+      await expect(page).toHaveURL('/crm/team')
+      await expect(page.getByText('Alpha Team')).toBeVisible()
+    })
+
+    test('SENIOR with multiple teams does NOT get redirected', async ({ page }) => {
+      await mockAuthAs(page, USERS.senior)
+      // Multiple teams - no redirect
+      await page.goto('/crm/team')
+      await expect(page).toHaveURL('/crm/team')
+      await expect(page.getByText('Alpha Team')).toBeVisible()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // JUNIOR RBAC - filtered team member view
+  // ---------------------------------------------------------------------------
+
+  test.describe('JUNIOR RBAC', () => {
+    test('JUNIOR can access team list page (newly allowed)', async ({ asJunior: page }) => {
+      await page.goto('/crm/team')
+      await expect(page.getByText('Команда')).toBeVisible()
+      // Should not crash or redirect to login
+    })
+
+    test('JUNIOR can access team detail page (newly allowed)', async ({ asJunior: page }) => {
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+      await expect(page.getByText('Alpha Team')).toBeVisible()
+      await expect(page.getByText('Участники команды')).toBeVisible()
+    })
+
+    test('JUNIOR sees filtered member list (only themselves as JUNIOR)', async ({ page }) => {
+      // Mock team response where JUNIOR would see filtered results
+      await mockAuthAs(page, USERS.junior)
+      const teamWithFilteredJuniors = {
+        ...TEAMS[0],
+        members: [
+          ...TEAMS[0]!.members.filter(m => m.role !== 'JUNIOR'),
+          // Only the current JUNIOR should be visible
+          {
+            id: 'member-junior-current',
+            userId: USERS.junior.id,
+            displayName: USERS.junior.displayName,
+            email: USERS.junior.email,
+            avatar: USERS.junior.avatar,
+            role: 'JUNIOR',
+            techStack: USERS.junior.techStack,
+            joinedAt: '2024-01-10T00:00:00.000Z',
+          }
+        ]
+      }
+      
+      await page.route(`**/api/teams/${TEAMS[0]!.id}`, (r) => 
+        r.fulfill({ 
+          status: 200, 
+          contentType: 'application/json', 
+          body: JSON.stringify(teamWithFilteredJuniors)
+        })
+      )
+      
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+      
+      // Should see themselves
+      await expect(page.getByText('Junior Dev')).toBeVisible()
+      
+      // Should see other roles (HR, SENIOR, ACCOUNTANT)
+      await expect(page.getByText('HR Manager')).toBeVisible()
+      await expect(page.getByText('Senior Dev')).toBeVisible()
+      await expect(page.getByText('Accountant User')).toBeVisible()
+      
+      // NOTE: Can't easily test "other juniors not visible" without more complex mock setup
+      // The filtering happens server-side in TeamsService.mapTeam()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Clickable team cards with improved design
+  // ---------------------------------------------------------------------------
+
+  test.describe('Clickable team cards', () => {
+    test('team cards are clickable and navigate to detail page', async ({ asAdmin: page }) => {
+      await page.goto('/crm/team')
+      
+      // Click on the team card (new clickable overlay)
+      await page.getByText('Alpha Team').click()
+      await expect(page).toHaveURL(`/crm/team/${TEAMS[0]!.id}`)
+    })
+
+    test('management buttons work without triggering card click', async ({ asAdmin: page }) => {
+      await page.goto('/crm/team')
+      
+      // Clicking management buttons should not navigate
+      await page.getByTitle('Переименовать').click()
+      await expect(page.getByRole('dialog')).toBeVisible()
+      await expect(page).toHaveURL('/crm/team') // Still on list page
+    })
+
+    test('shows avatar cluster preview in team cards', async ({ asAdmin: page }) => {
+      await page.goto('/crm/team')
+      
+      // Check for avatar elements in the team card
+      const teamCard = page.getByText('Alpha Team').locator('..').locator('..')
+      await expect(teamCard.locator('img, [role="img"]')).toBeVisible() // Avatar images or fallbacks
+    })
+
+    test('shows member count badge in team cards', async ({ asAdmin: page }) => {
+      await page.goto('/crm/team')
+      
+      // Look for member count indicator (could be "4 участника" or similar)
+      await expect(page.getByText('участник', { exact: false })).toBeVisible()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
   // Edge cases
   // ---------------------------------------------------------------------------
 

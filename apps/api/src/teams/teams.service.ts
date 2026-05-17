@@ -27,7 +27,7 @@ type ProjectWithMembers = typeof projects.$inferSelect & {
 export class TeamsService {
   constructor(private db: DatabaseService) {}
 
-  private mapTeam(team: TeamWithMembers, allProjects: ProjectWithMembers[]) {
+  private mapTeam(team: TeamWithMembers, allProjects: ProjectWithMembers[], currentUser?: SessionUser) {
     const senior = team.members.find((m) => m.user?.role === 'SENIOR')
 
     const juniorMembers: Array<{
@@ -67,6 +67,12 @@ export class TeamsService {
       }
     }
 
+    // Filter out other JUNIORs if the current user is a JUNIOR
+    let filteredJuniorMembers = juniorMembers
+    if (currentUser?.role === 'JUNIOR') {
+      filteredJuniorMembers = juniorMembers.filter((j) => j.userId === currentUser.id)
+    }
+
     return {
       id: team.id,
       name: team.name,
@@ -85,7 +91,7 @@ export class TeamsService {
             role: m.user?.role ?? 'SENIOR',
             joinedAt: m.joinedAt,
           })),
-        ...juniorMembers,
+        ...filteredJuniorMembers,
       ],
     }
   }
@@ -146,7 +152,7 @@ export class TeamsService {
       })
     }
 
-    return filtered.map((t) => this.mapTeam(t, allProjects))
+    return filtered.map((t) => this.mapTeam(t, allProjects, currentUser))
   }
 
   async findOne(id: string, currentUser: SessionUser) {
@@ -158,8 +164,8 @@ export class TeamsService {
       this.fetchAllProjects(),
     ])
     if (!team) throw new NotFoundException('Team not found')
-    this.assertAccess(team, currentUser)
-    return this.mapTeam(team, allProjects)
+    this.assertAccess(team, currentUser, allProjects)
+    return this.mapTeam(team, allProjects, currentUser)
   }
 
   async update(id: string, name: string, currentUser: SessionUser) {
@@ -274,9 +280,22 @@ export class TeamsService {
       .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
   }
 
-  private assertAccess(team: TeamWithMembers, currentUser: SessionUser) {
+  private assertAccess(team: TeamWithMembers, currentUser: SessionUser, allProjects: ProjectWithMembers[]) {
     if (currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT') return
     if (team.members.some((m) => m.userId === currentUser.id)) return
+    
+    // For JUNIORs: check if they have an active project with this team's senior
+    if (currentUser.role === 'JUNIOR') {
+      const senior = team.members.find((m) => m.user?.role === 'SENIOR')
+      if (senior) {
+        const seniorProjects = allProjects.filter((p) => p.seniorId === senior.userId)
+        const hasActiveProjectWithSenior = seniorProjects.some((p) =>
+          p.members.some((m) => m.userId === currentUser.id && m.leftAt === null),
+        )
+        if (hasActiveProjectWithSenior) return
+      }
+    }
+    
     throw new ForbiddenException()
   }
 }
