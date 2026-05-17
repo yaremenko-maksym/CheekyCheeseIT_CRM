@@ -288,11 +288,16 @@ export async function mockAuthAs(
   await page.route(new RegExp(`${API}/teams/([^/?]+)/members`), (r) =>
     r.request().method() === 'DELETE' ? noContent(r) : jsonOk(r, TEAMS[0], 201),
   )
-  await page.route(new RegExp(`${API}/teams/([^/?]+)$`), (r) =>
-    r.request().method() === 'DELETE'
+  await page.route(new RegExp(`${API}/teams/([^/?]+)$`), (r) => {
+    const teamId = r.request().url().split('/').at(-1)
+    const team = TEAMS.find(t => t.id === teamId) || TEAMS[0]
+    
+    return r.request().method() === 'DELETE'
       ? noContent(r)
-      : jsonOk(r, { ...TEAMS[0], ...(JSON.parse(r.request().postData() ?? '{}') as object) }),
-  )
+      : r.request().method() === 'GET'
+      ? jsonOk(r, team)
+      : jsonOk(r, { ...team, ...(JSON.parse(r.request().postData() ?? '{}') as object) })
+  })
   await page.route(`${API}/teams`, (r) =>
     r.request().method() === 'POST'
       ? jsonOk(r, { ...TEAMS[0], id: 'new-team-id', name: 'New Team' }, 201)
