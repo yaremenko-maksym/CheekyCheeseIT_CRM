@@ -247,7 +247,7 @@ function HrCreateSeniorDialog({
       telegram: '',
       phone: '' as PhoneValue | '',
       techStack: '',
-      seniorSharePercent: 74 as number,
+      seniorSharePercent: 26 as number,
     },
     onSubmit: async ({ value }) => {
       const payload: CreateUserDto = {

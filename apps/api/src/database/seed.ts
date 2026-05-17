@@ -165,12 +165,12 @@ const SEED_TEAMS = [
   {
     name: 'Команда Oleksiy',
     seniorEmail: 'oleksiy.kovalenko@cheekycheese.dev',
-    juniorEmails: ['sofia.bondarenko@cheekycheese.dev'],
+    hrEmail: 'kateryna.shevchenko@cheekycheese.dev',
   },
   {
     name: 'Команда Dmytro',
     seniorEmail: 'dmytro.marchenko@cheekycheese.dev',
-    juniorEmails: ['ivan.petrenko@cheekycheese.dev'],
+    hrEmail: 'anna.lysenko@cheekycheese.dev',
   },
 ]
 
@@ -223,9 +223,12 @@ async function main() {
     const senior = byEmail[def.seniorEmail]
     if (!senior) { console.warn(`    ! senior ${def.seniorEmail} not found`); continue }
 
+    const hr = byEmail[def.hrEmail]
+    if (!hr) { console.warn(`    ! HR ${def.hrEmail} not found`); continue }
+
     const memberIds = [
       senior.id,
-      ...hrUsers.map((u) => u.id),
+      hr.id,
       ...accountantUsers.map((u) => u.id),
     ]
 

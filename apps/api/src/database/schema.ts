@@ -45,11 +45,12 @@ export const transactionTypeEnum = pgEnum('transaction_type', [
 ])
 
 export const transactionStatusEnum = pgEnum('transaction_status', [
-  'PENDING',    // Awaiting action (senior_income awaits validation; salary awaits payment)
-  'VALIDATED',  // Accountant/admin confirmed senior_income; senior can now create payout
-  'REJECTED',   // Accountant/admin rejected; senior must edit and resubmit
-  'PAID',       // Completed/paid
-  'LOCKED',     // Junior salary locked until senior has validated income for the month
+  'PENDING',         // Awaiting action (senior_income awaits validation; salary awaits payment)
+  'VALIDATED',       // Accountant/admin confirmed senior_income; senior can now create payout
+  'PENDING_PAYMENT', // Senior created payout request, awaiting payment
+  'REJECTED',        // Accountant/admin rejected; senior must edit and resubmit
+  'PAID',            // Completed/paid
+  'LOCKED',          // Junior salary locked until senior has validated income for the month
 ])
 
 export const payoutRequestStatusEnum = pgEnum('payout_request_status', [

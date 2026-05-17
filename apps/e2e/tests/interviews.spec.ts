@@ -45,7 +45,7 @@ test.describe('Interviews (Kanban) page', () => {
   test.describe('Board rendering', () => {
     test('renders all active stage columns including CLIENT_INTERVIEW', async ({ asSenior: page }) => {
       await page.goto('/crm/interviews')
-      for (const label of ['HR Screen', 'English', 'Tech', 'Final', 'Client']) {
+      for (const label of ['HR Screen', 'English', 'Tech', 'Final', 'Client', 'Offer']) {
         await expect(page.getByText(label, { exact: false }).first()).toBeVisible()
       }
     })
@@ -305,6 +305,40 @@ test.describe('Interviews (Kanban) page', () => {
       await page.getByTitle('Удалить карточку').click()
       await page.getByRole('button', { name: 'Удалить' }).last().click()
       await deleteReq
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // CLIENT_INTERVIEW Stage Tests - новый стейдж между FINAL_INTERVIEW и OFFER_RECEIVED
+  // -------------------------------------------------------------------------
+
+  test.describe('CLIENT_INTERVIEW stage', () => {
+    test('CLIENT_INTERVIEW stage column renders with correct label', async ({ asSenior: page }) => {
+      await page.goto('/crm/interviews')
+      await expect(page.getByText('Client', { exact: false }).first()).toBeVisible()
+    })
+
+    test('clicking "Client →" sends move request with CLIENT_INTERVIEW stage', async ({ asSenior: page }) => {
+      await page.goto('/crm/interviews')
+      await page.getByText('Acme Corp').first().click()
+
+      const moveReq = page.waitForRequest(
+        (req) => req.url().includes('/move') && req.method() === 'PATCH',
+      )
+
+      // Нажимаем кнопку для перехода к CLIENT_INTERVIEW
+      await page.getByRole('button', { name: /client/i }).click()
+      const req = await moveReq
+      expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ stage: 'CLIENT_INTERVIEW' })
+    })
+
+    test('CLIENT_INTERVIEW is in correct position in stage flow', async ({ asSenior: page }) => {
+      await page.goto('/crm/interviews')
+      // Проверяем правильный порядок колонок: Final → Client → Offer
+      const stageColumns = page.locator('[data-stage]')
+      await expect(stageColumns.filter({ hasText: 'Final' }).first()).toBeVisible()
+      await expect(stageColumns.filter({ hasText: 'Client' }).first()).toBeVisible()  
+      await expect(stageColumns.filter({ hasText: 'Offer' }).first()).toBeVisible()
     })
   })
 

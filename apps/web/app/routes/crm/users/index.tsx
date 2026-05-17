@@ -309,7 +309,7 @@ function CreateUserDialog({ open, onClose, hrOnly = false }: { open: boolean; on
       telegram: '',
       phone: '' as PhoneValue | '',
       techStack: '',
-      seniorSharePercent: 74 as number,
+      seniorSharePercent: 26 as number,
       projectId: '' as string,
       monthlySalary: '' as string,
     },
@@ -699,7 +699,7 @@ function EditUserDialog({ user, onClose }: { user: UserProfileDto | null; onClos
       telegram: user?.telegram ?? '',
       phone: ((user?.phone as PhoneValue | undefined) ?? '') as PhoneValue | '',
       techStack: user?.techStack ?? '',
-      seniorSharePercent: user?.seniorSharePercent ?? 74,
+      seniorSharePercent: user?.seniorSharePercent ?? 26,
       monthlySalary: user?.monthlySalary ?? '',
     },
     onSubmit: async ({ value }) => {
@@ -730,7 +730,7 @@ function EditUserDialog({ user, onClose }: { user: UserProfileDto | null; onClos
       form.setFieldValue('telegram', user.telegram ?? '')
       form.setFieldValue('phone', ((user.phone as PhoneValue | undefined) ?? '') as PhoneValue | '')
       form.setFieldValue('techStack', user.techStack ?? '')
-      form.setFieldValue('seniorSharePercent', user.seniorSharePercent ?? 74)
+      form.setFieldValue('seniorSharePercent', user.seniorSharePercent ?? 26)
       form.setFieldValue('monthlySalary', user.monthlySalary ?? '')
     }
   }, [user?.id])

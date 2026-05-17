@@ -208,7 +208,7 @@ pnpm --filter @crm/shared typecheck
 
 **DB схема (новые таблицы):**
 ```sql
-teams: id, name, hrId, createdAt
+teams: id, name, createdAt
 team_members: id, teamId, userId, joinedAt
 ```
 

@@ -14,9 +14,9 @@ HR ведёт переговоры с рекрутерами **от имени S
 ### Стейджи
 
 ```
-HR_SCREEN → ENGLISH_CHECK → TECH_INTERVIEW → FINAL_INTERVIEW → OFFER_RECEIVED
-                                                                    ↓
-                                                          HIRED | REJECTED | ARCHIVED
+HR_SCREEN → ENGLISH_CHECK → TECH_INTERVIEW → FINAL_INTERVIEW → CLIENT_INTERVIEW → OFFER_RECEIVED
+                                                                                         ↓
+                                                                             HIRED | REJECTED | ARCHIVED
 ```
 
 Терминальные стейджи — архив, не удаление.
@@ -40,7 +40,7 @@ interviews: id, seniorId, hrId, companyName, vacancyUrl, callUrl,
             stage, position, notes(json), corporateTech(json), createdAt, updatedAt
 ```
 
-stage enum: `HR_SCREEN | ENGLISH_CHECK | TECH_INTERVIEW | FINAL_INTERVIEW | OFFER_RECEIVED | HIRED | REJECTED | ARCHIVED`
+stage enum: `HR_SCREEN | ENGLISH_CHECK | TECH_INTERVIEW | FINAL_INTERVIEW | CLIENT_INTERVIEW | OFFER_RECEIVED | HIRED | REJECTED | ARCHIVED`
 
 ## Endpoints
 
@@ -48,7 +48,7 @@ stage enum: `HR_SCREEN | ENGLISH_CHECK | TECH_INTERVIEW | FINAL_INTERVIEW | OFFE
 GET    /api/interviews?seniorId=<uuid>   → доска (RBAC filtered)
 POST   /api/interviews                   → создать (HR, ADMIN)
 PATCH  /api/interviews/:id               → обновить данные
-POST   /api/interviews/:id/move          → переместить { stage, position }
+PATCH  /api/interviews/:id/move          → переместить { stage, position }
 DELETE /api/interviews/:id               → удалить (ADMIN only)
 ```
 

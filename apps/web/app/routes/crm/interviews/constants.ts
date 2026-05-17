@@ -6,6 +6,7 @@ export const ACTIVE_STAGES: InterviewStage[] = [
   'TECH_INTERVIEW',
   'FINAL_INTERVIEW',
   'CLIENT_INTERVIEW',
+  'OFFER_RECEIVED',
 ]
 
 export const TERMINAL_STAGES: InterviewStage[] = ['HIRED', 'REJECTED', 'ARCHIVED']
@@ -85,7 +86,7 @@ export const COLUMN_BG: Record<InterviewStage, string> = {
 }
 
 export const STAGE_ORDER: InterviewStage[] = [
-  'HR_SCREEN', 'ENGLISH_CHECK', 'TECH_INTERVIEW', 'FINAL_INTERVIEW', 'CLIENT_INTERVIEW',
+  'HR_SCREEN', 'ENGLISH_CHECK', 'TECH_INTERVIEW', 'FINAL_INTERVIEW', 'CLIENT_INTERVIEW', 'OFFER_RECEIVED',
   'HIRED', 'REJECTED', 'ARCHIVED',
 ]
 
