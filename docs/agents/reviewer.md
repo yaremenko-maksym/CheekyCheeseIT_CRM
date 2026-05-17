@@ -28,6 +28,24 @@ gh pr view <PR_NUMBER>
 
 Прочитать описание PR, связанный `docs/specs/active-task.md`.
 
+**ОБЯЗАТЕЛЬНО: прочитай каждый изменённый файл через `Read` инструмент.**
+Используй `mcp__github__get_pull_request_files` чтобы получить список, затем `Read` для каждого файла.
+Никогда не делай выводы о содержимом файлов не прочитав их — только на основе PR description или diff-заголовков можно ошибиться.
+Особенно критично проверять: схемы Zod (`packages/shared/src/schemas/`), seed (`apps/api/src/database/seed.ts`), сервисы (`apps/api/src/`), фронтенд константы (`apps/web/app/`).
+
+### Шаг 1.5: Прочитать каждый изменённый файл
+
+```
+mcp__github__get_pull_request_files → список файлов
+Read apps/api/src/database/schema.ts (если изменён)
+Read packages/shared/src/schemas/*.ts (если изменены)
+Read apps/api/src/database/seed.ts (если изменён)
+Read apps/api/src/finance/transactions.service.ts (если изменён)
+... и так далее для каждого изменённого файла
+```
+
+Только после чтения файлов переходи к чек-листу.
+
 ### Шаг 2: Структурный анализ через ast-grep
 
 Использовать `mcp__ast-grep__find_code` для проверки паттернов:
