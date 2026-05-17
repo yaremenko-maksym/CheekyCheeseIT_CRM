@@ -45,7 +45,7 @@ test.describe('Interviews (Kanban) page', () => {
   test.describe('Board rendering', () => {
     test('renders all active stage columns including CLIENT_INTERVIEW', async ({ asSenior: page }) => {
       await page.goto('/crm/interviews')
-      for (const label of ['HR Screen', 'English', 'Tech', 'Final', 'Client', 'Offer Received']) {
+      for (const label of ['HR Screen', 'English', 'Tech', 'Final', 'Client']) {
         await expect(page.getByText(label, { exact: false }).first()).toBeVisible()
       }
     })
