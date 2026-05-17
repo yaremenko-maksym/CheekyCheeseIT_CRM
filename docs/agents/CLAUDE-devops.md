@@ -14,10 +14,11 @@
 
 ## claude-code-action@beta — критичные правила
 
-- Поддерживает ТОЛЬКО `workflow_dispatch` и `pull_request` события (`push` → ошибка)
-- `mode: agent` обязателен для `workflow_dispatch` (иначе "Tag mode cannot handle workflow_dispatch")
-- `github_token: ${{ github.token }}` обязателен на всех Claude шагах
-- `allowed_bots: '*'` нужен чтобы бот-PR'ы тоже триггерили ревью
+- Надійний тригер: ТІЛЬКИ `workflow_dispatch`. `pull_request` з типами `ready_for_review` або `labeled` дає "No trigger found, skipping" — Claude не запускається
+- `mode: agent` обов'язковий для `workflow_dispatch`
+- `github_token: ${{ github.token }}` обов'язковий на всіх Claude кроках
+- `allowed_bots: '*'` потрібен щоб бот-PR'и теж тригерили ревью
+- **workflow_dispatch inputs: тільки `string`, `boolean`, `choice`, `environment`** — `type: number` є невалідним і GitHub не реєструє dispatch тригер (HTTP 422 на `gh workflow run`)
 
 ## GitHub Secrets (обязательные)
 
