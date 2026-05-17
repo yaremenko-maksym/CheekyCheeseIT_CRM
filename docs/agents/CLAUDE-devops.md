@@ -27,10 +27,17 @@
 ## Branch Protection (main)
 
 - Требует PR для merge
-- Required checks: только "Typecheck · Lint · Unit Tests" (ci.yml job)
+- Required checks: **НЕТ** — убраны (см. ниже почему)
 - Required reviews: УБРАНЫ (AI Review pipeline является review)
-- `strict: false` — PR не обязан быть актуальным с main перед merge
 - Прямой push в main: разрешён только для bootstrap (CI pipeline fixes)
+
+### Почему нет required status checks
+
+`workflow_dispatch` runs (triggered by merge job for CI verification) НЕ удовлетворяют branch protection required checks.
+Только `pull_request`/`push` events создают "approved" check runs для branch protection.
+Но bot-pushes (`GITHUB_TOKEN`) не триггерят `pull_request: synchronize` (GitHub anti-loop protection).
+
+**Решение:** убрать required checks из branch protection. Merge job сам верифицирует CI (`quality=success`) перед merge — это эквивалентная защита через pipeline, а не через branch protection.
 
 ## Concurrency паттерн
 
