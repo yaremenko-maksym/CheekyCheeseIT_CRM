@@ -437,13 +437,48 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Update branch and merge PR
+      - name: Ensure CI passed, then merge
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           PR="${{ github.event.pull_request.number || inputs.pr_number }}"
-          # Dismiss any stale CHANGES_REQUESTED reviews so they don't block merge
           REPO="${{ github.repository }}"
+
+          # Get current PR head SHA and branch
+          HEAD_SHA=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq '.headRefOid')
+          BRANCH=$(gh pr view "$PR" --repo "$REPO" --json headRefName --jq '.headRefName')
+
+          # Check if required CI check already passed for current HEAD
+          check_ci() {
+            gh api "repos/${REPO}/commits/${HEAD_SHA}/check-runs" \
+              --jq '[.check_runs[] | select(.name == "Typecheck · Lint · Unit Tests")] | first | .conclusion // empty' 2>/dev/null
+          }
+
+          CI_STATUS=$(check_ci)
+          if [ "$CI_STATUS" != "success" ]; then
+            echo "CI not passing (status: ${CI_STATUS:-absent}) for HEAD ${HEAD_SHA}. Triggering ci.yml on branch $BRANCH..."
+            gh workflow run ci.yml --repo "$REPO" --ref "$BRANCH"
+            sleep 15
+            for i in $(seq 1 40); do
+              CI_STATUS=$(check_ci)
+              echo "Attempt $i/40: CI status=${CI_STATUS:-pending}"
+              if [ "$CI_STATUS" = "success" ]; then break; fi
+              if [ "$CI_STATUS" = "failure" ] || [ "$CI_STATUS" = "cancelled" ]; then
+                echo "CI failed with status: $CI_STATUS"
+                exit 1
+              fi
+              sleep 15
+            done
+          fi
+
+          if [ "$CI_STATUS" != "success" ]; then
+            echo "CI did not complete in time (last status: ${CI_STATUS:-absent})"
+            exit 1
+          fi
+
+          echo "CI passed. Dismissing stale reviews and merging..."
+
+          # Dismiss any stale CHANGES_REQUESTED reviews so they don't block merge
           gh api "repos/${REPO}/pulls/${PR}/reviews" \
             --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | .[].id' | \
           while read -r REVIEW_ID; do
@@ -451,9 +486,9 @@ jobs:
               --method PUT \
               --field message="Superseded by approved AI review" 2>/dev/null || true
           done
-          # Allow GitHub to process updates before merging
-          sleep 10
-          gh pr merge "$PR" --squash --repo ${{ github.repository }}
+
+          sleep 5
+          gh pr merge "$PR" --squash --repo "$REPO"
 
   # ─────────────────────────────────────────────
   # Job 5: Trigger Coder on REQUEST_CHANGES
