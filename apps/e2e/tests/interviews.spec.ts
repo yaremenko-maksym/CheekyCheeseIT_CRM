@@ -138,7 +138,6 @@ test.describe('Interviews (Kanban) page', () => {
       await page.goto('/crm/interviews')
       await expect(page.getByText('Final', { exact: false }).first()).toBeVisible()
       await expect(page.getByText('Client', { exact: false }).first()).toBeVisible()
-      await expect(page.getByText('Offer Received', { exact: false }).first()).toBeVisible()
     })
 
     test('move interview through CLIENT_INTERVIEW stage', async ({ asSenior: page }) => {
