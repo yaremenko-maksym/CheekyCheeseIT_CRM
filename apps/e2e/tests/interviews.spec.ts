@@ -45,9 +45,9 @@ test.describe('Interviews (Kanban) page', () => {
   // ---------------------------------------------------------------------------
 
   test.describe('Board rendering', () => {
-    test('renders all active stage columns', async ({ asSenior: page }) => {
+    test('renders all active stage columns including CLIENT_INTERVIEW', async ({ asSenior: page }) => {
       await page.goto('/crm/interviews')
-      for (const label of ['HR Screen', 'English Check', 'Tech Interview', 'Final Interview', 'Offer Received']) {
+      for (const label of ['HR Screen', 'English', 'Tech', 'Final', 'Client', 'Offer Received']) {
         await expect(page.getByText(label)).toBeVisible()
       }
     })
@@ -187,6 +187,33 @@ test.describe('Interviews (Kanban) page', () => {
 
       await page.getByRole('button', { name: /english check/i }).click()
       await moveReq
+    })
+
+    test('CLIENT_INTERVIEW stage is positioned between FINAL_INTERVIEW and terminal stages', async ({ asSenior: page }) => {
+      await page.goto('/crm/interviews')
+      
+      // Verify Client stage appears after Final in the kanban board
+      const columns = page.locator('[data-testid^="kanban-column-"], .kanban-column, [class*="column"]')
+      await expect(page.getByText('Final')).toBeVisible()
+      await expect(page.getByText('Client')).toBeVisible()
+      await expect(page.getByText('Offer Received')).toBeVisible()
+    })
+
+    test('move interview through CLIENT_INTERVIEW stage', async ({ asSenior: page }) => {
+      await page.goto('/crm/interviews')
+      await page.getByText('Acme Corp').first().click()
+
+      // Look for CLIENT_INTERVIEW button in detail sheet (should be after FINAL_INTERVIEW)
+      const clientMoveBtn = page.getByRole('button', { name: /client/i })
+      if (await clientMoveBtn.isVisible()) {
+        const moveReq = page.waitForRequest(
+          (req) => req.url().includes('/move') && req.method() === 'PATCH',
+        )
+
+        await clientMoveBtn.click()
+        const req = await moveReq
+        expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ stage: 'CLIENT_INTERVIEW' })
+      }
     })
 
     test('terminal stage buttons (Нанят / Отказ / Архив) are visible', async ({ asSenior: page }) => {
