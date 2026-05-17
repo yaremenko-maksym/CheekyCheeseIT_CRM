@@ -95,10 +95,51 @@ refusing to allow a GitHub App to create or update workflow without `workflows` 
 reviewer    → outputs: approved, needs_qa, review_state
 qa          → runs if qa-task.md exists
 autotest    → runs if reviewer + qa approved
-merge       → update-branch + squash merge if autotest succeeded
+merge       → squash merge if autotest succeeded (NO update-branch — it invalidates CI)
 trigger_coder → runs if reviewer == CHANGES_REQUESTED or autotest failed
                → пишет active-task.md + gh workflow run coder.yml
 ```
+
+## Критичные правила для reviewer/autotest jobs (workflow_dispatch)
+
+**Проблема:** `actions/checkout@v4` без `ref:` при `workflow_dispatch` checkout-ит main, не PR ветку.
+**Решение:** Обе jobs (reviewer, autotest) начинают с шага "Get PR head ref":
+
+```yaml
+- name: Get PR head ref
+  id: pr_head
+  env:
+    GH_TOKEN: ${{ github.token }}
+  run: |
+    if [ -n "${{ github.event.pull_request.head.ref }}" ]; then
+      echo "ref=${{ github.event.pull_request.head.ref }}" >> $GITHUB_OUTPUT
+    else
+      REF=$(gh pr view "${{ inputs.pr_number }}" \
+        --repo ${{ github.repository }} \
+        --json headRefName --jq '.headRefName')
+      echo "ref=${REF}" >> $GITHUB_OUTPUT
+    fi
+- uses: actions/checkout@v4
+  with:
+    ref: ${{ steps.pr_head.outputs.ref }}
+    fetch-depth: 0
+```
+
+Для reviewer: `headRefOid` вместо `headRefName` (checkout by SHA для read-only review).
+
+## Merge job — правила
+
+- **НЕ использовать `gh pr update-branch`** — создаёт новый коммит, инвалидирует CI проверку
+- Dismiss CHANGES_REQUESTED reviews перед merge
+- `strict: false` в branch protection — PR не обязан быть актуальным с main
+- Required review НЕ нужен (убран из branch protection — AI Review pipeline является review)
+- Required CI check: только "Typecheck · Lint · Unit Tests"
+
+## github-actions[bot] — ограничения на reviews
+
+- Bot с CHANGES_REQUESTED не может APPROVE ту же PR без предварительного dismiss
+- **Решение:** шаг "Dismiss stale CHANGES_REQUESTED reviews" перед Claude Code Review
+- `dismiss_stale_reviews` в branch protection должен быть отключён (или убрать required reviews)
 
 ## Git workflow DevOps агента
 
