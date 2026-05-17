@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
     inputs:
       pr_number:
-        description: 'PR number'
+        description: 'PR number to review (e.g. 8)'
         required: true
-        type: number
+        type: string
 
 concurrency:
   # Separate groups for workflow_dispatch vs pull_request so a branch-sync push
