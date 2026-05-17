@@ -61,10 +61,16 @@ jobs:
             Прочитай docs/agents/CLAUDE-reviewer.md — архитектурные решения и ограничения проекта.
 
             Проверь изменения этого PR по чек-листу из docs/agents/reviewer.md.
-            Создай GitHub PR Review (APPROVE или REQUEST_CHANGES) через GitHub MCP.
 
-            Затем выполни Шаг 5 из docs/agents/reviewer.md:
-            реши нужно ли QA-тестирование и если да — создай файл qa-task.md.
+            ОБЯЗАТЕЛЬНЫЙ шаг — вызови mcp__github__create_pull_request_review:
+            - event: "APPROVE" если нет критичных нарушений
+            - event: "REQUEST_CHANGES" если есть хотя бы одно критичное нарушение
+            - body: полный текст review со всеми найденными проблемами
+            Bash недоступен — только MCP вызов. Без этого вызова review не появится в GitHub.
+
+            После review выполни Шаг 5 из docs/agents/reviewer.md:
+            - При APPROVE: создай пустой файл autotest-approved.flag (Write инструмент)
+            - Реши нужно ли QA-тестирование и если да — создай файл qa-task.md
 
             PR: ${{ github.event.pull_request.number || inputs.pr_number }}
             Repo: ${{ github.repository }}
