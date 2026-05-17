@@ -1,83 +1,114 @@
-# Рефактор страницы Команды — Team Page Refactor
+# Fix: 45 падаючих E2E тестів — розблокувати main
 
-## Что делать
+## Пріоритет: КРИТИЧНИЙ
 
-Реализовать полный рефактор страниц `/crm/team` (список) и `/crm/team/:id` (детальная).  
-Полный план с кодом по каждому шагу: **`docs/superpowers/plans/2026-05-17-team-page-refactor.md`**  
-Дизайн-спека: **`docs/superpowers/specs/2026-05-17-team-page-refactor-design.md`**
+Issue #12 `e2e-broken` блокує весь AI Review pipeline. Поки він відкритий — жодний PR не пройде review.
+**Після мержу цього фіксу до main** — CI запустить E2E, issue #12 закриється автоматично.
 
-Следуй плану task-by-task. Не пропускай тесты.
+## Як доставити
 
----
+**Пушити напряму в `main`** — це CI fix, дозволено згідно CLAUDE-devops.md.
+НЕ створювати PR — AI Review відхилить його через `e2e-broken` блокування.
 
-## Branch
+Якщо пушити напряму небезпечно (сумніваєшся) — відкрий PR БЕЗ label `ai-review-ready`.
+
+## Failing run
+
+https://github.com/yaremenko-maksym/CheekyCheeseIT_CRM/actions/runs/25999866477
+
+## 45 тестів, які падають
+
+### 1. `tests/finance.spec.ts:635` (1 тест)
+```
+Finance — PENDING_PAYMENT status › ADMIN: може редактировать PENDING_PAYMENT транзакцию
+Error: getByTitle('Редактировать').first() → element not found
+```
+Кнопка редагування відсутня або змінила title/структуру для PENDING_PAYMENT статусу.
+
+### 2. `tests/finance-senior-flow.spec.ts:157` (1 тест)
+```
+SENIOR INCOME — шаг 1 › SENIOR не може створити транзакцію без чека — показується помилка
+```
+Можливо змінився selector або текст помилки валідації.
+
+### 3. `tests/interviews.spec.ts` (17 тестів — ВСІ разом)
+Падають від першого тесту (рядок 17): `JUNIOR sees "Нет доступа" message`
+Якщо перший тест падає — це або:
+- Змінився текст "Нет доступа" на сторінці
+- JUNIOR тепер має доступ (не повинен)
+- Сторінка не завантажується (routing issue)
+
+Перевір: `apps/web/app/routes/crm/interviews/` — що рендериться для JUNIOR.
+Також перевір чи `CLIENT_INTERVIEW` stage правильно рендериться в kanban (кнопка "Client →").
+
+### 4. `tests/navigation.spec.ts:156` (3 тести — JUNIOR sidebar)
+```
+JUNIOR sidebar navigation › sidebar → Команда stays in CRM
+JUNIOR sidebar navigation › sidebar → Проекты stays in CRM
+JUNIOR sidebar navigation › sidebar → Финансы stays in CRM
+```
+Тести перевіряють heading `/команд/i` на сторінці `/crm/team`.
+**Причина**: PR #11 додав авто-redirect JUNIOR → `/crm/team/:id`, де heading = назва команди, НЕ "Команда".
+**Фікс**: Оновити тест — перевіряти що URL містить `/crm/team` (не точний match) та що НЕ logout.
+
+### 5. `tests/projects.spec.ts` (4 тести)
+```
+Projects page › Rendering › HR sees create button
+Projects page › Close and reopen project › ADMIN can close an active project
+Projects page › Project metadata fields › create dialog shows new metadata fields
+Projects page › Edge cases › JUNIOR sees projects but no management controls
+```
+Перевір `apps/web/app/routes/crm/projects/` — можливо змінились селектори кнопок або тексти.
+
+### 6. `tests/team.spec.ts` (11 тестів)
+```
+Team page › Read-only view › renders team list with correct name and members
+Team page › Remove member › ADMIN can remove a non-protected member
+Team page › Team detail page › renders team detail page with all sections
+Team page › Team detail page › shows members grouped by role
+Team page › Team detail page › back button navigates to team list
+Team page › Team detail page › ADMIN sees management buttons on detail page
+Team page › Team detail page › shows error state for non-existent team
+Team page › JUNIOR RBAC › JUNIOR can access team detail page (newly allowed)
+Team page › JUNIOR RBAC › JUNIOR sees filtered member list (only themselves as JUNIOR)
+Team page › Clickable team cards › team cards are clickable and navigate to detail page
+Team page › Clickable team cards › shows avatar cluster preview in team cards
+```
+Ці тести написані для функціоналу з PR #11. Перевір поточну реалізацію `apps/web/app/routes/crm/team/$teamId.tsx` та `index.tsx` — можливо selectors не збігаються.
+
+### 7. `tests/users.spec.ts` (8 тестів)
+```
+Users management page › Access control › SENIOR sees "Доступ только для администратора"
+Users management page › Access control › HR can access users page
+Users management page › Access control › JUNIOR sees access denied
+Users management page › Create SENIOR — team assignment › (4 тести)
+```
+Перевір `apps/web/app/routes/crm/users/` — текст access denied, структура create dialog.
+
+## Алгоритм роботи
+
+1. Для кожного failing test — прочитай тест ТА відповідний компонент/роут
+2. Знайди розбіжність: що тест очікує vs що реально рендерується
+3. Виправ **тест** (не продакшн код, якщо поведінка правильна) або **продакшн код** (якщо баг)
+4. `pnpm typecheck && pnpm lint` — 0 помилок
+5. Закомить конкретними файлами
+6. Пушь напряму в `main`: `git push origin main`
+
+## Файли для читання (стартова точка)
 
 ```
-feat/team-page-refactor
-```
+apps/e2e/tests/finance.spec.ts          (рядок 630-638)
+apps/e2e/tests/finance-senior-flow.spec.ts (рядок 150-165)
+apps/e2e/tests/interviews.spec.ts       (рядок 1-30, 110-220)
+apps/e2e/tests/navigation.spec.ts       (рядок 151-170)
+apps/e2e/tests/projects.spec.ts         (рядки що падають)
+apps/e2e/tests/team.spec.ts             (рядки що падають)
+apps/e2e/tests/users.spec.ts            (рядки що падають)
 
----
-
-## Acceptance Criteria (обязательно проверить перед PR)
-
-- [ ] `pnpm typecheck` — 0 ошибок
-- [ ] `pnpm lint` — 0 ошибок (предупреждения допустимы)
-- [ ] `pnpm test` — все тесты проходят
-- [ ] SENIOR/JUNIOR при открытии `/crm/team` → редирект на `/crm/team/:id`
-- [ ] JUNIOR на detail-странице не видит других JUNIOR
-- [ ] JUNIOR не видит дату создания и Telegram-ссылку
-- [ ] Кнопка "+ Добавить участника" на detail-странице открывает диалог и добавляет
-- [ ] Кнопка [✕] на участнике открывает подтверждение и удаляет
-- [ ] "Редактировать" открывает диалог с полями Название + Telegram URL
-- [ ] PATCH /api/teams/:id сохраняет `telegramGroupUrl`
-- [ ] Карточки на list-странице кликабельны, нет inline-кнопок Edit/AddMember
-- [ ] ADMIN видит кнопку Delete на list-карточке
-- [ ] Дублирование ROLE_LABELS/ROLE_VARIANT/getInitials устранено (один файл)
-- [ ] index.tsx < 250 строк, $teamId.tsx < 200 строк
-
----
-
-## Файлы которые затронет задача
-
-### Новые файлы
-```
-apps/web/app/lib/team-constants.ts
-apps/web/app/routes/crm/team/components/TeamCard.tsx
-apps/web/app/routes/crm/team/components/MemberRow.tsx
-apps/web/app/routes/crm/team/components/CreateSeniorDialog.tsx
-apps/web/app/routes/crm/team/components/AddMemberDialog.tsx
-apps/web/app/routes/crm/team/components/EditTeamDialog.tsx
-apps/web/app/routes/crm/team/components/DeleteTeamDialog.tsx
-apps/api/drizzle/migrations/0012_*.sql
-```
-
-### Изменённые файлы
-```
-apps/web/app/routes/crm/team/index.tsx
 apps/web/app/routes/crm/team/$teamId.tsx
-packages/shared/src/schemas/teams.ts
-packages/shared/src/schemas/teams.spec.ts
-apps/api/src/database/schema.ts
-apps/api/src/teams/teams.service.ts
-apps/api/src/teams/teams.service.spec.ts
-apps/api/src/teams/teams.controller.ts
+apps/web/app/routes/crm/team/index.tsx  (або team.tsx)
+apps/web/app/routes/crm/interviews/
+apps/web/app/routes/crm/projects/
+apps/web/app/routes/crm/users/
+apps/web/app/routes/crm/finance/
 ```
-
----
-
-## Важные технические детали
-
-- **Миграция**: `pnpm --filter @crm/api drizzle-kit generate` после правки schema.ts, потом `drizzle-kit migrate`
-- **JUNIOR**: фильтрация на фронте (`user.role === 'JUNIOR'`). Серверная фильтрация других JUNIOR уже реализована в `mapTeam()`
-- **canRemoveMember**: нельзя удалять SENIOR (только через удаление команды), последнего HR, последнего ACCOUNTANT, любого JUNIOR
-- **EditTeamDialog**: синхронизировать поля через `useEffect([team?.id])`, НЕ в render-функции
-- **CreateSeniorDialog**: не использовать Avatar/AvatarFallback/AvatarImage/getInitials (их там нет)
-- **index.tsx**: файл `apps/web/app/routes/crm/team/index.tsx` уже существует (новый, пустой) — это он, не удалять
-- **Удалить**: `apps/web/app/routes/crm/team.tsx` (перемещён в `team/index.tsx` в PR #11 — проверь git status)
-
----
-
-## После реализации
-
-1. `pnpm typecheck && pnpm lint && pnpm test` — всё зелёное
-2. Создай PR с label `ai-review-ready`
