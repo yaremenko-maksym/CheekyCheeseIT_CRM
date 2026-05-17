@@ -29,6 +29,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ github.token }}
 
       - name: Configure git
         run: |
@@ -45,6 +46,7 @@ jobs:
             Ты — DevOps-агент для CRM Cheeky Cheese IT.
 
             Прочитай docs/agents/devops.md — это твой полный системный промпт.
+            Прочитай docs/agents/CLAUDE-devops.md — архитектура пайплайна, concurrency, secrets.
             Прочитай docs/specs/active-devops-task.md — это твоя текущая задача.
 
             Реализуй задачу согласно инструкциям в docs/agents/devops.md:

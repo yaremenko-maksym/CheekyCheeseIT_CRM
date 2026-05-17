@@ -58,7 +58,7 @@ jobs:
             Ты — Reviewer-агент для CRM Cheeky Cheese IT.
 
             Прочитай docs/agents/reviewer.md — это твой полный системный промпт и чек-лист.
-            Также прочитай .clauderules и CLAUDE.md (раздел "Ключевые технические заметки").
+            Прочитай docs/agents/CLAUDE-reviewer.md — архитектурные решения и ограничения проекта.
 
             Проверь изменения этого PR по чек-листу из docs/agents/reviewer.md.
             Создай GitHub PR Review (APPROVE или REQUEST_CHANGES) через GitHub MCP.
@@ -243,6 +243,7 @@ jobs:
             Ты — QA Manual Tester для CRM Cheeky Cheese IT.
 
             Прочитай docs/agents/qa.md — это твой полный системный промпт.
+            Прочитай docs/agents/CLAUDE-qa.md — seed пользователи, порты, RBAC матрица.
             Прочитай qa-task.md — это задача от Reviewer агента с конкретными флоу для тестирования.
 
             Приложение запущено:
@@ -338,6 +339,7 @@ jobs:
             Ты — AutoTest-агент для CRM Cheeky Cheese IT.
 
             Прочитай docs/agents/autotest.md — это твой полный системный промпт.
+            Прочитай docs/agents/CLAUDE-autotest.md — структура тестов, паттерны.
             Работай в РЕЖИМЕ 1: PR Post-Approval.
 
             Reviewer (и QA если запускался) уже проверили и одобрили этот PR.
