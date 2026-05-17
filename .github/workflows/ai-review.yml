@@ -388,9 +388,13 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Merge PR
+      - name: Update branch and merge PR
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           PR="${{ github.event.pull_request.number || inputs.pr_number }}"
+          # Bring PR branch current with base (fails gracefully if already up to date)
+          gh pr update-branch "$PR" --repo ${{ github.repository }} 2>/dev/null || true
+          # Allow GitHub to process the branch update before merging
+          sleep 10
           gh pr merge "$PR" --squash --repo ${{ github.repository }}
