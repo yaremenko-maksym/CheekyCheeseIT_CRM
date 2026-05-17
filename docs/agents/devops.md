@@ -8,7 +8,7 @@
 
 1. `docs/specs/active-devops-task.md` — **ТЕКУЩАЯ ЗАДАЧА** от BA-агента
 2. `/.clauderules` — раздел "DevOps & Environment"
-3. `/CLAUDE.md` — раздел "Ключевые ограничения версий" и "Команды"
+3. `docs/agents/CLAUDE-devops.md` — архитектура пайплайна, secrets, concurrency паттерны
 4. `.github/workflows/` — существующие CI workflows
 
 ## Workflow выполнения задачи
