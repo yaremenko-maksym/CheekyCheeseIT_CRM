@@ -151,6 +151,13 @@ function ProjectsPage() {
       rate: '' as unknown as number,
       currency: 'USDT' as 'USDT' | 'USD' | 'EUR' | 'UAH',
       startDate: new Date().toISOString().slice(0, 10),
+      techStack: '',
+      teamSize: '',
+      benefits: '',
+      paymentType: '',
+      salaryReview: '',
+      corpTech: '',
+      notesGeneral: '',
     },
     onSubmit: async ({ value }) => {
       createMutation.mutate({
@@ -162,6 +169,13 @@ function ProjectsPage() {
         rate: Number(value.rate),
         currency: value.currency,
         startDate: new Date(value.startDate).toISOString(),
+        techStack: value.techStack.trim() || null,
+        teamSize: value.teamSize.trim() || null,
+        benefits: value.benefits.trim() || null,
+        paymentType: value.paymentType.trim() || null,
+        salaryReview: value.salaryReview.trim() || null,
+        corpTech: value.corpTech.trim() || null,
+        notesGeneral: value.notesGeneral.trim() || null,
       })
     },
   })
@@ -480,6 +494,59 @@ function ProjectsPage() {
                 </div>
               )}
             </createForm.Field>
+
+            <div className="border-t border-border pt-3 space-y-3">
+              {(
+                [
+                  'techStack',
+                  'teamSize',
+                  'benefits',
+                  'paymentType',
+                  'salaryReview',
+                  'corpTech',
+                ] as const
+              ).map((fieldName) => {
+                const labels: Record<string, string> = {
+                  techStack: 'Стек технологий',
+                  teamSize: 'Состав команды',
+                  benefits: 'Бенефиты',
+                  paymentType: 'Тип оплаты',
+                  salaryReview: 'Пересмотр ЗП',
+                  corpTech: 'Корп. технологии',
+                }
+                return (
+                  <createForm.Field key={fieldName} name={fieldName}>
+                    {(field: AnyField) => (
+                      <div className="space-y-1.5">
+                        <Label>{labels[fieldName]}</Label>
+                        <Input
+                          value={field.state.value as string}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                            field.handleChange(e.target.value)
+                          }
+                          placeholder=""
+                        />
+                      </div>
+                    )}
+                  </createForm.Field>
+                )
+              })}
+              <createForm.Field name="notesGeneral">
+                {(field: AnyField) => (
+                  <div className="space-y-1.5">
+                    <Label>Общие заметки</Label>
+                    <textarea
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring min-h-20 resize-y"
+                      value={field.state.value as string}
+                      onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                        field.handleChange(e.target.value)
+                      }
+                      placeholder=""
+                    />
+                  </div>
+                )}
+              </createForm.Field>
+            </div>
           </div>
           </CrmDialogBody>
           <CrmDialogFooter>
