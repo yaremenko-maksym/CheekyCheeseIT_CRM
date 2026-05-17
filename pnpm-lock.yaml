@@ -7,10 +7,12 @@ importers:
 
   .:
     specifiers:
+      husky: ^9.1.7
       prettier: ^3.4.0
       turbo: ^2.9.0
       typescript: ^5.8.0
     devDependencies:
+      husky: 9.1.7
       prettier: 3.8.3
       turbo: 2.9.6
       typescript: 5.9.3
@@ -6144,6 +6146,12 @@ packages:
 
   /html-escaper/2.0.2:
     resolution: {integrity: sha512-H2iMtd0I4Mt5eYiapRdIDjp+XzelXQ0tFE4JS7YFwFevXXMmOp9myNrUvCg0D6ws8iqkRPBfKHgbwig1SmlLfg==}
+    dev: true
+
+  /husky/9.1.7:
+    resolution: {integrity: sha512-5gs5ytaNjBrh5Ow3zrvdUUY+0VxIuWVL4i9irt6friV+BqdCfmV11CQTWMiBYWHbXhco+J1kHfTOUkePhCDvMA==}
+    engines: {node: '>=18'}
+    hasBin: true
     dev: true
 
   /iconv-lite/0.7.2:

@@ -10,9 +10,11 @@
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "test": "turbo test",
-    "clean": "turbo clean"
+    "clean": "turbo clean",
+    "prepare": "husky"
   },
   "devDependencies": {
+    "husky": "^9.1.7",
     "prettier": "^3.4.0",
     "turbo": "^2.9.0",
     "typescript": "^5.8.0"
