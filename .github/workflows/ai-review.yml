@@ -142,7 +142,7 @@ jobs:
           REPO="${{ github.repository }}"
           MARKER="<!-- ai-review-pipeline-status -->"
           if [ -f autotest-logic-error.flag ]; then
-            AT="❌ Logic error — BA notified + Coder triggered"
+            AT="❌ Logic error — see review comment · BA + user decide next step"
             CR="—"
             MG="—"
           else
@@ -489,9 +489,9 @@ jobs:
           fi
 
   # ─────────────────────────────────────────────
-  # Job 4: Trigger Coder on REQUEST_CHANGES
-  # Runs if AutoTest found logic error OR Reviewer gave CHANGES_REQUESTED.
-  # Verifies a real CHANGES_REQUESTED review exists before triggering.
+  # Job 4: Trigger Coder on Reviewer REQUEST_CHANGES
+  # Runs ONLY if Reviewer gave CHANGES_REQUESTED (code/style issues).
+  # AutoTest logic errors → PR comment only; BA + user decide manually.
   # Commits active-task.md to the PR branch (not main — branch protection blocks that).
   # ─────────────────────────────────────────────
   trigger_coder:
@@ -500,10 +500,8 @@ jobs:
     needs: [autotest, reviewer]
     if: |
       always() &&
-      (
-        needs.autotest.result == 'failure' ||
-        needs.reviewer.outputs.approved != 'true'
-      )
+      needs.autotest.result == 'success' &&
+      needs.reviewer.outputs.approved != 'true'
     permissions:
       contents: write
       actions: write

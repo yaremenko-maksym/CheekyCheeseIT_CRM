@@ -51,12 +51,12 @@ concurrency:
 ## ai-review.yml — архитектура jobs (актуально)
 
 ```
-autotest      → пишет E2E тесты ДО ревью; при logic error → trigger_coder (без BA issue)
+autotest      → пишет E2E тесты ДО ревью; при logic error → REQUEST_CHANGES review + PR comment → стоп (BA + user решают вручную)
 reviewer      → runs if autotest succeeded; Check E2E health (блокирует если e2e-broken)
               → outputs: approved, review_state
 merge         → squash merge if reviewer approved; triggers ci.yml and polls only Quality check
                → НЕ ждёт E2E Tests (нет такого job'а в ci.yml пока)
-trigger_coder → runs if autotest failed OR reviewer == CHANGES_REQUESTED
+trigger_coder → runs ONLY if reviewer == CHANGES_REQUESTED (autotest failure НЕ тригерит)
                → git fetch/checkout PR branch, пишет active-task.md, push в PR ветку
                → gh workflow run coder.yml
 ```
