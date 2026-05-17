@@ -1,7 +1,6 @@
 name: AI Review
 
-# Triggered only when label 'ai-review-ready' is added or PR becomes ready_for_review
-# Controls cost: we pay for AI only when the author signals the code is ready.
+# Triggered when PR is marked ready_for_review or via manual dispatch.
 on:
   pull_request:
     types: [ready_for_review]
@@ -13,156 +12,19 @@ on:
         type: string
 
 concurrency:
-  # Separate groups for workflow_dispatch vs pull_request so a branch-sync push
-  # cannot cancel an actively-running manual trigger (and vice-versa).
   group: ai-review-${{ github.event.pull_request.number || inputs.pr_number }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
   # ─────────────────────────────────────────────
-  # Job 1: Code Review (no infrastructure needed)
-  # Fast: ~4-6 min. No services, no build.
-  # Decides whether QA testing is needed via qa-task.md artifact.
-  # ─────────────────────────────────────────────
-  reviewer:
-    name: Code Review
-    runs-on: ubuntu-latest
-    if: |
-      github.event.pull_request.draft == false &&
-      (
-        github.event_name == 'workflow_dispatch' ||
-        contains(github.event.pull_request.labels.*.name, 'ai-review-ready')
-      )
-    permissions:
-      contents: read
-      pull-requests: write
-      id-token: write   # required for claude_code_oauth_token OIDC auth
-
-    outputs:
-      approved: ${{ steps.check_approved.outputs.approved }}
-      review_state: ${{ steps.check_approved.outputs.review_state }}
-
-    steps:
-      - name: Get PR head SHA
-        id: pr_head
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ -n "${{ github.event.pull_request.head.sha }}" ]; then
-            echo "sha=${{ github.event.pull_request.head.sha }}" >> $GITHUB_OUTPUT
-          else
-            SHA=$(gh pr view "${{ inputs.pr_number }}" \
-              --repo ${{ github.repository }} \
-              --json headRefOid --jq '.headRefOid')
-            echo "sha=${SHA}" >> $GITHUB_OUTPUT
-          fi
-
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ steps.pr_head.outputs.sha }}
-          fetch-depth: 0  # full history for diff context
-
-      - name: Check E2E health on main
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          REPO="${{ github.repository }}"
-          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
-          BROKEN=$(gh issue list --repo "$REPO" \
-            --label "e2e-broken" --state open \
-            --json number --jq '.[0].number // empty')
-          if [ -n "$BROKEN" ]; then
-            gh pr comment "$PR" --repo "$REPO" \
-              --body "🚨 **E2E тесты на \`main\` сломаны** (issue #${BROKEN}).
-
-Согласно правилу команды, новые задачи ставятся на паузу до восстановления E2E.
-AI Review не запущен. Сначала исправьте E2E — PR с фиксом тестов принимается вне очереди."
-            exit 1
-          fi
-
-      - name: Dismiss stale CHANGES_REQUESTED reviews
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
-          REPO="${{ github.repository }}"
-          # Dismiss any CHANGES_REQUESTED reviews from github-actions[bot] so
-          # the reviewer can freely submit APPROVE on the current commit.
-          gh api "repos/${REPO}/pulls/${PR}/reviews" \
-            --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | .[].id' | \
-          while read -r REVIEW_ID; do
-            gh api "repos/${REPO}/pulls/${PR}/reviews/${REVIEW_ID}/dismissals" \
-              --method PUT \
-              --field message="Starting fresh review cycle — previous findings may be resolved" \
-              2>/dev/null || true
-          done
-
-      - name: Claude Code Review
-        uses: anthropics/claude-code-action@beta
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ github.token }}
-          allowed_bots: '*'
-          mode: agent
-          direct_prompt: |
-            Ты — Reviewer-агент для CRM Cheeky Cheese IT.
-
-            Прочитай docs/agents/reviewer.md — это твой полный системный промпт и чек-лист.
-            Прочитай docs/agents/CLAUDE-reviewer.md — архитектурные решения и ограничения проекта.
-
-            Проверь изменения этого PR по чек-листу из docs/agents/reviewer.md.
-
-            ОБЯЗАТЕЛЬНЫЙ шаг — вызови mcp__github__create_pull_request_review:
-            - event: "APPROVE" если нет критичных нарушений
-            - event: "REQUEST_CHANGES" если есть хотя бы одно критичное нарушение
-            - body: полный текст review со всеми найденными проблемами
-            Bash недоступен — только MCP вызов. Без этого вызова review не появится в GitHub.
-
-            После review выполни Шаг 5 из docs/agents/reviewer.md:
-            - При APPROVE: создай пустой файл autotest-approved.flag (Write инструмент)
-
-            PR: ${{ github.event.pull_request.number || inputs.pr_number }}
-            Repo: ${{ github.repository }}
-          allowed_tools: |
-            Read
-            Write
-            mcp__ast-grep__find_code
-            mcp__ast-grep__find_code_by_rule
-            mcp__github__get_pull_request
-            mcp__github__get_pull_request_files
-            mcp__github__create_pull_request_review
-            mcp__github__add_issue_comment
-            mcp__context7__resolve-library-id
-            mcp__context7__query-docs
-
-      - name: Check reviewer decision
-        id: check_approved
-        if: always()
-        run: |
-          if [ -f autotest-approved.flag ]; then
-            echo "approved=true" >> $GITHUB_OUTPUT
-            echo "review_state=APPROVED" >> $GITHUB_OUTPUT
-            echo "Reviewer APPROVED — AutoTest may run"
-          else
-            echo "approved=false" >> $GITHUB_OUTPUT
-            echo "review_state=CHANGES_REQUESTED" >> $GITHUB_OUTPUT
-            echo "Reviewer REQUEST_CHANGES — AutoTest will not run"
-          fi
-
-  # ─────────────────────────────────────────────
-  # Job 2: AutoTest (writes E2E tests post-approval)
-  # Runs ONLY after Reviewer approves.
-  # Fast: ~4-6 min. No services, no build — just Claude + git.
-  # E2E regression testing runs in ci.yml (deterministic, not AI).
-  # On logical error found: REQUEST_CHANGES → full cycle restarts.
+  # Job 1: AutoTest — writes E2E tests FIRST
+  # Runs before Code Review so reviewer can check both code + tests.
+  # If logical error found → fails → triggers Coder + BA escalation.
   # ─────────────────────────────────────────────
   autotest:
     name: AutoTest
     runs-on: ubuntu-latest
-    needs: [reviewer]
     if: |
-      always() &&
-      needs.reviewer.outputs.approved == 'true' &&
       github.event.pull_request.draft == false &&
       (
         github.event_name == 'workflow_dispatch' ||
@@ -171,7 +33,7 @@ AI Review не запущен. Сначала исправьте E2E — PR с �
     permissions:
       contents: write
       pull-requests: write
-      id-token: write   # required for claude_code_oauth_token OIDC auth
+      id-token: write
 
     steps:
       - name: Get PR head ref
@@ -211,9 +73,14 @@ AI Review не запущен. Сначала исправьте E2E — PR с �
             Прочитай docs/agents/CLAUDE-autotest.md — структура тестов, паттерны.
             Работай в РЕЖИМЕ 1: PR Post-Approval.
 
-            Reviewer (и QA если запускался) уже проверили и одобрили этот PR.
-            Твоя задача: написать E2E тесты для нового функционала который был одобрен.
-            Если найдена логическая ошибка — оставь REQUEST_CHANGES review (не коммить тесты).
+            Ты запускаешься ДО Code Review. Reviewer проверит и твои тесты тоже.
+
+            ЕСЛИ тесты написаны успешно: закоммить и запушь их в ветку PR.
+
+            ЕСЛИ найдена логическая ошибка в коде:
+            1. Оставь REQUEST_CHANGES review через mcp__github__create_pull_request_review
+            2. Создай пустой файл autotest-logic-error.flag (Write инструмент)
+            НЕ коммить тесты при логической ошибке.
 
             PR: ${{ github.event.pull_request.number || inputs.pr_number }}
             Repo: ${{ github.repository }}
@@ -228,19 +95,155 @@ AI Review не запущен. Сначала исправьте E2E — PR с �
             mcp__github__create_pull_request_review
             mcp__github__add_issue_comment
 
+      - name: Check AutoTest result
+        id: check_result
+        if: always()
+        run: |
+          if [ -f autotest-logic-error.flag ]; then
+            echo "AutoTest found logical error — signaling failure"
+            exit 1
+          fi
+          echo "AutoTest completed successfully"
+
+  # ─────────────────────────────────────────────
+  # Job 2: Code Review — reviews code + AutoTest's tests
+  # Runs ONLY after AutoTest succeeds (no logic errors).
+  # 1 APPROVE from reviewer is required for merge.
+  # ─────────────────────────────────────────────
+  reviewer:
+    name: Code Review
+    runs-on: ubuntu-latest
+    needs: [autotest]
+    if: |
+      always() &&
+      needs.autotest.result == 'success' &&
+      github.event.pull_request.draft == false &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'ai-review-ready')
+      )
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+
+    outputs:
+      approved: ${{ steps.check_approved.outputs.approved }}
+      review_state: ${{ steps.check_approved.outputs.review_state }}
+
+    steps:
+      - name: Get PR head ref (latest — includes AutoTest commits)
+        id: pr_head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "${{ github.event.pull_request.head.ref }}" ]; then
+            echo "ref=${{ github.event.pull_request.head.ref }}" >> $GITHUB_OUTPUT
+          else
+            REF=$(gh pr view "${{ inputs.pr_number }}" \
+              --repo ${{ github.repository }} \
+              --json headRefName --jq '.headRefName')
+            echo "ref=${REF}" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr_head.outputs.ref }}
+          fetch-depth: 0
+
+      - name: Check E2E health on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REPO="${{ github.repository }}"
+          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
+          BROKEN=$(gh issue list --repo "$REPO" \
+            --label "e2e-broken" --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$BROKEN" ]; then
+            gh pr comment "$PR" --repo "$REPO" \
+              --body "E2E на main сломаны (issue #${BROKEN}). AI Review не запущен — сначала исправьте E2E."
+            exit 1
+          fi
+
+      - name: Dismiss stale CHANGES_REQUESTED reviews
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
+          REPO="${{ github.repository }}"
+          gh api "repos/${REPO}/pulls/${PR}/reviews" \
+            --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | .[].id' | \
+          while read -r REVIEW_ID; do
+            gh api "repos/${REPO}/pulls/${PR}/reviews/${REVIEW_ID}/dismissals" \
+              --method PUT \
+              --field message="Starting fresh review cycle" \
+              2>/dev/null || true
+          done
+
+      - name: Claude Code Review
+        uses: anthropics/claude-code-action@beta
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          allowed_bots: '*'
+          mode: agent
+          direct_prompt: |
+            Ты — Reviewer-агент для CRM Cheeky Cheese IT.
+
+            Прочитай docs/agents/reviewer.md — полный системный промпт и чек-лист.
+            Прочитай docs/agents/CLAUDE-reviewer.md — архитектурные решения и ограничения.
+
+            Проверь изменения этого PR по чек-листу из docs/agents/reviewer.md.
+            ВАЖНО: AutoTest уже написал E2E тесты — проверь также apps/e2e/tests/.
+            Если тесты некорректны или не покрывают нужный функционал — укажи это в review.
+
+            ОБЯЗАТЕЛЬНЫЙ шаг — вызови mcp__github__create_pull_request_review:
+            - event: "APPROVE" если нет критичных нарушений (включая тесты)
+            - event: "REQUEST_CHANGES" если есть хотя бы одно критичное нарушение
+            - body: полный текст review со всеми найденными проблемами
+
+            После review, при APPROVE: создай пустой файл autotest-approved.flag (Write инструмент)
+
+            PR: ${{ github.event.pull_request.number || inputs.pr_number }}
+            Repo: ${{ github.repository }}
+          allowed_tools: |
+            Read
+            Write
+            mcp__ast-grep__find_code
+            mcp__ast-grep__find_code_by_rule
+            mcp__github__get_pull_request
+            mcp__github__get_pull_request_files
+            mcp__github__create_pull_request_review
+            mcp__github__add_issue_comment
+            mcp__context7__resolve-library-id
+            mcp__context7__query-docs
+
+      - name: Check reviewer decision
+        id: check_approved
+        if: always()
+        run: |
+          if [ -f autotest-approved.flag ]; then
+            echo "approved=true" >> $GITHUB_OUTPUT
+            echo "review_state=APPROVED" >> $GITHUB_OUTPUT
+            echo "Reviewer APPROVED — Merge may proceed"
+          else
+            echo "approved=false" >> $GITHUB_OUTPUT
+            echo "review_state=CHANGES_REQUESTED" >> $GITHUB_OUTPUT
+            echo "Reviewer REQUEST_CHANGES — Coder will be triggered"
+          fi
+
   # ─────────────────────────────────────────────
   # Job 3: Merge PR
-  # Runs ONLY after Reviewer + AutoTest approve.
-  # Squash-merges the PR so test files written by AutoTest are included.
+  # Requires: 1 APPROVE from Code Reviewer + CI + E2E passing.
   # ─────────────────────────────────────────────
   merge:
     name: Merge PR
     runs-on: ubuntu-latest
-    needs: [reviewer, autotest]
+    needs: [reviewer]
     if: |
       always() &&
       needs.reviewer.outputs.approved == 'true' &&
-      needs.autotest.result == 'success' &&
       (
         github.event_name == 'workflow_dispatch' ||
         contains(github.event.pull_request.labels.*.name, 'ai-review-ready')
@@ -270,7 +273,7 @@ AI Review не запущен. Сначала исправьте E2E — PR с �
           E2E=$(check_run "E2E Tests")
 
           if [ "$QUALITY" != "success" ] || [ "$E2E" != "success" ]; then
-            echo "Checks not passing — quality: ${QUALITY:-absent}, e2e: ${E2E:-absent}. Triggering ci.yml on $BRANCH..."
+            echo "Triggering ci.yml on $BRANCH (quality=${QUALITY:-absent} e2e=${E2E:-absent})..."
             gh workflow run ci.yml --repo "$REPO" --ref "$BRANCH"
             sleep 15
             for i in $(seq 1 60); do
@@ -289,13 +292,11 @@ AI Review не запущен. Сначала исправьте E2E — PR с �
           fi
 
           if [ "$QUALITY" != "success" ] || [ "$E2E" != "success" ]; then
-            echo "Checks did not complete in time — quality: ${QUALITY:-absent}, e2e: ${E2E:-absent}"
+            echo "Checks did not complete in time"
             exit 1
           fi
 
           echo "All checks passed. Dismissing stale reviews and merging..."
-
-          # Dismiss any stale CHANGES_REQUESTED reviews so they don't block merge
           gh api "repos/${REPO}/pulls/${PR}/reviews" \
             --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | .[].id' | \
           while read -r REVIEW_ID; do
@@ -308,19 +309,49 @@ AI Review не запущен. Сначала исправьте E2E — PR с �
           gh pr merge "$PR" --squash --repo "$REPO"
 
   # ─────────────────────────────────────────────
+  # Job 4: BA Escalation — AutoTest found logical error
+  # Creates GitHub issue for BA + user to decide next steps.
+  # ─────────────────────────────────────────────
+  ba_escalation:
+    name: BA Escalation
+    runs-on: ubuntu-latest
+    needs: [autotest]
+    if: |
+      always() &&
+      needs.autotest.result == 'failure'
+    permissions:
+      issues: write
+
+    steps:
+      - name: Create BA escalation issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
+          REPO="${{ github.repository }}"
+          PR_URL="https://github.com/${REPO}/pull/${PR}"
+          gh label create "needs-ba-action" --repo "$REPO" --color "e4e669" 2>/dev/null || true
+          gh label create "escalation" --repo "$REPO" --color "d93f0b" 2>/dev/null || true
+          gh issue create \
+            --repo "$REPO" \
+            --title "Логическая ошибка в PR #${PR} — требуется решение BA" \
+            --label "escalation,needs-ba-action" \
+            --body "AutoTest нашёл логическую ошибку в PR #${PR}. Coder получил задачу на исправление, но решение требует участия BA. PR: ${PR_URL}. BA читает review в PR, обсуждает с пользователем, обновляет docs/business/ при необходимости. После решения перезапустить: gh workflow run ai-review.yml -f pr_number=${PR}"
+
+  # ─────────────────────────────────────────────
   # Job 5: Trigger Coder on REQUEST_CHANGES
-  # Runs ONLY if reviewer or autotest has REQUEST_CHANGES or failure.
-  # Auto-creates active-task.md and triggers coder workflow.
+  # Runs if AutoTest found logic error OR Reviewer gave CHANGES_REQUESTED.
+  # Verifies a real CHANGES_REQUESTED review exists before triggering.
   # ─────────────────────────────────────────────
   trigger_coder:
     name: Trigger Coder
     runs-on: ubuntu-latest
-    needs: [reviewer, autotest]
+    needs: [autotest, reviewer]
     if: |
       always() &&
       (
-        needs.reviewer.outputs.approved != 'true' ||
-        needs.autotest.result == 'failure'
+        needs.autotest.result == 'failure' ||
+        needs.reviewer.outputs.approved != 'true'
       )
     permissions:
       contents: write
@@ -337,12 +368,11 @@ AI Review не запущен. Сначала исправьте E2E — PR с �
           PR="${{ github.event.pull_request.number || inputs.pr_number }}"
           echo "pr=$PR" >> $GITHUB_OUTPUT
 
-          # Count real CHANGES_REQUESTED reviews — if 0, Claude didn't actually run
           COUNT=$(gh api "repos/${{ github.repository }}/pulls/${PR}/reviews" \
             --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | length')
 
           if [ "$COUNT" = "0" ]; then
-            echo "No CHANGES_REQUESTED review found — Claude did not run (skipped trigger). Aborting Coder trigger."
+            echo "No CHANGES_REQUESTED review found — skipping Coder trigger."
             echo "has_review=false" >> $GITHUB_OUTPUT
             exit 0
           fi
@@ -358,30 +388,30 @@ AI Review не запущен. Сначала исправьте E2E — PR с �
 
       - name: Write active-task.md
         if: steps.review.outputs.has_review == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           PR="${{ steps.review.outputs.pr }}"
           BRANCH=$(gh pr view "$PR" --repo ${{ github.repository }} --json headRefName --jq '.headRefName')
           cat > docs/specs/active-task.md << TASK_EOF
-          # Fix PR #${PR} — Reviewer REQUEST_CHANGES
+          # Fix PR #${PR} — Review REQUEST_CHANGES
 
           ## Гілка для виправлення
           **НЕ створювати нову гілку.** Checkout і push в існуючу: \`${BRANCH}\`
           PR #${PR} автоматично підхопить новий коміт.
 
-          ## Findings від Reviewer
+          ## Findings від Review
 
           ${{ steps.review.outputs.body }}
 
           ## Алгоритм
           1. git fetch origin ${BRANCH} && git checkout ${BRANCH}
-          2. Виправити всі знайдені проблеми
+          2. Виправити всі знайдені проблеми (код або E2E тести)
           3. pnpm typecheck && pnpm lint
           4. Закоммітити конкретними файлами (не git add .)
           5. git push origin ${BRANCH}
           6. НЕ створювати новий PR — коміт йде в існуючий PR #${PR}
           TASK_EOF
-        env:
-          GH_TOKEN: ${{ github.token }}
 
       - name: Trigger Coder
         if: steps.review.outputs.has_review == 'true'
