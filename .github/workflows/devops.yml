@@ -1,0 +1,71 @@
+name: DevOps
+
+# Triggers when BA finalises an infra task (docs/specs/active-devops-task.md lands on main)
+# or manually via workflow_dispatch.
+on:
+  push:
+    paths:
+      - 'docs/specs/active-devops-task.md'
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      task_hint:
+        description: 'Optional: short hint for branch name (e.g. "add-devops-agent")'
+        required: false
+        type: string
+
+concurrency:
+  # Do NOT cancel in progress — infra changes are stateful, cancelling mid-run loses work
+  group: devops-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  implement:
+    name: Implement Infra Task
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write   # required for claude_code_oauth_token OIDC auth
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.email "devops-agent@github-actions"
+          git config user.name "DevOps Agent"
+
+      - name: Claude DevOps Agent
+        uses: anthropics/claude-code-action@beta
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          mode: agent
+          direct_prompt: |
+            Ты — DevOps-агент для CRM Cheeky Cheese IT.
+
+            Прочитай docs/agents/devops.md — это твой полный системный промпт.
+            Прочитай docs/specs/active-devops-task.md — это твоя текущая задача.
+
+            Реализуй задачу согласно инструкциям в docs/agents/devops.md:
+            1. Создай ветку infra/<slug-из-заголовка-active-devops-task>
+            2. Внеси все изменения в инфраструктурные файлы
+            3. Закоммить конкретными файлами (не git add .)
+            4. Создай PR через GitHub MCP и добавь label ai-review-ready
+
+            Repo: ${{ github.repository }}
+          allowed_tools: |
+            Read
+            Write
+            Edit
+            Bash
+            mcp__ast-grep__find_code
+            mcp__ast-grep__find_code_by_rule
+            mcp__github__create_pull_request
+            mcp__github__create_branch
+            mcp__github__get_pull_request
+            mcp__github__add_issue_comment
