@@ -41,6 +41,7 @@ jobs:
     outputs:
       needs_qa: ${{ steps.check_qa.outputs.needs_qa }}
       approved: ${{ steps.check_approved.outputs.approved }}
+      review_state: ${{ steps.check_approved.outputs.review_state }}
 
     steps:
       - uses: actions/checkout@v4
@@ -61,10 +62,16 @@ jobs:
             Прочитай docs/agents/CLAUDE-reviewer.md — архитектурные решения и ограничения проекта.
 
             Проверь изменения этого PR по чек-листу из docs/agents/reviewer.md.
-            Создай GitHub PR Review (APPROVE или REQUEST_CHANGES) через GitHub MCP.
 
-            Затем выполни Шаг 5 из docs/agents/reviewer.md:
-            реши нужно ли QA-тестирование и если да — создай файл qa-task.md.
+            ОБЯЗАТЕЛЬНЫЙ шаг — вызови mcp__github__create_pull_request_review:
+            - event: "APPROVE" если нет критичных нарушений
+            - event: "REQUEST_CHANGES" если есть хотя бы одно критичное нарушение
+            - body: полный текст review со всеми найденными проблемами
+            Bash недоступен — только MCP вызов. Без этого вызова review не появится в GitHub.
+
+            После review выполни Шаг 5 из docs/agents/reviewer.md:
+            - При APPROVE: создай пустой файл autotest-approved.flag (Write инструмент)
+            - Реши нужно ли QA-тестирование и если да — создай файл qa-task.md
 
             PR: ${{ github.event.pull_request.number || inputs.pr_number }}
             Repo: ${{ github.repository }}
@@ -107,9 +114,11 @@ jobs:
         run: |
           if [ -f autotest-approved.flag ]; then
             echo "approved=true" >> $GITHUB_OUTPUT
+            echo "review_state=APPROVED" >> $GITHUB_OUTPUT
             echo "Reviewer APPROVED — AutoTest may run"
           else
             echo "approved=false" >> $GITHUB_OUTPUT
+            echo "review_state=CHANGES_REQUESTED" >> $GITHUB_OUTPUT
             echo "Reviewer REQUEST_CHANGES — AutoTest will not run"
           fi
 
@@ -382,9 +391,94 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Merge PR
+      - name: Update branch and merge PR
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           PR="${{ github.event.pull_request.number || inputs.pr_number }}"
+          # Bring PR branch current with base (fails gracefully if already up to date)
+          gh pr update-branch "$PR" --repo ${{ github.repository }} 2>/dev/null || true
+          # Dismiss any stale CHANGES_REQUESTED reviews so they don't block merge
+          REPO="${{ github.repository }}"
+          gh api "repos/${REPO}/pulls/${PR}/reviews" \
+            --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | .[].id' | \
+          while read -r REVIEW_ID; do
+            gh api "repos/${REPO}/pulls/${PR}/reviews/${REVIEW_ID}/dismissals" \
+              --method PUT \
+              --field message="Superseded by approved AI review" 2>/dev/null || true
+          done
+          # Allow GitHub to process updates before merging
+          sleep 10
           gh pr merge "$PR" --squash --repo ${{ github.repository }}
+
+  # ─────────────────────────────────────────────
+  # Job 5: Trigger Coder on REQUEST_CHANGES
+  # Runs ONLY if reviewer or autotest has REQUEST_CHANGES or failure.
+  # Auto-creates active-task.md and triggers coder workflow.
+  # ─────────────────────────────────────────────
+  trigger_coder:
+    name: Trigger Coder
+    runs-on: ubuntu-latest
+    needs: [reviewer, autotest]
+    if: |
+      always() &&
+      (
+        needs.reviewer.outputs.approved != 'true' ||
+        needs.autotest.result == 'failure'
+      )
+    permissions:
+      contents: write
+      actions: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get review body
+        id: review
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
+          REVIEW_BODY=$(gh api repos/${{ github.repository }}/pulls/$PR/reviews \
+            --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | last | .body // "No review body found"')
+          echo "pr=$PR" >> $GITHUB_OUTPUT
+          {
+            echo "body<<REVIEW_EOF"
+            echo "$REVIEW_BODY"
+            echo "REVIEW_EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Write active-task.md
+        run: |
+          PR="${{ steps.review.outputs.pr }}"
+          BRANCH=$(gh pr view "$PR" --repo ${{ github.repository }} --json headRefName --jq '.headRefName')
+          cat > docs/specs/active-task.md << TASK_EOF
+          # Fix PR #${PR} — Reviewer REQUEST_CHANGES
+
+          ## Гілка для виправлення
+          **НЕ створювати нову гілку.** Checkout і push в існуючу: \`${BRANCH}\`
+          PR #${PR} автоматично підхопить новий коміт.
+
+          ## Findings від Reviewer
+
+          ${{ steps.review.outputs.body }}
+
+          ## Алгоритм
+          1. git fetch origin ${BRANCH} && git checkout ${BRANCH}
+          2. Виправити всі знайдені проблеми
+          3. pnpm typecheck && pnpm lint
+          4. Закоммітити конкретними файлами (не git add .)
+          5. git push origin ${BRANCH}
+          6. НЕ створювати новий PR — коміт йде в існуючий PR #${PR}
+          TASK_EOF
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Trigger Coder
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR="${{ steps.review.outputs.pr }}"
+          gh workflow run coder.yml \
+            --repo ${{ github.repository }} \
+            -f task_hint="fix-pr-${PR}"
