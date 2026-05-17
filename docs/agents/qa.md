@@ -82,6 +82,10 @@ browser_snapshot()  // ARIA snapshot для анализа DOM
 
 ### Шаг 4: Результат
 
+После создания review **записать решение** через `Write`:
+- **APPROVE** → создай пустой файл `qa-autotest-approved.flag`
+- **REQUEST_CHANGES** → файл не создавай
+
 #### Если всё прошло — APPROVE:
 
 ```
