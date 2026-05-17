@@ -422,29 +422,24 @@ jobs:
           }
 
           QUALITY=$(check_run "Typecheck · Lint · Unit Tests")
-          E2E=$(check_run "E2E Tests")
 
-          if [ "$QUALITY" != "success" ] || [ "$E2E" != "success" ]; then
-            echo "Triggering ci.yml on $BRANCH (quality=${QUALITY:-absent} e2e=${E2E:-absent})..."
+          if [ "$QUALITY" != "success" ]; then
+            echo "Triggering ci.yml on $BRANCH (quality=${QUALITY:-absent})..."
             gh workflow run ci.yml --repo "$REPO" --ref "$BRANCH"
             sleep 15
             for i in $(seq 1 60); do
               QUALITY=$(check_run "Typecheck · Lint · Unit Tests")
-              E2E=$(check_run "E2E Tests")
-              echo "Attempt $i/60: quality=${QUALITY:-pending} e2e=${E2E:-pending}"
-              if [ "$QUALITY" = "success" ] && [ "$E2E" = "success" ]; then break; fi
+              echo "Attempt $i/60: quality=${QUALITY:-pending}"
+              if [ "$QUALITY" = "success" ]; then break; fi
               if [ "$QUALITY" = "failure" ] || [ "$QUALITY" = "cancelled" ]; then
                 echo "Quality check failed: $QUALITY"; exit 1
-              fi
-              if [ "$E2E" = "failure" ] || [ "$E2E" = "cancelled" ]; then
-                echo "E2E check failed: $E2E"; exit 1
               fi
               sleep 15
             done
           fi
 
-          if [ "$QUALITY" != "success" ] || [ "$E2E" != "success" ]; then
-            echo "Checks did not complete in time"
+          if [ "$QUALITY" != "success" ]; then
+            echo "Quality checks did not complete in time"
             exit 1
           fi
 
@@ -527,7 +522,7 @@ jobs:
   # Job 5: Trigger Coder on REQUEST_CHANGES
   # Runs if AutoTest found logic error OR Reviewer gave CHANGES_REQUESTED.
   # Verifies a real CHANGES_REQUESTED review exists before triggering.
-  # Commits active-task.md to main so Coder reads the correct task.
+  # Commits active-task.md to the PR branch (not main — branch protection blocks that).
   # ─────────────────────────────────────────────
   trigger_coder:
     name: Trigger Coder
@@ -547,7 +542,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
           fetch-depth: 0
 
       - name: Configure git
@@ -588,6 +582,8 @@ jobs:
         run: |
           PR="${{ steps.review.outputs.pr }}"
           BRANCH=$(gh pr view "$PR" --repo ${{ github.repository }} --json headRefName --jq '.headRefName')
+          git fetch origin "${BRANCH}"
+          git checkout "${BRANCH}"
           cat > docs/specs/active-task.md << TASK_EOF
           # Fix PR #${PR} — Review REQUEST_CHANGES
 
@@ -610,7 +606,7 @@ jobs:
 
           git add docs/specs/active-task.md
           git commit -m "task: fix PR #${PR} — review changes requested"
-          git push origin main
+          git push origin "${BRANCH}"
 
       - name: Trigger Coder
         if: steps.review.outputs.has_review == 'true'

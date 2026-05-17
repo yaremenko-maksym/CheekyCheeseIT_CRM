@@ -44,18 +44,32 @@ concurrency:
 ## ai-review.yml — архитектура jobs (актуально)
 
 ```
-reviewer      → Check E2E health (блокирует если e2e-broken открыт)
+autotest      → пишет E2E тесты ДО ревью; при logic error → BA escalation + trigger_coder
+reviewer      → runs if autotest succeeded; Check E2E health (блокирует если e2e-broken)
               → outputs: approved, review_state
-autotest      → runs if reviewer approved
-merge         → squash merge if autotest succeeded (NO update-branch — it invalidates CI)
-trigger_coder → runs if reviewer == CHANGES_REQUESTED or autotest failed
-               → пишет active-task.md + gh workflow run coder.yml
+merge         → squash merge if reviewer approved; triggers ci.yml and polls only Quality check
+               → НЕ ждёт E2E Tests (нет такого job'а в ci.yml пока)
+trigger_coder → runs if autotest failed OR reviewer == CHANGES_REQUESTED
+               → git fetch/checkout PR branch, пишет active-task.md, push в PR ветку
+               → gh workflow run coder.yml
 ```
 
 ## Флаги между jobs
 
-- `autotest-approved.flag` — reviewer создаёт при APPROVE → запускает autotest
+- `autotest-logic-error.flag` — AutoTest создаёт при логической ошибке → autotest.result = failure
+- `autotest-approved.flag` — Reviewer создаёт при APPROVE → разрешает merge
 - Флаги создаются через Write tool в Claude шагах
+
+## trigger_coder — critical rule
+
+**Нельзя пушить в main из GITHUB_TOKEN** — branch protection блокирует.
+Решение: trigger_coder checkout'ит без `ref` (детачится на HEAD), затем `git fetch origin "${BRANCH}" && git checkout "${BRANCH}"`, пишет `docs/specs/active-task.md`, пушит в `${BRANCH}` (PR ветку).
+Coder workflow читает active-task.md из PR ветки.
+
+## merge job — только Quality check, не E2E
+
+`ci.yml` имеет только один job: `Typecheck · Lint · Unit Tests`.
+Merge job ждёт только его. Когда добавят E2E job в ci.yml — добавить проверку сюда.
 
 ## E2E на main — правило "красного флага"
 
