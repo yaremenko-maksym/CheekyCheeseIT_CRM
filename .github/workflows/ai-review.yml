@@ -60,6 +60,32 @@ jobs:
           git config user.email "autotest-agent@github-actions"
           git config user.name "AutoTest Agent"
 
+      - name: Post pipeline status — AutoTest running
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
+          REPO="${{ github.repository }}"
+          MARKER="<!-- ai-review-pipeline-status -->"
+          BODY=$(printf '%s\n' \
+            "${MARKER}" \
+            "## 🤖 AI Review Pipeline — PR #${PR}" \
+            "" \
+            "| Stage | Status |" \
+            "|-------|--------|" \
+            "| 🔬 AutoTest | 🔄 Running... |" \
+            "| 👁️ Code Review | ⏳ Waiting |" \
+            "| 🚀 Auto-merge | ⏳ Waiting |")
+          CID=$(gh api "repos/${REPO}/issues/${PR}/comments" \
+            --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | first | .id // empty" 2>/dev/null)
+          if [ -z "$CID" ]; then
+            jq -n --arg b "${BODY}" '{"body":$b}' | \
+              gh api "repos/${REPO}/issues/${PR}/comments" --method POST --input - 2>/dev/null || true
+          else
+            jq -n --arg b "${BODY}" '{"body":$b}' | \
+              gh api "repos/${REPO}/issues/comments/${CID}" --method PATCH --input - 2>/dev/null || true
+          fi
+
       - name: Claude AutoTest
         uses: anthropics/claude-code-action@beta
         with:
@@ -100,10 +126,48 @@ jobs:
         if: always()
         run: |
           if [ -f autotest-logic-error.flag ]; then
+            echo "logic_error=true" >> $GITHUB_OUTPUT
             echo "AutoTest found logical error — signaling failure"
             exit 1
           fi
+          echo "logic_error=false" >> $GITHUB_OUTPUT
           echo "AutoTest completed successfully"
+
+      - name: Update pipeline status — AutoTest result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
+          REPO="${{ github.repository }}"
+          MARKER="<!-- ai-review-pipeline-status -->"
+          if [ -f autotest-logic-error.flag ]; then
+            AT="❌ Logic error — BA notified + Coder triggered"
+            CR="—"
+            MG="—"
+          else
+            AT="✅ Tests written"
+            CR="⏳ Waiting"
+            MG="⏳ Waiting"
+          fi
+          BODY=$(printf '%s\n' \
+            "${MARKER}" \
+            "## 🤖 AI Review Pipeline — PR #${PR}" \
+            "" \
+            "| Stage | Status |" \
+            "|-------|--------|" \
+            "| 🔬 AutoTest | ${AT} |" \
+            "| 👁️ Code Review | ${CR} |" \
+            "| 🚀 Auto-merge | ${MG} |")
+          CID=$(gh api "repos/${REPO}/issues/${PR}/comments" \
+            --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | first | .id // empty" 2>/dev/null)
+          if [ -z "$CID" ]; then
+            jq -n --arg b "${BODY}" '{"body":$b}' | \
+              gh api "repos/${REPO}/issues/${PR}/comments" --method POST --input - 2>/dev/null || true
+          else
+            jq -n --arg b "${BODY}" '{"body":$b}' | \
+              gh api "repos/${REPO}/issues/comments/${CID}" --method PATCH --input - 2>/dev/null || true
+          fi
 
   # ─────────────────────────────────────────────
   # Job 2: Code Review — reviews code + AutoTest's tests
@@ -150,6 +214,32 @@ jobs:
         with:
           ref: ${{ steps.pr_head.outputs.ref }}
           fetch-depth: 0
+
+      - name: Update pipeline status — Code Review running
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
+          REPO="${{ github.repository }}"
+          MARKER="<!-- ai-review-pipeline-status -->"
+          BODY=$(printf '%s\n' \
+            "${MARKER}" \
+            "## 🤖 AI Review Pipeline — PR #${PR}" \
+            "" \
+            "| Stage | Status |" \
+            "|-------|--------|" \
+            "| 🔬 AutoTest | ✅ Tests written |" \
+            "| 👁️ Code Review | 🔄 Running... |" \
+            "| 🚀 Auto-merge | ⏳ Waiting |")
+          CID=$(gh api "repos/${REPO}/issues/${PR}/comments" \
+            --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | first | .id // empty" 2>/dev/null)
+          if [ -z "$CID" ]; then
+            jq -n --arg b "${BODY}" '{"body":$b}' | \
+              gh api "repos/${REPO}/issues/${PR}/comments" --method POST --input - 2>/dev/null || true
+          else
+            jq -n --arg b "${BODY}" '{"body":$b}' | \
+              gh api "repos/${REPO}/issues/comments/${CID}" --method PATCH --input - 2>/dev/null || true
+          fi
 
       - name: Check E2E health on main
         env:
@@ -233,6 +323,40 @@ jobs:
             echo "Reviewer REQUEST_CHANGES — Coder will be triggered"
           fi
 
+      - name: Update pipeline status — Code Review result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
+          REPO="${{ github.repository }}"
+          MARKER="<!-- ai-review-pipeline-status -->"
+          if [ -f autotest-approved.flag ]; then
+            CR="✅ Approved"
+            MG="⏳ Waiting"
+          else
+            CR="❌ Changes requested — Coder triggered"
+            MG="—"
+          fi
+          BODY=$(printf '%s\n' \
+            "${MARKER}" \
+            "## 🤖 AI Review Pipeline — PR #${PR}" \
+            "" \
+            "| Stage | Status |" \
+            "|-------|--------|" \
+            "| 🔬 AutoTest | ✅ Tests written |" \
+            "| 👁️ Code Review | ${CR} |" \
+            "| 🚀 Auto-merge | ${MG} |")
+          CID=$(gh api "repos/${REPO}/issues/${PR}/comments" \
+            --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | first | .id // empty" 2>/dev/null)
+          if [ -z "$CID" ]; then
+            jq -n --arg b "${BODY}" '{"body":$b}' | \
+              gh api "repos/${REPO}/issues/${PR}/comments" --method POST --input - 2>/dev/null || true
+          else
+            jq -n --arg b "${BODY}" '{"body":$b}' | \
+              gh api "repos/${REPO}/issues/comments/${CID}" --method PATCH --input - 2>/dev/null || true
+          fi
+
   # ─────────────────────────────────────────────
   # Job 3: Merge PR
   # Requires: 1 APPROVE from Code Reviewer + CI + E2E passing.
@@ -253,7 +377,34 @@ jobs:
       pull-requests: write
 
     steps:
+      - name: Update pipeline status — Auto-merge running
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
+          REPO="${{ github.repository }}"
+          MARKER="<!-- ai-review-pipeline-status -->"
+          BODY=$(printf '%s\n' \
+            "${MARKER}" \
+            "## 🤖 AI Review Pipeline — PR #${PR}" \
+            "" \
+            "| Stage | Status |" \
+            "|-------|--------|" \
+            "| 🔬 AutoTest | ✅ Tests written |" \
+            "| 👁️ Code Review | ✅ Approved |" \
+            "| 🚀 Auto-merge | 🔄 Waiting for CI + E2E... |")
+          CID=$(gh api "repos/${REPO}/issues/${PR}/comments" \
+            --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | first | .id // empty" 2>/dev/null)
+          if [ -z "$CID" ]; then
+            jq -n --arg b "${BODY}" '{"body":$b}' | \
+              gh api "repos/${REPO}/issues/${PR}/comments" --method POST --input - 2>/dev/null || true
+          else
+            jq -n --arg b "${BODY}" '{"body":$b}' | \
+              gh api "repos/${REPO}/issues/comments/${CID}" --method PATCH --input - 2>/dev/null || true
+          fi
+
       - name: Ensure CI + E2E passed, then merge
+        id: do_merge
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -307,6 +458,39 @@ jobs:
 
           sleep 5
           gh pr merge "$PR" --squash --repo "$REPO"
+          echo "merged=true" >> $GITHUB_OUTPUT
+
+      - name: Update pipeline status — Merged
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
+          REPO="${{ github.repository }}"
+          MARKER="<!-- ai-review-pipeline-status -->"
+          if [ "${{ steps.do_merge.outputs.merged }}" = "true" ]; then
+            MG="✅ Squash-merged"
+          else
+            MG="❌ Merge failed — CI/E2E did not pass"
+          fi
+          BODY=$(printf '%s\n' \
+            "${MARKER}" \
+            "## 🤖 AI Review Pipeline — PR #${PR}" \
+            "" \
+            "| Stage | Status |" \
+            "|-------|--------|" \
+            "| 🔬 AutoTest | ✅ Tests written |" \
+            "| 👁️ Code Review | ✅ Approved |" \
+            "| 🚀 Auto-merge | ${MG} |")
+          CID=$(gh api "repos/${REPO}/issues/${PR}/comments" \
+            --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | first | .id // empty" 2>/dev/null)
+          if [ -z "$CID" ]; then
+            jq -n --arg b "${BODY}" '{"body":$b}' | \
+              gh api "repos/${REPO}/issues/${PR}/comments" --method POST --input - 2>/dev/null || true
+          else
+            jq -n --arg b "${BODY}" '{"body":$b}' | \
+              gh api "repos/${REPO}/issues/comments/${CID}" --method PATCH --input - 2>/dev/null || true
+          fi
 
   # ─────────────────────────────────────────────
   # Job 4: BA Escalation — AutoTest found logical error
@@ -342,6 +526,7 @@ jobs:
   # Job 5: Trigger Coder on REQUEST_CHANGES
   # Runs if AutoTest found logic error OR Reviewer gave CHANGES_REQUESTED.
   # Verifies a real CHANGES_REQUESTED review exists before triggering.
+  # Commits active-task.md to main so Coder reads the correct task.
   # ─────────────────────────────────────────────
   trigger_coder:
     name: Trigger Coder
@@ -356,9 +541,18 @@ jobs:
     permissions:
       contents: write
       actions: write
+      pull-requests: write
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.email "ci-pipeline@github-actions"
+          git config user.name "AI Review Pipeline"
 
       - name: Verify actual CHANGES_REQUESTED review exists
         id: review
@@ -386,7 +580,7 @@ jobs:
             echo "REVIEW_EOF"
           } >> $GITHUB_OUTPUT
 
-      - name: Write active-task.md
+      - name: Write and commit active-task.md
         if: steps.review.outputs.has_review == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -413,6 +607,10 @@ jobs:
           6. НЕ створювати новий PR — коміт йде в існуючий PR #${PR}
           TASK_EOF
 
+          git add docs/specs/active-task.md
+          git commit -m "task: fix PR #${PR} — review changes requested"
+          git push origin main
+
       - name: Trigger Coder
         if: steps.review.outputs.has_review == 'true'
         env:
@@ -422,3 +620,30 @@ jobs:
           gh workflow run coder.yml \
             --repo ${{ github.repository }} \
             -f task_hint="fix-pr-${PR}"
+
+      - name: Update pipeline status — Coder triggered
+        if: steps.review.outputs.has_review == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR="${{ steps.review.outputs.pr }}"
+          REPO="${{ github.repository }}"
+          MARKER="<!-- ai-review-pipeline-status -->"
+          BODY=$(printf '%s\n' \
+            "${MARKER}" \
+            "## 🤖 AI Review Pipeline — PR #${PR}" \
+            "" \
+            "| Stage | Status |" \
+            "|-------|--------|" \
+            "| 🔬 AutoTest | ✅ Tests written |" \
+            "| 👁️ Code Review | ❌ Changes requested |" \
+            "| 🚀 Auto-merge | 🔧 Coder triggered — will re-run on push |")
+          CID=$(gh api "repos/${REPO}/issues/${PR}/comments" \
+            --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | first | .id // empty" 2>/dev/null)
+          if [ -z "$CID" ]; then
+            jq -n --arg b "${BODY}" '{"body":$b}' | \
+              gh api "repos/${REPO}/issues/${PR}/comments" --method POST --input - 2>/dev/null || true
+          else
+            jq -n --arg b "${BODY}" '{"body":$b}' | \
+              gh api "repos/${REPO}/issues/comments/${CID}" --method PATCH --input - 2>/dev/null || true
+          fi
