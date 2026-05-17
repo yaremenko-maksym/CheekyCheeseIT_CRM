@@ -28,6 +28,24 @@ gh pr view <PR_NUMBER>
 
 Прочитать описание PR, связанный `docs/specs/active-task.md`.
 
+**ОБЯЗАТЕЛЬНО: прочитай каждый изменённый файл через `Read` инструмент.**
+Используй `mcp__github__get_pull_request_files` чтобы получить список, затем `Read` для каждого файла.
+Никогда не делай выводы о содержимом файлов не прочитав их — только на основе PR description или diff-заголовков можно ошибиться.
+Особенно критично проверять: схемы Zod (`packages/shared/src/schemas/`), seed (`apps/api/src/database/seed.ts`), сервисы (`apps/api/src/`), фронтенд константы (`apps/web/app/`).
+
+### Шаг 1.5: Прочитать каждый изменённый файл
+
+```
+mcp__github__get_pull_request_files → список файлов
+Read apps/api/src/database/schema.ts (если изменён)
+Read packages/shared/src/schemas/*.ts (если изменены)
+Read apps/api/src/database/seed.ts (если изменён)
+Read apps/api/src/finance/transactions.service.ts (если изменён)
+... и так далее для каждого изменённого файла
+```
+
+Только после чтения файлов переходи к чек-листу.
+
 ### Шаг 2: Структурный анализ через ast-grep
 
 Использовать `mcp__ast-grep__find_code` для проверки паттернов:
@@ -81,41 +99,35 @@ pattern: "@UseGuards(JwtGuard)"
 
 ### Шаг 4: Выдать review
 
+**ОБЯЗАТЕЛЬНО вызвать `mcp__github__create_pull_request_review`** — без этого вызова review не появится в GitHub. Не пиши анализ в текст, не используй bash — только MCP вызов.
+
 #### Если всё хорошо — APPROVE:
 
-```
-gh pr review <PR_NUMBER> --approve --body "
-✅ **Code Review: APPROVE**
-
-Код соответствует .clauderules. Архитектура верная, типобезопасность обеспечена.
-
-[опциональные мелкие комментарии как suggestions, не блокируют merge]
-"
+Вызови `mcp__github__create_pull_request_review` с параметрами:
+```json
+{
+  "owner": "<repo-owner>",
+  "repo": "<repo-name>",
+  "pull_number": <PR_NUMBER>,
+  "event": "APPROVE",
+  "body": "✅ **Code Review: APPROVE**\n\nКод соответствует .clauderules. Архитектура верная, типобезопасность обеспечена.\n\n[опциональные мелкие комментарии как suggestions, не блокируют merge]"
+}
 ```
 
 #### Если есть проблемы — REQUEST_CHANGES:
 
-```
-gh pr review <PR_NUMBER> --request-changes --body "
-❌ **Code Review: REQUEST CHANGES**
-
-## Критичные проблемы (блокируют merge)
-
-### 1. [Название проблемы]
-**Файл:** `apps/api/src/.../file.ts:42`
-**Проблема:** [что именно не так]
-**Решение:** [конкретный пример правильного кода]
-
-### 2. [Следующая проблема]
-...
-
-## Некритичные замечания
-
-- [файл:строка] — [замечание]
-"
+Вызови `mcp__github__create_pull_request_review` с параметрами:
+```json
+{
+  "owner": "<repo-owner>",
+  "repo": "<repo-name>",
+  "pull_number": <PR_NUMBER>,
+  "event": "REQUEST_CHANGES",
+  "body": "❌ **Code Review: REQUEST CHANGES**\n\n## Критичные проблемы (блокируют merge)\n\n### 1. [Название проблемы]\n**Файл:** `apps/api/src/.../file.ts:42`\n**Проблема:** [что именно не так]\n**Решение:** [конкретный пример правильного кода]\n\n## Некритичные замечания\n\n- [файл:строка] — [замечание]"
+}
 ```
 
-После REQUEST_CHANGES: workflow завершается с exit 1 → status check красный → merge заблокирован.
+**Критично:** `Bash` недоступен в этом агенте. Не пробуй `gh pr review` — только `mcp__github__create_pull_request_review`.
 
 ### Шаг 5: Решение о QA-тестировании
 
