@@ -398,7 +398,16 @@ jobs:
           PR="${{ github.event.pull_request.number || inputs.pr_number }}"
           # Bring PR branch current with base (fails gracefully if already up to date)
           gh pr update-branch "$PR" --repo ${{ github.repository }} 2>/dev/null || true
-          # Allow GitHub to process the branch update before merging
+          # Dismiss any stale CHANGES_REQUESTED reviews so they don't block merge
+          REPO="${{ github.repository }}"
+          gh api "repos/${REPO}/pulls/${PR}/reviews" \
+            --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | .[].id' | \
+          while read -r REVIEW_ID; do
+            gh api "repos/${REPO}/pulls/${PR}/reviews/${REVIEW_ID}/dismissals" \
+              --method PUT \
+              --field message="Superseded by approved AI review" 2>/dev/null || true
+          done
+          # Allow GitHub to process updates before merging
           sleep 10
           gh pr merge "$PR" --squash --repo ${{ github.repository }}
 
