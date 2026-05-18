@@ -30,7 +30,15 @@ export const createTeamSchema = z.object({
 
 export const updateTeamSchema = z.object({
   name: z.string().min(1).max(255),
-  telegram: z.string().max(500).nullable().optional(),
+  telegram: z
+    .string()
+    .max(500)
+    .refine(
+      (val) => !val || val.startsWith('https://t.me/'),
+      'Ссылка должна начинаться с https://t.me/',
+    )
+    .nullable()
+    .optional(),
   notes: z.string().nullable().optional(),
 })
 

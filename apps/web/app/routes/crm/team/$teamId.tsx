@@ -482,7 +482,17 @@ function TeamDetailPage() {
                   </div>
                 )}
               </editForm.Field>
-              <editForm.Field name="telegram">
+              <editForm.Field 
+                name="telegram"
+                validators={{
+                  onChange: ({ value }) => {
+                    if (value && !value.startsWith('https://t.me/')) {
+                      return 'Ссылка должна начинаться с https://t.me/'
+                    }
+                    return undefined
+                  }
+                }}
+              >
                 {(field) => (
                   <div className="grid gap-1.5">
                     <Label htmlFor="edit-telegram">Telegram</Label>
@@ -492,6 +502,9 @@ function TeamDetailPage() {
                       onChange={(e) => field.handleChange(e.target.value)}
                       placeholder="https://t.me/team_chat"
                     />
+                    {field.state.meta.errors[0] && (
+                      <p className="text-xs text-destructive">{String(field.state.meta.errors[0])}</p>
+                    )}
                     <p className="text-xs text-muted-foreground">Посилання на Telegram-чат команди</p>
                   </div>
                 )}

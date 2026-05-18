@@ -61,6 +61,36 @@ describe('updateTeamSchema', () => {
   it('rejects empty string', () => {
     expect(() => updateTeamSchema.parse({ name: '' })).toThrow()
   })
+
+  describe('telegram validation', () => {
+    it('accepts empty string', () => {
+      expect(() => updateTeamSchema.parse({ name: 'Test', telegram: '' })).not.toThrow()
+    })
+
+    it('accepts null value', () => {
+      expect(() => updateTeamSchema.parse({ name: 'Test', telegram: null })).not.toThrow()
+    })
+
+    it('accepts undefined value', () => {
+      expect(() => updateTeamSchema.parse({ name: 'Test' })).not.toThrow()
+    })
+
+    it('accepts valid telegram URL', () => {
+      expect(() => updateTeamSchema.parse({ name: 'Test', telegram: 'https://t.me/team_chat' })).not.toThrow()
+    })
+
+    it('rejects invalid telegram URL without https://t.me/', () => {
+      expect(() => updateTeamSchema.parse({ name: 'Test', telegram: 'invalid_url' })).toThrow('Ссылка должна начинаться с https://t.me/')
+    })
+
+    it('rejects telegram URL with wrong protocol', () => {
+      expect(() => updateTeamSchema.parse({ name: 'Test', telegram: 'http://t.me/chat' })).toThrow('Ссылка должна начинаться с https://t.me/')
+    })
+
+    it('rejects telegram URL with wrong domain', () => {
+      expect(() => updateTeamSchema.parse({ name: 'Test', telegram: 'https://telegram.me/chat' })).toThrow('Ссылка должна начинаться с https://t.me/')
+    })
+  })
 })
 
 describe('addTeamMemberSchema', () => {
