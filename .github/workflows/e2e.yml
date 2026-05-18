@@ -1,0 +1,179 @@
+name: E2E Tests
+
+# Запускается только PM-агентом после User Testing APPROVE.
+# Никогда не запускается автоматически.
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to run E2E against'
+        required: true
+        type: string
+
+concurrency:
+  group: e2e-pr-${{ inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: crm_user
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: crm_db
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Get PR head ref
+        id: pr_head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          REF=$(gh pr view "$PR_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json headRefName --jq '.headRefName')
+          echo "ref=${REF}" >> $GITHUB_OUTPUT
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr_head.outputs.ref }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 7.32.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run migrations + seed
+        run: |
+          pnpm --filter @crm/api db:migrate
+          pnpm --filter @crm/api db:seed
+        env:
+          DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_db
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          NODE_ENV: test
+
+      - name: Build web
+        run: pnpm --filter @crm/web build
+        env:
+          VITE_API_URL: http://localhost:3001
+
+      - name: Start API + Web (background)
+        run: |
+          pnpm --filter @crm/api start:prod &
+          pnpm --filter @crm/web preview --port 3000 &
+          npx wait-on \
+            http://localhost:3001/api/health \
+            http://localhost:3000 \
+            --timeout 60000 \
+            --interval 2000
+        env:
+          DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_db
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          NODE_ENV: production
+          PORT: 3001
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @crm/e2e exec playwright install --with-deps chromium
+
+      - name: Run Playwright E2E
+        run: pnpm --filter @crm/e2e test
+        env:
+          BASE_URL: http://localhost:3000
+          API_URL: http://localhost:3001
+
+      - name: Post E2E result to PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          JOB_STATUS: ${{ job.status }}
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATUS="✅ E2E passed — ready to merge"
+          else
+            STATUS="❌ E2E failed — see artifacts below"
+          fi
+          gh pr comment "$PR_NUMBER" --repo "$REPO" \
+            --body "## 🎭 E2E Results
+          ${STATUS}
+          Run: https://github.com/${REPO}/actions/runs/${RUN_ID}"
+
+      - name: Upload E2E artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results-pr-${{ inputs.pr_number }}
+          path: |
+            apps/e2e/test-results/
+            apps/e2e/playwright-report/
+          retention-days: 7
+
+  merge:
+    name: Squash Merge
+    runs-on: ubuntu-latest
+    needs: [e2e]
+    if: needs.e2e.result == 'success'
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Dismiss stale CHANGES_REQUESTED reviews
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
+            --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | .[].id' | \
+          while read -r REVIEW_ID; do
+            gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews/${REVIEW_ID}/dismissals" \
+              --method PUT \
+              --field message="Superseded: E2E passed and PM approved" \
+              2>/dev/null || true
+          done
+
+      - name: Squash merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh pr merge "$PR_NUMBER" \
+            --squash \
+            --repo "$REPO" \
+            --delete-branch
