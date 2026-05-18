@@ -654,8 +654,11 @@ function TeamPage() {
       >
         {teams?.map((team) => (
           <motion.div key={team.id} variants={item}>
-            <Card className="group relative flex flex-col overflow-hidden transition-all duration-200 hover:shadow-lg hover:shadow-primary/5 cursor-pointer">
-              {/* Clickable overlay */}
+            <Card
+              className="group relative flex flex-col overflow-hidden transition-all duration-200 hover:shadow-lg hover:shadow-primary/5 cursor-pointer"
+              onClick={() => navigate({ to: '/crm/team/$teamId', params: { teamId: team.id } })}
+            >
+              {/* Clickable overlay — kept for href/accessibility; navigation is handled by Card onClick */}
               <Link
                 to="/crm/team/$teamId"
                 params={{ teamId: team.id }}
@@ -678,10 +681,11 @@ function TeamPage() {
                       variant="ghost"
                       size="icon"
                       className="relative z-30 h-7 w-7"
-                      onClick={(e) => { 
-                        e.preventDefault() 
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
                         setAddMemberTeam(team)
-                        setAddMemberUserId('') 
+                        setAddMemberUserId('')
                       }}
                       title="Добавить участника"
                     >
@@ -691,7 +695,8 @@ function TeamPage() {
                       variant="ghost"
                       size="icon"
                       className="relative z-30 h-7 w-7"
-                      onClick={(e) => { 
+                      onClick={(e) => {
+                        e.stopPropagation()
                         e.preventDefault()
                         setEditTeam(team)
                         editForm.setFieldValue('name', team.name)
@@ -705,7 +710,8 @@ function TeamPage() {
                         variant="ghost"
                         size="icon"
                         className="relative z-30 h-7 w-7 text-destructive hover:text-destructive"
-                        onClick={(e) => { 
+                        onClick={(e) => {
+                          e.stopPropagation()
                           e.preventDefault()
                           setDeleteTeam(team)
                         }}
