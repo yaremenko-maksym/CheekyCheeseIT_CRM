@@ -394,6 +394,8 @@ gh workflow run ai-review.yml \
   -f pr_number=<N>
 ```
 
+`ai-review.yml` автоматически запускает AutoTest первым (Job 1) — он смотрит на изменения Coder и решает нужно ли обновить/добавить тесты, пушит их в ту же ветку. Потом запускается Reviewer (Job 2). PM не нужно отдельно запускать AutoTest после Coder.
+
 **Мониторинг:** ai-review → APPROVE → `awaiting-pm-review` label → **Режим 2.B** (читать review, обновить `docs/business/`, снять label) → **Режим 4** (Шаг 0).
 
 #### Если пользователь присылает правки пока Coder уже запущен
