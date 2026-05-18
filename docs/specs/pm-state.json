@@ -1,0 +1,47 @@
+{
+  "feature": "Teams UI Redesign",
+  "brief": "docs/superpowers/specs/2026-05-18-teams-redesign.md",
+  "started_at": "2026-05-18T12:00:00Z",
+  "tasks": [
+    {
+      "id": "task-teams-redesign",
+      "file": "docs/specs/tasks/task-teams-redesign.md",
+      "agent": "coder",
+      "workflow": "coder.yml",
+      "run_id": "26026059007",
+      "branch": "feature/teams-redesign",
+      "pr_number": 13,
+      "status": "merged",
+      "started_at": "2026-05-18T12:48:30Z",
+      "expected_duration_min": 5
+    },
+    {
+      "id": "task-fix-team-detail-hooks",
+      "file": "docs/specs/tasks/task-fix-team-detail-hooks.md",
+      "agent": "coder",
+      "workflow": "coder.yml",
+      "run_id": "26035281684",
+      "branch": "fix/team-detail-hooks",
+      "pr_number": null,
+      "status": "running",
+      "started_at": "2026-05-18T13:30:00Z",
+      "expected_duration_min": 10
+    },
+    {
+      "id": "task-infra-branch-protection",
+      "file": "docs/specs/tasks/task-infra-branch-protection.md",
+      "agent": "devops",
+      "workflow": "devops.yml",
+      "run_id": "26035578402",
+      "branch": "infra/branch-protection",
+      "pr_number": null,
+      "status": "running",
+      "started_at": "2026-05-18T13:35:00Z",
+      "expected_duration_min": 8
+    }
+  ],
+  "blocked": [],
+  "merged": ["task-teams-redesign"],
+  "phase": "fixing",
+  "pending_fixes": []
+}
