@@ -172,28 +172,27 @@ describe('TeamsService.remove', () => {
     expect(deleteMock).toHaveBeenCalledTimes(1)
   })
 
-  it('deletes the senior user before deleting the team', async () => {
+  it('CRITICAL FIX: deletes only the team, preserving all users', async () => {
     const team = makeTeam({ members: [makeMember('senior-1', 'SENIOR'), makeMember('hr-1', 'HR')] })
     const db = makeDb({ team })
     const service = new TeamsService(db)
     await service.remove('team-1', adminUser)
-    // delete called twice: users (senior) + teams
+    // delete called only once: teams table only (users are preserved)
     const deleteMock = db.db.delete as ReturnType<typeof vi.fn>
-    expect(deleteMock).toHaveBeenCalledTimes(2)
+    expect(deleteMock).toHaveBeenCalledTimes(1)
   })
 
-  it('deletes the senior first so FK cascade removes their projects', async () => {
+  it('CRITICAL FIX: team deletion preserves senior user and their projects', async () => {
     const team = makeTeam({ members: [makeMember('senior-1', 'SENIOR')] })
     const db = makeDb({ team })
     const service = new TeamsService(db)
     await service.remove('team-1', adminUser)
     const deleteMock = db.db.delete as ReturnType<typeof vi.fn>
-    // First call must be for users table (senior), second for teams table
-    const firstArg = deleteMock.mock.calls[0]?.[0]
-    const secondArg = deleteMock.mock.calls[1]?.[0]
-    // Drizzle table objects carry their name in config
-    expect(firstArg?.[Symbol.for('drizzle:Name')] ?? firstArg?._.name ?? String(firstArg)).toMatch(/user/)
-    expect(secondArg?.[Symbol.for('drizzle:Name')] ?? secondArg?._.name ?? String(secondArg)).toMatch(/team/)
+    // Only one delete call for teams table
+    expect(deleteMock).toHaveBeenCalledTimes(1)
+    // Verify the delete was called with teams table (not users)
+    const deleteArg = deleteMock.mock.calls[0]?.[0]
+    expect(deleteArg?.[Symbol.for('drizzle:Name')] ?? deleteArg?._.name ?? String(deleteArg)).toMatch(/team/)
   })
 
   it('HR cannot delete a team', async () => {
