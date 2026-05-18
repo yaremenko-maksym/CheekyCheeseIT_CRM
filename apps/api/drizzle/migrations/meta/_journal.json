@@ -19,34 +19,6 @@
     {
       "idx": 2,
       "version": "7",
-      "when": 1779100000000,
-      "tag": "0002_logo_url_text",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1779200000000,
-      "tag": "0003_interview_corp_tech",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1779300000000,
-      "tag": "0004_client_interview_stage",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1779400000000,
-      "tag": "0005_project_notes_fields",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
       "when": 1779500000000,
       "tag": "0006_team_telegram_notes",
       "breakpoints": true
