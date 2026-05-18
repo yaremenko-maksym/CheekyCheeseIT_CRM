@@ -29,17 +29,15 @@
 - Конкретные файлы для изменения
 - Acceptance Criteria
 
-### 2. Создай ветку
+### 2. Проверь ветку
 
-Проверь поле `Ветка:` в task-файле и переменную `target_branch` из workflow:
+Ветка уже настроена workflow-ом до запуска агента. Просто убедись что ты на правильной:
 
 ```bash
-# Если target_branch передан или в task-файле есть "Ветка: <branch-name>" — работай там:
-git fetch origin && git checkout <branch-name> && git pull origin <branch-name>
-
-# Если нет — создай новую infra/ ветку от main:
-git checkout main && git pull && git checkout -b infra/<slug из заголовка task-файла>
+git branch --show-current
 ```
+
+Не переключай ветку самостоятельно — это уже сделано.
 
 ### 3. Реализуй изменения
 
