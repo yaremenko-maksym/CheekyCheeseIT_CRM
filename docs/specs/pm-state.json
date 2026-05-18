@@ -20,11 +20,24 @@
       "file": "docs/specs/tasks/task-fix-team-detail-hooks.md",
       "agent": "coder",
       "workflow": "coder.yml",
-      "run_id": "26035281684",
+      "run_id": "26036232623",
       "branch": "fix/team-detail-hooks",
-      "pr_number": null,
-      "status": "running",
-      "started_at": "2026-05-18T13:30:00Z",
+      "pr_number": 15,
+      "ai_review_run_id": "26038896804",
+      "status": "awaiting_user_testing",
+      "started_at": "2026-05-18T16:22:00Z",
+      "expected_duration_min": 12
+    },
+    {
+      "id": "task-fix-test-pr-15",
+      "file": "docs/specs/tasks/task-fix-test-pr-15.md",
+      "agent": "autotest",
+      "workflow": "autotest.yml",
+      "run_id": "26038335059",
+      "branch": "fix/team-detail-hooks",
+      "pr_number": 15,
+      "status": "merged",
+      "started_at": "2026-05-18T17:05:00Z",
       "expected_duration_min": 10
     },
     {
@@ -32,16 +45,31 @@
       "file": "docs/specs/tasks/task-infra-branch-protection.md",
       "agent": "devops",
       "workflow": "devops.yml",
-      "run_id": "26035578402",
+      "run_id": "26036811405",
       "branch": "infra/branch-protection",
+      "pr_number": 16,
+      "ai_review_run_id": "26037015201",
+      "status": "pr_open",
+      "started_at": "2026-05-18T16:30:00Z",
+      "expected_duration_min": 8,
+      "_note": "Ждёт решения по DevOps блокеру (ADMIN_PAT)"
+    },
+    {
+      "id": "task-infra-review-pipeline",
+      "file": "docs/specs/tasks/task-infra-review-pipeline.md",
+      "agent": "devops",
+      "workflow": "devops.yml",
+      "run_id": "26040630313",
+      "branch": "infra/review-pipeline",
       "pr_number": null,
-      "status": "running",
-      "started_at": "2026-05-18T13:35:00Z",
-      "expected_duration_min": 8
+      "status": "in_progress",
+      "started_at": "2026-05-18T14:42:25Z",
+      "expected_duration_min": 20,
+      "_note": "Разблокирован после merge PR #17 (fix ADMIN_PAT env level в devops.yml)"
     }
   ],
   "blocked": [],
   "merged": ["task-teams-redesign"],
-  "phase": "fixing",
+  "phase": "user_testing",
   "pending_fixes": []
 }
