@@ -89,6 +89,8 @@ jobs:
             Repo: ${{ github.repository }}
             task_hint: ${{ inputs.task_hint }}
             target_branch: ${{ inputs.target_branch }}
+          env:
+            ADMIN_PAT: ${{ secrets.ADMIN_PAT }}
           allowed_tools: |
             Read
             Write
