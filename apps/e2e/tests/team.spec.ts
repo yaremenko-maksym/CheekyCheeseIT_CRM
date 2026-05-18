@@ -689,4 +689,181 @@ test.describe('Team page', () => {
       await expect(page.getByRole('button', { name: 'Отмена' })).toBeVisible()
     })
   })
+
+  // ---------------------------------------------------------------------------
+  // React Hooks Compliance - PR #15 Fix
+  // ---------------------------------------------------------------------------
+
+  test.describe('React Hooks Compliance (PR #15 Fix)', () => {
+    test('team detail page renders without React hooks order warnings', async ({ asAdmin: page }) => {
+      // Capture console messages to check for React warnings
+      const consoleMessages: string[] = []
+      page.on('console', msg => {
+        const text = msg.text()
+        if (text.includes('Warning') || text.includes('Error')) {
+          consoleMessages.push(text)
+        }
+      })
+
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+      
+      // Verify page loads successfully
+      await expect(page.getByRole('heading', { level: 1 })).toContainText('Alpha Team')
+      
+      // Wait a moment for any potential React warnings to appear
+      await page.waitForTimeout(1000)
+      
+      // Filter for React hooks-related warnings
+      const hooksWarnings = consoleMessages.filter(msg => 
+        msg.includes('rendered more hooks than during the previous render') ||
+        msg.includes('React has detected a change in the order of Hooks') ||
+        msg.includes('Hook was called conditionally')
+      )
+      
+      expect(hooksWarnings).toHaveLength(0)
+    })
+
+    test('edit form functionality works correctly after hooks repositioning', async ({ asAdmin: page }) => {
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+      
+      // Verify hooks-dependent functionality works
+      await page.getByRole('button', { name: 'Редагувати' }).click()
+      await expect(page.getByRole('dialog')).toBeVisible()
+      
+      // Test useForm hook (moved before early returns)
+      const nameInput = page.getByLabel('Назва команди')
+      await expect(nameInput).toBeVisible()
+      await expect(nameInput).toHaveValue('Alpha Team')
+      
+      // Test form submission (updateMutation hook)
+      await nameInput.fill('Updated Team Name')
+      await page.getByRole('button', { name: 'Зберегти' }).click()
+      
+      // Form should close without errors
+      await expect(page.getByRole('dialog')).not.toBeVisible()
+    })
+
+    test('add member functionality works correctly after hooks repositioning', async ({ asAdmin: page }) => {
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+      
+      // Test hooks-dependent add member functionality
+      await page.getByTitle('Добавить участника').click()
+      await expect(page.getByRole('dialog')).toBeVisible()
+      
+      // Test selectedUserIds state and addMemberMutation hooks
+      await page.getByRole('dialog').getByText('Junior Dev').click()
+      await page.getByRole('button', { name: 'Додати' }).click()
+      
+      // Should work without hooks-related errors
+      await expect(page.getByRole('dialog')).not.toBeVisible()
+    })
+
+    test('team not found error state renders without hooks warnings', async ({ page }) => {
+      // Capture console for React warnings
+      const consoleMessages: string[] = []
+      page.on('console', msg => {
+        const text = msg.text()
+        if (text.includes('Warning') || text.includes('Error')) {
+          consoleMessages.push(text)
+        }
+      })
+
+      // Mock 404 response for team
+      await page.route('**/api/teams/non-existent-id', route => 
+        route.fulfill({ status: 404, body: '{"message":"Team not found"}' })
+      )
+      
+      await page.goto('/crm/team/non-existent-id')
+      
+      // Even with early return (error state), hooks should be compliant
+      await expect(page.getByText('Команда не найдена')).toBeVisible()
+      await expect(page.getByText('Вернуться к списку')).toBeVisible()
+      
+      await page.waitForTimeout(500)
+      
+      // No hooks-related warnings should appear
+      const hooksWarnings = consoleMessages.filter(msg => 
+        msg.includes('rendered more hooks than during the previous render') ||
+        msg.includes('React has detected a change in the order of Hooks')
+      )
+      
+      expect(hooksWarnings).toHaveLength(0)
+    })
+
+    test('loading state renders without hooks violations', async ({ asAdmin: page }) => {
+      // Slow down team API to capture loading state
+      await page.route(`**/api/teams/${TEAMS[0]!.id}`, route => {
+        setTimeout(() => route.continue(), 1000)
+      })
+      
+      const consoleMessages: string[] = []
+      page.on('console', msg => {
+        const text = msg.text()
+        if (text.includes('Warning') || text.includes('Error')) {
+          consoleMessages.push(text)
+        }
+      })
+
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+      
+      // Loading skeletons should appear first (before hooks execute)
+      await expect(page.locator('[data-testid*="skeleton"]').first()).toBeVisible()
+      
+      // Wait for actual content to load
+      await expect(page.getByRole('heading', { level: 1 })).toContainText('Alpha Team', { timeout: 3000 })
+      
+      // No hooks warnings during loading → content transition
+      const hooksWarnings = consoleMessages.filter(msg => 
+        msg.includes('rendered more hooks than during the previous render') ||
+        msg.includes('Hook was called conditionally')
+      )
+      
+      expect(hooksWarnings).toHaveLength(0)
+    })
+
+    test('re-renders during user interactions maintain hooks consistency', async ({ asAdmin: page }) => {
+      const consoleMessages: string[] = []
+      page.on('console', msg => {
+        const text = msg.text()
+        if (text.includes('Warning') || text.includes('Error')) {
+          consoleMessages.push(text)
+        }
+      })
+
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+      await expect(page.getByRole('heading', { level: 1 })).toContainText('Alpha Team')
+      
+      // Trigger multiple re-renders that could expose hooks order issues
+      // 1. Open edit dialog (triggers form hooks)
+      await page.getByRole('button', { name: 'Редагувати' }).click()
+      await expect(page.getByRole('dialog')).toBeVisible()
+      
+      // 2. Change form values (trigger form state updates)
+      await page.getByLabel('Назва команди').fill('Test Name')
+      await page.getByLabel('Telegram').fill('https://t.me/test')
+      
+      // 3. Close without saving
+      await page.getByRole('button', { name: 'Скасувати' }).click()
+      await expect(page.getByRole('dialog')).not.toBeVisible()
+      
+      // 4. Open add member dialog (triggers different hooks)
+      await page.getByTitle('Добавить участника').click()
+      await expect(page.getByRole('dialog')).toBeVisible()
+      
+      // 5. Close add member dialog
+      await page.getByRole('button', { name: 'Скасувати' }).click()
+      await expect(page.getByRole('dialog')).not.toBeVisible()
+      
+      await page.waitForTimeout(500)
+      
+      // All re-renders should maintain consistent hooks order
+      const hooksWarnings = consoleMessages.filter(msg => 
+        msg.includes('rendered more hooks than during the previous render') ||
+        msg.includes('React has detected a change in the order of Hooks') ||
+        msg.includes('Hook was called conditionally')
+      )
+      
+      expect(hooksWarnings).toHaveLength(0)
+    })
+  })
 })
