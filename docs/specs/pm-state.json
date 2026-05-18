@@ -25,7 +25,8 @@
       "pr_number": 15,
       "ai_review_run_id": "26041323376",
       "e2e_run_id": "26055265819",
-      "status": "e2e_running",
+      "status": "e2e_failed",
+      "_e2e_note": "36 failed: getByTitle('Переименовать') not found — selector mismatch after Teams Redesign. AutoTest agent dispatched (run 26060336122) to fix team.spec.ts on fix/team-detail-hooks",
       "started_at": "2026-05-18T16:22:00Z",
       "expected_duration_min": 12
     },
@@ -39,6 +40,18 @@
       "pr_number": 15,
       "status": "merged",
       "started_at": "2026-05-18T17:05:00Z",
+      "expected_duration_min": 10
+    },
+    {
+      "id": "task-fix-e2e-team-selectors",
+      "file": "docs/specs/tasks/task-fix-e2e-team-selectors.md",
+      "agent": "autotest",
+      "workflow": "autotest.yml",
+      "run_id": "26060336122",
+      "branch": "fix/team-detail-hooks",
+      "pr_number": 15,
+      "status": "running",
+      "started_at": "2026-05-18T21:03:14Z",
       "expected_duration_min": 10
     },
     {
