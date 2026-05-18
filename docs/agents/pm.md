@@ -189,6 +189,10 @@ gh workflow run <workflow.yml> \
 
 ### Режим 2.B — Post-Review анализ (после APPROVE)
 
+Запускается в двух случаях:
+- После первичного APPROVE от Reviewer (начало User Testing)
+- После APPROVE следующего раунда code review (когда агенты исправили правки User Testing)
+
 ```bash
 gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<pr>/reviews \
   --jq '.[] | {state, body, submitted_at}' | head -50
@@ -203,7 +207,7 @@ gh pr edit <pr_number> \
   --remove-label "awaiting-pm-review"
 ```
 
-Перейти в **Режим 4 (User Testing)**.
+Перейти в **Режим 4 (User Testing, Шаг 0)** — запустить полную подготовку окружения перед показом пользователю.
 
 ---
 
@@ -390,7 +394,7 @@ gh workflow run ai-review.yml \
   -f pr_number=<N>
 ```
 
-**Мониторинг:** ai-review → APPROVE → `awaiting-pm-review` label → PM снова запускает **Режим 4** (со Шага 0).
+**Мониторинг:** ai-review → APPROVE → `awaiting-pm-review` label → **Режим 2.B** (читать review, обновить `docs/business/`, снять label) → **Режим 4** (Шаг 0).
 
 #### Если пользователь присылает правки пока Coder уже запущен
 
