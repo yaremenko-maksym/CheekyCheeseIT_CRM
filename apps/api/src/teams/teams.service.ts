@@ -201,13 +201,8 @@ export class TeamsService {
     })
     if (!team) throw new NotFoundException('Team not found')
 
-    // Find the SENIOR of this team and delete them.
-    // Cascade: projects.seniorId FK removes projects; teamMembers.userId FK removes membership.
-    const seniorMember = team.members.find((m) => m.user?.role === 'SENIOR')
-    if (seniorMember) {
-      await this.db.db.delete(users).where(eq(users.id, seniorMember.userId))
-    }
-
+    // Delete the team - FK cascades will handle team_members removal
+    // The senior user remains in the database and can be assigned to other teams
     await this.db.db.delete(teams).where(eq(teams.id, id))
   }
 
