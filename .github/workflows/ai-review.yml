@@ -18,8 +18,6 @@ concurrency:
 jobs:
   # ─────────────────────────────────────────────
   # Job 1: AutoTest — writes E2E tests FIRST
-  # Runs before Code Review so reviewer can check both code + tests.
-  # If logical error found → fails → triggers Coder + BA escalation.
   # ─────────────────────────────────────────────
   autotest:
     name: AutoTest
@@ -75,7 +73,7 @@ jobs:
             "|-------|--------|" \
             "| 🔬 AutoTest | 🔄 Running... |" \
             "| 👁️ Code Review | ⏳ Waiting |" \
-            "| 🚀 Auto-merge | ⏳ Waiting |")
+            "| 🔍 PM Review + E2E | ⏳ Waiting |")
           CID=$(gh api "repos/${REPO}/issues/${PR}/comments" \
             --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | first | .id // empty" 2>/dev/null)
           if [ -z "$CID" ]; then
@@ -142,13 +140,13 @@ jobs:
           REPO="${{ github.repository }}"
           MARKER="<!-- ai-review-pipeline-status -->"
           if [ -f autotest-logic-error.flag ]; then
-            AT="❌ Logic error — see review comment · BA + user decide next step"
+            AT="❌ Logic error — see review comment"
             CR="—"
-            MG="—"
+            PM="—"
           else
             AT="✅ Tests written"
             CR="⏳ Waiting"
-            MG="⏳ Waiting"
+            PM="⏳ Waiting"
           fi
           BODY=$(printf '%s\n' \
             "${MARKER}" \
@@ -158,7 +156,7 @@ jobs:
             "|-------|--------|" \
             "| 🔬 AutoTest | ${AT} |" \
             "| 👁️ Code Review | ${CR} |" \
-            "| 🚀 Auto-merge | ${MG} |")
+            "| 🔍 PM Review + E2E | ${PM} |")
           CID=$(gh api "repos/${REPO}/issues/${PR}/comments" \
             --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | first | .id // empty" 2>/dev/null)
           if [ -z "$CID" ]; then
@@ -171,8 +169,8 @@ jobs:
 
   # ─────────────────────────────────────────────
   # Job 2: Code Review — reviews code + AutoTest's tests
-  # Runs ONLY after AutoTest succeeds (no logic errors).
-  # 1 APPROVE from reviewer is required for merge.
+  # APPROVE → adds awaiting-pm-review label → PM picks up
+  # REQUEST_CHANGES → trigger_coder job runs
   # ─────────────────────────────────────────────
   reviewer:
     name: Code Review
@@ -230,7 +228,7 @@ jobs:
             "|-------|--------|" \
             "| 🔬 AutoTest | ✅ Tests written |" \
             "| 👁️ Code Review | 🔄 Running... |" \
-            "| 🚀 Auto-merge | ⏳ Waiting |")
+            "| 🔍 PM Review + E2E | ⏳ Waiting |")
           CID=$(gh api "repos/${REPO}/issues/${PR}/comments" \
             --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | first | .id // empty" 2>/dev/null)
           if [ -z "$CID" ]; then
@@ -317,12 +315,21 @@ jobs:
           if [ -f autotest-approved.flag ]; then
             echo "approved=true" >> $GITHUB_OUTPUT
             echo "review_state=APPROVED" >> $GITHUB_OUTPUT
-            echo "Reviewer APPROVED — Merge may proceed"
+            echo "Reviewer APPROVED — PM will pick up via awaiting-pm-review label"
           else
             echo "approved=false" >> $GITHUB_OUTPUT
             echo "review_state=CHANGES_REQUESTED" >> $GITHUB_OUTPUT
             echo "Reviewer REQUEST_CHANGES — Coder will be triggered"
           fi
+
+      - name: Add awaiting-pm-review label on APPROVE
+        if: steps.check_approved.outputs.approved == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
+          gh pr edit "$PR" --repo ${{ github.repository }} \
+            --add-label "awaiting-pm-review"
 
       - name: Update pipeline status — Code Review result
         if: always()
@@ -334,10 +341,10 @@ jobs:
           MARKER="<!-- ai-review-pipeline-status -->"
           if [ -f autotest-approved.flag ]; then
             CR="✅ Approved"
-            MG="⏳ Waiting"
+            PM="⏳ Awaiting PM review analysis"
           else
             CR="❌ Changes requested — Coder triggered"
-            MG="—"
+            PM="—"
           fi
           BODY=$(printf '%s\n' \
             "${MARKER}" \
@@ -347,7 +354,7 @@ jobs:
             "|-------|--------|" \
             "| 🔬 AutoTest | ✅ Tests written |" \
             "| 👁️ Code Review | ${CR} |" \
-            "| 🚀 Auto-merge | ${MG} |")
+            "| 🔍 PM Review + E2E | ${PM} |")
           CID=$(gh api "repos/${REPO}/issues/${PR}/comments" \
             --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | first | .id // empty" 2>/dev/null)
           if [ -z "$CID" ]; then
@@ -359,169 +366,8 @@ jobs:
           fi
 
   # ─────────────────────────────────────────────
-  # Job 3: Merge PR
-  # Requires: 1 APPROVE from Code Reviewer + CI + E2E passing.
-  # ─────────────────────────────────────────────
-  merge:
-    name: Merge PR
-    runs-on: ubuntu-latest
-    needs: [reviewer]
-    if: |
-      always() &&
-      needs.reviewer.outputs.approved == 'true' &&
-      (
-        github.event_name == 'workflow_dispatch' ||
-        contains(github.event.pull_request.labels.*.name, 'ai-review-ready')
-      )
-    permissions:
-      contents: write
-      pull-requests: write
-      actions: write
-
-    steps:
-      - name: Update pipeline status — Auto-merge running
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
-          REPO="${{ github.repository }}"
-          MARKER="<!-- ai-review-pipeline-status -->"
-          BODY=$(printf '%s\n' \
-            "${MARKER}" \
-            "## 🤖 AI Review Pipeline — PR #${PR}" \
-            "" \
-            "| Stage | Status |" \
-            "|-------|--------|" \
-            "| 🔬 AutoTest | ✅ Tests written |" \
-            "| 👁️ Code Review | ✅ Approved |" \
-            "| 🚀 Auto-merge | 🔄 Waiting for CI + E2E... |")
-          CID=$(gh api "repos/${REPO}/issues/${PR}/comments" \
-            --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | first | .id // empty" 2>/dev/null)
-          if [ -z "$CID" ]; then
-            jq -n --arg b "${BODY}" '{"body":$b}' | \
-              gh api "repos/${REPO}/issues/${PR}/comments" --method POST --input - 2>/dev/null || true
-          else
-            jq -n --arg b "${BODY}" '{"body":$b}' | \
-              gh api "repos/${REPO}/issues/comments/${CID}" --method PATCH --input - 2>/dev/null || true
-          fi
-
-      - name: Ensure CI + E2E passed, then merge
-        id: do_merge
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
-          REPO="${{ github.repository }}"
-
-          HEAD_SHA=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq '.headRefOid')
-          BRANCH=$(gh pr view "$PR" --repo "$REPO" --json headRefName --jq '.headRefName')
-
-          check_run() {
-            local NAME="$1"
-            gh api "repos/${REPO}/commits/${HEAD_SHA}/check-runs" \
-              --jq "[.check_runs[] | select(.name == \"${NAME}\")] | first | .conclusion // empty" 2>/dev/null
-          }
-
-          QUALITY=$(check_run "Typecheck · Lint · Unit Tests")
-
-          if [ "$QUALITY" != "success" ]; then
-            echo "Triggering ci.yml on HEAD ${HEAD_SHA} (quality=${QUALITY:-absent})..."
-            # Use -f ref= (not --ref) so GitHub validates ci.yml from main, not feature branch
-            TRIGGER_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-            gh workflow run ci.yml --repo "$REPO" -f ref="$HEAD_SHA"
-            sleep 20
-
-            # Find the run we just triggered (most recent workflow_dispatch after TRIGGER_TIME)
-            CI_RUN_ID=""
-            for i in $(seq 1 10); do
-              CI_RUN_ID=$(gh api "repos/${REPO}/actions/workflows/ci.yml/runs?event=workflow_dispatch&per_page=5" \
-                --jq "[.workflow_runs[] | select(.created_at >= \"${TRIGGER_TIME}\")] | first | .id // empty" 2>/dev/null)
-              if [ -n "$CI_RUN_ID" ]; then break; fi
-              sleep 10
-            done
-
-            if [ -z "$CI_RUN_ID" ]; then
-              echo "Could not find triggered CI run — falling back to check-run polling"
-              for i in $(seq 1 60); do
-                QUALITY=$(check_run "Typecheck · Lint · Unit Tests")
-                echo "Attempt $i/60: quality=${QUALITY:-pending}"
-                if [ "$QUALITY" = "success" ]; then break; fi
-                if [ "$QUALITY" = "failure" ] || [ "$QUALITY" = "cancelled" ]; then
-                  echo "Quality check failed: $QUALITY"; exit 1
-                fi
-                sleep 15
-              done
-            else
-              echo "Polling CI run ${CI_RUN_ID}..."
-              for i in $(seq 1 60); do
-                RUN_DATA=$(gh api "repos/${REPO}/actions/runs/${CI_RUN_ID}" --jq '{status,conclusion}' 2>/dev/null)
-                RUN_STATUS=$(echo "$RUN_DATA" | jq -r '.status')
-                RUN_CONCLUSION=$(echo "$RUN_DATA" | jq -r '.conclusion // empty')
-                echo "Attempt $i/60: $RUN_STATUS/$RUN_CONCLUSION"
-                if [ "$RUN_STATUS" = "completed" ]; then
-                  if [ "$RUN_CONCLUSION" = "success" ]; then QUALITY="success"; fi
-                  break
-                fi
-                sleep 15
-              done
-            fi
-          fi
-
-          if [ "$QUALITY" != "success" ]; then
-            echo "Quality checks did not pass"
-            exit 1
-          fi
-
-          echo "All checks passed. Dismissing stale reviews and merging..."
-          gh api "repos/${REPO}/pulls/${PR}/reviews" \
-            --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | .[].id' | \
-          while read -r REVIEW_ID; do
-            gh api "repos/${REPO}/pulls/${PR}/reviews/${REVIEW_ID}/dismissals" \
-              --method PUT \
-              --field message="Superseded by approved AI review" 2>/dev/null || true
-          done
-
-          sleep 5
-          gh pr merge "$PR" --squash --repo "$REPO"
-          echo "merged=true" >> $GITHUB_OUTPUT
-
-      - name: Update pipeline status — Merged
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
-          REPO="${{ github.repository }}"
-          MARKER="<!-- ai-review-pipeline-status -->"
-          if [ "${{ steps.do_merge.outputs.merged }}" = "true" ]; then
-            MG="✅ Squash-merged"
-          else
-            MG="❌ Merge failed — CI/E2E did not pass"
-          fi
-          BODY=$(printf '%s\n' \
-            "${MARKER}" \
-            "## 🤖 AI Review Pipeline — PR #${PR}" \
-            "" \
-            "| Stage | Status |" \
-            "|-------|--------|" \
-            "| 🔬 AutoTest | ✅ Tests written |" \
-            "| 👁️ Code Review | ✅ Approved |" \
-            "| 🚀 Auto-merge | ${MG} |")
-          CID=$(gh api "repos/${REPO}/issues/${PR}/comments" \
-            --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | first | .id // empty" 2>/dev/null)
-          if [ -z "$CID" ]; then
-            jq -n --arg b "${BODY}" '{"body":$b}' | \
-              gh api "repos/${REPO}/issues/${PR}/comments" --method POST --input - 2>/dev/null || true
-          else
-            jq -n --arg b "${BODY}" '{"body":$b}' | \
-              gh api "repos/${REPO}/issues/comments/${CID}" --method PATCH --input - 2>/dev/null || true
-          fi
-
-  # ─────────────────────────────────────────────
-  # Job 4: Trigger Coder on Reviewer REQUEST_CHANGES
-  # Runs ONLY if Reviewer gave CHANGES_REQUESTED (code/style issues).
-  # AutoTest logic errors → PR comment only; BA + user decide manually.
-  # Commits active-task.md to the PR branch (not main — branch protection blocks that).
+  # Job 3: Trigger Coder on Reviewer REQUEST_CHANGES
+  # Writes task-fix-pr-N.md to docs/specs/tasks/, passes task_file to coder.yml
   # ─────────────────────────────────────────────
   trigger_coder:
     name: Trigger Coder
@@ -572,38 +418,28 @@ jobs:
             echo "REVIEW_EOF"
           } >> $GITHUB_OUTPUT
 
-      - name: Write and commit active-task.md
+      - name: Write and commit fix-task file
         if: steps.review.outputs.has_review == 'true'
+        id: write_task
         env:
           GH_TOKEN: ${{ github.token }}
+          REVIEW_BODY: ${{ steps.review.outputs.body }}
         run: |
           PR="${{ steps.review.outputs.pr }}"
           BRANCH=$(gh pr view "$PR" --repo ${{ github.repository }} --json headRefName --jq '.headRefName')
           git fetch origin "${BRANCH}"
           git checkout "${BRANCH}"
-          cat > docs/specs/active-task.md << TASK_EOF
-          # Fix PR #${PR} — Review REQUEST_CHANGES
 
-          ## Гілка для виправлення
-          **НЕ створювати нову гілку.** Checkout і push в існуючу: \`${BRANCH}\`
-          PR #${PR} автоматично підхопить новий коміт.
+          TASK_FILE="docs/specs/tasks/task-fix-pr-${PR}.md"
 
-          ## Findings від Review
+          printf '# Fix PR #%s — Review REQUEST_CHANGES\n\n## Агент: coder\n## Приоритет: high\n## Ветка: %s\n## НЕ створювати нову гілку — пушити в існуючу: `%s`\n\n## Findings від Reviewer\n\n%s\n\n## Алгоритм\n1. git fetch origin %s && git checkout %s\n2. Виправити всі знайдені проблеми\n3. pnpm typecheck && pnpm lint && pnpm test\n4. git add <конкретні файли> && git commit -m "fix: ..."\n5. git push origin %s\n' \
+            "$PR" "$BRANCH" "$BRANCH" "$REVIEW_BODY" "$BRANCH" "$BRANCH" "$BRANCH" \
+            > "${TASK_FILE}"
 
-          ${{ steps.review.outputs.body }}
-
-          ## Алгоритм
-          1. git fetch origin ${BRANCH} && git checkout ${BRANCH}
-          2. Виправити всі знайдені проблеми (код або E2E тести)
-          3. pnpm typecheck && pnpm lint
-          4. Закоммітити конкретними файлами (не git add .)
-          5. git push origin ${BRANCH}
-          6. НЕ створювати новий PR — коміт йде в існуючий PR #${PR}
-          TASK_EOF
-
-          git add docs/specs/active-task.md
-          git commit -m "task: fix PR #${PR} — review changes requested"
+          git add "${TASK_FILE}"
+          git commit -m "task: fix PR #${PR} — reviewer changes requested"
           git push origin "${BRANCH}"
+          echo "task_file=${TASK_FILE}" >> $GITHUB_OUTPUT
 
       - name: Trigger Coder
         if: steps.review.outputs.has_review == 'true'
@@ -611,8 +447,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           PR="${{ steps.review.outputs.pr }}"
+          TASK_FILE="${{ steps.write_task.outputs.task_file }}"
           gh workflow run coder.yml \
             --repo ${{ github.repository }} \
+            -f task_file="${TASK_FILE}" \
             -f task_hint="fix-pr-${PR}"
 
       - name: Update pipeline status — Coder triggered
@@ -631,7 +469,7 @@ jobs:
             "|-------|--------|" \
             "| 🔬 AutoTest | ✅ Tests written |" \
             "| 👁️ Code Review | ❌ Changes requested |" \
-            "| 🚀 Auto-merge | 🔧 Coder triggered — will re-run on push |")
+            "| 🔍 PM Review + E2E | 🔧 Coder triggered — will re-run on push |")
           CID=$(gh api "repos/${REPO}/issues/${PR}/comments" \
             --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | first | .id // empty" 2>/dev/null)
           if [ -z "$CID" ]; then
