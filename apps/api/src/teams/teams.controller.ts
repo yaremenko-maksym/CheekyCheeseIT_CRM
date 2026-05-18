@@ -47,8 +47,8 @@ export class TeamsController {
     @Body() body: unknown,
     @CurrentUser() user: SessionUser,
   ) {
-    const { name } = updateTeamSchema.parse(body)
-    return this.teamsService.update(id, name, user)
+    const { name, telegram, notes } = updateTeamSchema.parse(body)
+    return this.teamsService.update(id, name, telegram, notes, user)
   }
 
   @Delete(':id')

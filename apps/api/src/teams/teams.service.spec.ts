@@ -128,32 +128,32 @@ describe('TeamsService.update', () => {
   it('ADMIN can rename any team', async () => {
     const team = makeTeam({ members: [makeMember('hr-1', 'HR')] })
     const service = new TeamsService(makeDb({ team }))
-    const result = await service.update('team-1', 'Renamed', adminUser)
+    const result = await service.update('team-1', 'Renamed', null, null, adminUser)
     expect(result).toBeDefined()
   })
 
   it('HR can rename their own team', async () => {
     const team = makeTeam({ members: [makeMember('hr-1', 'HR')] })
     const service = new TeamsService(makeDb({ team }))
-    const result = await service.update('team-1', 'Renamed', hrUser)
+    const result = await service.update('team-1', 'Renamed', null, null, hrUser)
     expect(result).toBeDefined()
   })
 
   it('HR cannot rename another HR\'s team', async () => {
     const team = makeTeam({ members: [makeMember('hr-99', 'HR')] })
     const service = new TeamsService(makeDb({ team }))
-    await expect(service.update('team-1', 'Renamed', hrUser)).rejects.toThrow(ForbiddenException)
+    await expect(service.update('team-1', 'Renamed', null, null, hrUser)).rejects.toThrow(ForbiddenException)
   })
 
   it('SENIOR cannot rename a team', async () => {
     const service = new TeamsService(makeDb({ team: makeTeam() }))
-    await expect(service.update('team-1', 'Renamed', seniorUser)).rejects.toThrow(ForbiddenException)
+    await expect(service.update('team-1', 'Renamed', null, null, seniorUser)).rejects.toThrow(ForbiddenException)
   })
 
   it('throws NotFoundException when team not found', async () => {
     const db = makeDb({ team: undefined })
     const service = new TeamsService(db)
-    await expect(service.update('ghost', 'X', adminUser)).rejects.toThrow(NotFoundException)
+    await expect(service.update('ghost', 'X', null, null, adminUser)).rejects.toThrow(NotFoundException)
   })
 })
 

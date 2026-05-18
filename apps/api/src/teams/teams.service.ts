@@ -76,6 +76,8 @@ export class TeamsService {
     return {
       id: team.id,
       name: team.name,
+      telegram: team.telegram ?? null,
+      notes: team.notes ?? null,
       createdAt: team.createdAt,
       updatedAt: team.updatedAt,
       members: [
@@ -168,7 +170,7 @@ export class TeamsService {
     return this.mapTeam(team, allProjects, currentUser)
   }
 
-  async update(id: string, name: string, currentUser: SessionUser) {
+  async update(id: string, name: string, telegram: string | null | undefined, notes: string | null | undefined, currentUser: SessionUser) {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') {
       throw new ForbiddenException()
     }
@@ -185,7 +187,12 @@ export class TeamsService {
 
     const [updated] = await this.db.db
       .update(teams)
-      .set({ name, updatedAt: new Date() })
+      .set({
+        name,
+        ...(telegram !== undefined ? { telegram } : {}),
+        ...(notes !== undefined ? { notes } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(teams.id, id))
       .returning()
 
@@ -229,6 +236,21 @@ export class TeamsService {
     const user = await this.db.db.query.users.findFirst({ where: eq(users.id, userId) })
     if (!user) throw new NotFoundException('User not found')
     if (user.role === 'ADMIN') throw new BadRequestException('Admin cannot be a team member')
+
+    // Prevent adding a second SENIOR
+    if (user.role === 'SENIOR') {
+      const hasSenior = team.members.some((m) => m.user?.role === 'SENIOR')
+      if (hasSenior) throw new BadRequestException('Team already has a senior')
+    }
+
+    // Prevent adding a JUNIOR who has an active project
+    if (user.role === 'JUNIOR') {
+      const allProjects = await this.fetchAllProjects()
+      const hasActiveProject = allProjects.some((p) =>
+        p.members.some((m) => m.userId === userId && m.leftAt === null),
+      )
+      if (hasActiveProject) throw new BadRequestException('Junior already has an active project')
+    }
 
     const existing = await this.db.db.query.teamMembers.findFirst({
       where: and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)),
