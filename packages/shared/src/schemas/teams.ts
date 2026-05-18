@@ -14,6 +14,8 @@ export const teamMemberSchema = z.object({
 export const teamSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
+  telegram: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   members: z.array(teamMemberSchema),
@@ -28,6 +30,8 @@ export const createTeamSchema = z.object({
 
 export const updateTeamSchema = z.object({
   name: z.string().min(1).max(255),
+  telegram: z.string().max(500).nullable().optional(),
+  notes: z.string().nullable().optional(),
 })
 
 export const addTeamMemberSchema = z.object({

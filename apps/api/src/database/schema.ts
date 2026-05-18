@@ -89,6 +89,8 @@ export const users = pgTable('users', {
 export const teams = pgTable('teams', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),
+  telegram: varchar('telegram', { length: 500 }),
+  notes: text('notes'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
