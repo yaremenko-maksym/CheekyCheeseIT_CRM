@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Check, Pencil, Plus, Trash2, UserPlus, Users } from 'lucide-react'
+import { Check, Pencil, Plus, Search, UserPlus, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
 import type { Value as PhoneValue } from 'react-phone-number-input'
@@ -17,7 +17,6 @@ import { api } from '@/lib/axios'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
   CrmDialogContent,
@@ -512,7 +511,6 @@ function TeamPage() {
   const queryClient = useQueryClient()
 
   const canManage = user?.role === 'ADMIN' || user?.role === 'HR'
-  const isAdmin = user?.role === 'ADMIN'
   const isHr = user?.role === 'HR'
 
   const { data: teams, isLoading } = useQuery({
@@ -586,6 +584,49 @@ function TeamPage() {
   const [addMemberTeam, setAddMemberTeam] = useState<TeamDto | null>(null)
   const [addMemberUserId, setAddMemberUserId] = useState('')
 
+  // Toolbar state
+  const [search, setSearch] = useState('')
+  const [filterRole, setFilterRole] = useState<string>('all')
+  const [sortBy, setSortBy] = useState<'name' | 'members' | 'projects'>('name')
+
+  // Filtered and sorted teams
+  const filteredTeams = useMemo(() => {
+    if (!teams) return []
+    let result = [...teams]
+
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      result = result.filter((t) => t.name.toLowerCase().includes(q))
+    }
+
+    if (filterRole !== 'all') {
+      result = result.filter((t) =>
+        t.members.some((m) => m.role === filterRole),
+      )
+    }
+
+    result.sort((a, b) => {
+      if (sortBy === 'name') return a.name.localeCompare(b.name)
+      if (sortBy === 'members') return b.members.length - a.members.length
+      if (sortBy === 'projects') {
+        const aProjects = projects
+          ? projects.filter(
+              (p) => p.status === 'ACTIVE' && a.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
+            ).length
+          : 0
+        const bProjects = projects
+          ? projects.filter(
+              (p) => p.status === 'ACTIVE' && b.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
+            ).length
+          : 0
+        return bProjects - aProjects
+      }
+      return 0
+    })
+
+    return result
+  }, [teams, projects, search, filterRole, sortBy])
+
   const addMemberMutation = useMutation({
     mutationFn: ({ teamId, userId }: { teamId: string; userId: string }) =>
       api.post(`/teams/${teamId}/members`, { userId }),
@@ -622,10 +663,7 @@ function TeamPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Команда</h1>
-          <p className="text-sm text-muted-foreground">Состав и роли сотрудников</p>
-        </div>
+        <h1 className="text-2xl font-bold tracking-tight">Команда</h1>
         {isHr && (
           <Button onClick={() => setShowCreateSenior(true)} size="sm" className="gap-1.5">
             <Plus className="h-4 w-4" />
@@ -646,141 +684,147 @@ function TeamPage() {
         </div>
       )}
 
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Пошук за назвою…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Select value={filterRole} onValueChange={setFilterRole}>
+          <SelectTrigger className="w-36">
+            <SelectValue placeholder="Всі ролі" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Всі ролі</SelectItem>
+            <SelectItem value="SENIOR">Senior</SelectItem>
+            <SelectItem value="HR">HR</SelectItem>
+            <SelectItem value="JUNIOR">Junior</SelectItem>
+            <SelectItem value="ACCOUNTANT">Accountant</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="Сортування" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="name">Назва A→Z</SelectItem>
+            <SelectItem value="members">Учасники ↓</SelectItem>
+            <SelectItem value="projects">Проекти ↓</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       <motion.div
-        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+        className="flex flex-col gap-1.5"
         variants={container}
         initial="hidden"
         animate="show"
       >
-        {teams?.map((team) => (
-          <motion.div key={team.id} variants={item}>
-            <Card
-              className="group relative flex flex-col overflow-hidden transition-all duration-200 hover:shadow-lg hover:shadow-primary/5 cursor-pointer"
-              onClick={() => navigate({ to: '/crm/team/$teamId', params: { teamId: team.id } })}
-            >
-              {/* Clickable overlay — kept for href/accessibility; navigation is handled by Card onClick */}
-              <Link
-                to="/crm/team/$teamId"
-                params={{ teamId: team.id }}
-                className="absolute inset-0 z-10"
-                title={`Перейти к команде ${team.name}`}
-              />
-              
-              <CardHeader className="relative z-20 flex flex-row items-start justify-between gap-2 pb-3">
-                <div className="min-w-0 flex-1">
-                  <CardTitle className="truncate text-base group-hover:text-primary transition-colors">
+        {filteredTeams.length === 0 && (teams?.length ?? 0) > 0 && (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            Нічого не знайдено
+          </p>
+        )}
+        {filteredTeams.map((team) => {
+          const canManage = user?.role === 'ADMIN' || (user?.role === 'HR' && team.members.some((m) => m.userId === user.id && m.role === 'HR'))
+          return (
+            <motion.div key={team.id} variants={item}>
+              <div
+                className="group relative flex h-14 items-center gap-3 rounded-lg border border-border/60 bg-card/50 px-3 transition-all duration-200 hover:border-primary/30 hover:bg-card cursor-pointer"
+                onClick={() => navigate({ to: '/crm/team/$teamId', params: { teamId: team.id } })}
+              >
+                <Link
+                  to="/crm/team/$teamId"
+                  params={{ teamId: team.id }}
+                  className="absolute inset-0 z-10"
+                  title={`Перейти до команди ${team.name}`}
+                />
+
+                {/* Avatars */}
+                <div className="flex shrink-0 -space-x-2 relative z-20">
+                  {team.members.slice(0, 4).map((member, index) => (
+                    <Avatar
+                      key={member.id}
+                      className="h-7 w-7 ring-2 ring-background"
+                      style={{ zIndex: 4 - index }}
+                    >
+                      {member.avatar && <AvatarImage src={member.avatar} alt={member.displayName} />}
+                      <AvatarFallback className="text-[10px]">{getInitials(member.displayName)}</AvatarFallback>
+                    </Avatar>
+                  ))}
+                  {team.members.length > 4 && (
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted ring-2 ring-background">
+                      <span className="text-[9px] font-medium text-muted-foreground">
+                        +{team.members.length - 4}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Name + HRs */}
+                <div className="relative z-20 min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold group-hover:text-primary transition-colors">
                     {team.name}
-                  </CardTitle>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {team.members.filter((m) => m.role === 'HR').map((m) => m.displayName).join(', ') || 'Нет HR'}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {team.members.filter((m) => m.role === 'HR').map((m) => m.displayName).join(', ') || 'Без HR'}
                   </p>
                 </div>
+
+                {/* Pills */}
+                <div className="relative z-20 flex shrink-0 items-center gap-2">
+                  <Badge variant="outline" className="text-[11px] tabular-nums">
+                    {team.members.length} уч.
+                  </Badge>
+                  {(() => {
+                    const count = projects
+                      ? projects.filter(
+                          (p) => p.status === 'ACTIVE' && team.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
+                        ).length
+                      : null
+                    return (
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          'text-[11px] tabular-nums',
+                          count && count > 0
+                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                            : 'text-muted-foreground',
+                        )}
+                      >
+                        {count ?? '—'} {count === 1 ? 'проект' : count !== null && count < 5 ? 'проекти' : 'проектів'}
+                      </Badge>
+                    )
+                  })()}
+                </div>
+
+                {/* Rename only */}
                 {canManage && (
-                  <div className="flex shrink-0 gap-1">
+                  <div className="relative z-30 flex shrink-0 gap-1">
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="relative z-30 h-7 w-7"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        e.preventDefault()
-                        setAddMemberTeam(team)
-                        setAddMemberUserId('')
-                      }}
-                      title="Добавить участника"
-                    >
-                      <UserPlus className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="relative z-30 h-7 w-7"
+                      className="h-7 w-7"
                       onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
                         setEditTeam(team)
                         editForm.setFieldValue('name', team.name)
                       }}
-                      title="Переименовать"
+                      title="Перейменувати"
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
-                    {isAdmin && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="relative z-30 h-7 w-7 text-destructive hover:text-destructive"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          e.preventDefault()
-                          setDeleteTeam(team)
-                        }}
-                        title="Удалить команду"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
                   </div>
                 )}
-              </CardHeader>
-
-              <CardContent className="relative z-20 flex-1">
-                {team.members.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-8 text-center">
-                    <Users className="h-8 w-8 text-muted-foreground/30" />
-                    <p className="mt-2 text-xs text-muted-foreground">Нет участников</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {/* Member avatars preview */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1">
-                        <div className="flex -space-x-2">
-                          {team.members.slice(0, 4).map((member, index) => (
-                            <Avatar 
-                              key={member.id} 
-                              className={`h-7 w-7 ring-2 ring-background ${index > 0 ? 'relative' : ''}`}
-                              style={{ zIndex: 4 - index }}
-                            >
-                              {member.avatar && <AvatarImage src={member.avatar} alt={member.displayName} />}
-                              <AvatarFallback className="text-[10px]">
-                                {getInitials(member.displayName)}
-                              </AvatarFallback>
-                            </Avatar>
-                          ))}
-                          {team.members.length > 4 && (
-                            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted ring-2 ring-background">
-                              <span className="text-[9px] font-medium text-muted-foreground">
-                                +{team.members.length - 4}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <Badge variant="outline" className="text-xs">
-                        {team.members.length} участник{team.members.length === 1 ? '' : team.members.length < 5 ? 'а' : 'ов'}
-                      </Badge>
-                    </div>
-
-                    <div className="pt-2 border-t border-border/50">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">Активные проекты</span>
-                        <span className="font-medium text-foreground">
-                          {projects
-                            ? projects.filter(p =>
-                                p.status === 'ACTIVE' &&
-                                team.members.some(m => m.role === 'SENIOR' && m.userId === p.seniorId)
-                              ).length
-                            : '—'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
-        ))}
+              </div>
+            </motion.div>
+          )
+        })}
       </motion.div>
 
       {/* HR: Create senior dialog */}
