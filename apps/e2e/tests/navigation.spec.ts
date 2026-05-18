@@ -114,11 +114,19 @@ test.describe('SENIOR sidebar navigation', () => {
       await page.waitForLoadState('networkidle')
 
       await page.click(`a[href="${route.href}"]`)
-      await page.waitForURL(`**${route.href}**`, { timeout: 8_000 })
-      await page.waitForLoadState('networkidle')
 
-      await assertStayedInCrm(page, route.href)
-      await expect(page.locator('h1').filter({ hasText: route.heading }).first()).toBeVisible({ timeout: 10_000 })
+      // Handle team redirect for SENIOR (single team → detail page)
+      if (route.href === '/crm/team') {
+        await page.waitForURL('**/crm/team/**', { timeout: 8_000 })
+        await page.waitForLoadState('networkidle')
+        await assertStayedInCrm(page, route.href)
+        await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 10_000 })
+      } else {
+        await page.waitForURL(`**${route.href}**`, { timeout: 8_000 })
+        await page.waitForLoadState('networkidle')
+        await assertStayedInCrm(page, route.href)
+        await expect(page.locator('h1').filter({ hasText: route.heading }).first()).toBeVisible({ timeout: 10_000 })
+      }
     })
   }
 })
@@ -166,7 +174,7 @@ test.describe('JUNIOR sidebar navigation', () => {
         await page.waitForLoadState('networkidle')
         await assertStayedInCrm(page, route.href)
         // Heading will be the team name, just ensure we're still in team area and not logged out
-        await expect(page.getByRole('heading')).toBeVisible({ timeout: 10_000 })
+        await expect(page.getByRole('heading').first()).toBeVisible({ timeout: 10_000 })
       } else if (route.href === '/crm/finance') {
         // JUNIOR has no finance access — just verify no logout occurred
         await page.waitForLoadState('networkidle')

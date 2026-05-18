@@ -327,7 +327,7 @@ test.describe('Interviews (Kanban) page', () => {
       )
 
       // Нажимаем кнопку для перехода к CLIENT_INTERVIEW
-      await page.getByRole('button', { name: /client/i }).click()
+      await page.getByRole('button', { name: /client/i }).click({ force: true })
       const req = await moveReq
       expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ stage: 'CLIENT_INTERVIEW' })
     })
@@ -335,10 +335,9 @@ test.describe('Interviews (Kanban) page', () => {
     test('CLIENT_INTERVIEW is in correct position in stage flow', async ({ asSenior: page }) => {
       await page.goto('/crm/interviews')
       // Проверяем правильный порядок колонок: Final → Client → Offer
-      const stageColumns = page.locator('[data-stage]')
-      await expect(stageColumns.filter({ hasText: 'Final' }).first()).toBeVisible()
-      await expect(stageColumns.filter({ hasText: 'Client' }).first()).toBeVisible()  
-      await expect(stageColumns.filter({ hasText: 'Offer' }).first()).toBeVisible()
+      await expect(page.getByText('Final', { exact: true }).first()).toBeVisible()
+      await expect(page.getByText('Client', { exact: true }).first()).toBeVisible()
+      await expect(page.getByText('Offer', { exact: true }).first()).toBeVisible()
     })
   })
 

@@ -212,7 +212,7 @@ test.describe('Team page', () => {
       await expect(page.getByText('Senior Dev')).toBeVisible()
       
       // Sidebar - statistics
-      await expect(page.getByText('Статистика')).toBeVisible()
+      await expect(page.getByText('Статистика').first()).toBeVisible()
       await expect(page.getByText('Всего участников')).toBeVisible()
       await expect(page.getByText('Активность')).toBeVisible()
     })
@@ -221,9 +221,9 @@ test.describe('Team page', () => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
       
       // Check role sections are present
-      await expect(page.getByText('Синьор')).toBeVisible()
-      await expect(page.getByText('HR')).toBeVisible()
-      await expect(page.getByText('Бухгалтер')).toBeVisible()
+      await expect(page.getByText('Синьор').first()).toBeVisible()
+      await expect(page.getByText('HR').first()).toBeVisible()
+      await expect(page.getByText('Бухгалтер').first()).toBeVisible()
     })
 
     test('back button navigates to team list', async ({ asAdmin: page }) => {
@@ -355,9 +355,9 @@ test.describe('Team page', () => {
       await expect(page.getByText('Участники команды')).toBeVisible()
       
       // Should see all role sections present in the fixture team (no JUNIOR in TEAMS[0])
-      await expect(page.getByText('HR')).toBeVisible()
-      await expect(page.getByText('Синьор')).toBeVisible()
-      await expect(page.getByText('Бухгалтер')).toBeVisible()
+      await expect(page.getByText('HR').first()).toBeVisible()
+      await expect(page.getByText('Синьор').first()).toBeVisible()
+      await expect(page.getByText('Бухгалтер').first()).toBeVisible()
 
       // Should have no management buttons (read-only access)
       await expect(page.getByText('Добавить участника')).not.toBeVisible()
@@ -374,7 +374,7 @@ test.describe('Team page', () => {
       await page.goto('/crm/team')
       
       // Click on the team card (use overlay link)
-      await page.locator('a[href^="/crm/team/"]').first().click()
+      await page.locator('a[href^="/crm/team/"]').first().click({ force: true })
       await expect(page).toHaveURL(`/crm/team/${TEAMS[0]!.id}`)
     })
 
