@@ -24,6 +24,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 
 export const Route = createFileRoute('/crm/team/$teamId')({
@@ -499,12 +500,12 @@ function TeamDetailPage() {
                 {(field) => (
                   <div className="grid gap-1.5">
                     <Label htmlFor="edit-notes">Нотатки</Label>
-                    <textarea
+                    <Textarea
                       id="edit-notes"
-                      className="min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
                       value={field.state.value}
                       onChange={(e) => field.handleChange(e.target.value)}
                       placeholder="Внутрішні нотатки…"
+                      className="min-h-20"
                     />
                   </div>
                 )}

@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 
 export const Route = createFileRoute('/crm/team/')({
@@ -549,8 +550,8 @@ function TeamPage() {
   const [editTeam, setEditTeam] = useState<TeamDto | null>(null)
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, name }: { id: string; name: string }) =>
-      api.patch(`/teams/${id}`, { name }),
+    mutationFn: ({ id, name, telegram, notes }: { id: string; name: string; telegram?: string | null; notes?: string | null }) =>
+      api.patch(`/teams/${id}`, { name, telegram, notes }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['teams'] })
       setEditTeam(null)
@@ -560,10 +561,15 @@ function TeamPage() {
   const teamNameSchema = z.string().min(1, 'Обязательное поле').max(255, 'Максимум 255 символов')
 
   const editForm = useForm({
-    defaultValues: { name: '' },
+    defaultValues: { name: '', telegram: '', notes: '' },
     onSubmit: async ({ value }) => {
       if (!editTeam) return
-      updateMutation.mutate({ id: editTeam.id, name: value.name.trim() })
+      updateMutation.mutate({ 
+        id: editTeam.id, 
+        name: value.name.trim(),
+        telegram: value.telegram.trim() || null,
+        notes: value.notes.trim() || null
+      })
     },
   })
 
@@ -684,39 +690,41 @@ function TeamPage() {
         </div>
       )}
 
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Пошук за назвою…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
+      {teams && teams.length > 0 && (
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Пошук за назвою…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Select value={filterRole} onValueChange={setFilterRole}>
+            <SelectTrigger className="w-36">
+              <SelectValue placeholder="Всі ролі" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Всі ролі</SelectItem>
+              <SelectItem value="SENIOR">Senior</SelectItem>
+              <SelectItem value="HR">HR</SelectItem>
+              <SelectItem value="JUNIOR">Junior</SelectItem>
+              <SelectItem value="ACCOUNTANT">Accountant</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="Сортування" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="name">Назва A→Z</SelectItem>
+              <SelectItem value="members">Учасники ↓</SelectItem>
+              <SelectItem value="projects">Проекти ↓</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-        <Select value={filterRole} onValueChange={setFilterRole}>
-          <SelectTrigger className="w-36">
-            <SelectValue placeholder="Всі ролі" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Всі ролі</SelectItem>
-            <SelectItem value="SENIOR">Senior</SelectItem>
-            <SelectItem value="HR">HR</SelectItem>
-            <SelectItem value="JUNIOR">Junior</SelectItem>
-            <SelectItem value="ACCOUNTANT">Accountant</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="Сортування" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="name">Назва A→Z</SelectItem>
-            <SelectItem value="members">Учасники ↓</SelectItem>
-            <SelectItem value="projects">Проекти ↓</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      )}
 
       <motion.div
         className="flex flex-col gap-1.5"
@@ -731,6 +739,13 @@ function TeamPage() {
         )}
         {filteredTeams.map((team) => {
           const canManage = user?.role === 'ADMIN' || (user?.role === 'HR' && team.members.some((m) => m.userId === user.id && m.role === 'HR'))
+          const hrMembers = team.members.filter((m) => m.role === 'HR')
+          const activeProjects = projects
+            ? projects.filter(
+                (p) => p.status === 'ACTIVE' && team.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
+              ).length
+            : 0
+          
           return (
             <motion.div key={team.id} variants={item}>
               <div
@@ -770,8 +785,8 @@ function TeamPage() {
                   <p className="truncate text-sm font-semibold group-hover:text-primary transition-colors">
                     {team.name}
                   </p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {team.members.filter((m) => m.role === 'HR').map((m) => m.displayName).join(', ') || 'Без HR'}
+                  <p className="truncate text-xs text-muted-foreground overflow-hidden whitespace-nowrap">
+                    HR: {hrMembers.map((m) => m.displayName).join(', ') || 'Без HR'}
                   </p>
                 </div>
 
@@ -780,26 +795,17 @@ function TeamPage() {
                   <Badge variant="outline" className="text-[11px] tabular-nums">
                     {team.members.length} уч.
                   </Badge>
-                  {(() => {
-                    const count = projects
-                      ? projects.filter(
-                          (p) => p.status === 'ACTIVE' && team.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
-                        ).length
-                      : null
-                    return (
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          'text-[11px] tabular-nums',
-                          count && count > 0
-                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
-                            : 'text-muted-foreground',
-                        )}
-                      >
-                        {count ?? '—'} {count === 1 ? 'проект' : count !== null && count < 5 ? 'проекти' : 'проектів'}
-                      </Badge>
-                    )
-                  })()}
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      'text-[11px] tabular-nums',
+                      activeProjects > 0
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                        : 'text-muted-foreground',
+                    )}
+                  >
+                    {activeProjects} {activeProjects === 1 ? 'проект' : activeProjects < 5 ? 'проекти' : 'проектів'}
+                  </Badge>
                 </div>
 
                 {/* Rename only */}
@@ -814,6 +820,8 @@ function TeamPage() {
                         e.preventDefault()
                         setEditTeam(team)
                         editForm.setFieldValue('name', team.name)
+                        editForm.setFieldValue('telegram', team.telegram || '')
+                        editForm.setFieldValue('notes', team.notes || '')
                       }}
                       title="Перейменувати"
                     >
@@ -836,45 +844,84 @@ function TeamPage() {
         />
       )}
 
-      {/* Edit team name dialog */}
+      {/* Edit team dialog */}
       <Dialog open={!!editTeam} onOpenChange={(open) => { if (!open) setEditTeam(null) }}>
-        <CrmDialogContent maxWidth="sm:max-w-sm">
+        <CrmDialogContent maxWidth="sm:max-w-md">
           <CrmDialogHeader>
-            <DialogTitle>Переименовать команду</DialogTitle>
+            <DialogTitle>Редагувати команду</DialogTitle>
           </CrmDialogHeader>
           <CrmDialogBody className="pb-2">
-            <editForm.Field
-              name="name"
-              validators={{ onBlur: ({ value }) => {
-                const r = teamNameSchema.safeParse(value.trim())
-                return r.success ? undefined : r.error.issues[0]?.message
-              }}}
-            >
-              {(field) => (
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-name" className={cn(field.state.meta.isTouched && field.state.meta.errors.length > 0 && 'text-destructive')}>
-                    Название
-                  </Label>
-                  <Input
-                    id="edit-name"
-                    value={field.state.value}
-                    onChange={(e) => field.handleChange(e.target.value)}
-                    onBlur={field.handleBlur}
-                    placeholder="Название команды"
-                    className={cn(field.state.meta.isTouched && field.state.meta.errors.length > 0 && 'border-destructive focus-visible:ring-destructive/30')}
-                    onKeyDown={(e) => { if (e.key === 'Enter') void editForm.handleSubmit() }}
-                  />
-                  {field.state.meta.isTouched && field.state.meta.errors[0] && (
-                    <p className="text-xs text-destructive">{field.state.meta.errors[0]}</p>
-                  )}
-                </div>
-              )}
-            </editForm.Field>
+            <div className="grid gap-4">
+              {/* Name */}
+              <editForm.Field
+                name="name"
+                validators={{ onBlur: ({ value }) => {
+                  const r = teamNameSchema.safeParse(value.trim())
+                  return r.success ? undefined : r.error.issues[0]?.message
+                }}}
+              >
+                {(field) => {
+                  const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined
+                  return (
+                    <Field label="Назва" error={err} required>
+                      <Input
+                        value={field.state.value}
+                        onChange={(e) => field.handleChange(e.target.value)}
+                        onBlur={field.handleBlur}
+                        placeholder="Назва команди"
+                        className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
+                      />
+                    </Field>
+                  )
+                }}
+              </editForm.Field>
+
+              {/* Telegram */}
+              <editForm.Field
+                name="telegram"
+                validators={{ onBlur: ({ value }) => {
+                  if (!value.trim()) return undefined
+                  const r = z.string().url('Некорректное URL').safeParse(value.trim())
+                  return r.success ? undefined : r.error.issues[0]?.message
+                }}}
+              >
+                {(field) => {
+                  const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined
+                  return (
+                    <Field label="Telegram" error={err}>
+                      <Input
+                        value={field.state.value}
+                        onChange={(e) => field.handleChange(e.target.value)}
+                        onBlur={field.handleBlur}
+                        placeholder="https://t.me/..."
+                        className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
+                      />
+                      <p className="text-xs text-muted-foreground">Посилання на чат команди</p>
+                    </Field>
+                  )
+                }}
+              </editForm.Field>
+
+              {/* Notes */}
+              <editForm.Field name="notes">
+                {(field) => (
+                  <Field label="Нотатки">
+                    <Textarea
+                      value={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                      onBlur={field.handleBlur}
+                      placeholder="Внутрішні нотатки…"
+                      className="min-h-20"
+                    />
+                  </Field>
+                )}
+              </editForm.Field>
+            </div>
           </CrmDialogBody>
           <CrmDialogFooter>
-            <Button variant="outline" onClick={() => setEditTeam(null)}>Отмена</Button>
+            <Button variant="ghost" onClick={() => setEditTeam(null)}>Відміна</Button>
             <Button onClick={() => void editForm.handleSubmit()} disabled={updateMutation.isPending}>
-              Сохранить
+              {updateMutation.isPending ? 'Збереження...' : 'Зберегти'}
             </Button>
           </CrmDialogFooter>
         </CrmDialogContent>
