@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Calendar, Users, UserPlus, UserMinus } from 'lucide-react'
 import type { ProjectDto, TeamDto } from '@crm/shared'
@@ -64,7 +64,13 @@ function TeamDetailPage() {
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'])
   const { user } = useAuth()
   const { teamId } = Route.useParams()
-  
+  const queryClient = useQueryClient()
+
+  const removeMemberMutation = useMutation({
+    mutationFn: (userId: string) => api.delete(`/teams/${teamId}/members/${userId}`),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['team', teamId] }) },
+  })
+
   if (denied) return null
 
   const { data: team, isLoading, error } = useQuery({
@@ -240,6 +246,7 @@ function TeamDetailPage() {
                               size="icon"
                               className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
                               title="Исключить"
+                              onClick={() => removeMemberMutation.mutate(member.userId)}
                             >
                               <UserMinus className="h-3.5 w-3.5" />
                             </Button>

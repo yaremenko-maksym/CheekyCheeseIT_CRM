@@ -296,8 +296,8 @@ function InterviewsPage() {
           onSaved={(updated) => setSelectedCard(updated)}
           onDeleted={() => setSelectedCard(null)}
           canDelete={isAdmin || isHR}
-          canMove={isAdmin || isHR}
-          canMoveTerminal={isAdmin || isHR}
+          canMove={isAdmin || isHR || isSenior}
+          canMoveTerminal={isAdmin || isHR || isSenior}
           canCreateProject={isAdmin || isHR}
         />
       )}
