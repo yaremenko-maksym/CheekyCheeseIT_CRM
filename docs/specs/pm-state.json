@@ -23,8 +23,8 @@
       "run_id": "26036232623",
       "branch": "fix/team-detail-hooks",
       "pr_number": 15,
-      "ai_review_run_id": "26038896804",
-      "status": "awaiting_user_testing",
+      "ai_review_run_id": "26041323376",
+      "status": "pr_open",
       "started_at": "2026-05-18T16:22:00Z",
       "expected_duration_min": 12
     },
@@ -48,11 +48,10 @@
       "run_id": "26036811405",
       "branch": "infra/branch-protection",
       "pr_number": 16,
-      "ai_review_run_id": "26037015201",
+      "ai_review_run_id": "26041335936",
       "status": "pr_open",
       "started_at": "2026-05-18T16:30:00Z",
-      "expected_duration_min": 8,
-      "_note": "Ждёт решения по DevOps блокеру (ADMIN_PAT)"
+      "expected_duration_min": 8
     },
     {
       "id": "task-infra-review-pipeline",
@@ -62,13 +61,13 @@
       "run_id": "26040630313",
       "branch": "infra/review-pipeline",
       "pr_number": null,
-      "status": "in_progress",
+      "status": "blocked",
       "started_at": "2026-05-18T14:42:25Z",
       "expected_duration_min": 20,
-      "_note": "Разблокирован после merge PR #17 (fix ADMIN_PAT env level в devops.yml)"
+      "_note": "BLOCKED: агент создал неверные коммиты (gitkeep, CLAUDE.md, wrong blocked.md). ADMIN_PAT недоступен внутри claude-code-action env. Нужно: 1) проверить что ADMIN_PAT секрет настроен в GitHub repo settings, 2) разбить задачу на подзадачи"
     }
   ],
-  "blocked": [],
+  "blocked": ["task-infra-review-pipeline"],
   "merged": ["task-teams-redesign"],
   "phase": "user_testing",
   "pending_fixes": []
