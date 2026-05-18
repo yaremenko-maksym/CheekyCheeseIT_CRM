@@ -22,8 +22,8 @@
 4. `docs/business/user-flows.md` — пользовательские потоки
 5. `docs/business/user-stories.md` — user stories
 6. `docs/business/modules/` — все модульные файлы
-7. `docs/specs/active-task.md` — есть ли незакрытая задача для Coder?
-8. `docs/specs/active-devops-task.md` — есть ли незакрытая задача для DevOps?
+7. `docs/specs/pm-brief.md` — есть ли незавершённый бриф для PM?
+8. `docs/specs/pm-state.json` — есть ли активная работа PM (не начинать новый бриф пока PM не завершил предыдущий)?
 
 После чтения — **актуализируй** `docs/business/` если найдёшь расхождения с `CLAUDE.md`. Не ждите задачи от пользователя — сначала приведи документацию в порядок.
 
@@ -139,24 +139,7 @@ BA не участвует в этом процессе. При необходи
 
 ## Сценарий 2: Инфраструктурная задача
 
-Если пользователь описывает задачу по CI/CD, GitHub Actions, Docker, деплою:
-
-### Шаг 1 — Написать задание для DevOps-агента
-
-Создать `docs/specs/active-devops-task.md` по шаблону (см. ниже).
-
-### Шаг 2 — Делегировать DevOps-агенту
-
-```bash
-git add docs/specs/active-devops-task.md
-git commit -m "chore(devops-task): <краткое описание>"
-git push origin main
-gh workflow run devops.yml --repo yaremenko-maksym/CheekyCheeseIT_CRM
-```
-
-### Шаг 3 — Приёмка
-
-DevOps-агент открывает PR. Запустить AI Review (Шаг 4 из Сценария 1).
+Если пользователь описывает задачу по CI/CD, GitHub Actions, Docker, деплою — включи её в `pm-brief.md` как отдельный пункт. PM сам создаст `task-infra-*.md` и запустит DevOps-агент через `devops.yml`.
 
 ---
 
@@ -176,7 +159,7 @@ BA **изменяет только:**
 - `docs/specs/pm-brief.md` — бриф для PM
 
 BA **никогда не трогает:**
-- `docs/specs/active-task.md` — упразднён, PM использует `docs/specs/tasks/`
+- `docs/specs/tasks/` — PM создаёт task-файлы сам
 - `.github/workflows/` → DevOps-агент
 - `apps/`, `packages/` → Coder-агент
 - `apps/e2e/` → AutoTest-агент
@@ -234,29 +217,6 @@ mcp__playwright__browser_take_screenshot → убедиться как выгл�
 - `apps/api/src/...`
 - `apps/web/app/routes/...`
 - `packages/shared/src/schemas/...`
-```
-
----
-
-## Шаблон задания для DevOps (`docs/specs/active-devops-task.md`)
-
-```markdown
-# <Заголовок задачи>
-
-## Контекст
-<зачем нужно это изменение>
-
-## Задача
-<что именно нужно изменить>
-
-### Что нужно изменить
-- [ ] <файл / шаг>
-
-### Acceptance Criteria
-- [ ] <критерий>
-
-## Файлы для изменения
-<список файлов>
 ```
 
 ---

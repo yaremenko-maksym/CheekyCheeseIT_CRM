@@ -75,14 +75,15 @@ BA подключается только если пользователь ре�
 ## CI/CD Pipeline (актуальный)
 
 ```
-BA пишет docs/specs/active-task.md
-  → gh workflow run coder.yml          # Coder реализует, открывает PR
-  → gh workflow run ai-review.yml \
-      -f pr_number=N                   # AutoTest → Reviewer → Merge
-  → BA проверяет результат → обновляет CLAUDE.md
+BA пишет docs/specs/pm-brief.md
+  → PM декомпозирует → docs/specs/tasks/task-*.md
+  → gh workflow run coder.yml -f task_file=...   # параллельно
+  → gh workflow run devops.yml -f task_file=...  # параллельно
+  → PR → ai-review.yml → awaiting-pm-review label
+  → PM: User Testing → e2e.yml → squash merge
 ```
 
-Workflows: `coder.yml` | `devops.yml` | `ai-review.yml` | `autotest.yml` | `ba-escalation.yml`
+Workflows: `coder.yml` | `devops.yml` | `ai-review.yml` | `autotest.yml` | `e2e.yml`
 
 ## Ключевые бизнес-ограничения
 
@@ -94,19 +95,7 @@ Workflows: `coder.yml` | `devops.yml` | `ai-review.yml` | `autotest.yml` | `ba-e
 - Файлы (документы, фото) — AWS S3 со сжатием (sharp для img, pdf-lib для PDF)
 - Выплаты только через USDT ERC-20 (Ethereum mainnet)
 
-## Триггер запуска AgentOps
+## Выход BA → PM handoff
 
-После изменения `docs/business/**`:
-```bash
-gh workflow run autotest.yml --repo yaremenko-maksym/CheekyCheeseIT_CRM
-```
-
-После создания `docs/specs/active-task.md`:
-```bash
-gh workflow run coder.yml --repo yaremenko-maksym/CheekyCheeseIT_CRM
-```
-
-После создания `docs/specs/active-devops-task.md`:
-```bash
-gh workflow run devops.yml --repo yaremenko-maksym/CheekyCheeseIT_CRM
-```
+BA пишет только `docs/specs/pm-brief.md` и коммитит.
+Всё остальное (запуск агентов, мониторинг, User Testing, E2E) — PM.
