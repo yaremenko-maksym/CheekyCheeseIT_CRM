@@ -236,6 +236,27 @@ export const INTERVIEWS = [
     createdAt: '2024-01-10T00:00:00.000Z',
     updatedAt: '2024-01-20T00:00:00.000Z',
   },
+  {
+    id: 'interview-4-id',
+    seniorId: USERS.senior.id,
+    seniorName: USERS.senior.displayName,
+    hrId: USERS.hr.id,
+    hrName: USERS.hr.displayName,
+    companyName: 'Final Stage Corp',
+    vacancyUrl: null,
+    callUrl: null,
+    stage: 'FINAL_INTERVIEW',
+    position: 0,
+    notesDomain: null,
+    notesTechStack: null,
+    notesTeamSize: null,
+    notesBenefits: null,
+    notesPaymentType: null,
+    notesSalaryReview: null,
+    notesGeneral: null,
+    createdAt: '2024-03-01T00:00:00.000Z',
+    updatedAt: '2024-03-01T00:00:00.000Z',
+  },
 ]
 
 // ---------------------------------------------------------------------------

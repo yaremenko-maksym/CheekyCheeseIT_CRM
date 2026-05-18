@@ -320,7 +320,7 @@ test.describe('Interviews (Kanban) page', () => {
 
     test('clicking "Client →" sends move request with CLIENT_INTERVIEW stage', async ({ asSenior: page }) => {
       await page.goto('/crm/interviews')
-      await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
+      await page.getByRole('button').filter({ hasText: 'Final Stage Corp' }).first().click({ force: true })
 
       const moveReq = page.waitForRequest(
         (req) => req.url().includes('/move') && req.method() === 'PATCH',
