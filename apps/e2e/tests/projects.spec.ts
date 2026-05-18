@@ -270,11 +270,10 @@ test.describe('Projects page', () => {
 
       const dialog = page.getByRole('dialog')
       
-      // Check for new metadata fields from PR #8 (only fields that actually exist in create dialog)
-      await expect(dialog.getByPlaceholder(/стек технологий/i).or(dialog.getByLabel(/технологии/i))).toBeVisible()
-      await expect(dialog.getByPlaceholder(/размер команды/i).or(dialog.getByLabel(/команда/i))).toBeVisible()
-      await expect(dialog.getByPlaceholder(/benefi|льгот/i).or(dialog.getByLabel(/benefi|льгот/i))).toBeVisible()
-      // Note: paymentType and salaryReview are interview fields, not project fields
+      // Check for metadata field labels in create dialog
+      await expect(dialog.getByText('Стек технологий')).toBeVisible()
+      await expect(dialog.getByText('Состав команды')).toBeVisible()
+      await expect(dialog.getByText('Бенефиты')).toBeVisible()
     })
 
     test('create project with all metadata fields filled', async ({ asAdmin: page }) => {

@@ -54,19 +54,13 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Команда',
     icon: UsersRound,
     to: '/crm/team',
-    roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'],
+    roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'],
   },
   {
     label: 'Проекты',
     icon: Briefcase,
     to: '/crm/projects',
-    roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'],
-  },
-  {
-    label: 'Проект',
-    icon: Briefcase,
-    to: '/crm/project',
-    roles: ['JUNIOR'],
+    roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'],
   },
   {
     label: 'Финансы',

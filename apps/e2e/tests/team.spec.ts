@@ -354,13 +354,11 @@ test.describe('Team page', () => {
       await expect(page.getByText('Alpha Team')).toBeVisible()
       await expect(page.getByText('Участники команды')).toBeVisible()
       
-      // Should see all role sections
+      // Should see all role sections present in the fixture team (no JUNIOR in TEAMS[0])
       await expect(page.getByText('HR')).toBeVisible()
       await expect(page.getByText('Синьор')).toBeVisible()
       await expect(page.getByText('Бухгалтер')).toBeVisible()
-      await expect(page.getByText('Джун')).toBeVisible()
-      
-      
+
       // Should have no management buttons (read-only access)
       await expect(page.getByText('Добавить участника')).not.toBeVisible()
       await expect(page.getByTitle('Исключить')).not.toBeVisible()

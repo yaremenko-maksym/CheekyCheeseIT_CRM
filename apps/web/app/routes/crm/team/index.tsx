@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
 import type { Value as PhoneValue } from 'react-phone-number-input'
 import { z } from 'zod'
-import type { CreateUserDto, TeamDto, UserProfileDto } from '@crm/shared'
+import type { CreateUserDto, ProjectDto, TeamDto, UserProfileDto } from '@crm/shared'
 import { createUserSchema, updateProfileSchema } from '@crm/shared'
 import type { AxiosError } from 'axios'
 import { cn } from '@/lib/utils'
@@ -39,7 +39,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
 
-export const Route = createFileRoute('/crm/team')({
+export const Route = createFileRoute('/crm/team/')({
   component: TeamPage,
 })
 
@@ -92,6 +92,11 @@ async function fetchTeams(): Promise<TeamDto[]> {
 
 async function fetchAllUsers(): Promise<UserOption[]> {
   const res = await api.get<UserOption[]>('/users')
+  return res.data
+}
+
+async function fetchProjects(): Promise<ProjectDto[]> {
+  const res = await api.get<ProjectDto[]>('/projects')
   return res.data
 }
 
@@ -533,6 +538,12 @@ function TeamPage() {
     enabled: canManage,
   })
 
+  const { data: projects } = useQuery({
+    queryKey: ['projects'],
+    queryFn: fetchProjects,
+    enabled: !!user,
+  })
+
   // HR: create senior dialog
   const [showCreateSenior, setShowCreateSenior] = useState(false)
 
@@ -745,27 +756,17 @@ function TeamPage() {
                       </Badge>
                     </div>
 
-                    {/* Role counts */}
-                    <div className="grid grid-cols-2 gap-2">
-                      {(['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'] as const).map(role => {
-                        const count = team.members.filter(m => m.role === role).length
-                        if (count === 0) return null
-                        return (
-                          <div key={role} className="flex items-center justify-between text-xs">
-                            <span className="text-muted-foreground">{ROLE_LABELS[role]}</span>
-                            <Badge variant={ROLE_VARIANT[role]} className="text-[9px] px-1.5">
-                              {count}
-                            </Badge>
-                          </div>
-                        )
-                      })}
-                    </div>
-
-                    {/* Active projects placeholder */}
                     <div className="pt-2 border-t border-border/50">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>Активные проекты</span>
-                        <span>—</span>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">Активные проекты</span>
+                        <span className="font-medium text-foreground">
+                          {projects
+                            ? projects.filter(p =>
+                                p.status === 'ACTIVE' &&
+                                team.members.some(m => m.role === 'SENIOR' && m.userId === p.seniorId)
+                              ).length
+                            : '—'}
+                        </span>
                       </div>
                     </div>
                   </div>

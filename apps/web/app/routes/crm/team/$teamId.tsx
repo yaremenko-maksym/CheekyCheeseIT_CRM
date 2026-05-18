@@ -2,7 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Calendar, Users, UserPlus, UserMinus } from 'lucide-react'
-import type { TeamDto } from '@crm/shared'
+import type { ProjectDto, TeamDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
@@ -46,6 +46,11 @@ async function fetchTeam(id: string): Promise<TeamDto> {
   return res.data
 }
 
+async function fetchProjects(): Promise<ProjectDto[]> {
+  const res = await api.get<ProjectDto[]>('/projects')
+  return res.data
+}
+
 const container = {
   hidden: { opacity: 0 },
   show: { opacity: 1, transition: { staggerChildren: 0.1 } },
@@ -66,6 +71,12 @@ function TeamDetailPage() {
     queryKey: ['team', teamId],
     queryFn: () => fetchTeam(teamId),
     enabled: !!user && !!teamId,
+  })
+
+  const { data: projects } = useQuery({
+    queryKey: ['projects'],
+    queryFn: fetchProjects,
+    enabled: !!user,
   })
 
   const canManage = user?.role === 'ADMIN' || (user?.role === 'HR' && team?.members.some(m => m.userId === user?.id))
@@ -228,7 +239,7 @@ function TeamDetailPage() {
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                              title="Исключить из команды"
+                              title="Исключить"
                             >
                               <UserMinus className="h-3.5 w-3.5" />
                             </Button>
@@ -278,7 +289,6 @@ function TeamDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Projects count placeholder - can be extended later */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Активность</CardTitle>
@@ -286,7 +296,14 @@ function TeamDetailPage() {
             <CardContent>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Активные проекты</span>
-                <span className="font-medium">—</span>
+                <span className="font-medium">
+                  {projects
+                    ? projects.filter(p =>
+                        p.status === 'ACTIVE' &&
+                        team.members.some(m => m.role === 'SENIOR' && m.userId === p.seniorId)
+                      ).length
+                    : '—'}
+                </span>
               </div>
             </CardContent>
           </Card>
