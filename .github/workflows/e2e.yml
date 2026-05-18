@@ -111,6 +111,9 @@ jobs:
           pnpm --filter @crm/api db:migrate
           pnpm --filter @crm/api db:seed
 
+      - name: Build shared
+        run: pnpm --filter @crm/shared build
+
       - name: Build web
         run: pnpm --filter @crm/web build
 
