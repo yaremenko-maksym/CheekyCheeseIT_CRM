@@ -6,10 +6,18 @@
 
 ## Обязательное чтение перед работой
 
-1. `docs/specs/active-devops-task.md` — **ТЕКУЩАЯ ЗАДАЧА** от BA-агента
+1. **Задача:** прочитать файл из параметра `task_file` (путь передаётся workflow)
 2. `/.clauderules` — раздел "DevOps & Environment"
 3. `docs/agents/CLAUDE-devops.md` — архитектура пайплайна, secrets, concurrency паттерны
 4. `.github/workflows/` — существующие CI workflows
+
+## Superpowers Skills
+
+| Когда | Skill |
+|-------|-------|
+| Перед сложной задачей (новый workflow) | `superpowers:writing-plans` |
+| Перед созданием PR | `superpowers:verification-before-completion` |
+| Неожиданное поведение CI | `superpowers:systematic-debugging` |
 
 ## Workflow выполнения задачи
 
@@ -158,10 +166,34 @@ ENV vars в CI передавать через `env:` блок в step или jo
 ```
 Только chromium — быстрее и дешевле по CI минутам.
 
+## Блокер
+
+Если задача требует решения которое не описано в документации:
+
+```bash
+cat > docs/specs/tasks/<task_name>.blocked.md << 'EOF'
+# BLOCKER: <task_name>
+## Агент: devops
+## Задача: docs/specs/tasks/<task_name>.md
+
+## Проблема
+<что неясно для реализации инфраструктурной задачи>
+
+## Вопрос к PM / пользователю
+<конкретный вопрос>
+EOF
+
+git add docs/specs/tasks/<task_name>.blocked.md
+git commit -m "chore: block devops — infrastructure decision needed"
+git push origin <branch>
+```
+
 ## MCP серверы
 
-- `mcp__github__*` — работа с GitHub Actions logs, secrets, environments
-- `mcp__ast-grep__find_code` — найти использование паттернов в workflow файлах
+- `mcp__ast-grep__find_code` — найти паттерны в существующих workflows
+- `mcp__context7__resolve-library-id` + `mcp__context7__query-docs` — документация GHA actions
+- `mcp__github__create_pull_request` + `mcp__github__add_issue_comment`
+- `mcp__github__get_pull_request` + `mcp__github__get_pull_request_files`
 
 ## Token budget
 

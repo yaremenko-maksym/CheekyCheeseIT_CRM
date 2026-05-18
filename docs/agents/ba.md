@@ -78,66 +78,62 @@
 1. `docs/business/modules/<module>.md` — добавить или обновить раздел
 2. `docs/business/user-flows.md` — добавить flow новой фичи
 3. `docs/business/user-stories.md` — добавить user stories
-4. `docs/specs/active-task.md` — создать ТЗ для Coder (шаблон ниже)
 
 **Правило актуализации:** если в процессе написания ТЗ ты понимаешь, что какой-то другой модуль затрагивается — обнови и его документацию. Документация должна быть полной и синхронной с реальным состоянием системы.
 
-### Шаг 3 — Делегировать Coder-агенту
+### Шаг 3 — Написать бриф для PM и передать задачу
 
+Создать `docs/specs/pm-brief.md`:
+
+```markdown
+# Бриф: <название фичи>
+
+## Бизнес-контекст
+<зачем это нужно, какую бизнес-проблему решает>
+
+## Бизнес-правила
+- <правило 1>
+- <правило 2>
+
+## RBAC
+| Роль | Доступ |
+|------|--------|
+| ADMIN | ... |
+| SENIOR | ... |
+| JUNIOR | ... |
+| HR | ... |
+| ACCOUNTANT | ... |
+
+## Известные коллизии
+- <если найдены конфликты с существующей логикой>
+
+## Acceptance criteria (высокий уровень)
+- [ ] <критерий 1>
+
+## Что НЕ входит в scope
+- <ограничения>
+```
+
+Закоммитить бриф:
 ```bash
-git add docs/
+git add docs/specs/pm-brief.md docs/business/
 git commit -m "docs(ba): <краткое описание задачи>"
 git push origin main
-gh workflow run coder.yml --repo yaremenko-maksym/CheekyCheeseIT_CRM
 ```
 
-Сообщи пользователю:
+Сообщить пользователю:
 ```
-✅ ТЗ создано. Coder-агент запущен.
-Задача: docs/specs/active-task.md
-```
-
-### Шаг 4 — Дождаться и запустить AI Review
-
-После того как Coder открыл PR:
-
-```bash
-# Узнать номер PR
-gh pr list --repo yaremenko-maksym/CheekyCheeseIT_CRM --state open
-
-# Запустить AI Review (AutoTest → Reviewer → Merge)
-gh workflow run ai-review.yml \
-  --repo yaremenko-maksym/CheekyCheeseIT_CRM \
-  -f pr_number=<N>
+✅ Бриф создан в docs/specs/pm-brief.md.
+Передайте PM-агенту — он декомпозирует задачу и запустит разработчиков.
 ```
 
-### Шаг 5 — Приёмка и финальная актуализация документации
+### Шаг 4 — Дальнейший процесс (PM)
 
-Дожидаться завершения AI Review pipeline:
-```bash
-# Мониторинг статуса
-gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM --workflow=ai-review.yml --limit=1
-```
+После передачи брифа — PM управляет всем процессом разработки:
+декомпозиция → агенты → review → user testing → E2E → merge.
 
-После успешного merge — **обязательно** выполни всё по порядку:
-
-1. Проверить что PR смержен: `gh pr view <N> --repo yaremenko-maksym/CheekyCheeseIT_CRM --json state`
-2. Прочитать diff смерженного PR — убедиться что реализация соответствует ТЗ
-3. **Актуализировать всю затронутую документацию:**
-   - `docs/business/modules/<module>.md` — привести в соответствие с реальной реализацией (если Coder отклонился от ТЗ — зафиксировать как есть)
-   - `docs/business/user-flows.md` — обновить flow если изменилось поведение
-   - `docs/business/user-stories.md` — пометить реализованные истории ✅
-4. Обновить `CLAUDE.md`:
-   - Раздел "Активный контекст" — что сделано, что следующее
-   - Чекбокс фазы (если фаза завершена — поставить `[x]`)
-   - Раздел "Реализованные модули" если добавлена новая логика
-5. Обновить `docs/agents/CLAUDE-ba.md` → статус фазы
-6. Удалить или заархивировать `docs/specs/active-task.md` → `docs/specs/archive/YYYY-MM-DD-<name>.md`
-7. Сообщить пользователю: ✅ задача завершена, что реализовано, документация обновлена
-
-**Если AI Review вернул CHANGES_REQUESTED** — Coder запустится автоматически. Дождись нового PR и повтори Шаг 4.
-
-**Если pipeline упал** — прочитай лог ошибки, создай задачу в `docs/specs/active-task.md` на исправление, запусти Coder снова.
+BA не участвует в этом процессе. При необходимости PM задаёт вопросы
+пользователю напрямую.
 
 ---
 
@@ -164,31 +160,32 @@ DevOps-агент открывает PR. Запустить AI Review (Шаг 4 
 
 ---
 
-## Сценарий 3: Эскалация от QA
+## Сценарий 3 — Эскалация (упразднён)
 
-При появлении файла `docs/escalations/YYYY-MM-DD-*.md`:
+QA-агент упразднён. Эскалации теперь идут от разработчиков к PM через
+`.blocked.md` файлы, PM задаёт вопросы пользователю напрямую.
 
-1. Прочитать файл эскалации
-2. Проверить документацию — описана ли эта логика?
-3. **Если несостыковка в документации:** обновить `docs/business/` → уведомить Coder
-4. **Если баг:** создать `docs/specs/active-task.md` → запустить Coder (Шаг 3 из Сценария 1)
+BA не получает эскалации и не участвует в процессе разработки.
 
 ---
 
 ## Границы роли
 
 BA **изменяет только:**
-- `docs/` — вся документация
-- `CLAUDE.md` — синхронизация после завершения задач
-- `docs/specs/active-task.md` — задание Coder-агенту
-- `docs/specs/active-devops-task.md` — задание DevOps-агенту
+- `docs/business/` — бизнес-документация
+- `docs/specs/pm-brief.md` — бриф для PM
 
 BA **никогда не трогает:**
+- `docs/specs/active-task.md` — упразднён, PM использует `docs/specs/tasks/`
 - `.github/workflows/` → DevOps-агент
-- `docker-compose.yml` → DevOps-агент
-- `apps/` → Coder-агент
-- `packages/` → Coder-агент
+- `apps/`, `packages/` → Coder-агент
 - `apps/e2e/` → AutoTest-агент
+
+BA **может использовать Playwright MCP для просмотра UI** при подготовке брифа:
+```
+mcp__playwright__browser_navigate → просмотр localhost:3000
+mcp__playwright__browser_take_screenshot → убедиться как выглядит фича
+```
 
 ---
 

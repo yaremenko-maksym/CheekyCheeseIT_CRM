@@ -8,9 +8,20 @@
 
 1. `/.clauderules` — **КРИТИЧНО**: все правила разработки
 2. `docs/agents/CLAUDE-coder.md` — команды, структура, текущий статус, gotchas
-3. `docs/specs/active-task.md` — текущая задача
+3. **Задача:** прочитать файл из параметра `task_file` (путь передаётся workflow в переменной `task_file`)
 4. `docs/business/modules/<релевантный модуль>.md` — бизнес-логика
 5. `docs/business/user-flows.md` — user flows для понимания контекста
+
+## Superpowers Skills (использовать активно)
+
+| Когда | Skill |
+|-------|-------|
+| Перед реализацией любой задачи | `superpowers:test-driven-development` |
+| При любом баге или неожиданном поведении | `superpowers:systematic-debugging` |
+| Перед созданием PR | `superpowers:verification-before-completion` |
+| Для новых страниц / сложных UI компонентов | `frontend-design:frontend-design` |
+| После написания кода | `superpowers:simplify` |
+| Перед PR с auth/finance/transactions | `superpowers:security-review` |
 
 ## Workflow разработки
 
@@ -80,6 +91,13 @@ Slug берётся из заголовка `docs/specs/active-task.md`.
 
 ### 2.8. Проверка качества перед коммитом
 
+```bash
+pnpm typecheck && pnpm lint && pnpm test
+```
+
+Полный E2E (Playwright) запускается отдельно через `e2e.yml` — PM запускает
+его после User Testing. Не нужно запускать E2E локально перед коммитом.
+
 **Code Simplifier** (плагин) автоматически запускается в фоне и чистит изменённый код.
 Дополнительно — запустить eslint MCP вручную:
 
@@ -138,6 +156,40 @@ EOF
 - Коммит: `fix: <описание исправления>`
 - Push → автоматически перезапустятся Reviewer + QA
 
+## Блокер — неописанная бизнес-логика
+
+Если в процессе реализации обнаружена логика которая не описана в
+`docs/business/` и без неё невозможно принять архитектурное решение:
+
+1. **НЕ угадывать и НЕ додумывать самостоятельно**
+2. Создать файл `docs/specs/tasks/<имя_твоей_задачи>.blocked.md`:
+
+```markdown
+# BLOCKER: <имя задачи>
+
+## Агент: coder
+## Задача: docs/specs/tasks/<имя_задачи>.md
+
+## Проблема
+<точное описание что неясно>
+
+## Затронутый код
+`<файл>:<строка>` — <что именно требует решения>
+
+## Вопрос к PM / пользователю
+<конкретный вопрос с вариантами ответа если возможно>
+
+## Что сделано до блокера
+- <список файлов с изменениями>
+```
+
+3. Закоммитить в ветку и завершить работу — PM прочитает блокер на следующем пробуждении:
+```bash
+git add docs/specs/tasks/<name>.blocked.md
+git commit -m "chore: block task — undocumented business logic found"
+git push origin <branch>
+```
+
 ## Технические ограничения (из .clauderules)
 
 - **Zod:** `packages/shared/src/schemas/` — Single Source of Truth для всех типов
@@ -151,9 +203,11 @@ EOF
 ## MCP серверы (использовать активно)
 
 - `ast-grep` → `find_code` — найти существующие паттерны перед написанием нового кода
-- `postgres` → `query` — проверить текущую схему БД (`SELECT * FROM information_schema.columns WHERE table_name='...'`)
+- `mcp__postgres__query` — проверить текущую схему БД (`SELECT * FROM information_schema.columns WHERE table_name='...'`)
 - `eslint` → `lint-files` — проверить код до пуша
 - `context7` → `resolve-library-id` + `query-docs` — актуальная документация NestJS/TanStack/Zod
+- `mcp__playwright__browser_navigate` + `mcp__playwright__browser_snapshot` + `mcp__playwright__browser_take_screenshot` — проверить UI после изменений
+- `mcp__github__get_pull_request_files` — список изменённых файлов в PR
 ## Плагины (запускаются автоматически или через slash-команду)
 
 | Плагин | Тип | Как работает |
