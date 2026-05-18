@@ -163,7 +163,7 @@ test.describe('SENIOR INCOME — шаг 1: регистрация прихода
 
     await asSenior.getByRole('button', { name: 'Создать транзакцию' }).click()
     // Ошибка в диалоге — банер ошибки внизу
-    await expect(asSenior.getByRole('dialog').getByText(/прикрепите чек|подтверждение/i)).toBeVisible()
+    await expect(asSenior.getByRole('dialog').getByText(/прикрепите чек|подтверждение/i).first()).toBeVisible()
     await expect(asSenior.getByRole('dialog')).toBeVisible()
   })
 
