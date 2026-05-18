@@ -24,7 +24,7 @@
       "branch": "fix/team-detail-hooks",
       "pr_number": 15,
       "ai_review_run_id": "26041323376",
-      "e2e_run_id": "26042448683",
+      "e2e_run_id": "26042785473",
       "status": "e2e_running",
       "started_at": "2026-05-18T16:22:00Z",
       "expected_duration_min": 12
@@ -68,8 +68,13 @@
       "_note": "BLOCKED: claude-code-action не пробрасывает step-level env vars — ADMIN_PAT недоступен агенту. Решение: P1 (ai-review.yml + CODEOWNERS + CLAUDE-reviewer.md, без ADMIN_PAT) + P2 (apply-branch-protection.yml файл, агент только пишет YAML)"
     }
   ],
-  "blocked": ["task-infra-review-pipeline"],
-  "merged": ["task-teams-redesign", "task-fix-test-pr-15"],
+  "blocked": [
+    "task-infra-review-pipeline"
+  ],
+  "merged": [
+    "task-teams-redesign",
+    "task-fix-test-pr-15"
+  ],
   "phase": "user_testing",
   "pending_fixes": []
 }
