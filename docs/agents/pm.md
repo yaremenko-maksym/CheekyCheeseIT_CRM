@@ -248,15 +248,34 @@ gh workflow run ai-review.yml \
 
 ## Режим 4 — User Testing
 
-### Шаг 1: Запустить проект
+### Шаг 0: Подготовка окружения (ОБЯЗАТЕЛЬНО перед каждым User Testing)
 
 ```bash
-pnpm dev
+# 1. Переключиться на ветку PR и подтянуть последние изменения
+git fetch origin
+git checkout <pr_branch>
+git pull origin <pr_branch>
+
+# 2. Применить миграции
+pnpm --filter @crm/api db:migrate
+
+# 3. Запустить все unit-тесты
+pnpm test
+
+# 4. Перезапустить dev-серверы (убить старые процессы)
+pkill -f "nest start" 2>/dev/null || true
+pkill -f "vite"       2>/dev/null || true
+sleep 2
+pnpm dev &
+
+# 5. Дождаться готовности серверов
+timeout 60 bash -c 'until curl -sf http://localhost:3001/api/health; do sleep 2; done'
+timeout 30 bash -c 'until curl -sf http://localhost:3000; do sleep 2; done'
 ```
 
-Подождать старта серверов (API :3001, Web :3000).
+Если `pnpm test` упал — **не показывать проект пользователю**. Создать fix-задачу для Coder → исправить → повторить Шаг 0.
 
-### Шаг 2: Описать пользователю
+### Шаг 1: Описать пользователю
 
 ```
 ✅ PR #<N> готов к тестированию. Проект запущен на localhost:3000.
@@ -276,29 +295,40 @@ pnpm dev
 Апрув или список правок?
 ```
 
-### Шаг 3: Реакция на ответ пользователя
+### Шаг 2: Сбор правок (режим накопления)
 
-**АПРУВ:**
+**Пользователь может вносить правки несколькими сообщениями.**
+
+После каждого сообщения с правками — добавить в `pm-state.json` в массив `pending_fixes` и ответить:
+
+```
+Записал. Ещё правки или это всё?
+```
+
+**Не запускать агентов** пока пользователь не сказал "всё" / "готово" / "апрув".
+
+**АПРУВ (нет правок):**
 
 ```bash
 gh workflow run e2e.yml \
   --repo yaremenko-maksym/CheekyCheeseIT_CRM \
   -f pr_number=<N>
 
-# Получить run_id:
 gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
   --workflow=e2e.yml --limit=1 --json databaseId --jq '.[0].databaseId'
 ```
 
 Записать `e2e_run_id` в pm-state.json → статус `e2e_running` → `ScheduleWakeup(delay=900)`
 
-**ПРАВКИ:** → **Режим 4.A**
+**Пользователь сказал "всё" (есть накопленные правки):** → **Режим 4.A**
 
 ---
 
-### Режим 4.A — Анализ правок пользователя
+### Режим 4.A — Батч-диспетч правок
 
-Для каждой правки определить тип:
+#### Шаг 1: Классифицировать все накопленные правки
+
+Взять все правки из `pm-state.json → pending_fixes` и сгруппировать по агентам:
 
 | Правка | Агент | Skill для task-файла |
 |--------|-------|---------------------|
@@ -308,16 +338,51 @@ gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
 | Новая фича вне scope | Уточнить у пользователя | — |
 | E2E тест не покрывает | AutoTest | `test-driven-development` |
 
-Создать task-файлы → запустить агентов (пушат в ту же ветку PR):
+#### Шаг 2: Создать ОДИН task-файл на агента
+
+Все правки одного агента — в один task-файл (не по одной на правку):
+
+```markdown
+# task-fix-<pr-slug>-round-<N>
+
+## Агент: coder
+## Ветка: <pr_branch>
+## Приоритет: high
+
+## Контекст
+Правки по результатам User Testing PR #<N>
+
+## Список правок
+1. <правка 1 от пользователя — точная формулировка>
+2. <правка 2>
+3. <правка 3>
+
+## Acceptance criteria
+- [ ] <каждая правка реализована>
+```
+
+#### Шаг 3: Запустить агентов с target_branch
 
 ```bash
+# Coder (все правки в одном task-файле, пушит в ту же ветку PR)
 gh workflow run coder.yml \
   --repo yaremenko-maksym/CheekyCheeseIT_CRM \
   -f task_file="docs/specs/tasks/task-fix-<slug>.md" \
-  -f task_hint="fix-<slug>"
+  -f task_hint="fix-<slug>" \
+  -f target_branch="<pr_branch>"
+
+# AutoTest (если нужны новые тесты)
+gh workflow run autotest.yml \
+  --repo yaremenko-maksym/CheekyCheeseIT_CRM \
+  -f task_file="docs/specs/tasks/task-fix-<slug>-tests.md" \
+  -f target_branch="<pr_branch>"
 ```
 
-После push → перезапустить ai-review:
+Очистить `pending_fixes` в pm-state.json → обновить статусы задач → `ScheduleWakeup(delay=900)`
+
+#### Шаг 4: После завершения агентов — запустить ai-review
+
+Когда все запущенные агенты завершили работу (статус `success`):
 
 ```bash
 gh workflow run ai-review.yml \
@@ -325,7 +390,17 @@ gh workflow run ai-review.yml \
   -f pr_number=<N>
 ```
 
-Мониторинг → APPROVE → User Testing снова.
+**Мониторинг:** ai-review → APPROVE → `awaiting-pm-review` label → PM снова запускает **Режим 4** (со Шага 0).
+
+#### Если пользователь присылает правки пока Coder уже запущен
+
+Добавить правки в `pending_fixes` в pm-state.json, ответить:
+
+```
+Записал — добавлю к следующему запуску Coder (сейчас он уже работает над предыдущей партией правок).
+```
+
+Когда текущий Coder завершится → создать новый task-файл из pending_fixes → запустить снова.
 
 ---
 
