@@ -1,19 +1,21 @@
 name: DevOps
 
-# claude-code-action supports only workflow_dispatch (not push).
-# BA commits active-devops-task.md → manually triggers this workflow via GitHub UI or:
-#   gh workflow run devops.yml --repo <owner>/<repo>
+# Triggered by PM agent with a task file path.
+# Each task_file gets its own concurrency group — parallel DevOps instances possible.
 on:
   workflow_dispatch:
     inputs:
+      task_file:
+        description: 'Path to task file (e.g. docs/specs/tasks/task-infra-redis.md)'
+        required: true
+        type: string
       task_hint:
-        description: 'Optional: short hint for branch name (e.g. "add-devops-agent")'
+        description: 'Short hint for branch name (e.g. "infra-redis")'
         required: false
         type: string
 
 concurrency:
-  # Do NOT cancel in progress — infra changes are stateful, cancelling mid-run loses work
-  group: devops-${{ github.sha }}
+  group: devops-${{ inputs.task_file }}
   cancel-in-progress: false
 
 jobs:
@@ -23,7 +25,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      id-token: write   # required for claude_code_oauth_token OIDC auth
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -47,15 +49,16 @@ jobs:
 
             Прочитай docs/agents/devops.md — это твой полный системный промпт.
             Прочитай docs/agents/CLAUDE-devops.md — архитектура пайплайна, concurrency, secrets.
-            Прочитай docs/specs/active-devops-task.md — это твоя текущая задача.
+            Прочитай ${{ inputs.task_file }} — это твоя текущая задача.
 
             Реализуй задачу согласно инструкциям в docs/agents/devops.md:
-            1. Создай ветку infra/<slug-из-заголовка-active-devops-task>
+            1. Создай ветку infra/<slug-из-заголовка-task-файла>
             2. Внеси все изменения в инфраструктурные файлы
             3. Закоммить конкретными файлами (не git add .)
             4. Создай PR через GitHub MCP и добавь label ai-review-ready
 
             Repo: ${{ github.repository }}
+            task_hint: ${{ inputs.task_hint }}
           allowed_tools: |
             Read
             Write
@@ -63,7 +66,10 @@ jobs:
             Bash
             mcp__ast-grep__find_code
             mcp__ast-grep__find_code_by_rule
+            mcp__context7__resolve-library-id
+            mcp__context7__query-docs
             mcp__github__create_pull_request
             mcp__github__create_branch
             mcp__github__get_pull_request
+            mcp__github__get_pull_request_files
             mcp__github__add_issue_comment

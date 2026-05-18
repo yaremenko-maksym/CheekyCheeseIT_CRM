@@ -1,19 +1,22 @@
 name: Coder
 
-# claude-code-action supports only workflow_dispatch (not push).
-# BA commits active-task.md → manually triggers this workflow via GitHub UI or:
-#   gh workflow run coder.yml --repo <owner>/<repo>
+# Triggered by PM agent with a task file path.
+# Each task_file gets its own concurrency group → parallel Coder instances possible.
 on:
   workflow_dispatch:
     inputs:
+      task_file:
+        description: 'Path to task file (e.g. docs/specs/tasks/task-auth-api.md)'
+        required: true
+        type: string
       task_hint:
-        description: 'Optional: short hint for branch name (e.g. "fix-finance-rbac")'
+        description: 'Short hint for branch name (e.g. "auth-api")'
         required: false
         type: string
 
 concurrency:
-  # Do NOT cancel in progress — coding is stateful, cancelling mid-run loses work
-  group: coder-${{ github.sha }}
+  # Each task file gets its own group → parallel runs for different tasks are safe
+  group: coder-${{ inputs.task_file }}
   cancel-in-progress: false
 
 jobs:
@@ -64,16 +67,17 @@ jobs:
 
             Прочитай docs/agents/coder.md — это твой полный системный промпт.
             Прочитай docs/agents/CLAUDE-coder.md — команды, структура, статус, gotchas.
-            Прочитай docs/specs/active-task.md — это твоя текущая задача.
+            Прочитай ${{ inputs.task_file }} — это твоя текущая задача.
 
             Реализуй задачу согласно инструкциям в docs/agents/coder.md:
-            1. Создай feature ветку от main (slug из заголовка active-task.md)
+            1. Создай feature ветку от main (slug из заголовка task-файла)
             2. Реализуй все изменения в правильном порядке (shared → api → web → tests)
             3. Запусти pnpm typecheck и pnpm lint — исправь все ошибки
             4. Закоммить изменения конкретными файлами (не git add .)
             5. Создай PR через GitHub MCP и добавь label ai-review-ready
 
             Repo: ${{ github.repository }}
+            task_hint: ${{ inputs.task_hint }}
           allowed_tools: |
             Read
             Write
@@ -81,10 +85,16 @@ jobs:
             Bash
             mcp__ast-grep__find_code
             mcp__ast-grep__find_code_by_rule
+            mcp__ast-grep__dump_syntax_tree
             mcp__context7__resolve-library-id
             mcp__context7__query-docs
             mcp__eslint__lint-files
+            mcp__postgres__query
+            mcp__playwright__browser_navigate
+            mcp__playwright__browser_take_screenshot
+            mcp__playwright__browser_snapshot
             mcp__github__create_pull_request
             mcp__github__create_branch
             mcp__github__get_pull_request
+            mcp__github__get_pull_request_files
             mcp__github__add_issue_comment

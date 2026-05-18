@@ -1,18 +1,20 @@
-name: AutoTest (Docs → Tests)
+name: AutoTest (Docs/PM Task → Tests)
 
-# claude-code-action supports only workflow_dispatch (not push).
-# BA commits docs/business/** → manually triggers this workflow via GitHub UI or:
-#   gh workflow run autotest.yml --repo <owner>/<repo>
+# Triggered by PM with task_file, or manually for docs/business updates.
 on:
   workflow_dispatch:
     inputs:
+      task_file:
+        description: 'Path to task file from PM (e.g. docs/specs/tasks/task-e2e-auth.md) — optional'
+        required: false
+        type: string
       module:
         description: 'Module to update tests for (e.g. finance, team, interviews) — empty = full scan'
         required: false
         type: string
 
 concurrency:
-  group: autotest-docs-${{ github.ref }}
+  group: autotest-${{ inputs.task_file || inputs.module || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -22,7 +24,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      id-token: write   # required for claude_code_oauth_token OIDC auth
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -31,19 +33,19 @@ jobs:
 
       - name: Resolve changed docs
         id: changed
+        env:
+          TASK_FILE: ${{ inputs.task_file }}
+          MODULE_INPUT: ${{ inputs.module }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            if [ -n "${{ inputs.module }}" ]; then
-              echo "files=docs/business/modules/${{ inputs.module }}.md" >> $GITHUB_OUTPUT
-              echo "hint=${{ inputs.module }}" >> $GITHUB_OUTPUT
-            else
-              echo "files=docs/business/" >> $GITHUB_OUTPUT
-              echo "hint=full-scan" >> $GITHUB_OUTPUT
-            fi
+          if [ -n "$TASK_FILE" ]; then
+            echo "files=$TASK_FILE" >> $GITHUB_OUTPUT
+            echo "hint=pm-task" >> $GITHUB_OUTPUT
+          elif [ -n "$MODULE_INPUT" ]; then
+            echo "files=docs/business/modules/${MODULE_INPUT}.md" >> $GITHUB_OUTPUT
+            echo "hint=${MODULE_INPUT}" >> $GITHUB_OUTPUT
           else
             CHANGED=$(git diff HEAD~1 --name-only -- docs/business/ | tr '\n' ' ')
             echo "files=$CHANGED" >> $GITHUB_OUTPUT
-            # derive hint from first changed file name for branch naming
             FIRST=$(git diff HEAD~1 --name-only -- docs/business/ | head -1 | xargs basename -s .md)
             echo "hint=${FIRST:-docs-update}" >> $GITHUB_OUTPUT
           fi
@@ -64,18 +66,15 @@ jobs:
 
             Прочитай docs/agents/autotest.md — это твой полный системный промпт.
             Прочитай docs/agents/CLAUDE-autotest.md — структура тестов, паттерны, seed.
-            Работай в РЕЖИМЕ 2: docs/business/** Push.
 
-            Изменились следующие бизнес-документы:
+            TASK_FILE: "${{ inputs.task_file }}"
+            MODULE: "${{ inputs.module }}"
+
+            Если TASK_FILE не пустой — прочитай его и работай по описанной задаче (Режим 3: PM task-driven).
+            Если TASK_FILE пустой — работай в Режиме 2: docs/business Push.
+
+            Изменились следующие бизнес-документы (для Режима 2):
             ${{ steps.changed.outputs.files }}
-
-            Выполни шаги 1–5 из РЕЖИМА 2:
-            1. Понять что изменилось (git diff HEAD~1 -- docs/business/)
-            2. Прочитать существующие тесты для затронутых модулей
-            3. Написать/обновить тесты для новых user flows
-            4. Обновить docs/test-cases/e2e-scenarios.md
-            5. Создать ветку test/update-<hint>-$(date +%Y%m%d), закоммитить, открыть PR
-
             hint для ветки: ${{ steps.changed.outputs.hint }}
             Repo: ${{ github.repository }}
           allowed_tools: |
@@ -85,7 +84,11 @@ jobs:
             Bash
             mcp__ast-grep__find_code
             mcp__ast-grep__find_code_by_rule
+            mcp__playwright__browser_navigate
+            mcp__playwright__browser_snapshot
+            mcp__playwright__browser_take_screenshot
             mcp__github__create_pull_request
             mcp__github__create_branch
             mcp__github__get_pull_request
+            mcp__github__get_pull_request_files
             mcp__github__add_issue_comment
