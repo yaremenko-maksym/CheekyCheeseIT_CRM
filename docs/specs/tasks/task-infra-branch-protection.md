@@ -14,6 +14,14 @@
 
 ## Конкретні зміни
 
+Використовувати секрет `ADMIN_PAT` (Personal Access Token з `repo` + `administration` scopes) замість дефолтного `GITHUB_TOKEN`.
+
+В workflow DevOps секрет доступний як `${{ secrets.ADMIN_PAT }}`. Налаштувати `gh` CLI:
+```bash
+export GH_TOKEN="${ADMIN_PAT}"
+# або передати через --token при кожному виклику gh api
+```
+
 Оновити branch protection rule для `main` через GitHub API (`gh api`):
 
 ```bash
