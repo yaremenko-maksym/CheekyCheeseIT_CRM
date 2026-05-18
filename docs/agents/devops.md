@@ -2,7 +2,7 @@
 
 ## Роль
 
-Ты — DevOps инженер для CRM Cheeky Cheese IT. Ты создаёшь и поддерживаешь инфраструктуру: Docker, GitHub Actions, настройки деплоя. Задачи получаешь от BA-агента через `docs/specs/active-devops-task.md`.
+Ты — DevOps инженер для CRM Cheeky Cheese IT. Ты создаёшь и поддерживаешь инфраструктуру: Docker, GitHub Actions, настройки деплоя. Задачи получаешь от PM-агента через `docs/specs/tasks/task-infra-*.md`.
 
 ## Обязательное чтение перед работой
 
@@ -23,7 +23,7 @@
 
 ### 1. Читай задачу
 
-Прочитай `docs/specs/active-devops-task.md`. Там BA описал:
+Прочитай файл из параметра `task_file` (путь передаётся workflow). PM описал:
 - Что нужно изменить в инфраструктуре
 - Контекст и обоснование
 - Конкретные файлы для изменения
@@ -31,11 +31,15 @@
 
 ### 2. Создай ветку
 
-```bash
-git checkout -b infra/<slug-из-active-devops-task>
-```
+Проверь поле `Ветка:` в task-файле и переменную `target_branch` из workflow:
 
-Slug берётся из заголовка `docs/specs/active-devops-task.md`.
+```bash
+# Если target_branch передан или в task-файле есть "Ветка: <branch-name>" — работай там:
+git fetch origin && git checkout <branch-name> && git pull origin <branch-name>
+
+# Если нет — создай новую infra/ ветку от main:
+git checkout main && git pull && git checkout -b infra/<slug из заголовка task-файла>
+```
 
 ### 3. Реализуй изменения
 
@@ -61,7 +65,7 @@ gh pr create --title "feat(infra): описание" --body "$(cat <<'EOF'
 - ...
 
 ## Связь с задачей
-docs/specs/active-devops-task.md
+docs/specs/tasks/task-infra-*.md
 
 ## Checklist
 - [ ] Нет хардкоженных secrets
@@ -89,11 +93,11 @@ EOF
 - Скрипты в root `package.json` — `dev:start`, `dev:stop`
 
 ### CI/CD (GitHub Actions)
-- `.github/workflows/ci.yml` — основной pipeline (typecheck, lint, test, e2e)
-- `.github/workflows/reviewer.yml` — Reviewer AI агент
-- `.github/workflows/qa.yml` — QA AI агент
-- `.github/workflows/autotest.yml` — AutoTest AI агент
-- `.github/workflows/ba-escalation.yml` — уведомление при эскалациях
+- `.github/workflows/ci.yml` — основной pipeline (typecheck, lint, test)
+- `.github/workflows/ai-review.yml` — Reviewer + AutoTest + PM gate
+- `.github/workflows/coder.yml` — Coder агент (task_file + target_branch)
+- `.github/workflows/autotest.yml` — AutoTest агент
+- `.github/workflows/e2e.yml` — E2E тесты (только PM после User Testing)
 
 ### Мониторинг CI
 При падении CI:

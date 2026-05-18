@@ -12,6 +12,11 @@ on:
         description: 'Module to update tests for (e.g. finance, team, interviews) — empty = full scan'
         required: false
         type: string
+      target_branch:
+        description: 'Existing branch to commit tests into (optional). If empty — create new test/ branch.'
+        required: false
+        type: string
+        default: ''
 
 concurrency:
   group: autotest-${{ inputs.task_file || inputs.module || github.ref }}
@@ -68,9 +73,11 @@ jobs:
             Прочитай docs/agents/CLAUDE-autotest.md — структура тестов, паттерны, seed.
 
             TASK_FILE: "${{ inputs.task_file }}"
+            TARGET_BRANCH: "${{ inputs.target_branch }}"
             MODULE: "${{ inputs.module }}"
 
             Если TASK_FILE не пустой — прочитай его и работай по описанной задаче (Режим 3: PM task-driven).
+            В Режиме 3 определи ветку: если TARGET_BRANCH не пустой — checkout на неё; иначе создай test/<hint>.
             Если TASK_FILE пустой — работай в Режиме 2: docs/business Push.
 
             Изменились следующие бизнес-документы (для Режима 2):

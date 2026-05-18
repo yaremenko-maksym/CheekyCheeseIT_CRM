@@ -13,6 +13,11 @@ on:
         description: 'Short hint for branch name (e.g. "auth-api")'
         required: false
         type: string
+      target_branch:
+        description: 'Existing branch to work on (optional). If empty — create new branch from main.'
+        required: false
+        type: string
+        default: ''
 
 concurrency:
   # Each task file gets its own group → parallel runs for different tasks are safe
@@ -70,7 +75,9 @@ jobs:
             Прочитай ${{ inputs.task_file }} — это твоя текущая задача.
 
             Реализуй задачу согласно инструкциям в docs/agents/coder.md:
-            1. Создай feature ветку от main (slug из заголовка task-файла)
+            1. Определи ветку для работы:
+               - Если target_branch не пустой: git fetch origin && git checkout <target_branch> && git pull origin <target_branch>
+               - Если target_branch пустой: git checkout main && git pull && git checkout -b feature/<slug из заголовка task-файла>
             2. Реализуй все изменения в правильном порядке (shared → api → web → tests)
             3. Запусти pnpm typecheck и pnpm lint — исправь все ошибки
             4. Закоммить изменения конкретными файлами (не git add .)
@@ -78,6 +85,7 @@ jobs:
 
             Repo: ${{ github.repository }}
             task_hint: ${{ inputs.task_hint }}
+            target_branch: ${{ inputs.target_branch }}
           allowed_tools: |
             Read
             Write

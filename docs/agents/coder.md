@@ -31,19 +31,22 @@
 gh issue list --label "e2e-broken" --state open
 ```
 
-Если есть открытый issue с меткой `e2e-broken` — **не начинать новую задачу из active-task.md**.
-Исправить E2E: найти упавший тест → починить в ветке `fix/e2e-<описание>` → PR → AI Review.
-После merge E2E-issue закрывается автоматически — тогда возвращаться к active-task.md.
-
-> Исключение: если active-task.md сама описывает фикс E2E — выполнять её.
+Если есть открытый issue с меткой `e2e-broken` — проверь относится ли он к твоей ветке.
+Если нет — продолжай выполнять задачу из task-файла.
 
 ### 1. Создание ветки
 
+Проверь поле `Ветка:` в task-файле:
+
 ```bash
-git checkout -b feature/<slug-из-active-task>
+# Если поле "Ветка: <branch-name>" указано в task-файле — работай в этой ветке:
+git fetch origin && git checkout <branch-name> && git pull origin <branch-name>
+
+# Если поля "Ветка:" нет (новая фича) — создай ветку от main:
+git checkout main && git pull && git checkout -b feature/<slug из заголовка task-файла>
 ```
 
-Slug берётся из заголовка `docs/specs/active-task.md`.
+Также проверь переменную `target_branch` из workflow — если она передана, она имеет приоритет над полем task-файла.
 
 ### 2. Разработка
 

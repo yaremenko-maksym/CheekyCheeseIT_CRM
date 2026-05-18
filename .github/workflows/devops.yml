@@ -13,6 +13,11 @@ on:
         description: 'Short hint for branch name (e.g. "infra-redis")'
         required: false
         type: string
+      target_branch:
+        description: 'Existing branch to work on (optional). If empty — create new infra/ branch from main.'
+        required: false
+        type: string
+        default: ''
 
 concurrency:
   group: devops-${{ inputs.task_file }}
@@ -52,13 +57,16 @@ jobs:
             Прочитай ${{ inputs.task_file }} — это твоя текущая задача.
 
             Реализуй задачу согласно инструкциям в docs/agents/devops.md:
-            1. Создай ветку infra/<slug-из-заголовка-task-файла>
+            1. Определи ветку для работы:
+               - Если target_branch не пустой: git fetch origin && git checkout <target_branch> && git pull origin <target_branch>
+               - Если target_branch пустой: git checkout main && git pull && git checkout -b infra/<slug из заголовка task-файла>
             2. Внеси все изменения в инфраструктурные файлы
             3. Закоммить конкретными файлами (не git add .)
             4. Создай PR через GitHub MCP и добавь label ai-review-ready
 
             Repo: ${{ github.repository }}
             task_hint: ${{ inputs.task_hint }}
+            target_branch: ${{ inputs.target_branch }}
           allowed_tools: |
             Read
             Write
