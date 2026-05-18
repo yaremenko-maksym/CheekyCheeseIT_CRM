@@ -21,7 +21,19 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-      id-token: write
+
+    env:
+      DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_db
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      GOOGLE_CLIENT_ID: test-client-id
+      GOOGLE_CLIENT_SECRET: test-client-secret
+      GOOGLE_CALLBACK_URL: http://localhost:3001/api/auth/google/callback
+      SESSION_SECRET: ci-session-secret-32-chars-minimum-x
+      FRONTEND_URL: http://localhost:3000
+      VITE_API_URL: http://localhost:3001/api
+      NODE_ENV: production
+      PORT: 3001
 
     services:
       postgres:
@@ -33,9 +45,9 @@ jobs:
         ports: ['5432:5432']
         options: >-
           --health-cmd pg_isready
-          --health-interval 10s
+          --health-interval 5s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 10
       redis:
         image: redis:7-alpine
         ports: ['6379:6379']
@@ -73,39 +85,48 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('**/playwright.config.*') }}
+
+      - name: Install Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter @crm/e2e exec playwright install --with-deps chromium
+
+      - name: Install Playwright system deps (cached run)
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter @crm/e2e exec playwright install-deps chromium
+
       - name: Run migrations + seed
         run: |
           pnpm --filter @crm/api db:migrate
           pnpm --filter @crm/api db:seed
-        env:
-          DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_db
-          REDIS_URL: redis://localhost:6379
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          NODE_ENV: test
 
       - name: Build web
         run: pnpm --filter @crm/web build
-        env:
-          VITE_API_URL: http://localhost:3001
 
-      - name: Start API + Web (background)
+      - name: Build API
+        run: pnpm --filter @crm/api build
+
+      - name: Start API
+        run: nohup pnpm --filter @crm/api start > /tmp/api.log 2>&1 &
+
+      - name: Start Web
+        run: nohup pnpm --filter @crm/web start > /tmp/web.log 2>&1 &
+
+      - name: Wait for services
         run: |
-          pnpm --filter @crm/api start:prod &
-          pnpm --filter @crm/web preview --port 3000 &
-          npx wait-on \
-            http://localhost:3001/api/health \
-            http://localhost:3000 \
-            --timeout 60000 \
-            --interval 2000
-        env:
-          DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_db
-          REDIS_URL: redis://localhost:6379
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          NODE_ENV: production
-          PORT: 3001
-
-      - name: Install Playwright browsers
-        run: pnpm --filter @crm/e2e exec playwright install --with-deps chromium
+          timeout 60 bash -c 'until curl -sf http://localhost:3001/api/health; do sleep 2; done'
+          timeout 30 bash -c 'until curl -sf http://localhost:3000; do sleep 2; done'
 
       - name: Run Playwright E2E
         run: pnpm --filter @crm/e2e test
@@ -118,19 +139,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pr_number }}
-          JOB_STATUS: ${{ job.status }}
           RUN_ID: ${{ github.run_id }}
           REPO: ${{ github.repository }}
         run: |
-          if [ "$JOB_STATUS" = "success" ]; then
+          if [ "${{ job.status }}" = "success" ]; then
             STATUS="✅ E2E passed — ready to merge"
           else
             STATUS="❌ E2E failed — see artifacts below"
           fi
           gh pr comment "$PR_NUMBER" --repo "$REPO" \
-            --body "## 🎭 E2E Results
-          ${STATUS}
-          Run: https://github.com/${REPO}/actions/runs/${RUN_ID}"
+            --body "$(printf '## 🎭 E2E Results\n%s\nRun: https://github.com/%s/actions/runs/%s' \
+              "$STATUS" "$REPO" "$RUN_ID")"
 
       - name: Upload E2E artifacts on failure
         if: failure()
@@ -142,6 +161,12 @@ jobs:
             apps/e2e/playwright-report/
           retention-days: 7
 
+      - name: Print server logs on failure
+        if: failure()
+        run: |
+          echo "=== API LOG ===" && cat /tmp/api.log || true
+          echo "=== WEB LOG ===" && cat /tmp/web.log || true
+
   merge:
     name: Squash Merge
     runs-on: ubuntu-latest
@@ -150,6 +175,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      actions: write
 
     steps:
       - name: Dismiss stale CHANGES_REQUESTED reviews
