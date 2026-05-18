@@ -24,7 +24,7 @@
       "branch": "fix/team-detail-hooks",
       "pr_number": 15,
       "ai_review_run_id": "26041323376",
-      "e2e_run_id": "26055027865",
+      "e2e_run_id": "26055265819",
       "status": "e2e_running",
       "started_at": "2026-05-18T16:22:00Z",
       "expected_duration_min": 12
