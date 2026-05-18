@@ -52,6 +52,27 @@
 - **Auth:** Google SSO Only (ручной OAuth без Passport, JWT в HttpOnly cookie).
 - **State:** TanStack Query + глобальный Auth Context.
 
+## Multi-Agent команда
+
+| Агент | Роль | Где живёт |
+|-------|------|-----------|
+| **Master (Claude Code)** | Настройка инфраструктуры агентов | Локально |
+| **BA** | Бизнес-консультант, пишет `docs/specs/pm-brief.md` | Локально |
+| **PM** | Оркестратор: декомпозиция → диспетч → мониторинг → User Testing | Локально |
+| **Coder** | Fullstack разработчик | GHA (coder.yml) |
+| **AutoTest** | E2E тест-разработчик | GHA (autotest.yml) |
+| **DevOps** | Инфраструктура CI/CD | GHA (devops.yml) |
+| **Reviewer** | Code review | GHA (ai-review.yml) |
+
+**Pipeline:**
+```
+BA → pm-brief.md → PM → task-*.md → [параллельные GHA workflows] →
+PR → ai-review.yml (AutoTest + Reviewer) → awaiting-pm-review →
+PM (User Testing) → e2e.yml → squash merge
+```
+
+**Task files:** `docs/specs/tasks/task-<slug>.md` (PM создаёт, агенты читают)
+
 ## Технологический стек
 - **Monorepo:** Turborepo + pnpm
 - **Frontend:** React, **Vite SPA** + TanStack Router/Form/Query, Tailwind CSS v4, shadcn/ui, Framer Motion
@@ -384,10 +405,11 @@ legends: id, userId, fullName, birthDate, address, hobbies, notes(json), created
 
 ## Активный контекст
 - PHASE 1–5 полностью реализованы и работают
-- PHASE 7 (partial): Профили работают, страница Команды исправлена (роутинг team/index.tsx + $teamId.tsx, реальный счётчик активных проектов, убран блок подсчёта по ролям)
+- PHASE 7 (partial): Профили работают
 - Finance модуль: transactions, expenses, invoices, payouts, juniorPayments, NBU exchange rates, PDF invoice generation, etherscan integration
 - Миграции: 0000–0011 применены (включая finance, partner_ledger, exchange_rate, project_logo)
-- CI/CD: ai-review.yml (AutoTest → Reviewer → Merge), coder.yml, devops.yml, ba-escalation.yml — все workflows рабочие
+- **Multi-agent архитектура:** PM-агент добавлен, параллельный диспетч через `docs/specs/tasks/`, e2e.yml отдельный workflow, awaiting-pm-review label в ai-review.yml, QA упразднён
+- CI/CD: ai-review.yml (AutoTest → Reviewer → PM gate), coder.yml, devops.yml, autotest.yml, e2e.yml — все workflows рабочие
 - Следующий шаг: **PHASE 6** — База знаний + Документы
 
 ---
