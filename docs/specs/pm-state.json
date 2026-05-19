@@ -1,47 +1,25 @@
 {
-  "feature": "Teams UI Redesign",
-  "brief": "docs/superpowers/specs/2026-05-18-teams-redesign.md",
-  "started_at": "2026-05-18T12:00:00Z",
+  "feature": "GHA Pipeline Refactor + Branch Protection",
+  "started_at": "2026-05-19T09:20:00Z",
   "tasks": [
-    {
-      "id": "task-teams-redesign",
-      "file": "docs/specs/tasks/task-teams-redesign.md",
-      "agent": "coder",
-      "workflow": "coder.yml",
-      "run_id": "26026059007",
-      "branch": "feature/teams-redesign",
-      "pr_number": 13,
-      "status": "merged",
-      "started_at": "2026-05-18T12:48:30Z",
-      "expected_duration_min": 5
-    },
-    {
-      "id": "task-fix-team-detail-hooks",
-      "file": "docs/specs/tasks/task-fix-team-detail-hooks.md",
-      "agent": "coder",
-      "workflow": "coder.yml",
-      "run_id": "26035281684",
-      "branch": "fix/team-detail-hooks",
-      "pr_number": null,
-      "status": "running",
-      "started_at": "2026-05-18T13:30:00Z",
-      "expected_duration_min": 10
-    },
     {
       "id": "task-infra-branch-protection",
       "file": "docs/specs/tasks/task-infra-branch-protection.md",
       "agent": "devops",
       "workflow": "devops.yml",
-      "run_id": "26035578402",
+      "run_id": "26081288873",
       "branch": "infra/branch-protection",
-      "pr_number": null,
-      "status": "running",
-      "started_at": "2026-05-18T13:35:00Z",
-      "expected_duration_min": 8
+      "pr_number": 16,
+      "status": "awaiting_pm_review",
+      "ai_review_run_id": "26080790263",
+      "started_at": "2026-05-19T09:20:00Z",
+      "expected_duration_min": 20,
+      "review_rounds": 2,
+      "max_review_rounds": 3
     }
   ],
   "blocked": [],
-  "merged": ["task-teams-redesign"],
-  "phase": "fixing",
+  "merged": [],
+  "phase": "development",
   "pending_fixes": []
 }

@@ -113,7 +113,9 @@ docs/specs/tasks/
       "pr_number": null,
       "status": "running",
       "started_at": "2026-05-18T10:00:00Z",
-      "expected_duration_min": 20
+      "expected_duration_min": 20,
+      "review_rounds": 0,
+      "max_review_rounds": 3
     }
   ],
   "blocked": [],

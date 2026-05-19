@@ -119,6 +119,41 @@ function TeamDetailPage() {
     enabled: !!(user && canManage),
   })
 
+  // Edit form
+  const editForm = useForm({
+    defaultValues: { name: team?.name ?? '', telegram: team?.telegram ?? '', notes: team?.notes ?? '' },
+    onSubmit: async ({ value }) => {
+      await updateMutation.mutateAsync(value)
+    },
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: (data: { name: string; telegram: string; notes: string }) =>
+      api.patch(`/teams/${teamId}`, data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['team', teamId] })
+      void queryClient.invalidateQueries({ queryKey: ['teams'] })
+      setShowEdit(false)
+      toast.success('Команду оновлено')
+    },
+    onError: () => toast.error('Не вдалось оновити команду'),
+  })
+
+  // Add member logic
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set())
+
+  const addMemberMutation = useMutation({
+    mutationFn: (userId: string) => api.post(`/teams/${teamId}/members`, { userId }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['team', teamId] })
+      void queryClient.invalidateQueries({ queryKey: ['teams'] })
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      toast.error(msg ?? 'Помилка додавання')
+    },
+  })
+
   // Compute active projects for this team
   const activeProjects = projects?.filter(
     (p) =>
@@ -225,41 +260,6 @@ function TeamDetailPage() {
       if (aDisabled !== bDisabled) return aDisabled ? 1 : -1
       return a.displayName.localeCompare(b.displayName)
     })
-
-  // Edit form
-  const editForm = useForm({
-    defaultValues: { name: team?.name ?? '', telegram: team?.telegram ?? '', notes: team?.notes ?? '' },
-    onSubmit: async ({ value }) => {
-      await updateMutation.mutateAsync(value)
-    },
-  })
-
-  const updateMutation = useMutation({
-    mutationFn: (data: { name: string; telegram: string; notes: string }) =>
-      api.patch(`/teams/${teamId}`, data),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['team', teamId] })
-      void queryClient.invalidateQueries({ queryKey: ['teams'] })
-      setShowEdit(false)
-      toast.success('Команду оновлено')
-    },
-    onError: () => toast.error('Не вдалось оновити команду'),
-  })
-
-  // Add member logic
-  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set())
-
-  const addMemberMutation = useMutation({
-    mutationFn: (userId: string) => api.post(`/teams/${teamId}/members`, { userId }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['team', teamId] })
-      void queryClient.invalidateQueries({ queryKey: ['teams'] })
-    },
-    onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      toast.error(msg ?? 'Помилка додавання')
-    },
-  })
 
   async function handleAddMembers() {
     for (const userId of selectedUserIds) {

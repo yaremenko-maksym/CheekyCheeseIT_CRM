@@ -60,6 +60,31 @@ jobs:
           git config user.email "autotest-agent@github-actions"
           git config user.name "AutoTest Agent"
 
+      - name: Setup branch (Режим 3 only)
+        if: ${{ inputs.task_file != '' }}
+        run: |
+          if [ -n "$TARGET_BRANCH" ]; then
+            git fetch origin
+            git checkout "$TARGET_BRANCH"
+            git pull origin "$TARGET_BRANCH"
+          else
+            BRANCH=$(grep -m1 "^## Ветка:" "$TASK_FILE" 2>/dev/null | sed 's/## Ветка:[[:space:]]*//' | tr -d "[:space:]")
+            if [ -z "$BRANCH" ]; then
+              BRANCH="test/${TASK_HINT}"
+            fi
+            git checkout main && git pull origin main
+            if git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null 2>&1; then
+              git checkout -b "$BRANCH" --track "origin/$BRANCH"
+            else
+              git checkout -b "$BRANCH"
+            fi
+          fi
+          echo "Working on branch: $(git branch --show-current)"
+        env:
+          TASK_FILE: ${{ inputs.task_file }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          TASK_HINT: ${{ inputs.module }}
+
       - name: Claude AutoTest Agent
         uses: anthropics/claude-code-action@beta
         with:
@@ -77,7 +102,7 @@ jobs:
             MODULE: "${{ inputs.module }}"
 
             Если TASK_FILE не пустой — прочитай его и работай по описанной задаче (Режим 3: PM task-driven).
-            В Режиме 3 определи ветку: если TARGET_BRANCH не пустой — checkout на неё; иначе создай test/<hint>.
+            В Режиме 3: ветка уже настроена workflow-ом. Проверь: git branch --show-current
             Если TASK_FILE пустой — работай в Режиме 2: docs/business Push.
 
             Изменились следующие бизнес-документы (для Режима 2):

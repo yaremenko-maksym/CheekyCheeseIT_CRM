@@ -15,6 +15,13 @@
       "when": 1779009078071,
       "tag": "0001_sour_unicorn",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779500000000,
+      "tag": "0006_team_telegram_notes",
+      "breakpoints": true
     }
   ]
 }

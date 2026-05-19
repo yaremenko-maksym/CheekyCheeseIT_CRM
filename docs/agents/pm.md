@@ -85,12 +85,15 @@ gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
       "pr_number": null,
       "status": "running",
       "started_at": "<ISO timestamp>",
-      "expected_duration_min": 15
+      "expected_duration_min": 15,
+      "review_rounds": 0,
+      "max_review_rounds": 3
     }
   ],
   "blocked": [],
   "merged": [],
-  "phase": "development"
+  "phase": "development",
+  "pending_fixes": []
 }
 ```
 
@@ -103,6 +106,24 @@ ScheduleWakeup(delay = max(expected_duration_min) * 60 + 120 секунды)
 ---
 
 ## Режим 2 — Мониторинг (пробуждение)
+
+### Шаг 0: Синхронизация с GHA (ПЕРВЫМ ДЕЛОМ, до любого другого действия)
+
+Сверить реальные GHA runs с pm-state.json:
+
+```bash
+# Получить все runs за последние 2 часа
+gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
+  --limit 20 \
+  --json databaseId,status,workflowName,conclusion,headBranch \
+  --jq '.[] | {id: .databaseId, status, workflow: .workflowName, conclusion, branch: .headBranch}'
+```
+
+Если в GHA есть runs которых нет в pm-state.json — добавить.
+Если в pm-state.json есть задачи со статусом `running` но в GHA они `completed` — обновить статус.
+
+Также проверить timeout: если `(now - started_at) > expected_duration_min * 3` — задача зависла.
+При зависании: читать лог `gh run view <run_id> --log-failed`, принять решение.
 
 ### Шаг 1: Сканировать блокеры
 
@@ -134,6 +155,18 @@ gh run view <run_id> \
 gh pr list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
   --head "feature/<slug>" --json number --jq '.[0].number'
 ```
+
+### Шаг 2.5: Верификация AutoTest (после каждого завершённого AutoTest run-а)
+
+Если AutoTest завершился — убедиться что он не сделал no-op:
+
+```bash
+gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<PR>/files \
+  --jq '[.[] | select(.filename | startswith("apps/e2e"))] | length'
+```
+
+Если результат `0` — AutoTest ничего не изменил в тестах. Это no-op.
+→ Создать новый task-файл с конкретной таблицей маппинга (старый селектор → новый) и диспатчнуть AutoTest снова.
 
 ### Шаг 3: Обработать PR-статусы
 
@@ -194,6 +227,22 @@ gh workflow run <workflow.yml> \
 Запускается в двух случаях:
 - После первичного APPROVE от Reviewer (начало User Testing)
 - После APPROVE следующего раунда code review (когда агенты исправили правки User Testing)
+
+**Circuit breaker:** перед запуском Coder на фикс — проверить счётчик:
+
+```bash
+# Прочитать review_rounds из pm-state.json для данной задачи
+```
+
+Если `review_rounds >= 3` — **НЕ запускать Coder автоматически**.
+Уведомить пользователя:
+```
+Coder не смог исправить замечания Reviewer за 3 попытки.
+Нужно ваше решение: ручной фикс, упрощение задачи, или отказ от PR?
+```
+Ждать явного ответа пользователя.
+
+Если `review_rounds < 3` — инкрементировать и продолжать.
 
 ```bash
 gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<pr>/reviews \

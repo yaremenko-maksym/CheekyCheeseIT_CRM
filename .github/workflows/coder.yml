@@ -61,6 +61,30 @@ jobs:
           git config user.email "coder-agent@github-actions"
           git config user.name "Coder Agent"
 
+      - name: Setup branch
+        run: |
+          if [ -n "$TARGET_BRANCH" ]; then
+            git fetch origin
+            git checkout "$TARGET_BRANCH"
+            git pull origin "$TARGET_BRANCH"
+          else
+            BRANCH=$(grep -m1 "^## Ветка:" "$TASK_FILE" 2>/dev/null | sed 's/## Ветка:[[:space:]]*//' | tr -d "[:space:]")
+            if [ -z "$BRANCH" ]; then
+              BRANCH="feature/${TASK_HINT}"
+            fi
+            git checkout main && git pull origin main
+            if git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null 2>&1; then
+              git checkout -b "$BRANCH" --track "origin/$BRANCH"
+            else
+              git checkout -b "$BRANCH"
+            fi
+          fi
+          echo "Working on branch: $(git branch --show-current)"
+        env:
+          TASK_FILE: ${{ inputs.task_file }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          TASK_HINT: ${{ inputs.task_hint }}
+
       - name: Claude Coder Agent
         uses: anthropics/claude-code-action@beta
         with:
@@ -75,9 +99,7 @@ jobs:
             Прочитай ${{ inputs.task_file }} — это твоя текущая задача.
 
             Реализуй задачу согласно инструкциям в docs/agents/coder.md:
-            1. Определи ветку для работы:
-               - Если target_branch не пустой: git fetch origin && git checkout <target_branch> && git pull origin <target_branch>
-               - Если target_branch пустой: git checkout main && git pull && git checkout -b feature/<slug из заголовка task-файла>
+            1. Ветка уже настроена workflow-ом. Проверь: git branch --show-current
             2. Реализуй все изменения в правильном порядке (shared → api → web → tests)
             3. Запусти pnpm typecheck и pnpm lint — исправь все ошибки
             4. Закоммить изменения конкретными файлами (не git add .)

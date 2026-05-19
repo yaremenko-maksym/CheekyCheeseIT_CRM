@@ -34,19 +34,15 @@ gh issue list --label "e2e-broken" --state open
 Если есть открытый issue с меткой `e2e-broken` — проверь относится ли он к твоей ветке.
 Если нет — продолжай выполнять задачу из task-файла.
 
-### 1. Создание ветки
+### 1. Проверь ветку
 
-Проверь поле `Ветка:` в task-файле:
+Ветка уже настроена workflow-ом до запуска агента. Просто убедись что ты на правильной:
 
 ```bash
-# Если поле "Ветка: <branch-name>" указано в task-файле — работай в этой ветке:
-git fetch origin && git checkout <branch-name> && git pull origin <branch-name>
-
-# Если поля "Ветка:" нет (новая фича) — создай ветку от main:
-git checkout main && git pull && git checkout -b feature/<slug из заголовка task-файла>
+git branch --show-current
 ```
 
-Также проверь переменную `target_branch` из workflow — если она передана, она имеет приоритет над полем task-файла.
+Не переключай ветку самостоятельно — это уже сделано.
 
 ### 2. Разработка
 
@@ -92,6 +88,37 @@ git checkout main && git pull && git checkout -b feature/<slug из заголо
    - Vitest unit тесты для сервисов и утилит
    - Проверить что Playwright E2E в `apps/e2e/` покрывает новый flow
 
+### 6.5 E2E атомарность (ОБЯЗАТЕЛЬНО при UI-изменениях)
+
+Если ты меняешь любой из следующих элементов:
+- текст кнопок, заголовков, labels, placeholder-ов
+- aria-label, data-testid
+- структуру DOM (добавление / удаление элементов)
+- URL роутов
+
+→ **ОБЯЗАН** прочитать `apps/e2e/tests/*.spec.ts` и обновить все затронутые
+  селекторы **в том же коммите** что и UI-изменение.
+
+PR с расхождением кода и E2E-тестов не считается готовым.
+
+```bash
+# Быстрый поиск затронутых тестов:
+grep -rn "getByText\|getByRole\|locator\|data-testid" apps/e2e/tests/ | grep "<изменённый_текст>"
+```
+
+### 6.6 data-testid для навигационных элементов
+
+Следующие элементы **обязаны** иметь `data-testid` — иначе Playwright strict mode
+падает при дублировании в sidebar + content:
+
+| Элемент | data-testid |
+|---------|-------------|
+| Кнопка "Назад" на детальной странице | `back-button` |
+| Кнопка закрытия диалога | `dialog-close` |
+| Кнопка отмены формы | `cancel-button` |
+
+Правило: если элемент имеет тот же href или текст что и пункт nav-sidebar → **обязателен data-testid**.
+
 ### 2.8. Проверка качества перед коммитом
 
 ```bash
@@ -127,7 +154,26 @@ git commit -m "feat(<module>): краткое описание"
 
 Не использовать `git add .` — только конкретные файлы.
 
-### 4. PR
+### 4. Идемпотентность: проверить существующий PR
+
+Перед созданием PR — убедиться что он ещё не существует:
+
+```bash
+CURRENT_BRANCH=$(git branch --show-current)
+EXISTING_PR=$(gh pr list --repo "$REPO" \
+  --head "$CURRENT_BRANCH" \
+  --json number --jq '.[0].number // empty')
+
+if [ -n "$EXISTING_PR" ]; then
+  echo "PR #$EXISTING_PR already exists — adding label instead of creating new"
+  gh pr edit "$EXISTING_PR" --repo "$REPO" --add-label "ai-review-ready"
+  # Дальнейшее создание PR пропустить
+fi
+```
+
+Только если PR не существует — создавать через `mcp__github__create_pull_request`.
+
+### 5. PR
 
 ```bash
 gh pr create --title "feat(<module>): описание" --body "$(cat <<'EOF'
@@ -150,9 +196,9 @@ EOF
 )"
 ```
 
-Добавить label `ai-review-ready` чтобы запустить Reviewer + QA агентов.
+Добавить label `ai-review-ready` чтобы запустить Reviewer + AutoTest агентов.
 
-### 5. Реакция на review комментарии
+### 6. Реакция на review комментарии
 
 Читать комментарии в PR (Reviewer и QA). На каждый:
 - Исправить проблему
