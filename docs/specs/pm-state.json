@@ -1,25 +1,16 @@
 {
   "feature": "GHA Pipeline Refactor + Branch Protection",
   "started_at": "2026-05-19T09:20:00Z",
-  "tasks": [
+  "tasks": [],
+  "blocked": [],
+  "merged": [
     {
       "id": "task-infra-branch-protection",
       "file": "docs/specs/tasks/task-infra-branch-protection.md",
-      "agent": "devops",
-      "workflow": "devops.yml",
-      "run_id": "26081288873",
-      "branch": "infra/branch-protection",
       "pr_number": 16,
-      "status": "awaiting_pm_review",
-      "ai_review_run_id": "26082011506",
-      "started_at": "2026-05-19T09:20:00Z",
-      "expected_duration_min": 20,
-      "review_rounds": 3,
-      "max_review_rounds": 3
+      "merged_at": "2026-05-19T08:51:13Z"
     }
   ],
-  "blocked": [],
-  "merged": [],
-  "phase": "development",
+  "phase": "done",
   "pending_fixes": []
 }
