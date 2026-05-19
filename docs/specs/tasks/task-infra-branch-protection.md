@@ -227,14 +227,21 @@ on:
 
 ## Порядок выполнения
 
-1. Применить branch protection (пункт 1) — это bash-команда, не коммит
-2. Создать `.github/CODEOWNERS` (пункт 2)
+1. **Смержить актуальный main в ветку перед любыми правками:**
+   ```bash
+   git fetch origin main
+   git merge origin/main --no-edit
+   # при конфликтах — разрешить (pm-state.json: взять версию из main)
+   git push origin infra/branch-protection
+   ```
+2. Применить branch protection (пункт 1) — это bash-команда, не коммит
+3. Создать `.github/CODEOWNERS` (пункт 2)
 3. Обновить `.github/workflows/ai-review.yml` (пункты 3, 4, 5)
 4. Обновить `.github/workflows/coder.yml`, `devops.yml`, `autotest.yml` (пункт 6)
-5. Обновить `docs/agents/CLAUDE-reviewer.md` (пункт 7)
-6. Закоммитить все файлы конкретными именами
-7. Запушить в `infra/branch-protection`
-8. PR #16 уже открыт — НЕ создавать новый PR, просто обновить описание если нужно
+6. Обновить `docs/agents/CLAUDE-reviewer.md` (пункт 7)
+7. Закоммитить все файлы конкретными именами
+8. Запушить в `infra/branch-protection`
+9. PR #16 уже открыт — НЕ создавать новый PR, просто обновить описание если нужно
 
 ---
 
