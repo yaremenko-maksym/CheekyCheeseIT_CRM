@@ -10,7 +10,7 @@
       "run_id": "26080682385",
       "branch": "infra/branch-protection",
       "pr_number": 16,
-      "status": "pr_open",
+      "status": "awaiting_pm_review",
       "ai_review_run_id": "26080790263",
       "started_at": "2026-05-19T09:20:00Z",
       "expected_duration_min": 20,
