@@ -11,10 +11,10 @@
       "branch": "infra/branch-protection",
       "pr_number": 16,
       "status": "pr_open",
-      "ai_review_run_id": "26080405906",
+      "ai_review_run_id": "26080790263",
       "started_at": "2026-05-19T09:20:00Z",
       "expected_duration_min": 20,
-      "review_rounds": 1,
+      "review_rounds": 2,
       "max_review_rounds": 3
     }
   ],
