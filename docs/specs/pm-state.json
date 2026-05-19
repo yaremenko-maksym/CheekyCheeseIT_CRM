@@ -25,8 +25,7 @@
       "pr_number": 15,
       "ai_review_run_id": "26041323376",
       "e2e_run_id": "26073942055",
-      "status": "e2e_running",
-      "_e2e_note": "317 passed, 1 failed: route.continue() → 404 real API. Fixed: route.fulfill(TEAMS[0]). Run 26073942055.",
+      "status": "e2e_passed",
       "started_at": "2026-05-18T16:22:00Z",
       "expected_duration_min": 12
     },
