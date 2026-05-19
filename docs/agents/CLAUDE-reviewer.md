@@ -54,3 +54,22 @@
 
 `@custom-variant dark (&:is(.dark *))` + `class="dark"` на `<html>`
 `@theme inline {}` маппит CSS vars → Tailwind utilities.
+
+## Inline-комментарии (ОБЯЗАТЕЛЬНО при REQUEST_CHANGES)
+
+При вызове `mcp__github__create_pull_request_review` с event: "REQUEST_CHANGES"
+обязательно передавать параметр `comments` — массив объектов для каждой проблемы:
+
+```json
+{
+  "path": "apps/web/app/routes/crm/team/$teamId.tsx",
+  "position": 42,
+  "body": "Описание проблемы и конкретная рекомендация"
+}
+```
+
+- `path`: относительный путь от корня репо (без leading slash)
+- `position`: позиция в unified diff (не номер строки файла)
+- `body`: конкретная проблема + что исправить
+
+Каждая проблема из review body дублируется как inline-комментарий к нужной строке.

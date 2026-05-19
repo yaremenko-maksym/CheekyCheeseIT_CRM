@@ -36,6 +36,18 @@ jobs:
         with:
           fetch-depth: 2
 
+      - name: Verify task file exists
+        if: inputs.task_file != ''
+        env:
+          TASK_FILE: ${{ inputs.task_file }}
+        run: |
+          if [ ! -f "$TASK_FILE" ]; then
+            echo "::error::Task file '$TASK_FILE' not found in repo HEAD"
+            echo "::error::PM must commit and push the task file before running the workflow"
+            exit 1
+          fi
+          echo "Task file verified: $TASK_FILE"
+
       - name: Resolve changed docs
         id: changed
         env:
