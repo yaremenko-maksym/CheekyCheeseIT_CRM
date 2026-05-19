@@ -6,9 +6,15 @@
 
 ## Контекст
 
-Переработать AI Review пайплайн: убрать comment-статус из PR, заменить на GitHub Check Runs для
-каждого job-а, перевести Reviewer агента на inline-комментарии прямо к строкам кода. Настроить
-branch protection с обязательными проверками и авто-добавлением пользователя как ревьюера.
+Комплексный рефактор GHA пайплайна по результатам аудита архитектуры и ретроспективы
+Teams UI Redesign. Семь конкретных изменений в workflow и agent-notes файлах.
+
+Ключевые проблемы которые решает этот PR:
+- ai-review не перезапускается автоматически когда Coder пушит фикс (PM делал вручную)
+- Нет валидации task-файла → агент стартует без задачи и галлюцинирует
+- Reviewer не знает что было в спеке → не может проверить acceptance criteria
+- Comment-таблица статусов захламляет PR → заменить на GitHub Check Runs
+- Нет branch protection → прямые пуши в main возможны
 
 Текущий ai-review.yml постит и обновляет один PR-комментарий с таблицей статусов
 (маркер `<!-- ai-review-pipeline-status -->`). Это нужно заменить на GitHub Check Runs.
@@ -18,7 +24,79 @@ Reviewer уже использует `mcp__github__create_pull_request_review`, 
 
 ## Конкретные изменения
 
-### 1. `.github/workflows/ai-review.yml` — Check Runs вместо комментария
+### 1. `.github/workflows/ai-review.yml` — synchronize trigger + защита от рекурсии
+
+**Добавить** тип `synchronize` к pull_request триггеру — чтобы ai-review перезапускался
+автоматически когда Coder пушит фикс в ветку PR:
+
+```yaml
+on:
+  pull_request:
+    types: [ready_for_review, synchronize]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: string
+```
+
+**Добавить** защиту от рекурсии в условие `if:` каждого job (autotest, reviewer, trigger_coder):
+
+```yaml
+jobs:
+  autotest:
+    if: |
+      github.actor != 'github-actions[bot]' &&
+      github.event.pull_request.draft == false &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        contains(github.event.pull_request.labels.*.name, 'ai-review-ready')
+      )
+```
+
+Когда AutoTest пушит тесты в ветку PR — это `synchronize` от `github-actions[bot]`.
+Условие `github.actor != 'github-actions[bot]'` обрывает рекурсию.
+
+### 2. `.github/workflows/coder.yml`, `devops.yml`, `autotest.yml` — валидация task-файла
+
+**Добавить** шаг сразу после `actions/checkout@v4` во все три workflow:
+
+```yaml
+      - name: Verify task file exists
+        if: inputs.task_file != ''
+        run: |
+          if [ ! -f "${{ inputs.task_file }}" ]; then
+            echo "::error::Task file '${{ inputs.task_file }}' not found in repository HEAD"
+            echo "::error::PM must commit and push the task file before running the workflow"
+            exit 1
+          fi
+          echo "✅ Task file verified: ${{ inputs.task_file }}"
+```
+
+Этот шаг должен идти **до** Setup branch и **до** pnpm install — fail fast.
+
+### 3. `.github/workflows/ai-review.yml` — Reviewer читает task-файл
+
+**Обновить** `direct_prompt` Reviewer (job `reviewer`), добавить после чтения docs/agents:
+
+```yaml
+          direct_prompt: |
+            Ты — Reviewer-агент для CRM Cheeky Cheese IT.
+
+            Прочитай docs/agents/reviewer.md — полный системный промпт и чек-лист.
+            Прочитай docs/agents/CLAUDE-reviewer.md — архитектурные решения и ограничения.
+
+            ВАЖНО: Прочитай описание PR через mcp__github__get_pull_request.
+            Найди в описании ссылку на task-файл (формат: docs/specs/tasks/task-*.md).
+            Прочитай task-файл — раздел "Acceptance criteria".
+            Для каждого AC пункта проверь: реализован ли он в diff этого PR.
+            AC которые не реализованы → обязательно указать в REQUEST_CHANGES.
+
+            ...остальной промпт без изменений...
+```
+
+### 4. `.github/workflows/ai-review.yml` — Check Runs вместо комментария
 
 **Убрать** все step-ы, которые постят/обновляют комментарий `<!-- ai-review-pipeline-status -->`:
 - "Post pipeline status — AutoTest running"
@@ -66,18 +144,7 @@ Check Run "AI Code Review":
 - `success` — если Reviewer вернул APPROVE (файл `autotest-approved.flag`)
 - `failure` — если Reviewer вернул REQUEST_CHANGES
 
-**Добавить** триггер `synchronize` к pull_request event-у (чтобы при push в PR всё перезапускалось):
-
-```yaml
-on:
-  pull_request:
-    types: [ready_for_review, synchronize]
-  workflow_dispatch:
-    inputs:
-      pr_number: ...
-```
-
-### 2. `docs/agents/CLAUDE-reviewer.md` — Inline комментарии
+### 5. `docs/agents/CLAUDE-reviewer.md` — Inline комментарии
 
 Обновить инструкции Reviewer-агента: при вызове `mcp__github__create_pull_request_review`
 обязательно передавать массив `comments` с inline-комментариями к конкретным строкам файлов.
@@ -119,7 +186,9 @@ inline-комментарии крепятся к конкретным мест�
 
 Это автоматически добавляет @yaremenko-maksym как обязательного ревьюера при открытии любого PR.
 
-### 4. Branch protection для `main`
+### 6. `.github/CODEOWNERS` (уже описан выше, пункт 3 — оставить без изменений)
+
+### 7. Branch protection для `main`
 
 Обновить через GitHub API используя `ADMIN_PAT` (secret уже есть в репо):
 
@@ -155,17 +224,38 @@ Check Runs автоматически привязаны к SHA коммита �
 
 ## Acceptance criteria
 
+### Synchronize trigger (изменение 1)
+- [ ] При пуше Coder в ветку существующего PR — ai-review.yml перезапускается автоматически
+- [ ] При пуше от `github-actions[bot]` — ai-review.yml НЕ запускается (нет рекурсии)
+- [ ] `workflow_dispatch` по-прежнему работает для ручного запуска PM-ом
+
+### Task file validation (изменение 2)
+- [ ] `gh workflow run coder.yml -f task_file="docs/specs/tasks/nonexistent.md"` → job падает с понятной ошибкой сразу после checkout
+- [ ] При корректном task_file — шаг проходит и workflow продолжается
+
+### Reviewer читает AC (изменение 3)
+- [ ] В review-комментарии Reviewer есть секция "Acceptance criteria проверены" с отметками ✅/❌ по каждому пункту из task-файла
+
+### Check Runs (изменение 4)
 - [ ] В PR нет comment-таблицы `<!-- ai-review-pipeline-status -->`
-- [ ] В PR видны Check Runs: "CI / AutoTest" и "AI Code Review" с индикаторами (⏳/✅/❌) во вкладке Checks
-- [ ] Reviewer агент постит review с inline-комментариями прямо к строкам кода (вкладка Files changed)
-- [ ] При открытии PR — @yaremenko-maksym автоматически добавлен как requested reviewer
-- [ ] Branch protection main: обязательные checks = CI/Typecheck+Lint+Unit Tests, CI/E2E Tests, CI/AutoTest, AI Code Review
-- [ ] Branch protection main: required reviews = 1 от code owner, dismiss stale reviews on push
-- [ ] При push нового коммита в ветку PR — апрув yaremenko-maksym сбрасывается, ci-review перезапускается
+- [ ] Во вкладке Checks видны "CI / AutoTest" и "AI Code Review" с корректными статусами
+- [ ] При провале AutoTest — Check Run "CI / AutoTest" показывает failure
+
+### Inline комментарии Reviewer (изменение 5)
+- [ ] Во вкладке Files changed видны inline-комментарии Reviewer к конкретным строкам кода
+
+### CODEOWNERS (изменение 6)
+- [ ] При открытии любого PR — @yaremenko-maksym автоматически добавлен как requested reviewer
+
+### Branch protection (изменение 7)
+- [ ] Прямой пуш в main заблокирован
+- [ ] Обязательные checks: CI/Typecheck+Lint+Unit Tests, CI/AutoTest, AI Code Review
+- [ ] Required reviews = 1, dismiss stale reviews при новом пуше
 
 ## Запрещено трогать
 
 - `apps/`, `packages/` — только разработчики
 - `docs/specs/` — только PM
-- Не ломать trigger `workflow_dispatch` (PM тригерит вручную)
-- Не менять логику job-ов autotest/reviewer/trigger_coder — только обёртки Check Runs и комментарии
+- `docs/agents/*.md` — уже обновлены PM, не трогать
+- Не ломать trigger `workflow_dispatch` — PM тригерит вручную
+- Не менять бизнес-логику job-ов autotest/reviewer/trigger_coder — только инфраструктурные обёртки

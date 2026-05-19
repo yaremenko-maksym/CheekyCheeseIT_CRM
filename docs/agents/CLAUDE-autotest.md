@@ -36,6 +36,52 @@ test.describe('Module Name', () => {
 Тестовые пользователи из seed: admin, senior1, senior2, junior1, hr, accountant (все @cheekyit.com).
 Seed применяется перед тестами в CI: `pnpm --filter @crm/api db:seed`
 
+## E2E Anti-patterns (ЗАПРЕЩЕНО)
+
+### route.continue() в тестах с моками
+
+```typescript
+// НЕПРАВИЛЬНО — проксирует на реальный API, которого нет в тесте
+await page.route('/api/teams/*', route => route.continue())
+
+// ПРАВИЛЬНО — возвращает данные из фикстур
+await page.route('/api/teams/*', route => route.fulfill({
+  status: 200,
+  contentType: 'application/json',
+  body: JSON.stringify(fixtures.team)
+}))
+```
+
+Все API-роуты в тестах замоканы через `fixtures.ts`. При переопределении роута
+для конкретного теста **всегда** использовать `route.fulfill()`, никогда `route.continue()`.
+
+### getByText() без скоупа на контентную область
+
+```typescript
+// НЕПРАВИЛЬНО — может матчить sidebar, header, модалки
+await expect(page.getByText('Статистика')).toBeVisible()
+
+// ПРАВИЛЬНО — скоупить на main
+const main = page.locator('main')
+await expect(main.getByText('Статистика')).toBeVisible()
+```
+
+`page.getByText()` без скоупа — антипаттерн. **Всегда** скоупить на `page.locator('main')`
+или более конкретный контейнер.
+
+### Слишком широкие CSS-селекторы
+
+```typescript
+// НЕПРАВИЛЬНО — может найти 2+ элементов (sidebar + content)
+await page.locator('a[href="/crm/team"]').click()
+
+// ПРАВИЛЬНО — data-testid на навигационных элементах
+await page.locator('[data-testid="back-button"]').click()
+```
+
+Кнопки "Назад", закрытия диалогов и отмены форм всегда имеют `data-testid`.
+Если `data-testid` отсутствует — это баг в компоненте, создай REQUEST_CHANGES review.
+
 ## Существующие тесты — не ломать
 
 - `interviews.spec.ts` — Kanban stages: `HR Screen, English, Tech, Final, Client, Offer Received`

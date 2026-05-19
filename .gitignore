@@ -16,6 +16,9 @@ apps/web/app/routeTree.gen.ts
 apps/**/.env
 apps/**/.env.local
 
+# PM state — local only, never merge with feature branches
+docs/specs/pm-state.json
+
 # Test output
 coverage/
 playwright-report/
