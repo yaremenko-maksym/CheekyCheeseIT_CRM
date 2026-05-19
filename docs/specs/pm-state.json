@@ -25,7 +25,8 @@
       "pr_number": 15,
       "ai_review_run_id": "26041323376",
       "e2e_run_id": "26073942055",
-      "status": "e2e_passed",
+      "status": "merged",
+      "merged_at": "2026-05-19T03:44:23Z",
       "started_at": "2026-05-18T16:22:00Z",
       "expected_duration_min": 12
     },
@@ -49,10 +50,10 @@
       "run_id": "26073942055",
       "branch": "fix/team-detail-hooks",
       "pr_number": 15,
-      "status": "e2e_running",
+      "status": "merged",
+      "merged_at": "2026-05-19T03:44:23Z",
       "started_at": "2026-05-19T06:14:40Z",
-      "expected_duration_min": 25,
-      "_note": "317→0 failures target. route.fulfill(TEAMS[0]) after delay instead of route.continue(). Run 26073942055."
+      "expected_duration_min": 25
     },
     {
       "id": "task-infra-branch-protection",
@@ -86,8 +87,10 @@
   ],
   "merged": [
     "task-teams-redesign",
-    "task-fix-test-pr-15"
+    "task-fix-test-pr-15",
+    "task-fix-team-detail-hooks",
+    "task-fix-e2e-team-selectors"
   ],
-  "phase": "user_testing",
+  "phase": "completed",
   "pending_fixes": []
 }
