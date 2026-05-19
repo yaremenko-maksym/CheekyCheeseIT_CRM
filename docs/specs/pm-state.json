@@ -8,9 +8,10 @@
       "agent": "coder",
       "workflow": "coder.yml",
       "run_id": "26112718771",
+      "ai_review_run_id": "26113948468",
       "branch": "fix/teams-ui-polish",
-      "pr_number": null,
-      "status": "running",
+      "pr_number": 22,
+      "status": "user_testing",
       "started_at": "2026-05-19T17:05:00Z",
       "expected_duration_min": 10,
       "review_rounds": 0,
@@ -40,7 +41,7 @@
       "merged_at": "2026-05-19T17:08:36Z"
     }
   ],
-  "phase": "development",
+  "phase": "user_testing",
   "pending_fixes": [],
   "blocking_issue": null
 }
