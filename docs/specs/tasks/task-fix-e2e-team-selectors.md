@@ -70,6 +70,27 @@ Error: expect(locator).not.toBeVisible() failed
 4. Для `strict mode violation` (2 элемента) — использовать `.first()` или более специфичный локатор
 5. Создай ветку `fix/e2e-team-selectors` от main, закоммить изменения, запуши
 
+## Остаточные ошибки из e2e run 26107699840 (НУЖНО ИСПРАВИТЬ)
+
+### Ошибка 1: `team.spec.ts:580` — украинский label "Нотатки"
+```
+getByLabel('Нотатки') — element(s) not found
+```
+**Исправление:** компонент `apps/web/app/routes/crm/team/$teamId.tsx` использует `<Label htmlFor="edit-notes">Заметки</Label>` (русский).
+Заменить в тесте: `getByLabel('Нотатки')` → `getByLabel('Заметки')`
+
+### Ошибка 2: `team.spec.ts:228` — role badges всё ещё видны
+```
+expect(page.getByText('Синьор').first()).not.toBeVisible()
+Expected: not visible
+Received: visible — <div class="...border-blue-500/30 bg-blue-500/15 text-blue-400...">Синьор</div>
+```
+**Причина:** UI убрал групповые заголовки по ролям, но role badges на карточках участников **по-прежнему показывают роль** (как badge).
+**Исправление:** удалить строки 228–230 — эти три `not.toBeVisible()` проверки для `'Синьор'`, `'HR'`, `'Бухгалтер'`.
+Тест должен только проверять что члены видны по именам (строки 223–225), без проверки отсутствия текста ролей.
+
+**Ветка: `fix/e2e-team-selectors` — КОММИТЬ на существующую ветку, НЕ создавать новую.**
+
 ## Acceptance criteria
 - [ ] Все тесты в `apps/e2e/tests/team.spec.ts` проходят локально
 - [ ] Нет ни одного украинского текста в локаторах
