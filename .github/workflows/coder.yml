@@ -145,20 +145,26 @@ jobs:
             ## ШАГ 4.5 — Верификация Acceptance Criteria (ОБЯЗАТЕЛЬНО перед коммитом)
 
             Открой TASK_FILE, найди раздел "## Acceptance criteria".
-            Для КАЖДОГО пункта проверь что твои изменения реализуют именно его:
-            - Используй mcp__playwright__browser_take_screenshot для UI пунктов
-            - Используй mcp__ast-grep__find_code для проверки кода
+            Для КАЖДОГО пункта выполни git diff HEAD -- <изменённые файлы> и найди
+            КОНКРЕТНУЮ строку кода которая реализует этот пункт.
+
+            Правила верификации:
+            - UI/JSX пункты → ищи изменение в git diff (className, onClick, href и т.д.)
+            - Логика/данные → mcp__ast-grep__find_code для проверки паттерна в коде
+            - НЕ используй Playwright для верификации — dev-сервер не запущен в CI
 
             Выведи чеклист:
-            - [x] Пункт 1 — файл:строка / скриншот
-            - [ ] Пункт 2 — НЕ ВЫПОЛНЕН, причина
+            - [x] Пункт 1 — <файл>:<строка> в git diff
+            - [ ] Пункт 2 — НЕ НАЙДЕНО в diff, возвращаюсь к реализации
 
-            Если хотя бы один пункт [ ] — вернись к ШАГ 2 и реализуй его.
-            НЕ создавай PR пока все пункты не отмечены [x].
+            Если хотя бы один пункт [ ] — вернись к ШАГ 2.
+            НЕ создавай PR пока все пункты не в diff.
 
-            ЗАПРЕЩЕНО: реализовывать что-либо за пределами acceptance criteria task-файла.
-            Никаких "попутных улучшений", рефакторинга, смены языка, accessibility labels
-            если они явно не описаны в задаче.
+            ЗАПРЕЩЕНО:
+            - Создавать .js/.mjs/.ts скрипты для "тестирования" вне task-файла
+            - Сохранять *.png/*.jpg файлы в репозиторий
+            - Создавать output.txt или любые temp-файлы
+            - Трогать файлы не упомянутые в task-файле (раздел "Файл 1:", "Файл 2:" и т.д.)
 
             ## ШАГ 5 — Коммит и PR
 
@@ -205,11 +211,28 @@ jobs:
         if: always()
         run: |
           BRANCH=$(git branch --show-current)
+
+          # Remove known debug artifacts before staging
+          find . -maxdepth 3 \( \
+            -name "output.txt" \
+            -o -name "debug-*.png" \
+            -o -name "screenshot-*.png" \
+            -o -name "test-*.mjs" \
+            -o -name "test-*.js" \
+          \) -not -path "./.git/*" -delete 2>/dev/null || true
+
           if [ -n "$(git status --porcelain)" ]; then
-            echo "::warning::Agent left uncommitted changes — creating safety-net commit"
-            git add -A
-            git commit -m "chore(agent): safety-net — agent forgot to commit changes"
+            # Only stage tracked files + specific known directories
+            git add apps/ packages/ docs/ .github/ \
+              --ignore-errors 2>/dev/null || git add -A
+            # Skip commit if only junk remains
+            STAGED=$(git diff --cached --stat | wc -l)
+            if [ "$STAGED" -gt 0 ]; then
+              echo "::warning::Agent left uncommitted changes — creating safety-net commit"
+              git commit -m "chore(agent): safety-net — agent forgot to commit changes"
+            fi
           fi
+
           REMOTE_EXISTS=$(git ls-remote --heads origin "$BRANCH" | wc -l)
           if [ "$REMOTE_EXISTS" -eq 0 ]; then
             git push -u origin "$BRANCH"
@@ -217,9 +240,6 @@ jobs:
             LOCAL=$(git rev-parse HEAD)
             REMOTE=$(git rev-parse "origin/$BRANCH" 2>/dev/null || echo "none")
             if [ "$LOCAL" != "$REMOTE" ]; then
-              echo "Local is ahead of remote — pushing $BRANCH"
               git push origin "$BRANCH"
-            else
-              echo "Branch up to date, no push needed"
             fi
           fi
