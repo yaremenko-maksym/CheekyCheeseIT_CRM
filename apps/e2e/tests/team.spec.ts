@@ -20,7 +20,7 @@ test.describe('Team page', () => {
       await page.goto('/crm/team')
       await expect(page.getByText('Alpha Team')).toBeVisible()
       // No rename button
-      await expect(page.getByTitle('Перейменувати')).not.toBeVisible()
+      await expect(page.getByTitle('Переименовать')).not.toBeVisible()
       // No delete button (removed in Teams Redesign)
       await expect(page.getByTitle('Удалити команду')).not.toBeVisible()
     })
@@ -28,7 +28,7 @@ test.describe('Team page', () => {
     test('HR sees management buttons but not delete', async ({ asHr: page }) => {
       await page.goto('/crm/team')
       // Rename button is on the list row
-      await expect(page.getByTitle('Перейменувати')).toBeVisible()
+      await expect(page.getByTitle('Переименовать')).toBeVisible()
       // Delete button does not exist in redesigned UI
       await expect(page.getByTitle('Удалити команду')).not.toBeVisible()
     })
@@ -44,11 +44,11 @@ test.describe('Team page', () => {
     test('ADMIN sees all buttons including delete', async ({ asAdmin: page }) => {
       await page.goto('/crm/team')
       // Rename button is present on list rows in new design
-      await expect(page.getByTitle('Перейменувати')).toBeVisible()
+      await expect(page.getByTitle('Переименовать')).toBeVisible()
       // Navigate to detail page to verify add/edit management buttons
       await page.locator('a[href^="/crm/team/"]').first().click({ force: true })
-      await expect(page.getByRole('button', { name: 'Додати' })).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Редагувати' })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Добавить' })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Редактировать' })).toBeVisible()
     })
   })
 
@@ -59,9 +59,9 @@ test.describe('Team page', () => {
   test.describe('Rename team', () => {
     test('opens rename dialog with current name pre-filled', async ({ asAdmin: page }) => {
       await page.goto('/crm/team')
-      await page.getByTitle('Перейменувати').click()
+      await page.getByTitle('Переименовать').click()
       await expect(page.getByRole('dialog')).toBeVisible()
-      await expect(page.getByRole('heading', { name: 'Редагувати команду' })).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'Редактировать команду' })).toBeVisible()
     })
 
     test('save button submits PATCH request with new name', async ({ asAdmin: page }) => {
@@ -71,11 +71,11 @@ test.describe('Team page', () => {
         (req) => req.url().includes('/teams/') && req.method() === 'PATCH',
       )
 
-      await page.getByTitle('Перейменувати').click()
-      const nameInput = page.getByPlaceholder('Назва команди')
+      await page.getByTitle('Переименовать').click()
+      const nameInput = page.getByPlaceholder('Название команды')
       await nameInput.clear()
       await nameInput.fill('Beta Team')
-      await page.getByRole('button', { name: 'Зберегти' }).click()
+      await page.getByRole('button', { name: 'Сохранить' }).click()
 
       const req = await patchReq
       expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ name: 'Beta Team' })
@@ -83,8 +83,8 @@ test.describe('Team page', () => {
 
     test('validation: empty name shows error on blur', async ({ asAdmin: page }) => {
       await page.goto('/crm/team')
-      await page.getByTitle('Перейменувати').click()
-      const nameInput = page.getByPlaceholder('Назва команди')
+      await page.getByTitle('Переименовать').click()
+      const nameInput = page.getByPlaceholder('Название команды')
       await nameInput.clear()
       await nameInput.blur()
       await expect(page.getByText(/обязательное поле/i)).toBeVisible()
@@ -92,9 +92,9 @@ test.describe('Team page', () => {
 
     test('cancel closes dialog without PATCH', async ({ asAdmin: page }) => {
       await page.goto('/crm/team')
-      await page.getByTitle('Перейменувати').click()
+      await page.getByTitle('Переименовать').click()
       await expect(page.getByRole('dialog')).toBeVisible()
-      await page.getByRole('button', { name: 'Відміна' }).click()
+      await page.getByRole('button', { name: 'Отмена' }).click()
       await expect(page.getByRole('dialog')).not.toBeVisible()
     })
   })
@@ -146,9 +146,9 @@ test.describe('Team page', () => {
   test.describe('Add member', () => {
     test('opens add member dialog', async ({ asAdmin: page }) => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
-      await page.getByRole('button', { name: 'Додати' }).click()
+      await page.getByRole('button', { name: 'Добавить' }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
-      await expect(page.getByText(/Додати учасника/)).toBeVisible()
+      await expect(page.getByText(/Добавить участника/)).toBeVisible()
     })
 
     test('clicking a user sends POST to members endpoint', async ({ asAdmin: page }) => {
@@ -158,10 +158,10 @@ test.describe('Team page', () => {
         (req) => req.url().includes('/members') && req.method() === 'POST',
       )
 
-      await page.getByRole('button', { name: 'Додати' }).click()
+      await page.getByRole('button', { name: 'Добавить' }).click()
       // Click first available user in the list
       await page.getByRole('dialog').getByText('Junior Dev').click()
-      await page.getByRole('dialog').getByRole('button', { name: /^Додати/ }).click()
+      await page.getByRole('dialog').getByRole('button', { name: /^Добавить/ }).click()
       await postReq
     })
 
@@ -172,8 +172,8 @@ test.describe('Team page', () => {
       })
 
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
-      await page.getByRole('button', { name: 'Додати' }).click()
-      await page.getByRole('button', { name: 'Скасувати' }).click()
+      await page.getByRole('button', { name: 'Добавить' }).click()
+      await page.getByRole('button', { name: 'Отмена' }).click()
       await expect(page.getByRole('dialog')).not.toBeVisible()
       expect(postCalled).toBe(false)
     })
@@ -208,24 +208,28 @@ test.describe('Team page', () => {
       // Header with team name and back button
       await expect(page.getByRole('heading', { level: 1 })).toContainText('Alpha Team')
       await expect(page.locator('a[href="/crm/team"]').first()).toBeVisible()
-      await expect(page.getByText('Створена', { exact: false })).toBeVisible()
+      await expect(page.getByText('Создана', { exact: false })).toBeVisible()
 
       // Main content - team members section
-      await expect(page.getByText('Учасники команди')).toBeVisible()
+      await expect(page.getByText('Участники команды')).toBeVisible()
       await expect(page.getByText('HR Manager')).toBeVisible()
       await expect(page.getByText('Senior Dev')).toBeVisible()
 
       // Active Projects section (replaces statistics in redesign)
-      await expect(page.getByRole('heading', { name: /Активні проекти/i })).toBeVisible()
+      await expect(page.getByRole('heading', { name: /Активные проекты/i })).toBeVisible()
     })
 
-    test('shows members grouped by role', async ({ asAdmin: page }) => {
+    test('shows members in flat list without role grouping', async ({ asAdmin: page }) => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
 
-      // Check role sections are present
-      await expect(page.getByText('Синьор').first()).toBeVisible()
-      await expect(page.getByText('HR').first()).toBeVisible()
-      await expect(page.getByText('Бухгалтер').first()).toBeVisible()
+      // Members should be in flat list - check presence of team members by name
+      await expect(page.getByText('Senior Dev')).toBeVisible()
+      await expect(page.getByText('HR Manager')).toBeVisible()
+      
+      // Role headers should NOT be present
+      await expect(page.getByText('Синьор').first()).not.toBeVisible()
+      await expect(page.getByText('HR').first()).not.toBeVisible()
+      await expect(page.getByText('Бухгалтер').first()).not.toBeVisible()
     })
 
     test('back button navigates to team list', async ({ asAdmin: page }) => {
@@ -238,12 +242,12 @@ test.describe('Team page', () => {
 
     test('ADMIN sees management buttons on detail page', async ({ asAdmin: page }) => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
-      await expect(page.getByRole('button', { name: 'Додати' })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Добавить' })).toBeVisible()
     })
 
     test('SENIOR does not see management buttons on detail page', async ({ asSenior: page }) => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
-      await expect(page.getByRole('button', { name: 'Додати' })).not.toBeVisible()
+      await expect(page.getByRole('button', { name: 'Добавить' })).not.toBeVisible()
     })
 
     test('shows error state for non-existent team', async ({ page }) => {
@@ -346,7 +350,7 @@ test.describe('Team page', () => {
     test('JUNIOR can access team detail page (newly allowed)', async ({ asJunior: page }) => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
       await expect(page.getByText('Alpha Team')).toBeVisible()
-      await expect(page.getByText('Учасники команди')).toBeVisible()
+      await expect(page.getByText('Участники команды')).toBeVisible()
     })
 
     test('JUNIOR sees all team members (read-only access)', async ({ asJunior: page }) => {
@@ -354,7 +358,7 @@ test.describe('Team page', () => {
       // JUNIOR should see ALL team members, not just themselves
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
       await expect(page.getByText('Alpha Team')).toBeVisible()
-      await expect(page.getByText('Учасники команди')).toBeVisible()
+      await expect(page.getByText('Участники команды')).toBeVisible()
 
       // Should see all role sections present in the fixture team (no JUNIOR in TEAMS[0])
       await expect(page.getByText('HR').first()).toBeVisible()
@@ -362,7 +366,7 @@ test.describe('Team page', () => {
       await expect(page.getByText('Бухгалтер').first()).toBeVisible()
 
       // Should have no management buttons (read-only access)
-      await expect(page.getByRole('button', { name: 'Додати' })).not.toBeVisible()
+      await expect(page.getByRole('button', { name: 'Добавить' })).not.toBeVisible()
       await expect(page.getByTitle('Виключити')).not.toBeVisible()
     })
   })
@@ -384,7 +388,7 @@ test.describe('Team page', () => {
       await page.goto('/crm/team')
 
       // Clicking management buttons should not navigate
-      await page.getByTitle('Перейменувати').click()
+      await page.getByTitle('Переименовать').click()
       await expect(page.getByRole('dialog')).toBeVisible()
       await expect(page).toHaveURL('/crm/team') // Still on list page
     })
@@ -428,10 +432,10 @@ test.describe('Team page', () => {
       })
 
       await page.goto('/crm/team')
-      await page.getByTitle('Перейменувати').click()
-      const nameInput = page.getByPlaceholder('Назва команди')
+      await page.getByTitle('Переименовать').click()
+      const nameInput = page.getByPlaceholder('Название команды')
       await nameInput.fill('New Name')
-      await page.getByRole('button', { name: 'Зберегти' }).click()
+      await page.getByRole('button', { name: 'Сохранить' }).click()
       // Page h1 still visible — no crash
       await expect(page.locator('main').locator('h1')).toBeVisible()
     })
@@ -468,15 +472,15 @@ test.describe('Team page', () => {
       )
 
       // Open edit dialog
-      await page.getByRole('button', { name: 'Редагувати' }).click()
+      await page.getByRole('button', { name: 'Редактировать' }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
       // Fill telegram and notes fields
       await page.getByPlaceholder('https://t.me/team_chat').fill('https://t.me/test_team')
-      await page.getByPlaceholder('Внутрішні нотатки…').fill('Test team notes')
+      await page.getByPlaceholder('Внутренние заметки…').fill('Test team notes')
 
       // Submit form
-      await page.getByRole('button', { name: 'Зберегти' }).click()
+      await page.getByRole('button', { name: 'Сохранить' }).click()
 
       // Verify request payload includes telegram and notes
       const req = await patchReq
@@ -491,17 +495,18 @@ test.describe('Team page', () => {
 
   // Frontend List Page - New toolbar and row layout
   test.describe('Teams List — Toolbar and Row Layout', () => {
-    test('displays search, filter, and sort toolbar', async ({ asAdmin: page }) => {
+    test('displays search and sort toolbar (filter removed)', async ({ asAdmin: page }) => {
       await page.goto('/crm/team')
 
       // Check search input
-      await expect(page.getByPlaceholder('Пошук за назвою…')).toBeVisible()
+      await expect(page.getByPlaceholder('Поиск по названию…')).toBeVisible()
 
-      // Check filter dropdown
-      await expect(page.getByRole('combobox').filter({ hasText: 'Всі ролі' })).toBeVisible()
+      // Role filter should NOT be visible (removed in PR #18)
+      await expect(page.getByRole('combobox').filter({ hasText: 'Все роли' })).not.toBeVisible()
+      await expect(page.getByRole('combobox').filter({ hasText: 'Всі ролі' })).not.toBeVisible()
 
       // Check sort dropdown
-      await expect(page.getByRole('combobox').filter({ hasText: 'Назва' })).toBeVisible()
+      await expect(page.getByRole('combobox').filter({ hasText: 'Название' })).toBeVisible()
     })
 
     test('search filters teams by name', async ({ asAdmin: page }) => {
@@ -509,23 +514,21 @@ test.describe('Team page', () => {
       await expect(page.getByText('Alpha Team')).toBeVisible()
 
       // Search for non-existent team
-      await page.getByPlaceholder('Пошук за назвою…').fill('NonExistent')
-      await expect(page.getByText('Нічого не знайдено')).toBeVisible()
+      await page.getByPlaceholder('Поиск по названию…').fill('NonExistent')
+      await expect(page.getByText('Ничего не найдено')).toBeVisible()
 
       // Search for existing team
-      await page.getByPlaceholder('Пошук за назвою…').fill('Alpha')
+      await page.getByPlaceholder('Поиск по названию…').fill('Alpha')
       await expect(page.getByText('Alpha Team')).toBeVisible()
     })
 
-    test('role filter shows only teams with selected role', async ({ asAdmin: page }) => {
+    test.skip('role filter was removed from toolbar (PR #18)', async ({ asAdmin: page }) => {
+      // This test is skipped because role filter was removed from toolbar in PR #18
       await page.goto('/crm/team')
 
-      // Filter by Senior role (option text is English in the select)
-      await page.getByRole('combobox').filter({ hasText: 'Всі ролі' }).click()
-      await page.getByRole('option', { name: 'Senior' }).click()
-
-      // Alpha Team has a SENIOR member so it should still be visible
-      await expect(page.getByText('Alpha Team')).toBeVisible()
+      // Role filter should not exist
+      await expect(page.getByRole('combobox').filter({ hasText: 'Все роли' })).not.toBeVisible()
+      await expect(page.getByRole('combobox').filter({ hasText: 'Всі ролі' })).not.toBeVisible()
     })
 
     test('displays teams in row layout with correct height', async ({ asAdmin: page }) => {
@@ -544,7 +547,7 @@ test.describe('Team page', () => {
       await expect(page.getByTitle('Перейменувати').first()).toBeVisible()
 
       // Add member and delete buttons are NOT on list rows in redesign
-      await expect(page.getByTitle('Додати учасника')).not.toBeVisible()
+      await expect(page.getByTitle('Добавить участника')).not.toBeVisible()
       await expect(page.getByTitle('Удалити команду')).not.toBeVisible()
     })
 
@@ -552,7 +555,7 @@ test.describe('Team page', () => {
       await page.goto('/crm/team')
 
       // SENIOR should not see management buttons on rows
-      await expect(page.getByTitle('Перейменувати')).not.toBeVisible()
+      await expect(page.getByTitle('Переименовать')).not.toBeVisible()
     })
 
     test('team rows are clickable and navigate to detail page', async ({ asAdmin: page }) => {
@@ -572,25 +575,25 @@ test.describe('Team page', () => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
 
       // Open edit dialog
-      await page.getByRole('button', { name: 'Редагувати' }).click()
+      await page.getByRole('button', { name: 'Редактировать' }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
       // Check all fields are present
-      await expect(page.getByPlaceholder('Назва команди')).toBeVisible()
+      await expect(page.getByPlaceholder('Название команды')).toBeVisible()
       await expect(page.getByLabel('Telegram')).toBeVisible()
       await expect(page.getByLabel('Нотатки')).toBeVisible()
 
       // Check placeholders and hints
       await expect(page.getByPlaceholder('https://t.me/team_chat')).toBeVisible()
-      await expect(page.getByText('Посилання на Telegram-чат команди')).toBeVisible()
-      await expect(page.getByPlaceholder('Внутрішні нотатки…')).toBeVisible()
+      await expect(page.getByText('Ссылка на Telegram-чат команды')).toBeVisible()
+      await expect(page.getByPlaceholder('Внутренние заметки…')).toBeVisible()
     })
 
     test('displays Active Projects section with count badge', async ({ asAdmin: page }) => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
 
       // Check Active Projects section is present (CardTitle renders as h3)
-      await expect(page.getByRole('heading', { name: /Активні проекти/i })).toBeVisible()
+      await expect(page.getByRole('heading', { name: /Активные проекты/i })).toBeVisible()
 
       // Badge may or may not be visible depending on whether team has active projects
       const projectsBadge = page.locator('[data-testid="active-projects-count"]')
@@ -614,7 +617,7 @@ test.describe('Team page', () => {
 
       // Should see team page
       await expect(page.getByText('Alpha Team')).toBeVisible()
-      await expect(page.getByText('Учасники команди')).toBeVisible()
+      await expect(page.getByText('Участники команды')).toBeVisible()
 
       // Should see SENIOR, HR, ACCOUNTANT but filtered view for projects
       await expect(page.getByText('Синьор').first()).toBeVisible()
@@ -622,8 +625,8 @@ test.describe('Team page', () => {
       await expect(page.getByText('Бухгалтер').first()).toBeVisible()
 
       // No management buttons
-      await expect(page.getByRole('button', { name: 'Редагувати' })).not.toBeVisible()
-      await expect(page.getByRole('button', { name: 'Додати' })).not.toBeVisible()
+      await expect(page.getByRole('button', { name: 'Редактировать' })).not.toBeVisible()
+      await expect(page.getByRole('button', { name: 'Добавить' })).not.toBeVisible()
     })
   })
 
@@ -650,7 +653,7 @@ test.describe('Team page', () => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
 
       // Add member button is on the detail page in redesign
-      await page.getByRole('button', { name: 'Додати' }).click()
+      await page.getByRole('button', { name: 'Добавить' }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
     })
 
@@ -675,20 +678,163 @@ test.describe('Team page', () => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
 
       // The validation happens on backend, frontend should handle error gracefully
-      await page.getByRole('button', { name: 'Додати' }).click()
+      await page.getByRole('button', { name: 'Добавить' }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
     })
 
     test('add member dialog shows filtered and sorted user list', async ({ asAdmin: page }) => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
 
-      await page.getByRole('button', { name: 'Додати' }).click()
+      await page.getByRole('button', { name: 'Добавить' }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
-      await expect(page.getByRole('heading', { name: /Додати учасника/i })).toBeVisible()
+      await expect(page.getByRole('heading', { name: /Добавить участника/i })).toBeVisible()
 
       // Should show users that can be added (not already in team, not ADMIN)
       // Exact behavior depends on seed data, but dialog should be functional
-      await expect(page.getByRole('button', { name: 'Скасувати' })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Отмена' })).toBeVisible()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // UI Improvements - PR #18: Contacts, Telegram links, Russian translation
+  // ---------------------------------------------------------------------------
+
+  test.describe('UI Improvements — PR #18', () => {
+    test('displays member contact information: phone, telegram, email', async ({ asAdmin: page }) => {
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+
+      // Check member card shows contact info with appropriate icons
+      const memberCards = page.locator('[class*="border border-border/60"]')
+      const firstCard = memberCards.first()
+      
+      // Email should be visible
+      await expect(firstCard.locator('[class*="flex items-center gap-1"] >> text=/.*@.*/')).toBeVisible()
+      
+      // Phone and Telegram are optional but should appear with icons if present
+      // (Test will pass regardless of whether data exists in seed)
+    })
+
+    test('shows Telegram channel link in team header when available', async ({ asAdmin: page }) => {
+      // Mock team with telegram field
+      await page.route(`**/api/teams/${TEAMS[0]!.id}`, route => {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ...TEAMS[0],
+            telegram: 'https://t.me/test_channel'
+          })
+        })
+      })
+
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+
+      // Check Telegram link appears in header
+      await expect(page.getByText('Telegram-канал')).toBeVisible()
+      
+      const telegramLink = page.locator('a[href="https://t.me/test_channel"]')
+      await expect(telegramLink).toBeVisible()
+      await expect(telegramLink).toHaveAttribute('target', '_blank')
+    })
+
+    test('shows Telegram link in team list row when team has telegram channel', async ({ asAdmin: page }) => {
+      // Mock teams list with telegram field
+      await page.route('**/api/teams', route => {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([{
+            ...TEAMS[0],
+            telegram: 'https://t.me/alpha_team'
+          }])
+        })
+      })
+
+      await page.goto('/crm/team')
+
+      // Check TG link appears in team row
+      const telegramIcon = page.locator('a[href="https://t.me/alpha_team"]').getByText('TG')
+      await expect(telegramIcon).toBeVisible()
+      
+      // Verify it doesn't trigger card navigation when clicked
+      await telegramIcon.click()
+      await expect(page).toHaveURL('/crm/team') // Should stay on list page
+    })
+
+    test('role filter is removed from toolbar', async ({ asAdmin: page }) => {
+      await page.goto('/crm/team')
+
+      // Role filter dropdown should not exist
+      await expect(page.getByRole('combobox').filter({ hasText: 'Все роли' })).not.toBeVisible()
+      await expect(page.getByRole('combobox').filter({ hasText: 'Всі ролі' })).not.toBeVisible()
+      
+      // Only search and sort should be present
+      await expect(page.getByPlaceholder('Поиск по названию…')).toBeVisible()
+      await expect(page.getByRole('combobox').filter({ hasText: 'Название' })).toBeVisible()
+    })
+
+    test('member list shows flat structure without role grouping', async ({ asAdmin: page }) => {
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+
+      // Verify flat list structure
+      const memberContainer = page.locator('text=Участники команды').locator('..').locator('..')
+      
+      // Should not have role section headers
+      await expect(memberContainer.getByText('Синьор', { exact: true })).not.toBeVisible()
+      await expect(memberContainer.getByText('HR', { exact: true })).not.toBeVisible()
+      await expect(memberContainer.getByText('Бухгалтер', { exact: true })).not.toBeVisible()
+      
+      // Members should be directly in grid
+      const memberGrid = memberContainer.locator('.grid')
+      await expect(memberGrid).toBeVisible()
+      
+      // Role badges should be inline with names, not as section headers
+      await expect(memberGrid.locator('[class*="bg-"]').first()).toBeVisible() // role badge
+    })
+
+    test('all UI text is in Russian (no Ukrainian)', async ({ asAdmin: page }) => {
+      await page.goto('/crm/team')
+      
+      // List page Russian text
+      await expect(page.getByPlaceholder('Поиск по названию…')).toBeVisible()
+      await expect(page.getByText('Ничего не найдено')).not.toBeVisible() // Will be visible only if search yields no results
+      
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+      
+      // Detail page Russian text
+      await expect(page.getByText('Участники команды')).toBeVisible()
+      await expect(page.getByText('Создана', { exact: false })).toBeVisible()
+      await expect(page.getByText('Активные проекты')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Добавить' })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Редактировать' })).toBeVisible()
+      
+      // Verify NO Ukrainian text is present
+      await expect(page.getByText('Учасники команди')).not.toBeVisible()
+      await expect(page.getByText('Створена')).not.toBeVisible()
+      await expect(page.getByText('Активні проекти')).not.toBeVisible()
+      await expect(page.getByText('Додати')).not.toBeVisible()
+      await expect(page.getByText('Редагувати')).not.toBeVisible()
+    })
+
+    test('edit dialog contains updated Russian labels and hints', async ({ asAdmin: page }) => {
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+      
+      await page.getByRole('button', { name: 'Редактировать' }).click()
+      await expect(page.getByRole('dialog')).toBeVisible()
+      
+      // Check Russian field labels and placeholders
+      await expect(page.getByPlaceholder('Название команды')).toBeVisible()
+      await expect(page.getByText('Ссылка на Telegram-чат команды')).toBeVisible()
+      await expect(page.getByPlaceholder('Внутренние заметки…')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Отмена' })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Сохранить' })).toBeVisible()
+      
+      // Verify NO Ukrainian text
+      await expect(page.getByText('Назва команди')).not.toBeVisible()
+      await expect(page.getByText('Посилання на Telegram-чат команди')).not.toBeVisible()
+      await expect(page.getByText('Внутрішні нотатки')).not.toBeVisible()
+      await expect(page.getByText('Скасувати')).not.toBeVisible()
+      await expect(page.getByText('Зберегти')).not.toBeVisible()
     })
   })
 
@@ -729,17 +875,17 @@ test.describe('Team page', () => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
 
       // Verify hooks-dependent functionality works
-      await page.getByRole('button', { name: 'Редагувати' }).click()
+      await page.getByRole('button', { name: 'Редактировать' }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
       // Test useForm hook (moved before early returns) — use placeholder to find name input
-      const nameInput = page.getByPlaceholder('Назва команди')
+      const nameInput = page.getByPlaceholder('Название команды')
       await expect(nameInput).toBeVisible()
       await expect(nameInput).toHaveValue('Alpha Team')
 
       // Test form submission (updateMutation hook)
       await nameInput.fill('Updated Team Name')
-      await page.getByRole('button', { name: 'Зберегти' }).click()
+      await page.getByRole('button', { name: 'Сохранить' }).click()
 
       // Form should close without errors
       await expect(page.getByRole('dialog')).not.toBeVisible()
@@ -749,12 +895,12 @@ test.describe('Team page', () => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
 
       // Test hooks-dependent add member functionality
-      await page.getByRole('button', { name: 'Додати' }).click()
+      await page.getByRole('button', { name: 'Добавить' }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
       // Test selectedUserIds state and addMemberMutation hooks
       await page.getByRole('dialog').getByText('Junior Dev').click()
-      await page.getByRole('dialog').getByRole('button', { name: /^Додати/ }).click()
+      await page.getByRole('dialog').getByRole('button', { name: /^Добавить/ }).click()
 
       // Should work without hooks-related errors
       await expect(page.getByRole('dialog')).not.toBeVisible()
@@ -843,23 +989,23 @@ test.describe('Team page', () => {
 
       // Trigger multiple re-renders that could expose hooks order issues
       // 1. Open edit dialog (triggers form hooks)
-      await page.getByRole('button', { name: 'Редагувати' }).click()
+      await page.getByRole('button', { name: 'Редактировать' }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
       // 2. Change form values (trigger form state updates)
-      await page.getByPlaceholder('Назва команди').fill('Test Name')
+      await page.getByPlaceholder('Название команды').fill('Test Name')
       await page.getByLabel('Telegram').fill('https://t.me/test')
 
       // 3. Close without saving
-      await page.getByRole('button', { name: 'Скасувати' }).click()
+      await page.getByRole('button', { name: 'Отмена' }).click()
       await expect(page.getByRole('dialog')).not.toBeVisible()
 
       // 4. Open add member dialog (triggers different hooks)
-      await page.getByRole('button', { name: 'Додати' }).click()
+      await page.getByRole('button', { name: 'Добавить' }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
       // 5. Close add member dialog
-      await page.getByRole('button', { name: 'Скасувати' }).click()
+      await page.getByRole('button', { name: 'Отмена' }).click()
       await expect(page.getByRole('dialog')).not.toBeVisible()
 
       await page.waitForTimeout(500)

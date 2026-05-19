@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Check, Pencil, Plus, Search, UserPlus, Users } from 'lucide-react'
+import { Check, MessageCircle, Pencil, Plus, Search, UserPlus, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
 import type { Value as PhoneValue } from 'react-phone-number-input'
@@ -592,7 +592,6 @@ function TeamPage() {
 
   // Toolbar state
   const [search, setSearch] = useState('')
-  const [filterRole, setFilterRole] = useState<string>('all')
   const [sortBy, setSortBy] = useState<'name' | 'members' | 'projects'>('name')
 
   // Filtered and sorted teams
@@ -603,12 +602,6 @@ function TeamPage() {
     if (search.trim()) {
       const q = search.toLowerCase()
       result = result.filter((t) => t.name.toLowerCase().includes(q))
-    }
-
-    if (filterRole !== 'all') {
-      result = result.filter((t) =>
-        t.members.some((m) => m.role === filterRole),
-      )
     }
 
     result.sort((a, b) => {
@@ -631,7 +624,7 @@ function TeamPage() {
     })
 
     return result
-  }, [teams, projects, search, filterRole, sortBy])
+  }, [teams, projects, search, sortBy])
 
   const addMemberMutation = useMutation({
     mutationFn: ({ teamId, userId }: { teamId: string; userId: string }) =>
@@ -695,32 +688,20 @@ function TeamPage() {
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Пошук за назвою…"
+              placeholder="Поиск по названию…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-9"
             />
           </div>
-          <Select value={filterRole} onValueChange={setFilterRole}>
-            <SelectTrigger className="w-36">
-              <SelectValue placeholder="Всі ролі" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Всі ролі</SelectItem>
-              <SelectItem value="SENIOR">Senior</SelectItem>
-              <SelectItem value="HR">HR</SelectItem>
-              <SelectItem value="JUNIOR">Junior</SelectItem>
-              <SelectItem value="ACCOUNTANT">Accountant</SelectItem>
-            </SelectContent>
-          </Select>
           <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
             <SelectTrigger className="w-40">
               <SelectValue placeholder="Сортування" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="name">Назва A→Z</SelectItem>
-              <SelectItem value="members">Учасники ↓</SelectItem>
-              <SelectItem value="projects">Проекти ↓</SelectItem>
+              <SelectItem value="name">Название A→Z</SelectItem>
+              <SelectItem value="members">Участники ↓</SelectItem>
+              <SelectItem value="projects">Проекты ↓</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -734,7 +715,7 @@ function TeamPage() {
       >
         {filteredTeams.length === 0 && (teams?.length ?? 0) > 0 && (
           <p className="py-8 text-center text-sm text-muted-foreground">
-            Нічого не знайдено
+            Ничего не найдено
           </p>
         )}
         {filteredTeams.map((team) => {
@@ -787,6 +768,15 @@ function TeamPage() {
                   </p>
                   <p className="truncate text-xs text-muted-foreground overflow-hidden whitespace-nowrap">
                     HR: {hrMembers.map((m) => m.displayName).join(', ') || 'Без HR'}
+                    {team.telegram && (
+                      <a href={team.telegram} target="_blank" rel="noopener noreferrer"
+                         className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors ml-2"
+                         onClick={e => e.stopPropagation()}
+                         title="Telegram-канал команды">
+                        <MessageCircle className="h-3 w-3" />
+                        TG
+                      </a>
+                    )}
                   </p>
                 </div>
 
@@ -804,7 +794,7 @@ function TeamPage() {
                         : 'text-muted-foreground',
                     )}
                   >
-                    {activeProjects} {activeProjects === 1 ? 'проект' : activeProjects < 5 ? 'проекти' : 'проектів'}
+                    {activeProjects} {activeProjects === 1 ? 'проект' : activeProjects < 5 ? 'проекта' : 'проектов'}
                   </Badge>
                 </div>
 
@@ -823,7 +813,7 @@ function TeamPage() {
                         editForm.setFieldValue('telegram', team.telegram || '')
                         editForm.setFieldValue('notes', team.notes || '')
                       }}
-                      title="Перейменувати"
+                      title="Переименовать"
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
@@ -848,7 +838,7 @@ function TeamPage() {
       <Dialog open={!!editTeam} onOpenChange={(open) => { if (!open) setEditTeam(null) }}>
         <CrmDialogContent maxWidth="sm:max-w-md">
           <CrmDialogHeader>
-            <DialogTitle>Редагувати команду</DialogTitle>
+            <DialogTitle>Редактировать команду</DialogTitle>
           </CrmDialogHeader>
           <CrmDialogBody className="pb-2">
             <div className="grid gap-4">
@@ -863,12 +853,12 @@ function TeamPage() {
                 {(field) => {
                   const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined
                   return (
-                    <Field label="Назва" error={err} required>
+                    <Field label="Название" error={err} required>
                       <Input
                         value={field.state.value}
                         onChange={(e) => field.handleChange(e.target.value)}
                         onBlur={field.handleBlur}
-                        placeholder="Назва команди"
+                        placeholder="Название команды"
                         className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
                       />
                     </Field>
@@ -896,7 +886,7 @@ function TeamPage() {
                         placeholder="https://t.me/..."
                         className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
                       />
-                      <p className="text-xs text-muted-foreground">Посилання на чат команди</p>
+                      <p className="text-xs text-muted-foreground">Ссылка на чат команды</p>
                     </Field>
                   )
                 }}
@@ -905,12 +895,12 @@ function TeamPage() {
               {/* Notes */}
               <editForm.Field name="notes">
                 {(field) => (
-                  <Field label="Нотатки">
+                  <Field label="Заметки">
                     <Textarea
                       value={field.state.value}
                       onChange={(e) => field.handleChange(e.target.value)}
                       onBlur={field.handleBlur}
-                      placeholder="Внутрішні нотатки…"
+                      placeholder="Внутренние заметки…"
                       className="min-h-20"
                     />
                   </Field>
@@ -919,9 +909,9 @@ function TeamPage() {
             </div>
           </CrmDialogBody>
           <CrmDialogFooter>
-            <Button variant="ghost" onClick={() => setEditTeam(null)}>Відміна</Button>
+            <Button variant="ghost" onClick={() => setEditTeam(null)}>Отмена</Button>
             <Button onClick={() => void editForm.handleSubmit()} disabled={updateMutation.isPending}>
-              {updateMutation.isPending ? 'Збереження...' : 'Зберегти'}
+              {updateMutation.isPending ? 'Сохранение...' : 'Сохранить'}
             </Button>
           </CrmDialogFooter>
         </CrmDialogContent>

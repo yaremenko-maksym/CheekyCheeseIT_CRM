@@ -2,7 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Briefcase, Calendar, Pencil, UserMinus, UserPlus, Users } from 'lucide-react'
+import { ArrowLeft, Briefcase, Calendar, Mail, MessageCircle, Pencil, Phone, UserMinus, UserPlus, Users } from 'lucide-react'
 import { useState } from 'react'
 import type { ProjectDto, TeamDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
@@ -134,9 +134,9 @@ function TeamDetailPage() {
       void queryClient.invalidateQueries({ queryKey: ['team', teamId] })
       void queryClient.invalidateQueries({ queryKey: ['teams'] })
       setShowEdit(false)
-      toast.success('Команду оновлено')
+      toast.success('Команда обновлена')
     },
-    onError: () => toast.error('Не вдалось оновити команду'),
+    onError: () => toast.error('Не удалось обновить команду'),
   })
 
   // Add member logic
@@ -150,7 +150,7 @@ function TeamDetailPage() {
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      toast.error(msg ?? 'Помилка додавання')
+      toast.error(msg ?? 'Ошибка добавления')
     },
   })
 
@@ -209,26 +209,6 @@ function TeamDetailPage() {
     )
   }
 
-  // Group members by role for better organization
-  const membersByRole = team.members.reduce((acc, member) => {
-    if (!acc[member.role]) acc[member.role] = []
-    acc[member.role]!.push(member)
-    return acc
-  }, {} as Record<string, typeof team.members>)
-
-  const roleOrder = ['SENIOR', 'HR', 'ACCOUNTANT', 'JUNIOR']
-
-  // Junior doesn't see other juniors
-  const visibleMembersByRole =
-    user?.role === 'JUNIOR'
-      ? Object.fromEntries(
-          Object.entries(membersByRole).filter(([role]) => role !== 'JUNIOR'),
-        )
-      : membersByRole
-
-  const visibleOrderedRoles = roleOrder.filter(
-    (role) => (visibleMembersByRole[role]?.length ?? 0) > 0,
-  )
 
   // Add member dialog filtering logic
   const memberUserIds = new Set(team?.members.map((m) => m.userId) ?? [])
@@ -249,9 +229,9 @@ function TeamDetailPage() {
   const candidateUsers: CandidateUser[] = (allUsers || [])
     .filter((u: UserOption) => u.role !== 'ADMIN')
     .map((u: UserOption): CandidateUser => {
-      if (memberUserIds.has(u.id)) return { ...u, disabledReason: 'в команді' }
-      if (u.role === 'SENIOR' && teamHasSenior) return { ...u, disabledReason: 'вже є синьор' }
-      if (u.role === 'JUNIOR' && juniorIdsWithProjects.has(u.id)) return { ...u, disabledReason: 'має проект' }
+      if (memberUserIds.has(u.id)) return { ...u, disabledReason: 'в команде' }
+      if (u.role === 'SENIOR' && teamHasSenior) return { ...u, disabledReason: 'уже есть синьор' }
+      if (u.role === 'JUNIOR' && juniorIdsWithProjects.has(u.id)) return { ...u, disabledReason: 'есть проект' }
       return u
     })
     .sort((a: CandidateUser, b: CandidateUser) => {
@@ -267,7 +247,7 @@ function TeamDetailPage() {
     }
     setSelectedUserIds(new Set())
     setShowAddMember(false)
-    toast.success('Учасників додано')
+    toast.success('Участники добавлены')
   }
 
   return (
@@ -287,21 +267,30 @@ function TeamDetailPage() {
           </Button>
           <div>
             <h1 className="text-2xl font-bold tracking-tight">{team.name}</h1>
-            <p className="text-sm text-muted-foreground flex items-center gap-1.5">
-              <Calendar className="h-3.5 w-3.5" />
-              Створена {new Date(team.createdAt).toLocaleDateString('uk-UA', {
-                day: 'numeric',
-                month: 'long',
-                year: 'numeric',
-              })}
-            </p>
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <div className="flex items-center gap-1.5">
+                <Calendar className="h-3.5 w-3.5" />
+                Создана {new Date(team.createdAt).toLocaleDateString('ru-RU', {
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric',
+                })}
+              </div>
+              {team.telegram && (
+                <a href={team.telegram} target="_blank" rel="noopener noreferrer"
+                   className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors">
+                  <MessageCircle className="h-3.5 w-3.5" />
+                  Telegram-канал
+                </a>
+              )}
+            </div>
           </div>
         </div>
         {canManage && (
           <div className="flex shrink-0 gap-2">
             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowAddMember(true)}>
               <UserPlus className="h-4 w-4" />
-              Додати
+              Добавить
             </Button>
             <Button
               variant="outline"
@@ -315,7 +304,7 @@ function TeamDetailPage() {
               }}
             >
               <Pencil className="h-4 w-4" />
-              Редагувати
+              Редактировать
             </Button>
           </div>
         )}
@@ -327,23 +316,22 @@ function TeamDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                Учасники команди
+                Участники команды
                 <Badge variant="outline" className="ml-auto">
                   {team.members.length}
                 </Badge>
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
-              {visibleOrderedRoles.map((role) => (
-                <div key={role} className="space-y-3">
-                  <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                    <Badge variant={ROLE_VARIANT[role] ?? 'junior'} className="text-[10px]">
-                      {ROLE_LABELS[role] ?? role}
-                    </Badge>
-                    <span className="text-xs">({visibleMembersByRole[role]!.length})</span>
-                  </h3>
+            <CardContent>
+              {(() => {
+                // Filter out other JUNIORs if current user is JUNIOR
+                const visibleMembers = user?.role === 'JUNIOR' 
+                  ? team.members.filter(m => m.role !== 'JUNIOR')
+                  : team.members
+                
+                return (
                   <div className="grid gap-2 sm:grid-cols-2">
-                    {visibleMembersByRole[role]!.map((member) => (
+                    {visibleMembers.map((member) => (
                       <motion.div
                         key={member.id}
                         className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-card/50 p-3"
@@ -360,16 +348,44 @@ function TeamDetailPage() {
                             <AvatarFallback className="text-xs">{getInitials(member.displayName)}</AvatarFallback>
                           </Avatar>
                           <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium leading-tight">{member.displayName}</p>
-                            <p className="truncate text-xs text-muted-foreground mt-0.5">{member.email}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="truncate text-sm font-medium leading-tight">{member.displayName}</p>
+                              <Badge variant={ROLE_VARIANT[member.role] ?? 'junior'} className="text-[9px] shrink-0">
+                                {ROLE_LABELS[member.role] ?? member.role}
+                              </Badge>
+                            </div>
                             {member.techStack && (
                               <Badge variant="outline" className="mt-1 text-[9px] px-1.5 py-0 font-mono">
                                 {member.techStack}
                               </Badge>
                             )}
+                            <div className="mt-1 space-y-0.5">
+                              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <Mail className="h-3 w-3" />
+                                {member.email}
+                              </div>
+                              {member.telegram && (
+                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  <MessageCircle className="h-3 w-3" />
+                                  {member.telegram}
+                                </div>
+                              )}
+                              {member.phone && (
+                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  <Phone className="h-3 w-3" />
+                                  {member.phone}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </Link>
                         {canManage && (() => {
+                          const membersByRole = team.members.reduce((acc, m) => {
+                            if (!acc[m.role]) acc[m.role] = []
+                            acc[m.role]!.push(m)
+                            return acc
+                          }, {} as Record<string, typeof team.members>)
+                          
                           const isSenior = member.role === 'SENIOR'
                           const isJunior = member.role === 'JUNIOR'
                           const isLastHr = member.role === 'HR' && membersByRole.HR && membersByRole.HR.length <= 1
@@ -382,7 +398,7 @@ function TeamDetailPage() {
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                              title="Виключити"
+                              title="Исключить"
                               onClick={() => removeMemberMutation.mutate(member.userId)}
                             >
                               <UserMinus className="h-3.5 w-3.5" />
@@ -391,14 +407,14 @@ function TeamDetailPage() {
                         })()}
                       </motion.div>
                     ))}
+                    {visibleMembers.length === 0 && (
+                      <div className="flex flex-col items-center justify-center py-12 text-center col-span-2">
+                        <p className="mt-3 text-sm font-medium">Нет участников</p>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
-              {team.members.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <p className="mt-3 text-sm font-medium">Немає учасників</p>
-                </div>
-              )}
+                )
+              })()}
             </CardContent>
           </Card>
         </motion.div>
@@ -409,7 +425,7 @@ function TeamDetailPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Briefcase className="h-5 w-5" />
-                Активні проекти
+                Активные проекты
                 {visibleProjects.length > 0 && (
                   <Badge className="ml-auto bg-emerald-500/15 text-emerald-400 border-emerald-500/25 hover:bg-emerald-500/20">
                     {visibleProjects.length}
@@ -419,7 +435,7 @@ function TeamDetailPage() {
             </CardHeader>
             <CardContent>
               {visibleProjects.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">Немає активних проектів</p>
+                <p className="text-sm text-muted-foreground py-4 text-center">Нет активных проектов</p>
               ) : (
                 <div className="space-y-2">
                   {visibleProjects.map((project) => (
@@ -440,7 +456,7 @@ function TeamDetailPage() {
                         <p className="truncate text-xs text-muted-foreground">{project.companyName}</p>
                       </div>
                       <Badge className="shrink-0 bg-emerald-500/15 text-emerald-400 border-emerald-500/25 text-[10px]">
-                        Active
+                        Активный
                       </Badge>
                     </Link>
                   ))}
@@ -455,7 +471,7 @@ function TeamDetailPage() {
       <Dialog open={showEdit} onOpenChange={setShowEdit}>
         <CrmDialogContent>
           <CrmDialogHeader>
-            <DialogTitle>Редагувати команду</DialogTitle>
+            <DialogTitle>Редактировать команду</DialogTitle>
           </CrmDialogHeader>
           <form
             onSubmit={(e) => {
@@ -468,13 +484,13 @@ function TeamDetailPage() {
                 {(field) => (
                   <div className="grid gap-1.5">
                     <Label htmlFor="edit-name">
-                      Назва <span className="text-destructive">*</span>
+                      Название <span className="text-destructive">*</span>
                     </Label>
                     <Input
                       id="edit-name"
                       value={field.state.value}
                       onChange={(e) => field.handleChange(e.target.value)}
-                      placeholder="Назва команди"
+                      placeholder="Название команды"
                     />
                     {field.state.meta.errors[0] && (
                       <p className="text-xs text-destructive">{field.state.meta.errors[0]}</p>
@@ -505,19 +521,19 @@ function TeamDetailPage() {
                     {field.state.meta.errors[0] && (
                       <p className="text-xs text-destructive">{String(field.state.meta.errors[0])}</p>
                     )}
-                    <p className="text-xs text-muted-foreground">Посилання на Telegram-чат команди</p>
+                    <p className="text-xs text-muted-foreground">Ссылка на Telegram-чат команды</p>
                   </div>
                 )}
               </editForm.Field>
               <editForm.Field name="notes">
                 {(field) => (
                   <div className="grid gap-1.5">
-                    <Label htmlFor="edit-notes">Нотатки</Label>
+                    <Label htmlFor="edit-notes">Заметки</Label>
                     <Textarea
                       id="edit-notes"
                       value={field.state.value}
                       onChange={(e) => field.handleChange(e.target.value)}
-                      placeholder="Внутрішні нотатки…"
+                      placeholder="Внутренние заметки…"
                       className="min-h-20"
                     />
                   </div>
@@ -526,10 +542,10 @@ function TeamDetailPage() {
             </CrmDialogBody>
             <CrmDialogFooter>
               <Button type="button" variant="outline" onClick={() => setShowEdit(false)}>
-                Скасувати
+                Отмена
               </Button>
               <Button type="submit" disabled={updateMutation.isPending}>
-                {updateMutation.isPending ? 'Збереження…' : 'Зберегти'}
+                {updateMutation.isPending ? 'Сохранение…' : 'Сохранить'}
               </Button>
             </CrmDialogFooter>
           </form>
@@ -540,12 +556,12 @@ function TeamDetailPage() {
       <Dialog open={showAddMember} onOpenChange={(open) => { setShowAddMember(open); if (!open) setSelectedUserIds(new Set()) }}>
         <CrmDialogContent>
           <CrmDialogHeader>
-            <DialogTitle>Додати учасника</DialogTitle>
+            <DialogTitle>Добавить участника</DialogTitle>
           </CrmDialogHeader>
           <CrmDialogBody>
             <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
               {candidateUsers.length === 0 && (
-                <p className="py-4 text-center text-sm text-muted-foreground">Немає доступних користувачів</p>
+                <p className="py-4 text-center text-sm text-muted-foreground">Нет доступных пользователей</p>
               )}
               {candidateUsers.map((u, idx) => {
                 const isDisabled = !!u.disabledReason
@@ -607,13 +623,13 @@ function TeamDetailPage() {
           </CrmDialogBody>
           <CrmDialogFooter>
             <Button variant="outline" onClick={() => { setShowAddMember(false); setSelectedUserIds(new Set()) }}>
-              Скасувати
+              Отмена
             </Button>
             <Button
               disabled={selectedUserIds.size === 0 || addMemberMutation.isPending}
               onClick={() => void handleAddMembers()}
             >
-              Додати{selectedUserIds.size > 0 ? ` (${selectedUserIds.size})` : ''}
+              Добавить{selectedUserIds.size > 0 ? ` (${selectedUserIds.size})` : ''}
             </Button>
           </CrmDialogFooter>
         </CrmDialogContent>
