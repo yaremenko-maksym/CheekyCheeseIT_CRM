@@ -1,96 +1,24 @@
 {
-  "feature": "Teams UI Redesign",
-  "brief": "docs/superpowers/specs/2026-05-18-teams-redesign.md",
-  "started_at": "2026-05-18T12:00:00Z",
+  "feature": "GHA Pipeline Refactor + Branch Protection",
+  "started_at": "2026-05-19T07:10:00Z",
   "tasks": [
-    {
-      "id": "task-teams-redesign",
-      "file": "docs/specs/tasks/task-teams-redesign.md",
-      "agent": "coder",
-      "workflow": "coder.yml",
-      "run_id": "26026059007",
-      "branch": "feature/teams-redesign",
-      "pr_number": 13,
-      "status": "merged",
-      "started_at": "2026-05-18T12:48:30Z",
-      "expected_duration_min": 5
-    },
-    {
-      "id": "task-fix-team-detail-hooks",
-      "file": "docs/specs/tasks/task-fix-team-detail-hooks.md",
-      "agent": "coder",
-      "workflow": "coder.yml",
-      "run_id": "26036232623",
-      "branch": "fix/team-detail-hooks",
-      "pr_number": 15,
-      "ai_review_run_id": "26041323376",
-      "e2e_run_id": "26073942055",
-      "status": "merged",
-      "merged_at": "2026-05-19T03:44:23Z",
-      "started_at": "2026-05-18T16:22:00Z",
-      "expected_duration_min": 12
-    },
-    {
-      "id": "task-fix-test-pr-15",
-      "file": "docs/specs/tasks/task-fix-test-pr-15.md",
-      "agent": "autotest",
-      "workflow": "autotest.yml",
-      "run_id": "26038335059",
-      "branch": "fix/team-detail-hooks",
-      "pr_number": 15,
-      "status": "merged",
-      "started_at": "2026-05-18T17:05:00Z",
-      "expected_duration_min": 10
-    },
-    {
-      "id": "task-fix-e2e-team-selectors",
-      "file": "docs/specs/tasks/task-fix-e2e-team-selectors.md",
-      "agent": "pm",
-      "workflow": "e2e.yml",
-      "run_id": "26073942055",
-      "branch": "fix/team-detail-hooks",
-      "pr_number": 15,
-      "status": "merged",
-      "merged_at": "2026-05-19T03:44:23Z",
-      "started_at": "2026-05-19T06:14:40Z",
-      "expected_duration_min": 25
-    },
     {
       "id": "task-infra-branch-protection",
       "file": "docs/specs/tasks/task-infra-branch-protection.md",
       "agent": "devops",
       "workflow": "devops.yml",
-      "run_id": "26036811405",
+      "run_id": "26079920207",
       "branch": "infra/branch-protection",
       "pr_number": 16,
-      "ai_review_run_id": "26041335936",
-      "status": "pr_open",
-      "started_at": "2026-05-18T16:30:00Z",
-      "expected_duration_min": 8
-    },
-    {
-      "id": "task-infra-review-pipeline",
-      "file": "docs/specs/tasks/task-infra-review-pipeline.md",
-      "agent": "devops",
-      "workflow": "devops.yml",
-      "run_id": "26040630313",
-      "branch": "infra/review-pipeline",
-      "pr_number": null,
-      "status": "blocked",
-      "started_at": "2026-05-18T14:42:25Z",
+      "status": "running",
+      "started_at": "2026-05-19T07:10:00Z",
       "expected_duration_min": 20,
-      "_note": "BLOCKED: claude-code-action не пробрасывает step-level env vars — ADMIN_PAT недоступен агенту. Решение: P1 (ai-review.yml + CODEOWNERS + CLAUDE-reviewer.md, без ADMIN_PAT) + P2 (apply-branch-protection.yml файл, агент только пишет YAML)"
+      "review_rounds": 0,
+      "max_review_rounds": 3
     }
   ],
-  "blocked": [
-    "task-infra-review-pipeline"
-  ],
-  "merged": [
-    "task-teams-redesign",
-    "task-fix-test-pr-15",
-    "task-fix-team-detail-hooks",
-    "task-fix-e2e-team-selectors"
-  ],
-  "phase": "completed",
+  "blocked": [],
+  "merged": [],
+  "phase": "development",
   "pending_fixes": []
 }
