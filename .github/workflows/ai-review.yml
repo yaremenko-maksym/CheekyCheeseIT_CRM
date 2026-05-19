@@ -1,9 +1,9 @@
 name: AI Review
 
-# Triggered when PR is marked ready_for_review or via manual dispatch.
 on:
-  pull_request:
-    types: [ready_for_review]
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -12,7 +12,7 @@ on:
         type: string
 
 concurrency:
-  group: ai-review-${{ github.event.pull_request.number || inputs.pr_number }}-${{ github.event_name }}
+  group: ai-review-${{ github.event.workflow_run.pull_requests[0].number || inputs.pr_number }}
   cancel-in-progress: true
 
 jobs:
@@ -23,68 +23,88 @@ jobs:
     name: AutoTest
     runs-on: ubuntu-latest
     if: |
-      github.event.pull_request.draft == false &&
+      github.event_name == 'workflow_dispatch' ||
       (
-        github.event_name == 'workflow_dispatch' ||
-        contains(github.event.pull_request.labels.*.name, 'ai-review-ready')
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.actor.login != 'github-actions[bot]' &&
+        github.event.workflow_run.pull_requests[0] != null
       )
     permissions:
       contents: write
       pull-requests: write
       id-token: write
+      checks: write
 
     steps:
-      - name: Get PR head ref
-        id: pr_head
+      - name: Resolve PR number
+        id: pr_ctx
         env:
           GH_TOKEN: ${{ github.token }}
+          INPUT_PR: ${{ inputs.pr_number }}
+          WR_PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          REPO: ${{ github.repository }}
         run: |
-          if [ -n "${{ github.event.pull_request.head.ref }}" ]; then
-            echo "ref=${{ github.event.pull_request.head.ref }}" >> $GITHUB_OUTPUT
+          if [ -n "$INPUT_PR" ]; then
+            PR="$INPUT_PR"
           else
-            REF=$(gh pr view "${{ inputs.pr_number }}" \
-              --repo ${{ github.repository }} \
-              --json headRefName --jq '.headRefName')
-            echo "ref=${REF}" >> $GITHUB_OUTPUT
+            PR="$WR_PR"
           fi
+          if [ -z "$PR" ]; then
+            echo "No PR associated with this CI run — skipping"
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          HAS_LABEL=$(gh pr view "$PR" \
+            --repo "$REPO" \
+            --json labels --jq '[.labels[].name] | contains(["ai-review-ready"])')
+          echo "pr=$PR" >> $GITHUB_OUTPUT
+          echo "has_label=$HAS_LABEL" >> $GITHUB_OUTPUT
+          echo "skip=false" >> $GITHUB_OUTPUT
+
+      - name: Create Check Run — in_progress
+        id: check_run
+        if: steps.pr_ctx.outputs.skip != 'true' && steps.pr_ctx.outputs.has_label == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.pr_ctx.outputs.pr }}
+          REPO: ${{ github.repository }}
+        run: |
+          HEAD_SHA=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq '.headRefOid')
+          CHECK_ID=$(gh api "repos/$REPO/check-runs" \
+            --method POST \
+            -f name="CI / AutoTest" \
+            -f head_sha="$HEAD_SHA" \
+            -f status="in_progress" \
+            --jq '.id')
+          echo "check_id=$CHECK_ID" >> $GITHUB_OUTPUT
+
+      - name: Get PR head ref
+        id: pr_head
+        if: steps.pr_ctx.outputs.skip != 'true' && steps.pr_ctx.outputs.has_label == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.pr_ctx.outputs.pr }}
+          REPO: ${{ github.repository }}
+        run: |
+          REF=$(gh pr view "$PR" \
+            --repo "$REPO" \
+            --json headRefName --jq '.headRefName')
+          echo "ref=${REF}" >> $GITHUB_OUTPUT
 
       - uses: actions/checkout@v4
+        if: steps.pr_ctx.outputs.skip != 'true' && steps.pr_ctx.outputs.has_label == 'true'
         with:
           ref: ${{ steps.pr_head.outputs.ref }}
           fetch-depth: 0
 
       - name: Configure git for AutoTest commits
+        if: steps.pr_ctx.outputs.skip != 'true' && steps.pr_ctx.outputs.has_label == 'true'
         run: |
           git config user.email "autotest-agent@github-actions"
           git config user.name "AutoTest Agent"
 
-      - name: Post pipeline status — AutoTest running
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
-          REPO="${{ github.repository }}"
-          MARKER="<!-- ai-review-pipeline-status -->"
-          BODY=$(printf '%s\n' \
-            "${MARKER}" \
-            "## 🤖 AI Review Pipeline — PR #${PR}" \
-            "" \
-            "| Stage | Status |" \
-            "|-------|--------|" \
-            "| 🔬 AutoTest | 🔄 Running... |" \
-            "| 👁️ Code Review | ⏳ Waiting |" \
-            "| 🔍 PM Review + E2E | ⏳ Waiting |")
-          CID=$(gh api "repos/${REPO}/issues/${PR}/comments" \
-            --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | first | .id // empty" 2>/dev/null)
-          if [ -z "$CID" ]; then
-            jq -n --arg b "${BODY}" '{"body":$b}' | \
-              gh api "repos/${REPO}/issues/${PR}/comments" --method POST --input - 2>/dev/null || true
-          else
-            jq -n --arg b "${BODY}" '{"body":$b}' | \
-              gh api "repos/${REPO}/issues/comments/${CID}" --method PATCH --input - 2>/dev/null || true
-          fi
-
       - name: Claude AutoTest
+        if: steps.pr_ctx.outputs.skip != 'true' && steps.pr_ctx.outputs.has_label == 'true'
         uses: anthropics/claude-code-action@beta
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -106,7 +126,7 @@ jobs:
             2. Создай пустой файл autotest-logic-error.flag (Write инструмент)
             НЕ коммить тесты при логической ошибке.
 
-            PR: ${{ github.event.pull_request.number || inputs.pr_number }}
+            PR: ${{ steps.pr_ctx.outputs.pr }}
             Repo: ${{ github.repository }}
           allowed_tools: |
             Read
@@ -131,41 +151,19 @@ jobs:
           echo "logic_error=false" >> $GITHUB_OUTPUT
           echo "AutoTest completed successfully"
 
-      - name: Update pipeline status — AutoTest result
-        if: always()
+      - name: Update Check Run — result
+        if: always() && steps.check_run.outputs.check_id != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          CHECK_ID: ${{ steps.check_run.outputs.check_id }}
+          REPO: ${{ github.repository }}
         run: |
-          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
-          REPO="${{ github.repository }}"
-          MARKER="<!-- ai-review-pipeline-status -->"
-          if [ -f autotest-logic-error.flag ]; then
-            AT="❌ Logic error — see review comment"
-            CR="—"
-            PM="—"
-          else
-            AT="✅ Tests written"
-            CR="⏳ Waiting"
-            PM="⏳ Waiting"
-          fi
-          BODY=$(printf '%s\n' \
-            "${MARKER}" \
-            "## 🤖 AI Review Pipeline — PR #${PR}" \
-            "" \
-            "| Stage | Status |" \
-            "|-------|--------|" \
-            "| 🔬 AutoTest | ${AT} |" \
-            "| 👁️ Code Review | ${CR} |" \
-            "| 🔍 PM Review + E2E | ${PM} |")
-          CID=$(gh api "repos/${REPO}/issues/${PR}/comments" \
-            --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | first | .id // empty" 2>/dev/null)
-          if [ -z "$CID" ]; then
-            jq -n --arg b "${BODY}" '{"body":$b}' | \
-              gh api "repos/${REPO}/issues/${PR}/comments" --method POST --input - 2>/dev/null || true
-          else
-            jq -n --arg b "${BODY}" '{"body":$b}' | \
-              gh api "repos/${REPO}/issues/comments/${CID}" --method PATCH --input - 2>/dev/null || true
-          fi
+          CONCLUSION="success"
+          if [ -f autotest-logic-error.flag ]; then CONCLUSION="failure"; fi
+          gh api "repos/$REPO/check-runs/$CHECK_ID" \
+            --method PATCH \
+            -f status="completed" \
+            -f conclusion="$CONCLUSION"
 
   # ─────────────────────────────────────────────
   # Job 2: Code Review — reviews code + AutoTest's tests
@@ -178,73 +176,72 @@ jobs:
     needs: [autotest]
     if: |
       always() &&
-      needs.autotest.result == 'success' &&
-      github.event.pull_request.draft == false &&
-      (
-        github.event_name == 'workflow_dispatch' ||
-        contains(github.event.pull_request.labels.*.name, 'ai-review-ready')
-      )
+      github.event.workflow_run.actor.login != 'github-actions[bot]' &&
+      needs.autotest.result == 'success'
     permissions:
       contents: read
       pull-requests: write
       id-token: write
+      checks: write
 
     outputs:
       approved: ${{ steps.check_approved.outputs.approved }}
       review_state: ${{ steps.check_approved.outputs.review_state }}
 
     steps:
+      - name: Resolve PR number
+        id: pr_ctx
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_PR: ${{ inputs.pr_number }}
+          WR_PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          if [ -n "$INPUT_PR" ]; then
+            PR="$INPUT_PR"
+          else
+            PR="$WR_PR"
+          fi
+          echo "pr=$PR" >> $GITHUB_OUTPUT
+
+      - name: Create Check Run — in_progress
+        id: check_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.pr_ctx.outputs.pr }}
+          REPO: ${{ github.repository }}
+        run: |
+          HEAD_SHA=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq '.headRefOid')
+          CHECK_ID=$(gh api "repos/$REPO/check-runs" \
+            --method POST \
+            -f name="AI Code Review" \
+            -f head_sha="$HEAD_SHA" \
+            -f status="in_progress" \
+            --jq '.id')
+          echo "check_id=$CHECK_ID" >> $GITHUB_OUTPUT
+
       - name: Get PR head ref (latest — includes AutoTest commits)
         id: pr_head
         env:
           GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.pr_ctx.outputs.pr }}
+          REPO: ${{ github.repository }}
         run: |
-          if [ -n "${{ github.event.pull_request.head.ref }}" ]; then
-            echo "ref=${{ github.event.pull_request.head.ref }}" >> $GITHUB_OUTPUT
-          else
-            REF=$(gh pr view "${{ inputs.pr_number }}" \
-              --repo ${{ github.repository }} \
-              --json headRefName --jq '.headRefName')
-            echo "ref=${REF}" >> $GITHUB_OUTPUT
-          fi
+          REF=$(gh pr view "$PR" \
+            --repo "$REPO" \
+            --json headRefName --jq '.headRefName')
+          echo "ref=${REF}" >> $GITHUB_OUTPUT
 
       - uses: actions/checkout@v4
         with:
           ref: ${{ steps.pr_head.outputs.ref }}
           fetch-depth: 0
 
-      - name: Update pipeline status — Code Review running
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
-          REPO="${{ github.repository }}"
-          MARKER="<!-- ai-review-pipeline-status -->"
-          BODY=$(printf '%s\n' \
-            "${MARKER}" \
-            "## 🤖 AI Review Pipeline — PR #${PR}" \
-            "" \
-            "| Stage | Status |" \
-            "|-------|--------|" \
-            "| 🔬 AutoTest | ✅ Tests written |" \
-            "| 👁️ Code Review | 🔄 Running... |" \
-            "| 🔍 PM Review + E2E | ⏳ Waiting |")
-          CID=$(gh api "repos/${REPO}/issues/${PR}/comments" \
-            --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | first | .id // empty" 2>/dev/null)
-          if [ -z "$CID" ]; then
-            jq -n --arg b "${BODY}" '{"body":$b}' | \
-              gh api "repos/${REPO}/issues/${PR}/comments" --method POST --input - 2>/dev/null || true
-          else
-            jq -n --arg b "${BODY}" '{"body":$b}' | \
-              gh api "repos/${REPO}/issues/comments/${CID}" --method PATCH --input - 2>/dev/null || true
-          fi
-
       - name: Check E2E health on main
         env:
           GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.pr_ctx.outputs.pr }}
+          REPO: ${{ github.repository }}
         run: |
-          REPO="${{ github.repository }}"
-          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
           BROKEN=$(gh issue list --repo "$REPO" \
             --label "e2e-broken" --state open \
             --json number --jq '.[0].number // empty')
@@ -257,9 +254,9 @@ jobs:
       - name: Dismiss stale CHANGES_REQUESTED reviews
         env:
           GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.pr_ctx.outputs.pr }}
+          REPO: ${{ github.repository }}
         run: |
-          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
-          REPO="${{ github.repository }}"
           gh api "repos/${REPO}/pulls/${PR}/reviews" \
             --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | .[].id' | \
           while read -r REVIEW_ID; do
@@ -286,6 +283,12 @@ jobs:
             ВАЖНО: AutoTest уже написал E2E тесты — проверь также apps/e2e/tests/.
             Если тесты некорректны или не покрывают нужный функционал — укажи это в review.
 
+            Прочитай описание PR через mcp__github__get_pull_request.
+            Найди в поле body ссылку на task-файл (формат: docs/specs/tasks/task-*.md).
+            Прочитай task-файл — раздел "Acceptance criteria".
+            Для каждого AC пункта явно укажи в review: ✅ реализован / ❌ не реализован.
+            AC которые отсутствуют в коде → обязательно REQUEST_CHANGES.
+
             ОБЯЗАТЕЛЬНЫЙ шаг — вызови mcp__github__create_pull_request_review:
             - event: "APPROVE" если нет критичных нарушений (включая тесты)
             - event: "REQUEST_CHANGES" если есть хотя бы одно критичное нарушение
@@ -293,7 +296,7 @@ jobs:
 
             После review, при APPROVE: создай пустой файл autotest-approved.flag (Write инструмент)
 
-            PR: ${{ github.event.pull_request.number || inputs.pr_number }}
+            PR: ${{ steps.pr_ctx.outputs.pr }}
             Repo: ${{ github.repository }}
           allowed_tools: |
             Read
@@ -326,44 +329,25 @@ jobs:
         if: steps.check_approved.outputs.approved == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.pr_ctx.outputs.pr }}
+          REPO: ${{ github.repository }}
         run: |
-          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
-          gh pr edit "$PR" --repo ${{ github.repository }} \
+          gh pr edit "$PR" --repo "$REPO" \
             --add-label "awaiting-pm-review"
 
-      - name: Update pipeline status — Code Review result
-        if: always()
+      - name: Update Check Run — result
+        if: always() && steps.check_run.outputs.check_id != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          CHECK_ID: ${{ steps.check_run.outputs.check_id }}
+          REPO: ${{ github.repository }}
         run: |
-          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
-          REPO="${{ github.repository }}"
-          MARKER="<!-- ai-review-pipeline-status -->"
-          if [ -f autotest-approved.flag ]; then
-            CR="✅ Approved"
-            PM="⏳ Awaiting PM review analysis"
-          else
-            CR="❌ Changes requested — Coder triggered"
-            PM="—"
-          fi
-          BODY=$(printf '%s\n' \
-            "${MARKER}" \
-            "## 🤖 AI Review Pipeline — PR #${PR}" \
-            "" \
-            "| Stage | Status |" \
-            "|-------|--------|" \
-            "| 🔬 AutoTest | ✅ Tests written |" \
-            "| 👁️ Code Review | ${CR} |" \
-            "| 🔍 PM Review + E2E | ${PM} |")
-          CID=$(gh api "repos/${REPO}/issues/${PR}/comments" \
-            --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | first | .id // empty" 2>/dev/null)
-          if [ -z "$CID" ]; then
-            jq -n --arg b "${BODY}" '{"body":$b}' | \
-              gh api "repos/${REPO}/issues/${PR}/comments" --method POST --input - 2>/dev/null || true
-          else
-            jq -n --arg b "${BODY}" '{"body":$b}' | \
-              gh api "repos/${REPO}/issues/comments/${CID}" --method PATCH --input - 2>/dev/null || true
-          fi
+          CONCLUSION="failure"
+          if [ -f autotest-approved.flag ]; then CONCLUSION="success"; fi
+          gh api "repos/$REPO/check-runs/$CHECK_ID" \
+            --method PATCH \
+            -f status="completed" \
+            -f conclusion="$CONCLUSION"
 
   # ─────────────────────────────────────────────
   # Job 3: Trigger Coder on Reviewer REQUEST_CHANGES
@@ -396,11 +380,18 @@ jobs:
         id: review
         env:
           GH_TOKEN: ${{ github.token }}
+          INPUT_PR: ${{ inputs.pr_number }}
+          WR_PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          REPO: ${{ github.repository }}
         run: |
-          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
+          if [ -n "$INPUT_PR" ]; then
+            PR="$INPUT_PR"
+          else
+            PR="$WR_PR"
+          fi
           echo "pr=$PR" >> $GITHUB_OUTPUT
 
-          COUNT=$(gh api "repos/${{ github.repository }}/pulls/${PR}/reviews" \
+          COUNT=$(gh api "repos/$REPO/pulls/${PR}/reviews" \
             --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | length')
 
           if [ "$COUNT" = "0" ]; then
@@ -409,7 +400,7 @@ jobs:
             exit 0
           fi
 
-          REVIEW_BODY=$(gh api "repos/${{ github.repository }}/pulls/${PR}/reviews" \
+          REVIEW_BODY=$(gh api "repos/$REPO/pulls/${PR}/reviews" \
             --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | last | .body')
           echo "has_review=true" >> $GITHUB_OUTPUT
           {
@@ -424,9 +415,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REVIEW_BODY: ${{ steps.review.outputs.body }}
+          PR: ${{ steps.review.outputs.pr }}
+          REPO: ${{ github.repository }}
         run: |
-          PR="${{ steps.review.outputs.pr }}"
-          BRANCH=$(gh pr view "$PR" --repo ${{ github.repository }} --json headRefName --jq '.headRefName')
+          BRANCH=$(gh pr view "$PR" --repo "$REPO" --json headRefName --jq '.headRefName')
           git fetch origin "${BRANCH}"
           git checkout "${BRANCH}"
 
@@ -445,37 +437,11 @@ jobs:
         if: steps.review.outputs.has_review == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.review.outputs.pr }}
+          TASK_FILE: ${{ steps.write_task.outputs.task_file }}
+          REPO: ${{ github.repository }}
         run: |
-          PR="${{ steps.review.outputs.pr }}"
-          TASK_FILE="${{ steps.write_task.outputs.task_file }}"
           gh workflow run coder.yml \
-            --repo ${{ github.repository }} \
-            -f task_file="${TASK_FILE}" \
+            --repo "$REPO" \
+            -f task_file="$TASK_FILE" \
             -f task_hint="fix-pr-${PR}"
-
-      - name: Update pipeline status — Coder triggered
-        if: steps.review.outputs.has_review == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PR="${{ steps.review.outputs.pr }}"
-          REPO="${{ github.repository }}"
-          MARKER="<!-- ai-review-pipeline-status -->"
-          BODY=$(printf '%s\n' \
-            "${MARKER}" \
-            "## 🤖 AI Review Pipeline — PR #${PR}" \
-            "" \
-            "| Stage | Status |" \
-            "|-------|--------|" \
-            "| 🔬 AutoTest | ✅ Tests written |" \
-            "| 👁️ Code Review | ❌ Changes requested |" \
-            "| 🔍 PM Review + E2E | 🔧 Coder triggered — will re-run on push |")
-          CID=$(gh api "repos/${REPO}/issues/${PR}/comments" \
-            --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | first | .id // empty" 2>/dev/null)
-          if [ -z "$CID" ]; then
-            jq -n --arg b "${BODY}" '{"body":$b}' | \
-              gh api "repos/${REPO}/issues/${PR}/comments" --method POST --input - 2>/dev/null || true
-          else
-            jq -n --arg b "${BODY}" '{"body":$b}' | \
-              gh api "repos/${REPO}/issues/comments/${CID}" --method PATCH --input - 2>/dev/null || true
-          fi
