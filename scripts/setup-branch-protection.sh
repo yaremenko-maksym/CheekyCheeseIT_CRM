@@ -53,7 +53,7 @@ gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/branches/main/protection \
     required_reviews: .required_pull_request_reviews.required_approving_review_count,
     enforce_admins: .enforce_admins.enabled,
     dismiss_stale_reviews: .required_pull_request_reviews.dismiss_stale_reviews,
-    conversation_resolution: .required_conversation_resolution.enabled,
+    conversation_resolution: .required_conversation_resolution,
     strict: .required_status_checks.strict
   }'
 
