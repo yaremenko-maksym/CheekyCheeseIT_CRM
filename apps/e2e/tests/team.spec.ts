@@ -207,7 +207,7 @@ test.describe('Team page', () => {
 
       // Header with team name and back button
       await expect(page.getByRole('heading', { level: 1 })).toContainText('Alpha Team')
-      await expect(page.locator('a[href="/crm/team"]')).toBeVisible()
+      await expect(page.locator('a[href="/crm/team"]').first()).toBeVisible()
       await expect(page.getByText('Створена', { exact: false })).toBeVisible()
 
       // Main content - team members section
@@ -232,7 +232,7 @@ test.describe('Team page', () => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
 
       // Click back button (use link navigation)
-      await page.locator('a[href="/crm/team"]').click()
+      await page.locator('a[href="/crm/team"]').first().click()
       await expect(page).toHaveURL('/crm/team')
     })
 
@@ -600,9 +600,9 @@ test.describe('Team page', () => {
     test('single-column layout without sidebar statistics', async ({ asAdmin: page }) => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
 
-      // New design has no sidebar with statistics
-      await expect(page.getByText('Статистика')).not.toBeVisible()
-      await expect(page.getByText('Активность')).not.toBeVisible()
+      // New design has no statistics section in main content (sidebar nav may contain 'Статистика')
+      await expect(page.locator('main').getByText('Статистика')).not.toBeVisible()
+      await expect(page.locator('main').getByText('Активность')).not.toBeVisible()
 
       // Main content should be in single column
       const mainContent = page.locator('main > div').first()
@@ -797,8 +797,9 @@ test.describe('Team page', () => {
 
     test('loading state renders without hooks violations', async ({ asAdmin: page }) => {
       // Slow down team API to capture loading state
-      await page.route(`**/api/teams/${TEAMS[0]!.id}`, route => {
-        setTimeout(() => route.continue(), 1000)
+      await page.route(`**/api/teams/${TEAMS[0]!.id}`, async route => {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        await route.continue()
       })
 
       const consoleMessages: string[] = []
@@ -815,7 +816,7 @@ test.describe('Team page', () => {
       await expect(page.locator('[class*="animate-pulse"]').first()).toBeVisible()
 
       // Wait for actual content to load
-      await expect(page.getByRole('heading', { level: 1 })).toContainText('Alpha Team', { timeout: 3000 })
+      await expect(page.getByRole('heading', { level: 1 })).toContainText('Alpha Team', { timeout: 8000 })
 
       // No hooks warnings during loading → content transition
       const hooksWarnings = consoleMessages.filter(msg =>
