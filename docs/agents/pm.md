@@ -87,7 +87,7 @@ gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
       "started_at": "<ISO timestamp>",
       "expected_duration_min": 15,
       "review_rounds": 0,
-      "max_review_rounds": 3
+      "max_review_rounds": 5
     }
   ],
   "blocked": [],
@@ -99,9 +99,21 @@ gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
 
 ### Шаг 6: ScheduleWakeup
 
+Начальный delay зависит от типа агента самой долгой из запущенных задач:
+
+| Агент | Начальный delay |
+|-------|----------------|
+| `coder` | 360 сек (6 мин) |
+| `autotest` | 300 сек (5 мин) |
+| `devops` | 120 сек (2 мин) |
+
+Если запущены задачи нескольких типов — брать максимальный delay из таблицы.
+
 ```
-ScheduleWakeup(delay = max(expected_duration_min) * 60 + 120 секунды)
+ScheduleWakeup(delay = <из таблицы выше>)
 ```
+
+При пробуждении: если задачи ещё `in_progress` — `ScheduleWakeup(delay=60)` (раз в минуту) до завершения.
 
 ---
 
@@ -195,7 +207,7 @@ gh run view <e2e_run_id> \
 
 ### Шаг 5: Решение
 
-- Есть незавершённые задачи → `ScheduleWakeup(delay=900)`
+- Есть незавершённые задачи → `ScheduleWakeup(delay=60)` (проверять раз в минуту)
 - Все `merged` → финальный отчёт пользователю → архивировать pm-state.json
 
 ---
@@ -373,7 +385,7 @@ gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
   --workflow=e2e.yml --limit=1 --json databaseId --jq '.[0].databaseId'
 ```
 
-Записать `e2e_run_id` в pm-state.json → статус `e2e_running` → `ScheduleWakeup(delay=900)`
+Записать `e2e_run_id` в pm-state.json → статус `e2e_running` → `ScheduleWakeup(delay=60)`
 
 **Пользователь сказал "всё" (есть накопленные правки):** → **Режим 4.A**
 
@@ -433,7 +445,7 @@ gh workflow run autotest.yml \
   -f target_branch="<pr_branch>"
 ```
 
-Очистить `pending_fixes` в pm-state.json → обновить статусы задач → `ScheduleWakeup(delay=900)`
+Очистить `pending_fixes` в pm-state.json → обновить статусы задач → `ScheduleWakeup(delay=<из таблицы по типу агента>)`
 
 #### Шаг 4: После завершения агентов — запустить ai-review
 

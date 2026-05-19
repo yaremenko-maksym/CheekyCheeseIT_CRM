@@ -14,14 +14,16 @@ Main branch: `main`
 
 ## Типичные длительности (expected_duration_min)
 
-| Тип задачи | Мин |
-|-----------|-----|
-| Coder: 1-2 файла | 8-12 |
-| Coder: модуль (3-6 файлов) | 15-25 |
-| Coder: большой модуль (7+) | 25-40 |
-| AutoTest: обновление тестов | 8-15 |
-| DevOps: workflow изменения | 5-10 |
-| E2E workflow (e2e.yml) | 10-20 |
+| Тип задачи | Мин | Начальный ScheduleWakeup |
+|-----------|-----|--------------------------|
+| Coder: 1-2 файла | 8-12 | 360 сек (6 мин) |
+| Coder: модуль (3-6 файлов) | 15-25 | 360 сек (6 мин) |
+| Coder: большой модуль (7+) | 25-40 | 360 сек (6 мин) |
+| AutoTest: обновление тестов | 8-15 | 300 сек (5 мин) |
+| DevOps: workflow изменения | 5-10 | 120 сек (2 мин) |
+| E2E workflow (e2e.yml) | 10-20 | 60 сек (polling раз в мин) |
+
+После первого пробуждения: если задача ещё `in_progress` → `ScheduleWakeup(delay=60)` до завершения.
 
 ## Именование веток
 
@@ -115,7 +117,7 @@ docs/specs/tasks/
       "started_at": "2026-05-18T10:00:00Z",
       "expected_duration_min": 20,
       "review_rounds": 0,
-      "max_review_rounds": 3
+      "max_review_rounds": 5
     }
   ],
   "blocked": [],
