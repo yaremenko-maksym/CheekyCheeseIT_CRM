@@ -1,16 +1,73 @@
 {
-  "feature": "GHA Pipeline Refactor + Branch Protection",
-  "started_at": "2026-05-19T09:20:00Z",
-  "tasks": [],
+  "feature": "E2E Fix + E2E Watchdog + Teams UI Polish",
+  "started_at": "2026-05-19T11:30:00Z",
+  "tasks": [
+    {
+      "id": "task-fix-e2e-team-selectors",
+      "file": "docs/specs/tasks/task-fix-e2e-team-selectors.md",
+      "agent": "autotest",
+      "workflow": "autotest.yml",
+      "run_id": "26106147950",
+      "branch": "fix/e2e-team-selectors",
+      "pr_number": null,
+      "status": "running",
+      "started_at": "2026-05-19T11:30:00Z",
+      "expected_duration_min": 12,
+      "review_rounds": 0,
+      "max_review_rounds": 5
+    },
+    {
+      "id": "task-infra-e2e-watchdog",
+      "file": "docs/specs/tasks/task-infra-e2e-watchdog.md",
+      "agent": "devops",
+      "workflow": "devops.yml",
+      "run_id": "26106150778",
+      "branch": "infra/e2e-watchdog",
+      "pr_number": null,
+      "status": "running",
+      "started_at": "2026-05-19T11:30:00Z",
+      "expected_duration_min": 8,
+      "review_rounds": 0,
+      "max_review_rounds": 5
+    },
+    {
+      "id": "task-fix-teams-ui-polish",
+      "file": "docs/specs/tasks/task-fix-teams-ui-polish.md",
+      "agent": "coder",
+      "workflow": "coder.yml",
+      "run_id": null,
+      "branch": "fix/teams-ui-polish",
+      "pr_number": null,
+      "status": "deferred",
+      "note": "Запустить ПОСЛЕ того как E2E снова зелёные на main (task-fix-e2e-team-selectors merged)",
+      "started_at": null,
+      "expected_duration_min": 10,
+      "review_rounds": 0,
+      "max_review_rounds": 5
+    }
+  ],
   "blocked": [],
   "merged": [
     {
       "id": "task-infra-branch-protection",
-      "file": "docs/specs/tasks/task-infra-branch-protection.md",
+      "file": "docs/specs/tasks/archive/2026-05-19-task-infra-branch-protection.md",
       "pr_number": 16,
       "merged_at": "2026-05-19T08:51:13Z"
+    },
+    {
+      "id": "task-teams-ui-improvements",
+      "file": "docs/specs/tasks/archive/2026-05-19-task-teams-ui-improvements.md",
+      "pr_number": 18,
+      "merged_at": "2026-05-19T11:12:06Z"
     }
   ],
-  "phase": "done",
-  "pending_fixes": []
+  "phase": "development",
+  "pending_fixes": [],
+  "blocking_issue": {
+    "number": 19,
+    "title": "🚨 E2E тесты упали на main — команда на паузе",
+    "label": "e2e-broken",
+    "opened_at": "2026-05-19T11:19:37Z",
+    "url": "https://github.com/yaremenko-maksym/CheekyCheeseIT_CRM/issues/19"
+  }
 }

@@ -1,55 +1,82 @@
-# Task: Fix E2E selector mismatches in team.spec.ts
+# task-fix-e2e-team-selectors
+
+## Агент: autotest
+## Приоритет: CRITICAL (E2E broken on main — issue #19 open)
+## Ветка: fix/e2e-team-selectors (создать новую от main)
 
 ## Контекст
-E2E run 26055265819 на ветке `fix/team-detail-hooks` — 36 тестов из `apps/e2e/tests/team.spec.ts` упали с ошибками вида:
+
+E2E тесты `apps/e2e/tests/team.spec.ts` упали на main после слияния PR #18
+(feat(teams): UI improvements — flat list, contacts, Telegram links, Russian).
+
+Причины:
+1. Все текстовые якоря переведены с украинского на русский
+2. Ролевая группировка убрана → плоский список участников
+3. Контакты (email, telegram, phone) теперь видны в карточках участников
+4. Новая структура карточки команды в списке
+
+**Задача — исправить tests/team.spec.ts так чтобы все тесты проходили.**
+
+## Реальные ошибки из CI run 26093479206
 
 ```
-Error: expect(locator).toBeVisible() failed
-Locator: getByTitle('Переименовать')
-Error: element(s) not found
+strict mode violation: locator('text=Участники команды').locator('..').locator('..').getByText('Бухгалтер', { exact: true }) resolved to 2 elements
+TimeoutError: locator.click: Timeout 10000ms exceeded
+Error: expect(locator).toBeVisible() failed — element(s) not found
+Error: expect(locator).not.toBeVisible() failed
 ```
 
-```
-TimeoutError: page.waitForRequest: Timeout 10000ms exceeded
-```
+## Маппинг изменённых селекторов
 
-Тесты написаны с расчётом на `title="Переименовать"`, `title="Добавить участника"` и т.д., но новый Teams UI (PR #13 Teams Redesign) может использовать другие атрибуты на кнопках.
+| Старый (украинский) | Новый (русский) |
+|---|---|
+| `getByTitle('Перейменувати')` | `getByTitle('Переименовать')` |
+| `getByText('Учасники команди')` | `getByText('Участники команды')` |
+| `getByRole('heading', { name: /Активні проекти/i })` | `/Активные проекты/i` |
+| `getByRole('button', { name: 'Додати' })` | `'Добавить'` |
+| `getByRole('button', { name: 'Редагувати' })` | `'Редактировать'` |
+| `getByTitle('Виключити')` | `getByTitle('Исключить')` |
+| `getByRole('button', { name: 'Скасувати' })` | `'Отмена'` |
+| `getByRole('button', { name: 'Відміна' })` | `'Отмена'` |
+| `getByRole('button', { name: 'Зберегти' })` | `'Сохранить'` |
+| `getByPlaceholder('Пошук за назвою…')` | `'Поиск по названию…'` |
+| `getByText('Нічого не знайдено')` | `'Ничего не найдено'` |
+| `getByText('Створена')` | `'Создана'` |
+| `getByText('Додати учасника')` | `'Добавить участника'` |
+| `getByPlaceholder('Назва команди')` | `'Название команды'` |
+| `getByText('Посилання на Telegram-чат команди')` | `'Ссылка на Telegram-чат команды'` |
+| `getByRole('button', { name: /Зберегти/ })` | `/Сохранить/` |
 
-## Провалившиеся тесты (все в team.spec.ts)
+## Структурные изменения
 
-1. Read-only view (line 30, 45)
-2. Rename team (lines 58, 65, 82, 91)
-3. Delete team (lines 105, 112, 124)
-4. Add member (lines 143, 150, 164)
-5. Remove member (line 183)
-6. Team detail page (lines 201, 237)
-7. JUNIOR RBAC (lines 344, 350)
-8. Clickable team cards (lines 381, 397)
-9. Edge cases (line 420)
-10. API — Telegram and Notes fields (line 444)
-11. Teams List — Toolbar and Row Layout (lines 517, 529, 538, 556)
-12. Team Detail — Edit Dialog and Active Projects (lines 569, 598, 610)
-13. Add Member — Enhanced Validation (lines 630, 655, 680)
-14. React Hooks Compliance (lines 726, 746, 761, 793, 824)
+### Плоский список участников
+- Удалить/переписать тест `'shows members grouped by role'` — группировки больше нет
+- Вместо `getByText('Синьор').first()` / `getByText('Бухгалтер').first()` проверять по именам участников
+- **ОШИБКА в CI:** `locator('text=Участники команды').locator('..').locator('..').getByText('Бухгалтер', { exact: true }) resolved to 2 elements` — этот паттерн поиска сломан. Заменить на прямой поиск по имени пользователя или `data-testid`
 
-## Задача
+### Убран фильтр по ролям
+- Удалить/пропустить тест `getByRole('combobox').filter({ hasText: 'Всі ролі' })` — фильтра больше нет
 
-1. **Прочитай** `apps/e2e/tests/team.spec.ts` — посмотри какие селекторы используются
-2. **Прочитай** реальные компоненты Teams UI:
-   - `apps/web/app/routes/crm/team/index.tsx` (или аналог)
-   - `apps/web/app/routes/crm/team/$teamId.tsx` (или аналог)
-   - Компоненты в `apps/web/app/routes/crm/team/`
-3. **Сопоставь** — какие `title`, `aria-label`, `data-testid` или текстовые метки реально есть в UI
-4. **Обнови** `apps/e2e/tests/team.spec.ts` — исправь все несоответствующие селекторы
-5. **Работай на ветке** `fix/team-detail-hooks` (уже существует)
-6. **Закоммить и запушить** изменения на `fix/team-detail-hooks`
+### Telegram ссылка в списке команд
+- Если тест проверяет кнопки в строке команды — адаптировать под новую структуру (ссылка на TG теперь есть)
 
-## НЕ делай
+## Инструкция
 
-- Не меняй саму логику тестов (что они проверяют)
-- Не меняй бизнес-логику компонентов
-- Не добавляй `data-testid` атрибуты в компоненты (если только крайне необходимо — предпочитай существующие `title`, `aria-label`, текст)
+1. Прочитай `apps/e2e/tests/team.spec.ts` целиком
+2. Прочитай реальные компоненты:
+   - `apps/web/app/routes/crm/team/index.tsx`
+   - `apps/web/app/routes/crm/team/$teamId.tsx`
+3. Применяй маппинг выше + проверяй каждый локатор по DOM
+4. Для `strict mode violation` (2 элемента) — использовать `.first()` или более специфичный локатор
+5. Создай ветку `fix/e2e-team-selectors` от main, закоммить изменения, запуши
 
-## Ожидаемый результат
+## Acceptance criteria
+- [ ] Все тесты в `apps/e2e/tests/team.spec.ts` проходят локально
+- [ ] Нет ни одного украинского текста в локаторах
+- [ ] Нет тестов на ролевые заголовки (они удалены из UI)
+- [ ] Ветка запушена → PM перезапустит E2E
 
-Все 36 упавших тестов должны проходить при локальном запуске. После пуша — PM перезапустит e2e.
+## Запрещено трогать
+- `apps/web/**` — только тесты
+- `apps/api/**`
+- `packages/shared/**`
