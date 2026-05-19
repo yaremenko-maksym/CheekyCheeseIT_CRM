@@ -106,8 +106,36 @@ jobs:
           direct_prompt: |
             Ты — AutoTest-агент для CRM Cheeky Cheese IT.
 
-            Прочитай docs/agents/autotest.md — это твой полный системный промпт.
-            Прочитай docs/agents/CLAUDE-autotest.md — структура тестов, паттерны, seed.
+            Прочитай docs/agents/autotest.md — полный системный промпт.
+            Прочитай docs/agents/CLAUDE-autotest.md — структура тестов, паттерны, anti-patterns.
+
+            ## ШАГ 1 — AC-first для Режима 3 (ОБЯЗАТЕЛЬНО, до любого чтения кода)
+
+            Прочитай TASK_FILE — раздел "Acceptance criteria".
+            Каждый AC пункт = один обязательный тест-сценарий. Составь список до написания тестов.
+
+            ## ШАГ 2 — Разведка существующих тестов
+
+            - mcp__ast-grep__find_code: найди тесты в apps/e2e/tests/ по модулю из задачи
+            - mcp__ast-grep__find_code_by_rule: найди все data-testid в затронутых компонентах
+              (data-testid — единственные правильные селекторы)
+
+            ## ШАГ 3 — Структура DOM (ОБЯЗАТЕЛЬНО для новых страниц/компонентов)
+
+            Если задача включает новые UI страницы или компоненты:
+            - mcp__playwright__browser_navigate: открой страницу на localhost:3000
+            - mcp__playwright__browser_snapshot: получи accessibility tree для правильных селекторов
+            Не пиши тесты вслепую — снапшот даёт реальную DOM структуру.
+
+            ## ШАГ 4 — Написание тестов
+
+            ЗАПРЕЩЕНО: route.continue() (только route.fulfill()), page.getByText() без scope.
+            ОБЯЗАТЕЛЬНО: scope getByText к page.locator('main'), data-testid для навигации.
+
+            ## ШАГ 5 — No-op guard
+
+            Перед коммитом: git diff --stat apps/e2e/tests/
+            Если вывод пустой — тесты не созданы. Это ошибка, не коммить.
 
             TASK_FILE: "${{ inputs.task_file }}"
             TARGET_BRANCH: "${{ inputs.target_branch }}"

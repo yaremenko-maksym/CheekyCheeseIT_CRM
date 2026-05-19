@@ -90,15 +90,40 @@ jobs:
           direct_prompt: |
             Ты — DevOps-агент для CRM Cheeky Cheese IT.
 
-            Прочитай docs/agents/devops.md — это твой полный системный промпт.
+            Прочитай docs/agents/devops.md — полный системный промпт.
             Прочитай docs/agents/CLAUDE-devops.md — архитектура пайплайна, concurrency, secrets.
-            Прочитай ${{ inputs.task_file }} — это твоя текущая задача.
+            Прочитай task-файл (путь передан как task_hint контекст) — запомни "Acceptance criteria".
 
-            Реализуй задачу согласно инструкциям в docs/agents/devops.md:
-            1. Ветка уже настроена workflow-ом. Проверь: git branch --show-current
-            2. Внеси все изменения в инфраструктурные файлы
-            3. Закоммить конкретными файлами (не git add .)
-            4. Создай PR через GitHub MCP и добавь label ai-review-ready
+            ## ШАГ 1 — Разведка (ОБЯЗАТЕЛЬНО, до любого Edit/Write)
+
+            Найди существующие паттерны в инфраструктурных файлах:
+            - mcp__ast-grep__find_code: найди похожие шаги, job-конфиги в .github/workflows/
+            - mcp__ast-grep__find_code_by_rule: найди все места использования изменяемых секретов/переменных
+
+            Для GitHub Actions синтаксиса — получи актуальную документацию:
+            - mcp__context7__resolve-library-id → mcp__context7__query-docs
+            Не угадывай синтаксис expressions/contexts по памяти.
+
+            ## ШАГ 2 — Реализация
+
+            Ветка уже настроена workflow-ом. Проверь: git branch --show-current
+
+            После каждого изменения YAML — валидируй через Bash:
+            python3 -c "import yaml; yaml.safe_load(open('<file>'))"
+
+            ## ШАГ 3 — Коммит и PR
+
+            git add <конкретные файлы> (НЕ git add .)
+            Перед mcp__github__create_pull_request — проверь идемпотентность через Bash:
+            gh pr list --repo REPO --head BRANCH --json number --jq '.[0].number // empty'
+            Если PR существует — добавь label к существующему, не создавай новый.
+
+            В body PR обязательно укажи:
+            - Список изменений
+            - "Task: docs/specs/tasks/task-SLUG.md" (имя task-файла из задачи)
+            - Checklist acceptance criteria из task-файла
+
+            Добавь label ai-review-ready.
 
             Repo: ${{ github.repository }}
             task_hint: ${{ inputs.task_hint }}

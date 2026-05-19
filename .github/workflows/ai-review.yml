@@ -133,11 +133,41 @@ jobs:
           direct_prompt: |
             Ты — AutoTest-агент для CRM Cheeky Cheese IT.
 
-            Прочитай docs/agents/autotest.md — это твой полный системный промпт.
-            Прочитай docs/agents/CLAUDE-autotest.md — структура тестов, паттерны.
+            Прочитай docs/agents/autotest.md — полный системный промпт.
+            Прочитай docs/agents/CLAUDE-autotest.md — структура тестов, паттерны, anti-patterns.
             Работай в РЕЖИМЕ 1: PR Post-Approval.
 
             Ты запускаешься ДО Code Review. Reviewer проверит и твои тесты тоже.
+
+            ## ШАГ 1 — AC-first (ОБЯЗАТЕЛЬНО, до любого чтения кода)
+
+            Получи список файлов PR: mcp__github__get_pull_request_files.
+            Найди в теле PR ссылку на task-файл (формат: docs/specs/tasks/task-*.md).
+            Если найден — прочитай раздел "Acceptance criteria".
+            Каждый AC пункт = один обязательный тест-сценарий.
+
+            ## ШАГ 2 — Разведка существующих тестов
+
+            - mcp__ast-grep__find_code: найди тесты в apps/e2e/tests/ по модулю из PR
+            - mcp__ast-grep__find_code_by_rule: найди все data-testid в изменённых компонентах
+              (data-testid — единственные правильные селекторы)
+
+            ## ШАГ 3 — Структура DOM (ОБЯЗАТЕЛЬНО для новых страниц/компонентов)
+
+            Если PR содержит новые UI страницы или компоненты:
+            - mcp__playwright__browser_navigate: открой страницу на localhost:3000
+            - mcp__playwright__browser_snapshot: получи accessibility tree для правильных селекторов
+            Не пиши тесты вслепую — снапшот даёт реальную DOM структуру.
+
+            ## ШАГ 4 — Написание тестов
+
+            ЗАПРЕЩЕНО: route.continue() (только route.fulfill()), page.getByText() без scope.
+            ОБЯЗАТЕЛЬНО: scope getByText к page.locator('main'), data-testid для навигации.
+
+            ## ШАГ 5 — No-op guard
+
+            Перед коммитом: git diff --stat apps/e2e/tests/
+            Если вывод пустой — тесты не созданы. Это ошибка, не коммить.
 
             ЕСЛИ тесты написаны успешно: закоммить и запушь их в ветку PR.
 
@@ -298,17 +328,37 @@ jobs:
             Прочитай docs/agents/reviewer.md — полный системный промпт и чек-лист.
             Прочитай docs/agents/CLAUDE-reviewer.md — архитектурные решения и ограничения.
 
-            Проверь изменения этого PR по чек-листу из docs/agents/reviewer.md.
-            ВАЖНО: AutoTest уже написал E2E тесты — проверь также apps/e2e/tests/.
-            Если тесты некорректны или не покрывают нужный функционал — укажи это в review.
+            ## ШАГ 1 — Контекст PR (ОБЯЗАТЕЛЬНО)
 
-            Прочитай описание PR через mcp__github__get_pull_request.
-            Найди в поле body ссылку на task-файл (формат: docs/specs/tasks/task-*.md).
+            Прочитай PR через mcp__github__get_pull_request.
+            Получи список файлов: mcp__github__get_pull_request_files.
+            Найди в body ссылку на task-файл (формат: docs/specs/tasks/task-*.md).
             Прочитай task-файл — раздел "Acceptance criteria".
-            Для каждого AC пункта явно укажи в review: ✅ реализован / ❌ не реализован.
-            AC которые отсутствуют в коде → обязательно REQUEST_CHANGES.
+            Каждый AC пункт = обязательная проверка.
 
-            ОБЯЗАТЕЛЬНЫЙ шаг — вызови mcp__github__create_pull_request_review:
+            ## ШАГ 2 — Структурный анализ (ast-grep)
+
+            - mcp__ast-grep__find_code: проверь что новые компоненты/сервисы следуют паттернам проекта
+            - mcp__ast-grep__find_code_by_rule: найди все вхождения изменённых типов/функций (нет ли регрессий)
+
+            ## ШАГ 3 — Линтинг (ОБЯЗАТЕЛЬНО через MCP)
+
+            Запусти eslint MCP на все изменённые файлы:
+            mcp__eslint__lint-files: { "filePaths": ["apps/api/src/...", "apps/web/app/..."] }
+            Severity error = критичное нарушение → обязательный REQUEST_CHANGES.
+
+            ## ШАГ 4 — Review
+
+            ВАЖНО: AutoTest уже написал E2E тесты — проверь apps/e2e/tests/.
+            Если тесты некорректны или не покрывают AC — укажи в review.
+
+            Для каждого AC пункта явно укажи: ✅ реализован / ❌ не реализован.
+            AC отсутствующие в коде → обязательно REQUEST_CHANGES.
+
+            Inline комментарии ОБЯЗАТЕЛЬНЫ: для каждой проблемы передай path + position в
+            mcp__github__create_pull_request_review — не только summary body.
+
+            ОБЯЗАТЕЛЬНЫЙ финальный шаг — вызови mcp__github__create_pull_request_review:
             - event: "APPROVE" если нет критичных нарушений (включая тесты)
             - event: "REQUEST_CHANGES" если есть хотя бы одно критичное нарушение
             - body: полный текст review со всеми найденными проблемами

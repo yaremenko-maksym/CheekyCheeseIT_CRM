@@ -106,16 +106,55 @@ jobs:
           direct_prompt: |
             Ты — Coder-агент для CRM Cheeky Cheese IT.
 
-            Прочитай docs/agents/coder.md — это твой полный системный промпт.
-            Прочитай docs/agents/CLAUDE-coder.md — команды, структура, статус, gotchas.
-            Прочитай ${{ inputs.task_file }} — это твоя текущая задача.
+            Прочитай docs/agents/coder.md — полный системный промпт.
+            Прочитай docs/agents/CLAUDE-coder.md — структура монорепо, статус фаз, gotchas.
+            Прочитай task-файл (путь передан как task_hint или target_branch контекст) — запомни "Acceptance criteria".
 
-            Реализуй задачу согласно инструкциям в docs/agents/coder.md:
-            1. Ветка уже настроена workflow-ом. Проверь: git branch --show-current
-            2. Реализуй все изменения в правильном порядке (shared → api → web → tests)
-            3. Запусти pnpm typecheck и pnpm lint — исправь все ошибки
-            4. Закоммить изменения конкретными файлами (не git add .)
-            5. Создай PR через GitHub MCP и добавь label ai-review-ready
+            ## ШАГ 1 — Разведка перед кодом (ОБЯЗАТЕЛЬНО, до любого Edit/Write)
+
+            Найди существующие паттерны — НЕ через grep, только через ast-grep:
+            - mcp__ast-grep__find_code: найди похожие компоненты, сервисы, схемы в проекте
+            - mcp__ast-grep__find_code_by_rule: найди все использования затронутых типов/функций
+
+            Для любого NestJS / TanStack Router / Zod / Drizzle кода — получи актуальную документацию:
+            - mcp__context7__resolve-library-id → mcp__context7__query-docs
+            Не угадывай API по памяти — версии отличаются от обучающих данных.
+
+            ## ШАГ 2 — Реализация
+
+            Порядок строго: packages/shared → apps/api (schema → migration → service → controller) → apps/web
+
+            ЕСЛИ задача включает новые страницы или сложные UI компоненты (диалоги, карточки, таблицы,
+            формы) — ОБЯЗАТЕЛЬНО вызови Skill "frontend-design" перед написанием JSX.
+            Это не опционально. Skill даёт production-grade дизайн вместо дефолтного.
+
+            После написания каждого нового файла — проверяй типы: pnpm typecheck
+
+            ## ШАГ 3 — Линтинг (ОБЯЗАТЕЛЬНО через MCP, не через pnpm lint)
+
+            Запусти eslint MCP на все изменённые файлы:
+            mcp__eslint__lint-files: { "filePaths": ["apps/api/src/...", "apps/web/app/..."] }
+            Исправь все ошибки (severity: error) до коммита.
+
+            ## ШАГ 4 — E2E атомарность (ОБЯЗАТЕЛЬНО при изменении UI-текстов или DOM)
+
+            Если менялись тексты кнопок/заголовков, aria-label, data-testid, URL роутов, структура DOM:
+            - mcp__ast-grep__find_code: найди затронутые тесты в apps/e2e/ по изменённому тексту
+            - Обнови селекторы в том же коммите — PR с расхождением кода и тестов не принимается
+
+            ## ШАГ 5 — Коммит и PR
+
+            git add <конкретные файлы> (НЕ git add .)
+            Перед mcp__github__create_pull_request — проверь идемпотентность через Bash:
+            gh pr list --repo REPO --head BRANCH --json number --jq '.[0].number // empty'
+            Если PR существует — добавь label к существующему, не создавай новый.
+
+            В body PR обязательно укажи:
+            - Список изменений
+            - "Task: docs/specs/tasks/task-SLUG.md" (имя task-файла из задачи)
+            - Checklist acceptance criteria из task-файла
+
+            Добавь label ai-review-ready.
 
             Repo: ${{ github.repository }}
             task_hint: ${{ inputs.task_hint }}
