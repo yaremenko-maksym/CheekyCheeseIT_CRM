@@ -761,7 +761,7 @@ function TeamPage() {
                   )}
                 </div>
 
-                {/* Name + HRs */}
+                {/* Name + HRs + Telegram */}
                 <div className="relative z-20 min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold group-hover:text-primary transition-colors">
                     {team.name}
@@ -776,10 +776,9 @@ function TeamPage() {
                       rel="noopener noreferrer"
                       onClick={e => e.stopPropagation()}
                       className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-500 hover:text-blue-400 transition-colors"
-                      title="Telegram-канал команды"
                     >
                       <Send className="h-3 w-3" />
-                      TG
+                      Telegram-канал
                     </a>
                   )}
                 </div>
