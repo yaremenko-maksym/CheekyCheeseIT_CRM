@@ -2,7 +2,7 @@
 
 ## Агент: autotest
 ## Приоритет: CRITICAL (E2E broken on main — issue #19 open)
-## Ветка: fix/e2e-team-selectors (создать новую от main)
+## Ветка: fix/e2e-team-selectors
 
 ## Контекст
 
