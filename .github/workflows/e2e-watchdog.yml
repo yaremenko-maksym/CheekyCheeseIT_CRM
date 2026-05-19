@@ -1,0 +1,68 @@
+name: E2E Watchdog
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: e2e-watchdog
+  cancel-in-progress: true
+
+jobs:
+  dispatch-autotest:
+    name: Dispatch AutoTest to fix E2E
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'failure'
+    permissions:
+      actions: write
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.ADMIN_PAT }}
+
+      - name: Check if E2E job failed
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPO: ${{ github.repository }}
+        run: |
+          E2E_CONCLUSION=$(gh run view "$RUN_ID" \
+            --repo "$REPO" \
+            --json jobs \
+            --jq '.jobs[] | select(.name == "E2E Tests") | .conclusion')
+          echo "e2e_conclusion=$E2E_CONCLUSION" >> $GITHUB_OUTPUT
+
+      - name: Dispatch AutoTest if E2E failed
+        if: steps.check.outputs.e2e_conclusion == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.ADMIN_PAT }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SERVER_URL: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          RUN_URL="${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}"
+
+          TASK_FILE="docs/specs/tasks/task-fix-e2e-auto-${TIMESTAMP}.md"
+          sed \
+            -e "s|{{timestamp}}|$TIMESTAMP|g" \
+            -e "s|{{sha}}|$HEAD_SHA|g" \
+            -e "s|{{run_url}}|$RUN_URL|g" \
+            docs/specs/tasks/templates/task-fix-e2e-broken.md > /tmp/task-content.md
+
+          cp /tmp/task-content.md "$TASK_FILE"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$TASK_FILE"
+          git commit -m "chore(watchdog): auto-create E2E fix task for ${HEAD_SHA}"
+          git push
+
+          gh workflow run autotest.yml \
+            --repo "$REPO" \
+            -f task_file="$TASK_FILE"
