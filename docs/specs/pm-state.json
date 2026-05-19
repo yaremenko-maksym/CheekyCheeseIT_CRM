@@ -7,7 +7,7 @@
       "file": "docs/specs/tasks/task-infra-branch-protection.md",
       "agent": "devops",
       "workflow": "devops.yml",
-      "run_id": "26080035994",
+      "run_id": "26080682385",
       "branch": "infra/branch-protection",
       "pr_number": 16,
       "status": "pr_open",
