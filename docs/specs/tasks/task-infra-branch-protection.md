@@ -6,6 +6,17 @@
 ## НЕ создавать новую ветку — продолжать работу в существующей: `infra/branch-protection`
 ## PR: #16 (уже открыт, добавить изменения в него)
 
+## ⚠️ КРИТИЧНО — ЧТО НЕ СДЕЛАНО
+
+**Branch protection НЕ применён.** Текущее состояние `main`:
+- нет `required_status_checks`
+- нет `required_pull_request_reviews`
+- `required_conversation_resolution: false`
+
+Merge Box в GitHub показывает зелёную кнопку без каких-либо проверок — это неприемлемо.
+
+**ПЕРВОЕ ДЕЙСТВИЕ** — выполнить `gh api PUT` из пункта 1 ниже. Всё остальное вторично.
+
 ## Контекст
 
 DevOps-агент уже создал scripts/*.sh для branch protection в PR #16.
