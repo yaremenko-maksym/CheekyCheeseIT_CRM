@@ -7,10 +7,10 @@
       "file": "docs/specs/tasks/task-fix-e2e-team-selectors.md",
       "agent": "autotest",
       "workflow": "autotest.yml",
-      "run_id": "26106147950",
+      "run_id": "26106512337",
       "branch": "fix/e2e-team-selectors",
-      "pr_number": null,
-      "status": "running",
+      "pr_number": 21,
+      "status": "pr_open",
       "started_at": "2026-05-19T11:30:00Z",
       "expected_duration_min": 12,
       "review_rounds": 0,
@@ -21,10 +21,10 @@
       "file": "docs/specs/tasks/task-infra-e2e-watchdog.md",
       "agent": "devops",
       "workflow": "devops.yml",
-      "run_id": "26106150778",
+      "run_id": "26106514682",
       "branch": "infra/e2e-watchdog",
-      "pr_number": null,
-      "status": "running",
+      "pr_number": 20,
+      "status": "pr_open",
       "started_at": "2026-05-19T11:30:00Z",
       "expected_duration_min": 8,
       "review_rounds": 0,
@@ -39,7 +39,7 @@
       "branch": "fix/teams-ui-polish",
       "pr_number": null,
       "status": "deferred",
-      "note": "Запустить ПОСЛЕ того как E2E снова зелёные на main (task-fix-e2e-team-selectors merged)",
+      "note": "Запустить ПОСЛЕ мерджа PR #21 (E2E fix) и закрытия issue #19",
       "started_at": null,
       "expected_duration_min": 10,
       "review_rounds": 0,
@@ -50,24 +50,21 @@
   "merged": [
     {
       "id": "task-infra-branch-protection",
-      "file": "docs/specs/tasks/archive/2026-05-19-task-infra-branch-protection.md",
       "pr_number": 16,
       "merged_at": "2026-05-19T08:51:13Z"
     },
     {
       "id": "task-teams-ui-improvements",
-      "file": "docs/specs/tasks/archive/2026-05-19-task-teams-ui-improvements.md",
       "pr_number": 18,
       "merged_at": "2026-05-19T11:12:06Z"
     }
   ],
-  "phase": "development",
+  "phase": "review",
   "pending_fixes": [],
   "blocking_issue": {
     "number": 19,
     "title": "🚨 E2E тесты упали на main — команда на паузе",
     "label": "e2e-broken",
-    "opened_at": "2026-05-19T11:19:37Z",
     "url": "https://github.com/yaremenko-maksym/CheekyCheeseIT_CRM/issues/19"
   }
 }
