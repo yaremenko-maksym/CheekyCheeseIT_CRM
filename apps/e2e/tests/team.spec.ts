@@ -827,6 +827,198 @@ test.describe('Team page', () => {
   })
 
   // ---------------------------------------------------------------------------
+  // Teams UI Polish - PR #22 (fix/teams-ui-polish)
+  // ---------------------------------------------------------------------------
+
+  test.describe('Teams UI Polish — PR #22', () => {
+    test('telegram link in team list appears as separate line with Send icon and blue color', async ({ asAdmin: page }) => {
+      // Mock teams list with telegram field
+      await page.route('**/api/teams', route => {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([{
+            ...TEAMS[0],
+            telegram: 'https://t.me/alpha_team_polish'
+          }])
+        })
+      })
+
+      await page.goto('/crm/team')
+
+      // Check telegram link is on separate line under team name (not inline with HR)
+      const teamRow = page.locator('main').getByText('Alpha Team').locator('..')
+      const telegramLink = teamRow.locator('a[href="https://t.me/alpha_team_polish"]')
+      
+      await expect(telegramLink).toBeVisible()
+      
+      // Check blue color and Send icon
+      await expect(telegramLink).toHaveClass(/text-blue-500/)
+      const sendIcon = telegramLink.locator('.lucide-send')
+      await expect(sendIcon).toBeVisible()
+      
+      // Check it doesn't trigger team navigation
+      await telegramLink.click()
+      await expect(page).toHaveURL('/crm/team') // Should stay on list page
+    })
+
+    test('member contacts are clickable links with proper protocols', async ({ asAdmin: page }) => {
+      // Mock team with contact information
+      await page.route(`**/api/teams/${TEAMS[0]!.id}`, route => {
+        const teamWithContacts = {
+          ...TEAMS[0],
+          members: TEAMS[0]!.members.map(m => ({
+            ...m,
+            email: `${m.displayName.toLowerCase().replace(' ', '.')}@example.com`,
+            phone: '+380123456789',
+            telegram: 'https://t.me/testuser'
+          }))
+        }
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(teamWithContacts)
+        })
+      })
+
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+
+      const memberCard = page.locator('main').locator('[class*="border border-border/60"]').first()
+      
+      // Check email link with mailto protocol
+      const emailLink = memberCard.locator('a[href^="mailto:"]')
+      await expect(emailLink).toBeVisible()
+      await expect(emailLink).toHaveAttribute('href', /^mailto:/)
+      
+      // Check phone link with tel protocol
+      const phoneLink = memberCard.locator('a[href^="tel:"]')
+      await expect(phoneLink).toBeVisible()
+      await expect(phoneLink).toHaveAttribute('href', 'tel:+380123456789')
+      
+      // Check telegram link with target="_blank"
+      const telegramLink = memberCard.locator('a[href="https://t.me/testuser"]')
+      await expect(telegramLink).toBeVisible()
+      await expect(telegramLink).toHaveAttribute('target', '_blank')
+      await expect(telegramLink).toHaveAttribute('rel', 'noopener noreferrer')
+    })
+
+    test('telegram in member card displays as @username format', async ({ asAdmin: page }) => {
+      // Mock team member with telegram
+      await page.route(`**/api/teams/${TEAMS[0]!.id}`, route => {
+        const teamWithTelegram = {
+          ...TEAMS[0],
+          members: TEAMS[0]!.members.map(m => ({
+            ...m,
+            telegram: 'https://t.me/john_doe'
+          }))
+        }
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(teamWithTelegram)
+        })
+      })
+
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+
+      // Check that telegram displays as @username, not full URL
+      const memberCard = page.locator('main').locator('[class*="border border-border/60"]').first()
+      const telegramLink = memberCard.locator('a[href="https://t.me/john_doe"]')
+      
+      await expect(telegramLink).toBeVisible()
+      await expect(telegramLink).toContainText('@john_doe')
+      await expect(telegramLink).not.toContainText('https://t.me/')
+    })
+
+    test('team telegram channel in header appears as styled blue badge', async ({ asAdmin: page }) => {
+      // Mock team with telegram channel
+      await page.route(`**/api/teams/${TEAMS[0]!.id}`, route => {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ...TEAMS[0],
+            telegram: 'https://t.me/team_channel_polish'
+          })
+        })
+      })
+
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+
+      // Find telegram link in header
+      const headerTelegramLink = page.locator('a[href="https://t.me/team_channel_polish"]')
+      await expect(headerTelegramLink).toBeVisible()
+      
+      // Check styled badge appearance - blue background with border
+      await expect(headerTelegramLink).toHaveClass(/bg-blue-500\/10/)
+      await expect(headerTelegramLink).toHaveClass(/text-blue-500/)
+      await expect(headerTelegramLink).toHaveClass(/rounded-full/)
+      await expect(headerTelegramLink).toHaveClass(/border-blue-500\/20/)
+      
+      // Check Send icon is present
+      const sendIcon = headerTelegramLink.locator('.lucide-send')
+      await expect(sendIcon).toBeVisible()
+      
+      // Check text content
+      await expect(headerTelegramLink).toContainText('Telegram-канал')
+      
+      // Check target and rel attributes
+      await expect(headerTelegramLink).toHaveAttribute('target', '_blank')
+      await expect(headerTelegramLink).toHaveAttribute('rel', 'noopener noreferrer')
+    })
+
+    test('all telegram links use Send icon instead of other message icons', async ({ asAdmin: page }) => {
+      // Mock complete data with telegram links
+      await page.route('**/api/teams', route => {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([{
+            ...TEAMS[0],
+            telegram: 'https://t.me/list_team'
+          }])
+        })
+      })
+      
+      await page.route(`**/api/teams/${TEAMS[0]!.id}`, route => {
+        const teamWithTelegram = {
+          ...TEAMS[0],
+          telegram: 'https://t.me/header_team',
+          members: TEAMS[0]!.members.map(m => ({
+            ...m,
+            telegram: 'https://t.me/member_user'
+          }))
+        }
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(teamWithTelegram)
+        })
+      })
+
+      // Check team list page
+      await page.goto('/crm/team')
+      const listTelegramIcon = page.locator('a[href="https://t.me/list_team"] .lucide-send')
+      await expect(listTelegramIcon).toBeVisible()
+      
+      // Check team detail page
+      await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+      
+      // Header telegram uses Send icon
+      const headerTelegramIcon = page.locator('a[href="https://t.me/header_team"] .lucide-send')
+      await expect(headerTelegramIcon).toBeVisible()
+      
+      // Member telegram uses Send icon  
+      const memberTelegramIcon = page.locator('a[href="https://t.me/member_user"] .lucide-send')
+      await expect(memberTelegramIcon).toBeVisible()
+      
+      // Ensure NO other message-related icons are used (MessageCircle, MessageSquare, etc.)
+      await expect(page.locator('.lucide-message-circle')).not.toBeVisible()
+      await expect(page.locator('.lucide-message-square')).not.toBeVisible()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
   // React Hooks Compliance - PR #15 Fix
   // ---------------------------------------------------------------------------
 
