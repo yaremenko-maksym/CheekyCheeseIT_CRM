@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Check, MessageCircle, Pencil, Plus, Search, UserPlus, Users } from 'lucide-react'
+import { Check, Pencil, Plus, Search, Send, UserPlus, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
 import type { Value as PhoneValue } from 'react-phone-number-input'
@@ -768,16 +768,20 @@ function TeamPage() {
                   </p>
                   <p className="truncate text-xs text-muted-foreground overflow-hidden whitespace-nowrap">
                     HR: {hrMembers.map((m) => m.displayName).join(', ') || 'Без HR'}
-                    {team.telegram && (
-                      <a href={team.telegram} target="_blank" rel="noopener noreferrer"
-                         className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors ml-2"
-                         onClick={e => e.stopPropagation()}
-                         title="Telegram-канал команды">
-                        <MessageCircle className="h-3 w-3" />
-                        TG
-                      </a>
-                    )}
                   </p>
+                  {team.telegram && (
+                    <a
+                      href={team.telegram}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-500 hover:text-blue-400 transition-colors"
+                      title="Telegram-канал команды"
+                    >
+                      <Send className="h-3 w-3" />
+                      TG
+                    </a>
+                  )}
                 </div>
 
                 {/* Pills */}

@@ -2,7 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Briefcase, Calendar, Mail, MessageCircle, Pencil, Phone, UserMinus, UserPlus, Users } from 'lucide-react'
+import { ArrowLeft, Briefcase, Calendar, Mail, Pencil, Phone, Send, UserMinus, UserPlus, Users } from 'lucide-react'
 import { useState } from 'react'
 import type { ProjectDto, TeamDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
@@ -277,9 +277,13 @@ function TeamDetailPage() {
                 })}
               </div>
               {team.telegram && (
-                <a href={team.telegram} target="_blank" rel="noopener noreferrer"
-                   className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors">
-                  <MessageCircle className="h-3.5 w-3.5" />
+                <a
+                  href={team.telegram}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-500 hover:bg-blue-500/20 transition-colors border border-blue-500/20"
+                >
+                  <Send className="h-3 w-3" />
                   Telegram-канал
                 </a>
               )}
@@ -360,21 +364,24 @@ function TeamDetailPage() {
                               </Badge>
                             )}
                             <div className="mt-1 space-y-0.5">
-                              <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                                <Mail className="h-3 w-3" />
+                              <a href={`mailto:${member.email}`}
+                                 className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors truncate">
+                                <Mail className="h-3 w-3 shrink-0" />
                                 {member.email}
-                              </div>
+                              </a>
                               {member.telegram && (
-                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                                  <MessageCircle className="h-3 w-3" />
-                                  {member.telegram}
-                                </div>
+                                <a href={member.telegram} target="_blank" rel="noopener noreferrer"
+                                   className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
+                                  <Send className="h-3 w-3 shrink-0" />
+                                  {member.telegram.replace('https://t.me/', '@')}
+                                </a>
                               )}
                               {member.phone && (
-                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                                  <Phone className="h-3 w-3" />
+                                <a href={`tel:${member.phone}`}
+                                   className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
+                                  <Phone className="h-3 w-3 shrink-0" />
                                   {member.phone}
-                                </div>
+                                </a>
                               )}
                             </div>
                           </div>
