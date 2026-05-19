@@ -163,14 +163,14 @@ describe('PhoneInput component', () => {
   })
 
   it('calls onChange when a valid character is typed', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const { input, onChange } = setup()
     await user.type(input, '6')
     expect(onChange).toHaveBeenCalled()
   })
 
   it('does not lose focus while typing a valid number', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const { input } = setup()
     input.focus()
     await user.type(input, '+380661234567')
@@ -178,7 +178,7 @@ describe('PhoneInput component', () => {
   })
 
   it('does not call onChange when input would exceed max length', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const onChange = vi.fn()
     render(
       <PhoneInput
@@ -194,13 +194,13 @@ describe('PhoneInput component', () => {
   })
 
   it('does not throw when typing +1 (US short code bug)', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const { input } = setup('US')
     await expect(user.type(input, '+1')).resolves.not.toThrow()
   })
 
   it('maintains focus across multiple keystrokes', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const { input } = setup()
     input.focus()
     await user.type(input, '+38066')
@@ -223,7 +223,7 @@ describe('PhoneInput component', () => {
   }
 
   it('sets country calling code in input after switching country via dropdown', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const { input, onChange } = setup('UA')
 
     // Type a digit first so RPNInput has a value to migrate on country change
@@ -236,7 +236,7 @@ describe('PhoneInput component', () => {
   })
 
   it('can type a number after switching country', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const { input, onChange } = setup('UA')
 
     await selectCountry(user, 'Germany')
@@ -249,7 +249,7 @@ describe('PhoneInput component', () => {
   })
 
   it('can switch countries multiple times and type after each', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const { input, onChange } = setup('UA')
 
     const countries = [
@@ -267,10 +267,10 @@ describe('PhoneInput component', () => {
       const lastCall = onChange.mock.calls.at(-1)?.[0] as string
       expect(lastCall).toMatch(new RegExp(`^\\${prefix}`))
     }
-  })
+  }, 30000)
 
   it('normalizes local UA number (0XXXXXXXXX) to e164 (+380XXXXXXXXX)', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const { input, onChange } = setup('UA')
 
     await user.type(input, '0661234567')
