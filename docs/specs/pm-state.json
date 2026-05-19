@@ -3,25 +3,11 @@
   "started_at": "2026-05-19T11:30:00Z",
   "tasks": [
     {
-      "id": "task-infra-e2e-watchdog",
-      "file": "docs/specs/tasks/task-infra-e2e-watchdog.md",
-      "agent": "devops",
-      "workflow": "devops.yml",
-      "run_id": "26106514682",
-      "branch": "infra/e2e-watchdog",
-      "pr_number": 20,
-      "status": "awaiting_pm_review",
-      "started_at": "2026-05-19T11:30:00Z",
-      "expected_duration_min": 8,
-      "review_rounds": 1,
-      "max_review_rounds": 5
-    },
-    {
       "id": "task-fix-teams-ui-polish",
       "file": "docs/specs/tasks/task-fix-teams-ui-polish.md",
       "agent": "coder",
       "workflow": "coder.yml",
-      "run_id": null,
+      "run_id": "26112718771",
       "branch": "fix/teams-ui-polish",
       "pr_number": null,
       "status": "running",
@@ -47,6 +33,11 @@
       "id": "task-fix-e2e-team-selectors",
       "pr_number": 21,
       "merged_at": "2026-05-19T16:59:22Z"
+    },
+    {
+      "id": "task-infra-e2e-watchdog",
+      "pr_number": 20,
+      "merged_at": "2026-05-19T17:08:36Z"
     }
   ],
   "phase": "development",
