@@ -281,7 +281,7 @@ function TeamDetailPage() {
                   href={team.telegram}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-500 hover:bg-blue-500/20 transition-colors border border-blue-500/20"
+                  className="inline-flex items-center gap-2 rounded-lg border border-blue-500/50 px-4 py-2 text-sm font-medium text-blue-400 hover:bg-blue-500/10 hover:border-blue-400 transition-colors"
                 >
                   <Send className="h-3 w-3" />
                   Telegram-канал
@@ -349,7 +349,7 @@ function TeamDetailPage() {
                         >
                           <Avatar className="h-9 w-9 shrink-0">
                             {member.avatar && <AvatarImage src={member.avatar} alt={member.displayName} />}
-                            <AvatarFallback className="text-xs">{getInitials(member.displayName)}</AvatarFallback>
+                            <AvatarFallback className="bg-muted text-xs">{getInitials(member.displayName)}</AvatarFallback>
                           </Avatar>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
@@ -365,12 +365,14 @@ function TeamDetailPage() {
                             )}
                             <div className="mt-1 space-y-0.5">
                               <a href={`mailto:${member.email}`}
+                                 onClick={e => e.stopPropagation()}
                                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors truncate">
                                 <Mail className="h-3 w-3 shrink-0" />
                                 {member.email}
                               </a>
                               {member.telegram && (
                                 <a href={member.telegram} target="_blank" rel="noopener noreferrer"
+                                   onClick={e => e.stopPropagation()}
                                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
                                   <Send className="h-3 w-3 shrink-0" />
                                   {member.telegram.replace('https://t.me/', '@')}
@@ -378,6 +380,7 @@ function TeamDetailPage() {
                               )}
                               {member.phone && (
                                 <a href={`tel:${member.phone}`}
+                                   onClick={e => e.stopPropagation()}
                                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
                                   <Phone className="h-3 w-3 shrink-0" />
                                   {member.phone}
@@ -445,7 +448,14 @@ function TeamDetailPage() {
                 <p className="text-sm text-muted-foreground py-4 text-center">Нет активных проектов</p>
               ) : (
                 <div className="space-y-2">
-                  {visibleProjects.map((project) => (
+                  {visibleProjects.map((project) => {
+                    const juniorMember = project.members?.find(
+                      (m: { role: string; leftAt: string | null }) => m.role === 'JUNIOR' && m.leftAt === null
+                    )
+                    const junior = juniorMember
+                      ? team.members.find(m => m.userId === juniorMember.userId)
+                      : null
+                    return (
                     <Link
                       key={project.id}
                       to="/crm/projects/$projectId"
@@ -461,12 +471,24 @@ function TeamDetailPage() {
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">{project.name}</p>
                         <p className="truncate text-xs text-muted-foreground">{project.companyName}</p>
+                        {junior ? (
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <Avatar className="h-4 w-4">
+                              {junior.avatar && <AvatarImage src={junior.avatar} alt={junior.displayName} />}
+                              <AvatarFallback className="bg-muted text-[8px]">{getInitials(junior.displayName)}</AvatarFallback>
+                            </Avatar>
+                            <span className="text-xs text-muted-foreground truncate">{junior.displayName}</span>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-destructive mt-1">Джун не прикреплён</p>
+                        )}
                       </div>
                       <Badge className="shrink-0 bg-emerald-500/15 text-emerald-400 border-emerald-500/25 text-[10px]">
                         Активный
                       </Badge>
                     </Link>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </CardContent>

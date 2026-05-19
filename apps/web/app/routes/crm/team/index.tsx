@@ -749,7 +749,7 @@ function TeamPage() {
                       style={{ zIndex: 4 - index }}
                     >
                       {member.avatar && <AvatarImage src={member.avatar} alt={member.displayName} />}
-                      <AvatarFallback className="text-[10px]">{getInitials(member.displayName)}</AvatarFallback>
+                      <AvatarFallback className="bg-muted text-[10px]">{getInitials(member.displayName)}</AvatarFallback>
                     </Avatar>
                   ))}
                   {team.members.length > 4 && (
@@ -761,23 +761,11 @@ function TeamPage() {
                   )}
                 </div>
 
-                {/* Name + HRs + Telegram */}
+                {/* Name + HRs */}
                 <div className="relative z-20 min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold group-hover:text-primary transition-colors">
                     {team.name}
                   </p>
-                  {team.telegram && (
-                    <a
-                      href={team.telegram}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={e => e.stopPropagation()}
-                      className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-500 hover:text-blue-400 transition-colors"
-                    >
-                      <Send className="h-3 w-3" />
-                      Telegram-канал
-                    </a>
-                  )}
                   <p className="truncate text-xs text-muted-foreground overflow-hidden whitespace-nowrap">
                     HR: {hrMembers.map((m) => m.displayName).join(', ') || 'Без HR'}
                   </p>
@@ -785,6 +773,18 @@ function TeamPage() {
 
                 {/* Pills */}
                 <div className="relative z-20 flex shrink-0 items-center gap-2">
+                  {team.telegram && (
+                    <a
+                      href={team.telegram}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className="flex h-7 w-7 items-center justify-center rounded-full text-blue-500 hover:bg-blue-500/10 transition-colors"
+                      title="Telegram-канал команды"
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                    </a>
+                  )}
                   <Badge variant="outline" className="text-[11px] tabular-nums">
                     {team.members.length} уч.
                   </Badge>
@@ -965,7 +965,7 @@ function TeamPage() {
                   >
                     <Avatar className="h-7 w-7 shrink-0">
                       {u.avatar && <AvatarImage src={u.avatar} />}
-                      <AvatarFallback className="text-[10px]">{getInitials(u.displayName)}</AvatarFallback>
+                      <AvatarFallback className="bg-muted text-[10px]">{getInitials(u.displayName)}</AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{u.displayName}</p>
