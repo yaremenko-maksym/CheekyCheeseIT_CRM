@@ -34,3 +34,12 @@ test-results/
 # Claude Code (user-local, not shared)
 .claude/settings.local.json
 .playwright-mcp/
+
+# Agent debug artifacts — files agents create during "verification"
+output.txt
+debug-*.png
+screenshot-*.png
+test-telegram-*.mjs
+test-telegram-*.js
+apps/e2e/debug-*.png
+apps/e2e/screenshot-*.png
