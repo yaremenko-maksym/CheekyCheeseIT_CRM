@@ -19,15 +19,15 @@ test.describe('Team page', () => {
     test('SENIOR sees team page but no management buttons', async ({ asSenior: page }) => {
       await page.goto('/crm/team')
       await expect(page.getByText('Alpha Team')).toBeVisible()
-      // No rename button
-      await expect(page.getByTitle('Переименовать')).not.toBeVisible()
+      // No rename button (scope to main to avoid header/sidebar)
+      await expect(page.locator('main').getByTitle('Переименовать')).not.toBeVisible()
       // No delete button (removed in Teams Redesign)
     })
 
     test('HR sees management buttons but not delete', async ({ asHr: page }) => {
       await page.goto('/crm/team')
       // Rename button is on the list row
-      await expect(page.getByTitle('Переименовать')).toBeVisible()
+      await expect(page.getByTitle('Переименовать').first()).toBeVisible()
       // Delete button does not exist in redesigned UI
     })
 
@@ -42,7 +42,7 @@ test.describe('Team page', () => {
     test('ADMIN sees all buttons including delete', async ({ asAdmin: page }) => {
       await page.goto('/crm/team')
       // Rename button is present on list rows in new design
-      await expect(page.getByTitle('Переименовать')).toBeVisible()
+      await expect(page.getByTitle('Переименовать').first()).toBeVisible()
       // Navigate to detail page to verify add/edit management buttons
       await page.locator('a[href^="/crm/team/"]').first().click({ force: true })
       await expect(page.getByRole('button', { name: 'Добавить' })).toBeVisible()
@@ -57,7 +57,7 @@ test.describe('Team page', () => {
   test.describe('Rename team', () => {
     test('opens rename dialog with current name pre-filled', async ({ asAdmin: page }) => {
       await page.goto('/crm/team')
-      await page.getByTitle('Переименовать').click()
+      await page.getByTitle('Переименовать').first().click()
       await expect(page.getByRole('dialog')).toBeVisible()
       await expect(page.getByRole('heading', { name: 'Редактировать команду' })).toBeVisible()
     })
@@ -69,7 +69,7 @@ test.describe('Team page', () => {
         (req) => req.url().includes('/teams/') && req.method() === 'PATCH',
       )
 
-      await page.getByTitle('Переименовать').click()
+      await page.getByTitle('Переименовать').first().click()
       const nameInput = page.getByPlaceholder('Название команды')
       await nameInput.clear()
       await nameInput.fill('Beta Team')
@@ -81,7 +81,7 @@ test.describe('Team page', () => {
 
     test('validation: empty name shows error on blur', async ({ asAdmin: page }) => {
       await page.goto('/crm/team')
-      await page.getByTitle('Переименовать').click()
+      await page.getByTitle('Переименовать').first().click()
       const nameInput = page.getByPlaceholder('Название команды')
       await nameInput.clear()
       await nameInput.blur()
@@ -90,7 +90,7 @@ test.describe('Team page', () => {
 
     test('cancel closes dialog without PATCH', async ({ asAdmin: page }) => {
       await page.goto('/crm/team')
-      await page.getByTitle('Переименовать').click()
+      await page.getByTitle('Переименовать').first().click()
       await expect(page.getByRole('dialog')).toBeVisible()
       await page.getByRole('button', { name: 'Отмена' }).click()
       await expect(page.getByRole('dialog')).not.toBeVisible()
@@ -224,10 +224,10 @@ test.describe('Team page', () => {
       await expect(page.getByText('Senior Dev')).toBeVisible()
       await expect(page.getByText('HR Manager')).toBeVisible()
       
-      // Role headers should NOT be present
-      await expect(page.getByText('Синьор').first()).not.toBeVisible()
-      await expect(page.getByText('HR').first()).not.toBeVisible()
-      await expect(page.getByText('Бухгалтер').first()).not.toBeVisible()
+      // Role headers should NOT be present (removed in flat design) - scope to main
+      await expect(page.locator('main').getByText('Синьор', { exact: true })).not.toBeVisible()
+      await expect(page.locator('main').getByText('HR', { exact: true })).not.toBeVisible()  
+      await expect(page.locator('main').getByText('Бухгалтер', { exact: true })).not.toBeVisible()
     })
 
     test('back button navigates to team list', async ({ asAdmin: page }) => {
@@ -384,8 +384,8 @@ test.describe('Team page', () => {
     test('management buttons work without triggering card click', async ({ asAdmin: page }) => {
       await page.goto('/crm/team')
 
-      // Clicking management buttons should not navigate
-      await page.getByTitle('Переименовать').click()
+      // Clicking management buttons should not navigate (use first to avoid strict mode)
+      await page.getByTitle('Переименовать').first().click()
       await expect(page.getByRole('dialog')).toBeVisible()
       await expect(page).toHaveURL('/crm/team') // Still on list page
     })
@@ -429,7 +429,7 @@ test.describe('Team page', () => {
       })
 
       await page.goto('/crm/team')
-      await page.getByTitle('Переименовать').click()
+      await page.getByTitle('Переименовать').first().click()
       const nameInput = page.getByPlaceholder('Название команды')
       await nameInput.fill('New Name')
       await page.getByRole('button', { name: 'Сохранить' }).click()
@@ -550,8 +550,8 @@ test.describe('Team page', () => {
     test('SENIOR does not see pencil button on team rows', async ({ asSenior: page }) => {
       await page.goto('/crm/team')
 
-      // SENIOR should not see management buttons on rows
-      await expect(page.getByTitle('Переименовать')).not.toBeVisible()
+      // SENIOR should not see management buttons on rows (scope to main)
+      await expect(page.locator('main').getByTitle('Переименовать')).not.toBeVisible()
     })
 
     test('team rows are clickable and navigate to detail page', async ({ asAdmin: page }) => {
