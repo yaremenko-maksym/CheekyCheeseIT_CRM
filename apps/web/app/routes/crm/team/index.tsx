@@ -766,9 +766,6 @@ function TeamPage() {
                   <p className="truncate text-sm font-semibold group-hover:text-primary transition-colors">
                     {team.name}
                   </p>
-                  <p className="truncate text-xs text-muted-foreground overflow-hidden whitespace-nowrap">
-                    HR: {hrMembers.map((m) => m.displayName).join(', ') || 'Без HR'}
-                  </p>
                   {team.telegram && (
                     <a
                       href={team.telegram}
@@ -781,6 +778,9 @@ function TeamPage() {
                       Telegram-канал
                     </a>
                   )}
+                  <p className="truncate text-xs text-muted-foreground overflow-hidden whitespace-nowrap">
+                    HR: {hrMembers.map((m) => m.displayName).join(', ') || 'Без HR'}
+                  </p>
                 </div>
 
                 {/* Pills */}
