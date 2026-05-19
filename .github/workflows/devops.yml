@@ -69,6 +69,8 @@ jobs:
 
       - name: Claude DevOps Agent
         uses: anthropics/claude-code-action@beta
+        env:
+          ADMIN_PAT: ${{ secrets.ADMIN_PAT }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
