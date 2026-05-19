@@ -796,10 +796,12 @@ test.describe('Team page', () => {
     })
 
     test('loading state renders without hooks violations', async ({ asAdmin: page }) => {
-      // Slow down team API to capture loading state
+      // Slow down team API to capture loading state — fulfill with mock data (not continue,
+      // which would hit the real API that doesn't know the fixture team-1-id)
       await page.route(`**/api/teams/${TEAMS[0]!.id}`, async route => {
+        if (route.request().method() !== 'GET') { await route.continue(); return }
         await new Promise(resolve => setTimeout(resolve, 1000))
-        await route.continue()
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TEAMS[0]) })
       })
 
       const consoleMessages: string[] = []
