@@ -26,7 +26,7 @@ gh api \
       { "context": "Typecheck · Lint · Unit Tests" },
       { "context": "E2E Tests" },
       { "context": "AutoTest" },
-      { "context": "Code Review" }
+      { "context": "AI Code Review" }
     ]
   },
   "enforce_admins": true,
