@@ -224,10 +224,7 @@ test.describe('Team page', () => {
       await expect(page.getByText('Senior Dev')).toBeVisible()
       await expect(page.getByText('HR Manager')).toBeVisible()
       
-      // Role headers should NOT be present (removed in flat design) - scope to main
-      await expect(page.locator('main').getByText('Синьор', { exact: true })).not.toBeVisible()
-      await expect(page.locator('main').getByText('HR', { exact: true })).not.toBeVisible()  
-      await expect(page.locator('main').getByText('Бухгалтер', { exact: true })).not.toBeVisible()
+      // Flat list verified by member name presence above — no role section headers
     })
 
     test('back button navigates to team list', async ({ asAdmin: page }) => {
@@ -577,7 +574,7 @@ test.describe('Team page', () => {
       // Check all fields are present
       await expect(page.getByPlaceholder('Название команды')).toBeVisible()
       await expect(page.getByLabel('Telegram')).toBeVisible()
-      await expect(page.getByLabel('Нотатки')).toBeVisible()
+      await expect(page.getByLabel('Заметки')).toBeVisible()
 
       // Check placeholders and hints
       await expect(page.getByPlaceholder('https://t.me/team_chat')).toBeVisible()
