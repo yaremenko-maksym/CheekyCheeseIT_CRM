@@ -137,6 +137,11 @@ jobs:
             Перед коммитом: git diff --stat apps/e2e/tests/
             Если вывод пустой — тесты не созданы. Это ошибка, не коммить.
 
+            Если вывод НЕ пустой:
+            git add apps/e2e/tests/
+            git commit -m "test: <описание из задачи>"
+            git push origin $(git branch --show-current)  # КРИТИЧНО: без git push изменения потеряны — GHA runner ephemeral!
+
             TASK_FILE: "${{ inputs.task_file }}"
             TARGET_BRANCH: "${{ inputs.target_branch }}"
             MODULE: "${{ inputs.module }}"
@@ -164,3 +169,26 @@ jobs:
             mcp__github__get_pull_request
             mcp__github__get_pull_request_files
             mcp__github__add_issue_comment
+
+      - name: Safety net — push uncommitted changes
+        if: always()
+        run: |
+          BRANCH=$(git branch --show-current)
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::warning::Agent left uncommitted changes — creating safety-net commit"
+            git add -A
+            git commit -m "chore(agent): safety-net — agent forgot to commit changes"
+          fi
+          REMOTE_EXISTS=$(git ls-remote --heads origin "$BRANCH" | wc -l)
+          if [ "$REMOTE_EXISTS" -eq 0 ]; then
+            git push -u origin "$BRANCH"
+          else
+            LOCAL=$(git rev-parse HEAD)
+            REMOTE=$(git rev-parse "origin/$BRANCH" 2>/dev/null || echo "none")
+            if [ "$LOCAL" != "$REMOTE" ]; then
+              echo "Local is ahead of remote — pushing $BRANCH"
+              git push origin "$BRANCH"
+            else
+              echo "Branch up to date, no push needed"
+            fi
+          fi

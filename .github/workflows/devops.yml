@@ -92,7 +92,7 @@ jobs:
 
             Прочитай docs/agents/devops.md — полный системный промпт.
             Прочитай docs/agents/CLAUDE-devops.md — архитектура пайплайна, concurrency, secrets.
-            Прочитай task-файл (путь передан как task_hint контекст) — запомни "Acceptance criteria".
+            Прочитай task-файл по пути TASK_FILE (передан в конце этого промпта) — это ЕДИНСТВЕННЫЙ источник требований. Запомни "Acceptance criteria".
 
             ## ШАГ 1 — Разведка (ОБЯЗАТЕЛЬНО, до любого Edit/Write)
 
@@ -114,6 +114,8 @@ jobs:
             ## ШАГ 3 — Коммит и PR
 
             git add <конкретные файлы> (НЕ git add .)
+            git commit -m "chore(infra): <описание из задачи>"
+            git push origin $(git branch --show-current)  # КРИТИЧНО: без git push изменения потеряны — GHA runner ephemeral!
             Перед mcp__github__create_pull_request — проверь идемпотентность через Bash:
             gh pr list --repo REPO --head BRANCH --json number --jq '.[0].number // empty'
             Если PR существует — добавь label к существующему, не создавай новый.
@@ -126,6 +128,7 @@ jobs:
             Добавь label ai-review-ready.
 
             Repo: ${{ github.repository }}
+            task_file: ${{ inputs.task_file }}
             task_hint: ${{ inputs.task_hint }}
             target_branch: ${{ inputs.target_branch }}
           allowed_tools: |
@@ -142,3 +145,26 @@ jobs:
             mcp__github__get_pull_request
             mcp__github__get_pull_request_files
             mcp__github__add_issue_comment
+
+      - name: Safety net — push uncommitted changes
+        if: always()
+        run: |
+          BRANCH=$(git branch --show-current)
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::warning::Agent left uncommitted changes — creating safety-net commit"
+            git add -A
+            git commit -m "chore(agent): safety-net — agent forgot to commit changes"
+          fi
+          REMOTE_EXISTS=$(git ls-remote --heads origin "$BRANCH" | wc -l)
+          if [ "$REMOTE_EXISTS" -eq 0 ]; then
+            git push -u origin "$BRANCH"
+          else
+            LOCAL=$(git rev-parse HEAD)
+            REMOTE=$(git rev-parse "origin/$BRANCH" 2>/dev/null || echo "none")
+            if [ "$LOCAL" != "$REMOTE" ]; then
+              echo "Local is ahead of remote — pushing $BRANCH"
+              git push origin "$BRANCH"
+            else
+              echo "Branch up to date, no push needed"
+            fi
+          fi
