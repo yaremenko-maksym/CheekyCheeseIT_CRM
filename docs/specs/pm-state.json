@@ -3,20 +3,6 @@
   "started_at": "2026-05-19T11:30:00Z",
   "tasks": [
     {
-      "id": "task-fix-e2e-team-selectors",
-      "file": "docs/specs/tasks/task-fix-e2e-team-selectors.md",
-      "agent": "autotest",
-      "workflow": "autotest.yml",
-      "run_id": "26108238151",
-      "branch": "fix/e2e-team-selectors",
-      "pr_number": 21,
-      "status": "running",
-      "started_at": "2026-05-19T11:30:00Z",
-      "expected_duration_min": 12,
-      "review_rounds": 0,
-      "max_review_rounds": 5
-    },
-    {
       "id": "task-infra-e2e-watchdog",
       "file": "docs/specs/tasks/task-infra-e2e-watchdog.md",
       "agent": "devops",
@@ -24,10 +10,10 @@
       "run_id": "26106514682",
       "branch": "infra/e2e-watchdog",
       "pr_number": 20,
-      "status": "pr_open",
+      "status": "awaiting_pm_review",
       "started_at": "2026-05-19T11:30:00Z",
       "expected_duration_min": 8,
-      "review_rounds": 0,
+      "review_rounds": 1,
       "max_review_rounds": 5
     },
     {
@@ -38,9 +24,8 @@
       "run_id": null,
       "branch": "fix/teams-ui-polish",
       "pr_number": null,
-      "status": "deferred",
-      "note": "Запустить ПОСЛЕ мерджа PR #21 (E2E fix) и закрытия issue #19",
-      "started_at": null,
+      "status": "running",
+      "started_at": "2026-05-19T17:05:00Z",
       "expected_duration_min": 10,
       "review_rounds": 0,
       "max_review_rounds": 5
@@ -57,14 +42,14 @@
       "id": "task-teams-ui-improvements",
       "pr_number": 18,
       "merged_at": "2026-05-19T11:12:06Z"
+    },
+    {
+      "id": "task-fix-e2e-team-selectors",
+      "pr_number": 21,
+      "merged_at": "2026-05-19T16:59:22Z"
     }
   ],
-  "phase": "review",
+  "phase": "development",
   "pending_fixes": [],
-  "blocking_issue": {
-    "number": 19,
-    "title": "🚨 E2E тесты упали на main — команда на паузе",
-    "label": "e2e-broken",
-    "url": "https://github.com/yaremenko-maksym/CheekyCheeseIT_CRM/issues/19"
-  }
+  "blocking_issue": null
 }
