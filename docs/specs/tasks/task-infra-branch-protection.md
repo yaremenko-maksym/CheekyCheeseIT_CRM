@@ -82,14 +82,15 @@ gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/branches/main/protection \
 * @yaremenko-maksym
 ```
 
-### 3. `.github/workflows/ai-review.yml` — synchronize trigger + защита от рекурсии
+### 3. `.github/workflows/ai-review.yml` — workflow_run триггер (запуск только после успешного CI)
 
-**Изменить** секцию `on:` (добавить `synchronize`):
+**Удалить** `pull_request` триггер целиком. **Заменить** секцию `on:`:
 
 ```yaml
 on:
-  pull_request:
-    types: [ready_for_review, synchronize]
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -98,31 +99,82 @@ on:
         type: string
 ```
 
-**Изменить** условие `if:` у job `autotest` — добавить проверку `github.actor`:
+**Обновить** `concurrency` группу (нет больше `github.event.pull_request.number`):
+
+```yaml
+concurrency:
+  group: ai-review-${{ github.event.workflow_run.pull_requests[0].number || inputs.pr_number }}
+  cancel-in-progress: true
+```
+
+**Добавить** шаг `Resolve PR number` в начало job `autotest` (перед `Get PR head ref`):
+
+```yaml
+      - name: Resolve PR number
+        id: pr_ctx
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "${{ inputs.pr_number }}" ]; then
+            PR="${{ inputs.pr_number }}"
+          else
+            PR="${{ github.event.workflow_run.pull_requests[0].number }}"
+          fi
+          if [ -z "$PR" ]; then
+            echo "No PR associated with this CI run — skipping"
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          # Проверить label ai-review-ready
+          HAS_LABEL=$(gh pr view "$PR" \
+            --repo ${{ github.repository }} \
+            --json labels --jq '[.labels[].name] | contains(["ai-review-ready"])')
+          echo "pr=$PR" >> $GITHUB_OUTPUT
+          echo "has_label=$HAS_LABEL" >> $GITHUB_OUTPUT
+          echo "skip=false" >> $GITHUB_OUTPUT
+```
+
+**Изменить** условие `if:` у job `autotest`:
 
 ```yaml
   autotest:
     if: |
-      github.actor != 'github-actions[bot]' &&
-      github.event.pull_request.draft == false &&
+      github.event_name == 'workflow_dispatch' ||
       (
-        github.event_name == 'workflow_dispatch' ||
-        contains(github.event.pull_request.labels.*.name, 'ai-review-ready')
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.actor.login != 'github-actions[bot]' &&
+        github.event.workflow_run.pull_requests[0] != null
       )
 ```
 
-Это блокирует рекурсию: AutoTest пушит тесты → `synchronize` → ai-review видит
-`github.actor == 'github-actions[bot]'` → пропускает.
+Шаг `Get PR head ref` — обновить чтобы использовал `steps.pr_ctx.outputs.pr`:
 
-То же условие добавить в job `reviewer` (сейчас там нет проверки actor):
+```yaml
+      - name: Get PR head ref
+        id: pr_head
+        if: steps.pr_ctx.outputs.skip != 'true' && steps.pr_ctx.outputs.has_label == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR="${{ steps.pr_ctx.outputs.pr || inputs.pr_number }}"
+          REF=$(gh pr view "$PR" \
+            --repo ${{ github.repository }} \
+            --json headRefName --jq '.headRefName')
+          echo "ref=${REF}" >> $GITHUB_OUTPUT
+```
+
+Добавить в job `reviewer` аналогичную проверку actor:
+
 ```yaml
   reviewer:
     if: |
       always() &&
-      github.actor != 'github-actions[bot]' &&
+      github.event.workflow_run.actor.login != 'github-actions[bot]' &&
       needs.autotest.result == 'success' &&
       ...
 ```
+
+**Логика:** CI (ci.yml) отрабатывает на push к PR-ветке → при `conclusion: success` → ai-review стартует → проверяет label `ai-review-ready` → если есть, запускает AutoTest. Рекурсия исключена: AutoTest-агент пушит тесты от `github-actions[bot]`, CI снова запускается, но `actor.login == 'github-actions[bot]'` → ai-review пропускает.
 
 ### 4. `.github/workflows/ai-review.yml` — Check Runs вместо PR-комментария
 
@@ -236,8 +288,8 @@ on:
    ```
 2. Применить branch protection (пункт 1) — это bash-команда, не коммит
 3. Создать `.github/CODEOWNERS` (пункт 2)
-3. Обновить `.github/workflows/ai-review.yml` (пункты 3, 4, 5)
-4. Обновить `.github/workflows/coder.yml`, `devops.yml`, `autotest.yml` (пункт 6)
+4. Обновить `.github/workflows/ai-review.yml` (пункты 3, 4, 5) — **ВАЖНО: пункт 3 заменён новым workflow_run подходом**
+5. Обновить `.github/workflows/coder.yml`, `devops.yml`, `autotest.yml` (пункт 6)
 6. Обновить `docs/agents/CLAUDE-reviewer.md` (пункт 7)
 7. Закоммитить все файлы конкретными именами
 8. Запушить в `infra/branch-protection`
@@ -250,8 +302,9 @@ on:
 - [ ] Branch protection main применён: `gh api .../branches/main/protection` возвращает все 3 required checks
 - [ ] `require_code_owner_reviews: true`, `dismiss_stale_reviews: true`
 - [ ] `.github/CODEOWNERS` существует, содержит `* @yaremenko-maksym`
-- [ ] `ai-review.yml` триггерится при `synchronize` событии
-- [ ] При пуше от `github-actions[bot]` ai-review НЕ запускается (нет рекурсии)
+- [ ] `ai-review.yml` НЕ содержит `pull_request` триггер — только `workflow_run: ["CI"]` и `workflow_dispatch`
+- [ ] `ai-review.yml` запускается только если `github.event.workflow_run.conclusion == 'success'`
+- [ ] При пуше от `github-actions[bot]` ai-review НЕ запускается — проверка `actor.login != 'github-actions[bot]'`
 - [ ] `ai-review.yml` не содержит шагов с маркером `ai-review-pipeline-status`
 - [ ] В PR видны Check Runs "CI / AutoTest" и "AI Code Review" (вкладка Checks)
 - [ ] Reviewer в `direct_prompt` получает инструкцию читать task-файл и проверять AC
