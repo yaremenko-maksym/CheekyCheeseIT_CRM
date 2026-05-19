@@ -8,6 +8,8 @@ export const teamMemberSchema = z.object({
   avatar: z.string().url().nullable(),
   role: z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT']),
   techStack: z.string().nullable(),
+  phone: z.string().nullable().optional(),
+  telegram: z.string().nullable().optional(),
   joinedAt: z.string().or(z.date()),
 })
 

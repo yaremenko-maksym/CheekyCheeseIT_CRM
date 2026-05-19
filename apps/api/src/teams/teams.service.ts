@@ -37,6 +37,8 @@ export class TeamsService {
       email: string
       avatar: string | null
       techStack: string | null
+      phone: string | null
+      telegram: string | null
       role: string
       joinedAt: string | Date
     }> = []
@@ -59,6 +61,8 @@ export class TeamsService {
               email: pm.user.email,
               avatar: pm.user.avatar ?? null,
               techStack: pm.user.techStack ?? null,
+              phone: pm.user.phone ?? null,
+              telegram: pm.user.telegram ?? null,
               role: 'JUNIOR',
               joinedAt: pm.joinedAt.toISOString(),
             })
@@ -90,6 +94,8 @@ export class TeamsService {
             email: m.user?.email ?? '',
             avatar: m.user?.avatar ?? null,
             techStack: m.user?.techStack ?? null,
+            phone: m.user?.phone ?? null,
+            telegram: m.user?.telegram ?? null,
             role: m.user?.role ?? 'SENIOR',
             joinedAt: m.joinedAt,
           })),
