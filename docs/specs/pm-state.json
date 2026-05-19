@@ -24,10 +24,9 @@
       "branch": "fix/team-detail-hooks",
       "pr_number": 15,
       "ai_review_run_id": "26041323376",
-      "e2e_run_id": "26055265819",
+      "e2e_run_id": "26070099706",
       "status": "e2e_running",
-      "e2e_run_id": "26061859442",
-      "_e2e_note": "36 failed: selector mismatch after Teams Redesign. PM fixed directly: Ukrainian titles, moved add-member tests to detail page, skipped delete tests. New e2e run 26061859442 in progress.",
+      "_e2e_note": "36→3 failed. PM fixed: .first() strict mode, main-scoped Статистика, async route handler. Run 26070099706 in progress.",
       "started_at": "2026-05-18T16:22:00Z",
       "expected_duration_min": 12
     },
@@ -48,13 +47,13 @@
       "file": "docs/specs/tasks/task-fix-e2e-team-selectors.md",
       "agent": "pm",
       "workflow": "e2e.yml",
-      "run_id": "26061859442",
+      "run_id": "26070099706",
       "branch": "fix/team-detail-hooks",
       "pr_number": 15,
-      "status": "running",
-      "started_at": "2026-05-18T21:35:45Z",
+      "status": "e2e_running",
+      "started_at": "2026-05-19T01:14:31Z",
       "expected_duration_min": 25,
-      "_note": "PM fixed selectors directly: Ukrainian titles, moved add-member to detail page, skipped delete tests (button removed in redesign), fixed dialog text, data-testid, fixture fields"
+      "_note": "PM fixed 3 remaining failures: .first() for a[href] strict mode, scoped Статистика check to main, async/await route handler + 8s timeout for loading test"
     },
     {
       "id": "task-infra-branch-protection",
