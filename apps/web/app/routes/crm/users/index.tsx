@@ -45,6 +45,7 @@ import {
 } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 
 export const Route = createFileRoute('/crm/users/')({
   component: UsersPage,
@@ -73,25 +74,6 @@ type Role = (typeof ROLES)[number]
 type SortKey = 'displayName' | 'role' | 'email' | 'createdAt'
 type SortDir = 'asc' | 'desc'
 
-// Common tech stack suggestions
-const TECH_STACK_OPTIONS = [
-  'JavaScript FE',
-  'JavaScript BE',
-  'TypeScript FE',
-  'TypeScript BE',
-  'Python',
-  'Java',
-  'Kotlin',
-  'Swift',
-  'Go',
-  'PHP',
-  'Ruby',
-  'C#',
-  'C++',
-  'Rust',
-  'Flutter/Dart',
-  'React Native',
-]
 
 function getInitials(name: string) {
   return (name || '?')
@@ -217,26 +199,19 @@ function TechStackField({
   onBlur,
   error,
 }: {
-  value: string
-  onChange: (v: string) => void
+  value: string[]
+  onChange: (v: string[]) => void
   onBlur: () => void
   error?: string
 }) {
   return (
     <Field label="Технологии" error={error}>
-      <Input
-        placeholder="JavaScript FE, Java, Kotlin..."
+      <TechAutocompleteInput
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={onChange}
         onBlur={onBlur}
-        list="tech-stack-suggestions"
-        className={cn(error && 'border-destructive focus-visible:ring-destructive/30')}
+        placeholder="Начните вводить технологию..."
       />
-      <datalist id="tech-stack-suggestions">
-        {TECH_STACK_OPTIONS.map((opt) => (
-          <option key={opt} value={opt} />
-        ))}
-      </datalist>
     </Field>
   )
 }
@@ -307,7 +282,7 @@ function CreateUserDialog({ open, onClose, hrOnly = false }: { open: boolean; on
       role: (hrOnly ? 'SENIOR' : 'JUNIOR') as Role,
       telegram: '',
       phone: '' as PhoneValue | '',
-      techStack: '',
+      techStack: [] as string[],
       seniorSharePercent: 26 as number,
       projectId: '' as string,
       monthlySalary: '' as string,
@@ -328,7 +303,7 @@ function CreateUserDialog({ open, onClose, hrOnly = false }: { open: boolean; on
         role: value.role,
         telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : undefined,
         phone: (value.phone as string) || undefined,
-        techStack: value.techStack.trim() ? value.techStack.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+        techStack: value.techStack.length > 0 ? value.techStack : undefined,
         paymentMethod: (isSenior || value.role === 'ADMIN') ? 'USDT_ERC20' as const : 'BANK_UAH_FOP' as const,
         ...(isSenior && {
           seniorSharePercent: value.seniorSharePercent,
@@ -698,7 +673,7 @@ function EditUserDialog({ user, onClose }: { user: UserProfileDto | null; onClos
       role: (user?.role as Role) ?? 'JUNIOR',
       telegram: user?.telegram ?? '',
       phone: ((user?.phone as PhoneValue | undefined) ?? '') as PhoneValue | '',
-      techStack: Array.isArray(user?.techStack) ? user.techStack.join(', ') : (user?.techStack ?? ''),
+      techStack: (user?.techStack ?? []) as string[],
       seniorSharePercent: user?.seniorSharePercent ?? 26,
       monthlySalary: user?.monthlySalary ?? '',
     },
@@ -708,7 +683,7 @@ function EditUserDialog({ user, onClose }: { user: UserProfileDto | null; onClos
         displayName: value.displayName.trim(),
         telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : null,
         phone: (value.phone as string) || null,
-        techStack: value.techStack.trim() ? value.techStack.split(',').map((s) => s.trim()).filter(Boolean) : null,
+        techStack: value.techStack.length > 0 ? value.techStack : null,
         ...(isSenior && {
           seniorSharePercent: value.seniorSharePercent,
         }),
@@ -728,7 +703,7 @@ function EditUserDialog({ user, onClose }: { user: UserProfileDto | null; onClos
       form.setFieldValue('role', user.role as Role)
       form.setFieldValue('telegram', user.telegram ?? '')
       form.setFieldValue('phone', ((user.phone as PhoneValue | undefined) ?? '') as PhoneValue | '')
-      form.setFieldValue('techStack', Array.isArray(user.techStack) ? user.techStack.join(', ') : (user.techStack ?? ''))
+      form.setFieldValue('techStack', user.techStack ?? [])
       form.setFieldValue('seniorSharePercent', user.seniorSharePercent ?? 26)
       form.setFieldValue('monthlySalary', user.monthlySalary ?? '')
     }
