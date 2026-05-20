@@ -15,6 +15,7 @@ import { useUpdateMe } from '@/hooks/use-user-profile'
 import { cn } from '@/lib/utils'
 
 const MAX_FILE_BYTES = 500 * 1024 // 500 KB — base64 inflates ~33%, end-result ≤ ~665 KB
+const ALLOWED_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'])
 
 export interface AvatarUploadDialogProps {
   open: boolean
@@ -54,8 +55,8 @@ export function AvatarUploadDialog({
   }
 
   function handleFile(file: File) {
-    if (!file.type.startsWith('image/')) {
-      setError('Только изображения')
+    if (!ALLOWED_MIME_TYPES.has(file.type)) {
+      setError('Разрешены только PNG, JPEG, GIF, WebP')
       return
     }
     if (file.size > MAX_FILE_BYTES) {
@@ -100,8 +101,10 @@ export function AvatarUploadDialog({
     if (tab === 'url') {
       try {
         const u = new URL(value)
-        if (!/^https?:$/.test(u.protocol)) {
-          setError('Ссылка должна быть http(s)://')
+        // Backend allowlist only accepts https — reject http/javascript/etc here
+        // so the user gets a clean error instead of a 400 from the server.
+        if (u.protocol !== 'https:') {
+          setError('Ссылка должна быть https://')
           return
         }
       } catch {
@@ -146,7 +149,7 @@ export function AvatarUploadDialog({
         <DialogHeader>
           <DialogTitle>Аватар профиля</DialogTitle>
           <DialogDescription>
-            Загрузите файл (PNG, JPG, до 500 KB) или укажите прямую ссылку на изображение.
+            Загрузите файл (PNG, JPEG, GIF, WebP, до 500 KB) или укажите прямую https-ссылку на изображение.
           </DialogDescription>
         </DialogHeader>
 
@@ -166,7 +169,7 @@ export function AvatarUploadDialog({
             <input
               ref={fileRef}
               type="file"
-              accept="image/*"
+              accept="image/png,image/jpeg,image/gif,image/webp"
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0]

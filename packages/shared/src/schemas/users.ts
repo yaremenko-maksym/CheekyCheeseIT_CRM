@@ -13,6 +13,27 @@ const telegramSchema = z
 const phoneSchema = z.string().max(30)
 const techStackSchema = z.array(z.string().min(1).max(50)).max(50)
 
+/**
+ * Allowlist for avatar override values:
+ *  - `https://…` URLs (and only https — no http/javascript/data:text)
+ *  - `data:image/<png|jpeg|jpg|gif|webp>;base64,<payload>` data URLs
+ *
+ * SVG is intentionally excluded because data:image/svg+xml can carry inline
+ * `<script>` and act as an XSS vector when rendered in an <img> in some
+ * contexts (e.g. when later mirrored into a frame/object). External SVGs
+ * served over https:// are still allowed.
+ */
+export const AVATAR_OVERRIDE_PATTERN =
+  /^(https:\/\/[^\s]+|data:image\/(png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/=\r\n]+)$/
+
+const avatarOverrideSchema = z
+  .string()
+  .max(1_500_000, 'Аватар слишком большой (макс ~1MB)')
+  .regex(
+    AVATAR_OVERRIDE_PATTERN,
+    'Аватар должен быть https URL или data:image/(png|jpeg|gif|webp) base64',
+  )
+
 export const userProfileSchema = z.object({
   id: z.string().uuid(),
   email: z.string().email(),
@@ -43,7 +64,7 @@ export const updateProfileSchema = z.object({
   telegram: telegramSchema.nullable().optional(),
   phone: phoneSchema.nullable().optional(),
   techStack: techStackSchema.nullable().optional(),
-  avatarOverride: z.string().max(1_500_000, 'Аватар слишком большой (макс ~1MB)').nullable().optional(),
+  avatarOverride: avatarOverrideSchema.nullable().optional(),
 })
 
 export const createUserSchema = z.object({
@@ -86,7 +107,7 @@ export const adminUpdateUserSchema = z.object({
   telegram: telegramSchema.nullable().optional(),
   phone: phoneSchema.nullable().optional(),
   avatar: z.string().url().nullable().optional(),
-  avatarOverride: z.string().max(1_500_000, 'Аватар слишком большой (макс ~1MB)').nullable().optional(),
+  avatarOverride: avatarOverrideSchema.nullable().optional(),
   techStack: techStackSchema.nullable().optional(),
 })
 
