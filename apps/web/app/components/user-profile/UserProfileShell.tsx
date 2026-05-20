@@ -71,7 +71,7 @@ export function UserProfileShell({
   }
 
   return (
-    <div className="space-y-6 overflow-hidden">
+    <div className="space-y-6">
       <UserProfileHeader
         user={user}
         showCreatedAt={showCreatedAt}
@@ -97,8 +97,10 @@ export function UserProfileShell({
       )}
 
       {permissions.tabs.length > 0 && (
-        <div className="flex flex-col gap-4 overflow-hidden">
-          <div className="overflow-x-auto">
+        <div className="flex flex-col gap-4">
+          {/* Tab bar: horizontal scroll for many tabs on narrow viewports; pb-1
+              keeps the pill's shadow from being clipped by overflow-x-auto. */}
+          <div className="relative overflow-x-auto pb-1">
             <AnimatedTabs
               tabs={permissions.tabs.map((t) => ({ value: t, label: tabLabel(t) }))}
               value={activeTab}
@@ -106,7 +108,9 @@ export function UserProfileShell({
             />
           </div>
 
-          <div className="min-w-0 flex-1 overflow-hidden">
+          {/* Content area scrolls naturally via the parent `<main>` (overflow-y-auto in /crm route).
+              No overflow-hidden here — that was blocking the scroll for long tabs (e.g. Audit). */}
+          <div className="min-w-0 flex-1">
             {activeTab === 'overview' && permissions.tabs.includes('overview') && (
               <OverviewTab
                 user={user}
