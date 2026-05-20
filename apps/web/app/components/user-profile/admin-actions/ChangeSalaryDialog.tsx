@@ -9,6 +9,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-currency-input'
 import type { UserProfileDto } from '@crm/shared'
 import { useAdminChangeSalary } from '@/hooks/use-user-profile'
 
@@ -23,7 +24,8 @@ export function ChangeSalaryDialog({
 }) {
   const mutation = useAdminChangeSalary(userId)
   const isShareRole = user.role === 'SENIOR' || user.role === 'ADMIN'
-  const [salary, setSalary] = useState(user.monthlySalary ?? '')
+  const [salary, setSalary] = useState(String(user.monthlySalary ?? ''))
+  const [salaryCurrency, setSalaryCurrency] = useState<Currency>((user.salaryCurrency as Currency | undefined) ?? 'USD')
   const [share, setShare] = useState(String(user.seniorSharePercent ?? 26))
 
   return (
@@ -34,7 +36,7 @@ export function ChangeSalaryDialog({
         </DialogHeader>
         <div className="space-y-3">
           {isShareRole ? (
-            <div>
+            <div className="space-y-1.5">
               <Label>Доля от транзакций (%)</Label>
               <Input
                 type="number"
@@ -45,16 +47,13 @@ export function ChangeSalaryDialog({
               />
             </div>
           ) : (
-            <div>
-              <Label>Месячная ставка (USD)</Label>
-              <Input
-                type="number"
-                min={0}
-                value={salary}
-                onChange={(e) => setSalary(e.target.value)}
-                placeholder="0"
-              />
-            </div>
+            <AmountCurrencyInput
+              amount={salary}
+              currency={salaryCurrency}
+              onAmountChange={setSalary}
+              onCurrencyChange={setSalaryCurrency}
+              label="Месячная ставка"
+            />
           )}
         </div>
         <DialogFooter>
@@ -66,7 +65,7 @@ export function ChangeSalaryDialog({
             onClick={async () => {
               const payload = isShareRole
                 ? { seniorSharePercent: parseInt(share, 10) }
-                : { monthlySalary: salary ? parseFloat(String(salary)) : null }
+                : { monthlySalary: salary ? parseFloat(salary) : null, salaryCurrency }
               await mutation.mutateAsync(payload)
               onClose()
             }}

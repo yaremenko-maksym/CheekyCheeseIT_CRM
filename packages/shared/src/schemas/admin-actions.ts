@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { roleSchema } from './users'
-import { paymentRequisitesSchema } from './payment-requisites'
+import { paymentRequisitesSchema, currencyEnumSchema } from './payment-requisites'
 
 export const changeRoleSchema = z.object({
   role: roleSchema,
@@ -8,6 +8,7 @@ export const changeRoleSchema = z.object({
 
 export const changeSalarySchema = z.object({
   monthlySalary: z.number().nonnegative().nullable().optional(),
+  salaryCurrency: currencyEnumSchema.optional(),
   seniorSharePercent: z.number().int().min(0).max(100).optional(),
 }).refine((d) => d.monthlySalary !== undefined || d.seniorSharePercent !== undefined, {
   message: 'Укажите хотя бы одно из полей: monthlySalary или seniorSharePercent',

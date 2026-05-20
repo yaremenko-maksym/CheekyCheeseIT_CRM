@@ -259,9 +259,10 @@ export class UsersService {
     return updated
   }
 
-  async changeSalary(id: string, data: { monthlySalary?: number | null; seniorSharePercent?: number }): Promise<User> {
+  async changeSalary(id: string, data: { monthlySalary?: number | null; salaryCurrency?: 'USDT' | 'USD' | 'EUR' | 'UAH'; seniorSharePercent?: number }): Promise<User> {
     const set: Record<string, unknown> = { updatedAt: new Date() }
     if (data.monthlySalary !== undefined) set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
+    if (data.salaryCurrency !== undefined) set.salaryCurrency = data.salaryCurrency
     if (data.seniorSharePercent !== undefined) set.seniorSharePercent = data.seniorSharePercent
     const rows = await this.db.db.update(users).set(set).where(eq(users.id, id)).returning()
     const updated = rows[0]

@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
+import type { Value as PhoneValue } from 'react-phone-number-input'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { PhoneInput } from '@/components/ui/phone-input'
 import type { UserProfileDto } from '@crm/shared'
 import { useUpdateMe } from '@/hooks/use-user-profile'
 
@@ -12,7 +14,7 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
 
   const [displayName, setDisplayName] = useState(user.displayName)
   const [telegram, setTelegram] = useState(user.telegram ?? '')
-  const [phone, setPhone] = useState(user.phone ?? '')
+  const [phone, setPhone] = useState<PhoneValue>((user.phone as PhoneValue | undefined) ?? '' as PhoneValue)
   const [techStack, setTechStack] = useState<string[]>(user.techStack ?? [])
   const [techInput, setTechInput] = useState('')
 
@@ -49,7 +51,7 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="phone">Телефон</Label>
-        <Input id="phone" value={phone} onChange={(e) => { setPhone(e.target.value); scheduleSave({ phone: e.target.value || null }) }} />
+        <PhoneInput value={phone} onChange={(v) => { const val = v ?? '' as PhoneValue; setPhone(val); scheduleSave({ phone: val || null }) }} />
       </div>
       <div className="space-y-1.5">
         <Label>Технологии</Label>

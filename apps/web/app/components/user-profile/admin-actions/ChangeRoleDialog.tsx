@@ -8,6 +8,13 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useAdminChangeRole } from '@/hooks/use-user-profile'
 import type { Role } from '@crm/shared'
 
@@ -39,19 +46,20 @@ export function ChangeRoleDialog({
         <DialogHeader>
           <DialogTitle>Изменить роль</DialogTitle>
         </DialogHeader>
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           <Label>Роль</Label>
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value as Role)}
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {ROLES.map((r) => (
-              <option key={r} value={r}>
-                {ROLE_LABELS[r]}
-              </option>
-            ))}
-          </select>
+          <Select value={role} onValueChange={(v) => setRole(v as Role)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ROLES.map((r) => (
+                <SelectItem key={r} value={r}>
+                  {ROLE_LABELS[r]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { Value as PhoneValue } from 'react-phone-number-input'
 import {
   Dialog,
   DialogContent,
@@ -9,6 +10,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import { PhoneInput } from '@/components/ui/phone-input'
 import type { UserProfileDto } from '@crm/shared'
 import { useAdminUpdateUser } from '@/hooks/use-user-profile'
 
@@ -24,7 +26,7 @@ export function EditProfileDialog({
   const mutation = useAdminUpdateUser(userId)
   const [displayName, setDisplayName] = useState(user.displayName)
   const [telegram, setTelegram] = useState(user.telegram ?? '')
-  const [phone, setPhone] = useState(user.phone ?? '')
+  const [phone, setPhone] = useState<PhoneValue>((user.phone as PhoneValue | undefined) ?? '' as PhoneValue)
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -45,13 +47,9 @@ export function EditProfileDialog({
               placeholder="@username"
             />
           </div>
-          <div>
+          <div className="space-y-1.5">
             <Label>Телефон</Label>
-            <Input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+380..."
-            />
+            <PhoneInput value={phone} onChange={(v) => setPhone(v ?? '' as PhoneValue)} />
           </div>
         </div>
         <DialogFooter>
