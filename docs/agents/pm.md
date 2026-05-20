@@ -537,6 +537,93 @@ Reviewer выдаёт APPROVE или REQUEST_CHANGES напрямую через
 
 ---
 
+## Quick Reference
+
+### Диспетч агентов
+
+```
+# Coder — новая фича
+Agent(isolation="worktree", description="Coder: task-<slug>",
+  prompt="Ты — Coder-агент. Прочитай docs/agents/coder.md. Прочитай docs/agents/CLAUDE-coder.md.
+Task: docs/specs/tasks/task-<slug>.md")
+
+# Coder — фикс в существующую ветку
+Agent(isolation="worktree", description="Coder: fix-<slug>",
+  prompt="Ты — Coder-агент. Прочитай docs/agents/coder.md. Прочитай docs/agents/CLAUDE-coder.md.
+Task: docs/specs/tasks/task-fix-<slug>.md
+target_branch: <pr_branch>
+Ветка уже существует — переключись: git checkout <pr_branch>")
+
+# Reviewer
+Agent(description="Reviewer: PR #<N>",
+  prompt="Ты — Reviewer-агент. Прочитай docs/agents/reviewer.md.
+PR для review: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM")
+
+# AutoTest
+Agent(description="AutoTest: PR #<N>",
+  prompt="Ты — AutoTest-агент. Прочитай docs/agents/autotest.md.
+PR для анализа: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM. Режим 1: Post-approval.")
+
+# DevOps
+Agent(isolation="worktree", description="DevOps: task-infra-<slug>",
+  prompt="Ты — DevOps-агент. Прочитай docs/agents/devops.md.
+Task: docs/specs/tasks/task-infra-<slug>.md")
+```
+
+### PR и CI
+
+```bash
+# Найти PR по ветке
+gh pr list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
+  --head "feature/<slug>" --json number,title --jq '.[0]'
+
+# Статус CI на PR
+gh pr view <N> --repo yaremenko-maksym/CheekyCheeseIT_CRM \
+  --json statusCheckRollup --jq '.statusCheckRollup[] | {name, conclusion}'
+
+# Лейблы на PR
+gh pr view <N> --repo yaremenko-maksym/CheekyCheeseIT_CRM \
+  --json labels --jq '[.labels[].name]'
+
+# Добавить / убрать лейбл
+gh pr edit <N> --repo yaremenko-maksym/CheekyCheeseIT_CRM --add-label "awaiting-pm-review"
+gh pr edit <N> --repo yaremenko-maksym/CheekyCheeseIT_CRM --remove-label "awaiting-pm-review"
+
+# PR reviews
+gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<N>/reviews \
+  --jq '.[] | {state, submitted_at, body: .body[:200]}'
+```
+
+### Dev-сервер (User Testing)
+
+```bash
+# Переключиться на ветку PR
+git fetch origin && git checkout <pr_branch> && git pull origin <pr_branch>
+
+# Применить миграции
+pnpm --filter @crm/api db:migrate
+
+# Перезапустить серверы
+pkill -f "nest start" 2>/dev/null; pkill -f "vite" 2>/dev/null; sleep 2; pnpm dev &
+
+# Дождаться готовности
+timeout 60 bash -c 'until curl -sf http://localhost:3001/api/health; do sleep 2; done'
+timeout 30 bash -c 'until curl -sf http://localhost:3000; do sleep 2; done'
+```
+
+### E2E (GHA, только при необходимости ручного запуска)
+
+```bash
+# Запустить E2E workflow
+gh workflow run e2e.yml --repo yaremenko-maksym/CheekyCheeseIT_CRM
+
+# Следить за последним run
+gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM --workflow=e2e.yml --limit=3
+gh run view <run_id> --repo yaremenko-maksym/CheekyCheeseIT_CRM --json status,conclusion
+```
+
+---
+
 ## Appendix A: Шаблон task-файла
 
 ```markdown
