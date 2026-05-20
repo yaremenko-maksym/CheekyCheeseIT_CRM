@@ -262,6 +262,133 @@ export const INTERVIEWS = [
 ]
 
 // ---------------------------------------------------------------------------
+// UserWithPermissionsResponse builders — used by profile-page specs
+// ---------------------------------------------------------------------------
+
+/** Full admin viewing anyone: all tabs + all actions */
+export function buildAdminViewingUser(
+  targetUser: (typeof USERS)[keyof typeof USERS],
+): object {
+  return {
+    user: {
+      ...targetUser,
+      walletUsdtErc20: null,
+      walletUsdtLabel: null,
+      bankUahRecipient: null,
+      bankUahIban: null,
+      bankUahRnokpp: null,
+      bankUahBankName: null,
+      seniorSharePercent: 26,
+      monthlySalary: null,
+      archivedAt: null,
+      adminNote: null,
+    },
+    permissions: {
+      tabs: ['overview', 'finance', 'projects', 'team', 'interviews', 'requisites', 'audit'],
+      actions: [
+        'edit-profile',
+        'change-role',
+        'change-salary',
+        'change-requisites',
+        'manage-team',
+        'reassign-project',
+        'set-note',
+        'archive',
+      ],
+      fields: {},
+    },
+    data: {},
+  }
+}
+
+/** HR viewing their own senior: overview + projects + team only, no actions */
+export function buildHrViewingSenior(
+  senior: (typeof USERS)[keyof typeof USERS],
+): object {
+  return {
+    user: {
+      ...senior,
+      walletUsdtErc20: null,
+      walletUsdtLabel: null,
+      bankUahRecipient: null,
+      bankUahIban: null,
+      bankUahRnokpp: null,
+      bankUahBankName: null,
+      seniorSharePercent: 26,
+      monthlySalary: null,
+      archivedAt: null,
+      adminNote: null,
+    },
+    permissions: {
+      tabs: ['overview', 'projects', 'team'],
+      actions: [],
+      fields: {},
+    },
+    data: {},
+  }
+}
+
+/** Junior viewing another junior: header only, no tabs, no actions */
+export function buildJuniorViewingJunior(
+  targetUser: (typeof USERS)[keyof typeof USERS],
+): object {
+  return {
+    user: {
+      ...targetUser,
+      walletUsdtErc20: null,
+      walletUsdtLabel: null,
+      bankUahRecipient: null,
+      bankUahIban: null,
+      bankUahRnokpp: null,
+      bankUahBankName: null,
+      seniorSharePercent: 26,
+      monthlySalary: null,
+      archivedAt: null,
+      adminNote: null,
+    },
+    permissions: {
+      tabs: [],
+      actions: [],
+      fields: {},
+    },
+    data: {},
+  }
+}
+
+/** Self-view response (used by GET /users/me on profile page) */
+export function buildSelfView(
+  user: (typeof USERS)[keyof typeof USERS],
+): object {
+  const tabs: string[] =
+    user.role === 'ADMIN' || user.role === 'SENIOR'
+      ? ['overview', 'projects', 'team', 'interviews', 'requisites']
+      : user.role === 'JUNIOR'
+        ? ['overview', 'projects', 'team', 'requisites']
+        : ['overview', 'projects', 'team']
+  return {
+    user: {
+      ...user,
+      walletUsdtErc20: null,
+      walletUsdtLabel: null,
+      bankUahRecipient: user.role === 'JUNIOR' ? 'Test User' : null,
+      bankUahIban: user.role === 'JUNIOR' ? 'UA213223130000026007233566001' : null,
+      bankUahRnokpp: user.role === 'JUNIOR' ? '1234567890' : null,
+      bankUahBankName: null,
+      seniorSharePercent: 26,
+      monthlySalary: null,
+      archivedAt: null,
+      adminNote: null,
+    },
+    permissions: {
+      tabs,
+      actions: [],
+      fields: {},
+    },
+    data: {},
+  }
+}
+
+// ---------------------------------------------------------------------------
 // API base URL (matches what the web app uses via env)
 // ---------------------------------------------------------------------------
 const API = 'http://localhost:3001/api'
@@ -293,13 +420,47 @@ export async function mockAuthAs(
   await page.route(`${API}/auth/logout`, (r) => noContent(r))
 
   // Users — register specific sub-routes before the generic one
-  await page.route(`${API}/users/me`, (r) => jsonOk(r, user))
+  // /users/me — profile shell expects UserWithPermissionsResponse shape
+  await page.route(`${API}/users/me`, (r) =>
+    r.request().method() === 'PATCH'
+      ? jsonOk(r, { ...user, ...(JSON.parse(r.request().postData() ?? '{}') as object) })
+      : jsonOk(r, buildSelfView(user)),
+  )
+  // /users/me/requisites — PATCH for self requisites update
+  await page.route(`${API}/users/me/requisites`, (r) =>
+    jsonOk(r, { ...user, ...(JSON.parse(r.request().postData() ?? '{}') as object) }),
+  )
+  // /users/:id/role — PATCH for admin role change
+  await page.route(new RegExp(`${API}/users/([^/?]+)/role$`), (r) =>
+    jsonOk(r, { ...user, ...(JSON.parse(r.request().postData() ?? '{}') as object) }),
+  )
+  // /users/:id/audit-log
+  await page.route(new RegExp(`${API}/users/([^/?]+)/audit-log`), (r) =>
+    jsonOk(r, {
+      entries: [
+        {
+          id: 'audit-1',
+          userId: user.id,
+          action: 'role_change',
+          performedBy: user.id,
+          changes: { role: { from: 'JUNIOR', to: 'HR' } },
+          createdAt: '2026-05-01T10:00:00.000Z',
+        },
+      ],
+      total: 1,
+      page: 1,
+      limit: 20,
+    }),
+  )
+  // /users/:id — profile shell expects UserWithPermissionsResponse shape for view mode
   await page.route(new RegExp(`${API}/users/([^/?]+)$`), (r) => {
     const id = r.request().url().split('/').at(-1)
     const found = ALL_USERS.find((u) => u.id === id) ?? user
-    return r.request().method() === 'PATCH'
-      ? jsonOk(r, { ...found, ...(JSON.parse(r.request().postData() ?? '{}') as object) })
-      : jsonOk(r, found)
+    if (r.request().method() === 'PATCH') {
+      return jsonOk(r, { ...found, ...(JSON.parse(r.request().postData() ?? '{}') as object) })
+    }
+    // GET — return UserWithPermissionsResponse; viewer is `user`, target is `found`
+    return jsonOk(r, buildAdminViewingUser(found))
   })
   await page.route(`${API}/users`, (r) =>
     r.request().method() === 'POST'
