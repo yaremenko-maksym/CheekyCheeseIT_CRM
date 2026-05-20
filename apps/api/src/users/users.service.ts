@@ -2,12 +2,16 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { and, eq, isNull, ne } from 'drizzle-orm'
 import { DatabaseService } from '../database/database.service'
 import { projectMembers, teamMembers, teams, users, type User } from '../database/schema'
+import { UsersAccessService } from './users-access.service'
 
 export type UserWithAvailability = User & { hasActiveProject: boolean }
 
 @Injectable()
 export class UsersService {
-  constructor(private db: DatabaseService) {}
+  constructor(
+    private db: DatabaseService,
+    private accessService: UsersAccessService,
+  ) {}
 
   findByEmail(email: string): Promise<User | undefined> {
     return this.db.db
@@ -64,8 +68,7 @@ export class UsersService {
     telegram?: string | null
     phone?: string | null
     avatar?: string | null
-    techStack?: string | null
-    walletAddress?: string | null
+    techStack?: string[] | null
     seniorSharePercent?: number
     monthlySalary?: number | null
     hrIds?: string[]
@@ -85,7 +88,6 @@ export class UsersService {
         phone: data.phone ?? null,
         avatar: data.avatar ?? `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(data.displayName)}`,
         techStack: data.techStack ?? null,
-        walletAddress: data.walletAddress ?? null,
         ...(data.seniorSharePercent !== undefined && { seniorSharePercent: data.seniorSharePercent }),
         ...(data.monthlySalary != null && { monthlySalary: String(data.monthlySalary) }),
       })
@@ -129,8 +131,7 @@ export class UsersService {
       telegram?: string | null | undefined
       phone?: string | null | undefined
       avatar?: string | null | undefined
-      techStack?: string | null | undefined
-      walletAddress?: string | null | undefined
+      techStack?: string[] | null | undefined
       seniorSharePercent?: number | undefined
       monthlySalary?: number | null | undefined
     },
@@ -141,8 +142,7 @@ export class UsersService {
       telegram: string | null
       phone: string | null
       avatar: string | null
-      techStack: string | null
-      walletAddress: string | null
+      techStack: string[] | null
       seniorSharePercent: number
       monthlySalary: string | null
       updatedAt: Date
@@ -154,7 +154,6 @@ export class UsersService {
     if ('phone' in data) set.phone = data.phone ?? null
     if ('avatar' in data) set.avatar = data.avatar ?? null
     if ('techStack' in data) set.techStack = data.techStack ?? null
-    if ('walletAddress' in data) set.walletAddress = data.walletAddress ?? null
     if (data.seniorSharePercent !== undefined) set.seniorSharePercent = data.seniorSharePercent
     if ('monthlySalary' in data) set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
 
@@ -189,24 +188,119 @@ export class UsersService {
 
   async updateProfile(
     id: string,
-    data: { telegram?: string | null | undefined; phone?: string | null | undefined; walletAddress?: string | null | undefined },
+    data: { displayName?: string; telegram?: string | null; phone?: string | null; techStack?: string[] | null },
   ): Promise<User> {
-    const set: Partial<{ telegram: string | null; phone: string | null; walletAddress: string | null; updatedAt: Date }> = {
-      updatedAt: new Date(),
-    }
+    const set: Record<string, unknown> = { updatedAt: new Date() }
+    if (data.displayName !== undefined) set.displayName = data.displayName
     if ('telegram' in data) set.telegram = data.telegram ?? null
     if ('phone' in data) set.phone = data.phone ?? null
-    if ('walletAddress' in data) set.walletAddress = data.walletAddress ?? null
+    if ('techStack' in data) set.techStack = data.techStack ?? null
 
-    const rows = await this.db.db
-      .update(users)
-      .set(set)
-      .where(eq(users.id, id))
-      .returning()
-
+    const rows = await this.db.db.update(users).set(set).where(eq(users.id, id)).returning()
     const updated = rows[0]
     if (!updated) throw new NotFoundException('User not found')
     return updated
+  }
+
+  async updateRequisites(
+    id: string,
+    data: {
+      paymentMethod: 'USDT_ERC20' | 'BANK_UAH_FOP'
+      walletUsdtErc20?: string
+      walletUsdtLabel?: string | null
+      bankUahRecipient?: string
+      bankUahIban?: string
+      bankUahRnokpp?: string
+      bankUahBankName?: string | null
+    },
+  ): Promise<User> {
+    const set: Record<string, unknown> = {
+      paymentMethod: data.paymentMethod,
+      updatedAt: new Date(),
+    }
+    if (data.paymentMethod === 'USDT_ERC20') {
+      set.walletUsdtErc20 = data.walletUsdtErc20 ?? null
+      set.walletUsdtLabel = data.walletUsdtLabel ?? null
+      set.bankUahRecipient = null
+      set.bankUahIban = null
+      set.bankUahRnokpp = null
+      set.bankUahBankName = null
+    } else {
+      set.bankUahRecipient = data.bankUahRecipient ?? null
+      set.bankUahIban = data.bankUahIban ?? null
+      set.bankUahRnokpp = data.bankUahRnokpp ?? null
+      set.bankUahBankName = data.bankUahBankName ?? null
+      set.walletUsdtErc20 = null
+      set.walletUsdtLabel = null
+    }
+    const rows = await this.db.db.update(users).set(set).where(eq(users.id, id)).returning()
+    const updated = rows[0]
+    if (!updated) throw new NotFoundException('User not found')
+    return updated
+  }
+
+  async changeRole(id: string, role: User['role']): Promise<User> {
+    const rows = await this.db.db.update(users).set({ role, updatedAt: new Date() }).where(eq(users.id, id)).returning()
+    const updated = rows[0]
+    if (!updated) throw new NotFoundException('User not found')
+    return updated
+  }
+
+  async changeSalary(id: string, data: { monthlySalary?: number | null; seniorSharePercent?: number }): Promise<User> {
+    const set: Record<string, unknown> = { updatedAt: new Date() }
+    if (data.monthlySalary !== undefined) set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
+    if (data.seniorSharePercent !== undefined) set.seniorSharePercent = data.seniorSharePercent
+    const rows = await this.db.db.update(users).set(set).where(eq(users.id, id)).returning()
+    const updated = rows[0]
+    if (!updated) throw new NotFoundException('User not found')
+    return updated
+  }
+
+  async setAdminNote(id: string, note: string | null): Promise<User> {
+    const rows = await this.db.db.update(users).set({ adminNote: note, updatedAt: new Date() }).where(eq(users.id, id)).returning()
+    const updated = rows[0]
+    if (!updated) throw new NotFoundException('User not found')
+    return updated
+  }
+
+  async archive(id: string): Promise<User> {
+    const rows = await this.db.db.update(users).set({ archivedAt: new Date(), updatedAt: new Date() }).where(eq(users.id, id)).returning()
+    const updated = rows[0]
+    if (!updated) throw new NotFoundException('User not found')
+    return updated
+  }
+
+  async buildProfileView(viewer: User, targetId: string) {
+    const target = await this.findById(targetId)
+    if (!target) throw new NotFoundException('User not found')
+    const permissions = await this.accessService.getViewPermissions(viewer, target)
+
+    // Filter user fields based on permissions
+    const filteredUser: User = { ...target }
+    if (!permissions.fields.salary) {
+      filteredUser.monthlySalary = null
+      filteredUser.seniorSharePercent = 0
+    }
+    if (!permissions.fields.requisites) {
+      filteredUser.paymentMethod = null
+      filteredUser.walletUsdtErc20 = null
+      filteredUser.walletUsdtLabel = null
+      filteredUser.bankUahRecipient = null
+      filteredUser.bankUahIban = null
+      filteredUser.bankUahRnokpp = null
+      filteredUser.bankUahBankName = null
+    }
+
+    const data: Record<string, unknown> = {}
+    if (permissions.tabs.includes('overview')) {
+      data.overview = {
+        techStack: target.techStack ?? [],
+        adminNote: viewer.role === 'ADMIN' ? target.adminNote : null,
+      }
+    }
+    // Other tabs (finance, projects, team, interviews, requisites, audit) — wired in later tasks
+
+    return { user: filteredUser, permissions, data }
   }
 
   updateGoogleId(id: string, googleId: string): Promise<void> {
