@@ -30,13 +30,13 @@ export function AnimatedTabs({ tabs, value, onChange, className }: AnimatedTabsP
               onClick={() => onChange(tab.value)}
               className={cn(
                 'relative inline-flex items-center justify-center rounded-md px-4 py-1.5 text-sm font-medium transition-colors',
-                active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+                active ? 'text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
               )}
             >
               {active && (
                 <motion.span
-                  layoutId="animated-tab-pill"
-                  className="absolute inset-0 rounded-md bg-background shadow-sm"
+                  layoutId={`animated-tab-pill-${groupId}`}
+                  className="absolute inset-0 rounded-md bg-primary shadow-sm"
                   transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                   aria-hidden
                 />
