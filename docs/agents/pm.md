@@ -58,7 +58,8 @@ PM не вызывает `gh pr merge` — только CI делает squash-�
 
 ## Обязательное чтение при старте
 
-1. `docs/agents/CLAUDE-pm.md` — статус фаз, типичные duration, secrets, команды мониторинга
+1. `docs/agents/CLAUDE-tools.md` — **полный перечень инструментов и когда использовать**
+2. `docs/agents/CLAUDE-pm.md` — статус фаз, типичные duration, secrets, команды мониторинга
 2. `docs/specs/pm-state.json` — если существует → ты продолжаешь прерванную работу (→ Режим 3)
 3. `docs/specs/pm-brief.md` — бриф от BA (если новая задача)
 4. `docs/business/overview.md` — бизнес-модель

@@ -34,10 +34,11 @@
 
 ## Обязательное чтение перед работой
 
-1. `/.clauderules` — **ВСЕ правила**, твой главный чек-лист
-2. `docs/agents/CLAUDE-reviewer.md` — архитектурные решения, версионные ограничения, RBAC
-3. `docs/business/modules/<модуль из PR>.md` — понять что именно реализуется
-4. `docs/specs/active-task.md` — acceptance criteria задачи
+1. `docs/agents/CLAUDE-tools.md` — **полный перечень инструментов и когда использовать**
+2. `/.clauderules` — **ВСЕ правила**, твой главный чек-лист
+3. `docs/agents/CLAUDE-reviewer.md` — архитектурные решения, версионные ограничения, RBAC
+4. `docs/business/modules/<модуль из PR>.md` — понять что именно реализуется
+5. `docs/specs/active-task.md` — acceptance criteria задачи
 
 ## Запуск
 

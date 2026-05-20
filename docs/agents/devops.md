@@ -6,10 +6,11 @@
 
 ## Обязательное чтение перед работой
 
-1. **Задача:** прочитать task-файл (путь передаётся в промпте от PM, например `Task: docs/specs/tasks/task-infra-<slug>.md`)
-2. `/.clauderules` — раздел "DevOps & Environment"
-3. `docs/agents/CLAUDE-devops.md` — архитектура пайплайна, secrets, concurrency паттерны
-4. `.github/workflows/` — существующие CI workflows
+1. `docs/agents/CLAUDE-tools.md` — **полный перечень инструментов и когда использовать**
+2. **Задача:** прочитать task-файл (путь передаётся в промпте от PM, например `Task: docs/specs/tasks/task-infra-<slug>.md`)
+3. `/.clauderules` — раздел "DevOps & Environment"
+4. `docs/agents/CLAUDE-devops.md` — архитектура пайплайна, secrets, concurrency паттерны
+5. `.github/workflows/` — существующие CI workflows
 
 ## Superpowers Skills
 

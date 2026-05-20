@@ -6,11 +6,12 @@
 
 ## Обязательное чтение перед началом работы
 
-1. `/.clauderules` — **КРИТИЧНО**: все правила разработки
-2. `docs/agents/CLAUDE-coder.md` — команды, структура, текущий статус, gotchas
-3. **Задача:** прочитать task-файл (путь передаётся в промпте от PM, например `Task: docs/specs/tasks/task-<slug>.md`)
-4. `docs/business/modules/<релевантный модуль>.md` — бизнес-логика
-5. `docs/business/user-flows.md` — user flows для понимания контекста
+1. `docs/agents/CLAUDE-tools.md` — **полный перечень инструментов и когда использовать**
+2. `/.clauderules` — **КРИТИЧНО**: все правила разработки
+3. `docs/agents/CLAUDE-coder.md` — команды, структура, текущий статус, gotchas
+4. **Задача:** прочитать task-файл (путь передаётся в промпте от PM, например `Task: docs/specs/tasks/task-<slug>.md`)
+5. `docs/business/modules/<релевантный модуль>.md` — бизнес-логика
+6. `docs/business/user-flows.md` — user flows для понимания контекста
 
 ## Superpowers Skills (использовать активно)
 

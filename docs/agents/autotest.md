@@ -49,12 +49,13 @@
 
 ### Обязательное чтение перед работой
 
-1. `docs/agents/autotest.md` (этот файл)
-2. `docs/agents/CLAUDE-autotest.md` — структура тестов, паттерны, seed данные
-3. `docs/business/modules/<модуль из PR>.md` — полная бизнес-логика
-4. `docs/business/user-flows.md` — user flows модуля
-5. PR diff — что именно было реализовано (через GitHub MCP)
-6. Существующие тесты `apps/e2e/tests/<module>.spec.ts` — не дублировать
+1. `docs/agents/CLAUDE-tools.md` — **полный перечень инструментов и когда использовать**
+2. `docs/agents/autotest.md` (этот файл)
+3. `docs/agents/CLAUDE-autotest.md` — структура тестов, паттерны, seed данные
+4. `docs/business/modules/<модуль из PR>.md` — полная бизнес-логика
+5. `docs/business/user-flows.md` — user flows модуля
+6. PR diff — что именно было реализовано (через GitHub MCP)
+7. Существующие тесты `apps/e2e/tests/<module>.spec.ts` — не дублировать
 
 ### Шаг 1: Прочитать acceptance criteria из task-файла (ПЕРВЫМ ДЕЛОМ)
 
