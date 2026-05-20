@@ -4,7 +4,11 @@
 -- Adds user_audit_log table
 
 --> statement-breakpoint
-CREATE TYPE "public"."payment_method" AS ENUM('USDT_ERC20', 'BANK_UAH_FOP');
+DO $$ BEGIN
+ CREATE TYPE "public"."payment_method" AS ENUM('USDT_ERC20', 'BANK_UAH_FOP');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
 
 --> statement-breakpoint
 ALTER TABLE "users" ADD COLUMN "payment_method" "payment_method";
@@ -64,4 +68,4 @@ EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;
 --> statement-breakpoint
-CREATE INDEX "user_audit_log_target_id_idx" ON "user_audit_log" USING btree ("target_id");
+CREATE INDEX IF NOT EXISTS "user_audit_log_target_id_idx" ON "user_audit_log" USING btree ("target_id");
