@@ -12,18 +12,21 @@ Main branch: `main`
 | `CLAUDE_CODE_OAUTH_TOKEN` | claude-code-action auth (все агенты) |
 | `JWT_SECRET` | E2E тесты (auth через cookie) |
 
-## Типичные длительности (expected_duration_min)
+## Типичные длительности агентов
 
-| Тип задачи | Мин | Начальный ScheduleWakeup |
-|-----------|-----|--------------------------|
-| Coder: 1-2 файла | 8-12 | 360 сек (6 мин) |
-| Coder: модуль (3-6 файлов) | 15-25 | 360 сек (6 мин) |
-| Coder: большой модуль (7+) | 25-40 | 360 сек (6 мин) |
-| AutoTest: обновление тестов | 8-15 | 300 сек (5 мин) |
-| DevOps: workflow изменения | 5-10 | 120 сек (2 мин) |
-| E2E workflow (e2e.yml) | 10-20 | 60 сек (polling раз в мин) |
+| Тип задачи | Ожидаемое время |
+|-----------|-----------------|
+| Coder: 1-2 файла | 8-12 мин |
+| Coder: модуль (3-6 файлов) | 15-25 мин |
+| Coder: большой модуль (7+) | 25-40 мин |
+| AutoTest: написание/обновление тестов | 8-15 мин |
+| Reviewer: code review | 5-10 мин |
+| DevOps: workflow изменения | 5-10 мин |
+| E2E через e2e.yml (GHA) | 10-20 мин — использовать `ScheduleWakeup(delay=270)` |
 
-После первого пробуждения: если задача ещё `in_progress` → `ScheduleWakeup(delay=60)` до завершения.
+**Foreground агенты** блокируют PM до завершения — результат приходит сразу.
+**Background агенты** (`run_in_background=True`) — PM получает уведомление автоматически.
+`ScheduleWakeup` использовать ТОЛЬКО для GHA E2E workflow (внешний процесс, не отслеживается).
 
 ## Именование веток
 
@@ -47,15 +50,6 @@ Main branch: `main`
 ## Полезные команды мониторинга
 
 ```bash
-# Список запущенных workflows (последние 10)
-gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM --limit 10
-
-# Статус конкретного run
-gh run view <run_id> --repo yaremenko-maksym/CheekyCheeseIT_CRM --json status,conclusion
-
-# Лог падения
-gh run view <run_id> --repo yaremenko-maksym/CheekyCheeseIT_CRM --log-failed
-
 # Список open PR
 gh pr list --repo yaremenko-maksym/CheekyCheeseIT_CRM --state open
 
@@ -63,20 +57,21 @@ gh pr list --repo yaremenko-maksym/CheekyCheeseIT_CRM --state open
 gh pr view <pr_number> --repo yaremenko-maksym/CheekyCheeseIT_CRM \
   --json labels --jq '[.labels[].name]'
 
-# Тригер workflow
-gh workflow run <name>.yml \
-  --repo yaremenko-maksym/CheekyCheeseIT_CRM \
-  -f task_file="..." \
-  -f task_hint="..."
-
-# Получить run_id только что запущенного workflow
-gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
-  --workflow=<name>.yml --limit=1 \
-  --json databaseId --jq '.[0].databaseId'
-
 # PR reviews
 gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<N>/reviews \
   --jq '.[] | {state, body}'
+
+# Найти PR по ветке
+gh pr list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
+  --head "feature/<slug>" --json number --jq '.[0].number'
+
+# Мониторинг GHA E2E (только e2e.yml — внешний процесс)
+gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM --workflow=e2e.yml --limit 5
+gh run view <run_id> --repo yaremenko-maksym/CheekyCheeseIT_CRM --json status,conclusion
+gh run view <run_id> --repo yaremenko-maksym/CheekyCheeseIT_CRM --log-failed
+
+# Мерж PR (только после явного «мерджи» от пользователя)
+gh pr merge <N> --repo yaremenko-maksym/CheekyCheeseIT_CRM --squash --delete-branch
 ```
 
 ## Структура docs/specs/tasks/
@@ -109,13 +104,10 @@ docs/specs/tasks/
       "id": "task-knowledge-api",
       "file": "docs/specs/tasks/task-knowledge-api.md",
       "agent": "coder",
-      "workflow": "coder.yml",
-      "run_id": "12345678",
       "branch": "feature/knowledge-api",
       "pr_number": null,
       "status": "running",
       "started_at": "2026-05-18T10:00:00Z",
-      "expected_duration_min": 20,
       "review_rounds": 0,
       "max_review_rounds": 5
     }

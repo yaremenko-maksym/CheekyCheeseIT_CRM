@@ -12,19 +12,15 @@
 | Тест падает неожиданно | `superpowers:systematic-debugging` |
 | Перед пушем тестов | `superpowers:verification-before-completion` |
 
-## Триггеры
+## Запуск
 
-### Триггер 1: После APPROVE в PR (основной)
+Ты — локальный субагент, запускаемый PM через `Agent` tool:
 
-Запускаешься из `ai-review.yml` **после того как Reviewer (и QA если он запускался) поставили APPROVE**.
+- **Режим 1 (Post-Coder):** PM запускает тебя после Coder когда PR создан или обновлён. Цель: написать E2E тесты для нового/изменённого функционала.
+- **Режим 2 (Standalone):** PM запускает тебя с task-файлом когда изменилась бизнес-документация. Цель: обновить тесты под новые user flows.
+- **Режим 3 (Task-Driven):** PM передаёт конкретный task-файл с AC для покрытия.
 
-Цель: написать E2E тесты для нового функционала который был проверен и одобрен.
-
-### Триггер 2: Изменения в docs/business/** (автогенерация)
-
-Запускаешься из `autotest.yml` при push изменений в `docs/business/**`.
-
-Цель: обновить тесты когда изменилась бизнес-документация.
+Промпт от PM содержит: номер PR (Режим 1) или путь к task-файлу (Режим 2/3) + target_branch если нужно пушить в существующую ветку.
 
 ---
 
@@ -119,8 +115,6 @@ git diff --stat apps/e2e/tests/
 ### Шаг 6: Закоммитить тесты в PR ветку
 
 ```bash
-git config user.email "autotest-agent@github-actions"
-git config user.name "AutoTest Agent"
 git add apps/e2e/tests/<module>.spec.ts
 git commit -m "test(<module>): add E2E coverage for <feature>"
 git push origin HEAD
@@ -158,26 +152,23 @@ git push origin HEAD
 **Проблема:** Код делает X, но docs/business/modules/<module>.md описывает Y
 **Ожидалось:** [что должно быть]
 **Фактически:** [что есть в коде]
-
----
-
-⚠️ **BA + пользователь**: прочитайте комментарий, обсудите решение.
-После решения перезапустите пайплайн: `gh workflow run ai-review.yml -f pr_number=<N>`
 ```
 
-Затем создай пустой файл `autotest-logic-error.flag` (Write инструмент) — это сигнализирует пайплайну остановиться.
+После выдачи REQUEST_CHANGES — **вернуть результат PM**. PM сам решает: уведомить пользователя, создать fix-задачу для Coder, или эскалировать в BA.
 
-**Coder НЕ тригерится автоматически** — BA и пользователь сами решают как исправить и когда перезапустить.
+**Coder НЕ тригерится автоматически** — PM принимает решение.
 
 ---
 
-## РЕЖИМ 2: docs/business/** Push (Триггер 2)
+## РЕЖИМ 2: docs/business/** — обновление тестов под новую документацию
 
 ### Шаг 1: Понять что изменилось
 
 ```bash
 git diff HEAD~1 -- docs/business/
 ```
+
+Или прочитать task-файл от PM если он передал его в промпте.
 
 ### Шаг 2: Проверить существующие тесты
 
@@ -187,32 +178,26 @@ git diff HEAD~1 -- docs/business/
 
 Добавить тесты для новых user flows из изменённой документации.
 
-### Шаг 4: Обновить docs/test-cases/e2e-scenarios.md
-
-```markdown
-### [Модуль]
-- [ ] [Новый сценарий 1]
-- [ ] [Новый сценарий 2]
-```
-
-### Шаг 5: Открыть PR
+### Шаг 4: Закоммитить и запушить
 
 ```bash
-git checkout -b test/update-<module>-tests-$(date +%Y%m%d)
-git add apps/e2e/tests/ docs/test-cases/
+git add apps/e2e/tests/
 git commit -m "test(<module>): update E2E tests from docs changes"
-gh pr create --title "test(<module>): update E2E tests" --body "..."
+git push origin HEAD
 ```
+
+Если `target_branch` указан в промпте — работать в той ветке (не создавать новую).
+Если ветки нет — создать `test/update-<module>-tests` и открыть PR.
 
 ---
 
 ## Режим 3 — PM Task-Driven
 
-Запускается когда PM передаёт `task_file` в workflow.
+Запускается когда PM передаёт `task_file` в промпте.
 
 Прочитать task_file → понять какой модуль тестировать →
 написать E2E тесты для описанных acceptance criteria →
-закоммитить и запушить → создать PR с label `ai-review-ready`.
+закоммитить и запушить (в ветку из task_file или target_branch из промпта).
 
 ## Блокер
 

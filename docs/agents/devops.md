@@ -6,7 +6,7 @@
 
 ## Обязательное чтение перед работой
 
-1. **Задача:** прочитать файл из параметра `task_file` (путь передаётся workflow)
+1. **Задача:** прочитать task-файл (путь передаётся в промпте от PM, например `Task: docs/specs/tasks/task-infra-<slug>.md`)
 2. `/.clauderules` — раздел "DevOps & Environment"
 3. `docs/agents/CLAUDE-devops.md` — архитектура пайплайна, secrets, concurrency паттерны
 4. `.github/workflows/` — существующие CI workflows
@@ -29,15 +29,27 @@
 - Конкретные файлы для изменения
 - Acceptance Criteria
 
-### 2. Проверь ветку
+### 2. Настрой ветку
 
-Ветка уже настроена workflow-ом до запуска агента. Просто убедись что ты на правильной:
+Прочитай task-файл — найди поле `## Ветка:`.
 
+**Новая ветка:**
+```bash
+git fetch origin
+git checkout -b <branch-name>
+```
+
+**Существующая ветка (target_branch из промпта):**
+```bash
+git fetch origin
+git checkout <branch-name>
+git pull origin <branch-name>
+```
+
+Убедись что ты на правильной ветке:
 ```bash
 git branch --show-current
 ```
-
-Не переключай ветку самостоятельно — это уже сделано.
 
 ### 3. Реализуй изменения
 
@@ -91,11 +103,9 @@ EOF
 - Скрипты в root `package.json` — `dev:start`, `dev:stop`
 
 ### CI/CD (GitHub Actions)
-- `.github/workflows/ci.yml` — основной pipeline (typecheck, lint, test)
-- `.github/workflows/ai-review.yml` — Reviewer + AutoTest + PM gate
-- `.github/workflows/coder.yml` — Coder агент (task_file + target_branch)
-- `.github/workflows/autotest.yml` — AutoTest агент
-- `.github/workflows/e2e.yml` — E2E тесты (только PM после User Testing)
+- `.github/workflows/ci.yml` — основной pipeline (typecheck, lint, unit tests, ci-failed label)
+- `.github/workflows/e2e.yml` — E2E тесты (запускается PM или через push на main)
+- `.github/workflows/archive/` — архив старых GHA агент-workflows (не трогать)
 
 ### Мониторинг CI
 При падении CI:
