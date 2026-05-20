@@ -22,6 +22,10 @@
           {
             "type": "command",
             "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/safety.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/coder-pre-push.sh"
           }
         ]
       }
