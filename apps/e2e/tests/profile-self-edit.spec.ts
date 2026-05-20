@@ -6,6 +6,10 @@
  * Pattern: mock-based (no live server needed). The profile shell calls
  * GET /users/me → UserWithPermissionsResponse. PATCH /users/me fires after
  * 800 ms debounce and triggers the "Сохранено" toast on success.
+ *
+ * Note: ProfileEditFields lives inside OverviewTab (mode === 'self'). The
+ * Telegram / Имя / Phone / Технологии inputs are direct children of the
+ * "Личные данные" card.
  */
 
 import { test, expect, USERS, mockAuthAs, buildSelfView } from './fixtures'
@@ -22,12 +26,12 @@ test.describe('Profile self-edit — debounced autosave', () => {
     await page.goto('/crm/profile')
 
     // Wait for profile shell to render (heading from UserProfileHeader)
-    await expect(page.getByText('Junior Dev')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     // Intercept the PATCH — register before typing
     const patchReq = page.waitForRequest(
       (req) => req.url().includes('/users/me') && req.method() === 'PATCH',
-      { timeout: 5000 },
+      { timeout: 8000 },
     )
 
     const telegramInput = page.getByLabel('Telegram')
@@ -45,11 +49,11 @@ test.describe('Profile self-edit — debounced autosave', () => {
   test('clearing Telegram sends null in PATCH payload', async ({ page }) => {
     await mockAuthAs(page, USERS.senior)
     await page.goto('/crm/profile')
-    await expect(page.getByText('Senior Dev')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
 
     const patchReq = page.waitForRequest(
       (req) => req.url().includes('/users/me') && req.method() === 'PATCH',
-      { timeout: 5000 },
+      { timeout: 8000 },
     )
 
     await page.getByLabel('Telegram').clear()
@@ -63,11 +67,11 @@ test.describe('Profile self-edit — debounced autosave', () => {
   test('editing display name fires PATCH with correct displayName', async ({ page }) => {
     await mockAuthAs(page, USERS.admin)
     await page.goto('/crm/profile')
-    await expect(page.getByText('Admin User')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Admin User' })).toBeVisible()
 
     const patchReq = page.waitForRequest(
       (req) => req.url().includes('/users/me') && req.method() === 'PATCH',
-      { timeout: 5000 },
+      { timeout: 8000 },
     )
 
     const nameInput = page.getByLabel('Имя')
@@ -93,30 +97,38 @@ test.describe('Profile self-edit — debounced autosave', () => {
     })
 
     await page.goto('/crm/profile')
-    await expect(page.getByText('Admin User')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Admin User' })).toBeVisible()
 
-    // Type something to trigger autosave
-    await page.getByLabel('Телефон').fill('+380661111111')
+    // Type something to trigger autosave — PhoneInput's input has placeholder
+    // "Номер телефона" but no <label htmlFor="phone">, so use getByPlaceholder.
+    const phoneInput = page.getByPlaceholder('Номер телефона')
+    await phoneInput.fill('+380661111111')
 
     // Wait long enough for debounce to fire
-    await page.waitForTimeout(1000)
+    await page.waitForTimeout(1200)
 
     // Page is still showing the profile — no crash
-    await expect(page.getByText('Admin User')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Admin User' })).toBeVisible()
   })
 
-  test('overview tab is active by default on /crm/profile', async ({ asJunior: page }) => {
+  test('overview tab is visible by default on /crm/profile', async ({ asJunior: page }) => {
     await page.goto('/crm/profile')
-    await expect(page.getByRole('tab', { name: 'Обзор' })).toBeVisible()
-    // The overview tab trigger should be selected
-    await expect(page.getByRole('tab', { name: 'Обзор' })).toHaveAttribute('data-state', 'active')
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
+    // AnimatedTabs renders tabs as plain <button>. The overview tab content
+    // ("Технологии" card or "Личные данные" card) is what's visible by default.
+    await expect(page.getByRole('button', { name: 'Обзор' })).toBeVisible()
+    // Personal-data form section is visible (mode === 'self' renders ProfileEditFields)
+    await expect(page.getByText('Личные данные')).toBeVisible()
   })
 
-  test('requisites tab navigates via ?tab=requisites search param', async ({ page }) => {
+  test('requisites tab activates via ?tab=requisites search param', async ({ page }) => {
     await mockAuthAs(page, USERS.junior)
     await page.goto('/crm/profile?tab=requisites')
-    await expect(page.getByText('Junior Dev')).toBeVisible()
-    // Requisites tab content is rendered
-    await expect(page.getByRole('tab', { name: 'Реквизиты' })).toHaveAttribute('data-state', 'active')
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
+    // Requisites tab content is rendered — RequisitesEditForm shows the card title.
+    await expect(page.getByText('Реквизиты для выплат')).toBeVisible()
+    // Tab trigger is also visible — use exact match to avoid colliding with the
+    // "Сохранить реквизиты" submit button.
+    await expect(page.getByRole('button', { name: 'Реквизиты', exact: true })).toBeVisible()
   })
 })

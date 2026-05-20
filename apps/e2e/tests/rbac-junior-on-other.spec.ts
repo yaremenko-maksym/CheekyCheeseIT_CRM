@@ -1,7 +1,7 @@
 /**
  * rbac-junior-on-other.spec.ts
  *
- * RBAC: JUNIOR viewing another user's profile on /crm/users/:id.
+ * RBAC: JUNIOR viewing another user's profile on /crm/profile/:userId.
  *
  * Permissions matrix (JUNIOR → any other user outside their team):
  *   tabs:    [] (empty — no tabs rendered at all)
@@ -10,6 +10,9 @@
  * The UserProfileShell renders the header unconditionally, but the Tabs
  * section is only rendered when permissions.tabs.length > 0. With an empty
  * tabs array the TabsList is absent entirely.
+ *
+ * Note: the "К списку" back button was removed in commit a209dca — header
+ * no longer renders it (test for that button has been dropped).
  */
 
 import { test, expect, USERS, mockAuthAs } from './fixtures'
@@ -36,8 +39,6 @@ async function mockJuniorViewingOther(
           bankUahIban: null,
           bankUahRnokpp: null,
           bankUahBankName: null,
-          seniorSharePercent: 26,
-          monthlySalary: null,
           archivedAt: null,
           adminNote: null,
         },
@@ -55,57 +56,66 @@ async function mockJuniorViewingOther(
 test.describe('RBAC — JUNIOR viewing another user profile', () => {
   test('target user name appears in header', async ({ page }) => {
     await mockJuniorViewingOther(page, USERS.accountant)
-    await page.goto(`/crm/users/${USERS.accountant.id}`)
-    await expect(page.getByText('Accountant User')).toBeVisible()
+    await page.goto(`/crm/profile/${USERS.accountant.id}`)
+    await expect(page.getByRole('heading', { name: 'Accountant User' })).toBeVisible()
   })
 
-  test('no tabs are rendered at all', async ({ page }) => {
+  test('no profile tabs are rendered at all', async ({ page }) => {
     await mockJuniorViewingOther(page, USERS.accountant)
-    await page.goto(`/crm/users/${USERS.accountant.id}`)
-    await expect(page.getByText('Accountant User')).toBeVisible()
-    await expect(page.getByRole('tab')).toHaveCount(0)
+    await page.goto(`/crm/profile/${USERS.accountant.id}`)
+    await expect(page.getByRole('heading', { name: 'Accountant User' })).toBeVisible()
+    // The profile tabs are inside <main>; with permissions.tabs=[] there are none.
+    const main = page.locator('main')
+    for (const label of ['Обзор', 'Проекты', 'Команда', 'Реквизиты', 'История', 'Финансы']) {
+      await expect(main.getByRole('button', { name: label })).toHaveCount(0)
+    }
   })
 
   test('no "Действия" button rendered', async ({ page }) => {
     await mockJuniorViewingOther(page, USERS.accountant)
-    await page.goto(`/crm/users/${USERS.accountant.id}`)
-    await expect(page.getByText('Accountant User')).toBeVisible()
+    await page.goto(`/crm/profile/${USERS.accountant.id}`)
+    await expect(page.getByRole('heading', { name: 'Accountant User' })).toBeVisible()
     await expect(page.getByRole('button', { name: /Действия/ })).toHaveCount(0)
   })
 
-  test('Финансы tab not present', async ({ page }) => {
+  test('Финансы tab not present inside profile shell', async ({ page }) => {
     await mockJuniorViewingOther(page, USERS.senior)
-    await page.goto(`/crm/users/${USERS.senior.id}`)
-    await expect(page.getByText('Senior Dev')).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'Финансы' })).toHaveCount(0)
+    await page.goto(`/crm/profile/${USERS.senior.id}`)
+    await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
+    const main = page.locator('main')
+    await expect(main.getByRole('button', { name: 'Финансы' })).toHaveCount(0)
   })
 
   test('Реквизиты tab not present', async ({ page }) => {
     await mockJuniorViewingOther(page, USERS.senior)
-    await page.goto(`/crm/users/${USERS.senior.id}`)
-    await expect(page.getByText('Senior Dev')).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'Реквизиты' })).toHaveCount(0)
+    await page.goto(`/crm/profile/${USERS.senior.id}`)
+    await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Реквизиты' })).toHaveCount(0)
   })
 
   test('История tab not present', async ({ page }) => {
     await mockJuniorViewingOther(page, USERS.senior)
-    await page.goto(`/crm/users/${USERS.senior.id}`)
-    await expect(page.getByText('Senior Dev')).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'История' })).toHaveCount(0)
+    await page.goto(`/crm/profile/${USERS.senior.id}`)
+    await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'История' })).toHaveCount(0)
   })
 
-  test('Обзор tab not present (no tabs at all)', async ({ page }) => {
+  test('Обзор tab not present inside profile shell (no tabs at all)', async ({ page }) => {
     await mockJuniorViewingOther(page, USERS.hr)
-    await page.goto(`/crm/users/${USERS.hr.id}`)
-    await expect(page.getByText('HR Manager')).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'Обзор' })).toHaveCount(0)
+    await page.goto(`/crm/profile/${USERS.hr.id}`)
+    await expect(page.getByRole('heading', { name: 'HR Manager' })).toBeVisible()
+    const main = page.locator('main')
+    await expect(main.getByRole('button', { name: 'Обзор' })).toHaveCount(0)
   })
 
-  test('JUNIOR can still navigate back — "К списку" button present', async ({ page }) => {
+  test('profile header renders even when no tabs are available', async ({ page }) => {
+    // The "К списку" back button was removed in commit a209dca — header now only
+    // renders avatar/name/contacts/actions. This regression test asserts the page
+    // still shows the target user's identity even with empty permissions.
     await mockJuniorViewingOther(page, USERS.senior)
-    await page.goto(`/crm/users/${USERS.senior.id}`)
-    await expect(page.getByText('Senior Dev')).toBeVisible()
-    // UserProfileHeader renders "К списку" when onBack prop is provided (mode="view")
-    await expect(page.getByRole('button', { name: 'К списку' })).toBeVisible()
+    await page.goto(`/crm/profile/${USERS.senior.id}`)
+    await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
+    // Avatar fallback initials are rendered (SD for "Senior Dev")
+    await expect(page.getByText('SD').first()).toBeVisible()
   })
 })

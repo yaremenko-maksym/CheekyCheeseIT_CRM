@@ -11,11 +11,14 @@ export const USERS = {
     displayName: 'Admin User',
     role: 'ADMIN' as const,
     avatar: null,
+    avatarOverride: null,
     telegram: null,
     phone: null,
     techStack: null,
-    defaultSharePercent: null,
+    paymentMethod: null,
+    seniorSharePercent: 0,
     monthlySalary: null,
+    salaryCurrency: 'USD' as const,
     createdAt: '2024-01-01T00:00:00.000Z',
     updatedAt: '2024-01-01T00:00:00.000Z',
   },
@@ -25,11 +28,14 @@ export const USERS = {
     displayName: 'Senior Dev',
     role: 'SENIOR' as const,
     avatar: null,
+    avatarOverride: null,
     telegram: '@seniordev',
     phone: '+380661234567',
-    techStack: 'TypeScript FE',
+    techStack: ['TypeScript', 'React'],
+    paymentMethod: 'USDT_ERC20' as const,
     seniorSharePercent: 26,
     monthlySalary: null,
+    salaryCurrency: 'USD' as const,
     createdAt: '2024-01-02T00:00:00.000Z',
     updatedAt: '2024-01-02T00:00:00.000Z',
   },
@@ -39,11 +45,14 @@ export const USERS = {
     displayName: 'Junior Dev',
     role: 'JUNIOR' as const,
     avatar: null,
+    avatarOverride: null,
     telegram: null,
     phone: null,
     techStack: null,
-    defaultSharePercent: null,
-    monthlySalary: 800,
+    paymentMethod: 'BANK_UAH_FOP' as const,
+    seniorSharePercent: 0,
+    monthlySalary: '800',
+    salaryCurrency: 'USD' as const,
     createdAt: '2024-01-03T00:00:00.000Z',
     updatedAt: '2024-01-03T00:00:00.000Z',
   },
@@ -53,11 +62,14 @@ export const USERS = {
     displayName: 'HR Manager',
     role: 'HR' as const,
     avatar: null,
+    avatarOverride: null,
     telegram: null,
     phone: null,
     techStack: null,
-    defaultSharePercent: null,
-    monthlySalary: 1000,
+    paymentMethod: 'BANK_UAH_FOP' as const,
+    seniorSharePercent: 0,
+    monthlySalary: '1000',
+    salaryCurrency: 'USD' as const,
     createdAt: '2024-01-04T00:00:00.000Z',
     updatedAt: '2024-01-04T00:00:00.000Z',
   },
@@ -67,11 +79,14 @@ export const USERS = {
     displayName: 'Accountant User',
     role: 'ACCOUNTANT' as const,
     avatar: null,
+    avatarOverride: null,
     telegram: null,
     phone: null,
     techStack: null,
-    defaultSharePercent: null,
-    monthlySalary: 1200,
+    paymentMethod: 'BANK_UAH_FOP' as const,
+    seniorSharePercent: 0,
+    monthlySalary: '1200',
+    salaryCurrency: 'USD' as const,
     createdAt: '2024-01-05T00:00:00.000Z',
     updatedAt: '2024-01-05T00:00:00.000Z',
   },
@@ -99,11 +114,14 @@ const EXTRA_ACCOUNTANT = {
   displayName: 'Accountant Two',
   role: 'ACCOUNTANT' as const,
   avatar: null,
+  avatarOverride: null,
   telegram: null,
   phone: null,
   techStack: null,
-  defaultSharePercent: null,
-  monthlySalary: 1200,
+  paymentMethod: 'BANK_UAH_FOP' as const,
+  seniorSharePercent: 0,
+  monthlySalary: '1200',
+  salaryCurrency: 'USD' as const,
   createdAt: '2024-01-06T00:00:00.000Z',
   updatedAt: '2024-01-06T00:00:00.000Z',
 }
@@ -265,24 +283,26 @@ export const INTERVIEWS = [
 // UserWithPermissionsResponse builders — used by profile-page specs
 // ---------------------------------------------------------------------------
 
+/** Shared profile-DTO fields not present on the fixture seed users. */
+function profileExtras(user: (typeof USERS)[keyof typeof USERS]) {
+  return {
+    walletUsdtErc20: user.paymentMethod === 'USDT_ERC20' ? '0x1234567890abcdef' : null,
+    walletUsdtLabel: null,
+    bankUahRecipient: user.paymentMethod === 'BANK_UAH_FOP' ? 'Test User' : null,
+    bankUahIban: user.paymentMethod === 'BANK_UAH_FOP' ? 'UA213223130000026007233566001' : null,
+    bankUahRnokpp: user.paymentMethod === 'BANK_UAH_FOP' ? '1234567890' : null,
+    bankUahBankName: null,
+    archivedAt: null,
+    adminNote: null,
+  }
+}
+
 /** Full admin viewing anyone: all tabs + all actions */
 export function buildAdminViewingUser(
   targetUser: (typeof USERS)[keyof typeof USERS],
 ): object {
   return {
-    user: {
-      ...targetUser,
-      walletUsdtErc20: null,
-      walletUsdtLabel: null,
-      bankUahRecipient: null,
-      bankUahIban: null,
-      bankUahRnokpp: null,
-      bankUahBankName: null,
-      seniorSharePercent: 26,
-      monthlySalary: null,
-      archivedAt: null,
-      adminNote: null,
-    },
+    user: { ...targetUser, ...profileExtras(targetUser) },
     permissions: {
       tabs: ['overview', 'finance', 'projects', 'team', 'interviews', 'requisites', 'audit'],
       actions: [
@@ -295,7 +315,13 @@ export function buildAdminViewingUser(
         'set-note',
         'archive',
       ],
-      fields: {},
+      fields: {
+        salary: true,
+        share: true,
+        paymentMethodKpi: true,
+        techStack: true,
+        registrationDate: true,
+      },
     },
     data: {},
   }
@@ -306,23 +332,11 @@ export function buildHrViewingSenior(
   senior: (typeof USERS)[keyof typeof USERS],
 ): object {
   return {
-    user: {
-      ...senior,
-      walletUsdtErc20: null,
-      walletUsdtLabel: null,
-      bankUahRecipient: null,
-      bankUahIban: null,
-      bankUahRnokpp: null,
-      bankUahBankName: null,
-      seniorSharePercent: 26,
-      monthlySalary: null,
-      archivedAt: null,
-      adminNote: null,
-    },
+    user: { ...senior, ...profileExtras(senior) },
     permissions: {
       tabs: ['overview', 'projects', 'team'],
       actions: [],
-      fields: {},
+      fields: { techStack: true, registrationDate: true },
     },
     data: {},
   }
@@ -333,19 +347,7 @@ export function buildJuniorViewingJunior(
   targetUser: (typeof USERS)[keyof typeof USERS],
 ): object {
   return {
-    user: {
-      ...targetUser,
-      walletUsdtErc20: null,
-      walletUsdtLabel: null,
-      bankUahRecipient: null,
-      bankUahIban: null,
-      bankUahRnokpp: null,
-      bankUahBankName: null,
-      seniorSharePercent: 26,
-      monthlySalary: null,
-      archivedAt: null,
-      adminNote: null,
-    },
+    user: { ...targetUser, ...profileExtras(targetUser) },
     permissions: {
       tabs: [],
       actions: [],
@@ -359,30 +361,34 @@ export function buildJuniorViewingJunior(
 export function buildSelfView(
   user: (typeof USERS)[keyof typeof USERS],
 ): object {
-  const tabs: string[] =
-    user.role === 'ADMIN' || user.role === 'SENIOR'
-      ? ['overview', 'projects', 'team', 'interviews', 'requisites']
-      : user.role === 'JUNIOR'
-        ? ['overview', 'projects', 'team', 'requisites']
-        : ['overview', 'projects', 'team']
+  // Mirrors users-access.service.ts isSelf branch.
+  // SENIOR: interviews surfaced via header link, not tab.
+  const tabs: string[] = ['overview', 'projects', 'team', 'requisites', 'documents']
+  if (
+    user.role === 'SENIOR' ||
+    user.role === 'JUNIOR' ||
+    user.role === 'HR' ||
+    user.role === 'ACCOUNTANT'
+  ) {
+    tabs.push('finance')
+  }
+
+  const isSalaryRole = user.role === 'JUNIOR' || user.role === 'HR' || user.role === 'ACCOUNTANT'
+  const isShareRole = user.role === 'SENIOR' || user.role === 'ADMIN'
+
   return {
-    user: {
-      ...user,
-      walletUsdtErc20: null,
-      walletUsdtLabel: null,
-      bankUahRecipient: user.role === 'JUNIOR' ? 'Test User' : null,
-      bankUahIban: user.role === 'JUNIOR' ? 'UA213223130000026007233566001' : null,
-      bankUahRnokpp: user.role === 'JUNIOR' ? '1234567890' : null,
-      bankUahBankName: null,
-      seniorSharePercent: 26,
-      monthlySalary: null,
-      archivedAt: null,
-      adminNote: null,
-    },
+    user: { ...user, ...profileExtras(user) },
     permissions: {
       tabs,
       actions: [],
-      fields: {},
+      fields: {
+        salary: isSalaryRole,
+        share: isShareRole,
+        paymentMethodKpi: true,
+        registrationDate: true,
+        techStack: true,
+        requisites: true,
+      },
     },
     data: {},
   }

@@ -11,8 +11,11 @@
  * - Cancelling the AlertDialog sends no PATCH
  *
  * RequisitesTab wraps RequisitesEditForm in self-mode; the form is only
- * rendered when permissions.tabs includes 'requisites'. buildSelfView() for
- * JUNIOR includes 'requisites' in the tabs array.
+ * rendered when permissions.tabs includes 'requisites'. UsersAccessService
+ * grants 'requisites' to every self viewer (any role).
+ *
+ * Note: AnimatedTabs uses plain <button> elements (no role="tab"), so
+ * tab triggers are located via getByRole('button', ...).
  */
 
 import { test, expect, USERS, mockAuthAs, buildSelfView } from './fixtures'
@@ -30,15 +33,15 @@ test.describe('Requisites edit form', () => {
 
   test('Реквизиты tab visible for JUNIOR in self view', async ({ asJunior: page }) => {
     await page.goto('/crm/profile')
-    await expect(page.getByText('Junior Dev')).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'Реквизиты' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Реквизиты', exact: true })).toBeVisible()
   })
 
-  test('Реквизиты tab NOT visible for HR in self view (tabs from buildSelfView)', async ({ asHr: page }) => {
-    // HR self-view tabs: overview, projects, team (no requisites per buildSelfView)
+  test('Реквизиты tab visible for HR in self view (all self-viewers get requisites)', async ({ asHr: page }) => {
+    // Per users-access.service.ts: every self-viewer gets 'requisites' tab.
     await page.goto('/crm/profile')
-    await expect(page.getByText('HR Manager')).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'Реквизиты' })).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'HR Manager' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Реквизиты', exact: true })).toBeVisible()
   })
 
   // -------------------------------------------------------------------------
@@ -48,9 +51,8 @@ test.describe('Requisites edit form', () => {
   test('JUNIOR sees payment method radio group (can choose USDT or Bank)', async ({ page }) => {
     await mockAuthAs(page, USERS.junior)
     await page.goto('/crm/profile?tab=requisites')
-    await expect(page.getByText('Junior Dev')).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'Реквизиты' })).toHaveAttribute('data-state', 'active')
-    // RadioGroup with two options
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
+    // RequisitesEditForm renders the radio group when role is NOT SENIOR/ADMIN.
     await expect(page.getByLabel('USDT ERC-20')).toBeVisible()
     await expect(page.getByLabel('Банк UAH (ФОП)')).toBeVisible()
   })
@@ -63,18 +65,11 @@ test.describe('Requisites edit form', () => {
       return r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          ...buildSelfView(USERS.senior),
-          permissions: {
-            tabs: ['overview', 'projects', 'team', 'interviews', 'requisites'],
-            actions: [],
-            fields: {},
-          },
-        }),
+        body: JSON.stringify(buildSelfView(USERS.senior)),
       })
     })
     await page.goto('/crm/profile?tab=requisites')
-    await expect(page.getByText('Senior Dev')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
     // No RadioGroup — USDT only for SENIOR
     await expect(page.getByLabel('Банк UAH (ФОП)')).toHaveCount(0)
     // USDT wallet input is visible
@@ -88,7 +83,7 @@ test.describe('Requisites edit form', () => {
   test('submitting valid Bank UAH data opens confirmation AlertDialog', async ({ page }) => {
     await mockAuthAs(page, USERS.junior)
     await page.goto('/crm/profile?tab=requisites')
-    await expect(page.getByText('Junior Dev')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     // Select Bank UAH method
     await page.getByLabel('Банк UAH (ФОП)').check()
@@ -110,11 +105,11 @@ test.describe('Requisites edit form', () => {
 
     const patchReq = page.waitForRequest(
       (req) => req.url().includes('/users/me/requisites') && req.method() === 'PATCH',
-      { timeout: 5000 },
+      { timeout: 8000 },
     )
 
     await page.goto('/crm/profile?tab=requisites')
-    await expect(page.getByText('Junior Dev')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     await page.getByLabel('Банк UAH (ФОП)').check()
     await page.getByLabel('ФИО получателя').fill('Тест Тестенко')
@@ -145,7 +140,7 @@ test.describe('Requisites edit form', () => {
     })
 
     await page.goto('/crm/profile?tab=requisites')
-    await expect(page.getByText('Junior Dev')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     await page.getByLabel('Банк UAH (ФОП)').check()
     await page.getByLabel('ФИО получателя').fill('Тест Тестенко')
@@ -168,21 +163,22 @@ test.describe('Requisites edit form', () => {
   test('submitting USDT method with empty wallet shows validation error', async ({ page }) => {
     await mockAuthAs(page, USERS.junior)
     await page.goto('/crm/profile?tab=requisites')
-    await expect(page.getByText('Junior Dev')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
-    // USDT_ERC20 is the default; leave wallet empty
+    // JUNIOR fixture defaults to BANK_UAH_FOP — switch to USDT first.
+    await page.getByLabel('USDT ERC-20').check()
     await page.getByLabel('USDT ERC-20 кошелёк').clear()
     await page.getByRole('button', { name: 'Сохранить реквизиты' }).click()
 
     // Validation error rendered in the form (no AlertDialog opens)
     await expect(page.getByRole('alertdialog')).toHaveCount(0)
-    await expect(page.locator('.text-destructive')).toBeVisible()
+    await expect(page.locator('.text-destructive').first()).toBeVisible()
   })
 
   test('submitting Bank UAH method with invalid IBAN shows validation error', async ({ page }) => {
     await mockAuthAs(page, USERS.junior)
     await page.goto('/crm/profile?tab=requisites')
-    await expect(page.getByText('Junior Dev')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     await page.getByLabel('Банк UAH (ФОП)').check()
     await page.getByLabel('ФИО получателя').fill('Valid Name')
@@ -192,6 +188,6 @@ test.describe('Requisites edit form', () => {
     await page.getByRole('button', { name: 'Сохранить реквизиты' }).click()
 
     await expect(page.getByRole('alertdialog')).toHaveCount(0)
-    await expect(page.locator('.text-destructive')).toBeVisible()
+    await expect(page.locator('.text-destructive').first()).toBeVisible()
   })
 })

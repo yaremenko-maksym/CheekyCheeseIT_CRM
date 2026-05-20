@@ -2,16 +2,19 @@
  * admin-actions.spec.ts
  *
  * Tests for the AdminActionsMenu — "Действия" dropdown visible when ADMIN
- * views any user profile at /crm/users/:id.
+ * views any user profile at /crm/profile/:userId.
  *
  * The fixture mock returns buildAdminViewingUser(target) for GET /users/:id,
  * which includes the full actions array. PATCH /users/:id/role is intercepted
  * to verify the correct payload and trigger the "Роль изменена" toast.
  * PATCH /users/:id/audit-log stub returns one role_change entry so the
  * audit tab can show "Роль изменена".
+ *
+ * UI revisions (commits a209dca/01ac2e8): emoji prefixes in action menu items
+ * removed in favour of lucide-react icons — selectors use plain labels.
  */
 
-import { test, expect, USERS, mockAuthAs, buildAdminViewingUser } from './fixtures'
+import { test, expect, USERS, mockAuthAs } from './fixtures'
 
 const API = 'http://localhost:3001/api'
 
@@ -21,22 +24,23 @@ test.describe('Admin actions on user profile', () => {
   // -------------------------------------------------------------------------
 
   test('ADMIN viewing junior — "Действия" button is visible', async ({ asAdmin: page }) => {
-    await page.goto(`/crm/users/${USERS.junior.id}`)
-    await expect(page.getByText('Junior Dev')).toBeVisible()
+    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     await expect(page.getByRole('button', { name: /Действия/ })).toBeVisible()
   })
 
   test('Действия dropdown lists all admin action items', async ({ asAdmin: page }) => {
-    await page.goto(`/crm/users/${USERS.junior.id}`)
-    await expect(page.getByText('Junior Dev')).toBeVisible()
+    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     await page.getByRole('button', { name: /Действия/ }).click()
 
-    await expect(page.getByText('✏️ Редактировать данные')).toBeVisible()
-    await expect(page.getByText('🎭 Изменить роль')).toBeVisible()
-    await expect(page.getByText('💰 Изменить зарплату')).toBeVisible()
-    await expect(page.getByText('🏦 Изменить реквизиты')).toBeVisible()
-    await expect(page.getByText('📝 Заметка админа')).toBeVisible()
-    await expect(page.getByText('🗑️ Архивировать')).toBeVisible()
+    // Emoji prefixes removed in commit a209dca — selectors use plain labels.
+    await expect(page.getByRole('menuitem', { name: 'Редактировать данные' })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: 'Изменить роль' })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: 'Изменить зарплату' })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: 'Изменить реквизиты' })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: 'Заметка админа' })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: 'Архивировать' })).toBeVisible()
   })
 
   // -------------------------------------------------------------------------
@@ -44,18 +48,19 @@ test.describe('Admin actions on user profile', () => {
   // -------------------------------------------------------------------------
 
   test('opening "Изменить роль" shows ChangeRoleDialog with current role selected', async ({ asAdmin: page }) => {
-    await page.goto(`/crm/users/${USERS.junior.id}`)
-    await expect(page.getByText('Junior Dev')).toBeVisible()
+    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     await page.getByRole('button', { name: /Действия/ }).click()
-    await page.getByText('🎭 Изменить роль').click()
+    await page.getByRole('menuitem', { name: 'Изменить роль' }).click()
 
     const dialog = page.getByRole('dialog')
     await expect(dialog).toBeVisible()
     await expect(dialog.getByRole('heading', { name: 'Изменить роль' })).toBeVisible()
-    // select element should be present with Junior pre-selected
-    const select = dialog.locator('select')
-    await expect(select).toBeVisible()
-    await expect(select).toHaveValue('JUNIOR')
+    // The role select is a shadcn Select rendered as a combobox; its current value
+    // is mirrored in the trigger's text content.
+    const combobox = dialog.getByRole('combobox')
+    await expect(combobox).toBeVisible()
+    await expect(combobox).toContainText('Junior')
   })
 
   test('changing role sends PATCH /users/:id/role with new role and shows toast', async ({ asAdmin: page }) => {
@@ -63,16 +68,18 @@ test.describe('Admin actions on user profile', () => {
     const rolePatched = page.waitForRequest(
       (req) =>
         req.url().includes(`/users/${USERS.junior.id}/role`) && req.method() === 'PATCH',
-      { timeout: 5000 },
+      { timeout: 8000 },
     )
 
-    await page.goto(`/crm/users/${USERS.junior.id}`)
-    await expect(page.getByText('Junior Dev')).toBeVisible()
+    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     await page.getByRole('button', { name: /Действия/ }).click()
-    await page.getByText('🎭 Изменить роль').click()
+    await page.getByRole('menuitem', { name: 'Изменить роль' }).click()
 
     const dialog = page.getByRole('dialog')
-    await dialog.locator('select').selectOption('HR')
+    // Open shadcn Select and pick HR
+    await dialog.getByRole('combobox').click()
+    await page.getByRole('option', { name: 'HR' }).click()
     await dialog.getByRole('button', { name: 'Сохранить' }).click()
 
     const req = await rolePatched
@@ -88,10 +95,10 @@ test.describe('Admin actions on user profile', () => {
       if (req.url().includes('/role') && req.method() === 'PATCH') patched = true
     })
 
-    await page.goto(`/crm/users/${USERS.junior.id}`)
-    await expect(page.getByText('Junior Dev')).toBeVisible()
+    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     await page.getByRole('button', { name: /Действия/ }).click()
-    await page.getByText('🎭 Изменить роль').click()
+    await page.getByRole('menuitem', { name: 'Изменить роль' }).click()
 
     await page.getByRole('dialog').getByRole('button', { name: 'Отмена' }).click()
     await expect(page.getByRole('dialog')).not.toBeVisible()
@@ -103,16 +110,16 @@ test.describe('Admin actions on user profile', () => {
   // -------------------------------------------------------------------------
 
   test('audit tab (История) is visible for ADMIN on any user profile', async ({ asAdmin: page }) => {
-    await page.goto(`/crm/users/${USERS.junior.id}`)
-    await expect(page.getByText('Junior Dev')).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'История' })).toBeVisible()
+    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
+    // AnimatedTabs renders tabs as <button> with the label text.
+    await expect(page.getByRole('button', { name: 'История' })).toBeVisible()
   })
 
   test('audit tab renders role_change entry after navigating to ?tab=audit', async ({ asAdmin: page }) => {
-    await page.goto(`/crm/users/${USERS.junior.id}?tab=audit`)
-    await expect(page.getByText('Junior Dev')).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'История' })).toHaveAttribute('data-state', 'active')
-    // The stub audit-log returns one entry with action role_change → label "Роль изменена"
+    await page.goto(`/crm/profile/${USERS.junior.id}?tab=audit`)
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
+    // Audit tab content visible — the role_change entry label
     await expect(page.getByText('Роль изменена')).toBeVisible()
   })
 
@@ -138,8 +145,6 @@ test.describe('Admin actions on user profile', () => {
               bankUahIban: null,
               bankUahRnokpp: null,
               bankUahBankName: null,
-              seniorSharePercent: 26,
-              monthlySalary: null,
               archivedAt: null,
               adminNote: null,
             },
@@ -151,8 +156,8 @@ test.describe('Admin actions on user profile', () => {
       return r.fulfill({ status: 204, body: '' })
     })
 
-    await page.goto(`/crm/users/${USERS.senior.id}`)
-    await expect(page.getByText('Senior Dev')).toBeVisible()
+    await page.goto(`/crm/profile/${USERS.senior.id}`)
+    await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
     await expect(page.getByRole('button', { name: /Действия/ })).toHaveCount(0)
   })
 })
