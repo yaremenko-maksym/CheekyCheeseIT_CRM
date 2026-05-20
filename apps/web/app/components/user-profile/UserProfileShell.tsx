@@ -55,10 +55,24 @@ export function UserProfileShell({
   const activeTab =
     permissions.tabs.includes(tab as never) ? tab : (permissions.tabs[0] ?? 'overview')
 
+  // ADMIN looking at own profile: hide "registration date" line (matches hidden KPI cards)
+  const showCreatedAt =
+    permissions.fields.registrationDate !== false && !(mode === 'self' && user.role === 'ADMIN')
+  // SENIOR self-view: surface kanban link in header instead of dedicated tab
+  const showInterviewsLink = mode === 'self' && user.role === 'SENIOR'
+
+  // JUNIOR sees a single project, not a portfolio — relabel tab
+  const tabLabel = (t: string): string => {
+    if (t === 'projects' && user.role === 'JUNIOR') return 'Проект'
+    return TAB_LABELS[t] ?? t
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 overflow-hidden">
       <UserProfileHeader
         user={user}
+        showCreatedAt={showCreatedAt}
+        showInterviewsLink={showInterviewsLink}
         actionsSlot={
           permissions.actions.length > 0 ? (
             <AdminActionsMenu
@@ -71,39 +85,46 @@ export function UserProfileShell({
       />
 
       {permissions.tabs.length > 0 && (
-        <div className="space-y-4">
-          <div className="sticky top-0 z-10 -mx-1 bg-background py-2">
+        <div className="flex flex-col gap-4 overflow-hidden">
+          <div className="overflow-x-auto">
             <AnimatedTabs
-              tabs={permissions.tabs.map((t) => ({ value: t, label: TAB_LABELS[t] ?? t }))}
+              tabs={permissions.tabs.map((t) => ({ value: t, label: tabLabel(t) }))}
               value={activeTab}
               onChange={onTabChange}
             />
           </div>
 
-          {activeTab === 'overview' && permissions.tabs.includes('overview') && (
-            <OverviewTab user={user} data={viewData as Record<string, unknown>} mode={mode} />
-          )}
-          {activeTab === 'finance' && permissions.tabs.includes('finance') && (
-            <FinanceTab userId={user.id} />
-          )}
-          {activeTab === 'projects' && permissions.tabs.includes('projects') && (
-            <ProjectsTab userId={user.id} role={user.role} />
-          )}
-          {activeTab === 'team' && permissions.tabs.includes('team') && (
-            <TeamTab userId={user.id} />
-          )}
-          {activeTab === 'interviews' && permissions.tabs.includes('interviews') && (
-            <InterviewsTab seniorId={user.id} />
-          )}
-          {activeTab === 'requisites' && permissions.tabs.includes('requisites') && (
-            <RequisitesTab user={user} mode={mode} />
-          )}
-          {activeTab === 'documents' && permissions.tabs.includes('documents') && (
-            <DocumentsTab />
-          )}
-          {activeTab === 'audit' && permissions.tabs.includes('audit') && (
-            <AuditLogTab userId={user.id} />
-          )}
+          <div className="min-w-0 flex-1 overflow-hidden">
+            {activeTab === 'overview' && permissions.tabs.includes('overview') && (
+              <OverviewTab
+                user={user}
+                data={viewData as Record<string, unknown>}
+                permissions={permissions}
+                mode={mode}
+              />
+            )}
+            {activeTab === 'finance' && permissions.tabs.includes('finance') && (
+              <FinanceTab userId={user.id} />
+            )}
+            {activeTab === 'projects' && permissions.tabs.includes('projects') && (
+              <ProjectsTab userId={user.id} role={user.role} />
+            )}
+            {activeTab === 'team' && permissions.tabs.includes('team') && (
+              <TeamTab userId={user.id} />
+            )}
+            {activeTab === 'interviews' && permissions.tabs.includes('interviews') && (
+              <InterviewsTab seniorId={user.id} />
+            )}
+            {activeTab === 'requisites' && permissions.tabs.includes('requisites') && (
+              <RequisitesTab user={user} mode={mode} />
+            )}
+            {activeTab === 'documents' && permissions.tabs.includes('documents') && (
+              <DocumentsTab />
+            )}
+            {activeTab === 'audit' && permissions.tabs.includes('audit') && (
+              <AuditLogTab userId={user.id} />
+            )}
+          </div>
         </div>
       )}
     </div>

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common'
+import { Module, forwardRef } from '@nestjs/common'
 import { ScheduleModule } from '@nestjs/schedule'
 import { AuthModule } from '../auth/auth.module'
 import { DatabaseModule } from '../database/database.module'
@@ -14,7 +14,7 @@ import {
 import { TransactionsService } from './transactions.service'
 
 @Module({
-  imports: [DatabaseModule, AuthModule, ScheduleModule.forRoot()],
+  imports: [DatabaseModule, forwardRef(() => AuthModule), ScheduleModule.forRoot()],
   providers: [TransactionsService, EtherscanService, SalaryCronService, NbuCurrencyService],
   controllers: [
     TransactionsController,

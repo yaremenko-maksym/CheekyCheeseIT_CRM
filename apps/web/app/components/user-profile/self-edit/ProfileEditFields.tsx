@@ -41,25 +41,67 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
 
   return (
     <div className="space-y-4">
-      <div className="space-y-1.5">
-        <Label htmlFor="displayName">Имя</Label>
-        <Input id="displayName" value={displayName} onChange={(e) => { setDisplayName(e.target.value); scheduleSave({ displayName: e.target.value }) }} />
+      {/* Email read-only — auth-controlled, can't be edited from CRM */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="displayName">Имя</Label>
+          <Input
+            id="displayName"
+            value={displayName}
+            onChange={(e) => {
+              setDisplayName(e.target.value)
+              scheduleSave({ displayName: e.target.value })
+            }}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="email">Email</Label>
+          <Input
+            id="email"
+            value={user.email}
+            disabled
+            readOnly
+            aria-describedby="email-help"
+            className="cursor-not-allowed"
+          />
+          <p id="email-help" className="text-xs text-muted-foreground">
+            Email привязан к Google-аккаунту и не может быть изменён
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="telegram">Telegram</Label>
+          <Input
+            id="telegram"
+            placeholder="@username"
+            value={telegram}
+            onChange={(e) => {
+              setTelegram(e.target.value)
+              scheduleSave({ telegram: e.target.value || null })
+            }}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="phone">Телефон</Label>
+          <PhoneInput
+            value={phone}
+            onChange={(v) => {
+              const val = v ?? ('' as PhoneValue)
+              setPhone(val)
+              scheduleSave({ phone: val || null })
+            }}
+          />
+        </div>
       </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="telegram">Telegram</Label>
-        <Input id="telegram" placeholder="@username" value={telegram} onChange={(e) => { setTelegram(e.target.value); scheduleSave({ telegram: e.target.value || null }) }} />
-      </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="phone">Телефон</Label>
-        <PhoneInput value={phone} onChange={(v) => { const val = v ?? '' as PhoneValue; setPhone(val); scheduleSave({ phone: val || null }) }} />
-      </div>
+
       <div className="space-y-1.5">
         <Label>Технологии</Label>
-        <div className="flex flex-wrap gap-2 mb-2">
+        <div className="mb-2 flex flex-wrap gap-2">
           {techStack.map((t) => (
             <Badge key={t} variant="outline" className="gap-1">
               {t}
-              <button type="button" onClick={() => removeTech(t)} className="hover:text-destructive"><X className="h-3 w-3" /></button>
+              <button type="button" onClick={() => removeTech(t)} className="hover:text-destructive">
+                <X className="h-3 w-3" />
+              </button>
             </Badge>
           ))}
         </div>
@@ -67,7 +109,12 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
           placeholder="Добавить технологию (Enter)"
           value={techInput}
           onChange={(e) => setTechInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTech() } }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              addTech()
+            }
+          }}
         />
       </div>
     </div>

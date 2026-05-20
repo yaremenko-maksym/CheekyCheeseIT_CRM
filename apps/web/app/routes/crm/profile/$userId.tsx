@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { UserProfileShell } from '@/components/user-profile/UserProfileShell'
 
 const searchSchema = z.object({
-  tab: z.enum(['overview', 'finance', 'projects', 'team', 'interviews', 'requisites', 'audit']).default('overview'),
+  tab: z.enum(['overview', 'finance', 'projects', 'team', 'interviews', 'requisites', 'documents', 'audit']).default('overview'),
 })
 
 export const Route = createFileRoute('/crm/profile/$userId')({

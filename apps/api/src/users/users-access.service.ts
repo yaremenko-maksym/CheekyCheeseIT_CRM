@@ -23,7 +23,9 @@ export class UsersAccessService {
 
     const targetIsSalaryRole = target.role === 'JUNIOR' || target.role === 'HR' || target.role === 'ACCOUNTANT'
     const targetIsShareRole = target.role === 'SENIOR' || target.role === 'ADMIN'
-    const targetHasTechStack = target.role !== 'HR' && target.role !== 'ACCOUNTANT'
+    // HR and ACCOUNTANT have soft-skill tech stacks ("Рекрутинг", "Account Support", "1С") —
+    // visible like dev stacks.
+    const targetHasTechStack = true
 
     if (isAdmin) {
       tabs.push('overview', 'finance', 'projects', 'team', 'requisites', 'documents', 'audit')
@@ -40,22 +42,30 @@ export class UsersAccessService {
           'archive',
         )
       }
-      fields.salary = targetIsSalaryRole
-      fields.share = targetIsShareRole
+      // ADMIN viewing self: hide own salary/share/payment-method/registration-date KPIs (own
+      // share is 50/50 with partner — not surfaced as user data). Otherwise full visibility.
+      fields.salary = !isSelf && targetIsSalaryRole
+      fields.share = !isSelf && targetIsShareRole
+      fields.paymentMethodKpi = !isSelf
+      fields.registrationDate = !isSelf
       fields.techStack = targetHasTechStack
       fields.requisites = true
     } else if (isSelf) {
       tabs.push('overview', 'projects', 'team', 'requisites', 'documents')
       if (isSenior || isJunior || isHr || isAccountant) tabs.push('finance')
-      if (isSenior) tabs.push('interviews')
+      // SENIOR: interviews moved to header link; no separate tab here
       fields.salary = targetIsSalaryRole
       fields.share = targetIsShareRole
+      fields.paymentMethodKpi = true
+      fields.registrationDate = true
       fields.techStack = targetHasTechStack
       fields.requisites = true
     } else if (isAccountant) {
       tabs.push('overview', 'finance', 'projects', 'team', 'requisites', 'documents')
       fields.salary = targetIsSalaryRole
       fields.share = targetIsShareRole
+      fields.paymentMethodKpi = true
+      fields.registrationDate = true
       fields.techStack = targetHasTechStack
       fields.requisites = true
     } else if (isHr) {
@@ -63,11 +73,13 @@ export class UsersAccessService {
         tabs.push('overview', 'projects', 'team')
         if (targetIsSenior) tabs.push('interviews')
         fields.techStack = targetHasTechStack
+        fields.registrationDate = true
       }
     } else if (isSenior) {
       if (await this.isSharedProject(viewer.id, target.id)) {
         tabs.push('overview', 'projects', 'team')
         fields.techStack = targetHasTechStack
+        fields.registrationDate = true
       }
     }
     // JUNIOR viewing other: no tabs

@@ -1,9 +1,16 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import { eq, isNull, ne } from 'drizzle-orm'
+import { and, eq, inArray, isNull, ne } from 'drizzle-orm'
 import { DatabaseService } from '../database/database.service'
-import { projectMembers, teamMembers, teams, users, type User } from '../database/schema'
+import { projectMembers, projects, teamMembers, teams, users, type User } from '../database/schema'
 import { AuditLogService } from './audit-log.service'
 import { UsersAccessService } from './users-access.service'
+
+export interface TeamMemberPreview {
+  id: string
+  displayName: string
+  role: User['role']
+  avatar: string | null
+}
 
 export type UserWithAvailability = User & { hasActiveProject: boolean }
 
@@ -282,6 +289,99 @@ export class UsersService {
     const updated = rows[0]
     if (!updated) throw new NotFoundException('User not found')
     return updated
+  }
+
+  /**
+   * Returns flat list of teammates for a given user. Combines:
+   *  - team_members of teams associated with the user (HR, ACCOUNTANT, SENIOR)
+   *  - JUNIORs active in projects owned by those teams' seniors
+   * Excludes the user themselves.
+   *
+   * Mapping of "user → their team(s)":
+   *  - SENIOR: teams owned by this senior (teams.senior_id = user.id is implicit via team_members)
+   *  - JUNIOR: teams of seniors whose projects this junior is active in
+   *  - HR / ACCOUNTANT: teams where the user is a team_member
+   *  - ADMIN: no teams (returns empty)
+   */
+  async getTeamMembersForUser(userId: string): Promise<TeamMemberPreview[]> {
+    const user = await this.findById(userId)
+    if (!user) throw new NotFoundException('User not found')
+    if (user.role === 'ADMIN') return []
+
+    // Step 1: Resolve set of seniorIds whose teams this user belongs to
+    let seniorIds: string[] = []
+
+    if (user.role === 'SENIOR') {
+      seniorIds = [user.id]
+    } else if (user.role === 'JUNIOR') {
+      const activeProjects = await this.db.db
+        .select({ seniorId: projects.seniorId })
+        .from(projectMembers)
+        .innerJoin(projects, eq(projectMembers.projectId, projects.id))
+        .where(and(eq(projectMembers.userId, userId), isNull(projectMembers.leftAt)))
+      seniorIds = Array.from(new Set(activeProjects.map((p) => p.seniorId)))
+    } else if (user.role === 'HR' || user.role === 'ACCOUNTANT') {
+      const memberships = await this.db.db
+        .select({ teamId: teamMembers.teamId })
+        .from(teamMembers)
+        .where(eq(teamMembers.userId, userId))
+      if (memberships.length === 0) return []
+      const teamIds = memberships.map((m) => m.teamId)
+      const seniorsInTeams = await this.db.db
+        .select({ userId: teamMembers.userId })
+        .from(teamMembers)
+        .innerJoin(users, eq(teamMembers.userId, users.id))
+        .where(and(inArray(teamMembers.teamId, teamIds), eq(users.role, 'SENIOR')))
+      seniorIds = Array.from(new Set(seniorsInTeams.map((s) => s.userId)))
+    }
+
+    if (seniorIds.length === 0) return []
+
+    // Step 2: Collect team_members (SENIOR + HR + ACCOUNTANT) across those seniors' teams.
+    // Teams are linked to senior via team_members (the SENIOR is itself a member).
+    const seniorMemberships = await this.db.db
+      .select({ teamId: teamMembers.teamId })
+      .from(teamMembers)
+      .innerJoin(users, eq(teamMembers.userId, users.id))
+      .where(and(inArray(teamMembers.userId, seniorIds), eq(users.role, 'SENIOR')))
+    const teamIds = Array.from(new Set(seniorMemberships.map((m) => m.teamId)))
+
+    const memberIds = new Set<string>()
+    if (teamIds.length > 0) {
+      const tmRows = await this.db.db
+        .select({ userId: teamMembers.userId })
+        .from(teamMembers)
+        .where(inArray(teamMembers.teamId, teamIds))
+      tmRows.forEach((r) => memberIds.add(r.userId))
+    }
+
+    // Step 3: Add active JUNIORs from projects of those seniors
+    const seniorProjects = await this.db.db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(inArray(projects.seniorId, seniorIds))
+    const projectIds = seniorProjects.map((p) => p.id)
+    if (projectIds.length > 0) {
+      const juniorRows = await this.db.db
+        .select({ userId: projectMembers.userId })
+        .from(projectMembers)
+        .where(and(inArray(projectMembers.projectId, projectIds), isNull(projectMembers.leftAt)))
+      juniorRows.forEach((r) => memberIds.add(r.userId))
+    }
+
+    memberIds.delete(userId)
+    if (memberIds.size === 0) return []
+
+    const rows = await this.db.db
+      .select({
+        id: users.id,
+        displayName: users.displayName,
+        role: users.role,
+        avatar: users.avatar,
+      })
+      .from(users)
+      .where(inArray(users.id, Array.from(memberIds)))
+    return rows
   }
 
   async buildProfileView(viewer: User, targetId: string) {

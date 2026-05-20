@@ -97,6 +97,11 @@ export class UsersController {
     return this.usersService.buildProfileView(viewer, id)
   }
 
+  @Get(':id/team')
+  async getUserTeam(@Param('id', ParseUUIDPipe) id: string) {
+    return this.usersService.getTeamMembersForUser(id)
+  }
+
   @Get(':id/audit-log')
   @Roles('ADMIN')
   async getAuditLog(

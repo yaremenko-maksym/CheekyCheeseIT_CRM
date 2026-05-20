@@ -116,8 +116,8 @@ export function shouldShowField(role: Role, field: 'salary' | 'share' | 'techSta
       // SENIOR and ADMIN see their share percentage; others don't have one
       return role === 'SENIOR' || role === 'ADMIN'
     case 'techStack':
-      // Technical roles have a tech stack; HR and ACCOUNTANT don't
-      return role !== 'HR' && role !== 'ACCOUNTANT'
+      // All roles surface a tech stack — soft-skills for HR/ACCOUNTANT, dev stack for others
+      return true
     default:
       return false
   }

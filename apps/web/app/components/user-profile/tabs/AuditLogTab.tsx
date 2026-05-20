@@ -17,6 +17,35 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   user_archived: 'Профиль архивирован',
 }
 
+const FIELD_LABELS: Record<string, string> = {
+  displayName: 'Имя',
+  email: 'Email',
+  role: 'Роль',
+  telegram: 'Telegram',
+  phone: 'Телефон',
+  avatar: 'Аватар',
+  techStack: 'Технологии',
+  monthlySalary: 'Зарплата',
+  salaryCurrency: 'Валюта',
+  seniorSharePercent: 'Доля, %',
+  paymentMethod: 'Способ выплаты',
+  walletUsdtErc20: 'USDT кошелёк',
+  walletUsdtLabel: 'Метка USDT',
+  bankUahRecipient: 'Получатель',
+  bankUahIban: 'IBAN',
+  bankUahRnokpp: 'РНОКПП',
+  bankUahBankName: 'Банк',
+  adminNote: 'Заметка админа',
+  archivedAt: 'Архив',
+}
+
+function formatValue(v: unknown): string {
+  if (v === null || v === undefined) return '∅'
+  if (Array.isArray(v)) return v.length === 0 ? '[ ]' : `[${v.join(', ')}]`
+  if (typeof v === 'object') return JSON.stringify(v)
+  return String(v)
+}
+
 export function AuditLogTab({ userId }: { userId: string }) {
   const [page, setPage] = useState(1)
   const limit = 20
@@ -40,20 +69,54 @@ export function AuditLogTab({ userId }: { userId: string }) {
 
   return (
     <Card>
-      <CardContent className="space-y-3 pt-6">
-        {entries.map((entry) => (
-          <div key={entry.id} className="rounded border p-3 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="font-medium">{ACTION_LABELS[entry.action]}</span>
-              <span className="text-xs text-muted-foreground">
-                {new Date(entry.createdAt).toLocaleString('ru-RU')}
-              </span>
+      <CardContent className="space-y-4 pt-6">
+        {entries.map((entry) => {
+          const changeEntries = Object.entries(entry.changes ?? {})
+          return (
+            <div key={entry.id} className="overflow-hidden rounded border">
+              <div className="flex items-center justify-between border-b bg-muted/30 px-3 py-2">
+                <span className="text-sm font-medium">{ACTION_LABELS[entry.action] ?? entry.action}</span>
+                <span className="text-xs text-muted-foreground">
+                  {new Date(entry.createdAt).toLocaleString('ru-RU', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </span>
+              </div>
+              {changeEntries.length === 0 ? (
+                <div className="px-3 py-2 text-xs text-muted-foreground">Без деталей</div>
+              ) : (
+                <div className="divide-y font-mono text-xs">
+                  {changeEntries.map(([key, change]) => {
+                    const before = formatValue((change as { before: unknown }).before)
+                    const after = formatValue((change as { after: unknown }).after)
+                    const label = FIELD_LABELS[key] ?? key
+                    return (
+                      <div key={key} className="px-3 py-2">
+                        <div className="mb-1 font-sans text-xs font-medium text-muted-foreground">
+                          {label}
+                        </div>
+                        <div className="grid gap-0.5">
+                          <div className="flex items-start gap-2 rounded bg-red-500/10 px-2 py-1 text-red-700 dark:text-red-300">
+                            <span className="select-none font-bold">−</span>
+                            <span className="break-all">{before}</span>
+                          </div>
+                          <div className="flex items-start gap-2 rounded bg-emerald-500/10 px-2 py-1 text-emerald-700 dark:text-emerald-300">
+                            <span className="select-none font-bold">+</span>
+                            <span className="break-all">{after}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
-            <pre className="mt-2 overflow-auto text-xs text-muted-foreground">
-              {JSON.stringify(entry.changes, null, 2)}
-            </pre>
-          </div>
-        ))}
+          )
+        })}
 
         <div className="flex items-center justify-between pt-2">
           <span className="text-xs text-muted-foreground">

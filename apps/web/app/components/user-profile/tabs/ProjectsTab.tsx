@@ -19,7 +19,7 @@ interface ProjectListItem {
   domain: string | null
 }
 
-export function ProjectsTab({ userId, role: _role }: { userId: string; role: string }) {
+export function ProjectsTab({ userId, role }: { userId: string; role: string }) {
   const { data, isLoading } = useQuery({
     queryKey: ['user-projects', userId],
     queryFn: () =>
@@ -35,6 +35,25 @@ export function ProjectsTab({ userId, role: _role }: { userId: string; role: str
   const projects = data ?? []
   const active = projects.filter((p) => p.status === 'ACTIVE')
   const closed = projects.filter((p) => p.status === 'CLOSED')
+
+  // JUNIOR is bound to a single active project at a time — show just that, no history block
+  if (role === 'JUNIOR') {
+    const current = active[0] ?? null
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Текущий проект</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {current === null ? (
+            <p className="text-sm text-muted-foreground">Сейчас не назначен на проект</p>
+          ) : (
+            <ProjectRow p={current} />
+          )}
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <div className="space-y-6">
