@@ -52,10 +52,11 @@
 1. `docs/agents/CLAUDE-tools.md` — **полный перечень инструментов и когда использовать**
 2. `docs/agents/autotest.md` (этот файл)
 3. `docs/agents/CLAUDE-autotest.md` — структура тестов, паттерны, seed данные
-4. `docs/business/modules/<модуль из PR>.md` — полная бизнес-логика
-5. `docs/business/user-flows.md` — user flows модуля
-6. PR diff — что именно было реализовано (через GitHub MCP)
-7. Существующие тесты `apps/e2e/tests/<module>.spec.ts` — не дублировать
+4. `docs/agents/memory/autotest/lessons.md` — накопленные уроки от прошлых задач
+5. `docs/business/modules/<модуль из PR>.md` — полная бизнес-логика
+6. `docs/business/user-flows.md` — user flows модуля
+7. PR diff — что именно было реализовано (через GitHub MCP)
+8. Существующие тесты `apps/e2e/tests/<module>.spec.ts` — не дублировать
 
 ### Шаг 1: Прочитать acceptance criteria из task-файла (ПЕРВЫМ ДЕЛОМ)
 
@@ -137,10 +138,18 @@ git diff --stat apps/e2e/tests/
 ### Шаг 6: Закоммитить тесты в PR ветку
 
 ```bash
+# ТОЛЬКО конкретные spec-файлы, НИКОГДА git add . / -A / apps/e2e/
 git add apps/e2e/tests/<module>.spec.ts
-git commit -m "test(<module>): add E2E coverage for <feature>"
+git commit -m "test(<module>): add E2E coverage for <feature>
+
+ac_verified: 1,2,3"
 git push origin HEAD
 ```
+
+**Запрещено** коммитить debug-артефакты (screenshots, ad-hoc test-*.{js,mjs}, output.txt).
+`.gitignore` ловит свежие, но если ты создал debug-файл — складывай в `/tmp/autotest-<runid>/`, не в `apps/e2e/`.
+
+Если worktree содержит лишние файлы (от прошлых запусков других агентов) — **не подмётать их через `git add .`**. Только явные пути.
 
 ### Шаг 7: Выдать результат
 
@@ -250,6 +259,15 @@ git push origin <branch>
 - Не хардкодить данные из seed — читать из `apps/api/src/database/seed.ts`
 - Не писать тесты на внешние API (NBU, Etherscan) — мокировать
 - Не дублировать уже существующие тесты
+
+## Что НЕ коммитить (worktree hygiene)
+
+- Screenshots (`debug-*.png`, `screenshot-*.png`) — складывать в `/tmp/autotest-<runid>/` если нужны
+- Ad-hoc test scripts (`test-*.mjs`, `test-*.js`, `scratch-*`) — не для production, только локально
+- `output.txt`, любые `temp-*` файлы
+- Чужие файлы из worktree, которые ты не создавал — не подмётай `git add .`
+
+Правило: только конкретные пути в `apps/e2e/tests/*.spec.ts`, `apps/e2e/fixtures/`, `apps/e2e/playwright.config.ts`. Всё остальное — подозрительно, проверь дважды.
 
 ## MCP серверы
 

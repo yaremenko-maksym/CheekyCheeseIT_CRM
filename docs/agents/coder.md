@@ -9,9 +9,10 @@
 1. `docs/agents/CLAUDE-tools.md` — **полный перечень инструментов и когда использовать**
 2. `/.clauderules` — **КРИТИЧНО**: все правила разработки
 3. `docs/agents/CLAUDE-coder.md` — команды, структура, текущий статус, gotchas
-4. **Задача:** прочитать task-файл (путь передаётся в промпте от PM, например `Task: docs/specs/tasks/task-<slug>.md`)
-5. `docs/business/modules/<релевантный модуль>.md` — бизнес-логика
-6. `docs/business/user-flows.md` — user flows для понимания контекста
+4. `docs/agents/memory/coder/lessons.md` — накопленные уроки от прошлых задач
+5. **Задача:** прочитать task-файл (путь передаётся в промпте от PM, например `Task: docs/specs/tasks/task-<slug>.md`)
+6. `docs/business/modules/<релевантный модуль>.md` — бизнес-логика
+7. `docs/business/user-flows.md` — user flows для понимания контекста
 
 ## Superpowers Skills (использовать активно)
 
@@ -179,14 +180,63 @@ mcp__eslint__lint-files: {filePaths: ["apps/api/src/<файл>", "apps/web/app/<
 mcp__ast-grep__find_code: pattern = "console.log($$$)"
 ```
 
+### 2.9. Verification before push (ОБЯЗАТЕЛЬНО — две части)
+
+**Эта секция — gate перед `git push`. Pre-push hook блокирует push если commit message без `ac_verified:`.**
+
+#### A. Vision check (для задач трогающих `apps/web/`)
+
+После всех code-правок, до `git commit`:
+
+```
+mcp__playwright__browser_navigate → http://localhost:3000/crm/<затронутый-роут>
+mcp__playwright__browser_take_screenshot — визуальная сверка с AC
+```
+
+Для каждого AC где упоминается UI (русский текст / pills layout / bg-muted / disabled state) — проверить в DOM через `mcp__playwright__browser_snapshot`. Если не видно — STOP, доделать.
+
+#### B. AC-in-diff check (для ВСЕХ задач)
+
+Перед `git commit`:
+
+```bash
+git diff HEAD --name-only          # список изменённых файлов
+```
+
+Для каждого пункта AC из task-файла:
+- Если AC указывает конкретный паттерн (class, prop, function name) → `grep -n "<pattern>" <file>` подтверждает наличие
+- Если паттерна нет в diff → **STOP, AC не выполнен**. Доделать или явно пометить как «не сделано» в commit message.
+
+#### C. Обязательный формат commit message
+
+```
+<type>(<scope>): <subject>
+
+<optional body>
+
+ac_verified: 1,2,3,4,5        # номера AC из task-файла, разделённые запятой
+vision: ✓ /crm/team, /crm/team/$teamId    # ТОЛЬКО для UI задач — затронутые роуты
+```
+
+- Если все AC выполнены — перечислить все номера: `ac_verified: 1,2,3,4,5`
+- Если часть не сделана — указать сделанные + комментарий: `ac_verified: 1,2,4 (3,5 — blocked, см. .blocked.md)`
+- Если задача без UI — `vision:` строку опустить, `ac_verified:` обязательна
+
+**Pre-push hook** (`.claude/hooks/coder-pre-push.sh`) блокирует `git push` если последний commit на ветке `feature/*`, `fix/*`, `infra/*`, `test/*` не содержит `ac_verified:`.
+
 ### 3. Коммит
 
 ```bash
-git add <specific files>
-git commit -m "feat(<module>): краткое описание"
+git add <specific files>           # ОБЯЗАТЕЛЬНО — конкретные файлы из "Конкретные изменения" в task
+git commit -m "feat(<module>): краткое описание
+
+ac_verified: 1,2,3
+vision: ✓ /crm/<route>"
 ```
 
-Не использовать `git add .` — только конкретные файлы.
+**ЗАПРЕЩЕНО**: `git add .`, `git add -A`, `git add *`, `git add apps/`. Только явный список файлов.
+
+Причина запрета: широкий `git add` подметает чужие артефакты (debug-screenshots AutoTest, временные файлы). См. commit 77b5274 (round4 PR #22) — Coder подмёл `apps/e2e/debug-*.png` и `test-telegram-ui.*` из чужого worktree. .gitignore ловит свежие файлы, но **уже tracked** файлы — нет. Дисциплина = только явный add.
 
 ### 4. Идемпотентность: проверить существующий PR
 

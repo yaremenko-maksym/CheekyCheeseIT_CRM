@@ -37,8 +37,9 @@
 1. `docs/agents/CLAUDE-tools.md` — **полный перечень инструментов и когда использовать**
 2. `/.clauderules` — **ВСЕ правила**, твой главный чек-лист
 3. `docs/agents/CLAUDE-reviewer.md` — архитектурные решения, версионные ограничения, RBAC
-4. `docs/business/modules/<модуль из PR>.md` — понять что именно реализуется
-5. `docs/specs/active-task.md` — acceptance criteria задачи
+4. `docs/agents/memory/reviewer/lessons.md` — накопленные уроки от прошлых review
+5. `docs/business/modules/<модуль из PR>.md` — понять что именно реализуется
+6. `docs/specs/active-task.md` — acceptance criteria задачи
 
 ## Запуск
 

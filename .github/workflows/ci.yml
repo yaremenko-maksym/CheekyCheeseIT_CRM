@@ -84,7 +84,15 @@ jobs:
     name: Auto-Merge PR
     runs-on: ubuntu-latest
     needs: [quality, e2e]
-    if: github.event_name == 'pull_request' && needs.quality.result != 'failure' && needs.e2e.result != 'failure'
+    # PM must explicitly add `merge-approved` label after user-testing approval.
+    # `awaiting-pm-review` blocks merge until PM reviews. Both jobs must be `success`
+    # (not just non-failure — `skipped` no longer counts as pass).
+    if: |
+      github.event_name == 'pull_request' &&
+      needs.quality.result == 'success' &&
+      needs.e2e.result == 'success' &&
+      contains(github.event.pull_request.labels.*.name, 'merge-approved') &&
+      !contains(github.event.pull_request.labels.*.name, 'awaiting-pm-review')
     permissions:
       contents: write
       pull-requests: write

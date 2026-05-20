@@ -35,7 +35,9 @@ test-results/
 .claude/settings.local.json
 .playwright-mcp/
 
-# Agent debug artifacts — files agents create during "verification"
+# Agent debug artifacts — files agents create during "verification".
+# These must NEVER be committed. If git add catches one, .gitignore stops it.
+# If an agent commits via git add -A on already-tracked files, the agent has bug.
 output.txt
 debug-*.png
 screenshot-*.png
@@ -43,3 +45,7 @@ test-telegram-*.mjs
 test-telegram-*.js
 apps/e2e/debug-*.png
 apps/e2e/screenshot-*.png
+apps/e2e/test-*.mjs
+apps/e2e/test-*.js
+apps/e2e/temp-*
+apps/e2e/scratch-*
