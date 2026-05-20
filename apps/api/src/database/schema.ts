@@ -2,6 +2,7 @@ import { relations } from 'drizzle-orm'
 import {
   boolean,
   integer,
+  jsonb,
   numeric,
   pgEnum,
   pgTable,
@@ -58,6 +59,8 @@ export const payoutRequestStatusEnum = pgEnum('payout_request_status', [
   'PAID',     // Senior submitted txHash, auto-transactions created
 ])
 
+export const paymentMethodEnum = pgEnum('payment_method', ['USDT_ERC20', 'BANK_UAH_FOP'])
+
 // ---------------------------------------------------------------------------
 // Users
 // ---------------------------------------------------------------------------
@@ -71,13 +74,24 @@ export const users = pgTable('users', {
   googleId: varchar('google_id', { length: 255 }).unique(),
   telegram: varchar('telegram', { length: 100 }),
   phone: varchar('phone', { length: 30 }),
-  techStack: varchar('tech_stack', { length: 100 }),
-  // USDT ERC-20 wallet address (required for junior auto-salary, admin payout splits)
-  walletAddress: varchar('wallet_address', { length: 255 }),
+  // Tech stack — array of strings (chip-input on frontend)
+  techStack: text('tech_stack').array(),
+  // Payment requisites
+  paymentMethod: paymentMethodEnum('payment_method'),
+  walletUsdtErc20: text('wallet_usdt_erc20'),
+  walletUsdtLabel: text('wallet_usdt_label'),
+  bankUahRecipient: text('bank_uah_recipient'),
+  bankUahIban: text('bank_uah_iban'),
+  bankUahRnokpp: text('bank_uah_rnokpp'),
+  bankUahBankName: text('bank_uah_bank_name'),
   // For SENIOR and ADMIN: percentage they keep from project income (0-100)
   seniorSharePercent: integer('senior_share_percent').notNull().default(26),
   // For JUNIOR/HR/ACCOUNTANT: fixed monthly salary in USD
   monthlySalary: numeric('monthly_salary', { precision: 10, scale: 2 }),
+  // Soft delete (archived users hidden from main UI, restorable)
+  archivedAt: timestamp('archived_at'),
+  // Admin note (single overwriteable text field)
+  adminNote: text('admin_note'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
@@ -232,6 +246,19 @@ export const transactions = pgTable('transactions', {
 })
 
 // ---------------------------------------------------------------------------
+// User Audit Log
+// ---------------------------------------------------------------------------
+
+export const userAuditLog = pgTable('user_audit_log', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+  targetId: uuid('target_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  action: text('action').notNull(),
+  changes: jsonb('changes').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+})
+
+// ---------------------------------------------------------------------------
 // Relations
 // ---------------------------------------------------------------------------
 
@@ -246,6 +273,8 @@ export const usersRelations = relations(users, ({ many }) => ({
   validatedTransactions: many(transactions, { relationName: 'validatedTransactions' }),
   createdTransactions: many(transactions, { relationName: 'createdTransactions' }),
   payoutRequests: many(payoutRequests),
+  auditLogAsActor: many(userAuditLog, { relationName: 'auditLogAsActor' }),
+  auditLogAsTarget: many(userAuditLog, { relationName: 'auditLogAsTarget' }),
 }))
 
 export const teamsRelations = relations(teams, ({ many }) => ({
@@ -293,6 +322,11 @@ export const transactionsRelations = relations(transactions, ({ one }) => ({
   payoutRequest: one(payoutRequests, { fields: [transactions.payoutRequestId], references: [payoutRequests.id] }),
 }))
 
+export const userAuditLogRelations = relations(userAuditLog, ({ one }) => ({
+  actor: one(users, { fields: [userAuditLog.actorId], references: [users.id], relationName: 'auditLogAsActor' }),
+  target: one(users, { fields: [userAuditLog.targetId], references: [users.id], relationName: 'auditLogAsTarget' }),
+}))
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -315,3 +349,5 @@ export type Transaction = typeof transactions.$inferSelect
 export type NewTransaction = typeof transactions.$inferInsert
 export type PayoutRequest = typeof payoutRequests.$inferSelect
 export type NewPayoutRequest = typeof payoutRequests.$inferInsert
+export type UserAuditLogEntry = typeof userAuditLog.$inferSelect
+export type NewUserAuditLogEntry = typeof userAuditLog.$inferInsert
