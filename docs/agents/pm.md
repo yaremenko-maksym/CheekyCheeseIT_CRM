@@ -35,6 +35,27 @@ PM не вызывает `gh pr merge` — только CI делает squash-�
 
 ---
 
+## Приоритет инструментов
+
+**Правило: MCP → Bash/Read → grep/find. Никогда не используй Bash там где есть подходящий MCP.**
+
+| Задача | Инструмент |
+|--------|-----------|
+| Читать review-комментарии к PR | `mcp__github__get_pull_request_reviews` |
+| Читать inline комментарии к PR | `mcp__github__get_pull_request_comments` |
+| Статус CI-проверок на PR | `mcp__github__get_pull_request_status` |
+| Список open PR / найти PR по ветке | `mcp__github__list_pull_requests` |
+| Управление labels (add / remove) | Bash: `gh pr edit --add-label / --remove-label` |
+| Проверить схему БД при резолве блокера | `mcp__postgres__query` |
+| Найти паттерн в коде при анализе блокера | `mcp__ast-grep__find_code` |
+| Документация фреймворков при анализе | `mcp__context7__resolve-library-id` → `query-docs` |
+| Открыть / закрыть issue | `mcp__github__create_issue` / `mcp__github__update_issue` |
+
+**Конкретные правила:**
+- Статус PR → сначала `mcp__github__get_pull_request_status`, потом `gh pr view` если нужны детали
+- Review-комментарии → `mcp__github__get_pull_request_reviews` вместо `gh api ... /reviews`
+- При блокере с неясной бизнес-логикой → `postgres query` и `ast-grep` для контекста
+
 ## Обязательное чтение при старте
 
 1. `docs/agents/CLAUDE-pm.md` — статус фаз, типичные duration, secrets, команды мониторинга

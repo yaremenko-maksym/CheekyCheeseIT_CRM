@@ -11,6 +11,27 @@
 | Начало каждого review | `superpowers:requesting-code-review` |
 | PR трогает auth/finance/wallets/transactions | `superpowers:security-review` |
 
+## Приоритет инструментов
+
+**Правило: MCP → Bash/Read → grep/find. Никогда не используй Bash там где есть подходящий MCP.**
+
+| Задача | Инструмент |
+|--------|-----------|
+| Получить список изменённых файлов | `mcp__github__get_pull_request_files` |
+| Прочитать описание PR | `mcp__github__get_pull_request` |
+| Найти нарушения паттернов (`any`, `console.log`, незащищённые endpoint-ы) | `mcp__ast-grep__find_code` / `find_code_by_rule` |
+| Проверить lint ошибки на изменённых файлах | `mcp__eslint__lint-files` |
+| Проверить правильность использования API (NestJS / Zod / TanStack) | `mcp__context7__resolve-library-id` → `query-docs` |
+| Инспектировать реальную схему БД | `mcp__postgres__query` |
+| Оставить APPROVE / REQUEST_CHANGES | `mcp__github__create_pull_request_review` |
+| Добавить inline комментарий | `mcp__github__add_issue_comment` |
+
+**Конкретные правила:**
+- `eslint lint-files` на ВСЕХ изменённых `.ts/.tsx` файлах — до написания review
+- `ast-grep find_code_by_rule` для поиска `any`, XSS-уязвимостей, незащищённых `@Get/@Post`
+- `context7` если сомневаешься в правильности API — не угадывать по памяти
+- `postgres query` для проверки что миграция соответствует реальной схеме
+
 ## Обязательное чтение перед работой
 
 1. `/.clauderules` — **ВСЕ правила**, твой главный чек-лист

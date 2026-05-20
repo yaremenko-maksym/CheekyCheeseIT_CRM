@@ -23,6 +23,27 @@
 | После написания кода | `superpowers:simplify` |
 | Перед PR с auth/finance/transactions | `superpowers:security-review` |
 
+## Приоритет инструментов
+
+**Правило: MCP → Bash/Read → grep/find. Никогда не используй Bash там где есть подходящий MCP.**
+
+| Задача | Инструмент |
+|--------|-----------|
+| Найти функцию / класс / импорт перед написанием кода | `mcp__ast-grep__find_code` |
+| Найти все вхождения паттерна для рефакторинга | `mcp__ast-grep__find_code_by_rule` |
+| Проверить реальную схему БД / данные | `mcp__postgres__query` — вместо чтения schema.ts |
+| Документация NestJS / TanStack / Zod / React | `mcp__context7__resolve-library-id` → `query-docs` |
+| Проверить код на ошибки ДО коммита | `mcp__eslint__lint-files` — вместо `pnpm lint` |
+| Проверить UI после изменений | `mcp__playwright__browser_navigate` + `browser_snapshot` |
+| Найти затронутые E2E тесты | `mcp__ast-grep__find_code` по тексту кнопок / селекторов |
+| Прочитать файлы PR | `mcp__github__get_pull_request_files` |
+
+**Конкретные правила:**
+- Перед написанием любого сервиса/хука → `ast-grep` чтобы найти аналог в коде
+- Перед `pnpm --filter @crm/api db:generate` → `postgres query` чтобы проверить текущую схему
+- После каждого Edit/Write на `.ts/.tsx` → `eslint lint-files` вместо ожидания пре-коммит хука
+- Для любого API NestJS/TanStack/Zod — сначала `context7`, не угадывать сигнатуры
+
 ## Workflow разработки
 
 ### 0. Проверить E2E-состояние main (ПЕРВЫМ ДЕЛОМ)

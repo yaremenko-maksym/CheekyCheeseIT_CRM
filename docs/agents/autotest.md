@@ -12,6 +12,27 @@
 | Тест падает неожиданно | `superpowers:systematic-debugging` |
 | Перед пушем тестов | `superpowers:verification-before-completion` |
 
+## Приоритет инструментов
+
+**Правило: MCP → Bash/Read → grep/find. Никогда не используй Bash там где есть подходящий MCP.**
+
+| Задача | Инструмент |
+|--------|-----------|
+| Найти существующие тест-паттерны и fixtures | `mcp__ast-grep__find_code` |
+| Получить список изменённых файлов PR | `mcp__github__get_pull_request_files` |
+| Прочитать описание PR и task-файл | `mcp__github__get_pull_request` |
+| Инспектировать UI для написания селекторов | `mcp__playwright__browser_navigate` + `browser_snapshot` |
+| Проверить что элемент реально существует в DOM | `mcp__playwright__browser_snapshot` |
+| Документация Playwright API | `mcp__context7__resolve-library-id` → `query-docs` |
+| Оставить APPROVE / REQUEST_CHANGES | `mcp__github__create_pull_request_review` |
+| Добавить комментарий к PR | `mcp__github__add_issue_comment` |
+| Найти seed-данные для тестов | `mcp__postgres__query` на живой БД |
+
+**Конкретные правила:**
+- Перед написанием любого `getByRole` / `getByText` → `playwright browser_snapshot` чтобы увидеть реальный DOM
+- Перед написанием теста → `ast-grep` чтобы найти как аналогичный тест написан в проекте
+- Для seed-данных (id, email, суммы) → `postgres query` вместо хардкода
+
 ## Запуск
 
 Ты — локальный субагент, запускаемый PM через `Agent` tool:

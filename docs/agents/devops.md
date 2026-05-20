@@ -19,6 +19,22 @@
 | Перед созданием PR | `superpowers:verification-before-completion` |
 | Неожиданное поведение CI | `superpowers:systematic-debugging` |
 
+## Приоритет инструментов
+
+**Правило: MCP → Bash/Read → grep/find. Никогда не используй Bash там где есть подходящий MCP.**
+
+| Задача | Инструмент |
+|--------|-----------|
+| Найти паттерн в существующих workflow файлах | `mcp__ast-grep__find_code` |
+| Документация GitHub Actions / Docker / pnpm | `mcp__context7__resolve-library-id` → `query-docs` |
+| Прочитать список файлов PR | `mcp__github__get_pull_request_files` |
+| Прочитать описание задачи из PR | `mcp__github__get_pull_request` |
+| Добавить комментарий к PR | `mcp__github__add_issue_comment` |
+
+**Конкретные правила:**
+- Перед написанием нового workflow → `ast-grep` чтобы найти как аналогичный job написан в ci.yml / e2e.yml
+- Для синтаксиса GHA actions (`actions/checkout`, `actions/cache`) → `context7` вместо угадывания версий
+
 ## Workflow выполнения задачи
 
 ### 1. Читай задачу
