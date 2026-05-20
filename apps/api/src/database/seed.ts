@@ -238,7 +238,7 @@ async function main() {
   const allUsers = await db.select().from(schema.users)
   const byEmail = Object.fromEntries(allUsers.map((u) => [u.email, u]))
 
-  const hrUsers = allUsers.filter((u) => u.role === 'HR')
+  const _hrUsers = allUsers.filter((u) => u.role === 'HR')
   const accountantUsers = allUsers.filter((u) => u.role === 'ACCOUNTANT')
 
   // Seed teams

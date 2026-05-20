@@ -7,7 +7,7 @@ export interface SortConfig<K extends string> {
 
 const DEFAULT_PAGE_SIZE = 50
 
-export function usePaginatedFilter<T, K extends string>(
+export function usePaginatedFilter<T, _K extends string>(
   items: T[],
   filter: (item: T) => boolean,
   sort: (a: T, b: T) => number,

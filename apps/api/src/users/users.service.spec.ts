@@ -1,5 +1,5 @@
 import { ConflictException, NotFoundException } from '@nestjs/common'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type * as schema from '../database/schema'
 import { UsersService } from './users.service'

@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { and, desc, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm'
 import type { SessionUser } from '@crm/shared'
 import { MAKSYM_ID, KOSTYA_ID } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
@@ -624,7 +624,7 @@ export class TransactionsService {
 
   // ── Finance Summary (stats) ───────────────────────────────────────────────
 
-  async getSummary(currentUser: SessionUser) {
+  async getSummary(_currentUser: SessionUser) {
     const allTxs = await this.db.db.query.transactions.findMany({
       with: {
         sender: { columns: { displayName: true } },

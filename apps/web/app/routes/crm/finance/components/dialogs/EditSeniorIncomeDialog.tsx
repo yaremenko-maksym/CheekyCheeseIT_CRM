@@ -43,7 +43,7 @@ export function EditSeniorIncomeDialog({
     enabled: !!tx,
   })
 
-  const myProjects = projects.filter((p) => p.seniorId === user?.id)
+  const _myProjects = projects.filter((p) => p.seniorId === user?.id)
 
   const mutation = useMutation({
     mutationFn: () => {

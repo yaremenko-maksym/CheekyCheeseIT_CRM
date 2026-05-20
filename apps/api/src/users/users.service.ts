@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import { and, eq, isNull, ne } from 'drizzle-orm'
+import { eq, isNull, ne } from 'drizzle-orm'
 import { DatabaseService } from '../database/database.service'
 import { projectMembers, teamMembers, teams, users, type User } from '../database/schema'
 import { UsersAccessService } from './users-access.service'

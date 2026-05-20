@@ -34,8 +34,8 @@ describe('UsersAccessService.getViewPermissions', () => {
   beforeEach(() => {
     service = new UsersAccessService({ db: {} } as never)
     // Mock the private DB-helper methods so tests don't hit a real DB
-    ;(service as any).isHrInTargetTeam = vi.fn().mockResolvedValue(false)
-    ;(service as any).isSharedProject = vi.fn().mockResolvedValue(false)
+    ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi.fn().mockResolvedValue(false)
+    ;(service as unknown as Record<string, unknown>).isSharedProject = vi.fn().mockResolvedValue(false)
   })
 
   it('ADMIN viewing JUNIOR sees 6 tabs (no Собеседования)', async () => {
@@ -55,7 +55,7 @@ describe('UsersAccessService.getViewPermissions', () => {
   })
 
   it('HR viewing SENIOR in own team — no finance, no requisites, no audit', async () => {
-    ;(service as any).isHrInTargetTeam = vi.fn().mockResolvedValue(true)
+    ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi.fn().mockResolvedValue(true)
     const viewer = makeUser({ id: 'hr-id', role: 'HR' })
     const target = makeUser({ id: 'sr-id', role: 'SENIOR' })
     const p = await service.getViewPermissions(viewer, target)
@@ -110,7 +110,7 @@ describe('UsersAccessService.getViewPermissions', () => {
   })
 
   it('SENIOR viewing colleague in shared project — sees overview/projects/team', async () => {
-    ;(service as any).isSharedProject = vi.fn().mockResolvedValue(true)
+    ;(service as unknown as Record<string, unknown>).isSharedProject = vi.fn().mockResolvedValue(true)
     const viewer = makeUser({ id: 'sr1', role: 'SENIOR' })
     const target = makeUser({ id: 'jr1', role: 'JUNIOR' })
     const p = await service.getViewPermissions(viewer, target)

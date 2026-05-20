@@ -1,6 +1,5 @@
 import { relations } from 'drizzle-orm'
 import {
-  boolean,
   index,
   integer,
   jsonb,
@@ -9,7 +8,6 @@ import {
   pgTable,
   text,
   timestamp,
-  unique,
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core'

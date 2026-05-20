@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import type { InterviewDto, InterviewStage } from '@crm/shared'
 import { cn } from '@/lib/utils'

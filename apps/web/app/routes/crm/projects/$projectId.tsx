@@ -81,7 +81,7 @@ function getInitials(name: string) {
 
 
 // TanStack Form field/form render props require many generics — suppress with eslint
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 type AnyField = FieldApi<
   any,
   any,
@@ -107,8 +107,8 @@ type AnyField = FieldApi<
   any,
   any
 >
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyForm = ReactFormExtendedApi<any, any, any, any, any, any, any, any, any, any, any, any>
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 function ProjectEditFields({ form, mode }: { form: AnyForm; mode: 'info' | 'members' }) {
   if (mode === 'info') {

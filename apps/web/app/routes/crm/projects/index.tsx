@@ -9,7 +9,6 @@ import {
   DollarSign,
   Plus,
   Trash2,
-  Users,
 } from 'lucide-react'
 import { useState } from 'react'
 import type { CreateProjectDto, ProjectDto, ProjectMemberDto, ItDomain } from '@crm/shared'
