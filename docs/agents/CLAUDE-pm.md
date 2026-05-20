@@ -92,14 +92,17 @@ docs/specs/tasks/
 - Фикс теста: `task-fix-test-<slug>.md`
 - Фикс от user testing: `task-fix-<short-description>.md`
 
-## pm-state.json формат
+## pm-state.json schema v2
+
+Файл локальный, gitignored. PM пишет и читает между сессиями. Формат поддерживает события и метрики — данные накапливаются для пост-анализа эффективности пайплайна.
 
 ```json
 {
   "feature": "Knowledge Base",
   "brief": "docs/specs/pm-brief.md",
   "started_at": "2026-05-18T10:00:00Z",
-  "tasks": [
+  "phase": "development",
+  "active": [
     {
       "id": "task-knowledge-api",
       "file": "docs/specs/tasks/task-knowledge-api.md",
@@ -109,26 +112,102 @@ docs/specs/tasks/
       "status": "running",
       "started_at": "2026-05-18T10:00:00Z",
       "review_rounds": 0,
-      "max_review_rounds": 5
+      "max_review_rounds": 5,
+      "agent_invocations": {
+        "coder": 1,
+        "reviewer": 0,
+        "autotest": 0,
+        "devops": 0
+      },
+      "events": [
+        { "at": "2026-05-18T10:00:00Z", "type": "agent_started", "agent": "coder" }
+      ],
+      "pending_fixes": []
+    }
+  ],
+  "completed": [
+    {
+      "id": "task-fix-pr22-ui-round5",
+      "duration_min": 18,
+      "rounds": 5,
+      "regression_count": 1,
+      "agent_invocations": {
+        "coder": 5,
+        "reviewer": 4,
+        "autotest": 1,
+        "devops": 0
+      },
+      "merged_at": "2026-05-20T07:03:35Z",
+      "pr_number": 22
     }
   ],
   "blocked": [],
-  "merged": [],
-  "phase": "development",
-  "pending_fixes": []
+  "blocking_issue": null
 }
 ```
 
-**`pending_fixes`** — массив правок от пользователя во время User Testing, ещё не отправленных в Coder.
-Каждый элемент — строка с описанием правки. Очищается после создания task-файла и запуска Coder.
+### Поля
 
-Пример с накопленными правками:
-```json
-"pending_fixes": [
-  "Кнопка 'Добавить' не активна для роли HR — должна быть активна",
-  "Поле телефона не валидируется при сохранении",
-  "Заголовок модалки обрезается на мобильном"
-]
-```
+**Top-level:**
+- `feature` — название текущей фичи (читаемое имя)
+- `brief` — путь к pm-brief.md
+- `started_at` — когда PM стартовал работу над фичей
+- `phase` — `development` / `user-testing` / `merging` / `archived`
+- `active[]` — текущие незавершённые задачи
+- `completed[]` — завершённые задачи (для метрик)
+- `blocked[]` — заблокированные задачи (с .blocked.md файлами)
+- `blocking_issue` — если есть глобальный blocker (например, e2e-broken на main)
 
-**Статусы задачи:** `running` → `pr_open` → `awaiting_pm_review` → `e2e_running` → `merged` | `failed`
+**Active task:**
+- Базовые поля: `id`, `file`, `agent`, `branch`, `pr_number`, `status`
+- `review_rounds` — счётчик раундов code review (circuit breaker при `>=3`)
+- `agent_invocations` — счётчики сколько раз PM запускал каждого агента
+- `events[]` — лог событий (см. ниже)
+- `pending_fixes[]` — правки от User Testing, ещё не отправленные в Coder
+
+**Event types** (записываются в `events[]`):
+- `agent_started` — `{ at, type, agent, task_file? }`
+- `agent_finished` — `{ at, type, agent, result: "success"|"blocked"|"no-op" }`
+- `pr_opened` — `{ at, type, pr }`
+- `review_approve` — `{ at, type, pr }`
+- `review_rejected` — `{ at, type, pr, rounds }`
+- `e2e_started` — `{ at, type, run_id }`
+- `e2e_passed` — `{ at, type, run_id }`
+- `e2e_failed` — `{ at, type, run_id, failure_type: "code"|"test" }`
+- `user_approved` — `{ at, type, pr }` — пользователь сказал «мерджи»
+- `merge_approved_label` — `{ at, type, pr }` — PM выставил лейбл
+- `merged` — `{ at, type, pr }` — CI смерджил
+
+**Completed task** (агрегаты для метрик):
+- `duration_min` — от `started_at` до `merged_at` в минутах
+- `rounds` — итоговое число review_rounds
+- `regression_count` — сколько раз round_N сломал что-то из round_{N-1}
+- `agent_invocations` — финальные счётчики
+- `merged_at`, `pr_number` — для трассировки
+
+### Статусы задачи
+
+`running` → `pr_open` → `awaiting_pm_review` → `user_testing` → `e2e_running` → `merged` | `failed`
+
+Промежуточные:
+- `blocked` — есть `.blocked.md` файл, PM нужен резолв
+- `pending_fixes` — User Testing вернул правки, ждёт следующего раунда Coder
+
+### Метрики (выводятся из completed[])
+
+PM может посчитать в любой момент:
+- `avg(rounds)` — среднее число раундов на задачу
+- `avg(duration_min)` — среднее время от старта до merge
+- `sum(regression_count) / count(*)` — частота регрессий
+- Распределение `agent_invocations.coder` — сколько раз перезапускали Coder в среднем
+
+Эти числа — индикатор здоровья пайплайна. Цель из design v2: `avg(rounds) <= 2`.
+
+### Migration со старого формата
+
+Старый формат имел: `tasks`, `merged`, `pending_fixes` (top-level). Mapping:
+- `tasks` → `active`
+- `merged` → `completed` (доп. поля заполнить дефолтами для исторических: `rounds: null`, `duration_min: null`)
+- `pending_fixes` (top-level) → внутрь `active[task].pending_fixes`
+
+Migration происходит лениво — PM при чтении старого формата перепишет в новый при первом сохранении.
