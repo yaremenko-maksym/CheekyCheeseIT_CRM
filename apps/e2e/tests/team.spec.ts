@@ -744,12 +744,12 @@ test.describe('Team page', () => {
 
       await page.goto('/crm/team')
 
-      // Check TG link appears in team row
-      const telegramIcon = page.locator('a[href="https://t.me/alpha_team"]').getByText('TG')
-      await expect(telegramIcon).toBeVisible()
-      
+      // Round5: TG link is a styled pill with text "Telegram" (not "TG") in the Pills block
+      const telegramLink = page.locator('a[href="https://t.me/alpha_team"]').filter({ hasText: 'Telegram' })
+      await expect(telegramLink).toBeVisible()
+
       // Verify it doesn't trigger card navigation when clicked
-      await telegramIcon.click()
+      await telegramLink.click()
       await expect(page).toHaveURL('/crm/team') // Should stay on list page
     })
 
@@ -831,7 +831,7 @@ test.describe('Team page', () => {
   // ---------------------------------------------------------------------------
 
   test.describe('Teams UI Polish — PR #22', () => {
-    test('telegram link in team list appears as separate line with Send icon and blue color', async ({ asAdmin: page }) => {
+    test('telegram link in team list appears as styled pill with Send icon and blue color', async ({ asAdmin: page }) => {
       // Mock teams list with telegram field
       await page.route('**/api/teams', route => {
         route.fulfill({
@@ -846,17 +846,19 @@ test.describe('Team page', () => {
 
       await page.goto('/crm/team')
 
-      // Check telegram link is on separate line under team name (not inline with HR)
-      const teamRow = page.locator('main').getByText('Alpha Team').locator('..')
-      const telegramLink = teamRow.locator('a[href="https://t.me/alpha_team_polish"]')
-      
+      // Round5: TG link lives in the Pills block as a styled pill with text "Telegram"
+      const telegramLink = page.locator('main').locator('a[href="https://t.me/alpha_team_polish"]').filter({ hasText: 'Telegram' })
+
       await expect(telegramLink).toBeVisible()
-      
-      // Check blue color and Send icon
+
+      // Check blue color and pill border (round5 contract: text-blue-500 + border-blue-500/30)
       await expect(telegramLink).toHaveClass(/text-blue-500/)
+      await expect(telegramLink).toHaveClass(/border-blue-500\/30/)
+      await expect(telegramLink).toHaveClass(/rounded-full/)
+
       const sendIcon = telegramLink.locator('.lucide-send')
       await expect(sendIcon).toBeVisible()
-      
+
       // Check it doesn't trigger team navigation
       await telegramLink.click()
       await expect(page).toHaveURL('/crm/team') // Should stay on list page
@@ -930,7 +932,7 @@ test.describe('Team page', () => {
       await expect(telegramLink).not.toContainText('https://t.me/')
     })
 
-    test('team telegram channel in header appears as styled blue badge', async ({ asAdmin: page }) => {
+    test('team telegram channel in header appears as styled blue button', async ({ asAdmin: page }) => {
       // Mock team with telegram channel
       await page.route(`**/api/teams/${TEAMS[0]!.id}`, route => {
         route.fulfill({
@@ -945,23 +947,22 @@ test.describe('Team page', () => {
 
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
 
-      // Find telegram link in header
+      // Find telegram link in header (round5: header link is large, not a pill)
       const headerTelegramLink = page.locator('a[href="https://t.me/team_channel_polish"]')
       await expect(headerTelegramLink).toBeVisible()
-      
-      // Check styled badge appearance - blue background with border
-      await expect(headerTelegramLink).toHaveClass(/bg-blue-500\/10/)
-      await expect(headerTelegramLink).toHaveClass(/text-blue-500/)
-      await expect(headerTelegramLink).toHaveClass(/rounded-full/)
-      await expect(headerTelegramLink).toHaveClass(/border-blue-500\/20/)
-      
+
+      // Round5 header contract: text-blue-400 (not 500), rounded-lg (not full), border-blue-500/50 (not /20)
+      await expect(headerTelegramLink).toHaveClass(/text-blue-400/)
+      await expect(headerTelegramLink).toHaveClass(/rounded-lg/)
+      await expect(headerTelegramLink).toHaveClass(/border-blue-500\/50/)
+
       // Check Send icon is present
       const sendIcon = headerTelegramLink.locator('.lucide-send')
       await expect(sendIcon).toBeVisible()
-      
+
       // Check text content
       await expect(headerTelegramLink).toContainText('Telegram-канал')
-      
+
       // Check target and rel attributes
       await expect(headerTelegramLink).toHaveAttribute('target', '_blank')
       await expect(headerTelegramLink).toHaveAttribute('rel', 'noopener noreferrer')
@@ -979,7 +980,7 @@ test.describe('Team page', () => {
           }])
         })
       })
-      
+
       await page.route(`**/api/teams/${TEAMS[0]!.id}`, route => {
         const teamWithTelegram = {
           ...TEAMS[0],
@@ -996,22 +997,24 @@ test.describe('Team page', () => {
         })
       })
 
-      // Check team list page
+      // Check team list page — scope to main to avoid duplicates in sidebar/header
       await page.goto('/crm/team')
-      const listTelegramIcon = page.locator('a[href="https://t.me/list_team"] .lucide-send')
+      const listTelegramIcon = page.locator('main').locator('a[href="https://t.me/list_team"]').first().locator('.lucide-send')
       await expect(listTelegramIcon).toBeVisible()
-      
+
       // Check team detail page
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
-      
-      // Header telegram uses Send icon
-      const headerTelegramIcon = page.locator('a[href="https://t.me/header_team"] .lucide-send')
+
+      // Header telegram uses Send icon (single header link)
+      const headerTelegramIcon = page.locator('a[href="https://t.me/header_team"]').locator('.lucide-send')
       await expect(headerTelegramIcon).toBeVisible()
-      
-      // Member telegram uses Send icon  
-      const memberTelegramIcon = page.locator('a[href="https://t.me/member_user"] .lucide-send')
+
+      // Member telegram uses Send icon — scope to first member card to avoid
+      // strict mode violation since all members share the same mock TG URL
+      const firstMemberCard = page.locator('main').locator('[class*="border border-border/60"]').first()
+      const memberTelegramIcon = firstMemberCard.locator('a[href="https://t.me/member_user"]').locator('.lucide-send')
       await expect(memberTelegramIcon).toBeVisible()
-      
+
       // Ensure NO other message-related icons are used (MessageCircle, MessageSquare, etc.)
       await expect(page.locator('.lucide-message-circle')).not.toBeVisible()
       await expect(page.locator('.lucide-message-square')).not.toBeVisible()

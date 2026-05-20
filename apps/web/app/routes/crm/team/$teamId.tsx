@@ -250,8 +250,16 @@ function TeamDetailPage() {
     toast.success('Участники добавлены')
   }
 
+  function tgHref(tg: string) {
+    return tg.startsWith('https://') ? tg : `https://t.me/${tg.replace('@', '')}`
+  }
+  function tgDisplay(tg: string) {
+    if (tg.startsWith('https://t.me/')) return `@${tg.slice('https://t.me/'.length)}`
+    return tg.startsWith('@') ? tg : `@${tg}`
+  }
+
   return (
-    <motion.div 
+    <motion.div
       className="space-y-6"
       variants={container}
       initial="hidden"
@@ -260,11 +268,13 @@ function TeamDetailPage() {
       {/* Header */}
       <motion.div variants={item} className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
-          <Button asChild variant="outline" size="icon" className="shrink-0">
-            <Link to="/crm/team">
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-          </Button>
+          {user?.role !== 'SENIOR' && user?.role !== 'JUNIOR' && (
+            <Button asChild variant="outline" size="icon" className="shrink-0">
+              <Link to="/crm/team">
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+            </Button>
+          )}
           <div>
             <h1 className="text-2xl font-bold tracking-tight">{team.name}</h1>
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
@@ -363,27 +373,27 @@ function TeamDetailPage() {
                                 {member.techStack}
                               </Badge>
                             )}
-                            <div className="mt-1 space-y-0.5">
+                            <div className="mt-1 flex flex-col gap-0.5 min-w-0">
                               <a href={`mailto:${member.email}`}
                                  onClick={e => e.stopPropagation()}
-                                 className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors truncate">
+                                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0">
                                 <Mail className="h-3 w-3 shrink-0" />
-                                {member.email}
+                                <span className="truncate">{member.email}</span>
                               </a>
                               {member.telegram && (
-                                <a href={member.telegram} target="_blank" rel="noopener noreferrer"
+                                <a href={tgHref(member.telegram)} target="_blank" rel="noopener noreferrer"
                                    onClick={e => e.stopPropagation()}
-                                   className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
+                                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0">
                                   <Send className="h-3 w-3 shrink-0" />
-                                  {member.telegram.replace('https://t.me/', '@')}
+                                  <span className="truncate">{tgDisplay(member.telegram)}</span>
                                 </a>
                               )}
                               {member.phone && (
                                 <a href={`tel:${member.phone}`}
                                    onClick={e => e.stopPropagation()}
-                                   className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
+                                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0">
                                   <Phone className="h-3 w-3 shrink-0" />
-                                  {member.phone}
+                                  <span className="truncate">{member.phone}</span>
                                 </a>
                               )}
                             </div>

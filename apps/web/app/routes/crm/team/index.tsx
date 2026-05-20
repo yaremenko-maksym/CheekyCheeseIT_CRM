@@ -745,7 +745,7 @@ function TeamPage() {
                   {team.members.slice(0, 4).map((member, index) => (
                     <Avatar
                       key={member.id}
-                      className="h-7 w-7 ring-2 ring-background"
+                      className="h-7 w-7 ring-2 ring-background bg-muted"
                       style={{ zIndex: 4 - index }}
                     >
                       {member.avatar && <AvatarImage src={member.avatar} alt={member.displayName} />}
@@ -779,10 +779,10 @@ function TeamPage() {
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={e => e.stopPropagation()}
-                      className="flex h-7 w-7 items-center justify-center rounded-full text-blue-500 hover:bg-blue-500/10 transition-colors"
-                      title="Telegram-канал команды"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/30 px-2.5 py-1 text-xs font-medium text-blue-500 hover:bg-blue-500/10 transition-colors"
                     >
-                      <Send className="h-3.5 w-3.5" />
+                      <Send className="h-3 w-3" />
+                      Telegram
                     </a>
                   )}
                   <Badge variant="outline" className="text-[11px] tabular-nums">
