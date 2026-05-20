@@ -64,7 +64,7 @@ function getInitials(name: string) {
 function TeamMemberRow({ userId, name, avatar, role }: { userId: string; name: string; avatar: string | null; role: string }) {
   return (
     <Link
-      to="/crm/users/$userId"
+      to="/crm/profile/$userId"
       params={{ userId }}
       className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/50 transition-colors group"
       onClick={(e) => e.stopPropagation()}

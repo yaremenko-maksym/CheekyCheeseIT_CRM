@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { paymentMethodSchema } from './payment-requisites'
+import type { Role } from '../types/roles'
+import { currencyEnumSchema, paymentMethodSchema } from './payment-requisites'
 import { tabKeySchema, actionKeySchema } from './view-permissions'
 
 export const roleSchema = z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'])
@@ -30,6 +31,7 @@ export const userProfileSchema = z.object({
   bankUahBankName: z.string().nullable(),
   seniorSharePercent: z.number().int().min(0).max(100),
   monthlySalary: z.string().nullable(),
+  salaryCurrency: currencyEnumSchema.default('USD'),
   archivedAt: z.coerce.date().nullable(),
   adminNote: z.string().nullable(),
   createdAt: z.coerce.date(),
@@ -100,3 +102,23 @@ export type UpdateProfileDto = z.infer<typeof updateProfileSchema>
 export type CreateUserDto = z.infer<typeof createUserSchema>
 export type AdminUpdateUserDto = z.infer<typeof adminUpdateUserSchema>
 export type UserWithPermissionsResponse = z.infer<typeof userWithPermissionsResponseSchema>
+
+/**
+ * Returns whether a given field should be displayed for a user with the given role.
+ * Used in both frontend rendering and backend field-filtering to enforce per-role rules.
+ */
+export function shouldShowField(role: Role, field: 'salary' | 'share' | 'techStack'): boolean {
+  switch (field) {
+    case 'salary':
+      // JUNIOR, HR, ACCOUNTANT have a fixed monthly salary; SENIOR/ADMIN use share-based income
+      return role === 'JUNIOR' || role === 'HR' || role === 'ACCOUNTANT'
+    case 'share':
+      // SENIOR and ADMIN see their share percentage; others don't have one
+      return role === 'SENIOR' || role === 'ADMIN'
+    case 'techStack':
+      // Technical roles have a tech stack; HR and ACCOUNTANT don't
+      return role !== 'HR' && role !== 'ACCOUNTANT'
+    default:
+      return false
+  }
+}

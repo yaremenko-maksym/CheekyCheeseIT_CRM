@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 export const auditActionSchema = z.enum([
+  'profile_created',
   'profile_edit',
   'requisites_edit',
   'role_change',

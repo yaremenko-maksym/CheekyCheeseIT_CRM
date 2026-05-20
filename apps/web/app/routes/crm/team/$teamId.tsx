@@ -353,7 +353,7 @@ function TeamDetailPage() {
                         transition={{ duration: 0.15 }}
                       >
                         <Link
-                          to="/crm/users/$userId"
+                          to="/crm/profile/$userId"
                           params={{ userId: member.userId }}
                           className="flex min-w-0 flex-1 items-center gap-3 hover:opacity-80 transition-opacity"
                         >

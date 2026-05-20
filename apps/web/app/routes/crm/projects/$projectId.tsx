@@ -711,7 +711,7 @@ return (
             {/* Senior — always shown */}
             <div className="pb-3">
               <Link
-                to="/crm/users/$userId"
+                to="/crm/profile/$userId"
                 params={{ userId: senior.userId }}
                 className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0"
               >
@@ -1031,7 +1031,7 @@ function MemberRow({
   return (
     <div className={cn('flex items-center gap-2', member.leftAt && 'opacity-50')}>
       <Link
-        to="/crm/users/$userId"
+        to="/crm/profile/$userId"
         params={{ userId: member.userId }}
         className="flex min-w-0 flex-1 items-center gap-2 hover:opacity-80 transition-opacity"
       >

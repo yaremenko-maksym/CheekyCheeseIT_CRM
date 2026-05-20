@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { eq, isNull, ne } from 'drizzle-orm'
 import { DatabaseService } from '../database/database.service'
 import { projectMembers, teamMembers, teams, users, type User } from '../database/schema'
+import { AuditLogService } from './audit-log.service'
 import { UsersAccessService } from './users-access.service'
 
 export type UserWithAvailability = User & { hasActiveProject: boolean }
@@ -11,6 +12,7 @@ export class UsersService {
   constructor(
     private db: DatabaseService,
     private accessService: UsersAccessService,
+    private auditLogService: AuditLogService,
   ) {}
 
   findByEmail(email: string): Promise<User | undefined> {
@@ -95,6 +97,17 @@ export class UsersService {
 
     const created = rows[0]
     if (!created) throw new Error('Failed to create user')
+
+    // Seed initial audit event — always has changes so record() won't skip it
+    await this.auditLogService.record({
+      actorId: null,
+      targetId: created.id,
+      action: 'profile_created',
+      changes: {
+        displayName: { before: null, after: created.displayName },
+        role: { before: null, after: created.role },
+      },
+    })
 
     if (data.role === 'SENIOR') {
       const [team] = await this.db.db
@@ -279,7 +292,12 @@ export class UsersService {
     const filteredUser: User = { ...target }
     if (!permissions.fields.salary) {
       filteredUser.monthlySalary = null
+    }
+    if (!permissions.fields.share) {
       filteredUser.seniorSharePercent = 0
+    }
+    if (!permissions.fields.techStack) {
+      filteredUser.techStack = null
     }
     if (!permissions.fields.requisites) {
       filteredUser.paymentMethod = null
@@ -294,7 +312,7 @@ export class UsersService {
     const data: Record<string, unknown> = {}
     if (permissions.tabs.includes('overview')) {
       data.overview = {
-        techStack: target.techStack ?? [],
+        techStack: permissions.fields.techStack ? (target.techStack ?? []) : null,
         adminNote: viewer.role === 'ADMIN' ? target.adminNote : null,
       }
     }

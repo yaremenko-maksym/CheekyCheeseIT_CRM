@@ -39,7 +39,7 @@ function Party({
     if (type === 'user') {
       return (
         <Link
-          to="/crm/users/$userId"
+          to="/crm/profile/$userId"
           params={{ userId: id }}
           className="text-primary hover:underline underline-offset-2 font-medium truncate max-w-28 block"
           onClick={(e) => e.stopPropagation()}

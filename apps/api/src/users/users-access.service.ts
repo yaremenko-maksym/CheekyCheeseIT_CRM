@@ -21,6 +21,10 @@ export class UsersAccessService {
     const actions: ActionKey[] = []
     const fields: Record<string, boolean> = {}
 
+    const targetIsSalaryRole = target.role === 'JUNIOR' || target.role === 'HR' || target.role === 'ACCOUNTANT'
+    const targetIsShareRole = target.role === 'SENIOR' || target.role === 'ADMIN'
+    const targetHasTechStack = target.role !== 'HR' && target.role !== 'ACCOUNTANT'
+
     if (isAdmin) {
       tabs.push('overview', 'finance', 'projects', 'team', 'requisites', 'audit')
       if (targetIsSenior) tabs.push('interviews')
@@ -36,26 +40,34 @@ export class UsersAccessService {
           'archive',
         )
       }
-      fields.salary = true
+      fields.salary = targetIsSalaryRole
+      fields.share = targetIsShareRole
+      fields.techStack = targetHasTechStack
       fields.requisites = true
     } else if (isSelf) {
       tabs.push('overview', 'projects', 'team', 'requisites')
       if (isSenior || isJunior || isHr || isAccountant) tabs.push('finance')
       if (isSenior) tabs.push('interviews')
-      fields.salary = true
+      fields.salary = targetIsSalaryRole
+      fields.share = targetIsShareRole
+      fields.techStack = targetHasTechStack
       fields.requisites = true
     } else if (isAccountant) {
       tabs.push('overview', 'finance', 'projects', 'team', 'requisites')
-      fields.salary = true
+      fields.salary = targetIsSalaryRole
+      fields.share = targetIsShareRole
+      fields.techStack = targetHasTechStack
       fields.requisites = true
     } else if (isHr) {
       if (await this.isHrInTargetTeam(viewer.id, target)) {
         tabs.push('overview', 'projects', 'team')
         if (targetIsSenior) tabs.push('interviews')
+        fields.techStack = targetHasTechStack
       }
     } else if (isSenior) {
       if (await this.isSharedProject(viewer.id, target.id)) {
         tabs.push('overview', 'projects', 'team')
+        fields.techStack = targetHasTechStack
       }
     }
     // JUNIOR viewing other: no tabs

@@ -85,8 +85,9 @@ export const users = pgTable('users', {
   bankUahBankName: text('bank_uah_bank_name'),
   // For SENIOR and ADMIN: percentage they keep from project income (0-100)
   seniorSharePercent: integer('senior_share_percent').notNull().default(26),
-  // For JUNIOR/HR/ACCOUNTANT: fixed monthly salary in USD
+  // For JUNIOR/HR/ACCOUNTANT: fixed monthly salary (currency set separately)
   monthlySalary: numeric('monthly_salary', { precision: 10, scale: 2 }),
+  salaryCurrency: currencyEnum('salary_currency').default('USD'),
   // Soft delete (archived users hidden from main UI, restorable)
   archivedAt: timestamp('archived_at'),
   // Admin note (single overwriteable text field)

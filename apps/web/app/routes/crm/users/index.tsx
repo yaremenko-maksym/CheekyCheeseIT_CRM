@@ -1027,12 +1027,9 @@ function DeleteUserDialog({
 function UsersPage() {
   const { user: me } = useAuth()
   
-  // Handle access control manually to show proper denied message
+  // Admin-only page guard
   if (!me) return null
-  
-  const hasAccess = me.role === 'ADMIN' || me.role === 'HR'
-  
-  if (!hasAccess) {
+  if (me.role !== 'ADMIN') {
     return (
       <div className="space-y-6">
         <div>
@@ -1103,16 +1100,7 @@ function UsersPage() {
     />
   )
 
-  const isAdmin = me?.role === 'ADMIN'
-  const isHr = me?.role === 'HR'
-
-  if (!isAdmin && !isHr) {
-    return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        Доступ только для администратора
-      </div>
-    )
-  }
+  const isAdmin = true // already guarded above: only ADMIN reaches here
 
   return (
     <div className="space-y-6">
@@ -1235,7 +1223,7 @@ function UsersPage() {
                     <TableRow key={u.id}>
                       <TableCell>
                         <div className="flex items-center gap-3">
-                          <Link to="/crm/users/$userId" params={{ userId: u.id }}>
+                          <Link to="/crm/profile/$userId" params={{ userId: u.id }}>
                             <Avatar className="h-8 w-8 shrink-0">
                               {u.avatar && (
                                 <img
@@ -1251,7 +1239,7 @@ function UsersPage() {
                           </Link>
                           <div className="min-w-0">
                             <Link
-                              to="/crm/users/$userId"
+                              to="/crm/profile/$userId"
                               params={{ userId: u.id }}
                               className="text-sm font-medium hover:underline truncate block"
                             >
@@ -1312,7 +1300,7 @@ function UsersPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-0.5">
-                          <Link to="/crm/users/$userId" params={{ userId: u.id }}>
+                          <Link to="/crm/profile/$userId" params={{ userId: u.id }}>
                             <Button variant="ghost" size="icon" className="h-7 w-7">
                               <ExternalLink className="h-3.5 w-3.5" />
                             </Button>
@@ -1352,7 +1340,7 @@ function UsersPage() {
         </Card>
       </motion.div>
 
-      <CreateUserDialog key={createKey} open={createOpen} onClose={() => setCreateOpen(false)} hrOnly={isHr} />
+      <CreateUserDialog key={createKey} open={createOpen} onClose={() => setCreateOpen(false)} hrOnly={false} />
       <EditUserDialog user={editUser} onClose={() => setEditUser(null)} />
       <DeleteUserDialog user={deleteUser} onClose={() => setDeleteUser(null)} />
     </div>
