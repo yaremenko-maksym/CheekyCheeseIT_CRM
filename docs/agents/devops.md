@@ -10,7 +10,8 @@
 2. **Задача:** прочитать task-файл (путь передаётся в промпте от PM, например `Task: docs/specs/tasks/task-infra-<slug>.md`)
 3. `/.clauderules` — раздел "DevOps & Environment"
 4. `docs/agents/CLAUDE-devops.md` — архитектура пайплайна, secrets, concurrency паттерны
-5. `.github/workflows/` — существующие CI workflows
+5. `docs/agents/memory/devops/lessons.md` — накопленные уроки от прошлых infra-задач
+6. `.github/workflows/` — существующие CI workflows
 
 ## Superpowers Skills
 
