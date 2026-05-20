@@ -18,6 +18,7 @@ import { AuditLog } from '../common/decorators/audit-log.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { AuditInterceptor } from '../common/interceptors/audit.interceptor'
 import { AuditLogService } from './audit-log.service'
+import { UsersAccessService } from './users-access.service'
 import { UsersService } from './users.service'
 import { TransactionsService } from '../finance/transactions.service'
 
@@ -28,6 +29,7 @@ export class UsersController {
   constructor(
     private readonly usersService: UsersService,
     private readonly auditLogService: AuditLogService,
+    private readonly accessService: UsersAccessService,
     @Optional() private readonly transactionsService?: TransactionsService,
   ) {}
 
@@ -98,7 +100,15 @@ export class UsersController {
   }
 
   @Get(':id/team')
-  async getUserTeam(@Param('id', ParseUUIDPipe) id: string) {
+  async getUserTeam(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() currentUser: SessionUser,
+  ) {
+    const viewer = await this.usersService.findById(currentUser.id)
+    const target = await this.usersService.findById(id)
+    if (!viewer || !target) throw new ForbiddenException()
+    const permissions = await this.accessService.getViewPermissions(viewer, target)
+    if (!permissions.tabs.includes('team')) throw new ForbiddenException()
     return this.usersService.getTeamMembersForUser(id)
   }
 
