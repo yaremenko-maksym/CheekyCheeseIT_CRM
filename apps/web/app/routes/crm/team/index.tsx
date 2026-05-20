@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Check, MessageCircle, Pencil, Plus, Search, UserPlus, Users } from 'lucide-react'
+import { Check, Pencil, Plus, Search, Send, UserPlus, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
 import type { Value as PhoneValue } from 'react-phone-number-input'
@@ -745,11 +745,11 @@ function TeamPage() {
                   {team.members.slice(0, 4).map((member, index) => (
                     <Avatar
                       key={member.id}
-                      className="h-7 w-7 ring-2 ring-background"
+                      className="h-7 w-7 ring-2 ring-background bg-muted"
                       style={{ zIndex: 4 - index }}
                     >
                       {member.avatar && <AvatarImage src={member.avatar} alt={member.displayName} />}
-                      <AvatarFallback className="text-[10px]">{getInitials(member.displayName)}</AvatarFallback>
+                      <AvatarFallback className="bg-muted text-[10px]">{getInitials(member.displayName)}</AvatarFallback>
                     </Avatar>
                   ))}
                   {team.members.length > 4 && (
@@ -768,20 +768,23 @@ function TeamPage() {
                   </p>
                   <p className="truncate text-xs text-muted-foreground overflow-hidden whitespace-nowrap">
                     HR: {hrMembers.map((m) => m.displayName).join(', ') || 'Без HR'}
-                    {team.telegram && (
-                      <a href={team.telegram} target="_blank" rel="noopener noreferrer"
-                         className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors ml-2"
-                         onClick={e => e.stopPropagation()}
-                         title="Telegram-канал команды">
-                        <MessageCircle className="h-3 w-3" />
-                        TG
-                      </a>
-                    )}
                   </p>
                 </div>
 
                 {/* Pills */}
                 <div className="relative z-20 flex shrink-0 items-center gap-2">
+                  {team.telegram && (
+                    <a
+                      href={team.telegram}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/30 px-2.5 py-1 text-xs font-medium text-blue-500 hover:bg-blue-500/10 transition-colors"
+                    >
+                      <Send className="h-3 w-3" />
+                      Telegram
+                    </a>
+                  )}
                   <Badge variant="outline" className="text-[11px] tabular-nums">
                     {team.members.length} уч.
                   </Badge>
@@ -962,7 +965,7 @@ function TeamPage() {
                   >
                     <Avatar className="h-7 w-7 shrink-0">
                       {u.avatar && <AvatarImage src={u.avatar} />}
-                      <AvatarFallback className="text-[10px]">{getInitials(u.displayName)}</AvatarFallback>
+                      <AvatarFallback className="bg-muted text-[10px]">{getInitials(u.displayName)}</AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{u.displayName}</p>
