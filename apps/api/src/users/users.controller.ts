@@ -131,12 +131,15 @@ export class UsersController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() currentUser: SessionUser,
   ) {
+    // Defense-in-depth: also assert role explicitly here so removing/reordering
+    // guards or decorators cannot accidentally expose this endpoint.
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+      throw new ForbiddenException()
+    }
     if (!this.transactionsService) return []
-    // Use ADMIN perspective to bypass RBAC pre-filter, then filter by target userId
-    return this.transactionsService.findAll(
-      { ...currentUser, role: 'ADMIN' },
-      { seniorId: id },
-    )
+    // ADMIN and ACCOUNTANT both see all transactions in TransactionsService.findAll,
+    // so we pass the real viewer — no role spoofing.
+    return this.transactionsService.findAll(currentUser, { seniorId: id })
   }
 
   @Patch(':id')
