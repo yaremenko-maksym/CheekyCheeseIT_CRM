@@ -328,7 +328,8 @@ function CreateUserDialog({ open, onClose, hrOnly = false }: { open: boolean; on
         role: value.role,
         telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : undefined,
         phone: (value.phone as string) || undefined,
-        techStack: value.techStack.trim() || undefined,
+        techStack: value.techStack.trim() ? value.techStack.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+        paymentMethod: (isSenior || value.role === 'ADMIN') ? 'USDT_ERC20' as const : 'BANK_UAH_FOP' as const,
         ...(isSenior && {
           seniorSharePercent: value.seniorSharePercent,
           hrIds,
@@ -697,7 +698,7 @@ function EditUserDialog({ user, onClose }: { user: UserProfileDto | null; onClos
       role: (user?.role as Role) ?? 'JUNIOR',
       telegram: user?.telegram ?? '',
       phone: ((user?.phone as PhoneValue | undefined) ?? '') as PhoneValue | '',
-      techStack: user?.techStack ?? '',
+      techStack: Array.isArray(user?.techStack) ? user.techStack.join(', ') : (user?.techStack ?? ''),
       seniorSharePercent: user?.seniorSharePercent ?? 26,
       monthlySalary: user?.monthlySalary ?? '',
     },
@@ -705,10 +706,9 @@ function EditUserDialog({ user, onClose }: { user: UserProfileDto | null; onClos
       const isSenior = value.role === 'SENIOR'
       const payload: AdminUpdateUserDto = {
         displayName: value.displayName.trim(),
-        role: value.role,
         telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : null,
         phone: (value.phone as string) || null,
-        techStack: value.techStack.trim() || null,
+        techStack: value.techStack.trim() ? value.techStack.split(',').map((s) => s.trim()).filter(Boolean) : null,
         ...(isSenior && {
           seniorSharePercent: value.seniorSharePercent,
         }),
@@ -728,7 +728,7 @@ function EditUserDialog({ user, onClose }: { user: UserProfileDto | null; onClos
       form.setFieldValue('role', user.role as Role)
       form.setFieldValue('telegram', user.telegram ?? '')
       form.setFieldValue('phone', ((user.phone as PhoneValue | undefined) ?? '') as PhoneValue | '')
-      form.setFieldValue('techStack', user.techStack ?? '')
+      form.setFieldValue('techStack', Array.isArray(user.techStack) ? user.techStack.join(', ') : (user.techStack ?? ''))
       form.setFieldValue('seniorSharePercent', user.seniorSharePercent ?? 26)
       form.setFieldValue('monthlySalary', user.monthlySalary ?? '')
     }
@@ -1068,7 +1068,7 @@ function UsersPage() {
           u.displayName.toLowerCase().includes(q) ||
           u.email.toLowerCase().includes(q) ||
           (u.telegram ?? '').toLowerCase().includes(q) ||
-          (u.techStack ?? '').toLowerCase().includes(q),
+          (Array.isArray(u.techStack) ? u.techStack.join(', ') : (u.techStack ?? '')).toLowerCase().includes(q),
       )
     }
     if (roleFilter !== 'ALL') list = list.filter((u) => u.role === roleFilter)

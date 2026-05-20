@@ -7,7 +7,7 @@ export const teamMemberSchema = z.object({
   email: z.string().email(),
   avatar: z.string().url().nullable(),
   role: z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT']),
-  techStack: z.string().nullable(),
+  techStack: z.array(z.string()).nullable(),
   phone: z.string().nullable().optional(),
   telegram: z.string().nullable().optional(),
   joinedAt: z.string().or(z.date()),

@@ -9,7 +9,7 @@ export function InterviewsTab({ seniorId }: { seniorId: string }) {
       <CardContent className="pt-6 text-center">
         <p className="mb-4 text-sm text-muted-foreground">Доска собеседований этого синьора</p>
         <Button asChild>
-          <Link to="/crm/interviews/" search={{ seniorId }}>
+          <Link to="/crm/interviews" search={{ seniorId }}>
             <ExternalLink className="mr-2 h-4 w-4" />
             Открыть Канбан
           </Link>
