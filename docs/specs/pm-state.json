@@ -3,19 +3,19 @@
   "started_at": "2026-05-19T11:30:00Z",
   "tasks": [
     {
-      "id": "task-fix-teams-ui-polish",
-      "file": "docs/specs/tasks/task-fix-teams-ui-polish.md",
+      "id": "task-fix-pr22-ui-round4",
+      "file": "docs/specs/tasks/task-fix-pr22-ui-round4.md",
       "agent": "coder",
       "workflow": "coder.yml",
-      "run_id": "26112718771",
-      "ai_review_run_id": "26113948468",
+      "run_id": "26140884018",
       "branch": "fix/teams-ui-polish",
       "pr_number": 22,
-      "status": "user_testing",
-      "started_at": "2026-05-19T17:05:00Z",
+      "status": "running",
+      "started_at": "2026-05-20T03:10:00Z",
       "expected_duration_min": 10,
       "review_rounds": 0,
-      "max_review_rounds": 5
+      "max_review_rounds": 5,
+      "notes": "Round4: 5 UI fixes from user testing — TG href, back button RBAC, contacts layout, TG pill text, avatar bg"
     }
   ],
   "blocked": [],
@@ -39,9 +39,14 @@
       "id": "task-infra-e2e-watchdog",
       "pr_number": 20,
       "merged_at": "2026-05-19T17:08:36Z"
+    },
+    {
+      "id": "task-fix-flaky-tests",
+      "pr_number": 23,
+      "merged_at": "2026-05-19T21:07:00Z"
     }
   ],
-  "phase": "user_testing",
+  "phase": "development",
   "pending_fixes": [],
   "blocking_issue": null
 }
