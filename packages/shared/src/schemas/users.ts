@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { paymentMethodSchema } from './payment-requisites'
+import { tabKeySchema, actionKeySchema } from './view-permissions'
 
 export const roleSchema = z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'])
 
@@ -55,11 +56,11 @@ export const createUserSchema = z.object({
   accountantId: z.string().uuid().nullable().optional(),
   projectId: z.string().uuid().nullable().optional(),
   paymentMethod: paymentMethodSchema,
-  walletUsdtErc20: z.string().optional(),
+  walletUsdtErc20: z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'USDT ERC-20 адрес должен начинаться с 0x и содержать 42 символа').optional(),
   walletUsdtLabel: z.string().nullable().optional(),
-  bankUahRecipient: z.string().optional(),
-  bankUahIban: z.string().optional(),
-  bankUahRnokpp: z.string().optional(),
+  bankUahRecipient: z.string().min(3, 'ФИО получателя минимум 3 символа').optional(),
+  bankUahIban: z.string().regex(/^UA\d{27}$/, 'IBAN должен быть в формате UA + 27 цифр').optional(),
+  bankUahRnokpp: z.string().regex(/^\d{10}$/, 'РНОКПП должен быть 10 цифр').optional(),
   bankUahBankName: z.string().nullable().optional(),
 }).superRefine((data, ctx) => {
   const isUsdtOnlyRole = data.role === 'SENIOR' || data.role === 'ADMIN'
@@ -87,8 +88,8 @@ export const adminUpdateUserSchema = z.object({
 export const userWithPermissionsResponseSchema = z.object({
   user: userProfileSchema,
   permissions: z.object({
-    tabs: z.array(z.string()),
-    actions: z.array(z.string()),
+    tabs: z.array(tabKeySchema),
+    actions: z.array(actionKeySchema),
     fields: z.record(z.string(), z.boolean()),
   }),
   data: z.record(z.string(), z.unknown()),
