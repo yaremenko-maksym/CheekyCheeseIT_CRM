@@ -61,6 +61,25 @@ jobs:
 
       - run: pnpm --filter @crm/shared --filter @crm/api --filter @crm/web test
 
+      - name: Remove ci-failed label on success
+        if: success() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr edit "$PR_NUMBER" --remove-label "ci-failed" 2>/dev/null || true
+
+      - name: Label PR on CI failure
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh label create "ci-failed" --repo "$REPO" \
+            --color "d73a4a" --description "CI checks failed" 2>/dev/null || true
+          gh pr edit "$PR_NUMBER" --add-label "ci-failed"
+
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest

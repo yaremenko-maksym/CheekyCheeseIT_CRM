@@ -8,7 +8,7 @@
 
 1. `/.clauderules` — **КРИТИЧНО**: все правила разработки
 2. `docs/agents/CLAUDE-coder.md` — команды, структура, текущий статус, gotchas
-3. **Задача:** прочитать файл из параметра `task_file` (путь передаётся workflow в переменной `task_file`)
+3. **Задача:** прочитать task-файл (путь передаётся в промпте от PM, например `Task: docs/specs/tasks/task-<slug>.md`)
 4. `docs/business/modules/<релевантный модуль>.md` — бизнес-логика
 5. `docs/business/user-flows.md` — user flows для понимания контекста
 
@@ -34,15 +34,27 @@ gh issue list --label "e2e-broken" --state open
 Если есть открытый issue с меткой `e2e-broken` — проверь относится ли он к твоей ветке.
 Если нет — продолжай выполнять задачу из task-файла.
 
-### 1. Проверь ветку
+### 1. Настрой ветку
 
-Ветка уже настроена workflow-ом до запуска агента. Просто убедись что ты на правильной:
+Прочитай task-файл — найди поле `## Ветка:` (и `target_branch` из промпта если это фикс в существующую ветку).
 
+**Новая фича (ветка не существует):**
+```bash
+git fetch origin
+git checkout -b <branch-name>
+```
+
+**Фикс в существующую ветку PR (target_branch указан в промпте):**
+```bash
+git fetch origin
+git checkout <target_branch>
+git pull origin <target_branch>
+```
+
+Убедись что ты на правильной ветке перед любыми изменениями:
 ```bash
 git branch --show-current
 ```
-
-Не переключай ветку самостоятельно — это уже сделано.
 
 ### 2. Разработка
 
@@ -125,8 +137,8 @@ grep -rn "getByText\|getByRole\|locator\|data-testid" apps/e2e/tests/ | grep "<�
 pnpm typecheck && pnpm lint && pnpm test
 ```
 
-Полный E2E (Playwright) запускается отдельно через `e2e.yml` — PM запускает
-его после User Testing. Не нужно запускать E2E локально перед коммитом.
+**Не запускай dev-сервер (`pnpm dev`)** — PM управляет запущенным сервером отдельно.
+Полный E2E (Playwright) запускается PM после User Testing — не нужно запускать локально перед коммитом.
 
 **Code Simplifier** (плагин) автоматически запускается в фоне и чистит изменённый код.
 Дополнительно — запустить eslint MCP вручную:

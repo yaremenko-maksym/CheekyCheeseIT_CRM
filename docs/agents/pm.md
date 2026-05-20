@@ -72,23 +72,37 @@ cat docs/specs/pm-brief.md
 
 ### Шаг 4: Параллельный запуск независимых задач
 
-```bash
-# Запускать независимые задачи одновременно
-gh workflow run coder.yml \
-  --repo yaremenko-maksym/CheekyCheeseIT_CRM \
-  -f task_file="docs/specs/tasks/task-<slug>.md" \
-  -f task_hint="<slug>"
+Агенты запускаются через `Agent` tool — локальные субагенты в изолированных git worktree.
 
-# Если есть DevOps задача — параллельно:
-gh workflow run devops.yml \
-  --repo yaremenko-maksym/CheekyCheeseIT_CRM \
-  -f task_file="docs/specs/tasks/task-infra-<slug>.md" \
-  -f task_hint="infra-<slug>"
-
-# Получить run_id последнего запуска:
-gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
-  --workflow=coder.yml --limit=1 --json databaseId --jq '.[0].databaseId'
 ```
+# Одна задача (foreground — PM ждёт результата):
+Agent(
+  isolation="worktree",
+  description="Coder: task-<slug>",
+  prompt="""Ты — Coder-агент для CRM Cheeky Cheese IT.
+Прочитай docs/agents/coder.md — системный промпт.
+Прочитай docs/agents/CLAUDE-coder.md — архитектура монорепо.
+Task-файл: docs/specs/tasks/task-<slug>.md
+Repo: yaremenko-maksym/CheekyCheeseIT_CRM"""
+)
+
+# Параллельный запуск — отправить оба Agent вызова в одном сообщении:
+Agent(isolation="worktree", run_in_background=True,
+  description="Coder: task-<slug>",
+  prompt="Ты — Coder-агент... Task: docs/specs/tasks/task-<slug>.md")
+
+Agent(isolation="worktree", run_in_background=True,
+  description="DevOps: task-infra-<slug>",
+  prompt="Ты — DevOps-агент... Task: docs/specs/tasks/task-infra-<slug>.md")
+```
+
+Промпты для каждого агента:
+| Агент | Prompt-шаблон |
+|-------|--------------|
+| Coder | `"Ты — Coder-агент. Прочитай docs/agents/coder.md. Прочитай docs/agents/CLAUDE-coder.md. Task: <path>"` |
+| AutoTest | `"Ты — AutoTest-агент. Прочитай docs/agents/autotest.md. Task: <path>"` |
+| DevOps | `"Ты — DevOps-агент. Прочитай docs/agents/devops.md. Task: <path>"` |
+| Reviewer | `"Ты — Reviewer-агент. Прочитай docs/agents/reviewer.md. PR для review: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM"` |
 
 ### Шаг 5: Записать pm-state.json
 
@@ -102,13 +116,10 @@ gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
       "id": "task-<slug>",
       "file": "docs/specs/tasks/task-<slug>.md",
       "agent": "coder",
-      "workflow": "coder.yml",
-      "run_id": "<run_id>",
       "branch": "feature/<slug>",
       "pr_number": null,
       "status": "running",
       "started_at": "<ISO timestamp>",
-      "expected_duration_min": 15,
       "review_rounds": 0,
       "max_review_rounds": 5
     }
@@ -120,47 +131,24 @@ gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
 }
 ```
 
-### Шаг 6: ScheduleWakeup
+### Шаг 6: Ожидание результатов
 
-Начальный delay зависит от типа агента самой долгой из запущенных задач:
+**Foreground агент** (`run_in_background` не указан): результат приходит немедленно.
+Прочитать результат → обновить pm-state.json (branch/pr_number/status) → перейти к следующему шагу.
 
-| Агент | Начальный delay |
-|-------|----------------|
-| `coder` | 360 сек (6 мин) |
-| `autotest` | 300 сек (5 мин) |
-| `devops` | 120 сек (2 мин) |
+**Background агент** (`run_in_background=True`): PM получит уведомление когда завершится.
+Пока агент работает — PM может отвечать пользователю или запускать других агентов.
+При получении уведомления → обработать результат → обновить pm-state.json.
 
-Если запущены задачи нескольких типов — брать максимальный delay из таблицы.
-
-```
-ScheduleWakeup(delay = <из таблицы выше>)
-```
-
-При пробуждении: если задачи ещё `in_progress` — `ScheduleWakeup(delay=60)` (раз в минуту) до завершения.
+`ScheduleWakeup` использовать ТОЛЬКО для ожидания внешних GHA процессов (например, E2E через e2e.yml).
 
 ---
 
-## Режим 2 — Мониторинг (пробуждение)
+## Режим 2 — Мониторинг (при получении уведомления от background агента или пробуждении)
 
-### Шаг 0: Синхронизация с GHA (ПЕРВЫМ ДЕЛОМ, до любого другого действия)
+### Шаг 0: Синхронизация состояния (ПЕРВЫМ ДЕЛОМ)
 
-Сверить реальные GHA runs с pm-state.json:
-
-```bash
-# Получить все runs за последние 2 часа
-gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
-  --limit 20 \
-  --json databaseId,status,workflowName,conclusion,headBranch \
-  --jq '.[] | {id: .databaseId, status, workflow: .workflowName, conclusion, branch: .headBranch}'
-```
-
-Если в GHA есть runs которых нет в pm-state.json — добавить.
-Если в pm-state.json есть задачи со статусом `running` но в GHA они `completed` — обновить статус.
-
-Также проверить timeout: если `(now - started_at) > expected_duration_min * 3` — задача зависла.
-При зависании: читать лог `gh run view <run_id> --log-failed`, принять решение.
-
-### Шаг 1: Сканировать блокеры
+Прочитать `docs/specs/pm-state.json`. Проверить блокеры:
 
 ```bash
 ls docs/specs/tasks/*.blocked.md 2>/dev/null
@@ -168,44 +156,56 @@ ls docs/specs/tasks/*.blocked.md 2>/dev/null
 
 Если найдены `.blocked.md` → **Режим 2.A**.
 
-### Шаг 2: Обновить статусы задач
+### Шаг 1: Обработать результат завершившегося агента
 
-Для каждой задачи со статусом `running`:
+Агенты (foreground или background) возвращают результат напрямую.
+После получения результата:
 
-```bash
-gh run view <run_id> \
-  --repo yaremenko-maksym/CheekyCheeseIT_CRM \
-  --json status,conclusion \
-  --jq '{status, conclusion}'
-```
+| Результат агента | Действие |
+|-----------------|---------|
+| Создал PR | обновить pm-state.json: `pr_number`, статус `pr_open`; запустить Reviewer |
+| Создал `.blocked.md` | → **Режим 2.A** |
+| Ошибка / нет PR | читать результат, создать fix-задачу, перезапустить агента |
 
-| conclusion | Действие |
-|-----------|---------|
-| (in_progress) | Ждать → ScheduleWakeup |
-| success | → статус `pr_open`, найти PR по ветке |
-| failure | → статус `failed`, читать лог, создать fix-задачу |
-
-Найти PR по ветке:
+Найти PR по ветке (если агент не вернул номер явно):
 ```bash
 gh pr list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
   --head "feature/<slug>" --json number --jq '.[0].number'
 ```
 
-### Шаг 2.5: Верификация AutoTest (после каждого завершённого AutoTest run-а)
+### Шаг 1.5: Запустить Reviewer после Coder
 
-Если AutoTest завершился — убедиться что он не сделал no-op:
+Когда Coder создал PR — сразу запустить Reviewer:
+
+```
+Agent(
+  description="Reviewer: PR #<N>",
+  prompt="Ты — Reviewer-агент. Прочитай docs/agents/reviewer.md.
+PR для review: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM"
+)
+```
+
+Затем запустить AutoTest (проверить покрытие новых AC):
+
+```
+Agent(
+  description="AutoTest: PR #<N>",
+  prompt="Ты — AutoTest-агент. Прочитай docs/agents/autotest.md.
+PR для анализа: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM.
+Режим 1: Post-approval — написать E2E тесты для новых AC."
+)
+```
+
+### Шаг 1.6: Верификация AutoTest (не no-op)
 
 ```bash
 gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<PR>/files \
   --jq '[.[] | select(.filename | startswith("apps/e2e"))] | length'
 ```
 
-Если результат `0` — AutoTest ничего не изменил в тестах. Это no-op.
-→ Создать новый task-файл с конкретной таблицей маппинга (старый селектор → новый) и диспатчнуть AutoTest снова.
+Если `0` — AutoTest не изменил тесты (no-op). Создать новый task-файл с картой маппинга селекторов и перезапустить AutoTest.
 
-### Шаг 3: Обработать PR-статусы
-
-Для задач со статусом `pr_open`:
+### Шаг 2: Обработать PR-лейблы
 
 ```bash
 gh pr view <pr_number> \
@@ -213,9 +213,12 @@ gh pr view <pr_number> \
   --json labels --jq '[.labels[].name]'
 ```
 
-Если `awaiting-pm-review` в labels → **Режим 2.B**.
+| Лейбл | Действие |
+|-------|---------|
+| `ci-failed` | → создать fix-задачу для Coder, запустить агента |
+| `awaiting-pm-review` | → **Режим 2.B** |
 
-### Шаг 4: E2E статусы
+### Шаг 3: E2E статусы (если запущен через e2e.yml)
 
 Для задач со статусом `e2e_running`:
 
@@ -225,13 +228,13 @@ gh run view <e2e_run_id> \
   --json status,conclusion --jq '{status, conclusion}'
 ```
 
-- `success` → PR merged → архивировать task → обновить pm-state.json → финальный отчёт
+- `success` → уведомить пользователя → ждать явного «мерджи» → мержить
 - `failure` → **Режим 2.C**
 
-### Шаг 5: Решение
+### Шаг 4: Решение
 
-- Есть незавершённые задачи → `ScheduleWakeup(delay=60)` (проверять раз в минуту)
-- Все `merged` → финальный отчёт пользователю → архивировать pm-state.json
+- Запущены background агенты → ждать уведомления
+- Все задачи `merged` → финальный отчёт → архивировать pm-state.json
 
 ---
 
@@ -246,14 +249,7 @@ cat docs/specs/tasks/<name>.blocked.md
 3. Получить ответ
 4. Если нужно → обновить `docs/business/`
 5. Удалить `.blocked.md`
-6. Перезапустить агента:
-
-```bash
-gh workflow run <workflow.yml> \
-  --repo yaremenko-maksym/CheekyCheeseIT_CRM \
-  -f task_file="<task_file>" \
-  -f task_hint="<slug>"
-```
+6. Перезапустить агента через `Agent` tool (тот же промпт что при первом запуске, та же ветка).
 
 ---
 
@@ -311,19 +307,19 @@ gh run view <run_id> \
 
 Запустить fix-агента (пушит в ту же ветку PR — указать в task-файле):
 
-```bash
-gh workflow run coder.yml \
-  --repo yaremenko-maksym/CheekyCheeseIT_CRM \
-  -f task_file="docs/specs/tasks/task-fix-e2e-<slug>.md" \
-  -f task_hint="fix-e2e-<slug>"
+```
+Agent(isolation="worktree", description="Coder: fix-e2e-<slug>",
+  prompt="Ты — Coder-агент. Прочитай docs/agents/coder.md.
+Task: docs/specs/tasks/task-fix-e2e-<slug>.md
+target_branch: <pr_branch>")
 ```
 
-После фикса → перезапустить ai-review:
+После фикса → запустить Reviewer:
 
-```bash
-gh workflow run ai-review.yml \
-  --repo yaremenko-maksym/CheekyCheeseIT_CRM \
-  -f pr_number=<PR>
+```
+Agent(description="Reviewer: PR #<PR>",
+  prompt="Ты — Reviewer-агент. Прочитай docs/agents/reviewer.md.
+PR: #<PR>, repo: yaremenko-maksym/CheekyCheeseIT_CRM")
 ```
 
 ---
@@ -399,6 +395,13 @@ timeout 30 bash -c 'until curl -sf http://localhost:3000; do sleep 2; done'
 
 **АПРУВ (нет правок):**
 
+**Вариант А — E2E локально** (быстрее, dev-сервер уже запущен из Шага 0):
+```bash
+pnpm --filter @crm/e2e test
+```
+Если pass → уведомить пользователя → ждать явного «мерджи» → `gh pr merge <N> --squash --delete-branch`.
+
+**Вариант Б — E2E через GHA** (чистое окружение без локальных артефактов):
 ```bash
 gh workflow run e2e.yml \
   --repo yaremenko-maksym/CheekyCheeseIT_CRM \
@@ -407,8 +410,7 @@ gh workflow run e2e.yml \
 gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
   --workflow=e2e.yml --limit=1 --json databaseId --jq '.[0].databaseId'
 ```
-
-Записать `e2e_run_id` в pm-state.json → статус `e2e_running` → `ScheduleWakeup(delay=60)`
+Записать `e2e_run_id` в pm-state.json → статус `e2e_running` → `ScheduleWakeup(delay=60)` до завершения.
 
 **Пользователь сказал "всё" (есть накопленные правки):** → **Режим 4.A**
 
@@ -453,36 +455,43 @@ gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
 
 #### Шаг 3: Запустить агентов с target_branch
 
-```bash
-# Coder (все правки в одном task-файле, пушит в ту же ветку PR)
-gh workflow run coder.yml \
-  --repo yaremenko-maksym/CheekyCheeseIT_CRM \
-  -f task_file="docs/specs/tasks/task-fix-<slug>.md" \
-  -f task_hint="fix-<slug>" \
-  -f target_branch="<pr_branch>"
+Coder работает в **той же ветке PR** — указать `target_branch` в промпте:
 
-# AutoTest (если нужны новые тесты)
-gh workflow run autotest.yml \
-  --repo yaremenko-maksym/CheekyCheeseIT_CRM \
-  -f task_file="docs/specs/tasks/task-fix-<slug>-tests.md" \
-  -f target_branch="<pr_branch>"
+```
+Agent(isolation="worktree", description="Coder: fix-<slug>",
+  prompt="Ты — Coder-агент. Прочитай docs/agents/coder.md. Прочитай docs/agents/CLAUDE-coder.md.
+Task: docs/specs/tasks/task-fix-<slug>.md
+target_branch: <pr_branch>
+Ветка уже существует — переключись на неё перед началом работы: git checkout <pr_branch>")
 ```
 
-Очистить `pending_fixes` в pm-state.json → обновить статусы задач → `ScheduleWakeup(delay=<из таблицы по типу агента>)`
+Если нужны новые/обновлённые тесты — запустить AutoTest параллельно:
 
-#### Шаг 4: После завершения агентов — запустить ai-review
-
-Когда все запущенные агенты завершили работу (статус `success`):
-
-```bash
-gh workflow run ai-review.yml \
-  --repo yaremenko-maksym/CheekyCheeseIT_CRM \
-  -f pr_number=<N>
+```
+Agent(isolation="worktree", run_in_background=True,
+  description="AutoTest: fix-<slug>",
+  prompt="Ты — AutoTest-агент. Прочитай docs/agents/autotest.md.
+Task: docs/specs/tasks/task-fix-<slug>-tests.md
+target_branch: <pr_branch>
+Ветка уже существует — переключись на неё: git checkout <pr_branch>")
 ```
 
-`ai-review.yml` автоматически запускает AutoTest первым (Job 1) — он смотрит на изменения Coder и решает нужно ли обновить/добавить тесты, пушит их в ту же ветку. Потом запускается Reviewer (Job 2). PM не нужно отдельно запускать AutoTest после Coder.
+Очистить `pending_fixes` в pm-state.json → обновить статусы задач.
 
-**Мониторинг:** ai-review → APPROVE → `awaiting-pm-review` label → **Режим 2.B** (читать review, обновить `docs/business/`, снять label) → **Режим 4** (Шаг 0).
+#### Шаг 4: После завершения агентов — запустить Reviewer
+
+Когда Coder (и AutoTest если запускался) завершили работу:
+
+```
+Agent(description="Reviewer: PR #<N>",
+  prompt="Ты — Reviewer-агент. Прочитай docs/agents/reviewer.md.
+PR для review: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM")
+```
+
+Reviewer выдаёт APPROVE или REQUEST_CHANGES напрямую через MCP GitHub.
+
+- **APPROVE** → **Режим 2.B** (читать review-комментарии, обновить `docs/business/`, снять label) → **Режим 4** (Шаг 0).
+- **REQUEST_CHANGES** → создать fix-задачу для Coder → вернуться к Шагу 2.
 
 #### Если пользователь присылает правки пока Coder уже запущен
 
