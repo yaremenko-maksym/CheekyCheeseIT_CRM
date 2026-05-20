@@ -9,6 +9,10 @@ on:
         required: false
         default: 'main'
   pull_request:
+    # `labeled` is required for auto_merge gate — when PM adds `merge-approved`
+    # after User Testing, CI re-runs and auto_merge job evaluates the new label state.
+    # Default types are [opened, synchronize, reopened] — labeled must be explicit.
+    types: [opened, synchronize, reopened, labeled]
     branches: [main]
     paths-ignore:
       - 'docs/**'
