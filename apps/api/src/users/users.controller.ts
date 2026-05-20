@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Delete, ForbiddenException, Get, Param, ParseUUIDPipe,
+  Body, Controller, Delete, ForbiddenException, Get, NotImplementedException, Param, ParseUUIDPipe,
   Patch, Post, Query, UseGuards, UseInterceptors, Optional,
 } from '@nestjs/common'
 
@@ -195,19 +195,18 @@ export class UsersController {
 
   @Post(':id/team-membership')
   @Roles('ADMIN')
-  @AuditLog('team_membership')
   async manageTeam(@Param('id', ParseUUIDPipe) _id: string, @Body() body: unknown) {
-    const dto = teamMembershipSchema.parse(body)
-    // Delegate to teams module in a follow-up task; stub for now.
-    return { ok: true, ...dto }
+    // Parse body to give a clear 400 on malformed payloads even though the
+    // endpoint is not implemented yet — keeps API contract honest.
+    teamMembershipSchema.parse(body)
+    throw new NotImplementedException('Управление командой будет реализовано в следующей итерации')
   }
 
   @Post(':id/project-reassign')
   @Roles('ADMIN')
-  @AuditLog('project_reassignment')
   async reassignProject(@Param('id', ParseUUIDPipe) _id: string, @Body() body: unknown) {
-    const dto = projectReassignSchema.parse(body)
-    return { ok: true, ...dto }
+    projectReassignSchema.parse(body)
+    throw new NotImplementedException('Переназначение проекта будет реализовано в следующей итерации')
   }
 
   @Delete(':id')
