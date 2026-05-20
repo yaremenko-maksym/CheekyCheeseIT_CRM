@@ -1,4 +1,4 @@
-import { CalendarDays, KanbanSquare, Mail, Phone, Send } from 'lucide-react'
+import { CalendarDays, Camera, KanbanSquare, Mail, Phone, Send } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -66,8 +66,9 @@ export function UserProfileHeader({
           aria-label="Изменить аватар"
         >
           {avatarBody}
-          <span className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-full bg-black/40 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
-            Изменить
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-full bg-black/50 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100">
+            <Camera className="h-12 w-12 text-white" strokeWidth={1.5} aria-hidden />
+            <span className="sr-only">Изменить аватар</span>
           </span>
         </button>
       ) : (
