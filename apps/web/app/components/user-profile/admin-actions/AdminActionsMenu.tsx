@@ -1,5 +1,16 @@
 import { useState } from 'react'
-import { Zap, ChevronDown } from 'lucide-react'
+import {
+  Zap,
+  ChevronDown,
+  Pencil,
+  Shield,
+  DollarSign,
+  Wallet,
+  Users,
+  FolderInput,
+  StickyNote,
+  Archive,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -20,15 +31,15 @@ import { ArchiveUserDialog } from './ArchiveUserDialog'
 
 type OpenDialog = ActionKey | null
 
-const ACTION_LABELS: Record<ActionKey, string> = {
-  'edit-profile': '✏️ Редактировать данные',
-  'change-role': '🎭 Изменить роль',
-  'change-salary': '💰 Изменить зарплату',
-  'change-requisites': '🏦 Изменить реквизиты',
-  'manage-team': '👥 Управление командой',
-  'reassign-project': '📂 Переназначить проект',
-  'set-note': '📝 Заметка админа',
-  'archive': '🗑️ Архивировать',
+const ACTION_CONFIG: Record<ActionKey, { icon: React.ReactNode; label: string }> = {
+  'edit-profile': { icon: <Pencil className="mr-2 h-4 w-4" />, label: 'Редактировать данные' },
+  'change-role': { icon: <Shield className="mr-2 h-4 w-4" />, label: 'Изменить роль' },
+  'change-salary': { icon: <DollarSign className="mr-2 h-4 w-4" />, label: 'Изменить зарплату' },
+  'change-requisites': { icon: <Wallet className="mr-2 h-4 w-4" />, label: 'Изменить реквизиты' },
+  'manage-team': { icon: <Users className="mr-2 h-4 w-4" />, label: 'Управление командой' },
+  'reassign-project': { icon: <FolderInput className="mr-2 h-4 w-4" />, label: 'Переназначить проект' },
+  'set-note': { icon: <StickyNote className="mr-2 h-4 w-4" />, label: 'Заметка админа' },
+  'archive': { icon: <Archive className="mr-2 h-4 w-4" />, label: 'Архивировать' },
 }
 
 const SEPARATOR_BEFORE: ActionKey[] = ['manage-team', 'set-note', 'archive']
@@ -49,24 +60,28 @@ export function AdminActionsMenu({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="default" size="sm" className="gap-1">
+          <Button variant="outline" size="sm" className="gap-1">
             <Zap className="h-4 w-4" />
             Действия
             <ChevronDown className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
-          {actions.map((a) => (
-            <span key={a}>
-              {SEPARATOR_BEFORE.includes(a) && <DropdownMenuSeparator />}
-              <DropdownMenuItem
-                onClick={() => setOpen(a)}
-                className={a === 'archive' ? 'text-destructive focus:text-destructive' : ''}
-              >
-                {ACTION_LABELS[a]}
-              </DropdownMenuItem>
-            </span>
-          ))}
+          {actions.map((a) => {
+            const config = ACTION_CONFIG[a]
+            return (
+              <span key={a}>
+                {SEPARATOR_BEFORE.includes(a) && <DropdownMenuSeparator />}
+                <DropdownMenuItem
+                  onClick={() => setOpen(a)}
+                  className={a === 'archive' ? 'text-destructive focus:text-destructive' : ''}
+                >
+                  {config.icon}
+                  {config.label}
+                </DropdownMenuItem>
+              </span>
+            )
+          })}
         </DropdownMenuContent>
       </DropdownMenu>
 

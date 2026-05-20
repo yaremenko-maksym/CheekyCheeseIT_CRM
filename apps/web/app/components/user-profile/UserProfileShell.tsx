@@ -1,5 +1,5 @@
 import { Skeleton } from '@/components/ui/skeleton'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { AnimatedTabs } from '@/components/ui/animated-tabs'
 import { useMe, useUser } from '@/hooks/use-user-profile'
 import { AdminActionsMenu } from './admin-actions/AdminActionsMenu'
 import { UserProfileHeader } from './UserProfileHeader'
@@ -26,7 +26,6 @@ export interface UserProfileShellProps {
   userId: string
   tab: string
   onTabChange: (tab: string) => void
-  onBack?: () => void
 }
 
 export function UserProfileShell({
@@ -34,7 +33,6 @@ export function UserProfileShell({
   userId,
   tab,
   onTabChange,
-  onBack,
 }: UserProfileShellProps) {
   const meQuery = useMe(mode === 'self')
   const userQuery = useUser(userId, mode === 'view')
@@ -59,7 +57,6 @@ export function UserProfileShell({
     <div className="space-y-6">
       <UserProfileHeader
         user={user}
-        {...(onBack ? { onBack } : {})}
         actionsSlot={
           permissions.actions.length > 0 ? (
             <AdminActionsMenu
@@ -72,51 +69,37 @@ export function UserProfileShell({
       />
 
       {permissions.tabs.length > 0 && (
-        <Tabs value={activeTab} onValueChange={onTabChange} className="space-y-4">
-          <TabsList className="sticky top-0 z-10 bg-background">
-            {permissions.tabs.map((t) => (
-              <TabsTrigger key={t} value={t}>
-                {TAB_LABELS[t] ?? t}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+        <div className="space-y-4">
+          <div className="sticky top-0 z-10 -mx-1 bg-background py-2">
+            <AnimatedTabs
+              tabs={permissions.tabs.map((t) => ({ value: t, label: TAB_LABELS[t] ?? t }))}
+              value={activeTab}
+              onChange={onTabChange}
+            />
+          </div>
 
-          {permissions.tabs.includes('overview') && (
-            <TabsContent value="overview">
-              <OverviewTab user={user} data={viewData as Record<string, unknown>} mode={mode} />
-            </TabsContent>
+          {activeTab === 'overview' && permissions.tabs.includes('overview') && (
+            <OverviewTab user={user} data={viewData as Record<string, unknown>} mode={mode} />
           )}
-          {permissions.tabs.includes('finance') && (
-            <TabsContent value="finance">
-              <FinanceTab userId={user.id} />
-            </TabsContent>
+          {activeTab === 'finance' && permissions.tabs.includes('finance') && (
+            <FinanceTab userId={user.id} />
           )}
-          {permissions.tabs.includes('projects') && (
-            <TabsContent value="projects">
-              <ProjectsTab userId={user.id} role={user.role} />
-            </TabsContent>
+          {activeTab === 'projects' && permissions.tabs.includes('projects') && (
+            <ProjectsTab userId={user.id} role={user.role} />
           )}
-          {permissions.tabs.includes('team') && (
-            <TabsContent value="team">
-              <TeamTab userId={user.id} />
-            </TabsContent>
+          {activeTab === 'team' && permissions.tabs.includes('team') && (
+            <TeamTab userId={user.id} />
           )}
-          {permissions.tabs.includes('interviews') && (
-            <TabsContent value="interviews">
-              <InterviewsTab seniorId={user.id} />
-            </TabsContent>
+          {activeTab === 'interviews' && permissions.tabs.includes('interviews') && (
+            <InterviewsTab seniorId={user.id} />
           )}
-          {permissions.tabs.includes('requisites') && (
-            <TabsContent value="requisites">
-              <RequisitesTab user={user} mode={mode} />
-            </TabsContent>
+          {activeTab === 'requisites' && permissions.tabs.includes('requisites') && (
+            <RequisitesTab user={user} mode={mode} />
           )}
-          {permissions.tabs.includes('audit') && (
-            <TabsContent value="audit">
-              <AuditLogTab userId={user.id} />
-            </TabsContent>
+          {activeTab === 'audit' && permissions.tabs.includes('audit') && (
+            <AuditLogTab userId={user.id} />
           )}
-        </Tabs>
+        </div>
       )}
     </div>
   )

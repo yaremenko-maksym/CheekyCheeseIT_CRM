@@ -1,7 +1,6 @@
-import { ChevronLeft, Mail, Phone, Send } from 'lucide-react'
+import { Mail, Phone, Send } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import type { UserProfileDto } from '@crm/shared'
 
 const ROLE_LABELS: Record<string, string> = {
@@ -31,11 +30,10 @@ function initials(name: string) {
 
 export interface UserProfileHeaderProps {
   user: UserProfileDto
-  onBack?: () => void
   actionsSlot?: React.ReactNode
 }
 
-export function UserProfileHeader({ user, onBack, actionsSlot }: UserProfileHeaderProps) {
+export function UserProfileHeader({ user, actionsSlot }: UserProfileHeaderProps) {
   return (
     <div className="flex flex-col gap-4 border-b pb-6 md:flex-row md:items-center md:gap-6">
       <Avatar className="h-32 w-32 shrink-0">
@@ -52,34 +50,41 @@ export function UserProfileHeader({ user, onBack, actionsSlot }: UserProfileHead
         </div>
 
         <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5">
+          <a
+            href={`mailto:${user.email}`}
+            className="inline-flex items-center gap-1.5 underline-offset-4 hover:text-foreground hover:underline transition-colors"
+          >
             <Mail className="h-4 w-4" />
             {user.email}
-          </span>
+          </a>
           {user.phone && (
-            <span className="inline-flex items-center gap-1.5">
+            <a
+              href={`tel:${user.phone}`}
+              className="inline-flex items-center gap-1.5 underline-offset-4 hover:text-foreground hover:underline transition-colors"
+            >
               <Phone className="h-4 w-4" />
               {user.phone}
-            </span>
+            </a>
           )}
           {user.telegram && (
-            <span className="inline-flex items-center gap-1.5">
+            <a
+              href={`https://t.me/${user.telegram.replace(/^@/, '')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 underline-offset-4 hover:text-foreground hover:underline transition-colors"
+            >
               <Send className="h-4 w-4" />
               {user.telegram}
-            </span>
+            </a>
           )}
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2">
-        {onBack && (
-          <Button variant="ghost" size="sm" onClick={onBack} className="gap-1">
-            <ChevronLeft className="h-4 w-4" />
-            К списку
-          </Button>
-        )}
-        {actionsSlot}
-      </div>
+      {actionsSlot && (
+        <div className="flex shrink-0 items-center gap-2">
+          {actionsSlot}
+        </div>
+      )}
     </div>
   )
 }

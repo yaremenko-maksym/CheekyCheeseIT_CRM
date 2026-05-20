@@ -22,7 +22,6 @@ function UserDetailPage() {
       userId={userId}
       tab={tab}
       onTabChange={(t) => navigate({ search: { tab: t as typeof tab } })}
-      onBack={() => navigate({ to: '/crm/users' })}
     />
   )
 }
