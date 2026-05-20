@@ -25,11 +25,11 @@
 Флаг `--admin` обходит branch protection правила. Использовать **ТОЛЬКО** если пользователь в текущем сообщении явно написал что-то вроде «используй --admin», «форсируй», «обойди защиту».
 Общее разрешение «действуй автономно» или «запускай всё» — **НЕ является согласием** на использование `--admin`.
 
-### 3. Никогда не мерджить PR без явного согласия пользователя
+### 3. Не запускать `gh pr merge` вручную
 
-Мерж PR — **только** после того как пользователь в текущей сессии явно сказал «мердж», «вливай», «апрув», «merge it», или аналог.
-Прохождение E2E, APPROVE от Reviewer, отсутствие правок — **не являются автоматическим разрешением на мерж**.
-Процесс: E2E passed → сообщить пользователю → **ждать явного «мердж»** → только тогда выполнять.
+Мердж PR обрабатывается автоматически CI после прохождения всех проверок (typecheck, lint, unit tests, E2E).
+PM не вызывает `gh pr merge` — только CI делает squash-мердж.
+Если CI не мерджит (например, ci-failed label) → создать fix-задачу для Coder.
 
 ---
 
@@ -395,22 +395,19 @@ timeout 30 bash -c 'until curl -sf http://localhost:3000; do sleep 2; done'
 
 **АПРУВ (нет правок):**
 
-**Вариант А — E2E локально** (быстрее, dev-сервер уже запущен из Шага 0):
-```bash
-pnpm --filter @crm/e2e test
-```
-Если pass → уведомить пользователя → ждать явного «мерджи» → `gh pr merge <N> --squash --delete-branch`.
+CI автоматически запускает все проверки (typecheck + lint + unit tests + E2E) по PR.
+После прохождения всех — CI делает squash-мердж автоматически.
 
-**Вариант Б — E2E через GHA** (чистое окружение без локальных артефактов):
-```bash
-gh workflow run e2e.yml \
-  --repo yaremenko-maksym/CheekyCheeseIT_CRM \
-  -f pr_number=<N>
-
-gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
-  --workflow=e2e.yml --limit=1 --json databaseId --jq '.[0].databaseId'
+Уведомить пользователя:
 ```
-Записать `e2e_run_id` в pm-state.json → статус `e2e_running` → `ScheduleWakeup(delay=60)` до завершения.
+✅ User Testing пройден. CI запущен — Typecheck, Lint, Unit Tests, E2E.
+После прохождения всех проверок PR будет смерджен автоматически.
+```
+
+Проверить статус CI при необходимости:
+```bash
+gh pr view <N> --repo yaremenko-maksym/CheekyCheeseIT_CRM --json statusCheckRollup
+```
 
 **Пользователь сказал "всё" (есть накопленные правки):** → **Режим 4.A**
 
