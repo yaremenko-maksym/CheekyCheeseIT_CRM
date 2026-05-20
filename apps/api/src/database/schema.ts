@@ -1,6 +1,7 @@
 import { relations } from 'drizzle-orm'
 import {
   boolean,
+  index,
   integer,
   jsonb,
   numeric,
@@ -256,7 +257,9 @@ export const userAuditLog = pgTable('user_audit_log', {
   action: text('action').notNull(),
   changes: jsonb('changes').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-})
+}, (t) => [
+  index('user_audit_log_target_id_idx').on(t.targetId),
+])
 
 // ---------------------------------------------------------------------------
 // Relations
