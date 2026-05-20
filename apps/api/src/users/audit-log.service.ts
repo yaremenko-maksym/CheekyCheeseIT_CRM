@@ -4,7 +4,8 @@ import type { AuditAction, AuditChange } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { userAuditLog } from '../database/schema'
 
-const IGNORE_FIELDS = new Set(['updatedAt', 'createdAt', 'id'])
+// avatarOverride can contain large base64 strings — exclude from audit diffs (avatar URL change is a non-business event anyway)
+const IGNORE_FIELDS = new Set(['updatedAt', 'createdAt', 'id', 'avatarOverride'])
 
 @Injectable()
 export class AuditLogService {

@@ -29,6 +29,13 @@
       "when": 1779279414501,
       "tag": "0003_payment_requisites_audit_log",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1779600000000,
+      "tag": "0008_avatar_override",
+      "breakpoints": true
     }
   ]
 }

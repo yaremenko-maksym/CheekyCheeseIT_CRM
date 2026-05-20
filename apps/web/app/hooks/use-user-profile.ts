@@ -58,6 +58,8 @@ export function useUpdateMe() {
       api.patch('/users/me', data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
+      // Refresh /auth/me — avatar / displayName feed the global header dropdown.
+      qc.invalidateQueries({ queryKey: ['auth', 'me'] })
       toast.success('Сохранено')
     },
     onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),

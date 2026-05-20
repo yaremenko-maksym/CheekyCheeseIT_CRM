@@ -18,6 +18,7 @@ export const userProfileSchema = z.object({
   email: z.string().email(),
   displayName: z.string(),
   avatar: z.string().url().nullable(),
+  avatarOverride: z.string().nullable(),
   role: roleSchema,
   telegram: z.string().nullable(),
   phone: z.string().nullable(),
@@ -42,6 +43,7 @@ export const updateProfileSchema = z.object({
   telegram: telegramSchema.nullable().optional(),
   phone: phoneSchema.nullable().optional(),
   techStack: techStackSchema.nullable().optional(),
+  avatarOverride: z.string().max(1_500_000, 'Аватар слишком большой (макс ~1MB)').nullable().optional(),
 })
 
 export const createUserSchema = z.object({
@@ -84,6 +86,7 @@ export const adminUpdateUserSchema = z.object({
   telegram: telegramSchema.nullable().optional(),
   phone: phoneSchema.nullable().optional(),
   avatar: z.string().url().nullable().optional(),
+  avatarOverride: z.string().max(1_500_000, 'Аватар слишком большой (макс ~1MB)').nullable().optional(),
   techStack: techStackSchema.nullable().optional(),
 })
 

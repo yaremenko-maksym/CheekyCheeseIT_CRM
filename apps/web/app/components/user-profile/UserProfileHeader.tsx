@@ -33,12 +33,12 @@ function initials(name: string) {
 export interface UserProfileHeaderProps {
   user: UserProfileDto
   actionsSlot?: React.ReactNode
-  /** When true the avatar is wrapped in a button that opens the upload modal. */
-  onAvatarClick?: () => void
+  /** When set the avatar is wrapped in a button that opens the upload modal. */
+  onAvatarClick?: (() => void) | undefined
   /** Whether to show the "Зарегистрирован XX.XX.XXXX" row in the header. */
-  showCreatedAt?: boolean
+  showCreatedAt?: boolean | undefined
   /** When true a "Доска собеседований" link is shown — used for SENIOR self-view. */
-  showInterviewsLink?: boolean
+  showInterviewsLink?: boolean | undefined
 }
 
 export function UserProfileHeader({
@@ -48,9 +48,10 @@ export function UserProfileHeader({
   showCreatedAt = true,
   showInterviewsLink = false,
 }: UserProfileHeaderProps) {
+  const avatarSrc = user.avatarOverride ?? user.avatar
   const avatarBody = (
     <Avatar className="h-32 w-32 shrink-0">
-      {user.avatar && <AvatarImage src={user.avatar} alt={user.displayName} />}
+      {avatarSrc && <AvatarImage src={avatarSrc} alt={user.displayName} />}
       <AvatarFallback className="text-3xl">{initials(user.displayName)}</AvatarFallback>
     </Avatar>
   )

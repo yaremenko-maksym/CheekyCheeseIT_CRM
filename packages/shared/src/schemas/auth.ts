@@ -15,6 +15,8 @@ export const sessionUserSchema = z.object({
   email: z.string().email(),
   displayName: z.string(),
   avatar: z.string().url().nullable(),
+  /** User-uploaded avatar (URL or base64 data URL). Takes precedence over `avatar` in UI. */
+  avatarOverride: z.string().nullable().optional(),
   role: z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT']),
 })
 

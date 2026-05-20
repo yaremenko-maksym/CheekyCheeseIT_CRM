@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { AnimatedTabs } from '@/components/ui/animated-tabs'
 import { useMe, useUser } from '@/hooks/use-user-profile'
 import { AdminActionsMenu } from './admin-actions/AdminActionsMenu'
+import { AvatarUploadDialog } from './AvatarUploadDialog'
 import { UserProfileHeader } from './UserProfileHeader'
 import { AuditLogTab } from './tabs/AuditLogTab'
 import { DocumentsTab } from './tabs/DocumentsTab'
@@ -40,6 +42,7 @@ export function UserProfileShell({
   const userQuery = useUser(userId, mode === 'view')
   const query = mode === 'self' ? meQuery : userQuery
   const { data, isLoading } = query
+  const [avatarOpen, setAvatarOpen] = useState(false)
 
   if (isLoading || !data) {
     return (
@@ -73,6 +76,7 @@ export function UserProfileShell({
         user={user}
         showCreatedAt={showCreatedAt}
         showInterviewsLink={showInterviewsLink}
+        onAvatarClick={mode === 'self' ? () => setAvatarOpen(true) : undefined}
         actionsSlot={
           permissions.actions.length > 0 ? (
             <AdminActionsMenu
@@ -83,6 +87,14 @@ export function UserProfileShell({
           ) : null
         }
       />
+      {mode === 'self' && (
+        <AvatarUploadDialog
+          open={avatarOpen}
+          onClose={() => setAvatarOpen(false)}
+          currentAvatarUrl={user.avatarOverride ?? user.avatar}
+          hasOverride={!!user.avatarOverride}
+        />
+      )}
 
       {permissions.tabs.length > 0 && (
         <div className="flex flex-col gap-4 overflow-hidden">

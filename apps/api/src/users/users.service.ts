@@ -151,6 +151,7 @@ export class UsersService {
       telegram?: string | null | undefined
       phone?: string | null | undefined
       avatar?: string | null | undefined
+      avatarOverride?: string | null | undefined
       techStack?: string[] | null | undefined
       seniorSharePercent?: number | undefined
       monthlySalary?: number | null | undefined
@@ -162,6 +163,7 @@ export class UsersService {
       telegram: string | null
       phone: string | null
       avatar: string | null
+      avatarOverride: string | null
       techStack: string[] | null
       seniorSharePercent: number
       monthlySalary: string | null
@@ -173,6 +175,7 @@ export class UsersService {
     if ('telegram' in data) set.telegram = data.telegram ?? null
     if ('phone' in data) set.phone = data.phone ?? null
     if ('avatar' in data) set.avatar = data.avatar ?? null
+    if ('avatarOverride' in data) set.avatarOverride = data.avatarOverride ?? null
     if ('techStack' in data) set.techStack = data.techStack ?? null
     if (data.seniorSharePercent !== undefined) set.seniorSharePercent = data.seniorSharePercent
     if ('monthlySalary' in data) set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
@@ -208,13 +211,20 @@ export class UsersService {
 
   async updateProfile(
     id: string,
-    data: { displayName?: string; telegram?: string | null; phone?: string | null; techStack?: string[] | null },
+    data: {
+      displayName?: string
+      telegram?: string | null
+      phone?: string | null
+      techStack?: string[] | null
+      avatarOverride?: string | null
+    },
   ): Promise<User> {
     const set: Record<string, unknown> = { updatedAt: new Date() }
     if (data.displayName !== undefined) set.displayName = data.displayName
     if ('telegram' in data) set.telegram = data.telegram ?? null
     if ('phone' in data) set.phone = data.phone ?? null
     if ('techStack' in data) set.techStack = data.techStack ?? null
+    if ('avatarOverride' in data) set.avatarOverride = data.avatarOverride ?? null
 
     const rows = await this.db.db.update(users).set(set).where(eq(users.id, id)).returning()
     const updated = rows[0]

@@ -69,6 +69,8 @@ export const users = pgTable('users', {
   email: varchar('email', { length: 255 }).notNull().unique(),
   displayName: varchar('display_name', { length: 255 }).notNull(),
   avatar: varchar('avatar', { length: 1000 }),
+  // User-uploaded override: either https URL or data:image base64. Takes precedence over `avatar`.
+  avatarOverride: text('avatar_override'),
   role: roleEnum().notNull().default('JUNIOR'),
   googleId: varchar('google_id', { length: 255 }).unique(),
   telegram: varchar('telegram', { length: 100 }),
