@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import type { ActionKey, TabKey, ViewPermissions } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { projectMembers, teamMembers, type User } from '../database/schema'
+import { projectMembers, projects, teamMembers, users, type User } from '../database/schema'
 
 @Injectable()
 export class UsersAccessService {
@@ -78,23 +78,44 @@ export class UsersAccessService {
       return seniorInTeams.length > 0
     }
     if (target.role === 'JUNIOR') {
+      // Find seniors in HR's teams, then projects of those seniors,
+      // then check if target is an active member of any of those projects.
       const hrTeams = await this.db.db
         .select({ teamId: teamMembers.teamId })
         .from(teamMembers)
         .where(eq(teamMembers.userId, hrId))
       if (hrTeams.length === 0) return false
       const teamIds = hrTeams.map((t) => t.teamId)
-      const seniorsInTeams = await this.db.db
+
+      // Get SENIOR users in those teams
+      const seniorMembers = await this.db.db
         .select({ userId: teamMembers.userId })
         .from(teamMembers)
-        .where(inArray(teamMembers.teamId, teamIds))
-      const seniorIds = seniorsInTeams.map((s) => s.userId)
+        .innerJoin(users, eq(teamMembers.userId, users.id))
+        .where(and(inArray(teamMembers.teamId, teamIds), eq(users.role, 'SENIOR')))
+      const seniorIds = seniorMembers.map((s) => s.userId)
       if (seniorIds.length === 0) return false
-      const juniorProjects = await this.db.db
+
+      // Find projects owned by those seniors
+      const seniorProjects = await this.db.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(inArray(projects.seniorId, seniorIds))
+      const projectIds = seniorProjects.map((p) => p.id)
+      if (projectIds.length === 0) return false
+
+      // Check if target (JUNIOR) is active in any of those projects
+      const targetActive = await this.db.db
         .select()
         .from(projectMembers)
-        .where(and(eq(projectMembers.userId, target.id), isNull(projectMembers.leftAt)))
-      return juniorProjects.length > 0
+        .where(
+          and(
+            eq(projectMembers.userId, target.id),
+            inArray(projectMembers.projectId, projectIds),
+            isNull(projectMembers.leftAt),
+          ),
+        )
+      return targetActive.length > 0
     }
     return false
   }

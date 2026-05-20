@@ -108,4 +108,12 @@ describe('UsersAccessService.getViewPermissions', () => {
     const p = await service.getViewPermissions(hr, target)
     expect(p.actions).toEqual([])
   })
+
+  it('SENIOR viewing colleague in shared project — sees overview/projects/team', async () => {
+    ;(service as any).isSharedProject = vi.fn().mockResolvedValue(true)
+    const viewer = makeUser({ id: 'sr1', role: 'SENIOR' })
+    const target = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.tabs).toEqual(['overview', 'projects', 'team'])
+  })
 })
