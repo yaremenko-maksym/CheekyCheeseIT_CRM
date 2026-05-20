@@ -1,7 +1,9 @@
+import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { api } from '@/lib/axios'
 
 interface ProjectListItem {
@@ -11,6 +13,10 @@ interface ProjectListItem {
   status: 'ACTIVE' | 'CLOSED'
   startDate: string
   endDate: string | null
+  logoUrl: string | null
+  rate: number
+  currency: string
+  domain: string | null
 }
 
 export function ProjectsTab({ userId, role: _role }: { userId: string; role: string }) {
@@ -25,6 +31,7 @@ export function ProjectsTab({ userId, role: _role }: { userId: string; role: str
   })
 
   if (isLoading) return <Skeleton className="h-64 w-full" />
+
   const projects = data ?? []
   const active = projects.filter((p) => p.status === 'ACTIVE')
   const closed = projects.filter((p) => p.status === 'CLOSED')
@@ -69,17 +76,35 @@ export function ProjectsTab({ userId, role: _role }: { userId: string; role: str
 
 function ProjectRow({ p }: { p: ProjectListItem }) {
   return (
-    <div className="flex items-center justify-between rounded border p-3">
-      <div>
-        <p className="font-medium">{p.name}</p>
-        <p className="text-xs text-muted-foreground">
-          {p.companyName} · {new Date(p.startDate).toLocaleDateString('ru-RU')}
+    <Link
+      to="/crm/projects/$projectId"
+      params={{ projectId: p.id }}
+      className="flex items-center gap-3 rounded border p-3 transition-colors hover:bg-accent"
+    >
+      <Avatar className="h-10 w-10 shrink-0">
+        {p.logoUrl && <AvatarImage src={p.logoUrl} alt={p.name} />}
+        <AvatarFallback className="text-xs">{p.name[0]}</AvatarFallback>
+      </Avatar>
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-medium">{p.name}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          {p.companyName}
+          {p.domain ? ` · ${p.domain}` : ''}
+          {` · ${new Date(p.startDate).toLocaleDateString('ru-RU')}`}
           {p.endDate ? `–${new Date(p.endDate).toLocaleDateString('ru-RU')}` : ''}
         </p>
       </div>
-      <Badge variant={p.status === 'ACTIVE' ? 'default' : 'outline'}>
-        {p.status === 'ACTIVE' ? 'Активен' : 'Закрыт'}
-      </Badge>
-    </div>
+      <div className="shrink-0 text-right">
+        <p className="font-mono text-sm">
+          {p.rate} {p.currency}
+        </p>
+        <Badge
+          variant={p.status === 'ACTIVE' ? 'default' : 'outline'}
+          className="mt-1 text-xs"
+        >
+          {p.status === 'ACTIVE' ? 'Активен' : 'Закрыт'}
+        </Badge>
+      </div>
+    </Link>
   )
 }

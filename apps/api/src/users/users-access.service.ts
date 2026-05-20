@@ -26,7 +26,7 @@ export class UsersAccessService {
     const targetHasTechStack = target.role !== 'HR' && target.role !== 'ACCOUNTANT'
 
     if (isAdmin) {
-      tabs.push('overview', 'finance', 'projects', 'team', 'requisites', 'audit')
+      tabs.push('overview', 'finance', 'projects', 'team', 'requisites', 'documents', 'audit')
       if (targetIsSenior) tabs.push('interviews')
       if (!isSelf) {
         actions.push(
@@ -45,7 +45,7 @@ export class UsersAccessService {
       fields.techStack = targetHasTechStack
       fields.requisites = true
     } else if (isSelf) {
-      tabs.push('overview', 'projects', 'team', 'requisites')
+      tabs.push('overview', 'projects', 'team', 'requisites', 'documents')
       if (isSenior || isJunior || isHr || isAccountant) tabs.push('finance')
       if (isSenior) tabs.push('interviews')
       fields.salary = targetIsSalaryRole
@@ -53,7 +53,7 @@ export class UsersAccessService {
       fields.techStack = targetHasTechStack
       fields.requisites = true
     } else if (isAccountant) {
-      tabs.push('overview', 'finance', 'projects', 'team', 'requisites')
+      tabs.push('overview', 'finance', 'projects', 'team', 'requisites', 'documents')
       fields.salary = targetIsSalaryRole
       fields.share = targetIsShareRole
       fields.techStack = targetHasTechStack

@@ -368,10 +368,14 @@ function TeamDetailPage() {
                                 {ROLE_LABELS[member.role] ?? member.role}
                               </Badge>
                             </div>
-                            {member.techStack && (
-                              <Badge variant="outline" className="mt-1 text-[9px] px-1.5 py-0 font-mono">
-                                {member.techStack}
-                              </Badge>
+                            {Array.isArray(member.techStack) && member.techStack.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {(member.techStack as string[]).map((t) => (
+                                  <Badge key={t} variant="outline" className="text-[9px] px-1.5 py-0 font-mono">
+                                    {t}
+                                  </Badge>
+                                ))}
+                              </div>
                             )}
                             <div className="mt-1 flex flex-col gap-0.5 min-w-0">
                               <a href={`mailto:${member.email}`}

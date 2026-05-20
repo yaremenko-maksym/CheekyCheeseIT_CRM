@@ -6,7 +6,7 @@ import { useUserAuditLog } from '@/hooks/use-user-profile'
 import type { AuditAction } from '@crm/shared'
 
 const ACTION_LABELS: Record<AuditAction, string> = {
-  profile_created: 'Пользователь создан',
+  profile_created: 'Профиль создан',
   profile_edit: 'Профиль изменён',
   requisites_edit: 'Реквизиты изменены',
   role_change: 'Роль изменена',
@@ -14,7 +14,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   note_set: 'Заметка обновлена',
   team_membership: 'Изменение команды',
   project_reassignment: 'Переназначение проекта',
-  user_archived: 'Пользователь архивирован',
+  user_archived: 'Профиль архивирован',
 }
 
 export function AuditLogTab({ userId }: { userId: string }) {

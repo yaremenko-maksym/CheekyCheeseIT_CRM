@@ -1,6 +1,6 @@
 import {
   Body, Controller, Delete, ForbiddenException, Get, Param, ParseUUIDPipe,
-  Patch, Post, Query, UseGuards, UseInterceptors,
+  Patch, Post, Query, UseGuards, UseInterceptors, Optional,
 } from '@nestjs/common'
 
 /** Strip keys whose value is `undefined` so exactOptionalPropertyTypes is satisfied. */
@@ -19,6 +19,7 @@ import { RolesGuard } from '../common/guards/roles.guard'
 import { AuditInterceptor } from '../common/interceptors/audit.interceptor'
 import { AuditLogService } from './audit-log.service'
 import { UsersService } from './users.service'
+import { TransactionsService } from '../finance/transactions.service'
 
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -27,6 +28,7 @@ export class UsersController {
   constructor(
     private readonly usersService: UsersService,
     private readonly auditLogService: AuditLogService,
+    @Optional() private readonly transactionsService?: TransactionsService,
   ) {}
 
   @Get()
@@ -106,6 +108,20 @@ export class UsersController {
     const limit = Math.min(100, Math.max(1, parseInt(limitParam ?? '20', 10)))
     const { entries, total } = await this.auditLogService.list(id, page, limit)
     return { entries, total, page, limit }
+  }
+
+  @Get(':id/transactions')
+  @Roles('ADMIN', 'ACCOUNTANT')
+  async getUserTransactions(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() currentUser: SessionUser,
+  ) {
+    if (!this.transactionsService) return []
+    // Use ADMIN perspective to bypass RBAC pre-filter, then filter by target userId
+    return this.transactionsService.findAll(
+      { ...currentUser, role: 'ADMIN' },
+      { seniorId: id },
+    )
   }
 
   @Patch(':id')

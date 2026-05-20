@@ -4,6 +4,7 @@ import { useMe, useUser } from '@/hooks/use-user-profile'
 import { AdminActionsMenu } from './admin-actions/AdminActionsMenu'
 import { UserProfileHeader } from './UserProfileHeader'
 import { AuditLogTab } from './tabs/AuditLogTab'
+import { DocumentsTab } from './tabs/DocumentsTab'
 import { FinanceTab } from './tabs/FinanceTab'
 import { InterviewsTab } from './tabs/InterviewsTab'
 import { OverviewTab } from './tabs/OverviewTab'
@@ -18,6 +19,7 @@ const TAB_LABELS: Record<string, string> = {
   team: 'Команда',
   interviews: 'Собеседования',
   requisites: 'Реквизиты',
+  documents: 'Документы',
   audit: 'История',
 }
 
@@ -95,6 +97,9 @@ export function UserProfileShell({
           )}
           {activeTab === 'requisites' && permissions.tabs.includes('requisites') && (
             <RequisitesTab user={user} mode={mode} />
+          )}
+          {activeTab === 'documents' && permissions.tabs.includes('documents') && (
+            <DocumentsTab />
           )}
           {activeTab === 'audit' && permissions.tabs.includes('audit') && (
             <AuditLogTab userId={user.id} />

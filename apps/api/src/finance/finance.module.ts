@@ -22,5 +22,6 @@ import { TransactionsService } from './transactions.service'
     FinanceSummaryController,
     ProjectFinanceSettingsController,
   ],
+  exports: [TransactionsService],
 })
 export class FinanceModule {}
