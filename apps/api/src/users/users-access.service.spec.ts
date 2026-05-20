@@ -38,20 +38,22 @@ describe('UsersAccessService.getViewPermissions', () => {
     ;(service as unknown as Record<string, unknown>).isSharedProject = vi.fn().mockResolvedValue(false)
   })
 
-  it('ADMIN viewing JUNIOR sees 6 tabs (no Собеседования)', async () => {
+  it('ADMIN viewing JUNIOR sees 7 tabs including documents (no Собеседования)', async () => {
     const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
     const target = makeUser({ id: 'jr-id', role: 'JUNIOR' })
     const p = await service.getViewPermissions(viewer, target)
-    expect(p.tabs).toEqual(expect.arrayContaining(['overview', 'finance', 'projects', 'team', 'requisites', 'audit']))
+    expect(p.tabs).toEqual(expect.arrayContaining(['overview', 'finance', 'projects', 'team', 'requisites', 'documents', 'audit']))
     expect(p.tabs).not.toContain('interviews')
+    expect(p.tabs).toHaveLength(7)
   })
 
-  it('ADMIN viewing SENIOR includes Собеседования (7 tabs)', async () => {
+  it('ADMIN viewing SENIOR includes Собеседования and documents (8 tabs)', async () => {
     const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
     const target = makeUser({ id: 'sr-id', role: 'SENIOR' })
     const p = await service.getViewPermissions(viewer, target)
     expect(p.tabs).toContain('interviews')
-    expect(p.tabs).toHaveLength(7)
+    expect(p.tabs).toContain('documents')
+    expect(p.tabs).toHaveLength(8)
   })
 
   it('HR viewing SENIOR in own team — no finance, no requisites, no audit', async () => {
@@ -73,10 +75,11 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.tabs).toEqual([])
   })
 
-  it('SELF — SENIOR sees own tabs including Собеседования (no audit)', async () => {
+  it('SELF — SENIOR sees own tabs (interviews moved to header link, no audit)', async () => {
     const senior = makeUser({ id: 'sr-id', role: 'SENIOR' })
     const p = await service.getViewPermissions(senior, senior)
-    expect(p.tabs).toEqual(expect.arrayContaining(['overview', 'finance', 'projects', 'team', 'interviews', 'requisites']))
+    expect(p.tabs).toEqual(expect.arrayContaining(['overview', 'finance', 'projects', 'team', 'requisites', 'documents']))
+    expect(p.tabs).not.toContain('interviews')
     expect(p.tabs).not.toContain('audit')
   })
 
