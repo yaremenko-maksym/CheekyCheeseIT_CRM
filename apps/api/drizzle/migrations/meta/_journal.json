@@ -19,8 +19,8 @@
     {
       "idx": 2,
       "version": "7",
-      "when": 1779500000000,
-      "tag": "0006_team_telegram_notes",
+      "when": 1779100000000,
+      "tag": "0002_team_telegram_notes",
       "breakpoints": true
     },
     {
@@ -31,10 +31,17 @@
       "breakpoints": true
     },
     {
-      "idx": 8,
+      "idx": 4,
+      "version": "7",
+      "when": 1779500000000,
+      "tag": "0004_salary_currency",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
       "version": "7",
       "when": 1779600000000,
-      "tag": "0008_avatar_override",
+      "tag": "0005_avatar_override",
       "breakpoints": true
     }
   ]
