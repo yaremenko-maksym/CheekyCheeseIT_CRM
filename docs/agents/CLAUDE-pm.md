@@ -170,12 +170,16 @@ docs/specs/tasks/
 - `agent_finished` — `{ at, type, agent, result: "success"|"blocked"|"no-op" }`
 - `pr_opened` — `{ at, type, pr }`
 - `review_approve` — `{ at, type, pr }`
-- `review_rejected` — `{ at, type, pr, rounds }`
+- `review_blocked` — `{ at, type, pr, verdict: "BLOCK", rounds }` — Reviewer COMMENT с `Verdict: BLOCK` (см. Mode 2.D в pm.md)
+- `review_rejected` — `{ at, type, pr, rounds }` — REQUEST_CHANGES от внешнего reviewer (редко, AI-агенты используют review_blocked)
+- `autotest_skipped` — `{ at, type, reason }` — PM решил не диспетчить AutoTest (например, чисто стили без UI changes). **Skip без записи запрещён** — это пробел в покрытии.
+- `worktree_isolation_warning` — `{ at, type, files: [...] }` — после `Agent(isolation="worktree")` обнаружены uncommitted changes в текущем worktree (см. Mode 2.E)
 - `e2e_started` — `{ at, type, run_id }`
 - `e2e_passed` — `{ at, type, run_id }`
 - `e2e_failed` — `{ at, type, run_id, failure_type: "code"|"test" }`
 - `user_approved` — `{ at, type, pr }` — пользователь сказал «мерджи»
 - `merge_approved_label` — `{ at, type, pr }` — PM выставил лейбл
+- `do_not_merge_label` — `{ at, type, pr, reason }` — PM выставил do-not-merge после Verdict: BLOCK
 - `merged` — `{ at, type, pr }` — CI смерджил
 
 **Completed task** (агрегаты для метрик):

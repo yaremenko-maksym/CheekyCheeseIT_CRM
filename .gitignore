@@ -41,6 +41,7 @@ test-results/
 
 # Claude Code (user-local, not shared)
 .claude/settings.local.json
+.claude/.allow-direct-edits
 .playwright-mcp/
 
 # Agent debug artifacts — files agents create during "verification".

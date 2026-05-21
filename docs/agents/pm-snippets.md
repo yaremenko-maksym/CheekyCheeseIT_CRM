@@ -193,3 +193,43 @@ gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<N>/files \
 ```
 
 Если `0` после AutoTest запуска — он не сделал работу (no-op). Создать новый task-файл и перезапустить.
+
+---
+
+## Common pitfalls — checklists
+
+### После большого UI batch (User Testing → много правок)
+
+После того как Coder завершил массовый UI fix-раунд, ДО объявления PR готовым к мерджу:
+
+1. **Auto-dispatch AutoTest на specs update** — UI tests могут протухнуть от изменений селекторов:
+   ```
+   Agent(description="AutoTest: spec-update-PR-<N>",
+     prompt="Ты — AutoTest. Прочитай docs/agents/autotest.md.
+   PR #<N> содержит UI batch — обнови селекторы в apps/e2e/tests/<module>.spec.ts
+   target_branch: <pr_branch>")
+   ```
+2. **Ожидать E2E rebuild** — после AutoTest push CI re-run; ждать второго зелёного раунда:
+   ```bash
+   gh pr view <N> --repo yaremenko-maksym/CheekyCheeseIT_CRM \
+     --json statusCheckRollup --jq '.statusCheckRollup'
+   ```
+3. **НЕ диспетчить merge-approved до второго зелёного CI.** Первый раунд мог быть до AutoTest update — нужен второй чтобы проверить что новые тесты тоже зелёные.
+4. **Записать в pm-state.json** event `autotest_post_ui_batch` с PR номером — это маркер «UI rounds потребовали re-test».
+
+### После migration rebuild (Drizzle schema change)
+
+После того как Coder сделал миграцию, до User Testing:
+
+1. **Создать DevOps task на `__drizzle_migrations` sync** если миграции были созданы вручную или переименованы:
+   ```markdown
+   # task-infra-migrations-sync
+   ## Агент: devops
+   ## Контекст
+   В PR #<N> добавлена/изменена миграция. Проверить что `__drizzle_migrations` table sync с `drizzle/migrations/meta/_journal.json` — иначе db:migrate упадёт на fresh DB.
+   ## AC
+   - [ ] `pnpm --filter @crm/api db:init-tracking` синхронизирует state
+   - [ ] Smoke test: `docker-compose down -v && docker-compose up -d && pnpm db:migrate && pnpm db:seed` проходит без ошибок
+   ```
+2. **Smoke test fresh-DB flow** до User Testing — если миграции не применяются на чистой БД, User Testing будет видеть данные но fresh deploy сломается.
+3. **Записать в pm-state.json** event `migration_rebuild_required` с PR номером.

@@ -47,6 +47,19 @@
 - [ ] <изменение №2>
 - [ ] <изменение №3>
 
+## Interaction tests (ОБЯЗАТЕЛЬНО для UI с keyboard/focus/debouncing)
+
+Если задача трогает Autocomplete, Combobox, Modal, Form с validation, Drag-and-drop, Tooltip — указать конкретные сценарии:
+
+- [ ] <Например: Autocomplete — Tab коммитит highlighted option>
+- [ ] <Например: Autocomplete — ArrowDown/ArrowUp навигация по списку>
+- [ ] <Например: Autocomplete — Escape закрывает dropdown без потери query>
+- [ ] <Например: Modal — Escape закрывает; focus restore на trigger button>
+
+См. `docs/agents/coder.md` секция 6.1 для полного чек-листа по типам компонентов.
+
+**Если interaction-логика отсутствует** (чистый CRUD без keyboard/focus) — отметить: «Interaction tests N/A — компонент без интерактивных элементов».
+
 ## Запрещено трогать
 
 - `<файлы не входящие в задачу>`

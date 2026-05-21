@@ -123,6 +123,37 @@ git branch --show-current
    - Vitest unit тесты для сервисов и утилит
    - Проверить что Playwright E2E в `apps/e2e/` покрывает новый flow
 
+   **6.1. Interaction tests — обязательны для интерактивных компонентов**
+
+   Если задача трогает компонент с keyboard/focus/debouncing/autocomplete/dropdown — Coder ОБЯЗАН написать unit-тесты на это поведение. Smoke-тест «компонент рендерится» НЕ закрывает interaction logic.
+
+   Минимальный чек-лист по типам компонентов:
+
+   | Компонент | Обязательные тесты |
+   |-----------|-------------------|
+   | Autocomplete / Combobox | `Tab` коммитит highlighted option; `ArrowDown`/`ArrowUp` навигация; `Enter` выбирает; `Escape` закрывает; `Backspace` чистит |
+   | Searchable Select | Debouncing (50ms+); очистка query при выборе; "no results" state |
+   | Modal / Dialog | `Escape` закрывает; focus trap внутри; focus restore на trigger |
+   | Form с validation | Submit на disabled state блокирован; touched-only ошибки; submit on Enter |
+   | Drag-and-drop | Keyboard alternative (Space/ArrowKeys); aria-label на handle; восстановление позиции на cancel |
+   | Tooltip / Popover | Открытие на focus (не только hover); закрытие на Tab outside |
+
+   **Антипаттерн (был в TechAutocomplete):** только smoke-test «Enter добавляет» → пропустили баг что `Tab+highlighted` не работает. Если у компонента >1 способов interact — каждый способ покрыт.
+
+   Пример теста (Vitest + RTL + userEvent):
+   ```tsx
+   import { userEvent } from '@testing-library/user-event'
+
+   test('Tab commits highlighted option', async () => {
+     const user = userEvent.setup({ delay: null })  // delay:null обязателен — см. memory/coder/lessons.md
+     render(<TechAutocomplete options={['React', 'Vue']} onAdd={onAdd} />)
+     await user.type(screen.getByRole('combobox'), 'Re')
+     await user.keyboard('{ArrowDown}')   // highlight "React"
+     await user.tab()                       // commit via Tab
+     expect(onAdd).toHaveBeenCalledWith('React')
+   })
+   ```
+
 ### 6.5 E2E атомарность (ОБЯЗАТЕЛЬНО при UI-изменениях)
 
 Если ты меняешь любой из следующих элементов:

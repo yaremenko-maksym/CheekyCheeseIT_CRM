@@ -96,7 +96,8 @@ jobs:
       needs.quality.result == 'success' &&
       needs.e2e.result == 'success' &&
       contains(github.event.pull_request.labels.*.name, 'merge-approved') &&
-      !contains(github.event.pull_request.labels.*.name, 'awaiting-pm-review')
+      !contains(github.event.pull_request.labels.*.name, 'awaiting-pm-review') &&
+      !contains(github.event.pull_request.labels.*.name, 'do-not-merge')
     permissions:
       contents: write
       pull-requests: write
