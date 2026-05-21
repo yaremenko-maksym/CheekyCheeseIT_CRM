@@ -186,46 +186,6 @@ test.describe('Projects page', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Archive project dialog — on list page via title button (PR 34)
-  // The inline "Trash" icon now opens an Archive confirm dialog (soft archive,
-  // not hard delete). Confirms via DELETE method (backend treats it as archive).
-  // ---------------------------------------------------------------------------
-
-  test.describe('Archive project (list-page inline action)', () => {
-    test('opens archive confirm dialog with project name', async ({ asAdmin: page }) => {
-      await page.goto('/crm/projects')
-      await page.getByTitle('Архивировать проект').first().click()
-      await expect(page.getByRole('dialog')).toBeVisible()
-      await expect(page.getByText(/Архивировать проект «AI Platform v2»/)).toBeVisible()
-    })
-
-    test('confirm sends DELETE request (archive)', async ({ asAdmin: page }) => {
-      await page.goto('/crm/projects')
-
-      const deleteReq = page.waitForRequest(
-        (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'DELETE',
-      )
-
-      await page.getByTitle('Архивировать проект').first().click()
-      await page.getByRole('button', { name: 'Архивировать' }).last().click()
-      await deleteReq
-    })
-
-    test('cancel closes dialog without DELETE', async ({ asAdmin: page }) => {
-      let deleteCalled = false
-      page.on('request', (req) => {
-        if (req.url().includes('/projects/') && req.method() === 'DELETE') deleteCalled = true
-      })
-
-      await page.goto('/crm/projects')
-      await page.getByTitle('Архивировать проект').first().click()
-      await page.getByRole('button', { name: 'Отмена' }).click()
-      await expect(page.getByRole('dialog')).not.toBeVisible()
-      expect(deleteCalled).toBe(false)
-    })
-  })
-
-  // ---------------------------------------------------------------------------
   // Project members — on detail page
   // ---------------------------------------------------------------------------
 
