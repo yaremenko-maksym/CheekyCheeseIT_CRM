@@ -24,8 +24,11 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
+import { AdminActionsMenu } from '@/components/admin-actions/AdminActionsMenu'
+import { AuditLogTab } from '@/components/audit-log/AuditLogTab'
 
 export const Route = createFileRoute('/crm/team/$teamId')({
   component: TeamDetailPage,
@@ -91,6 +94,7 @@ function TeamDetailPage() {
 
   const [showEdit, setShowEdit] = useState(false)
   const [showAddMember, setShowAddMember] = useState(false)
+  const [activeTab, setActiveTab] = useState<'members' | 'audit'>('members')
 
   const removeMemberMutation = useMutation({
     mutationFn: (userId: string) => api.delete(`/teams/${teamId}/members/${userId}`),
@@ -276,7 +280,25 @@ function TeamDetailPage() {
             </Button>
           )}
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">{team.name}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-bold tracking-tight">{team.name}</h1>
+              {team.archivedAt ? (
+                <Badge
+                  variant="outline"
+                  className="border-amber-500/30 bg-amber-500/10 text-amber-500"
+                  data-testid="team-archived-badge"
+                >
+                  В архиве
+                </Badge>
+              ) : (
+                <Badge
+                  variant="outline"
+                  className="border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
+                >
+                  Активна
+                </Badge>
+              )}
+            </div>
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
               <div className="flex items-center gap-1.5">
                 <Calendar className="h-3.5 w-3.5" />
@@ -300,30 +322,52 @@ function TeamDetailPage() {
             </div>
           </div>
         </div>
-        {canManage && (
-          <div className="flex shrink-0 gap-2">
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowAddMember(true)}>
-              <UserPlus className="h-4 w-4" />
-              Добавить
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-              onClick={() => {
-                editForm.setFieldValue('name', team.name)
-                editForm.setFieldValue('telegram', team.telegram ?? '')
-                editForm.setFieldValue('notes', team.notes ?? '')
-                setShowEdit(true)
-              }}
-            >
-              <Pencil className="h-4 w-4" />
-              Редактировать
-            </Button>
-          </div>
-        )}
+        <div className="flex shrink-0 gap-2">
+          {canManage && !team.archivedAt && (
+            <>
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowAddMember(true)}>
+                <UserPlus className="h-4 w-4" />
+                Добавить
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => {
+                  editForm.setFieldValue('name', team.name)
+                  editForm.setFieldValue('telegram', team.telegram ?? '')
+                  editForm.setFieldValue('notes', team.notes ?? '')
+                  setShowEdit(true)
+                }}
+              >
+                <Pencil className="h-4 w-4" />
+                Редактировать
+              </Button>
+            </>
+          )}
+          {user?.role === 'ADMIN' && (
+            <AdminActionsMenu
+              entityType="team"
+              entityId={team.id}
+              entityName={team.name}
+              isArchived={!!team.archivedAt}
+            />
+          )}
+        </div>
       </motion.div>
 
+      {user?.role === 'ADMIN' && (
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'members' | 'audit')} className="w-full">
+          <TabsList>
+            <TabsTrigger value="members" data-testid="tab-members">Состав</TabsTrigger>
+            <TabsTrigger value="audit" data-testid="tab-audit">История изменений</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
+
+      {user?.role === 'ADMIN' && activeTab === 'audit' ? (
+        <AuditLogTab entityType="team" entityId={team.id} />
+      ) : (
       <div className="space-y-6">
         {/* Members */}
         <motion.div variants={item}>
@@ -509,6 +553,7 @@ function TeamDetailPage() {
           </Card>
         </motion.div>
       </div>
+      )}
 
       {/* Edit Team Dialog */}
       <Dialog open={showEdit} onOpenChange={setShowEdit}>

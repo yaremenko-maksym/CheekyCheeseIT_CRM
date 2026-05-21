@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Check, Pencil, Plus, Search, Send, UserPlus, Users } from 'lucide-react'
+import { ArchiveRestore, Check, Pencil, Plus, Search, Send, UserPlus, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
 import type { Value as PhoneValue } from 'react-phone-number-input'
@@ -39,8 +39,14 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
+import { useUnarchiveEntity } from '@/hooks/use-archive'
+
+const teamSearchSchema = z.object({
+  archived: z.boolean().optional(),
+})
 
 export const Route = createFileRoute('/crm/team/')({
+  validateSearch: (search) => teamSearchSchema.parse(search),
   component: TeamPage,
 })
 
@@ -80,8 +86,8 @@ const item = {
 
 type UserOption = { id: string; displayName: string; email: string; role: string; avatar: string | null }
 
-async function fetchTeams(): Promise<TeamDto[]> {
-  const res = await api.get<TeamDto[]>('/teams')
+async function fetchTeams(archived = false): Promise<TeamDto[]> {
+  const res = await api.get<TeamDto[]>(`/teams${archived ? '?archived=true' : ''}`)
   return res.data
 }
 
@@ -498,15 +504,18 @@ function TeamPage() {
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'])
   const { user } = useAuth()
   const navigate = useNavigate()
+  const routeSearch = Route.useSearch()
+  const isArchivedView = routeSearch.archived === true
   if (denied) return null
   const queryClient = useQueryClient()
 
   const canManage = user?.role === 'ADMIN' || user?.role === 'HR'
   const isHr = user?.role === 'HR'
+  const isAdmin = user?.role === 'ADMIN'
 
   const { data: teams, isLoading } = useQuery({
-    queryKey: ['teams'],
-    queryFn: fetchTeams,
+    queryKey: ['teams', { archived: isArchivedView }],
+    queryFn: () => fetchTeams(isArchivedView),
     enabled: !!user,
   })
 
@@ -653,12 +662,31 @@ function TeamPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">Команда</h1>
-        {isHr && (
-          <Button onClick={() => setShowCreateSenior(true)} size="sm" className="gap-1.5">
-            <Plus className="h-4 w-4" />
-            Создать синьора
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <Button
+              variant={isArchivedView ? 'default' : 'outline'}
+              size="sm"
+              className="gap-1.5"
+              onClick={() =>
+                navigate({
+                  to: '/crm/team',
+                  search: isArchivedView ? {} : { archived: true },
+                })
+              }
+              data-testid="toggle-archived-teams"
+            >
+              <ArchiveRestore className="h-4 w-4" />
+              {isArchivedView ? 'Показать активные' : 'Показать архивных'}
+            </Button>
+          )}
+          {isHr && (
+            <Button onClick={() => setShowCreateSenior(true)} size="sm" className="gap-1.5">
+              <Plus className="h-4 w-4" />
+              Создать синьора
+            </Button>
+          )}
+        </div>
       </div>
 
       {teams && teams.length === 0 && (
@@ -718,6 +746,7 @@ function TeamPage() {
                 (p) => p.status === 'ACTIVE' && team.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
               ).length
             : 0
+          const isArchived = !!team.archivedAt
 
           return (
             <motion.div
@@ -728,7 +757,12 @@ function TeamPage() {
               transition={{ duration: 0.22, ease: [0.25, 0.1, 0.25, 1] }}
             >
               <div
-                className="group relative flex h-14 items-center gap-3 rounded-lg border border-border/60 bg-card/50 px-3 transition-all duration-200 hover:border-primary/30 hover:bg-card cursor-pointer"
+                data-testid={`team-card-${team.id}`}
+                data-archived={isArchived ? 'true' : 'false'}
+                className={cn(
+                  'group relative flex h-14 items-center gap-3 rounded-lg border border-border/60 bg-card/50 px-3 transition-all duration-200 hover:border-primary/30 hover:bg-card cursor-pointer',
+                  isArchived && 'opacity-60',
+                )}
                 onClick={() => navigate({ to: '/crm/team/$teamId', params: { teamId: team.id } })}
               >
                 <Link
@@ -771,6 +805,14 @@ function TeamPage() {
 
                 {/* Pills */}
                 <div className="relative z-20 flex shrink-0 items-center gap-2">
+                  {isArchived && (
+                    <Badge
+                      variant="outline"
+                      className="border-amber-500/30 bg-amber-500/10 text-amber-500 text-[11px]"
+                    >
+                      В архиве
+                    </Badge>
+                  )}
                   {team.telegram && (
                     <a
                       href={team.telegram}
@@ -799,8 +841,13 @@ function TeamPage() {
                   </Badge>
                 </div>
 
-                {/* Rename only */}
-                {canManage && (
+                {/* Rename / Unarchive */}
+                {isArchived && isAdmin && (
+                  <div className="relative z-30 flex shrink-0 gap-1">
+                    <TeamUnarchiveButton teamId={team.id} />
+                  </div>
+                )}
+                {!isArchived && canManage && (
                   <div className="relative z-30 flex shrink-0 gap-1">
                     <Button
                       variant="ghost"
@@ -994,5 +1041,30 @@ function TeamPage() {
         </CrmDialogContent>
       </Dialog>
     </div>
+  )
+}
+
+/**
+ * Pair-unarchive a team (restores team + senior in one tx; projects stay archived).
+ * Lives at list level so each row instantiates its own mutation hook.
+ */
+function TeamUnarchiveButton({ teamId }: { teamId: string }) {
+  const unarchive = useUnarchiveEntity('team', teamId)
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="gap-1 h-7 px-2"
+      disabled={unarchive.isPending}
+      onClick={(e) => {
+        e.stopPropagation()
+        e.preventDefault()
+        void unarchive.mutateAsync({})
+      }}
+      data-testid={`team-unarchive-${teamId}`}
+    >
+      <ArchiveRestore className="h-3.5 w-3.5" />
+      <span className="text-xs">Восстановить</span>
+    </Button>
   )
 }
