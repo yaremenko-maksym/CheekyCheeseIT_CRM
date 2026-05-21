@@ -7,7 +7,7 @@ import { TeamsController } from './teams.controller'
 import { TeamsService } from './teams.service'
 
 @Module({
-  imports: [DatabaseModule, AuthModule, forwardRef(() => UsersModule)],
+  imports: [DatabaseModule, forwardRef(() => AuthModule), forwardRef(() => UsersModule)],
   controllers: [TeamsController],
   providers: [TeamsService, TeamAuditLogService],
   exports: [TeamsService, TeamAuditLogService],

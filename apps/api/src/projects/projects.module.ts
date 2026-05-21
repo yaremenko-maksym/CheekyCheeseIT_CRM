@@ -7,7 +7,7 @@ import { ProjectsController } from './projects.controller'
 import { ProjectsService } from './projects.service'
 
 @Module({
-  imports: [DatabaseModule, AuthModule, forwardRef(() => UsersModule)],
+  imports: [DatabaseModule, forwardRef(() => AuthModule), forwardRef(() => UsersModule)],
   controllers: [ProjectsController],
   providers: [ProjectsService, ProjectAuditLogService],
   exports: [ProjectsService, ProjectAuditLogService],

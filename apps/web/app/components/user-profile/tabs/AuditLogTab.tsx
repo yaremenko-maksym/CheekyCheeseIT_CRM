@@ -15,6 +15,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   team_membership: 'Изменение команды',
   project_reassignment: 'Переназначение проекта',
   user_archived: 'Профиль архивирован',
+  user_unarchived: 'Профиль восстановлен',
 }
 
 const FIELD_LABELS: Record<string, string> = {
