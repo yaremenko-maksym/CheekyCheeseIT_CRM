@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import {
   ArrowUpDown,
@@ -8,11 +8,9 @@ import {
   Plus,
   Search,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { z } from 'zod'
 import type { UserProfileDto } from '@crm/shared'
-import type { AxiosError } from 'axios'
-import { toast } from 'sonner'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { Button } from '@/components/ui/button'
@@ -38,9 +36,12 @@ import {
   type SortDir,
   type SortKey,
 } from '@/components/users/constants'
+import { UnarchiveButton } from '@/components/users/UnarchiveButton'
 
+// `archived` may arrive as a query-string ("true"/"false") for deep-links —
+// `z.coerce.boolean()` accepts both `boolean` and string forms safely.
 const searchSchema = z.object({
-  archived: z.boolean().optional(),
+  archived: z.coerce.boolean().optional(),
 })
 
 export const Route = createFileRoute('/crm/users/')({
@@ -57,7 +58,6 @@ function UsersPage() {
   const { user: me } = useAuth()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: '/crm/users' })
-  const queryClient = useQueryClient()
 
   const showArchived = search.archived === true
 
@@ -86,7 +86,6 @@ function UsersPage() {
           replace: true,
         })
       }}
-      queryClient={queryClient}
     />
   )
 }
@@ -95,12 +94,10 @@ function UsersPageContent({
   meId,
   showArchived,
   onToggleArchived,
-  queryClient,
 }: {
   meId: string
   showArchived: boolean
   onToggleArchived: (next: boolean) => void
-  queryClient: ReturnType<typeof useQueryClient>
 }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState<Role | 'ALL'>('ALL')
@@ -110,30 +107,14 @@ function UsersPageContent({
   const [createKey, setCreateKey] = useState(0)
   const [editUser, setEditUser] = useState<UserProfileDto | null>(null)
   const [archiveUser, setArchiveUser] = useState<UserProfileDto | null>(null)
+  // Manual focus restoration for the create-dialog: since the dialog is opened
+  // programmatically (not via Radix DialogTrigger) it can't auto-restore focus
+  // to the trigger on close — we refocus it ourselves.
+  const createTriggerRef = useRef<HTMLButtonElement>(null)
 
   const { data: users, isLoading } = useQuery({
     queryKey: ['users-admin', { archived: showArchived }],
     queryFn: () => fetchUsers(showArchived),
-  })
-
-  const unarchiveMutation = useMutation({
-    mutationFn: (userId: string) =>
-      api.post(`/users/${userId}/unarchive`).then((r) => r.data),
-    onSuccess: (_data, userId) => {
-      void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
-      void queryClient.invalidateQueries({ queryKey: ['user-profile', userId] })
-      const user = users?.find((u) => u.id === userId)
-      const msg = user?.role === 'SENIOR'
-        ? 'Синьор и команда восстановлены'
-        : 'Пользователь восстановлен из архива'
-      if (user?.role === 'SENIOR') {
-        void queryClient.invalidateQueries({ queryKey: ['teams'] })
-      }
-      toast.success(msg)
-    },
-    onError: (err: AxiosError<{ message: string }>) => {
-      toast.error(err?.response?.data?.message ?? 'Ошибка при восстановлении')
-    },
   })
 
   const filtered = useMemo(() => {
@@ -203,6 +184,7 @@ function UsersPageContent({
           </p>
         </div>
         <Button
+          ref={createTriggerRef}
           onClick={() => {
             setCreateKey((k) => k + 1)
             setCreateOpen(true)
@@ -327,16 +309,28 @@ function UsersPageContent({
               </div>
             ) : (
               <div className="space-y-1" data-testid="users-list">
-                {filtered.map((u) => (
-                  <UserRow
-                    key={u.id}
-                    user={u}
-                    isSelf={u.id === meId}
-                    onEdit={() => setEditUser(u)}
-                    onArchive={() => setArchiveUser(u)}
-                    onUnarchive={() => unarchiveMutation.mutate(u.id)}
-                  />
-                ))}
+                {filtered.map((u) =>
+                  u.archivedAt ? (
+                    <UnarchiveButton
+                      key={u.id}
+                      user={u}
+                      isSelf={u.id === meId}
+                      onEdit={() => setEditUser(u)}
+                      onArchive={() => setArchiveUser(u)}
+                    />
+                  ) : (
+                    <UserRow
+                      key={u.id}
+                      user={u}
+                      isSelf={u.id === meId}
+                      onEdit={() => setEditUser(u)}
+                      onArchive={() => setArchiveUser(u)}
+                      onUnarchive={() => {
+                        // not used for active rows; only archived rows render UnarchiveButton
+                      }}
+                    />
+                  ),
+                )}
               </div>
             )}
           </CardContent>
@@ -347,7 +341,12 @@ function UsersPageContent({
         mode="create"
         key={createKey}
         open={createOpen}
-        onClose={() => setCreateOpen(false)}
+        onClose={() => {
+          setCreateOpen(false)
+          // Restore focus to the trigger so keyboard users land back on the
+          // Add button after the dialog closes (mirrors Radix DialogTrigger).
+          requestAnimationFrame(() => createTriggerRef.current?.focus())
+        }}
       />
       <UserDialog mode="edit" user={editUser} onClose={() => setEditUser(null)} />
       <ArchiveConfirmDialog user={archiveUser} onClose={() => setArchiveUser(null)} />

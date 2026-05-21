@@ -20,10 +20,21 @@ export type Role = (typeof ROLES)[number]
 export type SortKey = 'displayName' | 'role' | 'email' | 'createdAt'
 export type SortDir = 'asc' | 'desc'
 
+/**
+ * Avatar initials for a user.
+ *
+ * - "" or whitespace-only → "?"
+ * - "Иван Иванов" → "ИИ"
+ * - "Anna" (single word) → "AN" (first two letters, uppercased)
+ * - "  John   Doe   " (extra whitespace) → "JD"
+ */
 export function getInitials(name: string) {
-  return (name || '?')
-    .split(' ')
-    .map((n) => n[0])
+  const trimmed = (name || '?').trim()
+  if (!trimmed || trimmed === '?') return '?'
+  const parts = trimmed.split(/\s+/).filter(Boolean)
+  if (parts.length === 1) return (parts[0] ?? '').slice(0, 2).toUpperCase()
+  return parts
+    .map((n) => n[0] ?? '')
     .join('')
     .toUpperCase()
     .slice(0, 2)

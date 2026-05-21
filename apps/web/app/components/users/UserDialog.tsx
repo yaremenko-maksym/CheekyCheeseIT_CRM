@@ -210,7 +210,7 @@ export function UserDialog(props: UserDialogProps) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
       void queryClient.invalidateQueries({ queryKey: ['teams'] })
-      void queryClient.invalidateQueries({ queryKey: ['user-team', editingUser?.id] })
+      void queryClient.invalidateQueries({ queryKey: ['user-profile', editingUser?.id] })
       toast.success('Пользователь обновлён')
       props.onClose()
     },
@@ -290,22 +290,26 @@ export function UserDialog(props: UserDialogProps) {
     },
   })
 
-  // Re-seed form when editing user changes (dialog reopens for different user)
+  // Re-seed form when editing user changes (dialog reopens for different user).
+  // `form.reset(defaults)` is idiomatic TanStack Form re-seed — clears touched/dirty
+  // state between edit sessions, unlike per-field setFieldValue which preserves them.
+  // Deps are intentionally limited to `editingUser?.id` + `isEdit`: `form` is
+  // stable and re-running on every prop change would clobber user edits in-flight.
   useEffect(() => {
     if (isEdit && editingUser) {
-      form.setFieldValue('email', editingUser.email)
-      form.setFieldValue('displayName', editingUser.displayName)
-      form.setFieldValue('role', editingUser.role as Role)
-      form.setFieldValue('telegram', editingUser.telegram ?? '')
-      form.setFieldValue(
-        'phone',
-        ((editingUser.phone as PhoneValue | undefined) ?? '') as PhoneValue | '',
-      )
-      form.setFieldValue('techStack', editingUser.techStack ?? [])
-      form.setFieldValue('seniorSharePercent', editingUser.seniorSharePercent ?? 26)
-      form.setFieldValue('monthlySalary', editingUser.monthlySalary ?? '')
+      form.reset({
+        email: editingUser.email,
+        displayName: editingUser.displayName,
+        role: editingUser.role as Role,
+        telegram: editingUser.telegram ?? '',
+        phone: ((editingUser.phone as PhoneValue | undefined) ?? '') as PhoneValue | '',
+        techStack: editingUser.techStack ?? [],
+        seniorSharePercent: editingUser.seniorSharePercent ?? 26,
+        monthlySalary: editingUser.monthlySalary ?? '',
+        projectId: '',
+      })
     }
-  }, [editingUser?.id])
+  }, [editingUser?.id, isEdit])
 
   const handleClose = () => {
     if (isCreate) form.reset()

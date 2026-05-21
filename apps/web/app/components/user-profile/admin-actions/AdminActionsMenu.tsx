@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import {
   Zap,
   ChevronDown,
@@ -82,8 +82,10 @@ export function AdminActionsMenu({
             // For archived users hide normal "archive" action — show unarchive instead below
             if (a === 'archive' && isArchived) return null
             const config = actionConfig[a]
+            // Use `Fragment` (not `<span>`) so Radix sees DropdownMenuItem as a
+            // direct child — required for arrow-key keyboard cycling.
             return (
-              <span key={a}>
+              <Fragment key={a}>
                 {SEPARATOR_BEFORE.includes(a) && <DropdownMenuSeparator />}
                 <DropdownMenuItem
                   onClick={() => setOpen(a)}
@@ -92,7 +94,7 @@ export function AdminActionsMenu({
                   {config.icon}
                   {config.label}
                 </DropdownMenuItem>
-              </span>
+              </Fragment>
             )
           })}
           {isArchived && (

@@ -13,20 +13,24 @@ export function ShareSlider({
   seniorPct: number
   error?: boolean
 }) {
+  // Always show the percent value inside each bar; suffix only when there's
+  // enough room ( >=12% ) — keeps small slivers readable without empty cells.
   return (
     <div className="space-y-3">
       <div className="relative h-7 rounded-md overflow-hidden flex text-[11px] font-medium select-none">
         <div
-          className="flex items-center justify-center bg-primary/20 text-primary transition-all duration-150"
+          className="flex items-center justify-center bg-primary/20 text-primary transition-all duration-150 whitespace-nowrap overflow-hidden"
           style={{ width: `${value}%` }}
+          title={`${value}% компания`}
         >
-          {value >= 12 ? `${value}% компания` : ''}
+          {value >= 12 ? `${value}% компания` : `${value}%`}
         </div>
         <div
-          className="flex items-center justify-center bg-emerald-500/20 text-emerald-400 transition-all duration-150"
+          className="flex items-center justify-center bg-emerald-500/20 text-emerald-400 transition-all duration-150 whitespace-nowrap overflow-hidden"
           style={{ width: `${seniorPct}%` }}
+          title={`${seniorPct}% синьор`}
         >
-          {seniorPct >= 12 ? `${seniorPct}% синьор` : ''}
+          {seniorPct >= 12 ? `${seniorPct}% синьор` : `${seniorPct}%`}
         </div>
       </div>
       <div className="flex items-center gap-3">

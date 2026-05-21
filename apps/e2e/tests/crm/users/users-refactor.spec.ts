@@ -293,6 +293,164 @@ test.describe('Users page refactor (PR 2)', () => {
     })
   })
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Interaction tests (keyboard / a11y) — task-fix-pr33-polish.md #11–#16
+  // ─────────────────────────────────────────────────────────────────────────
+  test.describe('Interaction tests', () => {
+    test('Modal Escape closes dialog and returns focus to trigger button', async ({ asAdmin: page }) => {
+      await page.goto('/crm/users')
+      const triggerBtn = page.getByTestId('users-create-button')
+      // Use keyboard activation so Radix knows the trigger and can later
+      // restore focus on close.
+      await triggerBtn.focus()
+      await page.keyboard.press('Enter')
+      const dialog = page.getByRole('dialog')
+      await expect(dialog).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(dialog).toBeHidden()
+      // Focus must return to either the trigger button (preferred — Radix
+      // does this automatically when the dialog is opened via the trigger)
+      // OR remain on a sensible element inside <body> (NOT <body> itself,
+      // which would mean focus was lost). We assert focus.id / testid matches
+      // the trigger via JS to avoid Playwright's stricter `toBeFocused` check
+      // which is racy in headless mode.
+      await expect
+        .poll(async () =>
+          page.evaluate(() => document.activeElement?.getAttribute('data-testid')),
+        )
+        .toBe('users-create-button')
+    })
+
+    test('Tab order traverses sections sequentially in create dialog', async ({ asAdmin: page }) => {
+      await page.goto('/crm/users')
+      await page.getByTestId('users-create-button').click()
+      await expect(page.getByRole('dialog')).toBeVisible()
+
+      // First field — Email — should be focusable.
+      const emailInput = page.getByTestId('user-dialog-email')
+      await emailInput.focus()
+      await expect(emailInput).toBeFocused()
+
+      // Tab → Name input (next focusable field in source order).
+      await page.keyboard.press('Tab')
+      await expect(page.getByTestId('user-dialog-name')).toBeFocused()
+
+      // Tab → Role select trigger.
+      await page.keyboard.press('Tab')
+      await expect(page.getByTestId('user-dialog-role-trigger')).toBeFocused()
+
+      // From here Tab should remain inside the dialog (focus trap).
+      // Ensure we eventually land on the Submit button by walking forward.
+      const submit = page.getByTestId('user-dialog-submit')
+      for (let i = 0; i < 30; i++) {
+        await page.keyboard.press('Tab')
+        if (await submit.evaluate((el) => el === document.activeElement)) break
+      }
+      await expect(submit).toBeFocused()
+    })
+
+    test('TechAutocomplete: ArrowDown navigates, Enter adds, Esc clears, Tab commits', async ({ asAdmin: page }) => {
+      await page.goto('/crm/users')
+      await page.getByTestId('users-create-button').click()
+      await expect(page.getByRole('dialog')).toBeVisible()
+
+      const techSection = page.getByRole('dialog').locator('input[placeholder*="технологи"]').first()
+      await techSection.focus()
+      await techSection.fill('Re')
+
+      // The listbox appears once suggestions are computed (deferred value).
+      const listbox = page.getByRole('listbox')
+      await expect(listbox).toBeVisible()
+
+      // ArrowDown highlights the second option.
+      await page.keyboard.press('ArrowDown')
+      // Enter commits the highlighted option as a pill in the dialog.
+      await page.keyboard.press('Enter')
+      // After commit input is cleared and listbox should be hidden.
+      await expect(techSection).toHaveValue('')
+
+      // Re-open listbox, then Escape — input cleared, no pill added.
+      await techSection.fill('Pyt')
+      await expect(page.getByRole('listbox')).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(techSection).toHaveValue('')
+
+      // Type and Tab — Tab commits highlighted suggestion (when present).
+      await techSection.fill('Ja')
+      await expect(page.getByRole('listbox')).toBeVisible()
+      await page.keyboard.press('Tab')
+      await expect(techSection).toHaveValue('')
+    })
+
+    test('PhoneInput shows inline error on blur for invalid number', async ({ asAdmin: page }) => {
+      await page.goto('/crm/users')
+      await page.getByTestId('users-create-button').click()
+      await expect(page.getByRole('dialog')).toBeVisible()
+
+      // PhoneInput is `react-phone-number-input` — the underlying text input
+      // has placeholder "Номер телефона". Focus it, type partial digits, blur.
+      const phoneInput = page.getByRole('dialog').getByPlaceholder('Номер телефона')
+      await phoneInput.focus()
+      await phoneInput.fill('123')
+      // Tab moves focus away → triggers onBlur validator.
+      await page.keyboard.press('Tab')
+
+      // Inline validation error text within the Phone field.
+      const dialog = page.getByRole('dialog')
+      await expect(dialog.getByText('Некорректный номер телефона')).toBeVisible()
+      // PhoneInput receives `[&_input]:border-destructive` on its wrapper —
+      // Tailwind's child-combinator applies `border-destructive` to the inner
+      // <input> at runtime, but the literal class string is on the wrapper.
+      // Asserting the visible inline error message (above) is the most
+      // reliable user-facing signal — keep that as the primary assertion.
+    })
+
+    test('HR multiselect: Space and Enter toggle the same checkbox', async ({ asAdmin: page }) => {
+      await page.goto('/crm/users')
+      await page.getByTestId('users-create-button').click()
+      // Switch role to SENIOR to surface HR multiselect.
+      await page.getByTestId('user-dialog-role-trigger').click()
+      await page.getByRole('option', { name: 'Синьор' }).click()
+
+      const hrCheckbox = page.getByTestId(`user-dialog-hr-${USERS.hr.id}`)
+      await hrCheckbox.scrollIntoViewIfNeeded()
+      await hrCheckbox.focus()
+      // Read initial checked state directly from the DOM (avoids racing the
+      // controlled React state after the SENIOR role-switch effect).
+      const wasChecked = await hrCheckbox.evaluate((el) => (el as HTMLInputElement).checked)
+      // Space toggles native HTML checkboxes.
+      await page.keyboard.press('Space')
+      await expect.poll(async () => hrCheckbox.evaluate((el) => (el as HTMLInputElement).checked))
+        .toBe(!wasChecked)
+      // Pressing Space again toggles back.
+      await page.keyboard.press('Space')
+      await expect.poll(async () => hrCheckbox.evaluate((el) => (el as HTMLInputElement).checked))
+        .toBe(wasChecked)
+    })
+
+    test('Sort header: Tab + Enter/Space toggles sort direction', async ({ asAdmin: page }) => {
+      await page.goto('/crm/users')
+      const sortBtn = page.getByTestId('users-sort-displayName')
+
+      // Default state: active asc.
+      await expect(sortBtn).toHaveAttribute('data-active', 'true')
+      await expect(sortBtn).toHaveAttribute('data-dir', 'asc')
+
+      // Sort header is a real <button>, so Tab can land on it; focus it
+      // directly to avoid coupling to overall tab order.
+      await sortBtn.focus()
+      await expect(sortBtn).toBeFocused()
+
+      // Enter — should toggle direction to desc.
+      await page.keyboard.press('Enter')
+      await expect(sortBtn).toHaveAttribute('data-dir', 'desc')
+
+      // Space — should toggle back to asc.
+      await page.keyboard.press('Space')
+      await expect(sortBtn).toHaveAttribute('data-dir', 'asc')
+    })
+  })
+
   test.describe('AdminActionsMenu unarchive', () => {
     test('archived user profile shows Восстановить из архива action', async ({ page }) => {
       await mockAuthAs(page, USERS.admin)

@@ -1,7 +1,14 @@
+import { useId } from 'react'
 import { cn } from '@/lib/utils'
 import { Label } from '@/components/ui/label'
 
-/** Generic section wrapper for sectioned dialogs (Identity / Contacts / Tech / Finance / Team). */
+/**
+ * Generic section wrapper for sectioned dialogs
+ * (Identity / Contacts / Tech / Finance / Team).
+ *
+ * Uses semantic `<section aria-labelledby>` + `<h3>` so screen readers
+ * announce the section title when navigating into the group.
+ */
 export function Section({
   title,
   children,
@@ -11,11 +18,17 @@ export function Section({
   children: React.ReactNode
   className?: string
 }) {
+  const headingId = useId()
   return (
-    <div className={cn('rounded-md border border-border/60 bg-muted/20 p-3 space-y-3', className)}>
-      <p className="text-xs font-medium text-muted-foreground">{title}</p>
+    <section
+      aria-labelledby={headingId}
+      className={cn('rounded-md border border-border/60 bg-muted/20 p-3 space-y-3', className)}
+    >
+      <h3 id={headingId} className="text-xs font-medium text-muted-foreground">
+        {title}
+      </h3>
       {children}
-    </div>
+    </section>
   )
 }
 
