@@ -5,7 +5,7 @@
  *
  * Key behavior:
  * - JUNIOR/HR can choose between USDT ERC-20 and Банк UAH (ФОП)
- * - SENIOR/ADMIN are forced to USDT ERC-20 (radio not shown)
+ * - SENIOR/ADMIN are forced to USDT ERC-20 (Bank segment disabled with tooltip)
  * - Submitting valid data opens a confirmation AlertDialog
  * - Confirming fires PATCH /users/me/requisites → "Реквизиты обновлены" toast
  * - Cancelling the AlertDialog sends no PATCH
@@ -48,16 +48,18 @@ test.describe('Requisites edit form', () => {
   // Form structure
   // -------------------------------------------------------------------------
 
-  test('JUNIOR sees payment method radio group (can choose USDT or Bank)', async ({ page }) => {
+  test('JUNIOR sees payment method segmented control (can choose USDT or Bank)', async ({ page }) => {
     await mockAuthAs(page, USERS.junior)
     await page.goto('/crm/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
-    // RequisitesEditForm renders the radio group when role is NOT SENIOR/ADMIN.
+    // RequisitesEditForm renders both method segments when role is NOT SENIOR/ADMIN.
     await expect(page.getByLabel('USDT ERC-20')).toBeVisible()
     await expect(page.getByLabel('Банк UAH (ФОП)')).toBeVisible()
+    // Both must be enabled (not aria-disabled)
+    await expect(page.getByLabel('Банк UAH (ФОП)')).not.toBeDisabled()
   })
 
-  test('SENIOR does NOT see payment method radio group (USDT only)', async ({ page }) => {
+  test('SENIOR sees Bank UAH segment disabled (USDT only)', async ({ page }) => {
     // Override GET /users/me for senior to include requisites tab
     await mockAuthAs(page, USERS.senior)
     await page.route(`${API}/users/me`, (r) => {
@@ -70,8 +72,8 @@ test.describe('Requisites edit form', () => {
     })
     await page.goto('/crm/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
-    // No RadioGroup — USDT only for SENIOR
-    await expect(page.getByLabel('Банк UAH (ФОП)')).toHaveCount(0)
+    // Bank segment is rendered but disabled for SENIOR — soft-lock with tooltip
+    await expect(page.getByLabel('Банк UAH (ФОП)')).toBeDisabled()
     // USDT wallet input is visible
     await expect(page.getByLabel('USDT ERC-20 кошелёк')).toBeVisible()
   })
@@ -86,7 +88,9 @@ test.describe('Requisites edit form', () => {
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     // Select Bank UAH method
-    await page.getByLabel('Банк UAH (ФОП)').check()
+    await page.getByLabel('Банк UAH (ФОП)').click()
+    // Wait for the AnimatePresence card swap so the inputs are mounted
+    await expect(page.getByLabel('ФИО получателя')).toBeVisible()
 
     // Fill required fields
     await page.getByLabel('ФИО получателя').fill('Тест Тестенко')
@@ -111,7 +115,8 @@ test.describe('Requisites edit form', () => {
     await page.goto('/crm/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
-    await page.getByLabel('Банк UAH (ФОП)').check()
+    await page.getByLabel('Банк UAH (ФОП)').click()
+    await expect(page.getByLabel('ФИО получателя')).toBeVisible()
     await page.getByLabel('ФИО получателя').fill('Тест Тестенко')
     await page.getByLabel('IBAN (UA…)').fill(TARGET_IBAN)
     await page.getByLabel('РНОКПП (10 цифр)').fill(TARGET_RNOKPP)
@@ -142,7 +147,8 @@ test.describe('Requisites edit form', () => {
     await page.goto('/crm/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
-    await page.getByLabel('Банк UAH (ФОП)').check()
+    await page.getByLabel('Банк UAH (ФОП)').click()
+    await expect(page.getByLabel('ФИО получателя')).toBeVisible()
     await page.getByLabel('ФИО получателя').fill('Тест Тестенко')
     await page.getByLabel('IBAN (UA…)').fill(TARGET_IBAN)
     await page.getByLabel('РНОКПП (10 цифр)').fill(TARGET_RNOKPP)
@@ -166,7 +172,8 @@ test.describe('Requisites edit form', () => {
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     // JUNIOR fixture defaults to BANK_UAH_FOP — switch to USDT first.
-    await page.getByLabel('USDT ERC-20').check()
+    await page.getByLabel('USDT ERC-20').click()
+    await expect(page.getByLabel('USDT ERC-20 кошелёк')).toBeVisible()
     await page.getByLabel('USDT ERC-20 кошелёк').clear()
     await page.getByRole('button', { name: 'Сохранить реквизиты' }).click()
 
@@ -180,7 +187,8 @@ test.describe('Requisites edit form', () => {
     await page.goto('/crm/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
-    await page.getByLabel('Банк UAH (ФОП)').check()
+    await page.getByLabel('Банк UAH (ФОП)').click()
+    await expect(page.getByLabel('ФИО получателя')).toBeVisible()
     await page.getByLabel('ФИО получателя').fill('Valid Name')
     await page.getByLabel('IBAN (UA…)').fill('INVALID-IBAN')
     await page.getByLabel('РНОКПП (10 цифр)').fill('1234567890')
