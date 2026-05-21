@@ -375,7 +375,10 @@ function SortHeader({
       onClick={() => onToggle(k)}
       className={cn(
         'flex items-center gap-1 cursor-pointer select-none text-xs font-medium transition-colors',
-        'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded',
+        // Softer focus indicator (ut-4): a thin half-transparent ring instead
+        // of the loud 2px ring with offset — keeps a11y signal without the
+        // bright yellow halo on Tab focus.
+        'rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
         isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
       )}
       onKeyDown={(e) => {

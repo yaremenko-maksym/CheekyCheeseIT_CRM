@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common'
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common'
 import { and, eq, inArray, isNotNull, isNull, ne } from 'drizzle-orm'
 import type { ArchiveImpact } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
@@ -441,6 +441,12 @@ export class UsersService {
         .then((rows) => rows[0])
       if (!user) throw new NotFoundException('User not found')
       if (user.archivedAt) throw new BadRequestException('User is already archived')
+      // Defense-in-depth: ADMIN cannot archive another ADMIN. The controller
+      // already blocks self-archive; this guard makes ADMINs mutually
+      // indestructible regardless of how the endpoint is called.
+      if (user.role === 'ADMIN' && actorId !== null && user.id !== actorId) {
+        throw new ForbiddenException('Cannot archive another admin')
+      }
 
       const now = new Date()
 

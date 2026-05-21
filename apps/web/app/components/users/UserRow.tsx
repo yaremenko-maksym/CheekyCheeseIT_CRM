@@ -18,25 +18,33 @@ export type UserRowProps = {
 }
 
 /**
- * Roomy carded row layout (variant C-v2).
+ * Roomy carded row layout (variant C-v2 — User Testing round 1 update).
  *
- * Grid: `64px (leading actions) | 3fr (user info) | 1.4fr (right meta)`
+ * Grid: `3fr (user info) | 1.4fr (right meta) | 64px (trailing actions)`
  *
- * Implementation note: one outer `<Link>` covers the entire row content; the
- * action buttons sit on top in an absolutely-positioned overlay (left 64px
- * column) so we only register a single TanStack Router prefetch per row. The
- * action buttons call `e.preventDefault()` to block Link navigation when
- * pressed. `data-archived` is emitted only when archived (cleaner DOM, E2E
- * selectors `[data-archived="true"]` keep working).
+ * Implementation note: the displayName is rendered inside a `<Link>` whose
+ * `::before` pseudo-element is stretched (absolute inset-0) over the whole
+ * row. Clicking anywhere in the row that is not a sibling actionable element
+ * triggers the Link navigation. Email / Telegram / Phone are real `<a>` tags
+ * that sit at a higher z-index than the Link's pseudo, so their click handlers
+ * fire instead of the row navigation (and they all call `e.stopPropagation()`
+ * defensively). Edit / Archive / Restore buttons sit even higher and call
+ * `e.preventDefault()` so the row navigation never fires when they're clicked.
  *
  * States:
- *  - normal: leading actions opacity 0.4 → 1.0 on hover, bg-muted/40 hover
- *  - self:   leading actions always 1.0, primary-tinted background, delete disabled
- *  - archived: opacity-50, badge «В архиве», single ArchiveRestore button instead of Pencil/Trash
+ *  - normal: trailing actions opacity 0.4 → 1.0 on hover, bg-muted/40 hover
+ *  - self:   trailing actions always 1.0, primary-tinted background, delete disabled
+ *  - admin (not-self): archive (Trash2) button is hidden — ADMIN cannot archive ADMIN
+ *  - archived: opacity-50, badge «В архиве», single ArchiveRestore button
+ *              instead of Pencil/Trash, in the same trailing column
  */
 export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRowProps) {
   const isArchived = !!user.archivedAt
   const techStack = Array.isArray(user.techStack) ? user.techStack : []
+  // ADMIN cannot archive another ADMIN — hide the Trash button entirely for
+  // non-self ADMIN rows. Self-ADMIN keeps the disabled button so the existing
+  // "cannot archive yourself" affordance still surfaces.
+  const isOtherAdmin = user.role === 'ADMIN' && !isSelf
 
   return (
     <div
@@ -54,18 +62,12 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
         isArchived && 'opacity-50 hover:opacity-70',
       )}
     >
-      <Link
-        to="/crm/profile/$userId"
-        params={{ userId: user.id }}
-        aria-label={`Открыть профиль ${user.displayName}`}
-        className="grid items-center cursor-pointer"
-        style={{ gridTemplateColumns: '64px 3fr 1.4fr' }}
+      <div
+        className="grid items-center"
+        style={{ gridTemplateColumns: '3fr 1.4fr 64px' }}
       >
-        {/* Leading actions placeholder column — visually overlaid by the absolute action stack below. */}
-        <div aria-hidden className="self-stretch" />
-
         {/* User info column */}
-        <div className="flex items-center gap-3 min-w-0 py-3 pr-4">
+        <div className="flex items-center gap-3 min-w-0 py-3 pl-3 pr-4">
           <Avatar className="h-10 w-10 shrink-0">
             {user.avatar && (
               <img
@@ -80,25 +82,65 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
           </Avatar>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium truncate">{user.displayName}</span>
+              {/* Display name is the row's Link. Its `::before` pseudo-element
+                  stretches over the entire row (via the parent `relative`)
+                  so clicking anywhere in non-actionable space navigates to
+                  the profile. Real <a> siblings (mailto/tel/t.me) sit higher
+                  in z-stack and intercept their own clicks. */}
+              <Link
+                to="/crm/profile/$userId"
+                params={{ userId: user.id }}
+                aria-label={`Открыть профиль ${user.displayName}`}
+                className={cn(
+                  'text-sm font-medium truncate cursor-pointer hover:underline',
+                  // Stretched-link pattern: ::before fills the closest
+                  // positioned ancestor (the row outer div) so any click in
+                  // unoccupied space triggers navigation.
+                  "before:absolute before:inset-0 before:content-[''] before:z-[1]",
+                )}
+              >
+                {user.displayName}
+              </Link>
               {isSelf && (
-                <span className="text-[10px] uppercase tracking-wide text-primary font-semibold">
+                <span className="text-[10px] uppercase tracking-wide text-primary font-semibold relative z-[2]">
                   Вы
                 </span>
               )}
             </div>
             <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
-              <span className="truncate">{user.email}</span>
+              <a
+                href={`mailto:${user.email}`}
+                className="truncate hover:text-foreground transition-colors relative z-[2]"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {user.email}
+              </a>
               {user.telegram && (
                 <>
-                  <span aria-hidden>·</span>
-                  <span className="truncate">{user.telegram}</span>
+                  <span aria-hidden className="relative z-[2]">·</span>
+                  <a
+                    // Telegram URL must strip the leading "@" — t.me/<username>
+                    // is the canonical path; the leading "@" is display sugar.
+                    href={`https://t.me/${user.telegram.replace(/^@/, '')}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="truncate hover:text-foreground transition-colors relative z-[2]"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {user.telegram}
+                  </a>
                 </>
               )}
               {user.phone && (
                 <>
-                  <span aria-hidden>·</span>
-                  <span className="truncate">{user.phone}</span>
+                  <span aria-hidden className="relative z-[2]">·</span>
+                  <a
+                    href={`tel:${user.phone}`}
+                    className="truncate hover:text-foreground transition-colors relative z-[2]"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {user.phone}
+                  </a>
                 </>
               )}
             </div>
@@ -139,15 +181,20 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
             {formatDistanceToNow(new Date(user.createdAt), { addSuffix: true, locale: ru })}
           </span>
         </div>
-      </Link>
 
-      {/* Action overlay — absolute over the 64px leading column. preventDefault
-          blocks the outer Link's navigation. */}
+        {/* Trailing actions column placeholder — visually overlaid by the absolute action stack below. */}
+        <div aria-hidden className="self-stretch" />
+      </div>
+
+      {/* Action overlay — absolute over the trailing 64px column. Sits on top
+          of the stretched Link via z-[3] so button clicks never fall through
+          to the row navigation. Buttons also call preventDefault for belt-and-
+          braces protection. */}
       <div
         className={cn(
-          'absolute left-0 top-0 bottom-0 w-16',
+          'absolute right-0 top-0 bottom-0 w-16',
           'flex flex-col items-center justify-center gap-1 py-2',
-          'transition-opacity duration-150',
+          'transition-opacity duration-150 z-[3]',
           'opacity-40 group-hover/row:opacity-100',
           isSelf && 'opacity-100',
           isArchived && 'opacity-100',
@@ -186,22 +233,27 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
             >
               <Pencil className="h-3.5 w-3.5" />
             </Button>
-            <Button
-              data-testid={`user-row-archive-${user.id}`}
-              variant="ghost"
-              size="icon"
-              aria-label={isSelf ? 'Нельзя архивировать себя' : 'Архивировать'}
-              title={isSelf ? 'Нельзя архивировать себя' : 'Архивировать'}
-              className="h-7 w-7 text-destructive hover:text-destructive disabled:opacity-30"
-              disabled={isSelf}
-              onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                if (!isSelf) onArchive()
-              }}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
+            {/* Trash hidden for non-self ADMIN rows (ADMIN cannot archive
+                another ADMIN). Self-ADMIN still renders it disabled so the
+                "cannot archive yourself" tooltip is reachable. */}
+            {!isOtherAdmin && (
+              <Button
+                data-testid={`user-row-archive-${user.id}`}
+                variant="ghost"
+                size="icon"
+                aria-label={isSelf ? 'Нельзя архивировать себя' : 'Архивировать'}
+                title={isSelf ? 'Нельзя архивировать себя' : 'Архивировать'}
+                className="h-7 w-7 text-destructive hover:text-destructive disabled:opacity-30"
+                disabled={isSelf}
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  if (!isSelf) onArchive()
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
           </>
         )}
       </div>

@@ -6,7 +6,7 @@
  *
  * Spec: docs/specs/2026-05-21-users-archive-refactor-design.md §5 + §6.3
  */
-import { BadRequestException, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import { UsersService } from './users.service'
 
@@ -608,17 +608,50 @@ describe('UsersService.archive — HR / ACCOUNTANT / JUNIOR / ADMIN', () => {
     expect(projectAuditLogService.record).toHaveBeenCalled()
   })
 
-  it('ADMIN: archives user only; no other side effects', async () => {
+  it('ADMIN: archives self (actorId === userId); no other side effects', async () => {
+    // Self-archive is still allowed at the service layer (the controller
+    // separately blocks self-archive for safety, but the service must not
+    // reject it — otherwise re-entrant flows like account deletion break).
     const store = emptyStore()
     store.users.push(
       { id: 'admin-1', role: 'ADMIN', displayName: 'Adm', archivedAt: null },
     )
     const { service, teamAuditLogService, projectAuditLogService } = buildService(store)
-    await service.archive('admin-1', 'admin-x')
+    await service.archive('admin-1', 'admin-1')
 
     expect(store.users[0]?.archivedAt).toBeInstanceOf(Date)
     expect(teamAuditLogService.record).not.toHaveBeenCalled()
     expect(projectAuditLogService.record).not.toHaveBeenCalled()
+  })
+
+  it('ADMIN: cannot archive another ADMIN — throws ForbiddenException (ut-2)', async () => {
+    // Defense-in-depth: ADMINs are mutually indestructible. Even if the
+    // controller-level self-check is bypassed (e.g. a different actor id),
+    // the service must refuse to archive a target whose role is ADMIN.
+    const store = emptyStore()
+    store.users.push(
+      { id: 'admin-target', role: 'ADMIN', displayName: 'Target Admin', archivedAt: null },
+    )
+    const { service } = buildService(store)
+
+    await expect(service.archive('admin-target', 'admin-actor')).rejects.toThrow(ForbiddenException)
+
+    // Target row remains active — guard fires BEFORE any mutation.
+    expect(store.users[0]?.archivedAt).toBeNull()
+  })
+
+  it('ADMIN: archive with null actorId (system) still permitted', async () => {
+    // The guard only kicks in when an explicit actor differs from the target.
+    // A null actor represents a system-initiated archive (e.g. a future
+    // cleanup job) — we don't want to lock those out.
+    const store = emptyStore()
+    store.users.push(
+      { id: 'admin-1', role: 'ADMIN', displayName: 'Adm', archivedAt: null },
+    )
+    const { service } = buildService(store)
+    await service.archive('admin-1', null)
+
+    expect(store.users[0]?.archivedAt).toBeInstanceOf(Date)
   })
 })
 
