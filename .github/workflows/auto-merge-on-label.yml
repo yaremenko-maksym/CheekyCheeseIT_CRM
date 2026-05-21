@@ -1,0 +1,55 @@
+name: Auto-Merge on Label
+
+# Лёгкий обработчик `merge-approved` лейбла — НЕ запускает CI заново.
+# Когда PM ставит `merge-approved` на PR с уже зелёным CI:
+#   1. `gh pr checks --watch` exit'ит немедленно (всё уже passed)
+#   2. `gh pr merge --squash` мерджит без задержки
+#
+# Если CI ещё бежит — workflow ждёт пока required checks отвердеют,
+# потом мерджит. Если упало — workflow тоже падает, PR не мерджится.
+#
+# Главный CI (.github/workflows/ci.yml) триггерится на push/synchronize.
+# Этот workflow триггерится ТОЛЬКО на label — typecheck/lint/e2e не дёргаются.
+
+on:
+  pull_request:
+    types: [labeled]
+    branches: [main]
+
+# Один merge attempt на PR — повторный label add дискардит предыдущий.
+concurrency:
+  group: auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  merge:
+    name: Squash merge if CI green
+    runs-on: ubuntu-latest
+    if: |
+      github.event.label.name == 'merge-approved' &&
+      !contains(github.event.pull_request.labels.*.name, 'awaiting-pm-review') &&
+      !contains(github.event.pull_request.labels.*.name, 'do-not-merge')
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Wait for required checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # gh pr checks --watch --required:
+          #   - exit 0 если все required checks passed
+          #   - blocks если pending — re-checks каждые --interval сек
+          #   - exit non-0 если any failed → workflow fails → PR не мерджится
+          # Timeout 30 min на случай если E2E застряла.
+          timeout 1800 gh pr checks "$PR_NUMBER" --repo "$REPO" --watch --required --interval 15
+
+      - name: Squash and merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch

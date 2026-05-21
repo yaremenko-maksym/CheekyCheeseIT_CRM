@@ -9,10 +9,9 @@ on:
         required: false
         default: 'main'
   pull_request:
-    # `labeled` is required for auto_merge gate — when PM adds `merge-approved`
-    # after User Testing, CI re-runs and auto_merge job evaluates the new label state.
-    # Default types are [opened, synchronize, reopened] — labeled must be explicit.
-    types: [opened, synchronize, reopened, labeled]
+    # Default types [opened, synchronize, reopened] — no `labeled` here.
+    # Label-triggered fast merge lives in .github/workflows/auto-merge-on-label.yml
+    # which does NOT re-run CI (just waits for green checks, then squash-merges).
     branches: [main]
     paths-ignore:
       - 'docs/**'
