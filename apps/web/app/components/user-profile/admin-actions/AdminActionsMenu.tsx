@@ -5,6 +5,7 @@ import {
   Pencil,
   Shield,
   DollarSign,
+  Percent,
   Wallet,
   Users,
   FolderInput,
@@ -32,15 +33,20 @@ import { ArchiveUserDialog } from './ArchiveUserDialog'
 
 type OpenDialog = ActionKey | null
 
-const ACTION_CONFIG: Record<ActionKey, { icon: React.ReactNode; label: string }> = {
-  'edit-profile': { icon: <Pencil className="mr-2 h-4 w-4" />, label: 'Редактировать данные' },
-  'change-role': { icon: <Shield className="mr-2 h-4 w-4" />, label: 'Изменить роль' },
-  'change-salary': { icon: <DollarSign className="mr-2 h-4 w-4" />, label: 'Изменить зарплату' },
-  'change-requisites': { icon: <Wallet className="mr-2 h-4 w-4" />, label: 'Изменить реквизиты' },
-  'manage-team': { icon: <Users className="mr-2 h-4 w-4" />, label: 'Управление командой' },
-  'reassign-project': { icon: <FolderInput className="mr-2 h-4 w-4" />, label: 'Переназначить проект' },
-  'set-note': { icon: <StickyNote className="mr-2 h-4 w-4" />, label: 'Заметка админа' },
-  'archive': { icon: <Archive className="mr-2 h-4 w-4" />, label: 'Архивировать' },
+function buildActionConfig(role: string): Record<ActionKey, { icon: React.ReactNode; label: string }> {
+  const isShareRole = role === 'SENIOR' || role === 'ADMIN'
+  return {
+    'edit-profile': { icon: <Pencil className="mr-2 h-4 w-4" />, label: 'Редактировать данные' },
+    'change-role': { icon: <Shield className="mr-2 h-4 w-4" />, label: 'Изменить роль' },
+    'change-salary': isShareRole
+      ? { icon: <Percent className="mr-2 h-4 w-4" />, label: 'Изменить долю %' }
+      : { icon: <DollarSign className="mr-2 h-4 w-4" />, label: 'Изменить зарплату' },
+    'change-requisites': { icon: <Wallet className="mr-2 h-4 w-4" />, label: 'Изменить реквизиты' },
+    'manage-team': { icon: <Users className="mr-2 h-4 w-4" />, label: 'Управление командой' },
+    'reassign-project': { icon: <FolderInput className="mr-2 h-4 w-4" />, label: 'Переназначить проект' },
+    'set-note': { icon: <StickyNote className="mr-2 h-4 w-4" />, label: 'Заметка админа' },
+    'archive': { icon: <Archive className="mr-2 h-4 w-4" />, label: 'Архивировать' },
+  }
 }
 
 const SEPARATOR_BEFORE: ActionKey[] = ['manage-team', 'set-note', 'archive']
@@ -63,6 +69,7 @@ export function AdminActionsMenu({
 }) {
   const [open, setOpen] = useState<OpenDialog>(null)
   const close = () => setOpen(null)
+  const actionConfig = buildActionConfig(user.role)
 
   return (
     <>
@@ -76,7 +83,7 @@ export function AdminActionsMenu({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           {actions.map((a) => {
-            const config = ACTION_CONFIG[a]
+            const config = actionConfig[a]
             const disabled = NOT_IMPLEMENTED.includes(a)
             return (
               <span key={a}>
