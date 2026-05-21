@@ -2,11 +2,13 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common'
 import {
@@ -17,16 +19,26 @@ import {
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { JwtAuthGuard } from '../auth/jwt.guard'
+import { Roles } from '../common/decorators/roles.decorator'
+import { RolesGuard } from '../common/guards/roles.guard'
+import { ProjectAuditLogService } from './project-audit-log.service'
 import { ProjectsService } from './projects.service'
 
+// Class-level RolesGuard mirrors UsersController for defense-in-depth:
+// inline role checks remain in ProjectsService, and the guard rejects
+// disallowed roles before the handler runs. Endpoints without @Roles(...)
+// are open to any authenticated user (RolesGuard passes when ROLES_KEY is empty).
 @Controller('projects')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class ProjectsController {
-  constructor(private readonly projectsService: ProjectsService) {}
+  constructor(
+    private readonly projectsService: ProjectsService,
+    private readonly projectAuditLogService: ProjectAuditLogService,
+  ) {}
 
   @Get()
-  findAll(@CurrentUser() user: SessionUser) {
-    return this.projectsService.findAll(user)
+  findAll(@CurrentUser() user: SessionUser, @Query('archived') archivedParam?: string) {
+    return this.projectsService.findAll(user, { archived: archivedParam === 'true' })
   }
 
   @Get(':id')
@@ -51,8 +63,42 @@ export class ProjectsController {
   }
 
   @Delete(':id')
-  remove(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
-    return this.projectsService.remove(id, user)
+  @Roles('ADMIN')
+  archive(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
+    return this.projectsService.archive(id, user)
+  }
+
+  @Post(':id/unarchive')
+  @Roles('ADMIN')
+  unarchive(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: SessionUser,
+    @Query('cascade') cascadeParam?: string,
+  ) {
+    return this.projectsService.unarchive(id, user, cascadeParam === 'true')
+  }
+
+  @Get(':id/archive-impact')
+  @Roles('ADMIN')
+  archiveImpact(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
+    return this.projectsService.getArchiveImpact(id, user)
+  }
+
+  @Get(':id/audit-log')
+  @Roles('ADMIN')
+  async auditLog(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: SessionUser,
+    @Query('page') pageParam?: string,
+    @Query('limit') limitParam?: string,
+  ) {
+    // Defense-in-depth: keep the inline ADMIN check even though @Roles('ADMIN')
+    // already gates the handler — removing/reordering guards must not regress.
+    if (user.role !== 'ADMIN') throw new ForbiddenException()
+    const page = Math.max(1, parseInt(pageParam ?? '1', 10))
+    const limit = Math.min(100, Math.max(1, parseInt(limitParam ?? '20', 10)))
+    const { entries, total } = await this.projectAuditLogService.list(id, page, limit)
+    return { entries, total, page, limit }
   }
 
   @Post(':id/members')

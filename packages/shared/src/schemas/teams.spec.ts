@@ -130,6 +130,7 @@ describe('teamSchema', () => {
     name: 'Alpha',
     createdAt: datetime,
     updatedAt: datetime,
+    archivedAt: null,
     members: [],
   }
 

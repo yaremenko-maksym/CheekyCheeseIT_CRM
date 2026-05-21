@@ -109,7 +109,21 @@ export const adminUpdateUserSchema = z.object({
   avatar: z.string().url().nullable().optional(),
   avatarOverride: avatarOverrideSchema.nullable().optional(),
   techStack: techStackSchema.nullable().optional(),
+  // For SENIOR: optional team composition update. Diffs against current team_members
+  // (only entries with leftAt IS NULL) and reconciles via add/remove.
+  hrIds: z.array(z.string().uuid()).optional(),
+  accountantId: z.string().uuid().nullable().optional(),
 })
+
+// Query params for list endpoints — `?archived=true|false`.
+export const listArchivedQuerySchema = z.object({
+  archived: z
+    .union([z.literal('true'), z.literal('false'), z.boolean()])
+    .optional()
+    .transform((v) => (v === undefined ? false : v === true || v === 'true')),
+})
+
+export type ListArchivedQuery = z.infer<typeof listArchivedQuerySchema>
 
 export const userWithPermissionsResponseSchema = z.object({
   user: userProfileSchema,

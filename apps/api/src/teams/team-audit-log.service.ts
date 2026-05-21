@@ -1,31 +1,35 @@
 import { Injectable } from '@nestjs/common'
 import { desc, eq, sql } from 'drizzle-orm'
-import type { AuditAction, AuditChange } from '@crm/shared'
+import type { TeamAuditAction } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { userAuditLog } from '../database/schema'
+import { teamAuditLog } from '../database/schema'
 
-// avatarOverride can contain large base64 strings — exclude from audit diffs (avatar URL change is a non-business event anyway)
-const IGNORE_FIELDS = new Set(['updatedAt', 'createdAt', 'id', 'avatarOverride'])
+const IGNORE_FIELDS = new Set(['updatedAt', 'createdAt', 'id'])
+
+export interface AuditChange {
+  before: unknown
+  after: unknown
+}
+
+/** See AuditLogService for rationale — Drizzle's tx generic surface differs
+ *  from top-level db so we keep this loose. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type TeamAuditLogTransaction = any
 
 /**
- * Drizzle transaction handle passed by `db.transaction(async (tx) => …)`.
- * Kept loose (`unknown`) because the concrete `PgTransaction<…>` generic
- * surface differs between top-level db and tx — both share the same
- * runtime `insert(table).values(rows)` chain that this service uses, so
- * we narrow at the call site via an internal cast.
+ * Mirrors `apps/api/src/users/audit-log.service.ts` for teams.
+ * Internal — no controller endpoints; used from TeamsService and UsersService.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AuditLogTransaction = any
-
 @Injectable()
-export class AuditLogService {
+export class TeamAuditLogService {
   constructor(private db: DatabaseService) {}
 
-  diff(before: Record<string, unknown>, after: Record<string, unknown>): Record<string, AuditChange> {
+  diff(before: Record<string, unknown>, after: Record<string, unknown>, excluded?: ReadonlySet<string>): Record<string, AuditChange> {
+    const ignore = excluded ?? IGNORE_FIELDS
     const result: Record<string, AuditChange> = {}
     const keys = new Set([...Object.keys(before), ...Object.keys(after)])
     for (const key of keys) {
-      if (IGNORE_FIELDS.has(key)) continue
+      if (ignore.has(key)) continue
       const b = before[key]
       const a = after[key]
       if (!this.deepEqual(b, a)) {
@@ -50,23 +54,21 @@ export class AuditLogService {
   }
 
   /**
-   * Records a user audit log entry. When called inside a `db.transaction(async (tx) => …)`
-   * block, pass the `tx` handle so the insert is part of the same transaction —
-   * rollback then atomically discards the audit row together with the entity
-   * mutations. Calls outside a transaction may omit `tx`.
+   * Records a team audit log entry. Pass `tx` when called inside a
+   * `db.transaction()` block to keep the insert atomic with entity changes.
    */
   async record(
     params: {
       actorId: string | null
       targetId: string
-      action: AuditAction
+      action: TeamAuditAction
       changes: Record<string, AuditChange>
     },
-    tx?: AuditLogTransaction,
+    tx?: TeamAuditLogTransaction,
   ): Promise<void> {
     if (Object.keys(params.changes).length === 0) return
     const conn = tx ?? this.db.db
-    await conn.insert(userAuditLog).values({
+    await conn.insert(teamAuditLog).values({
       actorId: params.actorId,
       targetId: params.targetId,
       action: params.action,
@@ -78,19 +80,19 @@ export class AuditLogService {
     targetId: string,
     page: number,
     limit: number,
-  ): Promise<{ entries: (typeof userAuditLog.$inferSelect)[]; total: number }> {
+  ): Promise<{ entries: (typeof teamAuditLog.$inferSelect)[]; total: number }> {
     const offset = (page - 1) * limit
     const entries = await this.db.db
       .select()
-      .from(userAuditLog)
-      .where(eq(userAuditLog.targetId, targetId))
-      .orderBy(desc(userAuditLog.createdAt))
+      .from(teamAuditLog)
+      .where(eq(teamAuditLog.targetId, targetId))
+      .orderBy(desc(teamAuditLog.createdAt))
       .limit(limit)
       .offset(offset)
     const countResult = await this.db.db
       .select({ count: sql<number>`count(*)::int` })
-      .from(userAuditLog)
-      .where(eq(userAuditLog.targetId, targetId))
+      .from(teamAuditLog)
+      .where(eq(teamAuditLog.targetId, targetId))
     const count = countResult[0]?.count ?? 0
     return { entries, total: count }
   }

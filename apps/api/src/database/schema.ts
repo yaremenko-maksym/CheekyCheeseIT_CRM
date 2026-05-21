@@ -107,6 +107,8 @@ export const teams = pgTable('teams', {
   name: varchar('name', { length: 255 }).notNull(),
   telegram: varchar('telegram', { length: 500 }),
   notes: text('notes'),
+  // Soft delete (archived teams hidden from main UI, restorable)
+  archivedAt: timestamp('archived_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
@@ -116,6 +118,8 @@ export const teamMembers = pgTable('team_members', {
   teamId: uuid('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   joinedAt: timestamp('joined_at').defaultNow().notNull(),
+  // Soft delete of membership (NULL = active, timestamp = left)
+  leftAt: timestamp('left_at'),
 })
 
 // ---------------------------------------------------------------------------
@@ -142,6 +146,9 @@ export const projects = pgTable('projects', {
   salaryReview: varchar('salary_review', { length: 255 }),
   corpTech: varchar('corp_tech', { length: 255 }),
   notesGeneral: varchar('notes_general', { length: 1000 }),
+  // Soft delete (archived projects hidden from main UI, restorable). Independent of `status`:
+  // `status` (ACTIVE/CLOSED) is the business contract state, `archivedAt` is the admin shelf state.
+  archivedAt: timestamp('archived_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
@@ -263,6 +270,38 @@ export const userAuditLog = pgTable('user_audit_log', {
 ])
 
 // ---------------------------------------------------------------------------
+// Team Audit Log — mirrors user_audit_log shape but targets teams.
+// ---------------------------------------------------------------------------
+
+export const teamAuditLog = pgTable('team_audit_log', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+  targetId: uuid('target_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
+  action: text('action').notNull(),
+  changes: jsonb('changes').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [
+  index('team_audit_log_target_id_idx').on(t.targetId),
+  index('team_audit_log_created_at_idx').on(t.createdAt),
+])
+
+// ---------------------------------------------------------------------------
+// Project Audit Log — mirrors user_audit_log shape but targets projects.
+// ---------------------------------------------------------------------------
+
+export const projectAuditLog = pgTable('project_audit_log', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+  targetId: uuid('target_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  action: text('action').notNull(),
+  changes: jsonb('changes').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [
+  index('project_audit_log_target_id_idx').on(t.targetId),
+  index('project_audit_log_created_at_idx').on(t.createdAt),
+])
+
+// ---------------------------------------------------------------------------
 // Relations
 // ---------------------------------------------------------------------------
 
@@ -331,6 +370,16 @@ export const userAuditLogRelations = relations(userAuditLog, ({ one }) => ({
   target: one(users, { fields: [userAuditLog.targetId], references: [users.id], relationName: 'auditLogAsTarget' }),
 }))
 
+export const teamAuditLogRelations = relations(teamAuditLog, ({ one }) => ({
+  actor: one(users, { fields: [teamAuditLog.actorId], references: [users.id] }),
+  target: one(teams, { fields: [teamAuditLog.targetId], references: [teams.id] }),
+}))
+
+export const projectAuditLogRelations = relations(projectAuditLog, ({ one }) => ({
+  actor: one(users, { fields: [projectAuditLog.actorId], references: [users.id] }),
+  target: one(projects, { fields: [projectAuditLog.targetId], references: [projects.id] }),
+}))
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -355,3 +404,7 @@ export type PayoutRequest = typeof payoutRequests.$inferSelect
 export type NewPayoutRequest = typeof payoutRequests.$inferInsert
 export type UserAuditLogEntry = typeof userAuditLog.$inferSelect
 export type NewUserAuditLogEntry = typeof userAuditLog.$inferInsert
+export type TeamAuditLogEntry = typeof teamAuditLog.$inferSelect
+export type NewTeamAuditLogEntry = typeof teamAuditLog.$inferInsert
+export type ProjectAuditLogEntry = typeof projectAuditLog.$inferSelect
+export type NewProjectAuditLogEntry = typeof projectAuditLog.$inferInsert

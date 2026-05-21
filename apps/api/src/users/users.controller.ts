@@ -34,11 +34,15 @@ export class UsersController {
   ) {}
 
   @Get()
-  async findAll(@CurrentUser() currentUser: SessionUser) {
+  async findAll(
+    @CurrentUser() currentUser: SessionUser,
+    @Query('archived') archivedParam?: string,
+  ) {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') throw new ForbiddenException()
+    const archived = archivedParam === 'true'
     return currentUser.role === 'ADMIN'
-      ? this.usersService.findAllIncludingAdmin()
-      : this.usersService.findAll()
+      ? this.usersService.findAllIncludingAdmin({ archived })
+      : this.usersService.findAll({ archived })
   }
 
   @Post()
@@ -145,11 +149,16 @@ export class UsersController {
   @Patch(':id')
   @Roles('ADMIN')
   @AuditLog('profile_edit')
-  async updateUser(@Param('id', ParseUUIDPipe) id: string, @Body() body: unknown) {
+  async updateUser(
+    @CurrentUser() currentUser: SessionUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+  ) {
     const dto = adminUpdateUserSchema.parse(body)
-    return this.usersService.updateProfile(
+    return this.usersService.adminUpdateUser(
       id,
-      compact(dto) as Parameters<typeof this.usersService.updateProfile>[1],
+      compact(dto) as Parameters<typeof this.usersService.adminUpdateUser>[1],
+      currentUser.id,
     )
   }
 
@@ -195,9 +204,20 @@ export class UsersController {
 
   @Delete(':id')
   @Roles('ADMIN')
-  @AuditLog('user_archived')
   async archiveUser(@CurrentUser() currentUser: SessionUser, @Param('id', ParseUUIDPipe) id: string) {
     if (id === currentUser.id) throw new ForbiddenException('Cannot archive yourself')
-    return this.usersService.archive(id)
+    return this.usersService.archive(id, currentUser.id)
+  }
+
+  @Post(':id/unarchive')
+  @Roles('ADMIN')
+  async unarchiveUser(@CurrentUser() currentUser: SessionUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.usersService.unarchive(id, currentUser.id)
+  }
+
+  @Get(':id/archive-impact')
+  @Roles('ADMIN')
+  async archiveImpact(@Param('id', ParseUUIDPipe) id: string) {
+    return this.usersService.getArchiveImpact(id)
   }
 }

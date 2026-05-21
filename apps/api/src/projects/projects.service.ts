@@ -1,22 +1,28 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common'
-import { and, eq, inArray, isNull } from 'drizzle-orm'
-import type { CreateProjectDto, SessionUser, UpdateProjectDto } from '@crm/shared'
+import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
+import type { ArchiveImpact, CreateProjectDto, EffectiveTeam, SessionUser, UpdateProjectDto } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
   projectMembers,
   projects,
   teamMembers,
+  teams,
   users,
   type Interview,
   type Project,
   type ProjectMember,
   type User,
 } from '../database/schema'
+import { ProjectAuditLogService } from './project-audit-log.service'
+import { UsersService } from '../users/users.service'
 
 type ProjectWithRelations = Project & {
   senior: User | null
@@ -25,7 +31,12 @@ type ProjectWithRelations = Project & {
 
 @Injectable()
 export class ProjectsService {
-  constructor(private db: DatabaseService) {}
+  constructor(
+    private db: DatabaseService,
+    private projectAuditLogService: ProjectAuditLogService,
+    @Inject(forwardRef(() => UsersService))
+    private usersService: UsersService,
+  ) {}
 
   private mapProject(project: ProjectWithRelations) {
     return {
@@ -48,6 +59,7 @@ export class ProjectsService {
       salaryReview: project.salaryReview ?? null,
       corpTech: project.corpTech ?? null,
       notesGeneral: project.notesGeneral ?? null,
+      archivedAt: project.archivedAt ? project.archivedAt.toISOString() : null,
       createdAt: project.createdAt.toISOString(),
       updatedAt: project.updatedAt.toISOString(),
       members: project.members.map((m) => ({
@@ -78,8 +90,10 @@ export class ProjectsService {
     return seniors.map((r) => r.userId)
   }
 
-  async findAll(currentUser: SessionUser) {
+  async findAll(currentUser: SessionUser, filter: { archived?: boolean } = {}) {
+    const archived = filter.archived === true
     const allProjects = await this.db.db.query.projects.findMany({
+      where: archived ? isNotNull(projects.archivedAt) : isNull(projects.archivedAt),
       with: { senior: true, members: { with: { user: true } } },
     })
 
@@ -108,7 +122,92 @@ export class ProjectsService {
 
     if (!project) throw new NotFoundException('Project not found')
     await this.assertAccess(project, currentUser)
-    return this.mapProject(project)
+
+    const effectiveTeam = await this.computeEffectiveTeam(project)
+    return { ...this.mapProject(project), effectiveTeam }
+  }
+
+  /**
+   * Effective team is a computed view (NOT a snapshot at archive time).
+   * - senior: project.seniorId resolved to a user row (typed for SENIOR — but we widen to allow ADMIN-owned projects).
+   * - hrs / accountants: active team_members (leftAt IS NULL) of senior's team.
+   * - juniors: active project_members of THIS project (leftAt IS NULL).
+   *
+   * After unarchive, this naturally reflects the current senior's team — if HR changed
+   * while archived, the new HR appears here without restoring leftAt rows.
+   */
+  private async computeEffectiveTeam(project: ProjectWithRelations): Promise<EffectiveTeam> {
+    const senior = project.senior
+      ? {
+          id: project.senior.id,
+          displayName: project.senior.displayName,
+          email: project.senior.email,
+          avatar: project.senior.avatar ?? null,
+          role: 'SENIOR' as const,
+        }
+      : null
+
+    // Resolve senior's team via team_members where userId = senior.id.
+    let hrs: EffectiveTeam['hrs'] = []
+    let accountants: EffectiveTeam['accountants'] = []
+    if (project.senior) {
+      const seniorMembership = await this.db.db.query.teamMembers.findFirst({
+        where: and(eq(teamMembers.userId, project.senior.id), isNull(teamMembers.leftAt)),
+      })
+      if (seniorMembership) {
+        const teamId = seniorMembership.teamId
+        const teamRows = await this.db.db
+          .select({
+            id: teamMembers.id,
+            userId: teamMembers.userId,
+            displayName: users.displayName,
+            email: users.email,
+            avatar: users.avatar,
+            role: users.role,
+          })
+          .from(teamMembers)
+          .innerJoin(users, eq(users.id, teamMembers.userId))
+          .where(and(
+            eq(teamMembers.teamId, teamId),
+            isNull(teamMembers.leftAt),
+          ))
+        hrs = teamRows
+          .filter((r) => r.role === 'HR')
+          .map((r) => ({
+            id: r.id,
+            userId: r.userId,
+            displayName: r.displayName,
+            email: r.email,
+            avatar: r.avatar ?? null,
+            role: 'HR' as const,
+          }))
+        accountants = teamRows
+          .filter((r) => r.role === 'ACCOUNTANT')
+          .map((r) => ({
+            id: r.id,
+            userId: r.userId,
+            displayName: r.displayName,
+            email: r.email,
+            avatar: r.avatar ?? null,
+            role: 'ACCOUNTANT' as const,
+          }))
+      }
+    }
+
+    const juniors = project.members
+      .filter((m) => m.leftAt === null && m.user?.role === 'JUNIOR')
+      .map((m) => ({
+        id: m.id,
+        userId: m.userId,
+        displayName: m.user?.displayName ?? '',
+        email: m.user?.email ?? '',
+        avatar: m.user?.avatar ?? null,
+        role: m.user?.role ?? 'JUNIOR',
+        joinedAt: m.joinedAt.toISOString(),
+        leftAt: null,
+      }))
+
+    return { senior, hrs, accountants, juniors }
   }
 
   async create(data: CreateProjectDto, currentUser: SessionUser) {
@@ -197,15 +296,161 @@ export class ProjectsService {
     return this.mapProject(updated)
   }
 
-  async remove(id: string, currentUser: SessionUser) {
+  /**
+   * Soft-archive a project. Independent — does NOT touch senior or team.
+   * Sets project_members.leftAt for active JUNIORs.
+   */
+  async archive(id: string, currentUser: SessionUser) {
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
+    return this.db.db.transaction(async (tx) => {
+      const project = await tx
+        .select()
+        .from(projects)
+        .where(eq(projects.id, id))
+        .then((rows) => rows[0])
+      if (!project) throw new NotFoundException('Project not found')
+      if (project.archivedAt) throw new BadRequestException('Project is already archived')
 
+      const now = new Date()
+      await tx
+        .update(projects)
+        .set({ archivedAt: now, updatedAt: now })
+        .where(eq(projects.id, id))
+
+      // Remove active juniors via leftAt.
+      const activeJuniors = await tx
+        .select({ id: projectMembers.id, userId: projectMembers.userId, role: users.role })
+        .from(projectMembers)
+        .innerJoin(users, eq(users.id, projectMembers.userId))
+        .where(and(
+          eq(projectMembers.projectId, id),
+          isNull(projectMembers.leftAt),
+          eq(users.role, 'JUNIOR'),
+        ))
+      if (activeJuniors.length > 0) {
+        const ids = activeJuniors.map((j) => j.id)
+        await tx
+          .update(projectMembers)
+          .set({ leftAt: now })
+          .where(inArray(projectMembers.id, ids))
+        for (const j of activeJuniors) {
+          await this.projectAuditLogService.record({
+            actorId: currentUser.id,
+            targetId: id,
+            action: 'project_member_removed',
+            changes: { userId: { before: j.userId, after: null } },
+          }, tx)
+        }
+      }
+
+      await this.projectAuditLogService.record({
+        actorId: currentUser.id,
+        targetId: id,
+        action: 'project_archived',
+        changes: { archivedAt: { before: null, after: now.toISOString() } },
+      }, tx)
+
+      return this.findOne(id, currentUser)
+    })
+  }
+
+  /**
+   * Unarchive a project.
+   *  - If senior or team is also archived → 409 with { requiresCascade: true, entities }.
+   *    Client retries with `cascade=true` to pair-unarchive.
+   *  - On success: projects.archivedAt = NULL; project_members.leftAt NOT restored
+   *    (admin re-adds juniors via Projects page).
+   */
+  async unarchive(id: string, currentUser: SessionUser, cascade = false) {
+    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
+    return this.db.db.transaction(async (tx) => {
+      const project = await tx
+        .select()
+        .from(projects)
+        .where(eq(projects.id, id))
+        .then((rows) => rows[0])
+      if (!project) throw new NotFoundException('Project not found')
+      if (!project.archivedAt) throw new BadRequestException('Project is not archived')
+
+      const senior = await tx
+        .select()
+        .from(users)
+        .where(eq(users.id, project.seniorId))
+        .then((rows) => rows[0])
+      // Senior's team via team_members lookup.
+      let team: typeof teams.$inferSelect | undefined
+      if (senior) {
+        const seniorMembership = await tx
+          .select()
+          .from(teamMembers)
+          .where(eq(teamMembers.userId, senior.id))
+          .then((rows) => rows[0])
+        if (seniorMembership) {
+          team = await tx
+            .select()
+            .from(teams)
+            .where(eq(teams.id, seniorMembership.teamId))
+            .then((rows) => rows[0])
+        }
+      }
+
+      const entitiesToCascade: { type: 'user' | 'team'; id: string; name: string }[] = []
+      if (senior?.archivedAt) entitiesToCascade.push({ type: 'user', id: senior.id, name: senior.displayName })
+      if (team?.archivedAt) entitiesToCascade.push({ type: 'team', id: team.id, name: team.name })
+
+      if (entitiesToCascade.length > 0 && !cascade) {
+        throw new ConflictException({
+          requiresCascade: true,
+          entities: entitiesToCascade,
+        })
+      }
+
+      const now = new Date()
+      const previousArchivedAt = project.archivedAt
+
+      if (cascade && senior?.archivedAt) {
+        // Pair-unarchive senior + team via the SAME outer transaction (`tx`).
+        // We deliberately DO NOT call `this.usersService.unarchive(...)` because
+        // that opens its own `db.transaction()` — making it impossible to roll
+        // back together with the project mutations below if anything throws.
+        await this.usersService.unarchivePairTx(tx, senior.id, currentUser.id)
+      }
+
+      await tx
+        .update(projects)
+        .set({ archivedAt: null, updatedAt: now })
+        .where(eq(projects.id, id))
+
+      await this.projectAuditLogService.record({
+        actorId: currentUser.id,
+        targetId: id,
+        action: 'project_unarchived',
+        changes: { archivedAt: { before: previousArchivedAt.toISOString(), after: null } },
+      }, tx)
+
+      // project_members.leftAt intentionally NOT restored.
+      return this.findOne(id, currentUser)
+    })
+  }
+
+  async getArchiveImpact(id: string, currentUser: SessionUser): Promise<ArchiveImpact> {
+    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
     const project = await this.db.db.query.projects.findFirst({
       where: eq(projects.id, id),
     })
     if (!project) throw new NotFoundException('Project not found')
 
-    await this.db.db.delete(projects).where(eq(projects.id, id))
+    const activeJuniors = await this.db.db
+      .select({ id: projectMembers.id })
+      .from(projectMembers)
+      .innerJoin(users, eq(users.id, projectMembers.userId))
+      .where(and(
+        eq(projectMembers.projectId, id),
+        isNull(projectMembers.leftAt),
+        eq(users.role, 'JUNIOR'),
+      ))
+
+    return { type: 'project', activeMembersCount: activeJuniors.length }
   }
 
   async addMember(projectId: string, userId: string, currentUser: SessionUser) {

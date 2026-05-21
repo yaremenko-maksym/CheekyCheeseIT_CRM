@@ -2,11 +2,13 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common'
 
@@ -18,12 +20,22 @@ import {
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { JwtAuthGuard } from '../auth/jwt.guard'
+import { Roles } from '../common/decorators/roles.decorator'
+import { RolesGuard } from '../common/guards/roles.guard'
+import { TeamAuditLogService } from './team-audit-log.service'
 import { TeamsService } from './teams.service'
 
+// Class-level RolesGuard mirrors UsersController for defense-in-depth:
+// inline role checks remain in TeamsService, and the guard rejects
+// disallowed roles before the handler runs. Endpoints without @Roles(...)
+// are open to any authenticated user (RolesGuard passes when ROLES_KEY is empty).
 @Controller('teams')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class TeamsController {
-  constructor(private readonly teamsService: TeamsService) {}
+  constructor(
+    private readonly teamsService: TeamsService,
+    private readonly teamAuditLogService: TeamAuditLogService,
+  ) {}
 
   @Post()
   create(@Body() body: unknown, @CurrentUser() user: SessionUser) {
@@ -32,8 +44,8 @@ export class TeamsController {
   }
 
   @Get()
-  findAll(@CurrentUser() user: SessionUser) {
-    return this.teamsService.findAll(user)
+  findAll(@CurrentUser() user: SessionUser, @Query('archived') archivedParam?: string) {
+    return this.teamsService.findAll(user, { archived: archivedParam === 'true' })
   }
 
   @Get(':id')
@@ -52,8 +64,38 @@ export class TeamsController {
   }
 
   @Delete(':id')
-  remove(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
-    return this.teamsService.remove(id, user)
+  @Roles('ADMIN')
+  archive(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
+    return this.teamsService.archive(id, user)
+  }
+
+  @Post(':id/unarchive')
+  @Roles('ADMIN')
+  unarchive(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
+    return this.teamsService.unarchive(id, user)
+  }
+
+  @Get(':id/archive-impact')
+  @Roles('ADMIN')
+  archiveImpact(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
+    return this.teamsService.getArchiveImpact(id, user)
+  }
+
+  @Get(':id/audit-log')
+  @Roles('ADMIN')
+  async auditLog(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: SessionUser,
+    @Query('page') pageParam?: string,
+    @Query('limit') limitParam?: string,
+  ) {
+    // Defense-in-depth: keep the inline ADMIN check even though @Roles('ADMIN')
+    // already gates the handler — removing/reordering guards must not regress.
+    if (user.role !== 'ADMIN') throw new ForbiddenException()
+    const page = Math.max(1, parseInt(pageParam ?? '1', 10))
+    const limit = Math.min(100, Math.max(1, parseInt(limitParam ?? '20', 10)))
+    const { entries, total } = await this.teamAuditLogService.list(id, page, limit)
+    return { entries, total, page, limit }
   }
 
   @Post(':id/members')

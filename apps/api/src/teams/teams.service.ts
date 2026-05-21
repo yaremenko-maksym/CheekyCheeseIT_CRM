@@ -1,11 +1,13 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common'
-import { and, eq } from 'drizzle-orm'
-import type { SessionUser } from '@crm/shared'
+import { and, eq, isNotNull, isNull } from 'drizzle-orm'
+import type { ArchiveImpact, SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
   projectMembers,
@@ -14,6 +16,7 @@ import {
   teams,
   users,
 } from '../database/schema'
+import { UsersService } from '../users/users.service'
 
 type TeamWithMembers = typeof teams.$inferSelect & {
   members: Array<typeof teamMembers.$inferSelect & { user: typeof users.$inferSelect | null }>
@@ -25,7 +28,11 @@ type ProjectWithMembers = typeof projects.$inferSelect & {
 
 @Injectable()
 export class TeamsService {
-  constructor(private db: DatabaseService) {}
+  constructor(
+    private db: DatabaseService,
+    @Inject(forwardRef(() => UsersService))
+    private usersService: UsersService,
+  ) {}
 
   private mapTeam(team: TeamWithMembers, allProjects: ProjectWithMembers[], currentUser?: SessionUser) {
     const senior = team.members.find((m) => m.user?.role === 'SENIOR')
@@ -82,11 +89,12 @@ export class TeamsService {
       name: team.name,
       telegram: team.telegram ?? null,
       notes: team.notes ?? null,
+      archivedAt: team.archivedAt ? team.archivedAt.toISOString() : null,
       createdAt: team.createdAt,
       updatedAt: team.updatedAt,
       members: [
         ...team.members
-          .filter((m) => m.user?.role !== 'ADMIN' && m.user?.role !== 'JUNIOR')
+          .filter((m) => m.user?.role !== 'ADMIN' && m.user?.role !== 'JUNIOR' && m.leftAt === null)
           .map((m) => ({
             id: m.id,
             userId: m.userId,
@@ -98,6 +106,7 @@ export class TeamsService {
             telegram: m.user?.telegram ?? null,
             role: m.user?.role ?? 'SENIOR',
             joinedAt: m.joinedAt,
+            leftAt: m.leftAt ? m.leftAt.toISOString() : null,
           })),
         ...filteredJuniorMembers,
       ],
@@ -130,9 +139,11 @@ export class TeamsService {
     return team
   }
 
-  async findAll(currentUser: SessionUser) {
+  async findAll(currentUser: SessionUser, filter: { archived?: boolean } = {}) {
+    const archived = filter.archived === true
     const [allTeams, allProjects] = await Promise.all([
       this.db.db.query.teams.findMany({
+        where: archived ? isNotNull(teams.archivedAt) : isNull(teams.archivedAt),
         with: { members: { with: { user: true } } },
       }),
       this.fetchAllProjects(),
@@ -205,18 +216,92 @@ export class TeamsService {
     return updated
   }
 
-  async remove(id: string, currentUser: SessionUser) {
+  /**
+   * Soft-archive a team. By business invariant, archiving the team is equivalent
+   * to archiving its SENIOR — the two are inseparable. We delegate to
+   * UsersService.archive(team.seniorId) which performs the pair-cascade
+   * (archive senior + projects + remove HR/Acc team_members).
+   */
+  async archive(teamId: string, currentUser: SessionUser) {
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
-
     const team = await this.db.db.query.teams.findFirst({
-      where: eq(teams.id, id),
+      where: eq(teams.id, teamId),
       with: { members: { with: { user: true } } },
     })
     if (!team) throw new NotFoundException('Team not found')
+    if (team.archivedAt) throw new BadRequestException('Team is already archived')
 
-    // Delete the team - FK cascades will handle team_members removal
-    // The senior user remains in the database and can be assigned to other teams
-    await this.db.db.delete(teams).where(eq(teams.id, id))
+    const seniorMember = team.members.find((m) => m.user?.role === 'SENIOR' && m.leftAt === null)
+    if (!seniorMember) {
+      throw new BadRequestException('Team has no active SENIOR — cannot archive via pair flow')
+    }
+    await this.usersService.archive(seniorMember.userId, currentUser.id)
+    return this.findOne(teamId, currentUser)
+  }
+
+  /**
+   * Pair-unarchive: restore SENIOR + team. Projects remain archived;
+   * HR/Acc memberships remain closed (admin re-adds via Teams page).
+   */
+  async unarchive(teamId: string, currentUser: SessionUser) {
+    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
+    const team = await this.db.db.query.teams.findFirst({
+      where: eq(teams.id, teamId),
+      with: { members: true },
+    })
+    if (!team) throw new NotFoundException('Team not found')
+    if (!team.archivedAt) throw new BadRequestException('Team is not archived')
+
+    // Find SENIOR via team_members + users join — `with: { members: true }`
+    // above doesn't include user.role, so we run a focused lookup here.
+    const seniorRow = await this.db.db
+      .select({ userId: teamMembers.userId })
+      .from(teamMembers)
+      .innerJoin(users, eq(users.id, teamMembers.userId))
+      .where(and(eq(teamMembers.teamId, teamId), eq(users.role, 'SENIOR')))
+      .then((rows) => rows[0])
+    if (!seniorRow) {
+      throw new NotFoundException('Senior of this team not found')
+    }
+    await this.usersService.unarchive(seniorRow.userId, currentUser.id)
+    return this.findOne(teamId, currentUser)
+  }
+
+  /**
+   * Returns the archive impact for the team (pair = senior). UI uses for warnings.
+   */
+  async getArchiveImpact(teamId: string, currentUser: SessionUser): Promise<ArchiveImpact> {
+    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
+    const team = await this.db.db.query.teams.findFirst({
+      where: eq(teams.id, teamId),
+    })
+    if (!team) throw new NotFoundException('Team not found')
+    const seniorRow = await this.db.db
+      .select({ id: users.id, displayName: users.displayName })
+      .from(teamMembers)
+      .innerJoin(users, eq(users.id, teamMembers.userId))
+      .where(and(eq(teamMembers.teamId, teamId), eq(users.role, 'SENIOR'), isNull(teamMembers.leftAt)))
+      .then((rows) => rows[0])
+    if (!seniorRow) {
+      return {
+        type: 'team',
+        isPaired: true,
+        teamName: team.name,
+        seniorName: '',
+        projectsCount: 0,
+        membersAffected: 0,
+      }
+    }
+    const userImpact = await this.usersService.getArchiveImpact(seniorRow.id)
+    const seniorImpact = userImpact.type === 'user' && userImpact.role === 'SENIOR' ? userImpact : null
+    return {
+      type: 'team',
+      isPaired: true,
+      teamName: team.name,
+      seniorName: seniorRow.displayName,
+      projectsCount: seniorImpact?.projectsCount ?? 0,
+      membersAffected: seniorImpact?.hrAccountantsToBeRemoved ?? 0,
+    }
   }
 
   async addMember(teamId: string, userId: string, currentUser: SessionUser) {
