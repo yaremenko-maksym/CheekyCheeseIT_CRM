@@ -28,8 +28,9 @@ export class UsersAccessService {
     const targetHasTechStack = true
 
     if (isAdmin) {
+      // 'interviews' is no longer a profile tab — replaced by a header link
+      // (showInterviewsLink) rendered in UserProfileShell for any SENIOR target.
       tabs.push('overview', 'finance', 'projects', 'team', 'requisites', 'documents', 'audit')
-      if (targetIsSenior) tabs.push('interviews')
       if (!isSelf) {
         actions.push(
           'edit-profile',

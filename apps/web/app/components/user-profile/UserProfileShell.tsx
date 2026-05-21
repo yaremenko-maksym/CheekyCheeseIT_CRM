@@ -61,8 +61,9 @@ export function UserProfileShell({
   // ADMIN looking at own profile: hide "registration date" line (matches hidden KPI cards)
   const showCreatedAt =
     permissions.fields.registrationDate !== false && !(mode === 'self' && user.role === 'ADMIN')
-  // SENIOR self-view: surface kanban link in header instead of dedicated tab
-  const showInterviewsLink = mode === 'self' && user.role === 'SENIOR'
+  // Any SENIOR profile (self or viewed by ADMIN) surfaces the kanban board
+  // link in the header — the dedicated 'interviews' tab was removed.
+  const showInterviewsLink = user.role === 'SENIOR'
 
   // JUNIOR sees a single project, not a portfolio — relabel tab
   const tabLabel = (t: string): string => {

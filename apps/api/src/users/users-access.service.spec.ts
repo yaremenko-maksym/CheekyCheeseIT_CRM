@@ -47,13 +47,14 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.tabs).toHaveLength(7)
   })
 
-  it('ADMIN viewing SENIOR includes Собеседования and documents (8 tabs)', async () => {
+  it('ADMIN viewing SENIOR has 7 tabs — interviews moved to header link', async () => {
     const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
     const target = makeUser({ id: 'sr-id', role: 'SENIOR' })
     const p = await service.getViewPermissions(viewer, target)
-    expect(p.tabs).toContain('interviews')
+    expect(p.tabs).not.toContain('interviews')
     expect(p.tabs).toContain('documents')
-    expect(p.tabs).toHaveLength(8)
+    expect(p.tabs).toContain('audit')
+    expect(p.tabs).toHaveLength(7)
   })
 
   it('HR viewing SENIOR in own team — no finance, no requisites, no audit', async () => {
