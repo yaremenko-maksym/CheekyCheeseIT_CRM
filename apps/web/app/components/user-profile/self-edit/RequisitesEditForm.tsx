@@ -6,13 +6,13 @@ import {
   Hash,
   IdCard,
   Landmark,
-  Lock,
   Tag,
   User as UserIcon,
   Wallet,
 } from 'lucide-react'
 import { paymentRequisitesSchema } from '@crm/shared'
 import type { PaymentRequisites, UserProfileDto } from '@crm/shared'
+import { AnimatedTabs } from '@/components/ui/animated-tabs'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -40,69 +40,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useUpdateMeRequisites } from '@/hooks/use-user-profile'
-import { cn } from '@/lib/utils'
 
 type Method = 'USDT_ERC20' | 'BANK_UAH_FOP'
-
-/**
- * Segmented button used inside the method switcher. Carries an `aria-label`
- * so Playwright `getByLabel('USDT ERC-20')` / `getByLabel('Банк UAH (ФОП)')`
- * still locates it after we moved away from `<RadioGroup>`.
- */
-function MethodSegment({
-  active,
-  disabled,
-  onClick,
-  icon,
-  title,
-  description,
-  ariaLabel,
-}: {
-  active: boolean
-  disabled?: boolean
-  onClick: () => void
-  icon: React.ReactNode
-  title: string
-  description: string
-  ariaLabel: string
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={active}
-      aria-label={ariaLabel}
-      aria-disabled={disabled}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        'group relative flex flex-col items-start gap-1.5 rounded-md px-4 py-3 text-left transition-all',
-        active
-          ? 'bg-background shadow-sm ring-1 ring-border'
-          : 'hover:bg-background/60',
-        disabled && 'cursor-not-allowed opacity-60 hover:bg-transparent',
-      )}
-    >
-      <div className="flex items-center gap-2.5">
-        <div
-          className={cn(
-            'flex h-8 w-8 items-center justify-center rounded-md transition-colors',
-            active
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-muted text-muted-foreground',
-          )}
-        >
-          {icon}
-        </div>
-        <span className="text-sm font-semibold">{title}</span>
-        {disabled && (
-          <Lock className="ml-auto h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-        )}
-      </div>
-      <p className="text-xs text-muted-foreground">{description}</p>
-    </button>
-  )
-}
 
 export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
   const mutation = useUpdateMeRequisites()
@@ -154,56 +93,48 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
     }
   }
 
+  // Tabs with the same animated yellow pill as the profile tabs.
+  // For SENIOR/ADMIN the BANK_UAH_FOP tab is rendered disabled with a lock icon.
+  const tabs = [
+    { value: 'USDT_ERC20', label: 'USDT ERC-20', ariaLabel: 'USDT ERC-20' },
+    {
+      value: 'BANK_UAH_FOP',
+      label: 'UAH ФОП',
+      ariaLabel: 'Банк UAH (ФОП)',
+      ...(isUsdtOnlyRole
+        ? { disabled: true, disabledTooltip: 'SENIOR и ADMIN получают только в USDT ERC-20' }
+        : {}),
+    },
+  ]
+
   return (
     <TooltipProvider delayDuration={150}>
-      <form onSubmit={handleSubmit} className="space-y-5">
-        {/* ---------- Method switcher ---------- */}
+      <form onSubmit={handleSubmit} className="space-y-5" aria-label="Способ выплаты">
+        {/* ---------- Method switcher: AnimatedTabs with yellow pill ---------- */}
         <div className="space-y-2">
           <Label>Способ выплаты</Label>
-          <div
-            role="radiogroup"
-            aria-label="Способ выплаты"
-            className="grid grid-cols-1 gap-2 rounded-lg border bg-muted/30 p-1 sm:grid-cols-2"
-          >
-            <MethodSegment
-              active={method === 'USDT_ERC20'}
-              onClick={() => setMethod('USDT_ERC20')}
-              icon={<Bitcoin className="h-4 w-4" />}
-              title="USDT ERC-20"
-              description="Криптовалюта (Ethereum)"
-              ariaLabel="USDT ERC-20"
+          {isUsdtOnlyRole ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="inline-block">
+                  <AnimatedTabs
+                    tabs={tabs}
+                    value={method}
+                    onChange={(v) => setMethod(v as Method)}
+                  />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                SENIOR и ADMIN получают только в USDT ERC-20
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <AnimatedTabs
+              tabs={tabs}
+              value={method}
+              onChange={(v) => setMethod(v as Method)}
             />
-            {isUsdtOnlyRole ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  {/* span wrapper — disabled buttons don't dispatch mouse events */}
-                  <span className="contents">
-                    <MethodSegment
-                      active={false}
-                      disabled
-                      onClick={() => {}}
-                      icon={<Landmark className="h-4 w-4" />}
-                      title="Банк UAH (ФОП)"
-                      description="Недоступно для вашей роли"
-                      ariaLabel="Банк UAH (ФОП)"
-                    />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  SENIOR и ADMIN получают только в USDT ERC-20
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <MethodSegment
-                active={method === 'BANK_UAH_FOP'}
-                onClick={() => setMethod('BANK_UAH_FOP')}
-                icon={<Landmark className="h-4 w-4" />}
-                title="Банк UAH (ФОП)"
-                description="Гривна на украинский ФОП"
-                ariaLabel="Банк UAH (ФОП)"
-              />
-            )}
-          </div>
+          )}
         </div>
 
         {/* ---------- Animated card switch ---------- */}
