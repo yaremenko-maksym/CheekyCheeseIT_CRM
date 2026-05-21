@@ -1,7 +1,11 @@
+import { useState } from 'react'
+import { Pencil, Plus, StickyNote } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import type { UserProfileDto, ViewPermissions } from '@crm/shared'
 import { ProfileEditFields } from '../self-edit/ProfileEditFields'
+import { AdminNoteDialog } from '../admin-actions/AdminNoteDialog'
 
 export interface OverviewTabProps {
   user: UserProfileDto
@@ -25,12 +29,26 @@ function formatSalary(amount: string | number | null | undefined, currency: stri
   return `${sign}${amount}`
 }
 
-export function OverviewTab({ user, mode, permissions }: OverviewTabProps) {
+interface OverviewData {
+  techStack?: string[] | null
+  adminNote?: string | null
+}
+
+export function OverviewTab({ user, mode, data, permissions }: OverviewTabProps) {
+  const overview = (data.overview ?? {}) as OverviewData
   const techStack = user.techStack ?? []
   const showSalary = permissions.fields.salary === true
   const showShare = permissions.fields.share === true
   const showPaymentMethod = permissions.fields.paymentMethodKpi === true
   const kpiCards = [showSalary, showShare, showPaymentMethod].filter(Boolean).length
+
+  // ADMIN viewer ↔ admin note card. The `set-note` action key implies the
+  // viewer is ADMIN looking at a non-self user (see UsersAccessService).
+  // For self-view (admin looking at own profile) the action isn't present
+  // anyway, so the card hides as intended.
+  const canSeeAdminNote = permissions.actions.includes('set-note')
+  const [noteOpen, setNoteOpen] = useState(false)
+  const adminNote = overview.adminNote ?? null
 
   return (
     <div className="space-y-6">
@@ -106,6 +124,47 @@ export function OverviewTab({ user, mode, permissions }: OverviewTabProps) {
         </Card>
       )}
 
+      {canSeeAdminNote && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between gap-2 text-base">
+              <span className="flex items-center gap-2">
+                <StickyNote className="h-4 w-4" />
+                Заметка администратора
+              </span>
+              {adminNote ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setNoteOpen(true)}
+                  className="h-8 gap-1.5"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Изменить
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setNoteOpen(true)}
+                  className="h-8 gap-1.5"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Добавить
+                </Button>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {adminNote ? (
+              <p className="whitespace-pre-wrap text-sm text-foreground">{adminNote}</p>
+            ) : (
+              <p className="text-sm italic text-muted-foreground">Заметок нет</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {mode === 'self' && (
         <Card>
           <CardHeader>
@@ -115,6 +174,14 @@ export function OverviewTab({ user, mode, permissions }: OverviewTabProps) {
             <ProfileEditFields user={user} />
           </CardContent>
         </Card>
+      )}
+
+      {canSeeAdminNote && noteOpen && (
+        <AdminNoteDialog
+          userId={user.id}
+          currentNote={adminNote}
+          onClose={() => setNoteOpen(false)}
+        />
       )}
     </div>
   )
