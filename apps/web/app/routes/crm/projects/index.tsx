@@ -3,6 +3,7 @@ import { useForm, type FieldApi } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
+  ArchiveRestore,
   Briefcase,
   Calendar,
   Code2,
@@ -11,9 +12,17 @@ import {
   Trash2,
 } from 'lucide-react'
 import { useState } from 'react'
+import { z } from 'zod'
+import type { AxiosError } from 'axios'
 import type { CreateProjectDto, ProjectDto, ProjectMemberDto, ItDomain } from '@crm/shared'
 import { createProjectSchema, IT_DOMAINS } from '@crm/shared'
 import { useAuth } from '@/context/auth'
+import {
+  useUnarchiveEntity,
+  type UnarchiveCascadeEntity,
+  type UnarchiveError,
+} from '@/hooks/use-archive'
+import { CascadeUnarchiveModal } from '@/components/archive/CascadeUnarchiveModal'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
@@ -35,7 +44,12 @@ import { ReceiptField } from '@/components/ui/receipt-field'
 import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-currency-input'
 import { Skeleton } from '@/components/ui/skeleton'
 
+const projectsSearchSchema = z.object({
+  archived: z.boolean().optional(),
+})
+
 export const Route = createFileRoute('/crm/projects/')({
+  validateSearch: (search) => projectsSearchSchema.parse(search),
   component: ProjectsPage,
 })
 
@@ -105,6 +119,8 @@ type AnyField = FieldApi<any, any, any, any, any, any, any, any, any, any, any, 
 function ProjectsPage() {
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'JUNIOR'])
   const { user } = useAuth()
+  const search = Route.useSearch()
+  const isArchivedView = search.archived === true
   if (denied) return null
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -116,10 +132,15 @@ function ProjectsPage() {
   const [filter, setFilter] = useState<Filter>('ALL')
   const [showCreate, setShowCreate] = useState(false)
   const [deleteProject, setDeleteProject] = useState<ProjectDto | null>(null)
+  const [cascadeProject, setCascadeProject] = useState<ProjectDto | null>(null)
+  const [cascadeEntities, setCascadeEntities] = useState<UnarchiveCascadeEntity[]>([])
 
   const { data: projects, isLoading } = useQuery({
-    queryKey: ['projects'],
-    queryFn: () => api.get<ProjectDto[]>('/projects').then((r) => r.data),
+    queryKey: ['projects', { archived: isArchivedView }],
+    queryFn: () =>
+      api
+        .get<ProjectDto[]>(`/projects${isArchivedView ? '?archived=true' : ''}`)
+        .then((r) => r.data),
     enabled: !!user,
   })
 
@@ -212,12 +233,31 @@ function ProjectsPage() {
           <h1 className="text-2xl font-bold tracking-tight">Проекты</h1>
           <p className="text-sm text-muted-foreground">Активные и завершённые проекты</p>
         </div>
-        {canCreate && (
-          <Button size="sm" onClick={() => setShowCreate(true)}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            Новый проект
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <Button
+              variant={isArchivedView ? 'default' : 'outline'}
+              size="sm"
+              className="gap-1.5"
+              onClick={() =>
+                navigate({
+                  to: '/crm/projects',
+                  search: isArchivedView ? {} : { archived: true },
+                })
+              }
+              data-testid="toggle-archived-projects"
+            >
+              <ArchiveRestore className="h-4 w-4" />
+              {isArchivedView ? 'Показать активные' : 'Показать архивных'}
+            </Button>
+          )}
+          {canCreate && (
+            <Button size="sm" onClick={() => setShowCreate(true)}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              Новый проект
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Filter tabs */}
@@ -266,6 +306,7 @@ function ProjectsPage() {
           const activeJuniors = activeMembers.filter((m) => m.role === 'JUNIOR')
           const activeHRs = activeMembers.filter((m) => m.role === 'HR')
           const activeAccountants = activeMembers.filter((m) => m.role === 'ACCOUNTANT')
+          const isArchived = !!project.archivedAt
 
           return (
             <motion.div
@@ -276,9 +317,12 @@ function ProjectsPage() {
               transition={{ duration: 0.22, ease: [0.25, 0.1, 0.25, 1] }}
             >
               <Card
+                data-testid={`project-card-${project.id}`}
+                data-archived={isArchived ? 'true' : 'false'}
                 className={cn(
                   'flex flex-col transition-all cursor-pointer hover:border-primary/40 hover:shadow-md hover:shadow-primary/5',
                   project.status === 'CLOSED' && 'opacity-70',
+                  isArchived && 'opacity-60',
                 )}
                 onClick={() => navigate({ to: '/crm/projects/$projectId', params: { projectId: project.id } })}
               >
@@ -301,14 +345,31 @@ function ProjectsPage() {
                       <p className="mt-0.5 text-sm text-muted-foreground truncate">{project.name}</p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
+                      {isArchived && (
+                        <Badge
+                          variant="outline"
+                          className="border-amber-500/30 bg-amber-500/10 text-amber-500 text-[10px]"
+                        >
+                          В архиве
+                        </Badge>
+                      )}
                       <Badge variant="outline" className="text-[10px]">{project.domain}</Badge>
-                      {isAdmin && (
+                      {isAdmin && isArchived && (
+                        <ProjectUnarchiveButton
+                          project={project}
+                          onCascadeRequired={(entities) => {
+                            setCascadeProject(project)
+                            setCascadeEntities(entities)
+                          }}
+                        />
+                      )}
+                      {isAdmin && !isArchived && (
                         <Button
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 text-destructive/60 hover:text-destructive hover:bg-destructive/10 shrink-0"
                           onClick={(e) => { e.stopPropagation(); setDeleteProject(project) }}
-                          title="Удалить проект"
+                          title="Архивировать проект"
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
@@ -566,24 +627,99 @@ function ProjectsPage() {
         </CrmDialogContent>
       </Dialog>
 
-      {/* ── Delete project confirm ── */}
+      {/* ── Archive project confirm ── */}
       <Dialog open={!!deleteProject} onOpenChange={(open) => !open && setDeleteProject(null)}>
         <CrmDialogContent maxWidth="sm:max-w-sm">
           <CrmDialogHeader>
-            <DialogTitle>Удалить проект «{deleteProject?.name}»?</DialogTitle>
+            <DialogTitle>Архивировать проект «{deleteProject?.name}»?</DialogTitle>
           </CrmDialogHeader>
           <CrmDialogBody className="pb-2">
-            <p className="text-sm text-muted-foreground">Будут удалены все данные участников. Это действие нельзя отменить.</p>
+            <p className="text-sm text-muted-foreground">
+              Проект будет архивирован, активные джуны будут отвязаны. Синьор и команда{' '}
+              <strong>не</strong> будут архивированы. Финансовая история остаётся
+              доступной. Восстановление возможно через «Показать архивных».
+            </p>
           </CrmDialogBody>
           <CrmDialogFooter>
             <Button variant="outline" onClick={() => setDeleteProject(null)}>Отмена</Button>
             <Button variant="destructive" onClick={() => deleteProject && deleteMutation.mutate(deleteProject.id)} disabled={deleteMutation.isPending}>
-              Удалить
+              Архивировать
             </Button>
           </CrmDialogFooter>
         </CrmDialogContent>
       </Dialog>
+
+      {/* ── Cascade unarchive modal (project + paired senior/team) ── */}
+      {cascadeProject && (
+        <CascadeUnarchiveModalForProject
+          project={cascadeProject}
+          entities={cascadeEntities}
+          onClose={() => {
+            setCascadeProject(null)
+            setCascadeEntities([])
+          }}
+        />
+      )}
     </div>
+  )
+}
+
+function ProjectUnarchiveButton({
+  project,
+  onCascadeRequired,
+}: {
+  project: ProjectDto
+  onCascadeRequired: (entities: UnarchiveCascadeEntity[]) => void
+}) {
+  const unarchive = useUnarchiveEntity('project', project.id)
+  const handleClick = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    try {
+      await unarchive.mutateAsync({})
+    } catch (err) {
+      const ax = err as AxiosError<UnarchiveError>
+      if (ax.response?.status === 409 && ax.response.data?.requiresCascade) {
+        onCascadeRequired(ax.response.data.entities)
+      }
+    }
+  }
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="gap-1 h-6 px-2"
+      disabled={unarchive.isPending}
+      onClick={(e) => void handleClick(e)}
+      data-testid={`project-unarchive-${project.id}`}
+    >
+      <ArchiveRestore className="h-3 w-3" />
+      <span className="text-[10px]">Восстановить</span>
+    </Button>
+  )
+}
+
+function CascadeUnarchiveModalForProject({
+  project,
+  entities,
+  onClose,
+}: {
+  project: ProjectDto
+  entities: UnarchiveCascadeEntity[]
+  onClose: () => void
+}) {
+  const unarchive = useUnarchiveEntity('project', project.id)
+  return (
+    <CascadeUnarchiveModal
+      projectName={project.name}
+      entities={entities}
+      isPending={unarchive.isPending}
+      onConfirm={async () => {
+        await unarchive.mutateAsync({ cascade: true })
+        onClose()
+      }}
+      onCancel={onClose}
+    />
   )
 }
 

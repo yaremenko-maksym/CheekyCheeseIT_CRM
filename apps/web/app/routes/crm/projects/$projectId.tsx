@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link } from '@tanstack/react-router'
 import { useForm, type FieldApi, type ReactFormExtendedApi } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
@@ -14,14 +14,16 @@ import {
   Pencil,
   RefreshCw,
   StickyNote,
-  Trash2,
   UserMinus,
   UserPlus,
   Users,
 } from 'lucide-react'
 import { useState } from 'react'
-import type { ProjectDto, ProjectMemberDto, UpdateProjectDto, TransactionDto } from '@crm/shared'
+import type { ProjectDto, ProjectMemberDto, UpdateProjectDto, TransactionDto, EffectiveTeam } from '@crm/shared'
 import { createProjectSchema, IT_DOMAINS } from '@crm/shared'
+
+// Backend returns `effectiveTeam` only on GET /projects/:id — not in the shared schema yet.
+type ProjectDetailDto = ProjectDto & { effectiveTeam?: EffectiveTeam }
 import { financeApi } from '@/routes/crm/finance/api'
 import { TransactionDetailDialog } from '@/routes/crm/finance/components/dialogs/TransactionDetailDialog'
 import { TransactionRow } from '@/routes/crm/finance/components/TransactionRow'
@@ -47,7 +49,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ReceiptField } from '@/components/ui/receipt-field'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { AdminActionsMenu } from '@/components/admin-actions/AdminActionsMenu'
+import { AuditLogTab } from '@/components/audit-log/AuditLogTab'
 
 export const Route = createFileRoute('/crm/projects/$projectId')({
   component: ProjectDetailPage,
@@ -303,7 +308,6 @@ function ProjectDetailPage() {
   const { projectId } = Route.useParams()
   const { user } = useAuth()
   if (denied) return null
-  const navigate = useNavigate()
   const qc = useQueryClient()
 
   const isAdmin = user?.role === 'ADMIN'
@@ -311,12 +315,12 @@ function ProjectDetailPage() {
   const canRemoveMembers = isAdmin
 
   const [editOpen, setEditOpen] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
   const [closeOpen, setCloseOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [addedMemberIds, setAddedMemberIds] = useState<Set<string>>(new Set())
   const [pendingMemberIds, setPendingMemberIds] = useState<Set<string>>(new Set())
   const [removeMemberTarget, setRemoveMemberTarget] = useState<ProjectMemberDto | null>(null)
+  const [activeTab, setActiveTab] = useState<'overview' | 'members' | 'audit' | 'finance'>('overview')
 
   const { data: rates } = useQuery<ExchangeRates>({
     queryKey: ['exchange-rate', 'today'],
@@ -326,7 +330,7 @@ function ProjectDetailPage() {
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['projects', projectId],
-    queryFn: () => api.get<ProjectDto>(`/projects/${projectId}`).then((r) => r.data),
+    queryFn: () => api.get<ProjectDetailDto>(`/projects/${projectId}`).then((r) => r.data),
     enabled: !!user,
   })
 
@@ -391,13 +395,7 @@ function ProjectDetailPage() {
     },
   })
 
-  const deleteMutation = useMutation({
-    mutationFn: () => api.delete(`/projects/${projectId}`),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['projects'] })
-      void navigate({ to: '/crm/projects' })
-    },
-  })
+  // Archive (was deleteMutation) is now triggered via AdminActionsMenu → ArchiveConfirmDialog.
 
 const removeMemberMutation = useMutation({
     mutationFn: (userId: string) => api.delete(`/projects/${projectId}/members/${userId}`),
@@ -531,6 +529,15 @@ return (
                 >
                   {project.status === 'ACTIVE' ? 'Активный' : 'Завершён'}
                 </Badge>
+                {project.archivedAt && (
+                  <Badge
+                    variant="outline"
+                    className="border-amber-500/30 bg-amber-500/10 text-amber-500 text-xs"
+                    data-testid="project-archived-badge"
+                  >
+                    В архиве
+                  </Badge>
+                )}
                 <Badge variant="outline" className="text-xs">{project.domain}</Badge>
               </div>
             </div>
@@ -566,14 +573,12 @@ return (
               </Button>
             )}
             {isAdmin && (
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10"
-                onClick={() => setDeleteOpen(true)}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+              <AdminActionsMenu
+                entityType="project"
+                entityId={project.id}
+                entityName={project.name}
+                isArchived={!!project.archivedAt}
+              />
             )}
           </div>
         </div>
@@ -620,7 +625,29 @@ return (
         </div>
       </motion.div>
 
-      {/* ── Main grid ── */}
+      {/* ── Tabs ── */}
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)} className="w-full">
+        <TabsList>
+          <TabsTrigger value="overview" data-testid="tab-overview">Обзор</TabsTrigger>
+          <TabsTrigger value="members" data-testid="tab-members">Состав</TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="audit" data-testid="tab-audit">История изменений</TabsTrigger>
+          )}
+          <TabsTrigger value="finance" data-testid="tab-finance">Финансы</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {activeTab === 'members' && (
+        <ProjectEffectiveTeamCard project={project} />
+      )}
+
+      {activeTab === 'audit' && isAdmin && (
+        <AuditLogTab entityType="project" entityId={project.id} />
+      )}
+
+      {activeTab !== 'overview' && activeTab !== 'finance' && null}
+
+      {activeTab === 'overview' && (
       <motion.div
         className="grid gap-4 lg:grid-cols-2"
         initial={{ opacity: 0, y: 12 }}
@@ -780,8 +807,9 @@ return (
           </CardContent>
         </Card>
       </motion.div>
+      )}
 
-      {/* ── Transactions ── */}
+      {activeTab === 'finance' && (
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -789,6 +817,7 @@ return (
       >
         <ProjectTransactions projectId={projectId} />
       </motion.div>
+      )}
 
       {/* ── Edit / Add member dialog ── */}
       <Dialog open={editOpen} onOpenChange={(v) => !v && setEditOpen(false)}>
@@ -919,31 +948,7 @@ return (
         </CrmDialogContent>
       </Dialog>
 
-      {/* ── Delete confirm ── */}
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <CrmDialogContent maxWidth="sm:max-w-sm">
-          <CrmDialogHeader>
-            <DialogTitle>Удалить проект «{project.name}»?</DialogTitle>
-          </CrmDialogHeader>
-          <CrmDialogBody className="pb-2">
-            <p className="text-sm text-muted-foreground">
-              Все данные участников будут удалены. Это нельзя отменить.
-            </p>
-          </CrmDialogBody>
-          <CrmDialogFooter>
-            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
-              Отмена
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => deleteMutation.mutate()}
-              disabled={deleteMutation.isPending}
-            >
-              Удалить
-            </Button>
-          </CrmDialogFooter>
-        </CrmDialogContent>
-      </Dialog>
+      {/* Delete (archive) flow moved to AdminActionsMenu — uses ArchiveConfirmDialog. */}
     </div>
   )
 }
@@ -1064,5 +1069,151 @@ function MemberRow({
         </Button>
       )}
     </div>
+  )
+}
+
+/**
+ * Renders the project's *effective team* — a computed view (NOT snapshot at archive).
+ * HR/Accountants come from the SENIOR's current team_members (dynamic).
+ * Juniors come from THIS project's active project_members.
+ *
+ * If `project.effectiveTeam` is absent (e.g. response from older API or list endpoint),
+ * falls back to the snapshot embedded in `project.members`.
+ * See spec §5.2 and §8.
+ */
+function ProjectEffectiveTeamCard({ project }: { project: ProjectDetailDto }) {
+  const effective = project.effectiveTeam
+  const senior = effective?.senior ?? null
+  const hrs = effective?.hrs ?? []
+  const accountants = effective?.accountants ?? []
+  const juniors = effective?.juniors ?? project.members.filter((m) => m.role === 'JUNIOR' && m.leftAt === null)
+
+  return (
+    <Card className="border-border/40" data-testid="effective-team-card">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          Эффективный состав
+          <span className="ml-2 text-[10px] font-normal normal-case text-muted-foreground/60">
+            (HR/бухгалтер — из текущей команды синьора)
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Senior */}
+        <div data-testid="effective-team-senior">
+          <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider mb-1.5">
+            Синьор
+          </p>
+          {senior ? (
+            <Link
+              to="/crm/profile/$userId"
+              params={{ userId: senior.id }}
+              className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/30 transition-colors"
+            >
+              <Avatar className="h-7 w-7 shrink-0">
+                {senior.avatar && <AvatarImage src={senior.avatar} alt={senior.displayName} />}
+                <AvatarFallback className="text-[10px] font-semibold">{getInitials(senior.displayName)}</AvatarFallback>
+              </Avatar>
+              <span className="text-sm font-medium truncate flex-1 text-primary hover:underline">
+                {senior.displayName}
+              </span>
+              <Badge variant="senior" className="shrink-0 text-[9px]">Синьор</Badge>
+            </Link>
+          ) : (
+            <p className="text-xs text-muted-foreground/60 italic px-2">Синьор не назначен</p>
+          )}
+        </div>
+
+        {/* HR */}
+        <div data-testid="effective-team-hrs">
+          <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider mb-1.5">
+            HR ({hrs.length})
+          </p>
+          {hrs.length === 0 ? (
+            <p className="text-xs text-muted-foreground/60 italic px-2">HR не назначен</p>
+          ) : (
+            <div className="space-y-1">
+              {hrs.map((m) => (
+                <Link
+                  key={m.id}
+                  to="/crm/profile/$userId"
+                  params={{ userId: m.userId }}
+                  className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/30 transition-colors"
+                >
+                  <Avatar className="h-7 w-7 shrink-0">
+                    {m.avatar && <AvatarImage src={m.avatar} alt={m.displayName} />}
+                    <AvatarFallback className="text-[10px] font-semibold">{getInitials(m.displayName)}</AvatarFallback>
+                  </Avatar>
+                  <span className="text-sm font-medium truncate flex-1 text-primary hover:underline">
+                    {m.displayName}
+                  </span>
+                  <Badge variant="hr" className="shrink-0 text-[9px]">HR</Badge>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Accountants */}
+        <div data-testid="effective-team-accountants">
+          <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider mb-1.5">
+            Бухгалтеры ({accountants.length})
+          </p>
+          {accountants.length === 0 ? (
+            <p className="text-xs text-muted-foreground/60 italic px-2">Не назначен</p>
+          ) : (
+            <div className="space-y-1">
+              {accountants.map((m) => (
+                <Link
+                  key={m.id}
+                  to="/crm/profile/$userId"
+                  params={{ userId: m.userId }}
+                  className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/30 transition-colors"
+                >
+                  <Avatar className="h-7 w-7 shrink-0">
+                    {m.avatar && <AvatarImage src={m.avatar} alt={m.displayName} />}
+                    <AvatarFallback className="text-[10px] font-semibold">{getInitials(m.displayName)}</AvatarFallback>
+                  </Avatar>
+                  <span className="text-sm font-medium truncate flex-1 text-primary hover:underline">
+                    {m.displayName}
+                  </span>
+                  <Badge variant="accountant" className="shrink-0 text-[9px]">Бухгалтер</Badge>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Juniors */}
+        <div data-testid="effective-team-juniors">
+          <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider mb-1.5">
+            Джуны ({juniors.length})
+          </p>
+          {juniors.length === 0 ? (
+            <p className="text-xs text-amber-500/80 font-medium px-2">Джун не назначен</p>
+          ) : (
+            <div className="space-y-1">
+              {juniors.map((m) => (
+                <Link
+                  key={m.id}
+                  to="/crm/profile/$userId"
+                  params={{ userId: m.userId }}
+                  className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/30 transition-colors"
+                >
+                  <Avatar className="h-7 w-7 shrink-0">
+                    {m.avatar && <AvatarImage src={m.avatar} alt={m.displayName} />}
+                    <AvatarFallback className="text-[10px] font-semibold">{getInitials(m.displayName)}</AvatarFallback>
+                  </Avatar>
+                  <span className="text-sm font-medium truncate flex-1 text-primary hover:underline">
+                    {m.displayName}
+                  </span>
+                  <Badge variant="junior" className="shrink-0 text-[9px]">Джун</Badge>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
