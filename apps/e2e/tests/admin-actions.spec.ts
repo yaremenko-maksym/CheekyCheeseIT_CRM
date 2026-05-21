@@ -56,11 +56,11 @@ test.describe('Admin actions on user profile', () => {
     const dialog = page.getByRole('dialog')
     await expect(dialog).toBeVisible()
     await expect(dialog.getByRole('heading', { name: 'Изменить роль' })).toBeVisible()
-    // The role select is a shadcn Select rendered as a combobox; its current value
-    // is mirrored in the trigger's text content.
+    // ChangeRoleDialog now uses the colored RoleSelect (commit 163b850).
+    // The trigger shows the role's localized label via a Badge — ROLE_LABELS.JUNIOR = 'Джун'.
     const combobox = dialog.getByRole('combobox')
     await expect(combobox).toBeVisible()
-    await expect(combobox).toContainText('Junior')
+    await expect(combobox).toContainText('Джун')
   })
 
   test('changing role sends PATCH /users/:id/role with new role and shows toast', async ({ asAdmin: page }) => {

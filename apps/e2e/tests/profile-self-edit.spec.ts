@@ -125,8 +125,13 @@ test.describe('Profile self-edit — debounced autosave', () => {
     await mockAuthAs(page, USERS.junior)
     await page.goto('/crm/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
-    // Requisites tab content is rendered — RequisitesEditForm shows the card title.
-    await expect(page.getByText('Реквизиты для выплат')).toBeVisible()
+    // Requisites tab content is rendered — RequisitesTab self-mode shows a Card
+    // with CardTitle "Реквизиты для выплат" and a CardDescription containing
+    // the same phrase ("Выберите метод и заполните реквизиты для выплат").
+    // Target the heading specifically to avoid strict-mode violations.
+    await expect(
+      page.getByRole('heading', { name: 'Реквизиты для выплат' }),
+    ).toBeVisible()
     // Tab trigger is also visible — use exact match to avoid colliding with the
     // "Сохранить реквизиты" submit button.
     await expect(page.getByRole('button', { name: 'Реквизиты', exact: true })).toBeVisible()
