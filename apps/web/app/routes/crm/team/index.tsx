@@ -40,6 +40,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 import { useUnarchiveEntity } from '@/hooks/use-archive'
+import { AdminActionsMenu } from '@/components/admin-actions/AdminActionsMenu'
 
 const teamSearchSchema = z.object({
   archived: z.boolean().optional(),
@@ -572,19 +573,6 @@ function TeamPage() {
     },
   })
 
-  // Delete team
-  const [deleteTeam, setDeleteTeam] = useState<TeamDto | null>(null)
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/teams/${id}`),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['teams'] })
-      void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
-      void queryClient.invalidateQueries({ queryKey: ['projects'] })
-      setDeleteTeam(null)
-    },
-  })
-
   // Add member
   const [addMemberTeam, setAddMemberTeam] = useState<TeamDto | null>(null)
   const [addMemberUserId, setAddMemberUserId] = useState('')
@@ -841,14 +829,22 @@ function TeamPage() {
                   </Badge>
                 </div>
 
-                {/* Rename / Unarchive */}
+                {/* Rename / Unarchive / Admin actions */}
                 {isArchived && isAdmin && (
                   <div className="relative z-30 flex shrink-0 gap-1">
                     <TeamUnarchiveButton teamId={team.id} />
                   </div>
                 )}
                 {!isArchived && canManage && (
-                  <div className="relative z-30 flex shrink-0 gap-1">
+                  <div
+                    className="relative z-30 flex shrink-0 gap-1"
+                    onClick={(e) => {
+                      // Prevent the underlying Link from navigating when interacting with
+                      // any action control (rename / admin menu / dialogs spawned by them).
+                      e.stopPropagation()
+                      e.preventDefault()
+                    }}
+                  >
                     <Button
                       variant="ghost"
                       size="icon"
@@ -865,6 +861,14 @@ function TeamPage() {
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
+                    {isAdmin && (
+                      <AdminActionsMenu
+                        entityType="team"
+                        entityId={team.id}
+                        entityName={team.name}
+                        isArchived={false}
+                      />
+                    )}
                   </div>
                 )}
               </div>
@@ -966,29 +970,8 @@ function TeamPage() {
         </CrmDialogContent>
       </Dialog>
 
-      {/* Delete team confirmation dialog */}
-      <Dialog open={!!deleteTeam} onOpenChange={(open) => !open && setDeleteTeam(null)}>
-        <CrmDialogContent maxWidth="sm:max-w-sm">
-          <CrmDialogHeader>
-            <DialogTitle>Удалить команду «{deleteTeam?.name}»?</DialogTitle>
-          </CrmDialogHeader>
-          <CrmDialogBody className="pb-2">
-            <p className="text-sm text-muted-foreground">
-              Вместе с командой будут удалены её синьор и все его проекты. Это действие нельзя отменить.
-            </p>
-          </CrmDialogBody>
-          <CrmDialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTeam(null)}>Отмена</Button>
-            <Button
-              variant="destructive"
-              onClick={() => deleteTeam && deleteMutation.mutate(deleteTeam.id)}
-              disabled={deleteMutation.isPending}
-            >
-              Удалить
-            </Button>
-          </CrmDialogFooter>
-        </CrmDialogContent>
-      </Dialog>
+      {/* Archive is now handled via AdminActionsMenu on the team detail page
+          (ArchiveConfirmDialog with senior-name confirmation). No bulk delete UI here. */}
 
       {/* Add member dialog */}
       <Dialog open={!!addMemberTeam} onOpenChange={(open) => !open && setAddMemberTeam(null)}>

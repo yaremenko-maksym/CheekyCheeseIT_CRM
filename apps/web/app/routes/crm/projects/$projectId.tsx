@@ -19,11 +19,14 @@ import {
   Users,
 } from 'lucide-react'
 import { useState } from 'react'
-import type { ProjectDto, ProjectMemberDto, UpdateProjectDto, TransactionDto, EffectiveTeam } from '@crm/shared'
+import type {
+  ProjectDto,
+  ProjectDetailDto,
+  ProjectMemberDto,
+  UpdateProjectDto,
+  TransactionDto,
+} from '@crm/shared'
 import { createProjectSchema, IT_DOMAINS } from '@crm/shared'
-
-// Backend returns `effectiveTeam` only on GET /projects/:id — not in the shared schema yet.
-type ProjectDetailDto = ProjectDto & { effectiveTeam?: EffectiveTeam }
 import { financeApi } from '@/routes/crm/finance/api'
 import { TransactionDetailDialog } from '@/routes/crm/finance/components/dialogs/TransactionDetailDialog'
 import { TransactionRow } from '@/routes/crm/finance/components/TransactionRow'

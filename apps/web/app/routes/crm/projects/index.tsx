@@ -23,6 +23,7 @@ import {
   type UnarchiveError,
 } from '@/hooks/use-archive'
 import { CascadeUnarchiveModal } from '@/components/archive/CascadeUnarchiveModal'
+import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
@@ -200,13 +201,8 @@ function ProjectsPage() {
     },
   })
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/projects/${id}`),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['projects'] })
-      setDeleteProject(null)
-    },
-  })
+  // Archive is performed via `ArchiveConfirmDialog` (name-confirmation + impact warning)
+  // — same UX as team / user archive, no inline mutation needed here.
 
   const filtered = projects?.filter((p) => filter === 'ALL' || p.status === filter) ?? []
 
@@ -627,27 +623,15 @@ function ProjectsPage() {
         </CrmDialogContent>
       </Dialog>
 
-      {/* ── Archive project confirm ── */}
-      <Dialog open={!!deleteProject} onOpenChange={(open) => !open && setDeleteProject(null)}>
-        <CrmDialogContent maxWidth="sm:max-w-sm">
-          <CrmDialogHeader>
-            <DialogTitle>Архивировать проект «{deleteProject?.name}»?</DialogTitle>
-          </CrmDialogHeader>
-          <CrmDialogBody className="pb-2">
-            <p className="text-sm text-muted-foreground">
-              Проект будет архивирован, активные джуны будут отвязаны. Синьор и команда{' '}
-              <strong>не</strong> будут архивированы. Финансовая история остаётся
-              доступной. Восстановление возможно через «Показать архивных».
-            </p>
-          </CrmDialogBody>
-          <CrmDialogFooter>
-            <Button variant="outline" onClick={() => setDeleteProject(null)}>Отмена</Button>
-            <Button variant="destructive" onClick={() => deleteProject && deleteMutation.mutate(deleteProject.id)} disabled={deleteMutation.isPending}>
-              Архивировать
-            </Button>
-          </CrmDialogFooter>
-        </CrmDialogContent>
-      </Dialog>
+      {/* ── Archive project confirm — shared ArchiveConfirmDialog ── */}
+      {deleteProject && (
+        <ArchiveConfirmDialog
+          entityType="project"
+          entityId={deleteProject.id}
+          entityName={deleteProject.name}
+          onClose={() => setDeleteProject(null)}
+        />
+      )}
 
       {/* ── Cascade unarchive modal (project + paired senior/team) ── */}
       {cascadeProject && (

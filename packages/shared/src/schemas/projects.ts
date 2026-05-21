@@ -74,6 +74,10 @@ export const projectSchema = z.object({
 
 // Computed `effectiveTeam` returned by GET /projects/:id — see spec §5.2
 // HR/Accountant pulled dynamically from senior's current team_members (not snapshot at archive).
+//
+// IMPORTANT: `effectiveTeam` is exposed on the DETAIL endpoint only (GET /projects/:id) —
+// the list endpoint (GET /projects) returns the base `projectSchema` without this field.
+// Frontend consumes the detail shape via `projectDetailSchema` / `ProjectDetailDto`.
 export const effectiveTeamSchema = z.object({
   senior: z.object({
     id: z.string().uuid(),
@@ -99,6 +103,14 @@ export const effectiveTeamSchema = z.object({
     role: z.literal('ACCOUNTANT'),
   })),
   juniors: z.array(projectMemberSchema),
+})
+
+// Detail shape returned by `GET /projects/:id`. Extends the base `projectSchema`
+// with the computed `effectiveTeam` view. Frontend uses this in detail-page routes
+// and in any cascading action UI (admin actions, unarchive modals) where it needs
+// the current HR/Accountant pair without a separate fetch.
+export const projectDetailSchema = projectSchema.extend({
+  effectiveTeam: effectiveTeamSchema.optional(),
 })
 
 // Action types for project audit log
@@ -214,6 +226,7 @@ export type CreateProjectDto = z.infer<typeof createProjectSchema>
 export type UpdateProjectDto = z.infer<typeof updateProjectSchema>
 export type AddProjectMemberDto = z.infer<typeof addProjectMemberSchema>
 export type EffectiveTeam = z.infer<typeof effectiveTeamSchema>
+export type ProjectDetailDto = z.infer<typeof projectDetailSchema>
 export type ProjectAuditAction = z.infer<typeof projectAuditActionSchema>
 export type ProjectAuditLogEntry = z.infer<typeof projectAuditLogEntrySchema>
 export type ProjectAuditLogList = z.infer<typeof projectAuditLogListSchema>
