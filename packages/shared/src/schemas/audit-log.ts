@@ -10,6 +10,7 @@ export const auditActionSchema = z.enum([
   'team_membership',
   'project_reassignment',
   'user_archived',
+  'user_unarchived',
 ])
 
 export const auditChangeSchema = z.object({

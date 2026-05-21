@@ -67,8 +67,105 @@ export const projectSchema = z.object({
   salaryReview: z.string().nullable(),
   corpTech: z.string().nullable(),
   notesGeneral: z.string().nullable(),
+  archivedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+})
+
+// Computed `effectiveTeam` returned by GET /projects/:id — see spec §5.2
+// HR/Accountant pulled dynamically from senior's current team_members (not snapshot at archive).
+export const effectiveTeamSchema = z.object({
+  senior: z.object({
+    id: z.string().uuid(),
+    displayName: z.string(),
+    email: z.string().email(),
+    avatar: z.string().url().nullable(),
+    role: z.literal('SENIOR'),
+  }).nullable(),
+  hrs: z.array(z.object({
+    id: z.string().uuid(),
+    userId: z.string().uuid(),
+    displayName: z.string(),
+    email: z.string().email(),
+    avatar: z.string().url().nullable(),
+    role: z.literal('HR'),
+  })),
+  accountants: z.array(z.object({
+    id: z.string().uuid(),
+    userId: z.string().uuid(),
+    displayName: z.string(),
+    email: z.string().email(),
+    avatar: z.string().url().nullable(),
+    role: z.literal('ACCOUNTANT'),
+  })),
+  juniors: z.array(projectMemberSchema),
+})
+
+// Action types for project audit log
+export const projectAuditActionSchema = z.enum([
+  'project_created',
+  'project_edited',
+  'project_status_changed',
+  'project_archived',
+  'project_unarchived',
+  'project_member_added',
+  'project_member_removed',
+])
+
+export const projectAuditLogEntrySchema = z.object({
+  id: z.string().uuid(),
+  actorId: z.string().uuid().nullable(),
+  targetId: z.string().uuid(),
+  action: projectAuditActionSchema,
+  changes: z.record(z.string(), z.object({ before: z.unknown(), after: z.unknown() })),
+  createdAt: z.coerce.date(),
+})
+
+export const projectAuditLogListSchema = z.object({
+  entries: z.array(projectAuditLogEntrySchema),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  limit: z.number().int().positive(),
+})
+
+// Returned to UI to show warning before archive (cascade impact summary).
+export const archiveImpactSchema = z.union([
+  // User impact
+  z.object({
+    type: z.literal('user'),
+    role: z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT']),
+    isPaired: z.boolean().optional(),
+    teamName: z.string().nullable().optional(),
+    teamsCount: z.number().int().nonnegative().optional(),
+    projectsCount: z.number().int().nonnegative().optional(),
+    juniorsAffected: z.number().int().nonnegative().optional(),
+    hrAccountantsToBeRemoved: z.number().int().nonnegative().optional(),
+    noDependencies: z.boolean().optional(),
+  }),
+  // Team impact (alias for senior's pair)
+  z.object({
+    type: z.literal('team'),
+    isPaired: z.literal(true),
+    teamName: z.string(),
+    seniorName: z.string(),
+    projectsCount: z.number().int().nonnegative(),
+    membersAffected: z.number().int().nonnegative(),
+  }),
+  // Project impact (independent)
+  z.object({
+    type: z.literal('project'),
+    activeMembersCount: z.number().int().nonnegative(),
+  }),
+])
+
+// 409 body shape when project unarchive requires cascade (senior/team archived).
+export const cascadeRequiredErrorSchema = z.object({
+  requiresCascade: z.literal(true),
+  entities: z.array(z.object({
+    type: z.enum(['user', 'team']),
+    id: z.string().uuid(),
+    name: z.string(),
+  })),
 })
 
 export const createProjectSchema = z.object({
@@ -116,3 +213,9 @@ export type ProjectDto = z.infer<typeof projectSchema>
 export type CreateProjectDto = z.infer<typeof createProjectSchema>
 export type UpdateProjectDto = z.infer<typeof updateProjectSchema>
 export type AddProjectMemberDto = z.infer<typeof addProjectMemberSchema>
+export type EffectiveTeam = z.infer<typeof effectiveTeamSchema>
+export type ProjectAuditAction = z.infer<typeof projectAuditActionSchema>
+export type ProjectAuditLogEntry = z.infer<typeof projectAuditLogEntrySchema>
+export type ProjectAuditLogList = z.infer<typeof projectAuditLogListSchema>
+export type ArchiveImpact = z.infer<typeof archiveImpactSchema>
+export type CascadeRequiredError = z.infer<typeof cascadeRequiredErrorSchema>
