@@ -11,6 +11,11 @@ export interface AuditChange {
   after: unknown
 }
 
+/** See AuditLogService for rationale — Drizzle's tx generic surface differs
+ *  from top-level db so we keep this loose. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type TeamAuditLogTransaction = any
+
 /**
  * Mirrors `apps/api/src/users/audit-log.service.ts` for teams.
  * Internal — no controller endpoints; used from TeamsService and UsersService.
@@ -48,14 +53,22 @@ export class TeamAuditLogService {
     return false
   }
 
-  async record(params: {
-    actorId: string | null
-    targetId: string
-    action: TeamAuditAction
-    changes: Record<string, AuditChange>
-  }): Promise<void> {
+  /**
+   * Records a team audit log entry. Pass `tx` when called inside a
+   * `db.transaction()` block to keep the insert atomic with entity changes.
+   */
+  async record(
+    params: {
+      actorId: string | null
+      targetId: string
+      action: TeamAuditAction
+      changes: Record<string, AuditChange>
+    },
+    tx?: TeamAuditLogTransaction,
+  ): Promise<void> {
     if (Object.keys(params.changes).length === 0) return
-    await this.db.db.insert(teamAuditLog).values({
+    const conn = tx ?? this.db.db
+    await conn.insert(teamAuditLog).values({
       actorId: params.actorId,
       targetId: params.targetId,
       action: params.action,

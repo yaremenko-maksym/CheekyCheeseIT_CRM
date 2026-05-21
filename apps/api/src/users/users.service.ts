@@ -334,24 +334,6 @@ export class UsersService {
     await this.db.db.insert(teamMembers).values({ teamId, userId })
   }
 
-  async deleteUser(id: string): Promise<void> {
-    const user = await this.findById(id)
-    if (!user) throw new NotFoundException('User not found')
-
-    if (user.role === 'SENIOR') {
-      const membership = await this.db.db
-        .select()
-        .from(teamMembers)
-        .where(eq(teamMembers.userId, id))
-        .then((rows) => rows[0])
-      if (membership) {
-        await this.db.db.delete(teams).where(eq(teams.id, membership.teamId))
-      }
-    }
-
-    await this.db.db.delete(users).where(eq(users.id, id))
-  }
-
   async updateProfile(
     id: string,
     data: {
@@ -482,7 +464,19 @@ export class UsersService {
             targetId: teamId,
             action: 'team_archived',
             changes: { archivedAt: { before: null, after: now.toISOString() } },
-          })
+          }, tx)
+
+          // Snapshot HR/Acc that get detached so we can write per-member audit entries
+          // BEFORE the bulk UPDATE marks them as left.
+          const hrAccToRemove = await tx
+            .select({ userId: teamMembers.userId, role: users.role })
+            .from(teamMembers)
+            .innerJoin(users, eq(users.id, teamMembers.userId))
+            .where(and(
+              eq(teamMembers.teamId, teamId),
+              isNull(teamMembers.leftAt),
+              ne(teamMembers.userId, id),
+            ))
 
           // Set leftAt for HR/Acc — keep SENIOR's own row untouched (ne userId, id).
           await tx
@@ -493,6 +487,17 @@ export class UsersService {
               isNull(teamMembers.leftAt),
               ne(teamMembers.userId, id),
             ))
+
+          // One team_member_removed audit entry per detached HR/Accountant, so the
+          // team's history mirrors a manual removal (matches HR-only branch below).
+          for (const m of hrAccToRemove) {
+            await this.teamAuditLogService.record({
+              actorId,
+              targetId: teamId,
+              action: 'team_member_removed',
+              changes: { userId: { before: m.userId, after: null }, role: { before: m.role, after: null } },
+            }, tx)
+          }
         }
 
         // Archive all of senior's active projects + remove active project_members.
@@ -511,7 +516,7 @@ export class UsersService {
             targetId: p.id,
             action: 'project_archived',
             changes: { archivedAt: { before: null, after: now.toISOString() } },
-          })
+          }, tx)
           // Cascade-remove active JUNIORs from project_members.
           await tx
             .update(projectMembers)
@@ -535,11 +540,14 @@ export class UsersService {
               targetId: m.teamId,
               action: 'team_member_removed',
               changes: { userId: { before: id, after: null }, role: { before: user.role, after: null } },
-            })
+            }, tx)
           }
         }
       } else if (user.role === 'JUNIOR') {
-        // Remove from all active project memberships + any team memberships.
+        // Detach JUNIOR from all active project memberships.
+        // NB: JUNIOR is never persisted in `team_members` — team membership for
+        // JUNIORs is derived state (project membership ⇒ implicit team), see
+        // CLAUDE.md §Teams. So we deliberately do NOT update team_members here.
         const projectMemberships = await tx
           .select({ id: projectMembers.id, projectId: projectMembers.projectId })
           .from(projectMembers)
@@ -555,13 +563,9 @@ export class UsersService {
               targetId: pm.projectId,
               action: 'project_member_removed',
               changes: { userId: { before: id, after: null } },
-            })
+            }, tx)
           }
         }
-        await tx
-          .update(teamMembers)
-          .set({ leftAt: now })
-          .where(and(eq(teamMembers.userId, id), isNull(teamMembers.leftAt)))
       }
       // ADMIN: no dependencies.
 
@@ -571,7 +575,7 @@ export class UsersService {
         targetId: id,
         action: 'user_archived',
         changes: { archivedAt: { before: null, after: now.toISOString() } },
-      })
+      }, tx)
 
       const updated = await tx
         .select()
@@ -590,59 +594,7 @@ export class UsersService {
    */
   async unarchive(id: string, actorId: string | null = null): Promise<User> {
     return this.db.db.transaction(async (tx) => {
-      const user = await tx
-        .select()
-        .from(users)
-        .where(eq(users.id, id))
-        .then((rows) => rows[0])
-      if (!user) throw new NotFoundException('User not found')
-      if (!user.archivedAt) throw new BadRequestException('User is not archived')
-
-      const now = new Date()
-      const previousArchivedAt = user.archivedAt
-
-      await tx
-        .update(users)
-        .set({ archivedAt: null, updatedAt: now })
-        .where(eq(users.id, id))
-
-      await this.auditLogService.record({
-        actorId,
-        targetId: id,
-        action: 'user_unarchived',
-        changes: { archivedAt: { before: previousArchivedAt?.toISOString() ?? null, after: null } },
-      })
-
-      if (user.role === 'SENIOR') {
-        // Pair-unarchive: also unarchive the team via senior's team_member row.
-        const seniorMembership = await tx
-          .select()
-          .from(teamMembers)
-          .where(eq(teamMembers.userId, id))
-          .then((rows) => rows[0])
-        if (seniorMembership) {
-          const team = await tx
-            .select()
-            .from(teams)
-            .where(eq(teams.id, seniorMembership.teamId))
-            .then((rows) => rows[0])
-          if (team?.archivedAt) {
-            const teamPreviousArchivedAt = team.archivedAt
-            await tx
-              .update(teams)
-              .set({ archivedAt: null, updatedAt: now })
-              .where(eq(teams.id, team.id))
-            await this.teamAuditLogService.record({
-              actorId,
-              targetId: team.id,
-              action: 'team_unarchived',
-              changes: { archivedAt: { before: teamPreviousArchivedAt.toISOString(), after: null } },
-            })
-          }
-        }
-        // Projects intentionally stay archived; HR/Acc team_members.leftAt stays.
-      }
-
+      await this.unarchivePairTx(tx, id, actorId)
       const updated = await tx
         .select()
         .from(users)
@@ -651,6 +603,77 @@ export class UsersService {
       if (!updated) throw new NotFoundException('User not found')
       return updated
     })
+  }
+
+  /**
+   * Pair-unarchive primitive that runs ENTIRELY within the caller's transaction.
+   * Used by:
+   *   - `UsersService.unarchive()` — wraps this in its own tx
+   *   - `ProjectsService.unarchive(cascade=true)` — passes its outer tx so the
+   *     project unarchive + senior/team unarchive commit atomically (no nested
+   *     transactions, no orphaned state if the outer flow throws).
+   *
+   * IMPORTANT: All mutations and audit log writes use the supplied `tx` — never
+   * `this.db.db` — so rollback discards everything together. Caller is
+   * responsible for opening the transaction.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async unarchivePairTx(tx: any, id: string, actorId: string | null = null): Promise<void> {
+    const user = await tx
+      .select()
+      .from(users)
+      .where(eq(users.id, id))
+      .then((rows: User[]) => rows[0])
+    if (!user) throw new NotFoundException('User not found')
+    if (!user.archivedAt) throw new BadRequestException('User is not archived')
+
+    const now = new Date()
+    const previousArchivedAt = user.archivedAt
+
+    await tx
+      .update(users)
+      .set({ archivedAt: null, updatedAt: now })
+      .where(eq(users.id, id))
+
+    await this.auditLogService.record({
+      actorId,
+      targetId: id,
+      action: 'user_unarchived',
+      changes: { archivedAt: { before: previousArchivedAt?.toISOString() ?? null, after: null } },
+    }, tx)
+
+    if (user.role === 'SENIOR') {
+      // Pair-unarchive: also unarchive the team via senior's team_member row.
+      // We require `leftAt IS NULL` because senior's own membership is the
+      // permanent identity link and stays active even while archived. A row
+      // with `leftAt != NULL` would be stale data we shouldn't follow.
+      const seniorMembership = await tx
+        .select()
+        .from(teamMembers)
+        .where(and(eq(teamMembers.userId, id), isNull(teamMembers.leftAt)))
+        .then((rows: Array<typeof teamMembers.$inferSelect>) => rows[0])
+      if (seniorMembership) {
+        const team = await tx
+          .select()
+          .from(teams)
+          .where(eq(teams.id, seniorMembership.teamId))
+          .then((rows: Array<typeof teams.$inferSelect>) => rows[0])
+        if (team?.archivedAt) {
+          const teamPreviousArchivedAt = team.archivedAt
+          await tx
+            .update(teams)
+            .set({ archivedAt: null, updatedAt: now })
+            .where(eq(teams.id, team.id))
+          await this.teamAuditLogService.record({
+            actorId,
+            targetId: team.id,
+            action: 'team_unarchived',
+            changes: { archivedAt: { before: teamPreviousArchivedAt.toISOString(), after: null } },
+          }, tx)
+        }
+      }
+      // Projects intentionally stay archived; HR/Acc team_members.leftAt stays.
+    }
   }
 
   /**

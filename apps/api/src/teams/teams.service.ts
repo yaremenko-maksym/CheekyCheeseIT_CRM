@@ -304,24 +304,6 @@ export class TeamsService {
     }
   }
 
-  /**
-   * @deprecated Hard-delete kept for backward compat with seed scripts and tests.
-   * Real admin flow uses `archive()` (soft archive + cascade).
-   */
-  async remove(id: string, currentUser: SessionUser) {
-    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
-
-    const team = await this.db.db.query.teams.findFirst({
-      where: eq(teams.id, id),
-      with: { members: { with: { user: true } } },
-    })
-    if (!team) throw new NotFoundException('Team not found')
-
-    // Delete the team - FK cascades will handle team_members removal
-    // The senior user remains in the database and can be assigned to other teams
-    await this.db.db.delete(teams).where(eq(teams.id, id))
-  }
-
   async addMember(teamId: string, userId: string, currentUser: SessionUser) {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') {
       throw new ForbiddenException()

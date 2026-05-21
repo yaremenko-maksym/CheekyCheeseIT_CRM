@@ -157,70 +157,9 @@ describe('TeamsService.update', () => {
   })
 })
 
-// ---------------------------------------------------------------------------
-// remove
-// ---------------------------------------------------------------------------
-
-describe('TeamsService.remove', () => {
-  it('ADMIN can delete a team without a senior member', async () => {
-    const team = makeTeam({ members: [makeMember('hr-1', 'HR')] })
-    const db = makeDb({ team })
-    const service = new TeamsService(db)
-    await expect(service.remove('team-1', adminUser)).resolves.toBeUndefined()
-    // Only the team itself is deleted (no senior to remove)
-    const deleteMock = db.db.delete as ReturnType<typeof vi.fn>
-    expect(deleteMock).toHaveBeenCalledTimes(1)
-  })
-
-  it('CRITICAL FIX: deletes only the team, preserving all users', async () => {
-    const team = makeTeam({ members: [makeMember('senior-1', 'SENIOR'), makeMember('hr-1', 'HR')] })
-    const db = makeDb({ team })
-    const service = new TeamsService(db)
-    await service.remove('team-1', adminUser)
-    // delete called only once: teams table only (users are preserved)
-    const deleteMock = db.db.delete as ReturnType<typeof vi.fn>
-    expect(deleteMock).toHaveBeenCalledTimes(1)
-  })
-
-  it('CRITICAL FIX: team deletion preserves senior user and their projects', async () => {
-    const team = makeTeam({ members: [makeMember('senior-1', 'SENIOR')] })
-    const db = makeDb({ team })
-    const service = new TeamsService(db)
-    await service.remove('team-1', adminUser)
-    const deleteMock = db.db.delete as ReturnType<typeof vi.fn>
-    // Only one delete call for teams table
-    expect(deleteMock).toHaveBeenCalledTimes(1)
-    // Verify the delete was called with teams table (not users)
-    const deleteArg = deleteMock.mock.calls[0]?.[0]
-    expect(deleteArg?.[Symbol.for('drizzle:Name')] ?? deleteArg?._.name ?? String(deleteArg)).toMatch(/team/)
-  })
-
-  it('HR cannot delete a team', async () => {
-    const service = new TeamsService(makeDb({ team: makeTeam() }))
-    await expect(service.remove('team-1', hrUser)).rejects.toThrow(ForbiddenException)
-  })
-
-  it('SENIOR cannot delete a team', async () => {
-    const service = new TeamsService(makeDb({ team: makeTeam() }))
-    await expect(service.remove('team-1', seniorUser)).rejects.toThrow(ForbiddenException)
-  })
-
-  it('throws NotFoundException when team not found', async () => {
-    const db = makeDb({ team: undefined })
-    const service = new TeamsService(db)
-    await expect(service.remove('no-team', adminUser)).rejects.toThrow(NotFoundException)
-  })
-
-  it('does not attempt to delete a senior when team has no senior member', async () => {
-    const team = makeTeam({ members: [makeMember('hr-1', 'HR'), makeMember('acc-1', 'ACCOUNTANT')] })
-    const db = makeDb({ team })
-    const service = new TeamsService(db)
-    await service.remove('team-1', adminUser)
-    const deleteMock = db.db.delete as ReturnType<typeof vi.fn>
-    // Only one delete: the team itself
-    expect(deleteMock).toHaveBeenCalledTimes(1)
-  })
-})
+// NOTE: `TeamsService.remove` hard-delete has been removed (use `archive` for
+// soft archive). The corresponding test block has been removed alongside the
+// dead method. Archive cascade behaviour is tested in `teams.archive.spec.ts`.
 
 // ---------------------------------------------------------------------------
 // addMember

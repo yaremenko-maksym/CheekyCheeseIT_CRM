@@ -213,13 +213,19 @@ function makeDb(store: Store) {
   }
 }
 
-function buildService(store: Store, opts: { usersServiceUnarchive?: (id: string, actorId: string) => Promise<unknown> } = {}) {
+function buildService(store: Store, opts: { usersServiceUnarchive?: (tx: unknown, id: string, actorId: string) => Promise<unknown> } = {}) {
   const projectAuditLogService = {
     record: vi.fn(async () => undefined),
     list: vi.fn(async () => ({ entries: [], total: 0 })),
   }
+  // ProjectsService now calls `usersService.unarchivePairTx(tx, id, actorId)`
+  // (NOT the public `unarchive`) so the project unarchive and the senior/team
+  // unarchive share the same outer transaction. We stub `unarchivePairTx`
+  // accordingly; `unarchive` is kept as a no-op spy in case any legacy test
+  // assertions reference it.
   const usersService = {
-    unarchive: vi.fn(opts.usersServiceUnarchive ?? (async () => undefined)),
+    unarchive: vi.fn(async () => undefined),
+    unarchivePairTx: vi.fn(opts.usersServiceUnarchive ?? (async () => undefined)),
   }
   const db = makeDb(store)
   const service = new ProjectsService(db as never, projectAuditLogService as never, usersService as never)
@@ -354,14 +360,14 @@ describe('ProjectsService.unarchive', () => {
     expect(response.entities.find((e) => e.type === 'user')?.id).toBe('senior-1')
   })
 
-  it('with cascade=true: calls usersService.unarchive and unarchives project', async () => {
+  it('with cascade=true: calls usersService.unarchivePairTx (same tx) and unarchives project', async () => {
     const store = emptyStore()
     seedActiveSeniorTeamProject(store)
     ;(store.projects[0] as ProjectFixture).archivedAt = new Date()
     ;(store.users[0] as { archivedAt: Date | null }).archivedAt = new Date()
     ;(store.teams[0] as { archivedAt: Date | null }).archivedAt = new Date()
     const { service, usersService } = buildService(store, {
-      usersServiceUnarchive: async (id: string) => {
+      usersServiceUnarchive: async (_tx: unknown, id: string) => {
         // Simulate paired unarchive: clear senior + team archivedAt.
         const u = store.users.find((u) => u.id === id)
         if (u) (u as { archivedAt: Date | null }).archivedAt = null
@@ -373,7 +379,14 @@ describe('ProjectsService.unarchive', () => {
 
     await service.unarchive('proj-1', adminUser, true)
 
-    expect(usersService.unarchive).toHaveBeenCalledWith('senior-1', adminUser.id)
+    // Assertion: pair-unarchive flows through unarchivePairTx (the tx-aware
+    // helper), NOT the public unarchive() that would open a nested tx.
+    expect(usersService.unarchivePairTx).toHaveBeenCalled()
+    const [txArg, idArg, actorArg] = usersService.unarchivePairTx.mock.calls[0]!
+    expect(idArg).toBe('senior-1')
+    expect(actorArg).toBe(adminUser.id)
+    expect(txArg).toBeDefined()  // a tx handle from the outer transaction
+    expect(usersService.unarchive).not.toHaveBeenCalled()
     expect((store.projects[0] as ProjectFixture).archivedAt).toBeNull()
     expect((store.users[0] as { archivedAt: Date | null }).archivedAt).toBeNull()
     expect((store.teams[0] as { archivedAt: Date | null }).archivedAt).toBeNull()

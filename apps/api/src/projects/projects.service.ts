@@ -339,7 +339,7 @@ export class ProjectsService {
             targetId: id,
             action: 'project_member_removed',
             changes: { userId: { before: j.userId, after: null } },
-          })
+          }, tx)
         }
       }
 
@@ -348,7 +348,7 @@ export class ProjectsService {
         targetId: id,
         action: 'project_archived',
         changes: { archivedAt: { before: null, after: now.toISOString() } },
-      })
+      }, tx)
 
       return this.findOne(id, currentUser)
     })
@@ -409,8 +409,11 @@ export class ProjectsService {
       const previousArchivedAt = project.archivedAt
 
       if (cascade && senior?.archivedAt) {
-        // Delegate pair-unarchive to UsersService — restores senior + team in one go.
-        await this.usersService.unarchive(senior.id, currentUser.id)
+        // Pair-unarchive senior + team via the SAME outer transaction (`tx`).
+        // We deliberately DO NOT call `this.usersService.unarchive(...)` because
+        // that opens its own `db.transaction()` — making it impossible to roll
+        // back together with the project mutations below if anything throws.
+        await this.usersService.unarchivePairTx(tx, senior.id, currentUser.id)
       }
 
       await tx
@@ -423,7 +426,7 @@ export class ProjectsService {
         targetId: id,
         action: 'project_unarchived',
         changes: { archivedAt: { before: previousArchivedAt.toISOString(), after: null } },
-      })
+      }, tx)
 
       // project_members.leftAt intentionally NOT restored.
       return this.findOne(id, currentUser)
@@ -448,21 +451,6 @@ export class ProjectsService {
       ))
 
     return { type: 'project', activeMembersCount: activeJuniors.length }
-  }
-
-  /**
-   * @deprecated Hard-delete kept for backward compat with seed scripts and tests.
-   * Real admin flow uses `archive()` (soft archive).
-   */
-  async remove(id: string, currentUser: SessionUser) {
-    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
-
-    const project = await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, id),
-    })
-    if (!project) throw new NotFoundException('Project not found')
-
-    await this.db.db.delete(projects).where(eq(projects.id, id))
   }
 
   async addMember(projectId: string, userId: string, currentUser: SessionUser) {

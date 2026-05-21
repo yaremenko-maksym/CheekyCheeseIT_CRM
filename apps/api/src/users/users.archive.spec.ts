@@ -225,18 +225,83 @@ function makeDb(store: FakeStore) {
     },
   }
 
-  const db = {
+  // Counters track WHICH handle (top-level db vs transaction tx) was used for
+  // each mutation type. We use them to assert that all writes inside
+  // db.transaction() flow through `tx` — i.e. they would roll back together
+  // with the entity mutations. If a code path mistakenly uses `this.db.db`
+  // for an audit-log insert inside a tx, the counters reveal the leak.
+  const counters = {
+    dbInsert: 0,
+    dbUpdate: 0,
+    dbDelete: 0,
+    txInsert: 0,
+    txUpdate: 0,
+    txDelete: 0,
+  }
+
+  // ---- Two-stage transaction tracking ----
+  // The fake's `tx` is a *separate* object from `db`. They share the same
+  // backing `store` arrays (the row mutations are visible across both), but
+  // calls on `tx` increment `tx*` counters and calls on `db` increment `db*`.
+  // This catches bugs where code closes over `this.db.db` instead of `tx`.
+  //
+  // We also support "rollback" semantics: when the transaction body throws,
+  // we restore the store snapshot taken at tx entry — so tests can assert
+  // that audit log rows are rolled back together with entity changes.
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const wrapMutation = <F extends (...args: any[]) => any>(fn: F, kind: 'insert' | 'update' | 'delete', target: 'db' | 'tx'): F => {
+    return ((...args: Parameters<F>) => {
+      counters[`${target}${kind.charAt(0).toUpperCase() + kind.slice(1)}` as keyof typeof counters]++
+      return fn(...args)
+    }) as F
+  }
+
+  const makeHandle = (target: 'db' | 'tx') => ({
     select: (_proj?: unknown) => ({
       from: (table: unknown) => selectChain(table),
     }),
-    insert: buildInsert,
-    update: buildUpdate,
-    delete: buildDelete,
+    insert: wrapMutation(buildInsert, 'insert', target),
+    update: wrapMutation(buildUpdate, 'update', target),
+    delete: wrapMutation(buildDelete, 'delete', target),
     query: queryHelpers,
-    transaction: async <T,>(fn: (tx: typeof db) => Promise<T>): Promise<T> => fn(db),
+  })
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db: any = {
+    ...makeHandle('db'),
+    transaction: async <T,>(fn: (tx: unknown) => Promise<T>): Promise<T> => {
+      // Capture a snapshot of every row's current shape (shallow clone keeps
+      // Date instances intact). On rollback we restore the array contents
+      // back to this snapshot, mutating row objects in place where they
+      // existed before the tx started.
+      const snapshot: Record<keyof FakeStore, Array<Record<string, unknown>>> = {
+        users: store.users.map((r) => ({ ...r })),
+        teams: store.teams.map((r) => ({ ...r })),
+        teamMembers: store.teamMembers.map((r) => ({ ...r })),
+        projects: store.projects.map((r) => ({ ...r })),
+        projectMembers: store.projectMembers.map((r) => ({ ...r })),
+        userAuditLog: store.userAuditLog.map((r) => ({ ...r })),
+        teamAuditLog: store.teamAuditLog.map((r) => ({ ...r })),
+        projectAuditLog: store.projectAuditLog.map((r) => ({ ...r })),
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const tx: any = makeHandle('tx')
+      try {
+        return await fn(tx)
+      } catch (err) {
+        for (const key of Object.keys(store) as Array<keyof FakeStore>) {
+          (store[key] as Array<unknown>).length = 0
+          for (const row of snapshot[key]) {
+            (store[key] as Array<unknown>).push(row)
+          }
+        }
+        throw err
+      }
+    },
   }
 
-  return { db }
+  return { db, counters }
 }
 
 // We need to inject a predicate marker into drizzle expressions so the in-memory
@@ -280,31 +345,53 @@ function seedSeniorWithTeamAndProjects(store: FakeStore) {
 // ---------------------------------------------------------------------------
 
 function buildService(store: FakeStore) {
+  // The audit-log fakes record which handle (db.db vs tx) was passed in. A
+  // record() call inside a `db.transaction()` block MUST receive `tx` so the
+  // audit row is part of the same transaction. If a test ever observes
+  // `txHandle === undefined` here for an in-transaction call, it means the
+  // service forgot to thread `tx` and the audit row would leak past rollback.
+  const usedTxFor: Record<string, Array<unknown>> = { user: [], team: [], project: [] }
   const auditLogService = {
-    record: vi.fn(async (params: { actorId: string | null; targetId: string; action: string; changes: unknown }) => {
+    record: vi.fn(async (
+      params: { actorId: string | null; targetId: string; action: string; changes: unknown },
+      tx?: unknown,
+    ) => {
+      usedTxFor.user!.push(tx)
       store.userAuditLog.push({ ...params })
     }),
   }
   const teamAuditLogService = {
-    record: vi.fn(async (params: { actorId: string | null; targetId: string; action: string; changes: unknown }) => {
+    record: vi.fn(async (
+      params: { actorId: string | null; targetId: string; action: string; changes: unknown },
+      tx?: unknown,
+    ) => {
+      usedTxFor.team!.push(tx)
       store.teamAuditLog.push({ ...params })
     }),
   }
   const projectAuditLogService = {
-    record: vi.fn(async (params: { actorId: string | null; targetId: string; action: string; changes: unknown }) => {
+    record: vi.fn(async (
+      params: { actorId: string | null; targetId: string; action: string; changes: unknown },
+      tx?: unknown,
+    ) => {
+      usedTxFor.project!.push(tx)
       store.projectAuditLog.push({ ...params })
     }),
   }
   const accessService = {} as never
-  const db = makeDb(store)
+  const { db, counters } = makeDb(store)
+  // UsersService expects a DatabaseService-shaped object — i.e. one with a
+  // `.db` field whose value is the actual Drizzle handle. Our `db` from
+  // makeDb IS the handle, so we wrap it in { db } to match the service's
+  // `this.db.db.*` access pattern.
   const service = new UsersService(
-    db as never,
+    { db } as never,
     accessService,
     auditLogService as never,
     teamAuditLogService as never,
     projectAuditLogService as never,
   )
-  return { service, auditLogService, teamAuditLogService, projectAuditLogService, store }
+  return { service, auditLogService, teamAuditLogService, projectAuditLogService, store, counters, usedTxFor, db }
 }
 
 // The fake's select/update predicates are opaque so we have to substitute
@@ -428,6 +515,62 @@ describe('UsersService.archive — SENIOR (pair cascade)', () => {
     const store = emptyStore()
     const { service } = buildService(store)
     await expect(service.archive('ghost', 'admin-x')).rejects.toThrow(NotFoundException)
+  })
+
+  it('threads tx through every audit-log call inside the transaction (atomicity)', async () => {
+    // This test would have caught the original bug: previously the service
+    // called `this.auditLogService.record(...)` without passing `tx`, so
+    // audit rows would survive a transaction rollback. After the fix, every
+    // record() call inside db.transaction() receives `tx` — the assertion
+    // here asserts that all observed handles are defined (i.e. not undefined,
+    // which would indicate the service used the top-level db connection).
+    const store = emptyStore()
+    seedSeniorWithTeamAndProjects(store)
+    const { service, usedTxFor, counters } = buildService(store)
+
+    await service.archive('senior-1', 'admin-x')
+
+    // No audit-log handle should be undefined — every call ran inside a tx.
+    expect(usedTxFor.user!.every((tx) => tx !== undefined)).toBe(true)
+    expect(usedTxFor.team!.every((tx) => tx !== undefined)).toBe(true)
+    expect(usedTxFor.project!.every((tx) => tx !== undefined)).toBe(true)
+
+    // And the top-level db handle should NOT have been used for any mutation
+    // inside the transaction (insert/update/delete). All went through tx.
+    // (Audit log inserts are routed through the fake audit services which
+    // are vi.fn mocks — so they don't show up in the fake-db counters; the
+    // `usedTxFor` checks above cover those. Here we only verify entity
+    // mutations — which only use tx.update — touched `tx`, not `db`.)
+    expect(counters.dbInsert + counters.dbUpdate + counters.dbDelete).toBe(0)
+    expect(counters.txUpdate).toBeGreaterThan(0)
+  })
+
+  it('rolls back audit log entries when the transaction throws', async () => {
+    // Simulate an inner failure after some audit log writes — assert the
+    // store is restored to pre-transaction state, including any audit rows.
+    const store = emptyStore()
+    seedSeniorWithTeamAndProjects(store)
+    const { service, projectAuditLogService } = buildService(store)
+
+    // Force a throw partway through the cascade by failing on the 2nd project.
+    let callCount = 0
+    projectAuditLogService.record.mockImplementation(async (_params, _tx) => {
+      callCount++
+      if (callCount === 2) throw new Error('Simulated DB failure during project audit log')
+      store.projectAuditLog.push({ ..._params })
+    })
+
+    await expect(service.archive('senior-1', 'admin-x')).rejects.toThrow(/Simulated DB failure/)
+
+    // Rollback assertions: the user, team, projects, and any audit log rows
+    // written before the throw must be wiped (the snapshot is restored).
+    expect(store.users.find((u) => u.id === 'senior-1')?.archivedAt).toBeNull()
+    expect(store.teams.find((t) => t.id === 'team-1')?.archivedAt).toBeNull()
+    expect(store.projects.find((p) => p.id === 'proj-1')?.archivedAt).toBeNull()
+    // The successful first audit entry must also have rolled back.
+    expect(store.projectAuditLog).toHaveLength(0)
+    expect(store.teamAuditLog).toHaveLength(0)
+    expect(store.userAuditLog).toHaveLength(0)
   })
 })
 

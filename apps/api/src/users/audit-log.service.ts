@@ -7,6 +7,16 @@ import { userAuditLog } from '../database/schema'
 // avatarOverride can contain large base64 strings — exclude from audit diffs (avatar URL change is a non-business event anyway)
 const IGNORE_FIELDS = new Set(['updatedAt', 'createdAt', 'id', 'avatarOverride'])
 
+/**
+ * Drizzle transaction handle passed by `db.transaction(async (tx) => …)`.
+ * Kept loose (`unknown`) because the concrete `PgTransaction<…>` generic
+ * surface differs between top-level db and tx — both share the same
+ * runtime `insert(table).values(rows)` chain that this service uses, so
+ * we narrow at the call site via an internal cast.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AuditLogTransaction = any
+
 @Injectable()
 export class AuditLogService {
   constructor(private db: DatabaseService) {}
@@ -39,14 +49,24 @@ export class AuditLogService {
     return false
   }
 
-  async record(params: {
-    actorId: string | null
-    targetId: string
-    action: AuditAction
-    changes: Record<string, AuditChange>
-  }): Promise<void> {
+  /**
+   * Records a user audit log entry. When called inside a `db.transaction(async (tx) => …)`
+   * block, pass the `tx` handle so the insert is part of the same transaction —
+   * rollback then atomically discards the audit row together with the entity
+   * mutations. Calls outside a transaction may omit `tx`.
+   */
+  async record(
+    params: {
+      actorId: string | null
+      targetId: string
+      action: AuditAction
+      changes: Record<string, AuditChange>
+    },
+    tx?: AuditLogTransaction,
+  ): Promise<void> {
     if (Object.keys(params.changes).length === 0) return
-    await this.db.db.insert(userAuditLog).values({
+    const conn = tx ?? this.db.db
+    await conn.insert(userAuditLog).values({
       actorId: params.actorId,
       targetId: params.targetId,
       action: params.action,
