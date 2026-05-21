@@ -310,8 +310,6 @@ export function buildAdminViewingUser(
         'change-role',
         'change-salary',
         'change-requisites',
-        'manage-team',
-        'reassign-project',
         'set-note',
         'archive',
       ],

@@ -59,7 +59,11 @@ export function RoleSelect({
   const list = (roles ?? ALL_ROLES).filter((r) => !exclude?.includes(r))
 
   return (
-    <Select value={value} onValueChange={(v) => onChange(v as Role)} disabled={disabled}>
+    <Select
+      value={value}
+      onValueChange={(v) => onChange(v as Role)}
+      {...(disabled !== undefined && { disabled })}
+    >
       <SelectTrigger className={className} aria-label={ariaLabel}>
         <SelectValue placeholder={placeholder}>
           {value && (

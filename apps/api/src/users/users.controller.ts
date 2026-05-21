@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Delete, ForbiddenException, Get, NotImplementedException, Param, ParseUUIDPipe,
+  Body, Controller, Delete, ForbiddenException, Get, Param, ParseUUIDPipe,
   Patch, Post, Query, UseGuards, UseInterceptors, Optional,
 } from '@nestjs/common'
 
@@ -8,8 +8,8 @@ import {
 function compact<T>(obj: T): T { return Object.fromEntries(Object.entries(obj as any).filter(([, v]) => v !== undefined)) as T }
 import {
   adminUpdateUserSchema, changeRequisitesSchema, changeRoleSchema, changeSalarySchema,
-  createUserSchema, paymentRequisitesSchema, projectReassignSchema, setNoteSchema,
-  teamMembershipSchema, updateProfileSchema, type SessionUser,
+  createUserSchema, paymentRequisitesSchema, setNoteSchema,
+  updateProfileSchema, type SessionUser,
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { JwtAuthGuard } from '../auth/jwt.guard'
@@ -191,22 +191,6 @@ export class UsersController {
   async setNote(@Param('id', ParseUUIDPipe) id: string, @Body() body: unknown) {
     const dto = setNoteSchema.parse(body)
     return this.usersService.setAdminNote(id, dto.note)
-  }
-
-  @Post(':id/team-membership')
-  @Roles('ADMIN')
-  async manageTeam(@Param('id', ParseUUIDPipe) _id: string, @Body() body: unknown) {
-    // Parse body to give a clear 400 on malformed payloads even though the
-    // endpoint is not implemented yet — keeps API contract honest.
-    teamMembershipSchema.parse(body)
-    throw new NotImplementedException('Управление командой будет реализовано в следующей итерации')
-  }
-
-  @Post(':id/project-reassign')
-  @Roles('ADMIN')
-  async reassignProject(@Param('id', ParseUUIDPipe) _id: string, @Body() body: unknown) {
-    projectReassignSchema.parse(body)
-    throw new NotImplementedException('Переназначение проекта будет реализовано в следующей итерации')
   }
 
   @Delete(':id')

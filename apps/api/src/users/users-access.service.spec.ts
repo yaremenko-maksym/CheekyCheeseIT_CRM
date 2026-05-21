@@ -89,14 +89,17 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.tabs).toContain('audit')
   })
 
-  it('ADMIN has all 8 actions on others', async () => {
+  it('ADMIN has all 6 actions on others (manage-team / reassign-project removed)', async () => {
     const admin = makeUser({ id: 'admin-id', role: 'ADMIN' })
     const target = makeUser({ id: 'jr-id', role: 'JUNIOR' })
     const p = await service.getViewPermissions(admin, target)
     expect(p.actions).toEqual(expect.arrayContaining([
       'edit-profile', 'change-role', 'change-salary', 'change-requisites',
-      'manage-team', 'reassign-project', 'set-note', 'archive',
+      'set-note', 'archive',
     ]))
+    expect(p.actions).not.toContain('manage-team')
+    expect(p.actions).not.toContain('reassign-project')
+    expect(p.actions).toHaveLength(6)
   })
 
   it('ADMIN cannot archive themselves', async () => {

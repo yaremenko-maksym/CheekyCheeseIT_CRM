@@ -16,8 +16,6 @@ export const actionKeySchema = z.enum([
   'change-role',
   'change-salary',
   'change-requisites',
-  'manage-team',
-  'reassign-project',
   'set-note',
   'archive',
 ])
