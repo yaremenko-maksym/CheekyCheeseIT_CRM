@@ -95,15 +95,18 @@
 
 | Событие | Действие |
 |---------|----------|
-| Agent завершил → PR создан | Запустить Reviewer + AutoTest параллельно (см. skill `pm-dispatching`) |
+| Agent завершил → PR создан | **MUST** запустить Reviewer + AutoTest параллельно (см. skill `pm-dispatching`). Если AutoTest не нужен (нет UI/E2E изменений) — записать event `autotest_skipped` с явной `reason` в `events[]`. Skip без записи запрещён. |
 | Agent создал `.blocked.md` | Прочитать → задать вопрос пользователю → resume |
 | AutoTest no-op (0 файлов в `apps/e2e/`) | Создать новый task с картой селекторов → перезапустить AutoTest |
 | PR label `ci-failed` | Создать fix-задачу для Coder (target_branch = ветка PR) |
 | PR label `awaiting-pm-review` | **Mode 2.B** (post-review анализ) |
-| Reviewer вернул REQUEST_CHANGES | Инкрементировать `review_rounds`. Если `>=3` — **STOP, эскалация пользователю**. Иначе — fix-задача для Coder. |
+| Reviewer review event = APPROVE | **Mode 2.B** (post-review анализ) |
+| Reviewer review event = COMMENT, тело начинается с `Verdict: BLOCK` | **Mode 2.D** (BLOCK handler — снять `awaiting-pm-review`, добавить `do-not-merge`, fix-задача Coder) |
+| Reviewer review event = REQUEST_CHANGES | Инкрементировать `review_rounds`. Если `>=3` — STOP, эскалация. Иначе — fix-задача Coder. (Note: AI-агенты используют COMMENT с Verdict: BLOCK, REQUEST_CHANGES возможен только от внешних reviewer-ов.) |
 | E2E run = `success` | Записать event → уведомить пользователя → ждать «мерджи» / **Mode 4** |
 | E2E run = `failure` | **Mode 2.C** (e2e fail) |
-| CI auto-merge сработал → PR смерджен | Записать metrics в `completed` → next task / архивировать `pm-state.json` |
+| CI auto-merge сработал → PR смерджен | Записать metrics в `completed` → memory append → next task / архивировать `pm-state.json` |
+| После `Agent(isolation="worktree")` returns | **Mode 2.E** (state sync — git fetch + log diff + uncommitted check) |
 
 ### Шаг 2: запись event в state
 
@@ -147,6 +150,54 @@ gh run view <run_id> --repo yaremenko-maksym/CheekyCheeseIT_CRM --log-failed 2>&
 - Баг в тесте → fix-задача для AutoTest
 
 Создать task → запустить агента (target_branch = ветка PR). После фикса → Reviewer.
+
+### Mode 2.D — Reviewer COMMENT с Verdict: BLOCK
+
+GitHub API запрещает `REQUEST_CHANGES` когда reviewer-аккаунт совпадает с author. AI-агенты обходят это через `event: COMMENT` + первая строка тела `Verdict: BLOCK`.
+
+Парсинг review-результата:
+```bash
+gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<N>/reviews \
+  --jq '.[] | select(.state == "COMMENTED") | .body' \
+  | head -1
+```
+
+Если первая строка содержит `Verdict: BLOCK`:
+
+1. **Снять label `awaiting-pm-review`** + **добавить `do-not-merge`**:
+   ```bash
+   gh pr edit <N> --repo yaremenko-maksym/CheekyCheeseIT_CRM \
+     --remove-label "awaiting-pm-review" \
+     --add-label "do-not-merge"
+   ```
+2. **Инкрементировать `review_rounds`** в pm-state.json. Если `>=3` — STOP, эскалация пользователю.
+3. **Создать fix-задачу для Coder** на основе body review (вытащить «Критичные проблемы» секцию).
+4. Запустить Coder с `target_branch = ветка PR`.
+5. После фикса Coder → новый цикл Reviewer.
+
+`do-not-merge` блокирует auto-merge на уровне `ci.yml` (см. `merge-approved` gate). PM снимает его при следующем APPROVE.
+
+### Mode 2.E — State sync после worktree Agent
+
+После того как `Agent(isolation="worktree")` вернулся (foreground или background notification):
+
+```bash
+# 1. Fetch последние изменения с remote
+git fetch origin <branch>
+
+# 2. Показать diff агента
+git log HEAD..origin/<branch> --oneline
+
+# 3. Проверить uncommitted changes в текущем worktree
+DIRTY=$(git status --porcelain 2>/dev/null | head -5)
+if [ -n "$DIRTY" ]; then
+  echo "⚠️ Uncommitted в текущем worktree после Agent — worktree-isolation сломалась или merge conflicts."
+  echo "$DIRTY"
+  # Записать event { type: "worktree_isolation_warning", files: [...] } в pm-state.json
+fi
+```
+
+Если найден dirty state — расследовать ДО следующего диспетча. Это сигнал что Agent с `isolation="worktree"` либо не отработал, либо был запущен без `isolation`.
 
 ---
 
