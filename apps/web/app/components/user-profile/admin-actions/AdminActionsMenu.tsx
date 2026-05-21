@@ -9,6 +9,7 @@ import {
   Wallet,
   StickyNote,
   Archive,
+  ArchiveRestore,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -19,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import type { ActionKey, UserProfileDto } from '@crm/shared'
+import { useUnarchiveUser } from '@/hooks/use-user-profile'
 import { EditProfileDialog } from './EditProfileDialog'
 import { ChangeRoleDialog } from './ChangeRoleDialog'
 import { ChangeSalaryDialog } from './ChangeSalaryDialog'
@@ -26,7 +28,8 @@ import { ChangeRequisitesDialog } from './ChangeRequisitesDialog'
 import { AdminNoteDialog } from './AdminNoteDialog'
 import { ArchiveUserDialog } from './ArchiveUserDialog'
 
-type OpenDialog = ActionKey | null
+/** Client-side synthetic action: rendered only when `user.archivedAt` is set. */
+type OpenDialog = ActionKey | 'unarchive' | null
 
 function buildActionConfig(role: string): Record<ActionKey, { icon: React.ReactNode; label: string }> {
   const isShareRole = role === 'SENIOR' || role === 'ADMIN'
@@ -56,12 +59,19 @@ export function AdminActionsMenu({
   const [open, setOpen] = useState<OpenDialog>(null)
   const close = () => setOpen(null)
   const actionConfig = buildActionConfig(user.role)
+  const isArchived = !!user.archivedAt
+  const unarchiveMutation = useUnarchiveUser(userId, { isSenior: user.role === 'SENIOR' })
 
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" className="gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1"
+            data-testid="admin-actions-trigger"
+          >
             <Zap className="h-4 w-4" />
             Действия
             <ChevronDown className="h-4 w-4" />
@@ -69,6 +79,8 @@ export function AdminActionsMenu({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           {actions.map((a) => {
+            // For archived users hide normal "archive" action — show unarchive instead below
+            if (a === 'archive' && isArchived) return null
             const config = actionConfig[a]
             return (
               <span key={a}>
@@ -83,6 +95,20 @@ export function AdminActionsMenu({
               </span>
             )
           })}
+          {isArchived && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                data-testid="admin-actions-unarchive"
+                onClick={() => unarchiveMutation.mutate()}
+                disabled={unarchiveMutation.isPending}
+                className="text-primary focus:text-primary"
+              >
+                <ArchiveRestore className="mr-2 h-4 w-4" />
+                Восстановить из архива
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
