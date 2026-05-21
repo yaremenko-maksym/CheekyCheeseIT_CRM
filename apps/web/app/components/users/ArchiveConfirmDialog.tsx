@@ -139,7 +139,11 @@ function ImpactWarning({
   user: UserProfileDto
   impact: ArchiveImpact | undefined
 }) {
-  const name = <strong className="text-foreground">{user.displayName}</strong>
+  const name = (
+    <strong className="text-foreground" data-testid="archive-confirm-user-name">
+      {user.displayName}
+    </strong>
+  )
 
   if (user.role === 'SENIOR') {
     const teamName =

@@ -320,7 +320,7 @@ test.describe('Users management page', () => {
       await expect(dialog).toBeVisible()
       // SENIOR variant warning (pair-archive)
       await expect(dialog.getByTestId('archive-warning-senior')).toBeVisible()
-      await expect(dialog.getByText(/Senior Dev/)).toBeVisible()
+      await expect(dialog.getByTestId('archive-confirm-user-name')).toHaveText('Senior Dev')
     })
 
     test('confirm sends DELETE request after name confirmation', async ({ asAdmin: page }) => {
