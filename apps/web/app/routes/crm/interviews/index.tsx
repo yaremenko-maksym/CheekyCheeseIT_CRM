@@ -217,7 +217,7 @@ function InterviewsPage() {
               </select>
               {effectiveSeniorId && (
                 <Link
-                  to="/crm/users/$userId"
+                  to="/crm/profile/$userId"
                   params={{ userId: effectiveSeniorId }}
                   className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
                 >

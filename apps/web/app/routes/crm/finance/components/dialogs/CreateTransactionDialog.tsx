@@ -10,7 +10,6 @@ import { Dialog, CrmDialogContent, CrmDialogHeader, CrmDialogBody, CrmDialogFoot
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
 import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
 import { Textarea } from '@/components/ui/textarea'
 import { DatePickerField } from '@/components/ui/date-picker'
@@ -22,8 +21,7 @@ type ProjectOption = { id: string; name: string; seniorId: string }
 type UserOption = { id: string; displayName: string; role: string }
 type ExchangeRate = { usdUah: string; usdtUah: string; eurUah: string; date: string }
 
-const CURRENCIES = ['USDT', 'USD', 'EUR', 'UAH'] as const
-type Currency = typeof CURRENCIES[number]
+type Currency = 'USDT' | 'USD' | 'EUR' | 'UAH'
 
 const TYPE_ICONS: Record<string, React.ReactNode> = {
   ADMIN_INCOME: <TrendingUp className="h-4 w-4" />,
@@ -51,14 +49,6 @@ function getRate(currency: Currency, rates: ExchangeRate | undefined): number | 
   if (currency === 'UAH') return 1 / parseFloat(rates.usdUah)
   if (currency === 'USD') return 1
   return null
-}
-
-function fmtRateDate(raw: string): string {
-  // raw = "20260515" → "15.05.2026"
-  if (raw.length === 8) {
-    return `${raw.slice(6, 8)}.${raw.slice(4, 6)}.${raw.slice(0, 4)}`
-  }
-  return raw
 }
 
 export function CreateTransactionDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -108,7 +98,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // Fetch NBU rates when non-USD/USDT currency selected, keyed by date
   const needsRate = needsConversion(currency)
   const rateDateParam = txDate.replace(/-/g, '') // YYYY-MM-DD → YYYYMMDD
-  const { data: exchangeRate, isFetching: rateFetching } = useQuery<ExchangeRate>({
+  const { data: exchangeRate, isFetching: _rateFetching } = useQuery<ExchangeRate>({
     queryKey: ['exchange-rate', rateDateParam],
     queryFn: () => api.get<ExchangeRate>(`/finance/exchange-rate?date=${rateDateParam}`).then((r) => r.data),
     enabled: open && needsRate,
@@ -190,7 +180,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // Conversion info
   const rate = needsRate ? getRate(currency, exchangeRate) : null
   const amtNum = parseFloat(amount)
-  const convertedUsd = rate && !isNaN(amtNum) && amtNum > 0 ? (amtNum * rate).toFixed(2) : null
+  const _convertedUsd = rate && !isNaN(amtNum) && amtNum > 0 ? (amtNum * rate).toFixed(2) : null
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) { onClose(); resetForm() } }}>

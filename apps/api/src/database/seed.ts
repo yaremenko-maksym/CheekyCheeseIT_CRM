@@ -16,7 +16,9 @@ const SEED_USERS: schema.NewUser[] = [
     telegram: '@maksym_yaremenko',
     phone: '+380671000001',
     seniorSharePercent: 26,
-    walletAddress: '0x1111111111111111111111111111111111111111',
+    paymentMethod: 'USDT_ERC20',
+    walletUsdtErc20: '0x1111111111111111111111111111111111111111',
+    techStack: ['React', 'TypeScript', 'Node.js', 'NestJS', 'PostgreSQL'],
   },
   {
     id: KOSTYA_ID,
@@ -27,7 +29,9 @@ const SEED_USERS: schema.NewUser[] = [
     telegram: '@kostya_partner',
     phone: '+380671000002',
     seniorSharePercent: 26,
-    walletAddress: '0x2222222222222222222222222222222222222222',
+    paymentMethod: 'USDT_ERC20',
+    walletUsdtErc20: '0x2222222222222222222222222222222222222222',
+    techStack: ['Vue.js', 'Python', 'Django', 'AWS'],
   },
   {
     email: 'oleksiy.kovalenko@cheekycheese.dev',
@@ -37,7 +41,9 @@ const SEED_USERS: schema.NewUser[] = [
     telegram: '@oleksiy_koval',
     phone: '+380671000003',
     seniorSharePercent: 26,
-    walletAddress: '0x3333333333333333333333333333333333333333',
+    paymentMethod: 'USDT_ERC20',
+    walletUsdtErc20: '0x3333333333333333333333333333333333333333',
+    techStack: ['React', 'TypeScript', 'Node.js', 'Python', 'AWS'],
   },
   {
     email: 'dmytro.marchenko@cheekycheese.dev',
@@ -47,7 +53,9 @@ const SEED_USERS: schema.NewUser[] = [
     telegram: '@dmytro_march',
     phone: '+380671000004',
     seniorSharePercent: 26,
-    walletAddress: '0x4444444444444444444444444444444444444444',
+    paymentMethod: 'USDT_ERC20',
+    walletUsdtErc20: '0x4444444444444444444444444444444444444444',
+    techStack: ['Vue.js', 'TypeScript', 'Python', 'PostgreSQL'],
   },
   {
     email: 'sofia.bondarenko@cheekycheese.dev',
@@ -57,7 +65,12 @@ const SEED_USERS: schema.NewUser[] = [
     telegram: '@sofia_bond',
     phone: '+380671000005',
     monthlySalary: '500.00',
-    walletAddress: '0x5555555555555555555555555555555555555555',
+    paymentMethod: 'BANK_UAH_FOP',
+    bankUahRecipient: 'Sofia Bondarenko',
+    bankUahIban: 'UA213223130000026007233566001',
+    bankUahRnokpp: '3456789012',
+    bankUahBankName: 'ПриватБанк',
+    techStack: ['React', 'Tailwind', 'TypeScript'],
   },
   {
     email: 'ivan.petrenko@cheekycheese.dev',
@@ -67,7 +80,8 @@ const SEED_USERS: schema.NewUser[] = [
     telegram: '@ivan_pet',
     phone: '+380671000006',
     monthlySalary: '600.00',
-    // No wallet — salary will be LOCKED until admin pays manually
+    // No payment method set — salary will be LOCKED until requisites are filled
+    techStack: ['React', 'JavaScript', 'CSS'],
   },
   {
     email: 'anna.lysenko@cheekycheese.dev',
@@ -77,6 +91,11 @@ const SEED_USERS: schema.NewUser[] = [
     telegram: '@anna_lysenko',
     phone: '+380671000007',
     monthlySalary: '800.00',
+    paymentMethod: 'BANK_UAH_FOP',
+    bankUahRecipient: 'Anna Lysenko',
+    bankUahIban: 'UA213223130000026007233566002',
+    bankUahRnokpp: '2345678901',
+    bankUahBankName: 'ПриватБанк',
   },
   {
     email: 'kateryna.shevchenko@cheekycheese.dev',
@@ -86,6 +105,11 @@ const SEED_USERS: schema.NewUser[] = [
     telegram: '@kate_shevch',
     phone: '+380671000008',
     monthlySalary: '800.00',
+    paymentMethod: 'BANK_UAH_FOP',
+    bankUahRecipient: 'Kateryna Shevchenko',
+    bankUahIban: 'UA213223130000026007233566003',
+    bankUahRnokpp: '5678901234',
+    bankUahBankName: 'monobank',
   },
   {
     email: 'mykola.savchenko@cheekycheese.dev',
@@ -95,6 +119,11 @@ const SEED_USERS: schema.NewUser[] = [
     telegram: '@mykola_savc',
     phone: '+380671000009',
     monthlySalary: '900.00',
+    paymentMethod: 'BANK_UAH_FOP',
+    bankUahRecipient: 'Mykola Savchenko',
+    bankUahIban: 'UA213223130000026007233566004',
+    bankUahRnokpp: '6789012345',
+    bankUahBankName: 'ПриватБанк',
   },
 ]
 
@@ -193,7 +222,13 @@ async function main() {
           phone: user.phone ?? null,
           seniorSharePercent: user.seniorSharePercent ?? 26,
           monthlySalary: user.monthlySalary ?? null,
-          walletAddress: user.walletAddress ?? null,
+          paymentMethod: user.paymentMethod ?? null,
+          walletUsdtErc20: user.walletUsdtErc20 ?? null,
+          bankUahRecipient: user.bankUahRecipient ?? null,
+          bankUahIban: user.bankUahIban ?? null,
+          bankUahRnokpp: user.bankUahRnokpp ?? null,
+          bankUahBankName: user.bankUahBankName ?? null,
+          techStack: user.techStack ?? null,
           updatedAt: new Date(),
         },
       })
@@ -203,7 +238,7 @@ async function main() {
   const allUsers = await db.select().from(schema.users)
   const byEmail = Object.fromEntries(allUsers.map((u) => [u.email, u]))
 
-  const hrUsers = allUsers.filter((u) => u.role === 'HR')
+  const _hrUsers = allUsers.filter((u) => u.role === 'HR')
   const accountantUsers = allUsers.filter((u) => u.role === 'ACCOUNTANT')
 
   // Seed teams

@@ -36,7 +36,7 @@ export class TeamsService {
       displayName: string
       email: string
       avatar: string | null
-      techStack: string | null
+      techStack: string[] | null
       phone: string | null
       telegram: string | null
       role: string

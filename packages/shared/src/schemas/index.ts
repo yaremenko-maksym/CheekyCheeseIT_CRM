@@ -2,8 +2,12 @@ export * from './auth'
 export * from './teams'
 export * from './projects'
 export * from './interviews'
+export * from './payment-requisites'
 export * from './users'
 export * from './finance'
+export * from './audit-log'
+export * from './view-permissions'
+export * from './admin-actions'
 
 // Hardcoded partner user IDs (stable across environments)
 export const MAKSYM_ID = '00000000-0000-0000-0000-000000000001'

@@ -81,7 +81,7 @@ function getInitials(name: string) {
 
 
 // TanStack Form field/form render props require many generics — suppress with eslint
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 type AnyField = FieldApi<
   any,
   any,
@@ -107,8 +107,8 @@ type AnyField = FieldApi<
   any,
   any
 >
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyForm = ReactFormExtendedApi<any, any, any, any, any, any, any, any, any, any, any, any>
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 function ProjectEditFields({ form, mode }: { form: AnyForm; mode: 'info' | 'members' }) {
   if (mode === 'info') {
@@ -711,7 +711,7 @@ return (
             {/* Senior — always shown */}
             <div className="pb-3">
               <Link
-                to="/crm/users/$userId"
+                to="/crm/profile/$userId"
                 params={{ userId: senior.userId }}
                 className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0"
               >
@@ -1031,7 +1031,7 @@ function MemberRow({
   return (
     <div className={cn('flex items-center gap-2', member.leftAt && 'opacity-50')}>
       <Link
-        to="/crm/users/$userId"
+        to="/crm/profile/$userId"
         params={{ userId: member.userId }}
         className="flex min-w-0 flex-1 items-center gap-2 hover:opacity-80 transition-opacity"
       >

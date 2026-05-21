@@ -114,8 +114,19 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  me(@CurrentUser() user: ReturnType<typeof sessionUserSchema.parse>) {
-    return user
+  async me(@CurrentUser() user: ReturnType<typeof sessionUserSchema.parse>) {
+    // Re-hydrate latest displayName / avatar / avatarOverride from DB so global header
+    // reflects edits without a re-login. Role is taken from DB too (audit-friendly).
+    const fresh = await this.usersService.findById(user.id)
+    if (!fresh) return user
+    return sessionUserSchema.parse({
+      id: fresh.id,
+      email: fresh.email,
+      displayName: fresh.displayName,
+      avatar: fresh.avatar ?? null,
+      avatarOverride: fresh.avatarOverride ?? null,
+      role: fresh.role,
+    })
   }
 
   @Post('google/one-tap')

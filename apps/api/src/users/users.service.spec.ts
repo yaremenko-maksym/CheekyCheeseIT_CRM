@@ -1,10 +1,32 @@
 import { ConflictException, NotFoundException } from '@nestjs/common'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type * as schema from '../database/schema'
+import type { AuditLogService } from './audit-log.service'
+import type { UsersAccessService } from './users-access.service'
 import { UsersService } from './users.service'
 
 type DrizzleDb = { db: NodePgDatabase<typeof schema> }
+
+// ---------------------------------------------------------------------------
+// Service constructor helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * UsersService takes three constructor args: DatabaseService, UsersAccessService,
+ * AuditLogService. None of the methods exercised by these unit tests need real
+ * implementations of the latter two — but `createUser` calls
+ * `auditLogService.record()` to seed a `profile_created` event, so we must
+ * supply a stub (otherwise `TypeError: Cannot read properties of undefined`).
+ */
+const makeAccessService = (): UsersAccessService =>
+  ({} as unknown as UsersAccessService)
+
+const makeAuditLogService = (): AuditLogService =>
+  ({ record: vi.fn().mockResolvedValue(undefined) } as unknown as AuditLogService)
+
+const makeUsersService = (db: DrizzleDb): UsersService =>
+  new UsersService(db as never, makeAccessService() as never, makeAuditLogService() as never)
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -123,14 +145,14 @@ function makeDb({
 describe('UsersService.findByEmail', () => {
   it('returns undefined when no rows', async () => {
     const db = makeDb({ existingUser: undefined })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
     expect(await service.findByEmail('nobody@example.com')).toBeUndefined()
   })
 
   it('returns first row when found', async () => {
     const user = makeHr()
     const db = makeDb({ existingUser: user })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
     expect(await service.findByEmail(user.email)).toEqual(user)
   })
 })
@@ -138,7 +160,7 @@ describe('UsersService.findByEmail', () => {
 describe('UsersService.findById', () => {
   it('returns undefined when no rows', async () => {
     const db = makeDb({ existingUser: undefined })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
     expect(await service.findById('non-existent')).toBeUndefined()
   })
 })
@@ -151,7 +173,7 @@ describe('UsersService.createUser — JUNIOR', () => {
   it('creates a JUNIOR user without a project', async () => {
     const junior = makeJunior()
     const db = makeDb({ existingUser: undefined, createdUser: junior })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
 
     const result = await service.createUser({
       email: junior.email,
@@ -170,7 +192,7 @@ describe('UsersService.createUser — JUNIOR', () => {
   it('creates a JUNIOR user and assigns them to a project when projectId provided', async () => {
     const junior = makeJunior()
     const db = makeDb({ existingUser: undefined, createdUser: junior })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
 
     await service.createUser({
       email: junior.email,
@@ -187,7 +209,7 @@ describe('UsersService.createUser — JUNIOR', () => {
   it('creates a JUNIOR with null projectId — no project assignment', async () => {
     const junior = makeJunior()
     const db = makeDb({ existingUser: undefined, createdUser: junior })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
 
     await service.createUser({
       email: junior.email,
@@ -204,7 +226,7 @@ describe('UsersService.createUser — JUNIOR', () => {
   it('stores telegram and phone when provided', async () => {
     const junior = makeJunior({ telegram: '@myhandle', phone: '+380991234567' })
     const db = makeDb({ existingUser: undefined, createdUser: junior })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
 
     const result = await service.createUser({
       email: junior.email,
@@ -221,7 +243,7 @@ describe('UsersService.createUser — JUNIOR', () => {
   it('throws ConflictException when email already exists', async () => {
     const junior = makeJunior()
     const db = makeDb({ existingUser: junior })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
 
     await expect(
       service.createUser({ email: junior.email, displayName: 'Dup', role: 'JUNIOR' }),
@@ -231,7 +253,7 @@ describe('UsersService.createUser — JUNIOR', () => {
   it('does not insert anything after ConflictException', async () => {
     const junior = makeJunior()
     const db = makeDb({ existingUser: junior })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
 
     await service.createUser({ email: junior.email, displayName: 'Dup', role: 'JUNIOR' }).catch(() => {})
 
@@ -248,7 +270,7 @@ describe('UsersService.createUser — SENIOR', () => {
   it('creates a SENIOR and auto-creates a team with the senior as sole member', async () => {
     const senior = makeSenior()
     const db = makeDb({ existingUser: undefined, createdUser: senior })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
 
     const result = await service.createUser({
       email: senior.email,
@@ -265,7 +287,7 @@ describe('UsersService.createUser — SENIOR', () => {
   it('creates a SENIOR team with HR and accountant members', async () => {
     const senior = makeSenior()
     const db = makeDb({ existingUser: undefined, createdUser: senior })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
 
     await service.createUser({
       email: senior.email,
@@ -283,7 +305,7 @@ describe('UsersService.createUser — SENIOR', () => {
   it('creates a SENIOR team with HR only (no accountant)', async () => {
     const senior = makeSenior()
     const db = makeDb({ existingUser: undefined, createdUser: senior })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
 
     await service.createUser({
       email: senior.email,
@@ -301,7 +323,7 @@ describe('UsersService.createUser — SENIOR', () => {
   it('auto-names the team after the senior displayName', async () => {
     const senior = makeSenior({ displayName: 'Ivan Drago' })
     const db = makeDb({ existingUser: undefined, createdUser: senior })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
 
     await service.createUser({
       email: senior.email,
@@ -320,7 +342,7 @@ describe('UsersService.createUser — SENIOR', () => {
   it('throws ConflictException for duplicate SENIOR email', async () => {
     const senior = makeSenior()
     const db = makeDb({ existingUser: senior })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
 
     await expect(
       service.createUser({ email: senior.email, displayName: 'Dup', role: 'SENIOR' }),
@@ -338,7 +360,7 @@ describe('UsersService.createUser — HR / ACCOUNTANT', () => {
     async (role) => {
       const user = makeUser({ role, email: `${role.toLowerCase()}@example.com` })
       const db = makeDb({ existingUser: undefined, createdUser: user })
-      const service = new UsersService(db)
+      const service = makeUsersService(db)
 
       const result = await service.createUser({
         email: user.email,
@@ -361,7 +383,7 @@ describe('UsersService.createUser — profile fields', () => {
   it('stores techStack when provided for any role', async () => {
     const junior = makeJunior({ techStack: 'JavaScript FE' })
     const db = makeDb({ existingUser: undefined, createdUser: junior })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
 
     const result = await service.createUser({
       email: junior.email,
@@ -376,7 +398,7 @@ describe('UsersService.createUser — profile fields', () => {
   it('stores custom seniorSharePercent for SENIOR', async () => {
     const senior = makeSenior({ seniorSharePercent: 60 })
     const db = makeDb({ existingUser: undefined, createdUser: senior })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
 
     const result = await service.createUser({
       email: senior.email,
@@ -391,7 +413,7 @@ describe('UsersService.createUser — profile fields', () => {
   it('uses default 26% when no seniorSharePercent provided for SENIOR', async () => {
     const senior = makeSenior({ seniorSharePercent: 26 })
     const db = makeDb({ existingUser: undefined, createdUser: senior })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
 
     const result = await service.createUser({
       email: senior.email,
@@ -405,7 +427,7 @@ describe('UsersService.createUser — profile fields', () => {
   it('stores monthlySalary for non-SENIOR roles', async () => {
     const hr = makeHr({ monthlySalary: '1500.00' })
     const db = makeDb({ existingUser: undefined, createdUser: hr })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
 
     const result = await service.createUser({
       email: hr.email,
@@ -426,7 +448,7 @@ describe('UsersService.adminUpdateUser', () => {
   it('updates displayName', async () => {
     const updated = makeUser({ displayName: 'New Name' })
     const db = makeDb({ updatedUser: updated })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
 
     const result = await service.adminUpdateUser('user-1', { displayName: 'New Name' })
     expect(result.displayName).toBe('New Name')
@@ -435,7 +457,7 @@ describe('UsersService.adminUpdateUser', () => {
   it('updates techStack', async () => {
     const updated = makeUser({ techStack: 'Kotlin' })
     const db = makeDb({ updatedUser: updated })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
     const result = await service.adminUpdateUser('user-1', { techStack: 'Kotlin' })
     expect(result.techStack).toBe('Kotlin')
   })
@@ -443,7 +465,7 @@ describe('UsersService.adminUpdateUser', () => {
   it('clears techStack when set to null', async () => {
     const updated = makeUser({ techStack: null })
     const db = makeDb({ updatedUser: updated })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
     const result = await service.adminUpdateUser('user-1', { techStack: null })
     expect(result.techStack).toBeNull()
   })
@@ -451,7 +473,7 @@ describe('UsersService.adminUpdateUser', () => {
   it('updates seniorSharePercent for SENIOR', async () => {
     const updated = makeSenior({ seniorSharePercent: 80 })
     const db = makeDb({ updatedUser: updated })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
     const result = await service.adminUpdateUser('senior-1', { seniorSharePercent: 80 })
     expect(result.seniorSharePercent).toBe(80)
   })
@@ -459,7 +481,7 @@ describe('UsersService.adminUpdateUser', () => {
   it('updates monthlySalary for non-SENIOR', async () => {
     const updated = makeHr({ monthlySalary: '2000.00' })
     const db = makeDb({ updatedUser: updated })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
     const result = await service.adminUpdateUser('hr-1', { monthlySalary: 2000 })
     expect(result.monthlySalary).toBe('2000.00')
   })
@@ -474,7 +496,7 @@ describe('UsersService.adminUpdateUser', () => {
         }),
       }),
     })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
     await expect(service.adminUpdateUser('ghost', { displayName: 'X' })).rejects.toThrow(NotFoundException)
   })
 })
@@ -514,20 +536,20 @@ describe('UsersService.deleteUser', () => {
   it('resolves when non-senior user exists', async () => {
     const hr = makeHr()
     const db = makeDeleteDb({ selectResults: [[hr]] })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
     await expect(service.deleteUser(hr.id)).resolves.toBeUndefined()
   })
 
   it('throws NotFoundException when user not found', async () => {
     const db = makeDeleteDb({ selectResults: [[]] })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
     await expect(service.deleteUser('ghost')).rejects.toThrow(NotFoundException)
   })
 
   it('does not delete team when deleting a non-senior user', async () => {
     const hr = makeHr()
     const db = makeDeleteDb({ selectResults: [[hr]] })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
     await service.deleteUser(hr.id)
     // delete called once: the user row
     expect(db.db._deleteMock).toHaveBeenCalledTimes(1)
@@ -538,7 +560,7 @@ describe('UsersService.deleteUser', () => {
     const membership = { id: 'tm-1', teamId: 'team-1', userId: senior.id, joinedAt: new Date() }
     // selectResults: [findById → senior], [teamMembers query → membership]
     const db = makeDeleteDb({ selectResults: [[senior], [membership]] })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
     await service.deleteUser(senior.id)
     // delete called twice: teams (senior's team) + users (senior)
     expect(db.db._deleteMock).toHaveBeenCalledTimes(2)
@@ -548,7 +570,7 @@ describe('UsersService.deleteUser', () => {
     const senior = makeSenior()
     // teamMembers query returns empty — senior has no team row
     const db = makeDeleteDb({ selectResults: [[senior], []] })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
     await service.deleteUser(senior.id)
     // delete called once: only the user (no team to delete)
     expect(db.db._deleteMock).toHaveBeenCalledTimes(1)
@@ -558,7 +580,7 @@ describe('UsersService.deleteUser', () => {
     const senior = makeSenior()
     const membership = { id: 'tm-1', teamId: 'team-42', userId: senior.id, joinedAt: new Date() }
     const db = makeDeleteDb({ selectResults: [[senior], [membership]] })
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
     await service.deleteUser(senior.id)
     const calls = db.db._deleteMock.mock.calls
     // First delete arg should reference teams, second should reference users
@@ -587,7 +609,7 @@ describe('UsersService.getProfile', () => {
         delete: vi.fn(),
       },
     } as unknown as DrizzleDb
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
     const result = await service.getProfile(user.id)
     expect(result).toEqual(user)
   })
@@ -603,7 +625,7 @@ describe('UsersService.getProfile', () => {
         delete: vi.fn(),
       },
     } as unknown as DrizzleDb
-    const service = new UsersService(db)
+    const service = makeUsersService(db)
     await expect(service.getProfile('ghost')).rejects.toThrow(NotFoundException)
   })
 })

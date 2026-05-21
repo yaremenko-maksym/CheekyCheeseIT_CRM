@@ -45,6 +45,7 @@ import {
 } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 
 export const Route = createFileRoute('/crm/users/')({
   component: UsersPage,
@@ -73,25 +74,6 @@ type Role = (typeof ROLES)[number]
 type SortKey = 'displayName' | 'role' | 'email' | 'createdAt'
 type SortDir = 'asc' | 'desc'
 
-// Common tech stack suggestions
-const TECH_STACK_OPTIONS = [
-  'JavaScript FE',
-  'JavaScript BE',
-  'TypeScript FE',
-  'TypeScript BE',
-  'Python',
-  'Java',
-  'Kotlin',
-  'Swift',
-  'Go',
-  'PHP',
-  'Ruby',
-  'C#',
-  'C++',
-  'Rust',
-  'Flutter/Dart',
-  'React Native',
-]
 
 function getInitials(name: string) {
   return (name || '?')
@@ -217,26 +199,19 @@ function TechStackField({
   onBlur,
   error,
 }: {
-  value: string
-  onChange: (v: string) => void
+  value: string[]
+  onChange: (v: string[]) => void
   onBlur: () => void
   error?: string
 }) {
   return (
     <Field label="Технологии" error={error}>
-      <Input
-        placeholder="JavaScript FE, Java, Kotlin..."
+      <TechAutocompleteInput
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={onChange}
         onBlur={onBlur}
-        list="tech-stack-suggestions"
-        className={cn(error && 'border-destructive focus-visible:ring-destructive/30')}
+        placeholder="Начните вводить технологию..."
       />
-      <datalist id="tech-stack-suggestions">
-        {TECH_STACK_OPTIONS.map((opt) => (
-          <option key={opt} value={opt} />
-        ))}
-      </datalist>
     </Field>
   )
 }
@@ -307,7 +282,7 @@ function CreateUserDialog({ open, onClose, hrOnly = false }: { open: boolean; on
       role: (hrOnly ? 'SENIOR' : 'JUNIOR') as Role,
       telegram: '',
       phone: '' as PhoneValue | '',
-      techStack: '',
+      techStack: [] as string[],
       seniorSharePercent: 26 as number,
       projectId: '' as string,
       monthlySalary: '' as string,
@@ -328,7 +303,8 @@ function CreateUserDialog({ open, onClose, hrOnly = false }: { open: boolean; on
         role: value.role,
         telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : undefined,
         phone: (value.phone as string) || undefined,
-        techStack: value.techStack.trim() || undefined,
+        techStack: value.techStack.length > 0 ? value.techStack : undefined,
+        paymentMethod: (isSenior || value.role === 'ADMIN') ? 'USDT_ERC20' as const : 'BANK_UAH_FOP' as const,
         ...(isSenior && {
           seniorSharePercent: value.seniorSharePercent,
           hrIds,
@@ -697,7 +673,7 @@ function EditUserDialog({ user, onClose }: { user: UserProfileDto | null; onClos
       role: (user?.role as Role) ?? 'JUNIOR',
       telegram: user?.telegram ?? '',
       phone: ((user?.phone as PhoneValue | undefined) ?? '') as PhoneValue | '',
-      techStack: user?.techStack ?? '',
+      techStack: (user?.techStack ?? []) as string[],
       seniorSharePercent: user?.seniorSharePercent ?? 26,
       monthlySalary: user?.monthlySalary ?? '',
     },
@@ -705,10 +681,9 @@ function EditUserDialog({ user, onClose }: { user: UserProfileDto | null; onClos
       const isSenior = value.role === 'SENIOR'
       const payload: AdminUpdateUserDto = {
         displayName: value.displayName.trim(),
-        role: value.role,
         telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : null,
         phone: (value.phone as string) || null,
-        techStack: value.techStack.trim() || null,
+        techStack: value.techStack.length > 0 ? value.techStack : null,
         ...(isSenior && {
           seniorSharePercent: value.seniorSharePercent,
         }),
@@ -728,7 +703,7 @@ function EditUserDialog({ user, onClose }: { user: UserProfileDto | null; onClos
       form.setFieldValue('role', user.role as Role)
       form.setFieldValue('telegram', user.telegram ?? '')
       form.setFieldValue('phone', ((user.phone as PhoneValue | undefined) ?? '') as PhoneValue | '')
-      form.setFieldValue('techStack', user.techStack ?? '')
+      form.setFieldValue('techStack', user.techStack ?? [])
       form.setFieldValue('seniorSharePercent', user.seniorSharePercent ?? 26)
       form.setFieldValue('monthlySalary', user.monthlySalary ?? '')
     }
@@ -1027,12 +1002,9 @@ function DeleteUserDialog({
 function UsersPage() {
   const { user: me } = useAuth()
   
-  // Handle access control manually to show proper denied message
+  // Admin-only page guard
   if (!me) return null
-  
-  const hasAccess = me.role === 'ADMIN' || me.role === 'HR'
-  
-  if (!hasAccess) {
+  if (me.role !== 'ADMIN') {
     return (
       <div className="space-y-6">
         <div>
@@ -1068,7 +1040,7 @@ function UsersPage() {
           u.displayName.toLowerCase().includes(q) ||
           u.email.toLowerCase().includes(q) ||
           (u.telegram ?? '').toLowerCase().includes(q) ||
-          (u.techStack ?? '').toLowerCase().includes(q),
+          (Array.isArray(u.techStack) ? u.techStack.join(', ') : (u.techStack ?? '')).toLowerCase().includes(q),
       )
     }
     if (roleFilter !== 'ALL') list = list.filter((u) => u.role === roleFilter)
@@ -1103,16 +1075,7 @@ function UsersPage() {
     />
   )
 
-  const isAdmin = me?.role === 'ADMIN'
-  const isHr = me?.role === 'HR'
-
-  if (!isAdmin && !isHr) {
-    return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        Доступ только для администратора
-      </div>
-    )
-  }
+  const isAdmin = true // already guarded above: only ADMIN reaches here
 
   return (
     <div className="space-y-6">
@@ -1235,7 +1198,7 @@ function UsersPage() {
                     <TableRow key={u.id}>
                       <TableCell>
                         <div className="flex items-center gap-3">
-                          <Link to="/crm/users/$userId" params={{ userId: u.id }}>
+                          <Link to="/crm/profile/$userId" params={{ userId: u.id }}>
                             <Avatar className="h-8 w-8 shrink-0">
                               {u.avatar && (
                                 <img
@@ -1251,7 +1214,7 @@ function UsersPage() {
                           </Link>
                           <div className="min-w-0">
                             <Link
-                              to="/crm/users/$userId"
+                              to="/crm/profile/$userId"
                               params={{ userId: u.id }}
                               className="text-sm font-medium hover:underline truncate block"
                             >
@@ -1312,7 +1275,7 @@ function UsersPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-0.5">
-                          <Link to="/crm/users/$userId" params={{ userId: u.id }}>
+                          <Link to="/crm/profile/$userId" params={{ userId: u.id }}>
                             <Button variant="ghost" size="icon" className="h-7 w-7">
                               <ExternalLink className="h-3.5 w-3.5" />
                             </Button>
@@ -1352,7 +1315,7 @@ function UsersPage() {
         </Card>
       </motion.div>
 
-      <CreateUserDialog key={createKey} open={createOpen} onClose={() => setCreateOpen(false)} hrOnly={isHr} />
+      <CreateUserDialog key={createKey} open={createOpen} onClose={() => setCreateOpen(false)} hrOnly={false} />
       <EditUserDialog user={editUser} onClose={() => setEditUser(null)} />
       <DeleteUserDialog user={deleteUser} onClose={() => setDeleteUser(null)} />
     </div>

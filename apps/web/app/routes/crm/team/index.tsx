@@ -38,6 +38,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
+import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 
 export const Route = createFileRoute('/crm/team/')({
   component: TeamPage,
@@ -58,12 +59,6 @@ const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accou
   HR: 'hr',
   ACCOUNTANT: 'accountant',
 }
-
-const TECH_STACK_OPTIONS = [
-  'JavaScript FE', 'JavaScript BE', 'TypeScript FE', 'TypeScript BE',
-  'Python', 'Java', 'Kotlin', 'Swift', 'Go', 'PHP', 'Ruby', 'C#', 'C++',
-  'Rust', 'Flutter/Dart', 'React Native',
-]
 
 function getInitials(name: string) {
   return (name || '?')
@@ -251,7 +246,7 @@ function HrCreateSeniorDialog({
       displayName: '',
       telegram: '',
       phone: '' as PhoneValue | '',
-      techStack: '',
+      techStack: [] as string[],
       seniorSharePercent: 26 as number,
     },
     onSubmit: async ({ value }) => {
@@ -261,7 +256,8 @@ function HrCreateSeniorDialog({
         role: 'SENIOR',
         telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : undefined,
         phone: (value.phone as string) || undefined,
-        techStack: value.techStack.trim() || undefined,
+        techStack: value.techStack.length > 0 ? value.techStack : undefined,
+        paymentMethod: 'USDT_ERC20' as const,
         seniorSharePercent: value.seniorSharePercent,
         hrIds: [hrUserId],
         accountantId: selectedAccountantId || null,
@@ -352,18 +348,12 @@ function HrCreateSeniorDialog({
             <form.Field name="techStack">
               {(field) => (
                 <Field label="Технологии">
-                  <Input
-                    placeholder="JavaScript FE, Java, Kotlin..."
+                  <TechAutocompleteInput
                     value={field.state.value}
-                    onChange={(e) => field.handleChange(e.target.value)}
+                    onChange={field.handleChange}
                     onBlur={field.handleBlur}
-                    list="hr-tech-stack-suggestions"
+                    placeholder="Начните вводить технологию..."
                   />
-                  <datalist id="hr-tech-stack-suggestions">
-                    {TECH_STACK_OPTIONS.map((opt) => (
-                      <option key={opt} value={opt} />
-                    ))}
-                  </datalist>
                 </Field>
               )}
             </form.Field>

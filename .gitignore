@@ -19,6 +19,14 @@ apps/**/.env.local
 # PM state — local only, never merge with feature branches
 docs/specs/pm-state.json
 
+# Brainstorming Visual Companion sessions
+.superpowers/
+
+# Playwright local screenshots (not part of repo)
+profile-page.png
+users-page.png
+user-detail-page.png
+
 # Test output
 coverage/
 playwright-report/

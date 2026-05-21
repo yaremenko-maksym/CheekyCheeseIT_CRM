@@ -19,8 +19,29 @@
     {
       "idx": 2,
       "version": "7",
+      "when": 1779100000000,
+      "tag": "0002_team_telegram_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779279414501,
+      "tag": "0003_payment_requisites_audit_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
       "when": 1779500000000,
-      "tag": "0006_team_telegram_notes",
+      "tag": "0004_salary_currency",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1779600000000,
+      "tag": "0005_avatar_override",
       "breakpoints": true
     }
   ]

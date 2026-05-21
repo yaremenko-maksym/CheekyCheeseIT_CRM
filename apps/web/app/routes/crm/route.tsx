@@ -149,7 +149,9 @@ function CrmLayout() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Avatar className="h-8 w-8 cursor-pointer ml-1">
-                  {user.avatar && <AvatarImage src={user.avatar} alt={user.displayName} />}
+                  {(user.avatarOverride ?? user.avatar) && (
+                    <AvatarImage src={user.avatarOverride ?? user.avatar ?? undefined} alt={user.displayName} />
+                  )}
                   <AvatarFallback className="bg-primary/20 text-xs text-primary">
                     {getInitials(user.displayName)}
                   </AvatarFallback>

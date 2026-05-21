@@ -300,7 +300,7 @@ export class ProjectsService {
       .where(eq(projectMembers.id, activeMember.id))
   }
 
-  async createFromInterview(interview: Interview & { senior: User | null }, currentUser: SessionUser) {
+  async createFromInterview(interview: Interview & { senior: User | null }, _currentUser: SessionUser) {
     const domain = interview.notesDomain ?? 'Other'
 
     const [project] = await this.db.db

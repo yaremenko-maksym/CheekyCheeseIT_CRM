@@ -15,9 +15,14 @@ import { test, expect } from './fixtures'
 // Routes visible to ALL roles (except JUNIOR for interviews)
 // ---------------------------------------------------------------------------
 
+// Profile page heading is now the user's display name (UserProfileHeader renders
+// `<h1>{user.displayName}</h1>`). The sidebar role-based fixtures set displayName
+// according to the auth fixture, so the regex covers all four fixture personas.
+const PROFILE_HEADING_REGEX = /(Admin User|Senior Dev|Junior Dev|HR Manager|Accountant User)/
+
 const COMMON_ROUTES: { label: string; href: string; heading: RegExp }[] = [
   { label: 'Дашборд',      href: '/crm/dashboard',   heading: /дашборд/i },
-  { label: 'Профиль',      href: '/crm/profile',      heading: /профил/i },
+  { label: 'Профиль',      href: '/crm/profile',      heading: PROFILE_HEADING_REGEX },
   { label: 'Команда',      href: '/crm/team',         heading: /команд/i },
   { label: 'Проекты',      href: '/crm/projects',     heading: /проект/i },
   // Finance heading renders after API load — match the sidebar text instead

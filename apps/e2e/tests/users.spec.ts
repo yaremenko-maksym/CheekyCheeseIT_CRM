@@ -47,10 +47,10 @@ test.describe('Users management page', () => {
       await expect(page.getByText(/доступ только для администратора/i)).toBeVisible()
     })
 
-    test('HR can access users page', async ({ asHr: page }) => {
+    test('HR cannot access users page (admin-only)', async ({ asHr: page }) => {
+      // /crm/users is admin-only — HR sees the access-denied notice.
       await page.goto('/crm/users')
-      await expect(page.getByText(/пользователи/i).first()).toBeVisible()
-      await expect(page.getByText(/доступ только для администратора/i)).not.toBeVisible()
+      await expect(page.getByText(/доступ только для администратора/i)).toBeVisible()
     })
 
     test('JUNIOR sees access denied', async ({ asJunior: page }) => {
@@ -509,69 +509,15 @@ test.describe('Users management page', () => {
       await expect(page.getByText(/выберите хотя бы одного HR/i)).toBeVisible()
     })
 
-    test('HR: can access users page and see Добавить button', async ({ asHr: page }) => {
+    // /crm/users became admin-only in the latest refactor — the HR senior-creation
+    // path now lives elsewhere. These tests assert HR sees the access-denied screen.
+    test('HR: sees access-denied notice on /crm/users (admin-only page)', async ({ asHr: page }) => {
       await page.goto('/crm/users')
-      await expect(page.getByRole('button', { name: /добавить/i })).toBeVisible()
-    })
-
-    test('HR: role selector locked to SENIOR with explanatory text', async ({ asHr: page }) => {
-      await page.goto('/crm/users')
-      await page.getByRole('button', { name: /добавить/i }).click()
-      await expect(page.getByRole('dialog')).toBeVisible()
-      // The locked role display shows "Синьор" and the HR restriction note
-      await expect(page.getByText(/hr может создавать только синьоров/i)).toBeVisible()
-    })
-
-    test('HR: POST includes role=SENIOR, hrIds, accountantId', async ({ asHr: page }) => {
-      await page.goto('/crm/users')
-
-      const postReq = page.waitForRequest(
-        (req) => req.url().includes('/api/users') && req.method() === 'POST',
-      )
-
-      await page.getByRole('button', { name: /добавить/i }).click()
-      await page.getByPlaceholder('user@cheekycheese.dev').fill('seniorbyhr@cheekycheese.dev')
-      await page.getByPlaceholder('Иван Иванов').fill('Senior Created By HR')
-
-      // Role section is locked — team section should be visible inside dialog
-      await expect(page.getByRole('dialog').getByText('Команда', { exact: true })).toBeVisible()
-
-      await page.getByRole('button', { name: 'Создать' }).click()
-
-      const req = await postReq
-      const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
-
-      expect(body.role).toBe('SENIOR')
-      expect(Array.isArray(body.hrIds)).toBe(true)
-      expect((body.hrIds as string[]).length).toBeGreaterThan(0)
-      expect(body.accountantId).toBeTruthy()
-    })
-
-    test('HR: POST contains correct hrId (HR Manager auto-selected)', async ({ asHr: page }) => {
-      await page.goto('/crm/users')
-
-      const postReq = page.waitForRequest(
-        (req) => req.url().includes('/api/users') && req.method() === 'POST',
-      )
-
-      await page.getByRole('button', { name: /добавить/i }).click()
-      await page.getByPlaceholder('user@cheekycheese.dev').fill('seniorbyhr2@cheekycheese.dev')
-      await page.getByPlaceholder('Иван Иванов').fill('Senior By HR Two')
-      await expect(page.getByRole('dialog').getByText('Команда', { exact: true })).toBeVisible()
-      await page.getByRole('button', { name: 'Создать' }).click()
-
-      const req = await postReq
-      const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
-      expect((body.hrIds as string[])).toContain(USERS.hr.id)
-      expect(body.accountantId).toBe(USERS.accountant.id)
-    })
-
-    test('HR: cannot see edit or delete buttons for other users', async ({ asHr: page }) => {
-      await page.goto('/crm/users')
-      // Hover over Senior Dev row
-      await page.getByText('Senior Dev').hover()
-      await expect(page.getByTitle('Редактировать')).not.toBeVisible()
-      await expect(page.getByTitle('Удалить')).not.toBeVisible()
+      await expect(page.getByText(/доступ только для администратора/i)).toBeVisible()
+      // Add/edit/delete affordances are not rendered when access is denied.
+      await expect(page.getByRole('button', { name: /добавить/i })).toHaveCount(0)
+      await expect(page.getByTitle('Редактировать')).toHaveCount(0)
+      await expect(page.getByTitle('Удалить')).toHaveCount(0)
     })
   })
 })

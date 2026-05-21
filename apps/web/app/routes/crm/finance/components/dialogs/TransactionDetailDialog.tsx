@@ -58,7 +58,7 @@ function Row({ icon, label, children }: { icon: React.ReactNode; label: string; 
 function UserLink({ id, name }: { id: string | null | undefined; name: string | null | undefined }) {
   if (!id || !name) return <span className="text-muted-foreground">{name ?? '—'}</span>
   return (
-    <Link to="/crm/users/$userId" params={{ userId: id }} className="text-primary hover:underline underline-offset-2">
+    <Link to="/crm/profile/$userId" params={{ userId: id }} className="text-primary hover:underline underline-offset-2">
       {name}
     </Link>
   )

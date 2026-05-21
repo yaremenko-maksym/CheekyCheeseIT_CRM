@@ -11,11 +11,14 @@ export const USERS = {
     displayName: 'Admin User',
     role: 'ADMIN' as const,
     avatar: null,
+    avatarOverride: null,
     telegram: null,
     phone: null,
     techStack: null,
-    defaultSharePercent: null,
+    paymentMethod: null,
+    seniorSharePercent: 0,
     monthlySalary: null,
+    salaryCurrency: 'USD' as const,
     createdAt: '2024-01-01T00:00:00.000Z',
     updatedAt: '2024-01-01T00:00:00.000Z',
   },
@@ -25,11 +28,14 @@ export const USERS = {
     displayName: 'Senior Dev',
     role: 'SENIOR' as const,
     avatar: null,
+    avatarOverride: null,
     telegram: '@seniordev',
     phone: '+380661234567',
-    techStack: 'TypeScript FE',
+    techStack: ['TypeScript', 'React'],
+    paymentMethod: 'USDT_ERC20' as const,
     seniorSharePercent: 26,
     monthlySalary: null,
+    salaryCurrency: 'USD' as const,
     createdAt: '2024-01-02T00:00:00.000Z',
     updatedAt: '2024-01-02T00:00:00.000Z',
   },
@@ -39,11 +45,14 @@ export const USERS = {
     displayName: 'Junior Dev',
     role: 'JUNIOR' as const,
     avatar: null,
+    avatarOverride: null,
     telegram: null,
     phone: null,
     techStack: null,
-    defaultSharePercent: null,
-    monthlySalary: 800,
+    paymentMethod: 'BANK_UAH_FOP' as const,
+    seniorSharePercent: 0,
+    monthlySalary: '800',
+    salaryCurrency: 'USD' as const,
     createdAt: '2024-01-03T00:00:00.000Z',
     updatedAt: '2024-01-03T00:00:00.000Z',
   },
@@ -53,11 +62,14 @@ export const USERS = {
     displayName: 'HR Manager',
     role: 'HR' as const,
     avatar: null,
+    avatarOverride: null,
     telegram: null,
     phone: null,
     techStack: null,
-    defaultSharePercent: null,
-    monthlySalary: 1000,
+    paymentMethod: 'BANK_UAH_FOP' as const,
+    seniorSharePercent: 0,
+    monthlySalary: '1000',
+    salaryCurrency: 'USD' as const,
     createdAt: '2024-01-04T00:00:00.000Z',
     updatedAt: '2024-01-04T00:00:00.000Z',
   },
@@ -67,11 +79,14 @@ export const USERS = {
     displayName: 'Accountant User',
     role: 'ACCOUNTANT' as const,
     avatar: null,
+    avatarOverride: null,
     telegram: null,
     phone: null,
     techStack: null,
-    defaultSharePercent: null,
-    monthlySalary: 1200,
+    paymentMethod: 'BANK_UAH_FOP' as const,
+    seniorSharePercent: 0,
+    monthlySalary: '1200',
+    salaryCurrency: 'USD' as const,
     createdAt: '2024-01-05T00:00:00.000Z',
     updatedAt: '2024-01-05T00:00:00.000Z',
   },
@@ -99,11 +114,14 @@ const EXTRA_ACCOUNTANT = {
   displayName: 'Accountant Two',
   role: 'ACCOUNTANT' as const,
   avatar: null,
+  avatarOverride: null,
   telegram: null,
   phone: null,
   techStack: null,
-  defaultSharePercent: null,
-  monthlySalary: 1200,
+  paymentMethod: 'BANK_UAH_FOP' as const,
+  seniorSharePercent: 0,
+  monthlySalary: '1200',
+  salaryCurrency: 'USD' as const,
   createdAt: '2024-01-06T00:00:00.000Z',
   updatedAt: '2024-01-06T00:00:00.000Z',
 }
@@ -262,6 +280,119 @@ export const INTERVIEWS = [
 ]
 
 // ---------------------------------------------------------------------------
+// UserWithPermissionsResponse builders — used by profile-page specs
+// ---------------------------------------------------------------------------
+
+/** Shared profile-DTO fields not present on the fixture seed users. */
+function profileExtras(user: (typeof USERS)[keyof typeof USERS]) {
+  return {
+    walletUsdtErc20: user.paymentMethod === 'USDT_ERC20' ? '0x1234567890abcdef' : null,
+    walletUsdtLabel: null,
+    bankUahRecipient: user.paymentMethod === 'BANK_UAH_FOP' ? 'Test User' : null,
+    bankUahIban: user.paymentMethod === 'BANK_UAH_FOP' ? 'UA213223130000026007233566001' : null,
+    bankUahRnokpp: user.paymentMethod === 'BANK_UAH_FOP' ? '1234567890' : null,
+    bankUahBankName: null,
+    archivedAt: null,
+    adminNote: null,
+  }
+}
+
+/** Full admin viewing anyone: all tabs + all actions */
+export function buildAdminViewingUser(
+  targetUser: (typeof USERS)[keyof typeof USERS],
+): object {
+  return {
+    user: { ...targetUser, ...profileExtras(targetUser) },
+    permissions: {
+      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'audit'],
+      actions: [
+        'edit-profile',
+        'change-role',
+        'change-salary',
+        'change-requisites',
+        'set-note',
+        'archive',
+      ],
+      fields: {
+        salary: true,
+        share: true,
+        paymentMethodKpi: true,
+        techStack: true,
+        registrationDate: true,
+      },
+    },
+    data: {},
+  }
+}
+
+/** HR viewing their own senior: overview + projects + team only, no actions */
+export function buildHrViewingSenior(
+  senior: (typeof USERS)[keyof typeof USERS],
+): object {
+  return {
+    user: { ...senior, ...profileExtras(senior) },
+    permissions: {
+      tabs: ['overview', 'projects', 'team'],
+      actions: [],
+      fields: { techStack: true, registrationDate: true },
+    },
+    data: {},
+  }
+}
+
+/** Junior viewing another junior: header only, no tabs, no actions */
+export function buildJuniorViewingJunior(
+  targetUser: (typeof USERS)[keyof typeof USERS],
+): object {
+  return {
+    user: { ...targetUser, ...profileExtras(targetUser) },
+    permissions: {
+      tabs: [],
+      actions: [],
+      fields: {},
+    },
+    data: {},
+  }
+}
+
+/** Self-view response (used by GET /users/me on profile page) */
+export function buildSelfView(
+  user: (typeof USERS)[keyof typeof USERS],
+): object {
+  // Mirrors users-access.service.ts isSelf branch.
+  // SENIOR: interviews surfaced via header link, not tab.
+  const tabs: string[] = ['overview', 'projects', 'team', 'requisites', 'documents']
+  if (
+    user.role === 'SENIOR' ||
+    user.role === 'JUNIOR' ||
+    user.role === 'HR' ||
+    user.role === 'ACCOUNTANT'
+  ) {
+    tabs.push('finance')
+  }
+
+  const isSalaryRole = user.role === 'JUNIOR' || user.role === 'HR' || user.role === 'ACCOUNTANT'
+  const isShareRole = user.role === 'SENIOR' || user.role === 'ADMIN'
+
+  return {
+    user: { ...user, ...profileExtras(user) },
+    permissions: {
+      tabs,
+      actions: [],
+      fields: {
+        salary: isSalaryRole,
+        share: isShareRole,
+        paymentMethodKpi: true,
+        registrationDate: true,
+        techStack: true,
+        requisites: true,
+      },
+    },
+    data: {},
+  }
+}
+
+// ---------------------------------------------------------------------------
 // API base URL (matches what the web app uses via env)
 // ---------------------------------------------------------------------------
 const API = 'http://localhost:3001/api'
@@ -293,13 +424,47 @@ export async function mockAuthAs(
   await page.route(`${API}/auth/logout`, (r) => noContent(r))
 
   // Users — register specific sub-routes before the generic one
-  await page.route(`${API}/users/me`, (r) => jsonOk(r, user))
+  // /users/me — profile shell expects UserWithPermissionsResponse shape
+  await page.route(`${API}/users/me`, (r) =>
+    r.request().method() === 'PATCH'
+      ? jsonOk(r, { ...user, ...(JSON.parse(r.request().postData() ?? '{}') as object) })
+      : jsonOk(r, buildSelfView(user)),
+  )
+  // /users/me/requisites — PATCH for self requisites update
+  await page.route(`${API}/users/me/requisites`, (r) =>
+    jsonOk(r, { ...user, ...(JSON.parse(r.request().postData() ?? '{}') as object) }),
+  )
+  // /users/:id/role — PATCH for admin role change
+  await page.route(new RegExp(`${API}/users/([^/?]+)/role$`), (r) =>
+    jsonOk(r, { ...user, ...(JSON.parse(r.request().postData() ?? '{}') as object) }),
+  )
+  // /users/:id/audit-log
+  await page.route(new RegExp(`${API}/users/([^/?]+)/audit-log`), (r) =>
+    jsonOk(r, {
+      entries: [
+        {
+          id: 'audit-1',
+          userId: user.id,
+          action: 'role_change',
+          performedBy: user.id,
+          changes: { role: { from: 'JUNIOR', to: 'HR' } },
+          createdAt: '2026-05-01T10:00:00.000Z',
+        },
+      ],
+      total: 1,
+      page: 1,
+      limit: 20,
+    }),
+  )
+  // /users/:id — profile shell expects UserWithPermissionsResponse shape for view mode
   await page.route(new RegExp(`${API}/users/([^/?]+)$`), (r) => {
     const id = r.request().url().split('/').at(-1)
     const found = ALL_USERS.find((u) => u.id === id) ?? user
-    return r.request().method() === 'PATCH'
-      ? jsonOk(r, { ...found, ...(JSON.parse(r.request().postData() ?? '{}') as object) })
-      : jsonOk(r, found)
+    if (r.request().method() === 'PATCH') {
+      return jsonOk(r, { ...found, ...(JSON.parse(r.request().postData() ?? '{}') as object) })
+    }
+    // GET — return UserWithPermissionsResponse; viewer is `user`, target is `found`
+    return jsonOk(r, buildAdminViewingUser(found))
   })
   await page.route(`${API}/users`, (r) =>
     r.request().method() === 'POST'

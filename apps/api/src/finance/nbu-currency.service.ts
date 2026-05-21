@@ -29,7 +29,7 @@ export class NbuCurrencyService {
       const res = await fetch(url)
       if (!res.ok) throw new Error(`NBU API status ${res.status}`)
       rates = (await res.json()) as NbuRateResponse[]
-    } catch (err) {
+    } catch {
       this.logger.warn(`NBU API unavailable for ${dateStr}, trying yesterday`)
       // Fallback: try previous day (weekends/holidays have no data)
       const prev = this.prevDayStr(dateStr)
