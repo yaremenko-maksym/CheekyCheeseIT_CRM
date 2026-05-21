@@ -27,10 +27,11 @@ test.describe('Projects page', () => {
       await expect(page.getByRole('button', { name: /новый проект/i })).toBeVisible()
     })
 
-    test('ADMIN sees create and delete buttons', async ({ asAdmin: page }) => {
+    test('ADMIN sees create and archive buttons', async ({ asAdmin: page }) => {
       await page.goto('/crm/projects')
       await expect(page.getByRole('button', { name: /новый проект/i })).toBeVisible()
-      await expect(page.getByTitle('Удалить проект').first()).toBeVisible()
+      // Inline icon button on project cards: "Архивировать проект" (PR 34: archive replaced delete)
+      await expect(page.getByTitle('Архивировать проект').first()).toBeVisible()
     })
   })
 
@@ -185,26 +186,28 @@ test.describe('Projects page', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Delete project dialog — on list page via title button
+  // Archive project dialog — on list page via title button (PR 34)
+  // The inline "Trash" icon now opens an Archive confirm dialog (soft archive,
+  // not hard delete). Confirms via DELETE method (backend treats it as archive).
   // ---------------------------------------------------------------------------
 
-  test.describe('Delete project', () => {
-    test('opens delete confirm dialog with project name', async ({ asAdmin: page }) => {
+  test.describe('Archive project (list-page inline action)', () => {
+    test('opens archive confirm dialog with project name', async ({ asAdmin: page }) => {
       await page.goto('/crm/projects')
-      await page.getByTitle('Удалить проект').first().click()
+      await page.getByTitle('Архивировать проект').first().click()
       await expect(page.getByRole('dialog')).toBeVisible()
-      await expect(page.getByText(/Удалить проект «AI Platform v2»/)).toBeVisible()
+      await expect(page.getByText(/Архивировать проект «AI Platform v2»/)).toBeVisible()
     })
 
-    test('confirm sends DELETE request', async ({ asAdmin: page }) => {
+    test('confirm sends DELETE request (archive)', async ({ asAdmin: page }) => {
       await page.goto('/crm/projects')
 
       const deleteReq = page.waitForRequest(
         (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'DELETE',
       )
 
-      await page.getByTitle('Удалить проект').first().click()
-      await page.getByRole('button', { name: 'Удалить' }).last().click()
+      await page.getByTitle('Архивировать проект').first().click()
+      await page.getByRole('button', { name: 'Архивировать' }).last().click()
       await deleteReq
     })
 
@@ -215,7 +218,7 @@ test.describe('Projects page', () => {
       })
 
       await page.goto('/crm/projects')
-      await page.getByTitle('Удалить проект').first().click()
+      await page.getByTitle('Архивировать проект').first().click()
       await page.getByRole('button', { name: 'Отмена' }).click()
       await expect(page.getByRole('dialog')).not.toBeVisible()
       expect(deleteCalled).toBe(false)
@@ -483,7 +486,8 @@ test.describe('Projects page', () => {
       await page.goto('/crm/projects')
       await expect(page.getByText('AI Platform v2')).toBeVisible()
       await expect(page.getByRole('button', { name: /новый проект/i })).not.toBeVisible()
-      await expect(page.getByTitle('Удалить проект')).not.toBeVisible()
+      // Inline archive button is admin-only (PR 34: replaced "Удалить" → "Архивировать")
+      await expect(page.getByTitle('Архивировать проект')).not.toBeVisible()
     })
   })
 })
