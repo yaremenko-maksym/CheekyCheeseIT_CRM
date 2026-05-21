@@ -90,24 +90,22 @@ export function TechAutocompleteInput({
     onChange(value.filter((x) => x !== tag))
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Tab') {
-      const first = suggestions[0]
-      if (first) {
-        e.preventDefault()
-        addTag(first)
-      }
-      return
+  function commit() {
+    // If a suggestion is highlighted, take it; otherwise take the raw input as custom tag.
+    const highlighted = suggestions[activeIdx]
+    const raw = input.trim()
+    if (highlighted || raw) {
+      addTag(highlighted ?? raw)
     }
+  }
 
-    if (e.key === 'Enter') {
-      // If a suggestion is highlighted, take it; otherwise take the raw input as custom tag.
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Tab' || e.key === 'Enter') {
       const highlighted = suggestions[activeIdx]
       const raw = input.trim()
-      if (highlighted || raw) {
-        e.preventDefault()
-        addTag(highlighted ?? raw)
-      }
+      if (!highlighted && !raw) return
+      e.preventDefault()
+      commit()
       return
     }
 
