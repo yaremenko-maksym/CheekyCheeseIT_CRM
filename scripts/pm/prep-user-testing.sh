@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
-# Подготовка окружения перед User Testing.
+# Подготовка окружения перед User Testing + публичный туннель через LocalTunnel.
 # Usage: bash scripts/pm/prep-user-testing.sh <pr_branch>
 #
-# Шаги: branch checkout → migration pre-flight → db:migrate → unit-tests → restart dev → wait for ready.
-# Возвращает 0 если всё ОК (можно показывать пользователю), не-0 если что-то упало.
+# Шаги: branch checkout → migration pre-flight → db:migrate → unit-tests →
+#       restart dev → wait for ready → LocalTunnel → блокирует пока не Ctrl+C.
+#
+# Скрипт работает в FOREGROUND. Ctrl+C / SIGTERM убивает dev-сервер и tunnel
+# через trap, не оставляя висящих процессов. Для background-режима — вызывать с `&`.
+#
+# Возвращает 0 если всё ОК, не-0 если что-то упало.
 #
 # Env overrides:
 #   POSTGRES_HOST (default: localhost)
@@ -11,6 +16,8 @@
 #   POSTGRES_DB   (default: crm_db)
 #   POSTGRES_USER (default: crm_user)
 #   POSTGRES_PASSWORD (default: password)
+#   TUNNEL_SUBDOMAIN (опционально: --subdomain <name> для предсказуемого URL)
+#   SKIP_TUNNEL=1 (отключить туннель, только локальный сервер)
 
 set -euo pipefail
 
@@ -30,17 +37,40 @@ psql_q() {
   PGPASSWORD="$PG_PW" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -tAc "$1" 2>/dev/null
 }
 
+SKIP_TUNNEL="${SKIP_TUNNEL:-0}"
+TUNNEL_SUBDOMAIN="${TUNNEL_SUBDOMAIN:-}"
+TUNNEL_LOG=""
+TUNNEL_URL=""
+TOTAL_STEPS="7"
+[ "$SKIP_TUNNEL" = "1" ] && TOTAL_STEPS="6"
+
+# Cleanup trap — убивает dev-сервер и tunnel при ЛЮБОМ выходе скрипта
+# (success, error, Ctrl+C, kill). Не оставляет висящие процессы.
+cleanup() {
+  local exit_code=$?
+  trap - EXIT INT TERM  # disable trap, чтобы не зациклиться
+  echo ""
+  echo "🛑 Останавливаю dev-серверы и tunnel..."
+  pkill -f "nest start" 2>/dev/null || true
+  pkill -f "vite" 2>/dev/null || true
+  pkill -f "localtunnel" 2>/dev/null || true
+  [ -n "$TUNNEL_LOG" ] && [ -f "$TUNNEL_LOG" ] && rm -f "$TUNNEL_LOG"
+  echo "✅ Cleanup завершён."
+  exit "$exit_code"
+}
+trap cleanup EXIT INT TERM
+
 echo "🔄 Подготовка User Testing для ветки: $PR_BRANCH"
 echo "──────────────────────────────────────────────────"
 
 # 1. Переключиться на ветку PR
-echo "[1/6] Fetch + checkout + pull"
+echo "[1/$TOTAL_STEPS] Fetch + checkout + pull"
 git fetch origin
 git checkout "$PR_BRANCH"
 git pull origin "$PR_BRANCH"
 
 # 2. Pre-flight: проверить состояние Drizzle migrations
-echo "[2/6] Drizzle migrations pre-flight"
+echo "[2/$TOTAL_STEPS] Drizzle migrations pre-flight"
 
 # 2a. Postgres reachable?
 if ! psql_q "SELECT 1" >/dev/null; then
@@ -85,25 +115,26 @@ elif [ "$HAS_TRACKING" = "true" ]; then
 fi
 
 # 3. Применить миграции
-echo "[3/6] DB migrations"
+echo "[3/$TOTAL_STEPS] DB migrations"
 pnpm --filter @crm/api db:migrate
 
 # 4. Прогнать unit-тесты — если упали, не показываем пользователю
-echo "[4/6] Unit tests"
+echo "[4/$TOTAL_STEPS] Unit tests"
 if ! pnpm test; then
   echo "❌ Unit tests упали. НЕ показывать пользователю. Создать fix-задачу для Coder." >&2
   exit 1
 fi
 
 # 5. Перезапустить dev-серверы
-echo "[5/6] Restart dev servers"
+echo "[5/$TOTAL_STEPS] Restart dev servers"
 pkill -f "nest start" 2>/dev/null || true
 pkill -f "vite" 2>/dev/null || true
+pkill -f "localtunnel" 2>/dev/null || true
 sleep 2
 nohup pnpm dev >/tmp/pm-dev.log 2>&1 &
 
 # 6. Дождаться готовности
-echo "[6/6] Wait for services"
+echo "[6/$TOTAL_STEPS] Wait for services"
 if ! timeout 60 bash -c 'until curl -sf http://localhost:3001/api/health >/dev/null; do sleep 2; done'; then
   echo "❌ API не поднялся за 60 сек. Лог: /tmp/pm-dev.log" >&2
   exit 1
@@ -113,5 +144,91 @@ if ! timeout 30 bash -c 'until curl -sf http://localhost:3000 >/dev/null; do sle
   exit 1
 fi
 
+# 7. LocalTunnel — публичный URL для тестирования с телефона
+if [ "$SKIP_TUNNEL" = "1" ]; then
+  echo "──────────────────────────────────────────────────"
+  echo "✅ Окружение готово (БЕЗ tunnel — SKIP_TUNNEL=1)."
+  echo "Локальный: http://localhost:3000"
+  echo "Нажми Ctrl+C для остановки dev-серверов."
+  wait
+  exit 0
+fi
+
+echo "[7/$TOTAL_STEPS] Поднимаю LocalTunnel"
+
+# Двойная проверка что localhost:3000 реально отвечает (200/3xx/4xx — главное не connection refused)
+if ! curl -sf --max-time 5 --retry 3 --retry-delay 1 http://localhost:3000 >/dev/null; then
+  echo "❌ localhost:3000 не отвечает после wait-for-services. Tunnel запускать бессмысленно." >&2
+  exit 1
+fi
+
+TUNNEL_LOG=$(mktemp /tmp/pm-tunnel-XXXXXX.log)
+
+# Собираем команду — если задан TUNNEL_SUBDOMAIN, передаём флаг
+LT_ARGS=(--port 3000)
+if [ -n "$TUNNEL_SUBDOMAIN" ]; then
+  LT_ARGS+=(--subdomain "$TUNNEL_SUBDOMAIN")
+fi
+
+nohup npx --yes localtunnel "${LT_ARGS[@]}" >"$TUNNEL_LOG" 2>&1 &
+TUNNEL_PID=$!
+
+# Ждём пока tunnel выдаст URL (макс 30 сек). Параллельно проверяем что процесс жив.
+TUNNEL_URL=""
+for i in {1..30}; do
+  # Tunnel-процесс умер раньше времени → диагностируем и выходим
+  if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
+    echo "❌ LocalTunnel упал. Лог:" >&2
+    cat "$TUNNEL_LOG" >&2
+    echo "" >&2
+    echo "Возможные причины:" >&2
+    echo "  - npx/localtunnel недоступен (нет сети или проблема с npm registry)" >&2
+    echo "  - localtunnel.me недоступен из этой сети" >&2
+    echo "  - порт 3000 заблокирован firewall'ом локально" >&2
+    echo "  - можно обойти: SKIP_TUNNEL=1 bash $0 $PR_BRANCH" >&2
+    exit 1
+  fi
+
+  # Парсим URL из лога
+  URL=$(grep -oE 'https://[a-z0-9-]+\.loca\.lt' "$TUNNEL_LOG" 2>/dev/null | head -1 || true)
+  if [ -n "$URL" ]; then
+    TUNNEL_URL="$URL"
+    break
+  fi
+  sleep 1
+done
+
+if [ -z "$TUNNEL_URL" ]; then
+  echo "❌ LocalTunnel не выдал URL за 30 сек. Лог:" >&2
+  cat "$TUNNEL_LOG" >&2
+  echo "" >&2
+  echo "Можно обойти: SKIP_TUNNEL=1 bash $0 $PR_BRANCH" >&2
+  exit 1
+fi
+
 echo "──────────────────────────────────────────────────"
-echo "✅ Окружение готово. http://localhost:3000 — можно показывать пользователю."
+echo "✅ Окружение готово."
+echo ""
+printf '╔══════════════════════════════════════════════════════════════════╗\n'
+printf '║                                                                  ║\n'
+printf '║  🔗 USER TESTING URL:                                            ║\n'
+printf '║                                                                  ║\n'
+printf '║  %-64s║\n' "$TUNNEL_URL"
+printf '║                                                                  ║\n'
+printf '║  📱 Открыть с телефона — пройди bypass-страницу LocalTunnel'"'"'а     ║\n'
+printf '║     (один раз спросит password от твоего public IP, его можно    ║\n'
+printf '║     посмотреть на https://loca.lt/mytunnelpassword)              ║\n'
+printf '║                                                                  ║\n'
+printf '╚══════════════════════════════════════════════════════════════════╝\n'
+echo ""
+echo "Локальный URL:   http://localhost:3000"
+echo "Публичный URL:   $TUNNEL_URL"
+echo "Лог tunnel:      $TUNNEL_LOG"
+echo "Лог dev-сервера: /tmp/pm-dev.log"
+echo ""
+echo "Ctrl+C — остановит dev-серверы и tunnel (cleanup автоматический)."
+echo "──────────────────────────────────────────────────"
+
+# Блокируем выполнение — держим dev и tunnel живыми до Ctrl+C / SIGTERM.
+# Trap cleanup на EXIT гарантирует что оба процесса убьются вместе.
+wait
