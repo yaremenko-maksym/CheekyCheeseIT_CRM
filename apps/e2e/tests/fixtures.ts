@@ -143,6 +143,10 @@ export const TEAMS = [
   },
 ]
 
+// Round 5: project lifecycle is binary — ACTIVE (archivedAt = null) vs
+// ARCHIVED (archivedAt = timestamp). The legacy CLOSED state and end_date
+// column are gone, so the "EdTech Portal" fixture below is archived rather
+// than CLOSED to preserve archive-flow test coverage.
 export const PROJECTS = [
   {
     id: 'project-1-id',
@@ -154,9 +158,8 @@ export const PROJECTS = [
     seniorName: USERS.senior.displayName,
     rate: 5000,
     currency: 'USDT',
-    status: 'ACTIVE',
     startDate: '2024-01-15T00:00:00.000Z',
-    endDate: null,
+    archivedAt: null,
     createdAt: '2024-01-15T00:00:00.000Z',
     updatedAt: '2024-01-15T00:00:00.000Z',
     members: [],
@@ -171,10 +174,9 @@ export const PROJECTS = [
     seniorName: USERS.senior.displayName,
     rate: 3000,
     currency: 'USD',
-    status: 'CLOSED',
     sharePercent: null,
     startDate: '2023-06-01T00:00:00.000Z',
-    endDate: '2024-01-01T00:00:00.000Z',
+    archivedAt: '2024-01-01T00:00:00.000Z',
     createdAt: '2023-06-01T00:00:00.000Z',
     updatedAt: '2024-01-01T00:00:00.000Z',
     members: [
@@ -550,11 +552,20 @@ export async function mockAuthAs(
       ? noContent(r)
       : jsonOk(r, { ...PROJECTS[0], ...(JSON.parse(r.request().postData() ?? '{}') as object) }),
   )
-  await page.route(`${API}/projects`, (r) =>
-    r.request().method() === 'POST'
-      ? jsonOk(r, { ...PROJECTS[0], id: 'new-project-id' }, 201)
-      : jsonOk(r, PROJECTS),
-  )
+  // Round 5: honor the `?archived=true|false` filter so the new «Все/Активные/Архив»
+  // tabs return the expected slice of fixture projects. PROJECTS[0] is active
+  // (archivedAt = null) and PROJECTS[1] is archived (archivedAt = timestamp).
+  await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) => {
+    if (r.request().method() === 'POST') {
+      return jsonOk(r, { ...PROJECTS[0], id: 'new-project-id' }, 201)
+    }
+    const url = new URL(r.request().url())
+    const archivedParam = url.searchParams.get('archived')
+    if (archivedParam === 'true') {
+      return jsonOk(r, PROJECTS.filter((p) => p.archivedAt !== null))
+    }
+    return jsonOk(r, PROJECTS.filter((p) => p.archivedAt === null))
+  })
 
   // Interviews
   await page.route(new RegExp(`${API}/interviews/([^/?]+)/move`), (r) =>

@@ -70,9 +70,11 @@ const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accou
   ACCOUNTANT: 'accountant',
 }
 
-// ut-25: 4-th tab «Архив» — derived from ?archived=true URL state.
-// The remaining three (ALL / ACTIVE / CLOSED) stay in local state.
-type Filter = 'ALL' | 'ACTIVE' | 'CLOSED'
+// Round 5: project lifecycle reduces to ACTIVE vs ARCHIVED — the legacy
+// CLOSED state is gone. Tabs: «Все | Активные | Архив». The «Архив» tab is
+// derived from the `?archived=true` URL search param; the other two stay
+// in local state.
+type Filter = 'ALL' | 'ACTIVE'
 type StatusTab = Filter | 'ARCHIVED'
 
 function getInitials(name: string) {
@@ -215,7 +217,10 @@ function ProjectsPage() {
   // Archive is performed via `ArchiveConfirmDialog` (name-confirmation + impact warning)
   // — same UX as team / user archive, no inline mutation needed here.
 
-  const filtered = projects?.filter((p) => filter === 'ALL' || p.status === filter) ?? []
+  // Round 5: with the CLOSED status gone, both ALL and ACTIVE tabs show the
+  // same set (all non-archived projects). The «Архив» tab uses the URL
+  // search param and a different query, so it doesn't go through this filter.
+  const filtered = projects ?? []
 
   if (isLoading) {
     return (
@@ -252,14 +257,12 @@ function ProjectsPage() {
     })
   }
 
-  // ut-26 + ut-33: tabs row — unified through `<SegmentedToggle variant="tabs">`
-  // for visual + interaction parity across pages. Archive tab keeps its
-  // legacy `data-testid="toggle-archived-projects"` selector via the
-  // per-option `testId` escape hatch so existing E2E specs still match.
+  // Round 5: tabs row — «Все | Активные | Архив». The CLOSED business
+  // contract state is gone, so «Завершённые» is removed; «Архив» (ADMIN-only)
+  // keeps its `toggle-archived-projects` testId for existing E2E specs.
   const tabs: ReadonlyArray<SegmentedToggleOption<StatusTab>> = [
     { value: 'ALL', label: 'Все' },
     { value: 'ACTIVE', label: 'Активные' },
-    { value: 'CLOSED', label: 'Завершённые' },
     ...(isAdmin
       ? ([{ value: 'ARCHIVED', label: 'Архив', testId: 'toggle-archived-projects', icon: Archive }] as const)
       : []),
@@ -301,9 +304,9 @@ function ProjectsPage() {
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
           <Briefcase className="h-10 w-10 text-muted-foreground/30" />
           <p className="mt-4 text-sm font-medium">
-            {filter === 'ALL' ? 'Проектов пока нет' : `Нет ${filter === 'ACTIVE' ? 'активных' : 'завершённых'} проектов`}
+            {isArchivedView ? 'Архив пуст' : 'Проектов пока нет'}
           </p>
-          {canManage && filter !== 'CLOSED' && (
+          {canManage && !isArchivedView && (
             <Button size="sm" variant="outline" className="mt-4" onClick={() => setShowCreate(true)}>
               <Plus className="mr-1.5 h-4 w-4" />
               Создать проект
@@ -343,7 +346,6 @@ function ProjectsPage() {
                 data-archived={isArchived ? 'true' : 'false'}
                 className={cn(
                   'flex flex-col transition-all cursor-pointer hover:border-primary/40 hover:shadow-md hover:shadow-primary/5',
-                  project.status === 'CLOSED' && 'opacity-70',
                   isArchived && 'opacity-60',
                 )}
                 onClick={() => navigate({ to: '/crm/projects/$projectId', params: { projectId: project.id } })}
@@ -359,7 +361,7 @@ function ProjectsPage() {
                         <span
                           className={cn(
                             'mt-0.5 h-1.5 w-1.5 rounded-full shrink-0',
-                            project.status === 'ACTIVE' ? 'bg-emerald-500' : 'bg-muted-foreground/40',
+                            isArchived ? 'bg-muted-foreground/40' : 'bg-emerald-500',
                           )}
                         />
                         <p className="font-semibold text-base truncate leading-tight">{project.companyName}</p>
@@ -399,18 +401,13 @@ function ProjectsPage() {
                     <span className="font-medium">{project.rate.toLocaleString()} {project.currency}</span>
                   </div>
 
-                  {/* Dates */}
+                  {/* Dates — round 5: only start date shown; archive timestamp is admin-only on detail page. */}
                   <div className="flex items-center gap-2 text-sm">
                     <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                     <span className="text-muted-foreground">Старт:</span>
                     <span className="font-medium">
                       {new Date(project.startDate).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                     </span>
-                    {project.endDate && (
-                      <span className="text-muted-foreground">
-                        — {new Date(project.endDate).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                      </span>
-                    )}
                   </div>
 
                   {/* ut-34: SENIOR + JUNIOR(s) only in card preview */}

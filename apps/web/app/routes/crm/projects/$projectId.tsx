@@ -390,17 +390,11 @@ function ProjectDetailPage() {
     },
   })
 
-  // ut-28: «Завершить» merged into «Архивировать» — closeMutation no longer
-  // wired to a button. Status-level reopen remains for archived flows
-  // (Archive ↔ Active transition handled separately).
-  const reopenMutation = useMutation({
-    mutationFn: () => api.patch(`/projects/${projectId}`, { status: 'ACTIVE' }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['projects'] })
-    },
-  })
-
-  // Archive (was deleteMutation) is now triggered via AdminActionsMenu → ArchiveConfirmDialog.
+  // Round 5: the CLOSED business contract state is gone — lifecycle is
+  // binary (ACTIVE ↔ ARCHIVED) and the only way back to ACTIVE is via the
+  // Archive unarchive flow (handled below). The legacy reopen mutation is
+  // therefore removed.
+  // Archive is triggered via the explicit Archive button → ArchiveConfirmDialog.
 
 const removeMemberMutation = useMutation({
     mutationFn: (userId: string) => api.delete(`/projects/${projectId}/members/${userId}`),
@@ -528,12 +522,11 @@ return (
               </h1>
               <p className="text-sm text-muted-foreground truncate mt-0.5">{project.name}</p>
               <div className="flex items-center gap-2 mt-2 flex-wrap">
-                <Badge
-                  variant={project.status === 'ACTIVE' ? 'default' : 'secondary'}
-                  className="text-xs"
-                >
-                  {project.status === 'ACTIVE' ? 'Активный' : 'Завершён'}
-                </Badge>
+                {!project.archivedAt && (
+                  <Badge variant="default" className="text-xs">
+                    Активный
+                  </Badge>
+                )}
                 {project.archivedAt && (
                   <Badge
                     variant="outline"
@@ -561,17 +554,6 @@ return (
               >
                 <Pencil className="h-3.5 w-3.5" />
                 Редактировать
-              </Button>
-            )}
-            {canManage && project.status === 'CLOSED' && !project.archivedAt && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 text-xs"
-                onClick={() => reopenMutation.mutate()}
-                disabled={reopenMutation.isPending}
-              >
-                Переоткрыть
               </Button>
             )}
             {isAdmin && !project.archivedAt && (
@@ -617,13 +599,13 @@ return (
               </p>
             </div>
           </div>
-          {project.endDate && (
+          {project.archivedAt && (
             <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
               <Calendar className="h-4 w-4 text-amber-400 shrink-0" />
               <div>
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Завершён</p>
                 <p className="text-sm font-semibold">
-                  {new Date(project.endDate).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                  {new Date(project.archivedAt).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                 </p>
               </div>
             </div>
@@ -739,7 +721,7 @@ return (
               <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 Команда
               </CardTitle>
-              {canManage && project.status === 'ACTIVE' && (
+              {canManage && !project.archivedAt && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span>

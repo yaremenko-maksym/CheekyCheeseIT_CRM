@@ -6,13 +6,15 @@ test.describe('Projects page', () => {
   // ---------------------------------------------------------------------------
 
   test.describe('Rendering', () => {
-    test('shows project cards with name, company, rate and status', async ({ asAdmin: page }) => {
+    test('shows project cards with name, company, rate', async ({ asAdmin: page }) => {
       await page.goto('/crm/projects')
       await expect(page.getByText('AI Platform v2')).toBeVisible()
       await expect(page.getByText('TechCorp AI')).toBeVisible()
+      // Round 5: EdTech Portal is now an archived fixture — hidden from the
+      // default view. Archive-tab visibility is covered by the Filters suite.
       // Rate rendered via toLocaleString() — match formatted number pattern
       await expect(page.getByText(/5[,.\u00a0 ]?000[ ]*USDT/)).toBeVisible()
-      await expect(page.getByText('EdTech Portal')).toBeVisible()
+      await expect(page.getByText('EdTech Portal')).not.toBeVisible()
     })
 
     test('SENIOR sees projects page (read-only)', async ({ asSenior: page }) => {
@@ -42,28 +44,34 @@ test.describe('Projects page', () => {
   // ---------------------------------------------------------------------------
 
   test.describe('Filters', () => {
-    // ut-33: status tabs are now rendered by SegmentedToggle with `role="tab"`.
-    // Selecting via getByRole('tab', …) keeps the test resilient to layout.
-    test('"Активные" tab hides closed projects', async ({ asAdmin: page }) => {
+    // Round 5: tabs are «Все | Активные | Архив». The legacy CLOSED business
+    // contract state is gone — archived projects are hidden by default and
+    // only surface under the «Архив» tab (ADMIN-only).
+    test('"Активные" tab shows only non-archived projects', async ({ asAdmin: page }) => {
       await page.goto('/crm/projects')
       await page.getByRole('tab', { name: 'Активные' }).click()
       await expect(page.getByText('AI Platform v2')).toBeVisible()
+      // Archived fixture project is excluded by the API (?archived=false).
       await expect(page.getByText('EdTech Portal')).not.toBeVisible()
     })
 
-    test('"Завершённые" tab hides active projects', async ({ asAdmin: page }) => {
+    test('"Все" tab shows non-archived projects', async ({ asAdmin: page }) => {
       await page.goto('/crm/projects')
-      await page.getByRole('tab', { name: 'Завершённые' }).click()
-      await expect(page.getByText('EdTech Portal')).toBeVisible()
-      await expect(page.getByText('AI Platform v2')).not.toBeVisible()
-    })
-
-    test('"Все" tab shows all projects', async ({ asAdmin: page }) => {
-      await page.goto('/crm/projects')
-      await page.getByRole('tab', { name: 'Завершённые' }).click()
+      // Move away and back to «Все» to verify the toggle re-fetches.
+      await page.getByRole('tab', { name: 'Активные' }).click()
       await page.getByRole('tab', { name: 'Все' }).click()
       await expect(page.getByText('AI Platform v2')).toBeVisible()
-      await expect(page.getByText('EdTech Portal')).toBeVisible()
+    })
+
+    test('"Архив" tab shows only archived projects', async ({ asAdmin: page }) => {
+      await page.goto('/crm/projects')
+      await page.getByTestId('toggle-archived-projects').click()
+      // Card itself is the most reliable target — the inner <p> may briefly be
+      // hidden during the AnimatePresence exit/enter animation, but the card
+      // (with data-archived='true') becomes visible as soon as the query
+      // resolves.
+      await expect(page.getByTestId('project-card-project-2-id')).toBeVisible()
+      await expect(page.getByText('AI Platform v2')).not.toBeVisible()
     })
   })
 
@@ -141,54 +149,13 @@ test.describe('Projects page', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Project actions: close / reopen — on detail page
+  // Project archive / unarchive — see tests/crm/projects/projects-archive.spec.ts
+  //
+  // Round 5 (drop status enum) removed the close/reopen flow: project
+  // lifecycle is now binary (ACTIVE ↔ ARCHIVED) with archive/unarchive
+  // exclusively driving the transition. The dedicated archive spec covers
+  // all related UI assertions.
   // ---------------------------------------------------------------------------
-
-  test.describe('Close and reopen project', () => {
-    // ut-28 (PR 34 round 1) merged «Завершить» into the unified Archive action.
-    // Closing an active project is now done via the archive flow tested in
-    // tests/crm/projects/projects-archive.spec.ts ("ADMIN sees explicit Archive
-    // button on project detail" + ArchiveConfirmDialog). Skipped here to keep
-    // the legacy test descriptor as a breadcrumb without false failures.
-    test.skip('ADMIN can close an active project', async ({ asAdmin: page }) => {
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
-      const patchReq = page.waitForRequest(
-        (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
-      )
-      await page.getByRole('button', { name: /завершить/i }).first().click()
-      await page.getByRole('button', { name: 'Завершить' }).last().click()
-      const req = await patchReq
-      expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ status: 'CLOSED' })
-    })
-
-    test('ADMIN can reopen a closed project', async ({ asAdmin: page }) => {
-      // Override mock to return CLOSED project for this specific id
-      await page.route(`http://localhost:3001/api/projects/${PROJECTS[1]!.id}`, (r) => {
-        if (r.request().method() === 'GET') {
-          return r.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(PROJECTS[1]),
-          })
-        }
-        return r.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ...PROJECTS[1], ...(JSON.parse(r.request().postData() ?? '{}') as object) }),
-        })
-      })
-
-      await page.goto(`/crm/projects/${PROJECTS[1]!.id}`)
-
-      const patchReq = page.waitForRequest(
-        (req) => req.url().includes(`/projects/${PROJECTS[1]!.id}`) && req.method() === 'PATCH',
-      )
-
-      await page.getByRole('button', { name: 'Переоткрыть' }).click()
-      const req = await patchReq
-      expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ status: 'ACTIVE' })
-    })
-  })
 
   // ---------------------------------------------------------------------------
   // Project members — on detail page
@@ -433,18 +400,17 @@ test.describe('Projects page', () => {
       await expect(page.getByRole('heading', { name: 'Проекты' })).toBeVisible()
     })
 
-    test('filter shows empty state when no projects match', async ({ page }) => {
+    test('archive tab shows empty state when no archived projects', async ({ page }) => {
       await mockAuthAs(page, USERS.admin)
-      await page.route('http://localhost:3001/api/projects', (r) =>
-        r.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([{ ...PROJECTS[0]!, status: 'ACTIVE' }]),
-        }),
+      // Override the parametrised mock to always return an empty list,
+      // simulating the "Архив пуст" empty state.
+      await page.route(/\/api\/projects(\?.*)?$/, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
       )
       await page.goto('/crm/projects')
-      await page.getByRole('tab', { name: 'Завершённые' }).click()
+      await page.getByTestId('toggle-archived-projects').click()
       await expect(page.getByText('AI Platform v2')).not.toBeVisible()
+      await expect(page.getByText('Архив пуст')).toBeVisible()
     })
 
     test('JUNIOR sees projects but no management controls', async ({ asJunior: page }) => {

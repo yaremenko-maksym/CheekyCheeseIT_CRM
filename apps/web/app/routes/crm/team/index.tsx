@@ -608,12 +608,12 @@ function TeamPage() {
       if (sortBy === 'projects') {
         const aProjects = projects
           ? projects.filter(
-              (p) => p.status === 'ACTIVE' && a.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
+              (p) => p.archivedAt === null && a.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
             ).length
           : 0
         const bProjects = projects
           ? projects.filter(
-              (p) => p.status === 'ACTIVE' && b.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
+              (p) => p.archivedAt === null && b.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
             ).length
           : 0
         return bProjects - aProjects
@@ -760,7 +760,7 @@ function TeamPage() {
           const hrMembers = team.members.filter((m) => m.role === 'HR')
           const activeProjects = projects
             ? projects.filter(
-                (p) => p.status === 'ACTIVE' && team.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
+                (p) => p.archivedAt === null && team.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
               ).length
             : 0
           const isArchived = !!team.archivedAt

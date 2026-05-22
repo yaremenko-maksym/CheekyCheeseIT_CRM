@@ -297,7 +297,6 @@ async function main() {
           seniorId: senior.id,
           rate: def.rate,
           currency: def.currency,
-          status: 'ACTIVE',
         })
         .returning()
       projectId = project!.id

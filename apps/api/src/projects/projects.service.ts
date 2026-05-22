@@ -46,12 +46,10 @@ export class ProjectsService {
       domain: project.domain,
       logoUrl: project.logoUrl ?? null,
       startDate: project.startDate.toISOString(),
-      endDate: project.endDate ? project.endDate.toISOString() : null,
       seniorId: project.seniorId,
       seniorName: project.senior?.displayName ?? '',
       rate: project.rate,
       currency: project.currency,
-      status: project.status,
       techStack: project.techStack ?? null,
       teamSize: project.teamSize ?? null,
       benefits: project.benefits ?? null,
@@ -232,7 +230,6 @@ export class ProjectsService {
         seniorId: data.seniorId,
         rate: data.rate,
         currency: data.currency,
-        status: 'ACTIVE',
         techStack: data.techStack ?? null,
         teamSize: data.teamSize ?? null,
         benefits: data.benefits ?? null,
@@ -274,10 +271,8 @@ export class ProjectsService {
     if (data.companyName !== undefined) updateData.companyName = data.companyName
     if (data.domain !== undefined) updateData.domain = data.domain
     if (data.logoUrl !== undefined) updateData.logoUrl = data.logoUrl ?? null
-    if (data.endDate !== undefined) updateData.endDate = data.endDate ? new Date(data.endDate) : null
     if (data.rate !== undefined) updateData.rate = data.rate
     if (data.currency !== undefined) updateData.currency = data.currency
-    if (data.status !== undefined) updateData.status = data.status
     if (data.techStack !== undefined) updateData.techStack = data.techStack ?? null
     if (data.teamSize !== undefined) updateData.teamSize = data.teamSize ?? null
     if (data.benefits !== undefined) updateData.benefits = data.benefits ?? null
@@ -559,7 +554,6 @@ export class ProjectsService {
         seniorId: interview.seniorId,
         rate: 0,
         currency: 'USDT',
-        status: 'ACTIVE',
         techStack: interview.notesTechStack ?? null,
         teamSize: interview.notesTeamSize ?? null,
         benefits: interview.notesBenefits ?? null,

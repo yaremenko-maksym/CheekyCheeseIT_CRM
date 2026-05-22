@@ -158,10 +158,11 @@ function TeamDetailPage() {
     },
   })
 
-  // Compute active projects for this team
+  // Compute active projects for this team. Round 5: project lifecycle is
+  // binary — active === archivedAt is null.
   const activeProjects = projects?.filter(
     (p) =>
-      p.status === 'ACTIVE' &&
+      p.archivedAt === null &&
       team?.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
   ) ?? []
 
@@ -220,7 +221,7 @@ function TeamDetailPage() {
 
   const juniorIdsWithProjects = new Set(
     projects?.flatMap((p) =>
-      p.status === 'ACTIVE'
+      p.archivedAt === null
         ? p.members
             ?.filter((m: { leftAt: string | null }) => m.leftAt === null)
             .map((m: { userId: string }) => m.userId) ?? []
