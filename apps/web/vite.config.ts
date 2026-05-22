@@ -6,7 +6,14 @@ import tsConfigPaths from 'vite-tsconfig-paths'
 import path from 'path'
 
 export default defineConfig({
-  server: { port: 3000 },
+  server: {
+    port: 3000,
+    // host: true слушает на 0.0.0.0 — нужно чтобы LocalTunnel/ngrok мог проксировать с внешки.
+    // allowedHosts: ['.loca.lt'] разрешает запросы из туннелей формата <subdomain>.loca.lt
+    // (Vite по умолчанию режет non-localhost Host header как "Blocked request").
+    host: true,
+    allowedHosts: ['.loca.lt'],
+  },
   preview: { port: 3000 },
   resolve: {
     alias: {
