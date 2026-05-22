@@ -3,19 +3,17 @@ import { desc, eq, sql } from 'drizzle-orm'
 import type { AuditAction, AuditChange } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { userAuditLog } from '../database/schema'
+import type { DrizzleTx } from '../database/types'
 
 // avatarOverride can contain large base64 strings — exclude from audit diffs (avatar URL change is a non-business event anyway)
 const IGNORE_FIELDS = new Set(['updatedAt', 'createdAt', 'id', 'avatarOverride'])
 
 /**
  * Drizzle transaction handle passed by `db.transaction(async (tx) => …)`.
- * Kept loose (`unknown`) because the concrete `PgTransaction<…>` generic
- * surface differs between top-level db and tx — both share the same
- * runtime `insert(table).values(rows)` chain that this service uses, so
- * we narrow at the call site via an internal cast.
+ * Resolves to the same `PgTransaction<…>` generic used by Drizzle's
+ * `db.transaction()` callback — see `apps/api/src/database/types.ts`.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AuditLogTransaction = any
+export type AuditLogTransaction = DrizzleTx
 
 @Injectable()
 export class AuditLogService {

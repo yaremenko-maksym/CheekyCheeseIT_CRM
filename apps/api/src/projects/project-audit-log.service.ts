@@ -3,6 +3,7 @@ import { desc, eq, sql } from 'drizzle-orm'
 import type { ProjectAuditAction } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { projectAuditLog } from '../database/schema'
+import type { DrizzleTx } from '../database/types'
 
 const IGNORE_FIELDS = new Set(['updatedAt', 'createdAt', 'id'])
 
@@ -11,10 +12,8 @@ export interface AuditChange {
   after: unknown
 }
 
-/** See AuditLogService for rationale — Drizzle's tx generic surface differs
- *  from top-level db so we keep this loose. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type ProjectAuditLogTransaction = any
+/** Same `PgTransaction<…>` Drizzle exposes from `db.transaction(async (tx) => …)`. */
+export type ProjectAuditLogTransaction = DrizzleTx
 
 /**
  * Mirrors `apps/api/src/users/audit-log.service.ts` for projects.

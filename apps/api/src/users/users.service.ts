@@ -3,6 +3,7 @@ import { and, eq, inArray, isNotNull, isNull, ne } from 'drizzle-orm'
 import type { ArchiveImpact } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { projectMembers, projects, teamMembers, teams, users, type User } from '../database/schema'
+import type { DrizzleTx } from '../database/types'
 import { TeamAuditLogService } from '../teams/team-audit-log.service'
 import { ProjectAuditLogService } from '../projects/project-audit-log.service'
 import { AuditLogService } from './audit-log.service'
@@ -360,8 +361,7 @@ export class UsersService {
    * hasn't actually changed (avoids spurious audit entries for re-saves).
    */
   private async updateSeniorTeamTelegramChannelTx(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    tx: any,
+    tx: DrizzleTx,
     seniorId: string,
     value: string | null,
     actorId: string | null,
@@ -370,7 +370,7 @@ export class UsersService {
       .select()
       .from(teamMembers)
       .where(and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)))
-      .then((rows: Array<typeof teamMembers.$inferSelect>) => rows[0])
+      .then((rows) => rows[0])
     if (!seniorMembership) return
     const teamId = seniorMembership.teamId
 
@@ -378,7 +378,7 @@ export class UsersService {
       .select()
       .from(teams)
       .where(eq(teams.id, teamId))
-      .then((rows: Array<typeof teams.$inferSelect>) => rows[0])
+      .then((rows) => rows[0])
     if (!team) return
 
     const previous = team.telegramChannel ?? null
@@ -412,8 +412,7 @@ export class UsersService {
    * Each delta is logged into `team_audit_log`.
    */
   private async reconcileSeniorTeamTx(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    tx: any,
+    tx: DrizzleTx,
     seniorId: string,
     data: { hrIds?: string[] | undefined; accountantId?: string | null | undefined },
     actorId: string | null,
@@ -424,7 +423,7 @@ export class UsersService {
       .select()
       .from(teamMembers)
       .where(and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)))
-      .then((rows: Array<typeof teamMembers.$inferSelect>) => rows[0])
+      .then((rows) => rows[0])
     if (!seniorMembership) return
     const teamId = seniorMembership.teamId
 
@@ -508,8 +507,7 @@ export class UsersService {
    * Uses the supplied transaction handle so it shares the outer atomicity boundary.
    */
   private async upsertTeamMemberTx(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    tx: any,
+    tx: DrizzleTx,
     teamId: string,
     userId: string,
   ): Promise<void> {
@@ -517,7 +515,7 @@ export class UsersService {
       .select()
       .from(teamMembers)
       .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
-      .then((rows: Array<typeof teamMembers.$inferSelect>) => rows[0])
+      .then((rows) => rows[0])
     if (existing) {
       if (existing.leftAt !== null) {
         await tx
@@ -819,13 +817,12 @@ export class UsersService {
    * `this.db.db` — so rollback discards everything together. Caller is
    * responsible for opening the transaction.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async unarchivePairTx(tx: any, id: string, actorId: string | null = null): Promise<void> {
+  async unarchivePairTx(tx: DrizzleTx, id: string, actorId: string | null = null): Promise<void> {
     const user = await tx
       .select()
       .from(users)
       .where(eq(users.id, id))
-      .then((rows: User[]) => rows[0])
+      .then((rows) => rows[0])
     if (!user) throw new NotFoundException('User not found')
     if (!user.archivedAt) throw new BadRequestException('User is not archived')
 
@@ -853,13 +850,13 @@ export class UsersService {
         .select()
         .from(teamMembers)
         .where(and(eq(teamMembers.userId, id), isNull(teamMembers.leftAt)))
-        .then((rows: Array<typeof teamMembers.$inferSelect>) => rows[0])
+        .then((rows) => rows[0])
       if (seniorMembership) {
         const team = await tx
           .select()
           .from(teams)
           .where(eq(teams.id, seniorMembership.teamId))
-          .then((rows: Array<typeof teams.$inferSelect>) => rows[0])
+          .then((rows) => rows[0])
         if (team?.archivedAt) {
           const teamPreviousArchivedAt = team.archivedAt
           await tx
