@@ -24,7 +24,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import { AdminActionsMenu } from '@/components/admin-actions/AdminActionsMenu'
@@ -356,14 +356,26 @@ function TeamDetailPage() {
         </div>
       </motion.div>
 
-      {user?.role === 'ADMIN' && (
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'members' | 'audit')} className="w-full">
-          <TabsList>
-            <TabsTrigger value="members" data-testid="tab-members">Состав</TabsTrigger>
-            <TabsTrigger value="audit" data-testid="tab-audit">История изменений</TabsTrigger>
-          </TabsList>
-        </Tabs>
-      )}
+      {user?.role === 'ADMIN' && (() => {
+        type TeamDetailTab = 'members' | 'audit'
+        const detailTabs: ReadonlyArray<SegmentedToggleOption<TeamDetailTab>> = [
+          { value: 'members', label: 'Состав', testId: 'tab-members' },
+          { value: 'audit', label: 'История изменений', testId: 'tab-audit' },
+        ]
+        return (
+          <SegmentedToggle<TeamDetailTab>
+            value={activeTab}
+            onChange={(v) => setActiveTab(v)}
+            options={detailTabs}
+            ariaLabel="Разделы команды"
+            variant="tabs"
+            size="sm"
+            layoutId={`team-detail-tabs-${team.id}`}
+            className="w-fit"
+            testId={`team-detail-tabs-${team.id}`}
+          />
+        )
+      })()}
 
       {user?.role === 'ADMIN' && activeTab === 'audit' ? (
         <AuditLogTab entityType="team" entityId={team.id} />

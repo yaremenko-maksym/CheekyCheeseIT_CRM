@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import { useUpdateMe } from '@/hooks/use-user-profile'
 import { cn } from '@/lib/utils'
 import { getCroppedDataUrl } from './cropImage'
@@ -209,21 +209,29 @@ export function AvatarUploadDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {!isCropStep && (
+        {!isCropStep && (() => {
+          type SourceTab = 'file' | 'url'
+          const sourceTabs: ReadonlyArray<SegmentedToggleOption<SourceTab>> = [
+            { value: 'file', label: 'Файл', icon: Upload },
+            { value: 'url', label: 'Ссылка', icon: Link2 },
+          ]
+          return (
           <>
-            <Tabs value={tab} onValueChange={(v) => { setTab(v as 'file' | 'url'); setError(null) }}>
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="file" className="gap-1.5">
-                  <Upload className="h-3.5 w-3.5" />
-                  Файл
-                </TabsTrigger>
-                <TabsTrigger value="url" className="gap-1.5">
-                  <Link2 className="h-3.5 w-3.5" />
-                  Ссылка
-                </TabsTrigger>
-              </TabsList>
+            {/* ut-33: unified through SegmentedToggle variant="tabs" so the
+                «Файл / Ссылка» switch matches the page-level tabs styling. */}
+            <SegmentedToggle<SourceTab>
+              value={tab}
+              onChange={(v) => { setTab(v); setError(null) }}
+              options={sourceTabs}
+              ariaLabel="Источник изображения"
+              variant="tabs"
+              size="sm"
+              layoutId="avatar-source-tabs"
+              testId="avatar-source-tabs"
+            />
 
-              <TabsContent value="file" className="space-y-3 pt-3">
+            {tab === 'file' && (
+              <div className="space-y-3 pt-3">
                 <input
                   ref={fileRef}
                   type="file"
@@ -247,9 +255,11 @@ export function AvatarUploadDialog({
                 <p className="text-xs text-muted-foreground">
                   Перетащите файл в окно или нажмите кнопку выше.
                 </p>
-              </TabsContent>
+              </div>
+            )}
 
-              <TabsContent value="url" className="space-y-3 pt-3">
+            {tab === 'url' && (
+              <div className="space-y-3 pt-3">
                 <Input
                   type="url"
                   placeholder="https://example.com/avatar.png"
@@ -270,8 +280,8 @@ export function AvatarUploadDialog({
                 >
                   Продолжить
                 </Button>
-              </TabsContent>
-            </Tabs>
+              </div>
+            )}
 
             {currentAvatarUrl && (
               <div className="flex justify-center rounded-md border bg-muted/20 p-3">
@@ -283,7 +293,8 @@ export function AvatarUploadDialog({
               </div>
             )}
           </>
-        )}
+          )
+        })()}
 
         {isCropStep && sourceImage && (
           <div className="space-y-3">

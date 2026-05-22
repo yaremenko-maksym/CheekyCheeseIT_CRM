@@ -1,9 +1,10 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
+import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import { Archive, ArchiveRestore, Check, Pencil, Plus, Search, Send, UserPlus, Users } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
 import type { Value as PhoneValue } from 'react-phone-number-input'
 import { z } from 'zod'
@@ -517,11 +518,18 @@ function TeamPage() {
   const isHr = user?.role === 'HR'
   const isAdmin = user?.role === 'ADMIN'
 
+  // ut-32: keepPreviousData + useTransition keep the previous list visible
+  // during the URL switch + refetch so the SegmentedToggle's gold-pill
+  // layout animation isn't interrupted by a render that throws the list
+  // into a skeleton state mid-flight.
   const { data: teams, isLoading } = useQuery({
     queryKey: ['teams', { archived: isArchivedView }],
     queryFn: () => fetchTeams(isArchivedView),
     enabled: !!user,
+    placeholderData: keepPreviousData,
   })
+
+  const [, startTransition] = useTransition()
 
   // Auto-redirect for SENIOR and JUNIOR users who have only one team
   useEffect(() => {
@@ -649,12 +657,24 @@ function TeamPage() {
     )
   }
 
-  // ut-25: tabs for teams page — «Активные | Архив» for ADMIN, no tabs for others.
-  const teamTabs: Array<{ value: 'ACTIVE' | 'ARCHIVED'; label: string; testId?: string; icon?: typeof Archive }> = [
+  // ut-25 + ut-33: tabs for teams page — «Активные | Архив» for ADMIN, unified
+  // through SegmentedToggle so the gold-pill animation lives in one place.
+  type TeamTab = 'ACTIVE' | 'ARCHIVED'
+  const teamTabs: ReadonlyArray<SegmentedToggleOption<TeamTab>> = [
     { value: 'ACTIVE', label: 'Активные' },
     { value: 'ARCHIVED', label: 'Архив', testId: 'toggle-archived-teams', icon: Archive },
   ]
-  const currentTeamTab: 'ACTIVE' | 'ARCHIVED' = isArchivedView ? 'ARCHIVED' : 'ACTIVE'
+  const currentTeamTab: TeamTab = isArchivedView ? 'ARCHIVED' : 'ACTIVE'
+  const handleTeamTabChange = (next: TeamTab) => {
+    // ut-32: wrap navigation in startTransition so the gold-pill layout
+    // animation isn't preempted by the query refetch render.
+    startTransition(() => {
+      navigate({
+        to: '/crm/team',
+        search: next === 'ARCHIVED' ? { archived: true } : {},
+      })
+    })
+  }
 
   return (
     <div className="space-y-6">
@@ -670,52 +690,21 @@ function TeamPage() {
         </div>
       </div>
 
-      {/* ut-25 + ut-26: Tabs row replacing the «Показать архивных» button.
+      {/* ut-25 + ut-26 + ut-33: Tabs row replacing the «Показать архивных» button.
           Only ADMIN sees the Archive tab; for other roles tabs aren't needed
           since they don't have access to archived teams. */}
       {isAdmin && (
-        <div
-          role="tablist"
-          aria-label="Фильтр команд"
-          className="relative flex w-fit gap-1 rounded-lg border border-border bg-muted/60 p-1"
-        >
-          {teamTabs.map((tab) => {
-            const active = currentTeamTab === tab.value
-            const Icon = tab.icon
-            return (
-              <button
-                key={tab.value}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() =>
-                  navigate({
-                    to: '/crm/team',
-                    search: tab.value === 'ARCHIVED' ? { archived: true } : {},
-                  })
-                }
-                {...(tab.testId ? { 'data-testid': tab.testId } : {})}
-                className={cn(
-                  'relative flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs',
-                  'transition-colors duration-150 focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
-                  active ? 'font-semibold text-foreground' : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {active && (
-                  <motion.div
-                    layoutId="team-status-tabs"
-                    className="absolute inset-0 rounded-md bg-primary/15 border border-primary/40 shadow-sm"
-                    transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-                  />
-                )}
-                <span className="relative z-10 flex items-center gap-1.5">
-                  {Icon && <Icon className={cn('h-3.5 w-3.5', active && 'text-primary')} />}
-                  {tab.label}
-                </span>
-              </button>
-            )
-          })}
-        </div>
+        <SegmentedToggle<TeamTab>
+          value={currentTeamTab}
+          onChange={handleTeamTabChange}
+          options={teamTabs}
+          ariaLabel="Фильтр команд"
+          variant="tabs"
+          size="sm"
+          layoutId="team-status-tabs"
+          className="w-fit"
+          testId="team-status-tabs"
+        />
       )}
 
       {teams && teams.length === 0 && (

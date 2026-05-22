@@ -212,4 +212,106 @@ describe('SegmentedToggle', () => {
     expect(screen.getAllByRole('radio')).toHaveLength(3)
     expect(screen.getByTestId('align-c')).toHaveAttribute('aria-checked', 'true')
   })
+
+  // ut-33: tabs variant — page-level segmented control. Container is a real
+  // ARIA tablist, items expose role="tab" + aria-selected, and the active
+  // pill uses the more saturated primary tint so it reads as a focal page
+  // control instead of an inline helper.
+  describe('variant="tabs"', () => {
+    function TabsLayout({ initial = 'ALL' as 'ALL' | 'ACTIVE' }: { initial?: 'ALL' | 'ACTIVE' }) {
+      const [v, setV] = React.useState(initial)
+      return (
+        <SegmentedToggle
+          value={v}
+          onChange={setV}
+          options={[
+            { value: 'ALL', label: 'Все' },
+            { value: 'ACTIVE', label: 'Активные' },
+          ]}
+          ariaLabel="Фильтр"
+          variant="tabs"
+          testId="status-tabs"
+        />
+      )
+    }
+
+    it('renders as ARIA tablist + role="tab" items with aria-selected', () => {
+      render(<TabsLayout />)
+      expect(screen.getByRole('tablist', { name: 'Фильтр' })).toBeInTheDocument()
+      const tabs = screen.getAllByRole('tab')
+      expect(tabs).toHaveLength(2)
+      expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
+      expect(tabs[1]).toHaveAttribute('aria-selected', 'false')
+      // Never expose radio semantics when we're using tabs.
+      expect(screen.queryAllByRole('radio')).toHaveLength(0)
+    })
+
+    it('moves aria-selected when a different tab is clicked', async () => {
+      const user = userEvent.setup({ delay: null })
+      render(<TabsLayout />)
+      await user.click(screen.getByTestId('status-tabs-ACTIVE'))
+      const tabs = screen.getAllByRole('tab')
+      expect(tabs[0]).toHaveAttribute('aria-selected', 'false')
+      expect(tabs[1]).toHaveAttribute('aria-selected', 'true')
+    })
+
+    it('uses the more saturated primary/25 pill (vs pill variant primary/15)', () => {
+      const { rerender } = render(<TabsLayout />)
+      // Active pill is rendered inside the active button as the first child
+      // motion.div. We assert via class names since framer's layout id is
+      // an implementation detail.
+      const activeButton = screen.getByTestId('status-tabs-ALL')
+      const tabsPill = activeButton.querySelector('[class*="bg-primary/25"]')
+      expect(tabsPill).not.toBeNull()
+
+      // Swap to the default variant and confirm the active pill uses the
+      // subtler primary/15 surface instead.
+      function PillLayout() {
+        const [v, setV] = React.useState<'ALL' | 'ACTIVE'>('ALL')
+        return (
+          <SegmentedToggle
+            value={v}
+            onChange={setV}
+            options={[
+              { value: 'ALL', label: 'Все' },
+              { value: 'ACTIVE', label: 'Активные' },
+            ]}
+            ariaLabel="Фильтр"
+            testId="status-pill"
+          />
+        )
+      }
+      rerender(<PillLayout />)
+      const pillActive = screen.getByTestId('status-pill-ALL')
+      expect(pillActive.querySelector('[class*="bg-primary/15"]')).not.toBeNull()
+      expect(pillActive.querySelector('[class*="bg-primary/25"]')).toBeNull()
+    })
+  })
+
+  // ut-33: per-option `testId` override — for E2E selectors that predate
+  // SegmentedToggle adoption (e.g. legacy `toggle-archived-projects`).
+  it('honors per-option testId override independently of the container testId', () => {
+    function WithOverride() {
+      const [v, setV] = React.useState<'a' | 'b'>('a')
+      return (
+        <SegmentedToggle
+          value={v}
+          onChange={setV}
+          options={[
+            { value: 'a', label: 'A' },
+            { value: 'b', label: 'B', testId: 'legacy-selector' },
+          ]}
+          ariaLabel="Letters"
+          testId="container-id"
+        />
+      )
+    }
+    render(<WithOverride />)
+    // Option without override uses the container-derived id.
+    expect(screen.getByTestId('container-id-a')).toBeInTheDocument()
+    // Option with override uses its own id verbatim.
+    expect(screen.getByTestId('legacy-selector')).toBeInTheDocument()
+    // And does NOT also generate the prefixed id.
+    expect(screen.queryByTestId('container-id-b')).not.toBeInTheDocument()
+  })
 })

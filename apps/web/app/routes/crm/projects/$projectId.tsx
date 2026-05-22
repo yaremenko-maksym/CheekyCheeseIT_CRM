@@ -2,6 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useForm, type FieldApi, type ReactFormExtendedApi } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
+import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import {
   Archive,
   ArchiveRestore,
@@ -637,50 +638,32 @@ return (
         </div>
       </motion.div>
 
-      {/* ut-29: project detail tabs — gold pill layoutId animation
-          (same pattern as payment method toggle from PR 33). */}
-      <div
-        role="tablist"
-        aria-label="Разделы проекта"
-        className="relative flex w-fit gap-1 rounded-lg border border-border bg-muted/60 p-1"
-      >
-        {(
-          [
-            { value: 'overview' as const, label: 'Обзор', testId: 'tab-overview' },
-            { value: 'members' as const, label: 'Состав', testId: 'tab-members' },
-            ...(isAdmin
-              ? [{ value: 'audit' as const, label: 'История изменений', testId: 'tab-audit' }]
-              : []),
-            { value: 'finance' as const, label: 'Финансы', testId: 'tab-finance' },
-          ]
-        ).map((tab) => {
-          const active = activeTab === tab.value
-          return (
-            <button
-              key={tab.value}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setActiveTab(tab.value)}
-              data-testid={tab.testId}
-              className={cn(
-                'relative flex items-center justify-center rounded-md px-3 py-1.5 text-xs',
-                'transition-colors duration-150 focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
-                active ? 'font-semibold text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {active && (
-                <motion.div
-                  layoutId={`project-detail-tabs-${projectId}`}
-                  className="absolute inset-0 rounded-md bg-primary/15 border border-primary/40 shadow-sm"
-                  transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-                />
-              )}
-              <span className="relative z-10">{tab.label}</span>
-            </button>
-          )
-        })}
-      </div>
+      {/* ut-29 + ut-33: project detail tabs — unified through SegmentedToggle
+          variant="tabs" (same yellow page-level styling as projects list). */}
+      {(() => {
+        type ProjectTab = 'overview' | 'members' | 'audit' | 'finance'
+        const tabOptions: ReadonlyArray<SegmentedToggleOption<ProjectTab>> = [
+          { value: 'overview', label: 'Обзор', testId: 'tab-overview' },
+          { value: 'members', label: 'Состав', testId: 'tab-members' },
+          ...(isAdmin
+            ? ([{ value: 'audit', label: 'История изменений', testId: 'tab-audit' }] as const)
+            : []),
+          { value: 'finance', label: 'Финансы', testId: 'tab-finance' },
+        ]
+        return (
+          <SegmentedToggle<ProjectTab>
+            value={activeTab as ProjectTab}
+            onChange={(v) => setActiveTab(v)}
+            options={tabOptions}
+            ariaLabel="Разделы проекта"
+            variant="tabs"
+            size="sm"
+            layoutId={`project-detail-tabs-${projectId}`}
+            className="w-fit"
+            testId={`project-detail-tabs-${projectId}`}
+          />
+        )
+      })()}
 
       {activeTab === 'members' && (
         <ProjectEffectiveTeamCard project={project} />

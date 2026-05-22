@@ -1,7 +1,8 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useForm, type FieldApi } from '@tanstack/react-form'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
+import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import {
   Archive,
   ArchiveRestore,
@@ -11,7 +12,7 @@ import {
   DollarSign,
   Plus,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import { z } from 'zod'
 import type { AxiosError } from 'axios'
 import type { CreateProjectDto, ProjectDto, ProjectMemberDto, ItDomain } from '@crm/shared'
@@ -139,6 +140,10 @@ function ProjectsPage() {
   const [cascadeProject, setCascadeProject] = useState<ProjectDto | null>(null)
   const [cascadeEntities, setCascadeEntities] = useState<UnarchiveCascadeEntity[]>([])
 
+  // ut-32: keepPreviousData + useTransition keep the previous list visible
+  // during the URL switch + refetch so the SegmentedToggle's gold-pill
+  // layout animation is never interrupted by a React render that throws
+  // the list into a skeleton/empty state mid-flight.
   const { data: projects, isLoading } = useQuery({
     queryKey: ['projects', { archived: isArchivedView }],
     queryFn: () =>
@@ -146,7 +151,10 @@ function ProjectsPage() {
         .get<ProjectDto[]>(`/projects${isArchivedView ? '?archived=true' : ''}`)
         .then((r) => r.data),
     enabled: !!user,
+    placeholderData: keepPreviousData,
   })
+
+  const [, startTransition] = useTransition()
 
   const { data: allUsers } = useQuery({
     queryKey: ['users'],
@@ -228,24 +236,32 @@ function ProjectsPage() {
   const currentTab: StatusTab = isArchivedView ? 'ARCHIVED' : filter
 
   const handleTabChange = (next: StatusTab) => {
-    if (next === 'ARCHIVED') {
-      navigate({ to: '/crm/projects', search: { archived: true } })
-      return
-    }
-    if (isArchivedView) {
-      navigate({ to: '/crm/projects', search: {} })
-    }
-    setFilter(next)
+    // ut-32: wrap the URL/state change in startTransition so React can keep
+    // the previous page rendered while the new query resolves — otherwise
+    // the toggle's layoutId pill animation gets cancelled by the suspended
+    // render and the user sees a hard pop instead of a smooth slide.
+    startTransition(() => {
+      if (next === 'ARCHIVED') {
+        navigate({ to: '/crm/projects', search: { archived: true } })
+        return
+      }
+      if (isArchivedView) {
+        navigate({ to: '/crm/projects', search: {} })
+      }
+      setFilter(next)
+    })
   }
 
-  // ut-26: tabs row spec — keep Архив behind ADMIN guard, since only ADMIN
-  // can manage archived items (matches the previous toggle visibility).
-  const tabs: Array<{ value: StatusTab; label: string; testId?: string; icon?: typeof Archive }> = [
+  // ut-26 + ut-33: tabs row — unified through `<SegmentedToggle variant="tabs">`
+  // for visual + interaction parity across pages. Archive tab keeps its
+  // legacy `data-testid="toggle-archived-projects"` selector via the
+  // per-option `testId` escape hatch so existing E2E specs still match.
+  const tabs: ReadonlyArray<SegmentedToggleOption<StatusTab>> = [
     { value: 'ALL', label: 'Все' },
     { value: 'ACTIVE', label: 'Активные' },
     { value: 'CLOSED', label: 'Завершённые' },
     ...(isAdmin
-      ? ([{ value: 'ARCHIVED' as const, label: 'Архив', testId: 'toggle-archived-projects', icon: Archive }] as const)
+      ? ([{ value: 'ARCHIVED', label: 'Архив', testId: 'toggle-archived-projects', icon: Archive }] as const)
       : []),
   ]
 
@@ -267,45 +283,18 @@ function ProjectsPage() {
         </div>
       </div>
 
-      {/* ut-25 + ut-26: tabs row — gold pill layoutId animation, «Архив» as 4-th
-          tab for ADMIN (replaces former «Показать архивных» button). */}
-      <div
-        role="tablist"
-        aria-label="Фильтр проектов"
-        className="relative flex w-fit gap-1 rounded-lg border border-border bg-muted/60 p-1"
-      >
-        {tabs.map((tab) => {
-          const active = currentTab === tab.value
-          const Icon = tab.icon
-          return (
-            <button
-              key={tab.value}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => handleTabChange(tab.value)}
-              {...(tab.testId ? { 'data-testid': tab.testId } : {})}
-              className={cn(
-                'relative flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs',
-                'transition-colors duration-150 focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
-                active ? 'font-semibold text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {active && (
-                <motion.div
-                  layoutId="projects-status-tabs"
-                  className="absolute inset-0 rounded-md bg-primary/15 border border-primary/40 shadow-sm"
-                  transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-                />
-              )}
-              <span className="relative z-10 flex items-center gap-1.5">
-                {Icon && <Icon className={cn('h-3.5 w-3.5', active && 'text-primary')} />}
-                {tab.label}
-              </span>
-            </button>
-          )
-        })}
-      </div>
+      {/* ut-25 + ut-26 + ut-33: status tabs row, unified through SegmentedToggle */}
+      <SegmentedToggle<StatusTab>
+        value={currentTab}
+        onChange={handleTabChange}
+        options={tabs}
+        ariaLabel="Фильтр проектов"
+        variant="tabs"
+        size="sm"
+        layoutId="projects-status-tabs"
+        className="w-fit"
+        testId="projects-status-tabs"
+      />
 
       {/* Empty state */}
       {filtered.length === 0 && (
@@ -333,10 +322,13 @@ function ProjectsPage() {
       >
         <AnimatePresence mode="popLayout" initial={false}>
         {filtered.map((project) => {
+          // ut-34: card preview shows only SENIOR + JUNIOR(s). HR / accountant
+          // / future-other roles are intentionally hidden in the list — they
+          // remain visible on the project detail page. Empty state «Нет джуна»
+          // is rendered when there are no active juniors so the slot stays
+          // visually consistent across all cards.
           const activeMembers = project.members.filter((m) => m.leftAt === null)
           const activeJuniors = activeMembers.filter((m) => m.role === 'JUNIOR')
-          const activeHRs = activeMembers.filter((m) => m.role === 'HR')
-          const activeAccountants = activeMembers.filter((m) => m.role === 'ACCOUNTANT')
           const isArchived = !!project.archivedAt
 
           return (
@@ -422,19 +414,13 @@ function ProjectsPage() {
                     )}
                   </div>
 
-                  {/* Team summary */}
+                  {/* ut-34: SENIOR + JUNIOR(s) only in card preview */}
                   <div className="border-t border-border pt-3 space-y-1.5">
                     <TeamMemberRow userId={project.seniorId} name={project.seniorName} avatar={null} role="SENIOR" />
-                    {activeHRs.map((m) => (
-                      <TeamMemberRow key={m.id} userId={m.userId} name={m.displayName} avatar={m.avatar} role="HR" />
-                    ))}
-                    {activeAccountants.map((m) => (
-                      <TeamMemberRow key={m.id} userId={m.userId} name={m.displayName} avatar={m.avatar} role="ACCOUNTANT" />
-                    ))}
                     {activeJuniors.length === 0 ? (
                       <div className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-destructive/5 border border-destructive/20">
                         <Code2 className="h-3 w-3 text-destructive/60 shrink-0" />
-                        <span className="text-xs text-destructive/80">Джун не назначен</span>
+                        <span className="text-xs text-destructive/80">Нет джуна</span>
                       </div>
                     ) : (
                       activeJuniors.map((m) => (
