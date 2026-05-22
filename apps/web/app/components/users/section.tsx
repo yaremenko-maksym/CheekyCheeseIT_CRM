@@ -36,11 +36,14 @@ export function Field({
   label,
   error,
   required,
+  hint,
   children,
 }: {
   label: string
   error?: string | undefined
   required?: boolean | undefined
+  /** Inline helper text below the label — shown before/instead of error. */
+  hint?: string | undefined
   children: React.ReactNode
 }) {
   return (
@@ -50,7 +53,11 @@ export function Field({
         {required && <span className="ml-0.5 text-destructive">*</span>}
       </Label>
       {children}
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error ? (
+        <p className="text-xs text-destructive">{error}</p>
+      ) : hint ? (
+        <p className="text-xs text-muted-foreground">{hint}</p>
+      ) : null}
     </div>
   )
 }

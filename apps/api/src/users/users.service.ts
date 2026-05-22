@@ -96,26 +96,58 @@ export class UsersService {
     techStack?: string[] | null
     seniorSharePercent?: number
     monthlySalary?: number | null
+    salaryCurrency?: 'USDT' | 'USD' | 'EUR' | 'UAH'
     hrIds?: string[]
     accountantId?: string | null
     projectId?: string | null
+    paymentMethod?: 'USDT_ERC20' | 'BANK_UAH_FOP'
+    walletUsdtErc20?: string | null
+    walletUsdtLabel?: string | null
+    bankUahRecipient?: string | null
+    bankUahIban?: string | null
+    bankUahRnokpp?: string | null
+    bankUahBankName?: string | null
   }): Promise<User> {
+    // ut-12: ADMIN creation is reserved to the seed pool — block here as a
+    // defense-in-depth measure even if the controller / Roles guard let it slip.
+    if (data.role === 'ADMIN') {
+      throw new ForbiddenException('Создание ADMIN запрещено — пул фиксирован')
+    }
     const existing = await this.findByEmail(data.email)
     if (existing) throw new ConflictException('User with this email already exists')
 
+    // Build insert payload — only include payment columns when relevant so we
+    // keep "no requisites" rows clean (null in DB rather than empty string).
+    const insertValues: typeof users.$inferInsert = {
+      email: data.email,
+      displayName: data.displayName,
+      role: data.role,
+      telegram: data.telegram ?? null,
+      phone: data.phone ?? null,
+      avatar: data.avatar ?? `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(data.displayName)}`,
+      techStack: data.techStack ?? null,
+    }
+    if (data.seniorSharePercent !== undefined) insertValues.seniorSharePercent = data.seniorSharePercent
+    if (data.monthlySalary != null) insertValues.monthlySalary = String(data.monthlySalary)
+    if (data.salaryCurrency) insertValues.salaryCurrency = data.salaryCurrency
+
+    // Payment requisites — only persist the fields matching the selected method.
+    if (data.paymentMethod) {
+      insertValues.paymentMethod = data.paymentMethod
+      if (data.paymentMethod === 'USDT_ERC20') {
+        insertValues.walletUsdtErc20 = data.walletUsdtErc20 ?? null
+        insertValues.walletUsdtLabel = data.walletUsdtLabel ?? null
+      } else {
+        insertValues.bankUahRecipient = data.bankUahRecipient ?? null
+        insertValues.bankUahIban = data.bankUahIban ?? null
+        insertValues.bankUahRnokpp = data.bankUahRnokpp ?? null
+        insertValues.bankUahBankName = data.bankUahBankName ?? null
+      }
+    }
+
     const rows = await this.db.db
       .insert(users)
-      .values({
-        email: data.email,
-        displayName: data.displayName,
-        role: data.role,
-        telegram: data.telegram ?? null,
-        phone: data.phone ?? null,
-        avatar: data.avatar ?? `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(data.displayName)}`,
-        techStack: data.techStack ?? null,
-        ...(data.seniorSharePercent !== undefined && { seniorSharePercent: data.seniorSharePercent }),
-        ...(data.monthlySalary != null && { monthlySalary: String(data.monthlySalary) }),
-      })
+      .values(insertValues)
       .returning()
 
     const created = rows[0]
@@ -162,6 +194,7 @@ export class UsersService {
   async adminUpdateUser(
     id: string,
     data: {
+      email?: string
       displayName?: string
       role?: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT'
       telegram?: string | null | undefined
@@ -171,12 +204,46 @@ export class UsersService {
       techStack?: string[] | null | undefined
       seniorSharePercent?: number | undefined
       monthlySalary?: number | null | undefined
+      salaryCurrency?: 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined
+      paymentMethod?: 'USDT_ERC20' | 'BANK_UAH_FOP' | undefined
+      walletUsdtErc20?: string | null | undefined
+      walletUsdtLabel?: string | null | undefined
+      bankUahRecipient?: string | null | undefined
+      bankUahIban?: string | null | undefined
+      bankUahRnokpp?: string | null | undefined
+      bankUahBankName?: string | null | undefined
       hrIds?: string[] | undefined
       accountantId?: string | null | undefined
     },
     actorId: string | null = null,
   ): Promise<User> {
+    // ut-10/11: ADMIN protection. Fetch the existing row first so we can apply
+    // role-aware guards before any UPDATE statement.
+    const existing = await this.findById(id)
+    if (!existing) throw new NotFoundException('User not found')
+
+    if (existing.role === 'ADMIN' && actorId !== null && existing.id !== actorId) {
+      throw new ForbiddenException('Cannot edit another admin')
+    }
+    if (
+      data.role !== undefined &&
+      existing.role === 'ADMIN' &&
+      actorId !== null &&
+      existing.id === actorId &&
+      data.role !== 'ADMIN'
+    ) {
+      throw new ForbiddenException('Cannot change own ADMIN role')
+    }
+    // Email uniqueness check — only when actually changing it.
+    if (data.email !== undefined && data.email !== existing.email) {
+      const conflict = await this.findByEmail(data.email)
+      if (conflict && conflict.id !== id) {
+        throw new ConflictException('User with this email already exists')
+      }
+    }
+
     const set: Partial<{
+      email: string
       displayName: string
       role: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT'
       telegram: string | null
@@ -186,9 +253,18 @@ export class UsersService {
       techStack: string[] | null
       seniorSharePercent: number
       monthlySalary: string | null
+      salaryCurrency: 'USDT' | 'USD' | 'EUR' | 'UAH'
+      paymentMethod: 'USDT_ERC20' | 'BANK_UAH_FOP'
+      walletUsdtErc20: string | null
+      walletUsdtLabel: string | null
+      bankUahRecipient: string | null
+      bankUahIban: string | null
+      bankUahRnokpp: string | null
+      bankUahBankName: string | null
       updatedAt: Date
     }> = { updatedAt: new Date() }
 
+    if (data.email !== undefined) set.email = data.email
     if (data.displayName !== undefined) set.displayName = data.displayName
     if (data.role !== undefined) set.role = data.role
     if ('telegram' in data) set.telegram = data.telegram ?? null
@@ -198,6 +274,36 @@ export class UsersService {
     if ('techStack' in data) set.techStack = data.techStack ?? null
     if (data.seniorSharePercent !== undefined) set.seniorSharePercent = data.seniorSharePercent
     if ('monthlySalary' in data) set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
+    if (data.salaryCurrency !== undefined) set.salaryCurrency = data.salaryCurrency
+
+    // Payment requisites — switching method clears the other branch's fields.
+    if (data.paymentMethod !== undefined) {
+      set.paymentMethod = data.paymentMethod
+      if (data.paymentMethod === 'USDT_ERC20') {
+        if ('walletUsdtErc20' in data) set.walletUsdtErc20 = data.walletUsdtErc20 ?? null
+        if ('walletUsdtLabel' in data) set.walletUsdtLabel = data.walletUsdtLabel ?? null
+        set.bankUahRecipient = null
+        set.bankUahIban = null
+        set.bankUahRnokpp = null
+        set.bankUahBankName = null
+      } else {
+        if ('bankUahRecipient' in data) set.bankUahRecipient = data.bankUahRecipient ?? null
+        if ('bankUahIban' in data) set.bankUahIban = data.bankUahIban ?? null
+        if ('bankUahRnokpp' in data) set.bankUahRnokpp = data.bankUahRnokpp ?? null
+        if ('bankUahBankName' in data) set.bankUahBankName = data.bankUahBankName ?? null
+        set.walletUsdtErc20 = null
+        set.walletUsdtLabel = null
+      }
+    } else {
+      // No method switch — but the admin may still patch individual fields of
+      // the current method (e.g. update IBAN without changing payment method).
+      if ('walletUsdtErc20' in data) set.walletUsdtErc20 = data.walletUsdtErc20 ?? null
+      if ('walletUsdtLabel' in data) set.walletUsdtLabel = data.walletUsdtLabel ?? null
+      if ('bankUahRecipient' in data) set.bankUahRecipient = data.bankUahRecipient ?? null
+      if ('bankUahIban' in data) set.bankUahIban = data.bankUahIban ?? null
+      if ('bankUahRnokpp' in data) set.bankUahRnokpp = data.bankUahRnokpp ?? null
+      if ('bankUahBankName' in data) set.bankUahBankName = data.bankUahBankName ?? null
+    }
 
     const rows = await this.db.db
       .update(users)

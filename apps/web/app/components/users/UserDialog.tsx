@@ -10,6 +10,7 @@ import type { AxiosError } from 'axios'
 import type {
   AdminUpdateUserDto,
   CreateUserDto,
+  PaymentMethod,
   ProjectDto,
   TeamDto,
   UserProfileDto,
@@ -20,8 +21,19 @@ import {
   updateProfileSchema,
 } from '@crm/shared'
 import { toast } from 'sonner'
+import { useAuth } from '@/context/auth'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import {
   CrmDialogBody,
   CrmDialogContent,
@@ -40,12 +52,18 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
+import {
+  AmountCurrencyInput,
+  type Currency,
+} from '@/components/ui/amount-currency-input'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
 import {
+  CREATE_ALLOWED_ROLES,
   ROLE_LABELS,
   ROLE_VARIANT,
   ROLES,
+  type CreateAllowedRole,
   type Role,
   normalizeTelegram,
 } from './constants'
@@ -55,9 +73,38 @@ import { ShareSlider } from './share-slider'
 const telegramFieldSchema = updateProfileSchema.shape.telegram.unwrap().unwrap()
 const phoneFieldSchema = z.string().max(30)
 
+// USDT/Bank requisite validators — mirror the shared schema patterns so the
+// inline field errors match what the backend would return.
+const usdtWalletPattern = /^0x[a-fA-F0-9]{40}$/
+const ibanPattern = /^UA\d{27}$/
+const rnokppPattern = /^\d{10}$/
+
+/**
+ * Default payment method per role. SENIOR / ADMIN are USDT-only (enforced both
+ * frontend & backend). Other roles default to BANK_UAH_FOP since most internal
+ * payouts (HR, JUNIOR, ACCOUNTANT) go through ФОП in UAH.
+ */
+function defaultPaymentMethod(role: Role): PaymentMethod {
+  return role === 'SENIOR' || role === 'ADMIN' ? 'USDT_ERC20' : 'BANK_UAH_FOP'
+}
+
 async function fetchUsersForDialog(): Promise<UserProfileDto[]> {
   const res = await api.get<UserProfileDto[]>('/users')
   return res.data
+}
+
+type ExchangeRates = { usdUah: string; usdtUah: string; eurUah: string; date: string }
+
+/**
+ * Convert an amount in the picked currency to USD. Mirrors the conversion
+ * used by `AmountCurrencyInput` so the value we persist matches what the
+ * admin saw in the "≈ USD" badge.
+ */
+function toUsd(amount: number, currency: Currency, rates: ExchangeRates): number {
+  if (currency === 'USD' || currency === 'USDT') return amount
+  if (currency === 'EUR') return amount * (parseFloat(rates.eurUah) / parseFloat(rates.usdUah))
+  if (currency === 'UAH') return amount / parseFloat(rates.usdUah)
+  return amount
 }
 
 type CommonProps = {
@@ -73,25 +120,35 @@ type EditProps = CommonProps & { mode: 'edit'; user: UserProfileDto | null; open
 export type UserDialogProps = CreateProps | EditProps
 
 /**
- * Sectioned user CRUD dialog. 5 sections in a single vertical scroll:
+ * Sectioned user CRUD dialog. 6 sections in a single vertical scroll:
  *   1. Identity (email + name + role)
  *   2. Contacts (telegram + phone)
  *   3. Tech stack
- *   4. Finance (SENIOR ShareSlider | non-SENIOR monthly salary)
- *   5. Team (SENIOR HR multiselect + Accountant; JUNIOR initial project (create) / current projects read-only (edit))
+ *   4. Finance (SENIOR ShareSlider | non-SENIOR monthly salary with currency)
+ *   5. Payment requisites (USDT / Bank UAH FOP)
+ *   6. Team (SENIOR HR multiselect + Accountant; JUNIOR initial project (create) / current projects read-only (edit))
  *
  * Sticky footer: role badge (left) + Cancel/Submit (right).
  *
- * `mode: 'edit'` makes Email read-only; SENIOR Team section stays editable (fixes asymmetry).
+ * Edit mode now allows email changes (ut-9) — with a confirm dialog warning
+ * about Google OAuth breakage. ADMIN cannot edit another ADMIN (ut-10), cannot
+ * change their own role (ut-11), and ADMIN is removed from Create's role
+ * dropdown (ut-12).
  */
 export function UserDialog(props: UserDialogProps) {
   const queryClient = useQueryClient()
+  const { user: me } = useAuth()
   const isCreate = props.mode === 'create'
   const isEdit = props.mode === 'edit'
   const open = isCreate ? props.open : !!props.user
   const editingUser = isEdit ? props.user : null
 
   const hrOnly = isCreate ? !!props.hrOnly : false
+
+  // ut-11: SENIOR/ADMIN locked for self-ADMIN edit. We compute it once and
+  // reuse in the Role select + footer hint.
+  const isSelfAdminEdit =
+    isEdit && !!editingUser && !!me && editingUser.id === me.id && editingUser.role === 'ADMIN'
 
   // ── Auxiliary data: HR / Accountant / project list ────────────────────────
   const { data: allUsers } = useQuery({
@@ -103,6 +160,15 @@ export function UserDialog(props: UserDialogProps) {
   const { data: projects } = useQuery({
     queryKey: ['projects'],
     queryFn: () => api.get<ProjectDto[]>('/projects').then((r) => r.data),
+    enabled: open,
+  })
+
+  // Exchange rates — needed when admin enters a salary in non-USD currency.
+  // Same query key as `AmountCurrencyInput` so the cache is shared.
+  const { data: exchangeRates } = useQuery<ExchangeRates>({
+    queryKey: ['exchange-rate', 'today'],
+    queryFn: () => api.get<ExchangeRates>('/finance/exchange-rate').then((r) => r.data),
+    staleTime: 1000 * 60 * 60 * 24,
     enabled: open,
   })
 
@@ -175,18 +241,15 @@ export function UserDialog(props: UserDialogProps) {
     )
   }, [editingUser, projects])
 
-  // For initial JUNIOR project select in Create
-  const sortedProjects = useMemo(() => {
+  // ut-7: For initial JUNIOR project select in Create — only projects without
+  // an active JUNIOR. The business rule "max 1 active junior per project" makes
+  // any project with a current JUNIOR an invalid pick at creation time.
+  const availableJuniorProjects = useMemo(() => {
     if (!projects) return []
-    return [...projects]
-      .filter((p) => !p.archivedAt)
-      .sort((a, b) => {
-        const aHasJunior = a.members.some((m) => m.role === 'JUNIOR' && m.leftAt === null)
-        const bHasJunior = b.members.some((m) => m.role === 'JUNIOR' && m.leftAt === null)
-        if (!aHasJunior && bHasJunior) return -1
-        if (aHasJunior && !bHasJunior) return 1
-        return 0
-      })
+    return projects.filter((p) => {
+      if (p.archivedAt) return false
+      return !p.members.some((m) => m.role === 'JUNIOR' && m.leftAt === null)
+    })
   }, [projects])
 
   // ── Mutations ────────────────────────────────────────────────────────────
@@ -220,28 +283,56 @@ export function UserDialog(props: UserDialogProps) {
   })
 
   // ── Form ─────────────────────────────────────────────────────────────────
+  const initialRole: Role = (editingUser?.role as Role) ?? (hrOnly ? 'SENIOR' : 'JUNIOR')
+  const initialPaymentMethod: PaymentMethod =
+    (editingUser?.paymentMethod as PaymentMethod | null) ?? defaultPaymentMethod(initialRole)
+
   const form = useForm({
     defaultValues: {
       email: editingUser?.email ?? '',
       displayName: editingUser?.displayName ?? '',
-      role: ((editingUser?.role as Role) ?? (hrOnly ? 'SENIOR' : 'JUNIOR')) as Role,
+      role: initialRole,
       telegram: editingUser?.telegram ?? '',
       phone: ((editingUser?.phone as PhoneValue | undefined) ?? '') as PhoneValue | '',
       techStack: (editingUser?.techStack ?? []) as string[],
       seniorSharePercent: editingUser?.seniorSharePercent ?? 26,
       monthlySalary: editingUser?.monthlySalary ?? '',
+      salaryCurrency: ((editingUser?.salaryCurrency as Currency | undefined) ?? 'USD') as Currency,
       projectId: '' as string,
+      // Payment requisites (ut-14)
+      paymentMethod: initialPaymentMethod,
+      walletUsdtErc20: editingUser?.walletUsdtErc20 ?? '',
+      walletUsdtLabel: editingUser?.walletUsdtLabel ?? '',
+      bankUahRecipient: editingUser?.bankUahRecipient ?? '',
+      bankUahIban: editingUser?.bankUahIban ?? '',
+      bankUahRnokpp: editingUser?.bankUahRnokpp ?? '',
+      bankUahBankName: editingUser?.bankUahBankName ?? '',
     },
     onSubmit: async ({ value }) => {
       const isSenior = value.role === 'SENIOR'
       const hrIds = selectedHrIdsRef.current
       const accountantId = selectedAccountantIdRef.current
 
+      // Convert salary to USD if needed. Backend stores USD numeric.
+      const computeMonthlySalaryUsd = (): number | null => {
+        const raw = String(value.monthlySalary).trim()
+        if (!raw) return null
+        const num = parseFloat(raw)
+        if (!isFinite(num) || num < 0) return null
+        if (!exchangeRates) return num // shouldn't happen — query enabled on open
+        return Number(toUsd(num, value.salaryCurrency, exchangeRates).toFixed(2))
+      }
+
       if (isCreate) {
         if (isSenior && hrIds.length === 0) {
           toast.error('Выберите хотя бы одного HR для команды синьора')
           return
         }
+
+        // Build payment-requisites slice. SENIOR/ADMIN are USDT-only; other
+        // roles use whatever the form's `paymentMethod` field says.
+        const paymentMethod: PaymentMethod =
+          isSenior || value.role === 'ADMIN' ? 'USDT_ERC20' : value.paymentMethod
 
         const payload: CreateUserDto = {
           email: value.email.trim(),
@@ -250,23 +341,46 @@ export function UserDialog(props: UserDialogProps) {
           telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : undefined,
           phone: (value.phone as string) || undefined,
           techStack: value.techStack.length > 0 ? value.techStack : undefined,
-          paymentMethod: (isSenior || value.role === 'ADMIN') ? ('USDT_ERC20' as const) : ('BANK_UAH_FOP' as const),
+          paymentMethod,
+          ...(paymentMethod === 'USDT_ERC20' && {
+            walletUsdtErc20: value.walletUsdtErc20.trim(),
+            ...(value.walletUsdtLabel.trim() && { walletUsdtLabel: value.walletUsdtLabel.trim() }),
+          }),
+          ...(paymentMethod === 'BANK_UAH_FOP' && {
+            bankUahRecipient: value.bankUahRecipient.trim(),
+            bankUahIban: value.bankUahIban.trim(),
+            bankUahRnokpp: value.bankUahRnokpp.trim(),
+            ...(value.bankUahBankName.trim() && { bankUahBankName: value.bankUahBankName.trim() }),
+          }),
           ...(isSenior && {
             seniorSharePercent: value.seniorSharePercent,
             hrIds,
             accountantId: accountantId || null,
           }),
-          ...(!isSenior && value.monthlySalary.trim() && {
-            monthlySalary: parseFloat(value.monthlySalary),
+          ...(!isSenior && String(value.monthlySalary).trim() && {
+            monthlySalary: computeMonthlySalaryUsd() ?? undefined,
+            salaryCurrency: 'USD',
           }),
-          ...(value.role === 'JUNIOR' && {
-            projectId: value.projectId || null,
+          // ut-13: project optional for JUNIOR. Only attach if explicitly chosen.
+          ...(value.role === 'JUNIOR' && value.projectId && {
+            projectId: value.projectId,
           }),
         }
-        createMutation.mutate(payload)
+        const result = createUserSchema.safeParse(payload)
+        if (!result.success) {
+          // Surface the first issue inline + as a single toast — the form
+          // fields keep their own per-field error indicators below.
+          const first = result.error.issues[0]
+          toast.error(first?.message ?? 'Ошибка валидации данных')
+          return
+        }
+        createMutation.mutate(result.data)
       } else {
         // Edit
         const payload: AdminUpdateUserDto = {
+          ...(editingUser && value.email.trim() !== editingUser.email && {
+            email: value.email.trim(),
+          }),
           displayName: value.displayName.trim(),
           telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : null,
           phone: (value.phone as string) || null,
@@ -277,18 +391,39 @@ export function UserDialog(props: UserDialogProps) {
             accountantId: accountantId || null,
           }),
           ...(!isSenior && {
-            monthlySalary: value.monthlySalary ? parseFloat(String(value.monthlySalary)) : null,
+            monthlySalary: value.monthlySalary
+              ? computeMonthlySalaryUsd()
+              : null,
+            salaryCurrency: 'USD',
+          }),
+          // Payment requisites — admin can update either branch in Edit.
+          paymentMethod: value.paymentMethod,
+          ...(value.paymentMethod === 'USDT_ERC20' && {
+            walletUsdtErc20: value.walletUsdtErc20.trim() || null,
+            walletUsdtLabel: value.walletUsdtLabel.trim() || null,
+          }),
+          ...(value.paymentMethod === 'BANK_UAH_FOP' && {
+            bankUahRecipient: value.bankUahRecipient.trim() || null,
+            bankUahIban: value.bankUahIban.trim() || null,
+            bankUahRnokpp: value.bankUahRnokpp.trim() || null,
+            bankUahBankName: value.bankUahBankName.trim() || null,
           }),
         }
         const result = adminUpdateUserSchema.safeParse(payload)
         if (!result.success) {
-          toast.error('Ошибка валидации данных')
+          const first = result.error.issues[0]
+          toast.error(first?.message ?? 'Ошибка валидации данных')
           return
         }
         updateMutation.mutate(result.data)
       }
     },
   })
+
+  // ut-9: Email change warning. We delay the form-level update until the admin
+  // confirms; cancel reverts the field to the original email.
+  const [pendingEmailChange, setPendingEmailChange] = useState<string | null>(null)
+  const originalEmail = editingUser?.email ?? ''
 
   // Re-seed form when editing user changes (dialog reopens for different user).
   // `form.reset(defaults)` is idiomatic TanStack Form re-seed — clears touched/dirty
@@ -297,16 +432,26 @@ export function UserDialog(props: UserDialogProps) {
   // stable and re-running on every prop change would clobber user edits in-flight.
   useEffect(() => {
     if (isEdit && editingUser) {
+      const role = editingUser.role as Role
       form.reset({
         email: editingUser.email,
         displayName: editingUser.displayName,
-        role: editingUser.role as Role,
+        role,
         telegram: editingUser.telegram ?? '',
         phone: ((editingUser.phone as PhoneValue | undefined) ?? '') as PhoneValue | '',
         techStack: editingUser.techStack ?? [],
         seniorSharePercent: editingUser.seniorSharePercent ?? 26,
         monthlySalary: editingUser.monthlySalary ?? '',
+        salaryCurrency: ((editingUser.salaryCurrency as Currency | undefined) ?? 'USD') as Currency,
         projectId: '',
+        paymentMethod:
+          (editingUser.paymentMethod as PaymentMethod | null) ?? defaultPaymentMethod(role),
+        walletUsdtErc20: editingUser.walletUsdtErc20 ?? '',
+        walletUsdtLabel: editingUser.walletUsdtLabel ?? '',
+        bankUahRecipient: editingUser.bankUahRecipient ?? '',
+        bankUahIban: editingUser.bankUahIban ?? '',
+        bankUahRnokpp: editingUser.bankUahRnokpp ?? '',
+        bankUahBankName: editingUser.bankUahBankName ?? '',
       })
     }
   }, [editingUser?.id, isEdit])
@@ -327,6 +472,7 @@ export function UserDialog(props: UserDialogProps) {
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
+    <>
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
       <CrmDialogContent maxWidth="sm:max-w-lg" data-testid="user-dialog">
         <CrmDialogHeader>
@@ -349,58 +495,75 @@ export function UserDialog(props: UserDialogProps) {
           <div className="grid gap-3 py-2">
             {/* ── Section 1: Identity ─────────────────────────────────── */}
             <Section title="Идентичность">
-              {isCreate ? (
-                <form.Field
-                  name="email"
-                  validators={{
-                    onBlur: ({ value }) => {
-                      const r = createUserSchema.shape.email.safeParse(value.trim())
-                      return r.success ? undefined : r.error.issues[0]?.message
-                    },
-                  }}
-                >
-                  {(field) => {
-                    const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
-                    return (
-                      <Field label="Email" error={err} required>
-                        <Input
-                          placeholder="user@cheekycheese.dev"
-                          value={field.state.value}
-                          onChange={(e) => field.handleChange(e.target.value)}
-                          onBlur={field.handleBlur}
-                          className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
-                          autoComplete="off"
-                          data-testid="user-dialog-email"
-                        />
-                      </Field>
-                    )
-                  }}
-                </form.Field>
-              ) : (
-                <Field label="Email">
-                  <div
-                    className="text-sm text-muted-foreground rounded-md border border-input bg-muted/30 px-3 py-2"
-                    data-testid="user-dialog-email-readonly"
-                  >
-                    {editingUser?.email}
-                  </div>
-                </Field>
-              )}
-
               <form.Field
-                name="displayName"
+                name="email"
                 validators={{
-                  onBlur: ({ value }) => {
-                    const r = (isCreate
-                      ? createUserSchema.shape.displayName
-                      : adminUpdateUserSchema.shape.displayName.unwrap()
-                    ).safeParse(value.trim())
+                  onBlur: ({ value, fieldApi }) => {
+                    // ut-8: skip validation if the field was never touched. The
+                    // dialog opens with an empty email in Create; clicking
+                    // anywhere outside the empty input shouldn't ignite the
+                    // "Invalid email" hint.
+                    if (!fieldApi.state.meta.isDirty) return undefined
+                    const trimmed = value.trim()
+                    if (!trimmed) return 'Email обязателен'
+                    const r = z.string().email('Некорректный email').safeParse(trimmed)
                     return r.success ? undefined : r.error.issues[0]?.message
                   },
                 }}
               >
                 {(field) => {
-                  const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
+                  // ut-8: hide error until the field has been edited at least
+                  // once. `isDirty` flips after the first change — pure focus
+                  // + blur (no value change) keeps the error suppressed.
+                  const showError =
+                    field.state.meta.isTouched && field.state.meta.isDirty
+                  const err = showError ? field.state.meta.errors[0] : undefined
+                  return (
+                    <Field label="Email" error={err} required>
+                      <Input
+                        placeholder="user@cheekycheese.dev"
+                        value={field.state.value}
+                        onChange={(e) => field.handleChange(e.target.value)}
+                        onBlur={() => {
+                          field.handleBlur()
+                          // ut-9: in Edit mode, surface the warning dialog
+                          // once the admin commits an email that differs from
+                          // the original (and is non-empty + valid email).
+                          if (
+                            isEdit &&
+                            editingUser &&
+                            field.state.value.trim() !== originalEmail &&
+                            field.state.value.trim().length > 0
+                          ) {
+                            setPendingEmailChange(field.state.value.trim())
+                          }
+                        }}
+                        className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
+                        autoComplete="off"
+                        data-testid="user-dialog-email"
+                      />
+                    </Field>
+                  )
+                }}
+              </form.Field>
+
+              <form.Field
+                name="displayName"
+                validators={{
+                  onBlur: ({ value, fieldApi }) => {
+                    if (!fieldApi.state.meta.isDirty) return undefined
+                    const r = z
+                      .string()
+                      .min(2, 'Имя минимум 2 символа')
+                      .max(255)
+                      .safeParse(value.trim())
+                    return r.success ? undefined : r.error.issues[0]?.message
+                  },
+                }}
+              >
+                {(field) => {
+                  const showError = field.state.meta.isTouched && field.state.meta.isDirty
+                  const err = showError ? field.state.meta.errors[0] : undefined
                   return (
                     <Field label="Имя и фамилия" error={err} required>
                       <Input
@@ -417,38 +580,50 @@ export function UserDialog(props: UserDialogProps) {
               </form.Field>
 
               <form.Field name="role">
-                {(field) => (
-                  <Field label="Роль" required>
-                    {hrOnly ? (
-                      <div className="flex items-center gap-2 rounded-md border border-input bg-muted/40 px-3 py-2">
-                        <Badge variant="senior" className="text-[11px]">Синьор</Badge>
-                        <span className="text-xs text-muted-foreground">
-                          (HR может создавать только синьоров)
-                        </span>
-                      </div>
-                    ) : (
-                      <Select
-                        value={field.state.value}
-                        onValueChange={(v) => field.handleChange(v as Role)}
-                      >
-                        <SelectTrigger data-testid="user-dialog-role-trigger">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ROLES.map((r) => (
-                            <SelectItem key={r} value={r}>
-                              <div className="flex items-center gap-2">
-                                <Badge variant={ROLE_VARIANT[r]} className="text-[11px]">
-                                  {ROLE_LABELS[r]}
-                                </Badge>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </Field>
-                )}
+                {(field) => {
+                  // ut-12: in Create, ADMIN is intentionally omitted.
+                  // ut-11: in Edit, self-ADMIN cannot change away from ADMIN.
+                  const optionList: readonly Role[] = isCreate
+                    ? (CREATE_ALLOWED_ROLES as readonly CreateAllowedRole[])
+                    : ROLES
+                  return (
+                    <Field
+                      label="Роль"
+                      required
+                      hint={isSelfAdminEdit ? 'Нельзя сменить свою роль ADMIN' : undefined}
+                    >
+                      {hrOnly ? (
+                        <div className="flex items-center gap-2 rounded-md border border-input bg-muted/40 px-3 py-2">
+                          <Badge variant="senior" className="text-[11px]">Синьор</Badge>
+                          <span className="text-xs text-muted-foreground">
+                            (HR может создавать только синьоров)
+                          </span>
+                        </div>
+                      ) : (
+                        <Select
+                          value={field.state.value}
+                          onValueChange={(v) => field.handleChange(v as Role)}
+                          disabled={isSelfAdminEdit}
+                        >
+                          <SelectTrigger data-testid="user-dialog-role-trigger">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {optionList.map((r) => (
+                              <SelectItem key={r} value={r}>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant={ROLE_VARIANT[r]} className="text-[11px]">
+                                    {ROLE_LABELS[r]}
+                                  </Badge>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </Field>
+                  )
+                }}
               </form.Field>
             </Section>
 
@@ -457,7 +632,8 @@ export function UserDialog(props: UserDialogProps) {
               <form.Field
                 name="telegram"
                 validators={{
-                  onBlur: ({ value }) => {
+                  onBlur: ({ value, fieldApi }) => {
+                    if (!fieldApi.state.meta.isDirty) return undefined
                     if (!value.trim()) return undefined
                     const r = telegramFieldSchema.safeParse(value.trim())
                     return r.success ? undefined : r.error.issues[0]?.message
@@ -465,7 +641,8 @@ export function UserDialog(props: UserDialogProps) {
                 }}
               >
                 {(field) => {
-                  const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
+                  const showError = field.state.meta.isTouched && field.state.meta.isDirty
+                  const err = showError ? field.state.meta.errors[0] : undefined
                   return (
                     <Field label="Telegram" error={err}>
                       <Input
@@ -483,7 +660,8 @@ export function UserDialog(props: UserDialogProps) {
               <form.Field
                 name="phone"
                 validators={{
-                  onBlur: ({ value }) => {
+                  onBlur: ({ value, fieldApi }) => {
+                    if (!fieldApi.state.meta.isDirty) return undefined
                     const v = value as string
                     if (!v || v.replace(/\D/g, '').length < 5) return undefined
                     const r = phoneFieldSchema.safeParse(v)
@@ -494,7 +672,8 @@ export function UserDialog(props: UserDialogProps) {
                 }}
               >
                 {(field) => {
-                  const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
+                  const showError = field.state.meta.isTouched && field.state.meta.isDirty
+                  const err = showError ? field.state.meta.errors[0] : undefined
                   return (
                     <Field label="Телефон" error={err}>
                       <PhoneInput
@@ -541,15 +720,18 @@ export function UserDialog(props: UserDialogProps) {
                     >
                       {(field) => {
                         const val = field.state.value ?? 26
-                        const seniorPct = 100 - val
                         const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
                         return (
-                          <Field label="Доля компании (%)" error={err} required={isCreate}>
+                          <Field
+                            label="Доля синьора (%)"
+                            hint="То, что синьор оставляет себе"
+                            error={err}
+                            required={isCreate}
+                          >
                             <ShareSlider
                               value={val}
                               onChange={(v) => field.handleChange(v)}
                               onBlur={field.handleBlur}
-                              seniorPct={seniorPct}
                               error={!!err}
                             />
                           </Field>
@@ -558,36 +740,222 @@ export function UserDialog(props: UserDialogProps) {
                     </form.Field>
                   ) : (
                     <form.Field name="monthlySalary">
-                      {(field) => {
-                        const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
-                        return (
-                          <Field label="Месячная зарплата (USD)" error={err}>
-                            <div className="flex items-center gap-2">
-                              <Input
-                                type="number"
-                                min={0}
-                                step={10}
+                      {(field) => (
+                        <form.Field name="salaryCurrency">
+                          {(curField) => (
+                            <Field label="Месячная зарплата">
+                              <AmountCurrencyInput
+                                amount={String(field.state.value ?? '')}
+                                currency={curField.state.value}
+                                onAmountChange={field.handleChange}
+                                onCurrencyChange={curField.handleChange}
+                                label="Сумма"
                                 placeholder="0"
-                                value={field.state.value ?? ''}
-                                onChange={(e) => field.handleChange(e.target.value)}
-                                onBlur={field.handleBlur}
-                                className={cn(
-                                  'w-32',
-                                  err && 'border-destructive focus-visible:ring-destructive/30',
-                                )}
                               />
-                              <span className="text-xs text-muted-foreground">USD / мес</span>
-                            </div>
-                          </Field>
-                        )
-                      }}
+                            </Field>
+                          )}
+                        </form.Field>
+                      )}
                     </form.Field>
                   )}
                 </Section>
               )}
             </form.Subscribe>
 
-            {/* ── Section 5: Team ─────────────────────────────────────── */}
+            {/* ── Section 5: Payment requisites (ut-14) ───────────────── */}
+            <form.Subscribe selector={(s) => s.values.role}>
+              {(role) => {
+                const usdtOnly = role === 'SENIOR' || role === 'ADMIN'
+                return (
+                  <Section title="Платёжные реквизиты">
+                    {usdtOnly ? (
+                      <p className="text-xs text-muted-foreground">
+                        Для роли «{ROLE_LABELS[role]}» доступна только оплата через USDT ERC-20.
+                      </p>
+                    ) : (
+                      <form.Field name="paymentMethod">
+                        {(field) => (
+                          <Field label="Способ оплаты" required>
+                            <div className="flex gap-3" data-testid="user-dialog-payment-method">
+                              {(['USDT_ERC20', 'BANK_UAH_FOP'] as const).map((m) => (
+                                <label
+                                  key={m}
+                                  className={cn(
+                                    'flex items-center gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer transition-colors',
+                                    field.state.value === m
+                                      ? 'border-primary bg-primary/5'
+                                      : 'border-border hover:bg-muted/30',
+                                  )}
+                                >
+                                  <input
+                                    type="radio"
+                                    name="paymentMethod"
+                                    value={m}
+                                    checked={field.state.value === m}
+                                    onChange={() => field.handleChange(m)}
+                                    className="accent-primary"
+                                  />
+                                  {m === 'USDT_ERC20' ? 'USDT ERC-20' : 'Bank UAH (ФОП)'}
+                                </label>
+                              ))}
+                            </div>
+                          </Field>
+                        )}
+                      </form.Field>
+                    )}
+
+                    <form.Subscribe selector={(s) => (usdtOnly ? 'USDT_ERC20' : s.values.paymentMethod)}>
+                      {(method) =>
+                        method === 'USDT_ERC20' ? (
+                          <>
+                            <form.Field
+                              name="walletUsdtErc20"
+                              validators={{
+                                onBlur: ({ value, fieldApi }) => {
+                                  if (!fieldApi.state.meta.isDirty) return undefined
+                                  if (!value.trim()) return 'USDT кошелёк обязателен'
+                                  return usdtWalletPattern.test(value.trim())
+                                    ? undefined
+                                    : 'USDT ERC-20 адрес должен начинаться с 0x и содержать 42 символа'
+                                },
+                              }}
+                            >
+                              {(field) => {
+                                const showError = field.state.meta.isTouched && field.state.meta.isDirty
+                                const err = showError ? field.state.meta.errors[0] : undefined
+                                return (
+                                  <Field label="USDT ERC-20 кошелёк" error={err} required>
+                                    <Input
+                                      placeholder="0x..."
+                                      value={field.state.value}
+                                      onChange={(e) => field.handleChange(e.target.value)}
+                                      onBlur={field.handleBlur}
+                                      autoComplete="off"
+                                      className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
+                                      data-testid="user-dialog-wallet"
+                                    />
+                                  </Field>
+                                )
+                              }}
+                            </form.Field>
+                            <form.Field name="walletUsdtLabel">
+                              {(field) => (
+                                <Field label="Лейбл кошелька">
+                                  <Input
+                                    placeholder="Основной"
+                                    value={field.state.value}
+                                    onChange={(e) => field.handleChange(e.target.value)}
+                                    onBlur={field.handleBlur}
+                                  />
+                                </Field>
+                              )}
+                            </form.Field>
+                          </>
+                        ) : (
+                          <>
+                            <form.Field
+                              name="bankUahRecipient"
+                              validators={{
+                                onBlur: ({ value, fieldApi }) => {
+                                  if (!fieldApi.state.meta.isDirty) return undefined
+                                  return value.trim().length >= 3
+                                    ? undefined
+                                    : 'ФИО получателя минимум 3 символа'
+                                },
+                              }}
+                            >
+                              {(field) => {
+                                const showError = field.state.meta.isTouched && field.state.meta.isDirty
+                                const err = showError ? field.state.meta.errors[0] : undefined
+                                return (
+                                  <Field label="ФИО получателя (ФОП)" error={err} required>
+                                    <Input
+                                      placeholder="Иванов Иван Иванович"
+                                      value={field.state.value}
+                                      onChange={(e) => field.handleChange(e.target.value)}
+                                      onBlur={field.handleBlur}
+                                      className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
+                                    />
+                                  </Field>
+                                )
+                              }}
+                            </form.Field>
+                            <form.Field
+                              name="bankUahIban"
+                              validators={{
+                                onBlur: ({ value, fieldApi }) => {
+                                  if (!fieldApi.state.meta.isDirty) return undefined
+                                  return ibanPattern.test(value.trim())
+                                    ? undefined
+                                    : 'IBAN должен быть в формате UA + 27 цифр'
+                                },
+                              }}
+                            >
+                              {(field) => {
+                                const showError = field.state.meta.isTouched && field.state.meta.isDirty
+                                const err = showError ? field.state.meta.errors[0] : undefined
+                                return (
+                                  <Field label="IBAN" error={err} required>
+                                    <Input
+                                      placeholder="UA000000000000000000000000000"
+                                      value={field.state.value}
+                                      onChange={(e) => field.handleChange(e.target.value)}
+                                      onBlur={field.handleBlur}
+                                      className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
+                                    />
+                                  </Field>
+                                )
+                              }}
+                            </form.Field>
+                            <form.Field
+                              name="bankUahRnokpp"
+                              validators={{
+                                onBlur: ({ value, fieldApi }) => {
+                                  if (!fieldApi.state.meta.isDirty) return undefined
+                                  return rnokppPattern.test(value.trim())
+                                    ? undefined
+                                    : 'РНОКПП должен быть 10 цифр'
+                                },
+                              }}
+                            >
+                              {(field) => {
+                                const showError = field.state.meta.isTouched && field.state.meta.isDirty
+                                const err = showError ? field.state.meta.errors[0] : undefined
+                                return (
+                                  <Field label="РНОКПП (ИНН ФОП)" error={err} required>
+                                    <Input
+                                      placeholder="1234567890"
+                                      value={field.state.value}
+                                      onChange={(e) => field.handleChange(e.target.value)}
+                                      onBlur={field.handleBlur}
+                                      className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
+                                    />
+                                  </Field>
+                                )
+                              }}
+                            </form.Field>
+                            <form.Field name="bankUahBankName">
+                              {(field) => (
+                                <Field label="Банк (опционально)">
+                                  <Input
+                                    placeholder="ПриватБанк"
+                                    value={field.state.value}
+                                    onChange={(e) => field.handleChange(e.target.value)}
+                                    onBlur={field.handleBlur}
+                                  />
+                                </Field>
+                              )}
+                            </form.Field>
+                          </>
+                        )
+                      }
+                    </form.Subscribe>
+                  </Section>
+                )
+              }}
+            </form.Subscribe>
+
+            {/* ── Section 6: Team ─────────────────────────────────────── */}
             <form.Subscribe selector={(s) => s.values.role}>
               {(role) => {
                 if (role === 'SENIOR') {
@@ -659,37 +1027,29 @@ export function UserDialog(props: UserDialogProps) {
                       <Section title="Команда">
                         <form.Field name="projectId">
                           {(field) => (
-                            <Field label="Проект">
-                              {sortedProjects.length === 0 ? (
+                            <Field
+                              label="Проект"
+                              hint="Можно прикрепить позже через раздел «Проекты»"
+                            >
+                              {availableJuniorProjects.length === 0 ? (
                                 <p className="text-xs text-muted-foreground italic">
-                                  Нет активных проектов
+                                  Нет проектов без активного джуна
                                 </p>
                               ) : (
                                 <Select
-                                  value={field.state.value}
-                                  onValueChange={(v) => field.handleChange(v)}
+                                  value={field.state.value || 'none'}
+                                  onValueChange={(v) => field.handleChange(v === 'none' ? '' : v)}
                                 >
                                   <SelectTrigger>
-                                    <SelectValue placeholder="— выберите проект (необязательно) —" />
+                                    <SelectValue placeholder="— не выбран —" />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    {sortedProjects.map((p) => {
-                                      const hasJunior = p.members.some(
-                                        (m) => m.role === 'JUNIOR' && m.leftAt === null,
-                                      )
-                                      return (
-                                        <SelectItem key={p.id} value={p.id}>
-                                          <span>
-                                            {p.companyName} — {p.name}
-                                          </span>
-                                          {!hasJunior && (
-                                            <span className="ml-2 text-[10px] text-destructive font-medium">
-                                              нет джуна
-                                            </span>
-                                          )}
-                                        </SelectItem>
-                                      )
-                                    })}
+                                    <SelectItem value="none">— не выбран —</SelectItem>
+                                    {availableJuniorProjects.map((p) => (
+                                      <SelectItem key={p.id} value={p.id}>
+                                        {p.companyName} — {p.name}
+                                      </SelectItem>
+                                    ))}
                                   </SelectContent>
                                 </Select>
                               )}
@@ -758,5 +1118,46 @@ export function UserDialog(props: UserDialogProps) {
         </CrmDialogFooter>
       </CrmDialogContent>
     </Dialog>
+
+    {/* ut-9: Email change warning. Confirms or reverts the email field. */}
+    <AlertDialog
+      open={!!pendingEmailChange}
+      onOpenChange={(o) => !o && setPendingEmailChange(null)}
+    >
+      <AlertDialogContent data-testid="email-change-warning">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Сменить email?</AlertDialogTitle>
+          <AlertDialogDescription className="space-y-2">
+            <span className="block">
+              Смена email может разорвать вход через Google для{' '}
+              <strong>{editingUser?.displayName}</strong>. Убедись, что пользователь
+              знает и сменит свой Google account при необходимости.
+            </span>
+            <span className="block text-muted-foreground">
+              Старый: <code className="px-1 rounded bg-muted">{originalEmail}</code>
+              <br />
+              Новый: <code className="px-1 rounded bg-muted">{pendingEmailChange}</code>
+            </span>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel
+            onClick={() => {
+              form.setFieldValue('email', originalEmail)
+              setPendingEmailChange(null)
+            }}
+          >
+            Отмена
+          </AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => setPendingEmailChange(null)}
+            data-testid="email-change-confirm"
+          >
+            Подтвердить изменение
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }

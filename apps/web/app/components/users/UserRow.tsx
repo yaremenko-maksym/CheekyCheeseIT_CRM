@@ -34,16 +34,18 @@ export type UserRowProps = {
  * States:
  *  - normal: trailing actions opacity 0.4 → 1.0 on hover, bg-muted/40 hover
  *  - self:   trailing actions always 1.0, primary-tinted background, delete disabled
- *  - admin (not-self): archive (Trash2) button is hidden — ADMIN cannot archive ADMIN
+ *  - admin (not-self): both edit (Pencil) and archive (Trash2) buttons hidden —
+ *                       ADMIN cannot edit or archive another ADMIN (ut-2 + ut-10)
  *  - archived: opacity-50, badge «В архиве», single ArchiveRestore button
  *              instead of Pencil/Trash, in the same trailing column
  */
 export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRowProps) {
   const isArchived = !!user.archivedAt
   const techStack = Array.isArray(user.techStack) ? user.techStack : []
-  // ADMIN cannot archive another ADMIN — hide the Trash button entirely for
-  // non-self ADMIN rows. Self-ADMIN keeps the disabled button so the existing
-  // "cannot archive yourself" affordance still surfaces.
+  // ut-10: ADMIN cannot edit or archive another ADMIN — hide both Pencil and
+  // Trash for non-self ADMIN rows. Self-ADMIN keeps the disabled Trash button
+  // so the "cannot archive yourself" affordance still surfaces, and Pencil
+  // stays editable (ut-11 locks the role select inside the dialog instead).
   const isOtherAdmin = user.role === 'ADMIN' && !isSelf
 
   return (
@@ -218,21 +220,26 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
           </Button>
         ) : (
           <>
-            <Button
-              data-testid={`user-row-edit-${user.id}`}
-              variant="ghost"
-              size="icon"
-              aria-label="Редактировать"
-              title="Редактировать"
-              className="h-7 w-7"
-              onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                onEdit()
-              }}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </Button>
+            {/* Edit hidden for non-self ADMIN rows (ut-10 — ADMIN cannot edit
+                another ADMIN). Self-ADMIN keeps it; the dialog locks role
+                editing via ut-11 instead. */}
+            {!isOtherAdmin && (
+              <Button
+                data-testid={`user-row-edit-${user.id}`}
+                variant="ghost"
+                size="icon"
+                aria-label="Редактировать"
+                title="Редактировать"
+                className="h-7 w-7"
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  onEdit()
+                }}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+            )}
             {/* Trash hidden for non-self ADMIN rows (ADMIN cannot archive
                 another ADMIN). Self-ADMIN still renders it disabled so the
                 "cannot archive yourself" tooltip is reachable. */}

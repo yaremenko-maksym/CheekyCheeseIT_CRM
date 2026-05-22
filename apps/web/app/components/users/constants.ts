@@ -17,6 +17,14 @@ export const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' |
 export const ROLES = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'] as const
 export type Role = (typeof ROLES)[number]
 
+/**
+ * Roles available in CREATE dialog. ADMIN is intentionally excluded — the
+ * platform has a fixed pool of two admins; new admins must be provisioned
+ * via DB seed, not through the UI. Backend mirrors this in POST /users.
+ */
+export const CREATE_ALLOWED_ROLES = ['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'] as const
+export type CreateAllowedRole = (typeof CREATE_ALLOWED_ROLES)[number]
+
 export type SortKey = 'displayName' | 'role' | 'email' | 'createdAt'
 export type SortDir = 'asc' | 'desc'
 

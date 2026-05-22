@@ -445,9 +445,14 @@ describe('UsersService.createUser — profile fields', () => {
 // ---------------------------------------------------------------------------
 
 describe('UsersService.adminUpdateUser', () => {
+  // Note: adminUpdateUser fetches the existing user first (for ut-10/11 role
+  // guards). `makeDb` returns `existingUser` on the FIRST select chain call,
+  // so each test must seed `existingUser` matching the id being updated.
+
   it('updates displayName', async () => {
+    const existing = makeUser({ displayName: 'Old Name' })
     const updated = makeUser({ displayName: 'New Name' })
-    const db = makeDb({ updatedUser: updated })
+    const db = makeDb({ existingUser: existing, updatedUser: updated })
     const service = makeUsersService(db)
 
     const result = await service.adminUpdateUser('user-1', { displayName: 'New Name' })
@@ -455,49 +460,105 @@ describe('UsersService.adminUpdateUser', () => {
   })
 
   it('updates techStack', async () => {
+    const existing = makeUser()
     const updated = makeUser({ techStack: 'Kotlin' })
-    const db = makeDb({ updatedUser: updated })
+    const db = makeDb({ existingUser: existing, updatedUser: updated })
     const service = makeUsersService(db)
     const result = await service.adminUpdateUser('user-1', { techStack: 'Kotlin' })
     expect(result.techStack).toBe('Kotlin')
   })
 
   it('clears techStack when set to null', async () => {
+    const existing = makeUser({ techStack: 'Kotlin' })
     const updated = makeUser({ techStack: null })
-    const db = makeDb({ updatedUser: updated })
+    const db = makeDb({ existingUser: existing, updatedUser: updated })
     const service = makeUsersService(db)
     const result = await service.adminUpdateUser('user-1', { techStack: null })
     expect(result.techStack).toBeNull()
   })
 
   it('updates seniorSharePercent for SENIOR', async () => {
+    const existing = makeSenior()
     const updated = makeSenior({ seniorSharePercent: 80 })
-    const db = makeDb({ updatedUser: updated })
+    const db = makeDb({ existingUser: existing, updatedUser: updated })
     const service = makeUsersService(db)
     const result = await service.adminUpdateUser('senior-1', { seniorSharePercent: 80 })
     expect(result.seniorSharePercent).toBe(80)
   })
 
   it('updates monthlySalary for non-SENIOR', async () => {
+    const existing = makeHr()
     const updated = makeHr({ monthlySalary: '2000.00' })
-    const db = makeDb({ updatedUser: updated })
+    const db = makeDb({ existingUser: existing, updatedUser: updated })
     const service = makeUsersService(db)
     const result = await service.adminUpdateUser('hr-1', { monthlySalary: 2000 })
     expect(result.monthlySalary).toBe('2000.00')
   })
 
   it('throws NotFoundException when user not found', async () => {
-    const db = makeDb({ updatedUser: undefined as unknown as ReturnType<typeof makeUser> })
-    // Force the update chain to return empty
-    ;(db.db.update as ReturnType<typeof vi.fn>).mockReturnValue({
-      set: vi.fn().mockReturnValue({
-        where: vi.fn().mockReturnValue({
-          returning: vi.fn().mockResolvedValue([]),
-        }),
-      }),
-    })
+    // No existing user → findById returns undefined → NotFoundException
+    const db = makeDb({ existingUser: undefined })
     const service = makeUsersService(db)
     await expect(service.adminUpdateUser('ghost', { displayName: 'X' })).rejects.toThrow(NotFoundException)
+  })
+
+  // ─── ut-10: ADMIN cannot edit another ADMIN ─────────────────────────────
+  it('throws ForbiddenException when ADMIN tries to edit another ADMIN', async () => {
+    const targetAdmin = makeUser({ id: 'admin-2', role: 'ADMIN', email: 'admin2@example.com' })
+    const db = makeDb({ existingUser: targetAdmin })
+    const service = makeUsersService(db)
+    const { ForbiddenException } = await import('@nestjs/common')
+    await expect(
+      service.adminUpdateUser('admin-2', { displayName: 'Hacked' }, 'admin-1'),
+    ).rejects.toThrow(ForbiddenException)
+  })
+
+  it('allows ADMIN editing themselves (id === actorId)', async () => {
+    const selfAdmin = makeUser({ id: 'admin-1', role: 'ADMIN', email: 'me@example.com' })
+    const updated = makeUser({ id: 'admin-1', role: 'ADMIN', displayName: 'Updated Me' })
+    const db = makeDb({ existingUser: selfAdmin, updatedUser: updated })
+    const service = makeUsersService(db)
+    const result = await service.adminUpdateUser('admin-1', { displayName: 'Updated Me' }, 'admin-1')
+    expect(result.displayName).toBe('Updated Me')
+  })
+
+  // ─── ut-11: ADMIN cannot change own role away from ADMIN ───────────────
+  it('throws ForbiddenException when self-ADMIN tries to change own role', async () => {
+    const selfAdmin = makeUser({ id: 'admin-1', role: 'ADMIN' })
+    const db = makeDb({ existingUser: selfAdmin })
+    const service = makeUsersService(db)
+    const { ForbiddenException } = await import('@nestjs/common')
+    await expect(
+      service.adminUpdateUser('admin-1', { role: 'SENIOR' }, 'admin-1'),
+    ).rejects.toThrow(ForbiddenException)
+  })
+
+  it('allows self-ADMIN to update non-role fields', async () => {
+    const selfAdmin = makeUser({ id: 'admin-1', role: 'ADMIN' })
+    const updated = makeUser({ id: 'admin-1', role: 'ADMIN', telegram: '@newhandle' })
+    const db = makeDb({ existingUser: selfAdmin, updatedUser: updated })
+    const service = makeUsersService(db)
+    const result = await service.adminUpdateUser('admin-1', { telegram: '@newhandle' }, 'admin-1')
+    expect(result.telegram).toBe('@newhandle')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ut-12: ADMIN creation is blocked (fixed pool)
+// ---------------------------------------------------------------------------
+
+describe('UsersService.createUser — ut-12 ADMIN block', () => {
+  it('throws ForbiddenException when role=ADMIN is requested', async () => {
+    const db = makeDb({ existingUser: undefined })
+    const service = makeUsersService(db)
+    const { ForbiddenException } = await import('@nestjs/common')
+    await expect(
+      service.createUser({
+        email: 'newadmin@example.com',
+        displayName: 'New Admin',
+        role: 'ADMIN',
+      }),
+    ).rejects.toThrow(ForbiddenException)
   })
 })
 
