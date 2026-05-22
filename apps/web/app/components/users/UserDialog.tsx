@@ -377,6 +377,21 @@ export function UserDialog(props: UserDialogProps) {
         createMutation.mutate(result.data)
       } else {
         // Edit
+        // Detect whether admin actually touched any payment requisite field.
+        // When nothing changed we omit the entire payment slice — otherwise
+        // `refineRequisitePresence` would block submit for users with empty
+        // requisites in seed data (e.g. SENIOR without a wallet) even when the
+        // admin only edited unrelated fields like HR/Accountant.
+        const paymentChanged =
+          !!editingUser &&
+          (value.paymentMethod !== (editingUser.paymentMethod ?? defaultPaymentMethod(value.role)) ||
+            value.walletUsdtErc20.trim() !== (editingUser.walletUsdtErc20 ?? '') ||
+            value.walletUsdtLabel.trim() !== (editingUser.walletUsdtLabel ?? '') ||
+            value.bankUahRecipient.trim() !== (editingUser.bankUahRecipient ?? '') ||
+            value.bankUahIban.trim() !== (editingUser.bankUahIban ?? '') ||
+            value.bankUahRnokpp.trim() !== (editingUser.bankUahRnokpp ?? '') ||
+            value.bankUahBankName.trim() !== (editingUser.bankUahBankName ?? ''))
+
         const payload: AdminUpdateUserDto = {
           ...(editingUser && value.email.trim() !== editingUser.email && {
             email: value.email.trim(),
@@ -396,17 +411,21 @@ export function UserDialog(props: UserDialogProps) {
               : null,
             salaryCurrency: 'USD',
           }),
-          // Payment requisites — admin can update either branch in Edit.
-          paymentMethod: value.paymentMethod,
-          ...(value.paymentMethod === 'USDT_ERC20' && {
-            walletUsdtErc20: value.walletUsdtErc20.trim() || null,
-            walletUsdtLabel: value.walletUsdtLabel.trim() || null,
-          }),
-          ...(value.paymentMethod === 'BANK_UAH_FOP' && {
-            bankUahRecipient: value.bankUahRecipient.trim() || null,
-            bankUahIban: value.bankUahIban.trim() || null,
-            bankUahRnokpp: value.bankUahRnokpp.trim() || null,
-            bankUahBankName: value.bankUahBankName.trim() || null,
+          // Payment requisites — only include when admin actually changed them.
+          // Sending paymentMethod without matching requisite fields would trip
+          // `refineRequisitePresence` on the shared schema and block submit.
+          ...(paymentChanged && {
+            paymentMethod: value.paymentMethod,
+            ...(value.paymentMethod === 'USDT_ERC20' && {
+              walletUsdtErc20: value.walletUsdtErc20.trim() || null,
+              walletUsdtLabel: value.walletUsdtLabel.trim() || null,
+            }),
+            ...(value.paymentMethod === 'BANK_UAH_FOP' && {
+              bankUahRecipient: value.bankUahRecipient.trim() || null,
+              bankUahIban: value.bankUahIban.trim() || null,
+              bankUahRnokpp: value.bankUahRnokpp.trim() || null,
+              bankUahBankName: value.bankUahBankName.trim() || null,
+            }),
           }),
         }
         const result = adminUpdateUserSchema.safeParse(payload)

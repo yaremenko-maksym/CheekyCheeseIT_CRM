@@ -124,14 +124,21 @@ test.describe('Users page refactor (PR 2)', () => {
       await expect(dialog.getByText('Команда', { exact: true })).toBeVisible()
     })
 
-    test('Edit dialog shows Email as read-only (no input)', async ({ asAdmin: page }) => {
+    test('Edit dialog email is editable and shows OAuth warning on change (ut-9)', async ({
+      asAdmin: page,
+    }) => {
       await page.goto('/crm/users')
       await page.getByTestId(`user-row-edit-${USERS.senior.id}`).click()
-      const ro = page.getByTestId('user-dialog-email-readonly')
-      await expect(ro).toBeVisible()
-      await expect(ro).toHaveText('senior@cheekycheese.dev')
-      // No email input in edit mode
-      await expect(page.getByTestId('user-dialog-email')).toHaveCount(0)
+      const emailInput = page.getByTestId('user-dialog-email')
+      // Email input is rendered (ut-9 made it editable) and pre-filled with the
+      // current value.
+      await expect(emailInput).toBeVisible()
+      await expect(emailInput).toHaveValue('senior@cheekycheese.dev')
+      // Changing the email to a different valid address triggers the OAuth
+      // warning AlertDialog on blur.
+      await emailInput.fill('senior-changed@cheekycheese.dev')
+      await emailInput.blur()
+      await expect(page.getByTestId('email-change-warning')).toBeVisible()
     })
 
     test('Create SENIOR shows HR multiselect + Accountant select', async ({ asAdmin: page }) => {
@@ -370,12 +377,17 @@ test.describe('Users page refactor (PR 2)', () => {
       await expect(techSection).toHaveValue('')
 
       // Re-open listbox, then Escape — input cleared, no pill added.
+      // Re-focus explicitly: commit() may have left focus stable but the
+      // listbox open-state depends on `isFocused`, which we want to re-assert
+      // before typing again.
+      await techSection.focus()
       await techSection.fill('Pyt')
       await expect(page.getByRole('listbox')).toBeVisible()
       await page.keyboard.press('Escape')
       await expect(techSection).toHaveValue('')
 
       // Type and Tab — Tab commits highlighted suggestion (when present).
+      await techSection.focus()
       await techSection.fill('Ja')
       await expect(page.getByRole('listbox')).toBeVisible()
       await page.keyboard.press('Tab')

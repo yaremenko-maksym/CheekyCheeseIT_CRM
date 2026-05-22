@@ -11,7 +11,7 @@ async function createSeniorViaDialog(page: Page): Promise<Record<string, unknown
 
   await page.getByRole('button', { name: /добавить/i }).click()
   await page.getByPlaceholder('user@cheekycheese.dev').fill('newsenior@cheekycheese.dev')
-  await page.getByPlaceholder('Иван Иванов').fill('New Senior Dev')
+  await page.getByTestId('user-dialog-name').fill('New Senior Dev')
 
   // For ADMIN: change role selector to SENIOR. For HR: role is locked (no combobox, just a div).
   const roleCombo = page.getByTestId('user-dialog-role-trigger')
@@ -178,7 +178,7 @@ test.describe('Users management page', () => {
 
       await page.getByTestId('users-create-button').click()
       await page.getByPlaceholder('user@cheekycheese.dev').fill('newuser@cheekycheese.dev')
-      await page.getByPlaceholder('Иван Иванов').fill('New User')
+      await page.getByTestId('user-dialog-name').fill('New User')
 
       // Role is already default (JUNIOR)
       await page.getByTestId('user-dialog-submit').click()
@@ -203,7 +203,7 @@ test.describe('Users management page', () => {
     test('validation: empty display name shows error on blur', async ({ asAdmin: page }) => {
       await page.goto('/crm/users')
       await page.getByTestId('users-create-button').click()
-      const nameInput = page.getByPlaceholder('Иван Иванов')
+      const nameInput = page.getByTestId('user-dialog-name')
       await nameInput.focus()
       await nameInput.blur()
       await expect(page.locator('.text-destructive').first()).toBeVisible()
@@ -226,7 +226,7 @@ test.describe('Users management page', () => {
 
       await page.getByTestId('users-create-button').click()
       await page.getByPlaceholder('user@cheekycheese.dev').fill('senior2@cheekycheese.dev')
-      await page.getByPlaceholder('Иван Иванов').fill('Another Senior')
+      await page.getByTestId('user-dialog-name').fill('Another Senior')
 
       await page.getByTestId('user-dialog-role-trigger').click()
       await page.getByRole('option', { name: 'Синьор' }).click()
@@ -399,7 +399,7 @@ test.describe('Users management page', () => {
       await page.goto('/crm/users')
       await page.getByTestId('users-create-button').click()
       await page.getByPlaceholder('user@cheekycheese.dev').fill('existing@cheekycheese.dev')
-      await page.getByPlaceholder('Иван Иванов').fill('Existing User')
+      await page.getByTestId('user-dialog-name').fill('Existing User')
       await page.getByTestId('user-dialog-submit').click()
 
       await expect(page.getByText(/пользователи/i).first()).toBeVisible()
@@ -480,7 +480,7 @@ test.describe('Users management page', () => {
       await page.goto('/crm/users')
       await page.getByTestId('users-create-button').click()
       await page.getByPlaceholder('user@cheekycheese.dev').fill('newsenior2@cheekycheese.dev')
-      await page.getByPlaceholder('Иван Иванов').fill('Another Senior')
+      await page.getByTestId('user-dialog-name').fill('Another Senior')
       await page.getByTestId('user-dialog-role-trigger').click()
       await page.getByRole('option', { name: 'Синьор' }).click()
 
