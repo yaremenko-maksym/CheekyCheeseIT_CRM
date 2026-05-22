@@ -191,8 +191,10 @@ export function UserDialog(props: UserDialogProps) {
 
   // Exchange rates — needed when admin enters a salary in non-USD currency.
   // Same query key as `AmountCurrencyInput` so the cache is shared.
+  // ut-20: key includes today's calendar day so cache auto-refreshes past midnight.
+  const exchangeTodayKey = new Date().toISOString().slice(0, 10)
   const { data: exchangeRates } = useQuery<ExchangeRates>({
-    queryKey: ['exchange-rate', 'today'],
+    queryKey: ['exchange-rate', exchangeTodayKey],
     queryFn: () => api.get<ExchangeRates>('/finance/exchange-rate').then((r) => r.data),
     staleTime: 1000 * 60 * 60 * 24,
     enabled: open,

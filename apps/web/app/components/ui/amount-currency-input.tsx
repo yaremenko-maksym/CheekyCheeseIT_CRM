@@ -18,8 +18,18 @@ function toUsd(amount: number, currency: Currency, rates: ExchangeRates): number
   return amount
 }
 
-function fmtRateDate(date: string) {
-  return new Date(date).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: '2-digit' })
+function fmtRateDate(date: string): string {
+  // Backend (nbu-currency.service.ts) returns YYYYMMDD compact format
+  // (e.g. "20260522") because that's what the NBU API uses. JS Date()
+  // constructor doesn't parse this — convert to ISO YYYY-MM-DD first.
+  if (!date) return ''
+  const iso =
+    /^\d{8}$/.test(date)
+      ? `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`
+      : date
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
 export function AmountCurrencyInput({
@@ -45,8 +55,13 @@ export function AmountCurrencyInput({
 }) {
   const needsRate = currency === 'EUR' || currency === 'UAH' || currency === 'USD'
 
+  // ut-20: cache key is the **calendar day** (YYYY-MM-DD) — so when the
+  // browser tab survives past midnight, the query auto-invalidates and
+  // refetches today's NBU rate instead of showing yesterday's cached value.
+  const todayKey = new Date().toISOString().slice(0, 10)
+
   const { data: rates, isFetching } = useQuery<ExchangeRates>({
-    queryKey: ['exchange-rate', 'today'],
+    queryKey: ['exchange-rate', todayKey],
     queryFn: () => api.get<ExchangeRates>('/finance/exchange-rate').then((r) => r.data),
     staleTime: 1000 * 60 * 60 * 24,
     enabled: needsRate,
