@@ -164,8 +164,9 @@ export function SegmentedToggle<V extends string>({
               'transition-colors duration-150 focus:outline-none',
               'focus-visible:ring-1 focus-visible:ring-primary/50',
               sizeStyles,
+              'font-medium',
               active
-                ? 'font-semibold text-foreground'
+                ? 'text-foreground'
                 : 'text-muted-foreground hover:text-foreground',
               buttonDisabled && 'cursor-not-allowed opacity-50 hover:text-muted-foreground',
             )}
