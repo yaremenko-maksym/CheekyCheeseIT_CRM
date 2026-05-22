@@ -3,7 +3,13 @@
 # Usage: bash scripts/pm/prep-user-testing.sh <pr_branch>
 #
 # Шаги: branch checkout → migration pre-flight → db:migrate → unit-tests →
-#       restart dev → wait for ready → LocalTunnel → блокирует пока не Ctrl+C.
+#       production build (api+web) → старт API+preview → wait for ready →
+#       LocalTunnel → блокирует пока не Ctrl+C.
+#
+# ВАЖНО: используется production build + Vite preview (не dev). Это нужно для
+# нормальной работы через LocalTunnel: dev-режим тянет сотни unbundled модулей
+# через туннель + HMR-сокет = flaky на мобильнике. Preview отдаёт минифицированный
+# bundle и проксирует /api → NestJS на 3001.
 #
 # Скрипт работает в FOREGROUND. Ctrl+C / SIGTERM убивает dev-сервер и tunnel
 # через trap, не оставляя висящих процессов. Для background-режима — вызывать с `&`.
@@ -44,15 +50,16 @@ TUNNEL_URL=""
 TOTAL_STEPS="7"
 [ "$SKIP_TUNNEL" = "1" ] && TOTAL_STEPS="6"
 
-# Cleanup trap — убивает dev-сервер и tunnel при ЛЮБОМ выходе скрипта
+# Cleanup trap — убивает API + Web preview + tunnel при ЛЮБОМ выходе скрипта
 # (success, error, Ctrl+C, kill). Не оставляет висящие процессы.
 cleanup() {
   local exit_code=$?
   trap - EXIT INT TERM  # disable trap, чтобы не зациклиться
   echo ""
-  echo "🛑 Останавливаю dev-серверы и tunnel..."
-  pkill -f "nest start" 2>/dev/null || true
-  pkill -f "vite" 2>/dev/null || true
+  echo "🛑 Останавливаю API + Web preview + tunnel..."
+  pkill -f "nest start" 2>/dev/null || true                 # на случай если кто-то поднимал dev API
+  pkill -f "node .*apps/api/dist" 2>/dev/null || true       # production API
+  pkill -f "vite" 2>/dev/null || true                       # вкл. vite preview
   pkill -f "localtunnel" 2>/dev/null || true
   [ -n "$TUNNEL_LOG" ] && [ -f "$TUNNEL_LOG" ] && rm -f "$TUNNEL_LOG"
   echo "✅ Cleanup завершён."
@@ -118,38 +125,72 @@ fi
 echo "[3/$TOTAL_STEPS] DB migrations"
 pnpm --filter @crm/api db:migrate
 
-# 4. Прогнать unit-тесты — если упали, не показываем пользователю
-echo "[4/$TOTAL_STEPS] Unit tests"
-if ! pnpm test; then
+# 4. Прогнать unit-тесты — если упали, не показываем пользователю.
+# ВАЖНО: `pnpm test` без фильтра тянет @crm/e2e (Playwright), который коннектится к
+# localhost:3000 — а сервер ещё не поднят (это шаг 5). Фильтруем явно — только
+# unit/integration suites из api/web/shared. E2E запускается в CI отдельно.
+echo "[4/$TOTAL_STEPS] Unit tests (api + web + shared, без Playwright E2E)"
+if ! pnpm --filter @crm/shared --filter @crm/api --filter @crm/web test; then
   echo "❌ Unit tests упали. НЕ показывать пользователю. Создать fix-задачу для Coder." >&2
   exit 1
 fi
 
-# 5. Перезапустить dev-серверы
-echo "[5/$TOTAL_STEPS] Restart dev servers"
+# 5. Производственная сборка + старт preview-сервера + старт API в production-режиме.
+# ПОЧЕМУ не dev-сервер: через LocalTunnel dev-режим грузит сотни unbundled модулей,
+# source maps, HMR-сокет — это десятки секунд загрузки на мобильнике и flaky HMR
+# через туннель. Production build = один минифицированный bundle, никакого HMR,
+# работает как реальный prod. Vite preview сервер проксирует /api → :3001.
+echo "[5/$TOTAL_STEPS] Kill previous processes + production build + start"
+
 pkill -f "nest start" 2>/dev/null || true
+pkill -f "node .*apps/api/dist" 2>/dev/null || true
 pkill -f "vite" 2>/dev/null || true
 pkill -f "localtunnel" 2>/dev/null || true
 sleep 2
-nohup pnpm dev >/tmp/pm-dev.log 2>&1 &
+
+# Build api + web параллельно через turbo.
+# VITE_API_URL=/api → бандл делает запросы относительно origin'а, чтобы tunnel-URL
+# работал (иначе захардкоженный http://localhost:3001/api ссылается на localhost
+# самого МОБИЛЬНИКА — ничего не доступно).
+echo "  ↪ pnpm build (api + web, production, VITE_API_URL=/api)"
+if ! VITE_API_URL=/api pnpm --filter @crm/api --filter @crm/web build; then
+  echo "❌ Build упал. НЕ показывать пользователю. Создать fix-задачу для Coder." >&2
+  exit 1
+fi
+
+# Запуск production-серверов в фоне.
+echo "  ↪ Start API (node dist/main) + Web preview"
+nohup pnpm --filter @crm/api start >/tmp/pm-api.log 2>&1 &
+nohup pnpm --filter @crm/web start >/tmp/pm-web.log 2>&1 &
 
 # 6. Дождаться готовности
 echo "[6/$TOTAL_STEPS] Wait for services"
 if ! timeout 60 bash -c 'until curl -sf http://localhost:3001/api/health >/dev/null; do sleep 2; done'; then
-  echo "❌ API не поднялся за 60 сек. Лог: /tmp/pm-dev.log" >&2
+  echo "❌ API не поднялся за 60 сек. Лог: /tmp/pm-api.log" >&2
   exit 1
 fi
 if ! timeout 30 bash -c 'until curl -sf http://localhost:3000 >/dev/null; do sleep 2; done'; then
-  echo "❌ Web не поднялся за 30 сек. Лог: /tmp/pm-dev.log" >&2
+  echo "❌ Web preview не поднялся за 30 сек. Лог: /tmp/pm-web.log" >&2
   exit 1
 fi
+
+# Sanity check: preview-сервер должен проксировать /api → :3001.
+# Если прокси не настроен в vite.config.ts, /api/health через :3000 даст 404.
+if ! curl -sf --max-time 5 http://localhost:3000/api/health >/dev/null; then
+  echo "⚠️ /api/health через preview (3000) недоступен — preview.proxy не настроен в vite.config.ts" >&2
+  echo "Через tunnel API не будет работать. Проверь preview.proxy в apps/web/vite.config.ts." >&2
+  exit 1
+fi
+echo "  ↪ /api proxy через preview работает"
 
 # 7. LocalTunnel — публичный URL для тестирования с телефона
 if [ "$SKIP_TUNNEL" = "1" ]; then
   echo "──────────────────────────────────────────────────"
   echo "✅ Окружение готово (БЕЗ tunnel — SKIP_TUNNEL=1)."
-  echo "Локальный: http://localhost:3000"
-  echo "Нажми Ctrl+C для остановки dev-серверов."
+  echo "Локальный: http://localhost:3000  (Vite preview, production build)"
+  echo "Лог API:   /tmp/pm-api.log"
+  echo "Лог web:   /tmp/pm-web.log"
+  echo "Нажми Ctrl+C для остановки API + preview."
   wait
   exit 0
 fi
@@ -221,12 +262,13 @@ printf '║     посмотреть на https://loca.lt/mytunnelpassword)     
 printf '║                                                                  ║\n'
 printf '╚══════════════════════════════════════════════════════════════════╝\n'
 echo ""
-echo "Локальный URL:   http://localhost:3000"
+echo "Локальный URL:   http://localhost:3000  (Vite preview, production build)"
 echo "Публичный URL:   $TUNNEL_URL"
+echo "Лог API:         /tmp/pm-api.log"
+echo "Лог web preview: /tmp/pm-web.log"
 echo "Лог tunnel:      $TUNNEL_LOG"
-echo "Лог dev-сервера: /tmp/pm-dev.log"
 echo ""
-echo "Ctrl+C — остановит dev-серверы и tunnel (cleanup автоматический)."
+echo "Ctrl+C — остановит API + preview + tunnel (cleanup автоматический)."
 echo "──────────────────────────────────────────────────"
 
 # Блокируем выполнение — держим dev и tunnel живыми до Ctrl+C / SIGTERM.
