@@ -4,6 +4,14 @@ import { test, expect, ALL_USERS, USERS, mockAuthAs } from './fixtures'
 // ---------------------------------------------------------------------------
 // Helper: fill and submit the Create SENIOR form, capturing the POST body
 // ---------------------------------------------------------------------------
+/**
+ * Valid 42-char USDT ERC-20 placeholder (`0x` + 40 hex chars). Matches the
+ * `^0x[a-fA-F0-9]{40}$` regex in `createUserSchema` so the backend accepts
+ * the Create payload — without this, `refineRequisitePresence` rejects
+ * the request and the POST never fires.
+ */
+const VALID_USDT_WALLET = '0x' + '0'.repeat(40)
+
 async function createSeniorViaDialog(page: Page): Promise<Record<string, unknown>> {
   const postReq = page.waitForRequest(
     (req) => req.url().includes('/api/users') && req.method() === 'POST',
@@ -23,6 +31,11 @@ async function createSeniorViaDialog(page: Page): Promise<Record<string, unknown
 
   // Wait for the "Команда" team section to appear inside the dialog
   await expect(page.getByRole('dialog').getByText('Команда', { exact: true })).toBeVisible()
+
+  // ut-14: SENIOR/ADMIN are USDT-only; `walletUsdtErc20` is required by the
+  // shared `refineRequisitePresence` rule. Without it the safeParse fails
+  // client-side and the POST never fires.
+  await page.getByTestId('user-dialog-wallet').fill(VALID_USDT_WALLET)
 
   await page.getByTestId('user-dialog-submit').click()
 
@@ -180,7 +193,16 @@ test.describe('Users management page', () => {
       await page.getByPlaceholder('user@cheekycheese.dev').fill('newuser@cheekycheese.dev')
       await page.getByTestId('user-dialog-name').fill('New User')
 
-      // Role is already default (JUNIOR)
+      // Role is already default (JUNIOR). JUNIOR defaults to BANK_UAH_FOP
+      // requisites; switch to USDT_ERC20 (smaller surface to fill) and
+      // provide the wallet so `refineRequisitePresence` passes.
+      const dialog = page.getByTestId('user-dialog')
+      await dialog
+        .getByTestId('user-dialog-payment-method')
+        .locator('label', { hasText: 'USDT ERC-20' })
+        .click()
+      await page.getByTestId('user-dialog-wallet').fill(VALID_USDT_WALLET)
+
       await page.getByTestId('user-dialog-submit').click()
 
       const req = await postReq
@@ -212,7 +234,11 @@ test.describe('Users management page', () => {
     test('validation: invalid telegram shows error on blur', async ({ asAdmin: page }) => {
       await page.goto('/crm/users')
       await page.getByTestId('users-create-button').click()
-      await page.getByPlaceholder('@username').fill('notelegram')
+      // Use a value that actually fails the shared telegram regex
+      // (`^@?[a-zA-Z0-9_]{5,32}$`). "notelegram" matches it (10 latin chars,
+      // optional `@`), so the previous test never surfaced an error. "no!"
+      // is too short and contains an illegal character.
+      await page.getByPlaceholder('@username').fill('no!')
       await page.getByPlaceholder('@username').blur()
       await expect(page.locator('p.text-destructive').first()).toBeVisible()
     })
@@ -230,6 +256,10 @@ test.describe('Users management page', () => {
 
       await page.getByTestId('user-dialog-role-trigger').click()
       await page.getByRole('option', { name: 'Синьор' }).click()
+
+      // ut-14: SENIOR/ADMIN are USDT-only; without `walletUsdtErc20` the
+      // shared `refineRequisitePresence` blocks safeParse and no POST fires.
+      await page.getByTestId('user-dialog-wallet').fill(VALID_USDT_WALLET)
 
       await page.getByTestId('user-dialog-submit').click()
 
