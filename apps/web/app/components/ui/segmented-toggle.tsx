@@ -23,9 +23,21 @@ import { cn } from '@/lib/utils'
 
 export interface SegmentedToggleOption<V extends string> {
   value: V
+  /**
+   * Display label rendered to the user. Should be a meaningful non-empty
+   * string. For icon-only buttons, pass an empty string and supply
+   * `ariaLabel` for screen readers — otherwise the enum value leaks into
+   * the accessible name.
+   */
   label: string
   /** Optional Lucide icon shown to the left of the label */
   icon?: LucideIcon
+  /**
+   * Override for the button's accessible name. Use when `label` is empty
+   * (icon-only) or when the visible text isn't descriptive enough for
+   * screen readers (e.g. raw enum spelling like "USDT_ERC20").
+   */
+  ariaLabel?: string
   /** Optional per-option test id suffix; defaults to value */
   testIdSuffix?: string
   /** Per-option disabled state (e.g. role-restricted option) */
@@ -97,7 +109,10 @@ export function SegmentedToggle<V extends string>({
             type="button"
             role="radio"
             aria-checked={active}
-            aria-label={option.label || option.value}
+            // Prefer explicit ariaLabel (icon-only / opaque enums), then visible label,
+            // then enum value as a last-resort fallback so screen-reader users
+            // always have *some* name even if a caller mis-configures the option.
+            aria-label={option.ariaLabel ?? (option.label || option.value)}
             disabled={buttonDisabled}
             onClick={() => {
               if (buttonDisabled) return

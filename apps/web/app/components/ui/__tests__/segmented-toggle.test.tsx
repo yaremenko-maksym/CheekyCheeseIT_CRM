@@ -117,6 +117,31 @@ describe('SegmentedToggle', () => {
     expect(screen.getByTestId('letters-second')).toBeInTheDocument()
   })
 
+  it('uses option.ariaLabel to override the accessible name (icon-only)', () => {
+    function IconOnly() {
+      const [v, setV] = React.useState<'asc' | 'desc'>('asc')
+      return (
+        <SegmentedToggle
+          value={v}
+          onChange={setV}
+          options={[
+            { value: 'asc', label: '', ariaLabel: 'По возрастанию' },
+            { value: 'desc', label: '', ariaLabel: 'По убыванию' },
+          ]}
+          ariaLabel="Сортировка"
+          testId="sort-dir"
+        />
+      )
+    }
+    render(<IconOnly />)
+    // Screen-reader name comes from ariaLabel, NOT the enum value.
+    expect(screen.getByRole('radio', { name: 'По возрастанию' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'По убыванию' })).toBeInTheDocument()
+    // Defensive: enum value must not leak into accessible name.
+    expect(screen.queryByRole('radio', { name: 'asc' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('radio', { name: 'desc' })).not.toBeInTheDocument()
+  })
+
   it('disables a single option via option.disabled without disabling the rest', async () => {
     const user = userEvent.setup({ delay: null })
     const onChange = vi.fn()
