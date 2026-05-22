@@ -88,6 +88,7 @@ export class TeamsService {
       id: team.id,
       name: team.name,
       telegram: team.telegram ?? null,
+      telegramChannel: team.telegramChannel ?? null,
       notes: team.notes ?? null,
       archivedAt: team.archivedAt ? team.archivedAt.toISOString() : null,
       createdAt: team.createdAt,
@@ -187,7 +188,14 @@ export class TeamsService {
     return this.mapTeam(team, allProjects, currentUser)
   }
 
-  async update(id: string, name: string, telegram: string | null | undefined, notes: string | null | undefined, currentUser: SessionUser) {
+  async update(
+    id: string,
+    name: string,
+    telegram: string | null | undefined,
+    notes: string | null | undefined,
+    currentUser: SessionUser,
+    telegramChannel?: string | null | undefined,
+  ) {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') {
       throw new ForbiddenException()
     }
@@ -207,6 +215,7 @@ export class TeamsService {
       .set({
         name,
         ...(telegram !== undefined ? { telegram } : {}),
+        ...(telegramChannel !== undefined ? { telegramChannel } : {}),
         ...(notes !== undefined ? { notes } : {}),
         updatedAt: new Date(),
       })

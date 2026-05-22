@@ -456,6 +456,50 @@ export async function mockAuthAs(
       limit: 20,
     }),
   )
+  // /users/:id/archive-impact — used by ArchiveConfirmDialog to populate warning text
+  await page.route(new RegExp(`${API}/users/([^/?]+)/archive-impact$`), (r) => {
+    const targetId = r.request().url().split('/').slice(-2, -1)[0]
+    const target = ALL_USERS.find((u) => u.id === targetId) ?? user
+    const impact = (() => {
+      switch (target.role) {
+        case 'SENIOR':
+          return {
+            type: 'user' as const,
+            role: 'SENIOR' as const,
+            isPaired: true,
+            teamName: 'Alpha Team',
+            projectsCount: 2,
+            juniorsAffected: 1,
+            hrAccountantsToBeRemoved: 2,
+          }
+        case 'HR':
+          return { type: 'user' as const, role: 'HR' as const, teamsCount: 1 }
+        case 'ACCOUNTANT':
+          return { type: 'user' as const, role: 'ACCOUNTANT' as const, teamsCount: 1 }
+        case 'JUNIOR':
+          return { type: 'user' as const, role: 'JUNIOR' as const, projectsCount: 1 }
+        default:
+          return { type: 'user' as const, role: 'ADMIN' as const, noDependencies: true }
+      }
+    })()
+    return jsonOk(r, impact)
+  })
+
+  // /users/:id/unarchive — pair-unarchive for SENIOR, single for others
+  await page.route(new RegExp(`${API}/users/([^/?]+)/unarchive$`), (r) => {
+    const targetId = r.request().url().split('/').slice(-2, -1)[0]
+    const target = ALL_USERS.find((u) => u.id === targetId) ?? user
+    return jsonOk(r, { ...target, archivedAt: null })
+  })
+
+  // /users/:id/team — used by UserDialog Edit to seed HR/Accountant selections
+  await page.route(new RegExp(`${API}/users/([^/?]+)/team$`), (r) =>
+    jsonOk(r, [
+      { id: USERS.hr.id, displayName: USERS.hr.displayName, role: 'HR', avatar: null },
+      { id: USERS.accountant.id, displayName: USERS.accountant.displayName, role: 'ACCOUNTANT', avatar: null },
+    ]),
+  )
+
   // /users/:id — profile shell expects UserWithPermissionsResponse shape for view mode
   await page.route(new RegExp(`${API}/users/([^/?]+)$`), (r) => {
     const id = r.request().url().split('/').at(-1)
@@ -466,11 +510,16 @@ export async function mockAuthAs(
     // GET — return UserWithPermissionsResponse; viewer is `user`, target is `found`
     return jsonOk(r, buildAdminViewingUser(found))
   })
-  await page.route(`${API}/users`, (r) =>
-    r.request().method() === 'POST'
-      ? jsonOk(r, { ...USERS.junior, id: 'new-user-id', ...(JSON.parse(r.request().postData() ?? '{}') as object) }, 201)
-      : jsonOk(r, ALL_USERS),
-  )
+  // /users — supports `?archived=true|false` filter
+  await page.route(new RegExp(`${API}/users(\\?.*)?$`), (r) => {
+    if (r.request().method() === 'POST') {
+      return jsonOk(r, { ...USERS.junior, id: 'new-user-id', ...(JSON.parse(r.request().postData() ?? '{}') as object) }, 201)
+    }
+    const url = new URL(r.request().url())
+    const archived = url.searchParams.get('archived') === 'true'
+    // For the mock: archived list is empty unless explicitly testing archived flows
+    return jsonOk(r, archived ? [] : ALL_USERS)
+  })
 
   // Teams
   await page.route(new RegExp(`${API}/teams/([^/?]+)/members`), (r) =>

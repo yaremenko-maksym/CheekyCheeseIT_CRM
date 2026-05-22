@@ -1,4 +1,5 @@
 import { createFileRoute, Link, Outlet, useNavigate } from '@tanstack/react-router'
+import { motion } from 'framer-motion'
 import { AuthProvider } from '@/context/auth'
 import { NotificationsProvider, useNotifications } from '@/context/notifications'
 import { Bell, LogOut, Menu, Search, UserCircle } from 'lucide-react'
@@ -56,6 +57,21 @@ function CrmLayout() {
   })
   const [mobileOpen, setMobileOpen] = useState(false)
 
+  // ut-21 follow-up (Reviewer round 4 nit): ambient background blobs should
+  // not consume CPU when the tab is hidden. We pause framer-motion by toggling
+  // a `tabVisible` flag via `visibilitychange` and feeding a static animate
+  // target when the tab is in the background — motion stops without a jump
+  // back to origin and resumes smoothly on return.
+  const [tabVisible, setTabVisible] = useState(() =>
+    typeof document !== 'undefined' ? !document.hidden : true,
+  )
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const handler = () => setTabVisible(!document.hidden)
+    document.addEventListener('visibilitychange', handler)
+    return () => document.removeEventListener('visibilitychange', handler)
+  }, [])
+
   useEffect(() => {
     if (!isLoading && !user) {
       void navigate({ to: '/crm/login' })
@@ -109,7 +125,33 @@ function CrmLayout() {
   if (!user) return null
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground">
+    <div className="relative flex h-screen flex-col bg-background text-foreground">
+      {/* ut-21: ambient animated background — три цветных blob'а медленно
+          дрейфуют, единый для всех табов CRM. fixed + -z-10 — позади контента,
+          pointer-events-none — не мешает кликам.
+          Reviewer round 4 nit: keyframe animations paused while the tab is
+          hidden (see `tabVisible`). When the tab is hidden we render the
+          static initial frame (no array → no keyframe loop) and set
+          `repeat: 0` — framer-motion releases the rAF schedule, so the
+          background uses zero CPU until the tab is focused again. */}
+      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+        <motion.div
+          className="absolute -left-[10%] top-[10%] h-[520px] w-[520px] rounded-full bg-primary/[0.05] blur-[120px]"
+          animate={tabVisible ? { x: [0, 80, -40, 0], y: [0, -60, 40, 0], scale: [1, 1.1, 0.95, 1] } : { x: 0, y: 0, scale: 1 }}
+          transition={{ duration: 24, repeat: tabVisible ? Infinity : 0, ease: 'easeInOut' }}
+        />
+        <motion.div
+          className="absolute -right-[8%] bottom-[8%] h-[420px] w-[420px] rounded-full bg-violet-500/[0.05] blur-[110px]"
+          animate={tabVisible ? { x: [0, -70, 50, 0], y: [0, 50, -40, 0], scale: [1, 0.9, 1.08, 1] } : { x: 0, y: 0, scale: 1 }}
+          transition={{ duration: 30, repeat: tabVisible ? Infinity : 0, ease: 'easeInOut' }}
+        />
+        <motion.div
+          className="absolute left-1/3 top-1/2 h-[340px] w-[340px] rounded-full bg-amber-500/[0.035] blur-[100px]"
+          animate={tabVisible ? { x: [0, 50, -40, 0], y: [0, -40, 30, 0], scale: [1, 1.06, 0.94, 1] } : { x: 0, y: 0, scale: 1 }}
+          transition={{ duration: 36, repeat: tabVisible ? Infinity : 0, ease: 'easeInOut' }}
+        />
+      </div>
+
       <header className="shrink-0 sticky top-0 z-40 border-b border-border/60 bg-background/80 px-6 py-3 backdrop-blur-md">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">

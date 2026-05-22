@@ -49,6 +49,12 @@ export class UsersController {
   @Roles('ADMIN', 'HR')
   async createUser(@CurrentUser() currentUser: SessionUser, @Body() body: unknown) {
     const dto = createUserSchema.parse(body)
+    // ut-12: ADMIN creation is fixed-pool — block at the HTTP boundary too.
+    // Service has its own guard, but failing early avoids the email uniqueness
+    // round-trip and surfaces a 403 instead of a 409 if the email collides.
+    if (dto.role === 'ADMIN') {
+      throw new ForbiddenException('Создание ADMIN запрещено — пул фиксирован')
+    }
     if (currentUser.role === 'HR' && dto.role !== 'SENIOR') {
       throw new ForbiddenException('HR может создавать только синьоров')
     }
@@ -62,9 +68,17 @@ export class UsersController {
       techStack: dto.techStack ?? null,
       ...(dto.seniorSharePercent !== undefined && { seniorSharePercent: dto.seniorSharePercent }),
       monthlySalary: dto.monthlySalary ?? null,
+      ...(dto.salaryCurrency !== undefined && { salaryCurrency: dto.salaryCurrency }),
       hrIds: dto.hrIds ?? [],
       accountantId: dto.accountantId ?? null,
       projectId: dto.projectId ?? null,
+      ...(dto.paymentMethod !== undefined && { paymentMethod: dto.paymentMethod }),
+      walletUsdtErc20: dto.walletUsdtErc20 ?? null,
+      walletUsdtLabel: dto.walletUsdtLabel ?? null,
+      bankUahRecipient: dto.bankUahRecipient ?? null,
+      bankUahIban: dto.bankUahIban ?? null,
+      bankUahRnokpp: dto.bankUahRnokpp ?? null,
+      bankUahBankName: dto.bankUahBankName ?? null,
     })
   }
 

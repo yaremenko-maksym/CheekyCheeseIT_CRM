@@ -1,8 +1,9 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common'
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common'
 import { and, eq, inArray, isNotNull, isNull, ne } from 'drizzle-orm'
 import type { ArchiveImpact } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { projectMembers, projects, teamMembers, teams, users, type User } from '../database/schema'
+import type { DrizzleTx } from '../database/types'
 import { TeamAuditLogService } from '../teams/team-audit-log.service'
 import { ProjectAuditLogService } from '../projects/project-audit-log.service'
 import { AuditLogService } from './audit-log.service'
@@ -96,26 +97,58 @@ export class UsersService {
     techStack?: string[] | null
     seniorSharePercent?: number
     monthlySalary?: number | null
+    salaryCurrency?: 'USDT' | 'USD' | 'EUR' | 'UAH'
     hrIds?: string[]
     accountantId?: string | null
     projectId?: string | null
+    paymentMethod?: 'USDT_ERC20' | 'BANK_UAH_FOP'
+    walletUsdtErc20?: string | null
+    walletUsdtLabel?: string | null
+    bankUahRecipient?: string | null
+    bankUahIban?: string | null
+    bankUahRnokpp?: string | null
+    bankUahBankName?: string | null
   }): Promise<User> {
+    // ut-12: ADMIN creation is reserved to the seed pool — block here as a
+    // defense-in-depth measure even if the controller / Roles guard let it slip.
+    if (data.role === 'ADMIN') {
+      throw new ForbiddenException('Создание ADMIN запрещено — пул фиксирован')
+    }
     const existing = await this.findByEmail(data.email)
     if (existing) throw new ConflictException('User with this email already exists')
 
+    // Build insert payload — only include payment columns when relevant so we
+    // keep "no requisites" rows clean (null in DB rather than empty string).
+    const insertValues: typeof users.$inferInsert = {
+      email: data.email,
+      displayName: data.displayName,
+      role: data.role,
+      telegram: data.telegram ?? null,
+      phone: data.phone ?? null,
+      avatar: data.avatar ?? `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(data.displayName)}`,
+      techStack: data.techStack ?? null,
+    }
+    if (data.seniorSharePercent !== undefined) insertValues.seniorSharePercent = data.seniorSharePercent
+    if (data.monthlySalary != null) insertValues.monthlySalary = String(data.monthlySalary)
+    if (data.salaryCurrency) insertValues.salaryCurrency = data.salaryCurrency
+
+    // Payment requisites — only persist the fields matching the selected method.
+    if (data.paymentMethod) {
+      insertValues.paymentMethod = data.paymentMethod
+      if (data.paymentMethod === 'USDT_ERC20') {
+        insertValues.walletUsdtErc20 = data.walletUsdtErc20 ?? null
+        insertValues.walletUsdtLabel = data.walletUsdtLabel ?? null
+      } else {
+        insertValues.bankUahRecipient = data.bankUahRecipient ?? null
+        insertValues.bankUahIban = data.bankUahIban ?? null
+        insertValues.bankUahRnokpp = data.bankUahRnokpp ?? null
+        insertValues.bankUahBankName = data.bankUahBankName ?? null
+      }
+    }
+
     const rows = await this.db.db
       .insert(users)
-      .values({
-        email: data.email,
-        displayName: data.displayName,
-        role: data.role,
-        telegram: data.telegram ?? null,
-        phone: data.phone ?? null,
-        avatar: data.avatar ?? `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(data.displayName)}`,
-        techStack: data.techStack ?? null,
-        ...(data.seniorSharePercent !== undefined && { seniorSharePercent: data.seniorSharePercent }),
-        ...(data.monthlySalary != null && { monthlySalary: String(data.monthlySalary) }),
-      })
+      .values(insertValues)
       .returning()
 
     const created = rows[0]
@@ -162,6 +195,7 @@ export class UsersService {
   async adminUpdateUser(
     id: string,
     data: {
+      email?: string
       displayName?: string
       role?: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT'
       telegram?: string | null | undefined
@@ -171,12 +205,56 @@ export class UsersService {
       techStack?: string[] | null | undefined
       seniorSharePercent?: number | undefined
       monthlySalary?: number | null | undefined
+      salaryCurrency?: 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined
+      paymentMethod?: 'USDT_ERC20' | 'BANK_UAH_FOP' | undefined
+      walletUsdtErc20?: string | null | undefined
+      walletUsdtLabel?: string | null | undefined
+      bankUahRecipient?: string | null | undefined
+      bankUahIban?: string | null | undefined
+      bankUahRnokpp?: string | null | undefined
+      bankUahBankName?: string | null | undefined
       hrIds?: string[] | undefined
       accountantId?: string | null | undefined
+      teamTelegramChannel?: string | null | undefined
     },
     actorId: string | null = null,
   ): Promise<User> {
+    // ut-10/11: ADMIN protection. Fetch the existing row first so we can apply
+    // role-aware guards before any UPDATE statement.
+    const existing = await this.findById(id)
+    if (!existing) throw new NotFoundException('User not found')
+
+    if (existing.role === 'ADMIN' && actorId !== null && existing.id !== actorId) {
+      throw new ForbiddenException('Cannot edit another admin')
+    }
+    if (
+      data.role !== undefined &&
+      existing.role === 'ADMIN' &&
+      actorId !== null &&
+      existing.id === actorId &&
+      data.role !== 'ADMIN'
+    ) {
+      throw new ForbiddenException('Cannot change own ADMIN role')
+    }
+    // ut-17: Telegram channel of the team is a SENIOR-only field. The pair
+    // invariant SENIOR ≡ team means setting it for any other role would be a
+    // contract violation — reject early with 400.
+    const effectiveRole = data.role ?? existing.role
+    if (data.teamTelegramChannel !== undefined && effectiveRole !== 'SENIOR') {
+      throw new BadRequestException(
+        'Telegram channel can only be set for SENIOR users',
+      )
+    }
+    // Email uniqueness check — only when actually changing it.
+    if (data.email !== undefined && data.email !== existing.email) {
+      const conflict = await this.findByEmail(data.email)
+      if (conflict && conflict.id !== id) {
+        throw new ConflictException('User with this email already exists')
+      }
+    }
+
     const set: Partial<{
+      email: string
       displayName: string
       role: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT'
       telegram: string | null
@@ -186,9 +264,18 @@ export class UsersService {
       techStack: string[] | null
       seniorSharePercent: number
       monthlySalary: string | null
+      salaryCurrency: 'USDT' | 'USD' | 'EUR' | 'UAH'
+      paymentMethod: 'USDT_ERC20' | 'BANK_UAH_FOP'
+      walletUsdtErc20: string | null
+      walletUsdtLabel: string | null
+      bankUahRecipient: string | null
+      bankUahIban: string | null
+      bankUahRnokpp: string | null
+      bankUahBankName: string | null
       updatedAt: Date
     }> = { updatedAt: new Date() }
 
+    if (data.email !== undefined) set.email = data.email
     if (data.displayName !== undefined) set.displayName = data.displayName
     if (data.role !== undefined) set.role = data.role
     if ('telegram' in data) set.telegram = data.telegram ?? null
@@ -198,48 +285,149 @@ export class UsersService {
     if ('techStack' in data) set.techStack = data.techStack ?? null
     if (data.seniorSharePercent !== undefined) set.seniorSharePercent = data.seniorSharePercent
     if ('monthlySalary' in data) set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
+    if (data.salaryCurrency !== undefined) set.salaryCurrency = data.salaryCurrency
 
-    const rows = await this.db.db
-      .update(users)
-      .set(set)
-      .where(eq(users.id, id))
-      .returning()
-
-    const updated = rows[0]
-    if (!updated) throw new NotFoundException('User not found')
-
-    // SENIOR-only: optional team composition reconcile.
-    if (updated.role === 'SENIOR' && (data.hrIds !== undefined || data.accountantId !== undefined)) {
-      await this.reconcileSeniorTeam(updated.id, {
-        hrIds: data.hrIds,
-        accountantId: data.accountantId,
-      }, actorId)
+    // Payment requisites — switching method clears the other branch's fields.
+    if (data.paymentMethod !== undefined) {
+      set.paymentMethod = data.paymentMethod
+      if (data.paymentMethod === 'USDT_ERC20') {
+        if ('walletUsdtErc20' in data) set.walletUsdtErc20 = data.walletUsdtErc20 ?? null
+        if ('walletUsdtLabel' in data) set.walletUsdtLabel = data.walletUsdtLabel ?? null
+        set.bankUahRecipient = null
+        set.bankUahIban = null
+        set.bankUahRnokpp = null
+        set.bankUahBankName = null
+      } else {
+        if ('bankUahRecipient' in data) set.bankUahRecipient = data.bankUahRecipient ?? null
+        if ('bankUahIban' in data) set.bankUahIban = data.bankUahIban ?? null
+        if ('bankUahRnokpp' in data) set.bankUahRnokpp = data.bankUahRnokpp ?? null
+        if ('bankUahBankName' in data) set.bankUahBankName = data.bankUahBankName ?? null
+        set.walletUsdtErc20 = null
+        set.walletUsdtLabel = null
+      }
+    } else {
+      // No method switch — but the admin may still patch individual fields of
+      // the current method (e.g. update IBAN without changing payment method).
+      if ('walletUsdtErc20' in data) set.walletUsdtErc20 = data.walletUsdtErc20 ?? null
+      if ('walletUsdtLabel' in data) set.walletUsdtLabel = data.walletUsdtLabel ?? null
+      if ('bankUahRecipient' in data) set.bankUahRecipient = data.bankUahRecipient ?? null
+      if ('bankUahIban' in data) set.bankUahIban = data.bankUahIban ?? null
+      if ('bankUahRnokpp' in data) set.bankUahRnokpp = data.bankUahRnokpp ?? null
+      if ('bankUahBankName' in data) set.bankUahBankName = data.bankUahBankName ?? null
     }
+
+    // The user UPDATE + downstream SENIOR-only side effects (team composition
+    // reconcile + team telegram channel propagation) are committed as one
+    // transaction. Pair invariant SENIOR ≡ team means a partial commit (user
+    // saved but team comms lost) would leave inconsistent state on the
+    // critical comms field — atomicity matters here.
+    const updated = await this.db.db.transaction(async (tx) => {
+      const rows = await tx
+        .update(users)
+        .set(set)
+        .where(eq(users.id, id))
+        .returning()
+
+      const u = rows[0]
+      if (!u) throw new NotFoundException('User not found')
+
+      // SENIOR-only: optional team composition reconcile.
+      if (u.role === 'SENIOR' && (data.hrIds !== undefined || data.accountantId !== undefined)) {
+        await this.reconcileSeniorTeamTx(tx, u.id, {
+          hrIds: data.hrIds,
+          accountantId: data.accountantId,
+        }, actorId)
+      }
+
+      // ut-17: propagate teamTelegramChannel onto the senior's team (same tx).
+      if (u.role === 'SENIOR' && data.teamTelegramChannel !== undefined) {
+        await this.updateSeniorTeamTelegramChannelTx(
+          tx,
+          u.id,
+          data.teamTelegramChannel,
+          actorId,
+        )
+      }
+
+      return u
+    })
 
     return updated
   }
 
   /**
-   * Reconciles HR/Accountant membership in the SENIOR's team.
+   * Update `teams.telegram_channel` for the team owned by `seniorId` and write
+   * a `team_updated` audit row inside the SAME transaction. No-op if the value
+   * hasn't actually changed (avoids spurious audit entries for re-saves).
+   */
+  private async updateSeniorTeamTelegramChannelTx(
+    tx: DrizzleTx,
+    seniorId: string,
+    value: string | null,
+    actorId: string | null,
+  ): Promise<void> {
+    const seniorMembership = await tx
+      .select()
+      .from(teamMembers)
+      .where(and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)))
+      .then((rows) => rows[0])
+    if (!seniorMembership) return
+    const teamId = seniorMembership.teamId
+
+    const team = await tx
+      .select()
+      .from(teams)
+      .where(eq(teams.id, teamId))
+      .then((rows) => rows[0])
+    if (!team) return
+
+    const previous = team.telegramChannel ?? null
+    const next = value ?? null
+    if (previous === next) return
+
+    await tx
+      .update(teams)
+      .set({ telegramChannel: next, updatedAt: new Date() })
+      .where(eq(teams.id, teamId))
+
+    await this.teamAuditLogService.record(
+      {
+        actorId,
+        targetId: teamId,
+        action: 'team_updated',
+        changes: { telegramChannel: { before: previous, after: next } },
+      },
+      tx,
+    )
+  }
+
+  /**
+   * Transactional variant of reconcileSeniorTeam. All membership writes and
+   * audit log entries use the supplied `tx` so adminUpdateUser's outer
+   * transaction can commit them atomically with the user UPDATE.
+   *
    * Active members (`leftAt IS NULL`) are diffed against the target sets:
    *  - new HR/Acc -> insert team_member or restore via leftAt=NULL on existing row
    *  - removed HR/Acc -> set leftAt=now()
    * Each delta is logged into `team_audit_log`.
    */
-  private async reconcileSeniorTeam(
+  private async reconcileSeniorTeamTx(
+    tx: DrizzleTx,
     seniorId: string,
     data: { hrIds?: string[] | undefined; accountantId?: string | null | undefined },
     actorId: string | null,
   ): Promise<void> {
     // Resolve the senior's team via team_members (teams has no seniorId column —
     // a SENIOR is always team_member of exactly one team by business invariant).
-    const seniorMembership = await this.db.db.query.teamMembers.findFirst({
-      where: and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)),
-    })
+    const seniorMembership = await tx
+      .select()
+      .from(teamMembers)
+      .where(and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)))
+      .then((rows) => rows[0])
     if (!seniorMembership) return
     const teamId = seniorMembership.teamId
 
-    const activeMembers = await this.db.db
+    const activeMembers: Array<{ userId: string; id: string; role: User['role'] }> = await tx
       .select({
         userId: teamMembers.userId,
         id: teamMembers.id,
@@ -261,7 +449,7 @@ export class UsersService {
       const toAdd = [...desiredHrIds].filter((id) => !currentHrIds.has(id))
 
       for (const userId of toRemove) {
-        await this.db.db
+        await tx
           .update(teamMembers)
           .set({ leftAt: now })
           .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)))
@@ -270,16 +458,16 @@ export class UsersService {
           targetId: teamId,
           action: 'team_member_removed',
           changes: { userId: { before: userId, after: null }, role: { before: 'HR', after: null } },
-        })
+        }, tx)
       }
       for (const userId of toAdd) {
-        await this.upsertTeamMember(teamId, userId)
+        await this.upsertTeamMemberTx(tx, teamId, userId)
         await this.teamAuditLogService.record({
           actorId,
           targetId: teamId,
           action: 'team_member_added',
           changes: { userId: { before: null, after: userId }, role: { before: null, after: 'HR' } },
-        })
+        }, tx)
       }
     }
 
@@ -290,7 +478,7 @@ export class UsersService {
 
       if (currentId !== desiredId) {
         if (currentId) {
-          await this.db.db
+          await tx
             .update(teamMembers)
             .set({ leftAt: now })
             .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, currentId), isNull(teamMembers.leftAt)))
@@ -299,16 +487,16 @@ export class UsersService {
             targetId: teamId,
             action: 'team_member_removed',
             changes: { userId: { before: currentId, after: null }, role: { before: 'ACCOUNTANT', after: null } },
-          })
+          }, tx)
         }
         if (desiredId) {
-          await this.upsertTeamMember(teamId, desiredId)
+          await this.upsertTeamMemberTx(tx, teamId, desiredId)
           await this.teamAuditLogService.record({
             actorId,
             targetId: teamId,
             action: 'team_member_added',
             changes: { userId: { before: null, after: desiredId }, role: { before: null, after: 'ACCOUNTANT' } },
-          })
+          }, tx)
         }
       }
     }
@@ -316,22 +504,28 @@ export class UsersService {
 
   /**
    * Insert team_member; if row already exists (left previously) — clear leftAt to restore.
-   * Necessary because team_members has FK constraints with no unique index across (teamId, userId).
+   * Uses the supplied transaction handle so it shares the outer atomicity boundary.
    */
-  private async upsertTeamMember(teamId: string, userId: string): Promise<void> {
-    const existing = await this.db.db.query.teamMembers.findFirst({
-      where: and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)),
-    })
+  private async upsertTeamMemberTx(
+    tx: DrizzleTx,
+    teamId: string,
+    userId: string,
+  ): Promise<void> {
+    const existing = await tx
+      .select()
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
+      .then((rows) => rows[0])
     if (existing) {
       if (existing.leftAt !== null) {
-        await this.db.db
+        await tx
           .update(teamMembers)
           .set({ leftAt: null })
           .where(eq(teamMembers.id, existing.id))
       }
       return
     }
-    await this.db.db.insert(teamMembers).values({ teamId, userId })
+    await tx.insert(teamMembers).values({ teamId, userId })
   }
 
   async updateProfile(
@@ -441,6 +635,12 @@ export class UsersService {
         .then((rows) => rows[0])
       if (!user) throw new NotFoundException('User not found')
       if (user.archivedAt) throw new BadRequestException('User is already archived')
+      // Defense-in-depth: ADMIN cannot archive another ADMIN. The controller
+      // already blocks self-archive; this guard makes ADMINs mutually
+      // indestructible regardless of how the endpoint is called.
+      if (user.role === 'ADMIN' && actorId !== null && user.id !== actorId) {
+        throw new ForbiddenException('Cannot archive another admin')
+      }
 
       const now = new Date()
 
@@ -617,13 +817,12 @@ export class UsersService {
    * `this.db.db` — so rollback discards everything together. Caller is
    * responsible for opening the transaction.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async unarchivePairTx(tx: any, id: string, actorId: string | null = null): Promise<void> {
+  async unarchivePairTx(tx: DrizzleTx, id: string, actorId: string | null = null): Promise<void> {
     const user = await tx
       .select()
       .from(users)
       .where(eq(users.id, id))
-      .then((rows: User[]) => rows[0])
+      .then((rows) => rows[0])
     if (!user) throw new NotFoundException('User not found')
     if (!user.archivedAt) throw new BadRequestException('User is not archived')
 
@@ -651,13 +850,13 @@ export class UsersService {
         .select()
         .from(teamMembers)
         .where(and(eq(teamMembers.userId, id), isNull(teamMembers.leftAt)))
-        .then((rows: Array<typeof teamMembers.$inferSelect>) => rows[0])
+        .then((rows) => rows[0])
       if (seniorMembership) {
         const team = await tx
           .select()
           .from(teams)
           .where(eq(teams.id, seniorMembership.teamId))
-          .then((rows: Array<typeof teams.$inferSelect>) => rows[0])
+          .then((rows) => rows[0])
         if (team?.archivedAt) {
           const teamPreviousArchivedAt = team.archivedAt
           await tx

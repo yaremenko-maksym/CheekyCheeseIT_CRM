@@ -67,27 +67,35 @@ export const updateProfileSchema = z.object({
   avatarOverride: avatarOverrideSchema.nullable().optional(),
 })
 
-export const createUserSchema = z.object({
-  email: z.string().email(),
-  displayName: z.string().min(2).max(255),
-  role: roleSchema,
-  telegram: telegramSchema.nullable().optional(),
-  phone: phoneSchema.nullable().optional(),
-  avatar: z.string().url().nullable().optional(),
-  techStack: techStackSchema.nullable().optional(),
-  seniorSharePercent: z.number().int().min(0).max(100).optional(),
-  monthlySalary: z.number().nonnegative().nullable().optional(),
-  hrIds: z.array(z.string().uuid()).optional(),
-  accountantId: z.string().uuid().nullable().optional(),
-  projectId: z.string().uuid().nullable().optional(),
-  paymentMethod: paymentMethodSchema,
-  walletUsdtErc20: z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'USDT ERC-20 адрес должен начинаться с 0x и содержать 42 символа').optional(),
-  walletUsdtLabel: z.string().nullable().optional(),
-  bankUahRecipient: z.string().min(3, 'ФИО получателя минимум 3 символа').optional(),
-  bankUahIban: z.string().regex(/^UA\d{27}$/, 'IBAN должен быть в формате UA + 27 цифр').optional(),
-  bankUahRnokpp: z.string().regex(/^\d{10}$/, 'РНОКПП должен быть 10 цифр').optional(),
-  bankUahBankName: z.string().nullable().optional(),
-}).superRefine((data, ctx) => {
+/**
+ * Validators for payment requisites at user creation. Kept as exported
+ * fragments so the same regexes/messages are reused in the Edit dialog
+ * and the dedicated requisites tab.
+ */
+const usdtWalletField = z
+  .string()
+  .regex(/^0x[a-fA-F0-9]{40}$/, 'USDT ERC-20 адрес должен начинаться с 0x и содержать 42 символа')
+const bankUahRecipientField = z.string().min(3, 'ФИО получателя минимум 3 символа').max(255)
+const bankUahIbanField = z.string().regex(/^UA\d{27}$/, 'IBAN должен быть в формате UA + 27 цифр')
+const bankUahRnokppField = z.string().regex(/^\d{10}$/, 'РНОКПП должен быть 10 цифр')
+
+/**
+ * Refines a create-user payload to require the requisite fields that match
+ * the selected `paymentMethod`. Shared between `createUserSchema` and
+ * `adminUpdateUserSchema` (when payment fields are edited).
+ */
+function refineRequisitePresence(
+  data: {
+    role?: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | undefined
+    paymentMethod?: 'USDT_ERC20' | 'BANK_UAH_FOP' | undefined
+    walletUsdtErc20?: string | null | undefined
+    bankUahRecipient?: string | null | undefined
+    bankUahIban?: string | null | undefined
+    bankUahRnokpp?: string | null | undefined
+  },
+  ctx: z.RefinementCtx,
+): void {
+  if (!data.paymentMethod) return
   const isUsdtOnlyRole = data.role === 'SENIOR' || data.role === 'ADMIN'
   if (isUsdtOnlyRole && data.paymentMethod !== 'USDT_ERC20') {
     ctx.addIssue({ code: 'custom', message: 'Senior/Admin могут использовать только USDT ERC-20', path: ['paymentMethod'] })
@@ -100,20 +108,68 @@ export const createUserSchema = z.object({
     if (!data.bankUahIban) ctx.addIssue({ code: 'custom', message: 'IBAN обязателен', path: ['bankUahIban'] })
     if (!data.bankUahRnokpp) ctx.addIssue({ code: 'custom', message: 'РНОКПП обязателен', path: ['bankUahRnokpp'] })
   }
-})
+}
+
+export const createUserSchema = z.object({
+  email: z.string().email('Некорректный email'),
+  displayName: z.string().min(2).max(255),
+  role: roleSchema,
+  telegram: telegramSchema.nullable().optional(),
+  phone: phoneSchema.nullable().optional(),
+  avatar: z.string().url().nullable().optional(),
+  techStack: techStackSchema.nullable().optional(),
+  seniorSharePercent: z.number().int().min(0).max(100).optional(),
+  monthlySalary: z.number().nonnegative().nullable().optional(),
+  salaryCurrency: currencyEnumSchema.optional(),
+  hrIds: z.array(z.string().uuid()).optional(),
+  accountantId: z.string().uuid().nullable().optional(),
+  projectId: z.string().uuid().nullable().optional(),
+  paymentMethod: paymentMethodSchema,
+  walletUsdtErc20: usdtWalletField.optional(),
+  walletUsdtLabel: z.string().nullable().optional(),
+  bankUahRecipient: bankUahRecipientField.optional(),
+  bankUahIban: bankUahIbanField.optional(),
+  bankUahRnokpp: bankUahRnokppField.optional(),
+  bankUahBankName: z.string().nullable().optional(),
+}).superRefine(refineRequisitePresence)
 
 export const adminUpdateUserSchema = z.object({
+  email: z.string().email('Некорректный email').optional(),
   displayName: z.string().min(2).max(255).optional(),
+  role: roleSchema.optional(),
   telegram: telegramSchema.nullable().optional(),
   phone: phoneSchema.nullable().optional(),
   avatar: z.string().url().nullable().optional(),
   avatarOverride: avatarOverrideSchema.nullable().optional(),
   techStack: techStackSchema.nullable().optional(),
+  seniorSharePercent: z.number().int().min(0).max(100).optional(),
+  monthlySalary: z.number().nonnegative().nullable().optional(),
+  salaryCurrency: currencyEnumSchema.optional(),
+  // Payment requisites — optional in admin update; when paymentMethod is set,
+  // matching fields must also be provided (validated via superRefine).
+  paymentMethod: paymentMethodSchema.optional(),
+  walletUsdtErc20: usdtWalletField.nullable().optional(),
+  walletUsdtLabel: z.string().nullable().optional(),
+  bankUahRecipient: bankUahRecipientField.nullable().optional(),
+  bankUahIban: bankUahIbanField.nullable().optional(),
+  bankUahRnokpp: bankUahRnokppField.nullable().optional(),
+  bankUahBankName: z.string().nullable().optional(),
   // For SENIOR: optional team composition update. Diffs against current team_members
   // (only entries with leftAt IS NULL) and reconciles via add/remove.
   hrIds: z.array(z.string().uuid()).optional(),
   accountantId: z.string().uuid().nullable().optional(),
-})
+  // For SENIOR: optional Telegram channel handle stored on the senior's team
+  // (`teams.telegram_channel`). Backend rejects this field for non-SENIOR with
+  // 400 — UI hides it for other roles. Pair-invariant: SENIOR ≡ team.
+  teamTelegramChannel: z
+    .string()
+    .regex(
+      /^@?[a-zA-Z0-9_]{5,32}$/,
+      'Некорректный канал (5–32 латинских символов или _, опц. @)',
+    )
+    .nullable()
+    .optional(),
+}).superRefine(refineRequisitePresence)
 
 // Query params for list endpoints — `?archived=true|false`.
 export const listArchivedQuerySchema = z.object({

@@ -152,7 +152,29 @@ export function useArchiveUser(userId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
       qc.invalidateQueries({ queryKey: ['users'] })
+      qc.invalidateQueries({ queryKey: ['users-admin'] })
       toast.success('Пользователь архивирован')
     },
+  })
+}
+
+export function useUnarchiveUser(userId: string, opts?: { isSenior?: boolean }) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post(`/users/${userId}/unarchive`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['user-profile', userId] })
+      qc.invalidateQueries({ queryKey: ['user-audit-log', userId] })
+      qc.invalidateQueries({ queryKey: ['users'] })
+      qc.invalidateQueries({ queryKey: ['users-admin'] })
+      if (opts?.isSenior) {
+        qc.invalidateQueries({ queryKey: ['teams'] })
+      }
+      const msg = opts?.isSenior
+        ? 'Синьор и команда восстановлены'
+        : 'Пользователь восстановлен из архива'
+      toast.success(msg)
+    },
+    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
   })
 }
