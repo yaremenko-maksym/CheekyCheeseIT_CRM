@@ -71,7 +71,7 @@ test.describe('Projects archive — list page tab', () => {
     await expect(page.getByTestId('toggle-archived-projects')).not.toBeVisible()
   })
 
-  test('archived project card has data-archived=true and inline restore button', async ({ asAdmin: page }) => {
+  test('archived project card has data-archived=true and no inline restore button (ut-38)', async ({ asAdmin: page }) => {
     await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
@@ -85,12 +85,22 @@ test.describe('Projects archive — list page tab', () => {
     await expect(card).toBeVisible()
     await expect(card).toHaveAttribute('data-archived', 'true')
     await expect(card.getByText('В архиве')).toBeVisible()
-    await expect(page.getByTestId(`project-unarchive-${archivedProject.id}`)).toBeVisible()
+    // ut-38: inline unarchive button removed from list cards — unarchive now
+    // lives on the project detail page header.
+    await expect(page.getByTestId(`project-unarchive-${archivedProject.id}`)).toHaveCount(0)
   })
 
   test('unarchive without cascade — POST succeeds, no modal shown', async ({ asAdmin: page }) => {
-    await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([archivedProject]) }),
+    // ut-38: unarchive moved to the detail page header — drive the test
+    // through `project-unarchive-button` instead of the (removed) inline list
+    // button.
+    const archived = {
+      ...projectWithEffectiveTeam,
+      ...archivedProject,
+      effectiveTeam: projectWithEffectiveTeam.effectiveTeam,
+    }
+    await page.route(`${API}/projects/${archivedProject.id}`, (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(archived) }),
     )
     const unarchived = page.waitForRequest(
       (req) => req.url().endsWith(`/projects/${archivedProject.id}/unarchive`) && req.method() === 'POST',
@@ -100,16 +110,22 @@ test.describe('Projects archive — list page tab', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
     )
 
-    await page.goto('/crm/projects?archived=true')
-    await page.getByTestId(`project-unarchive-${archivedProject.id}`).click()
+    await page.goto(`/crm/projects/${archivedProject.id}`)
+    await page.getByTestId('project-unarchive-button').click()
     await unarchived
     // No cascade modal shown
     await expect(page.getByTestId('cascade-unarchive-confirm')).not.toBeVisible()
   })
 
   test('unarchive with 409 cascade — shows modal with paired entities', async ({ asAdmin: page }) => {
-    await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([archivedProject]) }),
+    // ut-38: same redirect — exercise the detail-page Unarchive button.
+    const archived = {
+      ...projectWithEffectiveTeam,
+      ...archivedProject,
+      effectiveTeam: projectWithEffectiveTeam.effectiveTeam,
+    }
+    await page.route(`${API}/projects/${archivedProject.id}`, (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(archived) }),
     )
     // First call returns 409 with cascade required
     let called = 0
@@ -132,8 +148,8 @@ test.describe('Projects archive — list page tab', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
     )
 
-    await page.goto('/crm/projects?archived=true')
-    await page.getByTestId(`project-unarchive-${archivedProject.id}`).click()
+    await page.goto(`/crm/projects/${archivedProject.id}`)
+    await page.getByTestId('project-unarchive-button').click()
 
     const cascadeBtn = page.getByTestId('cascade-unarchive-confirm')
     await expect(cascadeBtn).toBeVisible({ timeout: 3000 })

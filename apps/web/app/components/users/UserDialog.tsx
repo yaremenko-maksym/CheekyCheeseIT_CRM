@@ -269,10 +269,15 @@ export function UserDialog(props: UserDialogProps) {
   }, [projects])
 
   // ── Mutations ────────────────────────────────────────────────────────────
+  // ut-40: invalidate the generic `['users']` cache as well — that's the
+  // key consumed by project/team dropdowns (`GET /api/users`). Without it,
+  // a freshly-created SENIOR didn't appear in the «Создать проект» dropdown
+  // until a manual refresh because the cached user list stayed stale.
   const createMutation = useMutation({
     mutationFn: (data: CreateUserDto) => api.post<UserProfileDto>('/users', data),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
+      void queryClient.invalidateQueries({ queryKey: ['users'] })
       void queryClient.invalidateQueries({ queryKey: ['teams'] })
       void queryClient.invalidateQueries({ queryKey: ['projects'] })
       toast.success('Пользователь создан')
@@ -288,6 +293,7 @@ export function UserDialog(props: UserDialogProps) {
       api.patch<UserProfileDto>(`/users/${editingUser!.id}`, data),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
+      void queryClient.invalidateQueries({ queryKey: ['users'] })
       void queryClient.invalidateQueries({ queryKey: ['teams'] })
       void queryClient.invalidateQueries({ queryKey: ['user-profile', editingUser?.id] })
       toast.success('Пользователь обновлён')

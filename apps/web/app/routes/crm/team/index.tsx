@@ -3,7 +3,7 @@ import { useForm } from '@tanstack/react-form'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
-import { Archive, ArchiveRestore, Check, Pencil, Plus, Search, Send, UserPlus, Users } from 'lucide-react'
+import { Archive, Check, Plus, Search, Send, UserPlus, Users } from 'lucide-react'
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
 import type { Value as PhoneValue } from 'react-phone-number-input'
@@ -37,11 +37,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
-import { useUnarchiveEntity } from '@/hooks/use-archive'
-import { AdminActionsMenu } from '@/components/admin-actions/AdminActionsMenu'
 
 const teamSearchSchema = z.object({
   archived: z.boolean().optional(),
@@ -51,22 +48,6 @@ export const Route = createFileRoute('/crm/team/')({
   validateSearch: (search) => teamSearchSchema.parse(search),
   component: TeamPage,
 })
-
-const ROLE_LABELS: Record<string, string> = {
-  ADMIN: 'Администратор',
-  SENIOR: 'Синьор',
-  JUNIOR: 'Джун',
-  HR: 'HR',
-  ACCOUNTANT: 'Бухгалтер',
-}
-
-const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accountant'> = {
-  ADMIN: 'admin',
-  SENIOR: 'senior',
-  JUNIOR: 'junior',
-  HR: 'hr',
-  ACCOUNTANT: 'accountant',
-}
 
 function getInitials(name: string) {
   return (name || '?')
@@ -512,9 +493,7 @@ function TeamPage() {
   const routeSearch = Route.useSearch()
   const isArchivedView = routeSearch.archived === true
   if (denied) return null
-  const queryClient = useQueryClient()
 
-  const canManage = user?.role === 'ADMIN' || user?.role === 'HR'
   const isHr = user?.role === 'HR'
   const isAdmin = user?.role === 'ADMIN'
 
@@ -542,11 +521,8 @@ function TeamPage() {
     }
   }, [teams, isLoading, user, navigate])
 
-  const { data: allUsers } = useQuery({
-    queryKey: ['users'],
-    queryFn: fetchAllUsers,
-    enabled: canManage,
-  })
+  // ut-39a: top-level users query removed — `HrCreateSeniorDialog` fetches
+  // its own list on demand, and the rest of the page doesn't need user data.
 
   const { data: projects } = useQuery({
     queryKey: ['projects'],
@@ -557,36 +533,8 @@ function TeamPage() {
   // HR: create senior dialog
   const [showCreateSenior, setShowCreateSenior] = useState(false)
 
-  // Edit team name
-  const [editTeam, setEditTeam] = useState<TeamDto | null>(null)
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, name, telegram, notes }: { id: string; name: string; telegram?: string | null; notes?: string | null }) =>
-      api.patch(`/teams/${id}`, { name, telegram, notes }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['teams'] })
-      setEditTeam(null)
-    },
-  })
-
-  const teamNameSchema = z.string().min(1, 'Обязательное поле').max(255, 'Максимум 255 символов')
-
-  const editForm = useForm({
-    defaultValues: { name: '', telegram: '', notes: '' },
-    onSubmit: async ({ value }) => {
-      if (!editTeam) return
-      updateMutation.mutate({ 
-        id: editTeam.id, 
-        name: value.name.trim(),
-        telegram: value.telegram.trim() || null,
-        notes: value.notes.trim() || null
-      })
-    },
-  })
-
-  // Add member
-  const [addMemberTeam, setAddMemberTeam] = useState<TeamDto | null>(null)
-  const [addMemberUserId, setAddMemberUserId] = useState('')
+  // ut-39a: edit + add-member dialogs removed from list page — those flows
+  // now live on the team detail page header.
 
   // Toolbar state
   const [search, setSearch] = useState('')
@@ -623,21 +571,6 @@ function TeamPage() {
 
     return result
   }, [teams, projects, search, sortBy])
-
-  const addMemberMutation = useMutation({
-    mutationFn: ({ teamId, userId }: { teamId: string; userId: string }) =>
-      api.post(`/teams/${teamId}/members`, { userId }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['teams'] })
-      setAddMemberTeam(null)
-      setAddMemberUserId('')
-    },
-  })
-
-
-  const availableUsers = allUsers?.filter(
-    (u) => !addMemberTeam?.members.some((m) => m.userId === u.id),
-  ) ?? []
 
   if (isLoading) {
     return (
@@ -756,7 +689,9 @@ function TeamPage() {
         )}
         <AnimatePresence mode="popLayout" initial={false}>
         {filteredTeams.map((team) => {
-          const canManage = user?.role === 'ADMIN' || (user?.role === 'HR' && team.members.some((m) => m.userId === user.id && m.role === 'HR'))
+          // ut-39a: per-card management controls removed — all team CRUD is
+          // performed from the detail page header. No need for per-team
+          // RBAC computation here.
           const hrMembers = team.members.filter((m) => m.role === 'HR')
           const activeProjects = projects
             ? projects.filter(
@@ -858,48 +793,9 @@ function TeamPage() {
                   </Badge>
                 </div>
 
-                {/* Rename / Unarchive / Admin actions */}
-                {isArchived && isAdmin && (
-                  <div className="relative z-30 flex shrink-0 gap-1">
-                    <TeamUnarchiveButton teamId={team.id} />
-                  </div>
-                )}
-                {!isArchived && canManage && (
-                  <div
-                    className="relative z-30 flex shrink-0 gap-1"
-                    onClick={(e) => {
-                      // Prevent the underlying Link from navigating when interacting with
-                      // any action control (rename / admin menu / dialogs spawned by them).
-                      e.stopPropagation()
-                      e.preventDefault()
-                    }}
-                  >
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        e.preventDefault()
-                        setEditTeam(team)
-                        editForm.setFieldValue('name', team.name)
-                        editForm.setFieldValue('telegram', team.telegram || '')
-                        editForm.setFieldValue('notes', team.notes || '')
-                      }}
-                      title="Переименовать"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    {isAdmin && (
-                      <AdminActionsMenu
-                        entityType="team"
-                        entityId={team.id}
-                        entityName={team.name}
-                        isArchived={false}
-                      />
-                    )}
-                  </div>
-                )}
+                {/* ut-39a: rename / unarchive / admin actions removed from
+                    list cards (matches ut-38 project pattern). All team
+                    management lives on the detail page header. */}
               </div>
             </motion.div>
           )
@@ -916,167 +812,8 @@ function TeamPage() {
         />
       )}
 
-      {/* Edit team dialog */}
-      <Dialog open={!!editTeam} onOpenChange={(open) => { if (!open) setEditTeam(null) }}>
-        <CrmDialogContent maxWidth="sm:max-w-md">
-          <CrmDialogHeader>
-            <DialogTitle>Редактировать команду</DialogTitle>
-          </CrmDialogHeader>
-          <CrmDialogBody className="pb-2">
-            <div className="grid gap-4">
-              {/* Name */}
-              <editForm.Field
-                name="name"
-                validators={{ onBlur: ({ value }) => {
-                  const r = teamNameSchema.safeParse(value.trim())
-                  return r.success ? undefined : r.error.issues[0]?.message
-                }}}
-              >
-                {(field) => {
-                  const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined
-                  return (
-                    <Field label="Название" error={err} required>
-                      <Input
-                        value={field.state.value}
-                        onChange={(e) => field.handleChange(e.target.value)}
-                        onBlur={field.handleBlur}
-                        placeholder="Название команды"
-                        className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
-                      />
-                    </Field>
-                  )
-                }}
-              </editForm.Field>
-
-              {/* Telegram */}
-              <editForm.Field
-                name="telegram"
-                validators={{ onBlur: ({ value }) => {
-                  if (!value.trim()) return undefined
-                  const r = z.string().url('Некорректное URL').safeParse(value.trim())
-                  return r.success ? undefined : r.error.issues[0]?.message
-                }}}
-              >
-                {(field) => {
-                  const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined
-                  return (
-                    <Field label="Telegram" error={err}>
-                      <Input
-                        value={field.state.value}
-                        onChange={(e) => field.handleChange(e.target.value)}
-                        onBlur={field.handleBlur}
-                        placeholder="https://t.me/..."
-                        className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
-                      />
-                      <p className="text-xs text-muted-foreground">Ссылка на чат команды</p>
-                    </Field>
-                  )
-                }}
-              </editForm.Field>
-
-              {/* Notes */}
-              <editForm.Field name="notes">
-                {(field) => (
-                  <Field label="Заметки">
-                    <Textarea
-                      value={field.state.value}
-                      onChange={(e) => field.handleChange(e.target.value)}
-                      onBlur={field.handleBlur}
-                      placeholder="Внутренние заметки…"
-                      className="min-h-20"
-                    />
-                  </Field>
-                )}
-              </editForm.Field>
-            </div>
-          </CrmDialogBody>
-          <CrmDialogFooter>
-            <Button variant="ghost" onClick={() => setEditTeam(null)}>Отмена</Button>
-            <Button onClick={() => void editForm.handleSubmit()} disabled={updateMutation.isPending}>
-              {updateMutation.isPending ? 'Сохранение...' : 'Сохранить'}
-            </Button>
-          </CrmDialogFooter>
-        </CrmDialogContent>
-      </Dialog>
-
-      {/* Archive is now handled via AdminActionsMenu on the team detail page
-          (ArchiveConfirmDialog with senior-name confirmation). No bulk delete UI here. */}
-
-      {/* Add member dialog */}
-      <Dialog open={!!addMemberTeam} onOpenChange={(open) => !open && setAddMemberTeam(null)}>
-        <CrmDialogContent maxWidth="sm:max-w-sm">
-          <CrmDialogHeader>
-            <DialogTitle>Добавить участника — {addMemberTeam?.name}</DialogTitle>
-          </CrmDialogHeader>
-          <CrmDialogBody className="pb-2">
-            <div className="space-y-3">
-              <Label>Выберите сотрудника</Label>
-              <div className="space-y-1">
-                {availableUsers.length === 0 && (
-                  <p className="text-sm text-muted-foreground">Все сотрудники уже в команде</p>
-                )}
-                {availableUsers.map((u) => (
-                  <button
-                    key={u.id}
-                    className={cn('flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left transition-colors hover:bg-accent', addMemberUserId === u.id && 'bg-accent')}
-                    onClick={() => setAddMemberUserId(u.id)}
-                  >
-                    <Avatar className="h-7 w-7 shrink-0">
-                      {u.avatar && <AvatarImage src={u.avatar} />}
-                      <AvatarFallback className="bg-muted text-[10px]">{getInitials(u.displayName)}</AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{u.displayName}</p>
-                      <p className="truncate text-xs text-muted-foreground">{u.email}</p>
-                    </div>
-                    <Badge variant={ROLE_VARIANT[u.role] ?? 'junior'} className="shrink-0 text-[10px]">
-                      {ROLE_LABELS[u.role] ?? u.role}
-                    </Badge>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </CrmDialogBody>
-          <CrmDialogFooter>
-            <Button variant="outline" onClick={() => setAddMemberTeam(null)}>Отмена</Button>
-            <Button
-              onClick={() => {
-                if (addMemberTeam && addMemberUserId) {
-                  addMemberMutation.mutate({ teamId: addMemberTeam.id, userId: addMemberUserId })
-                }
-              }}
-              disabled={!addMemberUserId || addMemberMutation.isPending}
-            >
-              Добавить
-            </Button>
-          </CrmDialogFooter>
-        </CrmDialogContent>
-      </Dialog>
+      {/* ut-39a: Edit + Add member + Unarchive flows live on the team detail
+          page header — list page is purely navigational. */}
     </div>
-  )
-}
-
-/**
- * Pair-unarchive a team (restores team + senior in one tx; projects stay archived).
- * Lives at list level so each row instantiates its own mutation hook.
- */
-function TeamUnarchiveButton({ teamId }: { teamId: string }) {
-  const unarchive = useUnarchiveEntity('team', teamId)
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      className="gap-1 h-7 px-2"
-      disabled={unarchive.isPending}
-      onClick={(e) => {
-        e.stopPropagation()
-        e.preventDefault()
-        void unarchive.mutateAsync({})
-      }}
-      data-testid={`team-unarchive-${teamId}`}
-    >
-      <ArchiveRestore className="h-3.5 w-3.5" />
-      <span className="text-xs">Восстановить</span>
-    </Button>
   )
 }

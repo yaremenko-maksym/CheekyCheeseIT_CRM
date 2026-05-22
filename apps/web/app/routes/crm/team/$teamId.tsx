@@ -2,7 +2,20 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Briefcase, Calendar, Mail, Pencil, Phone, Send, UserMinus, UserPlus, Users } from 'lucide-react'
+import {
+  Archive,
+  ArchiveRestore,
+  ArrowLeft,
+  Briefcase,
+  Calendar,
+  Mail,
+  Pencil,
+  Phone,
+  Send,
+  UserMinus,
+  UserPlus,
+  Users,
+} from 'lucide-react'
 import { useState } from 'react'
 import type { ProjectDto, TeamDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
@@ -27,7 +40,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
-import { AdminActionsMenu } from '@/components/admin-actions/AdminActionsMenu'
+import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
+import { useUnarchiveEntity } from '@/hooks/use-archive'
 import { AuditLogTab } from '@/components/audit-log/AuditLogTab'
 
 export const Route = createFileRoute('/crm/team/$teamId')({
@@ -95,6 +109,9 @@ function TeamDetailPage() {
   const [showEdit, setShowEdit] = useState(false)
   const [showAddMember, setShowAddMember] = useState(false)
   const [activeTab, setActiveTab] = useState<'members' | 'audit'>('members')
+  // ut-39b: explicit Archive button triggers ArchiveConfirmDialog (same flow
+  // the AdminActionsMenu dropdown used to provide).
+  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false)
 
   const removeMemberMutation = useMutation({
     mutationFn: (userId: string) => api.delete(`/teams/${teamId}/members/${userId}`),
@@ -323,10 +340,19 @@ function TeamDetailPage() {
             </div>
           </div>
         </div>
+        {/* ut-39b: «Действия» dropdown replaced with explicit Archive /
+            Unarchive buttons (matches ut-28 project detail pattern).
+            Add / Edit remain side-by-side; archive controls are admin-only. */}
         <div className="flex shrink-0 gap-2">
           {canManage && !team.archivedAt && (
             <>
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowAddMember(true)}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => setShowAddMember(true)}
+                data-testid="team-add-member-button"
+              >
                 <UserPlus className="h-4 w-4" />
                 Добавить
               </Button>
@@ -334,6 +360,7 @@ function TeamDetailPage() {
                 variant="outline"
                 size="sm"
                 className="gap-1.5"
+                data-testid="team-edit-button"
                 onClick={() => {
                   editForm.setFieldValue('name', team.name)
                   editForm.setFieldValue('telegram', team.telegram ?? '')
@@ -346,13 +373,20 @@ function TeamDetailPage() {
               </Button>
             </>
           )}
-          {user?.role === 'ADMIN' && (
-            <AdminActionsMenu
-              entityType="team"
-              entityId={team.id}
-              entityName={team.name}
-              isArchived={!!team.archivedAt}
-            />
+          {user?.role === 'ADMIN' && !team.archivedAt && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setArchiveDialogOpen(true)}
+              className="gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              data-testid="team-archive-button"
+            >
+              <Archive className="h-4 w-4" />
+              Архивировать
+            </Button>
+          )}
+          {user?.role === 'ADMIN' && team.archivedAt && (
+            <TeamUnarchiveHeaderButton teamId={team.id} />
           )}
         </div>
       </motion.div>
@@ -735,6 +769,38 @@ function TeamDetailPage() {
           </CrmDialogFooter>
         </CrmDialogContent>
       </Dialog>
+
+      {/* ut-39b: Archive confirm dialog — triggered by explicit Archive button. */}
+      {archiveDialogOpen && (
+        <ArchiveConfirmDialog
+          entityType="team"
+          entityId={team.id}
+          entityName={team.name}
+          onClose={() => setArchiveDialogOpen(false)}
+        />
+      )}
     </motion.div>
+  )
+}
+
+/**
+ * ut-39b: Header-level Unarchive button — replaces the AdminActionsMenu
+ * dropdown for archived teams. Pair-unarchive (team + senior in one tx) is
+ * handled by the backend.
+ */
+function TeamUnarchiveHeaderButton({ teamId }: { teamId: string }) {
+  const unarchive = useUnarchiveEntity('team', teamId)
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={() => void unarchive.mutateAsync({})}
+      disabled={unarchive.isPending}
+      className="gap-1.5"
+      data-testid="team-unarchive-button"
+    >
+      <ArchiveRestore className="h-4 w-4" />
+      Восстановить
+    </Button>
   )
 }

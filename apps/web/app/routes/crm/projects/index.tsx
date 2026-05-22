@@ -5,7 +5,6 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import {
   Archive,
-  ArchiveRestore,
   Briefcase,
   Calendar,
   Code2,
@@ -14,16 +13,9 @@ import {
 } from 'lucide-react'
 import { useState, useTransition } from 'react'
 import { z } from 'zod'
-import type { AxiosError } from 'axios'
 import type { CreateProjectDto, ProjectDto, ProjectMemberDto, ItDomain } from '@crm/shared'
 import { createProjectSchema, IT_DOMAINS } from '@crm/shared'
 import { useAuth } from '@/context/auth'
-import {
-  useUnarchiveEntity,
-  type UnarchiveCascadeEntity,
-  type UnarchiveError,
-} from '@/hooks/use-archive'
-import { CascadeUnarchiveModal } from '@/components/archive/CascadeUnarchiveModal'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
@@ -137,10 +129,9 @@ function ProjectsPage() {
 
   const [filter, setFilter] = useState<Filter>('ALL')
   const [showCreate, setShowCreate] = useState(false)
-  // ut-27: archive action removed from list cards; ArchiveConfirmDialog is now
-  // triggered only from project detail page header.
-  const [cascadeProject, setCascadeProject] = useState<ProjectDto | null>(null)
-  const [cascadeEntities, setCascadeEntities] = useState<UnarchiveCascadeEntity[]>([])
+  // ut-27 + ut-38: archive and unarchive actions removed from list cards;
+  // both flows (including cascade restore for paired senior/team) live on the
+  // project detail page header.
 
   // ut-32: keepPreviousData + useTransition keep the previous list visible
   // during the URL switch + refetch so the SegmentedToggle's gold-pill
@@ -368,8 +359,10 @@ function ProjectsPage() {
                       </div>
                       <p className="mt-0.5 text-sm text-muted-foreground truncate">{project.name}</p>
                     </div>
-                    {/* ut-27: trash icon removed from project cards in list.
-                        Archive action moved to project detail page header. */}
+                    {/* ut-27 + ut-38: trash & unarchive controls removed from
+                        list cards. Both archive and unarchive are now driven
+                        from the project detail page header — clicking the card
+                        navigates into it. */}
                     <div className="flex items-center gap-1 shrink-0">
                       {isArchived && (
                         <Badge
@@ -380,15 +373,6 @@ function ProjectsPage() {
                         </Badge>
                       )}
                       <Badge variant="outline" className="text-[10px]">{project.domain}</Badge>
-                      {isAdmin && isArchived && (
-                        <ProjectUnarchiveButton
-                          project={project}
-                          onCascadeRequired={(entities) => {
-                            setCascadeProject(project)
-                            setCascadeEntities(entities)
-                          }}
-                        />
-                      )}
                     </div>
                   </div>
                 </CardHeader>
@@ -631,79 +615,9 @@ function ProjectsPage() {
         </CrmDialogContent>
       </Dialog>
 
-      {/* ut-27: Archive flow moved to project detail header — no inline confirm here. */}
-
-      {/* ── Cascade unarchive modal (project + paired senior/team) ── */}
-      {cascadeProject && (
-        <CascadeUnarchiveModalForProject
-          project={cascadeProject}
-          entities={cascadeEntities}
-          onClose={() => {
-            setCascadeProject(null)
-            setCascadeEntities([])
-          }}
-        />
-      )}
+      {/* ut-27 + ut-38: Archive + Unarchive (including cascade modal) live on
+          the project detail page header — list cards have no inline actions. */}
     </div>
-  )
-}
-
-function ProjectUnarchiveButton({
-  project,
-  onCascadeRequired,
-}: {
-  project: ProjectDto
-  onCascadeRequired: (entities: UnarchiveCascadeEntity[]) => void
-}) {
-  const unarchive = useUnarchiveEntity('project', project.id)
-  const handleClick = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    e.preventDefault()
-    try {
-      await unarchive.mutateAsync({})
-    } catch (err) {
-      const ax = err as AxiosError<UnarchiveError>
-      if (ax.response?.status === 409 && ax.response.data?.requiresCascade) {
-        onCascadeRequired(ax.response.data.entities)
-      }
-    }
-  }
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      className="gap-1 h-6 px-2"
-      disabled={unarchive.isPending}
-      onClick={(e) => void handleClick(e)}
-      data-testid={`project-unarchive-${project.id}`}
-    >
-      <ArchiveRestore className="h-3 w-3" />
-      <span className="text-[10px]">Восстановить</span>
-    </Button>
-  )
-}
-
-function CascadeUnarchiveModalForProject({
-  project,
-  entities,
-  onClose,
-}: {
-  project: ProjectDto
-  entities: UnarchiveCascadeEntity[]
-  onClose: () => void
-}) {
-  const unarchive = useUnarchiveEntity('project', project.id)
-  return (
-    <CascadeUnarchiveModal
-      projectName={project.name}
-      entities={entities}
-      isPending={unarchive.isPending}
-      onConfirm={async () => {
-        await unarchive.mutateAsync({ cascade: true })
-        onClose()
-      }}
-      onCancel={onClose}
-    />
   )
 }
 

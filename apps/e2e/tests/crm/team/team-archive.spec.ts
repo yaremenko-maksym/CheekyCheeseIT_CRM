@@ -60,7 +60,7 @@ test.describe('Team archive — list page tab', () => {
     await expect(page.getByTestId('toggle-archived-teams')).not.toBeVisible()
   })
 
-  test('archived team card has opacity-60 and "Восстановить" inline button (ADMIN)', async ({ asAdmin: page }) => {
+  test('archived team card has opacity-60 and no inline action buttons (ADMIN)', async ({ asAdmin: page }) => {
     await page.route(new RegExp(`${API}/teams(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
@@ -78,18 +78,15 @@ test.describe('Team archive — list page tab', () => {
     // "В архиве" badge present
     await expect(card.getByText('В архиве')).toBeVisible()
 
-    // Inline restore button
-    const restoreBtn = page.getByTestId(`team-unarchive-${archivedTeam.id}`)
-    await expect(restoreBtn).toBeVisible()
+    // ut-39a: inline restore + edit buttons removed from list cards. Card is
+    // purely navigational — unarchive now lives on the detail page header.
+    await expect(page.getByTestId(`team-unarchive-${archivedTeam.id}`)).toHaveCount(0)
   })
 
-  test('inline restore button calls POST /teams/:id/unarchive', async ({ asAdmin: page }) => {
-    await page.route(new RegExp(`${API}/teams(\\?.*)?$`), (r) =>
-      r.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([archivedTeam]),
-      }),
+  test('detail-page restore button calls POST /teams/:id/unarchive', async ({ asAdmin: page }) => {
+    // ut-39b: the unarchive action moved from the list to the detail header.
+    await page.route(`${API}/teams/${archivedTeam.id}`, (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(archivedTeam) }),
     )
     const unarchived = page.waitForRequest(
       (req) => req.url().endsWith(`/teams/${archivedTeam.id}/unarchive`) && req.method() === 'POST',
@@ -99,8 +96,8 @@ test.describe('Team archive — list page tab', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
     )
 
-    await page.goto('/crm/team?archived=true')
-    await page.getByTestId(`team-unarchive-${archivedTeam.id}`).click()
+    await page.goto(`/crm/team/${archivedTeam.id}`)
+    await page.getByTestId('team-unarchive-button').click()
     await unarchived
     // Toast confirms pair-unarchive happened
     await expect(page.getByText(/Команда и синьор восстановлены/)).toBeVisible({ timeout: 3000 })
@@ -108,22 +105,24 @@ test.describe('Team archive — list page tab', () => {
 })
 
 test.describe('Team detail page — admin actions + audit log', () => {
-  test('ADMIN sees AdminActionsMenu trigger on team detail', async ({ asAdmin: page }) => {
+  // ut-39b: «Действия» dropdown replaced with explicit «Архивировать» /
+  // «Восстановить» buttons. Add / Edit remain as primary actions.
+  test('ADMIN sees explicit Archive button on active team detail', async ({ asAdmin: page }) => {
     await page.route(`${API}/teams/${activeTeam.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(activeTeam) }),
     )
     await page.goto(`/crm/team/${activeTeam.id}`)
     await expect(page.getByRole('heading', { name: activeTeam.name })).toBeVisible()
-    await expect(page.getByTestId('admin-actions-trigger')).toBeVisible()
+    await expect(page.getByTestId('team-archive-button')).toBeVisible()
   })
 
-  test('non-ADMIN does not see AdminActionsMenu on team detail', async ({ asHr: page }) => {
+  test('non-ADMIN does not see Archive button on team detail', async ({ asHr: page }) => {
     await page.route(`${API}/teams/${activeTeam.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(activeTeam) }),
     )
     await page.goto(`/crm/team/${activeTeam.id}`)
     await expect(page.getByRole('heading', { name: activeTeam.name })).toBeVisible()
-    await expect(page.getByTestId('admin-actions-trigger')).not.toBeVisible()
+    await expect(page.getByTestId('team-archive-button')).not.toBeVisible()
   })
 
   test('ADMIN sees both tabs (Состав + История изменений)', async ({ asAdmin: page }) => {
@@ -185,8 +184,8 @@ test.describe('Team detail page — admin actions + audit log', () => {
       }),
     )
     await page.goto(`/crm/team/${activeTeam.id}`)
-    await page.getByTestId('admin-actions-trigger').click()
-    await page.getByTestId('admin-action-archive').click()
+    // ut-39b: explicit Archive button replaces the «Действия» dropdown.
+    await page.getByTestId('team-archive-button').click()
 
     const dialog = page.getByRole('dialog')
     await expect(dialog.getByRole('heading', { name: /Архивировать команду/ })).toBeVisible()
@@ -220,8 +219,8 @@ test.describe('Team detail page — admin actions + audit log', () => {
     )
 
     await page.goto(`/crm/team/${activeTeam.id}`)
-    await page.getByTestId('admin-actions-trigger').click()
-    await page.getByTestId('admin-action-archive').click()
+    // ut-39b: explicit Archive button.
+    await page.getByTestId('team-archive-button').click()
 
     await page.getByTestId('archive-confirm-input').fill(USERS.senior.displayName)
     const submit = page.getByTestId('archive-confirm-submit')
@@ -230,7 +229,7 @@ test.describe('Team detail page — admin actions + audit log', () => {
     await archived
   })
 
-  test('archived team shows "В архиве" badge and unarchive action only', async ({ asAdmin: page }) => {
+  test('archived team shows "В архиве" badge and Unarchive button only', async ({ asAdmin: page }) => {
     await page.route(`${API}/teams/${archivedTeam.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(archivedTeam) }),
     )
@@ -238,8 +237,8 @@ test.describe('Team detail page — admin actions + audit log', () => {
     await page.goto(`/crm/team/${archivedTeam.id}`)
     await expect(page.getByTestId('team-archived-badge')).toBeVisible()
 
-    await page.getByTestId('admin-actions-trigger').click()
-    await expect(page.getByTestId('admin-action-unarchive')).toBeVisible()
-    await expect(page.getByTestId('admin-action-archive')).not.toBeVisible()
+    // ut-39b: explicit Unarchive button replaces the dropdown action.
+    await expect(page.getByTestId('team-unarchive-button')).toBeVisible()
+    await expect(page.getByTestId('team-archive-button')).not.toBeVisible()
   })
 })
