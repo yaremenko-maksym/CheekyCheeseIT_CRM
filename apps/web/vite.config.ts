@@ -14,7 +14,22 @@ export default defineConfig({
     host: true,
     allowedHosts: ['.loca.lt'],
   },
-  preview: { port: 3000 },
+  preview: {
+    port: 3000,
+    // То же что для dev — слушать 0.0.0.0 + пропускать .loca.lt туннель.
+    host: true,
+    allowedHosts: ['.loca.lt'],
+    // Прокси для /api → NestJS на 3001. Когда фронт собран в production-режиме
+    // и отдаётся через `vite preview`, браузер делает запросы к /api/...
+    // относительно своего origin'а (включая tunnel URL). Этот прокси
+    // переадресует их на локальный API. Без прокси через tunnel API недостижим.
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+    },
+  },
   resolve: {
     alias: {
       '@crm/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),

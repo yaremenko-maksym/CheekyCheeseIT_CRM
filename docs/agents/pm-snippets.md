@@ -158,7 +158,9 @@ mcp__github__get_pull_request_comments({owner: "yaremenko-maksym", repo: "Cheeky
 bash scripts/pm/prep-user-testing.sh <pr_branch>
 ```
 
-Скрипт делает: `git fetch && checkout && pull` → миграции → unit-тесты → перезапуск dev-серверов → ожидание готовности.
+Скрипт делает: `git fetch && checkout && pull` → миграции → unit-тесты → **production build (api + web)** → старт API + Vite preview → ожидание готовности → LocalTunnel → блокирует foreground.
+
+Через tunnel демка отдаётся как production bundle (а не dev) — быстрее на мобильнике и без flaky HMR через туннель.
 
 Если упал — не показывать пользователю, создать fix-задачу для Coder.
 

@@ -211,7 +211,9 @@ fi
 
 ### Шаг 0: Подготовка окружения
 
-**Обязательно перед каждым User Testing.** Скрипт работает в FOREGROUND — после старта блокируется на `wait`, держит dev-серверы и LocalTunnel живыми. Запускать через `Bash` tool с `run_in_background=True`.
+**Обязательно перед каждым User Testing.** Скрипт работает в FOREGROUND — после старта блокируется на `wait`, держит API (production), Web preview и LocalTunnel живыми. Запускать через `Bash` tool с `run_in_background=True`.
+
+**Важно: скрипт собирает production build (а не dev).** Через LocalTunnel dev-режим грузит сотни unbundled модулей + HMR-сокет — это flaky на мобильнике. Vite preview отдаёт минифицированный bundle и проксирует `/api` → NestJS на 3001.
 
 ```
 Bash(
