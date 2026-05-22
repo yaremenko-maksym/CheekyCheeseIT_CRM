@@ -832,7 +832,7 @@ export function UserDialog(props: UserDialogProps) {
                             <div
                               role="radiogroup"
                               aria-label="Способ оплаты"
-                              className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-muted/40 p-1"
+                              className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-muted/60 p-1"
                               data-testid="user-dialog-payment-method"
                             >
                               {(
@@ -852,14 +852,14 @@ export function UserDialog(props: UserDialogProps) {
                                     data-testid={`user-dialog-payment-method-${id}`}
                                     className={cn(
                                       'flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm',
-                                      'transition-all duration-150 focus:outline-none',
+                                      'border transition-all duration-150 focus:outline-none',
                                       'focus-visible:ring-1 focus-visible:ring-primary/50',
                                       active
-                                        ? 'bg-background shadow-sm font-medium text-foreground'
-                                        : 'text-muted-foreground hover:bg-muted/60',
+                                        ? 'bg-primary/15 border-primary/40 shadow-sm font-semibold text-foreground'
+                                        : 'border-transparent text-muted-foreground hover:bg-muted/30 hover:text-foreground',
                                     )}
                                   >
-                                    <Icon className="h-4 w-4" />
+                                    <Icon className={cn('h-4 w-4', active && 'text-primary')} />
                                     {label}
                                   </button>
                                 )
