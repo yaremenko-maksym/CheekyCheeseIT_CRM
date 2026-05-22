@@ -3,6 +3,8 @@ import { useForm, type FieldApi, type ReactFormExtendedApi } from '@tanstack/rea
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import {
+  Archive,
+  ArchiveRestore,
   ArrowLeft,
   Briefcase,
   Building2,
@@ -52,10 +54,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ReceiptField } from '@/components/ui/receipt-field'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { AdminActionsMenu } from '@/components/admin-actions/AdminActionsMenu'
+import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
 import { AuditLogTab } from '@/components/audit-log/AuditLogTab'
+import { useUnarchiveEntity, type UnarchiveCascadeEntity, type UnarchiveError } from '@/hooks/use-archive'
+import { CascadeUnarchiveModal } from '@/components/archive/CascadeUnarchiveModal'
+import type { AxiosError } from 'axios'
 
 export const Route = createFileRoute('/crm/projects/$projectId')({
   component: ProjectDetailPage,
@@ -318,12 +322,14 @@ function ProjectDetailPage() {
   const canRemoveMembers = isAdmin
 
   const [editOpen, setEditOpen] = useState(false)
-  const [closeOpen, setCloseOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [addedMemberIds, setAddedMemberIds] = useState<Set<string>>(new Set())
   const [pendingMemberIds, setPendingMemberIds] = useState<Set<string>>(new Set())
   const [removeMemberTarget, setRemoveMemberTarget] = useState<ProjectMemberDto | null>(null)
   const [activeTab, setActiveTab] = useState<'overview' | 'members' | 'audit' | 'finance'>('overview')
+  // ut-28: explicit Archive button in header replaces «Действия» dropdown + «Завершить» button.
+  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false)
+  const [cascadeEntities, setCascadeEntities] = useState<UnarchiveCascadeEntity[] | null>(null)
 
   const { data: rates } = useQuery<ExchangeRates>({
     queryKey: ['exchange-rate', 'today'],
@@ -383,14 +389,9 @@ function ProjectDetailPage() {
     },
   })
 
-  const closeMutation = useMutation({
-    mutationFn: () => api.patch(`/projects/${projectId}`, { status: 'CLOSED' }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['projects'] })
-      setCloseOpen(false)
-    },
-  })
-
+  // ut-28: «Завершить» merged into «Архивировать» — closeMutation no longer
+  // wired to a button. Status-level reopen remains for archived flows
+  // (Archive ↔ Active transition handled separately).
   const reopenMutation = useMutation({
     mutationFn: () => api.patch(`/projects/${projectId}`, { status: 'ACTIVE' }),
     onSuccess: () => {
@@ -546,25 +547,22 @@ return (
             </div>
           </div>
 
-          {/* Right: actions */}
+          {/* ut-28: Explicit Edit + Archive buttons (replaces «Действия» dropdown
+              and former «Завершить» button). Visible only to admins/HR per RBAC. */}
           <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
-            {canManage && project.status === 'ACTIVE' && (
-              <Button size="sm" variant="outline" onClick={openEdit} className="gap-1.5">
+            {canManage && !project.archivedAt && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={openEdit}
+                className="gap-1.5"
+                data-testid="project-edit-button"
+              >
                 <Pencil className="h-3.5 w-3.5" />
                 Редактировать
               </Button>
             )}
-            {canManage && project.status === 'ACTIVE' && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 text-xs text-muted-foreground hover:text-foreground"
-                onClick={() => setCloseOpen(true)}
-              >
-                Завершить
-              </Button>
-            )}
-            {canManage && project.status === 'CLOSED' && (
+            {canManage && project.status === 'CLOSED' && !project.archivedAt && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -575,12 +573,23 @@ return (
                 Переоткрыть
               </Button>
             )}
-            {isAdmin && (
-              <AdminActionsMenu
-                entityType="project"
-                entityId={project.id}
-                entityName={project.name}
-                isArchived={!!project.archivedAt}
+            {isAdmin && !project.archivedAt && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setArchiveDialogOpen(true)}
+                className="gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                data-testid="project-archive-button"
+              >
+                <Archive className="h-3.5 w-3.5" />
+                Архивировать
+              </Button>
+            )}
+            {isAdmin && project.archivedAt && (
+              <ProjectUnarchiveHeaderButton
+                projectId={project.id}
+                projectName={project.name}
+                onCascadeRequired={(entities) => setCascadeEntities(entities)}
               />
             )}
           </div>
@@ -628,17 +637,50 @@ return (
         </div>
       </motion.div>
 
-      {/* ── Tabs ── */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)} className="w-full">
-        <TabsList>
-          <TabsTrigger value="overview" data-testid="tab-overview">Обзор</TabsTrigger>
-          <TabsTrigger value="members" data-testid="tab-members">Состав</TabsTrigger>
-          {isAdmin && (
-            <TabsTrigger value="audit" data-testid="tab-audit">История изменений</TabsTrigger>
-          )}
-          <TabsTrigger value="finance" data-testid="tab-finance">Финансы</TabsTrigger>
-        </TabsList>
-      </Tabs>
+      {/* ut-29: project detail tabs — gold pill layoutId animation
+          (same pattern as payment method toggle from PR 33). */}
+      <div
+        role="tablist"
+        aria-label="Разделы проекта"
+        className="relative flex w-fit gap-1 rounded-lg border border-border bg-muted/60 p-1"
+      >
+        {(
+          [
+            { value: 'overview' as const, label: 'Обзор', testId: 'tab-overview' },
+            { value: 'members' as const, label: 'Состав', testId: 'tab-members' },
+            ...(isAdmin
+              ? [{ value: 'audit' as const, label: 'История изменений', testId: 'tab-audit' }]
+              : []),
+            { value: 'finance' as const, label: 'Финансы', testId: 'tab-finance' },
+          ]
+        ).map((tab) => {
+          const active = activeTab === tab.value
+          return (
+            <button
+              key={tab.value}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setActiveTab(tab.value)}
+              data-testid={tab.testId}
+              className={cn(
+                'relative flex items-center justify-center rounded-md px-3 py-1.5 text-xs',
+                'transition-colors duration-150 focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
+                active ? 'font-semibold text-foreground' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {active && (
+                <motion.div
+                  layoutId={`project-detail-tabs-${projectId}`}
+                  className="absolute inset-0 rounded-md bg-primary/15 border border-primary/40 shadow-sm"
+                  transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+                />
+              )}
+              <span className="relative z-10">{tab.label}</span>
+            </button>
+          )
+        })}
+      </div>
 
       {activeTab === 'members' && (
         <ProjectEffectiveTeamCard project={project} />
@@ -929,30 +971,91 @@ return (
         </CrmDialogContent>
       </Dialog>
 
-      {/* ── Close confirm ── */}
-      <Dialog open={closeOpen} onOpenChange={setCloseOpen}>
-        <CrmDialogContent maxWidth="sm:max-w-sm">
-          <CrmDialogHeader>
-            <DialogTitle>Завершить проект «{project.name}»?</DialogTitle>
-          </CrmDialogHeader>
-          <CrmDialogBody className="pb-2">
-            <p className="text-sm text-muted-foreground">
-              Проект перейдёт в статус «Завершён». Можно будет переоткрыть позже.
-            </p>
-          </CrmDialogBody>
-          <CrmDialogFooter>
-            <Button variant="outline" onClick={() => setCloseOpen(false)}>
-              Отмена
-            </Button>
-            <Button onClick={() => closeMutation.mutate()} disabled={closeMutation.isPending}>
-              Завершить
-            </Button>
-          </CrmDialogFooter>
-        </CrmDialogContent>
-      </Dialog>
+      {/* ut-28: Archive confirm dialog — triggered by explicit Archive button. */}
+      {archiveDialogOpen && (
+        <ArchiveConfirmDialog
+          entityType="project"
+          entityId={project.id}
+          entityName={project.name}
+          onClose={() => setArchiveDialogOpen(false)}
+        />
+      )}
 
-      {/* Delete (archive) flow moved to AdminActionsMenu — uses ArchiveConfirmDialog. */}
+      {/* Cascade unarchive modal — paired senior/team restore. */}
+      {cascadeEntities && (
+        <ProjectCascadeUnarchiveModal
+          projectId={project.id}
+          projectName={project.name}
+          entities={cascadeEntities}
+          onClose={() => setCascadeEntities(null)}
+        />
+      )}
     </div>
+  )
+}
+
+/**
+ * Header-level Unarchive button replacing AdminActionsMenu's unarchive flow.
+ * Handles the 409-cascade response by lifting the entities to the parent.
+ */
+function ProjectUnarchiveHeaderButton({
+  projectId,
+  projectName: _projectName,
+  onCascadeRequired,
+}: {
+  projectId: string
+  projectName: string
+  onCascadeRequired: (entities: UnarchiveCascadeEntity[]) => void
+}) {
+  const unarchive = useUnarchiveEntity('project', projectId)
+  const handleClick = async () => {
+    try {
+      await unarchive.mutateAsync({})
+    } catch (err) {
+      const ax = err as AxiosError<UnarchiveError>
+      if (ax.response?.status === 409 && ax.response.data?.requiresCascade) {
+        onCascadeRequired(ax.response.data.entities)
+      }
+    }
+  }
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={() => void handleClick()}
+      disabled={unarchive.isPending}
+      className="gap-1.5"
+      data-testid="project-unarchive-button"
+    >
+      <ArchiveRestore className="h-3.5 w-3.5" />
+      Восстановить
+    </Button>
+  )
+}
+
+function ProjectCascadeUnarchiveModal({
+  projectId,
+  projectName,
+  entities,
+  onClose,
+}: {
+  projectId: string
+  projectName: string
+  entities: UnarchiveCascadeEntity[]
+  onClose: () => void
+}) {
+  const unarchive = useUnarchiveEntity('project', projectId)
+  return (
+    <CascadeUnarchiveModal
+      projectName={projectName}
+      entities={entities}
+      isPending={unarchive.isPending}
+      onConfirm={async () => {
+        await unarchive.mutateAsync({ cascade: true })
+        onClose()
+      }}
+      onCancel={onClose}
+    />
   )
 }
 
@@ -1091,6 +1194,59 @@ function ProjectEffectiveTeamCard({ project }: { project: ProjectDetailDto }) {
   const accountants = effective?.accountants ?? []
   const juniors = effective?.juniors ?? project.members.filter((m) => m.role === 'JUNIOR' && m.leftAt === null)
 
+  // ut-30: flat list — single «Эффективный состав» heading; role-specific
+  // section headings («СИНЬОР», «HR (N)», «БУХГАЛТЕРЫ (N)», «ДЖУНЫ (N)») removed.
+  // Each row keeps its role badge for visual differentiation.
+  type FlatMember = {
+    key: string
+    profileId: string
+    displayName: string
+    avatar: string | null
+    role: 'SENIOR' | 'HR' | 'ACCOUNTANT' | 'JUNIOR'
+    sectionTestId: string
+  }
+  const flatMembers: FlatMember[] = []
+  if (senior) {
+    flatMembers.push({
+      key: `senior-${senior.id}`,
+      profileId: senior.id,
+      displayName: senior.displayName,
+      avatar: senior.avatar,
+      role: 'SENIOR',
+      sectionTestId: 'effective-team-senior',
+    })
+  }
+  for (const m of hrs) {
+    flatMembers.push({
+      key: `hr-${m.id}`,
+      profileId: m.userId,
+      displayName: m.displayName,
+      avatar: m.avatar,
+      role: 'HR',
+      sectionTestId: 'effective-team-hrs',
+    })
+  }
+  for (const m of accountants) {
+    flatMembers.push({
+      key: `acc-${m.id}`,
+      profileId: m.userId,
+      displayName: m.displayName,
+      avatar: m.avatar,
+      role: 'ACCOUNTANT',
+      sectionTestId: 'effective-team-accountants',
+    })
+  }
+  for (const m of juniors) {
+    flatMembers.push({
+      key: `jun-${m.id}`,
+      profileId: m.userId,
+      displayName: m.displayName,
+      avatar: m.avatar,
+      role: 'JUNIOR',
+      sectionTestId: 'effective-team-juniors',
+    })
+  }
+
   return (
     <Card className="border-border/40" data-testid="effective-team-card">
       <CardHeader className="pb-3">
@@ -1101,121 +1257,43 @@ function ProjectEffectiveTeamCard({ project }: { project: ProjectDetailDto }) {
           </span>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Senior */}
-        <div data-testid="effective-team-senior">
-          <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider mb-1.5">
-            Синьор
+      <CardContent className="space-y-1">
+        {!senior && (
+          <p
+            className="text-xs text-muted-foreground/60 italic px-2 py-1.5"
+            data-testid="effective-team-senior"
+          >
+            Синьор не назначен
           </p>
-          {senior ? (
-            <Link
-              to="/crm/profile/$userId"
-              params={{ userId: senior.id }}
-              className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/30 transition-colors"
-            >
-              <Avatar className="h-7 w-7 shrink-0">
-                {senior.avatar && <AvatarImage src={senior.avatar} alt={senior.displayName} />}
-                <AvatarFallback className="text-[10px] font-semibold">{getInitials(senior.displayName)}</AvatarFallback>
-              </Avatar>
-              <span className="text-sm font-medium truncate flex-1 text-primary hover:underline">
-                {senior.displayName}
-              </span>
-              <Badge variant="senior" className="shrink-0 text-[9px]">Синьор</Badge>
-            </Link>
-          ) : (
-            <p className="text-xs text-muted-foreground/60 italic px-2">Синьор не назначен</p>
-          )}
-        </div>
-
-        {/* HR */}
-        <div data-testid="effective-team-hrs">
-          <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider mb-1.5">
-            HR ({hrs.length})
+        )}
+        {senior && juniors.length === 0 && (
+          <p
+            className="text-xs text-amber-500/80 font-medium px-2 py-1.5"
+            data-testid="effective-team-juniors-empty"
+          >
+            Джун не назначен
           </p>
-          {hrs.length === 0 ? (
-            <p className="text-xs text-muted-foreground/60 italic px-2">HR не назначен</p>
-          ) : (
-            <div className="space-y-1">
-              {hrs.map((m) => (
-                <Link
-                  key={m.id}
-                  to="/crm/profile/$userId"
-                  params={{ userId: m.userId }}
-                  className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/30 transition-colors"
-                >
-                  <Avatar className="h-7 w-7 shrink-0">
-                    {m.avatar && <AvatarImage src={m.avatar} alt={m.displayName} />}
-                    <AvatarFallback className="text-[10px] font-semibold">{getInitials(m.displayName)}</AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm font-medium truncate flex-1 text-primary hover:underline">
-                    {m.displayName}
-                  </span>
-                  <Badge variant="hr" className="shrink-0 text-[9px]">HR</Badge>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Accountants */}
-        <div data-testid="effective-team-accountants">
-          <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider mb-1.5">
-            Бухгалтеры ({accountants.length})
-          </p>
-          {accountants.length === 0 ? (
-            <p className="text-xs text-muted-foreground/60 italic px-2">Не назначен</p>
-          ) : (
-            <div className="space-y-1">
-              {accountants.map((m) => (
-                <Link
-                  key={m.id}
-                  to="/crm/profile/$userId"
-                  params={{ userId: m.userId }}
-                  className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/30 transition-colors"
-                >
-                  <Avatar className="h-7 w-7 shrink-0">
-                    {m.avatar && <AvatarImage src={m.avatar} alt={m.displayName} />}
-                    <AvatarFallback className="text-[10px] font-semibold">{getInitials(m.displayName)}</AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm font-medium truncate flex-1 text-primary hover:underline">
-                    {m.displayName}
-                  </span>
-                  <Badge variant="accountant" className="shrink-0 text-[9px]">Бухгалтер</Badge>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Juniors */}
-        <div data-testid="effective-team-juniors">
-          <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider mb-1.5">
-            Джуны ({juniors.length})
-          </p>
-          {juniors.length === 0 ? (
-            <p className="text-xs text-amber-500/80 font-medium px-2">Джун не назначен</p>
-          ) : (
-            <div className="space-y-1">
-              {juniors.map((m) => (
-                <Link
-                  key={m.id}
-                  to="/crm/profile/$userId"
-                  params={{ userId: m.userId }}
-                  className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/30 transition-colors"
-                >
-                  <Avatar className="h-7 w-7 shrink-0">
-                    {m.avatar && <AvatarImage src={m.avatar} alt={m.displayName} />}
-                    <AvatarFallback className="text-[10px] font-semibold">{getInitials(m.displayName)}</AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm font-medium truncate flex-1 text-primary hover:underline">
-                    {m.displayName}
-                  </span>
-                  <Badge variant="junior" className="shrink-0 text-[9px]">Джун</Badge>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
+        )}
+        {flatMembers.map((m) => (
+          <Link
+            key={m.key}
+            to="/crm/profile/$userId"
+            params={{ userId: m.profileId }}
+            data-testid={m.sectionTestId}
+            className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/30 transition-colors"
+          >
+            <Avatar className="h-7 w-7 shrink-0">
+              {m.avatar && <AvatarImage src={m.avatar} alt={m.displayName} />}
+              <AvatarFallback className="text-[10px] font-semibold">{getInitials(m.displayName)}</AvatarFallback>
+            </Avatar>
+            <span className="text-sm font-medium truncate flex-1 text-primary hover:underline">
+              {m.displayName}
+            </span>
+            <Badge variant={m.role === 'SENIOR' ? 'senior' : m.role === 'HR' ? 'hr' : m.role === 'ACCOUNTANT' ? 'accountant' : 'junior'} className="shrink-0 text-[9px]">
+              {m.role === 'SENIOR' ? 'Синьор' : m.role === 'HR' ? 'HR' : m.role === 'ACCOUNTANT' ? 'Бухгалтер' : 'Джун'}
+            </Badge>
+          </Link>
+        ))}
       </CardContent>
     </Card>
   )

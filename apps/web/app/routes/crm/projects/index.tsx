@@ -3,13 +3,13 @@ import { useForm, type FieldApi } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
+  Archive,
   ArchiveRestore,
   Briefcase,
   Calendar,
   Code2,
   DollarSign,
   Plus,
-  Trash2,
 } from 'lucide-react'
 import { useState } from 'react'
 import { z } from 'zod'
@@ -23,7 +23,6 @@ import {
   type UnarchiveError,
 } from '@/hooks/use-archive'
 import { CascadeUnarchiveModal } from '@/components/archive/CascadeUnarchiveModal'
-import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
@@ -70,7 +69,10 @@ const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accou
   ACCOUNTANT: 'accountant',
 }
 
+// ut-25: 4-th tab «Архив» — derived from ?archived=true URL state.
+// The remaining three (ALL / ACTIVE / CLOSED) stay in local state.
 type Filter = 'ALL' | 'ACTIVE' | 'CLOSED'
+type StatusTab = Filter | 'ARCHIVED'
 
 function getInitials(name: string) {
   return (name || '?').split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
@@ -132,7 +134,8 @@ function ProjectsPage() {
 
   const [filter, setFilter] = useState<Filter>('ALL')
   const [showCreate, setShowCreate] = useState(false)
-  const [deleteProject, setDeleteProject] = useState<ProjectDto | null>(null)
+  // ut-27: archive action removed from list cards; ArchiveConfirmDialog is now
+  // triggered only from project detail page header.
   const [cascadeProject, setCascadeProject] = useState<ProjectDto | null>(null)
   const [cascadeEntities, setCascadeEntities] = useState<UnarchiveCascadeEntity[]>([])
 
@@ -221,6 +224,31 @@ function ProjectsPage() {
     )
   }
 
+  // ut-25: derive currently-selected tab from URL (archived) + local filter
+  const currentTab: StatusTab = isArchivedView ? 'ARCHIVED' : filter
+
+  const handleTabChange = (next: StatusTab) => {
+    if (next === 'ARCHIVED') {
+      navigate({ to: '/crm/projects', search: { archived: true } })
+      return
+    }
+    if (isArchivedView) {
+      navigate({ to: '/crm/projects', search: {} })
+    }
+    setFilter(next)
+  }
+
+  // ut-26: tabs row spec — keep Архив behind ADMIN guard, since only ADMIN
+  // can manage archived items (matches the previous toggle visibility).
+  const tabs: Array<{ value: StatusTab; label: string; testId?: string; icon?: typeof Archive }> = [
+    { value: 'ALL', label: 'Все' },
+    { value: 'ACTIVE', label: 'Активные' },
+    { value: 'CLOSED', label: 'Завершённые' },
+    ...(isAdmin
+      ? ([{ value: 'ARCHIVED' as const, label: 'Архив', testId: 'toggle-archived-projects', icon: Archive }] as const)
+      : []),
+  ]
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -230,23 +258,6 @@ function ProjectsPage() {
           <p className="text-sm text-muted-foreground">Активные и завершённые проекты</p>
         </div>
         <div className="flex items-center gap-2">
-          {isAdmin && (
-            <Button
-              variant={isArchivedView ? 'default' : 'outline'}
-              size="sm"
-              className="gap-1.5"
-              onClick={() =>
-                navigate({
-                  to: '/crm/projects',
-                  search: isArchivedView ? {} : { archived: true },
-                })
-              }
-              data-testid="toggle-archived-projects"
-            >
-              <ArchiveRestore className="h-4 w-4" />
-              {isArchivedView ? 'Показать активные' : 'Показать архивных'}
-            </Button>
-          )}
           {canCreate && (
             <Button size="sm" onClick={() => setShowCreate(true)}>
               <Plus className="mr-1.5 h-4 w-4" />
@@ -256,20 +267,44 @@ function ProjectsPage() {
         </div>
       </div>
 
-      {/* Filter tabs */}
-      <div className="flex gap-1 rounded-lg border border-border bg-muted/30 p-1 w-fit">
-        {(['ALL', 'ACTIVE', 'CLOSED'] as const).map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={cn(
-              'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-              filter === f ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {f === 'ALL' ? 'Все' : f === 'ACTIVE' ? 'Активные' : 'Завершённые'}
-          </button>
-        ))}
+      {/* ut-25 + ut-26: tabs row — gold pill layoutId animation, «Архив» as 4-th
+          tab for ADMIN (replaces former «Показать архивных» button). */}
+      <div
+        role="tablist"
+        aria-label="Фильтр проектов"
+        className="relative flex w-fit gap-1 rounded-lg border border-border bg-muted/60 p-1"
+      >
+        {tabs.map((tab) => {
+          const active = currentTab === tab.value
+          const Icon = tab.icon
+          return (
+            <button
+              key={tab.value}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => handleTabChange(tab.value)}
+              {...(tab.testId ? { 'data-testid': tab.testId } : {})}
+              className={cn(
+                'relative flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs',
+                'transition-colors duration-150 focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
+                active ? 'font-semibold text-foreground' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {active && (
+                <motion.div
+                  layoutId="projects-status-tabs"
+                  className="absolute inset-0 rounded-md bg-primary/15 border border-primary/40 shadow-sm"
+                  transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+                />
+              )}
+              <span className="relative z-10 flex items-center gap-1.5">
+                {Icon && <Icon className={cn('h-3.5 w-3.5', active && 'text-primary')} />}
+                {tab.label}
+              </span>
+            </button>
+          )
+        })}
       </div>
 
       {/* Empty state */}
@@ -340,6 +375,8 @@ function ProjectsPage() {
                       </div>
                       <p className="mt-0.5 text-sm text-muted-foreground truncate">{project.name}</p>
                     </div>
+                    {/* ut-27: trash icon removed from project cards in list.
+                        Archive action moved to project detail page header. */}
                     <div className="flex items-center gap-1 shrink-0">
                       {isArchived && (
                         <Badge
@@ -358,17 +395,6 @@ function ProjectsPage() {
                             setCascadeEntities(entities)
                           }}
                         />
-                      )}
-                      {isAdmin && !isArchived && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-destructive/60 hover:text-destructive hover:bg-destructive/10 shrink-0"
-                          onClick={(e) => { e.stopPropagation(); setDeleteProject(project) }}
-                          title="Архивировать проект"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
                       )}
                     </div>
                   </div>
@@ -623,15 +649,7 @@ function ProjectsPage() {
         </CrmDialogContent>
       </Dialog>
 
-      {/* ── Archive project confirm — shared ArchiveConfirmDialog ── */}
-      {deleteProject && (
-        <ArchiveConfirmDialog
-          entityType="project"
-          entityId={deleteProject.id}
-          entityName={deleteProject.name}
-          onClose={() => setDeleteProject(null)}
-        />
-      )}
+      {/* ut-27: Archive flow moved to project detail header — no inline confirm here. */}
 
       {/* ── Cascade unarchive modal (project + paired senior/team) ── */}
       {cascadeProject && (

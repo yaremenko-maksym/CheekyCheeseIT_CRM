@@ -25,8 +25,8 @@ const archivedTeam = {
   archivedAt: '2026-05-19T00:00:00.000Z',
 }
 
-test.describe('Team archive — list page toggle', () => {
-  test('ADMIN sees toggle "Показать архивных" and clicking switches to archived list', async ({ asAdmin: page }) => {
+test.describe('Team archive — list page tab', () => {
+  test('ADMIN sees «Архив» tab and clicking switches to archived list', async ({ asAdmin: page }) => {
     // Active teams response — default
     await page.route(`${API}/teams`, (r) =>
       r.fulfill({
@@ -46,15 +46,15 @@ test.describe('Team archive — list page toggle', () => {
 
     await page.goto('/crm/team')
 
-    // Active state — toggle visible, archived team not visible
-    const toggle = page.getByTestId('toggle-archived-teams')
-    await expect(toggle).toBeVisible()
-    await expect(toggle).toHaveText(/Показать архивных/)
+    // ut-25: «Показать архивных» button replaced with «Архив» tab.
+    const archiveTab = page.getByTestId('toggle-archived-teams')
+    await expect(archiveTab).toBeVisible()
+    await expect(archiveTab).toHaveText(/Архив/)
     await expect(page.getByText('Alpha Team')).toBeVisible()
     await expect(page.getByText('Archived Team')).not.toBeVisible()
   })
 
-  test('non-ADMIN does not see the archive toggle', async ({ asHr: page }) => {
+  test('non-ADMIN does not see the «Архив» tab', async ({ asHr: page }) => {
     await page.goto('/crm/team')
     await expect(page.getByText('Alpha Team')).toBeVisible()
     await expect(page.getByTestId('toggle-archived-teams')).not.toBeVisible()

@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArchiveRestore, Check, Pencil, Plus, Search, Send, UserPlus, Users } from 'lucide-react'
+import { Archive, ArchiveRestore, Check, Pencil, Plus, Search, Send, UserPlus, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
 import type { Value as PhoneValue } from 'react-phone-number-input'
@@ -128,28 +128,30 @@ function Field({
 }
 
 // ── Share slider ──────────────────────────────────────────────────────────────
+// ut-31: `value` is the SENIOR's share (matches API field `seniorSharePercent`).
+// Visual order remains [company %] [senior %]. Default 26% senior / 74% company.
 
 function ShareSlider({
   value,
   onChange,
   onBlur,
-  seniorPct,
   error,
 }: {
   value: number
   onChange: (v: number) => void
   onBlur?: () => void
-  seniorPct: number
   error?: boolean
 }) {
+  const seniorPct = value
+  const companyPct = 100 - seniorPct
   return (
     <div className="space-y-3">
       <div className="relative h-7 rounded-md overflow-hidden flex text-[11px] font-medium select-none">
         <div
           className="flex items-center justify-center bg-primary/20 text-primary transition-all duration-150"
-          style={{ width: `${value}%` }}
+          style={{ width: `${companyPct}%` }}
         >
-          {value >= 12 ? `${value}% компания` : ''}
+          {companyPct >= 12 ? `${companyPct}% компания` : ''}
         </div>
         <div
           className="flex items-center justify-center bg-emerald-500/20 text-emerald-400 transition-all duration-150"
@@ -164,16 +166,17 @@ function ShareSlider({
           min={1}
           max={100}
           step={1}
-          value={value}
+          value={seniorPct}
           onChange={(e) => onChange(Number(e.target.value))}
           onBlur={onBlur}
           className="flex-1 h-2 accent-primary cursor-pointer"
+          aria-label="Доля синьора"
         />
         <input
           type="number"
           min={1}
           max={100}
-          value={value}
+          value={seniorPct}
           onChange={(e) => {
             const n = Math.min(100, Math.max(1, Number(e.target.value)))
             onChange(n)
@@ -183,6 +186,7 @@ function ShareSlider({
             'w-16 rounded-md border border-input bg-background px-2 py-1 text-sm text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
             error && 'border-destructive',
           )}
+          aria-label="Доля синьора в процентах"
         />
       </div>
     </div>
@@ -436,16 +440,15 @@ function HrCreateSeniorDialog({
                 }}
               >
                 {(field) => {
+                  // ut-31: value is SENIOR's share (default 26 → 74% company / 26% senior).
                   const val = field.state.value ?? 26
-                  const seniorPct = 100 - val
                   const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined
                   return (
-                    <Field label="Доля компании (%)" error={err} required>
+                    <Field label="Доля синьора (%)" error={err} required>
                       <ShareSlider
                         value={val}
                         onChange={(v) => field.handleChange(v)}
                         onBlur={field.handleBlur}
-                        seniorPct={seniorPct}
                         error={!!err}
                       />
                     </Field>
@@ -646,28 +649,18 @@ function TeamPage() {
     )
   }
 
+  // ut-25: tabs for teams page — «Активные | Архив» for ADMIN, no tabs for others.
+  const teamTabs: Array<{ value: 'ACTIVE' | 'ARCHIVED'; label: string; testId?: string; icon?: typeof Archive }> = [
+    { value: 'ACTIVE', label: 'Активные' },
+    { value: 'ARCHIVED', label: 'Архив', testId: 'toggle-archived-teams', icon: Archive },
+  ]
+  const currentTeamTab: 'ACTIVE' | 'ARCHIVED' = isArchivedView ? 'ARCHIVED' : 'ACTIVE'
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">Команда</h1>
         <div className="flex items-center gap-2">
-          {isAdmin && (
-            <Button
-              variant={isArchivedView ? 'default' : 'outline'}
-              size="sm"
-              className="gap-1.5"
-              onClick={() =>
-                navigate({
-                  to: '/crm/team',
-                  search: isArchivedView ? {} : { archived: true },
-                })
-              }
-              data-testid="toggle-archived-teams"
-            >
-              <ArchiveRestore className="h-4 w-4" />
-              {isArchivedView ? 'Показать активные' : 'Показать архивных'}
-            </Button>
-          )}
           {isHr && (
             <Button onClick={() => setShowCreateSenior(true)} size="sm" className="gap-1.5">
               <Plus className="h-4 w-4" />
@@ -676,6 +669,54 @@ function TeamPage() {
           )}
         </div>
       </div>
+
+      {/* ut-25 + ut-26: Tabs row replacing the «Показать архивных» button.
+          Only ADMIN sees the Archive tab; for other roles tabs aren't needed
+          since they don't have access to archived teams. */}
+      {isAdmin && (
+        <div
+          role="tablist"
+          aria-label="Фильтр команд"
+          className="relative flex w-fit gap-1 rounded-lg border border-border bg-muted/60 p-1"
+        >
+          {teamTabs.map((tab) => {
+            const active = currentTeamTab === tab.value
+            const Icon = tab.icon
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() =>
+                  navigate({
+                    to: '/crm/team',
+                    search: tab.value === 'ARCHIVED' ? { archived: true } : {},
+                  })
+                }
+                {...(tab.testId ? { 'data-testid': tab.testId } : {})}
+                className={cn(
+                  'relative flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs',
+                  'transition-colors duration-150 focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
+                  active ? 'font-semibold text-foreground' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {active && (
+                  <motion.div
+                    layoutId="team-status-tabs"
+                    className="absolute inset-0 rounded-md bg-primary/15 border border-primary/40 shadow-sm"
+                    transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+                  />
+                )}
+                <span className="relative z-10 flex items-center gap-1.5">
+                  {Icon && <Icon className={cn('h-3.5 w-3.5', active && 'text-primary')} />}
+                  {tab.label}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       {teams && teams.length === 0 && (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">

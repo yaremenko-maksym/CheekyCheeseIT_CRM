@@ -59,13 +59,14 @@ const projectWithEffectiveTeam = {
   },
 }
 
-test.describe('Projects archive — list page toggle', () => {
-  test('ADMIN sees toggle on projects list', async ({ asAdmin: page }) => {
+test.describe('Projects archive — list page tab', () => {
+  // ut-25: «Показать архивных» button replaced with «Архив» tab in tabs row.
+  test('ADMIN sees «Архив» tab on projects list', async ({ asAdmin: page }) => {
     await page.goto('/crm/projects')
     await expect(page.getByTestId('toggle-archived-projects')).toBeVisible()
   })
 
-  test('non-ADMIN does not see archive toggle on projects list', async ({ asHr: page }) => {
+  test('non-ADMIN does not see «Архив» tab on projects list', async ({ asHr: page }) => {
     await page.goto('/crm/projects')
     await expect(page.getByTestId('toggle-archived-projects')).not.toBeVisible()
   })
@@ -145,21 +146,23 @@ test.describe('Projects archive — list page toggle', () => {
   })
 })
 
-test.describe('Project detail page — admin actions + tabs', () => {
-  test('ADMIN sees AdminActionsMenu on project detail', async ({ asAdmin: page }) => {
+test.describe('Project detail page — header actions + tabs', () => {
+  // ut-28: project detail page header now uses explicit Edit + Archive buttons
+  // (replaces former «Действия» dropdown / AdminActionsMenu).
+  test('ADMIN sees explicit Archive button on project detail', async ({ asAdmin: page }) => {
     await page.route(`${API}/projects/${activeProject.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(projectWithEffectiveTeam) }),
     )
     await page.goto(`/crm/projects/${activeProject.id}`)
-    await expect(page.getByTestId('admin-actions-trigger')).toBeVisible()
+    await expect(page.getByTestId('project-archive-button')).toBeVisible()
   })
 
-  test('non-ADMIN does not see AdminActionsMenu on project detail', async ({ asHr: page }) => {
+  test('non-ADMIN does not see Archive button on project detail', async ({ asHr: page }) => {
     await page.route(`${API}/projects/${activeProject.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(projectWithEffectiveTeam) }),
     )
     await page.goto(`/crm/projects/${activeProject.id}`)
-    await expect(page.getByTestId('admin-actions-trigger')).not.toBeVisible()
+    await expect(page.getByTestId('project-archive-button')).not.toBeVisible()
   })
 
   test('project detail shows 4 tabs (Обзор, Состав, История, Финансы) for ADMIN', async ({ asAdmin: page }) => {
@@ -262,7 +265,7 @@ test.describe('Project detail page — admin actions + tabs', () => {
     await expect(page.getByText('Проект архивирован')).toBeVisible({ timeout: 3000 })
   })
 
-  test('archived project shows "В архиве" badge and unarchive admin action only', async ({ asAdmin: page }) => {
+  test('archived project shows "В архиве" badge and unarchive button only', async ({ asAdmin: page }) => {
     const archived = { ...projectWithEffectiveTeam, ...archivedProject, effectiveTeam: projectWithEffectiveTeam.effectiveTeam }
     await page.route(`${API}/projects/${archivedProject.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(archived) }),
@@ -270,8 +273,8 @@ test.describe('Project detail page — admin actions + tabs', () => {
 
     await page.goto(`/crm/projects/${archivedProject.id}`)
     await expect(page.getByTestId('project-archived-badge')).toBeVisible()
-    await page.getByTestId('admin-actions-trigger').click()
-    await expect(page.getByTestId('admin-action-unarchive')).toBeVisible()
-    await expect(page.getByTestId('admin-action-archive')).not.toBeVisible()
+    // ut-28: explicit Unarchive button replaces the dropdown's unarchive action.
+    await expect(page.getByTestId('project-unarchive-button')).toBeVisible()
+    await expect(page.getByTestId('project-archive-button')).not.toBeVisible()
   })
 })
