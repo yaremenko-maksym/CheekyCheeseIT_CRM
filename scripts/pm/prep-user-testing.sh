@@ -118,9 +118,12 @@ fi
 echo "[3/$TOTAL_STEPS] DB migrations"
 pnpm --filter @crm/api db:migrate
 
-# 4. Прогнать unit-тесты — если упали, не показываем пользователю
-echo "[4/$TOTAL_STEPS] Unit tests"
-if ! pnpm test; then
+# 4. Прогнать unit-тесты — если упали, не показываем пользователю.
+# ВАЖНО: `pnpm test` без фильтра тянет @crm/e2e (Playwright), который коннектится к
+# localhost:3000 — а сервер ещё не поднят (это шаг 5). Фильтруем явно — только
+# unit/integration suites из api/web/shared. E2E запускается в CI отдельно.
+echo "[4/$TOTAL_STEPS] Unit tests (api + web + shared, без Playwright E2E)"
+if ! pnpm --filter @crm/shared --filter @crm/api --filter @crm/web test; then
   echo "❌ Unit tests упали. НЕ показывать пользователю. Создать fix-задачу для Coder." >&2
   exit 1
 fi
