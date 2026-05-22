@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useForm, type FieldApi } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import {
   Briefcase,
   Calendar,
@@ -258,7 +258,9 @@ function ProjectsPage() {
         variants={container}
         initial="hidden"
         animate="show"
+        layout
       >
+        <AnimatePresence mode="popLayout" initial={false}>
         {filtered.map((project) => {
           const activeMembers = project.members.filter((m) => m.leftAt === null)
           const activeJuniors = activeMembers.filter((m) => m.role === 'JUNIOR')
@@ -266,7 +268,13 @@ function ProjectsPage() {
           const activeAccountants = activeMembers.filter((m) => m.role === 'ACCOUNTANT')
 
           return (
-            <motion.div key={project.id} variants={item}>
+            <motion.div
+              key={project.id}
+              variants={item}
+              layout
+              exit={{ opacity: 0, scale: 0.97 }}
+              transition={{ duration: 0.22, ease: [0.25, 0.1, 0.25, 1] }}
+            >
               <Card
                 className={cn(
                   'flex flex-col transition-all cursor-pointer hover:border-primary/40 hover:shadow-md hover:shadow-primary/5',
@@ -356,6 +364,7 @@ function ProjectsPage() {
             </motion.div>
           )
         })}
+        </AnimatePresence>
       </motion.div>
 
       {/* ── Create project dialog ── */}

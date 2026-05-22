@@ -9,6 +9,7 @@ import {
   Wallet,
 } from 'lucide-react'
 import { useCallback, useState } from 'react'
+import { AnimatePresence } from 'framer-motion'
 import type { TransactionDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
@@ -260,20 +261,22 @@ function TransactionsTable({
               </tr>
             </thead>
             <tbody>
-              {paged.map((tx) => (
-                <TransactionRow
-                  key={tx.id}
-                  tx={tx}
-                  role={role}
-                  rates={rates}
-                  onValidate={onValidate}
-                  onEdit={onEdit}
-                  onAdminEdit={onAdminEdit}
-                  onDelete={onDelete}
-                  onPaySalary={onPaySalary}
-                  onClick={onDetail}
-                />
-              ))}
+              <AnimatePresence mode="popLayout" initial={false}>
+                {paged.map((tx) => (
+                  <TransactionRow
+                    key={tx.id}
+                    tx={tx}
+                    role={role}
+                    rates={rates}
+                    onValidate={onValidate}
+                    onEdit={onEdit}
+                    onAdminEdit={onAdminEdit}
+                    onDelete={onDelete}
+                    onPaySalary={onPaySalary}
+                    onClick={onDetail}
+                  />
+                ))}
+              </AnimatePresence>
             </tbody>
           </table>
         </div>
