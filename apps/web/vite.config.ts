@@ -12,13 +12,27 @@ export default defineConfig({
     // allowedHosts: ['.loca.lt'] разрешает запросы из туннелей формата <subdomain>.loca.lt
     // (Vite по умолчанию режет non-localhost Host header как "Blocked request").
     host: true,
-    allowedHosts: ['.loca.lt'],
+    allowedHosts: [
+      '.loca.lt',                  // LocalTunnel
+      '.trycloudflare.com',        // Cloudflare quick tunnel
+      '.serveousercontent.com',    // serveo.net (SSH)
+      '.ngrok.io',                 // ngrok legacy
+      '.ngrok-free.app',           // ngrok free
+      '.ngrok.app',                // ngrok paid
+    ],
   },
   preview: {
     port: 3000,
     // То же что для dev — слушать 0.0.0.0 + пропускать .loca.lt туннель.
     host: true,
-    allowedHosts: ['.loca.lt'],
+    allowedHosts: [
+      '.loca.lt',                  // LocalTunnel
+      '.trycloudflare.com',        // Cloudflare quick tunnel
+      '.serveousercontent.com',    // serveo.net (SSH)
+      '.ngrok.io',                 // ngrok legacy
+      '.ngrok-free.app',           // ngrok free
+      '.ngrok.app',                // ngrok paid
+    ],
     // Прокси для /api → NestJS на 3001. Когда фронт собран в production-режиме
     // и отдаётся через `vite preview`, браузер делает запросы к /api/...
     // относительно своего origin'а (включая tunnel URL). Этот прокси
