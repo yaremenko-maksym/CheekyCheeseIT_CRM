@@ -211,20 +211,35 @@ fi
 
 ### Шаг 0: Подготовка окружения
 
-**Обязательно перед каждым User Testing.**
+**Обязательно перед каждым User Testing.** Скрипт работает в FOREGROUND — после старта блокируется на `wait`, держит dev-серверы и LocalTunnel живыми. Запускать через `Bash` tool с `run_in_background=True`.
 
-```bash
-bash scripts/pm/prep-user-testing.sh <pr_branch>
+```
+Bash(
+  command="bash scripts/pm/prep-user-testing.sh <pr_branch>",
+  run_in_background=True,
+  description="User Testing env + LocalTunnel"
+)
 ```
 
-Скрипт делает: checkout → migrations → unit tests → restart dev servers → wait for ready.
+Скрипт делает: checkout → migration pre-flight → db:migrate → unit tests → restart dev → wait for ready → **LocalTunnel** (`npx localtunnel --port 3000`) → блокируется до Ctrl+C/kill.
 
-Если exit code != 0 — НЕ показывать пользователю. Создать fix-задачу для Coder → повторить.
+**Получить публичный URL** (для отправки пользователю): прочитать output background-task'а и грепнуть строку `🔗 USER TESTING URL: https://<subdomain>.loca.lt`. URL появляется в логе через 30-60 сек после старта.
+
+**Env overrides** (передавать перед командой):
+- `SKIP_TUNNEL=1` — пропустить tunnel (только localhost:3000)
+- `TUNNEL_SUBDOMAIN=<name>` — предсказуемый поддомен (если занят, LocalTunnel вернёт случайный)
+- `POSTGRES_*` — настройка БД для pre-flight check
+
+**Завершение:** когда User Testing завершён (merge или новый раунд правок) — `kill` background-task. Trap в скрипте автоматически убьёт `nest start`, `vite`, `localtunnel`.
+
+Если exit code != 0 (упал до `wait`) — НЕ показывать пользователю. Создать fix-задачу для Coder → повторить.
 
 ### Шаг 1: Описание для пользователя
 
 ```
-✅ PR #<N> готов к тестированию. http://localhost:3000
+✅ PR #<N> готов к тестированию.
+🔗 С телефона/удалённо: <публичный URL из лога tunnel>
+🖥  С компа:             http://localhost:3000
 
 **Что реализовано:**
 - <конкретно>
