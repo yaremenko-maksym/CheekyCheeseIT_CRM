@@ -318,7 +318,6 @@ function ProjectsPage() {
         variants={container}
         initial="hidden"
         animate="show"
-        layout
       >
         <AnimatePresence mode="popLayout" initial={false}>
         {filtered.map((project) => {
@@ -335,9 +334,9 @@ function ProjectsPage() {
             <motion.div
               key={project.id}
               variants={item}
-              layout
-              exit={{ opacity: 0, scale: 0.97 }}
-              transition={{ duration: 0.22, ease: [0.25, 0.1, 0.25, 1] }}
+              layout="position"
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.08, ease: 'easeOut' }}
             >
               <Card
                 data-testid={`project-card-${project.id}`}

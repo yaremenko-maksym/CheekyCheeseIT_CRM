@@ -748,7 +748,6 @@ function TeamPage() {
         variants={container}
         initial="hidden"
         animate="show"
-        layout
       >
         {filteredTeams.length === 0 && (teams?.length ?? 0) > 0 && (
           <p className="py-8 text-center text-sm text-muted-foreground">
@@ -770,9 +769,9 @@ function TeamPage() {
             <motion.div
               key={team.id}
               variants={item}
-              layout
-              exit={{ opacity: 0, scale: 0.97 }}
-              transition={{ duration: 0.22, ease: [0.25, 0.1, 0.25, 1] }}
+              layout="position"
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.08, ease: 'easeOut' }}
             >
               <div
                 data-testid={`team-card-${team.id}`}
