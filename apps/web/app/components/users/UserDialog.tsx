@@ -1,7 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
 import {
   Coins,
   Landmark,
@@ -63,6 +62,7 @@ import {
   AmountCurrencyInput,
   type Currency,
 } from '@/components/ui/amount-currency-input'
+import { SegmentedToggle } from '@/components/ui/segmented-toggle'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
 import {
@@ -827,56 +827,21 @@ export function UserDialog(props: UserDialogProps) {
                       <form.Field name="paymentMethod">
                         {(field) => (
                           <Field label="Способ оплаты" required>
-                            {/* ut-15: iOS-style Segmented Control. One container,
-                                two equal-width buttons, active slug gets
-                                bg-background + shadow-sm. Smooth transition. */}
-                            <div
-                              role="radiogroup"
-                              aria-label="Способ оплаты"
-                              className="relative grid grid-cols-2 gap-1 rounded-lg border border-border bg-muted/60 p-1"
-                              data-testid="user-dialog-payment-method"
-                            >
-                              {(
-                                [
-                                  { id: 'USDT_ERC20', label: 'USDT ERC-20', Icon: Coins },
-                                  { id: 'BANK_UAH_FOP', label: 'Bank UAH (ФОП)', Icon: Landmark },
-                                ] as const
-                              ).map(({ id, label, Icon }) => {
-                                const active = field.state.value === id
-                                return (
-                                  <button
-                                    key={id}
-                                    type="button"
-                                    role="radio"
-                                    aria-checked={active}
-                                    onClick={() => field.handleChange(id)}
-                                    data-testid={`user-dialog-payment-method-${id}`}
-                                    className={cn(
-                                      'relative flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm',
-                                      'transition-colors duration-150 focus:outline-none',
-                                      'focus-visible:ring-1 focus-visible:ring-primary/50',
-                                      active
-                                        ? 'font-semibold text-foreground'
-                                        : 'text-muted-foreground hover:text-foreground',
-                                    )}
-                                  >
-                                    {/* ut-24: shared layoutId — gold pill smoothly slides
-                                        left↔right between buttons on switch. */}
-                                    {active && (
-                                      <motion.div
-                                        layoutId="payment-method-active-pill"
-                                        className="absolute inset-0 rounded-md bg-primary/15 border border-primary/40 shadow-sm"
-                                        transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-                                      />
-                                    )}
-                                    <span className="relative z-10 flex items-center gap-2">
-                                      <Icon className={cn('h-4 w-4', active && 'text-primary')} />
-                                      {label}
-                                    </span>
-                                  </button>
-                                )
-                              })}
-                            </div>
+                            {/* ut-15 + ut-24: iOS-style segmented control with a
+                                sliding gold pill. Implemented via the shared
+                                <SegmentedToggle> primitive (apps/web/app/components/ui/segmented-toggle.tsx)
+                                so this design is consistent across the project. */}
+                            <SegmentedToggle<PaymentMethod>
+                              value={field.state.value}
+                              onChange={(v) => field.handleChange(v)}
+                              options={[
+                                { value: 'USDT_ERC20', label: 'USDT ERC-20', icon: Coins },
+                                { value: 'BANK_UAH_FOP', label: 'Bank UAH (ФОП)', icon: Landmark },
+                              ]}
+                              ariaLabel="Способ оплаты"
+                              layoutId="payment-method-active-pill"
+                              testId="user-dialog-payment-method"
+                            />
                             <p className="text-xs text-muted-foreground mt-1">
                               {field.state.value === 'USDT_ERC20'
                                 ? 'Будет использоваться адрес кошелька в сети Ethereum.'

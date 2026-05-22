@@ -1,5 +1,6 @@
 import { Edit2, CheckCircle2, ArrowRight, Trash2 } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
+import { motion } from 'framer-motion'
 import type { TransactionDto } from '@crm/shared'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -160,7 +161,12 @@ export function TransactionRow({
   const canAdminDelete = canAdminEdit
 
   return (
-    <tr
+    <motion.tr
+      layout
+      initial={{ opacity: 0, y: -4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.98 }}
+      transition={{ duration: 0.22, ease: [0.25, 0.1, 0.25, 1] }}
       className={cn(
         'border-b border-border/50 transition-colors text-sm',
         onClick ? 'cursor-pointer hover:bg-muted/40' : 'hover:bg-muted/30',
@@ -268,6 +274,6 @@ export function TransactionRow({
           )}
         </div>
       </td>
-    </tr>
+    </motion.tr>
   )
 }

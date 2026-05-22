@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import { Check, Pencil, Plus, Search, Send, UserPlus, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
@@ -702,12 +702,14 @@ function TeamPage() {
         variants={container}
         initial="hidden"
         animate="show"
+        layout
       >
         {filteredTeams.length === 0 && (teams?.length ?? 0) > 0 && (
           <p className="py-8 text-center text-sm text-muted-foreground">
             Ничего не найдено
           </p>
         )}
+        <AnimatePresence mode="popLayout" initial={false}>
         {filteredTeams.map((team) => {
           const canManage = user?.role === 'ADMIN' || (user?.role === 'HR' && team.members.some((m) => m.userId === user.id && m.role === 'HR'))
           const hrMembers = team.members.filter((m) => m.role === 'HR')
@@ -716,9 +718,15 @@ function TeamPage() {
                 (p) => p.status === 'ACTIVE' && team.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
               ).length
             : 0
-          
+
           return (
-            <motion.div key={team.id} variants={item}>
+            <motion.div
+              key={team.id}
+              variants={item}
+              layout
+              exit={{ opacity: 0, scale: 0.97 }}
+              transition={{ duration: 0.22, ease: [0.25, 0.1, 0.25, 1] }}
+            >
               <div
                 className="group relative flex h-14 items-center gap-3 rounded-lg border border-border/60 bg-card/50 px-3 transition-all duration-200 hover:border-primary/30 hover:bg-card cursor-pointer"
                 onClick={() => navigate({ to: '/crm/team/$teamId', params: { teamId: team.id } })}
@@ -816,6 +824,7 @@ function TeamPage() {
             </motion.div>
           )
         })}
+        </AnimatePresence>
       </motion.div>
 
       {/* HR: Create senior dialog */}

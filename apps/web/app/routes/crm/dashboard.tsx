@@ -38,9 +38,10 @@ function DashboardPage() {
         variants={container}
         initial="hidden"
         animate="show"
+        layout
       >
         {stats.map((stat) => (
-          <motion.div key={stat.label} variants={item}>
+          <motion.div key={stat.label} variants={item} layout>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -62,8 +63,9 @@ function DashboardPage() {
         variants={container}
         initial="hidden"
         animate="show"
+        layout
       >
-        <motion.div variants={item}>
+        <motion.div variants={item} layout>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">Последние транзакции</CardTitle>
@@ -84,7 +86,7 @@ function DashboardPage() {
           </Card>
         </motion.div>
 
-        <motion.div variants={item}>
+        <motion.div variants={item} layout>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">Ближайшие собеседования</CardTitle>
