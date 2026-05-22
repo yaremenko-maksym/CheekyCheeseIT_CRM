@@ -15,10 +15,29 @@ export const teamMemberSchema = z.object({
   leftAt: z.string().datetime().nullable().optional(),
 })
 
+/**
+ * Telegram channel handle stored on `teams.telegram_channel`.
+ *
+ * Shape mirrors the user-level `telegram` regex so both fields validate
+ * identically (no separate parser branch). Accepts:
+ *   - empty / null (column is nullable; field is optional)
+ *   - `@channel` or `channel` (leading @ is normalised by the form layer)
+ * 5–32 latin chars / digits / `_`.
+ */
+export const teamTelegramChannelSchema = z
+  .string()
+  .regex(
+    /^@?[a-zA-Z0-9_]{5,32}$/,
+    'Некорректный канал (5–32 латинских символов или _, опц. @)',
+  )
+  .nullable()
+  .optional()
+
 export const teamSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
   telegram: z.string().nullable().optional(),
+  telegramChannel: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -32,6 +51,7 @@ export const teamAuditActionSchema = z.enum([
   'team_renamed',
   'team_archived',
   'team_unarchived',
+  'team_updated',
   'team_member_added',
   'team_member_removed',
 ])
@@ -57,6 +77,7 @@ export const createTeamSchema = z.object({
   seniorId: z.string().uuid(),
   hrIds: z.array(z.string().uuid()).min(1),
   accountantId: z.string().uuid().nullable(),
+  telegramChannel: teamTelegramChannelSchema,
 })
 
 export const updateTeamSchema = z.object({
@@ -70,6 +91,7 @@ export const updateTeamSchema = z.object({
     )
     .nullable()
     .optional(),
+  telegramChannel: teamTelegramChannelSchema,
   notes: z.string().nullable().optional(),
 })
 

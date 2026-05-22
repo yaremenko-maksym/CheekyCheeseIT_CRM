@@ -1,13 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import {
-  ArrowUpDown,
-  ChevronDown,
-  ChevronUp,
-  Plus,
-  Search,
-} from 'lucide-react'
+import { ArrowDown, ArrowUp, Plus, Search } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { z } from 'zod'
 import type { UserProfileDto } from '@crm/shared'
@@ -25,7 +19,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { cn } from '@/lib/utils'
 import { ArchiveConfirmDialog } from '@/components/users/ArchiveConfirmDialog'
 import { UserDialog } from '@/components/users/UserDialog'
 import { UserRow } from '@/components/users/UserRow'
@@ -159,13 +152,13 @@ function UsersPageContent({
     return list
   }, [users, searchQuery, roleFilter, sortKey, sortDir])
 
-  const toggleSort = (key: SortKey) => {
-    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-    else {
-      setSortKey(key)
-      setSortDir('asc')
-    }
-  }
+  // ut-18: sort moved from column headers to the filter bar.
+  // `sortKey` choices exclude 'email' — admins rarely re-order by it.
+  const sortKeyOptions: Array<{ value: SortKey; label: string }> = [
+    { value: 'displayName', label: 'По имени' },
+    { value: 'role', label: 'По роли' },
+    { value: 'createdAt', label: 'По дате добавления' },
+  ]
 
   return (
     <div className="space-y-6">
@@ -226,6 +219,42 @@ function UsersPageContent({
                 ))}
               </SelectContent>
             </Select>
+
+            {/* ut-18: sort relocated from column headers. The visual separator
+                keeps "filter" controls (search + role) distinct from "ordering"
+                controls (sort key + direction). */}
+            <div className="hidden h-6 w-px bg-border sm:block" aria-hidden />
+            <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+              <SelectTrigger className="w-52" data-testid="users-sort-key">
+                <SelectValue placeholder="Сортировка" />
+              </SelectTrigger>
+              <SelectContent>
+                {sortKeyOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => setSortDir((d: SortDir) => (d === 'asc' ? 'desc' : 'asc'))}
+              aria-label={`Направление сортировки: ${
+                sortDir === 'asc' ? 'По возрастанию' : 'По убыванию'
+              }`}
+              data-testid="users-sort-direction"
+              data-dir={sortDir}
+              className="h-9 w-9"
+            >
+              {sortDir === 'asc' ? (
+                <ArrowUp className="h-4 w-4" />
+              ) : (
+                <ArrowDown className="h-4 w-4" />
+              )}
+            </Button>
+
             <Label
               className="flex items-center gap-2 cursor-pointer text-sm select-none ml-1"
               data-testid="users-toggle-archived-label"
@@ -251,34 +280,17 @@ function UsersPageContent({
       >
         <Card>
           <CardContent className="p-3 space-y-2">
-            {/* Header / sort bar */}
+            {/* Header / column labels — ut-18: sort controls moved to filter bar,
+                headers are now plain non-interactive text. */}
             <div
-              className="grid items-center text-xs text-muted-foreground px-3 py-1.5 border-b border-border/40"
+              className="grid items-center text-xs font-medium text-muted-foreground px-3 py-1.5 border-b border-border/40"
               style={{ gridTemplateColumns: '64px 3fr 1.4fr' }}
             >
               <span aria-hidden />
-              <SortHeader
-                label="Пользователь"
-                k="displayName"
-                sortKey={sortKey}
-                sortDir={sortDir}
-                onToggle={toggleSort}
-              />
-              <div className="flex items-center justify-end gap-3">
-                <SortHeader
-                  label="Роль"
-                  k="role"
-                  sortKey={sortKey}
-                  sortDir={sortDir}
-                  onToggle={toggleSort}
-                />
-                <SortHeader
-                  label="Добавлен"
-                  k="createdAt"
-                  sortKey={sortKey}
-                  sortDir={sortDir}
-                  onToggle={toggleSort}
-                />
+              <span>Пользователь</span>
+              <div className="flex items-center justify-end gap-6">
+                <span>Роль</span>
+                <span>Добавлен</span>
               </div>
             </div>
 
@@ -354,45 +366,3 @@ function UsersPageContent({
   )
 }
 
-function SortHeader({
-  label,
-  k,
-  sortKey,
-  sortDir,
-  onToggle,
-}: {
-  label: string
-  k: SortKey
-  sortKey: SortKey
-  sortDir: SortDir
-  onToggle: (k: SortKey) => void
-}) {
-  const isActive = sortKey === k
-  const Icon = !isActive ? ArrowUpDown : sortDir === 'asc' ? ChevronUp : ChevronDown
-  return (
-    <button
-      type="button"
-      onClick={() => onToggle(k)}
-      className={cn(
-        'flex items-center gap-1 cursor-pointer select-none text-xs font-medium transition-colors',
-        // Softer focus indicator (ut-4): a thin half-transparent ring instead
-        // of the loud 2px ring with offset — keeps a11y signal without the
-        // bright yellow halo on Tab focus.
-        'rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
-        isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
-      )}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onToggle(k)
-        }
-      }}
-      data-testid={`users-sort-${k}`}
-      data-active={isActive}
-      data-dir={isActive ? sortDir : undefined}
-    >
-      {label}
-      <Icon className={cn('h-3 w-3', isActive ? 'text-primary' : 'text-muted-foreground/40')} />
-    </button>
-  )
-}

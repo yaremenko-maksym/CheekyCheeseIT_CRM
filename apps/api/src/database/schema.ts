@@ -106,6 +106,9 @@ export const teams = pgTable('teams', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),
   telegram: varchar('telegram', { length: 500 }),
+  // Optional Telegram channel handle (5–32 latin chars / digits / _, optional @).
+  // Edited from the SENIOR's Edit dialog and propagates here via UsersService.adminUpdateUser.
+  telegramChannel: text('telegram_channel'),
   notes: text('notes'),
   // Soft delete (archived teams hidden from main UI, restorable)
   archivedAt: timestamp('archived_at'),

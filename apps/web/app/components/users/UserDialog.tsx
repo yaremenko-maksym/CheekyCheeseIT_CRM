@@ -1,7 +1,16 @@
 import { Link } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Pencil, UserPlus } from 'lucide-react'
+import {
+  Check,
+  Coins,
+  Landmark,
+  Pencil,
+  Plus,
+  Send,
+  UserPlus,
+  X,
+} from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
 import type { Value as PhoneValue } from 'react-phone-number-input'
@@ -20,6 +29,23 @@ import {
   createUserSchema,
   updateProfileSchema,
 } from '@crm/shared'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { getInitials } from './constants'
 import { toast } from 'sonner'
 import { useAuth } from '@/context/auth'
 import { Badge } from '@/components/ui/badge'
@@ -205,6 +231,7 @@ export function UserDialog(props: UserDialogProps) {
   /**
    * Senior's team is the team where the senior is an active member with role=SENIOR.
    * Existing HR/Accountant in that team (with leftAt=NULL) seed selections.
+   * Also seeds `teamTelegramChannel` from the team row (ut-17).
    */
   useEffect(() => {
     if (isEdit && editingUser && editingUser.role === 'SENIOR' && allTeams) {
@@ -220,9 +247,11 @@ export function UserDialog(props: UserDialogProps) {
         )
         setSelectedHrIds(activeHrIds)
         setSelectedAccountantId(activeAccountant?.userId ?? '')
+        form.setFieldValue('teamTelegramChannel', seniorsTeam.telegramChannel ?? '')
       } else {
         setSelectedHrIds([])
         setSelectedAccountantId('')
+        form.setFieldValue('teamTelegramChannel', '')
       }
     } else if (isCreate && open) {
       // For CREATE: defaults — pre-select if only one option exists
@@ -231,6 +260,8 @@ export function UserDialog(props: UserDialogProps) {
       const accInitial = accountantUsers.length === 1 && accountantUsers[0] ? accountantUsers[0].id : ''
       setSelectedAccountantId(accInitial)
     }
+    // form is stable but we intentionally exclude it from deps — re-running on
+    // every form-state change would clobber edits in progress.
   }, [allTeams, editingUser?.id, hrUsers.length, accountantUsers.length, isEdit, isCreate, open])
 
   // For JUNIOR projects display in Edit
@@ -307,6 +338,10 @@ export function UserDialog(props: UserDialogProps) {
       bankUahIban: editingUser?.bankUahIban ?? '',
       bankUahRnokpp: editingUser?.bankUahRnokpp ?? '',
       bankUahBankName: editingUser?.bankUahBankName ?? '',
+      // ut-17: SENIOR-only Telegram channel of the senior's team. Resolved from
+      // the senior's team in the `allTeams` query (useEffect below). Empty
+      // string when no channel set or non-SENIOR.
+      teamTelegramChannel: '' as string,
     },
     onSubmit: async ({ value }) => {
       const isSenior = value.role === 'SENIOR'
@@ -392,6 +427,15 @@ export function UserDialog(props: UserDialogProps) {
             value.bankUahRnokpp.trim() !== (editingUser.bankUahRnokpp ?? '') ||
             value.bankUahBankName.trim() !== (editingUser.bankUahBankName ?? ''))
 
+        // ut-17: normalize team telegram channel value. Strip leading @ before
+        // sending — the backend stores the bare handle, UI re-adds @ on display.
+        const normalizedTeamChannel = (() => {
+          if (!isSenior) return undefined
+          const trimmed = value.teamTelegramChannel.trim()
+          if (!trimmed) return null
+          return trimmed.startsWith('@') ? trimmed.slice(1) : trimmed
+        })()
+
         const payload: AdminUpdateUserDto = {
           ...(editingUser && value.email.trim() !== editingUser.email && {
             email: value.email.trim(),
@@ -404,6 +448,7 @@ export function UserDialog(props: UserDialogProps) {
             seniorSharePercent: value.seniorSharePercent,
             hrIds,
             accountantId: accountantId || null,
+            teamTelegramChannel: normalizedTeamChannel,
           }),
           ...(!isSenior && {
             monthlySalary: value.monthlySalary
@@ -471,6 +516,8 @@ export function UserDialog(props: UserDialogProps) {
         bankUahIban: editingUser.bankUahIban ?? '',
         bankUahRnokpp: editingUser.bankUahRnokpp ?? '',
         bankUahBankName: editingUser.bankUahBankName ?? '',
+        // Re-seeded again by the allTeams effect once the query resolves.
+        teamTelegramChannel: '',
       })
     }
   }, [editingUser?.id, isEdit])
@@ -795,29 +842,50 @@ export function UserDialog(props: UserDialogProps) {
                       <form.Field name="paymentMethod">
                         {(field) => (
                           <Field label="Способ оплаты" required>
-                            <div className="flex gap-3" data-testid="user-dialog-payment-method">
-                              {(['USDT_ERC20', 'BANK_UAH_FOP'] as const).map((m) => (
-                                <label
-                                  key={m}
-                                  className={cn(
-                                    'flex items-center gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer transition-colors',
-                                    field.state.value === m
-                                      ? 'border-primary bg-primary/5'
-                                      : 'border-border hover:bg-muted/30',
-                                  )}
-                                >
-                                  <input
-                                    type="radio"
-                                    name="paymentMethod"
-                                    value={m}
-                                    checked={field.state.value === m}
-                                    onChange={() => field.handleChange(m)}
-                                    className="accent-primary"
-                                  />
-                                  {m === 'USDT_ERC20' ? 'USDT ERC-20' : 'Bank UAH (ФОП)'}
-                                </label>
-                              ))}
+                            {/* ut-15: iOS-style Segmented Control. One container,
+                                two equal-width buttons, active slug gets
+                                bg-background + shadow-sm. Smooth transition. */}
+                            <div
+                              role="radiogroup"
+                              aria-label="Способ оплаты"
+                              className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-muted/40 p-1"
+                              data-testid="user-dialog-payment-method"
+                            >
+                              {(
+                                [
+                                  { id: 'USDT_ERC20', label: 'USDT ERC-20', Icon: Coins },
+                                  { id: 'BANK_UAH_FOP', label: 'Bank UAH (ФОП)', Icon: Landmark },
+                                ] as const
+                              ).map(({ id, label, Icon }) => {
+                                const active = field.state.value === id
+                                return (
+                                  <button
+                                    key={id}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={active}
+                                    onClick={() => field.handleChange(id)}
+                                    data-testid={`user-dialog-payment-method-${id}`}
+                                    className={cn(
+                                      'flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm',
+                                      'transition-all duration-150 focus:outline-none',
+                                      'focus-visible:ring-1 focus-visible:ring-primary/50',
+                                      active
+                                        ? 'bg-background shadow-sm font-medium text-foreground'
+                                        : 'text-muted-foreground hover:bg-muted/60',
+                                    )}
+                                  >
+                                    <Icon className="h-4 w-4" />
+                                    {label}
+                                  </button>
+                                )
+                              })}
                             </div>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {field.state.value === 'USDT_ERC20'
+                                ? 'Будет использоваться адрес кошелька в сети Ethereum.'
+                                : 'Будет использоваться украинский банковский счёт ФОП.'}
+                            </p>
                           </Field>
                         )}
                       </form.Field>
@@ -978,64 +1046,74 @@ export function UserDialog(props: UserDialogProps) {
             <form.Subscribe selector={(s) => s.values.role}>
               {(role) => {
                 if (role === 'SENIOR') {
+                  const onlyHr = hrUsers.length === 1
+                  const onlyAccountant = accountantUsers.length === 1
+
                   return (
                     <Section title="Команда">
-                      <Field label="HR" required={isCreate}>
-                        {hrUsers.length === 0 ? (
-                          <p className="text-xs text-muted-foreground italic">Нет доступных HR</p>
-                        ) : (
-                          <div className="space-y-1" data-testid="user-dialog-hr-multiselect">
-                            {hrUsers.map((u) => (
-                              <label
-                                key={u.id}
-                                className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm cursor-pointer hover:bg-muted/30 transition-colors"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={selectedHrIds.includes(u.id)}
-                                  onChange={(e) =>
-                                    setSelectedHrIds(
-                                      e.target.checked
-                                        ? [...selectedHrIds, u.id]
-                                        : selectedHrIds.filter((id) => id !== u.id),
-                                    )
-                                  }
-                                  className="accent-primary"
-                                  data-testid={`user-dialog-hr-${u.id}`}
-                                />
-                                {u.displayName}
-                              </label>
-                            ))}
-                          </div>
-                        )}
-                      </Field>
+                      {/* ut-16: HR as chips + searchable add popover. */}
+                      <HrChipsField
+                        hrUsers={hrUsers}
+                        selectedIds={selectedHrIds}
+                        onChange={setSelectedHrIds}
+                        required={isCreate}
+                        onlyHr={onlyHr}
+                      />
 
-                      <Field label="Бухгалтер">
-                        {accountantUsers.length === 0 ? (
-                          <p className="text-xs text-muted-foreground italic">
-                            Нет доступных бухгалтеров
-                          </p>
-                        ) : (
-                          <Select
-                            value={selectedAccountantId || 'none'}
-                            onValueChange={(v) =>
-                              setSelectedAccountantId(v === 'none' ? '' : v)
-                            }
-                          >
-                            <SelectTrigger data-testid="user-dialog-accountant-trigger">
-                              <SelectValue placeholder="— выберите бухгалтера —" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">— не выбран —</SelectItem>
-                              {accountantUsers.map((u) => (
-                                <SelectItem key={u.id} value={u.id}>
-                                  {u.displayName}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      </Field>
+                      {/* ut-16: Accountant as a chip in the same visual language. */}
+                      <AccountantChipField
+                        accountantUsers={accountantUsers}
+                        selectedId={selectedAccountantId}
+                        onChange={setSelectedAccountantId}
+                        onlyAccountant={onlyAccountant}
+                      />
+
+                      {/* ut-17: optional team Telegram channel. */}
+                      <form.Field
+                        name="teamTelegramChannel"
+                        validators={{
+                          onBlur: ({ value, fieldApi }) => {
+                            if (!fieldApi.state.meta.isDirty) return undefined
+                            const trimmed = value.trim()
+                            if (!trimmed) return undefined
+                            return /^@?[a-zA-Z0-9_]{5,32}$/.test(trimmed)
+                              ? undefined
+                              : 'Некорректный канал (5–32 латинских символов или _, опц. @)'
+                          },
+                        }}
+                      >
+                        {(field) => {
+                          const showError =
+                            field.state.meta.isTouched && field.state.meta.isDirty
+                          const err = showError ? field.state.meta.errors[0] : undefined
+                          return (
+                            <Field
+                              label="Telegram-канал команды"
+                              error={err}
+                              hint={err ? undefined : 'Опционально. Канал для общения команды.'}
+                            >
+                              <div className="relative">
+                                <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                  <Send className="h-3.5 w-3.5" />
+                                  t.me/
+                                </span>
+                                <Input
+                                  placeholder="team_channel"
+                                  className={cn(
+                                    'pl-16',
+                                    err && 'border-destructive focus-visible:ring-destructive/30',
+                                  )}
+                                  value={field.state.value}
+                                  onChange={(e) => field.handleChange(e.target.value)}
+                                  onBlur={field.handleBlur}
+                                  autoComplete="off"
+                                  data-testid="user-dialog-team-telegram-channel"
+                                />
+                              </div>
+                            </Field>
+                          )
+                        }}
+                      </form.Field>
                     </Section>
                   )
                 }
@@ -1178,5 +1256,275 @@ export function UserDialog(props: UserDialogProps) {
       </AlertDialogContent>
     </AlertDialog>
     </>
+  )
+}
+
+/**
+ * ut-16: HR multiselect rendered as removable chips + a searchable "Add HR"
+ * popover. Each chip shows avatar + name + remove (×). When only one HR
+ * exists in the system the chip is auto-selected, non-removable, and shows
+ * a tooltip explaining why.
+ */
+function HrChipsField({
+  hrUsers,
+  selectedIds,
+  onChange,
+  required,
+  onlyHr,
+}: {
+  hrUsers: UserProfileDto[]
+  selectedIds: string[]
+  onChange: (next: string[]) => void
+  required: boolean
+  onlyHr: boolean
+}) {
+  const [open, setOpen] = useState(false)
+
+  const selected = useMemo(
+    () => selectedIds
+      .map((id) => hrUsers.find((u) => u.id === id))
+      .filter((u): u is UserProfileDto => !!u),
+    [selectedIds, hrUsers],
+  )
+  const available = useMemo(
+    () => hrUsers.filter((u) => !selectedIds.includes(u.id)),
+    [hrUsers, selectedIds],
+  )
+
+  if (hrUsers.length === 0) {
+    return (
+      <Field label="HR" required={required}>
+        <p className="text-xs text-muted-foreground italic">Нет доступных HR</p>
+      </Field>
+    )
+  }
+
+  return (
+    <Field label={`HR${selected.length > 0 ? ` (${selected.length} выбрано)` : ''}`} required={required}>
+      <div className="space-y-2" data-testid="user-dialog-hr-multiselect">
+        <div className="flex flex-wrap gap-1.5">
+          {selected.length === 0 ? (
+            <p className="text-xs text-muted-foreground italic">Никто не выбран</p>
+          ) : (
+            selected.map((u) => {
+              const locked = onlyHr
+              return (
+                <TooltipProvider key={u.id} delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        className={cn(
+                          'group inline-flex items-center gap-1.5 rounded-full bg-secondary py-0.5 pl-0.5 pr-2 text-sm',
+                          locked && 'cursor-default',
+                        )}
+                        data-testid={`user-dialog-hr-chip-${u.id}`}
+                      >
+                        <Avatar className="h-6 w-6">
+                          {u.avatar ? <AvatarImage src={u.avatar} alt={u.displayName} /> : null}
+                          <AvatarFallback className="text-[10px]">
+                            {getInitials(u.displayName)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="leading-none">{u.displayName}</span>
+                        {!locked ? (
+                          <button
+                            type="button"
+                            onClick={() => onChange(selectedIds.filter((id) => id !== u.id))}
+                            aria-label={`Удалить ${u.displayName}`}
+                            className="ml-0.5 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
+                            data-testid={`user-dialog-hr-remove-${u.id}`}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
+                      </span>
+                    </TooltipTrigger>
+                    {locked ? (
+                      <TooltipContent>Единственный HR в системе</TooltipContent>
+                    ) : null}
+                  </Tooltip>
+                </TooltipProvider>
+              )
+            })
+          )}
+        </div>
+
+        {available.length > 0 ? (
+          <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 text-xs"
+                data-testid="user-dialog-hr-add-trigger"
+              >
+                <Plus className="h-3.5 w-3.5" /> Добавить HR
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72 p-0" align="start">
+              <Command>
+                <CommandInput placeholder="Поиск по имени или email…" />
+                <CommandList>
+                  <CommandEmpty>Не найдено</CommandEmpty>
+                  <CommandGroup>
+                    {available.map((u) => (
+                      <CommandItem
+                        key={u.id}
+                        value={`${u.displayName} ${u.email}`}
+                        onSelect={() => {
+                          onChange([...selectedIds, u.id])
+                          setOpen(false)
+                        }}
+                        data-testid={`user-dialog-hr-option-${u.id}`}
+                      >
+                        <Avatar className="h-6 w-6">
+                          {u.avatar ? <AvatarImage src={u.avatar} alt={u.displayName} /> : null}
+                          <AvatarFallback className="text-[10px]">
+                            {getInitials(u.displayName)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex flex-col">
+                          <span className="text-sm leading-tight">{u.displayName}</span>
+                          <span className="text-xs text-muted-foreground leading-tight">
+                            {u.email}
+                          </span>
+                        </div>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+        ) : null}
+      </div>
+    </Field>
+  )
+}
+
+/**
+ * ut-16: Accountant as a single chip with an embedded inline dropdown (Command
+ * inside a Popover). When the system has exactly one accountant the chip is
+ * locked with a tooltip — mirrors the SOLO-HR treatment.
+ */
+function AccountantChipField({
+  accountantUsers,
+  selectedId,
+  onChange,
+  onlyAccountant,
+}: {
+  accountantUsers: UserProfileDto[]
+  selectedId: string
+  onChange: (next: string) => void
+  onlyAccountant: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const selected = accountantUsers.find((u) => u.id === selectedId) ?? null
+
+  if (accountantUsers.length === 0) {
+    return (
+      <Field label="Бухгалтер">
+        <p className="text-xs text-muted-foreground italic">Нет доступных бухгалтеров</p>
+      </Field>
+    )
+  }
+
+  return (
+    <Field label="Бухгалтер">
+      <div className="flex flex-wrap items-center gap-2">
+        {selected ? (
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-full bg-secondary py-0.5 pl-0.5 pr-2 text-sm',
+                    onlyAccountant && 'cursor-default',
+                  )}
+                  data-testid="user-dialog-accountant-chip"
+                >
+                  <Avatar className="h-6 w-6">
+                    {selected.avatar ? <AvatarImage src={selected.avatar} alt={selected.displayName} /> : null}
+                    <AvatarFallback className="text-[10px]">
+                      {getInitials(selected.displayName)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="leading-none">{selected.displayName}</span>
+                  {!onlyAccountant ? (
+                    <button
+                      type="button"
+                      onClick={() => onChange('')}
+                      aria-label="Очистить бухгалтера"
+                      className="ml-0.5 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
+                      data-testid="user-dialog-accountant-clear"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+                </span>
+              </TooltipTrigger>
+              {onlyAccountant ? (
+                <TooltipContent>Единственный бухгалтер в системе</TooltipContent>
+              ) : null}
+            </Tooltip>
+          </TooltipProvider>
+        ) : null}
+
+        {!selected || (!onlyAccountant && accountantUsers.length > 1) ? (
+          <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 text-xs"
+                data-testid="user-dialog-accountant-trigger"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {selected ? 'Сменить' : 'Выбрать бухгалтера'}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72 p-0" align="start">
+              <Command>
+                <CommandInput placeholder="Поиск по имени или email…" />
+                <CommandList>
+                  <CommandEmpty>Не найдено</CommandEmpty>
+                  <CommandGroup>
+                    {accountantUsers.map((u) => (
+                      <CommandItem
+                        key={u.id}
+                        value={`${u.displayName} ${u.email}`}
+                        onSelect={() => {
+                          onChange(u.id)
+                          setOpen(false)
+                        }}
+                        data-testid={`user-dialog-accountant-option-${u.id}`}
+                      >
+                        <Avatar className="h-6 w-6">
+                          {u.avatar ? <AvatarImage src={u.avatar} alt={u.displayName} /> : null}
+                          <AvatarFallback className="text-[10px]">
+                            {getInitials(u.displayName)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex flex-col">
+                          <span className="text-sm leading-tight">{u.displayName}</span>
+                          <span className="text-xs text-muted-foreground leading-tight">
+                            {u.email}
+                          </span>
+                        </div>
+                        {u.id === selectedId ? (
+                          <Check className="ml-auto h-4 w-4 text-primary" />
+                        ) : null}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+        ) : null}
+      </div>
+    </Field>
   )
 }

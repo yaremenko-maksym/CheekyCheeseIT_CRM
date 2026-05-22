@@ -158,6 +158,17 @@ export const adminUpdateUserSchema = z.object({
   // (only entries with leftAt IS NULL) and reconciles via add/remove.
   hrIds: z.array(z.string().uuid()).optional(),
   accountantId: z.string().uuid().nullable().optional(),
+  // For SENIOR: optional Telegram channel handle stored on the senior's team
+  // (`teams.telegram_channel`). Backend rejects this field for non-SENIOR with
+  // 400 — UI hides it for other roles. Pair-invariant: SENIOR ≡ team.
+  teamTelegramChannel: z
+    .string()
+    .regex(
+      /^@?[a-zA-Z0-9_]{5,32}$/,
+      'Некорректный канал (5–32 латинских символов или _, опц. @)',
+    )
+    .nullable()
+    .optional(),
 }).superRefine(refineRequisitePresence)
 
 // Query params for list endpoints — `?archived=true|false`.

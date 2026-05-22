@@ -128,14 +128,29 @@ function makeDb({
     }),
   }
 
-  return {
-    db: {
-      ...selectChain,
-      ...insertChain,
-      ...updateChain,
-      ...deleteChain,
-    },
-  } as unknown as DrizzleDb
+  // Stub `db.transaction(cb)` so callers that wrap their work in a tx still
+  // exercise the same select/insert/update/delete chains. The `tx` arg shares
+  // the same chain handles — sufficient for these unit-level assertions which
+  // verify call counts / passed values rather than atomicity semantics (see
+  // users.archive.spec for the richer atomicity harness).
+  const txHandle = {
+    ...selectChain,
+    ...insertChain,
+    ...updateChain,
+    ...deleteChain,
+    // Drizzle's `tx.update(table).set(set).where(...).returning()` shape — but
+    // the wrapping transaction body for adminUpdateUser uses a fresh update
+    // chain inside the tx, so we expose the same one.
+  }
+  const dbHandle = {
+    ...selectChain,
+    ...insertChain,
+    ...updateChain,
+    ...deleteChain,
+    transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(txHandle)),
+  }
+
+  return { db: dbHandle as unknown } as unknown as DrizzleDb
 }
 
 // ---------------------------------------------------------------------------

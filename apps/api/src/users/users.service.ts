@@ -214,6 +214,7 @@ export class UsersService {
       bankUahBankName?: string | null | undefined
       hrIds?: string[] | undefined
       accountantId?: string | null | undefined
+      teamTelegramChannel?: string | null | undefined
     },
     actorId: string | null = null,
   ): Promise<User> {
@@ -233,6 +234,15 @@ export class UsersService {
       data.role !== 'ADMIN'
     ) {
       throw new ForbiddenException('Cannot change own ADMIN role')
+    }
+    // ut-17: Telegram channel of the team is a SENIOR-only field. The pair
+    // invariant SENIOR ≡ team means setting it for any other role would be a
+    // contract violation — reject early with 400.
+    const effectiveRole = data.role ?? existing.role
+    if (data.teamTelegramChannel !== undefined && effectiveRole !== 'SENIOR') {
+      throw new BadRequestException(
+        'Telegram channel can only be set for SENIOR users',
+      )
     }
     // Email uniqueness check — only when actually changing it.
     if (data.email !== undefined && data.email !== existing.email) {
@@ -305,47 +315,120 @@ export class UsersService {
       if ('bankUahBankName' in data) set.bankUahBankName = data.bankUahBankName ?? null
     }
 
-    const rows = await this.db.db
-      .update(users)
-      .set(set)
-      .where(eq(users.id, id))
-      .returning()
+    // The user UPDATE + downstream SENIOR-only side effects (team composition
+    // reconcile + team telegram channel propagation) are committed as one
+    // transaction. Pair invariant SENIOR ≡ team means a partial commit (user
+    // saved but team comms lost) would leave inconsistent state on the
+    // critical comms field — atomicity matters here.
+    const updated = await this.db.db.transaction(async (tx) => {
+      const rows = await tx
+        .update(users)
+        .set(set)
+        .where(eq(users.id, id))
+        .returning()
 
-    const updated = rows[0]
-    if (!updated) throw new NotFoundException('User not found')
+      const u = rows[0]
+      if (!u) throw new NotFoundException('User not found')
 
-    // SENIOR-only: optional team composition reconcile.
-    if (updated.role === 'SENIOR' && (data.hrIds !== undefined || data.accountantId !== undefined)) {
-      await this.reconcileSeniorTeam(updated.id, {
-        hrIds: data.hrIds,
-        accountantId: data.accountantId,
-      }, actorId)
-    }
+      // SENIOR-only: optional team composition reconcile.
+      if (u.role === 'SENIOR' && (data.hrIds !== undefined || data.accountantId !== undefined)) {
+        await this.reconcileSeniorTeamTx(tx, u.id, {
+          hrIds: data.hrIds,
+          accountantId: data.accountantId,
+        }, actorId)
+      }
+
+      // ut-17: propagate teamTelegramChannel onto the senior's team (same tx).
+      if (u.role === 'SENIOR' && data.teamTelegramChannel !== undefined) {
+        await this.updateSeniorTeamTelegramChannelTx(
+          tx,
+          u.id,
+          data.teamTelegramChannel,
+          actorId,
+        )
+      }
+
+      return u
+    })
 
     return updated
   }
 
   /**
-   * Reconciles HR/Accountant membership in the SENIOR's team.
+   * Update `teams.telegram_channel` for the team owned by `seniorId` and write
+   * a `team_updated` audit row inside the SAME transaction. No-op if the value
+   * hasn't actually changed (avoids spurious audit entries for re-saves).
+   */
+  private async updateSeniorTeamTelegramChannelTx(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    tx: any,
+    seniorId: string,
+    value: string | null,
+    actorId: string | null,
+  ): Promise<void> {
+    const seniorMembership = await tx
+      .select()
+      .from(teamMembers)
+      .where(and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)))
+      .then((rows: Array<typeof teamMembers.$inferSelect>) => rows[0])
+    if (!seniorMembership) return
+    const teamId = seniorMembership.teamId
+
+    const team = await tx
+      .select()
+      .from(teams)
+      .where(eq(teams.id, teamId))
+      .then((rows: Array<typeof teams.$inferSelect>) => rows[0])
+    if (!team) return
+
+    const previous = team.telegramChannel ?? null
+    const next = value ?? null
+    if (previous === next) return
+
+    await tx
+      .update(teams)
+      .set({ telegramChannel: next, updatedAt: new Date() })
+      .where(eq(teams.id, teamId))
+
+    await this.teamAuditLogService.record(
+      {
+        actorId,
+        targetId: teamId,
+        action: 'team_updated',
+        changes: { telegramChannel: { before: previous, after: next } },
+      },
+      tx,
+    )
+  }
+
+  /**
+   * Transactional variant of reconcileSeniorTeam. All membership writes and
+   * audit log entries use the supplied `tx` so adminUpdateUser's outer
+   * transaction can commit them atomically with the user UPDATE.
+   *
    * Active members (`leftAt IS NULL`) are diffed against the target sets:
    *  - new HR/Acc -> insert team_member or restore via leftAt=NULL on existing row
    *  - removed HR/Acc -> set leftAt=now()
    * Each delta is logged into `team_audit_log`.
    */
-  private async reconcileSeniorTeam(
+  private async reconcileSeniorTeamTx(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    tx: any,
     seniorId: string,
     data: { hrIds?: string[] | undefined; accountantId?: string | null | undefined },
     actorId: string | null,
   ): Promise<void> {
     // Resolve the senior's team via team_members (teams has no seniorId column —
     // a SENIOR is always team_member of exactly one team by business invariant).
-    const seniorMembership = await this.db.db.query.teamMembers.findFirst({
-      where: and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)),
-    })
+    const seniorMembership = await tx
+      .select()
+      .from(teamMembers)
+      .where(and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)))
+      .then((rows: Array<typeof teamMembers.$inferSelect>) => rows[0])
     if (!seniorMembership) return
     const teamId = seniorMembership.teamId
 
-    const activeMembers = await this.db.db
+    const activeMembers: Array<{ userId: string; id: string; role: User['role'] }> = await tx
       .select({
         userId: teamMembers.userId,
         id: teamMembers.id,
@@ -367,7 +450,7 @@ export class UsersService {
       const toAdd = [...desiredHrIds].filter((id) => !currentHrIds.has(id))
 
       for (const userId of toRemove) {
-        await this.db.db
+        await tx
           .update(teamMembers)
           .set({ leftAt: now })
           .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)))
@@ -376,16 +459,16 @@ export class UsersService {
           targetId: teamId,
           action: 'team_member_removed',
           changes: { userId: { before: userId, after: null }, role: { before: 'HR', after: null } },
-        })
+        }, tx)
       }
       for (const userId of toAdd) {
-        await this.upsertTeamMember(teamId, userId)
+        await this.upsertTeamMemberTx(tx, teamId, userId)
         await this.teamAuditLogService.record({
           actorId,
           targetId: teamId,
           action: 'team_member_added',
           changes: { userId: { before: null, after: userId }, role: { before: null, after: 'HR' } },
-        })
+        }, tx)
       }
     }
 
@@ -396,7 +479,7 @@ export class UsersService {
 
       if (currentId !== desiredId) {
         if (currentId) {
-          await this.db.db
+          await tx
             .update(teamMembers)
             .set({ leftAt: now })
             .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, currentId), isNull(teamMembers.leftAt)))
@@ -405,16 +488,16 @@ export class UsersService {
             targetId: teamId,
             action: 'team_member_removed',
             changes: { userId: { before: currentId, after: null }, role: { before: 'ACCOUNTANT', after: null } },
-          })
+          }, tx)
         }
         if (desiredId) {
-          await this.upsertTeamMember(teamId, desiredId)
+          await this.upsertTeamMemberTx(tx, teamId, desiredId)
           await this.teamAuditLogService.record({
             actorId,
             targetId: teamId,
             action: 'team_member_added',
             changes: { userId: { before: null, after: desiredId }, role: { before: null, after: 'ACCOUNTANT' } },
-          })
+          }, tx)
         }
       }
     }
@@ -422,22 +505,29 @@ export class UsersService {
 
   /**
    * Insert team_member; if row already exists (left previously) — clear leftAt to restore.
-   * Necessary because team_members has FK constraints with no unique index across (teamId, userId).
+   * Uses the supplied transaction handle so it shares the outer atomicity boundary.
    */
-  private async upsertTeamMember(teamId: string, userId: string): Promise<void> {
-    const existing = await this.db.db.query.teamMembers.findFirst({
-      where: and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)),
-    })
+  private async upsertTeamMemberTx(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    tx: any,
+    teamId: string,
+    userId: string,
+  ): Promise<void> {
+    const existing = await tx
+      .select()
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
+      .then((rows: Array<typeof teamMembers.$inferSelect>) => rows[0])
     if (existing) {
       if (existing.leftAt !== null) {
-        await this.db.db
+        await tx
           .update(teamMembers)
           .set({ leftAt: null })
           .where(eq(teamMembers.id, existing.id))
       }
       return
     }
-    await this.db.db.insert(teamMembers).values({ teamId, userId })
+    await tx.insert(teamMembers).values({ teamId, userId })
   }
 
   async updateProfile(
