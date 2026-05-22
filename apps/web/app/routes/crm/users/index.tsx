@@ -280,20 +280,9 @@ function UsersPageContent({
       >
         <Card>
           <CardContent className="p-3 space-y-2">
-            {/* Header / column labels — ut-18: sort controls moved to filter bar,
-                headers are now plain non-interactive text. */}
-            <div
-              className="grid items-center text-xs font-medium text-muted-foreground px-3 py-1.5 border-b border-border/40"
-              style={{ gridTemplateColumns: '64px 3fr 1.4fr' }}
-            >
-              <span aria-hidden />
-              <span>Пользователь</span>
-              <div className="flex items-center justify-end gap-6">
-                <span>Роль</span>
-                <span>Добавлен</span>
-              </div>
-            </div>
-
+            {/* ut-19: column headers removed — rows are self-describing
+                (avatar / name+email, role badge, дата). Sort controls
+                остаются в filter bar выше. */}
             {isLoading ? (
               <div className="space-y-2">
                 {Array.from({ length: 6 }).map((_, i) => (
