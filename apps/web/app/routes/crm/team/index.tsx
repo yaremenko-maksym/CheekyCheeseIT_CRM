@@ -69,8 +69,8 @@ const item = {
 
 type UserOption = { id: string; displayName: string; email: string; role: string; avatar: string | null }
 
-async function fetchTeams(archived = false): Promise<TeamDto[]> {
-  const res = await api.get<TeamDto[]>(`/teams${archived ? '?archived=true' : ''}`)
+async function fetchTeams(archivedQuery: '' | 'true' | 'all' = ''): Promise<TeamDto[]> {
+  const res = await api.get<TeamDto[]>(`/teams${archivedQuery ? `?archived=${archivedQuery}` : ''}`)
   return res.data
 }
 
@@ -497,13 +497,21 @@ function TeamPage() {
   const isHr = user?.role === 'HR'
   const isAdmin = user?.role === 'ADMIN'
 
+  // ut-44: tri-state filter — local ALL/ACTIVE plus URL-driven ARCHIVED.
+  const [teamFilter, setTeamFilter] = useState<'ALL' | 'ACTIVE'>('ACTIVE')
+
   // ut-32: keepPreviousData + useTransition keep the previous list visible
   // during the URL switch + refetch so the SegmentedToggle's gold-pill
   // layout animation isn't interrupted by a render that throws the list
   // into a skeleton state mid-flight.
+  const archivedQuery: '' | 'true' | 'all' = isArchivedView
+    ? 'true'
+    : teamFilter === 'ALL'
+      ? 'all'
+      : ''
   const { data: teams, isLoading } = useQuery({
-    queryKey: ['teams', { archived: isArchivedView }],
-    queryFn: () => fetchTeams(isArchivedView),
+    queryKey: ['teams', { archived: archivedQuery || 'active' }],
+    queryFn: () => fetchTeams(archivedQuery),
     enabled: !!user,
     placeholderData: keepPreviousData,
   })
@@ -590,22 +598,29 @@ function TeamPage() {
     )
   }
 
-  // ut-25 + ut-33: tabs for teams page — «Активные | Архив» for ADMIN, unified
-  // through SegmentedToggle so the gold-pill animation lives in one place.
-  type TeamTab = 'ACTIVE' | 'ARCHIVED'
+  // ut-25 + ut-33 + ut-44: tabs for teams page — «Все | Активные | Архив»
+  // for ADMIN, unified through SegmentedToggle so the gold-pill animation
+  // lives in one place. The «Все» tab fetches with `archived=all`; the
+  // «Архив» tab keeps the legacy `archived=true` query param + URL state.
+  type TeamTab = 'ALL' | 'ACTIVE' | 'ARCHIVED'
   const teamTabs: ReadonlyArray<SegmentedToggleOption<TeamTab>> = [
+    { value: 'ALL', label: 'Все' },
     { value: 'ACTIVE', label: 'Активные' },
     { value: 'ARCHIVED', label: 'Архив', testId: 'toggle-archived-teams', icon: Archive },
   ]
-  const currentTeamTab: TeamTab = isArchivedView ? 'ARCHIVED' : 'ACTIVE'
+  const currentTeamTab: TeamTab = isArchivedView ? 'ARCHIVED' : teamFilter
   const handleTeamTabChange = (next: TeamTab) => {
     // ut-32: wrap navigation in startTransition so the gold-pill layout
     // animation isn't preempted by the query refetch render.
     startTransition(() => {
-      navigate({
-        to: '/crm/team',
-        search: next === 'ARCHIVED' ? { archived: true } : {},
-      })
+      if (next === 'ARCHIVED') {
+        navigate({ to: '/crm/team', search: { archived: true } })
+        return
+      }
+      if (isArchivedView) {
+        navigate({ to: '/crm/team', search: {} })
+      }
+      setTeamFilter(next === 'ALL' ? 'ALL' : 'ACTIVE')
     })
   }
 

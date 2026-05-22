@@ -140,11 +140,18 @@ export class TeamsService {
     return team
   }
 
-  async findAll(currentUser: SessionUser, filter: { archived?: boolean } = {}) {
-    const archived = filter.archived === true
+  async findAll(currentUser: SessionUser, filter: { archived?: boolean | 'all' } = {}) {
+    // round 7 (ut-44): tri-state filter — `'all'` returns both active and
+    // archived teams (used by the «Все» tab); boolean keeps the legacy behavior.
+    const archivedWhere =
+      filter.archived === 'all'
+        ? undefined
+        : filter.archived === true
+          ? isNotNull(teams.archivedAt)
+          : isNull(teams.archivedAt)
     const [allTeams, allProjects] = await Promise.all([
       this.db.db.query.teams.findMany({
-        where: archived ? isNotNull(teams.archivedAt) : isNull(teams.archivedAt),
+        ...(archivedWhere ? { where: archivedWhere } : {}),
         with: { members: { with: { user: true } } },
       }),
       this.fetchAllProjects(),

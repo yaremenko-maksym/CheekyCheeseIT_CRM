@@ -253,17 +253,22 @@ test.describe('Users page refactor (PR 2)', () => {
   })
 
   test.describe('Toggle archived users', () => {
-    test('toggle adds archived=true to URL', async ({ asAdmin: page }) => {
+    // ut-44: «Показать архивных» checkbox replaced with «Все | Активные | Архив»
+    // tabs. The Archive tab keeps `users-toggle-archived` testid so historical
+    // selectors stay valid; switching to Archive still pushes `?archived=true`
+    // onto the URL.
+    test('clicking Archive tab adds archived=true to URL', async ({ asAdmin: page }) => {
       await page.goto('/crm/users')
-      await page.getByTestId('users-toggle-archived').check()
+      await page.getByTestId('users-toggle-archived').click()
       await expect(page).toHaveURL(/archived=true/)
     })
 
-    test('uncheck removes archived from URL', async ({ asAdmin: page }) => {
+    test('switching away from Archive tab removes archived from URL', async ({ asAdmin: page }) => {
       await page.goto('/crm/users?archived=true')
-      const tg = page.getByTestId('users-toggle-archived')
-      await expect(tg).toBeChecked()
-      await tg.uncheck()
+      const archiveTab = page.getByTestId('users-toggle-archived')
+      await expect(archiveTab).toHaveAttribute('aria-selected', 'true')
+      // Click «Активные» to switch tabs.
+      await page.getByTestId('users-status-tabs-ACTIVE').click()
       await expect(page).not.toHaveURL(/archived=true/)
     })
   })

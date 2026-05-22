@@ -1,8 +1,8 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowDown, ArrowUp, Plus, Search } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import { Archive, ArrowDown, ArrowUp, Plus, Search } from 'lucide-react'
+import { useMemo, useRef, useState, useTransition } from 'react'
 import { z } from 'zod'
 import type { UserProfileDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
@@ -10,7 +10,6 @@ import { api } from '@/lib/axios'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -18,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ArchiveConfirmDialog } from '@/components/users/ArchiveConfirmDialog'
 import { UserDialog } from '@/components/users/UserDialog'
@@ -42,8 +42,10 @@ export const Route = createFileRoute('/crm/users/')({
   component: UsersPage,
 })
 
-async function fetchUsers(archived: boolean): Promise<UserProfileDto[]> {
-  const res = await api.get<UserProfileDto[]>(`/users${archived ? '?archived=true' : ''}`)
+async function fetchUsers(archivedQuery: '' | 'true' | 'all'): Promise<UserProfileDto[]> {
+  const res = await api.get<UserProfileDto[]>(
+    `/users${archivedQuery ? `?archived=${archivedQuery}` : ''}`,
+  )
   return res.data
 }
 
@@ -83,6 +85,8 @@ function UsersPage() {
   )
 }
 
+type StatusTab = 'ALL' | 'ACTIVE' | 'ARCHIVED'
+
 function UsersPageContent({
   meId,
   showArchived,
@@ -100,15 +104,48 @@ function UsersPageContent({
   const [createKey, setCreateKey] = useState(0)
   const [editUser, setEditUser] = useState<UserProfileDto | null>(null)
   const [archiveUser, setArchiveUser] = useState<UserProfileDto | null>(null)
+  // ut-44: tri-state filter — local "ACTIVE" / "ALL" plus URL-driven "ARCHIVED".
+  // Persisting only ARCHIVED in URL keeps deep-links to "active" simple and
+  // matches the team / projects pages.
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE'>('ACTIVE')
   // Manual focus restoration for the create-dialog: since the dialog is opened
   // programmatically (not via Radix DialogTrigger) it can't auto-restore focus
   // to the trigger on close — we refocus it ourselves.
   const createTriggerRef = useRef<HTMLButtonElement>(null)
 
+  // ut-44: archivedQuery — '' (active) / 'all' / 'true' depending on the
+  // current status tab. URL `archived=true` still selects the archived tab,
+  // matching projects and teams pages.
+  const currentStatusTab: StatusTab = showArchived ? 'ARCHIVED' : statusFilter
+  const archivedQuery: '' | 'true' | 'all' =
+    currentStatusTab === 'ARCHIVED' ? 'true' : currentStatusTab === 'ALL' ? 'all' : ''
+
   const { data: users, isLoading } = useQuery({
-    queryKey: ['users-admin', { archived: showArchived }],
-    queryFn: () => fetchUsers(showArchived),
+    queryKey: ['users-admin', { archived: archivedQuery || 'active' }],
+    queryFn: () => fetchUsers(archivedQuery),
+    placeholderData: keepPreviousData,
   })
+
+  const [, startTransition] = useTransition()
+
+  const handleStatusTabChange = (next: StatusTab) => {
+    // ut-32: wrap in startTransition so the SegmentedToggle's layout pill
+    // animation isn't cancelled by the suspended render of the new query.
+    startTransition(() => {
+      if (next === 'ARCHIVED') {
+        onToggleArchived(true)
+        return
+      }
+      if (showArchived) onToggleArchived(false)
+      setStatusFilter(next === 'ALL' ? 'ALL' : 'ACTIVE')
+    })
+  }
+
+  const statusTabs: ReadonlyArray<SegmentedToggleOption<StatusTab>> = [
+    { value: 'ALL', label: 'Все' },
+    { value: 'ACTIVE', label: 'Активные' },
+    { value: 'ARCHIVED', label: 'Архив', testId: 'users-toggle-archived', icon: Archive },
+  ]
 
   const filtered = useMemo(() => {
     if (!users) return []
@@ -173,7 +210,8 @@ function UsersPageContent({
           <h1 className="text-2xl font-bold tracking-tight">Пользователи</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             {isLoading ? '...' : `${filtered.length} из ${users?.length ?? 0}`}
-            {showArchived && ' · архив'}
+            {currentStatusTab === 'ARCHIVED' && ' · архив'}
+            {currentStatusTab === 'ALL' && ' · все'}
           </p>
         </div>
         <Button
@@ -189,7 +227,25 @@ function UsersPageContent({
         </Button>
       </motion.div>
 
-      {/* Filters */}
+      {/* ut-44: status tabs row — «Все | Активные | Архив». Replaces the
+          legacy «Показать архивных» checkbox; the archive tab keeps the
+          `users-toggle-archived` testid so existing E2E (and admin URL
+          deep-links via ?archived=true) continue to work. */}
+      <SegmentedToggle<StatusTab>
+        value={currentStatusTab}
+        onChange={handleStatusTabChange}
+        options={statusTabs}
+        ariaLabel="Фильтр пользователей"
+        variant="tabs"
+        size="sm"
+        layoutId="users-status-tabs"
+        className="w-fit"
+        testId="users-status-tabs"
+      />
+
+      {/* ut-43: unified toolbar — search + role filter + sort key + direction.
+          Same shape as projects + team toolbars (Search input, per-page
+          filters, sort dropdown + direction toggle button). */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -254,20 +310,6 @@ function UsersPageContent({
                 <ArrowDown className="h-4 w-4" />
               )}
             </Button>
-
-            <Label
-              className="flex items-center gap-2 cursor-pointer text-sm select-none ml-1"
-              data-testid="users-toggle-archived-label"
-            >
-              <input
-                type="checkbox"
-                checked={showArchived}
-                onChange={(e) => onToggleArchived(e.target.checked)}
-                className="accent-primary h-4 w-4 cursor-pointer"
-                data-testid="users-toggle-archived"
-              />
-              Показать архивных
-            </Label>
           </CardContent>
         </Card>
       </motion.div>

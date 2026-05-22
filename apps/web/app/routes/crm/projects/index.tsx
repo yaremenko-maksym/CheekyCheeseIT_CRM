@@ -1,17 +1,17 @@
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useForm, type FieldApi } from '@tanstack/react-form'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import {
   Archive,
+  ArrowDown,
+  ArrowUp,
   Briefcase,
-  Calendar,
-  Code2,
-  DollarSign,
   Plus,
+  Search,
 } from 'lucide-react'
-import { useState, useTransition } from 'react'
+import { useMemo, useState, useTransition } from 'react'
 import { z } from 'zod'
 import type { CreateProjectDto, ProjectDto, ProjectMemberDto, ItDomain } from '@crm/shared'
 import { createProjectSchema, IT_DOMAINS } from '@crm/shared'
@@ -19,10 +19,8 @@ import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import {
   Dialog,
   CrmDialogContent,
@@ -35,10 +33,20 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ReceiptField } from '@/components/ui/receipt-field'
 import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-currency-input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ProjectRow } from '@/components/projects/ProjectRow'
 
+// `archived` may arrive as a query-string ("true"/"false") for deep-links —
+// `z.coerce.boolean()` accepts both `boolean` and string forms safely.
 const projectsSearchSchema = z.object({
-  archived: z.boolean().optional(),
+  archived: z.coerce.boolean().optional(),
 })
 
 export const Route = createFileRoute('/crm/projects/')({
@@ -46,57 +54,15 @@ export const Route = createFileRoute('/crm/projects/')({
   component: ProjectsPage,
 })
 
-const ROLE_LABELS: Record<string, string> = {
-  ADMIN: 'Администратор',
-  SENIOR: 'Синьор',
-  JUNIOR: 'Джун',
-  HR: 'HR',
-  ACCOUNTANT: 'Бухгалтер',
-}
-
-const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accountant'> = {
-  ADMIN: 'admin',
-  SENIOR: 'senior',
-  JUNIOR: 'junior',
-  HR: 'hr',
-  ACCOUNTANT: 'accountant',
-}
-
 // Round 5: project lifecycle reduces to ACTIVE vs ARCHIVED — the legacy
-// CLOSED state is gone. Tabs: «Все | Активные | Архив». The «Архив» tab is
-// derived from the `?archived=true` URL search param; the other two stay
-// in local state.
-type Filter = 'ALL' | 'ACTIVE'
-type StatusTab = Filter | 'ARCHIVED'
+// CLOSED state is gone. Round 7 (ut-44): tabs are «Все | Активные | Архив»
+// for ADMIN; the «Все» tab fetches with `archived=all` and the «Архив»
+// tab continues to use `archived=true`.
+type StatusTab = 'ALL' | 'ACTIVE' | 'ARCHIVED'
 
-function getInitials(name: string) {
-  return (name || '?').split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
-}
+type ProjectSortKey = 'companyName' | 'rate' | 'startDate'
+type SortDir = 'asc' | 'desc'
 
-function TeamMemberRow({ userId, name, avatar, role }: { userId: string; name: string; avatar: string | null; role: string }) {
-  return (
-    <Link
-      to="/crm/profile/$userId"
-      params={{ userId }}
-      className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/50 transition-colors group"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <Avatar className="h-6 w-6 shrink-0">
-        {avatar && <AvatarImage src={avatar} alt={name} />}
-        <AvatarFallback className="text-[9px] font-semibold">{getInitials(name)}</AvatarFallback>
-      </Avatar>
-      <span className="text-xs font-medium text-foreground group-hover:text-primary transition-colors truncate flex-1">{name}</span>
-      <Badge variant={ROLE_VARIANT[role] ?? 'secondary'} className="text-[9px] px-1.5 py-0 h-4 shrink-0">
-        {ROLE_LABELS[role] ?? role}
-      </Badge>
-    </Link>
-  )
-}
-
-const container = {
-  hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.07 } },
-}
 const item = {
   hidden: { opacity: 0, y: 16 },
   show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.25, 0.1, 0.25, 1] as const } },
@@ -127,21 +93,34 @@ function ProjectsPage() {
   const canCreate = user?.role === 'ADMIN' || user?.role === 'HR'
   const isAdmin = user?.role === 'ADMIN'
 
-  const [filter, setFilter] = useState<Filter>('ALL')
+  // ut-44: tri-state tab — local "ACTIVE" / "ALL" state plus URL-driven "ARCHIVED".
+  // We don't use URL for ALL/ACTIVE so deep-linking still defaults to active.
+  const [filter, setFilter] = useState<StatusTab>('ALL')
   const [showCreate, setShowCreate] = useState(false)
   // ut-27 + ut-38: archive and unarchive actions removed from list cards;
   // both flows (including cascade restore for paired senior/team) live on the
   // project detail page header.
 
-  // ut-32: keepPreviousData + useTransition keep the previous list visible
-  // during the URL switch + refetch so the SegmentedToggle's gold-pill
-  // layout animation is never interrupted by a React render that throws
-  // the list into a skeleton/empty state mid-flight.
+  // ut-43: unified toolbar state — search + senior filter + sort.
+  const [searchQuery, setSearchQuery] = useState('')
+  const [seniorFilter, setSeniorFilter] = useState<string>('ALL')
+  const [sortKey, setSortKey] = useState<ProjectSortKey>('companyName')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+
+  // ut-32 / ut-44: keepPreviousData + useTransition keep the previous list
+  // visible during the URL switch + refetch so the SegmentedToggle's gold-pill
+  // layout animation isn't interrupted by a render that throws the list into
+  // a skeleton/empty state mid-flight. The `archivedQuery` derives the query
+  // param: ARCHIVED → `?archived=true`, ALL → `?archived=all`, ACTIVE → no
+  // param (default backend behaviour).
+  const currentTab: StatusTab = isArchivedView ? 'ARCHIVED' : filter
+  const archivedQuery =
+    currentTab === 'ARCHIVED' ? 'true' : currentTab === 'ALL' ? 'all' : ''
   const { data: projects, isLoading } = useQuery({
-    queryKey: ['projects', { archived: isArchivedView }],
+    queryKey: ['projects', { archived: archivedQuery || 'active' }],
     queryFn: () =>
       api
-        .get<ProjectDto[]>(`/projects${isArchivedView ? '?archived=true' : ''}`)
+        .get<ProjectDto[]>(`/projects${archivedQuery ? `?archived=${archivedQuery}` : ''}`)
         .then((r) => r.data),
     enabled: !!user,
     placeholderData: keepPreviousData,
@@ -208,10 +187,42 @@ function ProjectsPage() {
   // Archive is performed via `ArchiveConfirmDialog` (name-confirmation + impact warning)
   // — same UX as team / user archive, no inline mutation needed here.
 
-  // Round 5: with the CLOSED status gone, both ALL and ACTIVE tabs show the
-  // same set (all non-archived projects). The «Архив» tab uses the URL
-  // search param and a different query, so it doesn't go through this filter.
-  const filtered = projects ?? []
+  // ut-43: client-side filter pipeline — search → senior → sort.
+  const filtered = useMemo(() => {
+    if (!projects) return []
+    let list = [...projects]
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      list = list.filter(
+        (p) =>
+          p.companyName.toLowerCase().includes(q) ||
+          p.name.toLowerCase().includes(q) ||
+          p.seniorName.toLowerCase().includes(q) ||
+          (p.techStack ?? '').toLowerCase().includes(q),
+      )
+    }
+    if (isAdmin && seniorFilter !== 'ALL') {
+      list = list.filter((p) => p.seniorId === seniorFilter)
+    }
+    list.sort((a, b) => {
+      let av: string | number = ''
+      let bv: string | number = ''
+      if (sortKey === 'companyName') {
+        av = a.companyName
+        bv = b.companyName
+      } else if (sortKey === 'rate') {
+        av = a.rate
+        bv = b.rate
+      } else if (sortKey === 'startDate') {
+        av = new Date(a.startDate).getTime()
+        bv = new Date(b.startDate).getTime()
+      }
+      if (av < bv) return sortDir === 'asc' ? -1 : 1
+      if (av > bv) return sortDir === 'asc' ? 1 : -1
+      return 0
+    })
+    return list
+  }, [projects, searchQuery, seniorFilter, isAdmin, sortKey, sortDir])
 
   if (isLoading) {
     return (
@@ -219,17 +230,14 @@ function ProjectsPage() {
         <div className="flex items-center justify-between">
           <Skeleton className="h-7 w-32" />
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-64 rounded-xl" />
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-19 rounded-md" />
           ))}
         </div>
       </div>
     )
   }
-
-  // ut-25: derive currently-selected tab from URL (archived) + local filter
-  const currentTab: StatusTab = isArchivedView ? 'ARCHIVED' : filter
 
   const handleTabChange = (next: StatusTab) => {
     // ut-32: wrap the URL/state change in startTransition so React can keep
@@ -244,7 +252,8 @@ function ProjectsPage() {
       if (isArchivedView) {
         navigate({ to: '/crm/projects', search: {} })
       }
-      setFilter(next)
+      // ALL or ACTIVE — both kept in local state.
+      setFilter(next === 'ALL' ? 'ALL' : 'ACTIVE')
     })
   }
 
@@ -277,7 +286,7 @@ function ProjectsPage() {
         </div>
       </div>
 
-      {/* ut-25 + ut-26 + ut-33: status tabs row, unified through SegmentedToggle */}
+      {/* ut-25 + ut-26 + ut-33 + ut-44: status tabs row */}
       <SegmentedToggle<StatusTab>
         value={currentTab}
         onChange={handleTabChange}
@@ -289,6 +298,63 @@ function ProjectsPage() {
         className="w-fit"
         testId="projects-status-tabs"
       />
+
+      {/* ut-43: unified toolbar — search + senior filter (ADMIN) + sort key + direction */}
+      <Card>
+        <CardContent className="flex flex-wrap items-center gap-3 pt-4 pb-4">
+          <div className="relative flex-1 min-w-50">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Поиск по компании, проекту, синьору…"
+              className="pl-8"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              data-testid="projects-search-input"
+            />
+          </div>
+
+          {isAdmin && seniorUsers.length > 0 && (
+            <Select value={seniorFilter} onValueChange={setSeniorFilter}>
+              <SelectTrigger className="w-44" data-testid="projects-senior-filter">
+                <SelectValue placeholder="Все синьоры" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">Все синьоры</SelectItem>
+                {seniorUsers.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.displayName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          <div className="hidden h-6 w-px bg-border sm:block" aria-hidden />
+
+          <Select value={sortKey} onValueChange={(v) => setSortKey(v as ProjectSortKey)}>
+            <SelectTrigger className="w-52" data-testid="projects-sort-key">
+              <SelectValue placeholder="Сортировка" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="companyName">По компании</SelectItem>
+              <SelectItem value="rate">По ставке</SelectItem>
+              <SelectItem value="startDate">По дате начала</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+            aria-label={`Направление сортировки: ${sortDir === 'asc' ? 'По возрастанию' : 'По убыванию'}`}
+            data-testid="projects-sort-direction"
+            data-dir={sortDir}
+            className="h-9 w-9"
+          >
+            {sortDir === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* Empty state */}
       {filtered.length === 0 && (
@@ -306,115 +372,38 @@ function ProjectsPage() {
         </div>
       )}
 
-      {/* Project cards */}
-      <motion.div
-        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
-        variants={container}
-        initial="hidden"
-        animate="show"
-      >
-        <AnimatePresence mode="popLayout" initial={false}>
-        {filtered.map((project) => {
-          // ut-34: card preview shows only SENIOR + JUNIOR(s). HR / accountant
-          // / future-other roles are intentionally hidden in the list — they
-          // remain visible on the project detail page. Empty state «Нет джуна»
-          // is rendered when there are no active juniors so the slot stays
-          // visually consistent across all cards.
-          const activeMembers = project.members.filter((m) => m.leftAt === null)
-          const activeJuniors = activeMembers.filter((m) => m.role === 'JUNIOR')
-          const isArchived = !!project.archivedAt
-
-          return (
-            <motion.div
-              key={project.id}
-              variants={item}
-              layout="position"
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.08, ease: 'easeOut' }}
-            >
-              <Card
-                data-testid={`project-card-${project.id}`}
-                data-archived={isArchived ? 'true' : 'false'}
-                className={cn(
-                  'flex flex-col transition-all cursor-pointer hover:border-primary/40 hover:shadow-md hover:shadow-primary/5',
-                  isArchived && 'opacity-60',
-                )}
-                onClick={() => navigate({ to: '/crm/projects/$projectId', params: { projectId: project.id } })}
-              >
-                <CardHeader className="pb-3">
-                  <div className="flex items-start gap-3">
-                    <Avatar className="h-10 w-10 shrink-0 rounded-lg border border-border">
-                      {project.logoUrl && <AvatarImage src={project.logoUrl} alt={project.companyName} className="object-contain" />}
-                      <AvatarFallback className="rounded-lg text-xs font-semibold">{getInitials(project.companyName)}</AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          className={cn(
-                            'mt-0.5 h-1.5 w-1.5 rounded-full shrink-0',
-                            isArchived ? 'bg-muted-foreground/40' : 'bg-emerald-500',
-                          )}
-                        />
-                        <p className="font-semibold text-base truncate leading-tight">{project.companyName}</p>
-                      </div>
-                      <p className="mt-0.5 text-sm text-muted-foreground truncate">{project.name}</p>
-                    </div>
-                    {/* ut-27 + ut-38: trash & unarchive controls removed from
-                        list cards. Both archive and unarchive are now driven
-                        from the project detail page header — clicking the card
-                        navigates into it. */}
-                    <div className="flex items-center gap-1 shrink-0">
-                      {isArchived && (
-                        <Badge
-                          variant="outline"
-                          className="border-amber-500/30 bg-amber-500/10 text-amber-500 text-[10px]"
-                        >
-                          В архиве
-                        </Badge>
-                      )}
-                      <Badge variant="outline" className="text-[10px]">{project.domain}</Badge>
-                    </div>
-                  </div>
-                </CardHeader>
-
-                <CardContent className="flex-1 space-y-3">
-                  {/* Rate */}
-                  <div className="flex items-center gap-2 text-sm">
-                    <DollarSign className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    <span className="text-muted-foreground">Ставка:</span>
-                    <span className="font-medium">{project.rate.toLocaleString()} {project.currency}</span>
-                  </div>
-
-                  {/* Dates — round 5: only start date shown; archive timestamp is admin-only on detail page. */}
-                  <div className="flex items-center gap-2 text-sm">
-                    <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    <span className="text-muted-foreground">Старт:</span>
-                    <span className="font-medium">
-                      {new Date(project.startDate).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                    </span>
-                  </div>
-
-                  {/* ut-34: SENIOR + JUNIOR(s) only in card preview */}
-                  <div className="border-t border-border pt-3 space-y-1.5">
-                    <TeamMemberRow userId={project.seniorId} name={project.seniorName} avatar={null} role="SENIOR" />
-                    {activeJuniors.length === 0 ? (
-                      <div className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-destructive/5 border border-destructive/20">
-                        <Code2 className="h-3 w-3 text-destructive/60 shrink-0" />
-                        <span className="text-xs text-destructive/80">Нет джуна</span>
-                      </div>
-                    ) : (
-                      activeJuniors.map((m) => (
-                        <TeamMemberRow key={m.id} userId={m.userId} name={m.displayName} avatar={m.avatar} role="JUNIOR" />
-                      ))
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+      {/* ut-41 + ut-42: row-list layout (was grid cards). Legacy
+          `project-card-${id}` testid is preserved on the outer wrapper so
+          existing E2E specs keep working; new `project-row-${id}` lives on
+          the inner ProjectRow. */}
+      {filtered.length > 0 && (
+        <Card>
+          <CardContent className="p-3">
+            <motion.div className="space-y-1" data-testid="projects-list">
+              <AnimatePresence mode="popLayout" initial={false}>
+                {filtered.map((project) => {
+                  const isArchived = !!project.archivedAt
+                  return (
+                    <motion.div
+                      key={project.id}
+                      variants={item}
+                      layout="position"
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.08, ease: 'easeOut' }}
+                      data-testid={`project-card-${project.id}`}
+                      data-archived={isArchived ? 'true' : 'false'}
+                    >
+                      <ProjectRow project={project} />
+                    </motion.div>
+                  )
+                })}
+              </AnimatePresence>
             </motion.div>
-          )
-        })}
-        </AnimatePresence>
-      </motion.div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Create project dialog ── */}
       <Dialog open={showCreate} onOpenChange={(open) => { if (!open) { setShowCreate(false); createForm.reset() } }}>

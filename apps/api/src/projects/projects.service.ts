@@ -88,10 +88,17 @@ export class ProjectsService {
     return seniors.map((r) => r.userId)
   }
 
-  async findAll(currentUser: SessionUser, filter: { archived?: boolean } = {}) {
-    const archived = filter.archived === true
+  async findAll(currentUser: SessionUser, filter: { archived?: boolean | 'all' } = {}) {
+    // round 7 (ut-44): tri-state filter — `'all'` returns both active and
+    // archived projects (used by the «Все» tab); boolean keeps legacy behavior.
+    const archivedWhere =
+      filter.archived === 'all'
+        ? undefined
+        : filter.archived === true
+          ? isNotNull(projects.archivedAt)
+          : isNull(projects.archivedAt)
     const allProjects = await this.db.db.query.projects.findMany({
-      where: archived ? isNotNull(projects.archivedAt) : isNull(projects.archivedAt),
+      ...(archivedWhere ? { where: archivedWhere } : {}),
       with: { senior: true, members: { with: { user: true } } },
     })
 
