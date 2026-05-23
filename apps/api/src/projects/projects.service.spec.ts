@@ -323,6 +323,61 @@ describe('ProjectsService.update — seniorSharePercentOverride RBAC', () => {
       h.service.update('ghost', { seniorSharePercentOverride: 30 }, adminUser),
     ).rejects.toThrow(NotFoundException)
   })
+
+  // -----------------------------------------------------------------------
+  // PR #39 round 2: implicit null detection. UI больше не имеет toggle/
+  // «Сбросить» — слайдер всегда виден. Когда payload value === senior's
+  // эффективному дефолту → backend пишет null (implicit reset).
+  // -----------------------------------------------------------------------
+
+  it('implicit-null: ADMIN PATCH с value === senior default (26) → projects.* = null, finance_settings.* = null', async () => {
+    const h = buildHarness({ seniorSharePercentOverride: 30 })
+    // Pre-seed finance_settings так чтобы exercised update-путь, не insert.
+    h.financeRows.push({
+      id: 'fs-1',
+      projectId: 'proj-1',
+      seniorSharePercentOverride: 30,
+      juniorSalaryOverride: null,
+      updatedBy: 'admin-1',
+      updatedAt: new Date(),
+    })
+    // Senior default = 26 (из default-харности). Слайдер выставлен на 26.
+    await h.service.update(
+      'proj-1',
+      { seniorSharePercentOverride: 26 },
+      adminUser,
+    )
+    // Записалось null, а не 26.
+    expect(h.projectRow.seniorSharePercentOverride).toBeNull()
+    expect(h.financeRows[0]?.seniorSharePercentOverride).toBeNull()
+    // Audit log зафиксировал переход 30 → null (implicit reset), не 30 → 26.
+    expect(h.auditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changes: expect.objectContaining({
+          seniorSharePercentOverride: { before: 30, after: null },
+        }),
+      }),
+    )
+  })
+
+  it('implicit-null: ADMIN PATCH с value !== senior default (35) → projects.* = 35, finance_settings.* = 35', async () => {
+    const h = buildHarness()
+    await h.service.update(
+      'proj-1',
+      { seniorSharePercentOverride: 35 },
+      adminUser,
+    )
+    // Записалось число (35 ≠ 26), не null.
+    expect(h.projectRow.seniorSharePercentOverride).toBe(35)
+    expect(h.financeRows[0]?.seniorSharePercentOverride).toBe(35)
+    expect(h.auditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changes: expect.objectContaining({
+          seniorSharePercentOverride: { before: null, after: 35 },
+        }),
+      }),
+    )
+  })
 })
 
 // ---------------------------------------------------------------------------

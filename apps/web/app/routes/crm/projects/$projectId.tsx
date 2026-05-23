@@ -17,7 +17,6 @@ import {
   Pencil,
   Percent,
   RefreshCw,
-  RotateCcw,
   StickyNote,
   UserMinus,
   UserPlus,
@@ -131,11 +130,14 @@ function ProjectEditFields({
   mode,
   canEditOverride,
   defaultSharePercent,
+  viewerRole,
 }: {
   form: AnyForm
   mode: 'info' | 'members'
   canEditOverride: boolean
   defaultSharePercent: number
+  // ut-fix-round2: HR теряет видимость секции с долей синьора целиком (не disabled).
+  viewerRole: string | undefined
 }) {
   if (mode === 'info') {
     return (
@@ -301,102 +303,61 @@ function ProjectEditFields({
           )}
         </form.Subscribe>
 
-        {/* Per-project SENIOR share override — editable only by ADMIN and
-            ACCOUNTANT. Visible to all roles that see the form (HR sees both
-            controls disabled). The override is a nullable field, so we expose
-            it through a two-stage UI: a checkbox decides whether the override
-            exists at all (off = `null` → use `defaultSharePercent`), and when
-            it's on the actual % is driven by <ShareSlider> (the same control
-            used in UserDialog + TeamPage to set the global default). */}
-        <form.Field
-          name="seniorSharePercentOverride"
-          validators={{
-            onBlur: ({ value }: { value: number | null }) => {
-              if (value === null || value === undefined || (value as unknown as string) === '') return undefined
-              const num = Number(value)
-              if (!Number.isInteger(num) || num < 0 || num > 100) {
-                return 'Введите целое число от 0 до 100'
-              }
-              return undefined
-            },
-          }}
-        >
-          {(field: AnyField) => {
-            const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
-            const raw = field.state.value as number | null
-            const enabled = raw !== null && raw !== undefined
-            const sliderValue = enabled ? (raw as number) : defaultSharePercent
-            return (
-              <div className="space-y-2">
-                <Label className={cn(err && 'text-destructive')}>
-                  Доля синьора на проекте, %
-                </Label>
-                <label
-                  className={cn(
-                    'flex items-center gap-2 text-sm cursor-pointer select-none',
-                    !canEditOverride && 'cursor-not-allowed opacity-70',
-                  )}
-                >
-                  <input
-                    type="checkbox"
-                    checked={enabled}
+        {/* Per-project SENIOR share — round-3 UI (PR #39 round 2):
+            ShareSlider всегда виден; implicit reset (когда value === default —
+            backend пишет null). Toggle/Сбросить упразднены. RBAC: HR теперь
+            СЕКЦИЮ не видит вообще (фильтрация выше через viewerRole), а у
+            не-ADMIN/ACCOUNTANT слайдер disabled. */}
+        {viewerRole !== 'HR' && (
+          <form.Field
+            name="seniorSharePercentOverride"
+            validators={{
+              onBlur: ({ value }: { value: number | null }) => {
+                if (value === null || value === undefined || (value as unknown as string) === '') return undefined
+                const num = Number(value)
+                if (!Number.isInteger(num) || num < 0 || num > 100) {
+                  return 'Введите целое число от 0 до 100'
+                }
+                return undefined
+              },
+            }}
+          >
+            {(field: AnyField) => {
+              const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
+              const raw = field.state.value as number | null
+              const hasOverride = raw !== null && raw !== undefined
+              // Initial / current slider value — effective % (override OR default).
+              const sliderValue = hasOverride ? (raw as number) : defaultSharePercent
+              return (
+                <div className="space-y-2" data-testid="project-edit-senior-share-section">
+                  <Label className={cn(err && 'text-destructive')}>
+                    Доля синьора (%)
+                  </Label>
+                  <ShareSlider
+                    value={sliderValue}
+                    min={0}
+                    max={100}
                     disabled={!canEditOverride}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        // Turning on → seed with the project's current
-                        // default % so the slider starts at a sensible value.
-                        field.handleChange(defaultSharePercent)
-                      } else {
-                        field.handleChange(null)
-                      }
-                    }}
-                    className="h-4 w-4 accent-primary cursor-pointer disabled:cursor-not-allowed"
-                    data-testid="project-edit-senior-share-toggle"
+                    onChange={(v) => field.handleChange(v)}
+                    onBlur={field.handleBlur}
+                    error={!!err}
+                    inputTestId="project-edit-senior-share-override"
                   />
-                  <span>Использовать переопределение для этого проекта</span>
-                </label>
-                {enabled ? (
-                  <div className="space-y-1.5">
-                    <ShareSlider
-                      value={sliderValue}
-                      min={0}
-                      max={100}
-                      disabled={!canEditOverride}
-                      onChange={(v) => field.handleChange(v)}
-                      onBlur={field.handleBlur}
-                      error={!!err}
-                      inputTestId="project-edit-senior-share-override"
-                    />
-                    <div className="flex justify-end">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => field.handleChange(null)}
-                        disabled={!canEditOverride}
-                        data-testid="project-edit-senior-share-reset"
-                        className="gap-1.5 h-7 text-xs"
-                      >
-                        <RotateCcw className="h-3 w-3" />
-                        Сбросить
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
                   <p className="text-xs text-muted-foreground">
-                    Используется доля синьера по умолчанию: {defaultSharePercent}%.
+                    По умолчанию: {defaultSharePercent}%. Установите то же
+                    значение, чтобы сбросить переопределение.
                   </p>
-                )}
-                {!canEditOverride && (
-                  <p className="text-xs text-muted-foreground italic">
-                    Менять может только ADMIN или ACCOUNTANT.
-                  </p>
-                )}
-                {err && <p className="text-xs text-destructive">{err}</p>}
-              </div>
-            )
-          }}
-        </form.Field>
+                  {!canEditOverride && (
+                    <p className="text-xs text-muted-foreground italic">
+                      Менять может только ADMIN или ACCOUNTANT.
+                    </p>
+                  )}
+                  {err && <p className="text-xs text-destructive">{err}</p>}
+                </div>
+              )
+            }}
+          </form.Field>
+        )}
       </div>
     )
   }
@@ -497,6 +458,11 @@ function ProjectDetailPage() {
   // `seniorSharePercentOverride` (backend enforces field-scoped RBAC).
   const canOpenEdit = canManage || user?.role === 'ACCOUNTANT'
   const canRemoveMembers = isAdmin
+  // ut-fix-round2 (PR #39 round 2): HR не видит финансовую информацию по
+  // проекту — табу «Финансы», info-row «Доля синьора» в Обзоре и секцию
+  // ShareSlider в edit-форме. JUNIOR в этот роут вообще не пускают.
+  // ADMIN/ACCOUNTANT/SENIOR видят всё (SENIOR — read-only).
+  const canSeeProjectFinance = user?.role !== 'HR'
 
   const [editOpen, setEditOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
@@ -542,10 +508,12 @@ function ProjectDetailPage() {
       notesGeneral: project?.notesGeneral ?? '',
     },
     onSubmit: async ({ value }) => {
-      // Only include `seniorSharePercentOverride` in the PATCH payload when
-      // the caller is allowed to change it AND it actually differs from the
-      // server snapshot. This keeps HR/SENIOR/JUNIOR PATCHes from triggering
-      // the field-RBAC check on the backend.
+      // Round-3 (PR #39 round 2): ShareSlider всегда виден (для не-HR), нет
+      // toggle/Сбросить. Implicit reset: если слайдер === default — фронт всё
+      // равно шлёт значение, а backend пишет null. Поэтому передаём поле
+      // когда оно НА САМОМ ДЕЛЕ изменилось vs. серверный snapshot AND
+      // пользователь может его редактировать. HR/SENIOR/JUNIOR ничего не
+      // отправляют (canEditOverride=false).
       const overrideChanged =
         canEditOverride &&
         (value.seniorSharePercentOverride ?? null) !== (project?.seniorSharePercentOverride ?? null)
@@ -812,7 +780,9 @@ return (
       </motion.div>
 
       {/* ut-29 + ut-33: project detail tabs — unified through SegmentedToggle
-          variant="tabs" (same yellow page-level styling as projects list). */}
+          variant="tabs" (same yellow page-level styling as projects list).
+          ut-fix-round2: «Финансы» табу видят только не-HR (ADMIN/ACCOUNTANT/
+          SENIOR). HR на ?tab=finance — fallback на «Обзор». */}
       {(() => {
         type ProjectTab = 'overview' | 'members' | 'audit' | 'finance'
         const tabOptions: ReadonlyArray<SegmentedToggleOption<ProjectTab>> = [
@@ -821,11 +791,16 @@ return (
           ...(isAdmin
             ? ([{ value: 'audit', label: 'История изменений', testId: 'tab-audit' }] as const)
             : []),
-          { value: 'finance', label: 'Финансы', testId: 'tab-finance' },
+          ...(canSeeProjectFinance
+            ? ([{ value: 'finance', label: 'Финансы', testId: 'tab-finance' }] as const)
+            : []),
         ]
+        // Fallback: если HR оказался на «finance» табе — переключить на «overview».
+        const safeActiveTab: ProjectTab =
+          activeTab === 'finance' && !canSeeProjectFinance ? 'overview' : (activeTab as ProjectTab)
         return (
           <SegmentedToggle<ProjectTab>
-            value={activeTab as ProjectTab}
+            value={safeActiveTab}
             onChange={(v) => setActiveTab(v)}
             options={tabOptions}
             ariaLabel="Разделы проекта"
@@ -905,10 +880,12 @@ return (
             {/* Per-project SENIOR share — read-only view. Renders the same
                 ProjectShareInfo widget used in the Финансы по проекту section
                 below so the two stay in sync. RBAC enforcement lives at the
-                API layer. */}
-            <InfoRow icon={<Percent className="h-3.5 w-3.5" />} label="Доля синьора">
-              <ProjectShareInfo project={project} />
-            </InfoRow>
+                API layer; UI ut-fix-round2 also hides this row for HR. */}
+            {canSeeProjectFinance && (
+              <InfoRow icon={<Percent className="h-3.5 w-3.5" />} label="Доля синьора">
+                <ProjectShareInfo project={project} />
+              </InfoRow>
+            )}
           </CardContent>
         </Card>
 
@@ -1017,7 +994,7 @@ return (
       </motion.div>
       )}
 
-      {activeTab === 'finance' && (
+      {activeTab === 'finance' && canSeeProjectFinance && (
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -1042,6 +1019,7 @@ return (
                   mode="info"
                   canEditOverride={canEditOverride}
                   defaultSharePercent={project.seniorSharePercentDefault}
+                  viewerRole={user?.role}
                 />
               )}
             </div>

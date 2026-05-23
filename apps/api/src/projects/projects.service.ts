@@ -358,6 +358,22 @@ export class ProjectsService {
 
     if (!project) throw new NotFoundException('Project not found')
 
+    // Round-3 implicit-null detection (PR #39 round 2): UI больше не имеет
+    // toggle/«Сбросить» — слайдер всегда виден. Когда ADMIN/ACCOUNTANT
+    // ставит значение === эффективному дефолту синьера, мы интерпретируем
+    // это как сброс переопределения (пишем `null`). Иначе — пишем число.
+    // Это касается и `projects.seniorSharePercentOverride`, и mirror в
+    // `project_finance_settings.seniorSharePercentOverride`.
+    const seniorDefault = project.senior?.seniorSharePercent ?? 26
+    const overrideEffective: number | null | undefined =
+      data.seniorSharePercentOverride === undefined
+        ? undefined
+        : data.seniorSharePercentOverride === null
+          ? null
+          : data.seniorSharePercentOverride === seniorDefault
+            ? null
+            : data.seniorSharePercentOverride
+
     const updateData: Partial<typeof projects.$inferInsert> = {
       updatedAt: new Date(),
     }
@@ -367,8 +383,8 @@ export class ProjectsService {
     if (data.logoUrl !== undefined) updateData.logoUrl = data.logoUrl ?? null
     if (data.rate !== undefined) updateData.rate = data.rate
     if (data.currency !== undefined) updateData.currency = data.currency
-    if (data.seniorSharePercentOverride !== undefined) {
-      updateData.seniorSharePercentOverride = data.seniorSharePercentOverride
+    if (overrideEffective !== undefined) {
+      updateData.seniorSharePercentOverride = overrideEffective
     }
     if (data.techStack !== undefined) updateData.techStack = data.techStack ?? null
     if (data.teamSize !== undefined) updateData.teamSize = data.teamSize ?? null
@@ -382,17 +398,18 @@ export class ProjectsService {
 
     // Mirror override into project_finance_settings so existing finance
     // snapshot logic continues to pick up the new value for SENIOR_INCOME.
-    if (data.seniorSharePercentOverride !== undefined) {
+    // Audit log пишет diff с уже-resolved значением (implicit null применился).
+    if (overrideEffective !== undefined) {
       await this.syncFinanceSettingsOverride(
         id,
-        data.seniorSharePercentOverride,
+        overrideEffective,
         currentUser.id,
       )
 
       // Record the change in audit log so admin diffs include the override.
       if (
         project.seniorSharePercentOverride !==
-        data.seniorSharePercentOverride
+        overrideEffective
       ) {
         await this.projectAuditLogService.record({
           actorId: currentUser.id,
@@ -401,7 +418,7 @@ export class ProjectsService {
           changes: {
             seniorSharePercentOverride: {
               before: project.seniorSharePercentOverride ?? null,
-              after: data.seniorSharePercentOverride,
+              after: overrideEffective,
             },
           },
         })
