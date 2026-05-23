@@ -1231,6 +1231,7 @@ function ProjectTransactions({ projectId }: { projectId: string }) {
                       tx={tx}
                       role={user.role}
                       rates={rates}
+                      currentUserId={user.id}
                       onClick={setSelected}
                     />
                   ))}

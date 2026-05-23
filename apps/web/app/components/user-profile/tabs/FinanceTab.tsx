@@ -175,6 +175,7 @@ export function FinanceTab({ userId }: { userId: string }) {
                       tx={tx}
                       role={role}
                       rates={rates}
+                      currentUserId={viewer?.id ?? null}
                       onClick={setDetailTx}
                     />
                   ))}

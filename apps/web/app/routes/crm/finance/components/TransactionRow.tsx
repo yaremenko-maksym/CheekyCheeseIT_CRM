@@ -133,6 +133,7 @@ export function TransactionRow({
   tx,
   role,
   rates,
+  currentUserId,
   onValidate,
   onEdit,
   onAdminEdit,
@@ -143,6 +144,8 @@ export function TransactionRow({
   tx: TransactionDto
   role: string
   rates: ExchangeRates | undefined
+  /** Used to scope "Доля: X%" visibility for SENIOR (only own rows). */
+  currentUserId?: string | null
   onValidate?: (tx: TransactionDto) => void
   onEdit?: (tx: TransactionDto) => void
   onAdminEdit?: (tx: TransactionDto) => void
@@ -201,6 +204,20 @@ export function TransactionRow({
         {tx.currency !== 'USD' && tx.currency !== 'USDT' && (
           <p className="text-[11px] text-muted-foreground font-normal">{fmtAmount(tx.amount, tx.currency)}</p>
         )}
+        {/* SENIOR_INCOME — show the snapshot share % so ADMIN/ACCOUNTANT/SENIOR
+            can see what split this row will use at payout time. The snapshot
+            is immutable (set on creation), so historical rows keep their
+            original % even if the project override changes later. */}
+        {tx.type === 'SENIOR_INCOME' &&
+          tx.seniorSharePercent !== null &&
+          (isAdmin || isAccountant || (isSenior && tx.receiverId === currentUserId)) && (
+            <p
+              className="text-[11px] text-muted-foreground font-normal"
+              data-testid={`tx-row-senior-share-${tx.id}`}
+            >
+              Доля: {tx.seniorSharePercent}%
+            </p>
+          )}
       </td>
 
       <td className="py-3 px-4 text-xs text-muted-foreground whitespace-nowrap">
