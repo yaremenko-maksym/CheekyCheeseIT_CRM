@@ -185,6 +185,46 @@ grep -rn "getByText\|getByRole\|locator\|data-testid" apps/e2e/tests/ | grep "<�
 
 Правило: если элемент имеет тот же href или текст что и пункт nav-sidebar → **обязателен data-testid**.
 
+### 6.7 E2E тесты локально ОБЯЗАТЕЛЬНЫ перед push (на UI-задачах)
+
+Если PR трогает `apps/web/**` ИЛИ `apps/e2e/**` — **прогнать локально Playwright перед push**:
+
+```bash
+# Поднять dev-серверы в фоне если ещё не подняты
+pnpm dev &
+# Дождаться готовности (или скрипт prep-user-testing.sh)
+# Прогнать E2E
+pnpm --filter @crm/e2e test
+```
+
+**Почему обязательно (а не «полагайся на CI»):**
+- На GitHub должен идти валидный код. CI красный → блокирует main, тратит ресурсы команды.
+- Reviewer ловит проблемы быстрее когда CI зелёный с первого пуша.
+- Selector-расхождения после UI-правок ловятся ТОЛЬКО Playwright'ом, не TypeScript'ом.
+
+См. `feedback_e2e_before_push.md` в user memory — это правило обязательно.
+
+Если E2E падают — НЕ пушить. Исправить локально (либо UI, либо тесты) и только потом push.
+
+### 7. Task chunking — для задач > 3 файлов или > 30 мин
+
+Большие задачи Coder часто обрываются на cutoff (~12 мин / ~200k tokens) с одним финальным незавершённым коммитом. Результат: PM достаёт незакоммиченную работу из worktree вручную.
+
+**Правило: если задача охватывает > 3 файлов ИЛИ ожидается > 30 мин работы → дробить на milestones и пушить incremental commits.**
+
+Workflow:
+1. Coder читает task-файл, определяет milestones (типично 2-4 группы по теме: «shared schemas», «backend service», «UI list», «UI detail»)
+2. После КАЖДОГО milestone — `git add <конкретные файлы> && git commit -m "wip(<scope>): <milestone>" && git push`
+3. `wip:` префикс — маркер незавершённости. Pre-push hook `coder-pre-push.sh` НЕ требует `ac_verified:` на `wip:` коммитах (только на финальном).
+4. Финальный коммит закрывает все AC: `git commit -m "feat(<scope>): <summary>\n\nac_verified: 1,2,3,4,5\nvision: ✓ /crm/<route>"` и `git push`.
+
+**Что это даёт:**
+- Если Coder обрывается на milestone 3 из 4 — milestones 1-3 уже в репо. PM знает где остановиться и может перезапустить Coder с шага 4.
+- PR diff виден инкрементально (легче ревью).
+- Reviewer и AutoTest могут начинать смотреть после первого зелёного CI на wip-коммите.
+
+**ВАЖНО:** PR open'ится после ПЕРВОГО wip-push (gh pr create), последующие пуши обновляют тот же PR. Не создавать новый PR на каждый milestone.
+
 ### 2.8. Проверка качества перед коммитом
 
 ```bash
