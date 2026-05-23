@@ -184,7 +184,91 @@ gh run view <run_id> --repo yaremenko-maksym/CheekyCheeseIT_CRM --json status,co
 gh run view <run_id> --repo yaremenko-maksym/CheekyCheeseIT_CRM --log-failed
 ```
 
-PM ждёт E2E через `ScheduleWakeup(delay=270)` — внешний GHA-процесс, не отслеживается локально.
+**PM ждёт E2E двумя способами — выбрать по длительности:**
+
+- **Короткий wait (< 30 мин), активная сессия** — `ScheduleWakeup(delay=270)`. Простой harness API, но **не выживает session boundary**.
+- **Длинный wait или критичный fire** — `mcp__scheduled-tasks` через `pm-schedule.sh` (см. секцию ниже). Survives session boundary, но stand-up'ит fresh Claude-сессию.
+
+Полная матрица выбора — `CLAUDE-pm.md` секция «⚠️ ScheduleWakeup limitations (D1 [P0])».
+
+---
+
+## Cross-session wake-up (mcp__scheduled-tasks через pm-schedule.sh)
+
+Используется для wait'ов которые могут не уложиться в текущую PM-сессию: длинный GHA E2E, deploy verification, daily checks.
+
+### Generate parameters + create scheduled task
+
+```bash
+# 1. Подготовить параметры (вычисляет fireAt, материализует prompt, апдейтит pm-state.json)
+JSON=$(bash scripts/pm/pm-schedule.sh \
+  --delay-min 15 \
+  --task-id-hint poll-e2e-pr42 \
+  --description "Poll E2E run 26298999300 for PR #42" \
+  --prompt-template poll-e2e-run \
+  --prompt-var REPO=yaremenko-maksym/CheekyCheeseIT_CRM \
+  --prompt-var RUN_ID=26298999300 \
+  --prompt-var PR=42 \
+  --state-file docs/specs/pm-state.json \
+  --state-task-id task-knowledge-api)
+
+# 2. Извлечь параметры из JSON
+TASK_ID=$(echo "$JSON" | jq -r .taskId)
+FIRE_AT=$(echo "$JSON" | jq -r .fireAt)
+DESCRIPTION=$(echo "$JSON" | jq -r .description)
+PROMPT=$(cat "$(echo "$JSON" | jq -r .promptPath)")
+```
+
+### Call MCP tool (из PM сессии)
+
+```
+mcp__scheduled-tasks__create_scheduled_task({
+  taskId: <TASK_ID>,
+  description: <DESCRIPTION>,
+  fireAt: <FIRE_AT>,
+  prompt: <PROMPT>
+})
+```
+
+PM получает обратно taskId — это совпадает с `next_action.scheduled_task_id` в pm-state.json.
+
+### Список и управление
+
+```
+mcp__scheduled-tasks__list_scheduled_tasks()
+# → возвращает массив с taskId, description, fireAt, enabled, nextRunAt, lastRunAt, path
+
+mcp__scheduled-tasks__update_scheduled_task({
+  taskId: "<existing>",
+  enabled: false   // disable не удаляя
+})
+```
+
+### Доступные templates
+
+| Template | Use case | Required vars |
+|----------|----------|---------------|
+| `poll-e2e-run` | GHA E2E workflow result | `REPO`, `RUN_ID`, `PR` |
+| `poll-pr-checks` | Все CI checks на PR | `REPO`, `PR` |
+| `poll-pr-merged` | Verify auto-merge сработал | `REPO`, `PR` |
+
+Подробнее — `scripts/pm/wakeup-prompts/README.md`.
+
+### Dry-run (smoke test без реального scheduled task)
+
+```bash
+bash scripts/pm/pm-schedule.sh \
+  --delay-min 5 \
+  --task-id-hint smoke \
+  --description "test" \
+  --prompt-template poll-pr-checks \
+  --prompt-var REPO=yaremenko-maksym/CheekyCheeseIT_CRM \
+  --prompt-var PR=42 \
+  --dry-run
+
+# → JSON печатается в stdout, материализованный prompt в /tmp/pm-schedule-<id>.prompt.md,
+# pm-state.json НЕ изменяется
+```
 
 ---
 
@@ -204,16 +288,37 @@ gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<N>/files \
 
 После dev-flow RCA hook `.claude/hooks/coder-progress-marker.sh` пишет activity лог в `<main-repo>/.claude/coder-activity.log` (gitignored, TSV). PM использует его для detection silent termination.
 
+Лог содержит **два типа** rows (поле `$2`):
+- **`Edit`/`Write`/`MultiEdit`/`NotebookEdit`** — auto-hook PostToolUse, что Coder писал. Покрывает «живой ли».
+- **`INTENT`** — explicit marker от Coder через `bash scripts/coder/coder-intent.sh "<text>"`. Покрывает «что планировал». См. `coder.md` секция 8.1.1.
+
+Recovery flow: сначала смотри intents (контекст), потом file activity (progress).
+
 ### Шаг 1: Latest Coder activity
 
 ```bash
 LOG="$(git rev-parse --git-common-dir 2>/dev/null)/../.claude/coder-activity.log"
 LOG=$(cd "$(dirname "$LOG")" && pwd)/$(basename "$LOG")  # absolute path
 
-tail -10 "$LOG"
+# Семантический контекст — что Coder намеревался делать (intent markers, opt-in)
+echo "── Last intents ──────────────────────────────"
+awk -F'\t' '$2=="INTENT"' "$LOG" | tail -5
+
+# Прогресс — какие файлы Coder реально писал (auto-hook)
+echo "── Last edits ────────────────────────────────"
+awk -F'\t' '$2!="INTENT"' "$LOG" | tail -10
 ```
 
-Формат строки: `<ISO>\t<tool>\t<branch>\t<cwd>\t<file>`.
+Формат строки (5 tab-separated полей): `<ISO>\t<type>\t<branch>\t<cwd>\t<file_or_intent>`.
+
+**Как интерпретировать пару intent+edit:**
+
+| Последний INTENT | Последний Edit | Интерпретация |
+|------------------|----------------|---------------|
+| `intent: starting test run for auth` | `apps/api/.../auth.service.ts` | Coder остановился в момент edit ПОСЛЕ старта tests |
+| `intent: AC #3 implementing` | None после intent | Coder обрывался ДО любого edit — задача на AC #3 не начата |
+| `intent: rebasing onto main` | `apps/...` без вновь intent | Rebase завершён, Coder начал работу — обрыв midway |
+| (нет INTENT в последнем часу) | `apps/...` | Coder не записывал intent — recovery строится только на git state |
 
 ### Шаг 2: Detect hung
 
@@ -229,6 +334,7 @@ fi
 ### Шаг 3: Pick worktree from last entry
 
 ```bash
+# Последняя активность ЛЮБОГО типа (INTENT или Edit) — для cwd/branch
 LAST_CWD=$(tail -1 "$LOG" | cut -f4)
 LAST_BRANCH=$(tail -1 "$LOG" | cut -f3)
 

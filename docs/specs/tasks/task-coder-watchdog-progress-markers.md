@@ -1,9 +1,30 @@
 # Task: Coder progress sentinel pattern + harness watchdog hook
 
-## Агент: NEEDS-USER (harness integration) + devops (hook implementation)
-## Приоритет: high (P0 проблема C1 — Coder silently завершается без push)
+## Статус: PARTIALLY RESOLVED — три detection слоя готовы (PR #42, PR #43)
+## Агент: NEEDS-USER (для harness graceful-shutdown — prevention слой)
+## Приоритет: было P0 → стало P2 (detection полный, prevention остаётся)
 ## Зависит от: `task-arch-agents-md-fixes.md` (документированы threshold'ы в coder.md секция 7)
-## Ветка: `infra/coder-watchdog`
+## Ветка: `infra/coder-watchdog` (PR #42 detection auto-hook) + `infra/needs-user-d1-c1` (intent markers)
+
+## Detection layers (готовы)
+
+1. **Layer 8.1 (auto-hook, passive):** `.claude/hooks/coder-progress-marker.sh` — PostToolUse Edit/Write/MultiEdit пишет в `.claude/coder-activity.log`. PR #42 merged 2026-05-23. Покрывает «живой ли Coder».
+2. **Layer 8.1.1 (intent markers, opt-in semantic):** `scripts/coder/coder-intent.sh` — Coder перед длинной операцией явно записывает intent. `infra/needs-user-d1-c1` 2026-05-23. Покрывает «что Coder намеревался делать» (recovery context).
+3. **Layer 8.2 (sentinel `<task>.progress.md`, opt-in heavy):** для крупных задач (> 4 файлов) — committed milestone tracking. Документирован в `coder.md` секция 8.2.
+
+PM recovery flow — `pm-snippets.md` секция «Coder hung — recovery (C1 detection layer)»:
+- Шаг 1: tail intents + edits separately (awk фильтр по полю $2 INTENT vs Edit)
+- Шаг 2: detect hung (last activity > 10 мин назад)
+- Шаг 3: pick worktree from last entry, git log/status
+- Шаг 4: recover unpushed work (stash + push)
+- Шаг 5: записать event в pm-state.json
+- Для крупных задач — sentinel `<task>.progress.md` показывает milestone
+
+## Что остаётся (NEEDS-USER P2)
+
+**Prevention layer (harness graceful shutdown):** detection != prevention. Detection говорит «Coder остановился» — recovery возможен, но работа уже потеряна. Prevention требует harness SIGTERM перед hard-kill чтобы Coder успел `git push` финальный wip-commit.
+
+Это требует harness changes (SIGTERM grace window перед watchdog cutoff), за пределами zone-of-write AI-агентов.
 
 ## Контекст
 
