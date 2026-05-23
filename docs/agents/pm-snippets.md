@@ -288,16 +288,37 @@ gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<N>/files \
 
 После dev-flow RCA hook `.claude/hooks/coder-progress-marker.sh` пишет activity лог в `<main-repo>/.claude/coder-activity.log` (gitignored, TSV). PM использует его для detection silent termination.
 
+Лог содержит **два типа** rows (поле `$2`):
+- **`Edit`/`Write`/`MultiEdit`/`NotebookEdit`** — auto-hook PostToolUse, что Coder писал. Покрывает «живой ли».
+- **`INTENT`** — explicit marker от Coder через `bash scripts/coder/coder-intent.sh "<text>"`. Покрывает «что планировал». См. `coder.md` секция 8.1.1.
+
+Recovery flow: сначала смотри intents (контекст), потом file activity (progress).
+
 ### Шаг 1: Latest Coder activity
 
 ```bash
 LOG="$(git rev-parse --git-common-dir 2>/dev/null)/../.claude/coder-activity.log"
 LOG=$(cd "$(dirname "$LOG")" && pwd)/$(basename "$LOG")  # absolute path
 
-tail -10 "$LOG"
+# Семантический контекст — что Coder намеревался делать (intent markers, opt-in)
+echo "── Last intents ──────────────────────────────"
+awk -F'\t' '$2=="INTENT"' "$LOG" | tail -5
+
+# Прогресс — какие файлы Coder реально писал (auto-hook)
+echo "── Last edits ────────────────────────────────"
+awk -F'\t' '$2!="INTENT"' "$LOG" | tail -10
 ```
 
-Формат строки: `<ISO>\t<tool>\t<branch>\t<cwd>\t<file>`.
+Формат строки (5 tab-separated полей): `<ISO>\t<type>\t<branch>\t<cwd>\t<file_or_intent>`.
+
+**Как интерпретировать пару intent+edit:**
+
+| Последний INTENT | Последний Edit | Интерпретация |
+|------------------|----------------|---------------|
+| `intent: starting test run for auth` | `apps/api/.../auth.service.ts` | Coder остановился в момент edit ПОСЛЕ старта tests |
+| `intent: AC #3 implementing` | None после intent | Coder обрывался ДО любого edit — задача на AC #3 не начата |
+| `intent: rebasing onto main` | `apps/...` без вновь intent | Rebase завершён, Coder начал работу — обрыв midway |
+| (нет INTENT в последнем часу) | `apps/...` | Coder не записывал intent — recovery строится только на git state |
 
 ### Шаг 2: Detect hung
 
@@ -313,6 +334,7 @@ fi
 ### Шаг 3: Pick worktree from last entry
 
 ```bash
+# Последняя активность ЛЮБОГО типа (INTENT или Edit) — для cwd/branch
 LAST_CWD=$(tail -1 "$LOG" | cut -f4)
 LAST_BRANCH=$(tail -1 "$LOG" | cut -f3)
 

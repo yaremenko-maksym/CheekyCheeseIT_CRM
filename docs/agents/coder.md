@@ -251,6 +251,70 @@ Coder ничего не делает — hook прозрачен. Лог авт�
 
 Hook покрывает **«живой ли Coder»**. Он не знает о milestones или коммитах — только Edit/Write activity.
 
+#### 8.1.1. Intent markers — opt-in семантический контекст
+
+Auto-hook (8.1) показывает PM **что Coder писал** в последние минуты перед обрывом. Не показывает **что Coder намеревался делать**. Это вакуум — PM при recovery видит «последний Edit был на X.tsx» и не знает было ли это до запуска tests, после миграции, в середине большого рефакторинга, etc.
+
+**Решение:** Coder перед длинными или semantic-критичными операциями явно записывает intent через `scripts/coder/coder-intent.sh`:
+
+```bash
+bash scripts/coder/coder-intent.sh "starting test run for auth module"
+bash scripts/coder/coder-intent.sh "AC #3: implementing form validation"
+bash scripts/coder/coder-intent.sh "rebasing onto main before final wip push"
+bash scripts/coder/coder-intent.sh "milestone 2/4 done — moving to UI list page"
+```
+
+Скрипт append'ит в `<main-repo>/.claude/coder-activity.log` (тот же лог что и auto-hook 8.1), но с типом `INTENT` в поле $2:
+
+```
+2026-05-23T19:31:48Z\tINTENT\tfeature/knowledge-api\t/.../worktrees/wt-001\tintent: starting test run for auth module
+2026-05-23T19:33:12Z\tEdit\tfeature/knowledge-api\t/.../worktrees/wt-001\tapps/api/src/auth/auth.service.ts
+2026-05-23T19:34:55Z\tEdit\tfeature/knowledge-api\t/.../worktrees/wt-001\tapps/api/src/auth/auth.controller.ts
+[here Coder watchdog cuts off]
+```
+
+PM при detection hung видит:
+```bash
+# Последние intent markers — что Coder намеревался
+awk -F'\t' '$2=="INTENT"' .claude/coder-activity.log | tail -5
+
+# Последние file edits — что успел сделать
+awk -F'\t' '$2!="INTENT"' .claude/coder-activity.log | tail -5
+```
+
+В примере выше: PM понимает что Coder остановился в момент когда писал auth controller после старта test run. Recovery — перезапустить с явным «продолжай test run, auth.controller.ts уже в работе».
+
+**Когда писать intent (опционально, но рекомендуется):**
+
+| Случай | Зачем |
+|--------|-------|
+| Перед `pnpm test` / `pnpm build` (operation > 30 сек) | Watchdog может прервать в момент `await` — PM поймёт что был test run, не Edit |
+| Старт новой AC из task-файла («AC #N: ...») | PM при recovery знает какой именно AC недоделан |
+| Milestone change в большой задаче | Дублирует update в `<task>.progress.md`, но не требует commit |
+| Перед rebase / merge от main | PM при recovery понимает зачем вдруг diverged history |
+| Перед длинной миграцией (`drizzle-kit migrate`, `db:seed`) | Detect: «Coder mid-migration» → recovery: rollback или resume |
+
+**Когда НЕ писать intent (anti-pattern):**
+
+- На каждый Edit (auto-hook уже это покрывает — спам)
+- На однострочные правки (overhead > value)
+- В loop'ах внутри одного «логического шага» — пиши один intent на весь шаг, не на каждый Edit внутри
+
+**Constraints:**
+
+- Запускается только из subagent worktree (`echo $PWD | grep '/\.claude/worktrees/'`). Из main repo — silent skip.
+- Empty intent text → exit 2 (ошибка).
+- Newlines в тексте → заменяются на ` | ` (TSV integrity).
+- Tabs → 4 spaces.
+
+**Связь с другими слоями:**
+
+- 8.1 (auto-hook) — passive, ничего не требует от Coder. Покрывает «живой ли».
+- **8.1.1 (intent markers) — explicit, opt-in. Покрывает «что планировал».**
+- 8.2 (sentinel `<task>.progress.md`) — explicit + committed. Покрывает «какой milestone reached».
+
+Intent markers сидят между auto-hook (нет контекста) и sentinel (heavy — нужен commit). Не заменяют ни тот ни другой — дополняют.
+
 #### 8.2. Semantic milestones — `<task>.progress.md` (если задача > 4 файлов)
 
 Для крупных задач Coder поддерживает sentinel-файл `docs/specs/tasks/<task>.progress.md` ВРУЧНУЮ:
