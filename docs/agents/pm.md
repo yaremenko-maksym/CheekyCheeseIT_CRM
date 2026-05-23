@@ -248,36 +248,38 @@ fi
 
 ### Шаг 0: Подготовка окружения
 
-**Обязательно перед каждым User Testing.** Скрипт работает в FOREGROUND — после старта блокируется на `wait`, держит API (production), Web preview и LocalTunnel живыми. Запускать через `Bash` tool с `run_in_background=True`.
+**Обязательно перед каждым User Testing.** Скрипт работает в FOREGROUND — после старта блокируется на `wait`, держит API (production), Web preview и Serveo SSH tunnel живыми. Запускать через `Bash` tool с `run_in_background=True`.
 
-**Важно: скрипт собирает production build (а не dev).** Через LocalTunnel dev-режим грузит сотни unbundled модулей + HMR-сокет — это flaky на мобильнике. Vite preview отдаёт минифицированный bundle и проксирует `/api` → NestJS на 3001.
+**Важно: скрипт собирает production build (а не dev).** Через tunnel dev-режим грузит сотни unbundled модулей + HMR-сокет — flaky на мобильнике. Vite preview отдаёт минифицированный bundle и проксирует `/api` → NestJS на 3001. Tunnel provider — `serveo.net` через SSH reverse forward (после провалов LocalTunnel/Cloudflare/ngrok в нашей сети).
 
 ```
 Bash(
   command="bash scripts/pm/prep-user-testing.sh <pr_branch>",
   run_in_background=True,
-  description="User Testing env + LocalTunnel"
+  description="User Testing env + Serveo tunnel"
 )
 ```
 
-Скрипт делает: checkout → migration pre-flight → db:migrate → unit tests → restart dev → wait for ready → **LocalTunnel** (`npx localtunnel --port 3000`) → блокируется до Ctrl+C/kill.
+Скрипт делает: checkout (auto-detect worktree) → migration pre-flight → db:migrate → unit tests (только api/web/shared) → production build (api+web с `VITE_API_URL=/api` и `VITE_DEV_LOGIN=true`) → kill prev processes по PORT → start API (`node dist/main`) + Web preview → wait-for-services → **Serveo SSH** (`ssh -R 80:localhost:3000 serveo.net`) → блокируется до Ctrl+C/kill.
 
-**Получить публичный URL** (для отправки пользователю): прочитать output background-task'а и грепнуть строку `🔗 USER TESTING URL: https://<subdomain>.loca.lt`. URL появляется в логе через 30-60 сек после старта.
+**Получить публичный URL** (для отправки пользователю): прочитать output background-task'а и грепнуть строку `🔗 USER TESTING URL: https://<hash>.serveousercontent.com`. URL появляется в логе через 30-90 сек после старта.
 
 **Env overrides** (передавать перед командой):
 - `SKIP_TUNNEL=1` — пропустить tunnel (только localhost:3000)
-- `TUNNEL_SUBDOMAIN=<name>` — предсказуемый поддомен (если занят, LocalTunnel вернёт случайный)
+- `SKIP_UNIT_TESTS=1` — обход флейков на unit-тестах (риск показать сломанный bundle, см. runbook)
 - `POSTGRES_*` — настройка БД для pre-flight check
 
-**Завершение:** когда User Testing завершён (merge или новый раунд правок) — `kill` background-task. Trap в скрипте автоматически убьёт `nest start`, `vite`, `localtunnel`.
+**OAuth через tunnel НЕ работает** (Google `redirect_uri_mismatch`). User Testing использует Dev Login — кнопка в `/crm/login` отправляет email на `POST /api/auth/dev-login`. Build script передаёт `VITE_DEV_LOGIN=true` чтобы кнопка появилась в production bundle.
 
-Если exit code != 0 (упал до `wait`) — НЕ показывать пользователю. Создать fix-задачу для Coder → повторить.
+**Завершение:** когда User Testing завершён (merge или новый раунд правок) — `kill` background-task. Trap в скрипте автоматически убьёт API, Vite preview и SSH tunnel (через `lsof -ti :PORT` и `pkill -f 'ssh.*serveo\\.net'`).
+
+Если exit code != 0 (упал до `wait`) — НЕ показывать пользователю. Прочитать `/tmp/pm-api.log`, `/tmp/pm-web.log` или Serveo лог, классифицировать (build / DB / tunnel / port-clash) → fix-задача → повторить. Полный troubleshooting — `docs/runbooks/user-testing-tunnel.md`.
 
 ### Шаг 1: Описание для пользователя
 
 ```
 ✅ PR #<N> готов к тестированию.
-🔗 С телефона/удалённо: <публичный URL из лога tunnel>
+🔗 С телефона/удалённо: https://<hash>.serveousercontent.com (Dev Login по email)
 🖥  С компа:             http://localhost:3000
 
 **Что реализовано:**
