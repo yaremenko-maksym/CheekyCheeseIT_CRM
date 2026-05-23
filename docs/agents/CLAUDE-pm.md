@@ -32,23 +32,20 @@ Main branch: `main`
 
 **ScheduleWakeup не выживает session boundary.** Real incident: 2026-05-23 PM поставил wake-up на 2 часа, session завершилась → wake-up потерян → PR висел без действия.
 
-**Правила использования:**
-- Использовать ТОЛЬКО для wake-up'ов внутри текущей session (< 30 мин типично)
-- Для cross-session ожидания (например GHA workflow > 30 мин на E2E) — НЕ полагаться только на ScheduleWakeup. Дополнительно записать в `pm-state.json.active[task].next_action`:
-  ```json
-  {
-    "type": "poll_e2e_run",
-    "run_id": "26298999300",
-    "scheduled_at": "<ISO>",
-    "max_age_min": 30
-  }
-  ```
-- При старте новой session (Mode 3 continuation) — PM читает `next_action`, делает immediate check вместо ожидания wake-up'а
-- Если `scheduled_at` старше `max_age_min` — это сигнал missed wake-up, делать catch-up
+PM имеет **два слоя** для wake-up'ов с разными гарантиями. Выбирать по длительности и критичности.
 
-**Workaround pattern:**
+#### Layer 1 — `ScheduleWakeup` (in-session, < 30 минут)
+
+Прямой harness API. Дёшево, быстро, но **умирает с сессией**.
+
+**Используй когда:**
+- Wait < 30 минут (e.g. короткий CI poll)
+- Чёткая уверенность что сессия не закроется (active interactive turn)
+- Wake-up — нежёсткое требование (если потеряется, пользователь увидит и перезапустит)
+
+**Workaround pattern (если всё-таки используешь Layer 1 для важного wait):**
 ```python
-# Перед wake-up — сохрани действие в state
+# Перед wake-up — сохрани действие в state, чтобы новая сессия могла catch-up
 pm_state["active"][task_idx]["next_action"] = {
     "type": "poll_e2e_run",
     "run_id": run_id,
@@ -56,19 +53,89 @@ pm_state["active"][task_idx]["next_action"] = {
     "max_age_min": 30
 }
 ScheduleWakeup(delay=270)  # 4.5 мин для GHA E2E
-```
 
-```python
-# При старте Mode 3 — catch-up logic
+# При старте новой session (Mode 3) — catch-up:
 for task in pm_state["active"]:
     if next_action := task.get("next_action"):
         age_min = (now() - parse_iso(next_action["scheduled_at"])).total_seconds() / 60
         if age_min > next_action["max_age_min"]:
-            # missed wake-up — immediate execute
-            handle_next_action(next_action)
+            handle_next_action(next_action)  # missed wake-up — immediate execute
 ```
 
-**Связанная задача:** `docs/specs/tasks/task-harness-schedule-wakeup-persistence.md` (NEEDS-USER, harness-level fix).
+#### Layer 2 — `mcp__scheduled-tasks__*` (cross-session, любая длительность)
+
+External scheduler, **выживает session boundary**. Запускает fresh Claude-сессию на запланированное время с self-contained prompt. Это полноценный workaround D1.
+
+**Используй когда:**
+- Wait ≥ 30 минут (длинный CI, GHA E2E, deploy verification)
+- Жёсткое требование fire'а (потеря недопустима)
+- Длительный wait через session timeout
+
+**Workflow (PM шаги):**
+
+1. **Сгенерировать параметры** через `pm-schedule.sh`:
+   ```bash
+   bash scripts/pm/pm-schedule.sh \
+     --delay-min 15 \
+     --task-id-hint poll-e2e-pr42 \
+     --description "Poll E2E run 26298999300 for PR #42" \
+     --prompt-template poll-e2e-run \
+     --prompt-var REPO=yaremenko-maksym/CheekyCheeseIT_CRM \
+     --prompt-var RUN_ID=26298999300 \
+     --prompt-var PR=42 \
+     --state-file docs/specs/pm-state.json \
+     --state-task-id task-knowledge-api
+   ```
+
+   Это:
+   - Вычисляет `fireAt` в local TZ (BSD/GNU date compat)
+   - Генерит unique `taskId` (kebab-case + UTC timestamp suffix)
+   - Материализует self-contained prompt из `scripts/pm/wakeup-prompts/<template>.md`
+   - Append event `wakeup_scheduled` + `next_action` в pm-state.json
+   - Печатает JSON в stdout: `{taskId, fireAt, description, promptPath, promptSize}`
+
+2. **Прочитать materialized prompt:**
+   ```bash
+   cat $(jq -r .promptPath <stdout-json>)
+   ```
+
+3. **Вызвать MCP-tool** прямо из PM-сессии:
+   ```
+   mcp__scheduled-tasks__create_scheduled_task({
+     taskId: "<from JSON>",
+     description: "<from JSON>",
+     fireAt: "<from JSON>",
+     prompt: "<contents of promptPath>"
+   })
+   ```
+
+**Доступные templates** (см. `scripts/pm/wakeup-prompts/README.md`):
+
+| Template | Use case | Required vars |
+|----------|----------|---------------|
+| `poll-e2e-run` | GHA E2E workflow result | `REPO`, `RUN_ID`, `PR` |
+| `poll-pr-checks` | Все CI checks на PR | `REPO`, `PR` |
+| `poll-pr-merged` | Verify auto-merge сработал | `REPO`, `PR` |
+
+**Что важно:**
+- Каждый scheduled-task run = fresh PM-сессия БЕЗ context от source. Template должен бутстрапить PM роль и читать pm-state.json для контекста.
+- `taskId` уникален и сохраняется в `pm-state.json.active[task].events[].scheduled_task_id` — для трассировки.
+- Wake-up'ы fire'ятся только когда Claude Code открыт. Если closed когда fire due → runs at next launch (пользователь увидит).
+- На `--state-task-id` валидируется — если ID не в `active[]`, скрипт возвращает exit 4.
+
+#### Когда использовать что
+
+| Сценарий | Layer | Почему |
+|----------|-------|--------|
+| `pnpm test` finishing, ждать unit (~5 мин) | 1 (ScheduleWakeup) | Сессия active, короткий wait |
+| GHA E2E workflow (~10-20 мин) | 2 (mcp__scheduled-tasks) | Может пережить session timeout |
+| Daily morning check (12 часов) | 2 | Точно cross-session |
+| Сразу после dispatch агента, проверить через 2 мин | 1 | Foreground agent уже notify'ит |
+| User Testing wait → пользователь даст ответ через ~1ч | 2 | Сессия закроется во time of waiting |
+
+**Не комбинируй оба слоя на same wait** — это дублирует wake-up'ы и spamит scheduled-tasks store.
+
+**Связанная задача:** `docs/specs/tasks/task-harness-schedule-wakeup-persistence.md` — изначально NEEDS-USER. Layer 2 (`mcp__scheduled-tasks` + `pm-schedule.sh`) — полноценный workaround, harness-fix остаётся nice-to-have для unification API.
 
 ## Именование веток
 
