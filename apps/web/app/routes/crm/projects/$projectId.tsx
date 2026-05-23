@@ -15,7 +15,9 @@ import {
   Globe,
   Laptop,
   Pencil,
+  Percent,
   RefreshCw,
+  RotateCcw,
   StickyNote,
   UserMinus,
   UserPlus,
@@ -123,7 +125,17 @@ type AnyField = FieldApi<
 type AnyForm = ReactFormExtendedApi<any, any, any, any, any, any, any, any, any, any, any, any>
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-function ProjectEditFields({ form, mode }: { form: AnyForm; mode: 'info' | 'members' }) {
+function ProjectEditFields({
+  form,
+  mode,
+  canEditOverride,
+  defaultSharePercent,
+}: {
+  form: AnyForm
+  mode: 'info' | 'members'
+  canEditOverride: boolean
+  defaultSharePercent: number
+}) {
   if (mode === 'info') {
     return (
       <div className="space-y-3">
@@ -287,6 +299,83 @@ function ProjectEditFields({ form, mode }: { form: AnyForm; mode: 'info' | 'memb
             />
           )}
         </form.Subscribe>
+
+        {/* Per-project SENIOR share override — editable only by ADMIN and
+            ACCOUNTANT. Visible to all roles that see the form (HR sees it
+            disabled). Null clears the override and falls back to the senior's
+            global default (`defaultSharePercent`). */}
+        <form.Field
+          name="seniorSharePercentOverride"
+          validators={{
+            onBlur: ({ value }: { value: number | null }) => {
+              if (value === null || value === undefined || (value as unknown as string) === '') return undefined
+              const num = Number(value)
+              if (!Number.isInteger(num) || num < 0 || num > 100) {
+                return 'Введите целое число от 0 до 100'
+              }
+              return undefined
+            },
+          }}
+        >
+          {(field: AnyField) => {
+            const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
+            const raw = field.state.value as number | null
+            const inputValue = raw === null || raw === undefined ? '' : String(raw)
+            return (
+              <div className="space-y-1.5">
+                <Label className={cn(err && 'text-destructive')}>
+                  Доля синьора на проекте, %
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={inputValue}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      const v = e.target.value
+                      if (v === '') {
+                        field.handleChange(null)
+                      } else {
+                        const num = Number(v)
+                        field.handleChange(Number.isNaN(num) ? null : num)
+                      }
+                    }}
+                    onBlur={field.handleBlur}
+                    placeholder={String(defaultSharePercent)}
+                    disabled={!canEditOverride}
+                    aria-disabled={!canEditOverride}
+                    data-testid="project-edit-senior-share-override"
+                    className={cn('flex-1', err && 'border-destructive focus-visible:ring-destructive/30')}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => field.handleChange(null)}
+                    disabled={!canEditOverride || raw === null || raw === undefined}
+                    data-testid="project-edit-senior-share-reset"
+                    className="gap-1.5"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Сбросить
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Если оставить пустым — используется доля синьера по умолчанию ({defaultSharePercent}%).
+                </p>
+                {!canEditOverride && (
+                  <p className="text-xs text-muted-foreground italic">
+                    Менять может только ADMIN или ACCOUNTANT.
+                  </p>
+                )}
+                {err && <p className="text-xs text-destructive">{err}</p>}
+              </div>
+            )
+          }}
+        </form.Field>
       </div>
     )
   }
@@ -320,6 +409,9 @@ function ProjectDetailPage() {
 
   const isAdmin = user?.role === 'ADMIN'
   const canManage = user?.role === 'ADMIN' || user?.role === 'HR'
+  // ACCOUNTANT can also open the edit dialog so they can change
+  // `seniorSharePercentOverride` (backend enforces field-scoped RBAC).
+  const canOpenEdit = canManage || user?.role === 'ACCOUNTANT'
   const canRemoveMembers = isAdmin
 
   const [editOpen, setEditOpen] = useState(false)
@@ -346,6 +438,8 @@ function ProjectDetailPage() {
 
 
 
+  const canEditOverride = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
+
   const editForm = useForm({
     defaultValues: {
       name: project?.name ?? '',
@@ -354,6 +448,7 @@ function ProjectDetailPage() {
       logoUrl: project?.logoUrl ?? (null as string | null),
       rate: (project?.rate ?? '') as unknown as number,
       currency: (project?.currency ?? 'USDT') as 'USDT' | 'USD' | 'EUR' | 'UAH',
+      seniorSharePercentOverride: project?.seniorSharePercentOverride ?? null,
       techStack: project?.techStack ?? '',
       teamSize: project?.teamSize ?? '',
       benefits: project?.benefits ?? '',
@@ -363,6 +458,13 @@ function ProjectDetailPage() {
       notesGeneral: project?.notesGeneral ?? '',
     },
     onSubmit: async ({ value }) => {
+      // Only include `seniorSharePercentOverride` in the PATCH payload when
+      // the caller is allowed to change it AND it actually differs from the
+      // server snapshot. This keeps HR/SENIOR/JUNIOR PATCHes from triggering
+      // the field-RBAC check on the backend.
+      const overrideChanged =
+        canEditOverride &&
+        (value.seniorSharePercentOverride ?? null) !== (project?.seniorSharePercentOverride ?? null)
       editMutation.mutate({
         name: value.name.trim() || undefined,
         companyName: value.companyName.trim() || undefined,
@@ -370,6 +472,9 @@ function ProjectDetailPage() {
         logoUrl: value.logoUrl || null,
         rate: Number(value.rate) || undefined,
         currency: value.currency || undefined,
+        ...(overrideChanged
+          ? { seniorSharePercentOverride: value.seniorSharePercentOverride ?? null }
+          : {}),
         techStack: value.techStack.trim() || null,
         teamSize: value.teamSize.trim() || null,
         benefits: value.benefits.trim() || null,
@@ -435,6 +540,7 @@ const removeMemberMutation = useMutation({
     editForm.setFieldValue('logoUrl', project.logoUrl ?? null)
     editForm.setFieldValue('rate', project.rate as unknown as number)
     editForm.setFieldValue('currency', project.currency as 'USDT' | 'USD' | 'EUR' | 'UAH')
+    editForm.setFieldValue('seniorSharePercentOverride', project.seniorSharePercentOverride ?? null)
     editForm.setFieldValue('techStack', project.techStack ?? '')
     editForm.setFieldValue('teamSize', project.teamSize ?? '')
     editForm.setFieldValue('benefits', project.benefits ?? '')
@@ -542,9 +648,10 @@ return (
           </div>
 
           {/* ut-28: Explicit Edit + Archive buttons (replaces «Действия» dropdown
-              and former «Завершить» button). Visible only to admins/HR per RBAC. */}
+              and former «Завершить» button). Visible to ADMIN/HR (full edit)
+              and ACCOUNTANT (override-only edit). */}
           <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
-            {canManage && !project.archivedAt && (
+            {canOpenEdit && !project.archivedAt && (
               <Button
                 size="sm"
                 variant="outline"
@@ -711,6 +818,43 @@ return (
                   : <span className="text-muted-foreground/40 italic">—</span>}
               </div>
             </div>
+            {/* Per-project SENIOR share — read-only view. Badge "Override" shown
+                when project-level value is set; otherwise mark as default. Visible
+                to everyone who can see the project (RBAC handled at API layer). */}
+            <InfoRow icon={<Percent className="h-3.5 w-3.5" />} label="Доля синьора">
+              {(() => {
+                const effective =
+                  project.seniorSharePercentOverride ?? project.seniorSharePercentDefault
+                const hasOverride = project.seniorSharePercentOverride !== null
+                return (
+                  <span
+                    className="inline-flex items-center gap-2"
+                    data-testid="project-senior-share"
+                  >
+                    <span className="font-medium tabular-nums">{effective}%</span>
+                    {hasOverride ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge
+                            variant="secondary"
+                            className="text-[10px]"
+                            data-testid="project-senior-share-override-badge"
+                          >
+                            Override
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          Установлено для этого проекта; глобальная доля синьора:{' '}
+                          {project.seniorSharePercentDefault}%
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">(по умолчанию)</span>
+                    )}
+                  </span>
+                )
+              })()}
+            </InfoRow>
           </CardContent>
         </Card>
 
@@ -838,10 +982,17 @@ return (
 
           <CrmDialogBody>
             <div className="space-y-5">
-              {canManage && editOpen && <ProjectEditFields form={editForm} mode="info" />}
+              {canOpenEdit && editOpen && (
+                <ProjectEditFields
+                  form={editForm}
+                  mode="info"
+                  canEditOverride={canEditOverride}
+                  defaultSharePercent={project.seniorSharePercentDefault}
+                />
+              )}
             </div>
           </CrmDialogBody>
-          {canManage && (
+          {canOpenEdit && (
             <CrmDialogFooter>
               <Button variant="outline" onClick={() => setEditOpen(false)}>
                 Отмена
