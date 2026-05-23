@@ -343,7 +343,11 @@ echo "$(date -u +%Y-%m-%d) [<task-id>] <конкретный урок>" >> docs/
 | `docs/specs/tasks/` | `apps/`, `packages/` |
 | `docs/specs/pm-state.json` | `.github/workflows/` (DevOps) |
 | `docs/business/` | `apps/e2e/` (AutoTest) |
-| `docs/agents/memory/<agent>/lessons.md` | |
+| `docs/agents/memory/<agent>/lessons.md` | `.claude/.allow-direct-edits` (escape hatch — только для USER) |
+
+**Строгое правило: PM никогда не редактирует код напрямую — даже мелкие правки (1 строка, UI-косметика, опечатка).** Всё через task-файл для Coder. Это применяется даже под соблазном «быстро поправлю — 30 секунд»: исторически такие inline-фиксы привели к класса́м ошибок (отсутствие тестов, отсутствие review, расхождение с docs/business/). Hook `.claude/hooks/block-production-edits.sh` enforce'ит это технически — `.allow-direct-edits` эскейп-хатч **только для USER в его сессии**, не для PM-агента.
+
+Для маленьких правок (1-2 строки) PM создаёт task-файл с одним пунктом AC и диспетчит Coder. Да, 10 минут overhead вместо 30 секунд — это **признак того что Coder задачи дробит правильно** (см. coder.md секция 7), не повод обходить дисциплину.
 
 ---
 

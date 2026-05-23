@@ -36,6 +36,12 @@ fi
 # Check last commit message for `ac_verified:` line
 LAST_MSG=$(git log -1 --pretty=%B 2>/dev/null)
 
+# Allow `wip:` / `wip(<scope>):` commits — milestone push during task chunking,
+# финальный коммит закрывает все AC. См. coder.md секция 7 "Task chunking".
+if echo "$LAST_MSG" | grep -qE '^wip(\([^)]*\))?:'; then
+  exit 0
+fi
+
 if echo "$LAST_MSG" | grep -qE '^ac_verified:'; then
   # Verified — let push proceed
   exit 0
@@ -61,12 +67,18 @@ reason = '''🚫 PRE-PUSH BLOCK: последний commit на ветке '$BRA
 Если AC выполнены не все — укажи сделанные + комментарий:
     ac_verified: 1,2 (3 — blocked, см. .blocked.md)
 
+Если это intermediate milestone push в больших задачах — используй wip-префикс:
+    git commit -m \"wip(<scope>): <milestone>\"
+
 Чтобы пересоздать commit с правильным message:
     git commit --amend -m \"\$(git log -1 --pretty=%B)
 
 ac_verified: 1,2,3\"
 
-См. docs/agents/coder.md секция \"2.9 Verification before push\".'''
+Можно настроить git commit template (см. .gitmessage в корне репо):
+    git config commit.template .gitmessage
+
+См. docs/agents/coder.md секция 2.9 (Verification) и секция 7 (Task chunking).'''
 
 print(json.dumps({'decision': 'block', 'reason': reason}))
 " 2>/dev/null

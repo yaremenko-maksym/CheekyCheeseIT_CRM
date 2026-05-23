@@ -1,0 +1,19 @@
+# <type>(<scope>): <subject>  ← заголовок: type = feat|fix|chore|docs|refactor|test|ci|wip
+# Subject: imperative, без точки, до 72 символов.
+# Пустая строка ↑ обязательна.
+#
+# <Тело>: что и зачем. Не «как» — это видно в diff.
+# Несколько абзацев через пустую строку. До 72 символов в строке.
+#
+# Footer (для агентских коммитов в feature/*, fix/*, infra/*, test/* веток —
+# ОБЯЗАТЕЛЬНО, иначе coder-pre-push.sh заблокирует git push):
+#
+# ac_verified: 1,2,3           # номера AC из task-файла (или 'pm-inline' / 'wip')
+# vision: ✓ /crm/<route>       # только для UI задач (Playwright проверка прошла)
+#
+# Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+#
+# ───────────────────────────────────────────────────────────────────
+# Setup один раз: git config commit.template .gitmessage
+# (репо-локально, не глобально, чтобы не мешать другим проектам)
+# ───────────────────────────────────────────────────────────────────

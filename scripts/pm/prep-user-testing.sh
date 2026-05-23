@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
-# Подготовка окружения перед User Testing + публичный туннель через LocalTunnel.
+# Подготовка окружения перед User Testing + публичный туннель через serveo.net (SSH).
 # Usage: bash scripts/pm/prep-user-testing.sh <pr_branch>
 #
 # Шаги: branch checkout → migration pre-flight → db:migrate → unit-tests →
 #       production build (api+web) → старт API+preview → wait for ready →
-#       LocalTunnel → блокирует пока не Ctrl+C.
+#       Serveo SSH tunnel → блокирует пока не Ctrl+C.
 #
 # ВАЖНО: используется production build + Vite preview (не dev). Это нужно для
-# нормальной работы через LocalTunnel: dev-режим тянет сотни unbundled модулей
-# через туннель + HMR-сокет = flaky на мобильнике. Preview отдаёт минифицированный
+# нормальной работы через туннель: dev-режим тянет сотни unbundled модулей через
+# туннель + HMR-сокет = flaky на мобильнике. Preview отдаёт минифицированный
 # bundle и проксирует /api → NestJS на 3001.
 #
-# Скрипт работает в FOREGROUND. Ctrl+C / SIGTERM убивает dev-сервер и tunnel
+# Tunnel provider: serveo.net. Был выбран после провалов LocalTunnel (503),
+# Cloudflare quick tunnel (заблокирован в нашей сети), ngrok (требует регистрацию).
+# Serveo работает через SSH reverse forward, не требует client install.
+# URL формат: https://<random-hash>-<ip-dashed>.serveousercontent.com
+# См. docs/runbooks/user-testing-tunnel.md для полного pre-flight checklist.
+#
+# Скрипт работает в FOREGROUND. Ctrl+C / SIGTERM убивает API + preview + SSH tunnel
 # через trap, не оставляя висящих процессов. Для background-режима — вызывать с `&`.
 #
 # Возвращает 0 если всё ОК, не-0 если что-то упало.
@@ -22,8 +28,7 @@
 #   POSTGRES_DB   (default: crm_db)
 #   POSTGRES_USER (default: crm_user)
 #   POSTGRES_PASSWORD (default: password)
-#   TUNNEL_SUBDOMAIN (опционально: --subdomain <name> для предсказуемого URL)
-#   SKIP_TUNNEL=1 (отключить туннель, только локальный сервер)
+#   SKIP_TUNNEL=1 (отключить tunnel, только локальный сервер на localhost:3000)
 
 set -euo pipefail
 
@@ -44,7 +49,6 @@ psql_q() {
 }
 
 SKIP_TUNNEL="${SKIP_TUNNEL:-0}"
-TUNNEL_SUBDOMAIN="${TUNNEL_SUBDOMAIN:-}"
 TUNNEL_LOG=""
 TUNNEL_URL=""
 TOTAL_STEPS="7"
@@ -60,7 +64,7 @@ cleanup() {
   pkill -f "nest start" 2>/dev/null || true                 # на случай если кто-то поднимал dev API
   pkill -f "node .*apps/api/dist" 2>/dev/null || true       # production API
   pkill -f "vite" 2>/dev/null || true                       # вкл. vite preview
-  pkill -f "localtunnel" 2>/dev/null || true
+  pkill -f "ssh.*serveo\.net" 2>/dev/null || true           # Serveo SSH tunnel
   [ -n "$TUNNEL_LOG" ] && [ -f "$TUNNEL_LOG" ] && rm -f "$TUNNEL_LOG"
   echo "✅ Cleanup завершён."
   exit "$exit_code"
@@ -145,7 +149,7 @@ echo "[5/$TOTAL_STEPS] Kill previous processes + production build + start"
 pkill -f "nest start" 2>/dev/null || true
 pkill -f "node .*apps/api/dist" 2>/dev/null || true
 pkill -f "vite" 2>/dev/null || true
-pkill -f "localtunnel" 2>/dev/null || true
+pkill -f "ssh.*serveo\.net" 2>/dev/null || true
 sleep 2
 
 # Build api + web параллельно через turbo.
@@ -195,7 +199,7 @@ if [ "$SKIP_TUNNEL" = "1" ]; then
   exit 0
 fi
 
-echo "[7/$TOTAL_STEPS] Поднимаю LocalTunnel"
+echo "[7/$TOTAL_STEPS] Поднимаю Serveo SSH tunnel"
 
 # Двойная проверка что localhost:3000 реально отвечает (200/3xx/4xx — главное не connection refused)
 if ! curl -sf --max-time 5 --retry 3 --retry-delay 1 http://localhost:3000 >/dev/null; then
@@ -203,15 +207,30 @@ if ! curl -sf --max-time 5 --retry 3 --retry-delay 1 http://localhost:3000 >/dev
   exit 1
 fi
 
-TUNNEL_LOG=$(mktemp /tmp/pm-tunnel-XXXXXX.log)
-
-# Собираем команду — если задан TUNNEL_SUBDOMAIN, передаём флаг
-LT_ARGS=(--port 3000)
-if [ -n "$TUNNEL_SUBDOMAIN" ]; then
-  LT_ARGS+=(--subdomain "$TUNNEL_SUBDOMAIN")
+# Serveo требует SSH-клиент. На macOS/Linux он обычно есть из коробки.
+if ! command -v ssh >/dev/null 2>&1; then
+  echo "❌ SSH не установлен. Serveo требует ssh-клиент." >&2
+  echo "  - macOS: должен быть из коробки. Если нет — xcode-select --install" >&2
+  echo "  - Linux: apt install openssh-client / pacman -S openssh" >&2
+  echo "  - Можно обойти: SKIP_TUNNEL=1 bash $0 $PR_BRANCH" >&2
+  exit 1
 fi
 
-nohup npx --yes localtunnel "${LT_ARGS[@]}" >"$TUNNEL_LOG" 2>&1 &
+TUNNEL_LOG=$(mktemp /tmp/pm-serveo-XXXXXX.log)
+
+# SSH reverse forward: remote :80 → local :3000.
+# - StrictHostKeyChecking=accept-new: принять fingerprint serveo.net (без интерактивного prompt)
+# - UserKnownHostsFile=/tmp/pm-serveo-known-hosts: не засоряем ~/.ssh/known_hosts
+# - ServerAliveInterval=60: NAT keepalive, чтобы туннель не падал
+# - ConnectTimeout=15: быстрый fail если serveo.net недоступен
+# - LogLevel=ERROR: глушим verbose SSH-вывод, в лог попадает только URL
+nohup ssh -R 80:localhost:3000 \
+  -o StrictHostKeyChecking=accept-new \
+  -o UserKnownHostsFile=/tmp/pm-serveo-known-hosts \
+  -o ServerAliveInterval=60 \
+  -o ConnectTimeout=15 \
+  -o ExitOnForwardFailure=yes \
+  serveo.net >"$TUNNEL_LOG" 2>&1 &
 TUNNEL_PID=$!
 
 # Ждём пока tunnel выдаст URL (макс 30 сек). Параллельно проверяем что процесс жив.
@@ -219,19 +238,20 @@ TUNNEL_URL=""
 for i in {1..30}; do
   # Tunnel-процесс умер раньше времени → диагностируем и выходим
   if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
-    echo "❌ LocalTunnel упал. Лог:" >&2
+    echo "❌ Serveo SSH tunnel упал. Лог:" >&2
     cat "$TUNNEL_LOG" >&2
     echo "" >&2
     echo "Возможные причины:" >&2
-    echo "  - npx/localtunnel недоступен (нет сети или проблема с npm registry)" >&2
-    echo "  - localtunnel.me недоступен из этой сети" >&2
-    echo "  - порт 3000 заблокирован firewall'ом локально" >&2
-    echo "  - можно обойти: SKIP_TUNNEL=1 bash $0 $PR_BRANCH" >&2
+    echo "  - serveo.net недоступен (сеть/firewall блокирует исходящий SSH на 22)" >&2
+    echo "  - ExitOnForwardFailure сработал — :80 на serveo уже занят другим клиентом" >&2
+    echo "  - SSH key rejection — попробуй удалить /tmp/pm-serveo-known-hosts" >&2
+    echo "  - Можно обойти: SKIP_TUNNEL=1 bash $0 $PR_BRANCH" >&2
     exit 1
   fi
 
-  # Парсим URL из лога
-  URL=$(grep -oE 'https://[a-z0-9-]+\.loca\.lt' "$TUNNEL_LOG" 2>/dev/null | head -1 || true)
+  # Парсим URL из лога. Serveo печатает: "Forwarding HTTP traffic from https://xxx.serveousercontent.com"
+  # (anonymous) или "https://xxx.serveo.net" (с SSH key auth).
+  URL=$(grep -oE 'https://[a-z0-9.-]+\.(serveousercontent\.com|serveo\.net)' "$TUNNEL_LOG" 2>/dev/null | head -1 || true)
   if [ -n "$URL" ]; then
     TUNNEL_URL="$URL"
     break
@@ -240,7 +260,7 @@ for i in {1..30}; do
 done
 
 if [ -z "$TUNNEL_URL" ]; then
-  echo "❌ LocalTunnel не выдал URL за 30 сек. Лог:" >&2
+  echo "❌ Serveo не выдал URL за 30 сек. Лог:" >&2
   cat "$TUNNEL_LOG" >&2
   echo "" >&2
   echo "Можно обойти: SKIP_TUNNEL=1 bash $0 $PR_BRANCH" >&2
@@ -256,9 +276,9 @@ printf '║  🔗 USER TESTING URL:                                            �
 printf '║                                                                  ║\n'
 printf '║  %-64s║\n' "$TUNNEL_URL"
 printf '║                                                                  ║\n'
-printf '║  📱 Открыть с телефона — пройди bypass-страницу LocalTunnel'"'"'а     ║\n'
-printf '║     (один раз спросит password от твоего public IP, его можно    ║\n'
-printf '║     посмотреть на https://loca.lt/mytunnelpassword)              ║\n'
+printf '║  📱 Открыть с телефона напрямую — без password/bypass страниц.   ║\n'
+printf '║     Google OAuth не работает через tunnel (redirect_uri          ║\n'
+printf '║     mismatch) — используй Dev Login через email на /crm/login.   ║\n'
 printf '║                                                                  ║\n'
 printf '╚══════════════════════════════════════════════════════════════════╝\n'
 echo ""
@@ -266,11 +286,11 @@ echo "Локальный URL:   http://localhost:3000  (Vite preview, production
 echo "Публичный URL:   $TUNNEL_URL"
 echo "Лог API:         /tmp/pm-api.log"
 echo "Лог web preview: /tmp/pm-web.log"
-echo "Лог tunnel:      $TUNNEL_LOG"
+echo "Лог Serveo:      $TUNNEL_LOG"
 echo ""
-echo "Ctrl+C — остановит API + preview + tunnel (cleanup автоматический)."
+echo "Ctrl+C — остановит API + preview + Serveo SSH (cleanup автоматический)."
 echo "──────────────────────────────────────────────────"
 
-# Блокируем выполнение — держим dev и tunnel живыми до Ctrl+C / SIGTERM.
-# Trap cleanup на EXIT гарантирует что оба процесса убьются вместе.
+# Блокируем выполнение — держим серверы и tunnel живыми до Ctrl+C / SIGTERM.
+# Trap cleanup на EXIT гарантирует что все процессы убьются вместе.
 wait
