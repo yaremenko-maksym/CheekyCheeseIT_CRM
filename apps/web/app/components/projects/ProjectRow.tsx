@@ -28,8 +28,9 @@ const DATE_FORMAT_OPTS: Intl.DateTimeFormatOptions = {
  *
  * Pattern mirrors `UserRow` (apps/web/app/components/users/UserRow.tsx):
  *  - Stretched-link via ::before pseudo-element: the entire row is clickable
- *    and navigates to the project detail page. Inner <a> tags (none here yet)
- *    would sit at a higher z-index to intercept their own clicks.
+ *    and navigates to the project detail page. Inner <a> tags for senior and
+ *    junior names sit at a higher z-index (z-[2] > stretched-link z-[1]) and
+ *    use onClick stopPropagation to intercept their own clicks.
  *  - No inline edit / archive controls (consistent with ut-27 + ut-38).
  *    Archive + Edit live on the project detail page header.
  *  - `data-testid="project-row-${id}"` for E2E; preserves the legacy
@@ -111,7 +112,18 @@ export function ProjectRow({ project }: ProjectRowProps) {
             <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold">
               Синьор
             </p>
-            <p className="text-xs font-medium truncate">{project.seniorName}</p>
+            {/* Inner link sits above the row-level stretched-link (z-[2] > z-[1]).
+                stopPropagation страховка на случай если bubbling доберётся до
+                row-level click handler в будущем. */}
+            <Link
+              to="/crm/profile/$userId"
+              params={{ userId: project.seniorId }}
+              onClick={(e) => e.stopPropagation()}
+              data-testid={`project-row-${project.id}-senior-link`}
+              className="relative z-[2] block text-xs font-medium truncate hover:underline hover:text-primary underline-offset-2"
+            >
+              {project.seniorName}
+            </Link>
           </div>
         </div>
 
@@ -131,12 +143,23 @@ export function ProjectRow({ project }: ProjectRowProps) {
                 <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold">
                   Джун
                 </p>
-                <p className="text-xs font-medium truncate">
-                  {firstJunior.displayName}
+                {/* `<div>` (not `<p>`) used as the truncate parent because we
+                    nest an inline `<a>` for the junior name. Keeps `+N` suffix
+                    next to the name when present. */}
+                <div className="text-xs font-medium truncate">
+                  <Link
+                    to="/crm/profile/$userId"
+                    params={{ userId: firstJunior.userId }}
+                    onClick={(e) => e.stopPropagation()}
+                    data-testid={`project-row-${project.id}-junior-link`}
+                    className="relative z-[2] hover:underline hover:text-primary underline-offset-2"
+                  >
+                    {firstJunior.displayName}
+                  </Link>
                   {remainingJuniors > 0 && (
                     <span className="text-muted-foreground/70 font-normal"> +{remainingJuniors}</span>
                   )}
-                </p>
+                </div>
               </div>
             </>
           ) : (
