@@ -43,6 +43,16 @@
 
 Промпт от PM содержит: номер PR (Режим 1) или путь к task-файлу (Режим 2/3) + target_branch если нужно пушить в существующую ветку.
 
+**D3 [P2]: PM может skip Режим 1 если Coder уже добавил comprehensive E2E.**
+После dev-flow ретроспективы 2026-05-23 PM проверяет diff PR на наличие spec-файлов
+до диспетча AutoTest (см. `pm.md` секция «AutoTest dispatch decision»). Если Coder
+покрыл все AC — PM записывает `autotest_skipped` event с reason="coder-added-e2e-covering-ac"
+и пропускает диспетч.
+
+Это нормально. Не значит что AutoTest бесполезен. Значит что для **этого PR**
+покрытие уже есть. PM позовёт AutoTest в Режиме «дополнить» только если есть
+непокрытые AC или флейки на CI.
+
 ---
 
 ## РЕЖИМ 1: PR Post-Approval (Триггер 1)

@@ -158,11 +158,13 @@ mcp__github__get_pull_request_comments({owner: "yaremenko-maksym", repo: "Cheeky
 bash scripts/pm/prep-user-testing.sh <pr_branch>
 ```
 
-Скрипт делает: `git fetch && checkout && pull` → миграции → unit-тесты → **production build (api + web)** → старт API + Vite preview → ожидание готовности → LocalTunnel → блокирует foreground.
+Скрипт делает: `git fetch && checkout` (auto-detect worktree) → миграции → unit-тесты (api/web/shared, без e2e) → **production build (api + web с `VITE_API_URL=/api` + `VITE_DEV_LOGIN=true`)** → kill prev по PORT → старт API + Vite preview → wait-for-services → **Serveo SSH tunnel** (`ssh -R 80:localhost:3000 serveo.net`) → блокирует foreground.
 
-Через tunnel демка отдаётся как production bundle (а не dev) — быстрее на мобильнике и без flaky HMR через туннель.
+Через tunnel демка отдаётся как production bundle (не dev) — быстрее на мобильнике, без flaky HMR через туннель. URL формат `https://<hash>.serveousercontent.com`. OAuth через tunnel НЕ работает — использовать Dev Login (email на `/crm/login`).
 
-Если упал — не показывать пользователю, создать fix-задачу для Coder.
+Env overrides: `SKIP_TUNNEL=1`, `SKIP_UNIT_TESTS=1`, `POSTGRES_*`.
+
+Если упал — не показывать пользователю, читать `/tmp/pm-api.log` + `/tmp/pm-web.log` + Serveo лог → классифицировать (build/DB/tunnel/port-clash) → fix-задача для Coder/DevOps. Troubleshooting — `docs/runbooks/user-testing-tunnel.md`.
 
 ---
 
