@@ -51,13 +51,12 @@ export function ProjectRow({ project }: ProjectRowProps) {
       data-archived={isArchived ? 'true' : undefined}
       className={cn(
         'group/row relative rounded-md border border-transparent transition-colors',
-        'min-h-19',
         'hover:bg-muted/40 hover:border-border/40',
         isArchived && 'opacity-60 hover:opacity-80',
       )}
     >
       <div
-        className="grid items-center gap-3 px-3 py-3"
+        className="grid items-center gap-3 px-3 py-3 min-h-19"
         style={{ gridTemplateColumns: '3fr 1.4fr 1.4fr 1.2fr 1fr' }}
       >
         {/* Project info column — logo + name + company */}
