@@ -8,31 +8,19 @@ import path from 'path'
 export default defineConfig({
   server: {
     port: 3000,
-    // host: true слушает на 0.0.0.0 — нужно чтобы LocalTunnel/ngrok мог проксировать с внешки.
-    // allowedHosts: ['.loca.lt'] разрешает запросы из туннелей формата <subdomain>.loca.lt
-    // (Vite по умолчанию режет non-localhost Host header как "Blocked request").
+    // host: true слушает на 0.0.0.0 — нужно чтобы внешний tunnel мог проксировать.
+    // allowedHosts ограничен только serveo.net (выбранный provider после провалов
+    // LocalTunnel/Cloudflare/ngrok в нашей сети). Если потребуется другой provider —
+    // добавить отдельной записью. Vite по умолчанию режет non-localhost Host header
+    // как "Blocked request".
     host: true,
-    allowedHosts: [
-      '.loca.lt',                  // LocalTunnel
-      '.trycloudflare.com',        // Cloudflare quick tunnel
-      '.serveousercontent.com',    // serveo.net (SSH)
-      '.ngrok.io',                 // ngrok legacy
-      '.ngrok-free.app',           // ngrok free
-      '.ngrok.app',                // ngrok paid
-    ],
+    allowedHosts: ['.serveousercontent.com', '.serveo.net'],
   },
   preview: {
     port: 3000,
-    // То же что для dev — слушать 0.0.0.0 + пропускать .loca.lt туннель.
+    // То же что для server — слушать 0.0.0.0 + пропускать serveo туннель.
     host: true,
-    allowedHosts: [
-      '.loca.lt',                  // LocalTunnel
-      '.trycloudflare.com',        // Cloudflare quick tunnel
-      '.serveousercontent.com',    // serveo.net (SSH)
-      '.ngrok.io',                 // ngrok legacy
-      '.ngrok-free.app',           // ngrok free
-      '.ngrok.app',                // ngrok paid
-    ],
+    allowedHosts: ['.serveousercontent.com', '.serveo.net'],
     // Прокси для /api → NestJS на 3001. Когда фронт собран в production-режиме
     // и отдаётся через `vite preview`, браузер делает запросы к /api/...
     // относительно своего origin'а (включая tunnel URL). Этот прокси
