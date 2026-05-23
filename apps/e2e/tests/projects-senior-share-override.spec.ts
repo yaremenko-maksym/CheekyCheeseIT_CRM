@@ -69,9 +69,16 @@ test.describe('per-project SENIOR share override', () => {
       await expect(page.getByTestId('project-senior-share')).toContainText('26%')
       await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
 
-      // Open the edit dialog and set override = 30.
+      // Open the edit dialog, enable the per-project override toggle, then
+      // dial the slider to 30 via the embedded number input.
       await page.getByTestId('project-edit-button').click()
+      const toggle = page.getByTestId('project-edit-senior-share-toggle')
+      await expect(toggle).toBeEnabled()
+      // Round-1 round-2 UI: a checkbox now decides whether the override is
+      // present at all. Off = `null`, on = seed with `defaultSharePercent`.
+      await toggle.check()
       const input = page.getByTestId('project-edit-senior-share-override')
+      await expect(input).toBeVisible()
       await expect(input).toBeEnabled()
       await input.fill('30')
 
@@ -100,8 +107,14 @@ test.describe('per-project SENIOR share override', () => {
       await expect(page.getByTestId('project-senior-share')).toContainText('30%')
       await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
 
-      // HR can open edit but the override field is disabled.
+      // HR can open edit but the toggle, slider input and reset button are
+      // all disabled. The project already has an override (30) → checkbox
+      // is checked and the ShareSlider + Сбросить button are visible-but-
+      // disabled.
       await page.getByTestId('project-edit-button').click()
+      const toggle = page.getByTestId('project-edit-senior-share-toggle')
+      await expect(toggle).toBeDisabled()
+      await expect(toggle).toBeChecked()
       const input = page.getByTestId('project-edit-senior-share-override')
       await expect(input).toBeDisabled()
       const reset = page.getByTestId('project-edit-senior-share-reset')
@@ -132,6 +145,11 @@ test.describe('per-project SENIOR share override', () => {
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
       await page.getByTestId('project-edit-button').click()
 
+      // Enable the override toggle, then set the percent through the slider's
+      // number input.
+      const toggle = page.getByTestId('project-edit-senior-share-toggle')
+      await expect(toggle).toBeEnabled()
+      await toggle.check()
       const input = page.getByTestId('project-edit-senior-share-override')
       await expect(input).toBeEnabled()
       await input.fill('35')
@@ -269,6 +287,7 @@ test.describe('per-project SENIOR share override', () => {
 
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
       await page.getByTestId('project-edit-button').click()
+      await page.getByTestId('project-edit-senior-share-toggle').check()
       const input = page.getByTestId('project-edit-senior-share-override')
       await input.fill('0')
 
@@ -289,6 +308,7 @@ test.describe('per-project SENIOR share override', () => {
 
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
       await page.getByTestId('project-edit-button').click()
+      await page.getByTestId('project-edit-senior-share-toggle').check()
       const input = page.getByTestId('project-edit-senior-share-override')
       await input.fill('100')
 
@@ -304,51 +324,41 @@ test.describe('per-project SENIOR share override', () => {
     })
   })
 
-  test.describe('Scenario G — client validation (out of range)', () => {
-    test('value > 100 → onBlur error visible, no PATCH fired', async ({ asAdmin: page }) => {
+  test.describe('Scenario G — ShareSlider client clamping (0..100)', () => {
+    // The number input inside <ShareSlider> calls `clamp(value)` in onChange,
+    // so out-of-range values are never propagated to the form state. The
+    // assertion target therefore shifts from "validator error visible" to
+    // "input value clamped to the boundary, PATCH carries the boundary value".
+    test('value > 100 → clamped to 100, PATCH carries 100', async ({ asAdmin: page }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
       await page.getByTestId('project-edit-button').click()
+      await page.getByTestId('project-edit-senior-share-toggle').check()
       const input = page.getByTestId('project-edit-senior-share-override')
 
-      // Fail any unexpected PATCH so we can assert "no request" purely.
-      let sawPatchWithOverride = false
-      await page.route(`http://localhost:3001/api/projects/${PROJECTS[0]!.id}`, async (route) => {
-        if (route.request().method() === 'PATCH') {
-          const body = JSON.parse(route.request().postData() ?? '{}') as Record<string, unknown>
-          if ('seniorSharePercentOverride' in body) sawPatchWithOverride = true
-        }
-        // Fall through to the existing mockProjectDetail handler.
-        await route.fallback()
-      })
-
       await input.fill('150')
-      // Force onBlur to fire the validator without immediately submitting.
-      await input.blur()
+      // Clamp runs on `change`, so the DOM value is reset to '100' immediately.
+      await expect(input).toHaveValue('100')
 
-      // The form-level validator wires an error message under the field.
-      await expect(page.getByText('Введите целое число от 0 до 100')).toBeVisible()
-
-      // No PATCH with override should ever leave the page in this scenario.
-      // We assert through the existence of the visible error (above) — if the
-      // form had submitted, the dialog would have closed and the error would
-      // not be visible. As a belt-and-braces check, re-assert the flag stays
-      // false after the error assertion settled.
-      expect(sawPatchWithOverride).toBe(false)
+      const patchReq = page.waitForRequest(
+        (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
+      )
+      await page.getByRole('button', { name: 'Сохранить' }).click()
+      const body = JSON.parse((await patchReq).postData() ?? '{}') as Record<string, unknown>
+      expect(body['seniorSharePercentOverride']).toBe(100)
     })
 
-    test('negative value → onBlur error visible', async ({ asAdmin: page }) => {
+    test('negative value → clamped to 0', async ({ asAdmin: page }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
       await page.getByTestId('project-edit-button').click()
+      await page.getByTestId('project-edit-senior-share-toggle').check()
       const input = page.getByTestId('project-edit-senior-share-override')
 
       await input.fill('-5')
-      await input.blur()
-
-      await expect(page.getByText('Введите целое число от 0 до 100')).toBeVisible()
+      await expect(input).toHaveValue('0')
     })
   })
 
@@ -356,7 +366,8 @@ test.describe('per-project SENIOR share override', () => {
     test('ADMIN with active override clicks reset → null saved, badge disappears', async ({
       asAdmin: page,
     }) => {
-      // Start with an override already set so the reset button is enabled.
+      // Start with an override already set so the toggle is on and the
+      // reset button is rendered.
       await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
 
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
@@ -364,13 +375,17 @@ test.describe('per-project SENIOR share override', () => {
       await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
 
       await page.getByTestId('project-edit-button').click()
+      // Toggle should be pre-checked because override = 30.
+      const toggle = page.getByTestId('project-edit-senior-share-toggle')
+      await expect(toggle).toBeChecked()
       const reset = page.getByTestId('project-edit-senior-share-reset')
       await expect(reset).toBeEnabled()
       await reset.click()
 
-      // The input should now reflect the cleared state (empty string).
-      const input = page.getByTestId('project-edit-senior-share-override')
-      await expect(input).toHaveValue('')
+      // Clicking reset clears the override → toggle flips off → slider +
+      // reset button disappear.
+      await expect(toggle).not.toBeChecked()
+      await expect(page.getByTestId('project-edit-senior-share-override')).toHaveCount(0)
 
       const patchReq = page.waitForRequest(
         (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
@@ -387,14 +402,23 @@ test.describe('per-project SENIOR share override', () => {
       await expect(page.getByTestId('project-senior-share-override-badge')).toBeHidden()
     })
 
-    test('reset button is disabled when override is already null', async ({ asAdmin: page }) => {
+    test('when override is null, the reset button is not rendered (toggle off)', async ({
+      asAdmin: page,
+    }) => {
+      // Round-1 round-2 UI: the reset button only exists while the override
+      // is enabled. When the project has no override, the slider + reset
+      // are not in the DOM at all — the unchecked toggle is the only control.
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
       await page.getByTestId('project-edit-button').click()
 
-      const reset = page.getByTestId('project-edit-senior-share-reset')
-      await expect(reset).toBeDisabled()
+      const toggle = page.getByTestId('project-edit-senior-share-toggle')
+      await expect(toggle).toBeEnabled()
+      await expect(toggle).not.toBeChecked()
+      // No reset, no slider input.
+      await expect(page.getByTestId('project-edit-senior-share-reset')).toHaveCount(0)
+      await expect(page.getByTestId('project-edit-senior-share-override')).toHaveCount(0)
     })
   })
 
@@ -409,8 +433,9 @@ test.describe('per-project SENIOR share override', () => {
       await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
       await expect(page.getByTestId('project-senior-share-override-badge')).toBeHidden()
 
-      // Edit → save 42.
+      // Edit → enable toggle → save 42.
       await page.getByTestId('project-edit-button').click()
+      await page.getByTestId('project-edit-senior-share-toggle').check()
       const input = page.getByTestId('project-edit-senior-share-override')
       await input.fill('42')
       await page.getByRole('button', { name: 'Сохранить' }).click()
@@ -581,7 +606,11 @@ test.describe('per-project SENIOR share override', () => {
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
       await page.getByTestId('project-edit-button').click()
 
-      // Sanity — the field is disabled, so the frontend protects itself first.
+      // Sanity — the toggle + slider input are disabled for HR, so the
+      // frontend protects itself before the backend RBAC ever sees a request.
+      const toggle = page.getByTestId('project-edit-senior-share-toggle')
+      await expect(toggle).toBeDisabled()
+      // Override is `30` in the mock, so the slider input is visible-but-disabled.
       const input = page.getByTestId('project-edit-senior-share-override')
       await expect(input).toBeDisabled()
 
@@ -598,5 +627,135 @@ test.describe('per-project SENIOR share override', () => {
       // Confirm our 403 guard was never triggered — frontend stripped the field.
       expect(receivedOverrideField).toBe(false)
     })
+  })
+
+  // -------------------------------------------------------------------------
+  // Round-1 round-2 UI additions (task-fix-pr39-ui-round1)
+  //   M — toggle on then off in the same dialog → save should carry `null`
+  //   N — «Финансы по проекту» CardHeader now renders <ProjectShareInfo>
+  // -------------------------------------------------------------------------
+
+  test.describe('Scenario M — checkbox toggle interaction', () => {
+    test('toggle on (null → default seed) renders slider with default %, off hides it', async ({
+      asAdmin: page,
+    }) => {
+      // Verifies the checkbox-only UX: enabling the toggle from a null state
+      // seeds the slider with the project's defaultSharePercent (here = 26
+      // from the senior fixture), and disabling it removes the slider.
+      // The "diff-only PATCH body" optimisation (see projects.service.spec.ts)
+      // is intentionally NOT exercised here — that's covered separately.
+      await mockProjectDetail(page, { seniorSharePercentOverride: null })
+
+      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.getByTestId('project-edit-button').click()
+      const toggle = page.getByTestId('project-edit-senior-share-toggle')
+      await expect(toggle).not.toBeChecked()
+      // No slider in the DOM while toggle is off.
+      await expect(page.getByTestId('project-edit-senior-share-override')).toHaveCount(0)
+
+      // Enable → slider appears, seeded with the project's default (26).
+      await toggle.check()
+      const input = page.getByTestId('project-edit-senior-share-override')
+      await expect(input).toBeVisible()
+      await expect(input).toHaveValue('26')
+
+      // Disable → slider is removed again.
+      await toggle.uncheck()
+      await expect(page.getByTestId('project-edit-senior-share-override')).toHaveCount(0)
+    })
+  })
+
+  test.describe('Scenario N — finance section share row mirrors the read view', () => {
+    test('CardHeader renders the same effective % + Override badge', async ({
+      asAdmin: page,
+    }) => {
+      await mockProjectDetail(page, { seniorSharePercentOverride: 33 })
+      // The transactions list is empty, but the header still has to render.
+      await page.route('http://localhost:3001/api/transactions**', (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+      )
+
+      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+
+      // Read-only Info card has its widget (Обзор tab — default).
+      await expect(page.getByTestId('project-senior-share')).toContainText('33%')
+
+      // The Финансы по проекту block lives under the «Финансы» tab.
+      await page.getByRole('tab', { name: 'Финансы' }).click()
+
+      // Финансы по проекту header has the same widget with a distinct testId.
+      const financeRow = page.getByTestId('project-transactions-senior-share')
+      await expect(financeRow).toBeVisible()
+      await expect(financeRow).toContainText('33%')
+      await expect(financeRow).toContainText('Доля синьора')
+      await expect(
+        page.getByTestId('project-transactions-senior-share-override-badge'),
+      ).toBeVisible()
+    })
+
+    test('without override: row shows "(по умолчанию)" copy', async ({ asAdmin: page }) => {
+      await mockProjectDetail(page, { seniorSharePercentOverride: null })
+      await page.route('http://localhost:3001/api/transactions**', (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+      )
+
+      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.getByRole('tab', { name: 'Финансы' }).click()
+
+      const financeRow = page.getByTestId('project-transactions-senior-share')
+      await expect(financeRow).toBeVisible()
+      await expect(financeRow).toContainText('26%')
+      await expect(financeRow).toContainText('(по умолчанию)')
+      await expect(
+        page.getByTestId('project-transactions-senior-share-override-badge'),
+      ).toHaveCount(0)
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Login auth-guard — Round-1 round-2 PR #39 fix (правка 3).
+// ---------------------------------------------------------------------------
+//
+// Once a user is already authenticated, navigating to /crm/login should
+// auto-redirect them to /crm (the dashboard). Previously broken because
+// <AuthProvider skip> blocked the /auth/me query.
+
+test.describe('login auth-guard', () => {
+  // Wait for the URL to leave /crm/login. The TanStack Router redirect lands
+  // on /crm (the index dashboard) but we don't want to over-couple to that
+  // exact path — any non-/login pathname under /crm counts as "redirected".
+  const waitForRedirect = async (page: import('@playwright/test').Page) =>
+    page.waitForURL((url) => new URL(url).pathname !== '/crm/login', {
+      timeout: 5_000,
+    })
+
+  test('ADMIN visiting /crm/login is redirected to /crm', async ({ asAdmin: page }) => {
+    // The fixture already mocked /api/auth/me to return USERS.admin.
+    await page.goto('/crm/login')
+    await waitForRedirect(page)
+    expect(new URL(page.url()).pathname).not.toBe('/crm/login')
+    expect(new URL(page.url()).pathname).toMatch(/^\/crm/)
+  })
+
+  test('SENIOR visiting /crm/login is redirected to /crm', async ({ asSenior: page }) => {
+    await page.goto('/crm/login')
+    await waitForRedirect(page)
+    expect(new URL(page.url()).pathname).not.toBe('/crm/login')
+    expect(new URL(page.url()).pathname).toMatch(/^\/crm/)
+  })
+
+  test('unauthenticated visitor stays on /crm/login', async ({ page }) => {
+    // No mockAuthAs → /api/auth/me would otherwise hit the real backend. We
+    // intercept it to force a 401 so the spec is deterministic.
+    await page.route('http://localhost:3001/api/auth/me', (r) =>
+      r.fulfill({ status: 401, contentType: 'application/json', body: '{}' }),
+    )
+    await page.goto('/crm/login')
+    // Give the redirect effect a chance to (not) fire.
+    await page.waitForTimeout(500)
+    expect(new URL(page.url()).pathname).toBe('/crm/login')
+    // The login UI is rendered (header copy serves as a fingerprint).
+    await expect(page.getByText('CheekyCheeseIT CRM')).toBeVisible()
   })
 })
