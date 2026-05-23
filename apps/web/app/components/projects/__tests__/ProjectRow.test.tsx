@@ -58,6 +58,8 @@ function makeProject(overrides: Partial<ProjectDto> = {}): ProjectDto {
     seniorName: 'Senior One',
     rate: 4500,
     currency: 'USD',
+    seniorSharePercentOverride: null,
+    seniorSharePercentDefault: 26,
     members: [makeJunior()],
     techStack: null,
     teamSize: null,

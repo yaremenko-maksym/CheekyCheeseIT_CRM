@@ -11,6 +11,7 @@ import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
 import type { ArchiveImpact, CreateProjectDto, EffectiveTeam, SessionUser, UpdateProjectDto } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
+  projectFinanceSettings,
   projectMembers,
   projects,
   teamMembers,
@@ -50,6 +51,11 @@ export class ProjectsService {
       seniorName: project.senior?.displayName ?? '',
       rate: project.rate,
       currency: project.currency,
+      // Per-project SENIOR share override. NULL = senior's global default.
+      seniorSharePercentOverride: project.seniorSharePercentOverride ?? null,
+      // Computed default for UI hints — falls back to 26 when senior is
+      // unreachable (e.g. soft-deleted) so the front-end never sees `null`.
+      seniorSharePercentDefault: project.senior?.seniorSharePercent ?? 26,
       techStack: project.techStack ?? null,
       teamSize: project.teamSize ?? null,
       benefits: project.benefits ?? null,
@@ -216,7 +222,22 @@ export class ProjectsService {
   }
 
   async create(data: CreateProjectDto, currentUser: SessionUser) {
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') {
+    // seniorSharePercentOverride is field-scoped RBAC: only ADMIN and
+    // ACCOUNTANT may set it. We check this BEFORE the create-role check so
+    // an HR caller sending the field still gets the more-specific 403
+    // (and so TS doesn't narrow `currentUser.role` away from ACCOUNTANT).
+    const role = currentUser.role
+    if (
+      data.seniorSharePercentOverride !== undefined &&
+      role !== 'ADMIN' &&
+      role !== 'ACCOUNTANT'
+    ) {
+      throw new ForbiddenException(
+        'Only ADMIN or ACCOUNTANT can change senior share percent override',
+      )
+    }
+
+    if (role !== 'ADMIN' && role !== 'HR') {
       throw new ForbiddenException()
     }
 
@@ -225,6 +246,11 @@ export class ProjectsService {
     })
     if (!senior) throw new NotFoundException('Senior not found')
     if (senior.role !== 'SENIOR' && senior.role !== 'ADMIN') throw new BadRequestException('User is not a SENIOR or ADMIN')
+
+    const override =
+      data.seniorSharePercentOverride === undefined
+        ? null
+        : data.seniorSharePercentOverride
 
     const [project] = await this.db.db
       .insert(projects)
@@ -237,6 +263,7 @@ export class ProjectsService {
         seniorId: data.seniorId,
         rate: data.rate,
         currency: data.currency,
+        seniorSharePercentOverride: override,
         techStack: data.techStack ?? null,
         teamSize: data.teamSize ?? null,
         benefits: data.benefits ?? null,
@@ -247,6 +274,13 @@ export class ProjectsService {
       })
       .returning()
 
+    // Mirror to project_finance_settings so the existing
+    // transactions.service.ts SENIOR_INCOME calc keeps reading the same
+    // effective value via `project.financeSettings.seniorSharePercentOverride`.
+    if (project && data.seniorSharePercentOverride !== undefined) {
+      await this.syncFinanceSettingsOverride(project.id, override, currentUser.id)
+    }
+
     const created = await this.db.db.query.projects.findFirst({
       where: eq(projects.id, project!.id),
       with: { senior: true, members: { with: { user: true } } },
@@ -255,12 +289,65 @@ export class ProjectsService {
     return this.mapProject(created)
   }
 
+  /**
+   * Upsert the projects.senior_share_percent_override mirror into
+   * project_finance_settings. Keeps the existing finance path (which reads
+   * from financeSettings only) in sync with the new direct column.
+   */
+  private async syncFinanceSettingsOverride(
+    projectId: string,
+    override: number | null,
+    actorId: string,
+  ) {
+    const existing = await this.db.db.query.projectFinanceSettings.findFirst({
+      where: eq(projectFinanceSettings.projectId, projectId),
+    })
+    if (existing) {
+      await this.db.db
+        .update(projectFinanceSettings)
+        .set({
+          seniorSharePercentOverride: override,
+          updatedBy: actorId,
+          updatedAt: new Date(),
+        })
+        .where(eq(projectFinanceSettings.projectId, projectId))
+    } else {
+      await this.db.db.insert(projectFinanceSettings).values({
+        projectId,
+        seniorSharePercentOverride: override,
+        juniorSalaryOverride: null,
+        updatedBy: actorId,
+      })
+    }
+  }
+
   async update(
     id: string,
     data: UpdateProjectDto,
     currentUser: SessionUser,
   ) {
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') {
+    // Field-scoped RBAC: `seniorSharePercentOverride` (including explicit
+    // null to clear) is restricted to ADMIN and ACCOUNTANT. HR keeps full
+    // edit access to every other field — we only deny when this specific
+    // field is in the payload. Check BEFORE the create/update role narrow
+    // so ACCOUNTANT-only updates (just the override) are accepted.
+    const role = currentUser.role
+    if (
+      data.seniorSharePercentOverride !== undefined &&
+      role !== 'ADMIN' &&
+      role !== 'ACCOUNTANT'
+    ) {
+      throw new ForbiddenException(
+        'Only ADMIN or ACCOUNTANT can change senior share percent override',
+      )
+    }
+
+    // ACCOUNTANT may patch only when the only field touched is the override.
+    const hasOnlyOverride =
+      data.seniorSharePercentOverride !== undefined &&
+      Object.keys(data).every((k) => k === 'seniorSharePercentOverride')
+
+    if (role !== 'ADMIN' && role !== 'HR' && !(role === 'ACCOUNTANT' && hasOnlyOverride)) {
       throw new ForbiddenException()
     }
 
@@ -271,6 +358,22 @@ export class ProjectsService {
 
     if (!project) throw new NotFoundException('Project not found')
 
+    // Round-3 implicit-null detection (PR #39 round 2): UI больше не имеет
+    // toggle/«Сбросить» — слайдер всегда виден. Когда ADMIN/ACCOUNTANT
+    // ставит значение === эффективному дефолту синьера, мы интерпретируем
+    // это как сброс переопределения (пишем `null`). Иначе — пишем число.
+    // Это касается и `projects.seniorSharePercentOverride`, и mirror в
+    // `project_finance_settings.seniorSharePercentOverride`.
+    const seniorDefault = project.senior?.seniorSharePercent ?? 26
+    const overrideEffective: number | null | undefined =
+      data.seniorSharePercentOverride === undefined
+        ? undefined
+        : data.seniorSharePercentOverride === null
+          ? null
+          : data.seniorSharePercentOverride === seniorDefault
+            ? null
+            : data.seniorSharePercentOverride
+
     const updateData: Partial<typeof projects.$inferInsert> = {
       updatedAt: new Date(),
     }
@@ -280,6 +383,9 @@ export class ProjectsService {
     if (data.logoUrl !== undefined) updateData.logoUrl = data.logoUrl ?? null
     if (data.rate !== undefined) updateData.rate = data.rate
     if (data.currency !== undefined) updateData.currency = data.currency
+    if (overrideEffective !== undefined) {
+      updateData.seniorSharePercentOverride = overrideEffective
+    }
     if (data.techStack !== undefined) updateData.techStack = data.techStack ?? null
     if (data.teamSize !== undefined) updateData.teamSize = data.teamSize ?? null
     if (data.benefits !== undefined) updateData.benefits = data.benefits ?? null
@@ -289,6 +395,35 @@ export class ProjectsService {
     if (data.notesGeneral !== undefined) updateData.notesGeneral = data.notesGeneral ?? null
 
     await this.db.db.update(projects).set(updateData).where(eq(projects.id, id))
+
+    // Mirror override into project_finance_settings so existing finance
+    // snapshot logic continues to pick up the new value for SENIOR_INCOME.
+    // Audit log пишет diff с уже-resolved значением (implicit null применился).
+    if (overrideEffective !== undefined) {
+      await this.syncFinanceSettingsOverride(
+        id,
+        overrideEffective,
+        currentUser.id,
+      )
+
+      // Record the change in audit log so admin diffs include the override.
+      if (
+        project.seniorSharePercentOverride !==
+        overrideEffective
+      ) {
+        await this.projectAuditLogService.record({
+          actorId: currentUser.id,
+          targetId: id,
+          action: 'project_edited',
+          changes: {
+            seniorSharePercentOverride: {
+              before: project.seniorSharePercentOverride ?? null,
+              after: overrideEffective,
+            },
+          },
+        })
+      }
+    }
 
     const updated = await this.db.db.query.projects.findFirst({
       where: eq(projects.id, id),

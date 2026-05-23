@@ -10,7 +10,11 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 8_000 },
   use: {
-    baseURL: 'http://localhost:3000',
+    // Allow overriding via env so a developer can point the suite at a
+    // throw-away dev server (e.g. when port 3000 is occupied by a User
+    // Testing tunnel build that ships stale code). Falls back to the
+    // standard local dev port.
+    baseURL: process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:3000',
     trace: 'on-first-retry',
     actionTimeout: 10_000,
   },

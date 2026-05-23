@@ -75,7 +75,7 @@ import {
   normalizeTelegram,
 } from './constants'
 import { Field, Section } from './section'
-import { ShareSlider } from './share-slider'
+import { ShareSlider } from '@/components/ui/share-slider'
 import { HrChipsField } from './HrChipsField'
 import { AccountantChipField } from './AccountantChipField'
 

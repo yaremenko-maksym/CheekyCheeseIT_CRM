@@ -15,6 +15,7 @@ import {
   Globe,
   Laptop,
   Pencil,
+  Percent,
   RefreshCw,
   StickyNote,
   UserMinus,
@@ -54,6 +55,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ReceiptField } from '@/components/ui/receipt-field'
+import { ShareSlider } from '@/components/ui/share-slider'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
@@ -123,7 +125,20 @@ type AnyField = FieldApi<
 type AnyForm = ReactFormExtendedApi<any, any, any, any, any, any, any, any, any, any, any, any>
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-function ProjectEditFields({ form, mode }: { form: AnyForm; mode: 'info' | 'members' }) {
+function ProjectEditFields({
+  form,
+  mode,
+  canEditOverride,
+  defaultSharePercent,
+  viewerRole,
+}: {
+  form: AnyForm
+  mode: 'info' | 'members'
+  canEditOverride: boolean
+  defaultSharePercent: number
+  // ut-fix-round2: HR теряет видимость секции с долей синьора целиком (не disabled).
+  viewerRole: string | undefined
+}) {
   if (mode === 'info') {
     return (
       <div className="space-y-3">
@@ -287,6 +302,62 @@ function ProjectEditFields({ form, mode }: { form: AnyForm; mode: 'info' | 'memb
             />
           )}
         </form.Subscribe>
+
+        {/* Per-project SENIOR share — round-3 UI (PR #39 round 2):
+            ShareSlider всегда виден; implicit reset (когда value === default —
+            backend пишет null). Toggle/Сбросить упразднены. RBAC: HR теперь
+            СЕКЦИЮ не видит вообще (фильтрация выше через viewerRole), а у
+            не-ADMIN/ACCOUNTANT слайдер disabled. */}
+        {viewerRole !== 'HR' && (
+          <form.Field
+            name="seniorSharePercentOverride"
+            validators={{
+              onBlur: ({ value }: { value: number | null }) => {
+                if (value === null || value === undefined || (value as unknown as string) === '') return undefined
+                const num = Number(value)
+                if (!Number.isInteger(num) || num < 0 || num > 100) {
+                  return 'Введите целое число от 0 до 100'
+                }
+                return undefined
+              },
+            }}
+          >
+            {(field: AnyField) => {
+              const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
+              const raw = field.state.value as number | null
+              const hasOverride = raw !== null && raw !== undefined
+              // Initial / current slider value — effective % (override OR default).
+              const sliderValue = hasOverride ? (raw as number) : defaultSharePercent
+              return (
+                <div className="space-y-2" data-testid="project-edit-senior-share-section">
+                  <Label className={cn(err && 'text-destructive')}>
+                    Доля синьора (%)
+                  </Label>
+                  <ShareSlider
+                    value={sliderValue}
+                    min={0}
+                    max={100}
+                    disabled={!canEditOverride}
+                    onChange={(v) => field.handleChange(v)}
+                    onBlur={field.handleBlur}
+                    error={!!err}
+                    inputTestId="project-edit-senior-share-override"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    По умолчанию: {defaultSharePercent}%. Установите то же
+                    значение, чтобы сбросить переопределение.
+                  </p>
+                  {!canEditOverride && (
+                    <p className="text-xs text-muted-foreground italic">
+                      Менять может только ADMIN или ACCOUNTANT.
+                    </p>
+                  )}
+                  {err && <p className="text-xs text-destructive">{err}</p>}
+                </div>
+              )
+            }}
+          </form.Field>
+        )}
       </div>
     )
   }
@@ -311,6 +382,69 @@ function InfoRow({
   )
 }
 
+/**
+ * Single source of truth for "effective SENIOR share %" display logic —
+ * shows the per-project override (with the «Override» badge + tooltip)
+ * or falls back to the senior's global default (with the «по умолчанию»
+ * marker). Used in both the read-only Project info card and the
+ * Финансы по проекту section so the two stay in lockstep.
+ *
+ * Set `variant="inline"` for a compact one-line look (the Финансы header)
+ * — the wider variant is the default and matches the existing InfoRow.
+ */
+function ProjectShareInfo({
+  project,
+  variant = 'block',
+  testId = 'project-senior-share',
+  badgeTestId = 'project-senior-share-override-badge',
+}: {
+  project: Pick<
+    ProjectDetailDto,
+    'seniorSharePercentOverride' | 'seniorSharePercentDefault'
+  >
+  variant?: 'block' | 'inline'
+  /** Override the default `data-testid` so multiple instances can coexist on the same page. */
+  testId?: string
+  badgeTestId?: string
+}) {
+  const overrideRaw = project.seniorSharePercentOverride
+  const hasOverride = overrideRaw !== null && overrideRaw !== undefined
+  const fallback = project.seniorSharePercentDefault ?? 26
+  const effective = hasOverride ? overrideRaw : fallback
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-2',
+        variant === 'inline' && 'text-sm',
+      )}
+      data-testid={testId}
+    >
+      {variant === 'inline' && (
+        <span className="text-muted-foreground">Доля синьора:</span>
+      )}
+      <span className="font-medium tabular-nums">{effective}%</span>
+      {hasOverride ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge
+              variant="secondary"
+              className="text-[10px]"
+              data-testid={badgeTestId}
+            >
+              Override
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent>
+            Установлено для этого проекта; глобальная доля синьора: {fallback}%
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        <span className="text-xs text-muted-foreground">(по умолчанию)</span>
+      )}
+    </span>
+  )
+}
+
 function ProjectDetailPage() {
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'])
   const { projectId } = Route.useParams()
@@ -320,7 +454,15 @@ function ProjectDetailPage() {
 
   const isAdmin = user?.role === 'ADMIN'
   const canManage = user?.role === 'ADMIN' || user?.role === 'HR'
+  // ACCOUNTANT can also open the edit dialog so they can change
+  // `seniorSharePercentOverride` (backend enforces field-scoped RBAC).
+  const canOpenEdit = canManage || user?.role === 'ACCOUNTANT'
   const canRemoveMembers = isAdmin
+  // ut-fix-round2 (PR #39 round 2): HR не видит финансовую информацию по
+  // проекту — табу «Финансы», info-row «Доля синьора» в Обзоре и секцию
+  // ShareSlider в edit-форме. JUNIOR в этот роут вообще не пускают.
+  // ADMIN/ACCOUNTANT/SENIOR видят всё (SENIOR — read-only).
+  const canSeeProjectFinance = user?.role !== 'HR'
 
   const [editOpen, setEditOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
@@ -346,6 +488,8 @@ function ProjectDetailPage() {
 
 
 
+  const canEditOverride = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
+
   const editForm = useForm({
     defaultValues: {
       name: project?.name ?? '',
@@ -354,6 +498,7 @@ function ProjectDetailPage() {
       logoUrl: project?.logoUrl ?? (null as string | null),
       rate: (project?.rate ?? '') as unknown as number,
       currency: (project?.currency ?? 'USDT') as 'USDT' | 'USD' | 'EUR' | 'UAH',
+      seniorSharePercentOverride: project?.seniorSharePercentOverride ?? null,
       techStack: project?.techStack ?? '',
       teamSize: project?.teamSize ?? '',
       benefits: project?.benefits ?? '',
@@ -363,6 +508,15 @@ function ProjectDetailPage() {
       notesGeneral: project?.notesGeneral ?? '',
     },
     onSubmit: async ({ value }) => {
+      // Round-3 (PR #39 round 2): ShareSlider всегда виден (для не-HR), нет
+      // toggle/Сбросить. Implicit reset: если слайдер === default — фронт всё
+      // равно шлёт значение, а backend пишет null. Поэтому передаём поле
+      // когда оно НА САМОМ ДЕЛЕ изменилось vs. серверный snapshot AND
+      // пользователь может его редактировать. HR/SENIOR/JUNIOR ничего не
+      // отправляют (canEditOverride=false).
+      const overrideChanged =
+        canEditOverride &&
+        (value.seniorSharePercentOverride ?? null) !== (project?.seniorSharePercentOverride ?? null)
       editMutation.mutate({
         name: value.name.trim() || undefined,
         companyName: value.companyName.trim() || undefined,
@@ -370,6 +524,9 @@ function ProjectDetailPage() {
         logoUrl: value.logoUrl || null,
         rate: Number(value.rate) || undefined,
         currency: value.currency || undefined,
+        ...(overrideChanged
+          ? { seniorSharePercentOverride: value.seniorSharePercentOverride ?? null }
+          : {}),
         techStack: value.techStack.trim() || null,
         teamSize: value.teamSize.trim() || null,
         benefits: value.benefits.trim() || null,
@@ -435,6 +592,7 @@ const removeMemberMutation = useMutation({
     editForm.setFieldValue('logoUrl', project.logoUrl ?? null)
     editForm.setFieldValue('rate', project.rate as unknown as number)
     editForm.setFieldValue('currency', project.currency as 'USDT' | 'USD' | 'EUR' | 'UAH')
+    editForm.setFieldValue('seniorSharePercentOverride', project.seniorSharePercentOverride ?? null)
     editForm.setFieldValue('techStack', project.techStack ?? '')
     editForm.setFieldValue('teamSize', project.teamSize ?? '')
     editForm.setFieldValue('benefits', project.benefits ?? '')
@@ -542,9 +700,10 @@ return (
           </div>
 
           {/* ut-28: Explicit Edit + Archive buttons (replaces «Действия» dropdown
-              and former «Завершить» button). Visible only to admins/HR per RBAC. */}
+              and former «Завершить» button). Visible to ADMIN/HR (full edit)
+              and ACCOUNTANT (override-only edit). */}
           <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
-            {canManage && !project.archivedAt && (
+            {canOpenEdit && !project.archivedAt && (
               <Button
                 size="sm"
                 variant="outline"
@@ -621,7 +780,9 @@ return (
       </motion.div>
 
       {/* ut-29 + ut-33: project detail tabs — unified through SegmentedToggle
-          variant="tabs" (same yellow page-level styling as projects list). */}
+          variant="tabs" (same yellow page-level styling as projects list).
+          ut-fix-round2: «Финансы» табу видят только не-HR (ADMIN/ACCOUNTANT/
+          SENIOR). HR на ?tab=finance — fallback на «Обзор». */}
       {(() => {
         type ProjectTab = 'overview' | 'members' | 'audit' | 'finance'
         const tabOptions: ReadonlyArray<SegmentedToggleOption<ProjectTab>> = [
@@ -630,11 +791,16 @@ return (
           ...(isAdmin
             ? ([{ value: 'audit', label: 'История изменений', testId: 'tab-audit' }] as const)
             : []),
-          { value: 'finance', label: 'Финансы', testId: 'tab-finance' },
+          ...(canSeeProjectFinance
+            ? ([{ value: 'finance', label: 'Финансы', testId: 'tab-finance' }] as const)
+            : []),
         ]
+        // Fallback: если HR оказался на «finance» табе — переключить на «overview».
+        const safeActiveTab: ProjectTab =
+          activeTab === 'finance' && !canSeeProjectFinance ? 'overview' : (activeTab as ProjectTab)
         return (
           <SegmentedToggle<ProjectTab>
-            value={activeTab as ProjectTab}
+            value={safeActiveTab}
             onChange={(v) => setActiveTab(v)}
             options={tabOptions}
             ariaLabel="Разделы проекта"
@@ -711,6 +877,15 @@ return (
                   : <span className="text-muted-foreground/40 italic">—</span>}
               </div>
             </div>
+            {/* Per-project SENIOR share — read-only view. Renders the same
+                ProjectShareInfo widget used in the Финансы по проекту section
+                below so the two stay in sync. RBAC enforcement lives at the
+                API layer; UI ut-fix-round2 also hides this row for HR. */}
+            {canSeeProjectFinance && (
+              <InfoRow icon={<Percent className="h-3.5 w-3.5" />} label="Доля синьора">
+                <ProjectShareInfo project={project} />
+              </InfoRow>
+            )}
           </CardContent>
         </Card>
 
@@ -819,13 +994,13 @@ return (
       </motion.div>
       )}
 
-      {activeTab === 'finance' && (
+      {activeTab === 'finance' && canSeeProjectFinance && (
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, delay: 0.16 }}
       >
-        <ProjectTransactions projectId={projectId} />
+        <ProjectTransactions projectId={projectId} project={project} />
       </motion.div>
       )}
 
@@ -838,10 +1013,18 @@ return (
 
           <CrmDialogBody>
             <div className="space-y-5">
-              {canManage && editOpen && <ProjectEditFields form={editForm} mode="info" />}
+              {canOpenEdit && editOpen && (
+                <ProjectEditFields
+                  form={editForm}
+                  mode="info"
+                  canEditOverride={canEditOverride}
+                  defaultSharePercent={project.seniorSharePercentDefault}
+                  viewerRole={user?.role}
+                />
+              )}
             </div>
           </CrmDialogBody>
-          {canManage && (
+          {canOpenEdit && (
             <CrmDialogFooter>
               <Button variant="outline" onClick={() => setEditOpen(false)}>
                 Отмена
@@ -1024,7 +1207,13 @@ function ProjectCascadeUnarchiveModal({
   )
 }
 
-function ProjectTransactions({ projectId }: { projectId: string }) {
+function ProjectTransactions({
+  projectId,
+  project,
+}: {
+  projectId: string
+  project: ProjectDetailDto
+}) {
   const { user } = useAuth()
   const [selected, setSelected] = useState<TransactionDto | null>(null)
 
@@ -1047,9 +1236,26 @@ function ProjectTransactions({ projectId }: { projectId: string }) {
     <>
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-            Финансы по проекту
-          </CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+              Финансы по проекту
+            </CardTitle>
+            {/* Effective senior share — applies to every SENIOR_INCOME
+                row in the table below. Mirrors the read-only marker in
+                the Project info card so it's obvious which split was
+                used at the moment each transaction was created. */}
+            <div
+              className="flex items-center"
+              data-testid="project-transactions-share-row"
+            >
+              <ProjectShareInfo
+                project={project}
+                variant="inline"
+                testId="project-transactions-senior-share"
+                badgeTestId="project-transactions-senior-share-override-badge"
+              />
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
@@ -1080,6 +1286,7 @@ function ProjectTransactions({ projectId }: { projectId: string }) {
                       tx={tx}
                       role={user.role}
                       rates={rates}
+                      currentUserId={user.id}
                       onClick={setSelected}
                     />
                   ))}

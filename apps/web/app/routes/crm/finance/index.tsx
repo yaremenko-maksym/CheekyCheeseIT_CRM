@@ -40,6 +40,7 @@ import { PaySalaryDialog } from './components/dialogs/PaySalaryDialog'
 import { PayoutDialog } from './components/dialogs/PayoutDialog'
 import { TransactionDetailDialog } from './components/dialogs/TransactionDetailDialog'
 import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransactionDialog'
+import { MyProjectShares } from './components/MyProjectShares'
 
 export const Route = createFileRoute('/crm/finance/')({
   component: FinancePage,
@@ -163,6 +164,7 @@ function TransactionsTable({
   loading,
   role,
   rates,
+  currentUserId,
   onValidate,
   onEdit,
   onAdminEdit,
@@ -174,6 +176,7 @@ function TransactionsTable({
   loading: boolean
   role: string
   rates: ExchangeRates | undefined
+  currentUserId?: string | null
   onValidate: (tx: TransactionDto) => void
   onEdit: (tx: TransactionDto) => void
   onAdminEdit: (tx: TransactionDto) => void
@@ -268,6 +271,7 @@ function TransactionsTable({
                     tx={tx}
                     role={role}
                     rates={rates}
+                    currentUserId={currentUserId ?? null}
                     onValidate={onValidate}
                     onEdit={onEdit}
                     onAdminEdit={onAdminEdit}
@@ -482,6 +486,9 @@ function FinancePage() {
         </div>
       </div>
 
+      {/* SENIOR — own projects + effective share % (no impact for other roles). */}
+      {isSenior && <MyProjectShares />}
+
       {/* Transactions table */}
       <Card>
         <CardContent className="p-0">
@@ -490,6 +497,7 @@ function FinancePage() {
             loading={txLoading}
             role={role}
             rates={rates}
+            currentUserId={userId}
             onValidate={setValidateTx}
             onEdit={setEditTx}
             onAdminEdit={setAdminEditTx}

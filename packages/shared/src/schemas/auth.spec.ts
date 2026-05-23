@@ -8,6 +8,7 @@ describe('sessionUserSchema', () => {
     displayName: 'Test User',
     avatar: null,
     role: 'ADMIN' as const,
+    seniorSharePercent: 26,
   }
 
   it('accepts a valid session user', () => {

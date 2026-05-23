@@ -18,8 +18,12 @@ export const Route = createFileRoute('/crm_/login')({
 })
 
 function LoginRoot() {
+  // No `skip` flag — we WANT `/auth/me` to fire so the page can detect an
+  // already-authenticated user and redirect them to the CRM. When the user
+  // is unauthenticated, /auth/me returns 401 (handled inside fetchMe) and
+  // `useAuth().user` settles to `null` after one quick request.
   return (
-    <AuthProvider skip>
+    <AuthProvider>
       <LoginPage />
     </AuthProvider>
   )
@@ -92,10 +96,14 @@ function LoginPage() {
   const scriptRef = useRef<HTMLScriptElement | null>(null)
   const [devLoading, setDevLoading] = useState<string | null>(null)
 
-  // Redirect if already authenticated
+  // Redirect if already authenticated. `replace: true` prevents the browser
+  // back-button from returning to /crm/login after a successful redirect into
+  // the app — otherwise the user can land back on the login page after the
+  // first navigation. AuthProvider is mounted WITHOUT `skip` here, so this
+  // effect actually fires (see LoginRoot comment above).
   useEffect(() => {
     if (!isLoading && user) {
-      void navigate({ to: '/crm' })
+      void navigate({ to: '/crm', replace: true })
     }
   }, [user, isLoading, navigate])
 

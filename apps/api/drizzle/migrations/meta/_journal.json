@@ -64,6 +64,13 @@
       "when": 1779900000000,
       "tag": "0008_drop_project_status_and_end_date",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1780000000000,
+      "tag": "0009_project_senior_share_override",
+      "breakpoints": true
     }
   ]
 }

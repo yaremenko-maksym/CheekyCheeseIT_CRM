@@ -145,6 +145,13 @@ export const projects = pgTable('projects', {
   salaryReview: varchar('salary_review', { length: 255 }),
   corpTech: varchar('corp_tech', { length: 255 }),
   notesGeneral: varchar('notes_general', { length: 1000 }),
+  // Per-project override for SENIOR's share percent (0-100). NULL = use
+  // users.seniorSharePercent (global default for the senior). Editable only
+  // by ADMIN and ACCOUNTANT (enforced in projects.service.ts). Mirrors the
+  // existing project_finance_settings.seniorSharePercentOverride so the
+  // existing transactions.service.ts finance flow keeps reading the same
+  // effective value.
+  seniorSharePercentOverride: integer('senior_share_percent_override'),
   // Soft delete (archived projects hidden from main UI, restorable). The
   // project lifecycle is binary: ACTIVE (archivedAt = null) vs ARCHIVED
   // (archivedAt = timestamp of when the project ended).

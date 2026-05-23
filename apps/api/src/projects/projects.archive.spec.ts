@@ -11,8 +11,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { ProjectsService } from './projects.service'
 
-const adminUser: SessionUser = { id: 'admin-1', role: 'ADMIN', displayName: 'Admin', email: 'a@x.com', avatar: null }
-const hrUser: SessionUser = { id: 'hr-1', role: 'HR', displayName: 'HR', email: 'h@x.com', avatar: null }
+const adminUser: SessionUser = { id: 'admin-1', role: 'ADMIN', displayName: 'Admin', email: 'a@x.com', avatar: null, seniorSharePercent: 26 }
+const hrUser: SessionUser = { id: 'hr-1', role: 'HR', displayName: 'HR', email: 'h@x.com', avatar: null, seniorSharePercent: 26 }
 
 vi.mock('drizzle-orm', async (importOriginal) => {
   const actual = await importOriginal<typeof import('drizzle-orm')>()
@@ -526,7 +526,7 @@ describe('ProjectsService.findAll — RBAC matrix', () => {
   }
 
   const sessionFor = (id: string, role: SessionUser['role']): SessionUser => ({
-    id, role, displayName: id, email: `${id}@x.com`, avatar: null,
+    id, role, displayName: id, email: `${id}@x.com`, avatar: null, seniorSharePercent: 26,
   })
 
   it('ADMIN sees all active projects', async () => {
