@@ -206,24 +206,60 @@ pnpm --filter @crm/e2e test
 
 Если E2E падают — НЕ пушить. Исправить локально (либо UI, либо тесты) и только потом push.
 
-### 7. Task chunking — для задач > 3 файлов или > 30 мин
+### 7. Task chunking — incremental push после каждых 2 файлов ИЛИ 5 минут
 
-Большие задачи Coder часто обрываются на cutoff (~12 мин / ~200k tokens) с одним финальным незавершённым коммитом. Результат: PM достаёт незакоммиченную работу из worktree вручную.
+**[P0]** Runtime watchdog обрезает stream после ~12 мин / ~200k tokens. Большие задачи без incremental пушей теряют работу — последний commit оказывается локальным в worktree, PM достаёт его вручную. Реальный incident: сессия 2026-05-23 (projects-senior-share-override) round 1/2/3 — Coder завершался на «Let me check...» midway, `git log` пуст.
 
-**Правило: если задача охватывает > 3 файлов ИЛИ ожидается > 30 мин работы → дробить на milestones и пушить incremental commits.**
+**Жёсткое правило (ужесточено после ретро):**
+- **`wip:` push после каждых 2 файлов** (даже если задача мелкая), ИЛИ
+- **`wip:` push после каждых 5 минут работы** (если файл крупный/сложный), ИЛИ
+- **`wip:` push перед любой операцией > 1 мин** (билд, тесты, миграция)
+
+Раньше threshold был «> 3 файлов ИЛИ > 30 мин» — это оказалось слишком мягко. Coder обрывался ДО первого милстоуна на «средних» задачах.
 
 Workflow:
 1. Coder читает task-файл, определяет milestones (типично 2-4 группы по теме: «shared schemas», «backend service», «UI list», «UI detail»)
-2. После КАЖДОГО milestone — `git add <конкретные файлы> && git commit -m "wip(<scope>): <milestone>" && git push`
+2. После КАЖДЫХ 2 файлов (или 5 минут) — `git add <конкретные файлы> && git commit -m "wip(<scope>): <milestone>" && git push`
 3. `wip:` префикс — маркер незавершённости. Pre-push hook `coder-pre-push.sh` НЕ требует `ac_verified:` на `wip:` коммитах (только на финальном).
 4. Финальный коммит закрывает все AC: `git commit -m "feat(<scope>): <summary>\n\nac_verified: 1,2,3,4,5\nvision: ✓ /crm/<route>"` и `git push`.
 
 **Что это даёт:**
-- Если Coder обрывается на milestone 3 из 4 — milestones 1-3 уже в репо. PM знает где остановиться и может перезапустить Coder с шага 4.
+- Если Coder обрывается между милстоунами — milestones 1-N уже в репо. PM знает где остановиться и может перезапустить Coder с шага N+1.
 - PR diff виден инкрементально (легче ревью).
 - Reviewer и AutoTest могут начинать смотреть после первого зелёного CI на wip-коммите.
 
-**ВАЖНО:** PR open'ится после ПЕРВОГО wip-push (gh pr create), последующие пуши обновляют тот же PR. Не создавать новый PR на каждый milestone.
+**ВАЖНО:** PR open'ится после ПЕРВОГО wip-push (`gh pr create`), последующие пуши обновляют тот же PR. Не создавать новый PR на каждый milestone.
+
+### 8. Watchdog-resilience — sentinel-файл прогресса
+
+**[P0]** Дополнительная защита от C1 (silent termination). Coder ведёт sentinel-файл `docs/specs/tasks/<task>.progress.md`:
+
+```markdown
+# Progress: task-<slug>
+
+last_update: <ISO timestamp — обновляется ПЕРЕД каждым git push>
+files_touched: <count>
+files:
+  - apps/api/src/projects/projects.service.ts
+  - apps/web/app/routes/crm/projects/$projectId.tsx
+
+current_milestone: 2/4 — "backend service done, UI list next"
+last_commit: <SHA, обновляется после успешного commit>
+last_push: <ISO от последнего успешного git push>
+```
+
+**Workflow:**
+1. В начале задачи — Coder создаёт `<task>.progress.md` с `current_milestone: 0/N`
+2. После каждого commit — обновить `last_commit` + `current_milestone` + `last_update`
+3. После каждого `git push` (включая wip) — обновить `last_push`
+4. Commit sentinel ОТДЕЛЬНО от code-changes (`chore(progress): <slug> milestone N`)
+
+Если Coder обрывается:
+- PM читает `<task>.progress.md` → видит `last_update` и `last_push`
+- Если `last_update` свежий, но `last_push` старый — работа есть в worktree но не запушена → PM забирает через `git -C <worktree> log/diff`
+- Если оба свежие — Coder был at progress point, можно перезапустить с `current_milestone + 1`
+
+**Связанная задача:** `docs/specs/tasks/task-coder-watchdog-progress-markers.md` — hook implementation для auto-update sentinel при Edit/Write (follow-up).
 
 ### 2.8. Проверка качества перед коммитом
 
@@ -429,3 +465,27 @@ git push origin <branch>
 - Не ставить `// @ts-ignore` или `any`
 - Не коммитить `.env` файлы
 - Не устанавливать новые зависимости без подтверждения пользователя (правило из .clauderules)
+
+## Zone-of-write — что Coder НЕ ТРОГАЕТ
+
+**[C3 фикс]** Реальный incident: сессия 2026-05-23 Coder перезаписал PM-patches к `scripts/pm/prep-user-testing.sh` («это же не настоящий код, могу переписать»). Это сломало DevOps работу.
+
+**Coder редактирует ТОЛЬКО:**
+- `apps/api/**`, `apps/web/**`, `apps/e2e/**` (продукт)
+- `packages/**` (shared schemas)
+- `docs/specs/tasks/<my-task>.progress.md` (свой sentinel, см. секция 8)
+- `docs/specs/tasks/<my-task>.blocked.md` (свой блокер если есть)
+
+**Coder ЗАПРЕЩЕНО трогать:**
+- `scripts/pm/**` — PM-only scripts. Если изменения нужны → создать `.blocked.md`.
+- `scripts/devops/**` — DevOps zone (если есть). То же правило.
+- `docs/agents/**` — agent prompts. PM/Architect зона.
+- `docs/business/**` — business docs. BA zone.
+- `.github/workflows/**` — CI. DevOps zone.
+- `.claude/hooks/**` + `.claude/settings*.json` — harness config. DevOps zone.
+- `.gitmessage` — template. PM/Architect zone.
+- Чужие task-файлы `docs/specs/tasks/task-*.md` (кроме своего).
+
+Если в task-файле PM явно сказал «обнови `docs/business/modules/<X>.md`» — допустимо. Иначе — `.blocked.md`.
+
+**Hook `.claude/hooks/block-production-edits.sh` блокирует Coder из main repo (не worktree).** В worktree блокировка снимается — Coder *технически* может перезаписать что угодно. Но это нарушение zone-of-write выше → Reviewer выдаст Verdict: BLOCK на diff где Coder trogal off-limits files.

@@ -222,6 +222,47 @@ PM-агент парсит первую строку. Если `Verdict: BLOCK` 
 
 **Критично:** используй `mcp__github__create_pull_request_review` — только через MCP, не через `gh pr review` (MCP гарантирует правильный формат).
 
+### Шаг 4.5: Review posting resilience — write-then-post pattern
+
+**[C2 фикс]** Реальный incident: сессия 2026-05-23 Reviewer завершил анализ, начал posting через `mcp__github__create_pull_request_review` → MCP-вызов висел > 10 минут → watchdog crash → review **не появился на PR** (был только в session memory). Работа Reviewer'а потеряна.
+
+**Защита — сохраняй тело review в файл ДО posting.** Тогда даже если MCP/network hangs:
+- Тело review доступно для manual recovery (PM/user копирует на PR)
+- Следующая Reviewer-сессия может re-attempt без повторного анализа
+
+**Workflow:**
+
+1. **Сохрани body в файл ПЕРВЫМ** (до MCP call):
+   ```bash
+   mkdir -p /tmp/reviewer-output
+   REVIEW_FILE="/tmp/reviewer-output/pr-${PR_NUMBER}-$(date -u +%Y%m%dT%H%M%S).md"
+   cat > "$REVIEW_FILE" <<'EOF'
+   # PR #<N> Review — <timestamp>
+   # Verdict: APPROVE | Verdict: BLOCK
+
+   ## Тело review
+   <всё содержимое body как ты бы передал в MCP>
+   EOF
+   echo "Body saved: $REVIEW_FILE"
+   ```
+
+2. **Attempt #1:** `mcp__github__create_pull_request_review` (как в Шаг 4). Если MCP вернул success — done.
+
+3. **Attempt #2 (fallback):** Если MCP не отвечает > 60 сек ИЛИ вернул ошибку — fallback на `gh` CLI:
+   ```bash
+   # Для APPROVE event
+   gh api repos/<owner>/<repo>/pulls/<N>/reviews \
+     --method POST \
+     --field event=APPROVE \
+     --field body="$(cat $REVIEW_FILE | sed -n '/^## Тело review/,$ p' | tail -n +2)"
+
+   # Для COMMENT с Verdict: BLOCK — тот же gh api с event=COMMENT
+   ```
+
+4. **Attempt #3 (manual recovery):** Если оба провалились — вернуть PM путь к файлу (`/tmp/reviewer-output/pr-N-*.md`) с подробностями. PM либо постит сам через gh, либо просит USER.
+
+**ВАЖНО:** Файл `/tmp/reviewer-output/` — не репо, не gitignored issue. Эти файлы выживают session crash, но НЕ выживают reboot машины. Для долгосрочного recovery (rare) — PM скопирует тело в `pm-state.json.active[task].pending_review` поле.
+
 ### Шаг 5: Завершение
 
 После выдачи review — **вернуть результат PM** с кратким summary:
