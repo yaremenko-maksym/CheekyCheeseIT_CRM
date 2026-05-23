@@ -37,6 +37,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ShareSlider } from '@/components/ui/share-slider'
 import { toast } from 'sonner'
 import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 
@@ -110,70 +111,9 @@ function Field({
 }
 
 // ── Share slider ──────────────────────────────────────────────────────────────
-// ut-31: `value` is the SENIOR's share (matches API field `seniorSharePercent`).
-// Visual order remains [company %] [senior %]. Default 26% senior / 74% company.
-
-function ShareSlider({
-  value,
-  onChange,
-  onBlur,
-  error,
-}: {
-  value: number
-  onChange: (v: number) => void
-  onBlur?: () => void
-  error?: boolean
-}) {
-  const seniorPct = value
-  const companyPct = 100 - seniorPct
-  return (
-    <div className="space-y-3">
-      <div className="relative h-7 rounded-md overflow-hidden flex text-[11px] font-medium select-none">
-        <div
-          className="flex items-center justify-center bg-primary/20 text-primary transition-all duration-150"
-          style={{ width: `${companyPct}%` }}
-        >
-          {companyPct >= 12 ? `${companyPct}% компания` : ''}
-        </div>
-        <div
-          className="flex items-center justify-center bg-emerald-500/20 text-emerald-400 transition-all duration-150"
-          style={{ width: `${seniorPct}%` }}
-        >
-          {seniorPct >= 12 ? `${seniorPct}% синьор` : ''}
-        </div>
-      </div>
-      <div className="flex items-center gap-3">
-        <input
-          type="range"
-          min={1}
-          max={100}
-          step={1}
-          value={seniorPct}
-          onChange={(e) => onChange(Number(e.target.value))}
-          onBlur={onBlur}
-          className="flex-1 h-2 accent-primary cursor-pointer"
-          aria-label="Доля синьора"
-        />
-        <input
-          type="number"
-          min={1}
-          max={100}
-          value={seniorPct}
-          onChange={(e) => {
-            const n = Math.min(100, Math.max(1, Number(e.target.value)))
-            onChange(n)
-          }}
-          onBlur={onBlur}
-          className={cn(
-            'w-16 rounded-md border border-input bg-background px-2 py-1 text-sm text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
-            error && 'border-destructive',
-          )}
-          aria-label="Доля синьора в процентах"
-        />
-      </div>
-    </div>
-  )
-}
+// The component lives in `@/components/ui/share-slider` (relocated from
+// `components/users/` in PR #39 round 1). `value` is the SENIOR's share
+// (matches API field `seniorSharePercent`). Visual order [company %] [senior %].
 
 const telegramFieldSchema = updateProfileSchema.shape.telegram.unwrap().unwrap()
 const phoneFieldSchema = z.string().max(30)

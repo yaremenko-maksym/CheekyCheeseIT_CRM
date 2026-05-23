@@ -56,6 +56,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ReceiptField } from '@/components/ui/receipt-field'
+import { ShareSlider } from '@/components/ui/share-slider'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
@@ -301,9 +302,12 @@ function ProjectEditFields({
         </form.Subscribe>
 
         {/* Per-project SENIOR share override — editable only by ADMIN and
-            ACCOUNTANT. Visible to all roles that see the form (HR sees it
-            disabled). Null clears the override and falls back to the senior's
-            global default (`defaultSharePercent`). */}
+            ACCOUNTANT. Visible to all roles that see the form (HR sees both
+            controls disabled). The override is a nullable field, so we expose
+            it through a two-stage UI: a checkbox decides whether the override
+            exists at all (off = `null` → use `defaultSharePercent`), and when
+            it's on the actual % is driven by <ShareSlider> (the same control
+            used in UserDialog + TeamPage to set the global default). */}
         <form.Field
           name="seniorSharePercentOverride"
           validators={{
@@ -320,52 +324,69 @@ function ProjectEditFields({
           {(field: AnyField) => {
             const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
             const raw = field.state.value as number | null
-            const inputValue = raw === null || raw === undefined ? '' : String(raw)
+            const enabled = raw !== null && raw !== undefined
+            const sliderValue = enabled ? (raw as number) : defaultSharePercent
             return (
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label className={cn(err && 'text-destructive')}>
                   Доля синьора на проекте, %
                 </Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    inputMode="numeric"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={inputValue}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                      const v = e.target.value
-                      if (v === '') {
-                        field.handleChange(null)
+                <label
+                  className={cn(
+                    'flex items-center gap-2 text-sm cursor-pointer select-none',
+                    !canEditOverride && 'cursor-not-allowed opacity-70',
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    disabled={!canEditOverride}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        // Turning on → seed with the project's current
+                        // default % so the slider starts at a sensible value.
+                        field.handleChange(defaultSharePercent)
                       } else {
-                        const num = Number(v)
-                        field.handleChange(Number.isNaN(num) ? null : num)
+                        field.handleChange(null)
                       }
                     }}
-                    onBlur={field.handleBlur}
-                    placeholder={String(defaultSharePercent)}
-                    disabled={!canEditOverride}
-                    aria-disabled={!canEditOverride}
-                    data-testid="project-edit-senior-share-override"
-                    className={cn('flex-1', err && 'border-destructive focus-visible:ring-destructive/30')}
+                    className="h-4 w-4 accent-primary cursor-pointer disabled:cursor-not-allowed"
+                    data-testid="project-edit-senior-share-toggle"
                   />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => field.handleChange(null)}
-                    disabled={!canEditOverride || raw === null || raw === undefined}
-                    data-testid="project-edit-senior-share-reset"
-                    className="gap-1.5"
-                  >
-                    <RotateCcw className="h-3.5 w-3.5" />
-                    Сбросить
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Если оставить пустым — используется доля синьера по умолчанию ({defaultSharePercent}%).
-                </p>
+                  <span>Использовать переопределение для этого проекта</span>
+                </label>
+                {enabled ? (
+                  <div className="space-y-1.5">
+                    <ShareSlider
+                      value={sliderValue}
+                      min={0}
+                      max={100}
+                      disabled={!canEditOverride}
+                      onChange={(v) => field.handleChange(v)}
+                      onBlur={field.handleBlur}
+                      error={!!err}
+                      inputTestId="project-edit-senior-share-override"
+                    />
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => field.handleChange(null)}
+                        disabled={!canEditOverride}
+                        data-testid="project-edit-senior-share-reset"
+                        className="gap-1.5 h-7 text-xs"
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        Сбросить
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Используется доля синьера по умолчанию: {defaultSharePercent}%.
+                  </p>
+                )}
                 {!canEditOverride && (
                   <p className="text-xs text-muted-foreground italic">
                     Менять может только ADMIN или ACCOUNTANT.
@@ -397,6 +418,69 @@ function InfoRow({
       <span className="text-muted-foreground shrink-0 min-w-[80px]">{label}:</span>
       <span className="min-w-0 break-words">{children}</span>
     </div>
+  )
+}
+
+/**
+ * Single source of truth for "effective SENIOR share %" display logic —
+ * shows the per-project override (with the «Override» badge + tooltip)
+ * or falls back to the senior's global default (with the «по умолчанию»
+ * marker). Used in both the read-only Project info card and the
+ * Финансы по проекту section so the two stay in lockstep.
+ *
+ * Set `variant="inline"` for a compact one-line look (the Финансы header)
+ * — the wider variant is the default and matches the existing InfoRow.
+ */
+function ProjectShareInfo({
+  project,
+  variant = 'block',
+  testId = 'project-senior-share',
+  badgeTestId = 'project-senior-share-override-badge',
+}: {
+  project: Pick<
+    ProjectDetailDto,
+    'seniorSharePercentOverride' | 'seniorSharePercentDefault'
+  >
+  variant?: 'block' | 'inline'
+  /** Override the default `data-testid` so multiple instances can coexist on the same page. */
+  testId?: string
+  badgeTestId?: string
+}) {
+  const overrideRaw = project.seniorSharePercentOverride
+  const hasOverride = overrideRaw !== null && overrideRaw !== undefined
+  const fallback = project.seniorSharePercentDefault ?? 26
+  const effective = hasOverride ? overrideRaw : fallback
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-2',
+        variant === 'inline' && 'text-sm',
+      )}
+      data-testid={testId}
+    >
+      {variant === 'inline' && (
+        <span className="text-muted-foreground">Доля синьора:</span>
+      )}
+      <span className="font-medium tabular-nums">{effective}%</span>
+      {hasOverride ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge
+              variant="secondary"
+              className="text-[10px]"
+              data-testid={badgeTestId}
+            >
+              Override
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent>
+            Установлено для этого проекта; глобальная доля синьора: {fallback}%
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        <span className="text-xs text-muted-foreground">(по умолчанию)</span>
+      )}
+    </span>
   )
 }
 
@@ -818,46 +902,12 @@ return (
                   : <span className="text-muted-foreground/40 italic">—</span>}
               </div>
             </div>
-            {/* Per-project SENIOR share — read-only view. Badge "Override" shown
-                when project-level value is set; otherwise mark as default. Visible
-                to everyone who can see the project (RBAC handled at API layer). */}
+            {/* Per-project SENIOR share — read-only view. Renders the same
+                ProjectShareInfo widget used in the Финансы по проекту section
+                below so the two stay in sync. RBAC enforcement lives at the
+                API layer. */}
             <InfoRow icon={<Percent className="h-3.5 w-3.5" />} label="Доля синьора">
-              {(() => {
-                // Treat both null and undefined as "no override" so the badge
-                // logic stays correct when the API hasn't returned the new
-                // fields yet (e.g. backend not yet redeployed).
-                const overrideRaw = project.seniorSharePercentOverride
-                const hasOverride = overrideRaw !== null && overrideRaw !== undefined
-                const fallback = project.seniorSharePercentDefault ?? 26
-                const effective = hasOverride ? overrideRaw : fallback
-                return (
-                  <span
-                    className="inline-flex items-center gap-2"
-                    data-testid="project-senior-share"
-                  >
-                    <span className="font-medium tabular-nums">{effective}%</span>
-                    {hasOverride ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Badge
-                            variant="secondary"
-                            className="text-[10px]"
-                            data-testid="project-senior-share-override-badge"
-                          >
-                            Override
-                          </Badge>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          Установлено для этого проекта; глобальная доля синьора:{' '}
-                          {fallback}%
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">(по умолчанию)</span>
-                    )}
-                  </span>
-                )
-              })()}
+              <ProjectShareInfo project={project} />
             </InfoRow>
           </CardContent>
         </Card>
@@ -973,7 +1023,7 @@ return (
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, delay: 0.16 }}
       >
-        <ProjectTransactions projectId={projectId} />
+        <ProjectTransactions projectId={projectId} project={project} />
       </motion.div>
       )}
 
@@ -1179,7 +1229,13 @@ function ProjectCascadeUnarchiveModal({
   )
 }
 
-function ProjectTransactions({ projectId }: { projectId: string }) {
+function ProjectTransactions({
+  projectId,
+  project,
+}: {
+  projectId: string
+  project: ProjectDetailDto
+}) {
   const { user } = useAuth()
   const [selected, setSelected] = useState<TransactionDto | null>(null)
 
@@ -1202,9 +1258,26 @@ function ProjectTransactions({ projectId }: { projectId: string }) {
     <>
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-            Финансы по проекту
-          </CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+              Финансы по проекту
+            </CardTitle>
+            {/* Effective senior share — applies to every SENIOR_INCOME
+                row in the table below. Mirrors the read-only marker in
+                the Project info card so it's obvious which split was
+                used at the moment each transaction was created. */}
+            <div
+              className="flex items-center"
+              data-testid="project-transactions-share-row"
+            >
+              <ProjectShareInfo
+                project={project}
+                variant="inline"
+                testId="project-transactions-senior-share"
+                badgeTestId="project-transactions-senior-share-override-badge"
+              />
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
