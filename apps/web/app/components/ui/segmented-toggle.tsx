@@ -40,6 +40,13 @@ export interface SegmentedToggleOption<V extends string> {
   ariaLabel?: string
   /** Optional per-option test id suffix; defaults to value */
   testIdSuffix?: string
+  /**
+   * Full override for the button's `data-testid`. When set, this exact value
+   * is used as the test id — independent of the container's `testId`. Use
+   * for E2E selectors that pre-date SegmentedToggle adoption (e.g.
+   * `toggle-archived-projects`) so existing specs continue to work.
+   */
+  testId?: string
   /** Per-option disabled state (e.g. role-restricted option) */
   disabled?: boolean
 }
@@ -60,6 +67,24 @@ export interface SegmentedToggleProps<V extends string> {
   /** Disable the entire toggle (in addition to per-option disabled flags). */
   disabled?: boolean
   size?: 'sm' | 'md'
+  /**
+   * Visual style:
+   * - 'pill' (default) — subtle muted track, primary/15 active pill. Use
+   *   for inline selectors within forms / panels (payment method, sort).
+   * - 'tabs' — page-level segmented tabs. Track is the same muted card-like
+   *   surface, but the *active* pill is a more saturated primary tint
+   *   (primary/25 background + primary/50 border) so the tabs feel like a
+   *   focal page control, not a tucked-away helper.
+   */
+  variant?: 'pill' | 'tabs'
+  /**
+   * ARIA role for the container.
+   * - 'radiogroup' (default) — picks one option out of a small set; pairs
+   *   with role="radio" on each button. Matches the "pill" variant intent.
+   * - 'tablist' — page-level tabs; pairs with role="tab" + aria-selected
+   *   on each button. Use with variant="tabs" for semantic correctness.
+   */
+  role?: 'radiogroup' | 'tablist'
   /** Test id on the container; per-button test ids are `${testId}-${value}`. */
   testId?: string
 }
@@ -73,6 +98,8 @@ export function SegmentedToggle<V extends string>({
   className,
   disabled = false,
   size = 'md',
+  variant = 'pill',
+  role,
   testId,
 }: SegmentedToggleProps<V>) {
   // Auto-generate a layoutId when caller doesn't supply one. We use a ref so
@@ -86,9 +113,19 @@ export function SegmentedToggle<V extends string>({
       ? 'px-2 py-1 text-xs gap-1.5'
       : 'px-3 py-2 text-sm gap-2'
 
+  // 'tabs' variant uses a more saturated active pill so page-level segmented
+  // tabs read as a focal control (vs the subtle in-form 'pill' default).
+  const activePillStyles =
+    variant === 'tabs'
+      ? 'bg-primary/25 border border-primary/50 shadow-sm'
+      : 'bg-primary/15 border border-primary/40 shadow-sm'
+
+  const containerRole = role ?? (variant === 'tabs' ? 'tablist' : 'radiogroup')
+  const itemRole = containerRole === 'tablist' ? 'tab' : 'radio'
+
   return (
     <div
-      role="radiogroup"
+      role={containerRole}
       aria-label={ariaLabel}
       aria-disabled={disabled || undefined}
       data-testid={testId}
@@ -107,8 +144,10 @@ export function SegmentedToggle<V extends string>({
           <button
             key={option.value}
             type="button"
-            role="radio"
-            aria-checked={active}
+            role={itemRole}
+            {...(itemRole === 'tab'
+              ? { 'aria-selected': active }
+              : { 'aria-checked': active })}
             // Prefer explicit ariaLabel (icon-only / opaque enums), then visible label,
             // then enum value as a last-resort fallback so screen-reader users
             // always have *some* name even if a caller mis-configures the option.
@@ -119,14 +158,15 @@ export function SegmentedToggle<V extends string>({
               if (option.value === value) return
               onChange(option.value)
             }}
-            data-testid={testId ? `${testId}-${suffix}` : undefined}
+            data-testid={option.testId ?? (testId ? `${testId}-${suffix}` : undefined)}
             className={cn(
               'relative flex items-center justify-center rounded-md',
               'transition-colors duration-150 focus:outline-none',
               'focus-visible:ring-1 focus-visible:ring-primary/50',
               sizeStyles,
+              'font-medium',
               active
-                ? 'font-semibold text-foreground'
+                ? 'text-foreground'
                 : 'text-muted-foreground hover:text-foreground',
               buttonDisabled && 'cursor-not-allowed opacity-50 hover:text-muted-foreground',
             )}
@@ -134,7 +174,7 @@ export function SegmentedToggle<V extends string>({
             {active && (
               <motion.div
                 layoutId={pillLayoutId}
-                className="absolute inset-0 rounded-md bg-primary/15 border border-primary/40 shadow-sm"
+                className={cn('absolute inset-0 rounded-md', activePillStyles)}
                 transition={{ type: 'spring', stiffness: 380, damping: 32 }}
                 aria-hidden
               />

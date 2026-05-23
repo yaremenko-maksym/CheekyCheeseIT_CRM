@@ -38,7 +38,10 @@ export class ProjectsController {
 
   @Get()
   findAll(@CurrentUser() user: SessionUser, @Query('archived') archivedParam?: string) {
-    return this.projectsService.findAll(user, { archived: archivedParam === 'true' })
+    // round 7 (ut-44): tri-state filter — 'true' / 'all' / default ('active').
+    const archived: boolean | 'all' =
+      archivedParam === 'all' ? 'all' : archivedParam === 'true'
+    return this.projectsService.findAll(user, { archived })
   }
 
   @Get(':id')

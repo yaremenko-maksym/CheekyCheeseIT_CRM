@@ -39,7 +39,11 @@ export class UsersController {
     @Query('archived') archivedParam?: string,
   ) {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') throw new ForbiddenException()
-    const archived = archivedParam === 'true'
+    // round 7 (ut-44): tri-state filter — 'true' = archived only, 'all' = both,
+    // anything else (including missing) = active only. Boolean kept for legacy
+    // E2E + clients still expecting only `true`/absent.
+    const archived: boolean | 'all' =
+      archivedParam === 'all' ? 'all' : archivedParam === 'true'
     return currentUser.role === 'ADMIN'
       ? this.usersService.findAllIncludingAdmin({ archived })
       : this.usersService.findAll({ archived })

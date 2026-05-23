@@ -20,8 +20,6 @@ export const roleEnum = pgEnum('role', ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCO
 
 export const currencyEnum = pgEnum('currency', ['USDT', 'USD', 'EUR', 'UAH'])
 
-export const projectStatusEnum = pgEnum('project_status', ['ACTIVE', 'CLOSED'])
-
 export const interviewStageEnum = pgEnum('interview_stage', [
   'HR_SCREEN',
   'ENGLISH_CHECK',
@@ -135,12 +133,10 @@ export const projects = pgTable('projects', {
   companyName: varchar('company_name', { length: 255 }).notNull(),
   domain: varchar('domain', { length: 100 }).notNull(),
   startDate: timestamp('start_date').notNull(),
-  endDate: timestamp('end_date'),
   // seniorId can be SENIOR or ADMIN (admin-owned projects)
   seniorId: uuid('senior_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   rate: integer('rate').notNull(),
   currency: currencyEnum().notNull().default('USDT'),
-  status: projectStatusEnum().notNull().default('ACTIVE'),
   logoUrl: text('logo_url'),
   techStack: varchar('tech_stack', { length: 500 }),
   teamSize: varchar('team_size', { length: 100 }),
@@ -149,8 +145,9 @@ export const projects = pgTable('projects', {
   salaryReview: varchar('salary_review', { length: 255 }),
   corpTech: varchar('corp_tech', { length: 255 }),
   notesGeneral: varchar('notes_general', { length: 1000 }),
-  // Soft delete (archived projects hidden from main UI, restorable). Independent of `status`:
-  // `status` (ACTIVE/CLOSED) is the business contract state, `archivedAt` is the admin shelf state.
+  // Soft delete (archived projects hidden from main UI, restorable). The
+  // project lifecycle is binary: ACTIVE (archivedAt = null) vs ARCHIVED
+  // (archivedAt = timestamp of when the project ended).
   archivedAt: timestamp('archived_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

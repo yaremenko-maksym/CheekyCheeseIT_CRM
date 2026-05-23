@@ -251,17 +251,15 @@ function seedActiveSeniorTeamProject(store: Store) {
     senior: { id: 'senior-1', displayName: 'Senior', role: 'SENIOR', archivedAt: null, email: 's@x.com', avatar: null },
     members: [],
     // Cast through unknown to satisfy ProjectFixture which doesn't declare startDate/companyName.
-  } as ProjectFixture & { startDate: Date; companyName: string; domain: string; createdAt: Date; updatedAt: Date; currency: string; status: string; rate: number })
+  } as ProjectFixture & { startDate: Date; companyName: string; domain: string; createdAt: Date; updatedAt: Date; currency: string; rate: number })
   // Augment the row with required fields the service reads via mapProject.
   Object.assign(store.projects[store.projects.length - 1] as unknown as Record<string, unknown>, {
     startDate,
-    endDate: null,
     companyName: 'C',
     domain: 'Other',
     createdAt: startDate,
     updatedAt: startDate,
     currency: 'USDT',
-    status: 'ACTIVE',
     rate: 100,
     logoUrl: null,
     techStack: null,
@@ -470,5 +468,109 @@ describe('ProjectsService.findOne — effectiveTeam dynamism', () => {
     expect((result as { effectiveTeam: { hrs: Array<{ userId: string }> } }).effectiveTeam.hrs.map((h) => h.userId)).toEqual(['hr-new'])
     expect((result as { effectiveTeam: { accountants: Array<{ userId: string }> } }).effectiveTeam.accountants.map((a) => a.userId)).toEqual(['acc-1'])
     expect((result as { effectiveTeam: { senior: { id: string } | null } }).effectiveTeam.senior?.id).toBe('senior-1')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// findAll — per-role RBAC matrix for active vs archived views.
+// Round 5 design: ADMIN + ACCOUNTANT see everything, HR sees their seniors'
+// projects, SENIOR sees own, JUNIOR sees projects they were a member of.
+// Same matrix applies to active and archived sub-views — the only difference
+// is the `archivedAt IS NULL` vs `IS NOT NULL` filter applied to the result.
+// ---------------------------------------------------------------------------
+
+describe('ProjectsService.findAll — RBAC matrix', () => {
+  function seedMultiProject(store: Store) {
+    // Two seniors with one project each + one archived project for senior-1.
+    store.users.push(
+      { id: 'admin-1', role: 'ADMIN', displayName: 'Admin', email: 'a@x.com', avatar: null, archivedAt: null },
+      { id: 'acc-1', role: 'ACCOUNTANT', displayName: 'Acc', email: 'ac@x.com', avatar: null, archivedAt: null },
+      { id: 'senior-1', role: 'SENIOR', displayName: 'Senior 1', email: 's1@x.com', avatar: null, archivedAt: null },
+      { id: 'senior-2', role: 'SENIOR', displayName: 'Senior 2', email: 's2@x.com', avatar: null, archivedAt: null },
+      { id: 'hr-1', role: 'HR', displayName: 'HR', email: 'hr@x.com', avatar: null, archivedAt: null },
+      { id: 'junior-1', role: 'JUNIOR', displayName: 'Jr', email: 'j@x.com', avatar: null, archivedAt: null },
+    )
+    store.teams.push({ id: 'team-1', name: 'T1', archivedAt: null })
+    store.teamMembers.push(
+      { id: 'tm-s1', teamId: 'team-1', userId: 'senior-1', leftAt: null, joinedAt: new Date() },
+      { id: 'tm-hr', teamId: 'team-1', userId: 'hr-1', leftAt: null, joinedAt: new Date() },
+    )
+    const baseProj = {
+      companyName: 'C', domain: 'Other', startDate: new Date('2026-01-01'),
+      currency: 'USDT', rate: 100, logoUrl: null, techStack: null,
+      teamSize: null, benefits: null, paymentType: null, salaryReview: null,
+      corpTech: null, notesGeneral: null, createdAt: new Date('2026-01-01'),
+      updatedAt: new Date('2026-01-01'),
+    }
+    store.projects.push({
+      id: 'p-s1-active', name: 'P1', seniorId: 'senior-1', archivedAt: null,
+      senior: { id: 'senior-1', displayName: 'Senior 1', role: 'SENIOR', archivedAt: null, email: 's1@x.com', avatar: null },
+      members: [],
+      ...baseProj,
+    } as never)
+    store.projects.push({
+      id: 'p-s1-archived', name: 'P-arc', seniorId: 'senior-1', archivedAt: new Date('2026-04-01'),
+      senior: { id: 'senior-1', displayName: 'Senior 1', role: 'SENIOR', archivedAt: null, email: 's1@x.com', avatar: null },
+      members: [],
+      ...baseProj,
+    } as never)
+    store.projects.push({
+      id: 'p-s2-active', name: 'P2', seniorId: 'senior-2', archivedAt: null,
+      senior: { id: 'senior-2', displayName: 'Senior 2', role: 'SENIOR', archivedAt: null, email: 's2@x.com', avatar: null },
+      members: [
+        { id: 'pm-j', projectId: 'p-s2-active', userId: 'junior-1', leftAt: null, joinedAt: new Date(),
+          user: { id: 'junior-1', role: 'JUNIOR', displayName: 'Jr', email: 'j@x.com', avatar: null } },
+      ],
+      ...baseProj,
+    } as never)
+  }
+
+  const sessionFor = (id: string, role: SessionUser['role']): SessionUser => ({
+    id, role, displayName: id, email: `${id}@x.com`, avatar: null,
+  })
+
+  it('ADMIN sees all active projects', async () => {
+    const store = emptyStore()
+    seedMultiProject(store)
+    const { service } = buildService(store)
+    vi.restoreAllMocks()
+    const result = await service.findAll(sessionFor('admin-1', 'ADMIN'), { archived: false })
+    expect(result.map((p) => p.id).sort()).toEqual(['p-s1-active', 'p-s2-active'])
+  })
+
+  it('ACCOUNTANT sees all archived projects', async () => {
+    const store = emptyStore()
+    seedMultiProject(store)
+    const { service } = buildService(store)
+    vi.restoreAllMocks()
+    const result = await service.findAll(sessionFor('acc-1', 'ACCOUNTANT'), { archived: true })
+    expect(result.map((p) => p.id)).toEqual(['p-s1-archived'])
+  })
+
+  it('SENIOR sees only own projects (active)', async () => {
+    const store = emptyStore()
+    seedMultiProject(store)
+    const { service } = buildService(store)
+    vi.restoreAllMocks()
+    const result = await service.findAll(sessionFor('senior-1', 'SENIOR'), { archived: false })
+    expect(result.map((p) => p.id)).toEqual(['p-s1-active'])
+  })
+
+  it('HR sees projects of their senior (active)', async () => {
+    const store = emptyStore()
+    seedMultiProject(store)
+    const { service } = buildService(store)
+    vi.restoreAllMocks()
+    const result = await service.findAll(sessionFor('hr-1', 'HR'), { archived: false })
+    expect(result.map((p) => p.id)).toEqual(['p-s1-active'])
+  })
+
+  it('JUNIOR sees only projects where active member', async () => {
+    const store = emptyStore()
+    seedMultiProject(store)
+    const { service } = buildService(store)
+    vi.restoreAllMocks()
+    const result = await service.findAll(sessionFor('junior-1', 'JUNIOR'), { archived: false })
+    expect(result.map((p) => p.id)).toEqual(['p-s2-active'])
   })
 })

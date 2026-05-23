@@ -1,9 +1,10 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Check, Pencil, Plus, Search, Send, UserPlus, Users } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
+import { Archive, Check, Plus, Search, Send, UserPlus, Users } from 'lucide-react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
 import type { Value as PhoneValue } from 'react-phone-number-input'
 import { z } from 'zod'
@@ -36,29 +37,17 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 
-export const Route = createFileRoute('/crm/team/')({
-  component: TeamPage,
+const teamSearchSchema = z.object({
+  archived: z.boolean().optional(),
 })
 
-const ROLE_LABELS: Record<string, string> = {
-  ADMIN: 'Администратор',
-  SENIOR: 'Синьор',
-  JUNIOR: 'Джун',
-  HR: 'HR',
-  ACCOUNTANT: 'Бухгалтер',
-}
-
-const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accountant'> = {
-  ADMIN: 'admin',
-  SENIOR: 'senior',
-  JUNIOR: 'junior',
-  HR: 'hr',
-  ACCOUNTANT: 'accountant',
-}
+export const Route = createFileRoute('/crm/team/')({
+  validateSearch: (search) => teamSearchSchema.parse(search),
+  component: TeamPage,
+})
 
 function getInitials(name: string) {
   return (name || '?')
@@ -80,8 +69,8 @@ const item = {
 
 type UserOption = { id: string; displayName: string; email: string; role: string; avatar: string | null }
 
-async function fetchTeams(): Promise<TeamDto[]> {
-  const res = await api.get<TeamDto[]>('/teams')
+async function fetchTeams(archivedQuery: '' | 'true' | 'all' = ''): Promise<TeamDto[]> {
+  const res = await api.get<TeamDto[]>(`/teams${archivedQuery ? `?archived=${archivedQuery}` : ''}`)
   return res.data
 }
 
@@ -121,28 +110,30 @@ function Field({
 }
 
 // ── Share slider ──────────────────────────────────────────────────────────────
+// ut-31: `value` is the SENIOR's share (matches API field `seniorSharePercent`).
+// Visual order remains [company %] [senior %]. Default 26% senior / 74% company.
 
 function ShareSlider({
   value,
   onChange,
   onBlur,
-  seniorPct,
   error,
 }: {
   value: number
   onChange: (v: number) => void
   onBlur?: () => void
-  seniorPct: number
   error?: boolean
 }) {
+  const seniorPct = value
+  const companyPct = 100 - seniorPct
   return (
     <div className="space-y-3">
       <div className="relative h-7 rounded-md overflow-hidden flex text-[11px] font-medium select-none">
         <div
           className="flex items-center justify-center bg-primary/20 text-primary transition-all duration-150"
-          style={{ width: `${value}%` }}
+          style={{ width: `${companyPct}%` }}
         >
-          {value >= 12 ? `${value}% компания` : ''}
+          {companyPct >= 12 ? `${companyPct}% компания` : ''}
         </div>
         <div
           className="flex items-center justify-center bg-emerald-500/20 text-emerald-400 transition-all duration-150"
@@ -157,16 +148,17 @@ function ShareSlider({
           min={1}
           max={100}
           step={1}
-          value={value}
+          value={seniorPct}
           onChange={(e) => onChange(Number(e.target.value))}
           onBlur={onBlur}
           className="flex-1 h-2 accent-primary cursor-pointer"
+          aria-label="Доля синьора"
         />
         <input
           type="number"
           min={1}
           max={100}
-          value={value}
+          value={seniorPct}
           onChange={(e) => {
             const n = Math.min(100, Math.max(1, Number(e.target.value)))
             onChange(n)
@@ -176,6 +168,7 @@ function ShareSlider({
             'w-16 rounded-md border border-input bg-background px-2 py-1 text-sm text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
             error && 'border-destructive',
           )}
+          aria-label="Доля синьора в процентах"
         />
       </div>
     </div>
@@ -429,16 +422,15 @@ function HrCreateSeniorDialog({
                 }}
               >
                 {(field) => {
+                  // ut-31: value is SENIOR's share (default 26 → 74% company / 26% senior).
                   const val = field.state.value ?? 26
-                  const seniorPct = 100 - val
                   const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined
                   return (
-                    <Field label="Доля компании (%)" error={err} required>
+                    <Field label="Доля синьора (%)" error={err} required>
                       <ShareSlider
                         value={val}
                         onChange={(v) => field.handleChange(v)}
                         onBlur={field.handleBlur}
-                        seniorPct={seniorPct}
                         error={!!err}
                       />
                     </Field>
@@ -498,17 +490,33 @@ function TeamPage() {
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'])
   const { user } = useAuth()
   const navigate = useNavigate()
+  const routeSearch = Route.useSearch()
+  const isArchivedView = routeSearch.archived === true
   if (denied) return null
-  const queryClient = useQueryClient()
 
-  const canManage = user?.role === 'ADMIN' || user?.role === 'HR'
   const isHr = user?.role === 'HR'
+  const isAdmin = user?.role === 'ADMIN'
 
+  // ut-44: tri-state filter — local ALL/ACTIVE plus URL-driven ARCHIVED.
+  const [teamFilter, setTeamFilter] = useState<'ALL' | 'ACTIVE'>('ACTIVE')
+
+  // ut-32: keepPreviousData + useTransition keep the previous list visible
+  // during the URL switch + refetch so the SegmentedToggle's gold-pill
+  // layout animation isn't interrupted by a render that throws the list
+  // into a skeleton state mid-flight.
+  const archivedQuery: '' | 'true' | 'all' = isArchivedView
+    ? 'true'
+    : teamFilter === 'ALL'
+      ? 'all'
+      : ''
   const { data: teams, isLoading } = useQuery({
-    queryKey: ['teams'],
-    queryFn: fetchTeams,
+    queryKey: ['teams', { archived: archivedQuery || 'active' }],
+    queryFn: () => fetchTeams(archivedQuery),
     enabled: !!user,
+    placeholderData: keepPreviousData,
   })
+
+  const [, startTransition] = useTransition()
 
   // Auto-redirect for SENIOR and JUNIOR users who have only one team
   useEffect(() => {
@@ -521,11 +529,8 @@ function TeamPage() {
     }
   }, [teams, isLoading, user, navigate])
 
-  const { data: allUsers } = useQuery({
-    queryKey: ['users'],
-    queryFn: fetchAllUsers,
-    enabled: canManage,
-  })
+  // ut-39a: top-level users query removed — `HrCreateSeniorDialog` fetches
+  // its own list on demand, and the rest of the page doesn't need user data.
 
   const { data: projects } = useQuery({
     queryKey: ['projects'],
@@ -536,49 +541,8 @@ function TeamPage() {
   // HR: create senior dialog
   const [showCreateSenior, setShowCreateSenior] = useState(false)
 
-  // Edit team name
-  const [editTeam, setEditTeam] = useState<TeamDto | null>(null)
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, name, telegram, notes }: { id: string; name: string; telegram?: string | null; notes?: string | null }) =>
-      api.patch(`/teams/${id}`, { name, telegram, notes }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['teams'] })
-      setEditTeam(null)
-    },
-  })
-
-  const teamNameSchema = z.string().min(1, 'Обязательное поле').max(255, 'Максимум 255 символов')
-
-  const editForm = useForm({
-    defaultValues: { name: '', telegram: '', notes: '' },
-    onSubmit: async ({ value }) => {
-      if (!editTeam) return
-      updateMutation.mutate({ 
-        id: editTeam.id, 
-        name: value.name.trim(),
-        telegram: value.telegram.trim() || null,
-        notes: value.notes.trim() || null
-      })
-    },
-  })
-
-  // Delete team
-  const [deleteTeam, setDeleteTeam] = useState<TeamDto | null>(null)
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/teams/${id}`),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['teams'] })
-      void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
-      void queryClient.invalidateQueries({ queryKey: ['projects'] })
-      setDeleteTeam(null)
-    },
-  })
-
-  // Add member
-  const [addMemberTeam, setAddMemberTeam] = useState<TeamDto | null>(null)
-  const [addMemberUserId, setAddMemberUserId] = useState('')
+  // ut-39a: edit + add-member dialogs removed from list page — those flows
+  // now live on the team detail page header.
 
   // Toolbar state
   const [search, setSearch] = useState('')
@@ -600,12 +564,12 @@ function TeamPage() {
       if (sortBy === 'projects') {
         const aProjects = projects
           ? projects.filter(
-              (p) => p.status === 'ACTIVE' && a.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
+              (p) => p.archivedAt === null && a.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
             ).length
           : 0
         const bProjects = projects
           ? projects.filter(
-              (p) => p.status === 'ACTIVE' && b.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
+              (p) => p.archivedAt === null && b.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
             ).length
           : 0
         return bProjects - aProjects
@@ -615,21 +579,6 @@ function TeamPage() {
 
     return result
   }, [teams, projects, search, sortBy])
-
-  const addMemberMutation = useMutation({
-    mutationFn: ({ teamId, userId }: { teamId: string; userId: string }) =>
-      api.post(`/teams/${teamId}/members`, { userId }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['teams'] })
-      setAddMemberTeam(null)
-      setAddMemberUserId('')
-    },
-  })
-
-
-  const availableUsers = allUsers?.filter(
-    (u) => !addMemberTeam?.members.some((m) => m.userId === u.id),
-  ) ?? []
 
   if (isLoading) {
     return (
@@ -649,17 +598,62 @@ function TeamPage() {
     )
   }
 
+  // ut-25 + ut-33 + ut-44: tabs for teams page — «Все | Активные | Архив»
+  // for ADMIN, unified through SegmentedToggle so the gold-pill animation
+  // lives in one place. The «Все» tab fetches with `archived=all`; the
+  // «Архив» tab keeps the legacy `archived=true` query param + URL state.
+  type TeamTab = 'ALL' | 'ACTIVE' | 'ARCHIVED'
+  const teamTabs: ReadonlyArray<SegmentedToggleOption<TeamTab>> = [
+    { value: 'ALL', label: 'Все' },
+    { value: 'ACTIVE', label: 'Активные' },
+    { value: 'ARCHIVED', label: 'Архив', testId: 'toggle-archived-teams', icon: Archive },
+  ]
+  const currentTeamTab: TeamTab = isArchivedView ? 'ARCHIVED' : teamFilter
+  const handleTeamTabChange = (next: TeamTab) => {
+    // ut-32: wrap navigation in startTransition so the gold-pill layout
+    // animation isn't preempted by the query refetch render.
+    startTransition(() => {
+      if (next === 'ARCHIVED') {
+        navigate({ to: '/crm/team', search: { archived: true } })
+        return
+      }
+      if (isArchivedView) {
+        navigate({ to: '/crm/team', search: {} })
+      }
+      setTeamFilter(next === 'ALL' ? 'ALL' : 'ACTIVE')
+    })
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">Команда</h1>
-        {isHr && (
-          <Button onClick={() => setShowCreateSenior(true)} size="sm" className="gap-1.5">
-            <Plus className="h-4 w-4" />
-            Создать синьора
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {isHr && (
+            <Button onClick={() => setShowCreateSenior(true)} size="sm" className="gap-1.5">
+              <Plus className="h-4 w-4" />
+              Создать синьора
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* ut-25 + ut-26 + ut-33: Tabs row replacing the «Показать архивных» button.
+          Only ADMIN sees the Archive tab; for other roles tabs aren't needed
+          since they don't have access to archived teams. */}
+      {isAdmin && (
+        <SegmentedToggle<TeamTab>
+          value={currentTeamTab}
+          onChange={handleTeamTabChange}
+          options={teamTabs}
+          ariaLabel="Фильтр команд"
+          variant="tabs"
+          size="sm"
+          layoutId="team-status-tabs"
+          className="w-fit"
+          testId="team-status-tabs"
+        />
+      )}
 
       {teams && teams.length === 0 && (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
@@ -702,7 +696,6 @@ function TeamPage() {
         variants={container}
         initial="hidden"
         animate="show"
-        layout
       >
         {filteredTeams.length === 0 && (teams?.length ?? 0) > 0 && (
           <p className="py-8 text-center text-sm text-muted-foreground">
@@ -711,24 +704,32 @@ function TeamPage() {
         )}
         <AnimatePresence mode="popLayout" initial={false}>
         {filteredTeams.map((team) => {
-          const canManage = user?.role === 'ADMIN' || (user?.role === 'HR' && team.members.some((m) => m.userId === user.id && m.role === 'HR'))
+          // ut-39a: per-card management controls removed — all team CRUD is
+          // performed from the detail page header. No need for per-team
+          // RBAC computation here.
           const hrMembers = team.members.filter((m) => m.role === 'HR')
           const activeProjects = projects
             ? projects.filter(
-                (p) => p.status === 'ACTIVE' && team.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
+                (p) => p.archivedAt === null && team.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
               ).length
             : 0
+          const isArchived = !!team.archivedAt
 
           return (
             <motion.div
               key={team.id}
               variants={item}
-              layout
-              exit={{ opacity: 0, scale: 0.97 }}
-              transition={{ duration: 0.22, ease: [0.25, 0.1, 0.25, 1] }}
+              layout="position"
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.08, ease: 'easeOut' }}
             >
               <div
-                className="group relative flex h-14 items-center gap-3 rounded-lg border border-border/60 bg-card/50 px-3 transition-all duration-200 hover:border-primary/30 hover:bg-card cursor-pointer"
+                data-testid={`team-card-${team.id}`}
+                data-archived={isArchived ? 'true' : 'false'}
+                className={cn(
+                  'group relative flex h-14 items-center gap-3 rounded-lg border border-border/60 bg-card/50 px-3 transition-all duration-200 hover:border-primary/30 hover:bg-card cursor-pointer',
+                  isArchived && 'opacity-60',
+                )}
                 onClick={() => navigate({ to: '/crm/team/$teamId', params: { teamId: team.id } })}
               >
                 <Link
@@ -771,6 +772,14 @@ function TeamPage() {
 
                 {/* Pills */}
                 <div className="relative z-20 flex shrink-0 items-center gap-2">
+                  {isArchived && (
+                    <Badge
+                      variant="outline"
+                      className="border-amber-500/30 bg-amber-500/10 text-amber-500 text-[11px]"
+                    >
+                      В архиве
+                    </Badge>
+                  )}
                   {team.telegram && (
                     <a
                       href={team.telegram}
@@ -799,27 +808,9 @@ function TeamPage() {
                   </Badge>
                 </div>
 
-                {/* Rename only */}
-                {canManage && (
-                  <div className="relative z-30 flex shrink-0 gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        e.preventDefault()
-                        setEditTeam(team)
-                        editForm.setFieldValue('name', team.name)
-                        editForm.setFieldValue('telegram', team.telegram || '')
-                        editForm.setFieldValue('notes', team.notes || '')
-                      }}
-                      title="Переименовать"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                )}
+                {/* ut-39a: rename / unarchive / admin actions removed from
+                    list cards (matches ut-38 project pattern). All team
+                    management lives on the detail page header. */}
               </div>
             </motion.div>
           )
@@ -836,163 +827,8 @@ function TeamPage() {
         />
       )}
 
-      {/* Edit team dialog */}
-      <Dialog open={!!editTeam} onOpenChange={(open) => { if (!open) setEditTeam(null) }}>
-        <CrmDialogContent maxWidth="sm:max-w-md">
-          <CrmDialogHeader>
-            <DialogTitle>Редактировать команду</DialogTitle>
-          </CrmDialogHeader>
-          <CrmDialogBody className="pb-2">
-            <div className="grid gap-4">
-              {/* Name */}
-              <editForm.Field
-                name="name"
-                validators={{ onBlur: ({ value }) => {
-                  const r = teamNameSchema.safeParse(value.trim())
-                  return r.success ? undefined : r.error.issues[0]?.message
-                }}}
-              >
-                {(field) => {
-                  const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined
-                  return (
-                    <Field label="Название" error={err} required>
-                      <Input
-                        value={field.state.value}
-                        onChange={(e) => field.handleChange(e.target.value)}
-                        onBlur={field.handleBlur}
-                        placeholder="Название команды"
-                        className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
-                      />
-                    </Field>
-                  )
-                }}
-              </editForm.Field>
-
-              {/* Telegram */}
-              <editForm.Field
-                name="telegram"
-                validators={{ onBlur: ({ value }) => {
-                  if (!value.trim()) return undefined
-                  const r = z.string().url('Некорректное URL').safeParse(value.trim())
-                  return r.success ? undefined : r.error.issues[0]?.message
-                }}}
-              >
-                {(field) => {
-                  const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined
-                  return (
-                    <Field label="Telegram" error={err}>
-                      <Input
-                        value={field.state.value}
-                        onChange={(e) => field.handleChange(e.target.value)}
-                        onBlur={field.handleBlur}
-                        placeholder="https://t.me/..."
-                        className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
-                      />
-                      <p className="text-xs text-muted-foreground">Ссылка на чат команды</p>
-                    </Field>
-                  )
-                }}
-              </editForm.Field>
-
-              {/* Notes */}
-              <editForm.Field name="notes">
-                {(field) => (
-                  <Field label="Заметки">
-                    <Textarea
-                      value={field.state.value}
-                      onChange={(e) => field.handleChange(e.target.value)}
-                      onBlur={field.handleBlur}
-                      placeholder="Внутренние заметки…"
-                      className="min-h-20"
-                    />
-                  </Field>
-                )}
-              </editForm.Field>
-            </div>
-          </CrmDialogBody>
-          <CrmDialogFooter>
-            <Button variant="ghost" onClick={() => setEditTeam(null)}>Отмена</Button>
-            <Button onClick={() => void editForm.handleSubmit()} disabled={updateMutation.isPending}>
-              {updateMutation.isPending ? 'Сохранение...' : 'Сохранить'}
-            </Button>
-          </CrmDialogFooter>
-        </CrmDialogContent>
-      </Dialog>
-
-      {/* Delete team confirmation dialog */}
-      <Dialog open={!!deleteTeam} onOpenChange={(open) => !open && setDeleteTeam(null)}>
-        <CrmDialogContent maxWidth="sm:max-w-sm">
-          <CrmDialogHeader>
-            <DialogTitle>Удалить команду «{deleteTeam?.name}»?</DialogTitle>
-          </CrmDialogHeader>
-          <CrmDialogBody className="pb-2">
-            <p className="text-sm text-muted-foreground">
-              Вместе с командой будут удалены её синьор и все его проекты. Это действие нельзя отменить.
-            </p>
-          </CrmDialogBody>
-          <CrmDialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTeam(null)}>Отмена</Button>
-            <Button
-              variant="destructive"
-              onClick={() => deleteTeam && deleteMutation.mutate(deleteTeam.id)}
-              disabled={deleteMutation.isPending}
-            >
-              Удалить
-            </Button>
-          </CrmDialogFooter>
-        </CrmDialogContent>
-      </Dialog>
-
-      {/* Add member dialog */}
-      <Dialog open={!!addMemberTeam} onOpenChange={(open) => !open && setAddMemberTeam(null)}>
-        <CrmDialogContent maxWidth="sm:max-w-sm">
-          <CrmDialogHeader>
-            <DialogTitle>Добавить участника — {addMemberTeam?.name}</DialogTitle>
-          </CrmDialogHeader>
-          <CrmDialogBody className="pb-2">
-            <div className="space-y-3">
-              <Label>Выберите сотрудника</Label>
-              <div className="space-y-1">
-                {availableUsers.length === 0 && (
-                  <p className="text-sm text-muted-foreground">Все сотрудники уже в команде</p>
-                )}
-                {availableUsers.map((u) => (
-                  <button
-                    key={u.id}
-                    className={cn('flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left transition-colors hover:bg-accent', addMemberUserId === u.id && 'bg-accent')}
-                    onClick={() => setAddMemberUserId(u.id)}
-                  >
-                    <Avatar className="h-7 w-7 shrink-0">
-                      {u.avatar && <AvatarImage src={u.avatar} />}
-                      <AvatarFallback className="bg-muted text-[10px]">{getInitials(u.displayName)}</AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{u.displayName}</p>
-                      <p className="truncate text-xs text-muted-foreground">{u.email}</p>
-                    </div>
-                    <Badge variant={ROLE_VARIANT[u.role] ?? 'junior'} className="shrink-0 text-[10px]">
-                      {ROLE_LABELS[u.role] ?? u.role}
-                    </Badge>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </CrmDialogBody>
-          <CrmDialogFooter>
-            <Button variant="outline" onClick={() => setAddMemberTeam(null)}>Отмена</Button>
-            <Button
-              onClick={() => {
-                if (addMemberTeam && addMemberUserId) {
-                  addMemberMutation.mutate({ teamId: addMemberTeam.id, userId: addMemberUserId })
-                }
-              }}
-              disabled={!addMemberUserId || addMemberMutation.isPending}
-            >
-              Добавить
-            </Button>
-          </CrmDialogFooter>
-        </CrmDialogContent>
-      </Dialog>
+      {/* ut-39a: Edit + Add member + Unarchive flows live on the team detail
+          page header — list page is purely navigational. */}
     </div>
   )
 }

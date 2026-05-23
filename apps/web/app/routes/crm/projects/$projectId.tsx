@@ -1,8 +1,11 @@
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link } from '@tanstack/react-router'
 import { useForm, type FieldApi, type ReactFormExtendedApi } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
+import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import {
+  Archive,
+  ArchiveRestore,
   ArrowLeft,
   Briefcase,
   Building2,
@@ -14,13 +17,18 @@ import {
   Pencil,
   RefreshCw,
   StickyNote,
-  Trash2,
   UserMinus,
   UserPlus,
   Users,
 } from 'lucide-react'
 import { useState } from 'react'
-import type { ProjectDto, ProjectMemberDto, UpdateProjectDto, TransactionDto } from '@crm/shared'
+import type {
+  ProjectDto,
+  ProjectDetailDto,
+  ProjectMemberDto,
+  UpdateProjectDto,
+  TransactionDto,
+} from '@crm/shared'
 import { createProjectSchema, IT_DOMAINS } from '@crm/shared'
 import { financeApi } from '@/routes/crm/finance/api'
 import { TransactionDetailDialog } from '@/routes/crm/finance/components/dialogs/TransactionDetailDialog'
@@ -48,6 +56,11 @@ import { Label } from '@/components/ui/label'
 import { ReceiptField } from '@/components/ui/receipt-field'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
+import { AuditLogTab } from '@/components/audit-log/AuditLogTab'
+import { useUnarchiveEntity, type UnarchiveCascadeEntity, type UnarchiveError } from '@/hooks/use-archive'
+import { CascadeUnarchiveModal } from '@/components/archive/CascadeUnarchiveModal'
+import type { AxiosError } from 'axios'
 
 export const Route = createFileRoute('/crm/projects/$projectId')({
   component: ProjectDetailPage,
@@ -303,7 +316,6 @@ function ProjectDetailPage() {
   const { projectId } = Route.useParams()
   const { user } = useAuth()
   if (denied) return null
-  const navigate = useNavigate()
   const qc = useQueryClient()
 
   const isAdmin = user?.role === 'ADMIN'
@@ -311,12 +323,14 @@ function ProjectDetailPage() {
   const canRemoveMembers = isAdmin
 
   const [editOpen, setEditOpen] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [closeOpen, setCloseOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [addedMemberIds, setAddedMemberIds] = useState<Set<string>>(new Set())
   const [pendingMemberIds, setPendingMemberIds] = useState<Set<string>>(new Set())
   const [removeMemberTarget, setRemoveMemberTarget] = useState<ProjectMemberDto | null>(null)
+  const [activeTab, setActiveTab] = useState<'overview' | 'members' | 'audit' | 'finance'>('overview')
+  // ut-28: explicit Archive button in header replaces «Действия» dropdown + «Завершить» button.
+  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false)
+  const [cascadeEntities, setCascadeEntities] = useState<UnarchiveCascadeEntity[] | null>(null)
 
   const { data: rates } = useQuery<ExchangeRates>({
     queryKey: ['exchange-rate', 'today'],
@@ -326,7 +340,7 @@ function ProjectDetailPage() {
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['projects', projectId],
-    queryFn: () => api.get<ProjectDto>(`/projects/${projectId}`).then((r) => r.data),
+    queryFn: () => api.get<ProjectDetailDto>(`/projects/${projectId}`).then((r) => r.data),
     enabled: !!user,
   })
 
@@ -376,28 +390,11 @@ function ProjectDetailPage() {
     },
   })
 
-  const closeMutation = useMutation({
-    mutationFn: () => api.patch(`/projects/${projectId}`, { status: 'CLOSED' }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['projects'] })
-      setCloseOpen(false)
-    },
-  })
-
-  const reopenMutation = useMutation({
-    mutationFn: () => api.patch(`/projects/${projectId}`, { status: 'ACTIVE' }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['projects'] })
-    },
-  })
-
-  const deleteMutation = useMutation({
-    mutationFn: () => api.delete(`/projects/${projectId}`),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['projects'] })
-      void navigate({ to: '/crm/projects' })
-    },
-  })
+  // Round 5: the CLOSED business contract state is gone — lifecycle is
+  // binary (ACTIVE ↔ ARCHIVED) and the only way back to ACTIVE is via the
+  // Archive unarchive flow (handled below). The legacy reopen mutation is
+  // therefore removed.
+  // Archive is triggered via the explicit Archive button → ArchiveConfirmDialog.
 
 const removeMemberMutation = useMutation({
     mutationFn: (userId: string) => api.delete(`/projects/${projectId}/members/${userId}`),
@@ -525,55 +522,58 @@ return (
               </h1>
               <p className="text-sm text-muted-foreground truncate mt-0.5">{project.name}</p>
               <div className="flex items-center gap-2 mt-2 flex-wrap">
-                <Badge
-                  variant={project.status === 'ACTIVE' ? 'default' : 'secondary'}
-                  className="text-xs"
-                >
-                  {project.status === 'ACTIVE' ? 'Активный' : 'Завершён'}
-                </Badge>
+                {!project.archivedAt && (
+                  <Badge variant="default" className="text-xs">
+                    Активный
+                  </Badge>
+                )}
+                {project.archivedAt && (
+                  <Badge
+                    variant="outline"
+                    className="border-amber-500/30 bg-amber-500/10 text-amber-500 text-xs"
+                    data-testid="project-archived-badge"
+                  >
+                    В архиве
+                  </Badge>
+                )}
                 <Badge variant="outline" className="text-xs">{project.domain}</Badge>
               </div>
             </div>
           </div>
 
-          {/* Right: actions */}
+          {/* ut-28: Explicit Edit + Archive buttons (replaces «Действия» dropdown
+              and former «Завершить» button). Visible only to admins/HR per RBAC. */}
           <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
-            {canManage && project.status === 'ACTIVE' && (
-              <Button size="sm" variant="outline" onClick={openEdit} className="gap-1.5">
+            {canManage && !project.archivedAt && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={openEdit}
+                className="gap-1.5"
+                data-testid="project-edit-button"
+              >
                 <Pencil className="h-3.5 w-3.5" />
                 Редактировать
               </Button>
             )}
-            {canManage && project.status === 'ACTIVE' && (
+            {isAdmin && !project.archivedAt && (
               <Button
                 size="sm"
-                variant="ghost"
-                className="h-8 text-xs text-muted-foreground hover:text-foreground"
-                onClick={() => setCloseOpen(true)}
+                variant="outline"
+                onClick={() => setArchiveDialogOpen(true)}
+                className="gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                data-testid="project-archive-button"
               >
-                Завершить
+                <Archive className="h-3.5 w-3.5" />
+                Архивировать
               </Button>
             )}
-            {canManage && project.status === 'CLOSED' && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 text-xs"
-                onClick={() => reopenMutation.mutate()}
-                disabled={reopenMutation.isPending}
-              >
-                Переоткрыть
-              </Button>
-            )}
-            {isAdmin && (
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10"
-                onClick={() => setDeleteOpen(true)}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+            {isAdmin && project.archivedAt && (
+              <ProjectUnarchiveHeaderButton
+                projectId={project.id}
+                projectName={project.name}
+                onCascadeRequired={(entities) => setCascadeEntities(entities)}
+              />
             )}
           </div>
         </div>
@@ -599,13 +599,13 @@ return (
               </p>
             </div>
           </div>
-          {project.endDate && (
+          {project.archivedAt && (
             <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
               <Calendar className="h-4 w-4 text-amber-400 shrink-0" />
               <div>
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Завершён</p>
                 <p className="text-sm font-semibold">
-                  {new Date(project.endDate).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                  {new Date(project.archivedAt).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                 </p>
               </div>
             </div>
@@ -620,7 +620,44 @@ return (
         </div>
       </motion.div>
 
-      {/* ── Main grid ── */}
+      {/* ut-29 + ut-33: project detail tabs — unified through SegmentedToggle
+          variant="tabs" (same yellow page-level styling as projects list). */}
+      {(() => {
+        type ProjectTab = 'overview' | 'members' | 'audit' | 'finance'
+        const tabOptions: ReadonlyArray<SegmentedToggleOption<ProjectTab>> = [
+          { value: 'overview', label: 'Обзор', testId: 'tab-overview' },
+          { value: 'members', label: 'Состав', testId: 'tab-members' },
+          ...(isAdmin
+            ? ([{ value: 'audit', label: 'История изменений', testId: 'tab-audit' }] as const)
+            : []),
+          { value: 'finance', label: 'Финансы', testId: 'tab-finance' },
+        ]
+        return (
+          <SegmentedToggle<ProjectTab>
+            value={activeTab as ProjectTab}
+            onChange={(v) => setActiveTab(v)}
+            options={tabOptions}
+            ariaLabel="Разделы проекта"
+            variant="tabs"
+            size="sm"
+            layoutId={`project-detail-tabs-${projectId}`}
+            className="w-fit"
+            testId={`project-detail-tabs-${projectId}`}
+          />
+        )
+      })()}
+
+      {activeTab === 'members' && (
+        <ProjectEffectiveTeamCard project={project} />
+      )}
+
+      {activeTab === 'audit' && isAdmin && (
+        <AuditLogTab entityType="project" entityId={project.id} />
+      )}
+
+      {activeTab !== 'overview' && activeTab !== 'finance' && null}
+
+      {activeTab === 'overview' && (
       <motion.div
         className="grid gap-4 lg:grid-cols-2"
         initial={{ opacity: 0, y: 12 }}
@@ -684,7 +721,7 @@ return (
               <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 Команда
               </CardTitle>
-              {canManage && project.status === 'ACTIVE' && (
+              {canManage && !project.archivedAt && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span>
@@ -780,8 +817,9 @@ return (
           </CardContent>
         </Card>
       </motion.div>
+      )}
 
-      {/* ── Transactions ── */}
+      {activeTab === 'finance' && (
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -789,6 +827,7 @@ return (
       >
         <ProjectTransactions projectId={projectId} />
       </motion.div>
+      )}
 
       {/* ── Edit / Add member dialog ── */}
       <Dialog open={editOpen} onOpenChange={(v) => !v && setEditOpen(false)}>
@@ -897,54 +936,91 @@ return (
         </CrmDialogContent>
       </Dialog>
 
-      {/* ── Close confirm ── */}
-      <Dialog open={closeOpen} onOpenChange={setCloseOpen}>
-        <CrmDialogContent maxWidth="sm:max-w-sm">
-          <CrmDialogHeader>
-            <DialogTitle>Завершить проект «{project.name}»?</DialogTitle>
-          </CrmDialogHeader>
-          <CrmDialogBody className="pb-2">
-            <p className="text-sm text-muted-foreground">
-              Проект перейдёт в статус «Завершён». Можно будет переоткрыть позже.
-            </p>
-          </CrmDialogBody>
-          <CrmDialogFooter>
-            <Button variant="outline" onClick={() => setCloseOpen(false)}>
-              Отмена
-            </Button>
-            <Button onClick={() => closeMutation.mutate()} disabled={closeMutation.isPending}>
-              Завершить
-            </Button>
-          </CrmDialogFooter>
-        </CrmDialogContent>
-      </Dialog>
+      {/* ut-28: Archive confirm dialog — triggered by explicit Archive button. */}
+      {archiveDialogOpen && (
+        <ArchiveConfirmDialog
+          entityType="project"
+          entityId={project.id}
+          entityName={project.name}
+          onClose={() => setArchiveDialogOpen(false)}
+        />
+      )}
 
-      {/* ── Delete confirm ── */}
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <CrmDialogContent maxWidth="sm:max-w-sm">
-          <CrmDialogHeader>
-            <DialogTitle>Удалить проект «{project.name}»?</DialogTitle>
-          </CrmDialogHeader>
-          <CrmDialogBody className="pb-2">
-            <p className="text-sm text-muted-foreground">
-              Все данные участников будут удалены. Это нельзя отменить.
-            </p>
-          </CrmDialogBody>
-          <CrmDialogFooter>
-            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
-              Отмена
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => deleteMutation.mutate()}
-              disabled={deleteMutation.isPending}
-            >
-              Удалить
-            </Button>
-          </CrmDialogFooter>
-        </CrmDialogContent>
-      </Dialog>
+      {/* Cascade unarchive modal — paired senior/team restore. */}
+      {cascadeEntities && (
+        <ProjectCascadeUnarchiveModal
+          projectId={project.id}
+          projectName={project.name}
+          entities={cascadeEntities}
+          onClose={() => setCascadeEntities(null)}
+        />
+      )}
     </div>
+  )
+}
+
+/**
+ * Header-level Unarchive button replacing AdminActionsMenu's unarchive flow.
+ * Handles the 409-cascade response by lifting the entities to the parent.
+ */
+function ProjectUnarchiveHeaderButton({
+  projectId,
+  projectName: _projectName,
+  onCascadeRequired,
+}: {
+  projectId: string
+  projectName: string
+  onCascadeRequired: (entities: UnarchiveCascadeEntity[]) => void
+}) {
+  const unarchive = useUnarchiveEntity('project', projectId)
+  const handleClick = async () => {
+    try {
+      await unarchive.mutateAsync({})
+    } catch (err) {
+      const ax = err as AxiosError<UnarchiveError>
+      if (ax.response?.status === 409 && ax.response.data?.requiresCascade) {
+        onCascadeRequired(ax.response.data.entities)
+      }
+    }
+  }
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={() => void handleClick()}
+      disabled={unarchive.isPending}
+      className="gap-1.5"
+      data-testid="project-unarchive-button"
+    >
+      <ArchiveRestore className="h-3.5 w-3.5" />
+      Восстановить
+    </Button>
+  )
+}
+
+function ProjectCascadeUnarchiveModal({
+  projectId,
+  projectName,
+  entities,
+  onClose,
+}: {
+  projectId: string
+  projectName: string
+  entities: UnarchiveCascadeEntity[]
+  onClose: () => void
+}) {
+  const unarchive = useUnarchiveEntity('project', projectId)
+  return (
+    <CascadeUnarchiveModal
+      projectName={projectName}
+      entities={entities}
+      isPending={unarchive.isPending}
+      onConfirm={async () => {
+        await unarchive.mutateAsync({ cascade: true })
+        onClose()
+      }}
+      onCancel={onClose}
+    />
   )
 }
 
@@ -1064,5 +1140,126 @@ function MemberRow({
         </Button>
       )}
     </div>
+  )
+}
+
+/**
+ * Renders the project's *effective team* — a computed view (NOT snapshot at archive).
+ * HR/Accountants come from the SENIOR's current team_members (dynamic).
+ * Juniors come from THIS project's active project_members.
+ *
+ * If `project.effectiveTeam` is absent (e.g. response from older API or list endpoint),
+ * falls back to the snapshot embedded in `project.members`.
+ * See spec §5.2 and §8.
+ */
+function ProjectEffectiveTeamCard({ project }: { project: ProjectDetailDto }) {
+  const effective = project.effectiveTeam
+  const senior = effective?.senior ?? null
+  const hrs = effective?.hrs ?? []
+  const accountants = effective?.accountants ?? []
+  const juniors = effective?.juniors ?? project.members.filter((m) => m.role === 'JUNIOR' && m.leftAt === null)
+
+  // ut-30: flat list — single «Эффективный состав» heading; role-specific
+  // section headings («СИНЬОР», «HR (N)», «БУХГАЛТЕРЫ (N)», «ДЖУНЫ (N)») removed.
+  // Each row keeps its role badge for visual differentiation.
+  type FlatMember = {
+    key: string
+    profileId: string
+    displayName: string
+    avatar: string | null
+    role: 'SENIOR' | 'HR' | 'ACCOUNTANT' | 'JUNIOR'
+    sectionTestId: string
+  }
+  const flatMembers: FlatMember[] = []
+  if (senior) {
+    flatMembers.push({
+      key: `senior-${senior.id}`,
+      profileId: senior.id,
+      displayName: senior.displayName,
+      avatar: senior.avatar,
+      role: 'SENIOR',
+      sectionTestId: 'effective-team-senior',
+    })
+  }
+  for (const m of hrs) {
+    flatMembers.push({
+      key: `hr-${m.id}`,
+      profileId: m.userId,
+      displayName: m.displayName,
+      avatar: m.avatar,
+      role: 'HR',
+      sectionTestId: 'effective-team-hrs',
+    })
+  }
+  for (const m of accountants) {
+    flatMembers.push({
+      key: `acc-${m.id}`,
+      profileId: m.userId,
+      displayName: m.displayName,
+      avatar: m.avatar,
+      role: 'ACCOUNTANT',
+      sectionTestId: 'effective-team-accountants',
+    })
+  }
+  for (const m of juniors) {
+    flatMembers.push({
+      key: `jun-${m.id}`,
+      profileId: m.userId,
+      displayName: m.displayName,
+      avatar: m.avatar,
+      role: 'JUNIOR',
+      sectionTestId: 'effective-team-juniors',
+    })
+  }
+
+  return (
+    <Card className="border-border/40" data-testid="effective-team-card">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          Эффективный состав
+          <span className="ml-2 text-[10px] font-normal normal-case text-muted-foreground/60">
+            (HR/бухгалтер — из текущей команды синьора)
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-1">
+        {!senior && (
+          <p
+            className="text-xs text-muted-foreground/60 italic px-2 py-1.5"
+            data-testid="effective-team-senior"
+          >
+            Синьор не назначен
+          </p>
+        )}
+        {senior && juniors.length === 0 && (
+          <p
+            className="text-xs text-amber-500/80 font-medium px-2 py-1.5"
+            data-testid="effective-team-juniors-empty"
+          >
+            Джун не назначен
+          </p>
+        )}
+        {flatMembers.map((m) => (
+          <Link
+            key={m.key}
+            to="/crm/profile/$userId"
+            params={{ userId: m.profileId }}
+            data-testid={m.sectionTestId}
+            className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/30 transition-colors"
+          >
+            <Avatar className="h-7 w-7 shrink-0">
+              {m.avatar && <AvatarImage src={m.avatar} alt={m.displayName} />}
+              <AvatarFallback className="text-[10px] font-semibold">{getInitials(m.displayName)}</AvatarFallback>
+            </Avatar>
+            <span className="text-sm font-medium truncate flex-1 text-primary hover:underline">
+              {m.displayName}
+            </span>
+            <Badge variant={m.role === 'SENIOR' ? 'senior' : m.role === 'HR' ? 'hr' : m.role === 'ACCOUNTANT' ? 'accountant' : 'junior'} className="shrink-0 text-[9px]">
+              {m.role === 'SENIOR' ? 'Синьор' : m.role === 'HR' ? 'HR' : m.role === 'ACCOUNTANT' ? 'Бухгалтер' : 'Джун'}
+            </Badge>
+          </Link>
+        ))}
+      </CardContent>
+    </Card>
   )
 }

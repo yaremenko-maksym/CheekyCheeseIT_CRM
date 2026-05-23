@@ -10,9 +10,8 @@ interface ProjectListItem {
   id: string
   name: string
   companyName: string
-  status: 'ACTIVE' | 'CLOSED'
+  archivedAt: string | null
   startDate: string
-  endDate: string | null
   logoUrl: string | null
   rate: number
   currency: string
@@ -32,9 +31,12 @@ export function ProjectsTab({ userId, role }: { userId: string; role: string }) 
 
   if (isLoading) return <Skeleton className="h-64 w-full" />
 
+  // Round 5: project lifecycle is binary — ACTIVE (archivedAt = null) vs
+  // ARCHIVED (archivedAt = timestamp). The history section reuses the
+  // archived bucket since CLOSED-but-not-archived no longer exists.
   const projects = data ?? []
-  const active = projects.filter((p) => p.status === 'ACTIVE')
-  const closed = projects.filter((p) => p.status === 'CLOSED')
+  const active = projects.filter((p) => p.archivedAt === null)
+  const archived = projects.filter((p) => p.archivedAt !== null)
 
   // JUNIOR is bound to a single active project at a time — show just that, no history block
   if (role === 'JUNIOR') {
@@ -75,14 +77,14 @@ export function ProjectsTab({ userId, role }: { userId: string; role: string }) 
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">История ({closed.length})</CardTitle>
+          <CardTitle className="text-base">История ({archived.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          {closed.length === 0 ? (
+          {archived.length === 0 ? (
             <p className="text-sm text-muted-foreground">Нет завершённых проектов</p>
           ) : (
             <div className="space-y-2">
-              {closed.map((p) => (
+              {archived.map((p) => (
                 <ProjectRow key={p.id} p={p} />
               ))}
             </div>
@@ -94,6 +96,7 @@ export function ProjectsTab({ userId, role }: { userId: string; role: string }) 
 }
 
 function ProjectRow({ p }: { p: ProjectListItem }) {
+  const isArchived = p.archivedAt !== null
   return (
     <Link
       to="/crm/projects/$projectId"
@@ -110,7 +113,9 @@ function ProjectRow({ p }: { p: ProjectListItem }) {
           {p.companyName}
           {p.domain ? ` · ${p.domain}` : ''}
           {` · ${new Date(p.startDate).toLocaleDateString('ru-RU')}`}
-          {p.endDate ? `–${new Date(p.endDate).toLocaleDateString('ru-RU')}` : ''}
+          {isArchived && p.archivedAt
+            ? `–${new Date(p.archivedAt).toLocaleDateString('ru-RU')}`
+            : ''}
         </p>
       </div>
       <div className="shrink-0 text-right">
@@ -118,10 +123,10 @@ function ProjectRow({ p }: { p: ProjectListItem }) {
           {p.rate} {p.currency}
         </p>
         <Badge
-          variant={p.status === 'ACTIVE' ? 'default' : 'outline'}
+          variant={isArchived ? 'outline' : 'default'}
           className="mt-1 text-xs"
         >
-          {p.status === 'ACTIVE' ? 'Активен' : 'Закрыт'}
+          {isArchived ? 'В архиве' : 'Активен'}
         </Badge>
       </div>
     </Link>

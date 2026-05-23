@@ -25,7 +25,13 @@ function LoginRoot() {
   )
 }
 
-const IS_DEV = import.meta.env.DEV
+// Show Dev Login section when:
+//   • running `pnpm dev` (import.meta.env.DEV === true), or
+//   • building with VITE_DEV_LOGIN=true for User Testing through tunnel
+//     (Google OAuth fails on phone via tunnel — redirect_uri_mismatch).
+// In real production builds both are false → section is hidden.
+const SHOW_DEV_LOGIN =
+  import.meta.env.DEV || import.meta.env['VITE_DEV_LOGIN'] === 'true'
 
 const DEV_USERS = [
   { email: 'yaremenkomaksym99@gmail.com', label: 'Maksym Yaremenko — ADMIN' },
@@ -191,19 +197,23 @@ function LoginPage() {
           </a>
         </Button>
 
-        {IS_DEV && (
-          <div className="mt-6">
-            <div className="relative flex items-center gap-2 py-2">
-              <div className="h-px flex-1 bg-border/50" />
-              <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground/60">
-                Dev login
-              </span>
-              <div className="h-px flex-1 bg-border/50" />
+        {SHOW_DEV_LOGIN && (
+          <div
+            className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4"
+            data-testid="dev-login-section"
+          >
+            <div className="mb-3 flex items-center gap-2">
+              <span className="text-amber-400" aria-hidden="true">🔧</span>
+              <h3 className="text-sm font-medium text-amber-400">
+                Dev Login (только для тестирования)
+              </h3>
             </div>
-            <div className="mt-2 flex flex-col gap-1.5">
+            <div className="flex flex-col gap-1.5">
               {DEV_USERS.map((u) => (
                 <button
                   key={u.email}
+                  type="button"
+                  data-testid={`dev-login-${u.email}`}
                   disabled={devLoading !== null}
                   onClick={async () => {
                     setDevLoading(u.email)
@@ -214,11 +224,14 @@ function LoginPage() {
                       setDevLoading(null)
                     }
                   }}
-                  className="flex w-full items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
+                  className="flex w-full items-center gap-2 rounded-md border border-amber-500/20 bg-background/60 px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-foreground disabled:opacity-50"
                 >
                   <span className="flex-1">{u.label}</span>
                   {devLoading === u.email && (
-                    <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+                    <span
+                      className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent"
+                      aria-hidden="true"
+                    />
                   )}
                 </button>
               ))}

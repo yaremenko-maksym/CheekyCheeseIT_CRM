@@ -6,13 +6,15 @@ test.describe('Projects page', () => {
   // ---------------------------------------------------------------------------
 
   test.describe('Rendering', () => {
-    test('shows project cards with name, company, rate and status', async ({ asAdmin: page }) => {
+    test('shows project cards with name, company, rate', async ({ asAdmin: page }) => {
       await page.goto('/crm/projects')
       await expect(page.getByText('AI Platform v2')).toBeVisible()
       await expect(page.getByText('TechCorp AI')).toBeVisible()
+      // Round 5: EdTech Portal is now an archived fixture — hidden from the
+      // default view. Archive-tab visibility is covered by the Filters suite.
       // Rate rendered via toLocaleString() — match formatted number pattern
       await expect(page.getByText(/5[,.\u00a0 ]?000[ ]*USDT/)).toBeVisible()
-      await expect(page.getByText('EdTech Portal')).toBeVisible()
+      await expect(page.getByText('EdTech Portal')).not.toBeVisible()
     })
 
     test('SENIOR sees projects page (read-only)', async ({ asSenior: page }) => {
@@ -27,10 +29,13 @@ test.describe('Projects page', () => {
       await expect(page.getByRole('button', { name: /новый проект/i })).toBeVisible()
     })
 
-    test('ADMIN sees create and delete buttons', async ({ asAdmin: page }) => {
+    test('ADMIN sees create and archive buttons', async ({ asAdmin: page }) => {
       await page.goto('/crm/projects')
       await expect(page.getByRole('button', { name: /новый проект/i })).toBeVisible()
-      await expect(page.getByTitle('Удалить проект').first()).toBeVisible()
+      // ut-27 (PR 34 round 1) removed the inline trash/archive icon button from cards.
+      // The archive action lives on the project detail header now. The list page only
+      // exposes the «Архив» tab — guarded behind ADMIN role.
+      await expect(page.getByTestId('toggle-archived-projects')).toBeVisible()
     })
   })
 
@@ -39,26 +44,34 @@ test.describe('Projects page', () => {
   // ---------------------------------------------------------------------------
 
   test.describe('Filters', () => {
-    test('"Активные" tab hides closed projects', async ({ asAdmin: page }) => {
+    // Round 5: tabs are «Все | Активные | Архив». The legacy CLOSED business
+    // contract state is gone — archived projects are hidden by default and
+    // only surface under the «Архив» tab (ADMIN-only).
+    test('"Активные" tab shows only non-archived projects', async ({ asAdmin: page }) => {
       await page.goto('/crm/projects')
-      await page.getByRole('button', { name: 'Активные' }).click()
+      await page.getByRole('tab', { name: 'Активные' }).click()
       await expect(page.getByText('AI Platform v2')).toBeVisible()
+      // Archived fixture project is excluded by the API (?archived=false).
       await expect(page.getByText('EdTech Portal')).not.toBeVisible()
     })
 
-    test('"Завершённые" tab hides active projects', async ({ asAdmin: page }) => {
+    test('"Все" tab shows non-archived projects', async ({ asAdmin: page }) => {
       await page.goto('/crm/projects')
-      await page.getByRole('button', { name: 'Завершённые' }).click()
-      await expect(page.getByText('EdTech Portal')).toBeVisible()
-      await expect(page.getByText('AI Platform v2')).not.toBeVisible()
+      // Move away and back to «Все» to verify the toggle re-fetches.
+      await page.getByRole('tab', { name: 'Активные' }).click()
+      await page.getByRole('tab', { name: 'Все' }).click()
+      await expect(page.getByText('AI Platform v2')).toBeVisible()
     })
 
-    test('"Все" tab shows all projects', async ({ asAdmin: page }) => {
+    test('"Архив" tab shows only archived projects', async ({ asAdmin: page }) => {
       await page.goto('/crm/projects')
-      await page.getByRole('button', { name: 'Завершённые' }).click()
-      await page.getByRole('button', { name: 'Все' }).click()
-      await expect(page.getByText('AI Platform v2')).toBeVisible()
-      await expect(page.getByText('EdTech Portal')).toBeVisible()
+      await page.getByTestId('toggle-archived-projects').click()
+      // Card itself is the most reliable target — the inner <p> may briefly be
+      // hidden during the AnimatePresence exit/enter animation, but the card
+      // (with data-archived='true') becomes visible as soon as the query
+      // resolves.
+      await expect(page.getByTestId('project-card-project-2-id')).toBeVisible()
+      await expect(page.getByText('AI Platform v2')).not.toBeVisible()
     })
   })
 
@@ -136,91 +149,13 @@ test.describe('Projects page', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Project actions: close / reopen — on detail page
+  // Project archive / unarchive — see tests/crm/projects/projects-archive.spec.ts
+  //
+  // Round 5 (drop status enum) removed the close/reopen flow: project
+  // lifecycle is now binary (ACTIVE ↔ ARCHIVED) with archive/unarchive
+  // exclusively driving the transition. The dedicated archive spec covers
+  // all related UI assertions.
   // ---------------------------------------------------------------------------
-
-  test.describe('Close and reopen project', () => {
-    test('ADMIN can close an active project', async ({ asAdmin: page }) => {
-      // Navigate to active project detail page
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
-
-      const patchReq = page.waitForRequest(
-        (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
-      )
-
-      await page.getByRole('button', { name: /завершить/i }).first().click()
-      // Confirm in dialog
-      await page.getByRole('button', { name: 'Завершить' }).last().click()
-      const req = await patchReq
-      expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ status: 'CLOSED' })
-    })
-
-    test('ADMIN can reopen a closed project', async ({ asAdmin: page }) => {
-      // Override mock to return CLOSED project for this specific id
-      await page.route(`http://localhost:3001/api/projects/${PROJECTS[1]!.id}`, (r) => {
-        if (r.request().method() === 'GET') {
-          return r.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(PROJECTS[1]),
-          })
-        }
-        return r.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ...PROJECTS[1], ...(JSON.parse(r.request().postData() ?? '{}') as object) }),
-        })
-      })
-
-      await page.goto(`/crm/projects/${PROJECTS[1]!.id}`)
-
-      const patchReq = page.waitForRequest(
-        (req) => req.url().includes(`/projects/${PROJECTS[1]!.id}`) && req.method() === 'PATCH',
-      )
-
-      await page.getByRole('button', { name: 'Переоткрыть' }).click()
-      const req = await patchReq
-      expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ status: 'ACTIVE' })
-    })
-  })
-
-  // ---------------------------------------------------------------------------
-  // Delete project dialog — on list page via title button
-  // ---------------------------------------------------------------------------
-
-  test.describe('Delete project', () => {
-    test('opens delete confirm dialog with project name', async ({ asAdmin: page }) => {
-      await page.goto('/crm/projects')
-      await page.getByTitle('Удалить проект').first().click()
-      await expect(page.getByRole('dialog')).toBeVisible()
-      await expect(page.getByText(/Удалить проект «AI Platform v2»/)).toBeVisible()
-    })
-
-    test('confirm sends DELETE request', async ({ asAdmin: page }) => {
-      await page.goto('/crm/projects')
-
-      const deleteReq = page.waitForRequest(
-        (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'DELETE',
-      )
-
-      await page.getByTitle('Удалить проект').first().click()
-      await page.getByRole('button', { name: 'Удалить' }).last().click()
-      await deleteReq
-    })
-
-    test('cancel closes dialog without DELETE', async ({ asAdmin: page }) => {
-      let deleteCalled = false
-      page.on('request', (req) => {
-        if (req.url().includes('/projects/') && req.method() === 'DELETE') deleteCalled = true
-      })
-
-      await page.goto('/crm/projects')
-      await page.getByTitle('Удалить проект').first().click()
-      await page.getByRole('button', { name: 'Отмена' }).click()
-      await expect(page.getByRole('dialog')).not.toBeVisible()
-      expect(deleteCalled).toBe(false)
-    })
-  })
 
   // ---------------------------------------------------------------------------
   // Project members — on detail page
@@ -465,25 +400,26 @@ test.describe('Projects page', () => {
       await expect(page.getByRole('heading', { name: 'Проекты' })).toBeVisible()
     })
 
-    test('filter shows empty state when no projects match', async ({ page }) => {
+    test('archive tab shows empty state when no archived projects', async ({ page }) => {
       await mockAuthAs(page, USERS.admin)
-      await page.route('http://localhost:3001/api/projects', (r) =>
-        r.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([{ ...PROJECTS[0]!, status: 'ACTIVE' }]),
-        }),
+      // Override the parametrised mock to always return an empty list,
+      // simulating the "Архив пуст" empty state.
+      await page.route(/\/api\/projects(\?.*)?$/, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
       )
       await page.goto('/crm/projects')
-      await page.getByRole('button', { name: 'Завершённые' }).click()
+      await page.getByTestId('toggle-archived-projects').click()
       await expect(page.getByText('AI Platform v2')).not.toBeVisible()
+      await expect(page.getByText('Архив пуст')).toBeVisible()
     })
 
     test('JUNIOR sees projects but no management controls', async ({ asJunior: page }) => {
       await page.goto('/crm/projects')
       await expect(page.getByText('AI Platform v2')).toBeVisible()
       await expect(page.getByRole('button', { name: /новый проект/i })).not.toBeVisible()
-      await expect(page.getByTitle('Удалить проект')).not.toBeVisible()
+      // ut-27 (PR 34 round 1): inline archive icon is gone from cards; the
+      // «Архив» tab itself is admin-only and not rendered for JUNIOR.
+      await expect(page.getByTestId('toggle-archived-projects')).not.toBeVisible()
     })
   })
 })

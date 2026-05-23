@@ -46,14 +46,19 @@ export class UsersService {
       .then((rows) => rows[0])
   }
 
-  async findAll(filter: { archived?: boolean } = {}): Promise<UserWithAvailability[]> {
-    const archivedFilter = filter.archived === true
-      ? isNotNull(users.archivedAt)
-      : isNull(users.archivedAt)
-    const allUsers = await this.db.db
-      .select()
-      .from(users)
-      .where(and(ne(users.role, 'ADMIN'), archivedFilter))
+  async findAll(filter: { archived?: boolean | 'all' } = {}): Promise<UserWithAvailability[]> {
+    // round 7 (ut-44): tri-state filter — `'all'` returns both active and
+    // archived rows in one query, used by the «Все» tab on /crm/users.
+    const archivedFilter =
+      filter.archived === 'all'
+        ? undefined
+        : filter.archived === true
+          ? isNotNull(users.archivedAt)
+          : isNull(users.archivedAt)
+    const where = archivedFilter
+      ? and(ne(users.role, 'ADMIN'), archivedFilter)
+      : ne(users.role, 'ADMIN')
+    const allUsers = await this.db.db.select().from(users).where(where)
     const activeProjectMemberships = await this.db.db
       .select({ userId: projectMembers.userId })
       .from(projectMembers)
@@ -65,11 +70,16 @@ export class UsersService {
     }))
   }
 
-  async findAllIncludingAdmin(filter: { archived?: boolean } = {}): Promise<UserWithAvailability[]> {
-    const archivedFilter = filter.archived === true
-      ? isNotNull(users.archivedAt)
-      : isNull(users.archivedAt)
-    const allUsers = await this.db.db.select().from(users).where(archivedFilter)
+  async findAllIncludingAdmin(filter: { archived?: boolean | 'all' } = {}): Promise<UserWithAvailability[]> {
+    const archivedFilter =
+      filter.archived === 'all'
+        ? undefined
+        : filter.archived === true
+          ? isNotNull(users.archivedAt)
+          : isNull(users.archivedAt)
+    const allUsers = archivedFilter
+      ? await this.db.db.select().from(users).where(archivedFilter)
+      : await this.db.db.select().from(users)
     const activeProjectMemberships = await this.db.db
       .select({ userId: projectMembers.userId })
       .from(projectMembers)
