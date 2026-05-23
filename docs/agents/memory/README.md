@@ -25,22 +25,41 @@ docs/agents/memory/
 ## Формат строки
 
 ```
-<YYYY-MM-DD> [<task-id>] <конкретный урок одной фразой>
+<YYYY-MM-DD> [P0|P1|P2] [<task-id>] (#topic-tag) <конкретный урок одной фразой>
 ```
+
+**Поля:**
+- `<YYYY-MM-DD>` — дата урока
+- `[P0]|[P1]|[P2]` — **приоритет**, новое поле (D4 [P2] фикс, 2026-05-23):
+  - **P0** — критическое правило. Нарушение ведёт к: data loss, security gap, repeat regression, потеря коммитов, отказ системы. Агент ОБЯЗАН прочитать P0 при старте.
+  - **P1** — важное правило. Нарушение ведёт к: rework, увеличение раундов review, замедление пайплайна. Агент должен учитывать.
+  - **P2** — nice-to-know. Помогает оптимизировать, но не блокирует.
+- `[<task-id>]` — task-id когда урок возник (для трассируемости)
+- `#topic` — опциональный topic-тег для grep'абельности. Примеры: `#tunnel`, `#tdd`, `#review-gate`, `#commit-hygiene`, `#layout`, `#ci`, `#worktree`, `#workflow`.
 
 Примеры хороших уроков:
 ```
-2026-05-20 [task-fix-pr22-ui-round5] При правке layout — читать существующие классы до замены. Round4 регрессия = добавил элемент без проверки контекста.
-2026-05-19 [task-teams-redesign] data-testid обязателен для back-button и dialog-close — Playwright strict mode падает на дублях в sidebar+content.
-2026-05-18 [task-fix-flaky-tests] userEvent в RTL требует delay:null для стабильности — иначе race conditions с act().
+2026-05-20 [P0] [task-fix-pr22-ui-round4] #commit-hygiene git add . подметает чужие debug-артефакты — только явный список файлов из task.
+2026-05-19 [P0] [task-teams-redesign] #testing data-testid обязателен для back-button/dialog-close — Playwright strict mode падает на дублях в sidebar+content.
+2026-05-18 [P1] [task-fix-flaky-tests] #test-stability userEvent в RTL требует delay:null для стабильности — иначе race с act().
+2026-05-22 [P2] [retro-session-after-archive-pr] #communication Для нетривиальных visual багов — присылать пользователю свою интерпретацию ДО dispatch Coder.
 ```
 
 Примеры **плохих** уроков (не писать):
 ```
-2026-05-20 [task-knowledge-api] Сделал задачу.        # ← бесполезно
-2026-05-20 [task-x] Использовал TanStack Query.       # ← очевидно из кода
-2026-05-20 [task-y] Pnpm typecheck прошёл.            # ← это норма, не урок
+2026-05-20 [P1] [task-knowledge-api] Сделал задачу.       # ← бесполезно
+2026-05-20 [P2] [task-x] Использовал TanStack Query.      # ← очевидно из кода
+2026-05-20 [P2] [task-y] Pnpm typecheck прошёл.           # ← это норма, не урок
 ```
+
+**Как выбрать приоритет (rule of thumb):**
+- Урок про **mechanism** (gate, label, hook) → P0
+- Урок про **safety/security/data** → P0
+- Урок про **regression-prevention** → P0 или P1 в зависимости от impact
+- Урок про **process/communication** → P1
+- Урок про **optimization/style** → P2
+
+**Retro-tag legacy lessons:** все уроки до 2026-05-23 (когда введена приоритизация) получили priority tag по best-effort оценке. Если видишь несогласие — корректируй inline при чтении.
 
 ## Правила
 

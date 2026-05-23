@@ -95,7 +95,7 @@
 
 | Событие | Действие |
 |---------|----------|
-| Agent завершил → PR создан | **MUST** запустить Reviewer + AutoTest параллельно (см. skill `pm-dispatching`). Если AutoTest не нужен (нет UI/E2E изменений) — записать event `autotest_skipped` с явной `reason` в `events[]`. Skip без записи запрещён. |
+| Agent завершил → PR создан | **MUST** запустить Reviewer. **AutoTest — условный диспетч** (D3 [P2]): см. ниже секцию «AutoTest dispatch decision». В любом случае skip-решение фиксируется в `events[]` как `autotest_skipped` с `reason`. Skip без записи запрещён. |
 | Agent создал `.blocked.md` | Прочитать → задать вопрос пользователю → resume |
 | AutoTest no-op (0 файлов в `apps/e2e/`) | Создать новый task с картой селекторов → перезапустить AutoTest |
 | PR label `ci-failed` | Создать fix-задачу для Coder (target_branch = ветка PR) |
@@ -114,6 +114,43 @@
 ```json
 { "at": "<ISO>", "type": "pr_opened", "pr": 22 }
 ```
+
+### AutoTest dispatch decision (D3 [P2])
+
+После того как Coder создал/обновил PR — **проверь diff на E2E coverage ДО диспетча AutoTest**:
+
+```bash
+# Сколько spec.ts файлов в diff PR
+gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<N>/files \
+  --jq '[.[] | select(.filename | test("apps/e2e/tests/.*\\.spec\\.ts$"))] | length'
+
+# Список названий тестов в diff (через patch)
+gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<N>/files \
+  --jq '.[] | select(.filename | test("apps/e2e/tests/.*\\.spec\\.ts$")) | .patch' \
+  | grep -E '^\+.*\btest\(' | head -20
+```
+
+**Решение:**
+
+| Состояние | Действие |
+|---|---|
+| Coder НЕ добавил spec'ы И PR трогает `apps/web/**` или `apps/api/**` | **MUST dispatch AutoTest** — диспетч обязателен, нет покрытия |
+| Coder добавил spec'ы, но названия тестов НЕ покрывают AC из task-файла | **MUST dispatch AutoTest** в Режиме «дополнить» — указать какие AC не покрыты |
+| Coder добавил spec'ы, названия тестов покрывают AC (визуальная проверка) | **Skip AutoTest** с event `autotest_skipped` reason="coder-added-e2e-covering-ac" |
+| PR трогает только docs/business/** или CI | **Skip AutoTest** с reason="no-product-code-changes" |
+
+**Event пример:**
+```json
+{
+  "at": "2026-05-23T20:15:00Z",
+  "type": "autotest_skipped",
+  "reason": "coder-added-e2e-covering-ac",
+  "spec_files": ["apps/e2e/tests/projects.spec.ts"],
+  "ac_covered_by_tests": [1, 2, 3]
+}
+```
+
+**Анти-паттерн:** не пропускать AutoTest «потому что Coder сказал что покрыл» — нужно реально посмотреть diff. AutoTest no-op (0 spec файлов добавлено) — это другой случай: сигнал что spec был дополнен Coder'ом (правильно), не сигнал к re-dispatch.
 
 ### Mode 2.A — Блокер от агента
 

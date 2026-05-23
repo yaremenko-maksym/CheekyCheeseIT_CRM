@@ -28,6 +28,48 @@ Main branch: `main`
 **Background агенты** (`run_in_background=True`) — PM получает уведомление автоматически.
 `ScheduleWakeup` использовать ТОЛЬКО для GHA E2E workflow (внешний процесс, не отслеживается).
 
+### ⚠️ ScheduleWakeup limitations (D1 [P0])
+
+**ScheduleWakeup не выживает session boundary.** Real incident: 2026-05-23 PM поставил wake-up на 2 часа, session завершилась → wake-up потерян → PR висел без действия.
+
+**Правила использования:**
+- Использовать ТОЛЬКО для wake-up'ов внутри текущей session (< 30 мин типично)
+- Для cross-session ожидания (например GHA workflow > 30 мин на E2E) — НЕ полагаться только на ScheduleWakeup. Дополнительно записать в `pm-state.json.active[task].next_action`:
+  ```json
+  {
+    "type": "poll_e2e_run",
+    "run_id": "26298999300",
+    "scheduled_at": "<ISO>",
+    "max_age_min": 30
+  }
+  ```
+- При старте новой session (Mode 3 continuation) — PM читает `next_action`, делает immediate check вместо ожидания wake-up'а
+- Если `scheduled_at` старше `max_age_min` — это сигнал missed wake-up, делать catch-up
+
+**Workaround pattern:**
+```python
+# Перед wake-up — сохрани действие в state
+pm_state["active"][task_idx]["next_action"] = {
+    "type": "poll_e2e_run",
+    "run_id": run_id,
+    "scheduled_at": now_iso(),
+    "max_age_min": 30
+}
+ScheduleWakeup(delay=270)  # 4.5 мин для GHA E2E
+```
+
+```python
+# При старте Mode 3 — catch-up logic
+for task in pm_state["active"]:
+    if next_action := task.get("next_action"):
+        age_min = (now() - parse_iso(next_action["scheduled_at"])).total_seconds() / 60
+        if age_min > next_action["max_age_min"]:
+            # missed wake-up — immediate execute
+            handle_next_action(next_action)
+```
+
+**Связанная задача:** `docs/specs/tasks/task-harness-schedule-wakeup-persistence.md` (NEEDS-USER, harness-level fix).
+
 ## Именование веток
 
 - `feature/<slug>` — новая фича (Coder)
