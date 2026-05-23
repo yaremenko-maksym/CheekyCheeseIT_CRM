@@ -163,10 +163,23 @@ export function ProjectRow({ project }: ProjectRowProps) {
               </div>
             </>
           ) : (
-            <div className="flex items-center gap-1.5 text-destructive/70">
-              <span className="h-1.5 w-1.5 rounded-full bg-destructive/50" aria-hidden />
-              <span className="text-xs">Нет джуна</span>
-            </div>
+            <>
+              {/* Empty avatar slot keeps the text-block X-position consistent
+                  with the «with-junior» branch so all columns share a baseline grid. */}
+              <div
+                className="h-7 w-7 shrink-0 rounded-full border border-dashed border-destructive/30"
+                aria-hidden
+              />
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold">
+                  Джун
+                </p>
+                <p className="text-xs font-medium text-destructive/80 flex items-center gap-1.5 truncate">
+                  <span className="h-1.5 w-1.5 rounded-full bg-destructive/50 shrink-0" aria-hidden />
+                  Нет джуна
+                </p>
+              </div>
+            </>
           )}
         </div>
 
