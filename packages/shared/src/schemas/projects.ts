@@ -57,6 +57,14 @@ export const projectSchema = z.object({
   seniorName: z.string(),
   rate: z.number(),
   currency: currencySchema,
+  // Per-project SENIOR share % override (0-100). NULL = use senior's
+  // global default (see `seniorSharePercentDefault` below). Editable only
+  // by ADMIN and ACCOUNTANT (enforced in projects.service.ts).
+  seniorSharePercentOverride: z.number().int().min(0).max(100).nullable(),
+  // Computed on the backend: snapshot of `users.seniorSharePercent` for the
+  // project's senior. Used by the UI as a hint ("default X%") when the
+  // override is null. Not persisted on the project row.
+  seniorSharePercentDefault: z.number().int().min(0).max(100),
   members: z.array(projectMemberSchema),
   techStack: z.string().nullable(),
   teamSize: z.string().nullable(),
@@ -186,6 +194,9 @@ export const createProjectSchema = z.object({
   seniorId: z.string().uuid(),
   rate: z.number().int().positive(),
   currency: currencySchema,
+  // Optional at create time; only ADMIN/ACCOUNTANT may pass this — service
+  // throws ForbiddenException for HR/SENIOR/JUNIOR.
+  seniorSharePercentOverride: z.number().int().min(0).max(100).nullable().optional(),
   techStack: z.string().max(500).optional().nullable(),
   teamSize: z.string().max(100).optional().nullable(),
   benefits: z.string().max(500).optional().nullable(),
@@ -202,6 +213,9 @@ export const updateProjectSchema = z.object({
   logoUrl: logoUrlSchema.optional(),
   rate: z.number().int().positive().optional(),
   currency: currencySchema.optional(),
+  // Only ADMIN/ACCOUNTANT may include this field — service throws
+  // ForbiddenException for HR/SENIOR/JUNIOR if it is present (even null).
+  seniorSharePercentOverride: z.number().int().min(0).max(100).nullable().optional(),
   techStack: z.string().max(500).optional().nullable(),
   teamSize: z.string().max(100).optional().nullable(),
   benefits: z.string().max(500).optional().nullable(),

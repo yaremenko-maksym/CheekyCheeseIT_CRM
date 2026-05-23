@@ -97,6 +97,7 @@ export class AuthController {
       displayName: user.displayName,
       avatar: user.avatar ?? null,
       role: user.role,
+      seniorSharePercent: user.seniorSharePercent,
     })
 
     const token = this.jwtService.sign(payload)
@@ -126,6 +127,7 @@ export class AuthController {
       avatar: fresh.avatar ?? null,
       avatarOverride: fresh.avatarOverride ?? null,
       role: fresh.role,
+      seniorSharePercent: fresh.seniorSharePercent,
     })
   }
 
@@ -155,6 +157,7 @@ export class AuthController {
       displayName: user.displayName,
       avatar: user.avatar ?? null,
       role: user.role,
+      seniorSharePercent: user.seniorSharePercent,
     })
 
     const token = this.jwtService.sign(payload)
@@ -194,6 +197,7 @@ export class AuthController {
       displayName: user.displayName,
       avatar: user.avatar ?? null,
       role: user.role,
+      seniorSharePercent: user.seniorSharePercent,
     })
 
     const token = this.jwtService.sign(payload)

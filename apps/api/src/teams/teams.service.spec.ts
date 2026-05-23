@@ -11,11 +11,11 @@ type DrizzleDb = { db: NodePgDatabase<typeof schema> }
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const adminUser: SessionUser = { id: 'admin-1', role: 'ADMIN', displayName: 'Admin', email: 'admin@cc.com', avatar: null }
-const hrUser: SessionUser = { id: 'hr-1', role: 'HR', displayName: 'HR', email: 'hr@cc.com', avatar: null }
-const seniorUser: SessionUser = { id: 'senior-1', role: 'SENIOR', displayName: 'Senior', email: 'senior@cc.com', avatar: null }
-const juniorUser: SessionUser = { id: 'junior-1', role: 'JUNIOR', displayName: 'Junior', email: 'junior@cc.com', avatar: null }
-const accountantUser: SessionUser = { id: 'acc-1', role: 'ACCOUNTANT', displayName: 'Acc', email: 'acc@cc.com', avatar: null }
+const adminUser: SessionUser = { id: 'admin-1', role: 'ADMIN', displayName: 'Admin', email: 'admin@cc.com', avatar: null, seniorSharePercent: 26 }
+const hrUser: SessionUser = { id: 'hr-1', role: 'HR', displayName: 'HR', email: 'hr@cc.com', avatar: null, seniorSharePercent: 26 }
+const seniorUser: SessionUser = { id: 'senior-1', role: 'SENIOR', displayName: 'Senior', email: 'senior@cc.com', avatar: null, seniorSharePercent: 26 }
+const juniorUser: SessionUser = { id: 'junior-1', role: 'JUNIOR', displayName: 'Junior', email: 'junior@cc.com', avatar: null, seniorSharePercent: 26 }
+const accountantUser: SessionUser = { id: 'acc-1', role: 'ACCOUNTANT', displayName: 'Acc', email: 'acc@cc.com', avatar: null, seniorSharePercent: 26 }
 
 const makeMember = (userId: string, role: string) => ({
   id: `m-${userId}`,
