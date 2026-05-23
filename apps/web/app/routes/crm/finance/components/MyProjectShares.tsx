@@ -64,8 +64,9 @@ export function MyProjectShares() {
           <p className="text-xs text-muted-foreground italic">У вас пока нет активных проектов.</p>
         ) : (
           activeProjects.map((p) => {
-            const hasOverride = p.seniorSharePercentOverride !== null
-            const effective = hasOverride ? p.seniorSharePercentOverride! : seniorDefault
+            const overrideRaw = p.seniorSharePercentOverride
+            const hasOverride = overrideRaw !== null && overrideRaw !== undefined
+            const effective = hasOverride ? overrideRaw : seniorDefault
             return (
               <Link
                 key={p.id}

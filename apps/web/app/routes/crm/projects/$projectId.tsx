@@ -823,9 +823,13 @@ return (
                 to everyone who can see the project (RBAC handled at API layer). */}
             <InfoRow icon={<Percent className="h-3.5 w-3.5" />} label="Доля синьора">
               {(() => {
-                const effective =
-                  project.seniorSharePercentOverride ?? project.seniorSharePercentDefault
-                const hasOverride = project.seniorSharePercentOverride !== null
+                // Treat both null and undefined as "no override" so the badge
+                // logic stays correct when the API hasn't returned the new
+                // fields yet (e.g. backend not yet redeployed).
+                const overrideRaw = project.seniorSharePercentOverride
+                const hasOverride = overrideRaw !== null && overrideRaw !== undefined
+                const fallback = project.seniorSharePercentDefault ?? 26
+                const effective = hasOverride ? overrideRaw : fallback
                 return (
                   <span
                     className="inline-flex items-center gap-2"
@@ -845,7 +849,7 @@ return (
                         </TooltipTrigger>
                         <TooltipContent>
                           Установлено для этого проекта; глобальная доля синьора:{' '}
-                          {project.seniorSharePercentDefault}%
+                          {fallback}%
                         </TooltipContent>
                       </Tooltip>
                     ) : (
