@@ -1,0 +1,91 @@
+# Declarative source of truth для GitHub labels.
+#
+# Применяется через GHA workflow `.github/workflows/labels-sync.yml`
+# (см. docs/specs/tasks/task-infra-labels-yml-sync.md) при push в main.
+# Action: crazy-max/ghaction-github-labeler@v5.
+#
+# Локально проверить diff: `gh label list --json name,color,description --jq .`
+# Локально применить вручную: `gh label create/edit` по diff'у.
+#
+# Format: [{ name, color (без #), description }]
+# Color = 6-hex без префикса.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GitHub default labels (не удаляем — могут использоваться внешними тулзами)
+# ─────────────────────────────────────────────────────────────────────────────
+
+- name: bug
+  color: d73a4a
+  description: "Something isn't working"
+
+- name: documentation
+  color: 0075ca
+  description: "Improvements or additions to documentation"
+
+- name: duplicate
+  color: cfd3d7
+  description: "This issue or pull request already exists"
+
+- name: enhancement
+  color: a2eeef
+  description: "New feature or request"
+
+- name: good first issue
+  color: 7057ff
+  description: "Good for newcomers"
+
+- name: help wanted
+  color: 008672
+  description: "Extra attention is needed"
+
+- name: invalid
+  color: e4e669
+  description: "This doesn't seem right"
+
+- name: question
+  color: d876e3
+  description: "Further information is requested"
+
+- name: wontfix
+  color: ffffff
+  description: "This will not be worked on"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AI Agent pipeline labels (custom, см. docs/agents/pm.md)
+# ─────────────────────────────────────────────────────────────────────────────
+
+- name: ai-review-ready
+  color: 0075ca
+  description: "Coder finished — triggers Reviewer + AutoTest dispatch"
+
+- name: awaiting-pm-review
+  color: FFA500
+  description: "Reviewer APPROVE — PM анализирует review перед User Testing"
+
+- name: merge-approved
+  color: 0e8a16
+  description: "PM получил явный апрув пользователя — CI может мерджить (auto-merge-on-label.yml)"
+
+- name: do-not-merge
+  color: b60205
+  description: "Reviewer вернул Verdict: BLOCK — мердж запрещён до фикса"
+
+- name: ci-failed
+  color: d73a4a
+  description: "CI checks failed — PM создаёт fix-задачу для Coder (D2 fix, 2026-05-23)"
+
+- name: e2e-broken
+  color: d73a4a
+  description: "E2E failing on main — команда на паузе, watchdog issue открыт"
+
+- name: pm-blocker
+  color: FF0000
+  description: "Agent создал .blocked.md — PM нужен резолв"
+
+- name: needs-ba-action
+  color: d93f0b
+  description: "BA agent — анализ и обновление docs/business/"
+
+- name: escalation
+  color: e4e669
+  description: "Business logic / staging bug escalation от QA или Reviewer"
