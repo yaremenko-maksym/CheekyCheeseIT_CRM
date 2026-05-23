@@ -230,36 +230,61 @@ Workflow:
 
 **ВАЖНО:** PR open'ится после ПЕРВОГО wip-push (`gh pr create`), последующие пуши обновляют тот же PR. Не создавать новый PR на каждый milestone.
 
-### 8. Watchdog-resilience — sentinel-файл прогресса
+### 8. Watchdog-resilience — два слоя защиты от silent termination
 
-**[P0]** Дополнительная защита от C1 (silent termination). Coder ведёт sentinel-файл `docs/specs/tasks/<task>.progress.md`:
+**[P0]** Дополнительная защита от C1 (Coder обрывается без push).
+
+#### 8.1. Aliveness signal — auto-hook (НИЧЕГО не делать)
+
+Hook `.claude/hooks/coder-progress-marker.sh` (PostToolUse Edit/Write/MultiEdit/NotebookEdit) автоматически пишет каждое изменение Coder в **`.claude/coder-activity.log`** (main repo, shared, gitignored, rotation на 1 MB):
+
+```
+<ISO timestamp>\t<tool>\t<branch>\t<cwd>\t<file>
+```
+
+Coder ничего не делает — hook прозрачен. Лог автоматически отражает любую активность.
+
+**PM-side recovery** (см. `pm-snippets.md` секция «Coder hung — recovery»):
+- `tail -5 .claude/coder-activity.log` — последние 5 действий
+- Если последний entry > 10 мин назад → Coder hung
+- Извлечь `<cwd>` из последнего entry → `git -C <cwd> log/status` для пик worktree state
+
+Hook покрывает **«живой ли Coder»**. Он не знает о milestones или коммитах — только Edit/Write activity.
+
+#### 8.2. Semantic milestones — `<task>.progress.md` (если задача > 4 файлов)
+
+Для крупных задач Coder поддерживает sentinel-файл `docs/specs/tasks/<task>.progress.md` ВРУЧНУЮ:
 
 ```markdown
 # Progress: task-<slug>
 
-last_update: <ISO timestamp — обновляется ПЕРЕД каждым git push>
-files_touched: <count>
-files:
-  - apps/api/src/projects/projects.service.ts
-  - apps/web/app/routes/crm/projects/$projectId.tsx
-
 current_milestone: 2/4 — "backend service done, UI list next"
 last_commit: <SHA, обновляется после успешного commit>
 last_push: <ISO от последнего успешного git push>
+
+files_done:
+  - apps/api/src/projects/projects.service.ts
+  - apps/api/src/projects/projects.controller.ts
+files_pending:
+  - apps/web/app/routes/crm/projects/$projectId.tsx
+  - apps/web/app/routes/crm/projects/$projectId/-components/SeniorShareDialog.tsx
 ```
 
 **Workflow:**
-1. В начале задачи — Coder создаёт `<task>.progress.md` с `current_milestone: 0/N`
-2. После каждого commit — обновить `last_commit` + `current_milestone` + `last_update`
-3. После каждого `git push` (включая wip) — обновить `last_push`
-4. Commit sentinel ОТДЕЛЬНО от code-changes (`chore(progress): <slug> milestone N`)
+1. В начале крупной задачи (>4 файлов) — Coder создаёт `<task>.progress.md` с `current_milestone: 0/N`
+2. После каждого `wip:` commit — обновить `current_milestone` + `last_commit`
+3. После `git push` — обновить `last_push`
+4. Commit sentinel ОТДЕЛЬНО (`chore(progress): <slug> milestone N`)
 
 Если Coder обрывается:
-- PM читает `<task>.progress.md` → видит `last_update` и `last_push`
-- Если `last_update` свежий, но `last_push` старый — работа есть в worktree но не запушена → PM забирает через `git -C <worktree> log/diff`
-- Если оба свежие — Coder был at progress point, можно перезапустить с `current_milestone + 1`
+- PM читает `<task>.progress.md` → знает на каком milestone остановились
+- Перезапускает Coder с явным указанием «continue from milestone N+1, see progress.md»
 
-**Связанная задача:** `docs/specs/tasks/task-coder-watchdog-progress-markers.md` — hook implementation для auto-update sentinel при Edit/Write (follow-up).
+**Когда manual sentinel избыточен:**
+- Задачи ≤ 2-3 файла — activity log из 8.1 покрывает recovery
+- Только activity log → PM видит `tail` log, забирает unpushed work из worktree
+
+**Связанная задача:** `task-coder-watchdog-progress-markers.md` — harness graceful shutdown остаётся NEEDS-USER (prevention vs detection). Activity log = detection-layer, готов и работает.
 
 ### 2.8. Проверка качества перед коммитом
 

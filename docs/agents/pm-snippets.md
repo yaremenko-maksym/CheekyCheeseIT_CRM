@@ -200,6 +200,72 @@ gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<N>/files \
 
 ---
 
+## Coder hung — recovery (C1 detection layer)
+
+После dev-flow RCA hook `.claude/hooks/coder-progress-marker.sh` пишет activity лог в `<main-repo>/.claude/coder-activity.log` (gitignored, TSV). PM использует его для detection silent termination.
+
+### Шаг 1: Latest Coder activity
+
+```bash
+LOG="$(git rev-parse --git-common-dir 2>/dev/null)/../.claude/coder-activity.log"
+LOG=$(cd "$(dirname "$LOG")" && pwd)/$(basename "$LOG")  # absolute path
+
+tail -10 "$LOG"
+```
+
+Формат строки: `<ISO>\t<tool>\t<branch>\t<cwd>\t<file>`.
+
+### Шаг 2: Detect hung
+
+```bash
+LAST_TS=$(tail -1 "$LOG" | cut -f1)
+AGE_SEC=$(( $(date -u +%s) - $(date -u -d "$LAST_TS" +%s 2>/dev/null || date -ujf '%Y-%m-%dT%H:%M:%SZ' "$LAST_TS" +%s) ))
+
+if [ "$AGE_SEC" -gt 600 ]; then
+  echo "⚠️ Coder последний раз writeл $((AGE_SEC / 60)) мин назад — likely hung"
+fi
+```
+
+### Шаг 3: Pick worktree from last entry
+
+```bash
+LAST_CWD=$(tail -1 "$LOG" | cut -f4)
+LAST_BRANCH=$(tail -1 "$LOG" | cut -f3)
+
+echo "Last activity: $LAST_BRANCH в $LAST_CWD"
+git -C "$LAST_CWD" log --oneline -5
+git -C "$LAST_CWD" status --porcelain
+```
+
+### Шаг 4: Recover unpushed work
+
+```bash
+# Если есть uncommitted
+git -C "$LAST_CWD" stash push -u -m "pm-recovery $(date -u +%Y%m%dT%H%M%SZ)"
+
+# Если есть unpushed commits — push to remote (если pre-push hook требует ac_verified,
+# либо проверить commit messages, либо использовать --no-verify в emergency).
+git -C "$LAST_CWD" log --oneline HEAD..origin/$LAST_BRANCH  # обратное направление = unpushed
+git -C "$LAST_CWD" push origin "$LAST_BRANCH"
+```
+
+### Шаг 5: Записать event
+
+```json
+{ "at": "<ISO>", "type": "coder_recovered", "branch": "<branch>", "unpushed_commits": <N>, "stashed": true/false }
+```
+
+### Для крупных задач — semantic milestone
+
+Если Coder поддерживал `docs/specs/tasks/<task>.progress.md` (см. `coder.md` секция 8.2):
+
+```bash
+cat docs/specs/tasks/<task>.progress.md
+# Видишь current_milestone — перезапускаешь Coder с явным "continue from milestone N+1"
+```
+
+---
+
 ## Common pitfalls — checklists
 
 ### После большого UI batch (User Testing → много правок)
