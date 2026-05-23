@@ -2,15 +2,35 @@
  * E2E coverage for per-project SENIOR share % override.
  *
  * Spec: docs/specs/tasks/task-projects-senior-share-override.md (AC16)
+ *       docs/specs/tasks/task-fix-pr39-ui-round2.md (UI round 2 — implicit null)
+ *
+ * Round-3 UI (PR #39 round 2 — task-fix-pr39-ui-round2):
+ *   - Checkbox «Использовать переопределение» + кнопка «Сбросить» удалены.
+ *   - <ShareSlider> всегда виден для ADMIN/ACCOUNTANT/SENIOR; disabled для
+ *     SENIOR; полностью скрыт для HR (DOM не содержит секцию).
+ *   - Implicit null: если slider value === senior's default, backend пишет
+ *     `null` в projects.* и в project_finance_settings.*.
+ *   - HR не видит финансовую информацию по проекту: табу «Финансы»,
+ *     info-row «Доля синьора» в Обзоре, секцию ShareSlider в edit-форме.
  *
  * Scenarios:
- *   A) ADMIN can edit → field saves → reload shows "Override" badge.
- *   B) HR can open the dialog but the override input is disabled; other
- *      fields still patch successfully (no override in body).
- *   C) ACCOUNTANT can edit and the badge appears.
- *   D) Snapshot is honored: SENIOR_INCOME row renders "Доля: X%" from the
- *      transaction snapshot, not the user's global default.
- *   E) PayoutDialog preview reads the snapshot ("Ваша доля 30%", "К оплате 70%").
+ *   A) ADMIN can edit → переопределение сохраняется → "Override" badge.
+ *   B) HR не видит секцию ShareSlider в edit-форме (DOM целиком отсутствует).
+ *   C) ACCOUNTANT может редактировать → бэйдж появляется.
+ *   D) Snapshot honored: SENIOR_INCOME row показывает Доля% из tx snapshot.
+ *   E) PayoutDialog preview читает snapshot ("Ваша доля 30%", "К оплате 70%").
+ *   F) Boundary 0 / 100 (ADMIN).
+ *   G) ShareSlider клиентский clamp (0..100).
+ *   H) Implicit null: ADMIN ставит value === default → PATCH carries default,
+ *      и в read-view после save показывается "(по умолчанию)" + badge скрыт.
+ *   I) Cross-screen consistency (live invalidation без reload).
+ *   J) MyProjectShares widget (SENIOR-only).
+ *   K) Legacy tx без snapshot → "approx" badge в PayoutDialog.
+ *   L) Backend RBAC negative path: HR не отправляет override field.
+ *   N) Финансы по проекту card renders ProjectShareInfo.
+ *   O) HR не видит табу «Финансы» в /crm/projects/:id (новый round-2 scenario).
+ *   P) HR не видит info-row «Доля синьора» на табе «Обзор» (новый round-2 scenario).
+ *   Q) ADMIN/SENIOR всё ещё видят табу «Финансы» + info-row (regression check).
  *
  * All scenarios run against the mocked /api/* responses defined in fixtures.ts.
  */
@@ -69,17 +89,16 @@ test.describe('per-project SENIOR share override', () => {
       await expect(page.getByTestId('project-senior-share')).toContainText('26%')
       await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
 
-      // Open the edit dialog, enable the per-project override toggle, then
-      // dial the slider to 30 via the embedded number input.
+      // Round-3 UI: слайдер виден всегда без toggle. Открываем edit и
+      // вбиваем 30 в число-поле слайдера.
       await page.getByTestId('project-edit-button').click()
-      const toggle = page.getByTestId('project-edit-senior-share-toggle')
-      await expect(toggle).toBeEnabled()
-      // Round-1 round-2 UI: a checkbox now decides whether the override is
-      // present at all. Off = `null`, on = seed with `defaultSharePercent`.
-      await toggle.check()
+      // Секция помечена `project-edit-senior-share-section` — родитель ShareSlider.
+      await expect(page.getByTestId('project-edit-senior-share-section')).toBeVisible()
       const input = page.getByTestId('project-edit-senior-share-override')
       await expect(input).toBeVisible()
       await expect(input).toBeEnabled()
+      // По умолчанию слайдер показывает effective % (default = 26).
+      await expect(input).toHaveValue('26')
       await input.fill('30')
 
       const patchReq = page.waitForRequest(
@@ -98,31 +117,22 @@ test.describe('per-project SENIOR share override', () => {
     })
   })
 
-  test.describe('Scenario B — HR blocked from changing override', () => {
-    test('HR opens dialog, override input is disabled, other fields still save', async ({ asHr: page }) => {
+  test.describe('Scenario B — HR can no longer see the share section', () => {
+    test('HR opens edit dialog, ShareSlider section is fully absent (not just disabled)', async ({ asHr: page }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
 
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
-      // HR sees the read-only badge.
-      await expect(page.getByTestId('project-senior-share')).toContainText('30%')
-      await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
+      // HR не видит info-row «Доля синьора» в Обзоре (round-2 scope).
+      await expect(page.getByTestId('project-senior-share')).toHaveCount(0)
 
-      // HR can open edit but the toggle, slider input and reset button are
-      // all disabled. The project already has an override (30) → checkbox
-      // is checked and the ShareSlider + Сбросить button are visible-but-
-      // disabled.
+      // HR может открыть редактирование, но секция ShareSlider в DOM
+      // полностью отсутствует (не disabled).
       await page.getByTestId('project-edit-button').click()
-      const toggle = page.getByTestId('project-edit-senior-share-toggle')
-      await expect(toggle).toBeDisabled()
-      await expect(toggle).toBeChecked()
-      const input = page.getByTestId('project-edit-senior-share-override')
-      await expect(input).toBeDisabled()
-      const reset = page.getByTestId('project-edit-senior-share-reset')
-      await expect(reset).toBeDisabled()
+      await expect(page.getByTestId('project-edit-senior-share-section')).toHaveCount(0)
+      await expect(page.getByTestId('project-edit-senior-share-override')).toHaveCount(0)
 
-      // HR may change another field (e.g. notes) — request must succeed
-      // without `seniorSharePercentOverride` in the body. The textarea is
-      // not wired to its <Label>, so target by role + scoped to the dialog.
+      // HR может править другое поле — request успешен БЕЗ
+      // seniorSharePercentOverride в теле.
       const dialog = page.getByRole('dialog')
       await dialog.locator('textarea').first().fill('HR comment')
       const patchReq = page.waitForRequest(
@@ -145,11 +155,8 @@ test.describe('per-project SENIOR share override', () => {
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
       await page.getByTestId('project-edit-button').click()
 
-      // Enable the override toggle, then set the percent through the slider's
-      // number input.
-      const toggle = page.getByTestId('project-edit-senior-share-toggle')
-      await expect(toggle).toBeEnabled()
-      await toggle.check()
+      // Слайдер виден всегда, без toggle.
+      await expect(page.getByTestId('project-edit-senior-share-section')).toBeVisible()
       const input = page.getByTestId('project-edit-senior-share-override')
       await expect(input).toBeEnabled()
       await input.fill('35')
@@ -277,8 +284,8 @@ test.describe('per-project SENIOR share override', () => {
   // -------------------------------------------------------------------------
   //
   // Coder shipped the happy paths A–E. The following scenarios cover boundary
-  // values, the «Сбросить» button, validation, the MyProjectShares widget and
-  // a negative API-tampering check — pieces missing from the original suite.
+  // values, validation, the MyProjectShares widget and a negative API-tampering
+  // check.
   //
 
   test.describe('Scenario F — boundary values 0 and 100', () => {
@@ -287,7 +294,6 @@ test.describe('per-project SENIOR share override', () => {
 
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
       await page.getByTestId('project-edit-button').click()
-      await page.getByTestId('project-edit-senior-share-toggle').check()
       const input = page.getByTestId('project-edit-senior-share-override')
       await input.fill('0')
 
@@ -308,7 +314,6 @@ test.describe('per-project SENIOR share override', () => {
 
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
       await page.getByTestId('project-edit-button').click()
-      await page.getByTestId('project-edit-senior-share-toggle').check()
       const input = page.getByTestId('project-edit-senior-share-override')
       await input.fill('100')
 
@@ -326,15 +331,12 @@ test.describe('per-project SENIOR share override', () => {
 
   test.describe('Scenario G — ShareSlider client clamping (0..100)', () => {
     // The number input inside <ShareSlider> calls `clamp(value)` in onChange,
-    // so out-of-range values are never propagated to the form state. The
-    // assertion target therefore shifts from "validator error visible" to
-    // "input value clamped to the boundary, PATCH carries the boundary value".
+    // so out-of-range values are never propagated to the form state.
     test('value > 100 → clamped to 100, PATCH carries 100', async ({ asAdmin: page }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
       await page.getByTestId('project-edit-button').click()
-      await page.getByTestId('project-edit-senior-share-toggle').check()
       const input = page.getByTestId('project-edit-senior-share-override')
 
       await input.fill('150')
@@ -354,7 +356,6 @@ test.describe('per-project SENIOR share override', () => {
 
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
       await page.getByTestId('project-edit-button').click()
-      await page.getByTestId('project-edit-senior-share-toggle').check()
       const input = page.getByTestId('project-edit-senior-share-override')
 
       await input.fill('-5')
@@ -362,63 +363,81 @@ test.describe('per-project SENIOR share override', () => {
     })
   })
 
-  test.describe('Scenario H — «Сбросить» button clears override', () => {
-    test('ADMIN with active override clicks reset → null saved, badge disappears', async ({
+  test.describe('Scenario H — implicit null when value === default', () => {
+    test('ADMIN с активным override (30) → выставляет slider на default (26) → save → backend пишет null, badge скрыт', async ({
       asAdmin: page,
     }) => {
-      // Start with an override already set so the toggle is on and the
-      // reset button is rendered.
-      await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
+      // Mock project с активным override = 30. Backend (мокаем тут как
+      // прокси: при PATCH с body.value === senior_default=26 ответ возвращает
+      // override=null) — implicit null применился.
+      const detail = {
+        ...PROJECTS[0],
+        seniorSharePercentOverride: 30,
+        seniorSharePercentDefault: 26,
+        effectiveTeam: {
+          senior: {
+            id: USERS.senior.id,
+            displayName: USERS.senior.displayName,
+            email: USERS.senior.email,
+            avatar: null,
+            role: 'SENIOR' as const,
+          },
+          hrs: [],
+          accountants: [],
+          juniors: [],
+        },
+      }
+      await page.route(`http://localhost:3001/api/projects/${PROJECTS[0]!.id}`, (r) => {
+        if (r.request().method() === 'PATCH') {
+          const body = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>
+          // Эмулируем implicit-null detection в backend: если override === default → null.
+          const overrideRaw = body['seniorSharePercentOverride']
+          if (overrideRaw === 26) {
+            detail.seniorSharePercentOverride = null as unknown as number
+          } else if (typeof overrideRaw === 'number') {
+            detail.seniorSharePercentOverride = overrideRaw
+          } else if (overrideRaw === null) {
+            detail.seniorSharePercentOverride = null as unknown as number
+          }
+          return r.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(detail),
+          })
+        }
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(detail),
+        })
+      })
 
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
-      // Sanity — badge is initially visible.
+      // Sanity — badge изначально виден (override = 30).
       await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
 
       await page.getByTestId('project-edit-button').click()
-      // Toggle should be pre-checked because override = 30.
-      const toggle = page.getByTestId('project-edit-senior-share-toggle')
-      await expect(toggle).toBeChecked()
-      const reset = page.getByTestId('project-edit-senior-share-reset')
-      await expect(reset).toBeEnabled()
-      await reset.click()
+      // Слайдер виден, выставлен на 30 (= override).
+      const input = page.getByTestId('project-edit-senior-share-override')
+      await expect(input).toBeVisible()
+      await expect(input).toHaveValue('30')
 
-      // Clicking reset clears the override → toggle flips off → slider +
-      // reset button disappear.
-      await expect(toggle).not.toBeChecked()
-      await expect(page.getByTestId('project-edit-senior-share-override')).toHaveCount(0)
+      // Ставим slider на default (26) — это implicit reset.
+      await input.fill('26')
 
       const patchReq = page.waitForRequest(
         (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
       )
       await page.getByRole('button', { name: 'Сохранить' }).click()
       const body = JSON.parse((await patchReq).postData() ?? '{}') as Record<string, unknown>
-      // Reset must travel as explicit `null`, not undefined / missing — otherwise
-      // the field-RBAC branch in projects.service can't clear the override.
+      // Фронт отправляет 26 (то что в слайдере) — backend сам решает что это null.
       expect('seniorSharePercentOverride' in body).toBe(true)
-      expect(body['seniorSharePercentOverride']).toBeNull()
+      expect(body['seniorSharePercentOverride']).toBe(26)
 
-      // Badge should disappear after the read view re-syncs with the mock state.
+      // После save read-view синхронизируется: badge исчезает,
+      // показывается "(по умолчанию)".
       await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
       await expect(page.getByTestId('project-senior-share-override-badge')).toBeHidden()
-    })
-
-    test('when override is null, the reset button is not rendered (toggle off)', async ({
-      asAdmin: page,
-    }) => {
-      // Round-1 round-2 UI: the reset button only exists while the override
-      // is enabled. When the project has no override, the slider + reset
-      // are not in the DOM at all — the unchecked toggle is the only control.
-      await mockProjectDetail(page, { seniorSharePercentOverride: null })
-
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
-      await page.getByTestId('project-edit-button').click()
-
-      const toggle = page.getByTestId('project-edit-senior-share-toggle')
-      await expect(toggle).toBeEnabled()
-      await expect(toggle).not.toBeChecked()
-      // No reset, no slider input.
-      await expect(page.getByTestId('project-edit-senior-share-reset')).toHaveCount(0)
-      await expect(page.getByTestId('project-edit-senior-share-override')).toHaveCount(0)
     })
   })
 
@@ -433,9 +452,8 @@ test.describe('per-project SENIOR share override', () => {
       await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
       await expect(page.getByTestId('project-senior-share-override-badge')).toBeHidden()
 
-      // Edit → enable toggle → save 42.
+      // Edit → set 42 (different from default 26).
       await page.getByTestId('project-edit-button').click()
-      await page.getByTestId('project-edit-senior-share-toggle').check()
       const input = page.getByTestId('project-edit-senior-share-override')
       await input.fill('42')
       await page.getByRole('button', { name: 'Сохранить' }).click()
@@ -575,12 +593,12 @@ test.describe('per-project SENIOR share override', () => {
   })
 
   test.describe('Scenario L — backend RBAC enforcement (negative path)', () => {
-    test('HR PATCH with seniorSharePercentOverride is rejected by mock 403', async ({
+    test('HR не отправляет seniorSharePercentOverride в PATCH (DOM-section отсутствует)', async ({
       asHr: page,
     }) => {
-      // Stand-in for a real backend RBAC failure: we intercept the PATCH and
-      // return 403 if it carries `seniorSharePercentOverride`. The frontend
-      // should surface the error rather than silently accept the change.
+      // Stand-in for a real backend RBAC failure: интерсептим PATCH и
+      // возвращаем 403 если поле override присутствует. Frontend для HR
+      // больше не имеет секции в DOM — поле никогда не отправляется.
       let receivedOverrideField = false
       await page.route(`http://localhost:3001/api/projects/${PROJECTS[0]!.id}`, async (route) => {
         if (route.request().method() === 'PATCH') {
@@ -606,16 +624,10 @@ test.describe('per-project SENIOR share override', () => {
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
       await page.getByTestId('project-edit-button').click()
 
-      // Sanity — the toggle + slider input are disabled for HR, so the
-      // frontend protects itself before the backend RBAC ever sees a request.
-      const toggle = page.getByTestId('project-edit-senior-share-toggle')
-      await expect(toggle).toBeDisabled()
-      // Override is `30` in the mock, so the slider input is visible-but-disabled.
-      const input = page.getByTestId('project-edit-senior-share-override')
-      await expect(input).toBeDisabled()
+      // Sanity — секция отсутствует, override никогда не отправится.
+      await expect(page.getByTestId('project-edit-senior-share-section')).toHaveCount(0)
 
-      // Change a non-restricted field — should succeed (no override in body,
-      // therefore no 403 from our gate).
+      // Change a non-restricted field — should succeed.
       const dialog = page.getByRole('dialog')
       await dialog.locator('textarea').first().fill('HR-edited notes')
       const patchReq = page.waitForRequest(
@@ -624,49 +636,18 @@ test.describe('per-project SENIOR share override', () => {
       await page.getByRole('button', { name: 'Сохранить' }).click()
       const body = JSON.parse((await patchReq).postData() ?? '{}') as Record<string, unknown>
       expect('seniorSharePercentOverride' in body).toBe(false)
-      // Confirm our 403 guard was never triggered — frontend stripped the field.
+      // Confirm our 403 guard was never triggered.
       expect(receivedOverrideField).toBe(false)
     })
   })
 
   // -------------------------------------------------------------------------
-  // Round-1 round-2 UI additions (task-fix-pr39-ui-round1)
-  //   M — toggle on then off in the same dialog → save should carry `null`
-  //   N — «Финансы по проекту» CardHeader now renders <ProjectShareInfo>
+  // Scenario N — финансовая секция «Финансы по проекту» (ADMIN-only видна,
+  // т.к. HR не может попасть на табу «Финансы» в round-2).
   // -------------------------------------------------------------------------
 
-  test.describe('Scenario M — checkbox toggle interaction', () => {
-    test('toggle on (null → default seed) renders slider with default %, off hides it', async ({
-      asAdmin: page,
-    }) => {
-      // Verifies the checkbox-only UX: enabling the toggle from a null state
-      // seeds the slider with the project's defaultSharePercent (here = 26
-      // from the senior fixture), and disabling it removes the slider.
-      // The "diff-only PATCH body" optimisation (see projects.service.spec.ts)
-      // is intentionally NOT exercised here — that's covered separately.
-      await mockProjectDetail(page, { seniorSharePercentOverride: null })
-
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
-      await page.getByTestId('project-edit-button').click()
-      const toggle = page.getByTestId('project-edit-senior-share-toggle')
-      await expect(toggle).not.toBeChecked()
-      // No slider in the DOM while toggle is off.
-      await expect(page.getByTestId('project-edit-senior-share-override')).toHaveCount(0)
-
-      // Enable → slider appears, seeded with the project's default (26).
-      await toggle.check()
-      const input = page.getByTestId('project-edit-senior-share-override')
-      await expect(input).toBeVisible()
-      await expect(input).toHaveValue('26')
-
-      // Disable → slider is removed again.
-      await toggle.uncheck()
-      await expect(page.getByTestId('project-edit-senior-share-override')).toHaveCount(0)
-    })
-  })
-
   test.describe('Scenario N — finance section share row mirrors the read view', () => {
-    test('CardHeader renders the same effective % + Override badge', async ({
+    test('CardHeader renders the same effective % + Override badge (ADMIN)', async ({
       asAdmin: page,
     }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: 33 })
@@ -693,7 +674,7 @@ test.describe('per-project SENIOR share override', () => {
       ).toBeVisible()
     })
 
-    test('without override: row shows "(по умолчанию)" copy', async ({ asAdmin: page }) => {
+    test('without override: row shows "(по умолчанию)" copy (ADMIN)', async ({ asAdmin: page }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
       await page.route('http://localhost:3001/api/transactions**', (r) =>
         r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
@@ -709,6 +690,70 @@ test.describe('per-project SENIOR share override', () => {
       await expect(
         page.getByTestId('project-transactions-senior-share-override-badge'),
       ).toHaveCount(0)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // PR #39 round 2 — HR RBAC new scenarios (task-fix-pr39-ui-round2)
+  // -------------------------------------------------------------------------
+
+  test.describe('Scenario O — HR не видит табу «Финансы» в /crm/projects/:id', () => {
+    test('HR opens project detail → tab «Финансы» is absent', async ({ asHr: page }) => {
+      await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
+
+      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      // Табы «Обзор» и «Состав» доступны.
+      await expect(page.getByRole('tab', { name: 'Обзор' })).toBeVisible()
+      await expect(page.getByRole('tab', { name: 'Состав' })).toBeVisible()
+      // А «Финансы» — НЕ должно быть.
+      await expect(page.getByRole('tab', { name: 'Финансы' })).toHaveCount(0)
+    })
+  })
+
+  test.describe('Scenario P — HR не видит info-row «Доля синьора» в Обзоре', () => {
+    test('HR на /crm/projects/:id Обзор не видит ProjectShareInfo', async ({ asHr: page }) => {
+      await mockProjectDetail(page, { seniorSharePercentOverride: 33 })
+
+      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      // Sanity — мы на «Обзоре».
+      await expect(page.getByRole('tab', { name: 'Обзор' })).toBeVisible()
+      // Виджет project-senior-share полностью отсутствует в DOM для HR.
+      await expect(page.getByTestId('project-senior-share')).toHaveCount(0)
+      // Бейдж тоже отсутствует.
+      await expect(page.getByTestId('project-senior-share-override-badge')).toHaveCount(0)
+    })
+  })
+
+  test.describe('Scenario Q — ADMIN/SENIOR/ACCOUNTANT всё ещё видят финансовые элементы (regression)', () => {
+    test('ADMIN на /crm/projects/:id видит табу «Финансы» + info-row', async ({ asAdmin: page }) => {
+      await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
+
+      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await expect(page.getByRole('tab', { name: 'Финансы' })).toBeVisible()
+      await expect(page.getByTestId('project-senior-share')).toBeVisible()
+      await expect(page.getByTestId('project-senior-share')).toContainText('30%')
+    })
+
+    test('SENIOR на /crm/projects/:id видит табу «Финансы» + info-row', async ({ asSenior: page }) => {
+      await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
+
+      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await expect(page.getByRole('tab', { name: 'Финансы' })).toBeVisible()
+      await expect(page.getByTestId('project-senior-share')).toBeVisible()
+      await expect(page.getByTestId('project-senior-share')).toContainText('30%')
+    })
+
+    test('ACCOUNTANT на /crm/projects/:id видит табу «Финансы» + info-row + ShareSlider editable', async ({ page }) => {
+      await mockAuthAs(page, USERS.accountant)
+      await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
+
+      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await expect(page.getByRole('tab', { name: 'Финансы' })).toBeVisible()
+      await expect(page.getByTestId('project-senior-share')).toBeVisible()
+
+      await page.getByTestId('project-edit-button').click()
+      await expect(page.getByTestId('project-edit-senior-share-section')).toBeVisible()
+      await expect(page.getByTestId('project-edit-senior-share-override')).toBeEnabled()
     })
   })
 })
