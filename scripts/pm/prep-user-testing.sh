@@ -29,8 +29,16 @@
 #   POSTGRES_USER (default: crm_user)
 #   POSTGRES_PASSWORD (default: password)
 #   SKIP_TUNNEL=1 (отключить tunnel, только локальный сервер на localhost:3000)
+#   SKIP_UNIT_TESTS=1 (пропустить unit-tests на шаге 4 — обход флейков, риск показать
+#                      сломанный bundle пользователю; см. runbook)
 
 set -euo pipefail
+
+# A3: Явный API_PORT/PORT=3001 чтобы перебить любое унаследованное окружение
+# (PM мог установить их во время предыдущего запуска другого проекта).
+# Без этого NestJS может стартануть не на 3001 → curl /api/health тайм-аутит.
+export API_PORT=3001
+export PORT=3001
 
 PR_BRANCH="${1:-}"
 if [ -z "$PR_BRANCH" ]; then
@@ -49,22 +57,162 @@ psql_q() {
 }
 
 SKIP_TUNNEL="${SKIP_TUNNEL:-0}"
+SKIP_UNIT_TESTS="${SKIP_UNIT_TESTS:-0}"
 TUNNEL_LOG=""
 TUNNEL_URL=""
 TOTAL_STEPS="7"
 [ "$SKIP_TUNNEL" = "1" ] && TOTAL_STEPS="6"
 
+# ────────────────────────────────────────────────────────────────────────────
+# A1: timeout shim для macOS совместимости.
+# GNU `timeout` нет на macOS без brew coreutils. Порядок попыток:
+#   1. timeout (Linux / macOS с coreutils symlink)
+#   2. gtimeout (brew coreutils ставит как gtimeout)
+#   3. perl alarm — есть везде, fallback последней надежды
+# Usage: _timeout SECONDS COMMAND [ARGS...]
+# ────────────────────────────────────────────────────────────────────────────
+_timeout() {
+  local secs="$1"
+  shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$secs" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$secs" "$@"
+  else
+    # perl alarm-fallback. Запускаем команду через bash -c "..." чтобы поддержать
+    # вызывающие, передающие конструкцию `bash -c 'until ...'`.
+    perl -e '
+      my $secs = shift @ARGV;
+      my $pid = fork();
+      if ($pid == 0) { exec @ARGV; exit 127; }
+      eval {
+        local $SIG{ALRM} = sub { kill "TERM", $pid; sleep 1; kill "KILL", $pid; die "timeout\n"; };
+        alarm $secs;
+        waitpid($pid, 0);
+        alarm 0;
+        exit($? >> 8);
+      };
+      if ($@ =~ /^timeout/) { exit 124; }
+    ' "$secs" "$@"
+  fi
+}
+
+# ────────────────────────────────────────────────────────────────────────────
+# A4: kill процессов по PORT, а не по имени.
+# `pkill -f vite` убивает сторонние Vite-проекты разработчика — враждебно.
+# Идемпотентно: нет процесса → no-op, нет ошибки.
+# Usage: _kill_port PORT [SIGNAL]
+# ────────────────────────────────────────────────────────────────────────────
+_kill_port() {
+  local port="$1"
+  local signal="${2:-TERM}"
+  local pids
+  pids=$(lsof -ti ":${port}" 2>/dev/null || true)
+  if [ -n "$pids" ]; then
+    # shellcheck disable=SC2086  # хотим word-split
+    kill -"$signal" $pids 2>/dev/null || true
+    # Дать процессу время умереть до следующих действий
+    sleep 1
+    # Если ещё жив — добить KILL
+    pids=$(lsof -ti ":${port}" 2>/dev/null || true)
+    if [ -n "$pids" ]; then
+      # shellcheck disable=SC2086
+      kill -KILL $pids 2>/dev/null || true
+    fi
+  fi
+}
+
+# ────────────────────────────────────────────────────────────────────────────
+# B2: Проверка что порт свободен после kill. Если нет — диагностика.
+# Запускается ПОСЛЕ _kill_port — даёт понятную ошибку вместо silent fail
+# preview/api-сервера с port-already-in-use.
+# Usage: _check_port_free PORT NAME
+# ────────────────────────────────────────────────────────────────────────────
+_check_port_free() {
+  local port="$1"
+  local name="$2"
+  local pids
+  pids=$(lsof -ti ":${port}" 2>/dev/null || true)
+  if [ -n "$pids" ]; then
+    echo "❌ Порт $port (${name}) занят после kill — не могу запустить сервер." >&2
+    echo "" >&2
+    echo "Кто держит порт:" >&2
+    for pid in $pids; do
+      # ps -p может выдать пустую строку если процесс умер между lsof и ps — игнорируем
+      local cmd
+      cmd=$(ps -p "$pid" -o command= 2>/dev/null || echo "<неизвестно>")
+      echo "  PID $pid: $cmd" >&2
+    done
+    echo "" >&2
+    echo "Решение:" >&2
+    echo "  1. Закрыть процесс вручную: kill -9 $pids" >&2
+    echo "  2. Перезапустить скрипт" >&2
+    echo "" >&2
+    echo "Возможные источники: VSCode dev server, забытая сессия pnpm dev," >&2
+    echo "другой User Testing процесс, тестовый Vite на 3000." >&2
+    exit 1
+  fi
+}
+
+# ────────────────────────────────────────────────────────────────────────────
+# A5: checkout ветки с auto-detect worktrees.
+# В нашей dev-среде куча worktrees — одна ветка может быть checked out в другом.
+# `git checkout X` падает с `fatal: 'X' is already checked out at ...` → bash exit.
+# Стратегия:
+#   - parse `git worktree list --porcelain`, найти worktree которому принадлежит ветка
+#   - если это текущий worktree — обычный pull
+#   - если другой worktree — `cd` туда, pull, продолжить работу из него
+#   - если ветка нигде не checked out — обычный checkout + pull
+# Usage: _checkout_branch BRANCH
+# ────────────────────────────────────────────────────────────────────────────
+_checkout_branch() {
+  local branch="$1"
+  local current_wt
+  current_wt=$(git rev-parse --show-toplevel)
+
+  # Парсим worktree list. Формат:
+  #   worktree /path/to/wt
+  #   HEAD <sha>
+  #   branch refs/heads/<branch>
+  #   (пустая строка)
+  # Ищем worktree path для нашей ветки.
+  local target_wt=""
+  local wt_path=""
+  while IFS= read -r line; do
+    if [[ "$line" == worktree\ * ]]; then
+      wt_path="${line#worktree }"
+    elif [[ "$line" == "branch refs/heads/${branch}" ]]; then
+      target_wt="$wt_path"
+      break
+    fi
+  done < <(git worktree list --porcelain)
+
+  if [ -n "$target_wt" ] && [ "$target_wt" != "$current_wt" ]; then
+    echo "  ↪ Ветка $branch уже checked out в другом worktree: $target_wt"
+    echo "  ↪ Переключаюсь туда (cd) и продолжаю работу из него."
+    cd "$target_wt"
+    git pull --ff-only origin "$branch"
+  elif [ -n "$target_wt" ]; then
+    # В текущем worktree — просто pull
+    git pull --ff-only origin "$branch"
+  else
+    # Ветка ещё нигде не checked out
+    git checkout "$branch"
+    git pull --ff-only origin "$branch"
+  fi
+}
+
 # Cleanup trap — убивает API + Web preview + tunnel при ЛЮБОМ выходе скрипта
 # (success, error, Ctrl+C, kill). Не оставляет висящие процессы.
+# Используем _kill_port (по портам, не по имени) чтобы не убить сторонние Vite/Node.
 cleanup() {
   local exit_code=$?
   trap - EXIT INT TERM  # disable trap, чтобы не зациклиться
   echo ""
   echo "🛑 Останавливаю API + Web preview + tunnel..."
-  pkill -f "nest start" 2>/dev/null || true                 # на случай если кто-то поднимал dev API
-  pkill -f "node .*apps/api/dist" 2>/dev/null || true       # production API
-  pkill -f "vite" 2>/dev/null || true                       # вкл. vite preview
-  pkill -f "ssh.*serveo\.net" 2>/dev/null || true           # Serveo SSH tunnel
+  _kill_port 3001 TERM                                       # API NestJS
+  _kill_port 3000 TERM                                       # Vite preview
+  pkill -f "ssh.*serveo\.net" 2>/dev/null || true            # Serveo SSH tunnel (порт remote)
   [ -n "$TUNNEL_LOG" ] && [ -f "$TUNNEL_LOG" ] && rm -f "$TUNNEL_LOG"
   echo "✅ Cleanup завершён."
   exit "$exit_code"
@@ -74,11 +222,10 @@ trap cleanup EXIT INT TERM
 echo "🔄 Подготовка User Testing для ветки: $PR_BRANCH"
 echo "──────────────────────────────────────────────────"
 
-# 1. Переключиться на ветку PR
+# 1. Переключиться на ветку PR (с auto-detect worktrees — A5)
 echo "[1/$TOTAL_STEPS] Fetch + checkout + pull"
 git fetch origin
-git checkout "$PR_BRANCH"
-git pull origin "$PR_BRANCH"
+_checkout_branch "$PR_BRANCH"
 
 # 2. Pre-flight: проверить состояние Drizzle migrations
 echo "[2/$TOTAL_STEPS] Drizzle migrations pre-flight"
@@ -133,10 +280,16 @@ pnpm --filter @crm/api db:migrate
 # ВАЖНО: `pnpm test` без фильтра тянет @crm/e2e (Playwright), который коннектится к
 # localhost:3000 — а сервер ещё не поднят (это шаг 5). Фильтруем явно — только
 # unit/integration suites из api/web/shared. E2E запускается в CI отдельно.
-echo "[4/$TOTAL_STEPS] Unit tests (api + web + shared, без Playwright E2E)"
-if ! pnpm --filter @crm/shared --filter @crm/api --filter @crm/web test; then
-  echo "❌ Unit tests упали. НЕ показывать пользователю. Создать fix-задачу для Coder." >&2
-  exit 1
+# B3: SKIP_UNIT_TESTS=1 — обход флейков (риск показать сломанный bundle).
+if [ "$SKIP_UNIT_TESTS" = "1" ]; then
+  echo "[4/$TOTAL_STEPS] ⚠️ SKIP_UNIT_TESTS=1 — unit-тесты пропущены. Возможен сломанный bundle."
+else
+  echo "[4/$TOTAL_STEPS] Unit tests (api + web + shared, без Playwright E2E)"
+  if ! pnpm --filter @crm/shared --filter @crm/api --filter @crm/web test; then
+    echo "❌ Unit tests упали. НЕ показывать пользователю. Создать fix-задачу для Coder." >&2
+    echo "   Если флейки и нужен обход — SKIP_UNIT_TESTS=1 bash $0 $PR_BRANCH" >&2
+    exit 1
+  fi
 fi
 
 # 5. Производственная сборка + старт preview-сервера + старт API в production-режиме.
@@ -146,18 +299,27 @@ fi
 # работает как реальный prod. Vite preview сервер проксирует /api → :3001.
 echo "[5/$TOTAL_STEPS] Kill previous processes + production build + start"
 
-pkill -f "nest start" 2>/dev/null || true
-pkill -f "node .*apps/api/dist" 2>/dev/null || true
-pkill -f "vite" 2>/dev/null || true
-pkill -f "ssh.*serveo\.net" 2>/dev/null || true
+# A4: kill по портам, не по имени — не убиваем сторонние Vite/Node разработчика.
+_kill_port 3001 TERM   # API
+_kill_port 3000 TERM   # Vite preview
+pkill -f "ssh.*serveo\.net" 2>/dev/null || true   # Serveo SSH (порт remote, lsof тут не подходит)
 sleep 2
+
+# B2: pre-flight check что порты реально освободились. Если нет — понятная диагностика
+# с PID/command вместо silent fail на bind() позже.
+_check_port_free 3001 "API NestJS"
+_check_port_free 3000 "Vite preview"
 
 # Build api + web параллельно через turbo.
 # VITE_API_URL=/api → бандл делает запросы относительно origin'а, чтобы tunnel-URL
 # работал (иначе захардкоженный http://localhost:3001/api ссылается на localhost
 # самого МОБИЛЬНИКА — ничего не доступно).
-echo "  ↪ pnpm build (api + web, production, VITE_API_URL=/api)"
-if ! VITE_API_URL=/api pnpm --filter @crm/api --filter @crm/web build; then
+# B1: VITE_DEV_LOGIN=true — обязательно для User Testing! В production build
+# import.meta.env.DEV === false, без VITE_DEV_LOGIN кнопка Dev Login исчезает
+# из login.tsx → нельзя залогиниться через tunnel (Google OAuth = redirect_uri_mismatch).
+# Это вся суть скрипта — Dev Login должен быть.
+echo "  ↪ pnpm build (api + web, production, VITE_API_URL=/api, VITE_DEV_LOGIN=true)"
+if ! VITE_API_URL=/api VITE_DEV_LOGIN=true pnpm --filter @crm/api --filter @crm/web build; then
   echo "❌ Build упал. НЕ показывать пользователю. Создать fix-задачу для Coder." >&2
   exit 1
 fi
@@ -168,12 +330,13 @@ nohup pnpm --filter @crm/api start >/tmp/pm-api.log 2>&1 &
 nohup pnpm --filter @crm/web start >/tmp/pm-web.log 2>&1 &
 
 # 6. Дождаться готовности
+# A1: _timeout shim — работает на macOS без brew coreutils.
 echo "[6/$TOTAL_STEPS] Wait for services"
-if ! timeout 60 bash -c 'until curl -sf http://localhost:3001/api/health >/dev/null; do sleep 2; done'; then
+if ! _timeout 60 bash -c 'until curl -sf http://localhost:3001/api/health >/dev/null; do sleep 2; done'; then
   echo "❌ API не поднялся за 60 сек. Лог: /tmp/pm-api.log" >&2
   exit 1
 fi
-if ! timeout 30 bash -c 'until curl -sf http://localhost:3000 >/dev/null; do sleep 2; done'; then
+if ! _timeout 30 bash -c 'until curl -sf http://localhost:3000 >/dev/null; do sleep 2; done'; then
   echo "❌ Web preview не поднялся за 30 сек. Лог: /tmp/pm-web.log" >&2
   exit 1
 fi
@@ -216,7 +379,12 @@ if ! command -v ssh >/dev/null 2>&1; then
   exit 1
 fi
 
-TUNNEL_LOG=$(mktemp /tmp/pm-serveo-XXXXXX.log)
+# A2: macOS-compatible temp file. BSD mktemp шаблон отличается от GNU.
+# Явное имя через $$ (PID) + $RANDOM — детерминировано, кроссплатформенно,
+# уникально (PID шёл бы достаточно один — добавляем $RANDOM для безопасности
+# на случай если PID переиспользуется между быстрыми запусками).
+TUNNEL_LOG="/tmp/pm-serveo-$$-${RANDOM}.log"
+: >"$TUNNEL_LOG"
 
 # SSH reverse forward: remote :80 → local :3000.
 # - StrictHostKeyChecking=accept-new: принять fingerprint serveo.net (без интерактивного prompt)
