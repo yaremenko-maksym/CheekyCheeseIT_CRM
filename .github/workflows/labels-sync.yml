@@ -1,0 +1,52 @@
+name: Labels Sync
+
+# Применяет `.github/labels.yml` как declarative source of truth для repo labels.
+# Триггеры:
+#   - push в main с изменениями в .github/labels.yml → real sync
+#   - workflow_dispatch → dry-run по умолчанию (показывает diff в логах)
+#
+# Action: crazy-max/ghaction-github-labeler@v5
+#   - skip-delete: false → labels отсутствующие в yml будут удалены из repo
+#     (полная синхронизация, не just add/update)
+#
+# См. docs/specs/tasks/task-infra-labels-yml-sync.md для контекста.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/labels.yml'
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Dry-run: показать diff без применения'
+        type: boolean
+        default: true
+
+# Один sync на репо одновременно — если две команды пришли почти одновременно,
+# вторая ждёт первую (cancel-in-progress false: не отменяем уже запущенную sync,
+# она важна для consistency).
+concurrency:
+  group: labels-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync labels from .github/labels.yml
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write           # labels — issue-level objects, нужен write
+      pull-requests: write    # apply labels на PR'ы тоже под этой perm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply labels from yml
+        uses: crazy-max/ghaction-github-labeler@v5
+        with:
+          yaml-file: .github/labels.yml
+          # skip-delete=false → если label есть в repo но нет в yml — удалить.
+          # Это полная sync, не upsert. Цель — yml = single source of truth.
+          skip-delete: false
+          # dry-run только при ручном workflow_dispatch (default true для safety).
+          # push в main всегда применяет (это контролируемый flow через PR review).
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run || false }}
