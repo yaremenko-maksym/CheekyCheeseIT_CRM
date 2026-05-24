@@ -8,6 +8,7 @@ export * from './finance'
 export * from './audit-log'
 export * from './view-permissions'
 export * from './admin-actions'
+export * from './documents'
 
 // Hardcoded partner user IDs (stable across environments)
 export const MAKSYM_ID = '00000000-0000-0000-0000-000000000001'

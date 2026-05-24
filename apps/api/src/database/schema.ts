@@ -1,4 +1,4 @@
-import { relations } from 'drizzle-orm'
+import { relations, sql } from 'drizzle-orm'
 import {
   index,
   integer,
@@ -57,6 +57,15 @@ export const payoutRequestStatusEnum = pgEnum('payout_request_status', [
 ])
 
 export const paymentMethodEnum = pgEnum('payment_method', ['USDT_ERC20', 'BANK_UAH_FOP'])
+
+export const documentCategoryEnum = pgEnum('document_category', [
+  'RESUME',
+  'SCAN',
+  'CONTRACT',
+  'RECEIPT',
+  'AVATAR',
+  'LOGO',
+])
 
 // ---------------------------------------------------------------------------
 // Users
@@ -262,6 +271,50 @@ export const transactions = pgTable('transactions', {
 })
 
 // ---------------------------------------------------------------------------
+// Documents (PHASE 6)
+// ---------------------------------------------------------------------------
+//
+// Storage layer for all uploaded files (resumes, scans, contracts, receipts,
+// avatars, logos). The file bytes live in S3/MinIO; this table only tracks
+// metadata + the immutable `s3_key`. Soft delete is two-stage: owner/ADMIN
+// soft-delete sets `deletedAt` + `deletedBy`; ADMIN-only hard delete then
+// removes the S3 object and the DB row.
+//
+// FK references from `users.avatar_document_id`, `projects.logo_document_id`,
+// `transactions.receipt_document_id` are added in subsequent migrations
+// (0011–0013) — this table does not depend on them.
+
+export const documents = pgTable('documents', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  ownerId: uuid('owner_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  // NULL for resume/scan/receipt/avatar; NOT NULL for contract/logo (enforced
+  // in Zod / service layer rather than CHECK constraint to keep migrations
+  // simple and the validation message human-readable).
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
+  category: documentCategoryEnum('category').notNull(),
+  // Human-readable filename (original upload name, sanitized).
+  name: varchar('name', { length: 255 }).notNull(),
+  // Immutable S3 object key — `documents/<category>/<ownerId>/<docId>-<file>`.
+  // Unique so new versions always allocate a new UUID (browser can cache
+  // immutably for a year, see PHASE 6 caching strategy).
+  s3Key: varchar('s3_key', { length: 512 }).notNull().unique(),
+  // Size after server-side compression.
+  sizeBytes: integer('size_bytes').notNull(),
+  // Final MIME type after re-encode (HEIC → image/jpeg, etc.).
+  mimeType: varchar('mime_type', { length: 64 }).notNull(),
+  uploadedBy: uuid('uploaded_by').notNull().references(() => users.id),
+  // Soft delete (Stage 1: owner or ADMIN).
+  deletedAt: timestamp('deleted_at'),
+  deletedBy: uuid('deleted_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [
+  // Partial indexes — hot path is "list active documents for owner/project".
+  index('idx_documents_owner').on(t.ownerId).where(sql`${t.deletedAt} IS NULL`),
+  index('idx_documents_project').on(t.projectId).where(sql`${t.deletedAt} IS NULL`),
+  index('idx_documents_category').on(t.category),
+])
+
+// ---------------------------------------------------------------------------
 // User Audit Log
 // ---------------------------------------------------------------------------
 
@@ -387,6 +440,28 @@ export const projectAuditLogRelations = relations(projectAuditLog, ({ one }) => 
   target: one(projects, { fields: [projectAuditLog.targetId], references: [projects.id] }),
 }))
 
+export const documentsRelations = relations(documents, ({ one }) => ({
+  owner: one(users, {
+    fields: [documents.ownerId],
+    references: [users.id],
+    relationName: 'documentsAsOwner',
+  }),
+  project: one(projects, {
+    fields: [documents.projectId],
+    references: [projects.id],
+  }),
+  uploader: one(users, {
+    fields: [documents.uploadedBy],
+    references: [users.id],
+    relationName: 'documentsAsUploader',
+  }),
+  deleter: one(users, {
+    fields: [documents.deletedBy],
+    references: [users.id],
+    relationName: 'documentsAsDeleter',
+  }),
+}))
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -415,3 +490,5 @@ export type TeamAuditLogEntry = typeof teamAuditLog.$inferSelect
 export type NewTeamAuditLogEntry = typeof teamAuditLog.$inferInsert
 export type ProjectAuditLogEntry = typeof projectAuditLog.$inferSelect
 export type NewProjectAuditLogEntry = typeof projectAuditLog.$inferInsert
+export type Document = typeof documents.$inferSelect
+export type NewDocument = typeof documents.$inferInsert
