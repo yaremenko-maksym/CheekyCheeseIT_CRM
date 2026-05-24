@@ -121,6 +121,39 @@ aws s3api put-bucket-cors \
 
 **Dev secrets НЕ нужны** — в CI workflows прописаны dummy creds (`minioadmin/minioadmin`), которые работают с MinIO service запущенным рядом с postgres/redis.
 
+## ⚠️ Production env vars (CRITICAL)
+
+Dev/MinIO defaults в `apps/api/src/config/env.ts`:
+
+- `AWS_ACCESS_KEY_ID=minioadmin`
+- `AWS_SECRET_ACCESS_KEY=minioadmin`
+
+Эти defaults удобны для локальной разработки (скрипт `prep-user-testing.sh` запускает API без `.env` overrides), но в production **ОБЯЗАТЕЛЬНО** переопределить через настоящие AWS creds (env vars или secrets manager). Иначе API упадёт при старте с явной ошибкой:
+
+```
+AWS_ACCESS_KEY_ID must be overridden in production (minioadmin default is for dev/MinIO only)
+```
+
+Эту защиту даёт `refine()` validator в `envSchema`: проверяет что при `NODE_ENV=production` значения `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` не равны `'minioadmin'`. Если равны — fail fast, API не стартует.
+
+GitHub Actions secrets для prod deploy (см. таблицу выше):
+
+- `AWS_ACCESS_KEY_ID_PROD`
+- `AWS_SECRET_ACCESS_KEY_PROD`
+- `S3_BUCKET_PROD=crm-documents-prod`
+- `S3_REGION_PROD=eu-central-1`
+
+В deploy workflow эти secrets маппятся в env vars без суффикса `_PROD`:
+
+```yaml
+env:
+  NODE_ENV: production
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID_PROD }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}
+  S3_BUCKET: ${{ secrets.S3_BUCKET_PROD }}
+  S3_REGION: ${{ secrets.S3_REGION_PROD }}
+```
+
 ## Lifecycle policy — Glacier auto-archive (FUTURE)
 
 Не включаем сейчас. Когда понадобится сокращать storage cost — пример для архивации чеков старше 1 года в Glacier ($0.004/GB vs Standard $0.023/GB — экономия ~83%):
