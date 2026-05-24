@@ -34,6 +34,15 @@ jobs:
       VITE_API_URL: http://localhost:3001/api
       NODE_ENV: test
       API_PORT: 3001
+      # S3 / MinIO (PHASE 6) — dev dummy creds, MinIO service started below.
+      # Prod overrides via secrets: AWS_ACCESS_KEY_ID_PROD / AWS_SECRET_ACCESS_KEY_PROD / S3_BUCKET_PROD / S3_REGION_PROD.
+      S3_ENDPOINT: http://localhost:9000
+      S3_FORCE_PATH_STYLE: 'true'
+      S3_REGION: us-east-1
+      S3_BUCKET: crm-documents
+      S3_USE_SSE: 'false'
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
 
     services:
       postgres:
@@ -56,6 +65,9 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # MinIO нельзя запустить через `services:` — GHA service container schema
+      # не поддерживает `command:`/`args:`, а MinIO image без команды exit'ит.
+      # Поднимаем через `docker run` ниже (см. step "Start MinIO + bucket").
 
     steps:
       - name: Get PR head ref
@@ -84,6 +96,26 @@ jobs:
           cache: 'pnpm'
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Start MinIO + bucket
+        run: |
+          docker run -d --name minio \
+            --network host \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:latest server /data --console-address ":9001"
+          # Wait for healthy
+          for i in {1..30}; do
+            if curl -sf http://localhost:9000/minio/health/live; then echo "MinIO ready"; break; fi
+            echo "Waiting for MinIO... ($i/30)"
+            sleep 2
+          done
+          # Bootstrap bucket (mc image entrypoint is `mc`, override with /bin/sh).
+          docker run --rm --network host --entrypoint /bin/sh minio/mc:latest -c "
+            mc alias set local http://localhost:9000 minioadmin minioadmin &&
+            mc mb --ignore-existing local/crm-documents &&
+            echo 'MinIO bucket crm-documents ready (CI)'
+          "
 
       - uses: actions/cache@v4
         with:
@@ -169,6 +201,10 @@ jobs:
         run: |
           echo "=== API LOG ===" && cat /tmp/api.log || true
           echo "=== WEB LOG ===" && cat /tmp/web.log || true
+
+      - name: Stop MinIO
+        if: always()
+        run: docker rm -f minio || true
 
   # Merge is handled by PM locally after E2E passes.
   # PM runs: gh pr merge <N> --squash --delete-branch

@@ -25,5 +25,42 @@ services:
       timeout: 3s
       retries: 5
 
+  # S3-compatible object storage for documents (PHASE 6).
+  # Dev only. Prod uses AWS S3 in eu-central-1.
+  # Console: http://localhost:9001 (login: minioadmin / minioadmin).
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - '9000:9000'   # S3 API
+      - '9001:9001'   # Web console
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # One-shot bootstrap: creates bucket `crm-documents` on first compose-up.
+  # Exits 0 immediately after — re-runs are idempotent (`mb --ignore-existing`).
+  minio-bootstrap:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        mc mb --ignore-existing local/crm-documents &&
+        echo 'MinIO bucket crm-documents ready' &&
+        exit 0
+      "
+
 volumes:
   postgres_data:
+  minio_data:
