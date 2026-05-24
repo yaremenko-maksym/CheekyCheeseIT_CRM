@@ -1,0 +1,133 @@
+/**
+ * S3Service — unit tests.
+ *
+ * We mock the @aws-sdk/client-s3 client.send() so the tests stay offline.
+ * The interesting bits are:
+ *   - PutObjectCommand always carries CacheControl + SSE headers
+ *   - getPresignedDownloadUrl default TTL is 24h (86400 s)
+ *   - delete() swallows errors (idempotency for the hard-delete flow)
+ */
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { ConfigService } from '@nestjs/config'
+import {
+  DeleteObjectCommand,
+  PutObjectCommand,
+} from '@aws-sdk/client-s3'
+import { DEFAULT_PRESIGN_TTL_SEC, S3Service } from './s3.service'
+
+// Hoisted mocks
+const sendSpy = vi.fn()
+const getSignedUrlSpy = vi.fn()
+
+vi.mock('@aws-sdk/client-s3', async (orig) => {
+  const real = await orig<typeof import('@aws-sdk/client-s3')>()
+  return {
+    ...real,
+    S3Client: vi.fn().mockImplementation(() => ({
+      send: sendSpy,
+    })),
+  }
+})
+
+vi.mock('@aws-sdk/s3-request-presigner', () => ({
+  getSignedUrl: (...args: unknown[]) => getSignedUrlSpy(...args),
+}))
+
+function makeConfig(overrides: Record<string, unknown> = {}): ConfigService {
+  const env: Record<string, unknown> = {
+    S3_ENDPOINT: 'http://minio:9000',
+    S3_REGION: 'us-east-1',
+    S3_BUCKET: 'crm-documents',
+    S3_FORCE_PATH_STYLE: true,
+    S3_USE_SSE: true,
+    AWS_ACCESS_KEY_ID: 'minioadmin',
+    AWS_SECRET_ACCESS_KEY: 'minioadmin',
+    ...overrides,
+  }
+  return {
+    get: (key: string) => env[key],
+  } as unknown as ConfigService
+}
+
+beforeEach(() => {
+  sendSpy.mockReset()
+  getSignedUrlSpy.mockReset()
+})
+
+describe('S3Service.upload', () => {
+  it('sends PutObjectCommand with immutable Cache-Control + SSE AES256', async () => {
+    const service = new S3Service(makeConfig())
+    sendSpy.mockResolvedValue(undefined)
+
+    await service.upload('documents/RESUME/x/y.jpg', Buffer.from('abc'), 'image/jpeg')
+
+    expect(sendSpy).toHaveBeenCalledTimes(1)
+    const cmd = sendSpy.mock.calls[0]![0] as PutObjectCommand
+    expect(cmd).toBeInstanceOf(PutObjectCommand)
+    expect(cmd.input.Bucket).toBe('crm-documents')
+    expect(cmd.input.Key).toBe('documents/RESUME/x/y.jpg')
+    expect(cmd.input.ContentType).toBe('image/jpeg')
+    expect(cmd.input.CacheControl).toBe('public, max-age=31536000, immutable')
+    expect(cmd.input.ServerSideEncryption).toBe('AES256')
+  })
+
+  it('omits SSE when S3_USE_SSE=false (dev/MinIO opt-out)', async () => {
+    const service = new S3Service(makeConfig({ S3_USE_SSE: false }))
+    sendSpy.mockResolvedValue(undefined)
+
+    await service.upload('k', Buffer.from('abc'), 'image/jpeg')
+    const cmd = sendSpy.mock.calls[0]![0] as PutObjectCommand
+    expect(cmd.input.ServerSideEncryption).toBeUndefined()
+  })
+})
+
+describe('S3Service.getPresignedDownloadUrl', () => {
+  it('default TTL = 24h (86400 sec) and expiresAt aligns with now+TTL', async () => {
+    const service = new S3Service(makeConfig())
+    getSignedUrlSpy.mockResolvedValue('https://signed.example/key?sig=abc')
+
+    const before = Date.now()
+    const result = await service.getPresignedDownloadUrl('k')
+    const after = Date.now()
+
+    expect(result.url).toContain('signed.example')
+    expect(getSignedUrlSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { expiresIn: DEFAULT_PRESIGN_TTL_SEC },
+    )
+    expect(DEFAULT_PRESIGN_TTL_SEC).toBe(24 * 60 * 60) // 86400 s
+
+    const expiresMs = new Date(result.expiresAt).getTime()
+    expect(expiresMs - before).toBeGreaterThanOrEqual(86_400_000 - 10)
+    expect(expiresMs - after).toBeLessThanOrEqual(86_400_000 + 10)
+  })
+
+  it('caller can override TTL (used by tests / future short-lived flows)', async () => {
+    const service = new S3Service(makeConfig())
+    getSignedUrlSpy.mockResolvedValue('url')
+    await service.getPresignedDownloadUrl('k', 300)
+    expect(getSignedUrlSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { expiresIn: 300 },
+    )
+  })
+})
+
+describe('S3Service.delete', () => {
+  it('sends DeleteObjectCommand for the key', async () => {
+    const service = new S3Service(makeConfig())
+    sendSpy.mockResolvedValue(undefined)
+    await service.delete('k')
+    const cmd = sendSpy.mock.calls[0]![0] as DeleteObjectCommand
+    expect(cmd).toBeInstanceOf(DeleteObjectCommand)
+    expect(cmd.input.Key).toBe('k')
+  })
+
+  it('swallows errors (idempotency — re-running hard-delete must not throw)', async () => {
+    const service = new S3Service(makeConfig())
+    sendSpy.mockRejectedValue(new Error('NoSuchKey'))
+    await expect(service.delete('k')).resolves.toBeUndefined()
+  })
+})

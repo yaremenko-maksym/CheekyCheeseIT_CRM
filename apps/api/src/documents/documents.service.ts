@@ -41,7 +41,7 @@ import {
   type SessionUser,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { documents, projects, teamMembers, users } from '../database/schema'
+import { documents, teamMembers, users } from '../database/schema'
 import { S3Service } from './s3.service'
 import { CompressionService } from './compression.service'
 
