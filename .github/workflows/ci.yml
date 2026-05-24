@@ -146,21 +146,9 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 5
-      # MinIO для PHASE 6 — поднимаем рядом с postgres/redis.
-      # Bucket `crm-documents` создаётся отдельным step после healthcheck.
-      minio:
-        image: minio/minio:latest
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        ports:
-          - 9000:9000
-          - 9001:9001
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
+      # MinIO нельзя запустить через `services:` — GHA service container schema
+      # не поддерживает `command:`/`args:`, а MinIO image без команды exit'ит.
+      # Поднимаем через `docker run` ниже (см. step "Start MinIO + bucket").
 
     env:
       NODE_ENV: test
@@ -210,8 +198,20 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Bootstrap MinIO bucket
+      - name: Start MinIO + bucket
         run: |
+          docker run -d --name minio \
+            --network host \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:latest server /data --console-address ":9001"
+          # Wait for healthy
+          for i in {1..30}; do
+            if curl -sf http://localhost:9000/minio/health/live; then echo "MinIO ready"; break; fi
+            echo "Waiting for MinIO... ($i/30)"
+            sleep 2
+          done
+          # Bootstrap bucket
           docker run --rm --network host minio/mc:latest /bin/sh -c "
             mc alias set local http://localhost:9000 minioadmin minioadmin &&
             mc mb --ignore-existing local/crm-documents &&
@@ -259,6 +259,10 @@ jobs:
         run: |
           echo "=== API LOG ===" && cat /tmp/api.log || true
           echo "=== WEB LOG ===" && cat /tmp/web.log || true
+
+      - name: Stop MinIO
+        if: always()
+        run: docker rm -f minio || true
 
   # When E2E fails on main — open a blocking issue.
   # When E2E recovers — close it automatically.
