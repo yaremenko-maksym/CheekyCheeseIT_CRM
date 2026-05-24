@@ -899,6 +899,110 @@ async function main() {
     }
   }
 
+  // ── Documents seed (PHASE 6) ─────────────────────────────────────────────
+  //
+  // Rows-only seed. The s3_keys point to files that DO NOT exist in MinIO;
+  // downloads will 404 — this is OK for seed data (UI still renders cards
+  // with RBAC + delete flow; real uploads come via the API in e2e tests).
+  //
+  // AVATAR/LOGO are NOT seeded here — those rows are created in
+  // task-avatars-logos-integration where users.avatar_document_id and
+  // projects.logo_document_id schema columns appear. This task only lays
+  // down the table + enum.
+  console.log('Seeding documents...')
+  const existingDocsCount = await db.$count(schema.documents)
+  if (existingDocsCount > 0) {
+    console.log('  ~ documents already seeded, skipping')
+  } else {
+    const adminMaksym = byEmail['yaremenkomaksym99@gmail.com']
+    const oleksiy = byEmail['oleksiy.kovalenko@cheekycheese.dev']
+    const dmytro = byEmail['dmytro.marchenko@cheekycheese.dev']
+    const sofia = byEmail['sofia.bondarenko@cheekycheese.dev']
+    const ivan = byEmail['ivan.petrenko@cheekycheese.dev']
+    const anna = byEmail['anna.lysenko@cheekycheese.dev']
+    const kateryna = byEmail['kateryna.shevchenko@cheekycheese.dev']
+    const mykola = byEmail['mykola.savchenko@cheekycheese.dev']
+
+    if (adminMaksym && oleksiy && dmytro && sofia && ivan && anna && kateryna && mykola) {
+      // For each row we mint a UUID so the s3_key embeds the doc id (matches
+      // production `documents/<category>/<owner>/<docId>-<file>` pattern,
+      // just under the `seed/` namespace so prod buckets can't collide).
+      const mintRow = (
+        category: schema.NewDocument['category'],
+        owner: typeof oleksiy,
+        opts: {
+          projectId?: string
+          uploadedBy?: string
+          ext?: 'pdf' | 'jpg' | 'png'
+          mime?: string
+          name?: string
+        } = {},
+      ): schema.NewDocument => {
+        const id = crypto.randomUUID()
+        const ext = opts.ext ?? (category === 'SCAN' || category === 'RECEIPT' ? 'jpg' : 'pdf')
+        const mime = opts.mime ?? (ext === 'pdf' ? 'application/pdf' : ext === 'jpg' ? 'image/jpeg' : 'image/png')
+        const name = opts.name ?? `${category.toLowerCase()}-${owner.displayName.split(' ')[0]?.toLowerCase() ?? 'doc'}.${ext}`
+        return {
+          id,
+          ownerId: owner.id,
+          projectId: opts.projectId ?? null,
+          category,
+          name,
+          s3Key: `documents/seed/${id}.${ext}`,
+          sizeBytes: 50_000,
+          mimeType: mime,
+          uploadedBy: opts.uploadedBy ?? owner.id,
+        }
+      }
+
+      const allProjects = await db.select().from(schema.projects)
+      const byProjectName = Object.fromEntries(allProjects.map((p) => [p.name, p]))
+
+      const docs: schema.NewDocument[] = []
+
+      // RESUME (6) — one per ADMIN/SENIOR/JUNIOR/HR/ACCOUNTANT, self-uploaded
+      docs.push(mintRow('RESUME', adminMaksym))
+      docs.push(mintRow('RESUME', oleksiy))
+      docs.push(mintRow('RESUME', dmytro))
+      docs.push(mintRow('RESUME', sofia))
+      docs.push(mintRow('RESUME', ivan))
+      docs.push(mintRow('RESUME', anna))
+
+      // SCAN (6) — one per several users; mix self-upload and HR-uploaded-for-other
+      docs.push(mintRow('SCAN', adminMaksym))
+      docs.push(mintRow('SCAN', oleksiy))
+      docs.push(mintRow('SCAN', dmytro))
+      docs.push(mintRow('SCAN', sofia, { uploadedBy: anna.id }))  // HR uploaded for junior
+      docs.push(mintRow('SCAN', ivan, { uploadedBy: anna.id }))   // HR uploaded for junior
+      docs.push(mintRow('SCAN', kateryna))
+
+      // CONTRACT (4) — one per active project; ownerId = senior, projectId set
+      const aiProject = byProjectName['AI Platform v2']
+      const edtechProject = byProjectName['EdTech LMS']
+      const fermProject = byProjectName['Ferm Project']
+      const onePunchProject = byProjectName['One Punch']
+      if (aiProject) docs.push(mintRow('CONTRACT', oleksiy, { projectId: aiProject.id }))
+      if (edtechProject) docs.push(mintRow('CONTRACT', dmytro, { projectId: edtechProject.id }))
+      if (fermProject) docs.push(mintRow('CONTRACT', adminMaksym, { projectId: fermProject.id }))
+      if (onePunchProject) docs.push(mintRow('CONTRACT', adminMaksym, { projectId: onePunchProject.id }))
+
+      // RECEIPT (12) — owner = sender of the transaction. We don't write the
+      // FK transactions.receipt_document_id here (that column does not exist
+      // until migration 0011 in task-finance-receipt-integration). Just
+      // create the document rows so the API + UI tests have data to read.
+      // SENIOR receipts (oleksiy / dmytro × several txns)
+      for (let i = 0; i < 4; i++) docs.push(mintRow('RECEIPT', oleksiy))
+      for (let i = 0; i < 4; i++) docs.push(mintRow('RECEIPT', dmytro))
+      // ADMIN receipts (Maksym for his own admin-income txns)
+      for (let i = 0; i < 4; i++) docs.push(mintRow('RECEIPT', adminMaksym))
+
+      await db.insert(schema.documents).values(docs)
+      console.log(`  + seeded ${docs.length} documents (RESUME/SCAN/CONTRACT/RECEIPT)`)
+    } else {
+      console.warn('  ! Missing required seed users — documents seed skipped')
+    }
+  }
+
   await pool.end()
   console.log('Done.')
 }
