@@ -4,6 +4,7 @@ import { ThrottlerModule } from '@nestjs/throttler'
 import { AuthModule } from './auth/auth.module'
 import { validateEnv } from './config/env'
 import { DatabaseModule } from './database/database.module'
+import { DocumentsModule } from './documents/documents.module'
 import { HealthModule } from './health/health.module'
 import { FinanceModule } from './finance/finance.module'
 import { InterviewsModule } from './interviews/interviews.module'
@@ -31,6 +32,7 @@ import { UsersModule } from './users/users.module'
     ProjectsModule,
     InterviewsModule,
     FinanceModule,
+    DocumentsModule,
     HealthModule,
   ],
 })
