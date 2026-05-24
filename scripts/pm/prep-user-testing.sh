@@ -60,8 +60,10 @@ SKIP_TUNNEL="${SKIP_TUNNEL:-0}"
 SKIP_UNIT_TESTS="${SKIP_UNIT_TESTS:-0}"
 TUNNEL_LOG=""
 TUNNEL_URL=""
-TOTAL_STEPS="7"
-[ "$SKIP_TUNNEL" = "1" ] && TOTAL_STEPS="6"
+# Шаги: 1=checkout, 2=pnpm install, 3=.env setup, 4=shared build, 5=migrations pre-flight,
+#       6=db:migrate, 7=unit tests, 8=build + start, 9=wait for ready, 10=tunnel.
+TOTAL_STEPS="10"
+[ "$SKIP_TUNNEL" = "1" ] && TOTAL_STEPS="9"
 
 # ────────────────────────────────────────────────────────────────────────────
 # A1: timeout shim для macOS совместимости.
@@ -227,8 +229,51 @@ echo "[1/$TOTAL_STEPS] Fetch + checkout + pull"
 git fetch origin
 _checkout_branch "$PR_BRANCH"
 
-# 2. Pre-flight: проверить состояние Drizzle migrations
-echo "[2/$TOTAL_STEPS] Drizzle migrations pre-flight"
+# 2. pnpm install — fresh worktrees / merge'и могут менять lockfile.
+# Без install: `drizzle-kit: command not found` (на fresh worktree node_modules пусты),
+# `Cannot find module '@crm/shared'` (если новые зависимости), etc.
+# --frozen-lockfile: гарантия что lockfile не модифицируется (контракт CI≡local).
+echo "[2/$TOTAL_STEPS] pnpm install (frozen lockfile)"
+if ! pnpm install --frozen-lockfile; then
+  echo "❌ pnpm install fail. Проверь pnpm-lock.yaml vs package.json — возможно lockfile отстал от main." >&2
+  exit 1
+fi
+
+# 3. .env setup — на fresh worktree файла нет, env.ts падает на required vars.
+# Z3 schema требует JWT_SECRET.min(32), SESSION_SECRET.min(32), GOOGLE_* non-empty.
+# Через tunnel реальные Google creds не нужны (OAuth не работает из-за redirect_uri
+# mismatch — User Testing использует Dev Login через email). Подставляем заглушки.
+# NestJS ConfigModule читает .env из cwd = apps/api/ при `pnpm --filter @crm/api start`,
+# поэтому копируем второй раз в apps/api/.env.
+echo "[3/$TOTAL_STEPS] Env setup (.env + apps/api/.env)"
+if [ ! -f .env ]; then
+  cp .env.example .env
+  # sed -i.bak — BSD/macOS compat (без .bak падает с "extra characters at end").
+  # 32+ chars для JWT/SESSION (zod .min(32)), placeholder для GOOGLE_* (не используются через tunnel).
+  sed -i.bak 's|^JWT_SECRET=$|JWT_SECRET=dev-secret-not-for-production-32chars-min|' .env
+  sed -i.bak 's|^SESSION_SECRET=$|SESSION_SECRET=dev-session-not-for-production-32chars-min|' .env
+  sed -i.bak 's|^GOOGLE_CLIENT_ID=$|GOOGLE_CLIENT_ID=dev-not-used-via-tunnel|' .env
+  sed -i.bak 's|^GOOGLE_CLIENT_SECRET=$|GOOGLE_CLIENT_SECRET=dev-not-used-via-tunnel|' .env
+  rm -f .env.bak
+  echo "  ↪ .env создан из .env.example (только dev — НЕ для prod)"
+else
+  echo "  ↪ .env уже существует — оставляю как есть"
+fi
+# NestJS ConfigModule cwd = apps/api/ → нужна копия там.
+# Каждый раз пересоздаём (на случай если корневой .env обновили вручную).
+cp .env apps/api/.env
+
+# 4. packages/shared build — генерирует dist/*.d.ts для api/web TypeScript.
+# Без этого: api `Cannot find module '@crm/shared'`. Workspace symlinks не помогают —
+# нужны реальные .d.ts файлы для tsc/vite.
+echo "[4/$TOTAL_STEPS] Build packages/shared (TS declarations для api/web)"
+if ! pnpm --filter @crm/shared build; then
+  echo "❌ packages/shared build fail. Без этого api/web упадут с 'Cannot find module @crm/shared'." >&2
+  exit 1
+fi
+
+# 5. Pre-flight: проверить состояние Drizzle migrations
+echo "[5/$TOTAL_STEPS] Drizzle migrations pre-flight"
 
 # 2a. Postgres reachable?
 if ! psql_q "SELECT 1" >/dev/null; then
@@ -272,19 +317,19 @@ elif [ "$HAS_TRACKING" = "true" ]; then
   echo "ℹ️ Tracking ОК: $APPLIED_COUNT миграций применено."
 fi
 
-# 3. Применить миграции
-echo "[3/$TOTAL_STEPS] DB migrations"
+# 6. Применить миграции
+echo "[6/$TOTAL_STEPS] DB migrations"
 pnpm --filter @crm/api db:migrate
 
-# 4. Прогнать unit-тесты — если упали, не показываем пользователю.
+# 7. Прогнать unit-тесты — если упали, не показываем пользователю.
 # ВАЖНО: `pnpm test` без фильтра тянет @crm/e2e (Playwright), который коннектится к
-# localhost:3000 — а сервер ещё не поднят (это шаг 5). Фильтруем явно — только
+# localhost:3000 — а сервер ещё не поднят (это шаг 8). Фильтруем явно — только
 # unit/integration suites из api/web/shared. E2E запускается в CI отдельно.
 # B3: SKIP_UNIT_TESTS=1 — обход флейков (риск показать сломанный bundle).
 if [ "$SKIP_UNIT_TESTS" = "1" ]; then
-  echo "[4/$TOTAL_STEPS] ⚠️ SKIP_UNIT_TESTS=1 — unit-тесты пропущены. Возможен сломанный bundle."
+  echo "[7/$TOTAL_STEPS] ⚠️ SKIP_UNIT_TESTS=1 — unit-тесты пропущены. Возможен сломанный bundle."
 else
-  echo "[4/$TOTAL_STEPS] Unit tests (api + web + shared, без Playwright E2E)"
+  echo "[7/$TOTAL_STEPS] Unit tests (api + web + shared, без Playwright E2E)"
   if ! pnpm --filter @crm/shared --filter @crm/api --filter @crm/web test; then
     echo "❌ Unit tests упали. НЕ показывать пользователю. Создать fix-задачу для Coder." >&2
     echo "   Если флейки и нужен обход — SKIP_UNIT_TESTS=1 bash $0 $PR_BRANCH" >&2
@@ -292,12 +337,12 @@ else
   fi
 fi
 
-# 5. Производственная сборка + старт preview-сервера + старт API в production-режиме.
+# 8. Производственная сборка + старт preview-сервера + старт API в production-режиме.
 # ПОЧЕМУ не dev-сервер: через LocalTunnel dev-режим грузит сотни unbundled модулей,
 # source maps, HMR-сокет — это десятки секунд загрузки на мобильнике и flaky HMR
 # через туннель. Production build = один минифицированный bundle, никакого HMR,
 # работает как реальный prod. Vite preview сервер проксирует /api → :3001.
-echo "[5/$TOTAL_STEPS] Kill previous processes + production build + start"
+echo "[8/$TOTAL_STEPS] Kill previous processes + production build + start"
 
 # A4: kill по портам, не по имени — не убиваем сторонние Vite/Node разработчика.
 _kill_port 3001 TERM   # API
@@ -329,9 +374,9 @@ echo "  ↪ Start API (node dist/main) + Web preview"
 nohup pnpm --filter @crm/api start >/tmp/pm-api.log 2>&1 &
 nohup pnpm --filter @crm/web start >/tmp/pm-web.log 2>&1 &
 
-# 6. Дождаться готовности
+# 9. Дождаться готовности
 # A1: _timeout shim — работает на macOS без brew coreutils.
-echo "[6/$TOTAL_STEPS] Wait for services"
+echo "[9/$TOTAL_STEPS] Wait for services"
 if ! _timeout 60 bash -c 'until curl -sf http://localhost:3001/api/health >/dev/null; do sleep 2; done'; then
   echo "❌ API не поднялся за 60 сек. Лог: /tmp/pm-api.log" >&2
   exit 1
@@ -350,7 +395,7 @@ if ! curl -sf --max-time 5 http://localhost:3000/api/health >/dev/null; then
 fi
 echo "  ↪ /api proxy через preview работает"
 
-# 7. LocalTunnel — публичный URL для тестирования с телефона
+# 10. Serveo SSH tunnel — публичный URL для тестирования с телефона
 if [ "$SKIP_TUNNEL" = "1" ]; then
   echo "──────────────────────────────────────────────────"
   echo "✅ Окружение готово (БЕЗ tunnel — SKIP_TUNNEL=1)."
@@ -362,7 +407,7 @@ if [ "$SKIP_TUNNEL" = "1" ]; then
   exit 0
 fi
 
-echo "[7/$TOTAL_STEPS] Поднимаю Serveo SSH tunnel"
+echo "[10/$TOTAL_STEPS] Поднимаю Serveo SSH tunnel"
 
 # Двойная проверка что localhost:3000 реально отвечает (200/3xx/4xx — главное не connection refused)
 if ! curl -sf --max-time 5 --retry 3 --retry-delay 1 http://localhost:3000 >/dev/null; then
