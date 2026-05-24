@@ -34,6 +34,15 @@ jobs:
       VITE_API_URL: http://localhost:3001/api
       NODE_ENV: test
       API_PORT: 3001
+      # S3 / MinIO (PHASE 6) — dev dummy creds, MinIO service started below.
+      # Prod overrides via secrets: AWS_ACCESS_KEY_ID_PROD / AWS_SECRET_ACCESS_KEY_PROD / S3_BUCKET_PROD / S3_REGION_PROD.
+      S3_ENDPOINT: http://localhost:9000
+      S3_FORCE_PATH_STYLE: 'true'
+      S3_REGION: us-east-1
+      S3_BUCKET: crm-documents
+      S3_USE_SSE: 'false'
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
 
     services:
       postgres:
@@ -56,6 +65,19 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # MinIO для PHASE 6 — поднимаем рядом с postgres/redis.
+      # Bucket `crm-documents` создаётся отдельным step после healthcheck (см. ниже).
+      minio:
+        image: minio/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports: ['9000:9000', '9001:9001']
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/live"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
 
     steps:
       - name: Get PR head ref
@@ -84,6 +106,14 @@ jobs:
           cache: 'pnpm'
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Bootstrap MinIO bucket
+        run: |
+          docker run --rm --network host minio/mc:latest /bin/sh -c "
+            mc alias set local http://localhost:9000 minioadmin minioadmin &&
+            mc mb --ignore-existing local/crm-documents &&
+            echo 'MinIO bucket crm-documents ready (CI)'
+          "
 
       - uses: actions/cache@v4
         with:

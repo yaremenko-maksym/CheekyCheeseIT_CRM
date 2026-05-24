@@ -32,6 +32,16 @@ jobs:
   quality:
     name: Typecheck · Lint · Unit Tests
     runs-on: ubuntu-latest
+    env:
+      # S3 / MinIO (PHASE 6) — dummy creds so env schema validation passes in unit tests.
+      # No MinIO service needed: quality job не делает реальных S3 calls.
+      S3_ENDPOINT: http://localhost:9000
+      S3_FORCE_PATH_STYLE: 'true'
+      S3_REGION: us-east-1
+      S3_BUCKET: crm-documents
+      S3_USE_SSE: 'false'
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
     steps:
       - uses: actions/checkout@v4
         with:
@@ -136,6 +146,21 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 5
+      # MinIO для PHASE 6 — поднимаем рядом с postgres/redis.
+      # Bucket `crm-documents` создаётся отдельным step после healthcheck.
+      minio:
+        image: minio/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports:
+          - 9000:9000
+          - 9001:9001
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/live"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
 
     env:
       NODE_ENV: test
@@ -149,6 +174,15 @@ jobs:
       SESSION_SECRET: ci-session-secret-32-chars-minimum-x
       FRONTEND_URL: http://localhost:3000
       VITE_API_URL: http://localhost:3001/api
+      # S3 / MinIO (PHASE 6) — dev dummy creds, MinIO service started above.
+      # Prod overrides via secrets: AWS_ACCESS_KEY_ID_PROD / AWS_SECRET_ACCESS_KEY_PROD / S3_BUCKET_PROD / S3_REGION_PROD.
+      S3_ENDPOINT: http://localhost:9000
+      S3_FORCE_PATH_STYLE: 'true'
+      S3_REGION: us-east-1
+      S3_BUCKET: crm-documents
+      S3_USE_SSE: 'false'
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
 
     steps:
       - uses: actions/checkout@v4
@@ -175,6 +209,14 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('apps/e2e/package.json') }}
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Bootstrap MinIO bucket
+        run: |
+          docker run --rm --network host minio/mc:latest /bin/sh -c "
+            mc alias set local http://localhost:9000 minioadmin minioadmin &&
+            mc mb --ignore-existing local/crm-documents &&
+            echo 'MinIO bucket crm-documents ready (CI)'
+          "
 
       - run: pnpm build
 
