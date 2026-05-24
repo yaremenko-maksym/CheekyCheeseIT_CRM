@@ -110,8 +110,8 @@ jobs:
             echo "Waiting for MinIO... ($i/30)"
             sleep 2
           done
-          # Bootstrap bucket
-          docker run --rm --network host minio/mc:latest /bin/sh -c "
+          # Bootstrap bucket (mc image entrypoint is `mc`, override with /bin/sh).
+          docker run --rm --network host --entrypoint /bin/sh minio/mc:latest -c "
             mc alias set local http://localhost:9000 minioadmin minioadmin &&
             mc mb --ignore-existing local/crm-documents &&
             echo 'MinIO bucket crm-documents ready (CI)'
