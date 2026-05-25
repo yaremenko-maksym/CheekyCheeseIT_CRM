@@ -252,8 +252,12 @@ export const transactions = pgTable('transactions', {
   payoutRequestId: uuid('payout_request_id').references(() => payoutRequests.id, { onDelete: 'set null' }),
   // Snapshot of senior share percent at time of SENIOR_INCOME creation
   seniorSharePercent: integer('senior_share_percent'),
-  // Receipt / proof of payment URL
-  receiptUrl: text('receipt_url'),
+  // Receipt — uploaded file (FK to documents.id, category=RECEIPT) OR an
+  // external URL (etherscan link, screenshot). Mutually exclusive — enforced
+  // by a row-level CHECK constraint, see migration 0013. Both NULL = no
+  // receipt attached.
+  receiptDocumentId: uuid('receipt_document_id').references(() => documents.id, { onDelete: 'set null' }),
+  receiptExternalUrl: text('receipt_external_url'),
   // Blockchain TX hash (for PAYOUT, PAYOUT_ADMIN)
   txHash: varchar('tx_hash', { length: 255 }),
   // Accountant/admin validation fields (for SENIOR_INCOME)
@@ -431,6 +435,7 @@ export const transactionsRelations = relations(transactions, ({ one }) => ({
   creator: one(users, { fields: [transactions.createdBy], references: [users.id], relationName: 'createdTransactions' }),
   project: one(projects, { fields: [transactions.projectId], references: [projects.id] }),
   payoutRequest: one(payoutRequests, { fields: [transactions.payoutRequestId], references: [payoutRequests.id] }),
+  receiptDocument: one(documents, { fields: [transactions.receiptDocumentId], references: [documents.id] }),
 }))
 
 export const userAuditLogRelations = relations(userAuditLog, ({ one }) => ({
