@@ -1,0 +1,317 @@
+/**
+ * DocumentCard — single card in the documents grid.
+ *
+ * Renders thumbnail (image preview via DocumentImage, or PDF icon), name,
+ * size, relative date, uploader, and a row of RBAC-conditional action
+ * buttons:
+ *
+ *   - Скачать (download)         — everyone who can see the card
+ *   - Удалить (soft delete)      — owner or ADMIN; disabled for RECEIPT
+ *   - Восстановить               — ADMIN, only when soft-deleted
+ *   - Удалить навсегда           — ADMIN, only when soft-deleted (destructive)
+ *
+ * RECEIPT-specific bits:
+ *   - Soft-delete is forbidden (caskade from the parent transaction).
+ *   - A "К транзакции #..." link shows the last 8 chars of the linked tx id.
+ */
+import { useMemo, useState } from 'react'
+import { Link } from '@tanstack/react-router'
+import { formatDistanceToNow } from 'date-fns'
+import { ru } from 'date-fns/locale'
+import {
+  Download,
+  FileText,
+  Receipt as ReceiptIcon,
+  RotateCcw,
+  Trash,
+  Trash2,
+  UserCircle2,
+} from 'lucide-react'
+import type { Document, SessionUser } from '@crm/shared'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { cn } from '@/lib/utils'
+import { formatBytes } from '@/lib/format-bytes'
+import {
+  useDeleteDocument,
+  useDocumentDownloadUrl,
+  useHardDeleteDocument,
+  useRestoreDocument,
+} from '@/hooks/use-documents'
+import { DocumentImage } from './document-image'
+
+type UploaderInfo = {
+  id: string
+  displayName: string | null
+}
+
+interface DocumentCardProps {
+  doc: Document
+  viewer: SessionUser
+  /**
+   * Optional mapping from user id → displayName, used to render the
+   * "uploaded by" line. Falls back to a short id if not provided.
+   */
+  uploaders?: Record<string, UploaderInfo | undefined>
+}
+
+const RECEIPT_DELETE_TOOLTIP = 'Чек удаляется вместе с транзакцией'
+
+function shortId(id: string): string {
+  return id.length > 8 ? id.slice(-8) : id
+}
+
+export function DocumentCard({ doc, viewer, uploaders }: DocumentCardProps) {
+  const [confirmSoftDelete, setConfirmSoftDelete] = useState(false)
+  const [confirmHardDelete, setConfirmHardDelete] = useState(false)
+
+  const downloadQuery = useDocumentDownloadUrl(doc.id, { enabled: false })
+  const softDelete = useDeleteDocument()
+  const restore = useRestoreDocument()
+  const hardDelete = useHardDeleteDocument()
+
+  const isDeleted = doc.deletedAt !== null
+  const isReceipt = doc.category === 'RECEIPT'
+  const isImage = doc.mimeType.startsWith('image/')
+  const isPdf = doc.mimeType === 'application/pdf'
+
+  const isOwner = viewer.id === doc.ownerId
+  const isAdmin = viewer.role === 'ADMIN'
+
+  const canSoftDelete = !isDeleted && !isReceipt && (isOwner || isAdmin)
+  const canRestore = isDeleted && isAdmin
+  const canHardDelete = isDeleted && isAdmin
+
+  const uploader = uploaders?.[doc.uploadedBy]
+  const uploaderLabel = uploader?.displayName ?? shortId(doc.uploadedBy)
+
+  const relativeDate = useMemo(() => {
+    try {
+      return formatDistanceToNow(new Date(doc.createdAt), {
+        addSuffix: true,
+        locale: ru,
+      })
+    } catch {
+      return doc.createdAt
+    }
+  }, [doc.createdAt])
+
+  async function handleDownload() {
+    // Refetch on demand — query has 4h staleTime so cached result will hit
+    // immediately for subsequent clicks.
+    const result = await downloadQuery.refetch()
+    const url = result.data?.url
+    if (!url) return
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
+  return (
+    <div
+      data-testid="document-card"
+      data-doc-id={doc.id}
+      className={cn(
+        'flex flex-col rounded-xl border border-border bg-card shadow-sm transition hover:shadow-md',
+        isDeleted && 'opacity-50',
+      )}
+    >
+      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-t-xl bg-muted">
+        {isImage ? (
+          <DocumentImage
+            docId={doc.id}
+            alt={doc.name}
+            className="h-full w-full"
+          />
+        ) : isPdf ? (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-muted-foreground">
+            <FileText className="h-12 w-12" />
+            <Badge variant="secondary" className="bg-red-500/15 text-red-600">
+              PDF
+            </Badge>
+          </div>
+        ) : (
+          <div className="flex h-full w-full flex-col items-center justify-center text-muted-foreground">
+            <FileText className="h-12 w-12" />
+          </div>
+        )}
+
+        {isDeleted ? (
+          <Badge
+            variant="secondary"
+            className="absolute right-2 top-2 bg-muted-foreground/15 text-foreground"
+          >
+            Удалён
+          </Badge>
+        ) : null}
+      </div>
+
+      <div className="flex flex-1 flex-col gap-2 p-4">
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <h3 className="line-clamp-1 text-sm font-semibold" title={doc.name}>
+                {doc.name}
+              </h3>
+            </TooltipTrigger>
+            <TooltipContent>{doc.name}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>{formatBytes(doc.sizeBytes)}</span>
+          <span aria-hidden="true">·</span>
+          <span title={doc.createdAt}>{relativeDate}</span>
+        </div>
+
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <UserCircle2 className="h-3.5 w-3.5" />
+          <span className="line-clamp-1">{uploaderLabel}</span>
+        </div>
+
+        {isReceipt && doc.projectId ? (
+          <Link
+            to="/crm/finance"
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+          >
+            <ReceiptIcon className="h-3.5 w-3.5" />К транзакции #{shortId(doc.projectId)}
+          </Link>
+        ) : null}
+
+        <div className="mt-auto flex flex-wrap gap-1 pt-3">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleDownload}
+            disabled={downloadQuery.isFetching}
+            data-testid="document-download"
+          >
+            <Download className="mr-1 h-4 w-4" />
+            Скачать
+          </Button>
+
+          {canSoftDelete ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-muted-foreground hover:text-destructive"
+              onClick={() => setConfirmSoftDelete(true)}
+              data-testid="document-delete"
+              aria-label="Удалить"
+            >
+              <Trash className="h-4 w-4" />
+            </Button>
+          ) : null}
+
+          {isReceipt && !isDeleted ? (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled
+                      className="text-muted-foreground"
+                      aria-label="Удалить (недоступно для чеков)"
+                    >
+                      <Trash className="h-4 w-4" />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{RECEIPT_DELETE_TOOLTIP}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : null}
+
+          {canRestore ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => restore.mutate(doc.id)}
+              disabled={restore.isPending}
+              data-testid="document-restore"
+            >
+              <RotateCcw className="mr-1 h-4 w-4" />
+              Восстановить
+            </Button>
+          ) : null}
+
+          {canHardDelete ? (
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => setConfirmHardDelete(true)}
+              disabled={hardDelete.isPending}
+              data-testid="document-hard-delete"
+            >
+              <Trash2 className="mr-1 h-4 w-4" />
+              Удалить навсегда
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Soft delete confirm */}
+      <AlertDialog open={confirmSoftDelete} onOpenChange={setConfirmSoftDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Переместить в корзину?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Документ «{doc.name}» можно восстановить позже из режима «Показать удалённые».
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                softDelete.mutate(doc.id)
+                setConfirmSoftDelete(false)
+              }}
+            >
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Hard delete confirm — ADMIN only */}
+      <AlertDialog open={confirmHardDelete} onOpenChange={setConfirmHardDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить навсегда?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Файл будет удалён навсегда из S3 и базы. Действие необратимо. Продолжить?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                hardDelete.mutate(doc.id)
+                setConfirmHardDelete(false)
+              }}
+            >
+              Удалить навсегда
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}
