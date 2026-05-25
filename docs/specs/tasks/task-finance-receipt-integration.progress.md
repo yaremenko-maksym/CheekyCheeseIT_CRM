@@ -1,11 +1,16 @@
 # Progress: task-finance-receipt-integration
 
-current_milestone: 0/5 — starting
-last_commit: (none)
-last_push: (none)
+current_milestone: 3/5 — backend + seed done; UI next
+last_commit: (pending milestone 2-3 commit)
+last_push: (after this commit)
 
 files_done:
-  (empty)
+  - apps/api/drizzle/migrations/0013_transactions_receipt_refactor.sql
+  - apps/api/drizzle/migrations/meta/_journal.json
+  - apps/api/src/database/schema.ts
+  - packages/shared/src/schemas/finance.ts
+  - apps/api/src/finance/transactions.service.ts
+  - apps/api/src/database/seed.ts
 
 files_pending:
   - apps/api/drizzle/migrations/0013_transactions_receipt_refactor.sql

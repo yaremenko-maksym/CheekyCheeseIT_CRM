@@ -468,7 +468,7 @@ async function main() {
         seniorSharePercent: 26,
         validatedBy: mykola.id,
         validatedAt: monthDate(2024, mo, day + 2),
-        receiptUrl: `https://etherscan.io/tx/0xRECEIPT_${mo}_${senior.id.slice(0,4)}`,
+        receiptExternalUrl: `https://etherscan.io/tx/0xRECEIPT_${mo}_${senior.id.slice(0,4)}`,
         createdBy: senior.id,
         createdAt: monthDate(2024, mo, day),
         updatedAt: monthDate(2024, mo, day + 6),
@@ -581,7 +581,7 @@ async function main() {
         senderId: null, senderLabel: project.companyName, receiverId: senior.id,
         projectId: project.id, payoutRequestId: prId,
         seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2024, mo, 12),
-        receiptUrl: `https://etherscan.io/tx/0xRQ2_${mo}_${senior.id.slice(0,4)}`,
+        receiptExternalUrl: `https://etherscan.io/tx/0xRQ2_${mo}_${senior.id.slice(0,4)}`,
         createdBy: senior.id, createdAt: monthDate(2024, mo, 8), updatedAt: monthDate(2024, mo, 16),
       })
       txBatch.push({
@@ -646,7 +646,7 @@ async function main() {
       const prId = crypto.randomUUID()
       const payable = amount * 0.74
       payoutBatch.push({ id: prId, seniorId: senior.id, incomeAmount: String(amount), payableAmount: String(payable), txHash: `0xS_${senior.id.slice(0,4)}_Q3_${mo}`, status: 'PAID', createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 18) })
-      txBatch.push({ type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT', senderId: null, senderLabel: project.companyName, receiverId: senior.id, projectId: project.id, payoutRequestId: prId, seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2024, mo, 13), receiptUrl: `https://etherscan.io/tx/0xRQ3_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 9), updatedAt: monthDate(2024, mo, 18) })
+      txBatch.push({ type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT', senderId: null, senderLabel: project.companyName, receiverId: senior.id, projectId: project.id, payoutRequestId: prId, seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2024, mo, 13), receiptExternalUrl: `https://etherscan.io/tx/0xRQ3_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 9), updatedAt: monthDate(2024, mo, 18) })
       txBatch.push({ type: 'PAYOUT', status: 'PAID', amount: String(payable), currency: 'USDT', senderId: senior.id, receiverLabel: 'CheekyCheeseIT', projectId: project.id, payoutRequestId: prId, txHash: `0xS_${senior.id.slice(0,4)}_Q3_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 18) })
       for (const adminId of [MAKSYM_ID, KOSTYA_ID]) {
         txBatch.push({ type: 'PAYOUT_ADMIN', status: 'PAID', amount: String(payable / 2), currency: 'USDT', senderId: senior.id, receiverId: adminId, payoutRequestId: prId, txHash: `0xS_${senior.id.slice(0,4)}_Q3_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 17) })
@@ -683,7 +683,7 @@ async function main() {
       const prId = crypto.randomUUID()
       const payable = amount * 0.74
       payoutBatch.push({ id: prId, seniorId: senior.id, incomeAmount: String(amount), payableAmount: String(payable), txHash: `0xS_${senior.id.slice(0,4)}_Q4_${mo}`, status: 'PAID', createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 18) })
-      txBatch.push({ type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT', senderId: null, senderLabel: project.companyName, receiverId: senior.id, projectId: project.id, payoutRequestId: prId, seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2024, mo, 13), receiptUrl: `https://etherscan.io/tx/0xRQ4_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 9), updatedAt: monthDate(2024, mo, 18) })
+      txBatch.push({ type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT', senderId: null, senderLabel: project.companyName, receiverId: senior.id, projectId: project.id, payoutRequestId: prId, seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2024, mo, 13), receiptExternalUrl: `https://etherscan.io/tx/0xRQ4_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 9), updatedAt: monthDate(2024, mo, 18) })
       txBatch.push({ type: 'PAYOUT', status: 'PAID', amount: String(payable), currency: 'USDT', senderId: senior.id, receiverLabel: 'CheekyCheeseIT', projectId: project.id, payoutRequestId: prId, txHash: `0xS_${senior.id.slice(0,4)}_Q4_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 18) })
       for (const adminId of [MAKSYM_ID, KOSTYA_ID]) {
         txBatch.push({ type: 'PAYOUT_ADMIN', status: 'PAID', amount: String(payable / 2), currency: 'USDT', senderId: senior.id, receiverId: adminId, payoutRequestId: prId, txHash: `0xS_${senior.id.slice(0,4)}_Q4_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 17) })
@@ -724,7 +724,7 @@ async function main() {
       const prId = crypto.randomUUID()
       const payable = amount * 0.74
       payoutBatch.push({ id: prId, seniorId: senior.id, incomeAmount: String(amount), payableAmount: String(payable), txHash: `0x25_${senior.id.slice(0,4)}_${mo}`, status: 'PAID', createdAt: monthDate(2025, mo, 17), updatedAt: monthDate(2025, mo, 18) })
-      txBatch.push({ type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT', senderId: null, senderLabel: project.companyName, receiverId: senior.id, projectId: project.id, payoutRequestId: prId, seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2025, mo, 13), receiptUrl: `https://etherscan.io/tx/0xR25_${mo}`, createdBy: senior.id, createdAt: monthDate(2025, mo, 9), updatedAt: monthDate(2025, mo, 18) })
+      txBatch.push({ type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT', senderId: null, senderLabel: project.companyName, receiverId: senior.id, projectId: project.id, payoutRequestId: prId, seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2025, mo, 13), receiptExternalUrl: `https://etherscan.io/tx/0xR25_${mo}`, createdBy: senior.id, createdAt: monthDate(2025, mo, 9), updatedAt: monthDate(2025, mo, 18) })
       txBatch.push({ type: 'PAYOUT', status: 'PAID', amount: String(payable), currency: 'USDT', senderId: senior.id, receiverLabel: 'CheekyCheeseIT', projectId: project.id, payoutRequestId: prId, txHash: `0x25_${senior.id.slice(0,4)}_${mo}`, createdBy: senior.id, createdAt: monthDate(2025, mo, 17), updatedAt: monthDate(2025, mo, 18) })
       for (const adminId of [MAKSYM_ID, KOSTYA_ID]) {
         txBatch.push({ type: 'PAYOUT_ADMIN', status: 'PAID', amount: String(payable / 2), currency: 'USDT', senderId: senior.id, receiverId: adminId, payoutRequestId: prId, txHash: `0x25_${senior.id.slice(0,4)}_${mo}`, createdBy: senior.id, createdAt: monthDate(2025, mo, 17), updatedAt: monthDate(2025, mo, 17) })
@@ -741,7 +741,7 @@ async function main() {
         senderId: null, senderLabel: project.companyName, receiverId: senior.id,
         projectId: project.id, seniorSharePercent: 26,
         validatedBy: mykola.id, validatedAt: monthDate(2025, 4, 13),
-        receiptUrl: `https://etherscan.io/tx/0xR25_4_${senior.id.slice(0,4)}`,
+        receiptExternalUrl: `https://etherscan.io/tx/0xR25_4_${senior.id.slice(0,4)}`,
         createdBy: senior.id, createdAt: monthDate(2025, 4, 9), updatedAt: monthDate(2025, 4, 13),
       })
     }
@@ -751,7 +751,7 @@ async function main() {
       type: 'SENIOR_INCOME', status: 'PENDING', amount: '6500', currency: 'USDT',
       senderId: null, senderLabel: aiProject.companyName, receiverId: oleksiy.id,
       projectId: aiProject.id, seniorSharePercent: 26,
-      receiptUrl: 'https://etherscan.io/tx/0xRECENT_MAY', notes: 'May 2025 payment',
+      receiptExternalUrl: 'https://etherscan.io/tx/0xRECENT_MAY', notes: 'May 2025 payment',
       createdBy: oleksiy.id, createdAt: monthDate(2025, 5, 8), updatedAt: monthDate(2025, 5, 8),
     })
     txBatch.push({

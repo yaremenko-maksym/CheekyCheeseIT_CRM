@@ -54,7 +54,11 @@ export const transactionSchema = z.object({
     seniorSharePercent: z.number().nullable(),
   }).nullable().optional(),
   seniorSharePercent: z.number().nullable(),
-  receiptUrl: z.string().nullable(),
+  // Receipt: either a documents.id reference (uploaded RECEIPT file) OR an
+  // external URL (etherscan, screenshot link). Mutually exclusive — the
+  // backend enforces a row-level CHECK constraint. Both null = no receipt.
+  receiptDocumentId: z.string().uuid().nullable(),
+  receiptExternalUrl: z.string().nullable(),
   txHash: z.string().nullable(),
   validatedBy: z.string().uuid().nullable(),
   validatedAt: z.string().datetime().nullable(),
@@ -104,15 +108,40 @@ export type ProjectFinanceSettingsDto = z.infer<typeof projectFinanceSettingsSch
 // Create / Update schemas
 // ---------------------------------------------------------------------------
 
+/**
+ * Receipt payload — uploaded document FK XOR external URL.
+ *
+ * The transactions table enforces this exclusivity at the DB level with a
+ * row-level CHECK constraint (`receipt_document_id IS NULL OR
+ * receipt_external_url IS NULL`). We mirror that contract here so callers
+ * get a human-readable Zod error instead of a 500 from postgres.
+ *
+ * Both fields are optional + nullable so the same shape can be reused for
+ * Create (where the caller may omit receipt entirely) and Patch (where
+ * undefined = "leave unchanged" and null = "clear field").
+ */
+const receiptFields = {
+  receiptDocumentId: z.string().uuid().optional().nullable(),
+  receiptExternalUrl: z.string().url().optional().nullable(),
+}
+
+const receiptXor = (data: { receiptDocumentId?: string | null | undefined; receiptExternalUrl?: string | null | undefined }) =>
+  !(data.receiptDocumentId && data.receiptExternalUrl)
+
+const receiptXorMessage = {
+  message: 'Receipt must be either a document upload OR an external URL — not both',
+  path: ['receiptExternalUrl'],
+} as const
+
 // ADMIN_INCOME — admin declares project income, no validation needed
 export const createAdminIncomeSchema = z.object({
   projectId: z.string().uuid(),
   amount: z.number().positive(),
   currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
-  receiptUrl: z.string().url().optional().nullable(),
+  ...receiptFields,
   notes: z.string().max(1000).optional().nullable(),
   txDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
-})
+}).refine(receiptXor, receiptXorMessage)
 export type CreateAdminIncomeDto = z.infer<typeof createAdminIncomeSchema>
 
 // SENIOR_INCOME — senior registers project income, awaits validation
@@ -120,19 +149,19 @@ export const createSeniorIncomeSchema = z.object({
   projectId: z.string().uuid(),
   amount: z.number().positive(),
   currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
-  receiptUrl: z.string().url().optional().nullable(),
+  ...receiptFields,
   notes: z.string().max(1000).optional().nullable(),
   txDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
-})
+}).refine(receiptXor, receiptXorMessage)
 export type CreateSeniorIncomeDto = z.infer<typeof createSeniorIncomeSchema>
 
 // Update REJECTED senior income (resets to PENDING)
 export const updateSeniorIncomeSchema = z.object({
   amount: z.number().positive().optional(),
   currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).optional(),
-  receiptUrl: z.string().url().optional().nullable(),
+  ...receiptFields,
   notes: z.string().max(1000).optional().nullable(),
-})
+}).refine(receiptXor, receiptXorMessage)
 export type UpdateSeniorIncomeDto = z.infer<typeof updateSeniorIncomeSchema>
 
 // EXPENSE — admin declares a company expense
@@ -141,9 +170,9 @@ export const createExpenseSchema = z.object({
   currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
   category: z.string().min(1).max(255),
   notes: z.string().max(1000).optional().nullable(),
-  receiptUrl: z.string().url().optional().nullable(),
+  ...receiptFields,
   txDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
-})
+}).refine(receiptXor, receiptXorMessage)
 export type CreateExpenseDto = z.infer<typeof createExpenseSchema>
 
 // SALARY — admin creates salary transaction for HR/ACCOUNTANT/JUNIOR
@@ -199,10 +228,10 @@ export const adminUpdateTransactionSchema = z.object({
   amount: z.number().positive().optional(),
   currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).optional(),
   notes: z.string().max(1000).optional().nullable(),
-  receiptUrl: z.string().url().optional().nullable(),
+  ...receiptFields,
   category: z.string().min(1).max(255).optional(),
   salaryMonth: z.string().regex(/^\d{4}-\d{2}$/, 'Format YYYY-MM').optional(),
-})
+}).refine(receiptXor, receiptXorMessage)
 export type AdminUpdateTransactionDto = z.infer<typeof adminUpdateTransactionSchema>
 
 // Mark PENDING salary as PAID (admin pays it manually)
