@@ -11,7 +11,12 @@ import { Textarea } from '@/components/ui/textarea'
 import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
 import { financeApi } from '../../api'
 import { EXPENSE_CATEGORIES, TYPE_LABELS, fmtAmount } from '../../constants'
-import { ReceiptInput, receiptStateFromUrl, type ReceiptState } from '../ReceiptInput'
+import {
+  ReceiptInput,
+  receiptStateFromDocument,
+  receiptStateFromExternalUrl,
+  type ReceiptState,
+} from '../ReceiptInput'
 
 type Currency = 'USDT' | 'USD' | 'EUR' | 'UAH'
 
@@ -29,7 +34,7 @@ export function AdminEditTransactionDialog({
   const [amount, setAmount] = useState('')
   const [currency, setCurrency] = useState<Currency>('USDT')
   const [notes, setNotes] = useState('')
-  const [receipt, setReceipt] = useState<ReceiptState>(receiptStateFromUrl(null))
+  const [receipt, setReceipt] = useState<ReceiptState>(receiptStateFromExternalUrl(null))
   const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]!)
   const [salaryMonth, setSalaryMonth] = useState('')
 
@@ -38,7 +43,11 @@ export function AdminEditTransactionDialog({
     setAmount(parseFloat(tx.amount).toString())
     setCurrency(tx.currency as Currency)
     setNotes(tx.notes ?? '')
-    setReceipt(receiptStateFromUrl(tx.receiptUrl))
+    if (tx.receiptDocumentId) {
+      setReceipt(receiptStateFromDocument(tx.receiptDocumentId))
+    } else {
+      setReceipt(receiptStateFromExternalUrl(tx.receiptExternalUrl))
+    }
     setCategory(tx.receiverLabel ?? EXPENSE_CATEGORIES[0]!)
     setSalaryMonth(tx.salaryMonth ?? '')
   }, [tx])
@@ -47,11 +56,14 @@ export function AdminEditTransactionDialog({
     mutationFn: () => {
       const amt = parseFloat(amount)
       if (isNaN(amt) || amt <= 0) throw new Error('Некорректная сумма')
+      const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
+      const receiptExternalUrl = receipt.mode === 'url' ? (receipt.externalUrl || null) : null
       return financeApi.adminUpdateTransaction(tx!.id, {
         amount: amt,
         currency,
         notes: notes || null,
-        receiptUrl: receipt.url || null,
+        receiptDocumentId,
+        receiptExternalUrl,
         ...(tx?.type === 'EXPENSE' && { category }),
         ...(tx?.type === 'SALARY' && salaryMonth && { salaryMonth }),
       })

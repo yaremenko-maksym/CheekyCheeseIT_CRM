@@ -1,7 +1,7 @@
 # Progress: task-finance-receipt-integration
 
-current_milestone: 3/5 — backend + seed done; UI next
-last_commit: (pending milestone 2-3 commit)
+current_milestone: 5/5 — DONE (all milestones complete, typecheck green)
+last_commit: (final milestone 5 commit)
 last_push: (after this commit)
 
 files_done:
@@ -11,6 +11,13 @@ files_done:
   - packages/shared/src/schemas/finance.ts
   - apps/api/src/finance/transactions.service.ts
   - apps/api/src/database/seed.ts
+  - apps/web/app/routes/crm/finance/components/ReceiptInput.tsx
+  - apps/web/app/routes/crm/finance/components/dialogs/CreateTransactionDialog.tsx
+  - apps/web/app/routes/crm/finance/components/dialogs/EditSeniorIncomeDialog.tsx
+  - apps/web/app/routes/crm/finance/components/dialogs/AdminEditTransactionDialog.tsx
+  - apps/web/app/routes/crm/finance/components/dialogs/TransactionDetailDialog.tsx
+  - apps/web/app/routes/crm/finance/components/dialogs/ValidateDialog.tsx
+  - apps/e2e/tests/finance-senior-flow.spec.ts (mock data updated)
 
 files_pending:
   - apps/api/drizzle/migrations/0013_transactions_receipt_refactor.sql

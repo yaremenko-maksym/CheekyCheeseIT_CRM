@@ -110,13 +110,17 @@ export function ReceiptInput({ state, onChange, label = 'Чек / подтвер
   )
 
   // Once the presigned URL resolves for an existing receipt, materialize
-  // it into state.previewUrl so the parent can render a thumbnail.
+  // it into state.previewUrl so the parent can render a thumbnail. We
+  // intentionally key the effect only on downloadQuery.data?.url +
+  // documentId — including the full `state` would loop because onChange
+  // returns a new state object each render. `onChange` and the rest of
+  // `state` are read but not part of the trigger set.
+  const resolvedUrl = downloadQuery.data?.url
   useEffect(() => {
-    if (downloadQuery.data?.url && state.documentId && !state.previewUrl) {
-      onChange({ ...state, previewUrl: downloadQuery.data.url })
+    if (resolvedUrl && state.documentId && !state.previewUrl) {
+      onChange({ ...state, previewUrl: resolvedUrl })
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [downloadQuery.data?.url])
+  }, [resolvedUrl, state.documentId])
 
   function switchToFile() {
     if (state.previewUrl && state.previewUrl.startsWith('blob:')) {

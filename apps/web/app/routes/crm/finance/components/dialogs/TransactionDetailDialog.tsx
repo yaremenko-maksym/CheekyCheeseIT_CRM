@@ -27,6 +27,7 @@ import {
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useDocumentDownloadUrl } from '@/hooks/use-documents'
 import { fmtAmount, fmtDate, fmtMonth, fmtUsd, TYPE_LABELS, TYPE_COLORS, STATUS_COLORS, STATUS_LABELS, type ExchangeRates } from '../../constants'
 import { financeApi } from '../../api'
 
@@ -102,11 +103,7 @@ function AdminIncomeContent({ tx }: { tx: TransactionDto }) {
           <ProjectLink id={tx.projectId} name={tx.projectName} />
         </Row>
       )}
-      {tx.receiptUrl && (
-        <Row icon={<Receipt className="h-4 w-4" />} label="Чек">
-          <ReceiptPreview url={tx.receiptUrl} />
-        </Row>
-      )}
+      <ReceiptRow tx={tx} />
       {tx.notes && (
         <Row icon={<FileText className="h-4 w-4" />} label="Заметки">
           <span className="text-muted-foreground">{tx.notes}</span>
@@ -150,11 +147,7 @@ function SeniorIncomeContent({ tx }: { tx: TransactionDto }) {
           <span className="text-red-400">{tx.rejectionReason}</span>
         </Row>
       )}
-      {tx.receiptUrl && (
-        <Row icon={<Receipt className="h-4 w-4" />} label="Чек">
-          <ReceiptPreview url={tx.receiptUrl} />
-        </Row>
-      )}
+      <ReceiptRow tx={tx} />
       {tx.notes && (
         <Row icon={<FileText className="h-4 w-4" />} label="Заметки">
           <span className="text-muted-foreground">{tx.notes}</span>
@@ -173,11 +166,7 @@ function ExpenseContent({ tx }: { tx: TransactionDto }) {
       <Row icon={<FileText className="h-4 w-4" />} label="Категория">
         <span>{tx.receiverLabel ?? '—'}</span>
       </Row>
-      {tx.receiptUrl && (
-        <Row icon={<Receipt className="h-4 w-4" />} label="Чек">
-          <ReceiptPreview url={tx.receiptUrl} />
-        </Row>
-      )}
+      <ReceiptRow tx={tx} />
       {tx.notes && (
         <Row icon={<FileText className="h-4 w-4" />} label="Заметки">
           <span className="text-muted-foreground">{tx.notes}</span>
@@ -296,6 +285,46 @@ function PayoutAdminContent({ tx }: { tx: TransactionDto }) {
       )}
     </>
   )
+}
+
+// ── Receipt row (resolves documentId → presigned URL OR uses external URL) ─────
+
+function ReceiptRow({ tx }: { tx: TransactionDto }) {
+  // Fetch presigned URL only when the receipt is an uploaded document.
+  const docQuery = useDocumentDownloadUrl(
+    tx.receiptDocumentId ?? undefined,
+    { enabled: !!tx.receiptDocumentId },
+  )
+
+  // External URL takes a single round-trip; document URL needs a query.
+  if (tx.receiptDocumentId) {
+    if (docQuery.isLoading) {
+      return (
+        <Row icon={<Receipt className="h-4 w-4" />} label="Чек">
+          <Skeleton className="h-32 w-full" />
+        </Row>
+      )
+    }
+    if (docQuery.data?.url) {
+      return (
+        <Row icon={<Receipt className="h-4 w-4" />} label="Чек">
+          <ReceiptPreview url={docQuery.data.url} />
+        </Row>
+      )
+    }
+    // Document deleted / fetch failed → fall through (no row rendered)
+    return null
+  }
+
+  if (tx.receiptExternalUrl) {
+    return (
+      <Row icon={<Receipt className="h-4 w-4" />} label="Чек">
+        <ReceiptPreview url={tx.receiptExternalUrl} />
+      </Row>
+    )
+  }
+
+  return null
 }
 
 // ── Receipt preview ────────────────────────────────────────────────────────────

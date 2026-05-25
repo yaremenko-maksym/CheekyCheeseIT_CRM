@@ -129,18 +129,22 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
       const amt = parseFloat(amount)
       if (isNaN(amt) || amt <= 0) throw new Error('Некорректная сумма')
 
-      const receiptUrl = receipt.url || null
+      // Build XOR receipt fields: exactly one populated, or both null.
+      const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
+      const receiptExternalUrl = receipt.mode === 'url' ? (receipt.externalUrl || null) : null
+      const hasReceipt = receiptDocumentId || receiptExternalUrl
+
       if (type === 'ADMIN_INCOME') {
         if (!projectId) throw new Error('Выберите проект')
-        return financeApi.createAdminIncome({ projectId, amount: amt, currency, receiptUrl, notes: notes || null, txDate: txDate || null })
+        return financeApi.createAdminIncome({ projectId, amount: amt, currency, receiptDocumentId, receiptExternalUrl, notes: notes || null, txDate: txDate || null })
       }
       if (type === 'SENIOR_INCOME') {
         if (!projectId) throw new Error('Выберите проект')
-        if (!receiptUrl) throw new Error('Прикрепите чек или укажите ссылку на подтверждение')
-        return financeApi.createSeniorIncome({ projectId, amount: amt, currency, receiptUrl, notes: notes || null, txDate: txDate || null })
+        if (!hasReceipt) throw new Error('Прикрепите чек или укажите ссылку на подтверждение')
+        return financeApi.createSeniorIncome({ projectId, amount: amt, currency, receiptDocumentId, receiptExternalUrl, notes: notes || null, txDate: txDate || null })
       }
       if (type === 'EXPENSE') {
-        return financeApi.createExpense({ amount: amt, currency, category, notes: notes || null, receiptUrl, txDate: txDate || null })
+        return financeApi.createExpense({ amount: amt, currency, category, notes: notes || null, receiptDocumentId, receiptExternalUrl, txDate: txDate || null })
       }
       if (type === 'SALARY') {
         if (!receiverId) throw new Error('Выберите сотрудника')

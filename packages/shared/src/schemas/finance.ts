@@ -131,7 +131,7 @@ const receiptXor = (data: { receiptDocumentId?: string | null | undefined; recei
 const receiptXorMessage = {
   message: 'Receipt must be either a document upload OR an external URL — not both',
   path: ['receiptExternalUrl'],
-} as const
+}
 
 // ADMIN_INCOME — admin declares project income, no validation needed
 export const createAdminIncomeSchema = z.object({
