@@ -1,22 +1,63 @@
 /**
- * Lazy <img> wrapper that fetches and caches the presigned download URL via
- * `useDocumentDownloadUrl`. Falls back to a generic icon on error.
+ * Lazy <img> wrapper for document thumbnails / previews.
  *
- * Used by DocumentCard for image thumbnails. The URL query has a 4h
- * staleTime so re-renders / tab switches don't hammer S3 with GETs.
+ * Two modes (controlled by `variant`):
+ *   - 'thumbnail' (default): fetches the 256x256 JPEG thumbnail via
+ *     `useDocumentThumbnailUrl`. Cheap (~10 KB), instant; used by
+ *     DocumentCard so a grid of 20 cards doesn't pull 20 full-res images.
+ *   - 'full': fetches the full-resolution presigned URL via
+ *     `useDocumentDownloadUrl`. Used by the detail modal previewer.
+ *
+ * Both URL queries share a 4h staleTime so re-renders / tab switches
+ * don't hammer S3 with new presign round-trips.
+ *
+ * Returns null (no element) when the thumbnail is unavailable AND the
+ * parent supplied no fallback — the parent (DocumentCard) renders the
+ * category icon overlay in that case.
  */
 import { ImageIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useDocumentDownloadUrl } from '@/hooks/use-documents'
+import {
+  useDocumentDownloadUrl,
+  useDocumentThumbnailUrl,
+} from '@/hooks/use-documents'
 
 interface DocumentImageProps {
   docId: string
   alt: string
   className?: string
+  /**
+   * 'thumbnail' (default) — 256x256 jpeg, used in the card grid.
+   * 'full' — full-res preview, used in the detail modal.
+   */
+  variant?: 'thumbnail' | 'full'
+  /**
+   * When true and the document has no thumbnail (PDF / legacy row), the
+   * component renders `null` instead of the placeholder icon — so the
+   * parent (DocumentCard) can show the category icon overlay. Used only
+   * by the card grid; the full-res preview keeps the placeholder.
+   */
+  fallbackToParent?: boolean
 }
 
-export function DocumentImage({ docId, alt, className }: DocumentImageProps) {
-  const { data, isLoading, isError } = useDocumentDownloadUrl(docId)
+export function DocumentImage({
+  docId,
+  alt,
+  className,
+  variant = 'thumbnail',
+  fallbackToParent = false,
+}: DocumentImageProps) {
+  // Pick the right query based on variant. Both have identical caching
+  // behavior so this is essentially a routing choice.
+  const thumbQuery = useDocumentThumbnailUrl(docId, {
+    enabled: variant === 'thumbnail',
+  })
+  const fullQuery = useDocumentDownloadUrl(docId, {
+    enabled: variant === 'full',
+  })
+
+  const query = variant === 'thumbnail' ? thumbQuery : fullQuery
+  const { data, isLoading, isError } = query
 
   if (isLoading) {
     return (
@@ -30,7 +71,11 @@ export function DocumentImage({ docId, alt, className }: DocumentImageProps) {
     )
   }
 
-  if (isError || !data) {
+  // For thumbnails the API returns `null` (200) when the doc has no
+  // thumbnail (PDF / legacy). That's not an error — just signal the
+  // parent to render its own fallback.
+  if (!data || isError) {
+    if (fallbackToParent) return null
     return (
       <div
         className={cn(

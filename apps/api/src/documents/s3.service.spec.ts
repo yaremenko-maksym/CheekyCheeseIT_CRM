@@ -113,6 +113,35 @@ describe('S3Service.getPresignedDownloadUrl', () => {
       { expiresIn: 300 },
     )
   })
+
+  it('downloadAs embeds RFC 5987 Content-Disposition with UTF-8 fallback', async () => {
+    const service = new S3Service(makeConfig())
+    getSignedUrlSpy.mockResolvedValue('url')
+
+    // Simulate a cyrillic filename — the kind of thing variant 3 hybrid is for.
+    await service.getPresignedDownloadUrl('k', undefined, 'Договор Иванов.pdf')
+
+    const [, command] = getSignedUrlSpy.mock.calls[0]!
+    const cd = (command as { input: { ResponseContentDisposition?: string } }).input
+      .ResponseContentDisposition
+    expect(cd).toBeDefined()
+    expect(cd).toContain('attachment')
+    // ASCII fallback: cyrillic stripped to underscores
+    expect(cd).toContain('filename="')
+    // RFC 5987 UTF-8 slot: percent-encoded original
+    expect(cd).toContain(`filename*=UTF-8''${encodeURIComponent('Договор Иванов.pdf')}`)
+  })
+
+  it('omits Content-Disposition when downloadAs is not provided', async () => {
+    const service = new S3Service(makeConfig())
+    getSignedUrlSpy.mockResolvedValue('url')
+    await service.getPresignedDownloadUrl('k')
+    const [, command] = getSignedUrlSpy.mock.calls[0]!
+    expect(
+      (command as { input: { ResponseContentDisposition?: string } }).input
+        .ResponseContentDisposition,
+    ).toBeUndefined()
+  })
 })
 
 describe('S3Service.delete', () => {

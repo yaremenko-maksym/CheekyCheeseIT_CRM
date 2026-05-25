@@ -22,6 +22,12 @@ interface DocumentListProps {
    * placeholder is shown.
    */
   emptyState?: React.ReactNode | undefined
+  /**
+   * Called when the user clicks the card preview or filename. The parent
+   * opens DocumentDetailDialog with the clicked document. When undefined,
+   * cards render without a click handler (used in tests).
+   */
+  onOpen?: ((doc: Document) => void) | undefined
 }
 
 export function DocumentList({
@@ -30,6 +36,7 @@ export function DocumentList({
   viewer,
   uploaders,
   emptyState,
+  onOpen,
 }: DocumentListProps) {
   if (loading) {
     return (
@@ -65,6 +72,7 @@ export function DocumentList({
           doc={doc}
           viewer={viewer}
           uploaders={uploaders}
+          onOpen={onOpen}
         />
       ))}
     </div>

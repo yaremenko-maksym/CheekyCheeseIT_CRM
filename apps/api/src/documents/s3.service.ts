@@ -92,18 +92,42 @@ export class S3Service {
   /**
    * Return a presigned GET URL (default TTL 24h). Caller passes its own ttl
    * for tests; production paths always use the default.
+   *
+   * `downloadAs` (optional): when provided, the URL embeds a
+   * Content-Disposition header that forces the browser to save the response
+   * as the given filename instead of the raw S3 key tail. We use this so a
+   * file uploaded as "Договор Иванов.pdf" (cyrillic) is saved under that
+   * exact name even though the S3 key is ASCII-only ("Dogovor_Ivanov.pdf").
    */
   async getPresignedDownloadUrl(
     key: string,
-    ttlSec: number = DEFAULT_PRESIGN_TTL_SEC,
+    ttlSec: number | undefined = DEFAULT_PRESIGN_TTL_SEC,
+    downloadAs?: string | undefined,
   ): Promise<PresignedDownloadResult> {
+    const effectiveTtl = ttlSec ?? DEFAULT_PRESIGN_TTL_SEC
     const command = new GetObjectCommand({
       Bucket: this.bucket,
       Key: key,
+      ...(downloadAs
+        ? {
+            // RFC 5987 — `filename*=UTF-8''<percent-encoded>` lets us pass
+            // cyrillic / unicode safely. We include a plain `filename=`
+            // ASCII fallback for ancient clients (curl < 7.39, IE).
+            ResponseContentDisposition: `attachment; filename="${this.asciiFallback(downloadAs)}"; filename*=UTF-8''${encodeURIComponent(downloadAs)}`,
+          }
+        : {}),
     })
-    const url = await getSignedUrl(this.client, command, { expiresIn: ttlSec })
-    const expiresAt = new Date(Date.now() + ttlSec * 1000).toISOString()
+    const url = await getSignedUrl(this.client, command, { expiresIn: effectiveTtl })
+    const expiresAt = new Date(Date.now() + effectiveTtl * 1000).toISOString()
     return { url, expiresAt }
+  }
+
+  /**
+   * Strip non-ASCII chars from a filename for the legacy `filename=` slot.
+   * The `filename*=UTF-8''...` slot still carries the full name.
+   */
+  private asciiFallback(name: string): string {
+    return name.replace(/[^\x20-\x7E]/g, '_')
   }
 
   /**

@@ -1,17 +1,22 @@
 /**
  * DocumentCard — single card in the documents grid.
  *
- * Renders thumbnail (image preview via DocumentImage, or PDF icon), name,
- * size, relative date, uploader, and a row of RBAC-conditional action
- * buttons:
+ * Visual stack:
+ *   - thumbnail (DocumentImage variant='thumbnail') for image MIME types;
+ *     PDFs render the category icon overlay
+ *   - filename (cyrillic-preserved original name when available, sanitized
+ *     fallback otherwise) — clicking opens DocumentDetailDialog
+ *   - size · relative date · uploader name
+ *   - row of RBAC-conditional buttons (Скачать, Удалить, Восстановить,
+ *     Удалить навсегда)
  *
- *   - Скачать (download)         — everyone who can see the card
- *   - Удалить (soft delete)      — owner or ADMIN; disabled for RECEIPT
- *   - Восстановить               — ADMIN, only when soft-deleted
- *   - Удалить навсегда           — ADMIN, only when soft-deleted (destructive)
+ * Variant 3 hybrid filenames:
+ *   - `originalName` is what we render to the user (Cyrillic / Unicode safe)
+ *   - `name` (sanitized ASCII) is used inside the S3 key and as the
+ *     download-as filename; the user never sees it directly here
  *
  * RECEIPT-specific bits:
- *   - Soft-delete is forbidden (caskade from the parent transaction).
+ *   - Soft-delete is forbidden (cascade from the parent transaction).
  *   - A "К транзакции #..." link shows the last 8 chars of the linked tx id.
  */
 import { useMemo, useState } from 'react'
@@ -69,6 +74,12 @@ interface DocumentCardProps {
    * "uploaded by" line. Falls back to a short id if not provided.
    */
   uploaders?: Record<string, UploaderInfo | undefined> | undefined
+  /**
+   * Click handler for the card preview / filename area. The parent passes
+   * a callback that opens the DocumentDetailDialog with this document.
+   * Omit to render a non-clickable card (used by tests).
+   */
+  onOpen?: ((doc: Document) => void) | undefined
 }
 
 const RECEIPT_DELETE_TOOLTIP = 'Чек удаляется вместе с транзакцией'
@@ -77,7 +88,7 @@ function shortId(id: string): string {
   return id.length > 8 ? id.slice(-8) : id
 }
 
-export function DocumentCard({ doc, viewer, uploaders }: DocumentCardProps) {
+export function DocumentCard({ doc, viewer, uploaders, onOpen }: DocumentCardProps) {
   const [confirmSoftDelete, setConfirmSoftDelete] = useState(false)
   const [confirmHardDelete, setConfirmHardDelete] = useState(false)
 
@@ -100,6 +111,10 @@ export function DocumentCard({ doc, viewer, uploaders }: DocumentCardProps) {
 
   const uploader = uploaders?.[doc.uploadedBy]
   const uploaderLabel = uploader?.displayName ?? shortId(doc.uploadedBy)
+
+  // Variant 3 hybrid: prefer the original name (cyrillic preserved); fall
+  // back to the sanitized `name` for legacy rows that pre-date migration 0011.
+  const displayName = doc.originalName ?? doc.name
 
   const relativeDate = useMemo(() => {
     try {
@@ -130,25 +145,33 @@ export function DocumentCard({ doc, viewer, uploaders }: DocumentCardProps) {
         isDeleted && 'opacity-50',
       )}
     >
-      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-t-xl bg-muted">
+      <button
+        type="button"
+        onClick={() => onOpen?.(doc)}
+        className="group relative aspect-[4/3] w-full overflow-hidden rounded-t-xl bg-muted text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        aria-label={`Открыть документ «${displayName}»`}
+        data-testid="document-card-open"
+      >
         {isImage ? (
           <DocumentImage
             docId={doc.id}
-            alt={doc.name}
+            alt={displayName}
+            variant="thumbnail"
+            fallbackToParent
             className="h-full w-full"
           />
-        ) : isPdf ? (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-muted-foreground">
+        ) : null}
+        {/* Overlay icon for PDFs / when thumbnail is missing */}
+        {!isImage ? (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-muted-foreground transition group-hover:text-foreground">
             <FileText className="h-12 w-12" />
-            <Badge variant="secondary" className="bg-red-500/15 text-red-600">
-              PDF
-            </Badge>
+            {isPdf ? (
+              <Badge variant="secondary" className="bg-red-500/15 text-red-600">
+                PDF
+              </Badge>
+            ) : null}
           </div>
-        ) : (
-          <div className="flex h-full w-full flex-col items-center justify-center text-muted-foreground">
-            <FileText className="h-12 w-12" />
-          </div>
-        )}
+        ) : null}
 
         {isDeleted ? (
           <Badge
@@ -158,17 +181,23 @@ export function DocumentCard({ doc, viewer, uploaders }: DocumentCardProps) {
             Удалён
           </Badge>
         ) : null}
-      </div>
+      </button>
 
       <div className="flex flex-1 flex-col gap-2 p-4">
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <h3 className="line-clamp-1 text-sm font-semibold" title={doc.name}>
-                {doc.name}
-              </h3>
+              <button
+                type="button"
+                onClick={() => onOpen?.(doc)}
+                className="line-clamp-1 text-left text-sm font-semibold hover:underline focus:outline-none focus-visible:underline"
+                title={displayName}
+                data-testid="document-card-title"
+              >
+                {displayName}
+              </button>
             </TooltipTrigger>
-            <TooltipContent>{doc.name}</TooltipContent>
+            <TooltipContent>{displayName}</TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
@@ -272,7 +301,7 @@ export function DocumentCard({ doc, viewer, uploaders }: DocumentCardProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>Переместить в корзину?</AlertDialogTitle>
             <AlertDialogDescription>
-              Документ «{doc.name}» можно восстановить позже из режима «Показать удалённые».
+              Документ «{displayName}» можно восстановить позже из режима «Архив».
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

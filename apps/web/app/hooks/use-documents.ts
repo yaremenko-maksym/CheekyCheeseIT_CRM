@@ -89,6 +89,10 @@ export function documentUrlQueryKey(docId: string) {
   return ['document-url', docId] as const
 }
 
+export function documentThumbnailUrlQueryKey(docId: string) {
+  return ['document-thumb-url', docId] as const
+}
+
 export function useDocumentDownloadUrl(
   docId: string | undefined,
   options?: { enabled?: boolean },
@@ -97,6 +101,34 @@ export function useDocumentDownloadUrl(
     queryKey: documentUrlQueryKey(docId ?? ''),
     queryFn: async () => {
       const res = await api.get<PresignedDownload>(`/documents/${docId}/download`)
+      return res.data
+    },
+    staleTime: DOCUMENT_URL_STALE_MS,
+    gcTime: DOCUMENT_URL_GC_MS,
+    enabled: Boolean(docId) && (options?.enabled ?? true),
+    retry: 1,
+  })
+}
+
+/**
+ * Presigned URL for the 256x256 JPEG thumbnail.
+ *
+ * Returns `null` (not undefined) when the document has no thumbnail —
+ * e.g. PDFs / legacy rows — which the UI uses to fall back to a
+ * category icon. Treated as a regular query (not a mutation) so
+ * thumbnails benefit from the same 4h staleTime caching as the full
+ * download URL and stay snappy across tab switches.
+ */
+export function useDocumentThumbnailUrl(
+  docId: string | undefined,
+  options?: { enabled?: boolean },
+): UseQueryResult<PresignedDownload | null, Error> {
+  return useQuery<PresignedDownload | null, Error>({
+    queryKey: documentThumbnailUrlQueryKey(docId ?? ''),
+    queryFn: async () => {
+      const res = await api.get<PresignedDownload | null>(
+        `/documents/${docId}/thumbnail`,
+      )
       return res.data
     },
     staleTime: DOCUMENT_URL_STALE_MS,
@@ -206,10 +238,11 @@ export function useHardDeleteDocument(): UseMutationResult<void, Error, string> 
     },
     onSuccess: (_data, id) => {
       void qc.invalidateQueries({ queryKey: ['documents'] })
-      // Drop the URL cache for this id — the S3 object is gone and any
+      // Drop the URL caches for this id — the S3 object is gone and any
       // cached presigned URL would 404. Use removeQueries to evict instead
       // of invalidating (no need to refetch a 404).
       qc.removeQueries({ queryKey: documentUrlQueryKey(id) })
+      qc.removeQueries({ queryKey: documentThumbnailUrlQueryKey(id) })
       toast.success('Документ удалён навсегда')
     },
     onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),

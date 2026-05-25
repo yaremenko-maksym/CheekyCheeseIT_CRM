@@ -292,12 +292,20 @@ export const documents = pgTable('documents', {
   // simple and the validation message human-readable).
   projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
   category: documentCategoryEnum('category').notNull(),
-  // Human-readable filename (original upload name, sanitized).
+  // Sanitized (ASCII-only) filename — used inside the S3 key and as the
+  // download-as filename. Variant 3 "hybrid": s3_key strict, original_name
+  // preserved, UI shows original, download = normalized.
   name: varchar('name', { length: 255 }).notNull(),
+  // Original filename as uploaded by the user (cyrillic / unicode preserved).
+  // Backfilled from `name` for legacy rows; new uploads always populate this.
+  originalName: varchar('original_name', { length: 255 }),
   // Immutable S3 object key — `documents/<category>/<ownerId>/<docId>-<file>`.
   // Unique so new versions always allocate a new UUID (browser can cache
   // immutably for a year, see PHASE 6 caching strategy).
   s3Key: varchar('s3_key', { length: 512 }).notNull().unique(),
+  // S3 key of the synchronously-generated 256x256 JPEG thumbnail.
+  // NULL for non-image MIME types (PDFs fall back to a category icon).
+  thumbnailS3Key: varchar('thumbnail_s3_key', { length: 512 }),
   // Size after server-side compression.
   sizeBytes: integer('size_bytes').notNull(),
   // Final MIME type after re-encode (HEIC → image/jpeg, etc.).

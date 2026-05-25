@@ -1,29 +1,38 @@
 /**
  * /crm/documents — PHASE 6 documents module entry.
  *
- * Layout overview:
+ * Layout (matches the look/feel of /crm/users and /crm/projects):
  *
  *   ┌───────────────────────────────────────────────────────────────────┐
- *   │  Header (title + ADMIN toggles + owner filter + upload button)    │
+ *   │  Header  (title + counter + Загрузить button)                     │
+ *   │  Tri-state SegmentedToggle (Все / Активные / Архив, ADMIN-only)   │
+ *   │  ADMIN extras: показать internal toggle + owner filter            │
  *   ├───────────────────────────────────────────────────────────────────┤
- *   │  Tabs: Резюме | Сканы | Договори | Чеки  [+ Аватары | Логотипы]   │
+ *   │  Tabs: Резюме | Сканы | Договоры | Чеки  [+ Аватары | Логотипы]   │
  *   ├───────────────────────────────────────────────────────────────────┤
- *   │  <DocumentList /> for the active tab                              │
+ *   │  <DocumentList /> for the active tab (grid of cards)              │
  *   └───────────────────────────────────────────────────────────────────┘
  *
  * Visibility per role is computed once via TAB_VISIBILITY and the role-side
  * filter from the spec — when the viewer's role has zero visible tabs we
  * show a single "no access" panel instead of an empty tab strip.
  *
- * The two "internal" categories (AVATAR, LOGO) live behind an ADMIN-only
+ * Two "internal" categories (AVATAR, LOGO) live behind an ADMIN-only
  * toggle so they're auditable from one place without leaking into normal
  * users' UX.
+ *
+ * Deep-link: `?openDocId=<uuid>` opens the DocumentDetailDialog for that
+ * document automatically once the list query resolves. Used by external
+ * links (Finance → receipts, audit log → archived doc, etc.).
  */
-import { useEffect, useMemo, useState } from 'react'
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { FileText, Plus, Receipt as ReceiptIcon, Shield } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { Archive, FileText, Plus, Receipt as ReceiptIcon, Shield } from 'lucide-react'
+import { z } from 'zod'
 import type {
+  Document,
   DocumentCategory,
   ProjectDto,
   SessionUser,
@@ -46,13 +55,26 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
+import {
+  SegmentedToggle,
+  type SegmentedToggleOption,
+} from '@/components/ui/segmented-toggle'
 import { useDocuments } from '@/hooks/use-documents'
 import { DocumentList } from '@/components/documents/document-list'
+import { DocumentDetailDialog } from '@/components/documents/document-detail-dialog'
 import { UploadDocumentDialog } from '@/components/documents/upload-document-dialog'
 
 type Role = SessionUser['role']
+type StatusTab = 'ALL' | 'ACTIVE' | 'ARCHIVED'
+
+// `openDocId` deep-link param: when set, the matching doc is opened in
+// DocumentDetailDialog as soon as the list query resolves.
+const searchSchema = z.object({
+  openDocId: z.string().uuid().optional(),
+})
 
 export const Route = createFileRoute('/crm/documents')({
+  validateSearch: searchSchema,
   component: DocumentsPage,
 })
 
@@ -65,7 +87,7 @@ const INTERNAL_TAB_CATEGORIES: DocumentCategory[] = ['AVATAR', 'LOGO']
 const CATEGORY_LABELS_RU: Record<DocumentCategory, string> = {
   RESUME: 'Резюме',
   SCAN: 'Сканы документов',
-  CONTRACT: 'Договори',
+  CONTRACT: 'Договоры',
   RECEIPT: 'Чеки',
   AVATAR: 'Аватары',
   LOGO: 'Логотипы',
@@ -113,9 +135,13 @@ function DocumentsPage() {
 
 function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   const isAdmin = viewer.role === 'ADMIN'
+  const search = Route.useSearch()
+  const navigate = useNavigate({ from: '/crm/documents' })
 
-  // ADMIN-only switches.
-  const [showDeleted, setShowDeleted] = useState(false)
+  // ADMIN-only switches. The "showDeleted" flag is now derived from the
+  // status tab (ARCHIVED ⇒ true) rather than a separate checkbox so the
+  // shape matches /crm/users.
+  const [statusTab, setStatusTab] = useState<StatusTab>('ACTIVE')
   const [showInternal, setShowInternal] = useState(false)
   const [ownerFilter, setOwnerFilter] = useState<string>('ALL')
 
@@ -142,6 +168,39 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
     }
   }, [visibleTabs, activeTab])
 
+  // includeDeleted: only ADMIN can ask for deleted docs; non-ADMINs never
+  // get the ARCHIVED tab so the flag is unconditionally `false` for them.
+  const includeDeleted = isAdmin && statusTab === 'ARCHIVED'
+
+  // Detail dialog wiring. The deep-link `?openDocId=…` opens the dialog
+  // as soon as the matching doc shows up in the list query.
+  const [detailDoc, setDetailDoc] = useState<Document | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
+
+  function openDetail(doc: Document) {
+    setDetailDoc(doc)
+    setDetailOpen(true)
+    // Mirror the open into the URL so users can copy the link.
+    void navigate({
+      search: (prev) => ({ ...prev, openDocId: doc.id }),
+      replace: true,
+    })
+  }
+
+  function closeDetail(open: boolean) {
+    setDetailOpen(open)
+    if (!open) {
+      void navigate({
+        search: (prev) => {
+          const next = { ...prev }
+          delete (next as Record<string, unknown>)['openDocId']
+          return next
+        },
+        replace: true,
+      })
+    }
+  }
+
   // Empty-access state — no tabs at all.
   if (visibleTabs.length === 0 || activeTab === null) {
     return (
@@ -161,18 +220,50 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
     )
   }
 
+  // Status-tab options. ARCHIVED is ADMIN-only — `disabled` for the rest so
+  // the pill renders but isn't clickable, matching /crm/users behavior.
+  const statusOptions: ReadonlyArray<SegmentedToggleOption<StatusTab>> = [
+    { value: 'ALL', label: 'Все' },
+    { value: 'ACTIVE', label: 'Активные' },
+    {
+      value: 'ARCHIVED',
+      label: 'Архив',
+      icon: Archive,
+      disabled: !isAdmin,
+    },
+  ]
+
   return (
     <div className="space-y-6">
       <DocumentsHeader
         viewer={viewer}
         activeTab={activeTab}
-        showDeleted={showDeleted}
-        onToggleDeleted={setShowDeleted}
-        showInternal={showInternal}
-        onToggleInternal={setShowInternal}
         ownerFilter={ownerFilter}
         onChangeOwnerFilter={setOwnerFilter}
+        showInternal={showInternal}
+        onToggleInternal={setShowInternal}
       />
+
+      {/* Tri-state status filter — matches /crm/users (Все / Активные / Архив).
+          ARCHIVED is ADMIN-only — the option renders but is disabled for
+          non-admins so the page layout doesn't shift between roles. */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.28, delay: 0.05 }}
+      >
+        <SegmentedToggle<StatusTab>
+          value={statusTab}
+          onChange={setStatusTab}
+          options={statusOptions}
+          ariaLabel="Фильтр документов"
+          variant="tabs"
+          size="sm"
+          layoutId="documents-status-tabs"
+          className="w-fit"
+          testId="documents-status-tabs"
+        />
+      </motion.div>
 
       <Tabs
         value={activeTab}
@@ -196,39 +287,45 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
               viewer={viewer}
               category={cat}
               ownerId={ownerFilter === 'ALL' ? undefined : ownerFilter}
-              includeDeleted={isAdmin && showDeleted}
+              includeDeleted={includeDeleted}
+              statusTab={statusTab}
+              onOpen={openDetail}
+              openDocId={search.openDocId}
             />
           </TabsContent>
         ))}
       </Tabs>
+
+      <DocumentDetailDialog
+        open={detailOpen}
+        onOpenChange={closeDetail}
+        doc={detailDoc}
+        viewer={viewer}
+      />
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Header sub-component (filters + upload button)
+// Header sub-component (title + counter + upload button + filters)
 // ---------------------------------------------------------------------------
 
 interface HeaderProps {
   viewer: SessionUser
   activeTab: DocumentCategory
-  showDeleted: boolean
-  onToggleDeleted: (v: boolean) => void
-  showInternal: boolean
-  onToggleInternal: (v: boolean) => void
   ownerFilter: string
   onChangeOwnerFilter: (v: string) => void
+  showInternal: boolean
+  onToggleInternal: (v: boolean) => void
 }
 
 function DocumentsHeader({
   viewer,
   activeTab,
-  showDeleted,
-  onToggleDeleted,
-  showInternal,
-  onToggleInternal,
   ownerFilter,
   onChangeOwnerFilter,
+  showInternal,
+  onToggleInternal,
 }: HeaderProps) {
   const isAdmin = viewer.role === 'ADMIN'
   const showOwnerFilter = canSeeOwnerFilter(viewer.role)
@@ -276,10 +373,19 @@ function DocumentsHeader({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      {/* Page header — mirrors /crm/users: motion entrance, title + counter
+          on the left, primary action on the right. */}
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.28 }}
+        className="flex flex-wrap items-center justify-between gap-4"
+      >
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Документы</h1>
-          <p className="text-sm text-muted-foreground">Резюме, договора и сканы</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Резюме, договоры и сканы
+          </p>
         </div>
 
         {canShowUploadButton ? (
@@ -287,49 +393,46 @@ function DocumentsHeader({
             onClick={() => setUploadOpen(true)}
             data-testid="documents-upload-button"
           >
-            <Plus className="mr-1 h-4 w-4" />
+            <Plus className="mr-2 h-4 w-4" />
             Загрузить
           </Button>
         ) : null}
-      </div>
+      </motion.div>
 
-      <div className="flex flex-wrap items-end gap-3">
-        {showOwnerFilter ? (
-          <div className="w-full max-w-xs space-y-1.5">
-            <Label htmlFor="documents-owner-filter" className="text-xs">
-              Владелец
-            </Label>
-            <Select value={ownerFilter} onValueChange={onChangeOwnerFilter}>
-              <SelectTrigger
-                id="documents-owner-filter"
-                data-testid="documents-owner-filter"
-              >
-                <SelectValue placeholder="Все" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">Все</SelectItem>
-                {(users ?? []).map((u) => (
-                  <SelectItem key={u.id} value={u.id}>
-                    {u.displayName} ({u.email})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        ) : null}
+      {/* ADMIN extras row — owner filter + internal toggle. Always rendered
+          but only contains controls the viewer is entitled to. */}
+      {(showOwnerFilter || isAdmin) ? (
+        <motion.div
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2, delay: 0.05 }}
+          className="flex flex-wrap items-end gap-3"
+        >
+          {showOwnerFilter ? (
+            <div className="w-full max-w-xs space-y-1.5">
+              <Label htmlFor="documents-owner-filter" className="text-xs">
+                Владелец
+              </Label>
+              <Select value={ownerFilter} onValueChange={onChangeOwnerFilter}>
+                <SelectTrigger
+                  id="documents-owner-filter"
+                  data-testid="documents-owner-filter"
+                >
+                  <SelectValue placeholder="Все" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">Все</SelectItem>
+                  {(users ?? []).map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.displayName} ({u.email})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
 
-        {isAdmin ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="inline-flex cursor-pointer items-center gap-2 text-xs">
-              <input
-                type="checkbox"
-                checked={showDeleted}
-                onChange={(e) => onToggleDeleted(e.target.checked)}
-                className="h-4 w-4 rounded border-border"
-                data-testid="documents-toggle-deleted"
-              />
-              Показать удалённые
-            </label>
+          {isAdmin ? (
             <label className="inline-flex cursor-pointer items-center gap-2 text-xs">
               <input
                 type="checkbox"
@@ -338,11 +441,11 @@ function DocumentsHeader({
                 className="h-4 w-4 rounded border-border"
                 data-testid="documents-toggle-internal"
               />
-              Показать internal
+              Показать internal (Аватары / Логотипы)
             </label>
-          </div>
-        ) : null}
-      </div>
+          ) : null}
+        </motion.div>
+      ) : null}
 
       {canShowUploadButton ? (
         <UploadDocumentDialog
@@ -378,6 +481,10 @@ interface TabContentProps {
   category: DocumentCategory
   ownerId?: string | undefined
   includeDeleted: boolean
+  /** Tri-state filter — feeds the empty-state copy + counter chip. */
+  statusTab: StatusTab
+  onOpen: (doc: Document) => void
+  openDocId?: string | undefined
 }
 
 function DocumentsTabContent({
@@ -385,12 +492,38 @@ function DocumentsTabContent({
   category,
   ownerId,
   includeDeleted,
+  statusTab,
+  onOpen,
+  openDocId,
 }: TabContentProps) {
   const { data, isLoading } = useDocuments({
     category,
     ownerId,
     includeDeleted,
   })
+
+  // Tri-state local filter: includeDeleted=true returns BOTH deleted + active
+  // (the backend treats includeDeleted as "no soft-delete filter"). For
+  // 'ARCHIVED' we want only archived rows; for 'ACTIVE' the backend already
+  // excludes them; for 'ALL' we leave everything in.
+  const filtered = useMemo<Document[]>(() => {
+    if (!data) return []
+    if (statusTab === 'ARCHIVED') return data.filter((d) => d.deletedAt !== null)
+    return data
+  }, [data, statusTab])
+
+  // Deep-link: pop the dialog open once the matching doc appears. We only
+  // run this when the URL param or the resolved list changes — `onOpen` is
+  // an inline callback from the parent and would otherwise re-trigger on
+  // every render. The callback is intentionally read via a ref-stable
+  // reference inside the effect to avoid stale closures.
+  const onOpenRef = useRef(onOpen)
+  onOpenRef.current = onOpen
+  useEffect(() => {
+    if (!openDocId || !data) return
+    const target = data.find((d) => d.id === openDocId)
+    if (target) onOpenRef.current(target)
+  }, [openDocId, data])
 
   // For the Receipts tab on an empty state, show a deep link into Finance
   // rather than the generic "no documents" placeholder.
@@ -451,12 +584,33 @@ function DocumentsTabContent({
         : undefined
 
   return (
-    <DocumentList
-      documents={data ?? []}
-      loading={isLoading}
-      viewer={viewer}
-      uploaders={uploaders}
-      emptyState={emptyState}
-    />
+    <div className="space-y-3">
+      <div
+        className="text-xs text-muted-foreground"
+        data-testid={`documents-counter-${category}`}
+      >
+        {isLoading
+          ? '...'
+          : `${filtered.length} ${pluralizeDocuments(filtered.length)}${statusTab === 'ARCHIVED' ? ' · в архиве' : statusTab === 'ALL' ? ' · все' : ''}`}
+      </div>
+
+      <DocumentList
+        documents={filtered}
+        loading={isLoading}
+        viewer={viewer}
+        uploaders={uploaders}
+        emptyState={emptyState}
+        onOpen={onOpen}
+      />
+    </div>
   )
+}
+
+// ru-RU plural helper for the counter ("1 документ", "2 документа", "5 документов").
+function pluralizeDocuments(n: number): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return 'документ'
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'документа'
+  return 'документов'
 }

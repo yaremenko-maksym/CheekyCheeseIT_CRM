@@ -73,7 +73,9 @@ describe('documentSchema', () => {
     projectId: null,
     category: 'RESUME',
     name: 'cv.pdf',
+    originalName: 'CV Иванов.pdf',
     s3Key: 'documents/RESUME/owner/doc-cv.pdf',
+    thumbnailS3Key: null,
     sizeBytes: 12345,
     mimeType: 'application/pdf',
     uploadedBy: uuid,
@@ -89,6 +91,26 @@ describe('documentSchema', () => {
   it('accepts deleted documents (deletedAt + deletedBy set)', () => {
     expect(() =>
       documentSchema.parse({ ...validDoc, deletedAt: datetime, deletedBy: uuid }),
+    ).not.toThrow()
+  })
+
+  it('accepts thumbnailS3Key set + originalName preserving cyrillic', () => {
+    expect(() =>
+      documentSchema.parse({
+        ...validDoc,
+        thumbnailS3Key: 'documents/RESUME/owner/doc-cv-thumb.jpg',
+        originalName: 'Резюме Иванов.pdf',
+      }),
+    ).not.toThrow()
+  })
+
+  it('accepts null originalName + null thumbnailS3Key (legacy rows)', () => {
+    expect(() =>
+      documentSchema.parse({
+        ...validDoc,
+        originalName: null,
+        thumbnailS3Key: null,
+      }),
     ).not.toThrow()
   })
 

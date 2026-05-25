@@ -59,7 +59,9 @@ interface DocRow {
   projectId: string | null
   category: string
   name: string
+  originalName: string | null
   s3Key: string
+  thumbnailS3Key: string | null
   sizeBytes: number
   mimeType: string
   uploadedBy: string
@@ -88,9 +90,11 @@ function makeHarness(opts: HarnessOptions = {}) {
     projectId: d.projectId ?? null,
     category: d.category ?? 'RESUME',
     name: d.name ?? 'file.pdf',
+    originalName: d.originalName ?? d.name ?? 'file.pdf',
     s3Key:
       d.s3Key ??
       `documents/${d.category ?? 'RESUME'}/${d.ownerId ?? 'x'}/${d.id ?? idx}-file.pdf`,
+    thumbnailS3Key: d.thumbnailS3Key ?? null,
     sizeBytes: d.sizeBytes ?? 1024,
     mimeType: d.mimeType ?? 'application/pdf',
     uploadedBy: d.uploadedBy ?? d.ownerId ?? 'owner-x',
@@ -178,7 +182,9 @@ function makeHarness(opts: HarnessOptions = {}) {
               projectId: (values['projectId'] as string) ?? null,
               category: values['category'] as string,
               name: values['name'] as string,
+              originalName: (values['originalName'] as string) ?? null,
               s3Key: values['s3Key'] as string,
+              thumbnailS3Key: (values['thumbnailS3Key'] as string) ?? null,
               sizeBytes: values['sizeBytes'] as number,
               mimeType: values['mimeType'] as string,
               uploadedBy: values['uploadedBy'] as string,
@@ -200,6 +206,9 @@ function makeHarness(opts: HarnessOptions = {}) {
                 if ('deletedAt' in values) {
                   r.deletedAt = (values['deletedAt'] as Date | null) ?? null
                   r.deletedBy = (values['deletedBy'] as string | null) ?? null
+                }
+                if ('thumbnailS3Key' in values) {
+                  r.thumbnailS3Key = (values['thumbnailS3Key'] as string | null) ?? null
                 }
               })
             }
@@ -514,7 +523,7 @@ describe('DocumentsService.hardDelete', () => {
     expect(h.docsRows.length).toBe(1)
   })
 
-  it('ADMIN + soft-deleted → S3 deleted + DB row gone', async () => {
+  it('ADMIN + soft-deleted → S3 deleted (incl. thumbnail) + DB row gone', async () => {
     const h = makeHarness({
       docs: [
         {
@@ -522,6 +531,7 @@ describe('DocumentsService.hardDelete', () => {
           ownerId: SENIOR.id,
           category: 'RESUME',
           s3Key: 'documents/RESUME/x/d1-f.pdf',
+          thumbnailS3Key: 'documents/RESUME/x/d1-f-thumb.jpg',
           deletedAt: new Date(),
         },
       ],
@@ -530,6 +540,24 @@ describe('DocumentsService.hardDelete', () => {
     expect(h.s3.delete).toHaveBeenCalledWith('documents/RESUME/x/d1-f.pdf')
     expect(h.s3.delete).toHaveBeenCalledWith('documents/RESUME/x/d1-f-thumb.jpg')
     expect(h.docsRows.length).toBe(0)
+  })
+
+  it('ADMIN + soft-deleted PDF (no thumb) → skips thumbnail delete', async () => {
+    const h = makeHarness({
+      docs: [
+        {
+          id: 'd1',
+          ownerId: SENIOR.id,
+          category: 'RESUME',
+          s3Key: 'documents/RESUME/x/d1-f.pdf',
+          thumbnailS3Key: null,
+          deletedAt: new Date(),
+        },
+      ],
+    })
+    await h.service.hardDelete(ADMIN, 'd1')
+    expect(h.s3.delete).toHaveBeenCalledTimes(1)
+    expect(h.s3.delete).toHaveBeenCalledWith('documents/RESUME/x/d1-f.pdf')
   })
 
   it('ADMIN + missing doc → 404', async () => {
