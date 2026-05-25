@@ -73,10 +73,13 @@ describe('documentSchema', () => {
     projectId: null,
     category: 'RESUME',
     name: 'cv.pdf',
+    originalName: 'CV Иванов.pdf',
     s3Key: 'documents/RESUME/owner/doc-cv.pdf',
+    thumbnailS3Key: null,
     sizeBytes: 12345,
     mimeType: 'application/pdf',
     uploadedBy: uuid,
+    uploadedByDisplayName: 'Иван Иванов',
     deletedAt: null,
     deletedBy: null,
     createdAt: datetime,
@@ -90,6 +93,38 @@ describe('documentSchema', () => {
     expect(() =>
       documentSchema.parse({ ...validDoc, deletedAt: datetime, deletedBy: uuid }),
     ).not.toThrow()
+  })
+
+  it('accepts thumbnailS3Key set + originalName preserving cyrillic', () => {
+    expect(() =>
+      documentSchema.parse({
+        ...validDoc,
+        thumbnailS3Key: 'documents/RESUME/owner/doc-cv-thumb.jpg',
+        originalName: 'Резюме Иванов.pdf',
+      }),
+    ).not.toThrow()
+  })
+
+  it('accepts null originalName + null thumbnailS3Key (legacy rows)', () => {
+    expect(() =>
+      documentSchema.parse({
+        ...validDoc,
+        originalName: null,
+        thumbnailS3Key: null,
+      }),
+    ).not.toThrow()
+  })
+
+  it('accepts null uploadedByDisplayName (uploader hard-deleted or missing)', () => {
+    expect(() =>
+      documentSchema.parse({ ...validDoc, uploadedByDisplayName: null }),
+    ).not.toThrow()
+  })
+
+  it('rejects empty uploadedByDisplayName (set or null, never blank string)', () => {
+    expect(() =>
+      documentSchema.parse({ ...validDoc, uploadedByDisplayName: '' }),
+    ).toThrow()
   })
 
   it('rejects negative sizeBytes', () => {

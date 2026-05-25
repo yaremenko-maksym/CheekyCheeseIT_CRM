@@ -30,7 +30,7 @@ import type {
   UpdateProjectDto,
   TransactionDto,
 } from '@crm/shared'
-import { createProjectSchema, IT_DOMAINS } from '@crm/shared'
+import { createProjectSchema, IT_DOMAINS, type ItDomain } from '@crm/shared'
 import { financeApi } from '@/routes/crm/finance/api'
 import { TransactionDetailDialog } from '@/routes/crm/finance/components/dialogs/TransactionDetailDialog'
 import { TransactionRow } from '@/routes/crm/finance/components/TransactionRow'
@@ -63,6 +63,23 @@ import { AuditLogTab } from '@/components/audit-log/AuditLogTab'
 import { useUnarchiveEntity, type UnarchiveCascadeEntity, type UnarchiveError } from '@/hooks/use-archive'
 import { CascadeUnarchiveModal } from '@/components/archive/CascadeUnarchiveModal'
 import type { AxiosError } from 'axios'
+
+/**
+ * Defensive coercion: if a project row has a `domain` value that is not
+ * a member of the current `IT_DOMAINS` enum (legacy seed data, or
+ * external/manual writes that bypass the API validator), fall back to
+ * `'Other'`. This prevents the edit dialog from silently submitting the
+ * stale value and hitting a 400 «Invalid option: domain» from
+ * `updateProjectSchema.parse(...)` on the server.
+ *
+ * The DB-level fix is migration 0012, which rewrites legacy literals
+ * in-place; this is the runtime safety net for any future drift.
+ */
+function coerceDomain(value: string | null | undefined): ItDomain {
+  return (IT_DOMAINS as readonly string[]).includes(value ?? '')
+    ? (value as ItDomain)
+    : 'Other'
+}
 
 export const Route = createFileRoute('/crm/projects/$projectId')({
   component: ProjectDetailPage,
@@ -494,7 +511,7 @@ function ProjectDetailPage() {
     defaultValues: {
       name: project?.name ?? '',
       companyName: project?.companyName ?? '',
-      domain: project?.domain ?? 'Other',
+      domain: coerceDomain(project?.domain),
       logoUrl: project?.logoUrl ?? (null as string | null),
       rate: (project?.rate ?? '') as unknown as number,
       currency: (project?.currency ?? 'USDT') as 'USDT' | 'USD' | 'EUR' | 'UAH',
@@ -588,7 +605,7 @@ const removeMemberMutation = useMutation({
     if (!project) return
     editForm.setFieldValue('name', project.name)
     editForm.setFieldValue('companyName', project.companyName)
-    editForm.setFieldValue('domain', project.domain)
+    editForm.setFieldValue('domain', coerceDomain(project.domain))
     editForm.setFieldValue('logoUrl', project.logoUrl ?? null)
     editForm.setFieldValue('rate', project.rate as unknown as number)
     editForm.setFieldValue('currency', project.currency as 'USDT' | 'USD' | 'EUR' | 'UAH')

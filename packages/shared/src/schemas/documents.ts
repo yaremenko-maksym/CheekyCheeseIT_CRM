@@ -54,11 +54,37 @@ export const documentSchema = z.object({
   ownerId: z.string().uuid(),
   projectId: z.string().uuid().nullable(),
   category: documentCategorySchema,
+  /**
+   * Sanitized (ASCII-only) filename used inside the S3 key and as the
+   * download-as filename. Variant 3 "hybrid": s3 strict, original preserved,
+   * UI shows `originalName`, download uses this.
+   */
   name: z.string().min(1).max(255),
+  /**
+   * Original filename as uploaded by the user (cyrillic / unicode preserved).
+   * Nullable for backwards compatibility with rows created before migration
+   * 0011 — the UI falls back to `name` when this is null.
+   */
+  originalName: z.string().min(1).max(255).nullable(),
   s3Key: z.string().min(1).max(512),
+  /**
+   * S3 key of the 256x256 JPEG thumbnail (generated synchronously for image
+   * MIME types). NULL for non-image documents (UI shows a category icon).
+   */
+  thumbnailS3Key: z.string().min(1).max(512).nullable(),
   sizeBytes: z.number().int().nonnegative(),
   mimeType: z.string().min(1).max(64),
   uploadedBy: z.string().uuid(),
+  /**
+   * Display name of the user who uploaded the document. Embedded by the API
+   * via a LEFT JOIN on `users` so the UI does not need a second `/api/users`
+   * round-trip (and works for JUNIOR / SENIOR / ACCOUNTANT roles which do
+   * not have access to that endpoint). Nullable for safety:
+   *   - legacy rows where the uploader was hard-deleted from `users`
+   *   - the field is computed at SELECT time; a missing user row leaves it
+   *     null so the UI can fall back to `shortId(uploadedBy)`.
+   */
+  uploadedByDisplayName: z.string().min(1).max(255).nullable(),
   deletedAt: z.string().datetime().nullable(),
   deletedBy: z.string().uuid().nullable(),
   createdAt: z.string().datetime(),

@@ -59,7 +59,9 @@ interface DocRow {
   projectId: string | null
   category: string
   name: string
+  originalName: string | null
   s3Key: string
+  thumbnailS3Key: string | null
   sizeBytes: number
   mimeType: string
   uploadedBy: string
@@ -88,9 +90,11 @@ function makeHarness(opts: HarnessOptions = {}) {
     projectId: d.projectId ?? null,
     category: d.category ?? 'RESUME',
     name: d.name ?? 'file.pdf',
+    originalName: d.originalName ?? d.name ?? 'file.pdf',
     s3Key:
       d.s3Key ??
       `documents/${d.category ?? 'RESUME'}/${d.ownerId ?? 'x'}/${d.id ?? idx}-file.pdf`,
+    thumbnailS3Key: d.thumbnailS3Key ?? null,
     sizeBytes: d.sizeBytes ?? 1024,
     mimeType: d.mimeType ?? 'application/pdf',
     uploadedBy: d.uploadedBy ?? d.ownerId ?? 'owner-x',
@@ -116,6 +120,13 @@ function makeHarness(opts: HarnessOptions = {}) {
             if (opts.honorSoftDeleteFilter && row.deletedAt) return undefined
             return row
           },
+        },
+        users: {
+          // Used by `restore()` to re-attach the uploader's display name
+          // to the restored row. The test harness has no users seeded —
+          // returning `undefined` produces `uploadedByDisplayName: null`,
+          // which mirrors a hard-deleted uploader and is a valid DTO shape.
+          findFirst: async (_args: unknown) => undefined,
         },
       },
 
@@ -178,7 +189,9 @@ function makeHarness(opts: HarnessOptions = {}) {
               projectId: (values['projectId'] as string) ?? null,
               category: values['category'] as string,
               name: values['name'] as string,
+              originalName: (values['originalName'] as string) ?? null,
               s3Key: values['s3Key'] as string,
+              thumbnailS3Key: (values['thumbnailS3Key'] as string) ?? null,
               sizeBytes: values['sizeBytes'] as number,
               mimeType: values['mimeType'] as string,
               uploadedBy: values['uploadedBy'] as string,
@@ -200,6 +213,9 @@ function makeHarness(opts: HarnessOptions = {}) {
                 if ('deletedAt' in values) {
                   r.deletedAt = (values['deletedAt'] as Date | null) ?? null
                   r.deletedBy = (values['deletedBy'] as string | null) ?? null
+                }
+                if ('thumbnailS3Key' in values) {
+                  r.thumbnailS3Key = (values['thumbnailS3Key'] as string | null) ?? null
                 }
               })
             }
@@ -514,7 +530,7 @@ describe('DocumentsService.hardDelete', () => {
     expect(h.docsRows.length).toBe(1)
   })
 
-  it('ADMIN + soft-deleted → S3 deleted + DB row gone', async () => {
+  it('ADMIN + soft-deleted → S3 deleted (incl. thumbnail) + DB row gone', async () => {
     const h = makeHarness({
       docs: [
         {
@@ -522,6 +538,7 @@ describe('DocumentsService.hardDelete', () => {
           ownerId: SENIOR.id,
           category: 'RESUME',
           s3Key: 'documents/RESUME/x/d1-f.pdf',
+          thumbnailS3Key: 'documents/RESUME/x/d1-f-thumb.jpg',
           deletedAt: new Date(),
         },
       ],
@@ -530,6 +547,24 @@ describe('DocumentsService.hardDelete', () => {
     expect(h.s3.delete).toHaveBeenCalledWith('documents/RESUME/x/d1-f.pdf')
     expect(h.s3.delete).toHaveBeenCalledWith('documents/RESUME/x/d1-f-thumb.jpg')
     expect(h.docsRows.length).toBe(0)
+  })
+
+  it('ADMIN + soft-deleted PDF (no thumb) → skips thumbnail delete', async () => {
+    const h = makeHarness({
+      docs: [
+        {
+          id: 'd1',
+          ownerId: SENIOR.id,
+          category: 'RESUME',
+          s3Key: 'documents/RESUME/x/d1-f.pdf',
+          thumbnailS3Key: null,
+          deletedAt: new Date(),
+        },
+      ],
+    })
+    await h.service.hardDelete(ADMIN, 'd1')
+    expect(h.s3.delete).toHaveBeenCalledTimes(1)
+    expect(h.s3.delete).toHaveBeenCalledWith('documents/RESUME/x/d1-f.pdf')
   })
 
   it('ADMIN + missing doc → 404', async () => {
@@ -583,6 +618,32 @@ describe('DocumentsService.restore', () => {
     })
     await h.service.restore(ADMIN, 'd1')
     expect(h.docsRows[0]?.deletedAt).toBeNull()
+  })
+
+  it('restored DTO carries uploadedByDisplayName as null when uploader not in users table', async () => {
+    // Mock users.findFirst returns undefined for this harness — restored
+    // doc should still include the field, just null.
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME', deletedAt: new Date() }],
+    })
+    const restored = await h.service.restore(ADMIN, 'd1')
+    expect(restored.uploadedByDisplayName).toBeNull()
+  })
+})
+
+// =============================================================================
+// DTO shape — uploadedByDisplayName on upload
+// =============================================================================
+
+describe('DocumentsService.upload — DTO shape', () => {
+  it('returns uploadedByDisplayName from actor.displayName', async () => {
+    const h = makeHarness()
+    const doc = await h.service.upload(
+      ADMIN,
+      { buffer: Buffer.from('pdf'), mimetype: 'application/pdf', originalname: 'cv.pdf' },
+      { category: 'RESUME' },
+    )
+    expect(doc.uploadedByDisplayName).toBe(ADMIN.displayName)
   })
 })
 

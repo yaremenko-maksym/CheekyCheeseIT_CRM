@@ -1,6 +1,9 @@
 import 'dotenv/config'
+import { readFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import * as schema from './schema'
 
 export const MAKSYM_ID = '00000000-0000-0000-0000-000000000001'
@@ -131,7 +134,7 @@ const SEED_PROJECTS = [
   {
     name: 'AI Platform v2',
     companyName: 'TechCorp AI',
-    domain: 'AI',
+    domain: 'AI / ML',
     seniorEmail: 'oleksiy.kovalenko@cheekycheese.dev',
     juniorEmails: ['sofia.bondarenko@cheekycheese.dev'],
     hrEmails: ['kateryna.shevchenko@cheekycheese.dev'],
@@ -171,7 +174,7 @@ const SEED_PROJECTS = [
   {
     name: 'Artkai',
     companyName: 'Artkai',
-    domain: 'Design Platform',
+    domain: 'Other',
     seniorEmail: 'yaremenkomaksym99@gmail.com',
     juniorEmails: [],
     hrEmails: ['anna.lysenko@cheekycheese.dev'],
@@ -181,7 +184,7 @@ const SEED_PROJECTS = [
   {
     name: 'Фавбет',
     companyName: 'Фавбет',
-    domain: 'Gambling / Betting',
+    domain: 'Gambling',
     seniorEmail: 'yaremenkomaksym99@gmail.com',
     juniorEmails: [],
     hrEmails: ['kateryna.shevchenko@cheekycheese.dev'],
@@ -380,13 +383,20 @@ async function main() {
       }
       payoutBatch.push(pr)
 
+      // INCOME = client company → recipient user. sender side carries
+      // only the project's company name (no userId); receiverId points
+      // at the user who actually got the money. UI renders this as
+      // "{companyName} → {recipient}". `createdBy` stays at the recipient
+      // because it tracks "who entered the transaction", which is the
+      // same person in seed data.
       const income: NewTx = {
         type: 'ADMIN_INCOME',
         status: 'PAID',
         amount: String(amount),
         currency: 'USD',
-        senderId: MAKSYM_ID,
-        senderLabel: 'Maksym Yaremenko',
+        senderId: null,
+        senderLabel: project.companyName,
+        receiverId: MAKSYM_ID,
         projectId: project.id,
         seniorSharePercent: 26,
         notes: `Monthly income ${2024}-${String(mo).padStart(2,'0')}`,
@@ -408,8 +418,9 @@ async function main() {
         status: 'PAID',
         amount: String(amount),
         currency: 'USD',
-        senderId: KOSTYA_ID,
-        senderLabel: 'Kostya',
+        senderId: null,
+        senderLabel: project.companyName,
+        receiverId: KOSTYA_ID,
         projectId: project.id,
         seniorSharePercent: 26,
         createdBy: KOSTYA_ID,
@@ -449,7 +460,9 @@ async function main() {
         status: 'PAID',
         amount: String(amount),
         currency: 'USDT',
-        senderId: senior.id,
+        senderId: null,
+        senderLabel: project.companyName,
+        receiverId: senior.id,
         projectId: project.id,
         payoutRequestId: prId,
         seniorSharePercent: 26,
@@ -493,7 +506,9 @@ async function main() {
       }
     }
 
-    // Q2 2024 — same pattern
+    // Q2 2024 — same pattern. INCOME semantics: senderLabel = client
+    // company, receiverId = the admin who got the money. See Q1 block
+    // above for the rationale.
     for (const [mo, day, project, amount] of [
       [4, 8,  fermProject,     3500],
       [4, 12, onePunchProject, 4000],
@@ -507,7 +522,9 @@ async function main() {
         status: 'PAID',
         amount: String(amount),
         currency: 'USD',
-        senderId: MAKSYM_ID,
+        senderId: null,
+        senderLabel: project.companyName,
+        receiverId: MAKSYM_ID,
         projectId: project.id,
         seniorSharePercent: 26,
         createdBy: MAKSYM_ID,
@@ -527,7 +544,9 @@ async function main() {
         status: 'PAID',
         amount: String(amount),
         currency: 'USD',
-        senderId: KOSTYA_ID,
+        senderId: null,
+        senderLabel: project.companyName,
+        receiverId: KOSTYA_ID,
         projectId: project.id,
         seniorSharePercent: 26,
         createdBy: KOSTYA_ID,
@@ -559,7 +578,8 @@ async function main() {
       })
       txBatch.push({
         type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT',
-        senderId: senior.id, projectId: project.id, payoutRequestId: prId,
+        senderId: null, senderLabel: project.companyName, receiverId: senior.id,
+        projectId: project.id, payoutRequestId: prId,
         seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2024, mo, 12),
         receiptUrl: `https://etherscan.io/tx/0xRQ2_${mo}_${senior.id.slice(0,4)}`,
         createdBy: senior.id, createdAt: monthDate(2024, mo, 8), updatedAt: monthDate(2024, mo, 16),
@@ -594,7 +614,8 @@ async function main() {
     ] as [number, typeof fermProject, number][]) {
       txBatch.push({
         type: 'ADMIN_INCOME', status: 'PAID', amount: String(amount), currency: 'USD',
-        senderId: MAKSYM_ID, projectId: project.id, seniorSharePercent: 26,
+        senderId: null, senderLabel: project.companyName, receiverId: MAKSYM_ID,
+        projectId: project.id, seniorSharePercent: 26,
         createdBy: MAKSYM_ID, createdAt: monthDate(2024, mo, 10), updatedAt: monthDate(2024, mo, 10),
       })
     }
@@ -607,7 +628,8 @@ async function main() {
     ] as [number, typeof artkaiProject, number][]) {
       txBatch.push({
         type: 'ADMIN_INCOME', status: 'PAID', amount: String(amount), currency: 'USD',
-        senderId: KOSTYA_ID, projectId: project.id, seniorSharePercent: 26,
+        senderId: null, senderLabel: project.companyName, receiverId: KOSTYA_ID,
+        projectId: project.id, seniorSharePercent: 26,
         createdBy: KOSTYA_ID, createdAt: monthDate(2024, mo, 11), updatedAt: monthDate(2024, mo, 11),
       })
     }
@@ -624,7 +646,7 @@ async function main() {
       const prId = crypto.randomUUID()
       const payable = amount * 0.74
       payoutBatch.push({ id: prId, seniorId: senior.id, incomeAmount: String(amount), payableAmount: String(payable), txHash: `0xS_${senior.id.slice(0,4)}_Q3_${mo}`, status: 'PAID', createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 18) })
-      txBatch.push({ type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT', senderId: senior.id, projectId: project.id, payoutRequestId: prId, seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2024, mo, 13), receiptUrl: `https://etherscan.io/tx/0xRQ3_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 9), updatedAt: monthDate(2024, mo, 18) })
+      txBatch.push({ type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT', senderId: null, senderLabel: project.companyName, receiverId: senior.id, projectId: project.id, payoutRequestId: prId, seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2024, mo, 13), receiptUrl: `https://etherscan.io/tx/0xRQ3_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 9), updatedAt: monthDate(2024, mo, 18) })
       txBatch.push({ type: 'PAYOUT', status: 'PAID', amount: String(payable), currency: 'USDT', senderId: senior.id, receiverLabel: 'CheekyCheeseIT', projectId: project.id, payoutRequestId: prId, txHash: `0xS_${senior.id.slice(0,4)}_Q3_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 18) })
       for (const adminId of [MAKSYM_ID, KOSTYA_ID]) {
         txBatch.push({ type: 'PAYOUT_ADMIN', status: 'PAID', amount: String(payable / 2), currency: 'USDT', senderId: senior.id, receiverId: adminId, payoutRequestId: prId, txHash: `0xS_${senior.id.slice(0,4)}_Q3_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 17) })
@@ -643,10 +665,10 @@ async function main() {
       [12, onePunchProject, 4500],
       [12, favbetProject,   5000],
     ] as [number, typeof fermProject, number][]) {
-      txBatch.push({ type: 'ADMIN_INCOME', status: 'PAID', amount: String(amount), currency: 'USD', senderId: MAKSYM_ID, projectId: project.id, seniorSharePercent: 26, createdBy: MAKSYM_ID, createdAt: monthDate(2024, mo, 10), updatedAt: monthDate(2024, mo, 10) })
+      txBatch.push({ type: 'ADMIN_INCOME', status: 'PAID', amount: String(amount), currency: 'USD', senderId: null, senderLabel: project.companyName, receiverId: MAKSYM_ID, projectId: project.id, seniorSharePercent: 26, createdBy: MAKSYM_ID, createdAt: monthDate(2024, mo, 10), updatedAt: monthDate(2024, mo, 10) })
     }
     for (const [mo, amount] of [[10, 4100], [11, 4100], [12, 4300]] as [number, number][]) {
-      txBatch.push({ type: 'ADMIN_INCOME', status: 'PAID', amount: String(amount), currency: 'USD', senderId: KOSTYA_ID, projectId: artkaiProject.id, seniorSharePercent: 26, createdBy: KOSTYA_ID, createdAt: monthDate(2024, mo, 11), updatedAt: monthDate(2024, mo, 11) })
+      txBatch.push({ type: 'ADMIN_INCOME', status: 'PAID', amount: String(amount), currency: 'USD', senderId: null, senderLabel: artkaiProject.companyName, receiverId: KOSTYA_ID, projectId: artkaiProject.id, seniorSharePercent: 26, createdBy: KOSTYA_ID, createdAt: monthDate(2024, mo, 11), updatedAt: monthDate(2024, mo, 11) })
     }
 
     // Senior incomes Q4 2024
@@ -661,7 +683,7 @@ async function main() {
       const prId = crypto.randomUUID()
       const payable = amount * 0.74
       payoutBatch.push({ id: prId, seniorId: senior.id, incomeAmount: String(amount), payableAmount: String(payable), txHash: `0xS_${senior.id.slice(0,4)}_Q4_${mo}`, status: 'PAID', createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 18) })
-      txBatch.push({ type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT', senderId: senior.id, projectId: project.id, payoutRequestId: prId, seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2024, mo, 13), receiptUrl: `https://etherscan.io/tx/0xRQ4_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 9), updatedAt: monthDate(2024, mo, 18) })
+      txBatch.push({ type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT', senderId: null, senderLabel: project.companyName, receiverId: senior.id, projectId: project.id, payoutRequestId: prId, seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2024, mo, 13), receiptUrl: `https://etherscan.io/tx/0xRQ4_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 9), updatedAt: monthDate(2024, mo, 18) })
       txBatch.push({ type: 'PAYOUT', status: 'PAID', amount: String(payable), currency: 'USDT', senderId: senior.id, receiverLabel: 'CheekyCheeseIT', projectId: project.id, payoutRequestId: prId, txHash: `0xS_${senior.id.slice(0,4)}_Q4_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 18) })
       for (const adminId of [MAKSYM_ID, KOSTYA_ID]) {
         txBatch.push({ type: 'PAYOUT_ADMIN', status: 'PAID', amount: String(payable / 2), currency: 'USDT', senderId: senior.id, receiverId: adminId, payoutRequestId: prId, txHash: `0xS_${senior.id.slice(0,4)}_Q4_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 17) })
@@ -684,10 +706,10 @@ async function main() {
       [4,  onePunchProject, 4500],
       [4,  favbetProject,   5200],
     ] as [number, typeof fermProject, number][]) {
-      txBatch.push({ type: 'ADMIN_INCOME', status: 'PAID', amount: String(amount), currency: 'USD', senderId: MAKSYM_ID, projectId: project.id, seniorSharePercent: 26, createdBy: MAKSYM_ID, createdAt: monthDate(2025, mo, 10), updatedAt: monthDate(2025, mo, 10) })
+      txBatch.push({ type: 'ADMIN_INCOME', status: 'PAID', amount: String(amount), currency: 'USD', senderId: null, senderLabel: project.companyName, receiverId: MAKSYM_ID, projectId: project.id, seniorSharePercent: 26, createdBy: MAKSYM_ID, createdAt: monthDate(2025, mo, 10), updatedAt: monthDate(2025, mo, 10) })
     }
     for (const [mo, amount] of [[1, 4300], [2, 4500], [3, 4500], [4, 4500]] as [number, number][]) {
-      txBatch.push({ type: 'ADMIN_INCOME', status: 'PAID', amount: String(amount), currency: 'USD', senderId: KOSTYA_ID, projectId: artkaiProject.id, seniorSharePercent: 26, createdBy: KOSTYA_ID, createdAt: monthDate(2025, mo, 11), updatedAt: monthDate(2025, mo, 11) })
+      txBatch.push({ type: 'ADMIN_INCOME', status: 'PAID', amount: String(amount), currency: 'USD', senderId: null, senderLabel: artkaiProject.companyName, receiverId: KOSTYA_ID, projectId: artkaiProject.id, seniorSharePercent: 26, createdBy: KOSTYA_ID, createdAt: monthDate(2025, mo, 11), updatedAt: monthDate(2025, mo, 11) })
     }
 
     // Senior incomes 2025 Q1
@@ -702,7 +724,7 @@ async function main() {
       const prId = crypto.randomUUID()
       const payable = amount * 0.74
       payoutBatch.push({ id: prId, seniorId: senior.id, incomeAmount: String(amount), payableAmount: String(payable), txHash: `0x25_${senior.id.slice(0,4)}_${mo}`, status: 'PAID', createdAt: monthDate(2025, mo, 17), updatedAt: monthDate(2025, mo, 18) })
-      txBatch.push({ type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT', senderId: senior.id, projectId: project.id, payoutRequestId: prId, seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2025, mo, 13), receiptUrl: `https://etherscan.io/tx/0xR25_${mo}`, createdBy: senior.id, createdAt: monthDate(2025, mo, 9), updatedAt: monthDate(2025, mo, 18) })
+      txBatch.push({ type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT', senderId: null, senderLabel: project.companyName, receiverId: senior.id, projectId: project.id, payoutRequestId: prId, seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2025, mo, 13), receiptUrl: `https://etherscan.io/tx/0xR25_${mo}`, createdBy: senior.id, createdAt: monthDate(2025, mo, 9), updatedAt: monthDate(2025, mo, 18) })
       txBatch.push({ type: 'PAYOUT', status: 'PAID', amount: String(payable), currency: 'USDT', senderId: senior.id, receiverLabel: 'CheekyCheeseIT', projectId: project.id, payoutRequestId: prId, txHash: `0x25_${senior.id.slice(0,4)}_${mo}`, createdBy: senior.id, createdAt: monthDate(2025, mo, 17), updatedAt: monthDate(2025, mo, 18) })
       for (const adminId of [MAKSYM_ID, KOSTYA_ID]) {
         txBatch.push({ type: 'PAYOUT_ADMIN', status: 'PAID', amount: String(payable / 2), currency: 'USDT', senderId: senior.id, receiverId: adminId, payoutRequestId: prId, txHash: `0x25_${senior.id.slice(0,4)}_${mo}`, createdBy: senior.id, createdAt: monthDate(2025, mo, 17), updatedAt: monthDate(2025, mo, 17) })
@@ -716,7 +738,8 @@ async function main() {
     ] as [typeof oleksiy, typeof aiProject, number][]) {
       txBatch.push({
         type: 'SENIOR_INCOME', status: 'VALIDATED', amount: String(amount), currency: 'USDT',
-        senderId: senior.id, projectId: project.id, seniorSharePercent: 26,
+        senderId: null, senderLabel: project.companyName, receiverId: senior.id,
+        projectId: project.id, seniorSharePercent: 26,
         validatedBy: mykola.id, validatedAt: monthDate(2025, 4, 13),
         receiptUrl: `https://etherscan.io/tx/0xR25_4_${senior.id.slice(0,4)}`,
         createdBy: senior.id, createdAt: monthDate(2025, 4, 9), updatedAt: monthDate(2025, 4, 13),
@@ -726,13 +749,15 @@ async function main() {
     // May 2025 — current month, pending
     txBatch.push({
       type: 'SENIOR_INCOME', status: 'PENDING', amount: '6500', currency: 'USDT',
-      senderId: oleksiy.id, projectId: aiProject.id, seniorSharePercent: 26,
+      senderId: null, senderLabel: aiProject.companyName, receiverId: oleksiy.id,
+      projectId: aiProject.id, seniorSharePercent: 26,
       receiptUrl: 'https://etherscan.io/tx/0xRECENT_MAY', notes: 'May 2025 payment',
       createdBy: oleksiy.id, createdAt: monthDate(2025, 5, 8), updatedAt: monthDate(2025, 5, 8),
     })
     txBatch.push({
       type: 'SENIOR_INCOME', status: 'REJECTED', amount: '5300', currency: 'USDT',
-      senderId: dmytro.id, projectId: edtechProject.id, seniorSharePercent: 26,
+      senderId: null, senderLabel: edtechProject.companyName, receiverId: dmytro.id,
+      projectId: edtechProject.id, seniorSharePercent: 26,
       rejectionReason: 'Неверная сумма, должно быть 5500 USDT',
       createdBy: dmytro.id, createdAt: monthDate(2025, 5, 7), updatedAt: monthDate(2025, 5, 10),
     })
@@ -742,7 +767,7 @@ async function main() {
       [onePunchProject, 4500],
       [favbetProject,   5200],
     ] as [typeof fermProject, number][]) {
-      txBatch.push({ type: 'ADMIN_INCOME', status: 'PAID', amount: String(amount), currency: 'USD', senderId: MAKSYM_ID, projectId: project.id, seniorSharePercent: 26, createdBy: MAKSYM_ID, createdAt: monthDate(2025, 5, 10), updatedAt: monthDate(2025, 5, 10) })
+      txBatch.push({ type: 'ADMIN_INCOME', status: 'PAID', amount: String(amount), currency: 'USD', senderId: null, senderLabel: project.companyName, receiverId: MAKSYM_ID, projectId: project.id, seniorSharePercent: 26, createdBy: MAKSYM_ID, createdAt: monthDate(2025, 5, 10), updatedAt: monthDate(2025, 5, 10) })
     }
 
     // ── Expenses ────────────────────────────────────────────────────────────
@@ -901,9 +926,14 @@ async function main() {
 
   // ── Documents seed (PHASE 6) ─────────────────────────────────────────────
   //
-  // Rows-only seed. The s3_keys point to files that DO NOT exist in MinIO;
-  // downloads will 404 — this is OK for seed data (UI still renders cards
-  // with RBAC + delete flow; real uploads come via the API in e2e tests).
+  // Best-effort REAL uploads: when MinIO / S3 env vars are present (`S3_ENDPOINT`,
+  // `S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) we push a real
+  // PDF (`seed-fixtures/sample-receipt-real.pdf`, a 143 KB sample receipt the
+  // user supplied) into the bucket under each PDF document's s3_key. When
+  // those vars are missing (CI / production migrations) we silently skip the
+  // upload — the row stays in the DB and the UI shows a 404 thumbnail until
+  // a real upload happens. ONE PDF is used for ALL PDF categories (RESUME /
+  // CONTRACT / RECEIPT) to keep the seed deterministic and small.
   //
   // AVATAR/LOGO are NOT seeded here — those rows are created in
   // task-avatars-logos-integration where users.avatar_document_id and
@@ -924,6 +954,35 @@ async function main() {
     const mykola = byEmail['mykola.savchenko@cheekycheese.dev']
 
     if (adminMaksym && oleksiy && dmytro && sofia && ivan && anna && kateryna && mykola) {
+      // Resolve the on-disk fixture once. Path is relative to this source
+      // file so it works regardless of where `pnpm db:seed` was invoked from.
+      // `sample-receipt-real.pdf` is a 143 KB real PDF supplied by the
+      // product owner — we use it as the single sample for every PDF row
+      // (RESUME / CONTRACT / RECEIPT). Image fixtures live in the same dir
+      // but we keep them per-category (passport / receipt) for variety.
+      const fixturesDir = join(__dirname, 'seed-fixtures')
+      const samplePdfPath = join(fixturesDir, 'sample-receipt-real.pdf')
+      const samplePdfBytes: Buffer | null = existsSync(samplePdfPath)
+        ? readFileSync(samplePdfPath)
+        : null
+      const samplePdfSize = samplePdfBytes?.length ?? 50_000
+
+      // Default originalName per category — uses the doc owner's first name
+      // so a quick glance at the documents grid still tells you whose file
+      // it is. Cyrillic on purpose (matches user-uploaded names).
+      const originalNameFor = (
+        category: schema.NewDocument['category'],
+        owner: typeof oleksiy,
+        ext: string,
+      ): string => {
+        const first = owner.displayName.split(' ')[0] ?? 'Файл'
+        if (category === 'RESUME') return `Резюме ${first}.${ext}`
+        if (category === 'CONTRACT') return `Договор ${first}.${ext}`
+        if (category === 'RECEIPT') return `Чек ${first}.${ext}`
+        if (category === 'SCAN') return `Скан ${first}.${ext}`
+        return `${category} ${first}.${ext}`
+      }
+
       // For each row we mint a UUID so the s3_key embeds the doc id (matches
       // production `documents/<category>/<owner>/<docId>-<file>` pattern,
       // just under the `seed/` namespace so prod buckets can't collide).
@@ -948,8 +1007,11 @@ async function main() {
           projectId: opts.projectId ?? null,
           category,
           name,
+          originalName: originalNameFor(category, owner, ext),
           s3Key: `documents/seed/${id}.${ext}`,
-          sizeBytes: 50_000,
+          // PDFs use the real fixture size (143 KB); images keep the
+          // synthetic 50 KB placeholder until we wire real image fixtures.
+          sizeBytes: ext === 'pdf' ? samplePdfSize : 50_000,
           mimeType: mime,
           uploadedBy: opts.uploadedBy ?? owner.id,
         }
@@ -998,6 +1060,65 @@ async function main() {
 
       await db.insert(schema.documents).values(docs)
       console.log(`  + seeded ${docs.length} documents (RESUME/SCAN/CONTRACT/RECEIPT)`)
+
+      // Best-effort: push the real sample PDF into MinIO under each PDF
+      // row's s3_key. Image-MIME rows are skipped (the fixture is a PDF;
+      // they keep their broken thumbnail). Failure here is non-fatal —
+      // missing env vars or a MinIO outage just yields a warn line.
+      const s3Endpoint = process.env['S3_ENDPOINT']
+      const s3Bucket = process.env['S3_BUCKET']
+      const s3AccessKey = process.env['AWS_ACCESS_KEY_ID']
+      const s3SecretKey = process.env['AWS_SECRET_ACCESS_KEY']
+      if (samplePdfBytes && s3Endpoint && s3Bucket && s3AccessKey && s3SecretKey) {
+        const s3 = new S3Client({
+          region: process.env['S3_REGION'] ?? 'us-east-1',
+          endpoint: s3Endpoint,
+          forcePathStyle: process.env['S3_FORCE_PATH_STYLE'] === 'true',
+          credentials: { accessKeyId: s3AccessKey, secretAccessKey: s3SecretKey },
+        })
+        let uploaded = 0
+        let skipped = 0
+        let failed = 0
+        for (const d of docs) {
+          if (d.mimeType !== 'application/pdf') {
+            skipped += 1
+            continue
+          }
+          try {
+            await s3.send(
+              new PutObjectCommand({
+                Bucket: s3Bucket,
+                Key: d.s3Key,
+                Body: samplePdfBytes,
+                ContentType: 'application/pdf',
+                CacheControl: 'public, max-age=31536000, immutable',
+              }),
+            )
+            uploaded += 1
+          } catch (err) {
+            failed += 1
+            if (failed === 1) {
+              // Log only the first failure to avoid a flood — the seed
+              // can still finish even if MinIO is unhappy.
+              console.warn(
+                `  ! S3 upload failed for ${d.s3Key}: ${(err as Error).message}`,
+              )
+            }
+          }
+        }
+        console.log(
+          `  + S3: ${uploaded} PDF uploaded, ${skipped} image rows skipped` +
+            (failed ? `, ${failed} failed` : ''),
+        )
+      } else if (!samplePdfBytes) {
+        console.warn(
+          `  ! sample-receipt-real.pdf missing at ${samplePdfPath} — skipped S3 uploads`,
+        )
+      } else {
+        console.log(
+          '  ~ S3 env vars not set (S3_ENDPOINT/S3_BUCKET/AWS_*) — skipped S3 uploads',
+        )
+      }
     } else {
       console.warn('  ! Missing required seed users — documents seed skipped')
     }

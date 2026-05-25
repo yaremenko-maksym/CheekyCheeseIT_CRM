@@ -100,11 +100,32 @@ export class DocumentsService {
     const compressed = await this.compression.compress(file.buffer, file.mimetype)
 
     // ---- 7. Generate s3 key + sanitize filename ----
+    // Variant 3 (hybrid): the original filename is kept intact in
+    // `original_name` (UI display + download-as), while `name` and the S3
+    // key are strictly ASCII so cyrillic / unicode never breaks an
+    // S3 PutObject or a presigned URL signature.
     const docId = randomUUID()
-    const sanitizedName = this.sanitizeFilename(meta.name ?? file.originalname)
+    const originalName = (meta.name ?? file.originalname).slice(0, 255)
+    const sanitizedName = this.sanitizeFilename(originalName)
     const s3Key = `documents/${meta.category}/${ownerId}/${docId}-${sanitizedName}`
 
-    // ---- 8. Insert DB row FIRST, then S3 (compensate on S3 failure) ----
+    // ---- 8. Generate thumbnail (sync) BEFORE the DB insert so we can
+    //         persist the thumbnail key in the same row. PDFs / non-images
+    //         skip this; UI falls back to a category icon. Thumbnail
+    //         failures (sharp errors) are non-fatal — they just leave the
+    //         thumbnail column NULL, never block the upload.
+    let thumbnailBuffer: Buffer | null = null
+    if (compressed.finalMimeType.startsWith('image/')) {
+      thumbnailBuffer = await this.compression.makeThumbnail(
+        compressed.buffer,
+        compressed.finalMimeType,
+      )
+    }
+    const thumbnailS3Key = thumbnailBuffer
+      ? this.thumbnailKeyFor(s3Key)
+      : null
+
+    // ---- 9. Insert DB row FIRST, then S3 (compensate on S3 failure) ----
     // This avoids orphan S3 objects (which cost money) at the price of
     // ephemeral orphan DB rows (free + cleaned in the compensation block).
     const [row] = await this.db.db
@@ -115,7 +136,9 @@ export class DocumentsService {
         projectId: meta.projectId ?? null,
         category: meta.category,
         name: sanitizedName,
+        originalName,
         s3Key,
+        thumbnailS3Key,
         sizeBytes: compressed.sizeBytes,
         mimeType: compressed.finalMimeType,
         uploadedBy: actor.id,
@@ -129,6 +152,26 @@ export class DocumentsService {
 
     try {
       await this.s3.upload(s3Key, compressed.buffer, compressed.finalMimeType)
+      // Upload the thumbnail in the same try-block so a thumb-only failure
+      // still compensates the DB row (the row already references the thumb
+      // key, so it would be inconsistent without it).
+      if (thumbnailBuffer && thumbnailS3Key) {
+        try {
+          await this.s3.upload(thumbnailS3Key, thumbnailBuffer, 'image/jpeg')
+        } catch (thumbErr) {
+          // Thumbnail upload failure is *non-fatal* but we clear the
+          // thumbnail key from the row so the UI doesn't 404 trying to
+          // fetch it. The main object is fine.
+          this.logger.warn(
+            `thumbnail S3 upload failed for docId=${docId}: ${(thumbErr as Error).message} — clearing thumbnail_s3_key`,
+          )
+          await this.db.db
+            .update(documents)
+            .set({ thumbnailS3Key: null })
+            .where(eq(documents.id, docId))
+          row.thumbnailS3Key = null
+        }
+      }
     } catch (err) {
       // Compensate: drop the DB row so we don't leak metadata for a file
       // that never made it to S3.
@@ -139,35 +182,9 @@ export class DocumentsService {
       throw err
     }
 
-    // ---- 9. Fire-and-forget thumbnail for images ----
-    if (compressed.finalMimeType.startsWith('image/')) {
-      // Don't await — failure shouldn't break the upload. UI falls back to
-      // the full image if the thumb is missing.
-      void this.tryUploadThumbnail(s3Key, compressed.buffer, compressed.finalMimeType)
-    }
-
-    return this.mapDocument(row)
-  }
-
-  /**
-   * Generate + upload thumbnail. Detached from the main upload promise so
-   * thumb generation failures never roll back the document insert.
-   */
-  private async tryUploadThumbnail(
-    primaryKey: string,
-    buffer: Buffer,
-    mimeType: string,
-  ): Promise<void> {
-    try {
-      const thumb = await this.compression.makeThumbnail(buffer, mimeType)
-      if (!thumb) return
-      const thumbKey = this.thumbnailKeyFor(primaryKey)
-      await this.s3.upload(thumbKey, thumb, 'image/jpeg')
-    } catch (err) {
-      this.logger.warn(
-        `thumbnail upload failed for key="${primaryKey}": ${(err as Error).message}`,
-      )
-    }
+    // Uploader === actor for fresh uploads — we already have the
+    // display name in the session, no extra round-trip needed.
+    return this.mapDocument(row, actor.displayName ?? null)
   }
 
   // -------------------------------------------------------------------------
@@ -178,12 +195,18 @@ export class DocumentsService {
     const where = await this.buildListWhere(actor, filters)
     if (where === 'NONE') return []
 
+    // LEFT JOIN users so the response carries the uploader's display name
+    // alongside `uploadedBy`. The UI renders this as a clickable
+    // `<Link to="/crm/users/:id">`. We use LEFT (not INNER) because the
+    // uploader row may be missing (hard-deleted user, legacy data) — the
+    // schema treats `uploadedByDisplayName` as nullable for that case.
     const rows = await this.db.db
-      .select()
+      .select({ doc: documents, uploaderName: users.displayName })
       .from(documents)
+      .leftJoin(users, eq(users.id, documents.uploadedBy))
       .where(where)
       .orderBy(desc(documents.createdAt))
-    return rows.map((row) => this.mapDocument(row))
+    return rows.map((row) => this.mapDocument(row.doc, row.uploaderName ?? null))
   }
 
   // -------------------------------------------------------------------------
@@ -192,7 +215,11 @@ export class DocumentsService {
 
   async getDownloadUrl(actor: SessionUser, docId: string): Promise<PresignedDownload> {
     const doc = await this.findActiveOrThrow(docId, actor)
-    return this.s3.getPresignedDownloadUrl(doc.s3Key)
+    // Variant 3 hybrid: download-as filename = original (unicode) when
+    // available, falling back to the sanitized ASCII `name` for legacy rows
+    // that pre-date migration 0011.
+    const downloadAs = doc.originalName ?? doc.name
+    return this.s3.getPresignedDownloadUrl(doc.s3Key, undefined, downloadAs)
   }
 
   // -------------------------------------------------------------------------
@@ -236,7 +263,14 @@ export class DocumentsService {
       .returning()
 
     if (!restored) throw new NotFoundException('Документ не найден')
-    return this.mapDocument(restored)
+
+    // Resolve uploader display name so the restored row matches what
+    // `list()` would have returned (UI relies on this field).
+    const uploader = await this.db.db.query.users.findFirst({
+      where: eq(users.id, restored.uploadedBy),
+      columns: { displayName: true },
+    })
+    return this.mapDocument(restored, uploader?.displayName ?? null)
   }
 
   // -------------------------------------------------------------------------
@@ -259,9 +293,12 @@ export class DocumentsService {
       )
     }
 
-    // S3 deletes are idempotent in S3Service (errors logged + swallowed)
+    // S3 deletes are idempotent in S3Service (errors logged + swallowed).
+    // Thumbnail key is read from the row (NULL when no thumb exists, e.g. PDFs).
     await this.s3.delete(doc.s3Key)
-    await this.s3.delete(this.thumbnailKeyFor(doc.s3Key))
+    if (doc.thumbnailS3Key) {
+      await this.s3.delete(doc.thumbnailS3Key)
+    }
 
     // DB row + FK cascades (ON DELETE SET NULL on referencing tables)
     await this.db.db.delete(documents).where(eq(documents.id, docId))
@@ -591,21 +628,46 @@ export class DocumentsService {
     return key.replace(/\.[^.]+$/, '') + '-thumb.jpg'
   }
 
-  private mapDocument(row: typeof documents.$inferSelect): DocumentDto {
+  /**
+   * Map a `documents` row into the API DTO.
+   *
+   * @param row             the `documents` row as returned by Drizzle
+   * @param uploaderName    display name resolved via a join (callers that
+   *                        already issued the join pass it in; callers that
+   *                        only have the row can pass `null` and the UI will
+   *                        fall back to a short id)
+   */
+  private mapDocument(
+    row: typeof documents.$inferSelect,
+    uploaderName: string | null = null,
+  ): DocumentDto {
     return {
       id: row.id,
       ownerId: row.ownerId,
       projectId: row.projectId ?? null,
       category: row.category as DocumentCategory,
       name: row.name,
+      originalName: row.originalName ?? null,
       s3Key: row.s3Key,
+      thumbnailS3Key: row.thumbnailS3Key ?? null,
       sizeBytes: row.sizeBytes,
       mimeType: row.mimeType,
       uploadedBy: row.uploadedBy,
+      uploadedByDisplayName: uploaderName,
       deletedAt: row.deletedAt?.toISOString() ?? null,
       deletedBy: row.deletedBy ?? null,
       createdAt: row.createdAt.toISOString(),
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Presigned thumbnail URL — returns null when no thumb exists.
+  // -------------------------------------------------------------------------
+
+  async getThumbnailUrl(actor: SessionUser, docId: string): Promise<PresignedDownload | null> {
+    const doc = await this.findActiveOrThrow(docId, actor)
+    if (!doc.thumbnailS3Key) return null
+    return this.s3.getPresignedDownloadUrl(doc.thumbnailS3Key)
   }
 }
 

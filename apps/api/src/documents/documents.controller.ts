@@ -133,6 +133,31 @@ export class DocumentsController {
   }
 
   // ---------------------------------------------------------------------------
+  // GET /api/documents/:id/thumbnail — presigned thumbnail URL (or 204)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Returns the presigned URL for the document's 256x256 JPEG thumbnail.
+   * 200 with `{ url, expiresAt }` when a thumbnail exists; 204 (No Content)
+   * when the document has no thumbnail (PDFs, legacy rows). The UI falls
+   * back to a category icon on the 204 response.
+   */
+  @Get(':id/thumbnail')
+  async thumbnail(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const result = await this.documentsService.getThumbnailUrl(user, id)
+    if (!result) {
+      // Returning null short-circuits to a JSON null body which the frontend
+      // treats as "no thumbnail" — simpler than a 204 + status check on the
+      // fetch side.
+      return null
+    }
+    return result
+  }
+
+  // ---------------------------------------------------------------------------
   // DELETE /api/documents/:id — soft delete
   // ---------------------------------------------------------------------------
 
