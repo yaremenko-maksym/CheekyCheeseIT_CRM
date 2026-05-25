@@ -57,19 +57,19 @@ interface UploadDocumentDialogProps {
   /** Category prefilled from the active tab; user can change unless locked. */
   defaultCategory: DocumentCategory
   /** When true, the category Select is read-only (e.g. upload-from-Profile flow). */
-  lockCategory?: boolean
+  lockCategory?: boolean | undefined
   /** Available categories for the Select. Defaults to the 4 visible tabs. */
-  allowedCategories?: DocumentCategory[]
+  allowedCategories?: DocumentCategory[] | undefined
   /** Project list — required for CONTRACT, optional otherwise. */
-  projects?: ProjectOption[]
+  projects?: ProjectOption[] | undefined
   /** Owner list — visible to ADMIN/HR/SENIOR; absent → upload as self. */
-  owners?: OwnerOption[]
+  owners?: OwnerOption[] | undefined
   /** Pre-selected owner id (default: self / undefined). */
-  defaultOwnerId?: string
+  defaultOwnerId?: string | undefined
   /** Pre-selected project id. */
-  defaultProjectId?: string
+  defaultProjectId?: string | undefined
   /** Called after a successful upload (in addition to TanStack invalidation). */
-  onUploaded?: () => void
+  onUploaded?: (() => void) | undefined
 }
 
 const DEFAULT_ALLOWED: DocumentCategory[] = ['RESUME', 'SCAN', 'CONTRACT']
@@ -246,15 +246,19 @@ export function UploadDocumentDialog({
                 До {formatBytes(DOCUMENT_MAX_BYTES)}, форматы: PDF, JPG, PNG, WebP, HEIC
               </p>
             )}
-            <input
-              ref={inputRef}
-              type="file"
-              accept={[...DOCUMENT_MIME_WHITELIST].join(',')}
-              className="hidden"
-              onChange={(e) => validateAndSet(e.target.files?.[0] ?? null)}
-              data-testid="upload-file-input"
-            />
           </div>
+          {/* The native input lives OUTSIDE the dropzone so click-to-pick
+              doesn't bubble back into the dropzone's onClick handler (which
+              would recursively re-trigger the input click in some testing
+              environments). */}
+          <input
+            ref={inputRef}
+            type="file"
+            accept={[...DOCUMENT_MIME_WHITELIST].join(',')}
+            className="hidden"
+            onChange={(e) => validateAndSet(e.target.files?.[0] ?? null)}
+            data-testid="upload-file-input"
+          />
 
           {/* Category */}
           <div className="space-y-1.5">

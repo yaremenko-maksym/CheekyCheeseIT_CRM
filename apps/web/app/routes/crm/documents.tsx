@@ -60,7 +60,6 @@ export const Route = createFileRoute('/crm/documents')({
 // Visibility config
 // ---------------------------------------------------------------------------
 
-const VISIBLE_CATEGORIES: DocumentCategory[] = ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT']
 const INTERNAL_TAB_CATEGORIES: DocumentCategory[] = ['AVATAR', 'LOGO']
 
 const CATEGORY_LABELS_RU: Record<DocumentCategory, string> = {
@@ -377,7 +376,7 @@ function DocumentsHeader({
 interface TabContentProps {
   viewer: SessionUser
   category: DocumentCategory
-  ownerId?: string
+  ownerId?: string | undefined
   includeDeleted: boolean
 }
 

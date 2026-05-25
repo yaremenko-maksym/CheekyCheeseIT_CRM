@@ -16,12 +16,12 @@ interface DocumentListProps {
   documents: Document[]
   loading: boolean
   viewer: SessionUser
-  uploaders?: Record<string, UploaderInfo | undefined>
+  uploaders?: Record<string, UploaderInfo | undefined> | undefined
   /**
    * Custom empty-state node. When omitted, a generic "Нет документов"
    * placeholder is shown.
    */
-  emptyState?: React.ReactNode
+  emptyState?: React.ReactNode | undefined
 }
 
 export function DocumentList({

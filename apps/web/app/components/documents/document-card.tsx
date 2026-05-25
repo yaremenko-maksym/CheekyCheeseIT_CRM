@@ -68,7 +68,7 @@ interface DocumentCardProps {
    * Optional mapping from user id → displayName, used to render the
    * "uploaded by" line. Falls back to a short id if not provided.
    */
-  uploaders?: Record<string, UploaderInfo | undefined>
+  uploaders?: Record<string, UploaderInfo | undefined> | undefined
 }
 
 const RECEIPT_DELETE_TOOLTIP = 'Чек удаляется вместе с транзакцией'
