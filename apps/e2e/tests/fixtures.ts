@@ -684,6 +684,86 @@ export async function mockAuthAs(
   await page.route(new RegExp(`${API}/finance/expenses/hints(\\?.*)?$`), (r) =>
     jsonOk(r, { projects: [], users: [] }),
   )
+
+  // Documents (PHASE 6) — register specific sub-routes before the generic one.
+  // navigation.spec.ts and others click sidebar → /crm/documents which mounts
+  // DocumentsPage → useDocuments() → GET /documents. Without these mocks the
+  // request hits the real backend → 401 → axios interceptor → location.href =
+  // '/login' → user gets logged out mid-navigation (root cause for PR #48 fails).
+  await page.route(new RegExp(`${API}/documents/([^/?]+)/download$`), (r) =>
+    jsonOk(r, {
+      url: 'http://localhost:9000/crm-documents/mock-download',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+    }),
+  )
+  await page.route(new RegExp(`${API}/documents/([^/?]+)/thumbnail$`), (r) =>
+    jsonOk(r, null),
+  )
+  await page.route(new RegExp(`${API}/documents/([^/?]+)/restore$`), (r) =>
+    jsonOk(r, {
+      id: r.request().url().split('/').slice(-2, -1)[0],
+      ownerId: user.id,
+      projectId: null,
+      category: 'RESUME',
+      name: 'restored.pdf',
+      originalName: 'restored.pdf',
+      s3Key: 'mock-key',
+      thumbnailS3Key: null,
+      sizeBytes: 1024,
+      mimeType: 'application/pdf',
+      uploadedBy: user.id,
+      deletedAt: null,
+      deletedBy: null,
+      createdAt: '2026-05-01T10:00:00.000Z',
+    }),
+  )
+  await page.route(new RegExp(`${API}/documents/([^/?]+)/hard$`), (r) =>
+    noContent(r),
+  )
+  await page.route(new RegExp(`${API}/documents/([^/?]+)$`), (r) =>
+    r.request().method() === 'DELETE'
+      ? noContent(r)
+      : jsonOk(r, {
+          id: r.request().url().split('/').at(-1),
+          ownerId: user.id,
+          projectId: null,
+          category: 'RESUME',
+          name: 'mock.pdf',
+          originalName: 'mock.pdf',
+          s3Key: 'mock-key',
+          thumbnailS3Key: null,
+          sizeBytes: 1024,
+          mimeType: 'application/pdf',
+          uploadedBy: user.id,
+          deletedAt: null,
+          deletedBy: null,
+          createdAt: '2026-05-01T10:00:00.000Z',
+        }),
+  )
+  await page.route(new RegExp(`${API}/documents(\\?.*)?$`), (r) =>
+    r.request().method() === 'POST'
+      ? jsonOk(
+          r,
+          {
+            id: 'doc-new',
+            ownerId: user.id,
+            projectId: null,
+            category: 'RESUME',
+            name: 'uploaded.pdf',
+            originalName: 'uploaded.pdf',
+            s3Key: 'mock-key-new',
+            thumbnailS3Key: null,
+            sizeBytes: 2048,
+            mimeType: 'application/pdf',
+            uploadedBy: user.id,
+            deletedAt: null,
+            deletedBy: null,
+            createdAt: '2026-05-01T10:00:00.000Z',
+          },
+          201,
+        )
+      : jsonOk(r, []),
+  )
 }
 
 // ---------------------------------------------------------------------------
