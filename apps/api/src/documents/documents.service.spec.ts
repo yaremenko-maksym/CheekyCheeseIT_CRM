@@ -121,6 +121,13 @@ function makeHarness(opts: HarnessOptions = {}) {
             return row
           },
         },
+        users: {
+          // Used by `restore()` to re-attach the uploader's display name
+          // to the restored row. The test harness has no users seeded —
+          // returning `undefined` produces `uploadedByDisplayName: null`,
+          // which mirrors a hard-deleted uploader and is a valid DTO shape.
+          findFirst: async (_args: unknown) => undefined,
+        },
       },
 
       select: (_arg?: unknown) => ({
@@ -611,6 +618,32 @@ describe('DocumentsService.restore', () => {
     })
     await h.service.restore(ADMIN, 'd1')
     expect(h.docsRows[0]?.deletedAt).toBeNull()
+  })
+
+  it('restored DTO carries uploadedByDisplayName as null when uploader not in users table', async () => {
+    // Mock users.findFirst returns undefined for this harness — restored
+    // doc should still include the field, just null.
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME', deletedAt: new Date() }],
+    })
+    const restored = await h.service.restore(ADMIN, 'd1')
+    expect(restored.uploadedByDisplayName).toBeNull()
+  })
+})
+
+// =============================================================================
+// DTO shape — uploadedByDisplayName on upload
+// =============================================================================
+
+describe('DocumentsService.upload — DTO shape', () => {
+  it('returns uploadedByDisplayName from actor.displayName', async () => {
+    const h = makeHarness()
+    const doc = await h.service.upload(
+      ADMIN,
+      { buffer: Buffer.from('pdf'), mimetype: 'application/pdf', originalname: 'cv.pdf' },
+      { category: 'RESUME' },
+    )
+    expect(doc.uploadedByDisplayName).toBe(ADMIN.displayName)
   })
 })
 

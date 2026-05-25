@@ -182,7 +182,9 @@ export class DocumentsService {
       throw err
     }
 
-    return this.mapDocument(row)
+    // Uploader === actor for fresh uploads — we already have the
+    // display name in the session, no extra round-trip needed.
+    return this.mapDocument(row, actor.displayName ?? null)
   }
 
   // -------------------------------------------------------------------------
@@ -193,12 +195,18 @@ export class DocumentsService {
     const where = await this.buildListWhere(actor, filters)
     if (where === 'NONE') return []
 
+    // LEFT JOIN users so the response carries the uploader's display name
+    // alongside `uploadedBy`. The UI renders this as a clickable
+    // `<Link to="/crm/users/:id">`. We use LEFT (not INNER) because the
+    // uploader row may be missing (hard-deleted user, legacy data) — the
+    // schema treats `uploadedByDisplayName` as nullable for that case.
     const rows = await this.db.db
-      .select()
+      .select({ doc: documents, uploaderName: users.displayName })
       .from(documents)
+      .leftJoin(users, eq(users.id, documents.uploadedBy))
       .where(where)
       .orderBy(desc(documents.createdAt))
-    return rows.map((row) => this.mapDocument(row))
+    return rows.map((row) => this.mapDocument(row.doc, row.uploaderName ?? null))
   }
 
   // -------------------------------------------------------------------------
@@ -255,7 +263,14 @@ export class DocumentsService {
       .returning()
 
     if (!restored) throw new NotFoundException('Документ не найден')
-    return this.mapDocument(restored)
+
+    // Resolve uploader display name so the restored row matches what
+    // `list()` would have returned (UI relies on this field).
+    const uploader = await this.db.db.query.users.findFirst({
+      where: eq(users.id, restored.uploadedBy),
+      columns: { displayName: true },
+    })
+    return this.mapDocument(restored, uploader?.displayName ?? null)
   }
 
   // -------------------------------------------------------------------------
@@ -613,7 +628,19 @@ export class DocumentsService {
     return key.replace(/\.[^.]+$/, '') + '-thumb.jpg'
   }
 
-  private mapDocument(row: typeof documents.$inferSelect): DocumentDto {
+  /**
+   * Map a `documents` row into the API DTO.
+   *
+   * @param row             the `documents` row as returned by Drizzle
+   * @param uploaderName    display name resolved via a join (callers that
+   *                        already issued the join pass it in; callers that
+   *                        only have the row can pass `null` and the UI will
+   *                        fall back to a short id)
+   */
+  private mapDocument(
+    row: typeof documents.$inferSelect,
+    uploaderName: string | null = null,
+  ): DocumentDto {
     return {
       id: row.id,
       ownerId: row.ownerId,
@@ -626,6 +653,7 @@ export class DocumentsService {
       sizeBytes: row.sizeBytes,
       mimeType: row.mimeType,
       uploadedBy: row.uploadedBy,
+      uploadedByDisplayName: uploaderName,
       deletedAt: row.deletedAt?.toISOString() ?? null,
       deletedBy: row.deletedBy ?? null,
       createdAt: row.createdAt.toISOString(),

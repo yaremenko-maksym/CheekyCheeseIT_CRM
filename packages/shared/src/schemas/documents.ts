@@ -75,6 +75,16 @@ export const documentSchema = z.object({
   sizeBytes: z.number().int().nonnegative(),
   mimeType: z.string().min(1).max(64),
   uploadedBy: z.string().uuid(),
+  /**
+   * Display name of the user who uploaded the document. Embedded by the API
+   * via a LEFT JOIN on `users` so the UI does not need a second `/api/users`
+   * round-trip (and works for JUNIOR / SENIOR / ACCOUNTANT roles which do
+   * not have access to that endpoint). Nullable for safety:
+   *   - legacy rows where the uploader was hard-deleted from `users`
+   *   - the field is computed at SELECT time; a missing user row leaves it
+   *     null so the UI can fall back to `shortId(uploadedBy)`.
+   */
+  uploadedByDisplayName: z.string().min(1).max(255).nullable(),
   deletedAt: z.string().datetime().nullable(),
   deletedBy: z.string().uuid().nullable(),
   createdAt: z.string().datetime(),

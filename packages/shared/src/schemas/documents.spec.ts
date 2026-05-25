@@ -79,6 +79,7 @@ describe('documentSchema', () => {
     sizeBytes: 12345,
     mimeType: 'application/pdf',
     uploadedBy: uuid,
+    uploadedByDisplayName: 'Иван Иванов',
     deletedAt: null,
     deletedBy: null,
     createdAt: datetime,
@@ -112,6 +113,18 @@ describe('documentSchema', () => {
         thumbnailS3Key: null,
       }),
     ).not.toThrow()
+  })
+
+  it('accepts null uploadedByDisplayName (uploader hard-deleted or missing)', () => {
+    expect(() =>
+      documentSchema.parse({ ...validDoc, uploadedByDisplayName: null }),
+    ).not.toThrow()
+  })
+
+  it('rejects empty uploadedByDisplayName (set or null, never blank string)', () => {
+    expect(() =>
+      documentSchema.parse({ ...validDoc, uploadedByDisplayName: '' }),
+    ).toThrow()
   })
 
   it('rejects negative sizeBytes', () => {
