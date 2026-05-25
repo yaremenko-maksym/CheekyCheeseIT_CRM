@@ -85,6 +85,13 @@
       "when": 1780200000000,
       "tag": "0011_documents_thumbnail_and_filename",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1780300000000,
+      "tag": "0012_normalize_legacy_project_domains",
+      "breakpoints": true
     }
   ]
 }

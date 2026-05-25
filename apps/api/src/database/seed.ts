@@ -134,7 +134,7 @@ const SEED_PROJECTS = [
   {
     name: 'AI Platform v2',
     companyName: 'TechCorp AI',
-    domain: 'AI',
+    domain: 'AI / ML',
     seniorEmail: 'oleksiy.kovalenko@cheekycheese.dev',
     juniorEmails: ['sofia.bondarenko@cheekycheese.dev'],
     hrEmails: ['kateryna.shevchenko@cheekycheese.dev'],
@@ -174,7 +174,7 @@ const SEED_PROJECTS = [
   {
     name: 'Artkai',
     companyName: 'Artkai',
-    domain: 'Design Platform',
+    domain: 'Other',
     seniorEmail: 'yaremenkomaksym99@gmail.com',
     juniorEmails: [],
     hrEmails: ['anna.lysenko@cheekycheese.dev'],
@@ -184,7 +184,7 @@ const SEED_PROJECTS = [
   {
     name: 'Фавбет',
     companyName: 'Фавбет',
-    domain: 'Gambling / Betting',
+    domain: 'Gambling',
     seniorEmail: 'yaremenkomaksym99@gmail.com',
     juniorEmails: [],
     hrEmails: ['kateryna.shevchenko@cheekycheese.dev'],
