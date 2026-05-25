@@ -61,19 +61,9 @@ import {
 } from '@/hooks/use-documents'
 import { DocumentImage } from './document-image'
 
-type UploaderInfo = {
-  id: string
-  displayName: string | null
-}
-
 interface DocumentCardProps {
   doc: Document
   viewer: SessionUser
-  /**
-   * Optional mapping from user id → displayName, used to render the
-   * "uploaded by" line. Falls back to a short id if not provided.
-   */
-  uploaders?: Record<string, UploaderInfo | undefined> | undefined
   /**
    * Click handler for the card preview / filename area. The parent passes
    * a callback that opens the DocumentDetailDialog with this document.
@@ -88,7 +78,7 @@ function shortId(id: string): string {
   return id.length > 8 ? id.slice(-8) : id
 }
 
-export function DocumentCard({ doc, viewer, uploaders, onOpen }: DocumentCardProps) {
+export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
   const [confirmSoftDelete, setConfirmSoftDelete] = useState(false)
   const [confirmHardDelete, setConfirmHardDelete] = useState(false)
 
@@ -109,8 +99,10 @@ export function DocumentCard({ doc, viewer, uploaders, onOpen }: DocumentCardPro
   const canRestore = isDeleted && isAdmin
   const canHardDelete = isDeleted && isAdmin
 
-  const uploader = uploaders?.[doc.uploadedBy]
-  const uploaderLabel = uploader?.displayName ?? shortId(doc.uploadedBy)
+  // Uploader display name is embedded in the API response (LEFT JOIN
+  // on `users`). When the uploader was hard-deleted the field is null
+  // and we fall back to a short id so the card still renders.
+  const uploaderLabel = doc.uploadedByDisplayName ?? shortId(doc.uploadedBy)
 
   // Variant 3 hybrid: prefer the original name (cyrillic preserved); fall
   // back to the sanitized `name` for legacy rows that pre-date migration 0011.
@@ -209,7 +201,14 @@ export function DocumentCard({ doc, viewer, uploaders, onOpen }: DocumentCardPro
 
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
           <UserCircle2 className="h-3.5 w-3.5" />
-          <span className="line-clamp-1">{uploaderLabel}</span>
+          <Link
+            to="/crm/profile/$userId"
+            params={{ userId: doc.uploadedBy }}
+            className="line-clamp-1 hover:text-foreground hover:underline focus:outline-none focus-visible:text-foreground focus-visible:underline"
+            data-testid="document-card-uploader-link"
+          >
+            {uploaderLabel}
+          </Link>
         </div>
 
         {isReceipt && doc.projectId ? (

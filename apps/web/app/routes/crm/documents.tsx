@@ -274,6 +274,8 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
         doc={detailDoc}
         viewer={viewer}
       />
+      {/* uploadedByDisplayName comes embedded in each doc DTO (API LEFT JOIN),
+          so no /api/users round-trip is needed here. */}
     </div>
   )
 }
@@ -563,22 +565,6 @@ function DocumentsListSection({
     </div>
   )
 
-  // Build a minimal uploaders map from the docs themselves — for now we
-  // surface the uploader id; resolving full names would require a /users
-  // fetch which is already gated on ADMIN/HR in the header. The DocumentCard
-  // gracefully falls back to a short id when the map entry is missing.
-  const uploaders = useMemo(() => {
-    const map: Record<string, { id: string; displayName: string | null }> = {}
-    if (data) {
-      for (const d of data) {
-        if (!map[d.uploadedBy]) {
-          map[d.uploadedBy] = { id: d.uploadedBy, displayName: null }
-        }
-      }
-    }
-    return map
-  }, [data])
-
   const emptyState =
     categoryFilter === 'RECEIPT'
       ? receiptEmpty
@@ -613,7 +599,6 @@ function DocumentsListSection({
         documents={filtered}
         loading={isLoading}
         viewer={viewer}
-        uploaders={uploaders}
         emptyState={emptyState}
         onOpen={onOpen}
       />

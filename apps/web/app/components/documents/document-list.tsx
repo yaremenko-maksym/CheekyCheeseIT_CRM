@@ -2,21 +2,19 @@
  * DocumentList — grid of DocumentCard, or skeleton/empty state.
  *
  * Renders the empty state slot supplied by the parent (so the Receipts tab
- * can replace it with a link to /crm/finance). Parent passes the precomputed
- * uploaders map to spare the cards from running their own queries.
+ * can replace it with a link to /crm/finance). Uploader display names are
+ * embedded in each document DTO (API LEFT JOIN), so no precomputed map is
+ * needed any more.
  */
 import { FileText } from 'lucide-react'
 import type { Document, SessionUser } from '@crm/shared'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DocumentCard } from './document-card'
 
-type UploaderInfo = { id: string; displayName: string | null }
-
 interface DocumentListProps {
   documents: Document[]
   loading: boolean
   viewer: SessionUser
-  uploaders?: Record<string, UploaderInfo | undefined> | undefined
   /**
    * Custom empty-state node. When omitted, a generic "Нет документов"
    * placeholder is shown.
@@ -34,7 +32,6 @@ export function DocumentList({
   documents,
   loading,
   viewer,
-  uploaders,
   emptyState,
   onOpen,
 }: DocumentListProps) {
@@ -71,7 +68,6 @@ export function DocumentList({
           key={doc.id}
           doc={doc}
           viewer={viewer}
-          uploaders={uploaders}
           onOpen={onOpen}
         />
       ))}

@@ -17,7 +17,8 @@
  * displayed in a smaller secondary line so power users can see what
  * actually lives in S3 / on disk after download.
  */
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
+import { Link } from '@tanstack/react-router'
 import { formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import {
@@ -64,14 +65,11 @@ import {
 } from '@/hooks/use-documents'
 import { DocumentImage } from './document-image'
 
-type UploaderInfo = { id: string; displayName: string | null }
-
 interface DocumentDetailDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   doc: Document | null
   viewer: SessionUser
-  uploaders?: Record<string, UploaderInfo | undefined> | undefined
 }
 
 function shortId(id: string): string {
@@ -83,7 +81,6 @@ export function DocumentDetailDialog({
   onOpenChange,
   doc,
   viewer,
-  uploaders,
 }: DocumentDetailDialogProps) {
   const [confirmSoftDelete, setConfirmSoftDelete] = useState(false)
   const [confirmHardDelete, setConfirmHardDelete] = useState(false)
@@ -107,8 +104,10 @@ export function DocumentDetailDialog({
   const canRestore = isDeleted && isAdmin
   const canHardDelete = isDeleted && isAdmin
 
-  const uploader = doc ? uploaders?.[doc.uploadedBy] : undefined
-  const uploaderLabel = uploader?.displayName ?? (doc ? shortId(doc.uploadedBy) : '')
+  // Uploader display name is part of the document DTO (LEFT JOIN
+  // performed server-side). Fall back to a short id when the field is
+  // null (hard-deleted user / legacy row).
+  const uploaderLabel = doc?.uploadedByDisplayName ?? (doc ? shortId(doc.uploadedBy) : '')
 
   const relativeDate = useMemo(() => {
     if (!doc) return ''
@@ -193,7 +192,16 @@ export function DocumentDetailDialog({
               <DetailRow
                 icon={UserCircle2}
                 label="Загрузил"
-                value={uploaderLabel}
+                value={
+                  <Link
+                    to="/crm/profile/$userId"
+                    params={{ userId: doc.uploadedBy }}
+                    className="text-primary hover:underline focus:outline-none focus-visible:underline"
+                    data-testid="document-detail-uploader-link"
+                  >
+                    {uploaderLabel}
+                  </Link>
+                }
               />
               <DetailRow
                 icon={Calendar}
@@ -344,12 +352,17 @@ export function DocumentDetailDialog({
 interface DetailRowProps {
   icon: LucideIcon
   label: string
-  value: string
+  /**
+   * Value can be a plain string (rendered in a `<p>`) or any ReactNode
+   * (rendered as-is, useful for links like the uploader profile link).
+   */
+  value: string | ReactNode
   title?: string
   className?: string
 }
 
 function DetailRow({ icon: Icon, label, value, title, className }: DetailRowProps) {
+  const isString = typeof value === 'string'
   return (
     <div
       className={`flex items-start gap-2 text-xs ${className ?? ''}`}
@@ -358,7 +371,11 @@ function DetailRow({ icon: Icon, label, value, title, className }: DetailRowProp
       <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <p className="text-muted-foreground">{label}</p>
-        <p className="line-clamp-2 break-all text-sm text-foreground">{value}</p>
+        {isString ? (
+          <p className="line-clamp-2 break-all text-sm text-foreground">{value}</p>
+        ) : (
+          <div className="line-clamp-2 break-all text-sm text-foreground">{value}</div>
+        )}
       </div>
     </div>
   )
