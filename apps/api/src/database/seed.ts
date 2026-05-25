@@ -1,6 +1,9 @@
 import 'dotenv/config'
+import { readFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import * as schema from './schema'
 
 export const MAKSYM_ID = '00000000-0000-0000-0000-000000000001'
@@ -923,9 +926,14 @@ async function main() {
 
   // ── Documents seed (PHASE 6) ─────────────────────────────────────────────
   //
-  // Rows-only seed. The s3_keys point to files that DO NOT exist in MinIO;
-  // downloads will 404 — this is OK for seed data (UI still renders cards
-  // with RBAC + delete flow; real uploads come via the API in e2e tests).
+  // Best-effort REAL uploads: when MinIO / S3 env vars are present (`S3_ENDPOINT`,
+  // `S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) we push a real
+  // PDF (`seed-fixtures/sample-receipt-real.pdf`, a 143 KB sample receipt the
+  // user supplied) into the bucket under each PDF document's s3_key. When
+  // those vars are missing (CI / production migrations) we silently skip the
+  // upload — the row stays in the DB and the UI shows a 404 thumbnail until
+  // a real upload happens. ONE PDF is used for ALL PDF categories (RESUME /
+  // CONTRACT / RECEIPT) to keep the seed deterministic and small.
   //
   // AVATAR/LOGO are NOT seeded here — those rows are created in
   // task-avatars-logos-integration where users.avatar_document_id and
@@ -946,6 +954,35 @@ async function main() {
     const mykola = byEmail['mykola.savchenko@cheekycheese.dev']
 
     if (adminMaksym && oleksiy && dmytro && sofia && ivan && anna && kateryna && mykola) {
+      // Resolve the on-disk fixture once. Path is relative to this source
+      // file so it works regardless of where `pnpm db:seed` was invoked from.
+      // `sample-receipt-real.pdf` is a 143 KB real PDF supplied by the
+      // product owner — we use it as the single sample for every PDF row
+      // (RESUME / CONTRACT / RECEIPT). Image fixtures live in the same dir
+      // but we keep them per-category (passport / receipt) for variety.
+      const fixturesDir = join(__dirname, 'seed-fixtures')
+      const samplePdfPath = join(fixturesDir, 'sample-receipt-real.pdf')
+      const samplePdfBytes: Buffer | null = existsSync(samplePdfPath)
+        ? readFileSync(samplePdfPath)
+        : null
+      const samplePdfSize = samplePdfBytes?.length ?? 50_000
+
+      // Default originalName per category — uses the doc owner's first name
+      // so a quick glance at the documents grid still tells you whose file
+      // it is. Cyrillic on purpose (matches user-uploaded names).
+      const originalNameFor = (
+        category: schema.NewDocument['category'],
+        owner: typeof oleksiy,
+        ext: string,
+      ): string => {
+        const first = owner.displayName.split(' ')[0] ?? 'Файл'
+        if (category === 'RESUME') return `Резюме ${first}.${ext}`
+        if (category === 'CONTRACT') return `Договор ${first}.${ext}`
+        if (category === 'RECEIPT') return `Чек ${first}.${ext}`
+        if (category === 'SCAN') return `Скан ${first}.${ext}`
+        return `${category} ${first}.${ext}`
+      }
+
       // For each row we mint a UUID so the s3_key embeds the doc id (matches
       // production `documents/<category>/<owner>/<docId>-<file>` pattern,
       // just under the `seed/` namespace so prod buckets can't collide).
@@ -970,8 +1007,11 @@ async function main() {
           projectId: opts.projectId ?? null,
           category,
           name,
+          originalName: originalNameFor(category, owner, ext),
           s3Key: `documents/seed/${id}.${ext}`,
-          sizeBytes: 50_000,
+          // PDFs use the real fixture size (143 KB); images keep the
+          // synthetic 50 KB placeholder until we wire real image fixtures.
+          sizeBytes: ext === 'pdf' ? samplePdfSize : 50_000,
           mimeType: mime,
           uploadedBy: opts.uploadedBy ?? owner.id,
         }
@@ -1020,6 +1060,65 @@ async function main() {
 
       await db.insert(schema.documents).values(docs)
       console.log(`  + seeded ${docs.length} documents (RESUME/SCAN/CONTRACT/RECEIPT)`)
+
+      // Best-effort: push the real sample PDF into MinIO under each PDF
+      // row's s3_key. Image-MIME rows are skipped (the fixture is a PDF;
+      // they keep their broken thumbnail). Failure here is non-fatal —
+      // missing env vars or a MinIO outage just yields a warn line.
+      const s3Endpoint = process.env['S3_ENDPOINT']
+      const s3Bucket = process.env['S3_BUCKET']
+      const s3AccessKey = process.env['AWS_ACCESS_KEY_ID']
+      const s3SecretKey = process.env['AWS_SECRET_ACCESS_KEY']
+      if (samplePdfBytes && s3Endpoint && s3Bucket && s3AccessKey && s3SecretKey) {
+        const s3 = new S3Client({
+          region: process.env['S3_REGION'] ?? 'us-east-1',
+          endpoint: s3Endpoint,
+          forcePathStyle: process.env['S3_FORCE_PATH_STYLE'] === 'true',
+          credentials: { accessKeyId: s3AccessKey, secretAccessKey: s3SecretKey },
+        })
+        let uploaded = 0
+        let skipped = 0
+        let failed = 0
+        for (const d of docs) {
+          if (d.mimeType !== 'application/pdf') {
+            skipped += 1
+            continue
+          }
+          try {
+            await s3.send(
+              new PutObjectCommand({
+                Bucket: s3Bucket,
+                Key: d.s3Key,
+                Body: samplePdfBytes,
+                ContentType: 'application/pdf',
+                CacheControl: 'public, max-age=31536000, immutable',
+              }),
+            )
+            uploaded += 1
+          } catch (err) {
+            failed += 1
+            if (failed === 1) {
+              // Log only the first failure to avoid a flood — the seed
+              // can still finish even if MinIO is unhappy.
+              console.warn(
+                `  ! S3 upload failed for ${d.s3Key}: ${(err as Error).message}`,
+              )
+            }
+          }
+        }
+        console.log(
+          `  + S3: ${uploaded} PDF uploaded, ${skipped} image rows skipped` +
+            (failed ? `, ${failed} failed` : ''),
+        )
+      } else if (!samplePdfBytes) {
+        console.warn(
+          `  ! sample-receipt-real.pdf missing at ${samplePdfPath} — skipped S3 uploads`,
+        )
+      } else {
+        console.log(
+          '  ~ S3 env vars not set (S3_ENDPOINT/S3_BUCKET/AWS_*) — skipped S3 uploads',
+        )
+      }
     } else {
       console.warn('  ! Missing required seed users — documents seed skipped')
     }
