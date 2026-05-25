@@ -6,20 +6,20 @@
  *   ┌───────────────────────────────────────────────────────────────────┐
  *   │  Header  (title + counter + Загрузить button)                     │
  *   │  Tri-state SegmentedToggle (Все / Активные / Архив, ADMIN-only)   │
- *   │  ADMIN extras: показать internal toggle + owner filter            │
+ *   │  Filter row: Owner (ADMIN/HR) + Category dropdown + internal tgl  │
  *   ├───────────────────────────────────────────────────────────────────┤
- *   │  Tabs: Резюме | Сканы | Договоры | Чеки  [+ Аватары | Логотипы]   │
- *   ├───────────────────────────────────────────────────────────────────┤
- *   │  <DocumentList /> for the active tab (grid of cards)              │
+ *   │  <DocumentList /> for the active category filter (grid of cards)  │
  *   └───────────────────────────────────────────────────────────────────┘
  *
- * Visibility per role is computed once via TAB_VISIBILITY and the role-side
- * filter from the spec — when the viewer's role has zero visible tabs we
- * show a single "no access" panel instead of an empty tab strip.
+ * Per user choice (Variant A) — category is a Select dropdown in the toolbar,
+ * not a Tabs strip. Default = "Все категории" (no filter); user narrows down
+ * via the dropdown. AVATAR/LOGO options are admin-only and live alongside
+ * the regular categories (no separate "show internal" toggle needed since the
+ * dropdown is compact).
  *
- * Two "internal" categories (AVATAR, LOGO) live behind an ADMIN-only
- * toggle so they're auditable from one place without leaking into normal
- * users' UX.
+ * Visibility per role is computed once via TAB_VISIBILITY and the role-side
+ * filter from the spec — when the viewer's role has zero accessible categories
+ * we show a single "no access" panel instead of an empty filter row.
  *
  * Deep-link: `?openDocId=<uuid>` opens the DocumentDetailDialog for that
  * document automatically once the list query resolves. Used by external
@@ -42,12 +42,6 @@ import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { Button } from '@/components/ui/button'
 import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from '@/components/ui/tabs'
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -66,6 +60,7 @@ import { UploadDocumentDialog } from '@/components/documents/upload-document-dia
 
 type Role = SessionUser['role']
 type StatusTab = 'ALL' | 'ACTIVE' | 'ARCHIVED'
+type CategoryFilter = DocumentCategory | 'ALL'
 
 // `openDocId` deep-link param: when set, the matching doc is opened in
 // DocumentDetailDialog as soon as the list query resolves.
@@ -82,8 +77,6 @@ export const Route = createFileRoute('/crm/documents')({
 // Visibility config
 // ---------------------------------------------------------------------------
 
-const INTERNAL_TAB_CATEGORIES: DocumentCategory[] = ['AVATAR', 'LOGO']
-
 const CATEGORY_LABELS_RU: Record<DocumentCategory, string> = {
   RESUME: 'Резюме',
   SCAN: 'Сканы документов',
@@ -95,7 +88,7 @@ const CATEGORY_LABELS_RU: Record<DocumentCategory, string> = {
 
 /**
  * RBAC visibility per spec table «Видимость табов по ролям».
- * Maps Role → set of categories that role may see in the tab strip.
+ * Maps Role → set of categories that role may see in the dropdown.
  */
 const TAB_VISIBILITY: Record<Role, DocumentCategory[]> = {
   ADMIN: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT'],
@@ -142,31 +135,31 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   // status tab (ARCHIVED ⇒ true) rather than a separate checkbox so the
   // shape matches /crm/users.
   const [statusTab, setStatusTab] = useState<StatusTab>('ACTIVE')
-  const [showInternal, setShowInternal] = useState(false)
   const [ownerFilter, setOwnerFilter] = useState<string>('ALL')
+  // Category filter: 'ALL' = no category filter (show all accessible to role).
+  // Default is 'ALL' per user choice (Variant A) — show everything by default,
+  // narrow down via dropdown.
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('ALL')
 
-  // Visible tabs for this viewer + ADMIN-toggled internal tabs.
-  const visibleTabs = useMemo<DocumentCategory[]>(() => {
+  // Categories this viewer is allowed to see in the dropdown.
+  // ADMIN additionally gets AVATAR/LOGO (internal categories, kept compact
+  // in the dropdown so no separate toggle is needed).
+  const availableCategories = useMemo<DocumentCategory[]>(() => {
     const base = TAB_VISIBILITY[viewer.role] ?? []
-    if (isAdmin && showInternal) return [...base, ...INTERNAL_TAB_CATEGORIES]
+    if (isAdmin) return [...base, 'AVATAR', 'LOGO']
     return base
-  }, [viewer.role, isAdmin, showInternal])
+  }, [viewer.role, isAdmin])
 
-  const [activeTab, setActiveTab] = useState<DocumentCategory | null>(
-    visibleTabs[0] ?? null,
-  )
-
-  // If the visible set changes (e.g. ADMIN toggles internal), keep activeTab
-  // pointing at a valid value.
+  // If RBAC changes (role swap is impossible at runtime but defensive) and
+  // the selected category is no longer available, reset to 'ALL'.
   useEffect(() => {
-    if (visibleTabs.length === 0) {
-      setActiveTab(null)
-      return
+    if (
+      categoryFilter !== 'ALL' &&
+      !availableCategories.includes(categoryFilter)
+    ) {
+      setCategoryFilter('ALL')
     }
-    if (!activeTab || !visibleTabs.includes(activeTab)) {
-      setActiveTab(visibleTabs[0] ?? null)
-    }
-  }, [visibleTabs, activeTab])
+  }, [availableCategories, categoryFilter])
 
   // includeDeleted: only ADMIN can ask for deleted docs; non-ADMINs never
   // get the ARCHIVED tab so the flag is unconditionally `false` for them.
@@ -201,8 +194,8 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
     }
   }
 
-  // Empty-access state — no tabs at all.
-  if (visibleTabs.length === 0 || activeTab === null) {
+  // Empty-access state — no categories at all.
+  if (availableCategories.length === 0) {
     return (
       <div>
         <div className="mb-6">
@@ -237,11 +230,11 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
     <div className="space-y-6">
       <DocumentsHeader
         viewer={viewer}
-        activeTab={activeTab}
+        categoryFilter={categoryFilter}
         ownerFilter={ownerFilter}
         onChangeOwnerFilter={setOwnerFilter}
-        showInternal={showInternal}
-        onToggleInternal={setShowInternal}
+        availableCategories={availableCategories}
+        onChangeCategoryFilter={setCategoryFilter}
       />
 
       {/* Tri-state status filter — matches /crm/users (Все / Активные / Архив).
@@ -265,36 +258,15 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
         />
       </motion.div>
 
-      <Tabs
-        value={activeTab}
-        onValueChange={(v) => setActiveTab(v as DocumentCategory)}
-      >
-        <TabsList data-testid="documents-tabs" className="flex-wrap">
-          {visibleTabs.map((cat) => (
-            <TabsTrigger
-              key={cat}
-              value={cat}
-              data-testid={`documents-tab-${cat}`}
-            >
-              {CATEGORY_LABELS_RU[cat]}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-
-        {visibleTabs.map((cat) => (
-          <TabsContent key={cat} value={cat} className="mt-4">
-            <DocumentsTabContent
-              viewer={viewer}
-              category={cat}
-              ownerId={ownerFilter === 'ALL' ? undefined : ownerFilter}
-              includeDeleted={includeDeleted}
-              statusTab={statusTab}
-              onOpen={openDetail}
-              openDocId={search.openDocId}
-            />
-          </TabsContent>
-        ))}
-      </Tabs>
+      <DocumentsListSection
+        viewer={viewer}
+        categoryFilter={categoryFilter}
+        ownerId={ownerFilter === 'ALL' ? undefined : ownerFilter}
+        includeDeleted={includeDeleted}
+        statusTab={statusTab}
+        onOpen={openDetail}
+        openDocId={search.openDocId}
+      />
 
       <DocumentDetailDialog
         open={detailOpen}
@@ -312,24 +284,25 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
 
 interface HeaderProps {
   viewer: SessionUser
-  activeTab: DocumentCategory
+  categoryFilter: CategoryFilter
   ownerFilter: string
   onChangeOwnerFilter: (v: string) => void
-  showInternal: boolean
-  onToggleInternal: (v: boolean) => void
+  availableCategories: DocumentCategory[]
+  onChangeCategoryFilter: (v: CategoryFilter) => void
 }
 
 function DocumentsHeader({
   viewer,
-  activeTab,
+  categoryFilter,
   ownerFilter,
   onChangeOwnerFilter,
-  showInternal,
-  onToggleInternal,
+  availableCategories,
+  onChangeCategoryFilter,
 }: HeaderProps) {
-  const isAdmin = viewer.role === 'ADMIN'
   const showOwnerFilter = canSeeOwnerFilter(viewer.role)
-  const isReceiptsTab = activeTab === 'RECEIPT'
+  // Hide the upload button when viewing the RECEIPT-only filter — receipts
+  // come from Finance, not from this page.
+  const isReceiptsFilter = categoryFilter === 'RECEIPT'
 
   const [uploadOpen, setUploadOpen] = useState(false)
 
@@ -358,18 +331,22 @@ function DocumentsHeader({
   const uploadableCats = UPLOADABLE_PER_ROLE[viewer.role] ?? []
   // The upload button is hidden when:
   //   - the role can't upload anything from this page (e.g. ACCOUNTANT), OR
-  //   - we're on the Receipts tab (uploads happen via Finance dialogs), OR
-  //   - we're on an internal tab (AVATAR/LOGO — managed in Profile/Project).
+  //   - the dropdown is narrowed to Receipts only (uploads via Finance), OR
+  //   - the dropdown is narrowed to an internal category (AVATAR/LOGO —
+  //     managed in Profile/Project, not bulk-uploaded here).
   const canShowUploadButton =
     uploadableCats.length > 0 &&
-    !isReceiptsTab &&
-    !(['AVATAR', 'LOGO'] as DocumentCategory[]).includes(activeTab)
+    !isReceiptsFilter &&
+    categoryFilter !== 'AVATAR' &&
+    categoryFilter !== 'LOGO'
 
-  // For the dialog we pick a sensible default category from the active tab —
-  // fall back to the first uploadable category if the user is on a tab they
-  // can't upload to (e.g. ADMIN viewing Receipts).
+  // For the dialog we pick a sensible default category from the active
+  // filter — fall back to the first uploadable category if the user is on
+  // 'ALL' or a filter they can't upload to (e.g. ADMIN on RECEIPT).
   const defaultUploadCategory: DocumentCategory =
-    uploadableCats.includes(activeTab) ? activeTab : (uploadableCats[0] ?? 'RESUME')
+    categoryFilter !== 'ALL' && uploadableCats.includes(categoryFilter)
+      ? categoryFilter
+      : (uploadableCats[0] ?? 'RESUME')
 
   return (
     <div className="flex flex-col gap-4">
@@ -399,53 +376,63 @@ function DocumentsHeader({
         ) : null}
       </motion.div>
 
-      {/* ADMIN extras row — owner filter + internal toggle. Always rendered
-          but only contains controls the viewer is entitled to. */}
-      {(showOwnerFilter || isAdmin) ? (
-        <motion.div
-          initial={{ opacity: 0, y: 4 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2, delay: 0.05 }}
-          className="flex flex-wrap items-end gap-3"
-        >
-          {showOwnerFilter ? (
-            <div className="w-full max-w-xs space-y-1.5">
-              <Label htmlFor="documents-owner-filter" className="text-xs">
-                Владелец
-              </Label>
-              <Select value={ownerFilter} onValueChange={onChangeOwnerFilter}>
-                <SelectTrigger
-                  id="documents-owner-filter"
-                  data-testid="documents-owner-filter"
-                >
-                  <SelectValue placeholder="Все" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">Все</SelectItem>
-                  {(users ?? []).map((u) => (
-                    <SelectItem key={u.id} value={u.id}>
-                      {u.displayName} ({u.email})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ) : null}
+      {/* Filter row — owner (ADMIN/HR), category dropdown (everyone). */}
+      <motion.div
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2, delay: 0.05 }}
+        className="flex flex-wrap items-end gap-3"
+      >
+        {showOwnerFilter ? (
+          <div className="w-full max-w-xs space-y-1.5">
+            <Label htmlFor="documents-owner-filter" className="text-xs">
+              Владелец
+            </Label>
+            <Select value={ownerFilter} onValueChange={onChangeOwnerFilter}>
+              <SelectTrigger
+                id="documents-owner-filter"
+                data-testid="documents-owner-filter"
+              >
+                <SelectValue placeholder="Все" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">Все</SelectItem>
+                {(users ?? []).map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.displayName} ({u.email})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
 
-          {isAdmin ? (
-            <label className="inline-flex cursor-pointer items-center gap-2 text-xs">
-              <input
-                type="checkbox"
-                checked={showInternal}
-                onChange={(e) => onToggleInternal(e.target.checked)}
-                className="h-4 w-4 rounded border-border"
-                data-testid="documents-toggle-internal"
-              />
-              Показать internal (Аватары / Логотипы)
-            </label>
-          ) : null}
-        </motion.div>
-      ) : null}
+        <div className="w-full max-w-xs space-y-1.5">
+          <Label htmlFor="documents-category-filter" className="text-xs">
+            Категория
+          </Label>
+          <Select
+            value={categoryFilter}
+            onValueChange={(v) => onChangeCategoryFilter(v as CategoryFilter)}
+          >
+            <SelectTrigger
+              id="documents-category-filter"
+              data-testid="documents-category-filter"
+              className="w-44"
+            >
+              <SelectValue placeholder="Все категории" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">Все категории</SelectItem>
+              {availableCategories.map((cat) => (
+                <SelectItem key={cat} value={cat}>
+                  {CATEGORY_LABELS_RU[cat]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </motion.div>
 
       {canShowUploadButton ? (
         <UploadDocumentDialog
@@ -473,12 +460,12 @@ function DocumentsHeader({
 }
 
 // ---------------------------------------------------------------------------
-// Per-tab content
+// List section (replaces previous per-tab content)
 // ---------------------------------------------------------------------------
 
-interface TabContentProps {
+interface ListSectionProps {
   viewer: SessionUser
-  category: DocumentCategory
+  categoryFilter: CategoryFilter
   ownerId?: string | undefined
   includeDeleted: boolean
   /** Tri-state filter — feeds the empty-state copy + counter chip. */
@@ -487,17 +474,19 @@ interface TabContentProps {
   openDocId?: string | undefined
 }
 
-function DocumentsTabContent({
+function DocumentsListSection({
   viewer,
-  category,
+  categoryFilter,
   ownerId,
   includeDeleted,
   statusTab,
   onOpen,
   openDocId,
-}: TabContentProps) {
+}: ListSectionProps) {
+  // Only forward `category` to the API when a specific one is picked.
+  // 'ALL' ⇒ backend returns everything the role can see.
   const { data, isLoading } = useDocuments({
-    category,
+    ...(categoryFilter !== 'ALL' ? { category: categoryFilter } : {}),
     ownerId,
     includeDeleted,
   })
@@ -525,8 +514,8 @@ function DocumentsTabContent({
     if (target) onOpenRef.current(target)
   }, [openDocId, data])
 
-  // For the Receipts tab on an empty state, show a deep link into Finance
-  // rather than the generic "no documents" placeholder.
+  // For the Receipts-only filter on an empty state, show a deep link into
+  // Finance rather than the generic "no documents" placeholder.
   const receiptEmpty = (
     <div
       data-testid="documents-empty-receipts"
@@ -546,17 +535,31 @@ function DocumentsTabContent({
     </div>
   )
 
-  // For AVATAR / LOGO tabs (ADMIN audit view) — neutral empty state.
+  // For AVATAR / LOGO filters (ADMIN audit view) — neutral empty state.
   const internalEmpty = (
     <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
       <FileText className="h-10 w-10 text-muted-foreground/30" />
       <p className="mt-4 text-sm font-medium">
-        Нет {category === 'AVATAR' ? 'аватаров' : 'логотипов'}
+        Нет {categoryFilter === 'AVATAR' ? 'аватаров' : 'логотипов'}
       </p>
       <p className="mt-1 text-xs text-muted-foreground">
         Управление — из{' '}
-        {category === 'AVATAR' ? 'профилей пользователей' : 'настроек проектов'}.
+        {categoryFilter === 'AVATAR'
+          ? 'профилей пользователей'
+          : 'настроек проектов'}
+        .
       </p>
+    </div>
+  )
+
+  // Generic empty state — covers `ALL`, RESUME, SCAN, CONTRACT.
+  const genericEmpty = (
+    <div
+      data-testid="documents-empty-generic"
+      className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center"
+    >
+      <FileText className="h-10 w-10 text-muted-foreground/30" />
+      <p className="mt-4 text-sm font-medium">Нет документов</p>
     </div>
   )
 
@@ -577,21 +580,33 @@ function DocumentsTabContent({
   }, [data])
 
   const emptyState =
-    category === 'RECEIPT'
+    categoryFilter === 'RECEIPT'
       ? receiptEmpty
-      : category === 'AVATAR' || category === 'LOGO'
+      : categoryFilter === 'AVATAR' || categoryFilter === 'LOGO'
         ? internalEmpty
-        : undefined
+        : genericEmpty
+
+  // Counter label — when filtering by category, mention which one.
+  const counterScope =
+    categoryFilter === 'ALL'
+      ? ''
+      : ` · ${CATEGORY_LABELS_RU[categoryFilter].toLowerCase()}`
 
   return (
     <div className="space-y-3">
       <div
         className="text-xs text-muted-foreground"
-        data-testid={`documents-counter-${category}`}
+        data-testid={`documents-counter-${categoryFilter}`}
       >
         {isLoading
           ? '...'
-          : `${filtered.length} ${pluralizeDocuments(filtered.length)}${statusTab === 'ARCHIVED' ? ' · в архиве' : statusTab === 'ALL' ? ' · все' : ''}`}
+          : `${filtered.length} ${pluralizeDocuments(filtered.length)}${
+              statusTab === 'ARCHIVED'
+                ? ' · в архиве'
+                : statusTab === 'ALL'
+                  ? ' · все'
+                  : ''
+            }${counterScope}`}
       </div>
 
       <DocumentList
