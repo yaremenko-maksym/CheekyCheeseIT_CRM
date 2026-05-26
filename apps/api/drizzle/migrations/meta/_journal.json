@@ -113,6 +113,27 @@
       "when": 1780600000000,
       "tag": "0015_projects_logo_doc_fk",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1780700000000,
+      "tag": "0016_invoice_category_and_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1780800000000,
+      "tag": "0017_invoice_signatures",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1780900000000,
+      "tag": "0018_notifications",
+      "breakpoints": true
     }
   ]
 }

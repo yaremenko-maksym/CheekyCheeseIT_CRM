@@ -14,8 +14,8 @@ const uuid = '123e4567-e89b-12d3-a456-426614174000'
 const datetime = '2026-01-01T00:00:00.000Z'
 
 describe('documentCategorySchema', () => {
-  it('accepts all 6 known categories', () => {
-    for (const value of ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'AVATAR', 'LOGO']) {
+  it('accepts all 7 known categories', () => {
+    for (const value of ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'AVATAR', 'LOGO', 'INVOICE']) {
       expect(() => documentCategorySchema.parse(value)).not.toThrow()
     }
   })
@@ -32,7 +32,9 @@ describe('createDocumentMetadataSchema', () => {
   })
 
   it('rejects CONTRACT with null projectId', () => {
-    expect(() => createDocumentMetadataSchema.parse({ category: 'CONTRACT', projectId: null })).toThrow()
+    expect(() =>
+      createDocumentMetadataSchema.parse({ category: 'CONTRACT', projectId: null }),
+    ).toThrow()
   })
 
   it('accepts CONTRACT with valid projectId', () => {
@@ -116,15 +118,11 @@ describe('documentSchema', () => {
   })
 
   it('accepts null uploadedByDisplayName (uploader hard-deleted or missing)', () => {
-    expect(() =>
-      documentSchema.parse({ ...validDoc, uploadedByDisplayName: null }),
-    ).not.toThrow()
+    expect(() => documentSchema.parse({ ...validDoc, uploadedByDisplayName: null })).not.toThrow()
   })
 
   it('rejects empty uploadedByDisplayName (set or null, never blank string)', () => {
-    expect(() =>
-      documentSchema.parse({ ...validDoc, uploadedByDisplayName: '' }),
-    ).toThrow()
+    expect(() => documentSchema.parse({ ...validDoc, uploadedByDisplayName: '' })).toThrow()
   })
 
   it('rejects negative sizeBytes', () => {
@@ -169,9 +167,7 @@ describe('presignedDownloadSchema', () => {
   })
 
   it('rejects non-url values', () => {
-    expect(() =>
-      presignedDownloadSchema.parse({ url: 'not-a-url', expiresAt: datetime }),
-    ).toThrow()
+    expect(() => presignedDownloadSchema.parse({ url: 'not-a-url', expiresAt: datetime })).toThrow()
   })
 })
 
@@ -188,7 +184,7 @@ describe('constants', () => {
     expect(DOCUMENT_MIME_WHITELIST).toContain('image/heic')
   })
 
-  it('INTERNAL_CATEGORIES contains AVATAR and LOGO only', () => {
-    expect(INTERNAL_CATEGORIES).toEqual(['AVATAR', 'LOGO'])
+  it('INTERNAL_CATEGORIES contains AVATAR, LOGO, and INVOICE', () => {
+    expect(INTERNAL_CATEGORIES).toEqual(['AVATAR', 'LOGO', 'INVOICE'])
   })
 })

@@ -1,5 +1,7 @@
 import { relations, sql } from 'drizzle-orm'
 import {
+  char,
+  customType,
   index,
   integer,
   jsonb,
@@ -8,9 +10,20 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core'
+
+// PostgreSQL `inet` column type — stores IPv4 / IPv6 addresses with native
+// validation + index support. Drizzle has no first-class `inet` builder, so
+// we use customType which renders `INET` in the generated SQL and treats the
+// JS value as a plain string (driver casts both ways automatically).
+const inet = customType<{ data: string }>({
+  dataType() {
+    return 'inet'
+  },
+})
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -33,27 +46,27 @@ export const interviewStageEnum = pgEnum('interview_stage', [
 ])
 
 export const transactionTypeEnum = pgEnum('transaction_type', [
-  'ADMIN_INCOME',    // Admin income from own project — no validation needed
-  'SENIOR_INCOME',   // Senior income from project — requires validation flow
-  'EXPENSE',         // Company expense (category in receiverLabel)
-  'SALARY',          // Salary to employee (HR/ACCOUNTANT/JUNIOR)
-  'ADMIN_TRANSFER',  // Balance transfer between Maksym and Kostya
-  'PAYOUT',          // Senior pays CheekyCheeseIT (from payout_request)
-  'PAYOUT_ADMIN',    // Auto-created: 50/50 split to each admin after payout
+  'ADMIN_INCOME', // Admin income from own project — no validation needed
+  'SENIOR_INCOME', // Senior income from project — requires validation flow
+  'EXPENSE', // Company expense (category in receiverLabel)
+  'SALARY', // Salary to employee (HR/ACCOUNTANT/JUNIOR)
+  'ADMIN_TRANSFER', // Balance transfer between Maksym and Kostya
+  'PAYOUT', // Senior pays CheekyCheeseIT (from payout_request)
+  'PAYOUT_ADMIN', // Auto-created: 50/50 split to each admin after payout
 ])
 
 export const transactionStatusEnum = pgEnum('transaction_status', [
-  'PENDING',         // Awaiting action (senior_income awaits validation; salary awaits payment)
-  'VALIDATED',       // Accountant/admin confirmed senior_income; senior can now create payout
+  'PENDING', // Awaiting action (senior_income awaits validation; salary awaits payment)
+  'VALIDATED', // Accountant/admin confirmed senior_income; senior can now create payout
   'PENDING_PAYMENT', // Senior created payout request, awaiting payment
-  'REJECTED',        // Accountant/admin rejected; senior must edit and resubmit
-  'PAID',            // Completed/paid
-  'LOCKED',          // Junior salary locked until senior has validated income for the month
+  'REJECTED', // Accountant/admin rejected; senior must edit and resubmit
+  'PAID', // Completed/paid
+  'LOCKED', // Junior salary locked until senior has validated income for the month
 ])
 
 export const payoutRequestStatusEnum = pgEnum('payout_request_status', [
-  'PENDING',  // Created by senior, txHash not yet submitted
-  'PAID',     // Senior submitted txHash, auto-transactions created
+  'PENDING', // Created by senior, txHash not yet submitted
+  'PAID', // Senior submitted txHash, auto-transactions created
 ])
 
 export const paymentMethodEnum = pgEnum('payment_method', ['USDT_ERC20', 'BANK_UAH_FOP'])
@@ -65,6 +78,14 @@ export const documentCategoryEnum = pgEnum('document_category', [
   'RECEIPT',
   'AVATAR',
   'LOGO',
+  'INVOICE',
+])
+
+export const invoiceSignerRoleEnum = pgEnum('invoice_signer_role', ['COMPANY', 'COUNTERPARTY'])
+
+export const invoiceSignatureMethodEnum = pgEnum('invoice_signature_method', [
+  'AUTO_COMPANY',
+  'MANUAL_CLICK',
 ])
 
 // ---------------------------------------------------------------------------
@@ -132,8 +153,12 @@ export const teams = pgTable('teams', {
 
 export const teamMembers = pgTable('team_members', {
   id: uuid('id').defaultRandom().primaryKey(),
-  teamId: uuid('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
-  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  teamId: uuid('team_id')
+    .notNull()
+    .references(() => teams.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
   joinedAt: timestamp('joined_at').defaultNow().notNull(),
   // Soft delete of membership (NULL = active, timestamp = left)
   leftAt: timestamp('left_at'),
@@ -150,7 +175,9 @@ export const projects = pgTable('projects', {
   domain: varchar('domain', { length: 100 }).notNull(),
   startDate: timestamp('start_date').notNull(),
   // seniorId can be SENIOR or ADMIN (admin-owned projects)
-  seniorId: uuid('senior_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  seniorId: uuid('senior_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
   rate: integer('rate').notNull(),
   currency: currencyEnum().notNull().default('USDT'),
   // FK to documents (category = LOGO). When set, render priority is:
@@ -187,7 +214,10 @@ export const projects = pgTable('projects', {
 // Per-project finance overrides (ADMIN/ACCOUNTANT only)
 export const projectFinanceSettings = pgTable('project_finance_settings', {
   id: uuid('id').defaultRandom().primaryKey(),
-  projectId: uuid('project_id').notNull().unique().references(() => projects.id, { onDelete: 'cascade' }),
+  projectId: uuid('project_id')
+    .notNull()
+    .unique()
+    .references(() => projects.id, { onDelete: 'cascade' }),
   // Override senior share percent for this project; null = use users.seniorSharePercent
   seniorSharePercentOverride: integer('senior_share_percent_override'),
   // Override junior monthly salary for this project; null = use users.monthlySalary
@@ -198,8 +228,12 @@ export const projectFinanceSettings = pgTable('project_finance_settings', {
 
 export const projectMembers = pgTable('project_members', {
   id: uuid('id').defaultRandom().primaryKey(),
-  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  projectId: uuid('project_id')
+    .notNull()
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
   joinedAt: timestamp('joined_at').defaultNow().notNull(),
   leftAt: timestamp('left_at'),
 })
@@ -210,7 +244,9 @@ export const projectMembers = pgTable('project_members', {
 
 export const interviews = pgTable('interviews', {
   id: uuid('id').defaultRandom().primaryKey(),
-  seniorId: uuid('senior_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  seniorId: uuid('senior_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
   hrId: uuid('hr_id').references(() => users.id, { onDelete: 'set null' }),
   companyName: varchar('company_name', { length: 255 }).notNull(),
   vacancyUrl: varchar('vacancy_url', { length: 1000 }),
@@ -236,7 +272,9 @@ export const interviews = pgTable('interviews', {
 // Groups validated SENIOR_INCOME transactions into a single payout obligation
 export const payoutRequests = pgTable('payout_requests', {
   id: uuid('id').defaultRandom().primaryKey(),
-  seniorId: uuid('senior_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  seniorId: uuid('senior_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
   // Total income amount across all linked SENIOR_INCOME transactions
   incomeAmount: numeric('income_amount', { precision: 18, scale: 6 }).notNull(),
   // Amount senior must pay = incomeAmount * (1 - seniorSharePercent/100)
@@ -264,15 +302,29 @@ export const transactions = pgTable('transactions', {
   // Project this income/payout is associated with
   projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
   // For PAYOUT / PAYOUT_ADMIN: links to the payout_request that triggered them
-  payoutRequestId: uuid('payout_request_id').references(() => payoutRequests.id, { onDelete: 'set null' }),
+  payoutRequestId: uuid('payout_request_id').references(() => payoutRequests.id, {
+    onDelete: 'set null',
+  }),
   // Snapshot of senior share percent at time of SENIOR_INCOME creation
   seniorSharePercent: integer('senior_share_percent'),
   // Receipt — uploaded file (FK to documents.id, category=RECEIPT) OR an
   // external URL (etherscan link, screenshot). Mutually exclusive — enforced
   // by a row-level CHECK constraint, see migration 0013. Both NULL = no
   // receipt attached.
-  receiptDocumentId: uuid('receipt_document_id').references(() => documents.id, { onDelete: 'set null' }),
+  receiptDocumentId: uuid('receipt_document_id').references(() => documents.id, {
+    onDelete: 'set null',
+  }),
   receiptExternalUrl: text('receipt_external_url'),
+  // FK to documents (category = INVOICE). Points at the currently-active
+  // signed/pending invoice PDF for this transaction. ON DELETE SET NULL so
+  // hard-deleting an invoice document leaves the transaction intact but
+  // marks it as having no active invoice attached (a fresh one can be
+  // regenerated by ADMIN). Populated only for SENIOR_INCOME (after payout
+  // submission) and SALARY (after status → PAID). Other transaction types
+  // never have invoices.
+  invoiceDocumentId: uuid('invoice_document_id').references(() => documents.id, {
+    onDelete: 'set null',
+  }),
   // Blockchain TX hash (for PAYOUT, PAYOUT_ADMIN)
   txHash: varchar('tx_hash', { length: 255 }),
   // Accountant/admin validation fields (for SENIOR_INCOME)
@@ -284,7 +336,9 @@ export const transactions = pgTable('transactions', {
   salaryMonth: varchar('salary_month', { length: 7 }),
   // User-specified transaction date (defaults to creation time if not provided)
   txDate: timestamp('tx_date'),
-  createdBy: uuid('created_by').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdBy: uuid('created_by')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
@@ -303,90 +357,192 @@ export const transactions = pgTable('transactions', {
 // `transactions.receipt_document_id` are added in subsequent migrations
 // (0011–0013) — this table does not depend on them.
 
-export const documents = pgTable('documents', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  ownerId: uuid('owner_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  // NULL for resume/scan/receipt/avatar; NOT NULL for contract/logo (enforced
-  // in Zod / service layer rather than CHECK constraint to keep migrations
-  // simple and the validation message human-readable).
-  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
-  category: documentCategoryEnum('category').notNull(),
-  // Sanitized (ASCII-only) filename — used inside the S3 key and as the
-  // download-as filename. Variant 3 "hybrid": s3_key strict, original_name
-  // preserved, UI shows original, download = normalized.
-  name: varchar('name', { length: 255 }).notNull(),
-  // Original filename as uploaded by the user (cyrillic / unicode preserved).
-  // Backfilled from `name` for legacy rows; new uploads always populate this.
-  originalName: varchar('original_name', { length: 255 }),
-  // Immutable S3 object key — `documents/<category>/<ownerId>/<docId>-<file>`.
-  // Unique so new versions always allocate a new UUID (browser can cache
-  // immutably for a year, see PHASE 6 caching strategy).
-  s3Key: varchar('s3_key', { length: 512 }).notNull().unique(),
-  // S3 key of the synchronously-generated 256x256 JPEG thumbnail.
-  // NULL for non-image MIME types (PDFs fall back to a category icon).
-  thumbnailS3Key: varchar('thumbnail_s3_key', { length: 512 }),
-  // Size after server-side compression.
-  sizeBytes: integer('size_bytes').notNull(),
-  // Final MIME type after re-encode (HEIC → image/jpeg, etc.).
-  mimeType: varchar('mime_type', { length: 64 }).notNull(),
-  uploadedBy: uuid('uploaded_by').notNull().references(() => users.id),
-  // Soft delete (Stage 1: owner or ADMIN).
-  deletedAt: timestamp('deleted_at'),
-  deletedBy: uuid('deleted_by').references(() => users.id, { onDelete: 'set null' }),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (t) => [
-  // Partial indexes — hot path is "list active documents for owner/project".
-  index('idx_documents_owner').on(t.ownerId).where(sql`${t.deletedAt} IS NULL`),
-  index('idx_documents_project').on(t.projectId).where(sql`${t.deletedAt} IS NULL`),
-  index('idx_documents_category').on(t.category),
-])
+export const documents = pgTable(
+  'documents',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // NULL for resume/scan/receipt/avatar; NOT NULL for contract/logo (enforced
+    // in Zod / service layer rather than CHECK constraint to keep migrations
+    // simple and the validation message human-readable).
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
+    category: documentCategoryEnum('category').notNull(),
+    // Sanitized (ASCII-only) filename — used inside the S3 key and as the
+    // download-as filename. Variant 3 "hybrid": s3_key strict, original_name
+    // preserved, UI shows original, download = normalized.
+    name: varchar('name', { length: 255 }).notNull(),
+    // Original filename as uploaded by the user (cyrillic / unicode preserved).
+    // Backfilled from `name` for legacy rows; new uploads always populate this.
+    originalName: varchar('original_name', { length: 255 }),
+    // Immutable S3 object key — `documents/<category>/<ownerId>/<docId>-<file>`.
+    // Unique so new versions always allocate a new UUID (browser can cache
+    // immutably for a year, see PHASE 6 caching strategy).
+    s3Key: varchar('s3_key', { length: 512 }).notNull().unique(),
+    // S3 key of the synchronously-generated 256x256 JPEG thumbnail.
+    // NULL for non-image MIME types (PDFs fall back to a category icon).
+    thumbnailS3Key: varchar('thumbnail_s3_key', { length: 512 }),
+    // Size after server-side compression.
+    sizeBytes: integer('size_bytes').notNull(),
+    // Final MIME type after re-encode (HEIC → image/jpeg, etc.).
+    mimeType: varchar('mime_type', { length: 64 }).notNull(),
+    uploadedBy: uuid('uploaded_by')
+      .notNull()
+      .references(() => users.id),
+    // Soft delete (Stage 1: owner or ADMIN).
+    deletedAt: timestamp('deleted_at'),
+    deletedBy: uuid('deleted_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    // Partial indexes — hot path is "list active documents for owner/project".
+    index('idx_documents_owner')
+      .on(t.ownerId)
+      .where(sql`${t.deletedAt} IS NULL`),
+    index('idx_documents_project')
+      .on(t.projectId)
+      .where(sql`${t.deletedAt} IS NULL`),
+    index('idx_documents_category').on(t.category),
+  ],
+)
+
+// ---------------------------------------------------------------------------
+// Invoice Signatures (Invoice Signing Epic)
+// ---------------------------------------------------------------------------
+//
+// Each `transactions` row of type SENIOR_INCOME or SALARY can have up to two
+// signatures — one per role. COMPANY is signed automatically by the system
+// (method = AUTO_COMPANY) the moment the PDF is generated; COUNTERPARTY is
+// signed manually by the recipient via /api/invoices/:id/sign (method =
+// MANUAL_CLICK). The `pdf_hash` field captures SHA-256 of the signed bytes
+// and is used by the public /verify endpoint to detect tampering. `ip` and
+// `user_agent` are stored for accountability but NEVER returned by the
+// public verify endpoint (privacy).
+
+export const invoiceSignatures = pgTable(
+  'invoice_signatures',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    transactionId: uuid('transaction_id')
+      .notNull()
+      .references(() => transactions.id, { onDelete: 'cascade' }),
+    signerRole: invoiceSignerRoleEnum('signer_role').notNull(),
+    signerId: uuid('signer_id')
+      .notNull()
+      .references(() => users.id),
+    signedAt: timestamp('signed_at').defaultNow().notNull(),
+    // SHA-256 of the signed PDF bytes, hex-encoded (64 chars).
+    pdfHash: char('pdf_hash', { length: 64 }).notNull(),
+    // PostgreSQL INET; never surfaced by the public verify endpoint.
+    ipAddress: inet('ip_address'),
+    userAgent: text('user_agent'),
+    method: invoiceSignatureMethodEnum('method').notNull(),
+  },
+  (t) => [
+    // One signature per (transaction, role) — guards against double-sign races.
+    unique('uniq_sig').on(t.transactionId, t.signerRole),
+    index('idx_invoice_signatures_transaction').on(t.transactionId),
+    index('idx_invoice_signatures_signer').on(t.signerId),
+  ],
+)
+
+// ---------------------------------------------------------------------------
+// Notifications (Invoice Signing Epic — also reusable for future events)
+// ---------------------------------------------------------------------------
+//
+// Server-side persistence of in-app notifications. Drives the header
+// колокольчик badge + dropdown. `type` is left as VARCHAR (not enum) so new
+// event types can be added without a DB migration — validation lives in the
+// shared Zod enum instead. INVOICE_SIGN_REQUIRED + INVOICE_SIGNED are the
+// two types emitted by InvoicesService today; future epics can append more.
+
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: varchar('type', { length: 50 }).notNull(),
+    title: varchar('title', { length: 255 }).notNull(),
+    body: text('body'),
+    link: varchar('link', { length: 500 }),
+    readAt: timestamp('read_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    // Drives unread-count query + "unread only" filter in /api/notifications.
+    index('idx_notifications_user_unread')
+      .on(t.userId)
+      .where(sql`${t.readAt} IS NULL`),
+    // Drives the chronological dropdown listing (10 most recent for the user).
+    index('idx_notifications_user_created').on(t.userId, t.createdAt.desc()),
+  ],
+)
 
 // ---------------------------------------------------------------------------
 // User Audit Log
 // ---------------------------------------------------------------------------
 
-export const userAuditLog = pgTable('user_audit_log', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
-  targetId: uuid('target_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  action: text('action').notNull(),
-  changes: jsonb('changes').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (t) => [
-  index('user_audit_log_target_id_idx').on(t.targetId),
-])
+export const userAuditLog = pgTable(
+  'user_audit_log',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+    targetId: uuid('target_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    action: text('action').notNull(),
+    changes: jsonb('changes').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [index('user_audit_log_target_id_idx').on(t.targetId)],
+)
 
 // ---------------------------------------------------------------------------
 // Team Audit Log — mirrors user_audit_log shape but targets teams.
 // ---------------------------------------------------------------------------
 
-export const teamAuditLog = pgTable('team_audit_log', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
-  targetId: uuid('target_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
-  action: text('action').notNull(),
-  changes: jsonb('changes').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (t) => [
-  index('team_audit_log_target_id_idx').on(t.targetId),
-  index('team_audit_log_created_at_idx').on(t.createdAt),
-])
+export const teamAuditLog = pgTable(
+  'team_audit_log',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+    targetId: uuid('target_id')
+      .notNull()
+      .references(() => teams.id, { onDelete: 'cascade' }),
+    action: text('action').notNull(),
+    changes: jsonb('changes').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    index('team_audit_log_target_id_idx').on(t.targetId),
+    index('team_audit_log_created_at_idx').on(t.createdAt),
+  ],
+)
 
 // ---------------------------------------------------------------------------
 // Project Audit Log — mirrors user_audit_log shape but targets projects.
 // ---------------------------------------------------------------------------
 
-export const projectAuditLog = pgTable('project_audit_log', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
-  targetId: uuid('target_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-  action: text('action').notNull(),
-  changes: jsonb('changes').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (t) => [
-  index('project_audit_log_target_id_idx').on(t.targetId),
-  index('project_audit_log_created_at_idx').on(t.createdAt),
-])
+export const projectAuditLog = pgTable(
+  'project_audit_log',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+    targetId: uuid('target_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    action: text('action').notNull(),
+    changes: jsonb('changes').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    index('project_audit_log_target_id_idx').on(t.targetId),
+    index('project_audit_log_created_at_idx').on(t.createdAt),
+  ],
+)
 
 // ---------------------------------------------------------------------------
 // Relations
@@ -434,8 +590,16 @@ export const projectMembersRelations = relations(projectMembers, ({ one }) => ({
 }))
 
 export const interviewsRelations = relations(interviews, ({ one }) => ({
-  senior: one(users, { fields: [interviews.seniorId], references: [users.id], relationName: 'seniorInterviews' }),
-  hr: one(users, { fields: [interviews.hrId], references: [users.id], relationName: 'hrInterviews' }),
+  senior: one(users, {
+    fields: [interviews.seniorId],
+    references: [users.id],
+    relationName: 'seniorInterviews',
+  }),
+  hr: one(users, {
+    fields: [interviews.hrId],
+    references: [users.id],
+    relationName: 'hrInterviews',
+  }),
 }))
 
 export const payoutRequestsRelations = relations(payoutRequests, ({ one, many }) => ({
@@ -443,19 +607,67 @@ export const payoutRequestsRelations = relations(payoutRequests, ({ one, many })
   transactions: many(transactions),
 }))
 
-export const transactionsRelations = relations(transactions, ({ one }) => ({
-  sender: one(users, { fields: [transactions.senderId], references: [users.id], relationName: 'sentTransactions' }),
-  receiver: one(users, { fields: [transactions.receiverId], references: [users.id], relationName: 'receivedTransactions' }),
-  validator: one(users, { fields: [transactions.validatedBy], references: [users.id], relationName: 'validatedTransactions' }),
-  creator: one(users, { fields: [transactions.createdBy], references: [users.id], relationName: 'createdTransactions' }),
+export const transactionsRelations = relations(transactions, ({ one, many }) => ({
+  sender: one(users, {
+    fields: [transactions.senderId],
+    references: [users.id],
+    relationName: 'sentTransactions',
+  }),
+  receiver: one(users, {
+    fields: [transactions.receiverId],
+    references: [users.id],
+    relationName: 'receivedTransactions',
+  }),
+  validator: one(users, {
+    fields: [transactions.validatedBy],
+    references: [users.id],
+    relationName: 'validatedTransactions',
+  }),
+  creator: one(users, {
+    fields: [transactions.createdBy],
+    references: [users.id],
+    relationName: 'createdTransactions',
+  }),
   project: one(projects, { fields: [transactions.projectId], references: [projects.id] }),
-  payoutRequest: one(payoutRequests, { fields: [transactions.payoutRequestId], references: [payoutRequests.id] }),
-  receiptDocument: one(documents, { fields: [transactions.receiptDocumentId], references: [documents.id] }),
+  payoutRequest: one(payoutRequests, {
+    fields: [transactions.payoutRequestId],
+    references: [payoutRequests.id],
+  }),
+  receiptDocument: one(documents, {
+    fields: [transactions.receiptDocumentId],
+    references: [documents.id],
+  }),
+  invoiceDocument: one(documents, {
+    fields: [transactions.invoiceDocumentId],
+    references: [documents.id],
+    relationName: 'invoiceDocument',
+  }),
+  signatures: many(invoiceSignatures),
+}))
+
+export const invoiceSignaturesRelations = relations(invoiceSignatures, ({ one }) => ({
+  transaction: one(transactions, {
+    fields: [invoiceSignatures.transactionId],
+    references: [transactions.id],
+  }),
+  signer: one(users, { fields: [invoiceSignatures.signerId], references: [users.id] }),
+}))
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  user: one(users, { fields: [notifications.userId], references: [users.id] }),
 }))
 
 export const userAuditLogRelations = relations(userAuditLog, ({ one }) => ({
-  actor: one(users, { fields: [userAuditLog.actorId], references: [users.id], relationName: 'auditLogAsActor' }),
-  target: one(users, { fields: [userAuditLog.targetId], references: [users.id], relationName: 'auditLogAsTarget' }),
+  actor: one(users, {
+    fields: [userAuditLog.actorId],
+    references: [users.id],
+    relationName: 'auditLogAsActor',
+  }),
+  target: one(users, {
+    fields: [userAuditLog.targetId],
+    references: [users.id],
+    relationName: 'auditLogAsTarget',
+  }),
 }))
 
 export const teamAuditLogRelations = relations(teamAuditLog, ({ one }) => ({
@@ -520,3 +732,7 @@ export type ProjectAuditLogEntry = typeof projectAuditLog.$inferSelect
 export type NewProjectAuditLogEntry = typeof projectAuditLog.$inferInsert
 export type Document = typeof documents.$inferSelect
 export type NewDocument = typeof documents.$inferInsert
+export type InvoiceSignature = typeof invoiceSignatures.$inferSelect
+export type NewInvoiceSignature = typeof invoiceSignatures.$inferInsert
+export type Notification = typeof notifications.$inferSelect
+export type NewNotification = typeof notifications.$inferInsert
