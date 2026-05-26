@@ -10,7 +10,8 @@ interface TeamMember {
   id: string
   displayName: string
   role: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT'
-  avatar: string | null
+  avatarUrl: string | null
+  avatarDocumentId: string | null
 }
 
 const ROLE_LABEL: Record<TeamMember['role'], string> = {
@@ -64,7 +65,7 @@ export function TeamTab({ userId }: { userId: string }) {
             className="flex items-center gap-3 rounded border p-3 transition-colors hover:bg-accent"
           >
             <Avatar className="h-9 w-9">
-              {m.avatar && <AvatarImage src={m.avatar} alt={m.displayName} />}
+              {m.avatarUrl && <AvatarImage src={m.avatarUrl} alt={m.displayName} />}
               <AvatarFallback>{m.displayName[0]}</AvatarFallback>
             </Avatar>
             <div className="min-w-0 flex-1">

@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { ProjectLogo } from '@/components/projects/ProjectLogo'
 import { api } from '@/lib/axios'
 
 interface ProjectListItem {
@@ -12,7 +12,8 @@ interface ProjectListItem {
   companyName: string
   archivedAt: string | null
   startDate: string
-  logoUrl: string | null
+  logoDocumentId: string | null
+  logoExternalUrl: string | null
   rate: number
   currency: string
   domain: string | null
@@ -103,10 +104,12 @@ function ProjectRow({ p }: { p: ProjectListItem }) {
       params={{ projectId: p.id }}
       className="flex items-center gap-3 rounded border p-3 transition-colors hover:bg-accent"
     >
-      <Avatar className="h-10 w-10 shrink-0">
-        {p.logoUrl && <AvatarImage src={p.logoUrl} alt={p.name} />}
-        <AvatarFallback className="text-xs">{p.name[0]}</AvatarFallback>
-      </Avatar>
+      <ProjectLogo
+        documentId={p.logoDocumentId}
+        externalUrl={p.logoExternalUrl}
+        companyName={p.name}
+        avatarClassName="h-10 w-10 shrink-0 [&_[data-slot=avatar-fallback]]:text-xs"
+      />
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium">{p.name}</p>
         <p className="truncate text-xs text-muted-foreground">

@@ -42,7 +42,8 @@ export class TeamsService {
       userId: string
       displayName: string
       email: string
-      avatar: string | null
+      avatarUrl: string | null
+      avatarDocumentId: string | null
       techStack: string[] | null
       phone: string | null
       telegram: string | null
@@ -66,7 +67,8 @@ export class TeamsService {
               userId: pm.userId,
               displayName: pm.user.displayName,
               email: pm.user.email,
-              avatar: pm.user.avatar ?? null,
+              avatarUrl: pm.user.avatarUrl ?? null,
+              avatarDocumentId: pm.user.avatarDocumentId ?? null,
               techStack: pm.user.techStack ?? null,
               phone: pm.user.phone ?? null,
               telegram: pm.user.telegram ?? null,
@@ -101,7 +103,8 @@ export class TeamsService {
             userId: m.userId,
             displayName: m.user?.displayName ?? '',
             email: m.user?.email ?? '',
-            avatar: m.user?.avatar ?? null,
+            avatarUrl: m.user?.avatarUrl ?? null,
+            avatarDocumentId: m.user?.avatarDocumentId ?? null,
             techStack: m.user?.techStack ?? null,
             phone: m.user?.phone ?? null,
             telegram: m.user?.telegram ?? null,

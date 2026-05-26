@@ -28,7 +28,8 @@ const adminUser: SessionUser = {
   role: 'ADMIN',
   displayName: 'Admin',
   email: 'a@x.com',
-  avatar: null,
+  avatarUrl: null,
+  avatarDocumentId: null,
   seniorSharePercent: 26,
 }
 const hrUser: SessionUser = {
@@ -36,7 +37,8 @@ const hrUser: SessionUser = {
   role: 'HR',
   displayName: 'HR',
   email: 'h@x.com',
-  avatar: null,
+  avatarUrl: null,
+  avatarDocumentId: null,
   seniorSharePercent: 26,
 }
 const accountantUser: SessionUser = {
@@ -44,7 +46,8 @@ const accountantUser: SessionUser = {
   role: 'ACCOUNTANT',
   displayName: 'Acc',
   email: 'ac@x.com',
-  avatar: null,
+  avatarUrl: null,
+  avatarDocumentId: null,
   seniorSharePercent: 26,
 }
 const seniorUser: SessionUser = {
@@ -52,7 +55,8 @@ const seniorUser: SessionUser = {
   role: 'SENIOR',
   displayName: 'Senior',
   email: 's@x.com',
-  avatar: null,
+  avatarUrl: null,
+  avatarDocumentId: null,
   seniorSharePercent: 26,
 }
 
@@ -61,7 +65,8 @@ interface ProjectRow {
   name: string
   companyName: string
   domain: string
-  logoUrl: string | null
+  logoDocumentId: string | null
+  logoExternalUrl: string | null
   startDate: Date
   seniorId: string
   rate: number
@@ -81,11 +86,12 @@ interface ProjectRow {
     id: string
     displayName: string
     email: string
-    avatar: string | null
+    avatarUrl: string | null
+    avatarDocumentId: string | null
     role: string
     seniorSharePercent: number
   } | null
-  members?: Array<{ id: string; userId: string; joinedAt: Date; leftAt: Date | null; user?: { id: string; displayName: string; email: string; avatar: string | null; role: string } | null }>
+  members?: Array<{ id: string; userId: string; joinedAt: Date; leftAt: Date | null; user?: { id: string; displayName: string; email: string; avatarUrl: string | null; avatarDocumentId: string | null; role: string } | null }>
 }
 
 interface FinanceSettingsRow {
@@ -103,7 +109,8 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
     name: 'Acme Project',
     companyName: 'Acme Corp',
     domain: 'Other',
-    logoUrl: null,
+    logoDocumentId: null,
+    logoExternalUrl: null,
     startDate: new Date('2026-01-01'),
     seniorId: 'senior-1',
     rate: 4000,

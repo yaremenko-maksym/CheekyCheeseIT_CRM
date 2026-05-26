@@ -75,9 +75,16 @@ export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
   email: varchar('email', { length: 255 }).notNull().unique(),
   displayName: varchar('display_name', { length: 255 }).notNull(),
-  avatar: varchar('avatar', { length: 1000 }),
-  // User-uploaded override: either https URL or data:image base64. Takes precedence over `avatar`.
-  avatarOverride: text('avatar_override'),
+  // Google / dicebear fallback URL — used when the user has no custom upload.
+  // Renamed from `avatar` in migration 0013 for semantic clarity.
+  avatarUrl: varchar('avatar_url', { length: 1000 }),
+  // FK to documents (category = AVATAR). When set, takes priority over
+  // `avatarUrl` everywhere on the front-end. ON DELETE SET NULL so a hard-
+  // deleted document naturally reverts to the Google fallback. The actual
+  // FK constraint is declared in migration 0013 — keeping the Drizzle column
+  // metadata-only here avoids the circular import with `documents` (defined
+  // further down in this file).
+  avatarDocumentId: uuid('avatar_document_id'),
   role: roleEnum().notNull().default('JUNIOR'),
   googleId: varchar('google_id', { length: 255 }).unique(),
   telegram: varchar('telegram', { length: 100 }),
@@ -146,7 +153,15 @@ export const projects = pgTable('projects', {
   seniorId: uuid('senior_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   rate: integer('rate').notNull(),
   currency: currencyEnum().notNull().default('USDT'),
-  logoUrl: text('logo_url'),
+  // FK to documents (category = LOGO). When set, render priority is:
+  //   logo_document_id (presigned S3) → logo_external_url → placeholder.
+  // ON DELETE SET NULL — hard-delete of LOGO doc reverts to placeholder.
+  // FK declared in migration 0014; column metadata-only here to avoid the
+  // circular reference with `documents`.
+  logoDocumentId: uuid('logo_document_id'),
+  // External logo URL (e.g. `https://company.com/logo.svg`). XOR with
+  // `logoDocumentId` — enforced by CHECK constraint in migration 0014.
+  logoExternalUrl: text('logo_external_url'),
   techStack: varchar('tech_stack', { length: 500 }),
   teamSize: varchar('team_size', { length: 100 }),
   benefits: varchar('benefits', { length: 500 }),

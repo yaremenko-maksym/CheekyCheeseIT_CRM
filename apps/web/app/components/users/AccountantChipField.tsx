@@ -68,7 +68,7 @@ export function AccountantChipField({
                   data-testid="user-dialog-accountant-chip"
                 >
                   <Avatar className="h-6 w-6">
-                    {selected.avatar ? <AvatarImage src={selected.avatar} alt={selected.displayName} /> : null}
+                    {selected.avatarUrl ? <AvatarImage src={selected.avatarUrl} alt={selected.displayName} /> : null}
                     <AvatarFallback className="text-[10px]">
                       {getInitials(selected.displayName)}
                     </AvatarFallback>
@@ -125,7 +125,7 @@ export function AccountantChipField({
                         data-testid={`user-dialog-accountant-option-${u.id}`}
                       >
                         <Avatar className="h-6 w-6">
-                          {u.avatar ? <AvatarImage src={u.avatar} alt={u.displayName} /> : null}
+                          {u.avatarUrl ? <AvatarImage src={u.avatarUrl} alt={u.displayName} /> : null}
                           <AvatarFallback className="text-[10px]">
                             {getInitials(u.displayName)}
                           </AvatarFallback>

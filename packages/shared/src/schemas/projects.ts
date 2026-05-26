@@ -33,7 +33,10 @@ export const projectMemberSchema = z.object({
   userId: z.string().uuid(),
   displayName: z.string(),
   email: z.string().email(),
-  avatar: z.string().url().nullable(),
+  /** Avatar fallback URL (Google / dicebear). Renamed from `avatar` in 0013. */
+  avatarUrl: z.string().url().nullable(),
+  /** FK → documents.id for AVATAR uploads (null when user uses fallback). */
+  avatarDocumentId: z.string().uuid().nullable(),
   role: z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT']),
   joinedAt: z.string().datetime(),
   leftAt: z.string().datetime().nullable(),
@@ -41,17 +44,32 @@ export const projectMemberSchema = z.object({
 
 export const currencySchema = z.enum(['USDT', 'USD', 'EUR', 'UAH'])
 
-const logoUrlSchema = z.string().refine(
-  (v) => v.startsWith('data:') || z.string().url().safeParse(v).success,
-  { message: 'Invalid URL' },
-).nullable()
+/**
+ * Refinement enforcing XOR between the two logo columns (mirrors the
+ * `chk_logo_xor` DB CHECK constraint). Both null is allowed (no logo).
+ */
+function refineLogoXor(
+  data: { logoDocumentId?: string | null | undefined; logoExternalUrl?: string | null | undefined },
+  ctx: z.RefinementCtx,
+): void {
+  if (data.logoDocumentId && data.logoExternalUrl) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'Только один из logoDocumentId / logoExternalUrl может быть задан',
+      path: ['logoExternalUrl'],
+    })
+  }
+}
 
 export const projectSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
   companyName: z.string(),
   domain: itDomainSchema,
-  logoUrl: logoUrlSchema,
+  /** FK → documents.id for LOGO uploads (S3-backed). XOR with logoExternalUrl. */
+  logoDocumentId: z.string().uuid().nullable(),
+  /** External logo URL (e.g. https://company.com/logo.svg). XOR with logoDocumentId. */
+  logoExternalUrl: z.string().url().nullable(),
   startDate: z.string().datetime(),
   seniorId: z.string().uuid(),
   seniorName: z.string(),
@@ -89,7 +107,8 @@ export const effectiveTeamSchema = z.object({
     id: z.string().uuid(),
     displayName: z.string(),
     email: z.string().email(),
-    avatar: z.string().url().nullable(),
+    avatarUrl: z.string().url().nullable(),
+    avatarDocumentId: z.string().uuid().nullable(),
     role: z.literal('SENIOR'),
   }).nullable(),
   hrs: z.array(z.object({
@@ -97,7 +116,8 @@ export const effectiveTeamSchema = z.object({
     userId: z.string().uuid(),
     displayName: z.string(),
     email: z.string().email(),
-    avatar: z.string().url().nullable(),
+    avatarUrl: z.string().url().nullable(),
+    avatarDocumentId: z.string().uuid().nullable(),
     role: z.literal('HR'),
   })),
   accountants: z.array(z.object({
@@ -105,7 +125,8 @@ export const effectiveTeamSchema = z.object({
     userId: z.string().uuid(),
     displayName: z.string(),
     email: z.string().email(),
-    avatar: z.string().url().nullable(),
+    avatarUrl: z.string().url().nullable(),
+    avatarDocumentId: z.string().uuid().nullable(),
     role: z.literal('ACCOUNTANT'),
   })),
   juniors: z.array(projectMemberSchema),
@@ -189,7 +210,8 @@ export const createProjectSchema = z.object({
   name: z.string().min(1).max(255),
   companyName: z.string().min(1).max(255),
   domain: itDomainSchema,
-  logoUrl: logoUrlSchema.optional(),
+  logoDocumentId: z.string().uuid().nullable().optional(),
+  logoExternalUrl: z.string().url().nullable().optional(),
   startDate: z.string().datetime(),
   seniorId: z.string().uuid(),
   rate: z.number().int().positive(),
@@ -204,13 +226,14 @@ export const createProjectSchema = z.object({
   salaryReview: z.string().max(255).optional().nullable(),
   corpTech: z.string().max(255).optional().nullable(),
   notesGeneral: z.string().max(1000).optional().nullable(),
-})
+}).superRefine(refineLogoXor)
 
 export const updateProjectSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   companyName: z.string().min(1).max(255).optional(),
   domain: itDomainSchema.optional(),
-  logoUrl: logoUrlSchema.optional(),
+  logoDocumentId: z.string().uuid().nullable().optional(),
+  logoExternalUrl: z.string().url().nullable().optional(),
   rate: z.number().int().positive().optional(),
   currency: currencySchema.optional(),
   // Only ADMIN/ACCOUNTANT may include this field — service throws
@@ -223,7 +246,7 @@ export const updateProjectSchema = z.object({
   salaryReview: z.string().max(255).optional().nullable(),
   corpTech: z.string().max(255).optional().nullable(),
   notesGeneral: z.string().max(1000).optional().nullable(),
-})
+}).superRefine(refineLogoXor)
 
 export const addProjectMemberSchema = z.object({
   userId: z.string().uuid(),

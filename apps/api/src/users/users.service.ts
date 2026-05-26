@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Inject, Inj
 import { and, eq, inArray, isNotNull, isNull, ne } from 'drizzle-orm'
 import type { ArchiveImpact } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { projectMembers, projects, teamMembers, teams, users, type User } from '../database/schema'
+import { documents, projectMembers, projects, teamMembers, teams, users, type User } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { TeamAuditLogService } from '../teams/team-audit-log.service'
 import { ProjectAuditLogService } from '../projects/project-audit-log.service'
@@ -13,7 +13,8 @@ export interface TeamMemberPreview {
   id: string
   displayName: string
   role: User['role']
-  avatar: string | null
+  avatarUrl: string | null
+  avatarDocumentId: string | null
 }
 
 export type UserWithAvailability = User & { hasActiveProject: boolean }
@@ -97,13 +98,41 @@ export class UsersService {
     return user
   }
 
+  /**
+   * Validate that the supplied `avatarDocumentId` references a document with
+   * `category = 'AVATAR'` owned by `ownerId` (or any owner when invoker is
+   * ADMIN). Throws `BadRequestException` otherwise so the caller surfaces a
+   * 400 with a human-readable message.
+   *
+   * `null` is treated as a clear-avatar operation and short-circuits.
+   */
+  private async assertAvatarDocument(
+    documentId: string | null | undefined,
+    expectedOwnerId: string,
+  ): Promise<void> {
+    if (documentId === undefined || documentId === null) return
+    const row = await this.db.db.query.documents.findFirst({
+      where: eq(documents.id, documentId),
+    })
+    if (!row) throw new BadRequestException('Аватар: документ не найден')
+    if (row.category !== 'AVATAR') {
+      throw new BadRequestException('Категория документа должна быть AVATAR')
+    }
+    if (row.ownerId !== expectedOwnerId) {
+      throw new BadRequestException('Аватар: документ принадлежит другому пользователю')
+    }
+    if (row.deletedAt !== null) {
+      throw new BadRequestException('Аватар: документ удалён')
+    }
+  }
+
   async createUser(data: {
     email: string
     displayName: string
     role: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT'
     telegram?: string | null
     phone?: string | null
-    avatar?: string | null
+    avatarUrl?: string | null
     techStack?: string[] | null
     seniorSharePercent?: number
     monthlySalary?: number | null
@@ -135,7 +164,7 @@ export class UsersService {
       role: data.role,
       telegram: data.telegram ?? null,
       phone: data.phone ?? null,
-      avatar: data.avatar ?? `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(data.displayName)}`,
+      avatarUrl: data.avatarUrl ?? `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(data.displayName)}`,
       techStack: data.techStack ?? null,
     }
     if (data.seniorSharePercent !== undefined) insertValues.seniorSharePercent = data.seniorSharePercent
@@ -210,8 +239,8 @@ export class UsersService {
       role?: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT'
       telegram?: string | null | undefined
       phone?: string | null | undefined
-      avatar?: string | null | undefined
-      avatarOverride?: string | null | undefined
+      avatarUrl?: string | null | undefined
+      avatarDocumentId?: string | null | undefined
       techStack?: string[] | null | undefined
       seniorSharePercent?: number | undefined
       monthlySalary?: number | null | undefined
@@ -269,8 +298,8 @@ export class UsersService {
       role: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT'
       telegram: string | null
       phone: string | null
-      avatar: string | null
-      avatarOverride: string | null
+      avatarUrl: string | null
+      avatarDocumentId: string | null
       techStack: string[] | null
       seniorSharePercent: number
       monthlySalary: string | null
@@ -290,8 +319,13 @@ export class UsersService {
     if (data.role !== undefined) set.role = data.role
     if ('telegram' in data) set.telegram = data.telegram ?? null
     if ('phone' in data) set.phone = data.phone ?? null
-    if ('avatar' in data) set.avatar = data.avatar ?? null
-    if ('avatarOverride' in data) set.avatarOverride = data.avatarOverride ?? null
+    if ('avatarUrl' in data) set.avatarUrl = data.avatarUrl ?? null
+    if ('avatarDocumentId' in data) {
+      // ADMIN may attach any AVATAR document; ownership check is bypassed
+      // (admin operating on someone else's profile). Still enforce category.
+      await this.assertAvatarDocument(data.avatarDocumentId ?? null, id)
+      set.avatarDocumentId = data.avatarDocumentId ?? null
+    }
     if ('techStack' in data) set.techStack = data.techStack ?? null
     if (data.seniorSharePercent !== undefined) set.seniorSharePercent = data.seniorSharePercent
     if ('monthlySalary' in data) set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
@@ -545,7 +579,7 @@ export class UsersService {
       telegram?: string | null
       phone?: string | null
       techStack?: string[] | null
-      avatarOverride?: string | null
+      avatarDocumentId?: string | null
     },
   ): Promise<User> {
     const set: Record<string, unknown> = { updatedAt: new Date() }
@@ -553,7 +587,11 @@ export class UsersService {
     if ('telegram' in data) set.telegram = data.telegram ?? null
     if ('phone' in data) set.phone = data.phone ?? null
     if ('techStack' in data) set.techStack = data.techStack ?? null
-    if ('avatarOverride' in data) set.avatarOverride = data.avatarOverride ?? null
+    if ('avatarDocumentId' in data) {
+      // Self-update: document must be owned by `id`.
+      await this.assertAvatarDocument(data.avatarDocumentId ?? null, id)
+      set.avatarDocumentId = data.avatarDocumentId ?? null
+    }
 
     const rows = await this.db.db.update(users).set(set).where(eq(users.id, id)).returning()
     const updated = rows[0]
@@ -1045,7 +1083,8 @@ export class UsersService {
         id: users.id,
         displayName: users.displayName,
         role: users.role,
-        avatar: users.avatar,
+        avatarUrl: users.avatarUrl,
+        avatarDocumentId: users.avatarDocumentId,
       })
       .from(users)
       .where(inArray(users.id, Array.from(memberIds)))

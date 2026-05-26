@@ -23,6 +23,7 @@ import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { ProjectLogo } from '@/components/projects/ProjectLogo'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -88,7 +89,8 @@ type UserOption = {
   displayName: string
   email: string
   role: string
-  avatar: string | null
+  avatarUrl: string | null
+  avatarDocumentId: string | null
 }
 
 const container = {
@@ -449,7 +451,7 @@ function TeamDetailPage() {
                           className="flex min-w-0 flex-1 items-center gap-3 hover:opacity-80 transition-opacity"
                         >
                           <Avatar className="h-9 w-9 shrink-0">
-                            {member.avatar && <AvatarImage src={member.avatar} alt={member.displayName} />}
+                            {member.avatarUrl && <AvatarImage src={member.avatarUrl} alt={member.displayName} />}
                             <AvatarFallback className="bg-muted text-xs">{getInitials(member.displayName)}</AvatarFallback>
                           </Avatar>
                           <div className="min-w-0 flex-1">
@@ -567,19 +569,20 @@ function TeamDetailPage() {
                       params={{ projectId: project.id }}
                       className="flex items-center gap-3 rounded-lg border border-border/60 bg-card/50 p-3 transition-all hover:border-primary/30 hover:bg-card"
                     >
-                      <Avatar className="h-8 w-8 rounded-md shrink-0">
-                        {project.logoUrl && <AvatarImage src={project.logoUrl} alt={project.name} />}
-                        <AvatarFallback className="rounded-md text-xs">
-                          {project.companyName.slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
+                      <ProjectLogo
+                        documentId={project.logoDocumentId}
+                        externalUrl={project.logoExternalUrl}
+                        companyName={project.companyName}
+                        fallback={project.companyName.slice(0, 2).toUpperCase()}
+                        avatarClassName="h-8 w-8 rounded-md shrink-0 [&_[data-slot=avatar-fallback]]:rounded-md [&_[data-slot=avatar-fallback]]:text-xs"
+                      />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">{project.name}</p>
                         <p className="truncate text-xs text-muted-foreground">{project.companyName}</p>
                         {junior ? (
                           <div className="flex items-center gap-1.5 mt-1">
                             <Avatar className="h-4 w-4">
-                              {junior.avatar && <AvatarImage src={junior.avatar} alt={junior.displayName} />}
+                              {junior.avatarUrl && <AvatarImage src={junior.avatarUrl} alt={junior.displayName} />}
                               <AvatarFallback className="bg-muted text-[8px]">{getInitials(junior.displayName)}</AvatarFallback>
                             </Avatar>
                             <span className="text-xs text-muted-foreground truncate">{junior.displayName}</span>
@@ -740,7 +743,7 @@ function TeamDetailPage() {
                       )}
                       {isDisabled && <div className="h-4 w-4 shrink-0" />}
                       <Avatar className="h-6 w-6 shrink-0">
-                        {u.avatar && <AvatarImage src={u.avatar} alt={u.displayName} />}
+                        {u.avatarUrl && <AvatarImage src={u.avatarUrl} alt={u.displayName} />}
                         <AvatarFallback className="text-[9px]">{getInitials(u.displayName)}</AvatarFallback>
                       </Avatar>
                       <span className="flex-1 truncate text-sm">{u.displayName}</span>

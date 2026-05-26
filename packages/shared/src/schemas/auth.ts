@@ -4,7 +4,7 @@ export const googleCallbackSchema = z.object({
   email: z.string().email(),
   googleId: z.string(),
   displayName: z.string(),
-  avatar: z.string().url().optional(),
+  avatarUrl: z.string().url().optional(),
 })
 
 export const sessionUserSchema = z.object({
@@ -14,9 +14,14 @@ export const sessionUserSchema = z.object({
   ),
   email: z.string().email(),
   displayName: z.string(),
-  avatar: z.string().url().nullable(),
-  /** User-uploaded avatar (URL or base64 data URL). Takes precedence over `avatar` in UI. */
-  avatarOverride: z.string().nullable().optional(),
+  /** Google / dicebear fallback URL. Renamed from `avatar` in migration 0013. */
+  avatarUrl: z.string().url().nullable(),
+  /**
+   * FK → documents.id for AVATAR-category uploads. When set, takes priority
+   * over `avatarUrl` everywhere on the front-end (UI fetches a presigned
+   * download URL via the documents hooks).
+   */
+  avatarDocumentId: z.string().uuid().nullable().optional(),
   role: z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT']),
   /**
    * Global default SENIOR share % (0-100). Used by the UI to render

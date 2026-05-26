@@ -261,7 +261,8 @@ function seedActiveSeniorTeamProject(store: Store) {
     updatedAt: startDate,
     currency: 'USDT',
     rate: 100,
-    logoUrl: null,
+    logoDocumentId: null,
+    logoExternalUrl: null,
     techStack: null,
     teamSize: null,
     benefits: null,
@@ -497,7 +498,7 @@ describe('ProjectsService.findAll — RBAC matrix', () => {
     )
     const baseProj = {
       companyName: 'C', domain: 'Other', startDate: new Date('2026-01-01'),
-      currency: 'USDT', rate: 100, logoUrl: null, techStack: null,
+      currency: 'USDT', rate: 100, logoDocumentId: null, logoExternalUrl: null, techStack: null,
       teamSize: null, benefits: null, paymentType: null, salaryReview: null,
       corpTech: null, notesGeneral: null, createdAt: new Date('2026-01-01'),
       updatedAt: new Date('2026-01-01'),

@@ -1,6 +1,20 @@
+/**
+ * AvatarUploadDialog — picks a source image (file / URL), crops to a circle,
+ * uploads the result as an AVATAR-category document, and patches the user
+ * profile to point at that document. Reverting (clearing back to the Google
+ * fallback) sends a null update — old document rows are NOT auto-deleted;
+ * ADMIN cleanup of orphans is handled out-of-band through /crm/documents.
+ *
+ * Compared to the pre-PHASE 6 flow this dialog no longer stores the avatar
+ * as a base64 blob on users.avatar_override. Instead the cropped JPEG is
+ * POSTed through useUploadDocument({ category: 'AVATAR' }) which streams
+ * the bytes into S3/MinIO, and the returned document id is persisted on
+ * users.avatar_document_id.
+ */
 import { useCallback, useRef, useState } from 'react'
 import Cropper, { type Area } from 'react-easy-crop'
 import { ArrowLeft, ImagePlus, Link2, Trash2, Upload, ZoomIn, ZoomOut } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -13,13 +27,13 @@ import {
 import { Input } from '@/components/ui/input'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import { useUpdateMe } from '@/hooks/use-user-profile'
+import { useUploadDocument } from '@/hooks/use-documents'
 import { cn } from '@/lib/utils'
 import { getCroppedDataUrl } from './cropImage'
 
-const MAX_FILE_BYTES = 500 * 1024 // 500 KB — base64 inflates ~33%, end-result ≤ ~665 KB
+const MAX_FILE_BYTES = 5 * 1024 * 1024 // 5 MB raw input — the cropper re-encodes
 const ALLOWED_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'])
 
-/** Final output edge length — 512×512 JPEG. Renders crisp at all CRM avatar sizes (h-32 max). */
 const OUTPUT_SIZE = 512
 const MIN_ZOOM = 1
 const MAX_ZOOM = 5
@@ -27,29 +41,40 @@ const MAX_ZOOM = 5
 export interface AvatarUploadDialogProps {
   open: boolean
   onClose: () => void
-  /** Currently displayed avatar (override preferred, else Google avatar). Used as initial preview. */
-  currentAvatarUrl?: string | null
-  /** Whether the user has a custom override they could clear back to Google avatar. */
-  hasOverride: boolean
+  userId: string
+  avatarDocumentId: string | null
+  avatarUrl?: string | null | undefined
 }
 
 type Step = 'source' | 'crop'
 
+function dataUrlToFile(dataUrl: string, filename: string): File {
+  const match = /^data:([^;]+);base64,(.*)$/.exec(dataUrl)
+  if (!match) throw new Error('Invalid data URL')
+  const mime = match[1] ?? 'application/octet-stream'
+  const b64 = match[2] ?? ''
+  const binary = atob(b64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return new File([bytes], filename, { type: mime })
+}
+
 export function AvatarUploadDialog({
   open,
   onClose,
-  currentAvatarUrl,
-  hasOverride,
+  userId,
+  avatarDocumentId,
+  avatarUrl,
 }: AvatarUploadDialogProps) {
   const [step, setStep] = useState<Step>('source')
   const [tab, setTab] = useState<'file' | 'url'>('file')
-  /** Source image as data URL (file upload) or remote URL (URL tab). */
   const [sourceImage, setSourceImage] = useState<string | null>(null)
   const [url, setUrl] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
 
-  // Cropper state
   const [crop, setCrop] = useState({ x: 0, y: 0 })
   const [zoom, setZoom] = useState(1)
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null)
@@ -57,6 +82,7 @@ export function AvatarUploadDialog({
 
   const fileRef = useRef<HTMLInputElement>(null)
   const updateMe = useUpdateMe()
+  const uploadDoc = useUploadDocument()
 
   function reset() {
     setStep('source')
@@ -91,7 +117,7 @@ export function AvatarUploadDialog({
       return
     }
     if (file.size > MAX_FILE_BYTES) {
-      setError(`Файл ${(file.size / 1024).toFixed(0)} KB — максимум 500 KB`)
+      setError(`Файл ${(file.size / 1024).toFixed(0)} KB — максимум 5 MB`)
       return
     }
     const fr = new FileReader()
@@ -132,8 +158,6 @@ export function AvatarUploadDialog({
     }
     try {
       const u = new URL(trimmed)
-      // Backend allowlist only accepts https — reject http/javascript/etc here
-      // so the user gets a clean error instead of a 400 from the server.
       if (u.protocol !== 'https:') {
         setError('Ссылка должна быть https://')
         return
@@ -158,10 +182,19 @@ export function AvatarUploadDialog({
     setError(null)
     try {
       const dataUrl = await getCroppedDataUrl(sourceImage, croppedAreaPixels, OUTPUT_SIZE, 0.9)
+      const file = dataUrlToFile(dataUrl, `avatar-${Date.now()}.jpg`)
+      const doc = await uploadDoc.mutateAsync({
+        file,
+        category: 'AVATAR',
+        ownerId: userId,
+      })
       updateMe.mutate(
-        { avatarOverride: dataUrl },
+        { avatarDocumentId: doc.id },
         {
-          onSuccess: () => handleClose(),
+          onSuccess: () => {
+            toast.success('Аватар обновлён')
+            handleClose()
+          },
           onError: () => {
             setSaving(false)
             setError('Не удалось сохранить аватар')
@@ -176,16 +209,20 @@ export function AvatarUploadDialog({
 
   function handleClear() {
     updateMe.mutate(
-      { avatarOverride: null },
+      { avatarDocumentId: null },
       {
-        onSuccess: () => handleClose(),
+        onSuccess: () => {
+          toast.success('Аватар сброшен на стандартный')
+          handleClose()
+        },
         onError: () => setError('Не удалось очистить аватар'),
       },
     )
   }
 
   const isCropStep = step === 'crop'
-  const isPending = updateMe.isPending || saving
+  const isPending = updateMe.isPending || uploadDoc.isPending || saving
+  const hasOverride = avatarDocumentId !== null
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
@@ -205,7 +242,7 @@ export function AvatarUploadDialog({
           <DialogDescription>
             {isCropStep
               ? 'Перетащите изображение и используйте слайдер для масштабирования. Кадр сохраняется кругом 512×512.'
-              : 'Загрузите файл (PNG, JPEG, GIF, WebP, до 500 KB) или укажите прямую https-ссылку.'}
+              : 'Загрузите файл (PNG, JPEG, GIF, WebP, до 5 МБ) или укажите прямую https-ссылку.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -217,8 +254,6 @@ export function AvatarUploadDialog({
           ]
           return (
           <>
-            {/* ut-33: unified through SegmentedToggle variant="tabs" so the
-                «Файл / Ссылка» switch matches the page-level tabs styling. */}
             <SegmentedToggle<SourceTab>
               value={tab}
               onChange={(v) => { setTab(v); setError(null) }}
@@ -283,10 +318,10 @@ export function AvatarUploadDialog({
               </div>
             )}
 
-            {currentAvatarUrl && (
+            {avatarUrl && !hasOverride && (
               <div className="flex justify-center rounded-md border bg-muted/20 p-3">
                 <img
-                  src={currentAvatarUrl}
+                  src={avatarUrl}
                   alt="Текущий аватар"
                   className="max-h-32 w-auto rounded-full object-cover opacity-70"
                 />
@@ -312,8 +347,6 @@ export function AvatarUploadDialog({
                 onZoomChange={setZoom}
                 onCropComplete={onCropComplete}
                 onMediaLoaded={() => {
-                  // Some browsers fire onCropComplete before onMediaLoaded — reset to ensure
-                  // we have valid pixels even if user clicks "Сохранить" instantly.
                   setError(null)
                 }}
                 restrictPosition
@@ -350,10 +383,10 @@ export function AvatarUploadDialog({
               size="sm"
               className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
               onClick={handleClear}
-              disabled={updateMe.isPending}
+              disabled={isPending}
             >
               <Trash2 className="h-4 w-4" />
-              Сбросить к Google
+              Сбросить к стандартному
             </Button>
           )}
           <div className="flex gap-2 sm:ml-auto">
@@ -382,7 +415,7 @@ export function AvatarUploadDialog({
                 type="button"
                 variant="outline"
                 onClick={handleClose}
-                disabled={updateMe.isPending}
+                disabled={isPending}
               >
                 Отмена
               </Button>

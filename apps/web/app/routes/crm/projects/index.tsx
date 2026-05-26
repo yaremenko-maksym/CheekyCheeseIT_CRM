@@ -31,7 +31,7 @@ import {
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ReceiptField } from '@/components/ui/receipt-field'
+import { ImageUploadField } from '@/components/ui/image-upload-field'
 import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-currency-input'
 import {
   Select,
@@ -73,7 +73,8 @@ type UserOption = {
   displayName: string
   email: string
   role: string
-  avatar: string | null
+  avatarUrl: string | null
+  avatarDocumentId: string | null
 }
 
 // TanStack Form field render props require all 23 FieldApi generics — use unknown to avoid any
@@ -150,7 +151,8 @@ function ProjectsPage() {
       name: '',
       companyName: '',
       domain: 'Other' as ItDomain,
-      logoUrl: null as string | null,
+      logoDocumentId: null as string | null,
+      logoExternalUrl: null as string | null,
       seniorId: '',
       rate: '' as unknown as number,
       currency: 'USDT' as 'USDT' | 'USD' | 'EUR' | 'UAH',
@@ -168,7 +170,8 @@ function ProjectsPage() {
         name: value.name.trim(),
         companyName: value.companyName.trim(),
         domain: value.domain,
-        logoUrl: value.logoUrl || null,
+        logoDocumentId: value.logoDocumentId,
+        logoExternalUrl: value.logoExternalUrl,
         seniorId: value.seniorId,
         rate: Number(value.rate),
         currency: value.currency,
@@ -413,21 +416,22 @@ function ProjectsPage() {
           </CrmDialogHeader>
           <CrmDialogBody>
           <div className="space-y-3">
-            <createForm.Field name="logoUrl">
-              {(field: AnyField) => (
-                <div className="space-y-1.5">
-                  <Label>Логотип компании</Label>
-                  <ReceiptField
-                    value={field.state.value ?? ''}
-                    onChange={(v) => field.handleChange(v || null)}
-                    accept="image/*"
-                    urlPlaceholder="https://example.com/logo.png"
-                    urlHint="Вставьте ссылку на логотип или нажмите кнопку вставить"
-                    fileHint="PNG, JPG, SVG — логотип компании"
-                  />
-                </div>
-              )}
-            </createForm.Field>
+            <div className="space-y-1.5">
+              <Label>Логотип компании</Label>
+              <ImageUploadField
+                value={{
+                  documentId: (createForm.state.values as { logoDocumentId: string | null }).logoDocumentId,
+                  externalUrl: (createForm.state.values as { logoExternalUrl: string | null }).logoExternalUrl,
+                }}
+                onChange={(v) => {
+                  createForm.setFieldValue('logoDocumentId', v.documentId)
+                  createForm.setFieldValue('logoExternalUrl', v.externalUrl)
+                }}
+                category="LOGO"
+                urlPlaceholder="https://example.com/logo.png"
+                testId="create-project-logo"
+              />
+            </div>
 
             <createForm.Field
               name="name"

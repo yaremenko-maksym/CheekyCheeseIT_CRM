@@ -1,9 +1,9 @@
 import { CalendarDays, Camera, KanbanSquare, Mail, Phone, Send } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { UserProfileDto } from '@crm/shared'
+import { UserAvatar } from '@/components/users/UserAvatar'
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Администратор',
@@ -19,15 +19,6 @@ const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accou
   JUNIOR: 'junior',
   HR: 'hr',
   ACCOUNTANT: 'accountant',
-}
-
-function initials(name: string) {
-  return (name || '?')
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2)
 }
 
 export interface UserProfileHeaderProps {
@@ -48,12 +39,13 @@ export function UserProfileHeader({
   showCreatedAt = true,
   showInterviewsLink = false,
 }: UserProfileHeaderProps) {
-  const avatarSrc = user.avatarOverride ?? user.avatar
   const avatarBody = (
-    <Avatar className="h-32 w-32 shrink-0">
-      {avatarSrc && <AvatarImage src={avatarSrc} alt={user.displayName} />}
-      <AvatarFallback className="text-3xl">{initials(user.displayName)}</AvatarFallback>
-    </Avatar>
+    <UserAvatar
+      avatarDocumentId={user.avatarDocumentId}
+      avatarUrl={user.avatarUrl}
+      displayName={user.displayName}
+      className="h-32 w-32 shrink-0 text-3xl"
+    />
   )
 
   return (

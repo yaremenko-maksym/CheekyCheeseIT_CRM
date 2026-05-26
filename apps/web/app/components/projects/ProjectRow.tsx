@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import type { ProjectDto } from '@crm/shared'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { ProjectLogo } from './ProjectLogo'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
@@ -61,18 +62,13 @@ export function ProjectRow({ project }: ProjectRowProps) {
       >
         {/* Project info column — logo + name + company */}
         <div className="flex items-center gap-3 min-w-0">
-          <Avatar className="h-10 w-10 shrink-0 rounded-lg border border-border">
-            {project.logoUrl && (
-              <AvatarImage
-                src={project.logoUrl}
-                alt={project.companyName}
-                className="object-contain"
-              />
-            )}
-            <AvatarFallback className="rounded-lg text-xs font-semibold">
-              {getInitials(project.companyName)}
-            </AvatarFallback>
-          </Avatar>
+          <ProjectLogo
+            documentId={project.logoDocumentId}
+            externalUrl={project.logoExternalUrl}
+            companyName={project.companyName}
+            fallback={getInitials(project.companyName)}
+            avatarClassName="h-10 w-10 shrink-0 rounded-lg border border-border [&_[data-slot=avatar-fallback]]:rounded-lg [&_[data-slot=avatar-fallback]]:text-xs [&_[data-slot=avatar-fallback]]:font-semibold"
+          />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               <span
@@ -131,8 +127,8 @@ export function ProjectRow({ project }: ProjectRowProps) {
           {firstJunior ? (
             <>
               <Avatar className="h-7 w-7 shrink-0">
-                {firstJunior.avatar && (
-                  <AvatarImage src={firstJunior.avatar} alt={firstJunior.displayName} />
+                {firstJunior.avatarUrl && (
+                  <AvatarImage src={firstJunior.avatarUrl} alt={firstJunior.displayName} />
                 )}
                 <AvatarFallback className="text-[10px] font-semibold">
                   {getInitials(firstJunior.displayName)}

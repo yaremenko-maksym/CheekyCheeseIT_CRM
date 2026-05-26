@@ -5,8 +5,10 @@ import { DatabaseService } from '../database/database.service'
 import { userAuditLog } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 
-// avatarOverride can contain large base64 strings — exclude from audit diffs (avatar URL change is a non-business event anyway)
-const IGNORE_FIELDS = new Set(['updatedAt', 'createdAt', 'id', 'avatarOverride'])
+// Avatar changes are non-business events; exclude both the fallback URL and
+// the documents FK from audit diffs. (Pre-0013 we also ignored the legacy
+// `avatarOverride` base64 column.)
+const IGNORE_FIELDS = new Set(['updatedAt', 'createdAt', 'id', 'avatarUrl', 'avatarDocumentId'])
 
 /**
  * Drizzle transaction handle passed by `db.transaction(async (tx) => …)`.

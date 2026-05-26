@@ -68,7 +68,7 @@ export class UsersController {
       role: dto.role,
       telegram: dto.telegram ?? null,
       phone: dto.phone ?? null,
-      avatar: dto.avatar ?? null,
+      avatarUrl: dto.avatarUrl ?? null,
       techStack: dto.techStack ?? null,
       ...(dto.seniorSharePercent !== undefined && { seniorSharePercent: dto.seniorSharePercent }),
       monthlySalary: dto.monthlySalary ?? null,

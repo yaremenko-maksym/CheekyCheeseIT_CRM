@@ -6,7 +6,7 @@ describe('sessionUserSchema', () => {
     id: '123e4567-e89b-12d3-a456-426614174000',
     email: 'user@example.com',
     displayName: 'Test User',
-    avatar: null,
+    avatarUrl: null,
     role: 'ADMIN' as const,
     seniorSharePercent: 26,
   }
@@ -27,14 +27,22 @@ describe('sessionUserSchema', () => {
     expect(() => sessionUserSchema.parse({ ...valid, email: 'not-an-email' })).toThrow()
   })
 
-  it('accepts null avatar', () => {
-    const result = sessionUserSchema.parse({ ...valid, avatar: null })
-    expect(result.avatar).toBeNull()
+  it('accepts null avatarUrl', () => {
+    const result = sessionUserSchema.parse({ ...valid, avatarUrl: null })
+    expect(result.avatarUrl).toBeNull()
   })
 
-  it('accepts url avatar', () => {
-    const result = sessionUserSchema.parse({ ...valid, avatar: 'https://example.com/avatar.png' })
-    expect(result.avatar).toBe('https://example.com/avatar.png')
+  it('accepts url avatarUrl', () => {
+    const result = sessionUserSchema.parse({ ...valid, avatarUrl: 'https://example.com/avatar.png' })
+    expect(result.avatarUrl).toBe('https://example.com/avatar.png')
+  })
+
+  it('accepts avatarDocumentId UUID', () => {
+    const result = sessionUserSchema.parse({
+      ...valid,
+      avatarDocumentId: '11111111-2222-4333-8444-555555555555',
+    })
+    expect(result.avatarDocumentId).toBe('11111111-2222-4333-8444-555555555555')
   })
 
   it('accepts all valid roles', () => {
@@ -50,15 +58,15 @@ describe('googleCallbackSchema', () => {
     email: 'user@google.com',
     googleId: 'google-sub-123',
     displayName: 'Google User',
-    avatar: 'https://lh3.googleusercontent.com/avatar',
+    avatarUrl: 'https://lh3.googleusercontent.com/avatar',
   }
 
   it('accepts a valid Google callback', () => {
     expect(() => googleCallbackSchema.parse(valid)).not.toThrow()
   })
 
-  it('avatar is optional', () => {
-    const { avatar: _, ...withoutAvatar } = valid
+  it('avatarUrl is optional', () => {
+    const { avatarUrl: _, ...withoutAvatar } = valid
     expect(() => googleCallbackSchema.parse(withoutAvatar)).not.toThrow()
   })
 

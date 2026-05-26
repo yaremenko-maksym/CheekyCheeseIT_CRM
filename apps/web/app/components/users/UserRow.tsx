@@ -3,11 +3,11 @@ import { formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { ArchiveRestore, Pencil, Trash2 } from 'lucide-react'
 import type { UserProfileDto } from '@crm/shared'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { ROLE_LABELS, ROLE_VARIANT, getInitials } from './constants'
+import { ROLE_LABELS, ROLE_VARIANT } from './constants'
+import { UserAvatar } from './UserAvatar'
 
 export type UserRowProps = {
   user: UserProfileDto
@@ -70,18 +70,12 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
       >
         {/* User info column */}
         <div className="flex items-center gap-3 min-w-0 py-3 pl-3 pr-4">
-          <Avatar className="h-10 w-10 shrink-0">
-            {user.avatar && (
-              <img
-                src={user.avatar}
-                alt={user.displayName}
-                className="h-full w-full rounded-full object-cover"
-              />
-            )}
-            <AvatarFallback className="bg-primary/20 text-xs text-primary">
-              {getInitials(user.displayName)}
-            </AvatarFallback>
-          </Avatar>
+          <UserAvatar
+            avatarDocumentId={user.avatarDocumentId}
+            avatarUrl={user.avatarUrl}
+            displayName={user.displayName}
+            className="h-10 w-10 shrink-0 [&_[data-slot=avatar-fallback]]:bg-primary/20 [&_[data-slot=avatar-fallback]]:text-xs [&_[data-slot=avatar-fallback]]:text-primary"
+          />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               {/* Display name is the row's Link. Its `::before` pseudo-element

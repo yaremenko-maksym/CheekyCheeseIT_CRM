@@ -5,7 +5,10 @@ export const teamMemberSchema = z.object({
   userId: z.string().uuid(),
   displayName: z.string(),
   email: z.string().email(),
-  avatar: z.string().url().nullable(),
+  /** Avatar fallback URL (Google / dicebear). Renamed from `avatar` in 0013. */
+  avatarUrl: z.string().url().nullable(),
+  /** FK → documents.id for AVATAR uploads (null when user uses fallback). */
+  avatarDocumentId: z.string().uuid().nullable(),
   role: z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT']),
   techStack: z.array(z.string()).nullable(),
   phone: z.string().nullable().optional(),

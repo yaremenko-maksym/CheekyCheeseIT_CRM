@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ReceiptField } from '@/components/ui/receipt-field'
+import { ImageUploadField } from '@/components/ui/image-upload-field'
 import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-currency-input'
 
 
@@ -28,7 +28,8 @@ type UserOption = {
   displayName: string
   email: string
   role: string
-  avatar: string | null
+  avatarUrl: string | null
+  avatarDocumentId: string | null
 }
 
 function getInitials(name: string) {
@@ -45,7 +46,7 @@ function UserChip({ user, onRemove }: { user: UserOption; onRemove: () => void }
   return (
     <div className="flex items-center gap-1.5 rounded-full border border-border bg-muted/40 pl-1 pr-1.5 py-0.5">
       <Avatar className="h-5 w-5 shrink-0">
-        {user.avatar && <AvatarImage src={user.avatar} alt={user.displayName} />}
+        {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.displayName} />}
         <AvatarFallback className="text-[9px]">{getInitials(user.displayName)}</AvatarFallback>
       </Avatar>
       <span className="text-xs font-medium">{user.displayName}</span>
@@ -140,7 +141,8 @@ export function CreateProjectFromHiredDialog({
       name: companyName,
       companyName,
       domain: 'Other' as ItDomain,
-      logoUrl: null as string | null,
+      logoDocumentId: null as string | null,
+      logoExternalUrl: null as string | null,
       rate: '' as unknown as number,
       currency: 'USDT' as 'USDT' | 'USD' | 'EUR' | 'UAH',
       startDate: new Date().toISOString().slice(0, 10),
@@ -150,7 +152,8 @@ export function CreateProjectFromHiredDialog({
         name: value.name.trim(),
         companyName: value.companyName.trim(),
         domain: value.domain,
-        logoUrl: value.logoUrl || null,
+        logoDocumentId: value.logoDocumentId,
+        logoExternalUrl: value.logoExternalUrl,
         seniorId,
         rate: Number(value.rate),
         currency: value.currency,
@@ -178,21 +181,22 @@ export function CreateProjectFromHiredDialog({
         <CrmDialogBody className="pb-2">
           <div className="space-y-3">
 
-            <form.Field name="logoUrl">
-              {(field) => (
-                <div className="space-y-1.5">
-                  <Label>Логотип компании</Label>
-                  <ReceiptField
-                    value={field.state.value ?? ''}
-                    onChange={(v) => field.handleChange(v || null)}
-                    accept="image/*"
-                    urlPlaceholder="https://example.com/logo.png"
-                    urlHint="Вставьте ссылку на логотип или загрузите файл"
-                    fileHint="PNG, JPG, SVG"
-                  />
-                </div>
-              )}
-            </form.Field>
+            <div className="space-y-1.5">
+              <Label>Логотип компании</Label>
+              <ImageUploadField
+                value={{
+                  documentId: (form.state.values as { logoDocumentId: string | null }).logoDocumentId,
+                  externalUrl: (form.state.values as { logoExternalUrl: string | null }).logoExternalUrl,
+                }}
+                onChange={(v) => {
+                  form.setFieldValue('logoDocumentId', v.documentId)
+                  form.setFieldValue('logoExternalUrl', v.externalUrl)
+                }}
+                category="LOGO"
+                urlPlaceholder="https://example.com/logo.png"
+                testId="hired-create-project-logo"
+              />
+            </div>
 
             <form.Field
               name="name"
