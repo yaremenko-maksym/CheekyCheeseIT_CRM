@@ -1,0 +1,2 @@
+pnpm typecheck
+pnpm --filter @crm/shared --filter @crm/api --filter @crm/web test

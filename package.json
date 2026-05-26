@@ -15,9 +15,24 @@
   },
   "devDependencies": {
     "husky": "^9.1.7",
+    "lint-staged": "^15.2.10",
     "prettier": "^3.4.0",
     "turbo": "^2.9.0",
     "typescript": "^5.8.0"
+  },
+  "lint-staged": {
+    "apps/web/**/*.{ts,tsx}": [
+      "pnpm --filter @crm/web exec eslint --fix",
+      "prettier --write"
+    ],
+    "apps/api/**/*.ts": [
+      "pnpm --filter @crm/api exec eslint --fix",
+      "prettier --write"
+    ],
+    "packages/shared/**/*.ts": ["prettier --write"],
+    "*.{json,md,yml,yaml}": ["prettier --write"],
+    "apps/**/*.{json,md,yml,yaml}": ["prettier --write"],
+    "packages/**/*.{json,md,yml,yaml}": ["prettier --write"]
   },
   "pnpm": {
     "overrides": {

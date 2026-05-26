@@ -1,3 +1,1 @@
-pnpm --filter @crm/shared --filter @crm/api --filter @crm/web lint
-pnpm typecheck
-pnpm --filter @crm/shared --filter @crm/api --filter @crm/web test
+pnpm exec lint-staged
