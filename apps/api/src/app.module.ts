@@ -8,6 +8,8 @@ import { DocumentsModule } from './documents/documents.module'
 import { HealthModule } from './health/health.module'
 import { FinanceModule } from './finance/finance.module'
 import { InterviewsModule } from './interviews/interviews.module'
+import { InvoicesModule } from './invoices/invoices.module'
+import { NotificationsModule } from './notifications/notifications.module'
 import { ProjectsModule } from './projects/projects.module'
 import { TeamsModule } from './teams/teams.module'
 import { UsersModule } from './users/users.module'
@@ -31,8 +33,10 @@ import { UsersModule } from './users/users.module'
     TeamsModule,
     ProjectsModule,
     InterviewsModule,
-    FinanceModule,
     DocumentsModule,
+    NotificationsModule,
+    InvoicesModule,
+    FinanceModule,
     HealthModule,
   ],
 })

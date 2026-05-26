@@ -2,7 +2,10 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
+  forwardRef,
+  Inject,
 } from '@nestjs/common'
 import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm'
 import type { SessionUser } from '@crm/shared'
@@ -17,17 +20,55 @@ import {
   users,
   type Transaction,
 } from '../database/schema'
+import { InvoicesService } from '../invoices/invoices.service'
 
 type TxWithRelations = Transaction & {
   sender: { displayName: string } | null
   receiver: { displayName: string } | null
   project: { name: string } | null
-  payoutRequest?: { seniorId: string; incomeAmount: string; payableAmount: string; seniorSharePercent: number | null } | null
+  payoutRequest?: {
+    seniorId: string
+    incomeAmount: string
+    payableAmount: string
+    seniorSharePercent: number | null
+  } | null
 }
 
 @Injectable()
 export class TransactionsService {
-  constructor(private db: DatabaseService) {}
+  // Invoice triggers fire on best-effort and only log failures so a hiccup in
+  // S3/PDF/notifications never reverts a successful financial transition.
+  private readonly logger = new Logger(TransactionsService.name)
+
+  constructor(
+    private db: DatabaseService,
+    @Inject(forwardRef(() => InvoicesService))
+    private readonly invoicesService: InvoicesService,
+  ) {}
+
+  /**
+   * Fire-and-forget wrapper so a failing invoice generation (e.g. S3 outage)
+   * does NOT roll back the underlying transaction state change. The PAID
+   * status flip is the source of truth; the invoice is a derived artefact
+   * that can always be re-generated (autoCreate is idempotent on
+   * `invoice_document_id`).
+   */
+  private async safeAutoCreateInvoice(
+    kind: 'SENIOR_INCOME' | 'SALARY',
+    transactionId: string,
+  ): Promise<void> {
+    try {
+      if (kind === 'SENIOR_INCOME') {
+        await this.invoicesService.autoCreateForSeniorPayout(transactionId)
+      } else {
+        await this.invoicesService.autoCreateForSalary(transactionId)
+      }
+    } catch (err) {
+      this.logger.warn(
+        `auto-create invoice failed for ${kind} tx=${transactionId}: ${(err as Error).message}`,
+      )
+    }
+  }
 
   private mapTx(tx: TxWithRelations) {
     return {
@@ -62,21 +103,24 @@ export class TransactionsService {
     }
   }
 
-  async findAll(currentUser: SessionUser, filters?: {
-    type?: string
-    status?: string
-    projectId?: string
-    seniorId?: string
-    month?: string
-  }) {
-    const allTxs = await this.db.db.query.transactions.findMany({
+  async findAll(
+    currentUser: SessionUser,
+    filters?: {
+      type?: string
+      status?: string
+      projectId?: string
+      seniorId?: string
+      month?: string
+    },
+  ) {
+    const allTxs = (await this.db.db.query.transactions.findMany({
       orderBy: [desc(transactions.createdAt)],
       with: {
         sender: { columns: { displayName: true } },
         receiver: { columns: { displayName: true } },
         project: { columns: { name: true } },
       },
-    }) as TxWithRelations[]
+    })) as TxWithRelations[]
 
     let result = allTxs
 
@@ -92,7 +136,10 @@ export class TransactionsService {
     } else if (currentUser.role === 'HR') {
       // HR sees salary transactions for their team members + their own
       result = result.filter(
-        (tx) => tx.type === 'SALARY' || tx.receiverId === currentUser.id || tx.senderId === currentUser.id,
+        (tx) =>
+          tx.type === 'SALARY' ||
+          tx.receiverId === currentUser.id ||
+          tx.senderId === currentUser.id,
       )
     }
     // ADMIN, ACCOUNTANT see all
@@ -112,7 +159,7 @@ export class TransactionsService {
   }
 
   async findOne(id: string, currentUser: SessionUser) {
-    const tx = await this.db.db.query.transactions.findFirst({
+    const tx = (await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, id),
       with: {
         sender: { columns: { displayName: true } },
@@ -122,7 +169,7 @@ export class TransactionsService {
           columns: { seniorId: true, incomeAmount: true, payableAmount: true },
         },
       },
-    }) as TxWithRelations | undefined
+    })) as TxWithRelations | undefined
 
     if (!tx) throw new NotFoundException('Transaction not found')
     this.assertReadAccess(tx, currentUser)
@@ -136,7 +183,10 @@ export class TransactionsService {
         ),
       })
       if (firstIncome) {
-        tx.payoutRequest = { ...tx.payoutRequest, seniorSharePercent: firstIncome.seniorSharePercent }
+        tx.payoutRequest = {
+          ...tx.payoutRequest,
+          seniorSharePercent: firstIncome.seniorSharePercent,
+        }
       }
     }
 
@@ -145,15 +195,18 @@ export class TransactionsService {
 
   // ── Create ADMIN_INCOME ──────────────────────────────────────────────────
 
-  async createAdminIncome(data: {
-    projectId: string
-    amount: number
-    currency: string
-    receiptDocumentId?: string | null | undefined
-    receiptExternalUrl?: string | null | undefined
-    notes?: string | null | undefined
-    txDate?: string | null | undefined
-  }, currentUser: SessionUser) {
+  async createAdminIncome(
+    data: {
+      projectId: string
+      amount: number
+      currency: string
+      receiptDocumentId?: string | null | undefined
+      receiptExternalUrl?: string | null | undefined
+      notes?: string | null | undefined
+      txDate?: string | null | undefined
+    },
+    currentUser: SessionUser,
+  ) {
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
 
     const project = await this.db.db.query.projects.findFirst({
@@ -164,36 +217,42 @@ export class TransactionsService {
       throw new ForbiddenException('You can only add income for your own projects')
     }
 
-    const [tx] = await this.db.db.insert(transactions).values({
-      type: 'ADMIN_INCOME',
-      status: 'PAID',
-      amount: String(data.amount),
-      currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
-      senderId: null,
-      senderLabel: project.companyName,
-      receiverId: currentUser.id,
-      projectId: data.projectId,
-      receiptDocumentId: data.receiptDocumentId ?? null,
-      receiptExternalUrl: data.receiptExternalUrl ?? null,
-      notes: data.notes ?? null,
-      txDate: data.txDate ? new Date(data.txDate) : null,
-      createdBy: currentUser.id,
-    }).returning()
+    const [tx] = await this.db.db
+      .insert(transactions)
+      .values({
+        type: 'ADMIN_INCOME',
+        status: 'PAID',
+        amount: String(data.amount),
+        currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
+        senderId: null,
+        senderLabel: project.companyName,
+        receiverId: currentUser.id,
+        projectId: data.projectId,
+        receiptDocumentId: data.receiptDocumentId ?? null,
+        receiptExternalUrl: data.receiptExternalUrl ?? null,
+        notes: data.notes ?? null,
+        txDate: data.txDate ? new Date(data.txDate) : null,
+        createdBy: currentUser.id,
+      })
+      .returning()
 
     return this.findOne(tx!.id, currentUser)
   }
 
   // ── Create SENIOR_INCOME ─────────────────────────────────────────────────
 
-  async createSeniorIncome(data: {
-    projectId: string
-    amount: number
-    currency: string
-    receiptDocumentId?: string | null | undefined
-    receiptExternalUrl?: string | null | undefined
-    notes?: string | null | undefined
-    txDate?: string | null | undefined
-  }, currentUser: SessionUser) {
+  async createSeniorIncome(
+    data: {
+      projectId: string
+      amount: number
+      currency: string
+      receiptDocumentId?: string | null | undefined
+      receiptExternalUrl?: string | null | undefined
+      notes?: string | null | undefined
+      txDate?: string | null | undefined
+    },
+    currentUser: SessionUser,
+  ) {
     if (currentUser.role !== 'SENIOR') throw new ForbiddenException()
 
     const project = await this.db.db.query.projects.findFirst({
@@ -211,44 +270,57 @@ export class TransactionsService {
     if (!senior) throw new NotFoundException('Senior not found')
 
     // Resolve share percent: project override → user default
-    const settings = (project as typeof project & { financeSettings: typeof projectFinanceSettings.$inferSelect | null }).financeSettings
+    const settings = (
+      project as typeof project & {
+        financeSettings: typeof projectFinanceSettings.$inferSelect | null
+      }
+    ).financeSettings
     const sharePercent = settings?.seniorSharePercentOverride ?? senior.seniorSharePercent
 
-    const [tx] = await this.db.db.insert(transactions).values({
-      type: 'SENIOR_INCOME',
-      status: 'PENDING',
-      amount: String(data.amount),
-      currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
-      senderId: null,
-      senderLabel: project.companyName,
-      receiverId: currentUser.id,
-      projectId: data.projectId,
-      seniorSharePercent: sharePercent,
-      receiptDocumentId: data.receiptDocumentId ?? null,
-      receiptExternalUrl: data.receiptExternalUrl ?? null,
-      notes: data.notes ?? null,
-      txDate: data.txDate ? new Date(data.txDate) : null,
-      createdBy: currentUser.id,
-    }).returning()
+    const [tx] = await this.db.db
+      .insert(transactions)
+      .values({
+        type: 'SENIOR_INCOME',
+        status: 'PENDING',
+        amount: String(data.amount),
+        currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
+        senderId: null,
+        senderLabel: project.companyName,
+        receiverId: currentUser.id,
+        projectId: data.projectId,
+        seniorSharePercent: sharePercent,
+        receiptDocumentId: data.receiptDocumentId ?? null,
+        receiptExternalUrl: data.receiptExternalUrl ?? null,
+        notes: data.notes ?? null,
+        txDate: data.txDate ? new Date(data.txDate) : null,
+        createdBy: currentUser.id,
+      })
+      .returning()
 
     return this.findOne(tx!.id, currentUser)
   }
 
   // ── Update REJECTED SENIOR_INCOME ────────────────────────────────────────
 
-  async updateSeniorIncome(id: string, data: {
-    amount?: number | undefined
-    currency?: string | undefined
-    receiptDocumentId?: string | null | undefined
-    receiptExternalUrl?: string | null | undefined
-    notes?: string | null | undefined
-  }, currentUser: SessionUser) {
+  async updateSeniorIncome(
+    id: string,
+    data: {
+      amount?: number | undefined
+      currency?: string | undefined
+      receiptDocumentId?: string | null | undefined
+      receiptExternalUrl?: string | null | undefined
+      notes?: string | null | undefined
+    },
+    currentUser: SessionUser,
+  ) {
     const tx = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, id),
     })
     if (!tx) throw new NotFoundException('Transaction not found')
-    if (tx.type !== 'SENIOR_INCOME') throw new BadRequestException('Can only edit SENIOR_INCOME transactions')
-    if (tx.status !== 'REJECTED') throw new BadRequestException('Can only edit REJECTED transactions')
+    if (tx.type !== 'SENIOR_INCOME')
+      throw new BadRequestException('Can only edit SENIOR_INCOME transactions')
+    if (tx.status !== 'REJECTED')
+      throw new BadRequestException('Can only edit REJECTED transactions')
     if (tx.receiverId !== currentUser.id) throw new ForbiddenException()
 
     // Resolve XOR: if exactly one is provided as defined, the other becomes
@@ -256,39 +328,50 @@ export class TransactionsService {
     const receiptDocChanged = data.receiptDocumentId !== undefined
     const receiptUrlChanged = data.receiptExternalUrl !== undefined
     const nextDocId = receiptDocChanged
-      ? data.receiptDocumentId ?? null
-      : (receiptUrlChanged && data.receiptExternalUrl ? null : tx.receiptDocumentId)
+      ? (data.receiptDocumentId ?? null)
+      : receiptUrlChanged && data.receiptExternalUrl
+        ? null
+        : tx.receiptDocumentId
     const nextExtUrl = receiptUrlChanged
-      ? data.receiptExternalUrl ?? null
-      : (receiptDocChanged && data.receiptDocumentId ? null : tx.receiptExternalUrl)
+      ? (data.receiptExternalUrl ?? null)
+      : receiptDocChanged && data.receiptDocumentId
+        ? null
+        : tx.receiptExternalUrl
 
-    await this.db.db.update(transactions).set({
-      amount: data.amount !== undefined ? String(data.amount) : tx.amount,
-      currency: (data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined) ?? tx.currency,
-      receiptDocumentId: nextDocId,
-      receiptExternalUrl: nextExtUrl,
-      notes: data.notes !== undefined ? data.notes : tx.notes,
-      status: 'PENDING',
-      rejectionReason: null,
-      validatedBy: null,
-      validatedAt: null,
-      updatedAt: new Date(),
-    }).where(eq(transactions.id, id))
+    await this.db.db
+      .update(transactions)
+      .set({
+        amount: data.amount !== undefined ? String(data.amount) : tx.amount,
+        currency: (data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined) ?? tx.currency,
+        receiptDocumentId: nextDocId,
+        receiptExternalUrl: nextExtUrl,
+        notes: data.notes !== undefined ? data.notes : tx.notes,
+        status: 'PENDING',
+        rejectionReason: null,
+        validatedBy: null,
+        validatedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(transactions.id, id))
 
     return this.findOne(id, currentUser)
   }
 
   // ── Admin Edit (any type except PAYOUT/PAYOUT_ADMIN) ─────────────────────
 
-  async adminUpdateTransaction(id: string, data: {
-    amount?: number | undefined
-    currency?: string | undefined
-    notes?: string | null | undefined
-    receiptDocumentId?: string | null | undefined
-    receiptExternalUrl?: string | null | undefined
-    category?: string | undefined
-    salaryMonth?: string | undefined
-  }, currentUser: SessionUser) {
+  async adminUpdateTransaction(
+    id: string,
+    data: {
+      amount?: number | undefined
+      currency?: string | undefined
+      notes?: string | null | undefined
+      receiptDocumentId?: string | null | undefined
+      receiptExternalUrl?: string | null | undefined
+      category?: string | undefined
+      salaryMonth?: string | undefined
+    },
+    currentUser: SessionUser,
+  ) {
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
 
     const tx = await this.db.db.query.transactions.findFirst({
@@ -306,25 +389,35 @@ export class TransactionsService {
     // field provided as defined wipes the other to satisfy the CHECK.
     const receiptDocChanged = data.receiptDocumentId !== undefined
     const receiptUrlChanged = data.receiptExternalUrl !== undefined
-    const receiptPatch: { receiptDocumentId?: string | null; receiptExternalUrl?: string | null } = {}
+    const receiptPatch: { receiptDocumentId?: string | null; receiptExternalUrl?: string | null } =
+      {}
     if (receiptDocChanged || receiptUrlChanged) {
       receiptPatch.receiptDocumentId = receiptDocChanged
-        ? data.receiptDocumentId ?? null
-        : (receiptUrlChanged && data.receiptExternalUrl ? null : tx.receiptDocumentId)
+        ? (data.receiptDocumentId ?? null)
+        : receiptUrlChanged && data.receiptExternalUrl
+          ? null
+          : tx.receiptDocumentId
       receiptPatch.receiptExternalUrl = receiptUrlChanged
-        ? data.receiptExternalUrl ?? null
-        : (receiptDocChanged && data.receiptDocumentId ? null : tx.receiptExternalUrl)
+        ? (data.receiptExternalUrl ?? null)
+        : receiptDocChanged && data.receiptDocumentId
+          ? null
+          : tx.receiptExternalUrl
     }
 
-    await this.db.db.update(transactions).set({
-      ...(data.amount !== undefined && { amount: String(data.amount) }),
-      ...(data.currency !== undefined && { currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH' }),
-      ...(data.notes !== undefined && { notes: data.notes }),
-      ...receiptPatch,
-      ...(data.category !== undefined && { receiverLabel: data.category }),
-      ...(data.salaryMonth !== undefined && { salaryMonth: data.salaryMonth }),
-      updatedAt: new Date(),
-    }).where(eq(transactions.id, id))
+    await this.db.db
+      .update(transactions)
+      .set({
+        ...(data.amount !== undefined && { amount: String(data.amount) }),
+        ...(data.currency !== undefined && {
+          currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
+        }),
+        ...(data.notes !== undefined && { notes: data.notes }),
+        ...receiptPatch,
+        ...(data.category !== undefined && { receiverLabel: data.category }),
+        ...(data.salaryMonth !== undefined && { salaryMonth: data.salaryMonth }),
+        updatedAt: new Date(),
+      })
+      .where(eq(transactions.id, id))
 
     return this.findOne(id, currentUser)
   }
@@ -351,7 +444,12 @@ export class TransactionsService {
 
   // ── Validate / Reject SENIOR_INCOME ──────────────────────────────────────
 
-  async validateTransaction(id: string, action: 'validate' | 'reject', rejectionReason: string | null | undefined, currentUser: SessionUser) {
+  async validateTransaction(
+    id: string,
+    action: 'validate' | 'reject',
+    rejectionReason: string | null | undefined,
+    currentUser: SessionUser,
+  ) {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
       throw new ForbiddenException()
     }
@@ -360,28 +458,36 @@ export class TransactionsService {
       where: eq(transactions.id, id),
     })
     if (!tx) throw new NotFoundException('Transaction not found')
-    if (tx.type !== 'SENIOR_INCOME') throw new BadRequestException('Only SENIOR_INCOME can be validated')
-    if (tx.status !== 'PENDING') throw new BadRequestException('Transaction is not in PENDING status')
+    if (tx.type !== 'SENIOR_INCOME')
+      throw new BadRequestException('Only SENIOR_INCOME can be validated')
+    if (tx.status !== 'PENDING')
+      throw new BadRequestException('Transaction is not in PENDING status')
 
     if (action === 'validate') {
-      await this.db.db.update(transactions).set({
-        status: 'VALIDATED',
-        validatedBy: currentUser.id,
-        validatedAt: new Date(),
-        updatedAt: new Date(),
-      }).where(eq(transactions.id, id))
+      await this.db.db
+        .update(transactions)
+        .set({
+          status: 'VALIDATED',
+          validatedBy: currentUser.id,
+          validatedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(transactions.id, id))
 
       // Unlock junior salary for this project's current month if locked
       await this.unlockJuniorSalaryForProject(tx.projectId, tx)
     } else {
       if (!rejectionReason) throw new BadRequestException('Rejection reason is required')
-      await this.db.db.update(transactions).set({
-        status: 'REJECTED',
-        validatedBy: currentUser.id,
-        validatedAt: new Date(),
-        rejectionReason,
-        updatedAt: new Date(),
-      }).where(eq(transactions.id, id))
+      await this.db.db
+        .update(transactions)
+        .set({
+          status: 'REJECTED',
+          validatedBy: currentUser.id,
+          validatedAt: new Date(),
+          rejectionReason,
+          updatedAt: new Date(),
+        })
+        .where(eq(transactions.id, id))
     }
 
     return this.findOne(id, currentUser)
@@ -389,44 +495,53 @@ export class TransactionsService {
 
   // ── Create EXPENSE ───────────────────────────────────────────────────────
 
-  async createExpense(data: {
-    amount: number
-    currency: string
-    category: string
-    notes?: string | null
-    receiptDocumentId?: string | null | undefined
-    receiptExternalUrl?: string | null | undefined
-    txDate?: string | null | undefined
-  }, currentUser: SessionUser) {
+  async createExpense(
+    data: {
+      amount: number
+      currency: string
+      category: string
+      notes?: string | null
+      receiptDocumentId?: string | null | undefined
+      receiptExternalUrl?: string | null | undefined
+      txDate?: string | null | undefined
+    },
+    currentUser: SessionUser,
+  ) {
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
 
-    const [tx] = await this.db.db.insert(transactions).values({
-      type: 'EXPENSE',
-      status: 'PAID',
-      amount: String(data.amount),
-      currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
-      senderId: currentUser.id,
-      receiverLabel: data.category,
-      notes: data.notes ?? null,
-      receiptDocumentId: data.receiptDocumentId ?? null,
-      receiptExternalUrl: data.receiptExternalUrl ?? null,
-      txDate: data.txDate ? new Date(data.txDate) : null,
-      createdBy: currentUser.id,
-    }).returning()
+    const [tx] = await this.db.db
+      .insert(transactions)
+      .values({
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: String(data.amount),
+        currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
+        senderId: currentUser.id,
+        receiverLabel: data.category,
+        notes: data.notes ?? null,
+        receiptDocumentId: data.receiptDocumentId ?? null,
+        receiptExternalUrl: data.receiptExternalUrl ?? null,
+        txDate: data.txDate ? new Date(data.txDate) : null,
+        createdBy: currentUser.id,
+      })
+      .returning()
 
     return this.findOne(tx!.id, currentUser)
   }
 
   // ── Create SALARY ─────────────────────────────────────────────────────────
 
-  async createSalary(data: {
-    receiverId: string
-    amount: number
-    currency?: string
-    salaryMonth: string
-    notes?: string | null | undefined
-    txDate?: string | null | undefined
-  }, currentUser: SessionUser) {
+  async createSalary(
+    data: {
+      receiverId: string
+      amount: number
+      currency?: string
+      salaryMonth: string
+      notes?: string | null | undefined
+      txDate?: string | null | undefined
+    },
+    currentUser: SessionUser,
+  ) {
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
 
     const receiver = await this.db.db.query.users.findFirst({
@@ -437,60 +552,76 @@ export class TransactionsService {
       throw new BadRequestException('Salary can only be created for JUNIOR, HR, or ACCOUNTANT')
     }
 
-    const [tx] = await this.db.db.insert(transactions).values({
-      type: 'SALARY',
-      status: 'PAID',
-      amount: String(data.amount),
-      currency: (data.currency ?? 'USD') as 'USDT' | 'USD' | 'EUR' | 'UAH',
-      senderId: currentUser.id,
-      senderLabel: 'CheekyCheeseIT',
-      receiverId: data.receiverId,
-      salaryMonth: data.salaryMonth,
-      notes: data.notes ?? null,
-      txDate: data.txDate ? new Date(data.txDate) : null,
-      createdBy: currentUser.id,
-    }).returning()
+    const [tx] = await this.db.db
+      .insert(transactions)
+      .values({
+        type: 'SALARY',
+        status: 'PAID',
+        amount: String(data.amount),
+        currency: (data.currency ?? 'USD') as 'USDT' | 'USD' | 'EUR' | 'UAH',
+        senderId: currentUser.id,
+        senderLabel: 'CheekyCheeseIT',
+        receiverId: data.receiverId,
+        salaryMonth: data.salaryMonth,
+        notes: data.notes ?? null,
+        txDate: data.txDate ? new Date(data.txDate) : null,
+        createdBy: currentUser.id,
+      })
+      .returning()
+
+    // Trigger 2: invoice auto-create — SALARY rows from this path land
+    // straight in PAID, so the invoice should be generated immediately.
+    await this.safeAutoCreateInvoice('SALARY', tx!.id)
 
     return this.findOne(tx!.id, currentUser)
   }
 
   // ── Create ADMIN_TRANSFER ─────────────────────────────────────────────────
 
-  async createAdminTransfer(data: {
-    senderId?: string | undefined
-    receiverId: string
-    amount: number
-    currency?: string | undefined
-    notes?: string | null | undefined
-    txDate?: string | null | undefined
-  }, currentUser: SessionUser) {
+  async createAdminTransfer(
+    data: {
+      senderId?: string | undefined
+      receiverId: string
+      amount: number
+      currency?: string | undefined
+      notes?: string | null | undefined
+      txDate?: string | null | undefined
+    },
+    currentUser: SessionUser,
+  ) {
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
 
     const effectiveSenderId = data.senderId ?? currentUser.id
 
     if (data.senderId && data.senderId !== currentUser.id) {
       const sender = await this.db.db.query.users.findFirst({ where: eq(users.id, data.senderId) })
-      if (!sender || sender.role !== 'ADMIN') throw new BadRequestException('Sender must be an ADMIN')
+      if (!sender || sender.role !== 'ADMIN')
+        throw new BadRequestException('Sender must be an ADMIN')
     }
 
     const receiver = await this.db.db.query.users.findFirst({
       where: eq(users.id, data.receiverId),
     })
     if (!receiver) throw new NotFoundException('User not found')
-    if (receiver.role !== 'ADMIN') throw new BadRequestException('Can only transfer to another ADMIN')
-    if (receiver.id === effectiveSenderId) throw new BadRequestException('Cannot transfer to yourself')
+    if (receiver.role !== 'ADMIN')
+      throw new BadRequestException('Can only transfer to another ADMIN')
+    if (receiver.id === effectiveSenderId)
+      throw new BadRequestException('Cannot transfer to yourself')
 
-    const [tx] = await this.db.db.insert(transactions).values({
-      type: 'ADMIN_TRANSFER',
-      status: 'PAID',
-      amount: String(data.amount),
-      currency: (data.currency ?? 'USDT') as 'USDT' | 'USD' | 'EUR' | 'UAH',
-      senderId: effectiveSenderId,
-      receiverId: data.receiverId,
-      notes: data.notes ?? null,
-      txDate: data.txDate ? new Date(data.txDate) : null,
-      createdBy: currentUser.id,
-    }).returning()
+    const [tx] = await this.db.db
+      .insert(transactions)
+      .values({
+        type: 'ADMIN_TRANSFER',
+        status: 'PAID',
+        amount: String(data.amount),
+        currency: (data.currency ?? 'USDT') as 'USDT' | 'USD' | 'EUR' | 'UAH',
+        senderId: effectiveSenderId,
+        receiverId: data.receiverId,
+        notes: data.notes ?? null,
+        txDate: data.txDate ? new Date(data.txDate) : null,
+        createdBy: currentUser.id,
+      })
+      .returning()
 
     return this.findOne(tx!.id, currentUser)
   }
@@ -511,7 +642,9 @@ export class TransactionsService {
     })
 
     if (txs.length !== transactionIds.length) {
-      throw new BadRequestException('Some transactions are not valid VALIDATED SENIOR_INCOME for this senior')
+      throw new BadRequestException(
+        'Some transactions are not valid VALIDATED SENIOR_INCOME for this senior',
+      )
     }
 
     const incomeAmount = txs.reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
@@ -520,15 +653,19 @@ export class TransactionsService {
     // senior keeps sharePercent, pays (100-sharePercent)%
     const payableAmount = incomeAmount * (1 - sharePercent / 100)
 
-    const [req] = await this.db.db.insert(payoutRequests).values({
-      seniorId: currentUser.id,
-      incomeAmount: String(incomeAmount),
-      payableAmount: String(payableAmount),
-      status: 'PENDING',
-    }).returning()
+    const [req] = await this.db.db
+      .insert(payoutRequests)
+      .values({
+        seniorId: currentUser.id,
+        incomeAmount: String(incomeAmount),
+        payableAmount: String(payableAmount),
+        status: 'PENDING',
+      })
+      .returning()
 
     // Link transactions to this payout request and set status to PENDING_PAYMENT
-    await this.db.db.update(transactions)
+    await this.db.db
+      .update(transactions)
       .set({ payoutRequestId: req!.id, status: 'PENDING_PAYMENT', updatedAt: new Date() })
       .where(inArray(transactions.id, transactionIds))
 
@@ -548,17 +685,37 @@ export class TransactionsService {
     if (req.status !== 'PENDING') throw new BadRequestException('Payout request is already paid')
 
     // Mark payout request as paid
-    await this.db.db.update(payoutRequests).set({
-      txHash,
-      status: 'PAID',
-      updatedAt: new Date(),
-    }).where(eq(payoutRequests.id, requestId))
+    await this.db.db
+      .update(payoutRequests)
+      .set({
+        txHash,
+        status: 'PAID',
+        updatedAt: new Date(),
+      })
+      .where(eq(payoutRequests.id, requestId))
 
     // Mark linked SENIOR_INCOME transactions as PAID
-    await this.db.db.update(transactions).set({
-      status: 'PAID',
-      updatedAt: new Date(),
-    }).where(eq(transactions.payoutRequestId, requestId))
+    await this.db.db
+      .update(transactions)
+      .set({
+        status: 'PAID',
+        updatedAt: new Date(),
+      })
+      .where(eq(transactions.payoutRequestId, requestId))
+
+    // Trigger 1: invoice auto-create for each SENIOR_INCOME just paid.
+    // Best-effort — see safeAutoCreateInvoice for the no-rollback contract.
+    // Fetched separately (the UPDATE above doesn't return rows in drizzle's
+    // current Postgres flavour without `.returning()` chaining).
+    const paidSeniorIncomeTxs = await this.db.db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(
+        and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'SENIOR_INCOME')),
+      )
+    for (const incomeTx of paidSeniorIncomeTxs) {
+      await this.safeAutoCreateInvoice('SENIOR_INCOME', incomeTx.id)
+    }
 
     // Create PAYOUT transaction: senior → CheekyCheeseIT
     await this.db.db.insert(transactions).values({
@@ -609,14 +766,14 @@ export class TransactionsService {
       },
     })
 
-    const filtered = currentUser.role === 'SENIOR'
-      ? all.filter((r) => r.seniorId === currentUser.id)
-      : all
+    const filtered =
+      currentUser.role === 'SENIOR' ? all.filter((r) => r.seniorId === currentUser.id) : all
 
     return filtered.map((r) => ({
       id: r.id,
       seniorId: r.seniorId,
-      seniorName: (r as typeof r & { senior: { displayName: string } | null }).senior?.displayName ?? '',
+      seniorName:
+        (r as typeof r & { senior: { displayName: string } | null }).senior?.displayName ?? '',
       incomeAmount: r.incomeAmount,
       payableAmount: r.payableAmount,
       txHash: r.txHash,
@@ -641,17 +798,21 @@ export class TransactionsService {
       },
     })
     if (!req) throw new NotFoundException('Payout request not found')
-    if (currentUser.role === 'SENIOR' && req.seniorId !== currentUser.id) throw new ForbiddenException()
+    if (currentUser.role === 'SENIOR' && req.seniorId !== currentUser.id)
+      throw new ForbiddenException()
 
     return {
       id: req.id,
       seniorId: req.seniorId,
-      seniorName: (req as typeof req & { senior: { displayName: string } | null }).senior?.displayName ?? '',
+      seniorName:
+        (req as typeof req & { senior: { displayName: string } | null }).senior?.displayName ?? '',
       incomeAmount: req.incomeAmount,
       payableAmount: req.payableAmount,
       txHash: req.txHash,
       status: req.status,
-      transactions: (req as typeof req & { transactions: TxWithRelations[] }).transactions.map((tx) => this.mapTx(tx)),
+      transactions: (req as typeof req & { transactions: TxWithRelations[] }).transactions.map(
+        (tx) => this.mapTx(tx),
+      ),
       createdAt: req.createdAt.toISOString(),
       updatedAt: req.updatedAt.toISOString(),
     }
@@ -660,13 +821,13 @@ export class TransactionsService {
   // ── Finance Summary (stats) ───────────────────────────────────────────────
 
   async getSummary(_currentUser: SessionUser) {
-    const allTxs = await this.db.db.query.transactions.findMany({
+    const allTxs = (await this.db.db.query.transactions.findMany({
       with: {
         sender: { columns: { displayName: true } },
         receiver: { columns: { displayName: true } },
         project: { columns: { name: true } },
       },
-    }) as TxWithRelations[]
+    })) as TxWithRelations[]
 
     const paid = allTxs.filter((tx) => tx.status === 'PAID')
 
@@ -689,7 +850,13 @@ export class TransactionsService {
 
     const adminBalances = adminUsers.map((admin) => {
       const received = paid
-        .filter((tx) => tx.receiverId === admin.id && (tx.type === 'PAYOUT_ADMIN' || tx.type === 'ADMIN_INCOME' || tx.type === 'ADMIN_TRANSFER'))
+        .filter(
+          (tx) =>
+            tx.receiverId === admin.id &&
+            (tx.type === 'PAYOUT_ADMIN' ||
+              tx.type === 'ADMIN_INCOME' ||
+              tx.type === 'ADMIN_TRANSFER'),
+        )
         .reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
       const sent = paid
         .filter((tx) => tx.senderId === admin.id && tx.type === 'ADMIN_TRANSFER')
@@ -744,10 +911,14 @@ export class TransactionsService {
     return settings ?? null
   }
 
-  async upsertProjectFinanceSettings(projectId: string, data: {
-    seniorSharePercentOverride?: number | null | undefined
-    juniorSalaryOverride?: number | null | undefined
-  }, currentUser: SessionUser) {
+  async upsertProjectFinanceSettings(
+    projectId: string,
+    data: {
+      seniorSharePercentOverride?: number | null | undefined
+      juniorSalaryOverride?: number | null | undefined
+    },
+    currentUser: SessionUser,
+  ) {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
       throw new ForbiddenException()
     }
@@ -763,15 +934,18 @@ export class TransactionsService {
 
     const values = {
       seniorSharePercentOverride: data.seniorSharePercentOverride ?? null,
-      juniorSalaryOverride: data.juniorSalaryOverride !== undefined && data.juniorSalaryOverride !== null
-        ? String(data.juniorSalaryOverride)
-        : null,
+      juniorSalaryOverride:
+        data.juniorSalaryOverride !== undefined && data.juniorSalaryOverride !== null
+          ? String(data.juniorSalaryOverride)
+          : null,
       updatedBy: currentUser.id,
       updatedAt: new Date(),
     }
 
     if (existing) {
-      await this.db.db.update(projectFinanceSettings).set(values)
+      await this.db.db
+        .update(projectFinanceSettings)
+        .set(values)
         .where(eq(projectFinanceSettings.projectId, projectId))
     } else {
       await this.db.db.insert(projectFinanceSettings).values({ projectId, ...values })
@@ -782,10 +956,14 @@ export class TransactionsService {
 
   // ── Pay salary manually ───────────────────────────────────────────────────
 
-  async paySalary(id: string, data: {
-    txHash?: string | null | undefined
-    notes?: string | null | undefined
-  }, currentUser: SessionUser) {
+  async paySalary(
+    id: string,
+    data: {
+      txHash?: string | null | undefined
+      notes?: string | null | undefined
+    },
+    currentUser: SessionUser,
+  ) {
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
 
     const tx = await this.db.db.query.transactions.findFirst({
@@ -795,12 +973,18 @@ export class TransactionsService {
     if (tx.type !== 'SALARY') throw new BadRequestException('Can only pay SALARY transactions')
     if (tx.status !== 'PENDING') throw new BadRequestException('Transaction is not PENDING')
 
-    await this.db.db.update(transactions).set({
-      status: 'PAID',
-      txHash: data.txHash ?? null,
-      notes: data.notes ?? tx.notes,
-      updatedAt: new Date(),
-    }).where(eq(transactions.id, id))
+    await this.db.db
+      .update(transactions)
+      .set({
+        status: 'PAID',
+        txHash: data.txHash ?? null,
+        notes: data.notes ?? tx.notes,
+        updatedAt: new Date(),
+      })
+      .where(eq(transactions.id, id))
+
+    // Trigger 2: invoice auto-create for SALARY → PAID transitions.
+    await this.safeAutoCreateInvoice('SALARY', id)
 
     return this.findOne(id, currentUser)
   }
@@ -856,7 +1040,15 @@ export class TransactionsService {
 
     for (const member of activeMembers) {
       const user = (member as typeof member & { user: typeof users.$inferSelect | null }).user
-      const project = (member as typeof member & { project: typeof projects.$inferSelect & { financeSettings: typeof projectFinanceSettings.$inferSelect | null } | null }).project
+      const project = (
+        member as typeof member & {
+          project:
+            | (typeof projects.$inferSelect & {
+                financeSettings: typeof projectFinanceSettings.$inferSelect | null
+              })
+            | null
+        }
+      ).project
 
       if (!user || user.role !== 'JUNIOR' || !project) continue
 
@@ -909,25 +1101,29 @@ export class TransactionsService {
 
     // Find the active junior on this project
     const activeMember = await this.db.db.query.projectMembers.findFirst({
-      where: and(
-        eq(projectMembers.projectId, projectId),
-        isNull(projectMembers.leftAt),
-      ),
+      where: and(eq(projectMembers.projectId, projectId), isNull(projectMembers.leftAt)),
       with: { user: true },
     })
 
-    const juniorUser = (activeMember as typeof activeMember & { user: typeof users.$inferSelect | null } | undefined)?.user
+    const juniorUser = (
+      activeMember as (typeof activeMember & { user: typeof users.$inferSelect | null }) | undefined
+    )?.user
     if (!juniorUser || juniorUser.role !== 'JUNIOR') return
 
-    await this.db.db.update(transactions).set({
-      status: 'PENDING',
-      updatedAt: new Date(),
-    }).where(and(
-      eq(transactions.type, 'SALARY'),
-      eq(transactions.receiverId, juniorUser.id),
-      eq(transactions.salaryMonth, month),
-      eq(transactions.status, 'LOCKED'),
-    ))
+    await this.db.db
+      .update(transactions)
+      .set({
+        status: 'PENDING',
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(transactions.type, 'SALARY'),
+          eq(transactions.receiverId, juniorUser.id),
+          eq(transactions.salaryMonth, month),
+          eq(transactions.status, 'LOCKED'),
+        ),
+      )
   }
 
   // ── Access guard ──────────────────────────────────────────────────────────
@@ -938,7 +1134,8 @@ export class TransactionsService {
       if (
         (tx.senderId === currentUser.id || tx.receiverId === currentUser.id) &&
         tx.type !== 'PAYOUT_ADMIN'
-      ) return
+      )
+        return
       throw new ForbiddenException()
     }
     if (currentUser.role === 'JUNIOR') {

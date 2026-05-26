@@ -1,0 +1,741 @@
+/**
+ * InvoicesService — unit tests.
+ *
+ * Harness rationale: drizzle predicates are circular so we use a
+ * semantic-only stub (same approach as documents.service.spec.ts). External
+ * services (PDF, Documents, S3, Notifications, Config) are fully mocked so
+ * the assertions focus on the contract between InvoicesService and its
+ * collaborators:
+ *   - autoCreate triggers the PDF generator + uploadInternal + insert
+ *     signature + emit notification, in that order
+ *   - sign verifies the hash before accepting the COUNTERPARTY signature
+ *   - RBAC denies non-counterparty viewers
+ *   - verify only exposes public fields
+ *
+ * Coverage:
+ *  - autoCreate idempotent (re-trigger no-op)
+ *  - autoCreate full happy path
+ *  - autoCreate skips non-SENIOR_INCOME / non-SALARY
+ *  - sign: 403 for non-counterparty
+ *  - sign: 409 already signed
+ *  - sign: 409 hash mismatch (tampered PDF)
+ *  - listInvoices: returns array of items
+ *  - verifyInvoice: returns only public fields
+ *  - verifyInvoice: 404 when invoice missing
+ */
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import { describe, expect, it, vi } from 'vitest'
+import type { FastifyRequest } from 'fastify'
+import type { SessionUser } from '@crm/shared'
+import { InvoicesService } from './invoices.service'
+
+const u = (id: string, role: SessionUser['role'], name = id): SessionUser => ({
+  id,
+  role,
+  displayName: name,
+  email: `${id}@x.com`,
+  avatarUrl: null,
+  seniorSharePercent: 26,
+})
+
+const ADMIN = u('admin-1', 'ADMIN', 'Maksym')
+const SENIOR = u('senior-1', 'SENIOR', 'Alice')
+const SENIOR2 = u('senior-2', 'SENIOR', 'Bob')
+const JUNIOR = u('junior-1', 'JUNIOR', 'Carol')
+const ACCOUNTANT = u('acc-1', 'ACCOUNTANT', 'Dana')
+
+interface TxRow {
+  id: string
+  type: string
+  status: string
+  amount: string
+  currency: string
+  senderId: string | null
+  receiverId: string | null
+  projectId: string | null
+  invoiceDocumentId: string | null
+  salaryMonth: string | null
+  txDate: Date | null
+  createdAt: Date
+}
+
+interface SigRow {
+  id: string
+  transactionId: string
+  signerRole: 'COMPANY' | 'COUNTERPARTY'
+  signerId: string
+  pdfHash: string
+  ipAddress: string | null
+  userAgent: string | null
+  method: 'AUTO_COMPANY' | 'MANUAL_CLICK'
+  signedAt: Date
+}
+
+interface UserRow {
+  id: string
+  displayName: string
+  role: string
+  paymentMethod?: string | null
+  walletUsdtErc20?: string | null
+  walletUsdtLabel?: string | null
+  bankUahRecipient?: string | null
+  bankUahIban?: string | null
+  bankUahRnokpp?: string | null
+  bankUahBankName?: string | null
+  createdAt?: Date
+}
+
+interface ProjectRow {
+  id: string
+  name: string
+}
+
+interface HarnessState {
+  txs: TxRow[]
+  sigs: SigRow[]
+  users: UserRow[]
+  projects: ProjectRow[]
+}
+
+function buildHarness(state: HarnessState) {
+  // Control hints set by tests BEFORE invoking the service:
+  //  - findTxId             — pinned transactions.findFirst target id
+  //  - lookupProjectId      — pinned projects.findFirst target id
+  //  - userFindFirstQueue   — list of ids consumed in order by users.findFirst
+  //  - sigQueueRoles        — for sign(), order of signature lookups
+  //                           (the service does COUNTERPARTY-lookup then
+  //                           COMPANY-lookup; tests pre-seed the queue)
+  const ctrl = {
+    findTxId: null as string | null,
+    lookupProjectId: null as string | null,
+    userFindFirstQueue: [] as string[],
+    sigQueueRoles: [] as Array<'COMPANY' | 'COUNTERPARTY'>,
+  }
+
+  // -------- select chains --------
+  // We model two distinct chains because the service uses two distinct
+  // call shapes that cannot share a builder:
+  //   (1) select({field}).from(users).where().orderBy().limit()      ← admin lookup
+  //   (2) select().from(invoice_signatures).where().limit()          ← sig role lookup
+  //   (3) select({fields...}).from(transactions).leftJoin(users).where().orderBy()
+  //                                                                  ← list (no limit)
+  //   (4) select({fields...}).from(invoice_signatures).leftJoin(users).where()
+  //                                                                  ← awaited array
+  //
+  // Heuristic to distinguish:
+  //   - If the resulting builder's .limit() is called → admin lookup or sig lookup
+  //     - if fields contains 'id'-only → admin lookup
+  //     - else → sig lookup
+  //   - If .orderBy() is awaited (no .limit follow-up) → listInvoices
+  //   - If .where() result is awaited directly (no orderBy/limit) → all-sigs
+
+  function buildSelectBuilder(fields: unknown) {
+    return {
+      from: (_t: unknown) => {
+        const chain = {
+          where: (_p: unknown) => chain,
+          leftJoin: (_t2: unknown, _on: unknown) => chain,
+          orderBy: (_o: unknown) => {
+            // Make orderBy return a chainable: limit() OR awaited-list.
+            const ordered = {
+              limit: async (lim: number) => resolveLimit(lim, fields),
+              then: (resolve: (v: unknown) => void) => {
+                resolve(resolveOrderByList())
+              },
+            }
+            return ordered
+          },
+          limit: async (lim: number) => resolveLimit(lim, fields),
+          then: (resolve: (v: unknown) => void) => {
+            resolve(resolveSelectArray())
+          },
+        }
+        return chain
+      },
+    }
+  }
+
+  function resolveLimit(lim: number, fields: unknown): unknown[] {
+    // Admin lookup: select({id}) + orderBy(asc) + limit(1)
+    if (
+      fields &&
+      typeof fields === 'object' &&
+      Object.keys(fields as object).length === 1 &&
+      'id' in (fields as object)
+    ) {
+      return state.users
+        .filter((u_) => u_.role === 'ADMIN')
+        .sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0))
+        .slice(0, lim)
+        .map((u_) => ({ id: u_.id }))
+    }
+    // Signature lookup: select() + where(transactionId AND role) + limit(1)
+    const role = ctrl.sigQueueRoles.shift() ?? null
+    const txId = ctrl.findTxId
+    return state.sigs
+      .filter((s) => (!role || s.signerRole === role) && (!txId || s.transactionId === txId))
+      .slice(0, lim)
+  }
+
+  function resolveOrderByList(): unknown[] {
+    // listInvoices result — synthesize rows that look like the production
+    // select(fields...).from(transactions).leftJoin(users).where(...).orderBy() shape.
+    return state.txs
+      .filter((t) => t.type === 'SENIOR_INCOME' || t.type === 'SALARY')
+      .filter((t) => t.invoiceDocumentId !== null)
+      .map((t) => {
+        const receiver = state.users.find((u_) => u_.id === t.receiverId)
+        const hasCounterpartySig = state.sigs.some(
+          (s) => s.transactionId === t.id && s.signerRole === 'COUNTERPARTY',
+        )
+        return {
+          id: t.id,
+          type: t.type,
+          amount: t.amount,
+          currency: t.currency,
+          receiverId: t.receiverId,
+          receiverName: receiver?.displayName ?? null,
+          createdAt: t.createdAt,
+          signedFlag: hasCounterpartySig,
+        }
+      })
+  }
+
+  function resolveSelectArray(): unknown[] {
+    // getSignaturesWithSignerNames — select(fields).from(invoiceSignatures).leftJoin(users).where()
+    const txId = ctrl.findTxId
+    return state.sigs
+      .filter((s) => !txId || s.transactionId === txId)
+      .map((s) => ({
+        ...s,
+        signerName: state.users.find((u_) => u_.id === s.signerId)?.displayName ?? null,
+      }))
+  }
+
+  const db = {
+    db: {
+      query: {
+        transactions: {
+          findFirst: async (args: { where?: unknown; with?: unknown }) => {
+            const id = ctrl.findTxId
+            const t = id ? state.txs.find((x) => x.id === id) : state.txs[0]
+            if (!t) return undefined
+            if (args.with) {
+              return {
+                ...t,
+                receiver: t.receiverId
+                  ? (() => {
+                      const r = state.users.find((u_) => u_.id === t.receiverId)
+                      return r ? { id: r.id, displayName: r.displayName } : null
+                    })()
+                  : null,
+                project: t.projectId
+                  ? (state.projects.find((p) => p.id === t.projectId) ?? null)
+                  : null,
+              }
+            }
+            return t
+          },
+        },
+        users: {
+          findFirst: async (_args: unknown) => {
+            const id = ctrl.userFindFirstQueue.shift()
+            if (!id) return undefined
+            return state.users.find((u_) => u_.id === id)
+          },
+        },
+        projects: {
+          findFirst: async (_args: unknown) => {
+            const id = ctrl.lookupProjectId
+            if (!id) return undefined
+            return state.projects.find((p) => p.id === id)
+          },
+        },
+      },
+      select: (fields?: unknown) => buildSelectBuilder(fields),
+      insert: (_t: unknown) => ({
+        values: (v: Record<string, unknown>) => {
+          const sig: SigRow = {
+            id: `s-new-${state.sigs.length}`,
+            transactionId: v['transactionId'] as string,
+            signerRole: v['signerRole'] as 'COMPANY' | 'COUNTERPARTY',
+            signerId: v['signerId'] as string,
+            pdfHash: v['pdfHash'] as string,
+            ipAddress: (v['ipAddress'] as string | null) ?? null,
+            userAgent: (v['userAgent'] as string | null) ?? null,
+            method: v['method'] as 'AUTO_COMPANY' | 'MANUAL_CLICK',
+            signedAt: (v['signedAt'] as Date) ?? new Date(),
+          }
+          state.sigs.push(sig)
+          return Object.assign(
+            { returning: async () => [sig] },
+            { then: (resolve: (v: unknown) => void) => resolve(undefined) },
+          )
+        },
+      }),
+      update: (_t: unknown) => ({
+        set: (v: Record<string, unknown>) => ({
+          where: async (_p: unknown) => {
+            if ('invoiceDocumentId' in v) {
+              const id = ctrl.findTxId
+              const target = id ? state.txs.find((t) => t.id === id) : state.txs[0]
+              if (target) target.invoiceDocumentId = v['invoiceDocumentId'] as string | null
+            }
+          },
+        }),
+      }),
+    },
+  } as unknown as ConstructorParameters<typeof InvoicesService>[0]
+
+  // Mocks for external dependencies.
+  const pdfBuffer = Buffer.from('PDFDATA')
+  const pdfHash = 'b'.repeat(64)
+  const pdfService = {
+    generateSignableInvoicePdf: vi.fn(async (_p: unknown) => ({ pdfBuffer, sha256Hash: pdfHash })),
+  } as unknown as ConstructorParameters<typeof InvoicesService>[1]
+
+  const uploadInternal = vi.fn(async (params: { ownerId: string }) => ({
+    id: `doc-new-${Date.now()}`,
+    ownerId: params.ownerId,
+    projectId: null,
+    category: 'INVOICE' as const,
+    name: 'invoice.pdf',
+    originalName: 'invoice.pdf',
+    s3Key: `documents/INVOICE/${params.ownerId}/x.pdf`,
+    thumbnailS3Key: null,
+    sizeBytes: 100,
+    mimeType: 'application/pdf',
+    uploadedBy: ADMIN.id,
+    uploadedByDisplayName: ADMIN.displayName,
+    deletedAt: null,
+    deletedBy: null,
+    createdAt: new Date().toISOString(),
+  }))
+  const softDeleteInternal = vi.fn(async (_id: string, _by: string) => undefined)
+  const findByIdInternal = vi.fn(async (id: string) => ({
+    id,
+    s3Key: `documents/INVOICE/x/${id}.pdf`,
+  }))
+  const documentsService = {
+    uploadInternal,
+    softDeleteInternal,
+    findByIdInternal,
+  } as unknown as ConstructorParameters<typeof InvoicesService>[2]
+
+  const getObject = vi.fn(async (_key: string) => pdfBuffer)
+  const s3 = { getObject } as unknown as ConstructorParameters<typeof InvoicesService>[3]
+
+  const notifCreate = vi.fn(async (_input: unknown) => ({
+    id: 'notif-1',
+    type: 'INVOICE_SIGN_REQUIRED' as const,
+    title: 'x',
+    body: null,
+    link: null,
+    readAt: null,
+    createdAt: new Date().toISOString(),
+  }))
+  const notificationsService = {
+    create: notifCreate,
+  } as unknown as ConstructorParameters<typeof InvoicesService>[4]
+
+  const config = {
+    get: (_k: string) => 'http://localhost:3000',
+  } as unknown as ConstructorParameters<typeof InvoicesService>[5]
+
+  const svc = new InvoicesService(
+    db,
+    pdfService,
+    documentsService,
+    s3,
+    notificationsService,
+    config,
+  )
+
+  return {
+    svc,
+    ctrl,
+    state,
+    pdfBuffer,
+    pdfHash,
+    pdfService,
+    documentsService,
+    uploadInternal,
+    softDeleteInternal,
+    findByIdInternal,
+    s3,
+    getObject,
+    notifCreate,
+  }
+}
+
+// Helper to build a baseline tx row with only the fields a test cares about
+function tx(overrides: Partial<TxRow> = {}): TxRow {
+  return {
+    id: overrides.id ?? 'tx-1',
+    type: overrides.type ?? 'SENIOR_INCOME',
+    status: overrides.status ?? 'PAID',
+    amount: overrides.amount ?? '1000',
+    currency: overrides.currency ?? 'USDT',
+    senderId: overrides.senderId ?? null,
+    receiverId: overrides.receiverId ?? null,
+    projectId: overrides.projectId ?? null,
+    invoiceDocumentId: overrides.invoiceDocumentId ?? null,
+    salaryMonth: overrides.salaryMonth ?? null,
+    txDate: overrides.txDate ?? null,
+    createdAt: overrides.createdAt ?? new Date(),
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Tests
+// -----------------------------------------------------------------------------
+
+describe('InvoicesService', () => {
+  describe('autoCreateForSeniorPayout', () => {
+    it('idempotent — second trigger with same tx is no-op', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-1',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-existing',
+          }),
+        ],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-1'
+      await h.svc.autoCreateForSeniorPayout('tx-1')
+      expect(h.pdfService.generateSignableInvoicePdf).not.toHaveBeenCalled()
+      expect(h.uploadInternal).not.toHaveBeenCalled()
+      expect(h.notifCreate).not.toHaveBeenCalled()
+    })
+
+    it('happy path — PDF generated, doc linked, COMPANY signature inserted, notification fired', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-1',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            projectId: 'p-1',
+            amount: '1000',
+            currency: 'USDT',
+          }),
+        ],
+        sigs: [],
+        users: [
+          {
+            id: SENIOR.id,
+            displayName: SENIOR.displayName,
+            role: 'SENIOR',
+            paymentMethod: 'USDT_ERC20',
+            walletUsdtErc20: '0xabc',
+            createdAt: new Date('2026-02-01'),
+          },
+          {
+            id: ADMIN.id,
+            displayName: ADMIN.displayName,
+            role: 'ADMIN',
+            createdAt: new Date('2026-01-01'),
+          },
+        ],
+        projects: [{ id: 'p-1', name: 'Acme Corp' }],
+      })
+
+      // Flow:
+      // 1. tx lookup (findTxId)
+      // 2. users.findFirst counterparty (SENIOR)
+      // 3. getAdminId → select admin
+      // 4. users.findFirst admin
+      // 5. projects.findFirst p-1
+      h.ctrl.findTxId = 'tx-1'
+      h.ctrl.userFindFirstQueue = [SENIOR.id, ADMIN.id]
+      h.ctrl.lookupProjectId = 'p-1'
+
+      await h.svc.autoCreateForSeniorPayout('tx-1')
+
+      expect(h.pdfService.generateSignableInvoicePdf).toHaveBeenCalledTimes(1)
+      expect(h.uploadInternal).toHaveBeenCalledTimes(1)
+      expect(h.uploadInternal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          category: 'INVOICE',
+          ownerId: SENIOR.id,
+          mimeType: 'application/pdf',
+        }),
+      )
+      expect(h.state.sigs.length).toBe(1)
+      expect(h.state.sigs[0]!.signerRole).toBe('COMPANY')
+      expect(h.state.sigs[0]!.method).toBe('AUTO_COMPANY')
+      expect(h.state.sigs[0]!.pdfHash).toBe(h.pdfHash)
+      expect(h.notifCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: SENIOR.id,
+          type: 'INVOICE_SIGN_REQUIRED',
+        }),
+      )
+    })
+
+    it('returns early for non-SENIOR_INCOME tx', async () => {
+      const h = buildHarness({
+        txs: [tx({ id: 'tx-1', type: 'EXPENSE' })],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-1'
+      await h.svc.autoCreateForSeniorPayout('tx-1')
+      expect(h.pdfService.generateSignableInvoicePdf).not.toHaveBeenCalled()
+    })
+
+    it('returns early for non-SALARY tx via the salary trigger', async () => {
+      const h = buildHarness({
+        txs: [tx({ id: 'tx-1', type: 'PAYOUT' })],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-1'
+      await h.svc.autoCreateForSalary('tx-1')
+      expect(h.pdfService.generateSignableInvoicePdf).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('signInvoice', () => {
+    const mkReq = (ip = '127.0.0.1', ua = 'Mozilla/5.0'): FastifyRequest =>
+      ({ ip, headers: { 'user-agent': ua } }) as unknown as FastifyRequest
+
+    it('RBAC — non-counterparty viewer → ForbiddenException', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-1',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+          }),
+        ],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-1'
+      // SENIOR2 is not the counterparty (receiver is SENIOR.id)
+      await expect(h.svc.signInvoice(SENIOR2, 'tx-1', mkReq())).rejects.toThrow(ForbiddenException)
+    })
+
+    it('throws ConflictException when COUNTERPARTY signature already exists', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-1',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-existing',
+            transactionId: 'tx-1',
+            signerRole: 'COUNTERPARTY',
+            signerId: SENIOR.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'MANUAL_CLICK',
+            signedAt: new Date(),
+          },
+        ],
+        users: [],
+        projects: [],
+      })
+
+      h.ctrl.findTxId = 'tx-1'
+      // First sig query in signInvoice is the COUNTERPARTY existence check.
+      h.ctrl.sigQueueRoles = ['COUNTERPARTY']
+      await expect(h.svc.signInvoice(SENIOR, 'tx-1', mkReq())).rejects.toThrow(ConflictException)
+    })
+
+    it('throws ConflictException when current PDF hash does not match stored COMPANY hash', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-1',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+          }),
+        ],
+        sigs: [
+          // Pre-seeded COMPANY sig with hash 'c'... — our default getObject
+          // returns the buffer that hashes to 'b'... (the pdfHash mock), so
+          // tampered-detection should fire. We override getObject below.
+          {
+            id: 's-company',
+            transactionId: 'tx-1',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: 'c'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date(),
+          },
+        ],
+        users: [],
+        projects: [],
+      })
+
+      h.ctrl.findTxId = 'tx-1'
+      // Sequence: COUNTERPARTY (0 → ok) then COMPANY (1 → check hash).
+      h.ctrl.sigQueueRoles = ['COUNTERPARTY', 'COMPANY']
+      // Override getObject to a different buffer so SHA-256 mismatches.
+      h.getObject.mockImplementation(async () => Buffer.from('TAMPERED'))
+
+      await expect(h.svc.signInvoice(SENIOR, 'tx-1', mkReq())).rejects.toThrow(ConflictException)
+      expect(h.state.sigs.filter((s) => s.signerRole === 'COUNTERPARTY').length).toBe(0)
+    })
+  })
+
+  describe('listInvoices', () => {
+    it('ADMIN sees all generated invoices', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-1',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+          }),
+          tx({
+            id: 'tx-2',
+            type: 'SALARY',
+            receiverId: JUNIOR.id,
+            invoiceDocumentId: 'doc-2',
+            amount: '2000',
+            currency: 'USD',
+          }),
+          tx({ id: 'tx-3', type: 'EXPENSE', invoiceDocumentId: null }),
+        ],
+        sigs: [],
+        users: [
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+          { id: JUNIOR.id, displayName: JUNIOR.displayName, role: 'JUNIOR' },
+        ],
+        projects: [],
+      })
+      const result = await h.svc.listInvoices(ADMIN, { status: undefined, type: undefined })
+      // Only the 2 tx with invoiceDocumentId pass our filter — the EXPENSE
+      // row is filtered out by the stub directly (mirrors the production
+      // SQL filter on `isNotNull(invoiceDocumentId)`).
+      expect(result.length).toBe(2)
+      expect(result.every((r) => r.status === 'PENDING' || r.status === 'SIGNED')).toBe(true)
+    })
+
+    it('ACCOUNTANT also sees all invoices', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-1',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+          }),
+        ],
+        sigs: [],
+        users: [{ id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' }],
+        projects: [],
+      })
+      const result = await h.svc.listInvoices(ACCOUNTANT, { status: undefined, type: undefined })
+      expect(result.length).toBe(1)
+    })
+  })
+
+  describe('verifyInvoice', () => {
+    it('returns only public fields — no IP, no user-agent, no full hash', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-1',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+            amount: '500',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-c',
+            transactionId: 'tx-1',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: '10.0.0.1',
+            userAgent: 'Mozilla/5.0 (Mac)',
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+          {
+            id: 's-x',
+            transactionId: 'tx-1',
+            signerRole: 'COUNTERPARTY',
+            signerId: SENIOR.id,
+            pdfHash: 'a'.repeat(64),
+            ipAddress: '203.0.113.5',
+            userAgent: 'Mozilla/5.0 (Win)',
+            method: 'MANUAL_CLICK',
+            signedAt: new Date('2026-05-26T11:00:00Z'),
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+
+      h.ctrl.findTxId = 'tx-1'
+      const result = await h.svc.verifyInvoice('tx-1')
+
+      expect(result.transactionId).toBe('tx-1')
+      expect(result.status).toBe('SIGNED')
+      expect(result.amount).toBe('500')
+      expect(result.currency).toBe('USDT')
+      expect(result.type).toBe('SENIOR_INCOME')
+      expect(result.signatures.length).toBe(2)
+      for (const s of result.signatures) {
+        expect(s.pdfHashShort.length).toBe(8)
+        expect(s).not.toHaveProperty('ipAddress')
+        expect(s).not.toHaveProperty('userAgent')
+        expect(s).not.toHaveProperty('pdfHash')
+      }
+    })
+
+    it('returns 404 for transactions without an invoice', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-1',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: null,
+          }),
+        ],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-1'
+      await expect(h.svc.verifyInvoice('tx-1')).rejects.toThrow(NotFoundException)
+    })
+
+    it('returns 404 for non-existing transaction', async () => {
+      const h = buildHarness({ txs: [], sigs: [], users: [], projects: [] })
+      h.ctrl.findTxId = 'tx-missing'
+      await expect(h.svc.verifyInvoice('tx-missing')).rejects.toThrow(NotFoundException)
+    })
+  })
+})
