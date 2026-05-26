@@ -49,10 +49,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
-import {
-  SegmentedToggle,
-  type SegmentedToggleOption,
-} from '@/components/ui/segmented-toggle'
+import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import { useDocuments } from '@/hooks/use-documents'
 import { DocumentList } from '@/components/documents/document-list'
 import { DocumentDetailDialog } from '@/components/documents/document-detail-dialog'
@@ -84,6 +81,9 @@ const CATEGORY_LABELS_RU: Record<DocumentCategory, string> = {
   RECEIPT: 'Чеки',
   AVATAR: 'Аватары',
   LOGO: 'Логотипы',
+  // INVOICE документы создаются системой и не отображаются в обычном табе
+  // /crm/documents (INTERNAL_CATEGORIES). Лейбл для случая ADMIN-toggle.
+  INVOICE: 'Инвойсы',
 }
 
 /**
@@ -153,10 +153,7 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   // If RBAC changes (role swap is impossible at runtime but defensive) and
   // the selected category is no longer available, reset to 'ALL'.
   useEffect(() => {
-    if (
-      categoryFilter !== 'ALL' &&
-      !availableCategories.includes(categoryFilter)
-    ) {
+    if (categoryFilter !== 'ALL' && !availableCategories.includes(categoryFilter)) {
       setCategoryFilter('ALL')
     }
   }, [availableCategories, categoryFilter])
@@ -362,16 +359,11 @@ function DocumentsHeader({
       >
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Документы</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            Резюме, договоры и сканы
-          </p>
+          <p className="mt-0.5 text-sm text-muted-foreground">Резюме, договоры и сканы</p>
         </div>
 
         {canShowUploadButton ? (
-          <Button
-            onClick={() => setUploadOpen(true)}
-            data-testid="documents-upload-button"
-          >
+          <Button onClick={() => setUploadOpen(true)} data-testid="documents-upload-button">
             <Plus className="mr-2 h-4 w-4" />
             Загрузить
           </Button>
@@ -391,10 +383,7 @@ function DocumentsHeader({
               Владелец
             </Label>
             <Select value={ownerFilter} onValueChange={onChangeOwnerFilter}>
-              <SelectTrigger
-                id="documents-owner-filter"
-                data-testid="documents-owner-filter"
-              >
+              <SelectTrigger id="documents-owner-filter" data-testid="documents-owner-filter">
                 <SelectValue placeholder="Все" />
               </SelectTrigger>
               <SelectContent>
@@ -546,10 +535,7 @@ function DocumentsListSection({
       </p>
       <p className="mt-1 text-xs text-muted-foreground">
         Управление — из{' '}
-        {categoryFilter === 'AVATAR'
-          ? 'профилей пользователей'
-          : 'настроек проектов'}
-        .
+        {categoryFilter === 'AVATAR' ? 'профилей пользователей' : 'настроек проектов'}.
       </p>
     </div>
   )
@@ -574,9 +560,7 @@ function DocumentsListSection({
 
   // Counter label — when filtering by category, mention which one.
   const counterScope =
-    categoryFilter === 'ALL'
-      ? ''
-      : ` · ${CATEGORY_LABELS_RU[categoryFilter].toLowerCase()}`
+    categoryFilter === 'ALL' ? '' : ` · ${CATEGORY_LABELS_RU[categoryFilter].toLowerCase()}`
 
   return (
     <div className="space-y-3">
@@ -587,11 +571,7 @@ function DocumentsListSection({
         {isLoading
           ? '...'
           : `${filtered.length} ${pluralizeDocuments(filtered.length)}${
-              statusTab === 'ARCHIVED'
-                ? ' · в архиве'
-                : statusTab === 'ALL'
-                  ? ' · все'
-                  : ''
+              statusTab === 'ARCHIVED' ? ' · в архиве' : statusTab === 'ALL' ? ' · все' : ''
             }${counterScope}`}
       </div>
 

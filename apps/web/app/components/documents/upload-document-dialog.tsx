@@ -81,6 +81,10 @@ const CATEGORY_LABELS_RU: Record<DocumentCategory, string> = {
   RECEIPT: 'Чек',
   AVATAR: 'Аватар',
   LOGO: 'Логотип',
+  // INVOICE документы создаются системой (Invoice Signing Epic) и не могут
+  // быть загружены вручную — лейбл оставлен на случай, если ADMIN включит
+  // «показать internal» и увидит инвойсы в общем списке документов.
+  INVOICE: 'Инвойс',
 }
 
 export function UploadDocumentDialog({
@@ -120,10 +124,7 @@ export function UploadDocumentDialog({
 
   const categoriesToShow = allowedCategories ?? DEFAULT_ALLOWED
   const requiresProject = category === 'CONTRACT'
-  const canSubmit =
-    file !== null &&
-    !upload.isPending &&
-    (!requiresProject || Boolean(projectId))
+  const canSubmit = file !== null && !upload.isPending && (!requiresProject || Boolean(projectId))
 
   function validateAndSet(picked: File | null) {
     if (!picked) {
@@ -175,8 +176,8 @@ export function UploadDocumentDialog({
         <CrmDialogHeader>
           <DialogTitle>Загрузить документ</DialogTitle>
           <DialogDescription className="mt-1 text-sm text-muted-foreground">
-            Максимальный размер: {formatBytes(DOCUMENT_MAX_BYTES)}. Допустимые форматы:
-            PDF, JPG, PNG, WebP, HEIC.
+            Максимальный размер: {formatBytes(DOCUMENT_MAX_BYTES)}. Допустимые форматы: PDF, JPG,
+            PNG, WebP, HEIC.
           </DialogDescription>
         </CrmDialogHeader>
 
@@ -224,9 +225,7 @@ export function UploadDocumentDialog({
           >
             <FileUp className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
             <p className="mt-3 text-sm font-medium">
-              {file
-                ? file.name
-                : 'Перетащите файл сюда или нажмите для выбора'}
+              {file ? file.name : 'Перетащите файл сюда или нажмите для выбора'}
             </p>
             {file ? (
               <button
@@ -268,10 +267,7 @@ export function UploadDocumentDialog({
               onValueChange={(v) => setCategory(v as DocumentCategory)}
               disabled={Boolean(lockCategory)}
             >
-              <SelectTrigger
-                id="document-category"
-                data-testid="upload-category-select"
-              >
+              <SelectTrigger id="document-category" data-testid="upload-category-select">
                 <SelectValue placeholder="Выберите категорию" />
               </SelectTrigger>
               <SelectContent>
@@ -359,11 +355,7 @@ export function UploadDocumentDialog({
           >
             Отмена
           </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={!canSubmit}
-            data-testid="upload-submit"
-          >
+          <Button onClick={handleSubmit} disabled={!canSubmit} data-testid="upload-submit">
             {upload.isPending ? 'Загрузка...' : 'Загрузить'}
           </Button>
         </CrmDialogFooter>
