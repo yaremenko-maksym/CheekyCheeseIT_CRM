@@ -2,6 +2,7 @@ import 'dotenv/config'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { drizzle } from 'drizzle-orm/node-postgres'
+import { eq } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import * as schema from './schema'
@@ -14,7 +15,7 @@ const SEED_USERS: schema.NewUser[] = [
     id: MAKSYM_ID,
     email: 'yaremenkomaksym99@gmail.com',
     displayName: 'Maksym Yaremenko',
-    avatar: 'https://api.dicebear.com/9.x/avataaars/svg?seed=maksym',
+    avatarUrl: 'https://api.dicebear.com/9.x/avataaars/svg?seed=maksym',
     role: 'ADMIN',
     telegram: '@maksym_yaremenko',
     phone: '+380671000001',
@@ -27,7 +28,7 @@ const SEED_USERS: schema.NewUser[] = [
     id: KOSTYA_ID,
     email: 'kostya@cheekycheeseit.com',
     displayName: 'Kostya',
-    avatar: 'https://api.dicebear.com/9.x/avataaars/svg?seed=kostya',
+    avatarUrl: 'https://api.dicebear.com/9.x/avataaars/svg?seed=kostya',
     role: 'ADMIN',
     telegram: '@kostya_partner',
     phone: '+380671000002',
@@ -39,7 +40,7 @@ const SEED_USERS: schema.NewUser[] = [
   {
     email: 'oleksiy.kovalenko@cheekycheese.dev',
     displayName: 'Oleksiy Kovalenko',
-    avatar: 'https://api.dicebear.com/9.x/avataaars/svg?seed=oleksiy',
+    avatarUrl: 'https://api.dicebear.com/9.x/avataaars/svg?seed=oleksiy',
     role: 'SENIOR',
     telegram: '@oleksiy_koval',
     phone: '+380671000003',
@@ -51,7 +52,7 @@ const SEED_USERS: schema.NewUser[] = [
   {
     email: 'dmytro.marchenko@cheekycheese.dev',
     displayName: 'Dmytro Marchenko',
-    avatar: 'https://api.dicebear.com/9.x/avataaars/svg?seed=dmytro',
+    avatarUrl: 'https://api.dicebear.com/9.x/avataaars/svg?seed=dmytro',
     role: 'SENIOR',
     telegram: '@dmytro_march',
     phone: '+380671000004',
@@ -63,7 +64,7 @@ const SEED_USERS: schema.NewUser[] = [
   {
     email: 'sofia.bondarenko@cheekycheese.dev',
     displayName: 'Sofia Bondarenko',
-    avatar: 'https://api.dicebear.com/9.x/avataaars/svg?seed=sofia',
+    avatarUrl: 'https://api.dicebear.com/9.x/avataaars/svg?seed=sofia',
     role: 'JUNIOR',
     telegram: '@sofia_bond',
     phone: '+380671000005',
@@ -78,7 +79,7 @@ const SEED_USERS: schema.NewUser[] = [
   {
     email: 'ivan.petrenko@cheekycheese.dev',
     displayName: 'Ivan Petrenko',
-    avatar: 'https://api.dicebear.com/9.x/avataaars/svg?seed=ivan',
+    avatarUrl: 'https://api.dicebear.com/9.x/avataaars/svg?seed=ivan',
     role: 'JUNIOR',
     telegram: '@ivan_pet',
     phone: '+380671000006',
@@ -89,7 +90,7 @@ const SEED_USERS: schema.NewUser[] = [
   {
     email: 'anna.lysenko@cheekycheese.dev',
     displayName: 'Anna Lysenko',
-    avatar: 'https://api.dicebear.com/9.x/avataaars/svg?seed=anna',
+    avatarUrl: 'https://api.dicebear.com/9.x/avataaars/svg?seed=anna',
     role: 'HR',
     telegram: '@anna_lysenko',
     phone: '+380671000007',
@@ -103,7 +104,7 @@ const SEED_USERS: schema.NewUser[] = [
   {
     email: 'kateryna.shevchenko@cheekycheese.dev',
     displayName: 'Kateryna Shevchenko',
-    avatar: 'https://api.dicebear.com/9.x/avataaars/svg?seed=kateryna',
+    avatarUrl: 'https://api.dicebear.com/9.x/avataaars/svg?seed=kateryna',
     role: 'HR',
     telegram: '@kate_shevch',
     phone: '+380671000008',
@@ -117,7 +118,7 @@ const SEED_USERS: schema.NewUser[] = [
   {
     email: 'mykola.savchenko@cheekycheese.dev',
     displayName: 'Mykola Savchenko',
-    avatar: 'https://api.dicebear.com/9.x/avataaars/svg?seed=mykola',
+    avatarUrl: 'https://api.dicebear.com/9.x/avataaars/svg?seed=mykola',
     role: 'ACCOUNTANT',
     telegram: '@mykola_savc',
     phone: '+380671000009',
@@ -1058,8 +1059,82 @@ async function main() {
       // ADMIN receipts (Maksym for his own admin-income txns)
       for (let i = 0; i < 4; i++) docs.push(mintRow('RECEIPT', adminMaksym))
 
+      // AVATAR (one per seeded user — 9 rows). Per pm-brief the FK is then
+      // set on `users.avatar_document_id` for a subset so the front-end can
+      // exercise both render branches (custom upload vs Google fallback).
+      const seededAvatarUsers = [adminMaksym, oleksiy, dmytro, sofia, ivan, anna, kateryna, mykola]
+      const avatarOwnerToDocId = new Map<string, string>()
+      for (const owner of seededAvatarUsers) {
+        const row = mintRow('AVATAR', owner, { ext: 'jpg', mime: 'image/jpeg' })
+        docs.push(row)
+        avatarOwnerToDocId.set(owner.id, row.id!)
+      }
+
+      // LOGO (one per seeded project — 6 rows). Owner = senior; subset
+      // gets the FK applied, two projects get an external URL instead, two
+      // stay logo-less to cover the placeholder code path.
+      const artkaiProject = byProjectName['Artkai']
+      const favbetProject = byProjectName['Фавбет']
+      const projectsForLogo = [aiProject, edtechProject, fermProject, onePunchProject, artkaiProject, favbetProject]
+      const projectIdToLogoDocId = new Map<string, string>()
+      for (const project of projectsForLogo) {
+        if (!project) continue
+        // Senior of the project owns the LOGO row (project edit flow uses
+        // senior.id as owner when uploading the logo).
+        const ownerUser = allUsers.find((u) => u.id === project.seniorId) ?? adminMaksym
+        const row = mintRow('LOGO', ownerUser, {
+          projectId: project.id,
+          uploadedBy: ownerUser.id,
+          ext: 'png',
+          mime: 'image/png',
+        })
+        docs.push(row)
+        projectIdToLogoDocId.set(project.id, row.id!)
+      }
+
       await db.insert(schema.documents).values(docs)
-      console.log(`  + seeded ${docs.length} documents (RESUME/SCAN/CONTRACT/RECEIPT)`)
+      console.log(`  + seeded ${docs.length} documents (RESUME/SCAN/CONTRACT/RECEIPT/AVATAR/LOGO)`)
+
+      // Wire avatar_document_id on ~5 of the 8 seeded users so the UI can
+      // exercise both branches. Skip Sofia / Anna / Mykola so they keep the
+      // Google fallback (covers the "no custom avatar" code path).
+      const avatarWiringSet = new Set([adminMaksym.id, oleksiy.id, dmytro.id, ivan.id, kateryna.id])
+      for (const [ownerId, docId] of avatarOwnerToDocId.entries()) {
+        if (!avatarWiringSet.has(ownerId)) continue
+        await db
+          .update(schema.users)
+          .set({ avatarDocumentId: docId, updatedAt: new Date() })
+          .where(eq(schema.users.id, ownerId))
+      }
+      console.log(`  + wired avatar_document_id for ${avatarWiringSet.size} users`)
+
+      // Wire logo on 3 projects (doc FK), 2 projects (external URL), leave
+      // 1 untouched (placeholder). Avoids the XOR check failing — we never
+      // set both columns on the same row.
+      const logoExternalAssignments: Array<{ projectId: string; url: string }> = []
+      if (aiProject) logoExternalAssignments.push({ projectId: aiProject.id, url: 'https://example.com/logos/ai-platform.svg' })
+      if (favbetProject) logoExternalAssignments.push({ projectId: favbetProject.id, url: 'https://favbet.com/logo.svg' })
+
+      const wireDocsForProjects = new Set([
+        edtechProject?.id,
+        fermProject?.id,
+        onePunchProject?.id,
+      ].filter((v): v is string => Boolean(v)))
+
+      for (const [projectId, docId] of projectIdToLogoDocId.entries()) {
+        if (!wireDocsForProjects.has(projectId)) continue
+        await db
+          .update(schema.projects)
+          .set({ logoDocumentId: docId, updatedAt: new Date() })
+          .where(eq(schema.projects.id, projectId))
+      }
+      for (const { projectId, url } of logoExternalAssignments) {
+        await db
+          .update(schema.projects)
+          .set({ logoExternalUrl: url, updatedAt: new Date() })
+          .where(eq(schema.projects.id, projectId))
+      }
+      console.log(`  + wired logo: ${wireDocsForProjects.size} via doc, ${logoExternalAssignments.length} via external url`)
 
       // Best-effort: push the real sample PDF into MinIO under each PDF
       // row's s3_key. Image-MIME rows are skipped (the fixture is a PDF;

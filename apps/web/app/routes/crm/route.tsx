@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { NavSidebar } from '@/components/crm/nav-sidebar'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { UserAvatar } from '@/components/users/UserAvatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -37,15 +37,6 @@ function CrmRoot() {
   )
 }
 
-
-function getInitials(name: string): string {
-  return name
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2)
-}
 
 function CrmLayout() {
   const { user, isLoading } = useAuth()
@@ -190,14 +181,12 @@ function CrmLayout() {
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Avatar className="h-8 w-8 cursor-pointer ml-1">
-                  {(user.avatarOverride ?? user.avatar) && (
-                    <AvatarImage src={user.avatarOverride ?? user.avatar ?? undefined} alt={user.displayName} />
-                  )}
-                  <AvatarFallback className="bg-primary/20 text-xs text-primary">
-                    {getInitials(user.displayName)}
-                  </AvatarFallback>
-                </Avatar>
+                <UserAvatar
+                  avatarDocumentId={user.avatarDocumentId ?? null}
+                  avatarUrl={user.avatarUrl}
+                  displayName={user.displayName}
+                  className="h-8 w-8 cursor-pointer ml-1 [&_[data-slot=avatar-fallback]]:bg-primary/20 [&_[data-slot=avatar-fallback]]:text-xs [&_[data-slot=avatar-fallback]]:text-primary"
+                />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-52">
                 <DropdownMenuLabel className="font-normal">

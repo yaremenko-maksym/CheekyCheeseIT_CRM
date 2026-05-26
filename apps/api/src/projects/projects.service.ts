@@ -11,6 +11,7 @@ import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
 import type { ArchiveImpact, CreateProjectDto, EffectiveTeam, SessionUser, UpdateProjectDto } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
+  documents,
   projectFinanceSettings,
   projectMembers,
   projects,
@@ -45,7 +46,8 @@ export class ProjectsService {
       name: project.name,
       companyName: project.companyName,
       domain: project.domain,
-      logoUrl: project.logoUrl ?? null,
+      logoDocumentId: project.logoDocumentId ?? null,
+      logoExternalUrl: project.logoExternalUrl ?? null,
       startDate: project.startDate.toISOString(),
       seniorId: project.seniorId,
       seniorName: project.senior?.displayName ?? '',
@@ -71,11 +73,38 @@ export class ProjectsService {
         userId: m.userId,
         displayName: m.user?.displayName ?? '',
         email: m.user?.email ?? '',
-        avatar: m.user?.avatar ?? null,
+        avatarUrl: m.user?.avatarUrl ?? null,
+        avatarDocumentId: m.user?.avatarDocumentId ?? null,
         role: m.user?.role ?? 'JUNIOR',
         joinedAt: m.joinedAt.toISOString(),
         leftAt: m.leftAt ? m.leftAt.toISOString() : null,
       })),
+    }
+  }
+
+  /**
+   * Validate that the supplied `logoDocumentId` references a document with
+   * `category = 'LOGO'`. ProjectId match is enforced when present — protects
+   * against using the logo of another project. Throws `BadRequestException`.
+   * Null is treated as a clear-logo operation and short-circuits.
+   */
+  private async assertLogoDocument(
+    documentId: string | null | undefined,
+    projectId: string | null,
+  ): Promise<void> {
+    if (documentId === undefined || documentId === null) return
+    const row = await this.db.db.query.documents.findFirst({
+      where: eq(documents.id, documentId),
+    })
+    if (!row) throw new BadRequestException('Логотип: документ не найден')
+    if (row.category !== 'LOGO') {
+      throw new BadRequestException('Категория документа должна быть LOGO')
+    }
+    if (row.deletedAt !== null) {
+      throw new BadRequestException('Логотип: документ удалён')
+    }
+    if (projectId !== null && row.projectId !== null && row.projectId !== projectId) {
+      throw new BadRequestException('Логотип: документ принадлежит другому проекту')
     }
   }
 
@@ -153,7 +182,8 @@ export class ProjectsService {
           id: project.senior.id,
           displayName: project.senior.displayName,
           email: project.senior.email,
-          avatar: project.senior.avatar ?? null,
+          avatarUrl: project.senior.avatarUrl ?? null,
+          avatarDocumentId: project.senior.avatarDocumentId ?? null,
           role: 'SENIOR' as const,
         }
       : null
@@ -173,7 +203,8 @@ export class ProjectsService {
             userId: teamMembers.userId,
             displayName: users.displayName,
             email: users.email,
-            avatar: users.avatar,
+            avatarUrl: users.avatarUrl,
+            avatarDocumentId: users.avatarDocumentId,
             role: users.role,
           })
           .from(teamMembers)
@@ -189,7 +220,8 @@ export class ProjectsService {
             userId: r.userId,
             displayName: r.displayName,
             email: r.email,
-            avatar: r.avatar ?? null,
+            avatarUrl: r.avatarUrl ?? null,
+            avatarDocumentId: r.avatarDocumentId ?? null,
             role: 'HR' as const,
           }))
         accountants = teamRows
@@ -199,7 +231,8 @@ export class ProjectsService {
             userId: r.userId,
             displayName: r.displayName,
             email: r.email,
-            avatar: r.avatar ?? null,
+            avatarUrl: r.avatarUrl ?? null,
+            avatarDocumentId: r.avatarDocumentId ?? null,
             role: 'ACCOUNTANT' as const,
           }))
       }
@@ -212,7 +245,8 @@ export class ProjectsService {
         userId: m.userId,
         displayName: m.user?.displayName ?? '',
         email: m.user?.email ?? '',
-        avatar: m.user?.avatar ?? null,
+        avatarUrl: m.user?.avatarUrl ?? null,
+        avatarDocumentId: m.user?.avatarDocumentId ?? null,
         role: m.user?.role ?? 'JUNIOR',
         joinedAt: m.joinedAt.toISOString(),
         leftAt: null,
@@ -252,13 +286,21 @@ export class ProjectsService {
         ? null
         : data.seniorSharePercentOverride
 
+    // Validate logo document FK before insert — if it points at a non-LOGO
+    // document or a deleted row, fail with 400 instead of catching a DB
+    // constraint violation. Project does not exist yet, so projectId is null.
+    if (data.logoDocumentId !== undefined && data.logoDocumentId !== null) {
+      await this.assertLogoDocument(data.logoDocumentId, null)
+    }
+
     const [project] = await this.db.db
       .insert(projects)
       .values({
         name: data.name,
         companyName: data.companyName,
         domain: data.domain,
-        logoUrl: data.logoUrl ?? null,
+        logoDocumentId: data.logoDocumentId ?? null,
+        logoExternalUrl: data.logoExternalUrl ?? null,
         startDate: new Date(data.startDate),
         seniorId: data.seniorId,
         rate: data.rate,
@@ -380,7 +422,25 @@ export class ProjectsService {
     if (data.name !== undefined) updateData.name = data.name
     if (data.companyName !== undefined) updateData.companyName = data.companyName
     if (data.domain !== undefined) updateData.domain = data.domain
-    if (data.logoUrl !== undefined) updateData.logoUrl = data.logoUrl ?? null
+    if (data.logoDocumentId !== undefined) {
+      // Validate the FK before applying. Null clears the document path.
+      await this.assertLogoDocument(data.logoDocumentId, id)
+      updateData.logoDocumentId = data.logoDocumentId ?? null
+      // XOR invariant: setting documentId clears externalUrl, even when the
+      // caller didn't pass externalUrl explicitly. Without this the DB CHECK
+      // would block an update from "external set" to "doc set".
+      if (data.logoDocumentId !== null && data.logoExternalUrl === undefined) {
+        updateData.logoExternalUrl = null
+      }
+    }
+    if (data.logoExternalUrl !== undefined) {
+      updateData.logoExternalUrl = data.logoExternalUrl ?? null
+      // Mirror invariant — setting external clears doc id when caller didn't
+      // pass it. Skip if logoDocumentId was already set above to non-null.
+      if (data.logoExternalUrl !== null && data.logoDocumentId === undefined) {
+        updateData.logoDocumentId = null
+      }
+    }
     if (data.rate !== undefined) updateData.rate = data.rate
     if (data.currency !== undefined) updateData.currency = data.currency
     if (overrideEffective !== undefined) {
@@ -691,7 +751,8 @@ export class ProjectsService {
         name: interview.companyName,
         companyName: interview.companyName,
         domain,
-        logoUrl: null,
+        logoDocumentId: null,
+        logoExternalUrl: null,
         startDate: new Date(),
         seniorId: interview.seniorId,
         rate: 0,

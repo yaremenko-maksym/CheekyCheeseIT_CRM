@@ -99,6 +99,20 @@
       "when": 1780400000000,
       "tag": "0013_transactions_receipt_refactor",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1780500000000,
+      "tag": "0014_users_avatar_doc_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1780600000000,
+      "tag": "0015_projects_logo_doc_fk",
+      "breakpoints": true
     }
   ]
 }

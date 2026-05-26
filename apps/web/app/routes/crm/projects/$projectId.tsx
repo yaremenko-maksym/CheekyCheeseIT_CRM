@@ -41,6 +41,7 @@ import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { ProjectLogo } from '@/components/projects/ProjectLogo'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -54,7 +55,7 @@ import {
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ReceiptField } from '@/components/ui/receipt-field'
+import { ImageUploadField } from '@/components/ui/image-upload-field'
 import { ShareSlider } from '@/components/ui/share-slider'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -148,6 +149,7 @@ function ProjectEditFields({
   canEditOverride,
   defaultSharePercent,
   viewerRole,
+  projectId,
 }: {
   form: AnyForm
   mode: 'info' | 'members'
@@ -155,25 +157,28 @@ function ProjectEditFields({
   defaultSharePercent: number
   // ut-fix-round2: HR теряет видимость секции с долей синьора целиком (не disabled).
   viewerRole: string | undefined
+  projectId?: string | undefined
 }) {
   if (mode === 'info') {
     return (
       <div className="space-y-3">
-        <form.Field name="logoUrl">
-          {(field: AnyField) => (
-            <div className="space-y-1.5">
-              <Label>Логотип компании</Label>
-              <ReceiptField
-                value={field.state.value ?? ''}
-                onChange={(v) => field.handleChange(v || null)}
-                accept="image/*"
-                urlPlaceholder="https://example.com/logo.png"
-                urlHint="Вставьте ссылку на логотип или нажмите кнопку вставить"
-                fileHint="PNG, JPG, SVG — логотип компании"
-              />
-            </div>
-          )}
-        </form.Field>
+        <div className="space-y-1.5">
+          <Label>Логотип компании</Label>
+          <ImageUploadField
+            value={{
+              documentId: (form.state.values as { logoDocumentId: string | null }).logoDocumentId,
+              externalUrl: (form.state.values as { logoExternalUrl: string | null }).logoExternalUrl,
+            }}
+            onChange={(v) => {
+              form.setFieldValue('logoDocumentId', v.documentId)
+              form.setFieldValue('logoExternalUrl', v.externalUrl)
+            }}
+            category="LOGO"
+            {...(projectId !== undefined ? { projectId } : {})}
+            urlPlaceholder="https://example.com/logo.png"
+            testId="edit-project-logo"
+          />
+        </div>
 
         <form.Field
           name="name"
@@ -512,7 +517,8 @@ function ProjectDetailPage() {
       name: project?.name ?? '',
       companyName: project?.companyName ?? '',
       domain: coerceDomain(project?.domain),
-      logoUrl: project?.logoUrl ?? (null as string | null),
+      logoDocumentId: project?.logoDocumentId ?? (null as string | null),
+      logoExternalUrl: project?.logoExternalUrl ?? (null as string | null),
       rate: (project?.rate ?? '') as unknown as number,
       currency: (project?.currency ?? 'USDT') as 'USDT' | 'USD' | 'EUR' | 'UAH',
       seniorSharePercentOverride: project?.seniorSharePercentOverride ?? null,
@@ -538,7 +544,8 @@ function ProjectDetailPage() {
         name: value.name.trim() || undefined,
         companyName: value.companyName.trim() || undefined,
         domain: value.domain || undefined,
-        logoUrl: value.logoUrl || null,
+        logoDocumentId: value.logoDocumentId ?? null,
+        logoExternalUrl: value.logoExternalUrl ?? null,
         rate: Number(value.rate) || undefined,
         currency: value.currency || undefined,
         ...(overrideChanged
@@ -579,7 +586,7 @@ const removeMemberMutation = useMutation({
     },
   })
 
-  type UserForAdd = { id: string; displayName: string; email: string; role: string; avatar: string | null; hasActiveProject: boolean }
+  type UserForAdd = { id: string; displayName: string; email: string; role: string; avatarUrl: string | null; avatarDocumentId: string | null; hasActiveProject: boolean }
 
   const { data: allUsers } = useQuery({
     queryKey: ['users'],
@@ -606,7 +613,8 @@ const removeMemberMutation = useMutation({
     editForm.setFieldValue('name', project.name)
     editForm.setFieldValue('companyName', project.companyName)
     editForm.setFieldValue('domain', coerceDomain(project.domain))
-    editForm.setFieldValue('logoUrl', project.logoUrl ?? null)
+    editForm.setFieldValue('logoDocumentId', project.logoDocumentId ?? null)
+    editForm.setFieldValue('logoExternalUrl', project.logoExternalUrl ?? null)
     editForm.setFieldValue('rate', project.rate as unknown as number)
     editForm.setFieldValue('currency', project.currency as 'USDT' | 'USD' | 'EUR' | 'UAH')
     editForm.setFieldValue('seniorSharePercentOverride', project.seniorSharePercentOverride ?? null)
@@ -638,7 +646,8 @@ const removeMemberMutation = useMutation({
     userId: project.seniorId,
     displayName: project.seniorName,
     role: 'SENIOR',
-    avatar: null as string | null,
+    avatarUrl: null as string | null,
+    avatarDocumentId: null as string | null,
   }
   const activeJuniors = activeMembers.filter((m) => m.role === 'JUNIOR')
   const activeHRs = activeMembers.filter((m) => m.role === 'HR')
@@ -682,14 +691,13 @@ return (
                 className="absolute inset-0 rounded-xl opacity-30 blur-md"
                 style={{ background: '#f5c542' }}
               />
-              <Avatar className="relative h-14 w-14 rounded-xl border border-border/60 shadow-lg">
-                {project.logoUrl && (
-                  <AvatarImage src={project.logoUrl} alt={project.companyName} className="object-contain" />
-                )}
-                <AvatarFallback className="rounded-xl text-lg font-bold">
-                  {getInitials(project.companyName)}
-                </AvatarFallback>
-              </Avatar>
+              <ProjectLogo
+                documentId={project.logoDocumentId}
+                externalUrl={project.logoExternalUrl}
+                companyName={project.companyName}
+                fallback={getInitials(project.companyName)}
+                avatarClassName="relative h-14 w-14 rounded-xl border border-border/60 shadow-lg"
+              />
             </div>
             <div className="min-w-0">
               <h1 className="text-2xl font-bold tracking-tight truncate leading-tight">
@@ -1037,6 +1045,7 @@ return (
                   canEditOverride={canEditOverride}
                   defaultSharePercent={project.seniorSharePercentDefault}
                   viewerRole={user?.role}
+                  projectId={projectId}
                 />
               )}
             </div>
@@ -1106,7 +1115,7 @@ return (
                     className="flex items-center gap-2.5 rounded-md px-3 py-2"
                   >
                     <Avatar className="h-7 w-7 shrink-0">
-                      {u.avatar && <AvatarImage src={u.avatar} />}
+                      {u.avatarUrl && <AvatarImage src={u.avatarUrl} />}
                       <AvatarFallback className="text-[10px]">{getInitials(u.displayName)}</AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
@@ -1336,7 +1345,7 @@ function MemberRow({
         className="flex min-w-0 flex-1 items-center gap-2 hover:opacity-80 transition-opacity"
       >
         <Avatar className="h-6 w-6 shrink-0">
-          {member.avatar && <AvatarImage src={member.avatar} alt={member.displayName} />}
+          {member.avatarUrl && <AvatarImage src={member.avatarUrl} alt={member.displayName} />}
           <AvatarFallback className="text-[9px]">{getInitials(member.displayName)}</AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
@@ -1390,7 +1399,8 @@ function ProjectEffectiveTeamCard({ project }: { project: ProjectDetailDto }) {
     key: string
     profileId: string
     displayName: string
-    avatar: string | null
+    avatarUrl: string | null
+    avatarDocumentId: string | null
     role: 'SENIOR' | 'HR' | 'ACCOUNTANT' | 'JUNIOR'
     sectionTestId: string
   }
@@ -1400,7 +1410,8 @@ function ProjectEffectiveTeamCard({ project }: { project: ProjectDetailDto }) {
       key: `senior-${senior.id}`,
       profileId: senior.id,
       displayName: senior.displayName,
-      avatar: senior.avatar,
+      avatarUrl: senior.avatarUrl,
+      avatarDocumentId: senior.avatarDocumentId,
       role: 'SENIOR',
       sectionTestId: 'effective-team-senior',
     })
@@ -1410,7 +1421,8 @@ function ProjectEffectiveTeamCard({ project }: { project: ProjectDetailDto }) {
       key: `hr-${m.id}`,
       profileId: m.userId,
       displayName: m.displayName,
-      avatar: m.avatar,
+      avatarUrl: m.avatarUrl,
+      avatarDocumentId: m.avatarDocumentId,
       role: 'HR',
       sectionTestId: 'effective-team-hrs',
     })
@@ -1420,7 +1432,8 @@ function ProjectEffectiveTeamCard({ project }: { project: ProjectDetailDto }) {
       key: `acc-${m.id}`,
       profileId: m.userId,
       displayName: m.displayName,
-      avatar: m.avatar,
+      avatarUrl: m.avatarUrl,
+      avatarDocumentId: m.avatarDocumentId,
       role: 'ACCOUNTANT',
       sectionTestId: 'effective-team-accountants',
     })
@@ -1430,7 +1443,8 @@ function ProjectEffectiveTeamCard({ project }: { project: ProjectDetailDto }) {
       key: `jun-${m.id}`,
       profileId: m.userId,
       displayName: m.displayName,
-      avatar: m.avatar,
+      avatarUrl: m.avatarUrl,
+      avatarDocumentId: m.avatarDocumentId,
       role: 'JUNIOR',
       sectionTestId: 'effective-team-juniors',
     })
@@ -1472,7 +1486,7 @@ function ProjectEffectiveTeamCard({ project }: { project: ProjectDetailDto }) {
             className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/30 transition-colors"
           >
             <Avatar className="h-7 w-7 shrink-0">
-              {m.avatar && <AvatarImage src={m.avatar} alt={m.displayName} />}
+              {m.avatarUrl && <AvatarImage src={m.avatarUrl} alt={m.displayName} />}
               <AvatarFallback className="text-[10px] font-semibold">{getInitials(m.displayName)}</AvatarFallback>
             </Avatar>
             <span className="text-sm font-medium truncate flex-1 text-primary hover:underline">

@@ -87,7 +87,7 @@ export function HrChipsField({
                         data-testid={`user-dialog-hr-chip-${u.id}`}
                       >
                         <Avatar className="h-6 w-6">
-                          {u.avatar ? <AvatarImage src={u.avatar} alt={u.displayName} /> : null}
+                          {u.avatarUrl ? <AvatarImage src={u.avatarUrl} alt={u.displayName} /> : null}
                           <AvatarFallback className="text-[10px]">
                             {getInitials(u.displayName)}
                           </AvatarFallback>
@@ -146,7 +146,7 @@ export function HrChipsField({
                         data-testid={`user-dialog-hr-option-${u.id}`}
                       >
                         <Avatar className="h-6 w-6">
-                          {u.avatar ? <AvatarImage src={u.avatar} alt={u.displayName} /> : null}
+                          {u.avatarUrl ? <AvatarImage src={u.avatarUrl} alt={u.displayName} /> : null}
                           <AvatarFallback className="text-[10px]">
                             {getInitials(u.displayName)}
                           </AvatarFallback>

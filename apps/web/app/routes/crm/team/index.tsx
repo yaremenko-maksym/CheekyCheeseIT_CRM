@@ -68,7 +68,7 @@ const item = {
   show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.25, 0.1, 0.25, 1] as const } },
 }
 
-type UserOption = { id: string; displayName: string; email: string; role: string; avatar: string | null }
+type UserOption = { id: string; displayName: string; email: string; role: string; avatarUrl: string | null; avatarDocumentId: string | null }
 
 async function fetchTeams(archivedQuery: '' | 'true' | 'all' = ''): Promise<TeamDto[]> {
   const res = await api.get<TeamDto[]>(`/teams${archivedQuery ? `?archived=${archivedQuery}` : ''}`)
@@ -687,7 +687,7 @@ function TeamPage() {
                       className="h-7 w-7 ring-2 ring-background bg-muted"
                       style={{ zIndex: 4 - index }}
                     >
-                      {member.avatar && <AvatarImage src={member.avatar} alt={member.displayName} />}
+                      {member.avatarUrl && <AvatarImage src={member.avatarUrl} alt={member.displayName} />}
                       <AvatarFallback className="bg-muted text-[10px]">{getInitials(member.displayName)}</AvatarFallback>
                     </Avatar>
                   ))}

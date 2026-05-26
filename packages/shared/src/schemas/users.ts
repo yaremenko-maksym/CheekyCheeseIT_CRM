@@ -13,33 +13,14 @@ const telegramSchema = z
 const phoneSchema = z.string().max(30)
 const techStackSchema = z.array(z.string().min(1).max(50)).max(50)
 
-/**
- * Allowlist for avatar override values:
- *  - `https://…` URLs (and only https — no http/javascript/data:text)
- *  - `data:image/<png|jpeg|jpg|gif|webp>;base64,<payload>` data URLs
- *
- * SVG is intentionally excluded because data:image/svg+xml can carry inline
- * `<script>` and act as an XSS vector when rendered in an <img> in some
- * contexts (e.g. when later mirrored into a frame/object). External SVGs
- * served over https:// are still allowed.
- */
-export const AVATAR_OVERRIDE_PATTERN =
-  /^(https:\/\/[^\s]+|data:image\/(png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/=\r\n]+)$/
-
-const avatarOverrideSchema = z
-  .string()
-  .max(1_500_000, 'Аватар слишком большой (макс ~1MB)')
-  .regex(
-    AVATAR_OVERRIDE_PATTERN,
-    'Аватар должен быть https URL или data:image/(png|jpeg|gif|webp) base64',
-  )
-
 export const userProfileSchema = z.object({
   id: z.string().uuid(),
   email: z.string().email(),
   displayName: z.string(),
-  avatar: z.string().url().nullable(),
-  avatarOverride: z.string().nullable(),
+  /** Google / dicebear fallback URL — renamed from `avatar` in migration 0013. */
+  avatarUrl: z.string().url().nullable(),
+  /** FK → documents.id for AVATAR uploads; nullable when user uses Google fallback. */
+  avatarDocumentId: z.string().uuid().nullable(),
   role: roleSchema,
   telegram: z.string().nullable(),
   phone: z.string().nullable(),
@@ -64,7 +45,13 @@ export const updateProfileSchema = z.object({
   telegram: telegramSchema.nullable().optional(),
   phone: phoneSchema.nullable().optional(),
   techStack: techStackSchema.nullable().optional(),
-  avatarOverride: avatarOverrideSchema.nullable().optional(),
+  /**
+   * FK → documents.id for AVATAR-category uploads. Service validates that the
+   * referenced document exists with `category = 'AVATAR'` and the caller owns it
+   * (or is ADMIN). Passing `null` clears the custom avatar and reverts to the
+   * Google fallback (`avatar_url`).
+   */
+  avatarDocumentId: z.string().uuid().nullable().optional(),
 })
 
 /**
@@ -116,7 +103,7 @@ export const createUserSchema = z.object({
   role: roleSchema,
   telegram: telegramSchema.nullable().optional(),
   phone: phoneSchema.nullable().optional(),
-  avatar: z.string().url().nullable().optional(),
+  avatarUrl: z.string().url().nullable().optional(),
   techStack: techStackSchema.nullable().optional(),
   seniorSharePercent: z.number().int().min(0).max(100).optional(),
   monthlySalary: z.number().nonnegative().nullable().optional(),
@@ -139,8 +126,12 @@ export const adminUpdateUserSchema = z.object({
   role: roleSchema.optional(),
   telegram: telegramSchema.nullable().optional(),
   phone: phoneSchema.nullable().optional(),
-  avatar: z.string().url().nullable().optional(),
-  avatarOverride: avatarOverrideSchema.nullable().optional(),
+  avatarUrl: z.string().url().nullable().optional(),
+  /**
+   * ADMIN may set a custom avatar for any user. Service validates the FK
+   * points to a document with `category = 'AVATAR'`.
+   */
+  avatarDocumentId: z.string().uuid().nullable().optional(),
   techStack: techStackSchema.nullable().optional(),
   seniorSharePercent: z.number().int().min(0).max(100).optional(),
   monthlySalary: z.number().nonnegative().nullable().optional(),

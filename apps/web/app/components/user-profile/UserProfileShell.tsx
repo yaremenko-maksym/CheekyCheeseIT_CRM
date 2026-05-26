@@ -92,8 +92,9 @@ export function UserProfileShell({
         <AvatarUploadDialog
           open={avatarOpen}
           onClose={() => setAvatarOpen(false)}
-          currentAvatarUrl={user.avatarOverride ?? user.avatar}
-          hasOverride={!!user.avatarOverride}
+          userId={user.id}
+          avatarDocumentId={user.avatarDocumentId ?? null}
+          avatarUrl={user.avatarUrl}
         />
       )}
 

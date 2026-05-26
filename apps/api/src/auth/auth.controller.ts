@@ -95,7 +95,8 @@ export class AuthController {
       id: user.id,
       email: user.email,
       displayName: user.displayName,
-      avatar: user.avatar ?? null,
+      avatarUrl: user.avatarUrl ?? null,
+      avatarDocumentId: user.avatarDocumentId ?? null,
       role: user.role,
       seniorSharePercent: user.seniorSharePercent,
     })
@@ -116,16 +117,17 @@ export class AuthController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   async me(@CurrentUser() user: ReturnType<typeof sessionUserSchema.parse>) {
-    // Re-hydrate latest displayName / avatar / avatarOverride from DB so global header
-    // reflects edits without a re-login. Role is taken from DB too (audit-friendly).
+    // Re-hydrate latest displayName / avatarUrl / avatarDocumentId from DB so the
+    // global header reflects edits without a re-login. Role is taken from DB too
+    // (audit-friendly).
     const fresh = await this.usersService.findById(user.id)
     if (!fresh) return user
     return sessionUserSchema.parse({
       id: fresh.id,
       email: fresh.email,
       displayName: fresh.displayName,
-      avatar: fresh.avatar ?? null,
-      avatarOverride: fresh.avatarOverride ?? null,
+      avatarUrl: fresh.avatarUrl ?? null,
+      avatarDocumentId: fresh.avatarDocumentId ?? null,
       role: fresh.role,
       seniorSharePercent: fresh.seniorSharePercent,
     })
@@ -155,7 +157,8 @@ export class AuthController {
       id: user.id,
       email: user.email,
       displayName: user.displayName,
-      avatar: user.avatar ?? null,
+      avatarUrl: user.avatarUrl ?? null,
+      avatarDocumentId: user.avatarDocumentId ?? null,
       role: user.role,
       seniorSharePercent: user.seniorSharePercent,
     })
@@ -195,7 +198,8 @@ export class AuthController {
       id: user.id,
       email: user.email,
       displayName: user.displayName,
-      avatar: user.avatar ?? null,
+      avatarUrl: user.avatarUrl ?? null,
+      avatarDocumentId: user.avatarDocumentId ?? null,
       role: user.role,
       seniorSharePercent: user.seniorSharePercent,
     })

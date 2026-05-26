@@ -29,7 +29,8 @@ type UserDto = {
   id: string
   email: string
   displayName: string
-  avatar: string | null
+  avatarUrl: string | null
+  avatarDocumentId: string | null
   role: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT'
   googleId: string | null
   createdAt: string
