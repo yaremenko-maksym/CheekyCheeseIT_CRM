@@ -120,10 +120,24 @@ jobs:
           gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
 
   e2e:
-    name: E2E Tests
+    name: E2E (${{ matrix.shard.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: auth-nav
+            files: tests/auth.spec.ts tests/navigation.spec.ts tests/debug.spec.ts tests/mock_test.spec.ts
+          - name: team-users
+            files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/rbac-junior-on-other.spec.ts
+          - name: projects
+            files: tests/projects.spec.ts tests/projects-senior-share-override.spec.ts
+          - name: finance
+            files: tests/finance.spec.ts tests/finance-senior-flow.spec.ts
+          - name: misc
+            files: tests/interviews.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/crm
     services:
       postgres:
         image: postgres:16-alpine
@@ -244,14 +258,16 @@ jobs:
         if: steps.pw-cache.outputs.cache-hit == 'true'
         run: pnpm --filter @crm/e2e exec playwright install-deps chromium
 
-      - name: Run E2E tests
-        run: pnpm --filter @crm/e2e test
+      - name: Run E2E tests (shard ${{ matrix.shard.name }})
+        env:
+          SHARD_FILES: ${{ matrix.shard.files }}
+        run: pnpm --filter @crm/e2e exec playwright test $SHARD_FILES
 
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ github.sha }}
+          name: playwright-report-${{ matrix.shard.name }}-${{ github.sha }}
           path: apps/e2e/playwright-report/
           retention-days: 7
 
