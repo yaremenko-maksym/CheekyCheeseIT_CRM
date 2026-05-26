@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   DollarSign,
+  FileSignature,
   FileText,
   KanbanSquare,
   LayoutDashboard,
@@ -66,6 +67,12 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Финансы',
     icon: DollarSign,
     to: '/crm/finance',
+    roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'],
+  },
+  {
+    label: 'Инвойсы',
+    icon: FileSignature,
+    to: '/crm/finance/invoices',
     roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'],
   },
   {

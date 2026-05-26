@@ -1,12 +1,13 @@
 import { createFileRoute, Link, Outlet, useNavigate } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
 import { AuthProvider } from '@/context/auth'
-import { NotificationsProvider, useNotifications } from '@/context/notifications'
-import { Bell, LogOut, Menu, Search, UserCircle } from 'lucide-react'
+import { NotificationsProvider } from '@/context/notifications'
+import { LogOut, Menu, Search, UserCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { NavSidebar } from '@/components/crm/nav-sidebar'
+import { NotificationsBell } from '@/components/layout/notifications-bell'
 import { UserAvatar } from '@/components/users/UserAvatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -41,7 +42,6 @@ function CrmRoot() {
 function CrmLayout() {
   const { user, isLoading } = useAuth()
   const navigate = useNavigate()
-  const { unreadCount } = useNotifications()
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false
     return localStorage.getItem('sidebar-collapsed') === 'true'
@@ -170,14 +170,7 @@ function CrmLayout() {
               <Search className="h-4 w-4" />
             </Button>
 
-            <Button variant="ghost" size="icon" className="relative" aria-label="Уведомления">
-              <Bell className="h-4 w-4" />
-              {unreadCount > 0 && (
-                <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </Button>
+            <NotificationsBell />
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
