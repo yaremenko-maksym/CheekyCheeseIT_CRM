@@ -26,10 +26,11 @@ export const DOCUMENT_MIME_WHITELIST = [
 /**
  * Internal categories — stored in `documents` table but NOT shown in
  * `/crm/documents` UI. They are managed only from their native places
- * (AVATAR — Profile UI; LOGO — Project edit dialog). ADMIN may enable a
- * "show internal" toggle for audit/cleanup workflows.
+ * (AVATAR — Profile UI; LOGO — Project edit dialog; INVOICE —
+ * `/crm/finance/invoices` UI). ADMIN may enable a "show internal" toggle
+ * for audit/cleanup workflows.
  */
-export const INTERNAL_CATEGORIES = ['AVATAR', 'LOGO'] as const
+export const INTERNAL_CATEGORIES = ['AVATAR', 'LOGO', 'INVOICE'] as const
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -42,6 +43,7 @@ export const documentCategorySchema = z.enum([
   'RECEIPT',
   'AVATAR',
   'LOGO',
+  'INVOICE',
 ])
 export type DocumentCategory = z.infer<typeof documentCategorySchema>
 
@@ -114,13 +116,10 @@ export const createDocumentMetadataSchema = z
      */
     ownerId: z.string().uuid().optional(),
   })
-  .refine(
-    (data) => data.category !== 'CONTRACT' || Boolean(data.projectId),
-    {
-      message: 'projectId is required for CONTRACT documents',
-      path: ['projectId'],
-    },
-  )
+  .refine((data) => data.category !== 'CONTRACT' || Boolean(data.projectId), {
+    message: 'projectId is required for CONTRACT documents',
+    path: ['projectId'],
+  })
 export type CreateDocumentMetadata = z.infer<typeof createDocumentMetadataSchema>
 
 // ---------------------------------------------------------------------------
