@@ -9,7 +9,12 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-currency-input'
 import { financeApi } from '../../api'
-import { ReceiptInput, receiptStateFromUrl, type ReceiptState } from '../ReceiptInput'
+import {
+  ReceiptInput,
+  receiptStateFromDocument,
+  receiptStateFromExternalUrl,
+  type ReceiptState,
+} from '../ReceiptInput'
 
 type ProjectOption = { id: string; name: string; seniorId: string }
 
@@ -25,14 +30,20 @@ export function EditSeniorIncomeDialog({
 
   const [amount, setAmount] = useState('')
   const [currency, setCurrency] = useState<Currency>('USDT')
-  const [receipt, setReceipt] = useState<ReceiptState>(receiptStateFromUrl(null))
+  const [receipt, setReceipt] = useState<ReceiptState>(receiptStateFromExternalUrl(null))
   const [notes, setNotes] = useState('')
 
   useEffect(() => {
     if (tx) {
       setAmount(tx.amount)
       setCurrency((tx.currency as Currency) || 'USDT')
-      setReceipt(receiptStateFromUrl(tx.receiptUrl))
+      // Prefer documentId over externalUrl when both somehow exist
+      // (DB enforces XOR so at most one is non-null here).
+      if (tx.receiptDocumentId) {
+        setReceipt(receiptStateFromDocument(tx.receiptDocumentId))
+      } else {
+        setReceipt(receiptStateFromExternalUrl(tx.receiptExternalUrl))
+      }
       setNotes(tx.notes ?? '')
     }
   }, [tx])
@@ -49,10 +60,13 @@ export function EditSeniorIncomeDialog({
     mutationFn: () => {
       const amt = parseFloat(amount)
       if (isNaN(amt) || amt <= 0) throw new Error('Некорректная сумма')
+      const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
+      const receiptExternalUrl = receipt.mode === 'url' ? (receipt.externalUrl || null) : null
       return financeApi.updateSeniorIncome(tx!.id, {
         amount: amt,
         currency,
-        receiptUrl: receipt.url || null,
+        receiptDocumentId,
+        receiptExternalUrl,
         notes: notes || null,
       })
     },

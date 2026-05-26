@@ -2,7 +2,7 @@
  * Полный сквозной флоу прихода синьора:
  *
  * 1.  SENIOR регистрирует приход (SENIOR_INCOME → PENDING)
- *     ВАЖНО: SENIOR_INCOME ТРЕБУЕТ receiptUrl — мутация в CreateTransactionDialog
+ *     ВАЖНО: SENIOR_INCOME ТРЕБУЕТ чек (receiptDocumentId или receiptExternalUrl) — мутация в CreateTransactionDialog
  *     бросает "Прикрепите чек или укажите ссылку на подтверждение" если URL пустой.
  * 2a. ACCOUNTANT отклоняет транзакцию (→ REJECTED)
  * 2b. SENIOR видит причину отклонения и исправляет (→ PENDING снова)
@@ -35,7 +35,8 @@ function makeTx(overrides: object = {}) {
     seniorSharePercent: 26,
     projectId: PROJECT_ID,
     projectName: PROJECT_NAME,
-    receiptUrl: null,
+    receiptDocumentId: null,
+    receiptExternalUrl: null,
     notes: null,
     salaryMonth: null,
     txHash: null,
@@ -94,7 +95,7 @@ async function setupTransactionMocks(page: MockPage, tx: object, payoutReqs: obj
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Helper — заполнить форму SENIOR_INCOME с обязательным receiptUrl
+// Helper — заполнить форму SENIOR_INCOME с обязательным чеком (URL или документ)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 async function fillSeniorIncomeForm(page: MockPage, { amount, withReceipt = true }: { amount: string; withReceipt?: boolean }) {
@@ -133,7 +134,7 @@ test.describe('SENIOR INCOME — шаг 1: регистрация прихода
   })
 
   test('SENIOR создаёт транзакцию с чеком — диалог закрывается', async ({ asSenior }) => {
-    await setupTransactionMocks(asSenior, makeTx({ receiptUrl: 'https://drive.google.com/receipt.pdf' }))
+    await setupTransactionMocks(asSenior, makeTx({ receiptExternalUrl: 'https://drive.google.com/receipt.pdf' }))
     await asSenior.goto('/crm/finance')
 
     await asSenior.getByRole('button', { name: /Новая транзакция/i }).click()
@@ -144,7 +145,7 @@ test.describe('SENIOR INCOME — шаг 1: регистрация прихода
   })
 
   test('SENIOR прикрепляет ссылку на чек при создании', async ({ asSenior }) => {
-    await setupTransactionMocks(asSenior, makeTx({ receiptUrl: 'https://drive.google.com/receipt.pdf' }))
+    await setupTransactionMocks(asSenior, makeTx({ receiptExternalUrl: 'https://drive.google.com/receipt.pdf' }))
     await asSenior.goto('/crm/finance')
 
     await asSenior.getByRole('button', { name: /Новая транзакция/i }).click()
@@ -470,7 +471,7 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     await mockAuthAs(accountantPage, USERS.accountant)
 
     // === ШАГ 1: SENIOR создаёт транзакцию ===
-    const pendingTx = makeTx({ receiptUrl: 'https://drive.google.com/receipt.pdf' })
+    const pendingTx = makeTx({ receiptExternalUrl: 'https://drive.google.com/receipt.pdf' })
 
     await seniorPage.route(new RegExp(`${API}/transactions/senior-income/([^/?]+)$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...pendingTx, status: 'PENDING', rejectionReason: null }) }),
@@ -502,7 +503,7 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     await expect(seniorPage.getByText('Ожидает').first()).toBeVisible()
 
     // === ШАГ 2а: ACCOUNTANT отклоняет ===
-    const rejectedTx = makeTx({ status: 'REJECTED', rejectionReason: 'Нет чека', receiptUrl: 'https://drive.google.com/receipt.pdf' })
+    const rejectedTx = makeTx({ status: 'REJECTED', rejectionReason: 'Нет чека', receiptExternalUrl: 'https://drive.google.com/receipt.pdf' })
 
     await accountantPage.route(new RegExp(`${API}/transactions/([^/?]+)/(validate|pay|admin-edit)$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rejectedTx) }),
@@ -522,7 +523,7 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     await expect(accountantPage.getByRole('dialog')).not.toBeVisible()
 
     // === ШАГ 2б: SENIOR исправляет ===
-    const correctedTx = makeTx({ status: 'PENDING', receiptUrl: 'https://drive.google.com/new-receipt.pdf' })
+    const correctedTx = makeTx({ status: 'PENDING', receiptExternalUrl: 'https://drive.google.com/new-receipt.pdf' })
 
     await seniorPage.route(new RegExp(`${API}/transactions/senior-income/([^/?]+)$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(correctedTx) }),
@@ -541,7 +542,7 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     await expect(seniorPage.getByRole('dialog')).not.toBeVisible()
 
     // === ШАГ 3: ACCOUNTANT принимает ===
-    const validatedTx = makeTx({ status: 'VALIDATED', validatedBy: USERS.accountant.id, receiptUrl: 'https://drive.google.com/new-receipt.pdf' })
+    const validatedTx = makeTx({ status: 'VALIDATED', validatedBy: USERS.accountant.id, receiptExternalUrl: 'https://drive.google.com/new-receipt.pdf' })
 
     await accountantPage.route(new RegExp(`${API}/transactions/([^/?]+)/(validate|pay|admin-edit)$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(validatedTx) }),

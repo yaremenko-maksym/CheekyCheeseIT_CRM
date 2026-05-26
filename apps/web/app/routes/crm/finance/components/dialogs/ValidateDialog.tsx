@@ -5,12 +5,23 @@ import { Button } from '@/components/ui/button'
 import { Dialog, CrmDialogContent, CrmDialogHeader, CrmDialogBody, CrmDialogFooter, DialogTitle } from '@/components/ui/crm-dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { useDocumentDownloadUrl } from '@/hooks/use-documents'
 import { financeApi } from '../../api'
 import { fmtAmount, fmtDate, TYPE_LABELS } from '../../constants'
 
 export function ValidateDialog({ tx, onClose }: { tx: TransactionDto | null; onClose: () => void }) {
   const qc = useQueryClient()
   const [reason, setReason] = useState('')
+
+  // Fetch presigned URL for uploaded receipts (only when documentId set).
+  // External URL receipts skip this query and use tx.receiptExternalUrl directly.
+  const receiptDocQuery = useDocumentDownloadUrl(
+    tx?.receiptDocumentId ?? undefined,
+    { enabled: !!tx?.receiptDocumentId },
+  )
+  const receiptUrl = tx?.receiptDocumentId
+    ? receiptDocQuery.data?.url ?? null
+    : tx?.receiptExternalUrl ?? null
 
   const mutation = useMutation({
     mutationFn: ({ action }: { action: 'validate' | 'reject' }) =>
@@ -60,10 +71,10 @@ export function ValidateDialog({ tx, onClose }: { tx: TransactionDto | null; onC
               <span className="text-muted-foreground">Дата</span>
               <span className="font-medium">{fmtDate(tx.createdAt)}</span>
             </div>
-            {tx.receiptUrl && (
+            {receiptUrl && (
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Чек</span>
-                <a href={tx.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-primary text-xs underline">
+                <a href={receiptUrl} target="_blank" rel="noopener noreferrer" className="text-primary text-xs underline">
                   Открыть
                 </a>
               </div>

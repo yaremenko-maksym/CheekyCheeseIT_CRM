@@ -47,7 +47,8 @@ export class TransactionsService {
       payoutRequestId: tx.payoutRequestId,
       payoutRequest: tx.payoutRequest ?? null,
       seniorSharePercent: tx.seniorSharePercent,
-      receiptUrl: tx.receiptUrl,
+      receiptDocumentId: tx.receiptDocumentId,
+      receiptExternalUrl: tx.receiptExternalUrl,
       txHash: tx.txHash,
       validatedBy: tx.validatedBy,
       validatedAt: tx.validatedAt ? tx.validatedAt.toISOString() : null,
@@ -148,7 +149,8 @@ export class TransactionsService {
     projectId: string
     amount: number
     currency: string
-    receiptUrl?: string | null | undefined
+    receiptDocumentId?: string | null | undefined
+    receiptExternalUrl?: string | null | undefined
     notes?: string | null | undefined
     txDate?: string | null | undefined
   }, currentUser: SessionUser) {
@@ -171,7 +173,8 @@ export class TransactionsService {
       senderLabel: project.companyName,
       receiverId: currentUser.id,
       projectId: data.projectId,
-      receiptUrl: data.receiptUrl ?? null,
+      receiptDocumentId: data.receiptDocumentId ?? null,
+      receiptExternalUrl: data.receiptExternalUrl ?? null,
       notes: data.notes ?? null,
       txDate: data.txDate ? new Date(data.txDate) : null,
       createdBy: currentUser.id,
@@ -186,7 +189,8 @@ export class TransactionsService {
     projectId: string
     amount: number
     currency: string
-    receiptUrl?: string | null | undefined
+    receiptDocumentId?: string | null | undefined
+    receiptExternalUrl?: string | null | undefined
     notes?: string | null | undefined
     txDate?: string | null | undefined
   }, currentUser: SessionUser) {
@@ -220,7 +224,8 @@ export class TransactionsService {
       receiverId: currentUser.id,
       projectId: data.projectId,
       seniorSharePercent: sharePercent,
-      receiptUrl: data.receiptUrl ?? null,
+      receiptDocumentId: data.receiptDocumentId ?? null,
+      receiptExternalUrl: data.receiptExternalUrl ?? null,
       notes: data.notes ?? null,
       txDate: data.txDate ? new Date(data.txDate) : null,
       createdBy: currentUser.id,
@@ -234,7 +239,8 @@ export class TransactionsService {
   async updateSeniorIncome(id: string, data: {
     amount?: number | undefined
     currency?: string | undefined
-    receiptUrl?: string | null | undefined
+    receiptDocumentId?: string | null | undefined
+    receiptExternalUrl?: string | null | undefined
     notes?: string | null | undefined
   }, currentUser: SessionUser) {
     const tx = await this.db.db.query.transactions.findFirst({
@@ -245,10 +251,22 @@ export class TransactionsService {
     if (tx.status !== 'REJECTED') throw new BadRequestException('Can only edit REJECTED transactions')
     if (tx.receiverId !== currentUser.id) throw new ForbiddenException()
 
+    // Resolve XOR: if exactly one is provided as defined, the other becomes
+    // null to satisfy the DB CHECK. If both are undefined, leave row unchanged.
+    const receiptDocChanged = data.receiptDocumentId !== undefined
+    const receiptUrlChanged = data.receiptExternalUrl !== undefined
+    const nextDocId = receiptDocChanged
+      ? data.receiptDocumentId ?? null
+      : (receiptUrlChanged && data.receiptExternalUrl ? null : tx.receiptDocumentId)
+    const nextExtUrl = receiptUrlChanged
+      ? data.receiptExternalUrl ?? null
+      : (receiptDocChanged && data.receiptDocumentId ? null : tx.receiptExternalUrl)
+
     await this.db.db.update(transactions).set({
       amount: data.amount !== undefined ? String(data.amount) : tx.amount,
       currency: (data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined) ?? tx.currency,
-      receiptUrl: data.receiptUrl !== undefined ? data.receiptUrl : tx.receiptUrl,
+      receiptDocumentId: nextDocId,
+      receiptExternalUrl: nextExtUrl,
       notes: data.notes !== undefined ? data.notes : tx.notes,
       status: 'PENDING',
       rejectionReason: null,
@@ -266,7 +284,8 @@ export class TransactionsService {
     amount?: number | undefined
     currency?: string | undefined
     notes?: string | null | undefined
-    receiptUrl?: string | null | undefined
+    receiptDocumentId?: string | null | undefined
+    receiptExternalUrl?: string | null | undefined
     category?: string | undefined
     salaryMonth?: string | undefined
   }, currentUser: SessionUser) {
@@ -283,11 +302,25 @@ export class TransactionsService {
       throw new BadRequestException('Cannot edit a transaction linked to a payout request')
     }
 
+    // Resolve XOR before write (same logic as updateSeniorIncome). Either
+    // field provided as defined wipes the other to satisfy the CHECK.
+    const receiptDocChanged = data.receiptDocumentId !== undefined
+    const receiptUrlChanged = data.receiptExternalUrl !== undefined
+    const receiptPatch: { receiptDocumentId?: string | null; receiptExternalUrl?: string | null } = {}
+    if (receiptDocChanged || receiptUrlChanged) {
+      receiptPatch.receiptDocumentId = receiptDocChanged
+        ? data.receiptDocumentId ?? null
+        : (receiptUrlChanged && data.receiptExternalUrl ? null : tx.receiptDocumentId)
+      receiptPatch.receiptExternalUrl = receiptUrlChanged
+        ? data.receiptExternalUrl ?? null
+        : (receiptDocChanged && data.receiptDocumentId ? null : tx.receiptExternalUrl)
+    }
+
     await this.db.db.update(transactions).set({
       ...(data.amount !== undefined && { amount: String(data.amount) }),
       ...(data.currency !== undefined && { currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH' }),
       ...(data.notes !== undefined && { notes: data.notes }),
-      ...(data.receiptUrl !== undefined && { receiptUrl: data.receiptUrl }),
+      ...receiptPatch,
       ...(data.category !== undefined && { receiverLabel: data.category }),
       ...(data.salaryMonth !== undefined && { salaryMonth: data.salaryMonth }),
       updatedAt: new Date(),
@@ -361,7 +394,8 @@ export class TransactionsService {
     currency: string
     category: string
     notes?: string | null
-    receiptUrl?: string | null
+    receiptDocumentId?: string | null | undefined
+    receiptExternalUrl?: string | null | undefined
     txDate?: string | null | undefined
   }, currentUser: SessionUser) {
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
@@ -374,7 +408,8 @@ export class TransactionsService {
       senderId: currentUser.id,
       receiverLabel: data.category,
       notes: data.notes ?? null,
-      receiptUrl: data.receiptUrl ?? null,
+      receiptDocumentId: data.receiptDocumentId ?? null,
+      receiptExternalUrl: data.receiptExternalUrl ?? null,
       txDate: data.txDate ? new Date(data.txDate) : null,
       createdBy: currentUser.id,
     }).returning()
