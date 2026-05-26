@@ -188,6 +188,108 @@ export class DocumentsService {
   }
 
   // -------------------------------------------------------------------------
+  // System-facing upload (Invoice Signing Epic)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Internal upload bypass for system-generated documents (e.g. INVOICE PDFs
+   * produced by InvoicesService). Differs from `upload()` in that:
+   *   - No RBAC check (caller is trusted server code, not an HTTP actor)
+   *   - No MIME whitelist enforcement (still recorded as-is in the row)
+   *   - No size cap (system-generated PDFs are bounded by template)
+   *   - No compression pass (input is already finalised by the producer)
+   *   - Accepts an explicit Buffer + mime + filename + `uploadedById`
+   *
+   * Used by InvoicesService.autoCreate* and InvoicesService.signInvoice to
+   * push the generated PDF into S3 + `documents` row in one shot. Thumbnail
+   * generation is intentionally skipped (INVOICE category is hidden from the
+   * default documents list and the verify page uses its own download flow).
+   */
+  async uploadInternal(params: {
+    category: DocumentCategory
+    ownerId: string
+    file: Buffer
+    mimeType: string
+    name: string
+    uploadedById: string
+    projectId?: string | null
+  }): Promise<DocumentDto> {
+    const docId = randomUUID()
+    const originalName = params.name.slice(0, 255)
+    const sanitizedName = this.sanitizeFilename(originalName)
+    const s3Key = `documents/${params.category}/${params.ownerId}/${docId}-${sanitizedName}`
+
+    // Insert DB row first, then S3 (compensate on S3 failure) — mirrors
+    // `upload()` so we never leak S3 objects without a corresponding row.
+    const [row] = await this.db.db
+      .insert(documents)
+      .values({
+        id: docId,
+        ownerId: params.ownerId,
+        projectId: params.projectId ?? null,
+        category: params.category,
+        name: sanitizedName,
+        originalName,
+        s3Key,
+        thumbnailS3Key: null,
+        sizeBytes: params.file.length,
+        mimeType: params.mimeType,
+        uploadedBy: params.uploadedById,
+      })
+      .returning()
+
+    if (!row) {
+      throw new Error('Failed to insert document row')
+    }
+
+    try {
+      await this.s3.upload(s3Key, params.file, params.mimeType)
+    } catch (err) {
+      this.logger.error(
+        `S3 upload failed for internal docId=${docId}: ${(err as Error).message} — rolling back DB row`,
+      )
+      await this.db.db.delete(documents).where(eq(documents.id, docId))
+      throw err
+    }
+
+    return this.mapDocument(row, null)
+  }
+
+  /**
+   * Internal soft-delete bypass — same effect as `softDelete()` but without
+   * the owner/ADMIN RBAC check, since the caller is trusted server code
+   * replacing one system-generated document with another (e.g. invoice PDF
+   * re-generation after the counterparty signs).
+   *
+   * Idempotent: skips if already deleted. Throws NotFoundException if the
+   * document does not exist at all (defensive — callers should know the id).
+   */
+  async softDeleteInternal(docId: string, deletedById: string): Promise<void> {
+    const doc = await this.db.db.query.documents.findFirst({
+      where: eq(documents.id, docId),
+    })
+    if (!doc) throw new NotFoundException('Документ не найден')
+    if (doc.deletedAt) return
+    await this.db.db
+      .update(documents)
+      .set({ deletedAt: new Date(), deletedBy: deletedById })
+      .where(eq(documents.id, docId))
+  }
+
+  /**
+   * Lookup a document by id without any RBAC check. Used by trusted system
+   * code (InvoicesService) that already established the relationship between
+   * the document and a higher-level entity (e.g. transaction.invoiceDocumentId
+   * FK guarantees the link). Returns null for missing rows.
+   */
+  async findByIdInternal(docId: string): Promise<typeof documents.$inferSelect | null> {
+    const doc = await this.db.db.query.documents.findFirst({
+      where: eq(documents.id, docId),
+    })
+    return doc ?? null
+  }
+
+  // -------------------------------------------------------------------------
   // List
   // -------------------------------------------------------------------------
 

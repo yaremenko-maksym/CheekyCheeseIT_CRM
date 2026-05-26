@@ -131,6 +131,33 @@ export class S3Service {
   }
 
   /**
+   * Fetch an object's raw bytes. Used by trusted server code (InvoicesService)
+   * that needs to compute a fresh SHA-256 of the currently stored invoice PDF
+   * before accepting a counterparty signature — guards against the case where
+   * a different process (or admin DB edit) replaced the document between
+   * generation and sign.
+   *
+   * Throws on missing keys + transport-level errors; the caller decides how
+   * to surface that to the API client (typically as a 409/500).
+   */
+  async getObject(key: string): Promise<Buffer> {
+    const res = await this.client.send(
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+      }),
+    )
+    // AWS SDK v3's Body is a streaming Readable; the SDK exposes
+    // `transformToByteArray()` for convenience. We then wrap it in a Node
+    // Buffer so it's compatible with the rest of the documents pipeline.
+    if (!res.Body) {
+      throw new Error(`S3 getObject returned empty body for key="${key}"`)
+    }
+    const bytes = await res.Body.transformToByteArray()
+    return Buffer.from(bytes)
+  }
+
+  /**
    * Delete an object. Idempotent: S3 returns 204 even when the key is
    * missing, so the only swallowed errors here are network-level. The
    * documents service uses this from the hard-delete endpoint.
@@ -148,9 +175,7 @@ export class S3Service {
       // here is usually transport-level. Log and swallow — the DB delete
       // still proceeds. ADMIN can re-run hard-delete which will exit early
       // (row already gone) without retrying S3.
-      this.logger.warn(
-        `S3 delete failed for key="${key}": ${(err as Error).message}`,
-      )
+      this.logger.warn(`S3 delete failed for key="${key}": ${(err as Error).message}`)
     }
   }
 
