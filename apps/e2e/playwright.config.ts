@@ -6,7 +6,23 @@ export default defineConfig({
   forbidOnly: !!process.env['CI'],
   retries: process.env['CI'] ? 2 : 0,
   workers: process.env['CI'] ? 1 : '75%',
-  reporter: 'html',
+  // Under CI we want a *streaming* progress reporter so GHA logs show which
+  // test is currently running — `html` alone is silent and makes a hung shard
+  // look indistinguishable from a slow one. Locally we keep the HTML report
+  // because developers like the GUI.
+  reporter: process.env['CI']
+    ? [
+        // `list` streams "[N/M] [project] › file:line › title" per test to
+        // stdout, so a hung test is immediately identifiable in the GHA log.
+        ['list'],
+        // Native GHA annotations: failures appear inline in the PR UI with
+        // file:line links via ::error:: workflow commands.
+        ['github'],
+        // Preserve the HTML report so `upload-artifact` in ci.yml still has
+        // something to attach when the suite fails.
+        ['html', { open: 'never', outputFolder: 'playwright-report' }],
+      ]
+    : 'html',
   timeout: 30_000,
   expect: { timeout: 8_000 },
   use: {
@@ -25,5 +41,3 @@ export default defineConfig({
     },
   ],
 })
-
-
