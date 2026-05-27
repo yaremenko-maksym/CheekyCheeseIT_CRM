@@ -250,6 +250,20 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
           </span>
         ) : null}
 
+        {doc.invoicePendingSignature ? (
+          // Amber badge — backend computes this only when the *current
+          // viewer* is the expected counterparty AND has not yet signed
+          // (see DocumentsService.list SQL CASE). The badge is the primary
+          // affordance pulling the user into the invoice signing flow
+          // (clicking the card opens InvoiceDetailDialog → «Подписать»).
+          <Badge
+            className="w-fit border-amber-500/30 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
+            data-testid="document-card-pending-signature"
+          >
+            Требует подписи
+          </Badge>
+        ) : null}
+
         <div className="mt-auto flex flex-wrap gap-1 pt-3">
           <Button
             size="sm"

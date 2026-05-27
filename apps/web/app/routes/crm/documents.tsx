@@ -258,6 +258,17 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
     }
   }, [search.openTx])
 
+  // Pending-signature counter across all INVOICE rows the viewer can see.
+  // Drives the amber «У вас N инвойсов ожидает подписи» banner at the top
+  // of the page. We query INVOICE specifically (independent of the current
+  // category filter) so the banner is visible even when the dropdown is on
+  // a different category.
+  const { data: invoiceDocs } = useDocuments({ category: 'INVOICE' })
+  const pendingCount = useMemo(
+    () => (invoiceDocs ?? []).filter((d) => d.invoicePendingSignature).length,
+    [invoiceDocs],
+  )
+
   // Empty-access state — no categories at all.
   if (availableCategories.length === 0) {
     return (
@@ -292,6 +303,31 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
 
   return (
     <div className="space-y-6">
+      {pendingCount > 0 ? (
+        // Amber banner — invites the viewer to switch to the INVOICE tab and
+        // sign the documents that are still missing the COUNTERPARTY
+        // signature. We don't auto-redirect; clicking «Перейти» just narrows
+        // the category filter (so the URL stays shareable and the user
+        // doesn't lose their place).
+        <div
+          className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 p-4"
+          data-testid="documents-pending-signature-banner"
+        >
+          <div className="flex items-center gap-3">
+            <FileSignature className="h-5 w-5 text-amber-400" />
+            <span className="text-sm">{pluralizeInvoicesPending(pendingCount)}</span>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setCategoryFilter('INVOICE')}
+            data-testid="documents-pending-signature-banner-cta"
+          >
+            Перейти
+          </Button>
+        </div>
+      ) : null}
+
       <DocumentsHeader
         viewer={viewer}
         categoryFilter={categoryFilter}
@@ -695,4 +731,20 @@ function pluralizeDocuments(n: number): string {
   if (mod10 === 1 && mod100 !== 11) return 'документ'
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'документа'
   return 'документов'
+}
+
+/**
+ * ru-RU plural helper for the «У вас N инвойсов ожидает подписи» banner.
+ * Returns a fully-formed sentence (not just the noun) because the verb form
+ * also depends on the count ("инвойс ожидает" vs "инвойса ожидают" vs
+ * "инвойсов ожидают"). Exported via the same module — kept colocated so the
+ * call site stays one-liner.
+ */
+export function pluralizeInvoicesPending(n: number): string {
+  const last = n % 10
+  const last2 = n % 100
+  if (last2 >= 11 && last2 <= 14) return `У вас ${n} инвойсов ожидает подписи`
+  if (last === 1) return `У вас ${n} инвойс ожидает подписи`
+  if (last >= 2 && last <= 4) return `У вас ${n} инвойса ожидают подписи`
+  return `У вас ${n} инвойсов ожидают подписи`
 }

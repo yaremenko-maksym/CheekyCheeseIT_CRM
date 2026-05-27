@@ -29,7 +29,7 @@ import {
   UnsupportedMediaTypeException,
 } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
-import { and, desc, eq, inArray, isNotNull, isNull, or, type SQL } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm'
 import {
   DOCUMENT_MAX_BYTES,
   DOCUMENT_MIME_WHITELIST,
@@ -43,7 +43,7 @@ import {
   type SessionUser,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { documents, teamMembers, transactions, users } from '../database/schema'
+import { documents, invoiceSignatures, teamMembers, transactions, users } from '../database/schema'
 import { S3Service } from './s3.service'
 import { CompressionService } from './compression.service'
 
@@ -308,11 +308,40 @@ export class DocumentsService {
     // open `InvoiceDetailDialog` (which is keyed by transaction id) from
     // the /crm/documents INVOICE tab — replaces the standalone
     // `/crm/finance/invoices` page.
+    //
+    // `invoicePendingSignature` is computed at SELECT time via a SQL CASE
+    // expression — it's `true` only when ALL of:
+    //   - the document is an INVOICE
+    //   - it has a parent transaction (LEFT JOIN matched)
+    //   - no COUNTERPARTY signature exists yet in `invoice_signatures`
+    //   - the viewer is the expected counterparty (SENIOR_INCOME ⇒ sender;
+    //     SALARY ⇒ receiver)
+    // The UI uses this to render an «Требует подписи» badge + a banner at
+    // the top of /crm/documents.
+    const viewerId = actor.id
+    const pendingSig = sql<boolean>`(
+      CASE
+        WHEN ${documents.category} = 'INVOICE'
+          AND ${transactions.id} IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM ${invoiceSignatures}
+            WHERE ${invoiceSignatures.transactionId} = ${transactions.id}
+              AND ${invoiceSignatures.signerRole} = 'COUNTERPARTY'
+          )
+          AND (
+            (${transactions.type} = 'SENIOR_INCOME' AND ${transactions.senderId} = ${viewerId})
+            OR (${transactions.type} = 'SALARY' AND ${transactions.receiverId} = ${viewerId})
+          )
+        THEN TRUE
+        ELSE FALSE
+      END
+    )`
     const rows = await this.db.db
       .select({
         doc: documents,
         uploaderName: users.displayName,
         invoiceTxId: transactions.id,
+        invoicePendingSignature: pendingSig,
       })
       .from(documents)
       .leftJoin(users, eq(users.id, documents.uploadedBy))
@@ -320,7 +349,12 @@ export class DocumentsService {
       .where(where)
       .orderBy(desc(documents.createdAt))
     return rows.map((row) =>
-      this.mapDocument(row.doc, row.uploaderName ?? null, row.invoiceTxId ?? null),
+      this.mapDocument(
+        row.doc,
+        row.uploaderName ?? null,
+        row.invoiceTxId ?? null,
+        Boolean(row.invoicePendingSignature),
+      ),
     )
   }
 
@@ -764,22 +798,29 @@ export class DocumentsService {
   /**
    * Map a `documents` row into the API DTO.
    *
-   * @param row                    the `documents` row as returned by Drizzle
-   * @param uploaderName           display name resolved via a join (callers
-   *                               that already issued the join pass it in;
-   *                               callers that only have the row can pass
-   *                               `null` and the UI will fall back to a
-   *                               short id)
-   * @param invoiceTransactionId   for INVOICE category only — the parent
-   *                               transaction id resolved via
-   *                               `transactions.invoice_document_id`. Null
-   *                               for non-INVOICE rows and for callers that
-   *                               did not issue the join.
+   * @param row                       the `documents` row as returned by Drizzle
+   * @param uploaderName              display name resolved via a join (callers
+   *                                  that already issued the join pass it in;
+   *                                  callers that only have the row can pass
+   *                                  `null` and the UI will fall back to a
+   *                                  short id)
+   * @param invoiceTransactionId      for INVOICE category only — the parent
+   *                                  transaction id resolved via
+   *                                  `transactions.invoice_document_id`. Null
+   *                                  for non-INVOICE rows and for callers that
+   *                                  did not issue the join.
+   * @param invoicePendingSignature   computed by `list()` only: true when the
+   *                                  viewer is the expected counterparty and
+   *                                  no COUNTERPARTY signature exists yet.
+   *                                  Other callers (`upload`, `restore`, etc.)
+   *                                  pass `false` since the flag is purely a
+   *                                  viewer-relative UI hint.
    */
   private mapDocument(
     row: typeof documents.$inferSelect,
     uploaderName: string | null = null,
     invoiceTransactionId: string | null = null,
+    invoicePendingSignature: boolean = false,
   ): DocumentDto {
     return {
       id: row.id,
@@ -798,6 +839,7 @@ export class DocumentsService {
       deletedBy: row.deletedBy ?? null,
       createdAt: row.createdAt.toISOString(),
       invoiceTransactionId,
+      invoicePendingSignature,
     }
   }
 
