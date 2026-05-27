@@ -18,7 +18,7 @@ const envSchema = z
     // enforced via refine() below (NODE_ENV=production + minioadmin → throw).
     // Prod: see docs/runbooks/s3-storage.md.
     S3_ENDPOINT: z.string().url().default('http://localhost:9000'),
-    S3_FORCE_PATH_STYLE: z.coerce.boolean().default(true),
+    S3_FORCE_PATH_STYLE: z.preprocess((v) => typeof v === 'string' ? v.toLowerCase() === 'true' : v, z.boolean()).default(true),
     S3_REGION: z.string().default('us-east-1'),
     S3_BUCKET: z.string().default('crm-documents'),
     // Default false: matches dev/MinIO (no SSE-S3 support — MinIO returns
@@ -26,7 +26,7 @@ const envSchema = z
     // a configured KMS backend). Production must explicitly set
     // `S3_USE_SSE=true` to enable SSE-S3 against an AWS S3 bucket. See
     // `docs/runbooks/s3-storage.md`.
-    S3_USE_SSE: z.coerce.boolean().default(false),
+    S3_USE_SSE: z.preprocess((v) => typeof v === 'string' ? v.toLowerCase() === 'true' : v, z.boolean()).default(false),
     AWS_ACCESS_KEY_ID: z.string().min(1).default('minioadmin'),
     AWS_SECRET_ACCESS_KEY: z.string().min(1).default('minioadmin'),
   })
