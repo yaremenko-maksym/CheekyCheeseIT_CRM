@@ -255,12 +255,16 @@ export class InvoicesService {
     })
 
     // ---- 5. Notify counterparty ----
+    // The standalone `/crm/finance/invoices` page was removed in batch 2 —
+    // notifications now deep-link into `/crm/documents` with the INVOICE
+    // category pre-selected and the transaction's invoice dialog auto-
+    // opened via `openTx=<id>`.
     await this.notificationsService.create({
       userId: counterpartyRow.id,
       type: 'INVOICE_SIGN_REQUIRED',
       title: 'Инвойс ожидает вашей подписи',
       body: `${this.getInvoiceTypeLabel(tx.type)} — сумма ${this.formatAmountForNotification(tx.amount, tx.currency)}`,
-      link: `/crm/finance/invoices/${tx.id}`,
+      link: `/crm/documents?category=INVOICE&openTx=${tx.id}`,
     })
 
     this.logger.log(
@@ -544,7 +548,7 @@ export class InvoicesService {
       type: 'INVOICE_SIGNED',
       title: `${counterpartyRow.displayName} подписал инвойс`,
       body: `${this.getInvoiceTypeLabel(tx.type)} — сумма ${this.formatAmountForNotification(tx.amount, tx.currency)}`,
-      link: `/crm/finance/invoices/${tx.id}`,
+      link: `/crm/documents?category=INVOICE&openTx=${tx.id}`,
     })
 
     this.logger.log(

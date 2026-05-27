@@ -61,15 +61,25 @@ import { useDocuments } from '@/hooks/use-documents'
 import { DocumentList } from '@/components/documents/document-list'
 import { DocumentDetailDialog } from '@/components/documents/document-detail-dialog'
 import { UploadDocumentDialog } from '@/components/documents/upload-document-dialog'
+import { InvoiceDetailDialog } from '@/components/invoices/invoice-detail-dialog'
 
 type Role = SessionUser['role']
 type StatusTab = 'ALL' | 'ACTIVE' | 'ARCHIVED'
 type CategoryFilter = DocumentCategory | 'ALL'
 
-// `openDocId` deep-link param: when set, the matching doc is opened in
-// DocumentDetailDialog as soon as the list query resolves.
+// Deep-link params:
+//   - `openDocId` — open DocumentDetailDialog for the matching document
+//     id once the list query resolves (used by audit/restore links).
+//   - `openTx` — INVOICE-only: open InvoiceDetailDialog for that
+//     transaction id (used by notifications «инвойс подписан» / «ожидает
+//     подписи»). Also auto-narrows the category filter to INVOICE so the
+//     surrounding list reflects the deep-link target.
 const searchSchema = z.object({
   openDocId: z.string().uuid().optional(),
+  category: z
+    .enum(['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'AVATAR', 'LOGO', 'INVOICE'])
+    .optional(),
+  openTx: z.string().uuid().optional(),
 })
 
 export const Route = createFileRoute('/crm/documents')({
@@ -147,8 +157,12 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   const [ownerFilter, setOwnerFilter] = useState<string>('ALL')
   // Category filter: 'ALL' = no category filter (show all accessible to role).
   // Default is 'ALL' per user choice (Variant A) — show everything by default,
-  // narrow down via dropdown.
-  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('ALL')
+  // narrow down via dropdown. When the URL ships a `?category=` deep-link
+  // (e.g. from a notification → `/crm/documents?category=INVOICE&openTx=…`)
+  // we honour it as the initial filter.
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>(
+    (search.category as CategoryFilter | undefined) ?? 'ALL',
+  )
 
   // Categories this viewer is allowed to see in the dropdown.
   // ADMIN additionally gets AVATAR/LOGO (internal categories, kept compact
@@ -176,7 +190,20 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   const [detailDoc, setDetailDoc] = useState<Document | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
 
+  // Invoice dialog: INVOICE documents open InvoiceDetailDialog (signatures
+  // table + sign button) instead of the generic DocumentDetailDialog. The
+  // dialog is keyed by transaction id which lives on the Document DTO as
+  // `invoiceTransactionId` (see API LEFT JOIN with transactions). The
+  // `?openTx=<uuid>` URL deep-link (from notifications) bypasses the doc
+  // entirely — straight to the dialog by tx id.
+  const [invoiceTxId, setInvoiceTxId] = useState<string | undefined>(undefined)
+  const [invoiceOpen, setInvoiceOpen] = useState(false)
+
   function openDetail(doc: Document) {
+    if (doc.category === 'INVOICE' && doc.invoiceTransactionId) {
+      openInvoice(doc.invoiceTransactionId)
+      return
+    }
     setDetailDoc(doc)
     setDetailOpen(true)
     // Mirror the open into the URL so users can copy the link.
@@ -184,6 +211,29 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
       search: (prev) => ({ ...prev, openDocId: doc.id }),
       replace: true,
     })
+  }
+
+  function openInvoice(txId: string) {
+    setInvoiceTxId(txId)
+    setInvoiceOpen(true)
+    void navigate({
+      search: (prev) => ({ ...prev, openTx: txId }),
+      replace: true,
+    })
+  }
+
+  function closeInvoice(open: boolean) {
+    setInvoiceOpen(open)
+    if (!open) {
+      void navigate({
+        search: (prev) => {
+          const next = { ...prev }
+          delete (next as Record<string, unknown>)['openTx']
+          return next
+        },
+        replace: true,
+      })
+    }
   }
 
   function closeDetail(open: boolean) {
@@ -199,6 +249,14 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
       })
     }
   }
+
+  // Auto-open invoice dialog when `?openTx=<uuid>` deep-link arrives.
+  useEffect(() => {
+    if (search.openTx) {
+      setInvoiceTxId(search.openTx)
+      setInvoiceOpen(true)
+    }
+  }, [search.openTx])
 
   // Empty-access state — no categories at all.
   if (availableCategories.length === 0) {
@@ -278,6 +336,15 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
         open={detailOpen}
         onOpenChange={closeDetail}
         doc={detailDoc}
+        viewer={viewer}
+      />
+      {/* InvoiceDetailDialog — opens for INVOICE documents (signature table +
+          «Подписать» button) and via the `?openTx=<uuid>` deep-link from
+          notifications. Replaces the standalone /crm/finance/invoices page. */}
+      <InvoiceDetailDialog
+        open={invoiceOpen}
+        onOpenChange={closeInvoice}
+        transactionId={invoiceTxId}
         viewer={viewer}
       />
       {/* uploadedByDisplayName comes embedded in each doc DTO (API LEFT JOIN),
@@ -537,8 +604,8 @@ function DocumentsListSection({
     </div>
   )
 
-  // Invoices empty state mirrors receipts (system-generated, can't upload
-  // here) but points to /crm/finance/invoices for the management UI.
+  // Invoices empty state: system-generated, no upload from this page. They
+  // surface here once the underlying transaction transitions to PAID.
   const invoiceEmpty = (
     <div
       data-testid="documents-empty-invoices"
@@ -547,14 +614,14 @@ function DocumentsListSection({
       <FileSignature className="h-10 w-10 text-muted-foreground/30" />
       <p className="mt-4 text-sm font-medium">Пока нет инвойсов</p>
       <p className="mt-1 max-w-md text-xs text-muted-foreground">
-        Инвойсы создаются автоматически при оплате и появляются здесь. Подробнее в разделе Финансы →
-        Инвойсы.
+        Инвойсы создаются автоматически после оплаты транзакций. Кликните по карточке инвойса здесь,
+        чтобы открыть PDF, увидеть подписи и подписать документ.
       </p>
       <Link
-        to="/crm/finance/invoices"
+        to="/crm/finance"
         className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
       >
-        Перейти к Инвойсам
+        Перейти к Финансам
       </Link>
     </div>
   )

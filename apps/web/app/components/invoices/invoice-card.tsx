@@ -1,5 +1,11 @@
 /**
- * InvoiceCard — list-row card for `/crm/finance/invoices`.
+ * InvoiceCard — list-row card used by historic InvoiceListItem grids.
+ *
+ * Note: the standalone `/crm/finance/invoices` page was removed in batch 2
+ * — INVOICE documents are now surfaced in `/crm/documents` as regular
+ * `DocumentCard` rows. The card is retained for tests and a potential
+ * future re-use (e.g. an Admin audit list of invoices). The visual layout
+ * and onOpen contract are unchanged.
  *
  * Visual layout:
  *   ┌─────────────────────────────────────────────────────────┐
@@ -137,9 +143,7 @@ export function InvoiceCard({
           </div>
 
           {awaitingViewerSignature ? (
-            <p className="mt-2 text-xs font-medium text-amber-300">
-              Ожидается ваша подпись
-            </p>
+            <p className="mt-2 text-xs font-medium text-amber-300">Ожидается ваша подпись</p>
           ) : null}
         </CardContent>
       </Card>

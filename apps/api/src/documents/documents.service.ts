@@ -43,7 +43,7 @@ import {
   type SessionUser,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { documents, teamMembers, users } from '../database/schema'
+import { documents, teamMembers, transactions, users } from '../database/schema'
 import { S3Service } from './s3.service'
 import { CompressionService } from './compression.service'
 
@@ -302,13 +302,26 @@ export class DocumentsService {
     // `<Link to="/crm/users/:id">`. We use LEFT (not INNER) because the
     // uploader row may be missing (hard-deleted user, legacy data) — the
     // schema treats `uploadedByDisplayName` as nullable for that case.
+    //
+    // LEFT JOIN transactions on `invoice_document_id = documents.id` so
+    // INVOICE rows carry their parent transaction id. The UI uses it to
+    // open `InvoiceDetailDialog` (which is keyed by transaction id) from
+    // the /crm/documents INVOICE tab — replaces the standalone
+    // `/crm/finance/invoices` page.
     const rows = await this.db.db
-      .select({ doc: documents, uploaderName: users.displayName })
+      .select({
+        doc: documents,
+        uploaderName: users.displayName,
+        invoiceTxId: transactions.id,
+      })
       .from(documents)
       .leftJoin(users, eq(users.id, documents.uploadedBy))
+      .leftJoin(transactions, eq(transactions.invoiceDocumentId, documents.id))
       .where(where)
       .orderBy(desc(documents.createdAt))
-    return rows.map((row) => this.mapDocument(row.doc, row.uploaderName ?? null))
+    return rows.map((row) =>
+      this.mapDocument(row.doc, row.uploaderName ?? null, row.invoiceTxId ?? null),
+    )
   }
 
   // -------------------------------------------------------------------------
@@ -751,15 +764,22 @@ export class DocumentsService {
   /**
    * Map a `documents` row into the API DTO.
    *
-   * @param row             the `documents` row as returned by Drizzle
-   * @param uploaderName    display name resolved via a join (callers that
-   *                        already issued the join pass it in; callers that
-   *                        only have the row can pass `null` and the UI will
-   *                        fall back to a short id)
+   * @param row                    the `documents` row as returned by Drizzle
+   * @param uploaderName           display name resolved via a join (callers
+   *                               that already issued the join pass it in;
+   *                               callers that only have the row can pass
+   *                               `null` and the UI will fall back to a
+   *                               short id)
+   * @param invoiceTransactionId   for INVOICE category only — the parent
+   *                               transaction id resolved via
+   *                               `transactions.invoice_document_id`. Null
+   *                               for non-INVOICE rows and for callers that
+   *                               did not issue the join.
    */
   private mapDocument(
     row: typeof documents.$inferSelect,
     uploaderName: string | null = null,
+    invoiceTransactionId: string | null = null,
   ): DocumentDto {
     return {
       id: row.id,
@@ -777,6 +797,7 @@ export class DocumentsService {
       deletedAt: row.deletedAt?.toISOString() ?? null,
       deletedBy: row.deletedBy ?? null,
       createdAt: row.createdAt.toISOString(),
+      invoiceTransactionId,
     }
   }
 

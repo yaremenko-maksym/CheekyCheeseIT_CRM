@@ -237,13 +237,17 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
         ) : null}
 
         {isInvoice && invoiceShortId ? (
-          <Link
-            to="/crm/finance/invoices"
-            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-            data-testid="document-card-invoice-link"
+          // The card itself opens InvoiceDetailDialog (parent's onOpen
+          // handler routes INVOICE category to the invoice-specific
+          // dialog). We surface the 8-char tx prefix as a passive label so
+          // users can correlate the row with the matching transaction.
+          <span
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+            data-testid="document-card-invoice-label"
           >
-            <FileSignature className="h-3.5 w-3.5" />К инвойсу #{invoiceShortId}
-          </Link>
+            <FileSignature className="h-3.5 w-3.5" />
+            Инвойс #{invoiceShortId}
+          </span>
         ) : null}
 
         <div className="mt-auto flex flex-wrap gap-1 pt-3">

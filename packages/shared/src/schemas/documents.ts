@@ -90,6 +90,15 @@ export const documentSchema = z.object({
   deletedAt: z.string().datetime().nullable(),
   deletedBy: z.string().uuid().nullable(),
   createdAt: z.string().datetime(),
+  /**
+   * For INVOICE category only: the parent transaction id this invoice
+   * document belongs to (joined from `transactions.invoice_document_id`).
+   * Lets the UI open `InvoiceDetailDialog` (keyed by transaction id) from
+   * a `Document` row in `/crm/documents`. Null for non-INVOICE rows and
+   * for INVOICE rows where the FK has been broken (defensive — should
+   * not happen in practice since InvoicesService writes both together).
+   */
+  invoiceTransactionId: z.string().uuid().nullable().optional(),
 })
 export type Document = z.infer<typeof documentSchema>
 

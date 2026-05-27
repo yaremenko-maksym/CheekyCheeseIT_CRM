@@ -82,16 +82,18 @@ export function NotificationsBell() {
     setOpen(false)
     if (item.link) {
       // The notification.link is a relative front-end path stored as a
-      // VARCHAR(500). Backend invoice notifications emit
-      // `/crm/finance/invoices/<txId>` (path-style), but the SPA route is
-      // flat `/crm/finance/invoices` + `?openInvoiceId=<txId>` query (this
-      // module owns the deep-link contract for routing through query
-      // params). Convert path-style → query-style here so the dropdown
-      // remains the single source of truth.
+      // VARCHAR(500). Backend invoice notifications now emit
+      // `/crm/documents?category=INVOICE&openTx=<txId>` — opens the
+      // `/crm/documents` page with the INVOICE category filter active and
+      // the invoice dialog auto-popped via the `openTx` deep-link param.
+      //
+      // Legacy compat: older notifications stored before batch 2 still use
+      // `/crm/finance/invoices/<txId>` (path-style). We rewrite both shapes
+      // here so historic rows still navigate to the new page.
       let target = item.link
       const m = target.match(/^\/crm\/finance\/invoices\/([0-9a-f-]{36})$/i)
       if (m) {
-        target = `/crm/finance/invoices?openInvoiceId=${m[1]}`
+        target = `/crm/documents?category=INVOICE&openTx=${m[1]}`
       }
       try {
         // `navigate` accepts `to: string` for non-typed paths.
