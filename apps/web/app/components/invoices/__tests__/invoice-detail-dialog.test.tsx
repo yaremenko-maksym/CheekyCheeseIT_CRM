@@ -177,31 +177,32 @@ describe('InvoiceDetailDialog', () => {
   it('renders both signature rows with COMPANY signed and COUNTERPARTY pending', async () => {
     renderDialog({ invoice: pendingInvoice })
     expect(await screen.findByText('Maksym Y.')).toBeInTheDocument()
-    expect(screen.getByText('Ожидает')).toBeInTheDocument()
+    // Round 4 fix #3 — pending COUNTERPARTY row shows the explicit
+    // «Ожидает подписи» copy in a colSpan cell. The same string also
+    // appears as the status badge label when invoice.status === 'PENDING'
+    // (matching `STATUS_LABEL.PENDING`), so we assert ≥1 occurrence via
+    // the data-testid for the pending signature row specifically.
+    expect(screen.getByTestId('signature-row-counterparty-pending')).toHaveTextContent(
+      'Ожидает подписи',
+    )
   })
 
   it('shows the "Подписать инвойс" button for the counterparty when no COUNTERPARTY sig exists', async () => {
     renderDialog({ invoice: pendingInvoice, viewer: counterpartyUser })
-    expect(
-      await screen.findByTestId('invoice-detail-sign-button'),
-    ).toBeInTheDocument()
+    expect(await screen.findByTestId('invoice-detail-sign-button')).toBeInTheDocument()
   })
 
   it('HIDES the «Подписать» button when viewer is NOT the counterparty', async () => {
     renderDialog({ invoice: pendingInvoice, viewer: otherUser })
     // Wait for the dialog to render then assert the button is absent.
     await screen.findByTestId('invoice-detail-status')
-    expect(
-      screen.queryByTestId('invoice-detail-sign-button'),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByTestId('invoice-detail-sign-button')).not.toBeInTheDocument()
   })
 
   it('HIDES the «Подписать» button when a COUNTERPARTY signature already exists', async () => {
     renderDialog({ invoice: signedInvoice, viewer: counterpartyUser })
     await screen.findByTestId('invoice-detail-status')
-    expect(
-      screen.queryByTestId('invoice-detail-sign-button'),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByTestId('invoice-detail-sign-button')).not.toBeInTheDocument()
     expect(screen.getByText('Документ подписан')).toBeInTheDocument()
   })
 
@@ -209,9 +210,7 @@ describe('InvoiceDetailDialog', () => {
     renderDialog({ invoice: pendingInvoice, viewer: counterpartyUser })
     const btn = await screen.findByTestId('invoice-detail-sign-button')
     await userEvent.click(btn)
-    expect(
-      await screen.findByTestId('invoice-sign-confirm-dialog'),
-    ).toBeInTheDocument()
+    expect(await screen.findByTestId('invoice-sign-confirm-dialog')).toBeInTheDocument()
   })
 
   it('keeps Submit DISABLED until the agree checkbox is checked', async () => {
@@ -220,9 +219,7 @@ describe('InvoiceDetailDialog', () => {
     await userEvent.click(btn)
     const submit = await screen.findByTestId('invoice-sign-submit-button')
     expect(submit).toBeDisabled()
-    const checkbox = screen.getByTestId(
-      'invoice-sign-agree-checkbox',
-    ) as HTMLInputElement
+    const checkbox = screen.getByTestId('invoice-sign-agree-checkbox') as HTMLInputElement
     fireEvent.click(checkbox)
     await waitFor(() => expect(submit).not.toBeDisabled())
   })
@@ -237,9 +234,6 @@ describe('InvoiceDetailDialog', () => {
     await waitFor(() => expect(submit).not.toBeDisabled())
     await userEvent.click(submit)
     expect(mockSign).toHaveBeenCalledTimes(1)
-    expect(mockSign).toHaveBeenCalledWith(
-      pendingInvoice.transactionId,
-      expect.any(Object),
-    )
+    expect(mockSign).toHaveBeenCalledWith(pendingInvoice.transactionId, expect.any(Object))
   })
 })

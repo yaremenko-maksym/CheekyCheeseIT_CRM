@@ -16,10 +16,7 @@ import {
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query'
-import type {
-  NotificationsListResponse,
-  NotificationListFilters,
-} from '@crm/shared'
+import type { NotificationsListResponse, NotificationListFilters } from '@crm/shared'
 import { api } from '@/lib/axios'
 
 // ---------------------------------------------------------------------------
@@ -103,6 +100,26 @@ export function useMarkAllNotificationsRead(): UseMutationResult<void, Error, vo
   return useMutation<void, Error, void>({
     mutationFn: async () => {
       await api.patch('/notifications/read-all')
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['notifications'] })
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Mutation: delete single notification
+// ---------------------------------------------------------------------------
+// Hard-deletes a single notification on the backend. UI usage: Trash icon
+// rendered next to each row in the header dropdown. No confirm dialog —
+// notifications are ephemeral (re-emitted by the system when the underlying
+// event re-occurs), so instant deletion is the right UX.
+
+export function useDeleteNotification(): UseMutationResult<void, Error, string> {
+  const qc = useQueryClient()
+  return useMutation<void, Error, string>({
+    mutationFn: async (id: string) => {
+      await api.delete(`/notifications/${id}`)
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['notifications'] })

@@ -2,17 +2,20 @@
  * NotificationsController — HTTP surface for in-app notifications.
  *
  * Endpoints (all prefixed `/api/notifications`):
- *   GET   /                  list current user (filters: unreadOnly, limit)
- *   PATCH /:id/read          mark single notification read
- *   PATCH /read-all          mark every unread notification read
+ *   GET    /                  list current user (filters: unreadOnly, limit)
+ *   PATCH  /:id/read          mark single notification read
+ *   PATCH  /read-all          mark every unread notification read
+ *   DELETE /:id               hard-delete a single notification (owner-only)
  *
  * All routes require auth (JwtAuthGuard) — there is no public notifications
  * surface. The service-level RBAC is implicit: every endpoint scopes its
  * query to `req.user.id`, so a user can only ever see / mutate their own
- * rows (the row-level ownership check on `markRead` is defense-in-depth).
+ * rows (the row-level ownership check on `markRead` / `delete` is
+ * defense-in-depth).
  */
 import {
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -73,5 +76,21 @@ export class NotificationsController {
     @CurrentUser() user: SessionUser,
   ): Promise<void> {
     await this.svc.markRead(user.id, id)
+  }
+
+  // ---------------------------------------------------------------------------
+  // DELETE /api/notifications/:id
+  // ---------------------------------------------------------------------------
+  // Hard-deletes a single notification row. The service enforces that the
+  // caller owns the row (404 from the caller's perspective on cross-user
+  // attempts, identical to a missing row, so we don't leak existence).
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async delete(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: SessionUser,
+  ): Promise<void> {
+    await this.svc.delete(user.id, id)
   }
 }

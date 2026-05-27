@@ -16,21 +16,18 @@ const baseInvoice: InvoiceListItem = {
 describe('InvoiceCard', () => {
   it('renders the SENIOR payout type badge with the Russian label', () => {
     render(<InvoiceCard invoice={baseInvoice} onOpen={vi.fn()} />)
-    expect(
-      screen.getByTestId(`invoice-card-type-${baseInvoice.transactionId}`),
-    ).toHaveTextContent('Выплата синьера')
+    // Round 4 fix #7 — label changed from «Выплата сеньору» to
+    // «Выплата синьера» so it matches the rest of the CRM copy.
+    expect(screen.getByTestId(`invoice-card-type-${baseInvoice.transactionId}`)).toHaveTextContent(
+      'Выплата синьера',
+    )
   })
 
   it('renders SALARY badge with green palette label', () => {
-    render(
-      <InvoiceCard
-        invoice={{ ...baseInvoice, type: 'SALARY' }}
-        onOpen={vi.fn()}
-      />,
+    render(<InvoiceCard invoice={{ ...baseInvoice, type: 'SALARY' }} onOpen={vi.fn()} />)
+    expect(screen.getByTestId(`invoice-card-type-${baseInvoice.transactionId}`)).toHaveTextContent(
+      'Зарплата',
     )
-    expect(
-      screen.getByTestId(`invoice-card-type-${baseInvoice.transactionId}`),
-    ).toHaveTextContent('Зарплата')
   })
 
   it('renders the amount formatted with currency suffix', () => {
@@ -51,12 +48,7 @@ describe('InvoiceCard', () => {
   })
 
   it('shows "Подписано всеми" when invoice.status === SIGNED', () => {
-    render(
-      <InvoiceCard
-        invoice={{ ...baseInvoice, status: 'SIGNED' }}
-        onOpen={vi.fn()}
-      />,
-    )
+    render(<InvoiceCard invoice={{ ...baseInvoice, status: 'SIGNED' }} onOpen={vi.fn()} />)
     expect(
       screen.getByTestId(`invoice-card-status-${baseInvoice.transactionId}`),
     ).toHaveTextContent('Подписано всеми')
@@ -68,20 +60,12 @@ describe('InvoiceCard', () => {
   })
 
   it('shows the "Ожидается ваша подпись" hint when awaitingViewerSignature is true', () => {
-    render(
-      <InvoiceCard invoice={baseInvoice} onOpen={vi.fn()} awaitingViewerSignature />,
-    )
+    render(<InvoiceCard invoice={baseInvoice} onOpen={vi.fn()} awaitingViewerSignature />)
     expect(screen.getByText('Ожидается ваша подпись')).toBeInTheDocument()
   })
 
   it('does NOT show the hint when awaitingViewerSignature is false', () => {
-    render(
-      <InvoiceCard
-        invoice={baseInvoice}
-        onOpen={vi.fn()}
-        awaitingViewerSignature={false}
-      />,
-    )
+    render(<InvoiceCard invoice={baseInvoice} onOpen={vi.fn()} awaitingViewerSignature={false} />)
     expect(screen.queryByText('Ожидается ваша подпись')).not.toBeInTheDocument()
   })
 

@@ -517,20 +517,22 @@ export class DocumentsService {
 
     // ---- Category filter ----
     // Default behavior: hide internal categories (AVATAR, LOGO) unless an
-    // ADMIN explicitly requests them. UI never asks for them in /crm/documents.
+    // ADMIN explicitly requests them. INVOICE is system-generated but is
+    // now exposed as a regular tab in /crm/documents (read-only — uploads
+    // still go through InvoicesService), so it's part of the default set.
     if (filters.category) {
       // Caller asked for a specific category — RBAC check below decides
       // whether they're allowed to see it.
       conditions.push(eq(documents.category, filters.category))
     } else {
-      // No explicit category → exclude internals
+      // No explicit category → exclude internals (AVATAR/LOGO)
       conditions.push(
         // not in (AVATAR, LOGO)
         // Drizzle: use `notInArray` would be cleaner, but `notInArray` exists
         // in newer drizzle versions; we use a NOT IN via SQL fallback below.
         // For consistency with the rest of the codebase, use inArray + NOT
         // via an explicit OR of equality with non-internal categories.
-        inArray(documents.category, ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT']),
+        inArray(documents.category, ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE']),
       )
     }
 
@@ -628,6 +630,22 @@ export class DocumentsService {
       }
     }
 
+    if (!category || category === 'INVOICE') {
+      // INVOICE documents are produced by InvoicesService — the row's
+      // `ownerId` is the counterparty (SENIOR / JUNIOR), so visibility is
+      // scoped to `documents.ownerId == viewer.id` for non-admins.
+      // ACCOUNTANT is allowed to see ALL invoices (finance audit role,
+      // same scope as RECEIPT). ADMIN handled above. JUNIOR/HR/SENIOR
+      // only see invoices they themselves are the counterparty for.
+      if (actor.role === 'ACCOUNTANT') {
+        visibleClauses.push(eq(documents.category, 'INVOICE'))
+      } else {
+        visibleClauses.push(
+          and(eq(documents.category, 'INVOICE'), eq(documents.ownerId, actor.id))!,
+        )
+      }
+    }
+
     if (visibleClauses.length === 0) return 'NONE'
     if (visibleClauses.length === 1) return visibleClauses[0]!
     return or(...visibleClauses)!
@@ -701,6 +719,11 @@ export class DocumentsService {
 
     // LOGO read for HR/SENIOR.
     if ((actor.role === 'HR' || actor.role === 'SENIOR') && doc.category === 'LOGO') {
+      return doc
+    }
+
+    // ACCOUNTANT reads any INVOICE (finance audit, same scope as RECEIPT).
+    if (actor.role === 'ACCOUNTANT' && doc.category === 'INVOICE') {
       return doc
     }
 

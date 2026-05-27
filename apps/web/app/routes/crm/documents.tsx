@@ -29,7 +29,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Archive, FileText, Plus, Receipt as ReceiptIcon, Shield } from 'lucide-react'
+import {
+  Archive,
+  FileSignature,
+  FileText,
+  Plus,
+  Receipt as ReceiptIcon,
+  Shield,
+} from 'lucide-react'
 import { z } from 'zod'
 import type {
   Document,
@@ -89,13 +96,15 @@ const CATEGORY_LABELS_RU: Record<DocumentCategory, string> = {
 /**
  * RBAC visibility per spec table «Видимость табов по ролям».
  * Maps Role → set of categories that role may see in the dropdown.
+ * INVOICE is exposed to all roles — the backend further scopes the list
+ * to "own invoices" for non-ADMIN/ACCOUNTANT (where ownerId == viewer.id).
  */
 const TAB_VISIBILITY: Record<Role, DocumentCategory[]> = {
-  ADMIN: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT'],
-  SENIOR: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT'],
-  JUNIOR: ['RESUME', 'SCAN'],
-  HR: ['RESUME', 'SCAN', 'CONTRACT'],
-  ACCOUNTANT: ['SCAN', 'RECEIPT'],
+  ADMIN: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE'],
+  SENIOR: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE'],
+  JUNIOR: ['RESUME', 'SCAN', 'INVOICE'],
+  HR: ['RESUME', 'SCAN', 'CONTRACT', 'INVOICE'],
+  ACCOUNTANT: ['SCAN', 'RECEIPT', 'INVOICE'],
 }
 
 /**
@@ -299,9 +308,10 @@ function DocumentsHeader({
   onChangeCategoryFilter,
 }: HeaderProps) {
   const showOwnerFilter = canSeeOwnerFilter(viewer.role)
-  // Hide the upload button when viewing the RECEIPT-only filter — receipts
-  // come from Finance, not from this page.
+  // Hide the upload button when viewing read-only category filters
+  // (RECEIPT / INVOICE) — both are produced by Finance, not by uploads.
   const isReceiptsFilter = categoryFilter === 'RECEIPT'
+  const isInvoicesFilter = categoryFilter === 'INVOICE'
 
   const [uploadOpen, setUploadOpen] = useState(false)
 
@@ -336,6 +346,7 @@ function DocumentsHeader({
   const canShowUploadButton =
     uploadableCats.length > 0 &&
     !isReceiptsFilter &&
+    !isInvoicesFilter &&
     categoryFilter !== 'AVATAR' &&
     categoryFilter !== 'LOGO'
 
@@ -526,6 +537,28 @@ function DocumentsListSection({
     </div>
   )
 
+  // Invoices empty state mirrors receipts (system-generated, can't upload
+  // here) but points to /crm/finance/invoices for the management UI.
+  const invoiceEmpty = (
+    <div
+      data-testid="documents-empty-invoices"
+      className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center"
+    >
+      <FileSignature className="h-10 w-10 text-muted-foreground/30" />
+      <p className="mt-4 text-sm font-medium">Пока нет инвойсов</p>
+      <p className="mt-1 max-w-md text-xs text-muted-foreground">
+        Инвойсы создаются автоматически при оплате и появляются здесь. Подробнее в разделе Финансы →
+        Инвойсы.
+      </p>
+      <Link
+        to="/crm/finance/invoices"
+        className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+      >
+        Перейти к Инвойсам
+      </Link>
+    </div>
+  )
+
   // For AVATAR / LOGO filters (ADMIN audit view) — neutral empty state.
   const internalEmpty = (
     <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
@@ -554,9 +587,11 @@ function DocumentsListSection({
   const emptyState =
     categoryFilter === 'RECEIPT'
       ? receiptEmpty
-      : categoryFilter === 'AVATAR' || categoryFilter === 'LOGO'
-        ? internalEmpty
-        : genericEmpty
+      : categoryFilter === 'INVOICE'
+        ? invoiceEmpty
+        : categoryFilter === 'AVATAR' || categoryFilter === 'LOGO'
+          ? internalEmpty
+          : genericEmpty
 
   // Counter label — when filtering by category, mention which one.
   const counterScope =

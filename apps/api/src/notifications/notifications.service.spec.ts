@@ -50,15 +50,18 @@ function makeHarness(seed: Partial<NotifRow>[] = []) {
     scopeUnreadOnly: false,
     markReadId: null as string | null,
     markAllForUserId: null as string | null,
+    deleteId: null as string | null,
   }
 
   const db = {
     db: {
       query: {
         notifications: {
-          // Only used by markRead — we route by ctx.markReadId.
+          // Used by markRead AND delete — we route by ctx.markReadId or
+          // ctx.deleteId (callers set exactly one of these BEFORE invoking
+          // the service method under test).
           findFirst: async (_args: { where: unknown }) => {
-            const id = ctx.markReadId
+            const id = ctx.markReadId ?? ctx.deleteId
             ctx.markReadId = null
             if (!id) return undefined
             return rows.find((r) => r.id === id)
@@ -142,12 +145,30 @@ function makeHarness(seed: Partial<NotifRow>[] = []) {
           },
         }),
       }),
+      // `delete` removes rows whose id matches ctx.pendingDeleteId. The
+      // service's `delete` flow calls findFirst (which we consumed above)
+      // then issues this DELETE — tests set pendingDeleteId in parallel
+      // with deleteId so the harness can wipe the right row.
+      delete: (_t: unknown) => ({
+        where: async (_p: unknown) => {
+          if (ctx.pendingDeleteId) {
+            const idx = rows.findIndex((r) => r.id === ctx.pendingDeleteId)
+            if (idx >= 0) rows.splice(idx, 1)
+            ctx.pendingDeleteId = null
+          }
+        },
+      }),
     },
   } as unknown as ConstructorParameters<typeof NotificationsService>[0]
 
-  // Augment ctx so tests can set pendingMarkReadId in parallel with markReadId.
-  type CtxAug = typeof ctx & { pendingMarkReadId: string | null }
+  // Augment ctx so tests can set pendingMarkReadId / pendingDeleteId in
+  // parallel with markReadId / deleteId.
+  type CtxAug = typeof ctx & {
+    pendingMarkReadId: string | null
+    pendingDeleteId: string | null
+  }
   ;(ctx as CtxAug).pendingMarkReadId = null
+  ;(ctx as CtxAug).pendingDeleteId = null
   return { db, ctx: ctx as CtxAug, rows }
 }
 
@@ -265,6 +286,38 @@ describe('NotificationsService', () => {
       expect(h.rows[1]!.readAt).not.toBeNull()
       // n4 belongs to u-2 — untouched
       expect(h.rows[3]!.readAt).toBeNull()
+    })
+  })
+
+  describe('delete', () => {
+    it('removes the row when the caller owns it', async () => {
+      const h = makeHarness([
+        { id: 'n1', userId: 'u-1', readAt: null },
+        { id: 'n2', userId: 'u-1', readAt: null },
+      ])
+      const svc = new NotificationsService(h.db)
+      h.ctx.deleteId = 'n1'
+      h.ctx.pendingDeleteId = 'n1'
+      await svc.delete('u-1', 'n1')
+      expect(h.rows.find((r) => r.id === 'n1')).toBeUndefined()
+      // sibling row untouched
+      expect(h.rows.find((r) => r.id === 'n2')).toBeDefined()
+    })
+
+    it('throws 403 when the caller is not the owner', async () => {
+      const h = makeHarness([{ id: 'n1', userId: 'u-other', readAt: null }])
+      const svc = new NotificationsService(h.db)
+      h.ctx.deleteId = 'n1'
+      await expect(svc.delete('u-1', 'n1')).rejects.toThrow(ForbiddenException)
+      // Row still present after the failed call
+      expect(h.rows.find((r) => r.id === 'n1')).toBeDefined()
+    })
+
+    it('throws 404 when the notification does not exist', async () => {
+      const h = makeHarness([])
+      const svc = new NotificationsService(h.db)
+      h.ctx.deleteId = 'nope'
+      await expect(svc.delete('u-1', 'nope')).rejects.toThrow(NotFoundException)
     })
   })
 })

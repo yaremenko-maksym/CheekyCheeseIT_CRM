@@ -19,7 +19,7 @@ import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
-import { Bell, CheckCheck, FileSignature, Inbox } from 'lucide-react'
+import { Bell, CheckCheck, FileSignature, Inbox, Trash2 } from 'lucide-react'
 import type { Notification } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -31,6 +31,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import {
   useNotificationsList,
+  useDeleteNotification,
   useMarkAllNotificationsRead,
   useMarkNotificationRead,
 } from '@/hooks/use-notifications-api'
@@ -65,6 +66,7 @@ export function NotificationsBell() {
   const { data, isLoading } = useNotificationsList({ limit: 10 })
   const markRead = useMarkNotificationRead()
   const markAllRead = useMarkAllNotificationsRead()
+  const deleteNotification = useDeleteNotification()
 
   const items = data?.items ?? []
   const unreadCount = data?.unreadCount ?? 0
@@ -106,7 +108,7 @@ export function NotificationsBell() {
         <Button
           variant="ghost"
           size="icon"
-          className="relative"
+          className="relative cursor-pointer"
           aria-label="Уведомления"
           data-testid="notifications-bell-trigger"
         >
@@ -133,7 +135,7 @@ export function NotificationsBell() {
             size="sm"
             disabled={!hasUnread || markAllRead.isPending}
             onClick={() => markAllRead.mutate()}
-            className="h-7 gap-1 px-2 text-xs"
+            className="h-7 cursor-pointer gap-1 px-2 text-xs"
             data-testid="notifications-mark-all-read"
           >
             <CheckCheck className="h-3 w-3" />
@@ -165,43 +167,61 @@ export function NotificationsBell() {
           >
             {items.map((n) => (
               <li key={n.id}>
-                <button
-                  type="button"
-                  onClick={() => handleItemClick(n)}
+                {/* Row wraps a click-to-open <button> + a sibling Trash
+                    <button>. Two buttons in a `flex` container avoids the
+                    invalid-HTML "button inside button" problem while keeping
+                    each interactive zone trivially testable. */}
+                <div
                   className={cn(
-                    'flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-accent/40',
+                    'group/notif relative flex items-start transition-colors hover:bg-accent/40',
                     !n.readAt && 'bg-primary/5',
                   )}
                   data-testid={`notification-item-${n.id}`}
                 >
-                  <TypeIcon type={n.type} />
-                  <div className="min-w-0 flex-1">
-                    <p
-                      className={cn(
-                        'truncate text-sm',
-                        n.readAt
-                          ? 'font-normal text-muted-foreground'
-                          : 'font-medium',
-                      )}
-                    >
-                      {n.title}
-                    </p>
-                    {n.body ? (
-                      <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                        {n.body}
+                  <button
+                    type="button"
+                    onClick={() => handleItemClick(n)}
+                    className="flex flex-1 cursor-pointer items-start gap-3 px-4 py-3 text-left"
+                    data-testid={`notification-item-${n.id}-open`}
+                  >
+                    <TypeIcon type={n.type} />
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className={cn(
+                          'truncate text-sm',
+                          n.readAt ? 'font-normal text-muted-foreground' : 'font-medium',
+                        )}
+                      >
+                        {n.title}
                       </p>
+                      {n.body ? (
+                        <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                          {n.body}
+                        </p>
+                      ) : null}
+                      <p className="mt-1 text-[11px] text-muted-foreground/70">
+                        {fmtRelative(n.createdAt)}
+                      </p>
+                    </div>
+                    {!n.readAt ? (
+                      <span aria-hidden className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary" />
                     ) : null}
-                    <p className="mt-1 text-[11px] text-muted-foreground/70">
-                      {fmtRelative(n.createdAt)}
-                    </p>
-                  </div>
-                  {!n.readAt ? (
-                    <span
-                      aria-hidden
-                      className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary"
-                    />
-                  ) : null}
-                </button>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      deleteNotification.mutate(n.id)
+                    }}
+                    disabled={deleteNotification.isPending}
+                    aria-label="Удалить уведомление"
+                    title="Удалить уведомление"
+                    className="mr-2 mt-3 inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover/notif:opacity-100 focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+                    data-testid={`notification-item-${n.id}-delete`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

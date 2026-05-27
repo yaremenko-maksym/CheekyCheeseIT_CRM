@@ -93,8 +93,8 @@ const SIG_ROLE_LABEL: Record<InvoiceSignatureDto['signerRole'], string> = {
 }
 
 const SIG_METHOD_LABEL: Record<InvoiceSignatureDto['method'], string> = {
-  AUTO_COMPANY: 'Авто (компания)',
-  MANUAL_CLICK: 'Ручная (клик)',
+  AUTO_COMPANY: 'Автоматическая электронная',
+  MANUAL_CLICK: 'Click + audit',
 }
 
 // ---------------------------------------------------------------------------
@@ -139,16 +139,17 @@ export function InvoiceDetailDialog({
   transactionId,
   viewer,
 }: InvoiceDetailDialogProps) {
-  const { data: invoice, isLoading, error } = useInvoice(transactionId, {
+  const {
+    data: invoice,
+    isLoading,
+    error,
+  } = useInvoice(transactionId, {
     enabled: open && Boolean(transactionId),
   })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <CrmDialogContent
-        maxWidth="sm:max-w-3xl"
-        data-testid="invoice-detail-dialog"
-      >
+      <CrmDialogContent maxWidth="sm:max-w-3xl" data-testid="invoice-detail-dialog">
         {isLoading || !invoice ? (
           <DialogLoadingState error={error} />
         ) : (
@@ -212,9 +213,7 @@ function InvoiceDetailContent({
   viewer: SessionUser
   onClose: () => void
 }) {
-  const hasCounterpartySig = invoice.signatures.some(
-    (s) => s.signerRole === 'COUNTERPARTY',
-  )
+  const hasCounterpartySig = invoice.signatures.some((s) => s.signerRole === 'COUNTERPARTY')
   const isCounterparty = viewer.id === invoice.counterpartyId
   const canSign = isCounterparty && !hasCounterpartySig
 
@@ -256,10 +255,7 @@ function InvoiceDetailContent({
               ) : null}
             </DialogDescription>
           </div>
-          <Badge
-            variant="outline"
-            className={cn('border self-start', TYPE_CLASS[invoice.type])}
-          >
+          <Badge variant="outline" className={cn('border self-start', TYPE_CLASS[invoice.type])}>
             {getInvoiceTypeLabel(invoice.type)}
           </Badge>
         </div>
@@ -284,15 +280,10 @@ function InvoiceDetailContent({
         <InvoicePdfPreview documentId={invoice.documentId} />
 
         {/* Signature table */}
-        <section
-          aria-label="Подписи"
-          className="rounded-xl border border-border/70 bg-card/40"
-        >
+        <section aria-label="Подписи" className="rounded-xl border border-border/70 bg-card/40">
           <header className="flex items-center justify-between border-b border-border/50 px-4 py-2.5">
             <h3 className="text-sm font-semibold tracking-tight">Подписи</h3>
-            <span className="text-xs text-muted-foreground">
-              {invoice.signatures.length} из 2
-            </span>
+            <span className="text-xs text-muted-foreground">{invoice.signatures.length} из 2</span>
           </header>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -308,15 +299,11 @@ function InvoiceDetailContent({
               <tbody>
                 <SignatureRow
                   role="COMPANY"
-                  signature={invoice.signatures.find(
-                    (s) => s.signerRole === 'COMPANY',
-                  )}
+                  signature={invoice.signatures.find((s) => s.signerRole === 'COMPANY')}
                 />
                 <SignatureRow
                   role="COUNTERPARTY"
-                  signature={invoice.signatures.find(
-                    (s) => s.signerRole === 'COUNTERPARTY',
-                  )}
+                  signature={invoice.signatures.find((s) => s.signerRole === 'COUNTERPARTY')}
                   counterpartyName={invoice.counterpartyName}
                 />
               </tbody>
@@ -334,8 +321,8 @@ function InvoiceDetailContent({
             <div className="space-y-1">
               <p className="font-medium text-foreground">Публичная ссылка верификации</p>
               <p className="text-muted-foreground">
-                Эта ссылка открывается без авторизации — используется для проверки PDF
-                сторонними лицами по QR-коду на распечатке.
+                Эта ссылка открывается без авторизации — используется для проверки PDF сторонними
+                лицами по QR-коду на распечатке.
               </p>
               <Link
                 to="/invoice/v/$transactionId"
@@ -441,27 +428,38 @@ function SignatureRow({
   counterpartyName?: string
 }) {
   if (!signature) {
+    // Empty state — COMPANY row is never empty (auto-signed at invoice
+    // creation), so this branch only renders for the COUNTERPARTY row when
+    // the recipient has not yet signed. We surface a single «⏳ Ожидает
+    // подписи» cell spanning the data columns so the table reads as
+    // a clear pending-state rather than a partially-filled record.
     return (
-      <tr className="border-t border-border/40">
+      <tr
+        className="border-t border-border/40"
+        data-testid={`signature-row-${role.toLowerCase()}-pending`}
+      >
         <td className="px-4 py-2.5 font-medium">{SIG_ROLE_LABEL[role]}</td>
-        <td className="px-4 py-2.5 text-muted-foreground">
-          {counterpartyName ?? '—'}
-        </td>
-        <td className="px-4 py-2.5 text-xs text-muted-foreground">
+        <td className="px-4 py-2.5 text-muted-foreground">{counterpartyName ?? '—'}</td>
+        <td colSpan={3} className="px-4 py-2.5 text-xs text-amber-300/90">
           <span className="inline-flex items-center gap-1">
-            <Clock className="h-3 w-3" /> Ожидает
+            <Clock className="h-3.5 w-3.5" />
+            Ожидает подписи
           </span>
         </td>
-        <td className="px-4 py-2.5 text-xs text-muted-foreground">—</td>
-        <td className="px-4 py-2.5 text-xs text-muted-foreground">—</td>
       </tr>
     )
   }
+  // For the COMPANY row we intentionally skip the hash column — the company
+  // signature is an internal auto-event, not something the counterparty
+  // needs to audit. Only the COUNTERPARTY row shows the short hash (8 chars
+  // of the PDF SHA-256) so the audit chain stays visible at a glance.
+  const showHash = signature.signerRole === 'COUNTERPARTY'
   return (
-    <tr className="border-t border-border/40">
-      <td className="px-4 py-2.5 font-medium">
-        {SIG_ROLE_LABEL[signature.signerRole]}
-      </td>
+    <tr
+      className="border-t border-border/40"
+      data-testid={`signature-row-${signature.signerRole.toLowerCase()}`}
+    >
+      <td className="px-4 py-2.5 font-medium">{SIG_ROLE_LABEL[signature.signerRole]}</td>
       <td className="px-4 py-2.5">{signature.signerName}</td>
       <td
         className="px-4 py-2.5 text-xs text-muted-foreground"
@@ -473,9 +471,13 @@ function SignatureRow({
         {SIG_METHOD_LABEL[signature.method]}
       </td>
       <td className="px-4 py-2.5 text-xs">
-        <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">
-          {signature.pdfHashShort}
-        </code>
+        {showHash ? (
+          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">
+            {signature.pdfHashShort}
+          </code>
+        ) : (
+          <span className="text-muted-foreground/60">—</span>
+        )}
       </td>
     </tr>
   )
@@ -485,13 +487,7 @@ function SignatureRow({
 // «Подписать инвойс» button + confirm AlertDialog
 // ---------------------------------------------------------------------------
 
-function SignButton({
-  invoice,
-  onSuccess,
-}: {
-  invoice: InvoiceDto
-  onSuccess: () => void
-}) {
+function SignButton({ invoice, onSuccess }: { invoice: InvoiceDto; onSuccess: () => void }) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [agreed, setAgreed] = useState(false)
   const signMutation = useSignInvoice()
@@ -508,10 +504,7 @@ function SignButton({
 
   return (
     <>
-      <Button
-        onClick={() => setConfirmOpen(true)}
-        data-testid="invoice-detail-sign-button"
-      >
+      <Button onClick={() => setConfirmOpen(true)} data-testid="invoice-detail-sign-button">
         <FileSignature className="mr-2 h-4 w-4" />
         Подписать инвойс
       </Button>
@@ -529,8 +522,8 @@ function SignButton({
           <AlertDialogHeader>
             <AlertDialogTitle>Подписать инвойс?</AlertDialogTitle>
             <AlertDialogDescription>
-              Подписывая этот документ, вы подтверждаете согласие с его
-              содержимым. После подписи документ нельзя отменить.
+              Подписывая этот документ, вы подтверждаете согласие с его содержимым. После подписи
+              документ нельзя отменить.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm">
@@ -555,9 +548,7 @@ function SignButton({
             <span>Я ознакомлен и согласен с содержимым инвойса</span>
           </label>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={signMutation.isPending}>
-              Отмена
-            </AlertDialogCancel>
+            <AlertDialogCancel disabled={signMutation.isPending}>Отмена</AlertDialogCancel>
             <AlertDialogAction
               onClick={(e) => {
                 // Prevent radix from closing the dialog before the mutation

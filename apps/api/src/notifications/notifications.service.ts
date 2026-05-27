@@ -133,6 +133,25 @@ export class NotificationsService {
       .where(and(eq(notifications.userId, userId), isNull(notifications.readAt)))
   }
 
+  /**
+   * Hard-delete a single notification row. Used by the Trash icon in the
+   * header bell dropdown. Same ownership semantics as `markRead`:
+   *   - 404 when the row does not exist
+   *   - 403 when the row belongs to a different user
+   * (No soft delete — notifications are ephemeral, recreated by the system
+   *  whenever the underlying event re-occurs.)
+   */
+  async delete(userId: string, notificationId: string): Promise<void> {
+    const row = await this.db.db.query.notifications.findFirst({
+      where: eq(notifications.id, notificationId),
+    })
+    if (!row) throw new NotFoundException('Уведомление не найдено')
+    if (row.userId !== userId) {
+      throw new ForbiddenException('Это уведомление принадлежит другому пользователю')
+    }
+    await this.db.db.delete(notifications).where(eq(notifications.id, notificationId))
+  }
+
   // -------------------------------------------------------------------------
   // Mapping
   // -------------------------------------------------------------------------
