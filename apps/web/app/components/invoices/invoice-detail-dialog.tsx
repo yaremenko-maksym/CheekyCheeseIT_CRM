@@ -149,7 +149,7 @@ export function InvoiceDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <CrmDialogContent maxWidth="sm:max-w-3xl" data-testid="invoice-detail-dialog">
+      <CrmDialogContent maxWidth="sm:max-w-6xl" data-testid="invoice-detail-dialog">
         {isLoading || !invoice ? (
           <DialogLoadingState error={error} />
         ) : (
@@ -275,69 +275,81 @@ function InvoiceDetailContent({
         </div>
       </CrmDialogHeader>
 
-      <CrmDialogBody className="space-y-5 pb-6">
-        {/* PDF preview */}
-        <InvoicePdfPreview documentId={invoice.documentId} />
+      <CrmDialogBody className="pb-6">
+        {/* Split layout: signature table + verify info (≈40%) left, large
+            PDF preview (≈60%) right. On mobile (< md) the grid collapses to
+            a single column with info on top, PDF below — preserving the
+            form-like reading order on narrow screens. */}
+        <div className="grid grid-cols-1 md:grid-cols-[40%_1fr] gap-6">
+          <div className="min-w-0 space-y-5">
+            {/* Signature table */}
+            <section aria-label="Подписи" className="rounded-xl border border-border/70 bg-card/40">
+              <header className="flex items-center justify-between border-b border-border/50 px-4 py-2.5">
+                <h3 className="text-sm font-semibold tracking-tight">Подписи</h3>
+                <span className="text-xs text-muted-foreground">
+                  {invoice.signatures.length} из 2
+                </span>
+              </header>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-muted-foreground">
+                      <th className="px-4 py-2 font-medium">Сторона</th>
+                      <th className="px-4 py-2 font-medium">Подписант</th>
+                      <th className="px-4 py-2 font-medium">Дата</th>
+                      <th className="px-4 py-2 font-medium">Метод</th>
+                      <th className="px-4 py-2 font-medium">Хэш</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <SignatureRow
+                      role="COMPANY"
+                      signature={invoice.signatures.find((s) => s.signerRole === 'COMPANY')}
+                    />
+                    <SignatureRow
+                      role="COUNTERPARTY"
+                      signature={invoice.signatures.find((s) => s.signerRole === 'COUNTERPARTY')}
+                      counterpartyName={invoice.counterpartyName}
+                    />
+                  </tbody>
+                </table>
+              </div>
+            </section>
 
-        {/* Signature table */}
-        <section aria-label="Подписи" className="rounded-xl border border-border/70 bg-card/40">
-          <header className="flex items-center justify-between border-b border-border/50 px-4 py-2.5">
-            <h3 className="text-sm font-semibold tracking-tight">Подписи</h3>
-            <span className="text-xs text-muted-foreground">{invoice.signatures.length} из 2</span>
-          </header>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-muted-foreground">
-                  <th className="px-4 py-2 font-medium">Сторона</th>
-                  <th className="px-4 py-2 font-medium">Подписант</th>
-                  <th className="px-4 py-2 font-medium">Дата</th>
-                  <th className="px-4 py-2 font-medium">Метод</th>
-                  <th className="px-4 py-2 font-medium">Хэш</th>
-                </tr>
-              </thead>
-              <tbody>
-                <SignatureRow
-                  role="COMPANY"
-                  signature={invoice.signatures.find((s) => s.signerRole === 'COMPANY')}
-                />
-                <SignatureRow
-                  role="COUNTERPARTY"
-                  signature={invoice.signatures.find((s) => s.signerRole === 'COUNTERPARTY')}
-                  counterpartyName={invoice.counterpartyName}
-                />
-              </tbody>
-            </table>
+            {/* Public verify info */}
+            <section
+              aria-label="Публичная верификация"
+              className="rounded-xl border border-border/50 bg-muted/20 p-4 text-xs"
+            >
+              <div className="flex items-start gap-2">
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                <div className="space-y-1 min-w-0">
+                  <p className="font-medium text-foreground">Публичная ссылка верификации</p>
+                  <p className="text-muted-foreground">
+                    Эта ссылка открывается без авторизации — используется для проверки PDF
+                    сторонними лицами по QR-коду на распечатке.
+                  </p>
+                  <Link
+                    to="/invoice/v/$transactionId"
+                    params={{ transactionId: invoice.transactionId }}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 break-all font-mono text-primary hover:underline"
+                    data-testid="invoice-detail-verify-link"
+                  >
+                    {verifyUrl}
+                    <ExternalLink className="h-3 w-3" />
+                  </Link>
+                </div>
+              </div>
+            </section>
           </div>
-        </section>
 
-        {/* Public verify info */}
-        <section
-          aria-label="Публичная верификация"
-          className="rounded-xl border border-border/50 bg-muted/20 p-4 text-xs"
-        >
-          <div className="flex items-start gap-2">
-            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
-            <div className="space-y-1">
-              <p className="font-medium text-foreground">Публичная ссылка верификации</p>
-              <p className="text-muted-foreground">
-                Эта ссылка открывается без авторизации — используется для проверки PDF сторонними
-                лицами по QR-коду на распечатке.
-              </p>
-              <Link
-                to="/invoice/v/$transactionId"
-                params={{ transactionId: invoice.transactionId }}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 break-all font-mono text-primary hover:underline"
-                data-testid="invoice-detail-verify-link"
-              >
-                {verifyUrl}
-                <ExternalLink className="h-3 w-3" />
-              </Link>
-            </div>
+          {/* PDF preview — large right column */}
+          <div className="min-w-0">
+            <InvoicePdfPreview documentId={invoice.documentId} />
           </div>
-        </section>
+        </div>
       </CrmDialogBody>
 
       <CrmDialogFooter>
@@ -380,17 +392,17 @@ function InvoicePdfPreview({ documentId }: { documentId: string | null }) {
 
   if (!documentId) {
     return (
-      <div className="flex h-72 items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 text-sm text-muted-foreground">
+      <div className="flex min-h-[500px] h-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 text-sm text-muted-foreground">
         Готовится PDF…
       </div>
     )
   }
   if (isLoading) {
-    return <Skeleton className="h-96 w-full rounded-lg" />
+    return <Skeleton className="min-h-[500px] h-full w-full rounded-lg" />
   }
   if (!data?.url) {
     return (
-      <div className="flex h-72 items-center justify-center rounded-lg border border-dashed border-destructive/40 bg-destructive/10 text-sm text-destructive">
+      <div className="flex min-h-[500px] h-full items-center justify-center rounded-lg border border-dashed border-destructive/40 bg-destructive/10 text-sm text-destructive">
         Не удалось загрузить PDF
       </div>
     )
@@ -399,12 +411,12 @@ function InvoicePdfPreview({ documentId }: { documentId: string | null }) {
   return (
     <div
       data-testid="invoice-pdf-preview"
-      className="overflow-hidden rounded-lg border border-border bg-muted"
+      className="overflow-hidden rounded-lg border border-border bg-muted h-full"
     >
       <iframe
         src={data.url}
         title="Инвойс PDF"
-        className="h-[480px] w-full"
+        className="w-full min-h-[500px] h-full"
         // Sandbox keeps the embed defensive (no top-nav, no scripts). The
         // S3 presigned URL is a static GET on a PDF — same-origin scripts
         // aren't needed for rendering.
