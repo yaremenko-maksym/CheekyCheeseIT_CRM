@@ -18,7 +18,7 @@ describe('InvoiceCard', () => {
     render(<InvoiceCard invoice={baseInvoice} onOpen={vi.fn()} />)
     expect(
       screen.getByTestId(`invoice-card-type-${baseInvoice.transactionId}`),
-    ).toHaveTextContent('Выплата сеньору')
+    ).toHaveTextContent('Выплата синьера')
   })
 
   it('renders SALARY badge with green palette label', () => {
