@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto'
 import {
   BadRequestException,
   ForbiddenException,
@@ -653,12 +654,18 @@ export class TransactionsService {
     // senior keeps sharePercent, pays (100-sharePercent)%
     const payableAmount = incomeAmount * (1 - sharePercent / 100)
 
+    // Stub contract address — Ethereum-shape (0x + 40 hex). Per-payout fresh
+    // address, swapped for the real PaymentSplitter when PHASE 8 ships. See
+    // migration 0019 for the column rationale.
+    const contractAddress = '0x' + randomBytes(20).toString('hex')
+
     const [req] = await this.db.db
       .insert(payoutRequests)
       .values({
         seniorId: currentUser.id,
         incomeAmount: String(incomeAmount),
         payableAmount: String(payableAmount),
+        contractAddress,
         status: 'PENDING',
       })
       .returning()
@@ -776,6 +783,7 @@ export class TransactionsService {
         (r as typeof r & { senior: { displayName: string } | null }).senior?.displayName ?? '',
       incomeAmount: r.incomeAmount,
       payableAmount: r.payableAmount,
+      contractAddress: r.contractAddress,
       txHash: r.txHash,
       status: r.status,
       createdAt: r.createdAt.toISOString(),
@@ -808,6 +816,7 @@ export class TransactionsService {
         (req as typeof req & { senior: { displayName: string } | null }).senior?.displayName ?? '',
       incomeAmount: req.incomeAmount,
       payableAmount: req.payableAmount,
+      contractAddress: req.contractAddress,
       txHash: req.txHash,
       status: req.status,
       transactions: (req as typeof req & { transactions: TxWithRelations[] }).transactions.map(

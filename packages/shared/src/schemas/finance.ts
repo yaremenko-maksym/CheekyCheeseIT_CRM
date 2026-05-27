@@ -82,6 +82,9 @@ export const payoutRequestSchema = z.object({
   seniorName: z.string(),
   incomeAmount: z.string(),
   payableAmount: z.string(),
+  // Destination wallet (server-generated stub until PHASE 8). SENIOR copies
+  // this to send their 74% payable_amount in USDT.
+  contractAddress: z.string(),
   txHash: z.string().nullable(),
   status: payoutRequestStatusSchema,
   transactions: z.array(transactionSchema).optional(),

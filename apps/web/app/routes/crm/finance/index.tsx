@@ -46,6 +46,7 @@ import { ValidateDialog } from './components/dialogs/ValidateDialog'
 import { EditSeniorIncomeDialog } from './components/dialogs/EditSeniorIncomeDialog'
 import { PaySalaryDialog } from './components/dialogs/PaySalaryDialog'
 import { PayoutDialog } from './components/dialogs/PayoutDialog'
+import { PayoutDetailDialog } from './components/dialogs/PayoutDetailDialog'
 import { TransactionDetailDialog } from './components/dialogs/TransactionDetailDialog'
 import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransactionDialog'
 import { MyProjectShares } from './components/MyProjectShares'
@@ -189,6 +190,7 @@ function TransactionsTable({
   onDelete,
   onPaySalary,
   onQuickPayout,
+  onOpenPayoutDetail,
   onDetail,
 }: {
   transactions: TransactionDto[]
@@ -204,6 +206,12 @@ function TransactionsTable({
   onDelete: (tx: TransactionDto) => void
   onPaySalary: (tx: TransactionDto) => void
   onQuickPayout: (tx: TransactionDto) => void
+  /**
+   * Opens PayoutDetailDialog for PENDING_PAYMENT rows. Passed straight to
+   * TransactionRow; receives the payout_request id (already resolved by the
+   * row from tx.payoutRequestId).
+   */
+  onOpenPayoutDetail: (payoutRequestId: string) => void
   onDetail: (tx: TransactionDto) => void
 }) {
   const [search, setSearch] = useState('')
@@ -350,6 +358,7 @@ function TransactionsTable({
                     onDelete={onDelete}
                     onPaySalary={onPaySalary}
                     onQuickPayout={onQuickPayout}
+                    onOpenPayoutDetail={onOpenPayoutDetail}
                     onClick={onDetail}
                   />
                 ))}
@@ -396,6 +405,11 @@ function FinancePage() {
   // dialog footer). When the header «Выплатить (N)» triggers the dialog it
   // stays undefined so the SENIOR can pick rows manually from the full list.
   const [payoutPreselected, setPayoutPreselected] = useState<string[] | undefined>(undefined)
+  // Payout detail dialog — opened from the inline «Оплатить» pill on
+  // PENDING_PAYMENT rows. null = closed. Decoupled from showPayout/preselected
+  // so the create-vs-pay flows can co-exist (closing one doesn't reset the
+  // other).
+  const [payoutDetailId, setPayoutDetailId] = useState<string | null>(null)
   const [detailTx, setDetailTx] = useState<TransactionDto | null>(null)
 
   const openPayoutForTx = useCallback((tx: TransactionDto) => {
@@ -406,6 +420,14 @@ function FinancePage() {
   const closePayoutDialog = useCallback(() => {
     setShowPayout(false)
     setPayoutPreselected(undefined)
+  }, [])
+
+  const openPayoutDetail = useCallback((payoutRequestId: string) => {
+    setPayoutDetailId(payoutRequestId)
+  }, [])
+
+  const closePayoutDetail = useCallback(() => {
+    setPayoutDetailId(null)
   }, [])
 
   const qc = useQueryClient()
@@ -653,6 +675,7 @@ function FinancePage() {
             onDelete={setDeleteTx}
             onPaySalary={setPaySalaryTx}
             onQuickPayout={openPayoutForTx}
+            onOpenPayoutDetail={openPayoutDetail}
             onDetail={setDetailTx}
           />
         </CardContent>
@@ -669,6 +692,11 @@ function FinancePage() {
         onClose={closePayoutDialog}
         validatedTxs={validatedForPayout}
         {...(payoutPreselected ? { preselectedTxIds: payoutPreselected } : {})}
+      />
+      <PayoutDetailDialog
+        open={!!payoutDetailId}
+        onClose={closePayoutDetail}
+        payoutId={payoutDetailId}
       />
       <TransactionDetailDialog
         tx={detailTx}

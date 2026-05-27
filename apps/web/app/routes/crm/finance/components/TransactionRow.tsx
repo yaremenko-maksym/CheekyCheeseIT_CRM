@@ -170,6 +170,7 @@ export function TransactionRow({
   onDelete,
   onPaySalary,
   onQuickPayout,
+  onOpenPayoutDetail,
   onClick,
 }: {
   tx: TransactionDto
@@ -189,6 +190,13 @@ export function TransactionRow({
   onDelete?: (tx: TransactionDto) => void
   onPaySalary?: (tx: TransactionDto) => void
   onQuickPayout?: (tx: TransactionDto) => void
+  /**
+   * Opens the PayoutDetailDialog for an already-created payout. Triggered by
+   * the inline «Оплатить» pill on PENDING_PAYMENT rows (where the SENIOR has
+   * already created the request and now needs to send USDT to the contract
+   * address + submit the tx hash). Receives the payout_request id.
+   */
+  onOpenPayoutDetail?: (payoutRequestId: string) => void
   onClick?: (tx: TransactionDto) => void
 }) {
   const isAdmin = role === 'ADMIN'
@@ -209,6 +217,16 @@ export function TransactionRow({
   // validate but don't pay out on behalf of seniors.
   const showQuickPayout =
     isSenior && !!canQuickPayout && tx.type === 'SENIOR_INCOME' && tx.status === 'VALIDATED'
+  // Inline «Оплатить» for PENDING_PAYMENT — opens the detail dialog so the
+  // SENIOR can copy the contract address and submit the on-chain tx hash.
+  // Scoped to the SENIOR who owns the income (receiverId match) — other
+  // SENIORs never see this even if they somehow load a row that isn't theirs.
+  const showPayPayout =
+    isSenior &&
+    tx.type === 'SENIOR_INCOME' &&
+    tx.status === 'PENDING_PAYMENT' &&
+    !!tx.payoutRequestId &&
+    tx.receiverId === currentUserId
 
   return (
     <motion.tr
@@ -306,6 +324,18 @@ export function TransactionRow({
             >
               <Wallet className="h-3.5 w-3.5 mr-1" />
               Выплатить
+            </Button>
+          )}
+          {showPayPayout && onOpenPayoutDetail && tx.payoutRequestId && (
+            <Button
+              variant="default"
+              size="sm"
+              className="h-7 px-2 text-xs bg-primary/90 text-primary-foreground hover:bg-primary"
+              onClick={() => onOpenPayoutDetail(tx.payoutRequestId!)}
+              data-testid={`row-pay-payout-${tx.id}`}
+            >
+              <Wallet className="h-3.5 w-3.5 mr-1" />
+              Оплатить
             </Button>
           )}
           {canEdit && onEdit && (

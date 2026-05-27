@@ -66,6 +66,28 @@ function makeSeniorIncome(overrides: object = {}) {
 
 type MockPage = import('@playwright/test').Page
 
+// Stable stub address shared between POST/GET/PATCH responses so the dialog
+// can match what the user sees against what we return on submit.
+const STUB_CONTRACT = '0xabcdef0123456789abcdef0123456789abcdef01'
+
+function makePayoutResponse(
+  overrides: { status?: 'PENDING' | 'PAID'; txHash?: string | null; txs?: object[] } = {},
+) {
+  return {
+    id: 'payout-flow-1',
+    seniorId: USERS.senior.id,
+    seniorName: USERS.senior.displayName,
+    incomeAmount: '5000.00',
+    payableAmount: '3700.00',
+    contractAddress: STUB_CONTRACT,
+    status: overrides.status ?? 'PENDING',
+    txHash: overrides.txHash ?? null,
+    transactions: overrides.txs ?? [],
+    createdAt: '2026-05-02T12:00:00.000Z',
+    updatedAt: '2026-05-02T12:00:00.000Z',
+  }
+}
+
 async function mockTransactions(page: MockPage, txs: object[], payouts: object[] = []) {
   await page.route(new RegExp(`${API}/transactions/([^/?]+)$`), (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(txs[0] ?? {}) }),
@@ -73,39 +95,36 @@ async function mockTransactions(page: MockPage, txs: object[], payouts: object[]
   await page.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(txs) }),
   )
+  // /pay endpoint — final submit. Must match BEFORE the catch-all below.
   await page.route(new RegExp(`${API}/payout-requests/([^/?]+)/pay$`), (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        id: 'payout-flow-1',
-        seniorId: USERS.senior.id,
-        incomeAmount: '5000.00',
-        payableAmount: '3700.00',
-        status: 'PAID',
-        txHash: '0xdeadbeef',
-        transactions: [{ ...(txs[0] as object), status: 'PAID' }],
-        createdAt: '2026-05-02T12:00:00.000Z',
-        updatedAt: '2026-05-02T12:00:00.000Z',
-      }),
+      body: JSON.stringify(
+        makePayoutResponse({
+          status: 'PAID',
+          txHash: '0xdeadbeef',
+          txs: [{ ...(txs[0] as object), status: 'PAID' }],
+        }),
+      ),
     }),
+  )
+  // Single-payout GET — used by PayoutDetailDialog.
+  await page.route(new RegExp(`${API}/payout-requests/([^/?]+)$`), (r) =>
+    r.request().method() === 'GET'
+      ? r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(makePayoutResponse({ txs })),
+        })
+      : r.fallback(),
   )
   await page.route(new RegExp(`${API}/payout-requests(\\?.*)?$`), (r) =>
     r.request().method() === 'POST'
       ? r.fulfill({
           status: 201,
           contentType: 'application/json',
-          body: JSON.stringify({
-            id: 'payout-flow-1',
-            seniorId: USERS.senior.id,
-            incomeAmount: '5000.00',
-            payableAmount: '3700.00',
-            status: 'PENDING_PAYMENT',
-            txHash: null,
-            transactions: txs,
-            createdAt: '2026-05-02T12:00:00.000Z',
-            updatedAt: '2026-05-02T12:00:00.000Z',
-          }),
+          body: JSON.stringify(makePayoutResponse({ txs })),
         })
       : r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payouts) }),
   )
@@ -150,7 +169,7 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     await expect(asSenior.getByRole('button', { name: /Выплатить/i })).not.toBeVisible()
   })
 
-  test('SENIOR clicks «Оплатить» → PayoutDialog opens with the validated transaction selectable', async ({
+  test('SENIOR clicks «Выплатить» → PayoutDialog opens with the validated transaction selectable', async ({
     asSenior,
   }) => {
     const validatedTx = makeSeniorIncome()
@@ -166,9 +185,13 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     await expect(dialog.locator('input[type="checkbox"]').first()).toBeVisible()
   })
 
-  test('SENIOR completes payout: select tx → Далее → enter TX hash → Оплатить → dialog closes', async ({
+  test('SENIOR creates payout: select tx → «Создать выплату» → dialog closes', async ({
     asSenior,
   }) => {
+    // Step 1 of the split flow — PayoutDialog now ONLY creates a payout
+    // request (no tx hash field). The contract address + hash submission
+    // live in PayoutDetailDialog, which is opened separately from the inline
+    // «Оплатить» pill on a PENDING_PAYMENT row.
     const validatedTx = makeSeniorIncome()
     await mockTransactions(asSenior, [validatedTx])
 
@@ -177,15 +200,52 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     const dialog = asSenior.getByRole('dialog')
 
     await dialog.locator('input[type="checkbox"]').first().click()
-    // Step 1 → Step 2
-    await dialog.getByRole('button', { name: 'Далее' }).click()
+
+    // Submit button is the *only* CTA on the new single-step dialog. Match
+    // by full string so we don't accidentally hit the header «Выплатить (1)»
+    // bulk button outside the dialog.
+    await dialog.getByRole('button', { name: 'Создать выплату' }).click()
+
+    // Dialog dismisses after successful create — PayoutDialog calls
+    // handleClose() on createMutation.onSuccess.
+    await expect(dialog).not.toBeVisible()
+  })
+
+  test('SENIOR pays existing payout: inline «Оплатить» → PayoutDetailDialog → submit tx hash', async ({
+    asSenior,
+  }) => {
+    // Step 2 of the split flow — Выплата already exists (status=PENDING,
+    // tx in PENDING_PAYMENT). SENIOR clicks the inline «Оплатить» pill,
+    // the detail dialog opens with the stub contract address, the SENIOR
+    // pastes the on-chain hash and submits.
+    const pendingPaymentTx = makeSeniorIncome({
+      id: 'pay-flow-tx-pending',
+      status: 'PENDING_PAYMENT',
+      payoutRequestId: 'payout-flow-1',
+    })
+    await mockTransactions(asSenior, [pendingPaymentTx])
+
+    await asSenior.goto('/crm/finance')
+
+    // Inline pill on the PENDING_PAYMENT row.
+    const inlinePay = asSenior.getByTestId(`row-pay-payout-${pendingPaymentTx.id}`)
+    await expect(inlinePay).toBeVisible()
+    await inlinePay.click()
+
+    const dialog = asSenior.getByRole('dialog')
+    await expect(dialog).toBeVisible()
     await expect(dialog.getByRole('heading', { name: /Подтвердить выплату/i })).toBeVisible()
 
-    await dialog.getByPlaceholder('0x...').fill('0xabcd1234')
-    await dialog.getByRole('button', { name: 'Оплатить' }).click()
+    // Contract address must be visible and match the stub the API returned.
+    await expect(dialog.getByTestId('payout-detail-contract-address')).toContainText(
+      STUB_CONTRACT,
+    )
 
-    // Dialog dismisses after successful payment — PayoutDialog calls
-    // handleClose() on payMutation.onSuccess.
+    // Submit the on-chain tx hash → triggers PATCH /:id/pay (mocked to PAID).
+    await dialog.getByTestId('payout-detail-tx-hash-input').fill('0xabcd1234567890')
+    await dialog.getByTestId('payout-detail-submit').click()
+
+    // On success the dialog closes.
     await expect(dialog).not.toBeVisible()
   })
 

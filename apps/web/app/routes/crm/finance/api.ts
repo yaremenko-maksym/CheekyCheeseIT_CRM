@@ -58,6 +58,9 @@ export const financeApi = {
   getPayoutRequests: () =>
     api.get<PayoutRequestDto[]>('/payout-requests').then((r) => r.data),
 
+  getPayoutRequest: (id: string) =>
+    api.get<PayoutRequestDto>(`/payout-requests/${id}`).then((r) => r.data),
+
   createPayoutRequest: (data: CreatePayoutRequestDto) =>
     api.post<PayoutRequestDto>('/payout-requests', data).then((r) => r.data),
 

@@ -162,14 +162,14 @@ test.describe('Finance — page load', () => {
     await mockTransactions(asSenior, [])
     await asSenior.goto('/crm/finance')
     await expect(asSenior.getByRole('button', { name: /Новая транзакция/i })).toBeVisible()
-    await expect(asSenior.getByRole('button', { name: /Выплатить/i })).not.toBeVisible()
+    await expect(asSenior.getByRole('button', { name: /Выплатить \(/i })).not.toBeVisible()
   })
 
   test('SENIOR: кнопка Выплатить появляется при наличии валидированных транзакций', async ({ asSenior }) => {
     const validatedTx = { ...TX_VALIDATED_SENIOR, senderId: USERS.senior.id }
     await mockTransactions(asSenior, [validatedTx])
     await asSenior.goto('/crm/finance')
-    await expect(asSenior.getByRole('button', { name: /Выплатить/i })).toBeVisible()
+    await expect(asSenior.getByRole('button', { name: /Выплатить \(/i })).toBeVisible()
   })
 
   test('HR: видит только заголовок "История ваших выплат", нет кнопки создания', async ({ asHr }) => {
@@ -524,8 +524,8 @@ test.describe('Finance — запрос выплаты (SENIOR)', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
     )
     await asSenior.goto('/crm/finance')
-    await expect(asSenior.getByRole('button', { name: /Выплатить/i })).toBeVisible()
-    await asSenior.getByRole('button', { name: /Выплатить/i }).click()
+    await expect(asSenior.getByRole('button', { name: /Выплатить \(/i })).toBeVisible()
+    await asSenior.getByRole('button', { name: /Выплатить \(/i }).click()
     await expect(asSenior.getByRole('dialog')).toBeVisible()
     // Заголовок первого шага
     await expect(asSenior.getByRole('heading', { name: /Выбрать транзакции для выплаты/i })).toBeVisible()
@@ -538,7 +538,7 @@ test.describe('Finance — запрос выплаты (SENIOR)', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
     )
     await asSenior.goto('/crm/finance')
-    await asSenior.getByRole('button', { name: /Выплатить/i }).click()
+    await asSenior.getByRole('button', { name: /Выплатить \(/i }).click()
     await expect(asSenior.getByRole('dialog')).toBeVisible()
     // Проект в списке транзакций
     await expect(asSenior.getByRole('dialog').getByText(PROJECT_NAME).first()).toBeVisible()
@@ -609,7 +609,7 @@ test.describe('Finance — PENDING_PAYMENT status', () => {
     const myPendingPayment = { ...TX_PENDING_PAYMENT_SENIOR, senderId: USERS.senior.id }
     await mockTransactions(asSenior, [myPendingPayment])
     await asSenior.goto('/crm/finance')
-    await expect(asSenior.getByRole('button', { name: /Выплатить/i })).not.toBeVisible()
+    await expect(asSenior.getByRole('button', { name: /Выплатить \(/i })).not.toBeVisible()
   })
 
   test('SENIOR: видит кнопку Выплатить только при наличии VALIDATED (не PENDING_PAYMENT) транзакций', async ({ asSenior }) => {
@@ -617,7 +617,7 @@ test.describe('Finance — PENDING_PAYMENT status', () => {
     const myPendingPayment = { ...TX_PENDING_PAYMENT_SENIOR, senderId: USERS.senior.id }
     await mockTransactions(asSenior, [myValidated, myPendingPayment])
     await asSenior.goto('/crm/finance')
-    await expect(asSenior.getByRole('button', { name: /Выплатить/i })).toBeVisible()
+    await expect(asSenior.getByRole('button', { name: /Выплатить \(/i })).toBeVisible()
   })
 
   test('ACCOUNTANT: видит PENDING_PAYMENT статус без кнопок действий', async ({ page }) => {
