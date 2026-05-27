@@ -263,7 +263,7 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   // of the page. We query INVOICE specifically (independent of the current
   // category filter) so the banner is visible even when the dropdown is on
   // a different category.
-  const { data: invoiceDocs } = useDocuments({ category: 'INVOICE' })
+  const { data: invoiceDocs } = useDocuments({ category: 'INVOICE', includeDeleted: false })
   const pendingCount = useMemo(
     () => (invoiceDocs ?? []).filter((d) => d.invoicePendingSignature).length,
     [invoiceDocs],
