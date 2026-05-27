@@ -1,14 +1,28 @@
-import { Edit2, CheckCircle2, ArrowRight, Trash2 } from 'lucide-react'
+import { Edit2, CheckCircle2, ArrowRight, Trash2, Wallet } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
 import type { TransactionDto } from '@crm/shared'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { TYPE_LABELS, TYPE_COLORS, STATUS_LABELS, STATUS_COLORS, fmtAmount, fmtUsd, fmtDate, type ExchangeRates } from '../constants'
+import {
+  TYPE_LABELS,
+  TYPE_COLORS,
+  STATUS_LABELS,
+  STATUS_COLORS,
+  fmtAmount,
+  fmtUsd,
+  fmtDate,
+  type ExchangeRates,
+} from '../constants'
 
 function TypeBadge({ type }: { type: TransactionDto['type'] }) {
   return (
-    <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap', TYPE_COLORS[type])}>
+    <span
+      className={cn(
+        'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap',
+        TYPE_COLORS[type],
+      )}
+    >
       {TYPE_LABELS[type]}
     </span>
   )
@@ -16,7 +30,12 @@ function TypeBadge({ type }: { type: TransactionDto['type'] }) {
 
 function StatusBadge({ status }: { status: TransactionDto['status'] }) {
   return (
-    <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap', STATUS_COLORS[status])}>
+    <span
+      className={cn(
+        'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap',
+        STATUS_COLORS[status],
+      )}
+    >
       {STATUS_LABELS[status]}
     </span>
   )
@@ -73,7 +92,12 @@ function FromTo({ tx }: { tx: TransactionDto }) {
       // sender_label = client company name, receiver_id = senior user
       return (
         <div className="flex items-center gap-1.5 min-w-0">
-          <Party id={null} name={null} label={tx.senderLabel ?? tx.projectName ?? '—'} type="project" />
+          <Party
+            id={null}
+            name={null}
+            label={tx.senderLabel ?? tx.projectName ?? '—'}
+            type="project"
+          />
           <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
           <Party id={tx.receiverId} name={tx.receiverName} label={tx.receiverLabel} type="user" />
         </div>
@@ -91,7 +115,12 @@ function FromTo({ tx }: { tx: TransactionDto }) {
     case 'SALARY':
       return (
         <div className="flex items-center gap-1.5 min-w-0">
-          <Party id={tx.senderId} name={tx.senderName} label={tx.senderLabel ?? 'CheekyCheeseIT'} type="user" />
+          <Party
+            id={tx.senderId}
+            name={tx.senderName}
+            label={tx.senderLabel ?? 'CheekyCheeseIT'}
+            type="user"
+          />
           <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
           <Party id={tx.receiverId} name={tx.receiverName} label={tx.receiverLabel} type="user" />
         </div>
@@ -134,11 +163,13 @@ export function TransactionRow({
   role,
   rates,
   currentUserId,
+  canQuickPayout,
   onValidate,
   onEdit,
   onAdminEdit,
   onDelete,
   onPaySalary,
+  onQuickPayout,
   onClick,
 }: {
   tx: TransactionDto
@@ -146,22 +177,38 @@ export function TransactionRow({
   rates: ExchangeRates | undefined
   /** Used to scope "Доля: X%" visibility for SENIOR (only own rows). */
   currentUserId?: string | null
+  /**
+   * Whether the current SENIOR can launch a quick single-tx payout from this
+   * row. Driven by the parent so eligibility logic (VALIDATED + no pending
+   * payout + receiverId === userId) lives in one place.
+   */
+  canQuickPayout?: boolean
   onValidate?: (tx: TransactionDto) => void
   onEdit?: (tx: TransactionDto) => void
   onAdminEdit?: (tx: TransactionDto) => void
   onDelete?: (tx: TransactionDto) => void
   onPaySalary?: (tx: TransactionDto) => void
+  onQuickPayout?: (tx: TransactionDto) => void
   onClick?: (tx: TransactionDto) => void
 }) {
   const isAdmin = role === 'ADMIN'
   const isAccountant = role === 'ACCOUNTANT'
   const isSenior = role === 'SENIOR'
 
-  const canValidate = (isAdmin || isAccountant) && tx.type === 'SENIOR_INCOME' && tx.status === 'PENDING'
+  const canValidate =
+    (isAdmin || isAccountant) && tx.type === 'SENIOR_INCOME' && tx.status === 'PENDING'
   const canEdit = isSenior && tx.type === 'SENIOR_INCOME' && tx.status === 'REJECTED'
   const canPaySalary = isAdmin && tx.type === 'SALARY' && tx.status === 'PENDING'
-  const canAdminEdit = isAdmin && tx.type !== 'PAYOUT' && tx.type !== 'PAYOUT_ADMIN' && (tx.status === 'PENDING_PAYMENT' || !tx.payoutRequestId)
+  const canAdminEdit =
+    isAdmin &&
+    tx.type !== 'PAYOUT' &&
+    tx.type !== 'PAYOUT_ADMIN' &&
+    (tx.status === 'PENDING_PAYMENT' || !tx.payoutRequestId)
   const canAdminDelete = canAdminEdit
+  // RBAC: only SENIOR sees the inline payout shortcut. ADMIN/ACCOUNTANT
+  // validate but don't pay out on behalf of seniors.
+  const showQuickPayout =
+    isSenior && !!canQuickPayout && tx.type === 'SENIOR_INCOME' && tx.status === 'VALIDATED'
 
   return (
     <motion.tr
@@ -194,15 +241,15 @@ export function TransactionRow({
             {tx.projectName}
           </Link>
         )}
-        {tx.salaryMonth && (
-          <p className="text-xs text-muted-foreground mt-0.5">{tx.salaryMonth}</p>
-        )}
+        {tx.salaryMonth && <p className="text-xs text-muted-foreground mt-0.5">{tx.salaryMonth}</p>}
       </td>
 
       <td className="py-3 px-4 tabular-nums font-medium whitespace-nowrap">
         <span>{fmtUsd(tx.amount, tx.currency, rates)}</span>
         {tx.currency !== 'USD' && tx.currency !== 'USDT' && (
-          <p className="text-[11px] text-muted-foreground font-normal">{fmtAmount(tx.amount, tx.currency)}</p>
+          <p className="text-[11px] text-muted-foreground font-normal">
+            {fmtAmount(tx.amount, tx.currency)}
+          </p>
         )}
         {/* SENIOR_INCOME — show the snapshot share % so ADMIN/ACCOUNTANT/SENIOR
             can see what split this row will use at payout time. The snapshot
@@ -227,7 +274,10 @@ export function TransactionRow({
       <td className="py-3 px-4">
         <StatusBadge status={tx.status} />
         {tx.rejectionReason && (
-          <p className="text-xs text-destructive mt-0.5 max-w-40 truncate" title={tx.rejectionReason}>
+          <p
+            className="text-xs text-destructive mt-0.5 max-w-40 truncate"
+            title={tx.rejectionReason}
+          >
             {tx.rejectionReason}
           </p>
         )}
@@ -244,6 +294,18 @@ export function TransactionRow({
             >
               <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
               Проверить
+            </Button>
+          )}
+          {showQuickPayout && onQuickPayout && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs border-primary/60 text-primary hover:bg-primary/10 hover:text-primary"
+              onClick={() => onQuickPayout(tx)}
+              data-testid={`row-quick-payout-${tx.id}`}
+            >
+              <Wallet className="h-3.5 w-3.5 mr-1" />
+              Выплатить
             </Button>
           )}
           {canEdit && onEdit && (

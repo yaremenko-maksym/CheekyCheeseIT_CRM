@@ -1,13 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  Plus,
-  Search,
-  ArrowUpDown,
-  ChevronDown,
-  X,
-  Wallet,
-} from 'lucide-react'
+import { Plus, Search, ArrowUpDown, ChevronDown, X, Wallet } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import type { TransactionDto } from '@crm/shared'
@@ -25,11 +18,26 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Dialog, CrmDialogContent, CrmDialogHeader, CrmDialogBody, CrmDialogFooter, DialogTitle } from '@/components/ui/crm-dialog'
+import {
+  Dialog,
+  CrmDialogContent,
+  CrmDialogHeader,
+  CrmDialogBody,
+  CrmDialogFooter,
+  DialogTitle,
+} from '@/components/ui/crm-dialog'
 
 import { api } from '@/lib/axios'
 import { financeApi } from './api'
-import { fmtAmount, fmtDate, fmtMonth, STATUS_COLORS, STATUS_LABELS, TYPE_LABELS, type ExchangeRates } from './constants'
+import {
+  fmtAmount,
+  fmtDate,
+  fmtMonth,
+  STATUS_COLORS,
+  STATUS_LABELS,
+  TYPE_LABELS,
+  type ExchangeRates,
+} from './constants'
 import { TransactionRow } from './components/TransactionRow'
 import { Pagination } from './components/Pagination'
 import { usePaginatedFilter } from './hooks/usePaginatedFilter'
@@ -40,6 +48,7 @@ import { PaySalaryDialog } from './components/dialogs/PaySalaryDialog'
 import { PayoutDialog } from './components/dialogs/PayoutDialog'
 import { TransactionDetailDialog } from './components/dialogs/TransactionDetailDialog'
 import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransactionDialog'
+import { QuickPayoutConfirmDialog } from './components/dialogs/QuickPayoutConfirmDialog'
 import { MyProjectShares } from './components/MyProjectShares'
 
 export const Route = createFileRoute('/crm/finance/')({
@@ -79,7 +88,12 @@ function FilterBar({
       {filterSlot}
       {sortSlot}
       {hasActive && (
-        <Button variant="ghost" size="sm" className="h-8 gap-1 text-muted-foreground" onClick={onClear}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1 text-muted-foreground"
+          onClick={onClear}
+        >
           <X className="h-3.5 w-3.5" /> Сбросить
         </Button>
       )}
@@ -112,7 +126,9 @@ function SortButton({
       <ArrowUpDown className="h-3 w-3" />
       {label}
       {active && (
-        <ChevronDown className={cn('h-3 w-3 transition-transform', dir === 'asc' && 'rotate-180')} />
+        <ChevronDown
+          className={cn('h-3 w-3 transition-transform', dir === 'asc' && 'rotate-180')}
+        />
       )}
     </button>
   )
@@ -137,7 +153,9 @@ function FilterSelect({
       <SelectContent>
         <SelectItem value="all">{placeholder}</SelectItem>
         {options.map((o) => (
-          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+          <SelectItem key={o.value} value={o.value}>
+            {o.label}
+          </SelectItem>
         ))}
       </SelectContent>
     </Select>
@@ -165,11 +183,13 @@ function TransactionsTable({
   role,
   rates,
   currentUserId,
+  payoutEligibleIds,
   onValidate,
   onEdit,
   onAdminEdit,
   onDelete,
   onPaySalary,
+  onQuickPayout,
   onDetail,
 }: {
   transactions: TransactionDto[]
@@ -177,11 +197,14 @@ function TransactionsTable({
   role: string
   rates: ExchangeRates | undefined
   currentUserId?: string | null
+  /** Set of tx IDs that the current SENIOR can pay out inline (own VALIDATED rows, no pending payout). */
+  payoutEligibleIds: Set<string>
   onValidate: (tx: TransactionDto) => void
   onEdit: (tx: TransactionDto) => void
   onAdminEdit: (tx: TransactionDto) => void
   onDelete: (tx: TransactionDto) => void
   onPaySalary: (tx: TransactionDto) => void
+  onQuickPayout: (tx: TransactionDto) => void
   onDetail: (tx: TransactionDto) => void
 }) {
   const [search, setSearch] = useState('')
@@ -192,38 +215,67 @@ function TransactionsTable({
 
   const toggleSort = (key: TxSort) => {
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-    else { setSortKey(key); setSortDir('desc') }
+    else {
+      setSortKey(key)
+      setSortDir('desc')
+    }
   }
 
-  const filter = useCallback((tx: TransactionDto) => {
-    if (typeFilter !== 'all' && tx.type !== typeFilter) return false
-    if (statusFilter !== 'all' && tx.status !== statusFilter) return false
-    if (search) {
-      const q = search.toLowerCase()
-      const haystack = [tx.senderName, tx.receiverName, tx.senderLabel, tx.receiverLabel, tx.projectName]
-        .filter(Boolean).join(' ').toLowerCase()
-      if (!haystack.includes(q)) return false
-    }
-    return true
-  }, [search, typeFilter, statusFilter])
-
-  const sort = useCallback((a: TransactionDto, b: TransactionDto) => {
-    const mul = sortDir === 'asc' ? 1 : -1
-    if (sortKey === 'date') return mul * (new Date(a.txDate ?? a.createdAt).getTime() - new Date(b.txDate ?? b.createdAt).getTime())
-    return mul * (parseFloat(a.amount) - parseFloat(b.amount))
-  }, [sortKey, sortDir])
-
-  const { paged, page, setPage, totalPages, totalItems, pageSize } = usePaginatedFilter<TransactionDto, TxSort>(
-    transactions, filter, sort,
+  const filter = useCallback(
+    (tx: TransactionDto) => {
+      if (typeFilter !== 'all' && tx.type !== typeFilter) return false
+      if (statusFilter !== 'all' && tx.status !== statusFilter) return false
+      if (search) {
+        const q = search.toLowerCase()
+        const haystack = [
+          tx.senderName,
+          tx.receiverName,
+          tx.senderLabel,
+          tx.receiverLabel,
+          tx.projectName,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+        if (!haystack.includes(q)) return false
+      }
+      return true
+    },
+    [search, typeFilter, statusFilter],
   )
 
+  const sort = useCallback(
+    (a: TransactionDto, b: TransactionDto) => {
+      const mul = sortDir === 'asc' ? 1 : -1
+      if (sortKey === 'date')
+        return (
+          mul *
+          (new Date(a.txDate ?? a.createdAt).getTime() -
+            new Date(b.txDate ?? b.createdAt).getTime())
+        )
+      return mul * (parseFloat(a.amount) - parseFloat(b.amount))
+    },
+    [sortKey, sortDir],
+  )
+
+  const { paged, page, setPage, totalPages, totalItems, pageSize } = usePaginatedFilter<
+    TransactionDto,
+    TxSort
+  >(transactions, filter, sort)
+
   const hasActive = search !== '' || typeFilter !== 'all' || statusFilter !== 'all'
-  const onClear = () => { setSearch(''); setTypeFilter('all'); setStatusFilter('all') }
+  const onClear = () => {
+    setSearch('')
+    setTypeFilter('all')
+    setStatusFilter('all')
+  }
 
   if (loading) {
     return (
       <div className="p-6 space-y-3">
-        {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-12 rounded-lg" />)}
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Skeleton key={i} className="h-12 rounded-lg" />
+        ))}
       </div>
     )
   }
@@ -235,14 +287,34 @@ function TransactionsTable({
         onSearch={setSearch}
         filterSlot={
           <>
-            <FilterSelect value={typeFilter} onChange={setTypeFilter} placeholder="Все типы" options={TYPE_OPTIONS} />
-            <FilterSelect value={statusFilter} onChange={setStatusFilter} placeholder="Все статусы" options={STATUS_OPTIONS} />
+            <FilterSelect
+              value={typeFilter}
+              onChange={setTypeFilter}
+              placeholder="Все типы"
+              options={TYPE_OPTIONS}
+            />
+            <FilterSelect
+              value={statusFilter}
+              onChange={setStatusFilter}
+              placeholder="Все статусы"
+              options={STATUS_OPTIONS}
+            />
           </>
         }
         sortSlot={
           <div className="flex gap-1.5">
-            <SortButton label="Дата" active={sortKey === 'date'} dir={sortDir} onClick={() => toggleSort('date')} />
-            <SortButton label="Сумма" active={sortKey === 'amount'} dir={sortDir} onClick={() => toggleSort('amount')} />
+            <SortButton
+              label="Дата"
+              active={sortKey === 'date'}
+              dir={sortDir}
+              onClick={() => toggleSort('date')}
+            />
+            <SortButton
+              label="Сумма"
+              active={sortKey === 'amount'}
+              dir={sortDir}
+              onClick={() => toggleSort('amount')}
+            />
           </div>
         }
         onClear={onClear}
@@ -272,11 +344,13 @@ function TransactionsTable({
                     role={role}
                     rates={rates}
                     currentUserId={currentUserId ?? null}
+                    canQuickPayout={payoutEligibleIds.has(tx.id)}
                     onValidate={onValidate}
                     onEdit={onEdit}
                     onAdminEdit={onAdminEdit}
                     onDelete={onDelete}
                     onPaySalary={onPaySalary}
+                    onQuickPayout={onQuickPayout}
                     onClick={onDetail}
                   />
                 ))}
@@ -285,7 +359,13 @@ function TransactionsTable({
           </table>
         </div>
       )}
-      <Pagination page={page} totalPages={totalPages} totalItems={totalItems} pageSize={pageSize} onPage={setPage} />
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        totalItems={totalItems}
+        pageSize={pageSize}
+        onPage={setPage}
+      />
     </>
   )
 }
@@ -313,6 +393,8 @@ function FinancePage() {
   const [paySalaryTx, setPaySalaryTx] = useState<TransactionDto | null>(null)
   const [showPayout, setShowPayout] = useState(false)
   const [detailTx, setDetailTx] = useState<TransactionDto | null>(null)
+  // Single-tx quick payout (inline row button or detail dialog footer).
+  const [quickPayoutTx, setQuickPayoutTx] = useState<TransactionDto | null>(null)
 
   const qc = useQueryClient()
   const deleteMutation = useMutation({
@@ -345,7 +427,9 @@ function FinancePage() {
   })
 
   const pendingPayoutTxIds = new Set(
-    payouts.filter((p) => p.status === 'PENDING').flatMap((p) => (p.transactions ?? []).map((t) => t.id)),
+    payouts
+      .filter((p) => p.status === 'PENDING')
+      .flatMap((p) => (p.transactions ?? []).map((t) => t.id)),
   )
   // SENIOR_INCOME flow: sender = client company (label only, senderId=NULL),
   // receiverId = the senior who created the income. Filter must scope by
@@ -356,8 +440,17 @@ function FinancePage() {
   // to be paid. E2E coverage in finance-senior-payment-flow.spec.ts asserts
   // the button is visible with realistic mocks (senderId=null).
   const validatedForPayout = transactions.filter(
-    (t) => t.type === 'SENIOR_INCOME' && t.status === 'VALIDATED' && !pendingPayoutTxIds.has(t.id) && t.receiverId === userId,
+    (t) =>
+      t.type === 'SENIOR_INCOME' &&
+      t.status === 'VALIDATED' &&
+      !pendingPayoutTxIds.has(t.id) &&
+      t.receiverId === userId,
   )
+  // Same rules drive the inline «Выплатить» button in each row and the
+  // dialog footer. Wrap in Set for O(1) row lookup. Empty for non-SENIOR
+  // users so RBAC is enforced at the data layer in addition to the role
+  // check inside TransactionRow.
+  const payoutEligibleIds = new Set(isSenior ? validatedForPayout.map((t) => t.id) : [])
 
   // HR view
   if (isHr) {
@@ -371,7 +464,11 @@ function FinancePage() {
         <Card>
           <CardContent className="p-0">
             {txLoading ? (
-              <div className="p-6 space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 rounded-lg" />)}</div>
+              <div className="p-6 space-y-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Skeleton key={i} className="h-12 rounded-lg" />
+                ))}
+              </div>
             ) : mySalaries.length === 0 ? (
               <div className="py-16 text-center text-sm text-muted-foreground">Выплат пока нет</div>
             ) : (
@@ -395,10 +492,19 @@ function FinancePage() {
                         <td className="py-3 px-4 text-sm tabular-nums font-medium text-green-500">
                           {fmtAmount(t.amount, t.currency)}
                         </td>
-                        <td className="py-3 px-4 text-sm text-muted-foreground">{fmtMonth(t.salaryMonth)}</td>
-                        <td className="py-3 px-4 text-xs text-muted-foreground">{fmtDate(t.txDate ?? t.createdAt)}</td>
+                        <td className="py-3 px-4 text-sm text-muted-foreground">
+                          {fmtMonth(t.salaryMonth)}
+                        </td>
+                        <td className="py-3 px-4 text-xs text-muted-foreground">
+                          {fmtDate(t.txDate ?? t.createdAt)}
+                        </td>
                         <td className="py-3 px-4">
-                          <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium', STATUS_COLORS[t.status])}>
+                          <span
+                            className={cn(
+                              'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
+                              STATUS_COLORS[t.status],
+                            )}
+                          >
                             {STATUS_LABELS[t.status]}
                           </span>
                         </td>
@@ -427,7 +533,11 @@ function FinancePage() {
         <Card>
           <CardContent className="p-0">
             {txLoading ? (
-              <div className="p-6 space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 rounded-lg" />)}</div>
+              <div className="p-6 space-y-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Skeleton key={i} className="h-12 rounded-lg" />
+                ))}
+              </div>
             ) : mySalaries.length === 0 ? (
               <div className="py-16 text-center text-sm text-muted-foreground">Выплат пока нет</div>
             ) : (
@@ -444,21 +554,31 @@ function FinancePage() {
                   </thead>
                   <tbody>
                     {mySalaries.map((t) => (
-                      <tr key={t.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
+                      <tr
+                        key={t.id}
+                        className="border-b border-border/50 hover:bg-muted/30 transition-colors"
+                      >
                         <td className="py-3 px-4 text-sm tabular-nums font-medium text-green-500">
                           {fmtAmount(t.amount, t.currency)}
                         </td>
-                        <td className="py-3 px-4 text-sm text-muted-foreground">{fmtMonth(t.salaryMonth)}</td>
-                        <td className="py-3 px-4 text-xs text-muted-foreground">{fmtDate(t.txDate ?? t.createdAt)}</td>
+                        <td className="py-3 px-4 text-sm text-muted-foreground">
+                          {fmtMonth(t.salaryMonth)}
+                        </td>
+                        <td className="py-3 px-4 text-xs text-muted-foreground">
+                          {fmtDate(t.txDate ?? t.createdAt)}
+                        </td>
                         <td className="py-3 px-4">
-                          <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium', STATUS_COLORS[t.status])}>
+                          <span
+                            className={cn(
+                              'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
+                              STATUS_COLORS[t.status],
+                            )}
+                          >
                             {STATUS_LABELS[t.status]}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-xs font-mono text-muted-foreground">
-                          {t.txHash ? (
-                            <span title={t.txHash}>{t.txHash.slice(0, 14)}…</span>
-                          ) : '—'}
+                          {t.txHash ? <span title={t.txHash}>{t.txHash.slice(0, 14)}…</span> : '—'}
                         </td>
                       </tr>
                     ))}
@@ -482,7 +602,12 @@ function FinancePage() {
         </div>
         <div className="flex gap-2">
           {isSenior && validatedForPayout.length > 0 && (
-            <Button variant="outline" onClick={() => setShowPayout(true)}>
+            <Button
+              variant="default"
+              className="bg-primary text-primary-foreground hover:bg-primary/90 font-semibold shadow-sm shadow-primary/30 ring-1 ring-primary/40"
+              onClick={() => setShowPayout(true)}
+              data-testid="header-payout-button"
+            >
               <Wallet className="h-4 w-4 mr-1" /> Выплатить ({validatedForPayout.length})
             </Button>
           )}
@@ -506,11 +631,13 @@ function FinancePage() {
             role={role}
             rates={rates}
             currentUserId={userId}
+            payoutEligibleIds={payoutEligibleIds}
             onValidate={setValidateTx}
             onEdit={setEditTx}
             onAdminEdit={setAdminEditTx}
             onDelete={setDeleteTx}
             onPaySalary={setPaySalaryTx}
+            onQuickPayout={setQuickPayoutTx}
             onDetail={setDetailTx}
           />
         </CardContent>
@@ -527,7 +654,16 @@ function FinancePage() {
         onClose={() => setShowPayout(false)}
         validatedTxs={validatedForPayout}
       />
-      <TransactionDetailDialog tx={detailTx} onClose={() => setDetailTx(null)} />
+      <TransactionDetailDialog
+        tx={detailTx}
+        onClose={() => setDetailTx(null)}
+        canQuickPayout={!!detailTx && payoutEligibleIds.has(detailTx.id)}
+        onQuickPayout={(t) => {
+          setDetailTx(null)
+          setQuickPayoutTx(t)
+        }}
+      />
+      <QuickPayoutConfirmDialog tx={quickPayoutTx} onClose={() => setQuickPayoutTx(null)} />
 
       {/* Delete confirmation */}
       <Dialog open={!!deleteTx} onOpenChange={(o) => !o && setDeleteTx(null)}>
@@ -546,7 +682,9 @@ function FinancePage() {
             </div>
           </CrmDialogBody>
           <CrmDialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setDeleteTx(null)}>Отмена</Button>
+            <Button variant="outline" size="sm" onClick={() => setDeleteTx(null)}>
+              Отмена
+            </Button>
             <Button
               variant="destructive"
               size="sm"

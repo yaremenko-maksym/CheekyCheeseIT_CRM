@@ -16,15 +16,18 @@ import {
   Clock,
   RefreshCw,
   Lock,
+  Wallet,
 } from 'lucide-react'
 import type { TransactionDto } from '@crm/shared'
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/axios'
+import { Button } from '@/components/ui/button'
 import {
   Dialog,
   CrmDialogContent,
   CrmDialogHeader,
   CrmDialogBody,
+  CrmDialogFooter,
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -454,9 +457,18 @@ function DetailSkeleton() {
 export function TransactionDetailDialog({
   tx,
   onClose,
+  canQuickPayout = false,
+  onQuickPayout,
 }: {
   tx: TransactionDto | null
   onClose: () => void
+  /**
+   * If true and `tx` is a VALIDATED SENIOR_INCOME owned by the viewer, the
+   * footer surfaces a primary «Выплатить» button. RBAC is enforced by the
+   * caller (only SENIOR receives `true` here).
+   */
+  canQuickPayout?: boolean
+  onQuickPayout?: (tx: TransactionDto) => void
 }) {
   // Fetch fresh single transaction (includes payoutRequest details)
   const { data: detail, isLoading } = useQuery({
@@ -534,6 +546,21 @@ export function TransactionDetailDialog({
             </div>
           )}
         </CrmDialogBody>
+
+        {/* Footer surfaces the quick payout shortcut alongside the implicit
+            close button (Esc / backdrop). Only rendered when the parent
+            signals eligibility — RBAC + status checks live there. */}
+        {t && canQuickPayout && onQuickPayout && (
+          <CrmDialogFooter>
+            <Button variant="outline" size="sm" onClick={onClose}>
+              Закрыть
+            </Button>
+            <Button size="sm" onClick={() => onQuickPayout(t)} data-testid="detail-quick-payout">
+              <Wallet className="h-3.5 w-3.5 mr-1" />
+              Выплатить
+            </Button>
+          </CrmDialogFooter>
+        )}
       </CrmDialogContent>
     </Dialog>
   )
