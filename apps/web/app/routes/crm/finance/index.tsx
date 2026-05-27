@@ -347,8 +347,16 @@ function FinancePage() {
   const pendingPayoutTxIds = new Set(
     payouts.filter((p) => p.status === 'PENDING').flatMap((p) => (p.transactions ?? []).map((t) => t.id)),
   )
+  // SENIOR_INCOME flow: sender = client company (label only, senderId=NULL),
+  // receiverId = the senior who created the income. Filter must scope by
+  // receiverId — using senderId here matched ZERO rows in production because
+  // the backend never populates senderId for SENIOR_INCOME (see
+  // transactions.service.ts createSeniorIncome). This regression hid the
+  // «Оплатить (N)» button for SENIOR even with VALIDATED transactions ready
+  // to be paid. E2E coverage in finance-senior-payment-flow.spec.ts asserts
+  // the button is visible with realistic mocks (senderId=null).
   const validatedForPayout = transactions.filter(
-    (t) => t.type === 'SENIOR_INCOME' && t.status === 'VALIDATED' && !pendingPayoutTxIds.has(t.id) && t.senderId === userId,
+    (t) => t.type === 'SENIOR_INCOME' && t.status === 'VALIDATED' && !pendingPayoutTxIds.has(t.id) && t.receiverId === userId,
   )
 
   // HR view

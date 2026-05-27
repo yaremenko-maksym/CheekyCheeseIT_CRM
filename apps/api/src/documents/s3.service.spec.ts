@@ -114,7 +114,7 @@ describe('S3Service.getPresignedDownloadUrl', () => {
     )
   })
 
-  it('downloadAs embeds RFC 5987 Content-Disposition with UTF-8 fallback', async () => {
+  it('downloadAs defaults to inline Content-Disposition (so receipt previews render in-browser instead of auto-downloading)', async () => {
     const service = new S3Service(makeConfig())
     getSignedUrlSpy.mockResolvedValue('url')
 
@@ -125,11 +125,28 @@ describe('S3Service.getPresignedDownloadUrl', () => {
     const cd = (command as { input: { ResponseContentDisposition?: string } }).input
       .ResponseContentDisposition
     expect(cd).toBeDefined()
-    expect(cd).toContain('attachment')
+    // Default disposition is inline — fixes "PDF/receipt auto-downloads every
+    // time SENIOR opens a transaction" regression.
+    expect(cd).toContain('inline')
+    expect(cd).not.toContain('attachment')
     // ASCII fallback: cyrillic stripped to underscores
     expect(cd).toContain('filename="')
     // RFC 5987 UTF-8 slot: percent-encoded original
     expect(cd).toContain(`filename*=UTF-8''${encodeURIComponent('Договор Иванов.pdf')}`)
+  })
+
+  it('explicit disposition="attachment" still forces a Save dialog (for dedicated download endpoints)', async () => {
+    const service = new S3Service(makeConfig())
+    getSignedUrlSpy.mockResolvedValue('url')
+
+    await service.getPresignedDownloadUrl('k', undefined, 'invoice.pdf', 'attachment')
+
+    const [, command] = getSignedUrlSpy.mock.calls[0]!
+    const cd = (command as { input: { ResponseContentDisposition?: string } }).input
+      .ResponseContentDisposition
+    expect(cd).toBeDefined()
+    expect(cd).toContain('attachment')
+    expect(cd).toContain('filename="invoice.pdf"')
   })
 
   it('omits Content-Disposition when downloadAs is not provided', async () => {

@@ -20,15 +20,23 @@ const PROJECT_NAME = PROJECTS[0]!.name
 // ─── Стейт-машина транзакции ─────────────────────────────────────────────────
 
 function makeTx(overrides: object = {}) {
+  // SENIOR_INCOME shape mirrors what the real backend returns (see
+  // transactions.service.ts createSeniorIncome):
+  //   sender_id = NULL          (client company is a label only)
+  //   sender_label = "TechCorp" (the client)
+  //   receiver_id = senior.id   (the senior who registered the income)
+  //   created_by  = senior.id
+  // The earlier mock used senderId = senior.id which silently masked the
+  // production bug where the «Оплатить» button filter scoped by senderId.
   return {
     id: 'flow-tx-1',
     type: 'SENIOR_INCOME',
     status: 'PENDING',
     amount: '5000.00',
     currency: 'USDT',
-    senderId: USERS.senior.id,
-    senderName: USERS.senior.displayName,
-    senderLabel: null,
+    senderId: null,
+    senderName: null,
+    senderLabel: 'TechCorp AI',
     receiverId: USERS.senior.id,
     receiverName: USERS.senior.displayName,
     receiverLabel: null,
@@ -335,7 +343,7 @@ test.describe('SENIOR INCOME — шаг 3: повторная валидация
   })
 
   test('После принятия SENIOR видит статус "Подтверждено" и кнопку "Выплатить"', async ({ asSenior }) => {
-    const validatedTx = makeTx({ status: 'VALIDATED', senderId: USERS.senior.id, receiverId: USERS.senior.id })
+    const validatedTx = makeTx({ status: 'VALIDATED', receiverId: USERS.senior.id })
     await setupTransactionMocks(asSenior, validatedTx)
     await asSenior.goto('/crm/finance')
 
@@ -344,7 +352,7 @@ test.describe('SENIOR INCOME — шаг 3: повторная валидация
   })
 
   test('SENIOR не видит кнопку "Проверить" — это только для ACCOUNTANT/ADMIN', async ({ asSenior }) => {
-    const validatedTx = makeTx({ status: 'PENDING', senderId: USERS.senior.id, receiverId: USERS.senior.id })
+    const validatedTx = makeTx({ status: 'PENDING', receiverId: USERS.senior.id })
     await setupTransactionMocks(asSenior, validatedTx)
     await asSenior.goto('/crm/finance')
 
@@ -358,7 +366,7 @@ test.describe('SENIOR INCOME — шаг 3: повторная валидация
 
 test.describe('SENIOR INCOME — шаг 4: создание запроса на выплату', () => {
   test('SENIOR открывает PayoutDialog — видит VALIDATED транзакцию в списке', async ({ asSenior }) => {
-    const validatedTx = makeTx({ status: 'VALIDATED', senderId: USERS.senior.id, receiverId: USERS.senior.id })
+    const validatedTx = makeTx({ status: 'VALIDATED', receiverId: USERS.senior.id })
     await setupTransactionMocks(asSenior, validatedTx)
     await asSenior.goto('/crm/finance')
 
@@ -369,7 +377,7 @@ test.describe('SENIOR INCOME — шаг 4: создание запроса на 
   })
 
   test('Кнопка "Далее" недоступна пока не выбрана ни одна транзакция', async ({ asSenior }) => {
-    const validatedTx = makeTx({ status: 'VALIDATED', senderId: USERS.senior.id, receiverId: USERS.senior.id })
+    const validatedTx = makeTx({ status: 'VALIDATED', receiverId: USERS.senior.id })
     await setupTransactionMocks(asSenior, validatedTx)
     await asSenior.goto('/crm/finance')
 
@@ -378,7 +386,7 @@ test.describe('SENIOR INCOME — шаг 4: создание запроса на 
   })
 
   test('После выбора транзакции — виден расчёт суммы к оплате', async ({ asSenior }) => {
-    const validatedTx = makeTx({ status: 'VALIDATED', senderId: USERS.senior.id, receiverId: USERS.senior.id })
+    const validatedTx = makeTx({ status: 'VALIDATED', receiverId: USERS.senior.id })
     await setupTransactionMocks(asSenior, validatedTx)
     await asSenior.goto('/crm/finance')
 
@@ -394,7 +402,7 @@ test.describe('SENIOR INCOME — шаг 4: создание запроса на 
   })
 
   test('SENIOR нажимает "Далее" — переходит к шагу оплаты', async ({ asSenior }) => {
-    const validatedTx = makeTx({ status: 'VALIDATED', senderId: USERS.senior.id, receiverId: USERS.senior.id })
+    const validatedTx = makeTx({ status: 'VALIDATED', receiverId: USERS.senior.id })
     await setupTransactionMocks(asSenior, validatedTx)
     await asSenior.goto('/crm/finance')
 
@@ -414,7 +422,7 @@ test.describe('SENIOR INCOME — шаг 4: создание запроса на 
 
 test.describe('SENIOR INCOME — шаг 5: оплата выплаты', () => {
   test('Кнопка "Оплатить" недоступна без TX hash', async ({ asSenior }) => {
-    const validatedTx = makeTx({ status: 'VALIDATED', senderId: USERS.senior.id, receiverId: USERS.senior.id })
+    const validatedTx = makeTx({ status: 'VALIDATED', receiverId: USERS.senior.id })
     await setupTransactionMocks(asSenior, validatedTx)
     await asSenior.goto('/crm/finance')
 
@@ -427,7 +435,7 @@ test.describe('SENIOR INCOME — шаг 5: оплата выплаты', () => {
   })
 
   test('SENIOR вводит TX hash — кнопка "Оплатить" разблокируется', async ({ asSenior }) => {
-    const validatedTx = makeTx({ status: 'VALIDATED', senderId: USERS.senior.id, receiverId: USERS.senior.id })
+    const validatedTx = makeTx({ status: 'VALIDATED', receiverId: USERS.senior.id })
     await setupTransactionMocks(asSenior, validatedTx)
     await asSenior.goto('/crm/finance')
 
@@ -441,7 +449,7 @@ test.describe('SENIOR INCOME — шаг 5: оплата выплаты', () => {
   })
 
   test('SENIOR нажимает "Оплатить" — диалог закрывается', async ({ asSenior }) => {
-    const validatedTx = makeTx({ status: 'VALIDATED', senderId: USERS.senior.id, receiverId: USERS.senior.id })
+    const validatedTx = makeTx({ status: 'VALIDATED', receiverId: USERS.senior.id })
     await setupTransactionMocks(asSenior, validatedTx)
     await asSenior.goto('/crm/finance')
 
@@ -566,7 +574,7 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
         : r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
     )
     await seniorPage.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ ...validatedTx, senderId: USERS.senior.id, receiverId: USERS.senior.id }]) }),
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ ...validatedTx, receiverId: USERS.senior.id }]) }),
     )
 
     await seniorPage.goto('/crm/finance')
