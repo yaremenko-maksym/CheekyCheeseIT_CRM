@@ -65,15 +65,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { useInvoice, useSignInvoice } from '@/hooks/use-invoices'
 import { useDocumentDownloadUrl } from '@/hooks/use-documents'
+import { formatAmount } from '@/lib/format-amount'
+import { getInvoiceTypeLabel } from '@/lib/invoice-labels'
 
 // ---------------------------------------------------------------------------
-// Constants
+// Constants — type label lives in shared invoice-labels helper
 // ---------------------------------------------------------------------------
-
-const TYPE_LABEL: Record<InvoiceDto['type'], string> = {
-  SENIOR_INCOME: 'Выплата сеньору',
-  SALARY: 'Зарплата',
-}
 
 const TYPE_CLASS: Record<InvoiceDto['type'], string> = {
   SENIOR_INCOME: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
@@ -103,15 +100,6 @@ const SIG_METHOD_LABEL: Record<InvoiceSignatureDto['method'], string> = {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function fmtAmount(amount: string, currency: string): string {
-  const num = Number(amount)
-  if (!Number.isFinite(num)) return `${amount} ${currency}`
-  return `${num.toLocaleString('ru-RU', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })} ${currency}`
-}
 
 function fmtDateTime(iso: string): string {
   try {
@@ -248,11 +236,11 @@ function InvoiceDetailContent({
               data-testid="invoice-detail-title"
             >
               <FileSignature className="h-5 w-5 text-primary" />
-              {TYPE_LABEL[invoice.type]}
+              {getInvoiceTypeLabel(invoice.type)}
             </DialogTitle>
             <DialogDescription className="mt-1 flex items-center gap-2 text-sm">
               <span className="font-semibold text-foreground">
-                {fmtAmount(invoice.amount, invoice.currency)}
+                {formatAmount(invoice.amount, invoice.currency)}
               </span>
               {invoice.projectName ? (
                 <>
@@ -272,7 +260,7 @@ function InvoiceDetailContent({
             variant="outline"
             className={cn('border self-start', TYPE_CLASS[invoice.type])}
           >
-            {TYPE_LABEL[invoice.type]}
+            {getInvoiceTypeLabel(invoice.type)}
           </Badge>
         </div>
         <div className="mt-2">
@@ -546,9 +534,9 @@ function SignButton({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm">
-            <strong>{TYPE_LABEL[invoice.type]}</strong>
+            <strong>{getInvoiceTypeLabel(invoice.type)}</strong>
             <br />
-            Сумма: {fmtAmount(invoice.amount, invoice.currency)}
+            Сумма: {formatAmount(invoice.amount, invoice.currency)}
             {invoice.projectName ? (
               <>
                 <br />

@@ -32,6 +32,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { formatAmount } from '@/lib/format-amount'
 
 export const Route = createFileRoute('/invoice/v/$transactionId')({
   component: PublicVerifyPage,
@@ -50,9 +51,12 @@ const API_URL =
 // Constants
 // ---------------------------------------------------------------------------
 
+// Public verify page keeps the slightly more formal phrasing for printed
+// QR-target context — these labels are surfaced on a stranger-facing page
+// (QR scan from a printed PDF), not inside the authenticated CRM.
 const TYPE_LABEL: Record<InvoiceVerifyResponse['type'], string> = {
-  SENIOR_INCOME: 'Акт выполненных работ (выплата)',
-  SALARY: 'Выплата заработной платы',
+  SENIOR_INCOME: 'Акт выполненных работ (выплата синьера)',
+  SALARY: 'Выплата зарплаты',
 }
 
 const STATUS_LABEL: Record<InvoiceVerifyResponse['status'], string> = {
@@ -73,15 +77,6 @@ const ROLE_LABEL: Record<InvoiceVerifyResponse['signatures'][number]['role'], st
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function fmtAmount(amount: string, currency: string): string {
-  const num = Number(amount)
-  if (!Number.isFinite(num)) return `${amount} ${currency}`
-  return `${num.toLocaleString('ru-RU', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })} ${currency}`
-}
 
 function fmtDateTime(iso: string): string {
   try {
@@ -250,7 +245,7 @@ function VerifiedState({ data }: { data: InvoiceVerifyResponse }) {
             label="Сумма"
             value={
               <span className="text-base font-semibold">
-                {fmtAmount(data.amount, data.currency)}
+                {formatAmount(data.amount, data.currency)}
               </span>
             }
           />

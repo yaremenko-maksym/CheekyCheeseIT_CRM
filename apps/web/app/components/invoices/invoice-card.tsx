@@ -21,6 +21,8 @@ import type { InvoiceListItem } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
+import { formatAmount } from '@/lib/format-amount'
+import { getInvoiceTypeLabel } from '@/lib/invoice-labels'
 
 export interface InvoiceCardProps {
   invoice: InvoiceListItem
@@ -35,20 +37,15 @@ export interface InvoiceCardProps {
 }
 
 // ---------------------------------------------------------------------------
-// Type / status palettes
+// Status palette (type label lives in shared invoice-labels helper)
 // ---------------------------------------------------------------------------
-
-const TYPE_LABEL: Record<InvoiceListItem['type'], string> = {
-  SENIOR_INCOME: 'Выплата сеньору',
-  SALARY: 'Зарплата',
-}
 
 const TYPE_CLASS: Record<InvoiceListItem['type'], string> = {
   // Blue — SENIOR payout (мы платим контракту с проекта)
   SENIOR_INCOME: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
   // Green — salary
   SALARY: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-}
+} as const
 
 const STATUS_LABEL: Record<InvoiceListItem['status'], string> = {
   PENDING: 'Ожидает подписи',
@@ -63,15 +60,6 @@ const STATUS_CLASS: Record<InvoiceListItem['status'], string> = {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function fmtAmount(amount: string, currency: string): string {
-  const num = Number(amount)
-  if (!Number.isFinite(num)) return `${amount} ${currency}`
-  return `${num.toLocaleString('ru-RU', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })} ${currency}`
-}
 
 function fmtRelative(iso: string): string {
   try {
@@ -116,7 +104,7 @@ export function InvoiceCard({
                 data-testid={`invoice-card-type-${invoice.transactionId}`}
               >
                 <FileSignature className="mr-1 h-3 w-3" />
-                {TYPE_LABEL[invoice.type]}
+                {getInvoiceTypeLabel(invoice.type)}
               </Badge>
               <Badge
                 variant="outline"
@@ -135,7 +123,7 @@ export function InvoiceCard({
           </div>
 
           <div className="mt-3 text-2xl font-bold tracking-tight tabular-nums">
-            {fmtAmount(invoice.amount, invoice.currency)}
+            {formatAmount(invoice.amount, invoice.currency)}
           </div>
 
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
