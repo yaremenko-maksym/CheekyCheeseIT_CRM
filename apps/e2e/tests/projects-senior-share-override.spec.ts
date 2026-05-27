@@ -260,7 +260,7 @@ test.describe('per-project SENIOR share override', () => {
       await page.goto('/crm/finance')
 
       // Open the payout dialog.
-      await page.getByRole('button', { name: /Выплатить/i }).click()
+      await page.getByRole('button', { name: /Выплатить \(/i }).click()
 
       // Select the transaction.
       const checkbox = page.locator('input[type="checkbox"]').first()
@@ -578,7 +578,7 @@ test.describe('per-project SENIOR share override', () => {
       )
 
       await page.goto('/crm/finance')
-      await page.getByRole('button', { name: /Выплатить/i }).click()
+      await page.getByRole('button', { name: /Выплатить \(/i }).click()
       const checkbox = page.locator('input[type="checkbox"]').first()
       await checkbox.check()
 
