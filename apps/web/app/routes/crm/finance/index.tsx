@@ -48,7 +48,6 @@ import { PaySalaryDialog } from './components/dialogs/PaySalaryDialog'
 import { PayoutDialog } from './components/dialogs/PayoutDialog'
 import { TransactionDetailDialog } from './components/dialogs/TransactionDetailDialog'
 import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransactionDialog'
-import { QuickPayoutConfirmDialog } from './components/dialogs/QuickPayoutConfirmDialog'
 import { MyProjectShares } from './components/MyProjectShares'
 
 export const Route = createFileRoute('/crm/finance/')({
@@ -392,9 +391,22 @@ function FinancePage() {
   const [deleteTx, setDeleteTx] = useState<TransactionDto | null>(null)
   const [paySalaryTx, setPaySalaryTx] = useState<TransactionDto | null>(null)
   const [showPayout, setShowPayout] = useState(false)
+  // Optional preselected tx IDs for PayoutDialog. When set, the dialog opens
+  // with these rows already checked (used by inline row button and detail
+  // dialog footer). When the header «Выплатить (N)» triggers the dialog it
+  // stays undefined so the SENIOR can pick rows manually from the full list.
+  const [payoutPreselected, setPayoutPreselected] = useState<string[] | undefined>(undefined)
   const [detailTx, setDetailTx] = useState<TransactionDto | null>(null)
-  // Single-tx quick payout (inline row button or detail dialog footer).
-  const [quickPayoutTx, setQuickPayoutTx] = useState<TransactionDto | null>(null)
+
+  const openPayoutForTx = useCallback((tx: TransactionDto) => {
+    setPayoutPreselected([tx.id])
+    setShowPayout(true)
+  }, [])
+
+  const closePayoutDialog = useCallback(() => {
+    setShowPayout(false)
+    setPayoutPreselected(undefined)
+  }, [])
 
   const qc = useQueryClient()
   const deleteMutation = useMutation({
@@ -605,7 +617,10 @@ function FinancePage() {
             <Button
               variant="default"
               className="bg-primary text-primary-foreground hover:bg-primary/90 font-semibold shadow-sm shadow-primary/30 ring-1 ring-primary/40"
-              onClick={() => setShowPayout(true)}
+              onClick={() => {
+                setPayoutPreselected(undefined)
+                setShowPayout(true)
+              }}
               data-testid="header-payout-button"
             >
               <Wallet className="h-4 w-4 mr-1" /> Выплатить ({validatedForPayout.length})
@@ -637,7 +652,7 @@ function FinancePage() {
             onAdminEdit={setAdminEditTx}
             onDelete={setDeleteTx}
             onPaySalary={setPaySalaryTx}
-            onQuickPayout={setQuickPayoutTx}
+            onQuickPayout={openPayoutForTx}
             onDetail={setDetailTx}
           />
         </CardContent>
@@ -651,8 +666,9 @@ function FinancePage() {
       <PaySalaryDialog tx={paySalaryTx} onClose={() => setPaySalaryTx(null)} />
       <PayoutDialog
         open={showPayout}
-        onClose={() => setShowPayout(false)}
+        onClose={closePayoutDialog}
         validatedTxs={validatedForPayout}
+        {...(payoutPreselected ? { preselectedTxIds: payoutPreselected } : {})}
       />
       <TransactionDetailDialog
         tx={detailTx}
@@ -660,10 +676,9 @@ function FinancePage() {
         canQuickPayout={!!detailTx && payoutEligibleIds.has(detailTx.id)}
         onQuickPayout={(t) => {
           setDetailTx(null)
-          setQuickPayoutTx(t)
+          openPayoutForTx(t)
         }}
       />
-      <QuickPayoutConfirmDialog tx={quickPayoutTx} onClose={() => setQuickPayoutTx(null)} />
 
       {/* Delete confirmation */}
       <Dialog open={!!deleteTx} onOpenChange={(o) => !o && setDeleteTx(null)}>

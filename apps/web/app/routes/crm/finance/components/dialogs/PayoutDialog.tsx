@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { TransactionDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
@@ -16,17 +16,37 @@ export function PayoutDialog({
   open,
   onClose,
   validatedTxs,
+  preselectedTxIds,
 }: {
   open: boolean
   onClose: () => void
   validatedTxs: TransactionDto[]
+  /**
+   * Optional transaction IDs to pre-check when the dialog opens. Used by
+   * inline row «Выплатить» and detail dialog footer to open with a single
+   * tx already selected, while the header button leaves the selection empty
+   * so the user can pick multiple rows manually.
+   */
+  preselectedTxIds?: string[]
 }) {
   const qc = useQueryClient()
   const { user } = useAuth()
   const [step, setStep] = useState<Step>('select')
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(preselectedTxIds ?? []),
+  )
   const [payoutId, setPayoutId] = useState<string | null>(null)
   const [txHash, setTxHash] = useState('')
+
+  // Sync selection when the dialog re-opens with a different preselection.
+  // Important: the dialog component is mounted permanently in the parent and
+  // toggled via `open`, so without this effect the previously-selected ids
+  // would persist across consecutive opens.
+  useEffect(() => {
+    if (open) {
+      setSelected(new Set(preselectedTxIds ?? []))
+    }
+  }, [open, preselectedTxIds])
 
   // Per-tx effective share: prefer the snapshot stored on the transaction
   // (immutable since creation). Older rows that pre-date the snapshot fall
