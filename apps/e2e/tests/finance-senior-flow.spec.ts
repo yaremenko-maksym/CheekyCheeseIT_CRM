@@ -506,7 +506,12 @@ test.describe('SENIOR INCOME — шаг 5: оплата выплаты (PayoutDe
     await expect(dialog.getByTestId('payout-detail-payable')).toContainText(/3[,.]?700/)
   })
 
-  test('SENIOR вводит TX hash — «Подтвердить оплату» разблокируется', async ({ asSenior }) => {
+  test('SENIOR в dev-режиме выбирает «Симулировать успех» + вводит TX hash — submit разблокируется', async ({
+    asSenior,
+  }) => {
+    // PR #56 added a dev-simulate radio. In dev «Реальная проверка» is the
+    // default and intentionally disabled — the SENIOR has to opt into a
+    // simulate path. So this test now picks «Симулировать успех» first.
     const payoutRow = makePayoutRowTx()
     await setupTransactionMocks(asSenior, payoutRow, [], [payoutRow])
 
@@ -514,11 +519,15 @@ test.describe('SENIOR INCOME — шаг 5: оплата выплаты (PayoutDe
     await asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`).click()
 
     const dialog = asSenior.getByRole('dialog')
+    // Pick the simulate-success radio first → hash optional → submit enabled.
+    await dialog.getByTestId('payout-detail-dev-simulate-success').click()
     await dialog.getByTestId('payout-detail-tx-hash-input').fill('0xdeadbeef123456')
     await expect(dialog.getByTestId('payout-detail-submit')).not.toBeDisabled()
   })
 
-  test('SENIOR нажимает «Подтвердить оплату» — диалог закрывается', async ({ asSenior }) => {
+  test('SENIOR в dev-режиме нажимает «Подтвердить оплату» — диалог закрывается', async ({
+    asSenior,
+  }) => {
     const payoutRow = makePayoutRowTx()
     await setupTransactionMocks(asSenior, payoutRow, [], [payoutRow])
 
@@ -526,10 +535,122 @@ test.describe('SENIOR INCOME — шаг 5: оплата выплаты (PayoutDe
     await asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`).click()
 
     const dialog = asSenior.getByRole('dialog')
+    // Simulate-success unlocks the submit in dev — without picking a radio
+    // PR #56's real-mode gate keeps the button disabled even with a hash.
+    await dialog.getByTestId('payout-detail-dev-simulate-success').click()
     await dialog.getByTestId('payout-detail-tx-hash-input').fill('0xdeadbeef123456')
     await dialog.getByTestId('payout-detail-submit').click()
 
     await expect(dialog).not.toBeVisible()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Flow A2 (task-autotest-strengthen-e2e-pr56-flows): validate-idempotency
+//
+// PR #56 backend gate: validateTransaction(tx_id) is a no-op on a row that
+// is no longer PENDING. From the UI side we assert the consequence — once
+// VALIDATED, the ACCOUNTANT no longer sees a «Проверить» button on that row
+// and cannot trigger a second auto-payout creation.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+test.describe('SENIOR INCOME — A2: validate idempotency (PR #56)', () => {
+  test('VALIDATED row has no «Проверить» button (cannot re-validate, no duplicate payout)', async ({
+    page,
+  }) => {
+    await mockAuthAs(page, USERS.accountant)
+    const validatedTx = makeTx({
+      status: 'VALIDATED',
+      validatedBy: USERS.accountant.id,
+      validatedAt: '2026-05-02T10:00:00.000Z',
+    })
+    await setupTransactionMocks(page, validatedTx)
+    await page.goto('/crm/finance')
+
+    await expect(page.getByText('Подтверждено').first()).toBeVisible()
+    await expect(page.getByRole('button', { name: /Проверить/i })).not.toBeVisible()
+  })
+
+  test('PENDING_PAYMENT income row has no «Проверить» (already past validate gate)', async ({
+    page,
+  }) => {
+    await mockAuthAs(page, USERS.accountant)
+    const pendingPaymentTx = makeTx({
+      status: 'PENDING_PAYMENT',
+      payoutRequestId: 'flow-payout-1',
+      validatedBy: USERS.accountant.id,
+      validatedAt: '2026-05-02T10:00:00.000Z',
+    })
+    await setupTransactionMocks(page, pendingPaymentTx)
+    await page.goto('/crm/finance')
+
+    await expect(page.getByText(/Ожидает выплаты/i).first()).toBeVisible()
+    await expect(page.getByRole('button', { name: /Проверить/i })).not.toBeVisible()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Flow D (task-autotest-strengthen-e2e-pr56-flows): transaction list sort
+//
+// E2E counterpart to the existing unit tests in apps/web/app/routes/crm/finance/
+// __tests__/sort.test.ts. The unit test pins the compareTxByDate behaviour;
+// here we verify the integrated outcome — mixed income/payout rows render
+// in the right order in the UI. Regression target: bug bf5dc2e where the
+// midnight-txDate income sorted ABOVE a later-createdAt payout because the
+// comparator used txDate ?? createdAt as the primary key.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+test.describe('SENIOR INCOME — D: transactions sorted by createdAt DESC (regression bf5dc2e)', () => {
+  test('mixed income (midnight txDate) + payout (null txDate) sorted by createdAt only', async ({
+    asAdmin,
+  }) => {
+    // Income created LATER but txDate=midnight (a backend default for
+    // legacy rows without an explicit pick-date). Old comparator put the
+    // payout first because txDate=null fell back to createdAt=07:37 while
+    // income.txDate=00:00 lost. New comparator ignores txDate entirely:
+    // income.createdAt=08:17 > payout.createdAt=07:37 → income first.
+    const incomeLater = {
+      ...makeTx({
+        id: 'sort-income-1',
+        amount: '4000.00',
+        createdAt: '2026-05-28T08:17:00.000Z',
+        // The "txDate=midnight" gotcha — server backfills this for legacy
+        // income rows where the user did not pick a date.
+      }),
+      txDate: '2026-05-28T00:00:00.000Z',
+    }
+    const payoutEarlier = makeTx({
+      id: 'sort-payout-1',
+      type: 'PAYOUT',
+      status: 'PAID',
+      senderId: USERS.senior.id,
+      senderName: USERS.senior.displayName,
+      senderLabel: null,
+      receiverId: null,
+      receiverName: null,
+      receiverLabel: 'CheekyCheeseIT',
+      amount: '8222.14',
+      createdAt: '2026-05-28T07:37:20.000Z',
+      txHash: '0xpayoutsort',
+      payoutRequestId: 'flow-payout-sort',
+    })
+
+    await setupTransactionMocks(asAdmin, incomeLater, [], [incomeLater, payoutEarlier])
+    await asAdmin.goto('/crm/finance')
+
+    // Wait for both row amounts to render — the finance page lazy-renders
+    // the transactions section under a Suspense-like skeleton.
+    await expect(asAdmin.getByText(/4[,.]?000/).first()).toBeVisible()
+    await expect(asAdmin.getByText(/8[,.]?222/).first()).toBeVisible()
+
+    // Compare vertical position of the two amounts. The row physically
+    // higher on the page (smaller y) comes first in the DESC sort.
+    const incomeBox = await asAdmin.getByText(/4[,.]?000/).first().boundingBox()
+    const payoutBox = await asAdmin.getByText(/8[,.]?222/).first().boundingBox()
+    expect(incomeBox, 'income row box').not.toBeNull()
+    expect(payoutBox, 'payout row box').not.toBeNull()
+    // Income has later createdAt → must appear ABOVE payout in DESC order.
+    expect(incomeBox!.y, 'income above payout').toBeLessThan(payoutBox!.y)
   })
 })
 
@@ -691,6 +812,9 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     await expect(detailDialog.getByTestId('payout-detail-contract-address')).toContainText(
       FLOW_STUB_CONTRACT,
     )
+    // PR #56 dev-simulate gate: real mode is disabled in dev → SENIOR has
+    // to pick simulate-success to unlock submit.
+    await detailDialog.getByTestId('payout-detail-dev-simulate-success').click()
     await detailDialog.getByTestId('payout-detail-tx-hash-input').fill('0xdeadbeef123456')
     await detailDialog.getByTestId('payout-detail-submit').click()
     await expect(detailDialog).not.toBeVisible()

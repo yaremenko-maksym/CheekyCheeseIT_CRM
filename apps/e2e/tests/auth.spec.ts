@@ -113,4 +113,31 @@ test.describe('Auth flow', () => {
     await page.waitForURL((url) => !url.pathname.endsWith('/login'), { timeout: 10000 })
     expect(page.url()).not.toMatch(/\/crm\/login/)
   })
+
+  // ---------------------------------------------------------------------------
+  // Flow F (task-autotest-strengthen-e2e-pr56-flows): Vite dev proxy.
+  //
+  // PR #56 wired up `vite.config.ts → server.proxy: { '/api': :3001 }` so
+  // the frontend can hit its own origin (http://localhost:3000/api/*) and
+  // have Vite forward to NestJS on :3001. Without the proxy, `/api/auth/me`
+  // lands on the SPA fallback (`index.html`) and the AuthContext sees a
+  // 200 HTML response instead of JSON, which has historically caused the
+  // user to ping-pong between /crm/login and /crm.
+  //
+  // We verify the proxy by hitting `/api/auth/me` through the SPA's own
+  // origin and asserting that the response is JSON (or a 401 from the
+  // backend) — NOT HTML.
+  // ---------------------------------------------------------------------------
+
+  test('Vite proxy forwards /api → :3001 (no SPA fallback HTML)', async ({ page }) => {
+    // No /api routes mocked here on purpose — we want the real proxy chain.
+    // page.request uses the same context as the browser (same origin).
+    const res = await page.request.get('http://localhost:3000/api/auth/me')
+    const contentType = res.headers()['content-type'] ?? ''
+    // Either the API returned JSON (authenticated) or 401 JSON (anonymous).
+    // The smoking-gun regression would be `text/html` + 200 — the SPA
+    // fallback. We assert against that explicitly.
+    expect(contentType).not.toMatch(/text\/html/i)
+    expect([200, 401]).toContain(res.status())
+  })
 })

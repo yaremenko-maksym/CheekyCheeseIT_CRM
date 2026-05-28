@@ -266,6 +266,9 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
       STUB_CONTRACT,
     )
 
+    // PR #56 dev-simulate gate — real mode is blocked in dev → pick
+    // simulate-success to actually unlock the submit button.
+    await dialog.getByTestId('payout-detail-dev-simulate-success').click()
     await dialog.getByTestId('payout-detail-tx-hash-input').fill('0xabcd1234567890')
     await dialog.getByTestId('payout-detail-submit').click()
 
