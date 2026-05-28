@@ -188,9 +188,11 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) { onClose(); resetForm() } }}>
-      <CrmDialogContent maxWidth="sm:max-w-lg">
+      <CrmDialogContent maxWidth="sm:max-w-lg" data-testid="create-transaction-dialog">
         <CrmDialogHeader>
-          <DialogTitle className="text-base">Новая транзакция</DialogTitle>
+          <DialogTitle className="text-base" data-testid="create-transaction-dialog-title">
+            Новая транзакция
+          </DialogTitle>
         </CrmDialogHeader>
 
         <CrmDialogBody className="space-y-4 py-1">

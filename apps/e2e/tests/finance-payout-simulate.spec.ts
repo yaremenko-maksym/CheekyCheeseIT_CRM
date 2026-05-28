@@ -213,13 +213,15 @@ test.describe('Flow B — Payout payment simulate radio (PR #56)', () => {
     // Contract address surfaced under «Адрес кошелька» label (not the old
     // «Адрес смарт-контракта (USDT ERC-20)» — that label change is part of
     // round 6's PR #56 UI cleanup).
-    await expect(dialog.getByText('Адрес кошелька')).toBeVisible()
+    await expect(dialog.getByTestId('payout-detail-contract-address-label')).toBeVisible()
     await expect(dialog.getByTestId('payout-detail-contract-address')).toContainText(STUB_CONTRACT)
     // Payable amount banner — 5000 * 0.74 = 3700
     await expect(dialog.getByTestId('payout-detail-payable')).toContainText(/3[,.]?700/)
     // Count line — SENIOR_INCOME-only, so «(1)» even though the payout
     // request also carries a PAYOUT placeholder row server-side.
-    await expect(dialog.getByText(/Транзакции в выплате \(1\)/)).toBeVisible()
+    await expect(dialog.getByTestId('payout-detail-transactions-count')).toContainText(
+      /Транзакции в выплате \(1\)/,
+    )
 
     // Default radio = real → submit disabled even with no hash typed.
     const realRadio = dialog.getByTestId('payout-detail-dev-simulate-real').locator('input[type="radio"]')
