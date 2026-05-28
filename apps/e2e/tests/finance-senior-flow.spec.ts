@@ -129,19 +129,19 @@ async function setupTransactionMocks(
 // ═══════════════════════════════════════════════════════════════════════════════
 
 async function fillSeniorIncomeForm(page: MockPage, { amount, withReceipt = true }: { amount: string; withReceipt?: boolean }) {
-  const dialog = page.getByRole('dialog')
+  const dialog = page.getByTestId('create-transaction-dialog')
 
-  // Выбираем проект через native Select (Radix combobox)
+  // Выбираем проект через native Select (Radix combobox — accessibility role)
   await dialog.getByRole('combobox').first().click()
   await page.getByRole('option', { name: PROJECT_NAME }).click()
 
-  // Сумма — input type=number
+  // Сумма — input type=number (no testid; semantic input is the contract)
   await dialog.locator('input[type="number"]').first().fill(amount)
 
   // Чек — обязателен для SENIOR_INCOME. Переключаемся на "Ссылка" режим.
   if (withReceipt) {
-    await dialog.getByRole('button', { name: /Ссылка/i }).click()
-    await dialog.getByPlaceholder('https://...').fill('https://drive.google.com/receipt.pdf')
+    await dialog.getByTestId('receipt-input-mode-url').click()
+    await dialog.getByTestId('receipt-input-url-field').fill('https://drive.google.com/receipt.pdf')
   }
 }
 
@@ -154,62 +154,64 @@ test.describe('SENIOR INCOME — шаг 1: регистрация прихода
     await setupTransactionMocks(asSenior, makeTx())
     await asSenior.goto('/crm/finance')
 
-    await asSenior.getByRole('button', { name: /Новая транзакция/i }).click()
-    await expect(asSenior.getByRole('dialog')).toBeVisible()
+    await asSenior.getByTestId('finance-create-transaction-button').click()
+    await expect(asSenior.getByTestId('create-transaction-dialog')).toBeVisible()
 
     const dialog = asSenior.getByRole('dialog')
-    await expect(dialog.getByText('Приход синьора')).toBeVisible()
-    await expect(dialog.getByText('Расход компании')).not.toBeVisible()
-    await expect(dialog.getByText('Зарплата сотруднику')).not.toBeVisible()
+    await expect(dialog.getByTestId('create-transaction-type-senior_income')).toBeVisible()
+    await expect(dialog.getByTestId('create-transaction-type-expense')).not.toBeVisible()
+    await expect(dialog.getByTestId('create-transaction-type-salary')).not.toBeVisible()
   })
 
   test('SENIOR создаёт транзакцию с чеком — диалог закрывается', async ({ asSenior }) => {
     await setupTransactionMocks(asSenior, makeTx({ receiptExternalUrl: 'https://drive.google.com/receipt.pdf' }))
     await asSenior.goto('/crm/finance')
 
-    await asSenior.getByRole('button', { name: /Новая транзакция/i }).click()
+    await asSenior.getByTestId('finance-create-transaction-button').click()
     await fillSeniorIncomeForm(asSenior, { amount: '5000' })
 
-    await asSenior.getByRole('button', { name: 'Создать транзакцию' }).click()
-    await expect(asSenior.getByRole('dialog')).not.toBeVisible()
+    await asSenior.getByTestId('create-transaction-submit').click()
+    await expect(asSenior.getByTestId('create-transaction-dialog')).not.toBeVisible()
   })
 
   test('SENIOR прикрепляет ссылку на чек при создании', async ({ asSenior }) => {
     await setupTransactionMocks(asSenior, makeTx({ receiptExternalUrl: 'https://drive.google.com/receipt.pdf' }))
     await asSenior.goto('/crm/finance')
 
-    await asSenior.getByRole('button', { name: /Новая транзакция/i }).click()
+    await asSenior.getByTestId('finance-create-transaction-button').click()
     await fillSeniorIncomeForm(asSenior, { amount: '5000' })
 
-    await asSenior.getByRole('button', { name: 'Создать транзакцию' }).click()
-    await expect(asSenior.getByRole('dialog')).not.toBeVisible()
+    await asSenior.getByTestId('create-transaction-submit').click()
+    await expect(asSenior.getByTestId('create-transaction-dialog')).not.toBeVisible()
   })
 
   test('SENIOR не может создать транзакцию без чека — показывается ошибка', async ({ asSenior }) => {
     await setupTransactionMocks(asSenior, makeTx())
     await asSenior.goto('/crm/finance')
 
-    await asSenior.getByRole('button', { name: /Новая транзакция/i }).click()
+    await asSenior.getByTestId('finance-create-transaction-button').click()
     await fillSeniorIncomeForm(asSenior, { amount: '5000', withReceipt: false })
 
-    await asSenior.getByRole('button', { name: 'Создать транзакцию' }).click()
-    // Ошибка в диалоге — банер ошибки внизу
-    await expect(asSenior.getByRole('dialog').getByText(/прикрепите чек|подтверждение/i).first()).toBeVisible()
-    await expect(asSenior.getByRole('dialog')).toBeVisible()
+    await asSenior.getByTestId('create-transaction-submit').click()
+    // The Russian error text IS the contract here — `containText` regex keeps
+    // intent visible. Dialog itself anchored by its testid.
+    const dialog = asSenior.getByTestId('create-transaction-dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toContainText(/прикрепите чек|подтверждение/i)
   })
 
   test('SENIOR не может создать транзакцию без суммы — показывается ошибка', async ({ asSenior }) => {
     await setupTransactionMocks(asSenior, makeTx())
     await asSenior.goto('/crm/finance')
 
-    await asSenior.getByRole('button', { name: /Новая транзакция/i }).click()
-    const dialog = asSenior.getByRole('dialog')
+    await asSenior.getByTestId('finance-create-transaction-button').click()
+    const dialog = asSenior.getByTestId('create-transaction-dialog')
     await dialog.getByRole('combobox').first().click()
     await asSenior.getByRole('option', { name: PROJECT_NAME }).click()
 
-    await asSenior.getByRole('button', { name: 'Создать транзакцию' }).click()
-    await expect(dialog.getByText(/некорректная сумма/i)).toBeVisible()
+    await asSenior.getByTestId('create-transaction-submit').click()
     await expect(dialog).toBeVisible()
+    await expect(dialog).toContainText(/некорректная сумма/i)
   })
 })
 
@@ -220,45 +222,53 @@ test.describe('SENIOR INCOME — шаг 1: регистрация прихода
 test.describe('SENIOR INCOME — шаг 2а: отклонение транзакции', () => {
   test('ACCOUNTANT видит PENDING транзакцию с кнопкой "Проверить"', async ({ page }) => {
     await mockAuthAs(page, USERS.accountant)
-    await setupTransactionMocks(page, makeTx())
+    const tx = makeTx()
+    await setupTransactionMocks(page, tx)
     await page.goto('/crm/finance')
 
-    await expect(page.getByText('Приход синьора').first()).toBeVisible()
-    await expect(page.getByText('Ожидает').first()).toBeVisible()
-    await expect(page.getByRole('button', { name: /Проверить/i })).toBeVisible()
+    await expect(page.getByTestId(`tx-row-${tx.id}`)).toBeVisible()
+    await expect(page.getByTestId('tx-status-badge-pending').first()).toBeVisible()
+    await expect(page.getByTestId(`tx-row-validate-${tx.id}`)).toBeVisible()
   })
 
   test('ACCOUNTANT открывает диалог валидации — видит детали транзакции', async ({ page }) => {
     await mockAuthAs(page, USERS.accountant)
-    await setupTransactionMocks(page, makeTx())
+    const tx = makeTx()
+    await setupTransactionMocks(page, tx)
     await page.goto('/crm/finance')
 
-    await page.getByRole('button', { name: /Проверить/i }).click()
-    await expect(page.getByRole('dialog')).toBeVisible()
+    await page.getByTestId(`tx-row-${tx.id}`).getByTestId(`tx-row-validate-${tx.id}`).click()
+    const dlg = page.getByTestId('validate-transaction-dialog')
+    await expect(dlg).toBeVisible()
 
-    const dlg = page.getByRole('dialog')
-    await expect(dlg.getByText('Приход синьора')).toBeVisible()
-    await expect(dlg.getByText(PROJECT_NAME)).toBeVisible()
+    // Project name is dynamic seed data — text assertion is the contract for
+    // "the dialog actually surfaced the row I clicked". Same for the Russian
+    // type label «Приход синьора» — it's how the user verifies the row type.
+    await expect(dlg).toContainText('Приход синьора')
+    await expect(dlg).toContainText(PROJECT_NAME)
   })
 
   test('ACCOUNTANT не может нажать "Отклонить" без причины', async ({ page }) => {
     await mockAuthAs(page, USERS.accountant)
-    await setupTransactionMocks(page, makeTx())
+    const tx = makeTx()
+    await setupTransactionMocks(page, tx)
     await page.goto('/crm/finance')
 
-    await page.getByRole('button', { name: /Проверить/i }).click()
-    const rejectBtn = page.getByRole('button', { name: 'Отклонить' })
-    await expect(rejectBtn).toBeDisabled()
+    await page.getByTestId(`tx-row-validate-${tx.id}`).click()
+    await expect(page.getByTestId('validate-transaction-reject')).toBeDisabled()
   })
 
   test('ACCOUNTANT вводит причину — кнопка "Отклонить" разблокируется', async ({ page }) => {
     await mockAuthAs(page, USERS.accountant)
-    await setupTransactionMocks(page, makeTx())
+    const tx = makeTx()
+    await setupTransactionMocks(page, tx)
     await page.goto('/crm/finance')
 
-    await page.getByRole('button', { name: /Проверить/i }).click()
+    await page.getByTestId(`tx-row-validate-${tx.id}`).click()
+    // Placeholder copy is part of the form contract for the rejection reason
+    // textarea — kept as-is.
     await page.getByPlaceholder('Укажите причину при отклонении...').fill('Чек нечитаем')
-    await expect(page.getByRole('button', { name: 'Отклонить' })).not.toBeDisabled()
+    await expect(page.getByTestId('validate-transaction-reject')).not.toBeDisabled()
   })
 
   test('ACCOUNTANT отклоняет транзакцию — диалог закрывается', async ({ page }) => {
@@ -277,11 +287,11 @@ test.describe('SENIOR INCOME — шаг 2а: отклонение транзак
     )
 
     await page.goto('/crm/finance')
-    await page.getByRole('button', { name: /Проверить/i }).click()
+    await page.getByTestId(`tx-row-validate-${pendingTx.id}`).click()
     await page.getByPlaceholder('Укажите причину при отклонении...').fill('Чек нечитаем')
-    await page.getByRole('button', { name: 'Отклонить' }).click()
+    await page.getByTestId('validate-transaction-reject').click()
 
-    await expect(page.getByRole('dialog')).not.toBeVisible()
+    await expect(page.getByTestId('validate-transaction-dialog')).not.toBeVisible()
   })
 
   test('После отклонения SENIOR видит статус "Отклонено" и причину в таблице', async ({ asSenior }) => {
@@ -293,8 +303,10 @@ test.describe('SENIOR INCOME — шаг 2а: отклонение транзак
     await setupTransactionMocks(asSenior, rejectedTx)
     await asSenior.goto('/crm/finance')
 
-    await expect(asSenior.getByText('Отклонено').first()).toBeVisible()
-    await expect(asSenior.getByText('Чек нечитаем').first()).toBeVisible()
+    await expect(asSenior.getByTestId('tx-status-badge-rejected').first()).toBeVisible()
+    // Rejection reason text comes from API data — text assertion stays as
+    // dynamic-data contract, but scoped to the row to avoid cross-row noise.
+    await expect(asSenior.getByTestId(`tx-row-${rejectedTx.id}`)).toContainText('Чек нечитаем')
   })
 })
 
@@ -308,7 +320,7 @@ test.describe('SENIOR INCOME — шаг 2б: исправление отклон
     await setupTransactionMocks(asSenior, rejectedTx)
     await asSenior.goto('/crm/finance')
 
-    await expect(asSenior.getByRole('button', { name: /Исправить/i })).toBeVisible()
+    await expect(asSenior.getByTestId(`tx-row-edit-${rejectedTx.id}`)).toBeVisible()
   })
 
   test('SENIOR открывает диалог — видит причину отклонения', async ({ asSenior }) => {
@@ -316,10 +328,12 @@ test.describe('SENIOR INCOME — шаг 2б: исправление отклон
     await setupTransactionMocks(asSenior, rejectedTx)
     await asSenior.goto('/crm/finance')
 
-    await asSenior.getByRole('button', { name: /Исправить/i }).click()
+    await asSenior.getByTestId(`tx-row-edit-${rejectedTx.id}`).click()
     await expect(asSenior.getByRole('dialog')).toBeVisible()
-    await expect(asSenior.getByText('Причина отклонения:')).toBeVisible()
-    await expect(asSenior.getByRole('dialog').getByText('Чек нечитаем')).toBeVisible()
+    await expect(asSenior.getByTestId('edit-senior-income-rejection-panel')).toBeVisible()
+    await expect(asSenior.getByTestId('edit-senior-income-rejection-reason')).toHaveText(
+      'Чек нечитаем',
+    )
   })
 
   test('SENIOR прикрепляет новый чек (ссылка) и переотправляет', async ({ asSenior }) => {
@@ -327,13 +341,13 @@ test.describe('SENIOR INCOME — шаг 2б: исправление отклон
     await setupTransactionMocks(asSenior, rejectedTx)
     await asSenior.goto('/crm/finance')
 
-    await asSenior.getByRole('button', { name: /Исправить/i }).click()
+    await asSenior.getByTestId(`tx-row-edit-${rejectedTx.id}`).click()
 
-    // Переключаем на ссылку
-    await asSenior.getByRole('dialog').getByRole('button', { name: /Ссылка/i }).click()
-    await asSenior.getByPlaceholder('https://...').fill('https://drive.google.com/new-receipt.pdf')
+    // Переключаем на ссылку — ReceiptInput URL-mode pill anchored by testid.
+    await asSenior.getByRole('dialog').getByTestId('receipt-input-mode-url').click()
+    await asSenior.getByTestId('receipt-input-url-field').fill('https://drive.google.com/new-receipt.pdf')
 
-    await asSenior.getByRole('button', { name: 'Переотправить' }).click()
+    await asSenior.getByTestId('edit-senior-income-resubmit').click()
     await expect(asSenior.getByRole('dialog')).not.toBeVisible()
   })
 })
@@ -358,10 +372,10 @@ test.describe('SENIOR INCOME — шаг 3: повторная валидация
     )
 
     await page.goto('/crm/finance')
-    await page.getByRole('button', { name: /Проверить/i }).click()
-    await page.getByRole('button', { name: 'Подтвердить' }).click()
+    await page.getByTestId(`tx-row-validate-${makeTx().id}`).click()
+    await page.getByTestId('validate-transaction-confirm').click()
 
-    await expect(page.getByRole('dialog')).not.toBeVisible()
+    await expect(page.getByTestId('validate-transaction-dialog')).not.toBeVisible()
   })
 
   test('После принятия SENIOR видит auto-created «Выплата» с кнопкой «Оплатить»', async ({ asSenior }) => {
@@ -391,10 +405,10 @@ test.describe('SENIOR INCOME — шаг 3: повторная валидация
     await setupTransactionMocks(asSenior, incomeAfterValidate, [], [incomeAfterValidate, payoutRow])
     await asSenior.goto('/crm/finance')
 
-    await expect(asSenior.getByText(/Ожидает выплаты/i).first()).toBeVisible()
+    await expect(asSenior.getByTestId('tx-status-badge-pending_payment').first()).toBeVisible()
     await expect(asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`)).toBeVisible()
     // Old batch header button is gone.
-    await expect(asSenior.getByRole('button', { name: /Выплатить \(/i })).not.toBeVisible()
+    await expect(asSenior.getByTestId('header-payout-button')).not.toBeVisible()
   })
 
   test('SENIOR не видит кнопку "Проверить" — это только для ACCOUNTANT/ADMIN', async ({ asSenior }) => {
@@ -402,7 +416,7 @@ test.describe('SENIOR INCOME — шаг 3: повторная валидация
     await setupTransactionMocks(asSenior, validatedTx)
     await asSenior.goto('/crm/finance')
 
-    await expect(asSenior.getByRole('button', { name: /Проверить/i })).not.toBeVisible()
+    await expect(asSenior.getByTestId(`tx-row-validate-${validatedTx.id}`)).not.toBeVisible()
   })
 })
 
@@ -448,7 +462,11 @@ test.describe('SENIOR INCOME — шаг 4: «Выплата» появляетс
     await asSenior.goto('/crm/finance')
 
     await expect(asSenior.getByTestId('header-payout-button')).not.toBeVisible()
-    await expect(asSenior.getByRole('button', { name: /Выплатить \(/i })).not.toBeVisible()
+    // Defensive duplicate — no row-level pay-salary pill either on a
+    // SENIOR_INCOME validated row.
+    await expect(
+      asSenior.getByTestId(`tx-row-pay-salary-${validatedTx.id}`),
+    ).not.toBeVisible()
   })
 })
 
@@ -567,8 +585,8 @@ test.describe('SENIOR INCOME — A2: validate idempotency (PR #56)', () => {
     await setupTransactionMocks(page, validatedTx)
     await page.goto('/crm/finance')
 
-    await expect(page.getByText('Подтверждено').first()).toBeVisible()
-    await expect(page.getByRole('button', { name: /Проверить/i })).not.toBeVisible()
+    await expect(page.getByTestId('tx-status-badge-validated').first()).toBeVisible()
+    await expect(page.getByTestId(`tx-row-validate-${validatedTx.id}`)).not.toBeVisible()
   })
 
   test('PENDING_PAYMENT income row has no «Проверить» (already past validate gate)', async ({
@@ -584,8 +602,8 @@ test.describe('SENIOR INCOME — A2: validate idempotency (PR #56)', () => {
     await setupTransactionMocks(page, pendingPaymentTx)
     await page.goto('/crm/finance')
 
-    await expect(page.getByText(/Ожидает выплаты/i).first()).toBeVisible()
-    await expect(page.getByRole('button', { name: /Проверить/i })).not.toBeVisible()
+    await expect(page.getByTestId('tx-status-badge-pending_payment').first()).toBeVisible()
+    await expect(page.getByTestId(`tx-row-validate-${pendingPaymentTx.id}`)).not.toBeVisible()
   })
 })
 
@@ -688,17 +706,17 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     )
 
     await seniorPage.goto('/crm/finance')
-    await seniorPage.getByRole('button', { name: /Новая транзакция/i }).click()
-    const createDialog = seniorPage.getByRole('dialog')
+    await seniorPage.getByTestId('finance-create-transaction-button').click()
+    const createDialog = seniorPage.getByTestId('create-transaction-dialog')
     await createDialog.getByRole('combobox').first().click()
     await seniorPage.getByRole('option', { name: PROJECT_NAME }).click()
     await createDialog.locator('input[type="number"]').first().fill('5000')
     // Receipt URL обязателен — переключаемся и заполняем
-    await createDialog.getByRole('button', { name: /Ссылка/i }).click()
-    await createDialog.getByPlaceholder('https://...').fill('https://drive.google.com/receipt.pdf')
-    await seniorPage.getByRole('button', { name: 'Создать транзакцию' }).click()
-    await expect(seniorPage.getByRole('dialog')).not.toBeVisible()
-    await expect(seniorPage.getByText('Ожидает').first()).toBeVisible()
+    await createDialog.getByTestId('receipt-input-mode-url').click()
+    await createDialog.getByTestId('receipt-input-url-field').fill('https://drive.google.com/receipt.pdf')
+    await seniorPage.getByTestId('create-transaction-submit').click()
+    await expect(createDialog).not.toBeVisible()
+    await expect(seniorPage.getByTestId('tx-status-badge-pending').first()).toBeVisible()
 
     // === ШАГ 2а: ACCOUNTANT отклоняет ===
     const rejectedTx = makeTx({ status: 'REJECTED', rejectionReason: 'Нет чека', receiptExternalUrl: 'https://drive.google.com/receipt.pdf' })
@@ -714,11 +732,11 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     )
 
     await accountantPage.goto('/crm/finance')
-    await expect(accountantPage.getByText('Ожидает').first()).toBeVisible()
-    await accountantPage.getByRole('button', { name: /Проверить/i }).click()
+    await expect(accountantPage.getByTestId('tx-status-badge-pending').first()).toBeVisible()
+    await accountantPage.getByTestId(`tx-row-validate-${pendingTx.id}`).click()
     await accountantPage.getByPlaceholder('Укажите причину при отклонении...').fill('Нет чека')
-    await accountantPage.getByRole('button', { name: 'Отклонить' }).click()
-    await expect(accountantPage.getByRole('dialog')).not.toBeVisible()
+    await accountantPage.getByTestId('validate-transaction-reject').click()
+    await expect(accountantPage.getByTestId('validate-transaction-dialog')).not.toBeVisible()
 
     // === ШАГ 2б: SENIOR исправляет ===
     const correctedTx = makeTx({ status: 'PENDING', receiptExternalUrl: 'https://drive.google.com/new-receipt.pdf' })
@@ -731,12 +749,12 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     )
 
     await seniorPage.goto('/crm/finance')
-    await expect(seniorPage.getByText('Отклонено').first()).toBeVisible()
-    await seniorPage.getByRole('button', { name: /Исправить/i }).click()
-    await expect(seniorPage.getByText('Причина отклонения:')).toBeVisible()
-    await seniorPage.getByRole('dialog').getByRole('button', { name: /Ссылка/i }).click()
-    await seniorPage.getByPlaceholder('https://...').fill('https://drive.google.com/new-receipt.pdf')
-    await seniorPage.getByRole('button', { name: 'Переотправить' }).click()
+    await expect(seniorPage.getByTestId('tx-status-badge-rejected').first()).toBeVisible()
+    await seniorPage.getByTestId(`tx-row-edit-${rejectedTx.id}`).click()
+    await expect(seniorPage.getByTestId('edit-senior-income-rejection-panel')).toBeVisible()
+    await seniorPage.getByRole('dialog').getByTestId('receipt-input-mode-url').click()
+    await seniorPage.getByTestId('receipt-input-url-field').fill('https://drive.google.com/new-receipt.pdf')
+    await seniorPage.getByTestId('edit-senior-income-resubmit').click()
     await expect(seniorPage.getByRole('dialog')).not.toBeVisible()
 
     // === ШАГ 3: ACCOUNTANT принимает ===
@@ -750,9 +768,9 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     )
 
     await accountantPage.goto('/crm/finance')
-    await accountantPage.getByRole('button', { name: /Проверить/i }).click()
-    await accountantPage.getByRole('button', { name: 'Подтвердить' }).click()
-    await expect(accountantPage.getByRole('dialog')).not.toBeVisible()
+    await accountantPage.getByTestId(`tx-row-validate-${correctedTx.id}`).click()
+    await accountantPage.getByTestId('validate-transaction-confirm').click()
+    await expect(accountantPage.getByTestId('validate-transaction-dialog')).not.toBeVisible()
 
     // === ШАГ 4 + 5: «Выплата» auto-created server-side; SENIOR оплачивает ===
     // task-payout-auto-on-validate collapsed old steps 4 (PayoutDialog) and 5

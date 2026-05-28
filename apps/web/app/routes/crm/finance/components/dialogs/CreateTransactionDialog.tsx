@@ -212,6 +212,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                       ? 'border-primary bg-primary/8 text-foreground'
                       : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
                   )}
+                  data-testid={`create-transaction-type-${t.toLowerCase()}`}
                 >
                   <span className="text-muted-foreground shrink-0">{TYPE_ICONS[t]}</span>
                   <div className="flex-1 min-w-0">

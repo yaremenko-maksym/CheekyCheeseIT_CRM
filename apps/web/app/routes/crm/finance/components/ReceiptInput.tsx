@@ -210,6 +210,7 @@ export function ReceiptInput({ state, onChange, label = 'Чек / подтвер
             type="button"
             onClick={mode === 'file' ? switchToFile : switchToUrl}
             disabled={uploading}
+            data-testid={`receipt-input-mode-${mode}`}
             className={cn(
               'relative flex-1 flex items-center justify-center gap-1.5 z-10 transition-colors duration-150',
               state.mode === mode ? 'text-primary font-medium' : 'text-muted-foreground hover:text-foreground',
@@ -318,6 +319,7 @@ export function ReceiptInput({ state, onChange, label = 'Чек / подтвер
           onChange={(e) => onChange({ ...state, externalUrl: e.target.value })}
           placeholder="https://..."
           className="h-9 text-sm"
+          data-testid="receipt-input-url-field"
         />
       )}
     </div>
