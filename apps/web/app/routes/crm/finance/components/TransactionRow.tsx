@@ -1,4 +1,5 @@
 import { Edit2, CheckCircle2, ArrowRight, Trash2, Wallet } from 'lucide-react'
+// NOTE: Wallet icon is still used by the «Оплатить» pill on PAYOUT rows.
 import { Link } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
 import type { TransactionDto } from '@crm/shared'
@@ -163,13 +164,11 @@ export function TransactionRow({
   role,
   rates,
   currentUserId,
-  canQuickPayout,
   onValidate,
   onEdit,
   onAdminEdit,
   onDelete,
   onPaySalary,
-  onQuickPayout,
   onOpenPayoutDetail,
   onClick,
 }: {
@@ -178,18 +177,11 @@ export function TransactionRow({
   rates: ExchangeRates | undefined
   /** Used to scope "Доля: X%" visibility for SENIOR (only own rows). */
   currentUserId?: string | null
-  /**
-   * Whether the current SENIOR can launch a quick single-tx payout from this
-   * row. Driven by the parent so eligibility logic (VALIDATED + no pending
-   * payout + receiverId === userId) lives in one place.
-   */
-  canQuickPayout?: boolean
   onValidate?: (tx: TransactionDto) => void
   onEdit?: (tx: TransactionDto) => void
   onAdminEdit?: (tx: TransactionDto) => void
   onDelete?: (tx: TransactionDto) => void
   onPaySalary?: (tx: TransactionDto) => void
-  onQuickPayout?: (tx: TransactionDto) => void
   /**
    * Opens the PayoutDetailDialog for an already-created payout. Triggered by
    * the inline «Оплатить» pill on PENDING_PAYMENT rows (where the SENIOR has
@@ -213,14 +205,12 @@ export function TransactionRow({
     tx.type !== 'PAYOUT_ADMIN' &&
     (tx.status === 'PENDING_PAYMENT' || !tx.payoutRequestId)
   const canAdminDelete = canAdminEdit
-  // RBAC: only SENIOR sees the inline payout shortcut. ADMIN/ACCOUNTANT
-  // validate but don't pay out on behalf of seniors.
-  const showQuickPayout =
-    isSenior && !!canQuickPayout && tx.type === 'SENIOR_INCOME' && tx.status === 'VALIDATED'
-  // Inline «Оплатить» for the placeholder «Выплата» row (PAYOUT type,
-  // PENDING_PAYMENT). After PR #56 fix the SENIOR clicks this on the PAYOUT
-  // row — not on the linked SENIOR_INCOME children anymore. Scoped by
-  // senderId so a SENIOR only sees the pill for their own payouts.
+  // Inline «Оплатить» for the «Выплата» row (PAYOUT type, PENDING_PAYMENT).
+  // New flow (task-payout-auto-on-validate): when ACCOUNTANT clicks
+  // «Подтвердить» on a SENIOR_INCOME, the backend atomically creates a
+  // PAYOUT row carrying this button. SENIOR_INCOME rows no longer have any
+  // inline «Выплатить» pill — they just show «Ожидает выплаты» status.
+  // Scoped by senderId so a SENIOR only sees the pill for their own payouts.
   const showPayPayout =
     isSenior &&
     tx.type === 'PAYOUT' &&
@@ -312,18 +302,6 @@ export function TransactionRow({
             >
               <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
               Проверить
-            </Button>
-          )}
-          {showQuickPayout && onQuickPayout && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 px-2 text-xs border-primary/60 text-primary hover:bg-primary/10 hover:text-primary"
-              onClick={() => onQuickPayout(tx)}
-              data-testid={`row-quick-payout-${tx.id}`}
-            >
-              <Wallet className="h-3.5 w-3.5 mr-1" />
-              Выплатить
             </Button>
           )}
           {showPayPayout && onOpenPayoutDetail && tx.payoutRequestId && (

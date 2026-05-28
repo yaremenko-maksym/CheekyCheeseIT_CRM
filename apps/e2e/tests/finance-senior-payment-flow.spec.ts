@@ -138,97 +138,123 @@ async function mockTransactions(page: MockPage, txs: object[], payouts: object[]
 }
 
 // ─── Bug 1 — «Оплатить» visibility / functionality ─────────────────────────────
+//
+// Updated for task-payout-auto-on-validate: the batch «Выплатить (N)» header
+// flow is gone. ACCOUNTANT validate now atomically creates a PAYOUT row that
+// carries the inline «Оплатить» pill. SENIOR_INCOME rows never show any
+// pay-out button anymore.
+
+// Make a PAYOUT row (the «Выплата» placeholder auto-created by the backend).
+function makePayoutRow(overrides: object = {}) {
+  return {
+    id: 'pay-flow-payout-row-1',
+    type: 'PAYOUT',
+    status: 'PENDING_PAYMENT' as const,
+    amount: '3700.00',
+    currency: 'USDT' as const,
+    senderId: USERS.senior.id,
+    senderName: USERS.senior.displayName,
+    senderLabel: null,
+    receiverId: null,
+    receiverName: null,
+    receiverLabel: 'CheekyCheeseIT',
+    seniorSharePercent: null,
+    projectId: PROJECT_ID,
+    projectName: PROJECT_NAME,
+    receiptDocumentId: null,
+    receiptExternalUrl: null,
+    notes: null,
+    salaryMonth: null,
+    txHash: null,
+    rejectionReason: null,
+    payoutRequestId: 'payout-flow-1',
+    validatedBy: null,
+    validatedAt: null,
+    createdAt: '2026-05-02T11:00:00.000Z',
+    updatedAt: '2026-05-02T11:00:00.000Z',
+    ...overrides,
+  }
+}
 
 test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () => {
-  test('SENIOR sees «Оплатить (N)» button for VALIDATED SENIOR_INCOME (sender_id=NULL shape)', async ({
+  test('SENIOR_INCOME row never carries a pay-out pill (PENDING_PAYMENT still no inline button)', async ({
     asSenior,
   }) => {
-    // CRITICAL: senderId is NULL, receiverId is the senior. This is what the
-    // real backend returns. Pre-fix code filtered by `senderId === userId` →
-    // ZERO rows → button always hidden.
-    const validatedTx = makeSeniorIncome()
-    await mockTransactions(asSenior, [validatedTx])
+    // After task-payout-auto-on-validate the «Выплата» row carries pay-out,
+    // not the SENIOR_INCOME row — even when SENIOR_INCOME has moved to
+    // PENDING_PAYMENT.
+    const pendingPaymentIncome = makeSeniorIncome({
+      status: 'PENDING_PAYMENT',
+      payoutRequestId: 'payout-flow-1',
+    })
+    await mockTransactions(asSenior, [pendingPaymentIncome])
+
+    await asSenior.goto('/crm/finance')
+    await expect(asSenior.getByText(/Ожидает выплаты/i).first()).toBeVisible()
+    // No inline button on the SENIOR_INCOME row — both quick-payout (old) and
+    // pay-payout pills are gone for this row type.
+    await expect(
+      asSenior.getByTestId(`row-pay-payout-${pendingPaymentIncome.id}`),
+    ).not.toBeVisible()
+    await expect(asSenior.getByRole('button', { name: /Выплатить/i })).not.toBeVisible()
+  })
+
+  test('SENIOR sees inline «Оплатить» on the auto-created PAYOUT row', async ({
+    asSenior,
+  }) => {
+    // ACCOUNTANT-just-validated state: SENIOR_INCOME in PENDING_PAYMENT plus
+    // the auto-created «Выплата» (PAYOUT, PENDING_PAYMENT, senderId=senior).
+    const incomeTx = makeSeniorIncome({
+      status: 'PENDING_PAYMENT',
+      payoutRequestId: 'payout-flow-1',
+    })
+    const payoutRow = makePayoutRow()
+    await mockTransactions(asSenior, [incomeTx, payoutRow])
 
     await asSenior.goto('/crm/finance')
 
-    // The pay button is the regression target: visible + counter shows 1.
-    const payBtn = asSenior.getByRole('button', { name: /Выплатить \(1\)/i })
-    await expect(payBtn).toBeVisible()
+    const inlinePay = asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`)
+    await expect(inlinePay).toBeVisible()
   })
 
-  test('SENIOR does NOT see «Оплатить» for PENDING (un-validated) transaction', async ({
+  test('SENIOR does NOT see any pay-out pill for PENDING (un-validated) SENIOR_INCOME', async ({
     asSenior,
   }) => {
     const pendingTx = makeSeniorIncome({ status: 'PENDING', validatedBy: null, validatedAt: null })
     await mockTransactions(asSenior, [pendingTx])
 
     await asSenior.goto('/crm/finance')
-
-    // Wait for the table to render before asserting absence (race-free).
     await expect(asSenior.getByText('Ожидает').first()).toBeVisible()
     await expect(asSenior.getByRole('button', { name: /Выплатить/i })).not.toBeVisible()
+    await expect(asSenior.getByRole('button', { name: /Оплатить/i })).not.toBeVisible()
   })
 
-  test('SENIOR clicks «Выплатить» → PayoutDialog opens with the validated transaction selectable', async ({
+  test('Header batch «Выплатить (N)» button is gone (removed in task-payout-auto-on-validate)', async ({
     asSenior,
   }) => {
+    // Even with multiple VALIDATED-looking rows, no batch header button
+    // should appear — the flow is now driven entirely from the PAYOUT row.
     const validatedTx = makeSeniorIncome()
     await mockTransactions(asSenior, [validatedTx])
 
     await asSenior.goto('/crm/finance')
-
-    await asSenior.getByRole('button', { name: /Выплатить \(1\)/i }).click()
-    const dialog = asSenior.getByRole('dialog')
-    await expect(dialog).toBeVisible()
-    // The validated transaction should be selectable inside the dialog.
-    await expect(dialog.getByText(PROJECT_NAME)).toBeVisible()
-    await expect(dialog.locator('input[type="checkbox"]').first()).toBeVisible()
+    await expect(asSenior.getByTestId('header-payout-button')).not.toBeVisible()
+    await expect(asSenior.getByRole('button', { name: /Выплатить \(/i })).not.toBeVisible()
   })
 
-  test('SENIOR creates payout: select tx → «Создать выплату» → dialog closes', async ({
+  test('SENIOR pays auto-created PAYOUT: inline «Оплатить» → PayoutDetailDialog → submit tx hash', async ({
     asSenior,
   }) => {
-    // Step 1 of the split flow — PayoutDialog now ONLY creates a payout
-    // request (no tx hash field). The contract address + hash submission
-    // live in PayoutDetailDialog, which is opened separately from the inline
-    // «Оплатить» pill on a PENDING_PAYMENT row.
-    const validatedTx = makeSeniorIncome()
-    await mockTransactions(asSenior, [validatedTx])
-
-    await asSenior.goto('/crm/finance')
-    await asSenior.getByRole('button', { name: /Выплатить \(1\)/i }).click()
-    const dialog = asSenior.getByRole('dialog')
-
-    await dialog.locator('input[type="checkbox"]').first().click()
-
-    // Submit button is the *only* CTA on the new single-step dialog. Match
-    // by full string so we don't accidentally hit the header «Выплатить (1)»
-    // bulk button outside the dialog.
-    await dialog.getByRole('button', { name: 'Создать выплату' }).click()
-
-    // Dialog dismisses after successful create — PayoutDialog calls
-    // handleClose() on createMutation.onSuccess.
-    await expect(dialog).not.toBeVisible()
-  })
-
-  test('SENIOR pays existing payout: inline «Оплатить» → PayoutDetailDialog → submit tx hash', async ({
-    asSenior,
-  }) => {
-    // Step 2 of the split flow — Выплата already exists (status=PENDING,
-    // tx in PENDING_PAYMENT). SENIOR clicks the inline «Оплатить» pill,
-    // the detail dialog opens with the stub contract address, the SENIOR
-    // pastes the on-chain hash and submits.
-    const pendingPaymentTx = makeSeniorIncome({
-      id: 'pay-flow-tx-pending',
+    const incomeTx = makeSeniorIncome({
       status: 'PENDING_PAYMENT',
       payoutRequestId: 'payout-flow-1',
     })
-    await mockTransactions(asSenior, [pendingPaymentTx])
+    const payoutRow = makePayoutRow()
+    await mockTransactions(asSenior, [incomeTx, payoutRow])
 
     await asSenior.goto('/crm/finance')
 
-    // Inline pill on the PENDING_PAYMENT row.
-    const inlinePay = asSenior.getByTestId(`row-pay-payout-${pendingPaymentTx.id}`)
+    const inlinePay = asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`)
     await expect(inlinePay).toBeVisible()
     await inlinePay.click()
 
@@ -236,20 +262,17 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     await expect(dialog).toBeVisible()
     await expect(dialog.getByRole('heading', { name: /Подтвердить выплату/i })).toBeVisible()
 
-    // Contract address must be visible and match the stub the API returned.
     await expect(dialog.getByTestId('payout-detail-contract-address')).toContainText(
       STUB_CONTRACT,
     )
 
-    // Submit the on-chain tx hash → triggers PATCH /:id/pay (mocked to PAID).
     await dialog.getByTestId('payout-detail-tx-hash-input').fill('0xabcd1234567890')
     await dialog.getByTestId('payout-detail-submit').click()
 
-    // On success the dialog closes.
     await expect(dialog).not.toBeVisible()
   })
 
-  test('REJECTED transactions are NOT counted toward «Оплатить»', async ({ asSenior }) => {
+  test('REJECTED transactions never get a pay-out pill', async ({ asSenior }) => {
     const rejected = makeSeniorIncome({
       id: 'pay-flow-tx-rejected',
       status: 'REJECTED',
@@ -260,15 +283,22 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     await asSenior.goto('/crm/finance')
     await expect(asSenior.getByText('Отклонено').first()).toBeVisible()
     await expect(asSenior.getByRole('button', { name: /Выплатить/i })).not.toBeVisible()
+    await expect(asSenior.getByRole('button', { name: /Оплатить/i })).not.toBeVisible()
   })
 
-  test('ACCOUNTANT does NOT see the «Оплатить» button (SENIOR-only action)', async ({ page }) => {
+  test('ACCOUNTANT does NOT see the «Оплатить» pill on PAYOUT rows (SENIOR-only)', async ({
+    page,
+  }) => {
     await mockAuthAs(page, USERS.accountant)
-    const validatedTx = makeSeniorIncome()
-    await mockTransactions(page, [validatedTx])
+    const incomeTx = makeSeniorIncome({
+      status: 'PENDING_PAYMENT',
+      payoutRequestId: 'payout-flow-1',
+    })
+    const payoutRow = makePayoutRow()
+    await mockTransactions(page, [incomeTx, payoutRow])
 
     await page.goto('/crm/finance')
-    // Accountant validates; never pays.
+    await expect(page.getByTestId(`row-pay-payout-${payoutRow.id}`)).not.toBeVisible()
     await expect(page.getByRole('button', { name: /Выплатить \(/i })).not.toBeVisible()
   })
 })

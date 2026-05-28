@@ -461,21 +461,99 @@ export class TransactionsService {
     if (!tx) throw new NotFoundException('Transaction not found')
     if (tx.type !== 'SENIOR_INCOME')
       throw new BadRequestException('Only SENIOR_INCOME can be validated')
+    // AC4: idempotency. The action is only valid on PENDING rows — a second
+    // click after a successful validate would otherwise create a duplicate
+    // PAYOUT row. We throw rather than silently no-op so the UI can show
+    // a clear error to the ACCOUNTANT (vs. pretending it worked twice).
     if (tx.status !== 'PENDING')
       throw new BadRequestException('Transaction is not in PENDING status')
 
     if (action === 'validate') {
-      await this.db.db
-        .update(transactions)
-        .set({
-          status: 'VALIDATED',
-          validatedBy: currentUser.id,
-          validatedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(transactions.id, id))
+      // AC1 + AC5: validate atomically flips the SENIOR_INCOME to
+      // PENDING_PAYMENT *and* creates the 1-to-1 «Выплата» row. The PAYOUT
+      // row carries the «Оплатить» button — SENIOR_INCOME no longer does.
+      //
+      // We deliberately skip the VALIDATED intermediate state in this flow:
+      // status moves PENDING → PENDING_PAYMENT directly. «VALIDATED» remains
+      // a valid value for legacy rows + the batch payout endpoint
+      // (createPayoutRequest) which still uses VALIDATED → PENDING_PAYMENT.
+      //
+      // db.transaction() guarantees both the UPDATE and the INSERT happen
+      // together — if the PAYOUT insert fails, the SENIOR_INCOME stays
+      // PENDING and the ACCOUNTANT can retry.
+      if (!tx.receiverId) {
+        throw new BadRequestException(
+          'SENIOR_INCOME has no receiverId — cannot create payout',
+        )
+      }
+      const senior = await this.db.db.query.users.findFirst({
+        where: eq(users.id, tx.receiverId),
+      })
+      if (!senior) throw new NotFoundException('Senior receiver not found')
 
-      // Unlock junior salary for this project's current month if locked
+      // Senior keeps `sharePercent`%, pays `100 - sharePercent`% to company.
+      // Snapshot from the SENIOR_INCOME row (set at createSeniorIncome time
+      // from project override → user default) so the payout uses the same %
+      // that was visible to the senior when they submitted income.
+      const sharePercent = tx.seniorSharePercent ?? senior.seniorSharePercent ?? 26
+      const incomeAmount = parseFloat(tx.amount)
+      const payableAmount = incomeAmount * (1 - sharePercent / 100)
+
+      // Stub Ethereum-shape contract address (0x + 40 hex). Each PAYOUT gets
+      // a fresh one — when PHASE 8 ships these will be replaced by the real
+      // PaymentSplitter contract address. See createPayoutRequest for the
+      // batch counterpart that does the same thing.
+      const contractAddress = '0x' + randomBytes(20).toString('hex')
+
+      const now = new Date()
+
+      await this.db.db.transaction(async (dbtx) => {
+        // 1) Create the payout_request row first (FK target for both tx
+        //    updates below).
+        const [req] = await dbtx
+          .insert(payoutRequests)
+          .values({
+            seniorId: tx.receiverId!,
+            incomeAmount: String(incomeAmount),
+            payableAmount: String(payableAmount),
+            contractAddress,
+            status: 'PENDING',
+          })
+          .returning()
+
+        // 2) Flip SENIOR_INCOME status to PENDING_PAYMENT + link it to the
+        //    payout_request so the UI groups them.
+        await dbtx
+          .update(transactions)
+          .set({
+            status: 'PENDING_PAYMENT',
+            payoutRequestId: req!.id,
+            validatedBy: currentUser.id,
+            validatedAt: now,
+            updatedAt: now,
+          })
+          .where(eq(transactions.id, id))
+
+        // 3) Insert the placeholder «Выплата» row (PAYOUT, PENDING_PAYMENT).
+        //    senderId = the senior (who pays out); receiverLabel = company.
+        //    1-to-1 with the SENIOR_INCOME row (task explicitly out-of-scope:
+        //    batch payouts where N incomes → 1 payout).
+        await dbtx.insert(transactions).values({
+          type: 'PAYOUT',
+          status: 'PENDING_PAYMENT',
+          amount: String(payableAmount),
+          currency: tx.currency,
+          senderId: tx.receiverId!,
+          receiverLabel: 'CheekyCheeseIT',
+          projectId: tx.projectId,
+          payoutRequestId: req!.id,
+          createdBy: currentUser.id,
+        })
+      })
+
+      // Unlock junior salary for this project's current month if locked.
+      // Outside the transaction is fine — it's a best-effort secondary
+      // effect; if it fails the validate still succeeded.
       await this.unlockJuniorSalaryForProject(tx.projectId, tx)
     } else {
       if (!rejectionReason) throw new BadRequestException('Rejection reason is required')

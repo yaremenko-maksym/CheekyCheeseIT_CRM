@@ -83,7 +83,16 @@ function makePayoutRequest(overrides: object = {}) {
 
 type MockPage = import('@playwright/test').Page
 
-async function setupTransactionMocks(page: MockPage, tx: object, payoutReqs: object[] = []) {
+async function setupTransactionMocks(
+  page: MockPage,
+  tx: object,
+  payoutReqs: object[] = [],
+  // When provided, list endpoint returns this set instead of just `[tx]`.
+  // Used by the new-flow tests that need both the SENIOR_INCOME and the
+  // auto-created PAYOUT row visible in the same table.
+  listOverride?: object[],
+) {
+  const listBody = JSON.stringify(listOverride ?? [tx])
   await page.route(new RegExp(`${API}/transactions/senior-income/([^/?]+)$`), (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...tx, status: 'PENDING', rejectionReason: null }) }),
   )
@@ -93,7 +102,7 @@ async function setupTransactionMocks(page: MockPage, tx: object, payoutReqs: obj
   await page.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
     r.request().method() === 'POST'
       ? r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(tx) })
-      : r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([tx]) }),
+      : r.fulfill({ status: 200, contentType: 'application/json', body: listBody }),
   )
   await page.route(new RegExp(`${API}/payout-requests/([^/?]+)/pay$`), (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(makePayoutRequest({ status: 'PAID', txHash: '0xdeadbeef' })) }),
@@ -355,13 +364,37 @@ test.describe('SENIOR INCOME — шаг 3: повторная валидация
     await expect(page.getByRole('dialog')).not.toBeVisible()
   })
 
-  test('После принятия SENIOR видит статус "Подтверждено" и кнопку "Выплатить"', async ({ asSenior }) => {
-    const validatedTx = makeTx({ status: 'VALIDATED', receiverId: USERS.senior.id })
-    await setupTransactionMocks(asSenior, validatedTx)
+  test('После принятия SENIOR видит auto-created «Выплата» с кнопкой «Оплатить»', async ({ asSenior }) => {
+    // New flow (task-payout-auto-on-validate): ACCOUNTANT validate atomically
+    // moves SENIOR_INCOME → PENDING_PAYMENT and inserts the «Выплата» PAYOUT
+    // row carrying the inline «Оплатить» pill.
+    const incomeAfterValidate = makeTx({
+      status: 'PENDING_PAYMENT',
+      receiverId: USERS.senior.id,
+      payoutRequestId: 'flow-payout-1',
+    })
+    const payoutRow = {
+      ...makeTx({
+        id: 'flow-payout-row-1',
+        type: 'PAYOUT',
+        status: 'PENDING_PAYMENT',
+        senderId: USERS.senior.id,
+        senderName: USERS.senior.displayName,
+        senderLabel: null,
+        receiverId: null,
+        receiverName: null,
+        receiverLabel: 'CheekyCheeseIT',
+        amount: '3700.00',
+        payoutRequestId: 'flow-payout-1',
+      }),
+    }
+    await setupTransactionMocks(asSenior, incomeAfterValidate, [], [incomeAfterValidate, payoutRow])
     await asSenior.goto('/crm/finance')
 
-    await expect(asSenior.getByText('Подтверждено').first()).toBeVisible()
-    await expect(asSenior.getByRole('button', { name: /Выплатить \(1\)/i })).toBeVisible()
+    await expect(asSenior.getByText(/Ожидает выплаты/i).first()).toBeVisible()
+    await expect(asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`)).toBeVisible()
+    // Old batch header button is gone.
+    await expect(asSenior.getByRole('button', { name: /Выплатить \(/i })).not.toBeVisible()
   })
 
   test('SENIOR не видит кнопку "Проверить" — это только для ACCOUNTANT/ADMIN', async ({ asSenior }) => {
@@ -374,61 +407,48 @@ test.describe('SENIOR INCOME — шаг 3: повторная валидация
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ШАГ 4: SENIOR создаёт запрос выплаты
+// ШАГ 4 (новый флоу): «Выплата» (PAYOUT row) auto-creates при validate
+//
+// task-payout-auto-on-validate removed batch PayoutDialog. ACCOUNTANT click
+// «Подтвердить» now atomically creates the PAYOUT row server-side, the
+// SENIOR sees it directly in the table with an inline «Оплатить» pill.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-test.describe('SENIOR INCOME — шаг 4: создание запроса на выплату', () => {
-  test('SENIOR открывает PayoutDialog — видит VALIDATED транзакцию в списке', async ({ asSenior }) => {
-    const validatedTx = makeTx({ status: 'VALIDATED', receiverId: USERS.senior.id })
-    await setupTransactionMocks(asSenior, validatedTx)
+test.describe('SENIOR INCOME — шаг 4: «Выплата» появляется после validate', () => {
+  test('SENIOR видит «Выплата» row с кнопкой «Оплатить» сразу после ACCOUNTANT validate', async ({ asSenior }) => {
+    const incomeAfterValidate = makeTx({
+      status: 'PENDING_PAYMENT',
+      receiverId: USERS.senior.id,
+      payoutRequestId: 'flow-payout-1',
+    })
+    const payoutRow = makeTx({
+      id: 'flow-payout-row-1',
+      type: 'PAYOUT',
+      status: 'PENDING_PAYMENT',
+      senderId: USERS.senior.id,
+      senderName: USERS.senior.displayName,
+      senderLabel: null,
+      receiverId: null,
+      receiverName: null,
+      receiverLabel: 'CheekyCheeseIT',
+      amount: '3700.00',
+      payoutRequestId: 'flow-payout-1',
+    })
+    await setupTransactionMocks(asSenior, incomeAfterValidate, [], [incomeAfterValidate, payoutRow])
     await asSenior.goto('/crm/finance')
 
-    await asSenior.getByRole('button', { name: /Выплатить \(/i }).click()
-    const dialog = asSenior.getByRole('dialog')
-    await expect(dialog).toBeVisible()
-    await expect(dialog.getByText(PROJECT_NAME)).toBeVisible()
+    await expect(asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`)).toBeVisible()
+    // SENIOR_INCOME row no longer carries any inline pay-out button.
+    await expect(asSenior.getByTestId(`row-pay-payout-${incomeAfterValidate.id}`)).not.toBeVisible()
   })
 
-  test('Кнопка "Создать выплату" недоступна пока не выбрана ни одна транзакция', async ({ asSenior }) => {
+  test('Старый header-button «Выплатить (N)» НЕ виден ни на каком статусе', async ({ asSenior }) => {
     const validatedTx = makeTx({ status: 'VALIDATED', receiverId: USERS.senior.id })
     await setupTransactionMocks(asSenior, validatedTx)
     await asSenior.goto('/crm/finance')
 
-    await asSenior.getByRole('button', { name: /Выплатить \(/i }).click()
-    await expect(asSenior.getByRole('button', { name: 'Создать выплату' })).toBeDisabled()
-  })
-
-  test('После выбора транзакции — виден расчёт суммы к оплате', async ({ asSenior }) => {
-    const validatedTx = makeTx({ status: 'VALIDATED', receiverId: USERS.senior.id })
-    await setupTransactionMocks(asSenior, validatedTx)
-    await asSenior.goto('/crm/finance')
-
-    await asSenior.getByRole('button', { name: /Выплатить \(/i }).click()
-    const dialog = asSenior.getByRole('dialog')
-
-    await dialog.locator('input[type="checkbox"]').first().click()
-
-    // К оплате блок
-    await expect(dialog.getByText(/К оплате/i).first()).toBeVisible()
-    // 5000 * (1 - 26/100) = 3700
-    await expect(dialog.getByText(/3[,.]?700/).first()).toBeVisible()
-  })
-
-  test('SENIOR нажимает "Создать выплату" — диалог закрывается (split flow step 1)', async ({ asSenior }) => {
-    // Post-split: PayoutDialog only creates the payout request. The tx-hash
-    // submission moved to PayoutDetailDialog (opened separately from the
-    // inline «Оплатить» pill on PENDING_PAYMENT rows).
-    const validatedTx = makeTx({ status: 'VALIDATED', receiverId: USERS.senior.id })
-    await setupTransactionMocks(asSenior, validatedTx)
-    await asSenior.goto('/crm/finance')
-
-    await asSenior.getByRole('button', { name: /Выплатить \(/i }).click()
-    const dialog = asSenior.getByRole('dialog')
-    await dialog.locator('input[type="checkbox"]').first().click()
-    await dialog.getByRole('button', { name: 'Создать выплату' }).click()
-
-    // Dialog dismisses after the create mutation succeeds.
-    await expect(dialog).not.toBeVisible()
+    await expect(asSenior.getByTestId('header-payout-button')).not.toBeVisible()
+    await expect(asSenior.getByRole('button', { name: /Выплатить \(/i })).not.toBeVisible()
   })
 })
 
@@ -437,21 +457,34 @@ test.describe('SENIOR INCOME — шаг 4: создание запроса на 
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test.describe('SENIOR INCOME — шаг 5: оплата выплаты (PayoutDetailDialog)', () => {
-  // Step 5 — after the request is created (status=PENDING, linked tx in
-  // PENDING_PAYMENT), the SENIOR clicks the inline «Оплатить» pill which
-  // opens PayoutDetailDialog. The dialog shows the contract address and
-  // takes the on-chain tx hash for verification.
+  // Step 5 — auto-created «Выплата» (PAYOUT row) carries the inline
+  // «Оплатить» pill. Click → PayoutDetailDialog. Dialog shows the contract
+  // address; SENIOR submits the on-chain tx hash to mark PAID.
+
+  // Build the «Выплата» row (matches what the backend inserts in
+  // validateTransaction after task-payout-auto-on-validate).
+  function makePayoutRowTx() {
+    return makeTx({
+      id: 'flow-payout-row-1',
+      type: 'PAYOUT',
+      status: 'PENDING_PAYMENT',
+      senderId: USERS.senior.id,
+      senderName: USERS.senior.displayName,
+      senderLabel: null,
+      receiverId: null,
+      receiverName: null,
+      receiverLabel: 'CheekyCheeseIT',
+      amount: '3700.00',
+      payoutRequestId: 'flow-payout-1',
+    })
+  }
 
   test('Кнопка «Подтвердить оплату» недоступна без TX hash', async ({ asSenior }) => {
-    const pendingTx = makeTx({
-      status: 'PENDING_PAYMENT',
-      payoutRequestId: 'flow-payout-1',
-      receiverId: USERS.senior.id,
-    })
-    await setupTransactionMocks(asSenior, pendingTx)
+    const payoutRow = makePayoutRowTx()
+    await setupTransactionMocks(asSenior, payoutRow, [], [payoutRow])
 
     await asSenior.goto('/crm/finance')
-    await asSenior.getByTestId(`row-pay-payout-${pendingTx.id}`).click()
+    await asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`).click()
 
     const dialog = asSenior.getByRole('dialog')
     await expect(dialog).toBeVisible()
@@ -459,15 +492,11 @@ test.describe('SENIOR INCOME — шаг 5: оплата выплаты (PayoutDe
   })
 
   test('PayoutDetailDialog показывает адрес контракта + payable amount', async ({ asSenior }) => {
-    const pendingTx = makeTx({
-      status: 'PENDING_PAYMENT',
-      payoutRequestId: 'flow-payout-1',
-      receiverId: USERS.senior.id,
-    })
-    await setupTransactionMocks(asSenior, pendingTx)
+    const payoutRow = makePayoutRowTx()
+    await setupTransactionMocks(asSenior, payoutRow, [], [payoutRow])
 
     await asSenior.goto('/crm/finance')
-    await asSenior.getByTestId(`row-pay-payout-${pendingTx.id}`).click()
+    await asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`).click()
 
     const dialog = asSenior.getByRole('dialog')
     await expect(dialog.getByTestId('payout-detail-contract-address')).toContainText(
@@ -478,15 +507,11 @@ test.describe('SENIOR INCOME — шаг 5: оплата выплаты (PayoutDe
   })
 
   test('SENIOR вводит TX hash — «Подтвердить оплату» разблокируется', async ({ asSenior }) => {
-    const pendingTx = makeTx({
-      status: 'PENDING_PAYMENT',
-      payoutRequestId: 'flow-payout-1',
-      receiverId: USERS.senior.id,
-    })
-    await setupTransactionMocks(asSenior, pendingTx)
+    const payoutRow = makePayoutRowTx()
+    await setupTransactionMocks(asSenior, payoutRow, [], [payoutRow])
 
     await asSenior.goto('/crm/finance')
-    await asSenior.getByTestId(`row-pay-payout-${pendingTx.id}`).click()
+    await asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`).click()
 
     const dialog = asSenior.getByRole('dialog')
     await dialog.getByTestId('payout-detail-tx-hash-input').fill('0xdeadbeef123456')
@@ -494,15 +519,11 @@ test.describe('SENIOR INCOME — шаг 5: оплата выплаты (PayoutDe
   })
 
   test('SENIOR нажимает «Подтвердить оплату» — диалог закрывается', async ({ asSenior }) => {
-    const pendingTx = makeTx({
-      status: 'PENDING_PAYMENT',
-      payoutRequestId: 'flow-payout-1',
-      receiverId: USERS.senior.id,
-    })
-    await setupTransactionMocks(asSenior, pendingTx)
+    const payoutRow = makePayoutRowTx()
+    await setupTransactionMocks(asSenior, payoutRow, [], [payoutRow])
 
     await asSenior.goto('/crm/finance')
-    await asSenior.getByTestId(`row-pay-payout-${pendingTx.id}`).click()
+    await asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`).click()
 
     const dialog = asSenior.getByRole('dialog')
     await dialog.getByTestId('payout-detail-tx-hash-input').fill('0xdeadbeef123456')
@@ -612,55 +633,60 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     await accountantPage.getByRole('button', { name: 'Подтвердить' }).click()
     await expect(accountantPage.getByRole('dialog')).not.toBeVisible()
 
-    // === ШАГ 4: SENIOR создаёт выплату (PayoutDialog) ===
-    // Split flow: PayoutDialog now only creates the payout request — the
-    // contract address + tx-hash submission live in PayoutDetailDialog,
-    // which the SENIOR opens from the inline «Оплатить» pill on the
-    // resulting PENDING_PAYMENT row.
-    await seniorPage.route(new RegExp(`${API}/payout-requests/([^/?]+)/pay$`), (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(makePayoutRequest({ status: 'PAID', txHash: '0xdeadbeef' })) }),
-    )
-    // Single-payout GET — drives PayoutDetailDialog's useQuery.
-    await seniorPage.route(new RegExp(`${API}/payout-requests/([^/?]+)$`), (r) =>
-      r.request().method() === 'GET'
-        ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(makePayoutRequest()) })
-        : r.fallback(),
-    )
-    await seniorPage.route(new RegExp(`${API}/payout-requests(\\?.*)?$`), (r) =>
-      r.request().method() === 'POST'
-        ? r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(makePayoutRequest()) })
-        : r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
-    )
-    await seniorPage.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ ...validatedTx, receiverId: USERS.senior.id }]) }),
-    )
-
-    await seniorPage.goto('/crm/finance')
-    await expect(seniorPage.getByText('Подтверждено').first()).toBeVisible()
-    await expect(seniorPage.getByRole('button', { name: /Выплатить \(1\)/i })).toBeVisible()
-
-    await seniorPage.getByRole('button', { name: /Выплатить \(/i }).click()
-    const dialog = seniorPage.getByRole('dialog')
-    await dialog.locator('input[type="checkbox"]').first().click()
-    await expect(dialog.getByText(/3[,.]?700/).first()).toBeVisible()
-    await dialog.getByRole('button', { name: 'Создать выплату' }).click()
-    await expect(dialog).not.toBeVisible()
-
-    // === ШАГ 5: SENIOR оплачивает (PayoutDetailDialog) ===
-    // After create, the transaction moves to PENDING_PAYMENT. Re-mock the
-    // listing to reflect that, then click the inline «Оплатить» pill.
-    const pendingPaymentTx = {
+    // === ШАГ 4 + 5: «Выплата» auto-created server-side; SENIOR оплачивает ===
+    // task-payout-auto-on-validate collapsed old steps 4 (PayoutDialog) and 5
+    // (PayoutDetailDialog) into one. ACCOUNTANT's earlier «Подтвердить»
+    // would atomically insert the PAYOUT row, so the SENIOR now arrives at
+    // /crm/finance and sees the «Выплата» row directly.
+    const pendingPaymentIncome = {
       ...validatedTx,
       status: 'PENDING_PAYMENT',
       payoutRequestId: 'flow-payout-1',
       receiverId: USERS.senior.id,
     }
+    const payoutRow = makeTx({
+      id: 'flow-payout-row-1',
+      type: 'PAYOUT',
+      status: 'PENDING_PAYMENT',
+      senderId: USERS.senior.id,
+      senderName: USERS.senior.displayName,
+      senderLabel: null,
+      receiverId: null,
+      receiverName: null,
+      receiverLabel: 'CheekyCheeseIT',
+      amount: '3700.00',
+      payoutRequestId: 'flow-payout-1',
+    })
+
+    await seniorPage.route(new RegExp(`${API}/payout-requests/([^/?]+)/pay$`), (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(makePayoutRequest({ status: 'PAID', txHash: '0xdeadbeef' })),
+      }),
+    )
+    await seniorPage.route(new RegExp(`${API}/payout-requests/([^/?]+)$`), (r) =>
+      r.request().method() === 'GET'
+        ? r.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(makePayoutRequest()),
+          })
+        : r.fallback(),
+    )
     await seniorPage.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([pendingPaymentTx]) }),
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([pendingPaymentIncome, payoutRow]),
+      }),
     )
 
     await seniorPage.goto('/crm/finance')
-    await seniorPage.getByTestId(`row-pay-payout-${pendingPaymentTx.id}`).click()
+    // Old batch header button must not exist anymore.
+    await expect(seniorPage.getByTestId('header-payout-button')).not.toBeVisible()
+    // SENIOR opens the auto-created «Выплата» row via its inline pill.
+    await seniorPage.getByTestId(`row-pay-payout-${payoutRow.id}`).click()
     const detailDialog = seniorPage.getByRole('dialog')
     await expect(detailDialog.getByTestId('payout-detail-contract-address')).toContainText(
       FLOW_STUB_CONTRACT,
