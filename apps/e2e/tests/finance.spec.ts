@@ -158,19 +158,17 @@ test.describe('Finance — page load', () => {
     await expect(asAdmin.getByRole('button', { name: /Новая транзакция/i })).toBeVisible()
   })
 
-  test('SENIOR: видит кнопку создания, нет кнопки Выплатить без валидированных', async ({ asSenior }) => {
+  test('SENIOR: видит кнопку создания, нет batch-кнопки Выплатить (удалена в task-payout-auto-on-validate)', async ({ asSenior }) => {
     await mockTransactions(asSenior, [])
     await asSenior.goto('/crm/finance')
     await expect(asSenior.getByRole('button', { name: /Новая транзакция/i })).toBeVisible()
+    // batch-button «Выплатить (N)» в шапке удалена — auto-create flow создаёт PAYOUT row при validate.
     await expect(asSenior.getByRole('button', { name: /Выплатить \(/i })).not.toBeVisible()
   })
 
-  test('SENIOR: кнопка Выплатить появляется при наличии валидированных транзакций', async ({ asSenior }) => {
-    const validatedTx = { ...TX_VALIDATED_SENIOR, senderId: USERS.senior.id }
-    await mockTransactions(asSenior, [validatedTx])
-    await asSenior.goto('/crm/finance')
-    await expect(asSenior.getByRole('button', { name: /Выплатить \(/i })).toBeVisible()
-  })
+  // Покрытие auto-create PAYOUT flow → см. finance-senior-flow.spec.ts +
+  // finance-senior-payment-flow.spec.ts. Старая batch-кнопка «Выплатить (N)»
+  // полностью удалена (task-payout-auto-on-validate).
 
   test('HR: видит только заголовок "История ваших выплат", нет кнопки создания', async ({ asHr }) => {
     await mockTransactions(asHr, [TX_SALARY_HR])
@@ -513,37 +511,15 @@ test.describe('Finance — выплата зарплаты (ADMIN)', () => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 10. ЗАПРОС ВЫПЛАТЫ — PayoutDialog (SENIOR)
+// 10. ЗАПРОС ВЫПЛАТЫ — auto-create при validate (SENIOR)
 // ═══════════════════════════════════════════════════════════════════════════════
-
-test.describe('Finance — запрос выплаты (SENIOR)', () => {
-  test('SENIOR: открывает диалог выплаты при наличии VALIDATED транзакций', async ({ asSenior }) => {
-    const validatedTx = { ...TX_VALIDATED_SENIOR, senderId: USERS.senior.id }
-    await mockTransactions(asSenior, [validatedTx])
-    await asSenior.route(new RegExp(`${API}/payout-requests(\\?.*)?$`), (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
-    )
-    await asSenior.goto('/crm/finance')
-    await expect(asSenior.getByRole('button', { name: /Выплатить \(/i })).toBeVisible()
-    await asSenior.getByRole('button', { name: /Выплатить \(/i }).click()
-    await expect(asSenior.getByRole('dialog')).toBeVisible()
-    // Заголовок первого шага
-    await expect(asSenior.getByRole('heading', { name: /Выбрать транзакции для выплаты/i })).toBeVisible()
-  })
-
-  test('SENIOR: диалог выплаты показывает список транзакций', async ({ asSenior }) => {
-    const validatedTx = { ...TX_VALIDATED_SENIOR, senderId: USERS.senior.id }
-    await mockTransactions(asSenior, [validatedTx])
-    await asSenior.route(new RegExp(`${API}/payout-requests(\\?.*)?$`), (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
-    )
-    await asSenior.goto('/crm/finance')
-    await asSenior.getByRole('button', { name: /Выплатить \(/i }).click()
-    await expect(asSenior.getByRole('dialog')).toBeVisible()
-    // Проект в списке транзакций
-    await expect(asSenior.getByRole('dialog').getByText(PROJECT_NAME).first()).toBeVisible()
-  })
-})
+// Старый batch PayoutDialog удалён в task-payout-auto-on-validate. Теперь
+// ACCOUNTANT validate атомарно создаёт PAYOUT row + payout_request, SENIOR
+// видит inline pill «Оплатить» на PAYOUT row и попадает в PayoutDetailDialog.
+//
+// Полное покрытие нового flow:
+//   • finance-senior-flow.spec.ts          — sezione «ШАГ 4 + 5» auto-create
+//   • finance-senior-payment-flow.spec.ts  — inline pill + PayoutDetailDialog
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 11. ДЕТАЛИ ТРАНЗАКЦИИ — TransactionDetailDialog
@@ -612,12 +588,16 @@ test.describe('Finance — PENDING_PAYMENT status', () => {
     await expect(asSenior.getByRole('button', { name: /Выплатить \(/i })).not.toBeVisible()
   })
 
-  test('SENIOR: видит кнопку Выплатить только при наличии VALIDATED (не PENDING_PAYMENT) транзакций', async ({ asSenior }) => {
+  test('SENIOR: batch-кнопка «Выплатить (N)» удалена даже при mix VALIDATED + PENDING_PAYMENT', async ({ asSenior }) => {
+    // Regression: после task-payout-auto-on-validate batch-flow убран.
+    // Inline «Оплатить» теперь живёт на PAYOUT row — покрыто в
+    // finance-senior-payment-flow.spec.ts.
     const myValidated = { ...TX_VALIDATED_SENIOR, senderId: USERS.senior.id }
     const myPendingPayment = { ...TX_PENDING_PAYMENT_SENIOR, senderId: USERS.senior.id }
     await mockTransactions(asSenior, [myValidated, myPendingPayment])
     await asSenior.goto('/crm/finance')
-    await expect(asSenior.getByRole('button', { name: /Выплатить \(/i })).toBeVisible()
+    await expect(asSenior.getByRole('button', { name: /Выплатить \(/i })).not.toBeVisible()
+    await expect(asSenior.getByTestId('header-payout-button')).not.toBeVisible()
   })
 
   test('ACCOUNTANT: видит PENDING_PAYMENT статус без кнопок действий', async ({ page }) => {

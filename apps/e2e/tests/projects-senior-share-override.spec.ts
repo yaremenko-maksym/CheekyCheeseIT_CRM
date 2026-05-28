@@ -218,66 +218,12 @@ test.describe('per-project SENIOR share override', () => {
     })
   })
 
-  test.describe('Scenario E — PayoutDialog preview reads snapshot', () => {
-    test('SENIOR sees "Ваша доля 30%: 300" + "К оплате 70%: 700"', async ({ asSenior: page }) => {
-      const incomeTx = {
-        id: 'tx-payout-1',
-        type: 'SENIOR_INCOME',
-        status: 'VALIDATED',
-        amount: '1000.000000',
-        currency: 'USDT',
-        senderId: null,
-        senderLabel: 'TechCorp AI',
-        senderName: null,
-        receiverId: USERS.senior.id,
-        receiverLabel: null,
-        receiverName: USERS.senior.displayName,
-        projectId: PROJECTS[0]!.id,
-        projectName: PROJECTS[0]!.name,
-        payoutRequestId: null,
-        seniorSharePercent: 30,
-        receiptUrl: null,
-        notes: null,
-        rejectionReason: null,
-        validatedBy: USERS.admin.id,
-        validatedAt: '2026-05-10T00:00:00.000Z',
-        salaryMonth: null,
-        txHash: null,
-        txDate: '2026-05-10T00:00:00.000Z',
-        createdAt: '2026-05-10T00:00:00.000Z',
-        updatedAt: '2026-05-10T00:00:00.000Z',
-        createdBy: USERS.senior.id,
-        // SENIOR createdBy=self so the senderId filter (line 350 in finance/index.tsx)
-        // does include this row. The dialog uses `senderId === userId` filter:
-      }
-      // The validatedForPayout filter in finance/index.tsx requires senderId === userId.
-      // We aren't strict on that field in the mock — just ensure transactions list returns one row.
-      const txForPayout = { ...incomeTx, senderId: USERS.senior.id }
-      await page.route('http://localhost:3001/api/transactions', (r) =>
-        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([txForPayout]) }),
-      )
-
-      await page.goto('/crm/finance')
-
-      // Open the payout dialog.
-      await page.getByRole('button', { name: /Выплатить \(/i }).click()
-
-      // Select the transaction.
-      const checkbox = page.locator('input[type="checkbox"]').first()
-      await checkbox.check()
-
-      // Per-tx preview row appears.
-      const previewRow = page.getByTestId(`payout-preview-row-${txForPayout.id}`)
-      await expect(previewRow).toBeVisible()
-      await expect(previewRow).toContainText('Ваша доля 30%')
-      await expect(previewRow).toContainText('К оплате 70%')
-
-      // Totals block — total payable = 700.
-      const total = page.getByTestId('payout-preview-total')
-      await expect(total).toBeVisible()
-      await expect(total).toContainText('700')
-    })
-  })
+  // Scenario E удалён в task-payout-auto-on-validate: PayoutDialog с per-tx
+  // share% preview больше не существует. Snapshot share% теперь применяется
+  // backend в auto-created PAYOUT row (amount = income * (1 - share/100)).
+  // Покрытие snapshot — Scenario D (SENIOR_INCOME row показывает "Доля: 30%")
+  // плюс finance-senior-flow.spec.ts шаг 5 (PayoutDetailDialog показывает
+  // payable amount уже после server-side вычисления).
 
   // -------------------------------------------------------------------------
   // Edge-case coverage added by AutoTest (post-Coder verification)
@@ -538,59 +484,12 @@ test.describe('per-project SENIOR share override', () => {
     })
   })
 
-  test.describe('Scenario K — legacy transactions without snapshot', () => {
-    test('payout preview shows "approx" badge when seniorSharePercent is null', async ({
-      asSenior: page,
-    }) => {
-      // Legacy SENIOR_INCOME: snapshot is null because the row predates the
-      // share-snapshot column. The dialog must still render a preview using
-      // the SENIOR's current global default + an "approx" badge.
-      const legacyTx = {
-        id: 'tx-legacy-1',
-        type: 'SENIOR_INCOME',
-        status: 'VALIDATED',
-        amount: '1000.000000',
-        currency: 'USDT',
-        senderId: USERS.senior.id,
-        senderLabel: 'TechCorp AI',
-        senderName: null,
-        receiverId: USERS.senior.id,
-        receiverLabel: null,
-        receiverName: USERS.senior.displayName,
-        projectId: PROJECTS[0]!.id,
-        projectName: PROJECTS[0]!.name,
-        payoutRequestId: null,
-        seniorSharePercent: null, // ← legacy row, no snapshot
-        receiptUrl: null,
-        notes: null,
-        rejectionReason: null,
-        validatedBy: USERS.admin.id,
-        validatedAt: '2026-05-10T00:00:00.000Z',
-        salaryMonth: null,
-        txHash: null,
-        txDate: '2026-05-10T00:00:00.000Z',
-        createdAt: '2026-05-10T00:00:00.000Z',
-        updatedAt: '2026-05-10T00:00:00.000Z',
-        createdBy: USERS.senior.id,
-      }
-      await page.route('http://localhost:3001/api/transactions', (r) =>
-        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([legacyTx]) }),
-      )
-
-      await page.goto('/crm/finance')
-      await page.getByRole('button', { name: /Выплатить \(/i }).click()
-      const checkbox = page.locator('input[type="checkbox"]').first()
-      await checkbox.check()
-
-      const previewRow = page.getByTestId(`payout-preview-row-${legacyTx.id}`)
-      await expect(previewRow).toBeVisible()
-      // Falls back to USERS.senior.seniorSharePercent = 26.
-      await expect(previewRow).toContainText('Ваша доля 26%')
-      await expect(previewRow).toContainText('К оплате 74%')
-      // "approx" badge marks the row as estimate-only.
-      await expect(previewRow).toContainText('approx')
-    })
-  })
+  // Scenario K удалён в task-payout-auto-on-validate: «approx» badge жил
+  // только в PayoutDialog preview (frontend-only fallback). После перехода
+  // на auto-create, legacy fallback (`senior.seniorSharePercent ?? 26`)
+  // выполняется server-side в transactions.service.ts validateTransaction
+  // (см. строку `tx.seniorSharePercent ?? senior.seniorSharePercent ?? 26`),
+  // и UI больше не показывает estimate badge — итоговая сумма уже точная.
 
   test.describe('Scenario L — backend RBAC enforcement (negative path)', () => {
     test('HR не отправляет seniorSharePercentOverride в PATCH (DOM-section отсутствует)', async ({
