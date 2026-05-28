@@ -98,8 +98,19 @@ export function PayoutDetailDialog({
       // user picked one of the simulate options. In prod the field is never
       // sent — backend behaviour matches what it always did.
       const simulateResult = SHOW_DEV_SIMULATE && simulateMode !== 'real' ? simulateMode : undefined
+      const trimmedHash = txHash.trim()
+      // PR #56 final UT (AC1): in simulate mode the hash is optional — only
+      // attach it when it's actually non-empty so backend's superRefine
+      // doesn't see a stray empty string. In real mode (prod) we always
+      // submit the trimmed hash (gate above ensures min 10 chars).
+      const hashField =
+        simulateResult !== undefined
+          ? trimmedHash.length > 0
+            ? { txHash: trimmedHash }
+            : {}
+          : { txHash: trimmedHash }
       return financeApi.payPayoutRequest(payoutId!, {
-        txHash: txHash.trim(),
+        ...hashField,
         ...(simulateResult !== undefined && { simulateResult }),
       })
     },
@@ -194,9 +205,13 @@ export function PayoutDetailDialog({
                 </span>
               </div>
 
-              {/* Contract address — copy-able */}
+              {/* Contract address — copy-able. PR #56 final UT (AC4):
+                  label shortened from «Адрес смарт-контракта (USDT ERC-20)»
+                  to «Адрес кошелька» — too long for the dialog header in the
+                  main view, and the ERC-20 distinction lives in the helper
+                  text below where there's room. */}
               <div className="space-y-1.5">
-                <Label className="text-xs">Адрес смарт-контракта (USDT ERC-20)</Label>
+                <Label className="text-xs">Адрес кошелька</Label>
                 <div className="flex items-center gap-2 rounded-md border border-border bg-background p-2">
                   <code
                     className="flex-1 text-xs font-mono break-all"
@@ -220,40 +235,48 @@ export function PayoutDetailDialog({
                   </Button>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  Отправьте сумму к оплате на указанный адрес, затем вставьте хеш транзакции ниже.
+                  Отправьте USDT (ERC-20) на указанный адрес, затем вставьте хеш транзакции ниже.
                 </p>
               </div>
 
-              {/* Transactions in this payout */}
-              {payout.transactions && payout.transactions.length > 0 && (
+              {/* Transactions in this payout. PR #56 final UT (AC4): count
+                  reflects SENIOR_INCOME-only (visible rows), not the full
+                  payoutRequest.transactions array — that array now also
+                  contains the placeholder PAYOUT row created at validate
+                  time (which would otherwise show «2» when only one income
+                  is being paid out). */}
+              {(() => {
+                const seniorIncomeTxs =
+                  payout.transactions?.filter((t) => t.type === 'SENIOR_INCOME') ?? []
+                if (seniorIncomeTxs.length === 0) return null
+                return (
                 <div className="space-y-1.5">
                   <Label className="text-xs">
-                    Транзакции в выплате ({payout.transactions.length})
+                    Транзакции в выплате ({seniorIncomeTxs.length})
                   </Label>
                   <div className="rounded-md border border-border divide-y divide-border max-h-40 overflow-y-auto">
-                    {payout.transactions
-                      .filter((t) => t.type === 'SENIOR_INCOME')
-                      .map((tx) => (
-                        <div
-                          key={tx.id}
-                          className="flex items-center justify-between px-3 py-2 text-xs"
-                          data-testid={`payout-detail-tx-${tx.id}`}
-                        >
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium truncate">{tx.projectName ?? '—'}</p>
-                            <p className="text-muted-foreground">
-                              #{tx.id.slice(0, 6)} от{' '}
-                              {new Date(tx.txDate ?? tx.createdAt).toLocaleDateString('ru-RU')}
-                            </p>
-                          </div>
-                          <span className="tabular-nums font-medium shrink-0">
-                            {fmtAmount(tx.amount, tx.currency)}
-                          </span>
+                    {seniorIncomeTxs.map((tx) => (
+                      <div
+                        key={tx.id}
+                        className="flex items-center justify-between px-3 py-2 text-xs"
+                        data-testid={`payout-detail-tx-${tx.id}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">{tx.projectName ?? '—'}</p>
+                          <p className="text-muted-foreground">
+                            #{tx.id.slice(0, 6)} от{' '}
+                            {new Date(tx.txDate ?? tx.createdAt).toLocaleDateString('ru-RU')}
+                          </p>
                         </div>
-                      ))}
+                        <span className="tabular-nums font-medium shrink-0">
+                          {fmtAmount(tx.amount, tx.currency)}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              )}
+                )
+              })()}
 
               {/* TX hash — input (PENDING) or read-only display (PAID) */}
               {isPaid ? (
@@ -279,7 +302,13 @@ export function PayoutDetailDialog({
               ) : (
                 <div className="space-y-1.5">
                   <Label className="text-xs" htmlFor="payout-tx-hash-input">
-                    Хеш транзакции (после оплаты)
+                    Хеш транзакции
+                    {SHOW_DEV_SIMULATE &&
+                    (simulateMode === 'success' || simulateMode === 'error') ? (
+                      <span className="text-muted-foreground"> (опционально в dev режиме)</span>
+                    ) : (
+                      <span className="text-muted-foreground"> (после оплаты)</span>
+                    )}
                   </Label>
                   <Input
                     id="payout-tx-hash-input"
@@ -360,26 +389,38 @@ export function PayoutDetailDialog({
           <Button variant="outline" onClick={handleClose}>
             {isPaid ? 'Закрыть' : 'Отмена'}
           </Button>
-          {!isPaid && payout && (
-            <Button
-              data-testid="payout-detail-submit"
-              onClick={() => payMutation.mutate()}
-              disabled={
-                txHash.trim().length < 10 ||
-                payMutation.isPending ||
-                // In dev «Реальная проверка» is a hard gate — there's no
-                // ledger to verify against, so we force the SENIOR to pick
-                // success/error explicitly before the submit unlocks. In
-                // production builds the dev block is tree-shaken away and
-                // simulateMode stays at its initial 'real' but never affects
-                // the wire payload (extractedResult logic), so we drop the
-                // gate via the DEV check.
-                (SHOW_DEV_SIMULATE && simulateMode === 'real')
-              }
-            >
-              {payMutation.isPending ? 'Проверка...' : 'Подтвердить оплату'}
-            </Button>
-          )}
+          {!isPaid && payout && (() => {
+            // PR #56 final UT (AC1): submit gate is split into three states.
+            //
+            //   1. payMutation.isPending — always blocks (request in flight).
+            //   2. DEV simulate mode (success/error) — hash is **optional**.
+            //      Backend synthesizes a stub 0xSIM… when absent, so we drop
+            //      the min(10) gate. Previously the button looked enabled
+            //      (no explicit grey-out) but onClick was a no-op because
+            //      txHash.length < 10 → confusing UX.
+            //   3. Real mode (DEV/PROD) — requires hash ≥ 10 chars + in DEV
+            //      the «🔗 Реальная проверка» radio is itself a hard gate
+            //      (no ledger to verify against locally).
+            const isSimulate =
+              SHOW_DEV_SIMULATE && (simulateMode === 'success' || simulateMode === 'error')
+            const realModeBlocked =
+              SHOW_DEV_SIMULATE && simulateMode === 'real' // dev: «реальная» is unavailable
+            const hashTooShort = txHash.trim().length < 10
+            const submitDisabled =
+              payMutation.isPending ||
+              realModeBlocked ||
+              (!isSimulate && hashTooShort)
+            return (
+              <Button
+                data-testid="payout-detail-submit"
+                onClick={() => payMutation.mutate()}
+                disabled={submitDisabled}
+                className={submitDisabled ? 'opacity-50 cursor-not-allowed' : undefined}
+              >
+                {payMutation.isPending ? 'Проверка...' : 'Подтвердить оплату'}
+              </Button>
+            )
+          })()}
         </CrmDialogFooter>
       </CrmDialogContent>
     </Dialog>

@@ -168,7 +168,8 @@ export class PayoutRequestsController {
     // simulateResult is a DEV-only escape hatch: forwarded only when the
     // client opted in, so production builds (which can't render the toggle)
     // call the original 3-arg overload. The service ignores it outside of
-    // NODE_ENV !== 'production' regardless.
+    // NODE_ENV !== 'production' regardless. txHash is optional in simulate
+    // mode — service synthesizes a stub when absent.
     if (data.simulateResult !== undefined) {
       return this.svc.payPayoutRequest(id, data.txHash, user, data.simulateResult)
     }

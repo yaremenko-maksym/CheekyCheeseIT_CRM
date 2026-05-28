@@ -362,9 +362,19 @@ function ReceiptPanel({ tx }: { tx: TransactionDto }) {
   const { url, isLoading } = useReceiptUrl(tx)
   const hasReceipt = !!(tx.receiptDocumentId || tx.receiptExternalUrl)
 
+  // PR #56 final UT (AC3): cap receipt preview height so tall portrait
+  // photos (e.g. iPhone screenshots of a bank statement) don't stretch the
+  // dialog past the viewport. object-contain inside the fixed-height frame
+  // letterboxes anything taller than 60vh — user clicks «Открыть чек» for
+  // the full-resolution view in a new tab.
+  const PREVIEW_FRAME =
+    'h-[60vh] max-h-[520px] min-h-[320px] rounded-lg border border-border bg-muted/30 overflow-hidden'
+
   if (!hasReceipt) {
     return (
-      <div className="flex flex-col items-center justify-center gap-2 min-h-[500px] h-full rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center">
+      <div
+        className={`flex flex-col items-center justify-center gap-2 ${PREVIEW_FRAME} border-dashed border-border bg-muted/20 p-6 text-center`}
+      >
         <FileIcon className="h-10 w-10 text-muted-foreground/40" />
         <p className="text-sm text-muted-foreground">Нет прикреплённого чека</p>
       </div>
@@ -372,12 +382,14 @@ function ReceiptPanel({ tx }: { tx: TransactionDto }) {
   }
 
   if (isLoading) {
-    return <Skeleton className="min-h-[500px] h-full w-full rounded-lg" />
+    return <Skeleton className={`${PREVIEW_FRAME} w-full`} />
   }
 
   if (!url) {
     return (
-      <div className="flex flex-col items-center justify-center gap-2 min-h-[500px] h-full rounded-lg border border-dashed border-destructive/40 bg-destructive/5 p-6 text-center">
+      <div
+        className={`flex flex-col items-center justify-center gap-2 ${PREVIEW_FRAME} border-dashed border-destructive/40 bg-destructive/5 p-6 text-center`}
+      >
         <XCircle className="h-10 w-10 text-destructive/60" />
         <p className="text-sm text-destructive">Чек недоступен</p>
       </div>
@@ -388,7 +400,7 @@ function ReceiptPanel({ tx }: { tx: TransactionDto }) {
   const isPdf = /\.pdf(\?.*)?$/i.test(url)
 
   return (
-    <div className="flex flex-col gap-2 h-full">
+    <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Receipt className="h-3.5 w-3.5" />
         <span>Чек</span>
@@ -398,7 +410,7 @@ function ReceiptPanel({ tx }: { tx: TransactionDto }) {
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="block flex-1 min-h-[500px] rounded-lg border border-border overflow-hidden bg-muted/30"
+          className={`block ${PREVIEW_FRAME} p-2`}
         >
           <img
             src={url}
@@ -411,14 +423,14 @@ function ReceiptPanel({ tx }: { tx: TransactionDto }) {
         </a>
       )}
       {isPdf && (
-        <div className="rounded-lg border border-border overflow-hidden bg-muted/20 flex-1 min-h-[500px]">
-          <object data={url} type="application/pdf" className="w-full h-full min-h-[500px]">
+        <div className={PREVIEW_FRAME}>
+          <object data={url} type="application/pdf" className="w-full h-full">
             <p className="p-3 text-xs text-muted-foreground">PDF не поддерживается браузером.</p>
           </object>
         </div>
       )}
       {!isImage && !isPdf && (
-        <div className="flex flex-col items-center justify-center gap-2 min-h-[500px] flex-1 rounded-lg border border-dashed border-border bg-muted/20 p-6">
+        <div className={`flex flex-col items-center justify-center gap-2 ${PREVIEW_FRAME} border-dashed border-border bg-muted/20 p-6`}>
           <FileIcon className="h-10 w-10 text-muted-foreground/40" />
           <p className="text-sm text-muted-foreground">Предпросмотр недоступен</p>
         </div>

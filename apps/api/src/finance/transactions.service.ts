@@ -469,14 +469,13 @@ export class TransactionsService {
       throw new BadRequestException('Transaction is not in PENDING status')
 
     if (action === 'validate') {
-      // AC1 + AC5: validate atomically flips the SENIOR_INCOME to
-      // PENDING_PAYMENT *and* creates the 1-to-1 «Выплата» row. The PAYOUT
-      // row carries the «Оплатить» button — SENIOR_INCOME no longer does.
-      //
-      // We deliberately skip the VALIDATED intermediate state in this flow:
-      // status moves PENDING → PENDING_PAYMENT directly. «VALIDATED» remains
-      // a valid value for legacy rows + the batch payout endpoint
-      // (createPayoutRequest) which still uses VALIDATED → PENDING_PAYMENT.
+      // PR #56 final UT fix (AC2): validate atomically flips SENIOR_INCOME to
+      // **VALIDATED** (terminal state for the income) and creates the 1-to-1
+      // «Выплата» row in PENDING_PAYMENT. Rationale per user: «давай статус
+      // будет "Подтверждено" типу как финальный статус для прихода синьера,
+      // а дальше уже идет флоу Выплаты». SENIOR_INCOME no longer carries the
+      // «Оплатить» button — only the PAYOUT row does. SENIOR_INCOME flips to
+      // PAID later in payPayoutRequest once the on-chain payment lands.
       //
       // db.transaction() guarantees both the UPDATE and the INSERT happen
       // together — if the PAYOUT insert fails, the SENIOR_INCOME stays
@@ -521,12 +520,14 @@ export class TransactionsService {
           })
           .returning()
 
-        // 2) Flip SENIOR_INCOME status to PENDING_PAYMENT + link it to the
-        //    payout_request so the UI groups them.
+        // 2) Flip SENIOR_INCOME status to VALIDATED (terminal for income —
+        //    «Подтверждено» badge) + link it to the payout_request so the UI
+        //    can group them. The «Оплатить» button moves to the PAYOUT row
+        //    inserted below.
         await dbtx
           .update(transactions)
           .set({
-            status: 'PENDING_PAYMENT',
+            status: 'VALIDATED',
             payoutRequestId: req!.id,
             validatedBy: currentUser.id,
             validatedAt: now,
@@ -778,7 +779,7 @@ export class TransactionsService {
 
   async payPayoutRequest(
     requestId: string,
-    txHash: string,
+    txHash: string | undefined,
     currentUser: SessionUser,
     simulateResult?: 'success' | 'error',
   ) {
@@ -797,18 +798,33 @@ export class TransactionsService {
     // production the flag is ignored — real verification logic owns the
     // decision.
     const isDevMode = process.env['NODE_ENV'] !== 'production'
-    if (isDevMode && simulateResult === 'error') {
+    const isSimulating = isDevMode && simulateResult !== undefined
+    if (isSimulating && simulateResult === 'error') {
       throw new BadRequestException('Симуляция: транзакция не подтверждена')
     }
     // simulateResult === 'success' falls through to the normal cascade below
     // (which already short-circuits etherscan today — see EtherscanService
     // header comment about the missing real-verification call site).
+    //
+    // When the SENIOR submits without a real on-chain hash (simulate mode),
+    // we synthesize a deterministic stub hash so the audit trail (txHash
+    // column on payout_requests + linked transactions) is never empty. The
+    // 0xSIM prefix is the convention the UI uses to skip the etherscan link
+    // (see PayoutDetailDialog footer).
+    const effectiveTxHash =
+      txHash && txHash.trim().length >= 10
+        ? txHash.trim()
+        : isSimulating
+          ? `0xSIM${randomBytes(28).toString('hex')}`
+          : (() => {
+              throw new BadRequestException('Хеш транзакции обязателен')
+            })()
 
     // Mark payout request as paid
     await this.db.db
       .update(payoutRequests)
       .set({
-        txHash,
+        txHash: effectiveTxHash,
         status: 'PAID',
         updatedAt: new Date(),
       })
@@ -845,7 +861,7 @@ export class TransactionsService {
       .update(transactions)
       .set({
         status: 'PAID',
-        txHash,
+        txHash: effectiveTxHash,
         updatedAt: new Date(),
       })
       .where(
@@ -869,7 +885,7 @@ export class TransactionsService {
           senderId: currentUser.id,
           receiverId: adminId,
           payoutRequestId: requestId,
-          txHash,
+          txHash: effectiveTxHash,
           createdBy: currentUser.id,
         })
       }

@@ -253,10 +253,29 @@ export type CreatePayoutRequestDto = z.infer<typeof createPayoutRequestSchema>
 // the success cascade ("success") or throws a deterministic 400 ("error")
 // so the SENIOR can rehearse the error path on User Testing without sending
 // a real on-chain transaction. In production the field is ignored.
-export const payPayoutRequestSchema = z.object({
-  txHash: z.string().min(10).max(255),
-  simulateResult: z.enum(['success', 'error']).optional(),
-})
+//
+// `txHash` is conditionally required: in real mode the SENIOR must paste the
+// on-chain hash (min 10 chars), but when `simulateResult` is set (dev only)
+// it can be empty — backend synthesizes a stub `0xSIM...` value so the audit
+// row never holds null. `.superRefine` enforces this at the schema layer so
+// the controller doesn't need branch logic.
+export const payPayoutRequestSchema = z
+  .object({
+    txHash: z.string().max(255).optional(),
+    simulateResult: z.enum(['success', 'error']).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.simulateResult === undefined) {
+      const trimmed = data.txHash?.trim() ?? ''
+      if (trimmed.length < 10) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'txHash должен содержать минимум 10 символов',
+          path: ['txHash'],
+        })
+      }
+    }
+  })
 export type PayPayoutRequestDto = z.infer<typeof payPayoutRequestSchema>
 
 // Update project finance settings (ADMIN/ACCOUNTANT)
