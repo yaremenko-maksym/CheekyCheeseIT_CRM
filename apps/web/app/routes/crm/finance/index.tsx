@@ -41,6 +41,7 @@ import {
 import { TransactionRow } from './components/TransactionRow'
 import { Pagination } from './components/Pagination'
 import { usePaginatedFilter } from './hooks/usePaginatedFilter'
+import { compareTxByAmount, compareTxByDate } from './sort'
 import { CreateTransactionDialog } from './components/dialogs/CreateTransactionDialog'
 import { ValidateDialog } from './components/dialogs/ValidateDialog'
 import { EditSeniorIncomeDialog } from './components/dialogs/EditSeniorIncomeDialog'
@@ -251,14 +252,8 @@ function TransactionsTable({
 
   const sort = useCallback(
     (a: TransactionDto, b: TransactionDto) => {
-      const mul = sortDir === 'asc' ? 1 : -1
-      if (sortKey === 'date')
-        return (
-          mul *
-          (new Date(a.txDate ?? a.createdAt).getTime() -
-            new Date(b.txDate ?? b.createdAt).getTime())
-        )
-      return mul * (parseFloat(a.amount) - parseFloat(b.amount))
+      if (sortKey === 'date') return compareTxByDate(a, b, sortDir)
+      return compareTxByAmount(a, b, sortDir)
     },
     [sortKey, sortDir],
   )
