@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Logger,
   NotFoundException,
   Post,
   Query,
@@ -29,6 +30,7 @@ const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 // 7 days in seconds
 
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name)
   private readonly frontendUrl: string
   private readonly isProduction: boolean
 
@@ -76,7 +78,8 @@ export class AuthController {
     try {
       const tokens = await this.authService.exchangeGoogleCode(code)
       googleUser = await this.authService.getGoogleUserInfo(tokens.access_token)
-    } catch {
+    } catch (err) {
+      this.logger.error('Google OAuth callback failed', err)
       await reply.redirect(`${this.frontendUrl}/crm/login?error=google_error`, 302)
       return
     }
@@ -185,10 +188,7 @@ export class AuthController {
   // DEV ONLY — быстрый вход по email без Google OAuth
   @Post('dev-login')
   @HttpCode(HttpStatus.OK)
-  async devLogin(
-    @Body() body: { email: string },
-    @Res({ passthrough: true }) reply: FastifyReply,
-  ) {
+  async devLogin(@Body() body: { email: string }, @Res({ passthrough: true }) reply: FastifyReply) {
     if (this.isProduction) throw new UnauthorizedException('Not available in production')
 
     const user = await this.usersService.findByEmail(body.email)

@@ -15,6 +15,16 @@ export default defineConfig({
     // как "Blocked request".
     host: true,
     allowedHosts: ['.serveousercontent.com', '.serveo.net'],
+    // Прокси для /api → NestJS на 3001 в dev-режиме. Идентичен preview.proxy:
+    // фронт ходит на свой origin (http://localhost:3000/api/...), Vite перенаправляет
+    // на API. Без этого Dev login и любые api.* запросы из браузера падают
+    // на SPA fallback (Vite отдаёт index.html на неизвестные пути).
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
     port: 3000,
