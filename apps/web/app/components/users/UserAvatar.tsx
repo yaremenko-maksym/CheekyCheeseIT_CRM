@@ -11,11 +11,12 @@
  * `<Avatar>...{avatar && <AvatarImage src={avatar} />}<AvatarFallback>` block
  * with a single component.
  */
+import * as React from 'react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { DocumentImage } from '@/components/documents/document-image'
 import { cn } from '@/lib/utils'
 
-interface UserAvatarProps {
+interface UserAvatarProps extends Omit<React.ComponentPropsWithoutRef<typeof Avatar>, 'children'> {
   avatarDocumentId: string | null | undefined
   avatarUrl: string | null | undefined
   displayName: string
@@ -32,27 +33,23 @@ export function getInitials(displayName: string): string {
   return (parts[0]![0]! + parts[1]![0]!).toUpperCase()
 }
 
-export function UserAvatar({
-  avatarDocumentId,
-  avatarUrl,
-  displayName,
-  className,
-  imgClassName,
-}: UserAvatarProps) {
-  return (
-    <Avatar className={cn(className)}>
-      {avatarDocumentId && (
-        <DocumentImage
-          docId={avatarDocumentId}
-          alt={displayName}
-          variant="thumbnail"
-          className={cn('h-full w-full object-cover', imgClassName)}
-        />
-      )}
-      {!avatarDocumentId && avatarUrl && (
-        <AvatarImage src={avatarUrl} alt={displayName} className={cn(imgClassName)} />
-      )}
-      <AvatarFallback>{getInitials(displayName)}</AvatarFallback>
-    </Avatar>
-  )
-}
+export const UserAvatar = React.forwardRef<
+  React.ElementRef<typeof Avatar>,
+  UserAvatarProps
+>(({ avatarDocumentId, avatarUrl, displayName, className, imgClassName, ...props }, ref) => (
+  <Avatar ref={ref} className={cn(className)} {...props}>
+    {avatarDocumentId && (
+      <DocumentImage
+        docId={avatarDocumentId}
+        alt={displayName}
+        variant="thumbnail"
+        className={cn('h-full w-full object-cover', imgClassName)}
+      />
+    )}
+    {!avatarDocumentId && avatarUrl && (
+      <AvatarImage src={avatarUrl} alt={displayName} className={cn(imgClassName)} />
+    )}
+    <AvatarFallback>{getInitials(displayName)}</AvatarFallback>
+  </Avatar>
+))
+UserAvatar.displayName = 'UserAvatar'
