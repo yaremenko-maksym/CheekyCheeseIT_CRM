@@ -120,6 +120,9 @@ export function useInvoice(
  *   - invalidate notifications (the related INVOICE_SIGN_REQUIRED row was
  *     either already marked read by the deep link or remains unread; the
  *     refetch keeps the badge in sync)
+ *   - invalidate documents (signing creates a new signed PDF and soft-deletes
+ *     the unsigned one — `/crm/documents?category=INVOICE` must auto-refresh
+ *     without a full page reload)
  *
  * The mutation deliberately throws on error so the dialog component can
  * keep the confirm modal open and surface the message — toasts are emitted
@@ -136,6 +139,7 @@ export function useSignInvoice(): UseMutationResult<InvoiceDto, Error, string> {
       void qc.invalidateQueries({ queryKey: ['invoices'] })
       void qc.invalidateQueries({ queryKey: invoiceDetailQueryKey(transactionId) })
       void qc.invalidateQueries({ queryKey: ['notifications'] })
+      void qc.invalidateQueries({ queryKey: ['documents'] })
       toast.success('Инвойс подписан')
     },
     onError: (err: Error) => {
