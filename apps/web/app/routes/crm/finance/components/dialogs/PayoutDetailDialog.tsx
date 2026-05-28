@@ -70,9 +70,12 @@ export function PayoutDetailDialog({
   const qc = useQueryClient()
   const [txHash, setTxHash] = useState('')
   const [copied, setCopied] = useState(false)
-  // Default to «success» in dev so the happy path is one click. Picking the
-  // error option is an explicit opt-in (rehearsing the failure flow).
-  const [simulateMode, setSimulateMode] = useState<SimulateMode>('success')
+  // Default to «real» — the SENIOR has to explicitly opt into one of the
+  // simulate paths to unlock submit. Real verification is intentionally
+  // disabled in dev (no on-chain ledger transactions to validate against),
+  // so it acts as a hard gate that forces a conscious dev-mode choice
+  // instead of accidentally submitting an unsigned stub.
+  const [simulateMode, setSimulateMode] = useState<SimulateMode>('real')
 
   const payoutQuery = useQuery({
     queryKey: ['payout-request', payoutId],
@@ -85,7 +88,7 @@ export function PayoutDetailDialog({
     if (open) {
       setTxHash('')
       setCopied(false)
-      setSimulateMode('success')
+      setSimulateMode('real')
     }
   }, [open, payoutId])
 
@@ -300,12 +303,19 @@ export function PayoutDetailDialog({
                   <Label className="text-xs flex items-center gap-1.5">
                     <span>🔧 Dev режим: результат валидации</span>
                   </Label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                  {/* Vertical stack — radio labels are full sentences in
+                      Russian which don't fit 3-up at the dialog's typical
+                      width. The dev block is rare-use anyway so stacking
+                      doesn't cost much vertical real estate. */}
+                  <div className="flex flex-col gap-1.5">
                     {(
                       [
                         { value: 'success', label: '✅ Симулировать успех' },
                         { value: 'error', label: '❌ Симулировать ошибку' },
-                        { value: 'real', label: '🔗 Реальная проверка' },
+                        {
+                          value: 'real',
+                          label: '🔗 Реальная проверка (недоступно в dev)',
+                        },
                       ] as const
                     ).map((opt) => {
                       const selected = simulateMode === opt.value
@@ -313,7 +323,7 @@ export function PayoutDetailDialog({
                         <label
                           key={opt.value}
                           className={
-                            'flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs cursor-pointer transition-colors ' +
+                            'flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs cursor-pointer transition-colors ' +
                             (selected
                               ? 'border-primary bg-primary/10 text-foreground'
                               : 'border-border bg-background hover:bg-muted/40 text-muted-foreground')
@@ -327,16 +337,16 @@ export function PayoutDetailDialog({
                             checked={selected}
                             onChange={() => setSimulateMode(opt.value)}
                             disabled={payMutation.isPending}
-                            className="h-3 w-3 accent-primary"
+                            className="h-3 w-3 accent-primary shrink-0"
                           />
-                          <span className="truncate">{opt.label}</span>
+                          <span>{opt.label}</span>
                         </label>
                       )
                     })}
                   </div>
                   <p className="text-[11px] text-muted-foreground">
-                    Доступно только в dev-сборке. В production-билде блок скрыт и запрос идёт без
-                    флага.
+                    Доступно только в dev-сборке. Выберите «успех» или «ошибку», чтобы
+                    разблокировать «Подтвердить оплату».
                   </p>
                 </div>
               )}
@@ -354,7 +364,18 @@ export function PayoutDetailDialog({
             <Button
               data-testid="payout-detail-submit"
               onClick={() => payMutation.mutate()}
-              disabled={txHash.trim().length < 10 || payMutation.isPending}
+              disabled={
+                txHash.trim().length < 10 ||
+                payMutation.isPending ||
+                // In dev «Реальная проверка» is a hard gate — there's no
+                // ledger to verify against, so we force the SENIOR to pick
+                // success/error explicitly before the submit unlocks. In
+                // production builds the dev block is tree-shaken away and
+                // simulateMode stays at its initial 'real' but never affects
+                // the wire payload (extractedResult logic), so we drop the
+                // gate via the DEV check.
+                (SHOW_DEV_SIMULATE && simulateMode === 'real')
+              }
             >
               {payMutation.isPending ? 'Проверка...' : 'Подтвердить оплату'}
             </Button>
