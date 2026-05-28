@@ -230,6 +230,8 @@ export function TransactionRow({
         onClick ? 'cursor-pointer hover:bg-muted/40' : 'hover:bg-muted/30',
       )}
       onClick={() => onClick?.(tx)}
+      data-testid={`tx-row-${tx.id}`}
+      data-tx-type={tx.type}
     >
       <td className="py-3 px-4 whitespace-nowrap">
         <TypeBadge type={tx.type} />

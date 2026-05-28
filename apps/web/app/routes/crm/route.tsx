@@ -225,6 +225,7 @@ function CrmLayout() {
                           | 'hr'
                           | 'accountant'
                       }
+                      data-testid="header-user-menu-role-badge"
                     >
                       {user.role}
                     </Badge>
@@ -232,7 +233,11 @@ function CrmLayout() {
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link to="/crm/profile" className="flex items-center gap-2 text-muted-foreground">
+                  <Link
+                    to="/crm/profile"
+                    className="flex items-center gap-2 text-muted-foreground"
+                    data-testid="header-user-menu-profile"
+                  >
                     <UserCircle className="h-4 w-4" />
                     Профиль
                   </Link>
@@ -241,6 +246,7 @@ function CrmLayout() {
                 <DropdownMenuItem asChild>
                   <button
                     className="flex w-full items-center gap-2 text-muted-foreground"
+                    data-testid="header-user-menu-logout"
                     onClick={() => {
                       void api.get('/auth/logout').finally(() => {
                         window.location.href = '/login'

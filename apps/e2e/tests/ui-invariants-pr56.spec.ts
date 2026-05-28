@@ -39,22 +39,25 @@ test.describe('Flow E1 — Header avatar dropdown', () => {
     await trigger.click()
 
     // Dropdown content — three signature items appear simultaneously.
+    // Email is dynamic per-user data — text-based assertion is the contract.
     await expect(asSenior.getByText(USERS.senior.email)).toBeVisible()
-    await expect(asSenior.getByText(USERS.senior.role).first()).toBeVisible()
-    await expect(asSenior.getByRole('menuitem', { name: /Профиль/i })).toBeVisible()
-    await expect(asSenior.getByRole('menuitem', { name: /Выйти/i })).toBeVisible()
+    await expect(asSenior.getByTestId('header-user-menu-role-badge')).toContainText(
+      USERS.senior.role,
+    )
+    await expect(asSenior.getByTestId('header-user-menu-profile')).toBeVisible()
+    await expect(asSenior.getByTestId('header-user-menu-logout')).toBeVisible()
   })
 
   test('avatar trigger toggles closed when clicked again', async ({ asSenior }) => {
     await asSenior.goto('/crm/dashboard')
     const trigger = asSenior.getByTestId('header-user-menu-trigger')
     await trigger.click()
-    await expect(asSenior.getByRole('menuitem', { name: /Профиль/i })).toBeVisible()
+    await expect(asSenior.getByTestId('header-user-menu-profile')).toBeVisible()
     // Press Esc to close — clicking the trigger again can be flaky in
     // headless Radix because the new click is interpreted before the
     // overlay closes. Esc is the documented dismiss path.
     await asSenior.keyboard.press('Escape')
-    await expect(asSenior.getByRole('menuitem', { name: /Профиль/i })).not.toBeVisible()
+    await expect(asSenior.getByTestId('header-user-menu-profile')).not.toBeVisible()
   })
 })
 
@@ -115,7 +118,9 @@ test.describe('Flow E2 — Transaction receipt height capped at max-h-[520px]', 
     )
 
     await asAdmin.goto('/crm/finance')
-    await asAdmin.getByText('Приход синьора').first().click()
+    // Open dialog by clicking the row directly — row testid binds to tx.id so
+    // a text/copy-change cannot break this trigger.
+    await asAdmin.getByTestId(`tx-row-${tx.id}`).click()
     const dialog = asAdmin.getByRole('dialog')
     await expect(dialog).toBeVisible()
 
@@ -178,10 +183,10 @@ test.describe('Flow E2 — Transaction receipt height capped at max-h-[520px]', 
       r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
     )
     await asAdmin.goto('/crm/finance')
-    await asAdmin.getByText('Приход синьора').first().click()
+    await asAdmin.getByTestId(`tx-row-${tx.id}`).click()
     const dialog = asAdmin.getByRole('dialog')
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByText('Нет прикреплённого чека')).toBeVisible()
+    await expect(dialog.getByTestId('receipt-panel-empty')).toBeVisible()
   })
 })
 

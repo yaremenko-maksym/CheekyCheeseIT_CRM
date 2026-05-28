@@ -374,6 +374,7 @@ function ReceiptPanel({ tx }: { tx: TransactionDto }) {
     return (
       <div
         className={`flex flex-col items-center justify-center gap-2 ${PREVIEW_FRAME} border-dashed border-border bg-muted/20 p-6 text-center`}
+        data-testid="receipt-panel-empty"
       >
         <FileIcon className="h-10 w-10 text-muted-foreground/40" />
         <p className="text-sm text-muted-foreground">Нет прикреплённого чека</p>
