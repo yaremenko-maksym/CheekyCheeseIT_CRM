@@ -676,6 +676,23 @@ export class TransactionsService {
       .set({ payoutRequestId: req!.id, status: 'PENDING_PAYMENT', updatedAt: new Date() })
       .where(inArray(transactions.id, transactionIds))
 
+    // Create the placeholder «Выплата» transaction (PAYOUT, PENDING_PAYMENT).
+    // It's visible in the transactions table immediately so the SENIOR has a
+    // single row to click «Оплатить» on — the linked SENIOR_INCOME rows just
+    // flip status, they no longer carry the inline pay button. The same row
+    // is mutated to PAID in payPayoutRequest (txHash + status) — we don't
+    // INSERT a fresh PAYOUT there anymore.
+    await this.db.db.insert(transactions).values({
+      type: 'PAYOUT',
+      status: 'PENDING_PAYMENT',
+      amount: String(payableAmount),
+      currency: 'USDT',
+      senderId: currentUser.id,
+      receiverLabel: 'CheekyCheeseIT',
+      payoutRequestId: req!.id,
+      createdBy: currentUser.id,
+    })
+
     return this.findPayoutRequest(req!.id, currentUser)
   }
 
@@ -742,18 +759,20 @@ export class TransactionsService {
       await this.safeAutoCreateInvoice('SENIOR_INCOME', incomeTx.id)
     }
 
-    // Create PAYOUT transaction: senior → CheekyCheeseIT
-    await this.db.db.insert(transactions).values({
-      type: 'PAYOUT',
-      status: 'PAID',
-      amount: req.payableAmount,
-      currency: 'USDT',
-      senderId: currentUser.id,
-      receiverLabel: 'CheekyCheeseIT',
-      payoutRequestId: requestId,
-      txHash,
-      createdBy: currentUser.id,
-    })
+    // Mark the placeholder PAYOUT row (created at createPayoutRequest time)
+    // as PAID + attach the on-chain txHash. We don't INSERT a fresh PAYOUT
+    // here — the row already exists with status PENDING_PAYMENT so the
+    // SENIOR could see «Выплата» in the table before clicking «Оплатить».
+    await this.db.db
+      .update(transactions)
+      .set({
+        status: 'PAID',
+        txHash,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')),
+      )
 
     // Create 2x PAYOUT_ADMIN transactions (50/50 split)
     const adminShare = parseFloat(req.payableAmount) / 2

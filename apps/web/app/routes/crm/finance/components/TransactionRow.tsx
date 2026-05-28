@@ -217,16 +217,16 @@ export function TransactionRow({
   // validate but don't pay out on behalf of seniors.
   const showQuickPayout =
     isSenior && !!canQuickPayout && tx.type === 'SENIOR_INCOME' && tx.status === 'VALIDATED'
-  // Inline «Оплатить» for PENDING_PAYMENT — opens the detail dialog so the
-  // SENIOR can copy the contract address and submit the on-chain tx hash.
-  // Scoped to the SENIOR who owns the income (receiverId match) — other
-  // SENIORs never see this even if they somehow load a row that isn't theirs.
+  // Inline «Оплатить» for the placeholder «Выплата» row (PAYOUT type,
+  // PENDING_PAYMENT). After PR #56 fix the SENIOR clicks this on the PAYOUT
+  // row — not on the linked SENIOR_INCOME children anymore. Scoped by
+  // senderId so a SENIOR only sees the pill for their own payouts.
   const showPayPayout =
     isSenior &&
-    tx.type === 'SENIOR_INCOME' &&
+    tx.type === 'PAYOUT' &&
     tx.status === 'PENDING_PAYMENT' &&
     !!tx.payoutRequestId &&
-    tx.receiverId === currentUserId
+    tx.senderId === currentUserId
 
   return (
     <motion.tr
