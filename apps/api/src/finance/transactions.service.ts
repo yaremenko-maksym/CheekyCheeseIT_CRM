@@ -47,6 +47,50 @@ export class TransactionsService {
   ) {}
 
   /**
+   * Resolve the business-time of a transaction from a user-supplied input.
+   *
+   * Frontend sends `txDate` from `<input type="date">` (YYYY-MM-DD) which the
+   * Date constructor parses to midnight UTC (00:00:00.000Z). This breaks
+   * sort-by-date — all "today's" rows tie at 00:00 and order falls back to
+   * unrelated keys (e.g. payouts with txDate=null land first because their
+   * `createdAt` carries the real time-of-day).
+   *
+   * Rule:
+   * - User picked nothing → `new Date()` (now, with full time-of-day).
+   * - User picked a *past* day (different YYYY-MM-DD vs today UTC) → keep
+   *   their pick as-is (midnight is correct for "this happened on day X").
+   * - User picked *today* → merge today's calendar date with current
+   *   time-of-day so the row sorts above same-day rows created earlier.
+   *
+   * This is fix-forward: legacy midnight rows are not migrated. The frontend
+   * sort tie-breaker handles them by falling through to `createdAt`.
+   */
+  private resolveTxDate(rawTxDate: string | null | undefined): Date {
+    const now = new Date()
+    if (!rawTxDate) return now
+    const picked = new Date(rawTxDate)
+    if (Number.isNaN(picked.getTime())) return now
+    // Compare UTC calendar dates (matches how the input is parsed).
+    const sameDay =
+      picked.getUTCFullYear() === now.getUTCFullYear() &&
+      picked.getUTCMonth() === now.getUTCMonth() &&
+      picked.getUTCDate() === now.getUTCDate()
+    if (!sameDay) return picked
+    // Same calendar day: keep picked date, fold in current time-of-day.
+    return new Date(
+      Date.UTC(
+        picked.getUTCFullYear(),
+        picked.getUTCMonth(),
+        picked.getUTCDate(),
+        now.getUTCHours(),
+        now.getUTCMinutes(),
+        now.getUTCSeconds(),
+        now.getUTCMilliseconds(),
+      ),
+    )
+  }
+
+  /**
    * Fire-and-forget wrapper so a failing invoice generation (e.g. S3 outage)
    * does NOT roll back the underlying transaction state change. The PAID
    * status flip is the source of truth; the invoice is a derived artefact
@@ -231,7 +275,7 @@ export class TransactionsService {
         receiptDocumentId: data.receiptDocumentId ?? null,
         receiptExternalUrl: data.receiptExternalUrl ?? null,
         notes: data.notes ?? null,
-        txDate: data.txDate ? new Date(data.txDate) : null,
+        txDate: this.resolveTxDate(data.txDate),
         createdBy: currentUser.id,
       })
       .returning()
@@ -292,7 +336,7 @@ export class TransactionsService {
         receiptDocumentId: data.receiptDocumentId ?? null,
         receiptExternalUrl: data.receiptExternalUrl ?? null,
         notes: data.notes ?? null,
-        txDate: data.txDate ? new Date(data.txDate) : null,
+        txDate: this.resolveTxDate(data.txDate),
         createdBy: currentUser.id,
       })
       .returning()
@@ -521,7 +565,7 @@ export class TransactionsService {
         notes: data.notes ?? null,
         receiptDocumentId: data.receiptDocumentId ?? null,
         receiptExternalUrl: data.receiptExternalUrl ?? null,
-        txDate: data.txDate ? new Date(data.txDate) : null,
+        txDate: this.resolveTxDate(data.txDate),
         createdBy: currentUser.id,
       })
       .returning()
@@ -564,7 +608,7 @@ export class TransactionsService {
         receiverId: data.receiverId,
         salaryMonth: data.salaryMonth,
         notes: data.notes ?? null,
-        txDate: data.txDate ? new Date(data.txDate) : null,
+        txDate: this.resolveTxDate(data.txDate),
         createdBy: currentUser.id,
       })
       .returning()
@@ -618,7 +662,7 @@ export class TransactionsService {
         senderId: effectiveSenderId,
         receiverId: data.receiverId,
         notes: data.notes ?? null,
-        txDate: data.txDate ? new Date(data.txDate) : null,
+        txDate: this.resolveTxDate(data.txDate),
         createdBy: currentUser.id,
       })
       .returning()
