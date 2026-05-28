@@ -16,8 +16,9 @@ test.describe('Auth flow', () => {
 
   test('login page renders correctly', async ({ page }) => {
     await page.goto('/crm/login')
+    // Brand title is the product contract — text assertion stays.
     await expect(page.getByText('CheekyCheeseIT CRM')).toBeVisible()
-    await expect(page.getByRole('link', { name: /войти с google/i })).toBeVisible()
+    await expect(page.getByTestId('login-google-button')).toBeVisible()
   })
 
   test('login page has no app console errors on load', async ({ page }) => {
@@ -53,7 +54,7 @@ test.describe('Auth flow', () => {
 
   test('Google login button has correct href', async ({ page }) => {
     await page.goto('/crm/login')
-    const link = page.getByRole('link', { name: /войти с google/i })
+    const link = page.getByTestId('login-google-button')
     const href = await link.getAttribute('href')
     // Should point to the API Google OAuth endpoint
     expect(href).toMatch(/auth\/google/)
@@ -80,19 +81,28 @@ test.describe('Auth flow', () => {
 
   test('?error=unauthorized shows error message', async ({ page }) => {
     await page.goto('/crm/login?error=unauthorized')
-    // Match the error alert div, not the footer paragraph
-    await expect(page.locator('.text-destructive').filter({ hasText: /авторизован|доступ/i }).first()).toBeVisible()
+    const banner = page.getByTestId('login-error-message')
+    await expect(banner).toBeVisible()
+    await expect(banner).toHaveAttribute('data-error-code', 'unauthorized')
+    // The Russian copy is the error contract — keep text assertion as a regex.
+    await expect(banner).toContainText(/авторизован|доступ/i)
   })
 
   test('?error=google_error shows error message', async ({ page }) => {
     await page.goto('/crm/login?error=google_error')
-    await expect(page.locator('.text-destructive').filter({ hasText: /google|oauth/i }).first()).toBeVisible()
+    const banner = page.getByTestId('login-error-message')
+    await expect(banner).toBeVisible()
+    await expect(banner).toHaveAttribute('data-error-code', 'google_error')
+    await expect(banner).toContainText(/google|oauth/i)
   })
 
   test('?error=invalid_state shows error message', async ({ page }) => {
     await page.goto('/crm/login?error=invalid_state')
+    const banner = page.getByTestId('login-error-message')
+    await expect(banner).toBeVisible()
+    await expect(banner).toHaveAttribute('data-error-code', 'invalid_state')
     // Message: "Сессия истекла. Пожалуйста, попробуйте снова."
-    await expect(page.locator('.text-destructive').filter({ hasText: /сессия|истекла|попробуйте/i }).first()).toBeVisible()
+    await expect(banner).toContainText(/сессия|истекла|попробуйте/i)
   })
 
   // ---------------------------------------------------------------------------
