@@ -4,12 +4,46 @@ import { Copy, Check, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Dialog, CrmDialogContent, CrmDialogHeader, CrmDialogBody, CrmDialogFooter, DialogTitle } from '@/components/ui/crm-dialog'
+import {
+  Dialog,
+  CrmDialogContent,
+  CrmDialogHeader,
+  CrmDialogBody,
+  CrmDialogFooter,
+  DialogTitle,
+} from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { financeApi } from '../../api'
 import { fmtAmount } from '../../constants'
+
+// Dev-only escape hatch: shown in dev builds so the SENIOR can rehearse the
+// success and error paths of the payout submit without sending a real
+// on-chain transaction. Tree-shaken out of `pnpm build` (import.meta.env.DEV
+// becomes the literal `false` in production output → dead-code elimination
+// drops the whole branch).
+const SHOW_DEV_SIMULATE = import.meta.env.DEV
+
+type SimulateMode = 'success' | 'error' | 'real'
+
+/**
+ * Pull a user-facing message out of either an axios error (where NestJS puts
+ * the Russian text in `response.data.message`) or a plain Error. Axios's own
+ * `error.message` is the generic "Request failed with status code 400" — we
+ * want the backend's actual reason ("Симуляция: транзакция не подтверждена")
+ * surfaced in the toast and inline diagnostic.
+ */
+function extractErrorMessage(err: unknown): string {
+  if (err && typeof err === 'object' && 'response' in err) {
+    const resp = (err as { response?: { data?: { message?: unknown } } }).response
+    const msg = resp?.data?.message
+    if (typeof msg === 'string' && msg.length > 0) return msg
+    if (Array.isArray(msg) && msg.length > 0 && typeof msg[0] === 'string') return msg[0]
+  }
+  if (err instanceof Error) return err.message
+  return 'Неизвестная ошибка'
+}
 
 /**
  * Step 2 of the SENIOR payout flow — pays a previously-created Выплата.
@@ -36,6 +70,9 @@ export function PayoutDetailDialog({
   const qc = useQueryClient()
   const [txHash, setTxHash] = useState('')
   const [copied, setCopied] = useState(false)
+  // Default to «success» in dev so the happy path is one click. Picking the
+  // error option is an explicit opt-in (rehearsing the failure flow).
+  const [simulateMode, setSimulateMode] = useState<SimulateMode>('success')
 
   const payoutQuery = useQuery({
     queryKey: ['payout-request', payoutId],
@@ -48,11 +85,21 @@ export function PayoutDetailDialog({
     if (open) {
       setTxHash('')
       setCopied(false)
+      setSimulateMode('success')
     }
   }, [open, payoutId])
 
   const payMutation = useMutation({
-    mutationFn: () => financeApi.payPayoutRequest(payoutId!, { txHash: txHash.trim() }),
+    mutationFn: () => {
+      // Only attach simulateResult when the dev toggle is mounted AND the
+      // user picked one of the simulate options. In prod the field is never
+      // sent — backend behaviour matches what it always did.
+      const simulateResult = SHOW_DEV_SIMULATE && simulateMode !== 'real' ? simulateMode : undefined
+      return financeApi.payPayoutRequest(payoutId!, {
+        txHash: txHash.trim(),
+        ...(simulateResult !== undefined && { simulateResult }),
+      })
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['transactions'] })
       void qc.invalidateQueries({ queryKey: ['payout-requests'] })
@@ -63,6 +110,14 @@ export function PayoutDetailDialog({
         description: 'Транзакции переведены в статус ОПЛАЧЕНО, инвойсы сгенерированы.',
       })
       handleClose()
+    },
+    onError: (err) => {
+      // Dialog stays open so the user can change the simulate mode and retry.
+      // Inline error message under the input also surfaces this — toast is
+      // the primary affordance for the dev-simulate flow.
+      toast.error('Не удалось подтвердить оплату', {
+        description: extractErrorMessage(err),
+      })
     },
   })
 
@@ -85,17 +140,24 @@ export function PayoutDetailDialog({
   }
 
   const payout = payoutQuery.data
-  const payError = payMutation.error instanceof Error ? payMutation.error.message : null
+  const payError = payMutation.error ? extractErrorMessage(payMutation.error) : null
   const isPaid = payout?.status === 'PAID'
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose() }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) handleClose()
+      }}
+    >
       <CrmDialogContent maxWidth="sm:max-w-xl">
         <CrmDialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {isPaid ? 'Выплата (оплачена)' : 'Подтвердить выплату'}
             {isPaid && (
-              <Badge variant="secondary" className="text-[10px]">PAID</Badge>
+              <Badge variant="secondary" className="text-[10px]">
+                PAID
+              </Badge>
             )}
           </DialogTitle>
         </CrmDialogHeader>
@@ -147,7 +209,11 @@ export function PayoutDetailDialog({
                     onClick={() => copyAddress(payout.contractAddress)}
                     aria-label="Скопировать адрес"
                   >
-                    {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                    {copied ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-500" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
                   </Button>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
@@ -158,7 +224,9 @@ export function PayoutDetailDialog({
               {/* Transactions in this payout */}
               {payout.transactions && payout.transactions.length > 0 && (
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Транзакции в выплате ({payout.transactions.length})</Label>
+                  <Label className="text-xs">
+                    Транзакции в выплате ({payout.transactions.length})
+                  </Label>
                   <div className="rounded-md border border-border divide-y divide-border max-h-40 overflow-y-auto">
                     {payout.transactions
                       .filter((t) => t.type === 'SENIOR_INCOME')
@@ -219,6 +287,57 @@ export function PayoutDetailDialog({
                     className="h-8 text-sm font-mono"
                     disabled={payMutation.isPending}
                   />
+                </div>
+              )}
+
+              {SHOW_DEV_SIMULATE && !isPaid && (
+                <div
+                  className="space-y-1.5 rounded-md border border-dashed border-amber-500/40 bg-amber-500/5 p-2.5"
+                  data-testid="payout-detail-dev-simulate"
+                  role="radiogroup"
+                  aria-label="Dev режим: результат валидации"
+                >
+                  <Label className="text-xs flex items-center gap-1.5">
+                    <span>🔧 Dev режим: результат валидации</span>
+                  </Label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                    {(
+                      [
+                        { value: 'success', label: '✅ Симулировать успех' },
+                        { value: 'error', label: '❌ Симулировать ошибку' },
+                        { value: 'real', label: '🔗 Реальная проверка' },
+                      ] as const
+                    ).map((opt) => {
+                      const selected = simulateMode === opt.value
+                      return (
+                        <label
+                          key={opt.value}
+                          className={
+                            'flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs cursor-pointer transition-colors ' +
+                            (selected
+                              ? 'border-primary bg-primary/10 text-foreground'
+                              : 'border-border bg-background hover:bg-muted/40 text-muted-foreground')
+                          }
+                          data-testid={`payout-detail-dev-simulate-${opt.value}`}
+                        >
+                          <input
+                            type="radio"
+                            name="payout-simulate-mode"
+                            value={opt.value}
+                            checked={selected}
+                            onChange={() => setSimulateMode(opt.value)}
+                            disabled={payMutation.isPending}
+                            className="h-3 w-3 accent-primary"
+                          />
+                          <span className="truncate">{opt.label}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Доступно только в dev-сборке. В production-билде блок скрыт и запрос идёт без
+                    флага.
+                  </p>
                 </div>
               )}
 

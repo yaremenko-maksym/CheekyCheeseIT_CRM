@@ -60,12 +60,22 @@ export class TransactionsController {
 
   @Post('admin-income')
   createAdminIncome(@Body() body: unknown, @CurrentUser() user: SessionUser) {
-    return this.svc.createAdminIncome(createAdminIncomeSchema.parse(body) as Parameters<TransactionsService['createAdminIncome']>[0], user)
+    return this.svc.createAdminIncome(
+      createAdminIncomeSchema.parse(body) as Parameters<
+        TransactionsService['createAdminIncome']
+      >[0],
+      user,
+    )
   }
 
   @Post('senior-income')
   createSeniorIncome(@Body() body: unknown, @CurrentUser() user: SessionUser) {
-    return this.svc.createSeniorIncome(createSeniorIncomeSchema.parse(body) as Parameters<TransactionsService['createSeniorIncome']>[0], user)
+    return this.svc.createSeniorIncome(
+      createSeniorIncomeSchema.parse(body) as Parameters<
+        TransactionsService['createSeniorIncome']
+      >[0],
+      user,
+    )
   }
 
   @Patch('senior-income/:id')
@@ -74,49 +84,54 @@ export class TransactionsController {
     @Body() body: unknown,
     @CurrentUser() user: SessionUser,
   ) {
-    return this.svc.updateSeniorIncome(id, updateSeniorIncomeSchema.parse(body) as Parameters<TransactionsService['updateSeniorIncome']>[1], user)
+    return this.svc.updateSeniorIncome(
+      id,
+      updateSeniorIncomeSchema.parse(body) as Parameters<
+        TransactionsService['updateSeniorIncome']
+      >[1],
+      user,
+    )
   }
 
   @Post('expense')
   createExpense(@Body() body: unknown, @CurrentUser() user: SessionUser) {
-    return this.svc.createExpense(createExpenseSchema.parse(body) as Parameters<TransactionsService['createExpense']>[0], user)
+    return this.svc.createExpense(
+      createExpenseSchema.parse(body) as Parameters<TransactionsService['createExpense']>[0],
+      user,
+    )
   }
 
   @Post('salary')
   createSalary(@Body() body: unknown, @CurrentUser() user: SessionUser) {
-    return this.svc.createSalary(createSalarySchema.parse(body) as Parameters<TransactionsService['createSalary']>[0], user)
+    return this.svc.createSalary(
+      createSalarySchema.parse(body) as Parameters<TransactionsService['createSalary']>[0],
+      user,
+    )
   }
 
   @Post('admin-transfer')
   createAdminTransfer(@Body() body: unknown, @CurrentUser() user: SessionUser) {
-    return this.svc.createAdminTransfer(createAdminTransferSchema.parse(body) as Parameters<TransactionsService['createAdminTransfer']>[0], user)
+    return this.svc.createAdminTransfer(
+      createAdminTransferSchema.parse(body) as Parameters<
+        TransactionsService['createAdminTransfer']
+      >[0],
+      user,
+    )
   }
 
   @Patch(':id/validate')
-  validate(
-    @Param('id') id: string,
-    @Body() body: unknown,
-    @CurrentUser() user: SessionUser,
-  ) {
+  validate(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     const data = validateTransactionSchema.parse(body)
     return this.svc.validateTransaction(id, data.action, data.rejectionReason, user)
   }
 
   @Patch(':id/pay')
-  paySalary(
-    @Param('id') id: string,
-    @Body() body: unknown,
-    @CurrentUser() user: SessionUser,
-  ) {
+  paySalary(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.paySalary(id, paySalarySchema.parse(body), user)
   }
 
   @Patch(':id/admin-edit')
-  adminEdit(
-    @Param('id') id: string,
-    @Body() body: unknown,
-    @CurrentUser() user: SessionUser,
-  ) {
+  adminEdit(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.adminUpdateTransaction(id, adminUpdateTransactionSchema.parse(body), user)
   }
 
@@ -148,12 +163,16 @@ export class PayoutRequestsController {
   }
 
   @Patch(':id/pay')
-  pay(
-    @Param('id') id: string,
-    @Body() body: unknown,
-    @CurrentUser() user: SessionUser,
-  ) {
-    return this.svc.payPayoutRequest(id, payPayoutRequestSchema.parse(body).txHash, user)
+  pay(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
+    const data = payPayoutRequestSchema.parse(body)
+    // simulateResult is a DEV-only escape hatch: forwarded only when the
+    // client opted in, so production builds (which can't render the toggle)
+    // call the original 3-arg overload. The service ignores it outside of
+    // NODE_ENV !== 'production' regardless.
+    if (data.simulateResult !== undefined) {
+      return this.svc.payPayoutRequest(id, data.txHash, user, data.simulateResult)
+    }
+    return this.svc.payPayoutRequest(id, data.txHash, user)
   }
 }
 
@@ -193,6 +212,10 @@ export class ProjectFinanceSettingsController {
     @Body() body: unknown,
     @CurrentUser() user: SessionUser,
   ) {
-    return this.svc.upsertProjectFinanceSettings(projectId, updateProjectFinanceSettingsSchema.parse(body), user)
+    return this.svc.upsertProjectFinanceSettings(
+      projectId,
+      updateProjectFinanceSettingsSchema.parse(body),
+      user,
+    )
   }
 }

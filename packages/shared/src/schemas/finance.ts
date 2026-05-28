@@ -5,23 +5,23 @@ import { z } from 'zod'
 // ---------------------------------------------------------------------------
 
 export const transactionTypeSchema = z.enum([
-  'ADMIN_INCOME',   // Admin income from own project — no validation needed
-  'SENIOR_INCOME',  // Senior income — requires accountant/admin validation
-  'EXPENSE',        // Company expense (receiverLabel = category)
-  'SALARY',         // Salary to HR/ACCOUNTANT/JUNIOR
+  'ADMIN_INCOME', // Admin income from own project — no validation needed
+  'SENIOR_INCOME', // Senior income — requires accountant/admin validation
+  'EXPENSE', // Company expense (receiverLabel = category)
+  'SALARY', // Salary to HR/ACCOUNTANT/JUNIOR
   'ADMIN_TRANSFER', // Balance equalization between Maksym and Kostya
-  'PAYOUT',         // Senior pays CheekyCheeseIT (linked to payout_request)
-  'PAYOUT_ADMIN',   // Auto-created 50/50 split to each admin after payout
+  'PAYOUT', // Senior pays CheekyCheeseIT (linked to payout_request)
+  'PAYOUT_ADMIN', // Auto-created 50/50 split to each admin after payout
 ])
 export type TransactionType = z.infer<typeof transactionTypeSchema>
 
 export const transactionStatusSchema = z.enum([
-  'PENDING',         // Awaiting action
-  'VALIDATED',       // Accountant/admin confirmed
+  'PENDING', // Awaiting action
+  'VALIDATED', // Accountant/admin confirmed
   'PENDING_PAYMENT', // Senior created payout request, awaiting payment
-  'REJECTED',        // Accountant/admin rejected; senior must edit and resubmit
-  'PAID',            // Completed
-  'LOCKED',          // Junior salary locked until senior has validated income
+  'REJECTED', // Accountant/admin rejected; senior must edit and resubmit
+  'PAID', // Completed
+  'LOCKED', // Junior salary locked until senior has validated income
 ])
 export type TransactionStatus = z.infer<typeof transactionStatusSchema>
 
@@ -47,12 +47,15 @@ export const transactionSchema = z.object({
   projectId: z.string().uuid().nullable(),
   projectName: z.string().nullable(),
   payoutRequestId: z.string().uuid().nullable(),
-  payoutRequest: z.object({
-    seniorId: z.string(),
-    incomeAmount: z.string(),
-    payableAmount: z.string(),
-    seniorSharePercent: z.number().nullable(),
-  }).nullable().optional(),
+  payoutRequest: z
+    .object({
+      seniorId: z.string(),
+      incomeAmount: z.string(),
+      payableAmount: z.string(),
+      seniorSharePercent: z.number().nullable(),
+    })
+    .nullable()
+    .optional(),
   seniorSharePercent: z.number().nullable(),
   // Receipt: either a documents.id reference (uploaded RECEIPT file) OR an
   // external URL (etherscan, screenshot link). Mutually exclusive — the
@@ -128,8 +131,10 @@ const receiptFields = {
   receiptExternalUrl: z.string().url().optional().nullable(),
 }
 
-const receiptXor = (data: { receiptDocumentId?: string | null | undefined; receiptExternalUrl?: string | null | undefined }) =>
-  !(data.receiptDocumentId && data.receiptExternalUrl)
+const receiptXor = (data: {
+  receiptDocumentId?: string | null | undefined
+  receiptExternalUrl?: string | null | undefined
+}) => !(data.receiptDocumentId && data.receiptExternalUrl)
 
 const receiptXorMessage = {
   message: 'Receipt must be either a document upload OR an external URL — not both',
@@ -137,45 +142,65 @@ const receiptXorMessage = {
 }
 
 // ADMIN_INCOME — admin declares project income, no validation needed
-export const createAdminIncomeSchema = z.object({
-  projectId: z.string().uuid(),
-  amount: z.number().positive(),
-  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
-  ...receiptFields,
-  notes: z.string().max(1000).optional().nullable(),
-  txDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
-}).refine(receiptXor, receiptXorMessage)
+export const createAdminIncomeSchema = z
+  .object({
+    projectId: z.string().uuid(),
+    amount: z.number().positive(),
+    currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+    ...receiptFields,
+    notes: z.string().max(1000).optional().nullable(),
+    txDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional()
+      .nullable(),
+  })
+  .refine(receiptXor, receiptXorMessage)
 export type CreateAdminIncomeDto = z.infer<typeof createAdminIncomeSchema>
 
 // SENIOR_INCOME — senior registers project income, awaits validation
-export const createSeniorIncomeSchema = z.object({
-  projectId: z.string().uuid(),
-  amount: z.number().positive(),
-  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
-  ...receiptFields,
-  notes: z.string().max(1000).optional().nullable(),
-  txDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
-}).refine(receiptXor, receiptXorMessage)
+export const createSeniorIncomeSchema = z
+  .object({
+    projectId: z.string().uuid(),
+    amount: z.number().positive(),
+    currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+    ...receiptFields,
+    notes: z.string().max(1000).optional().nullable(),
+    txDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional()
+      .nullable(),
+  })
+  .refine(receiptXor, receiptXorMessage)
 export type CreateSeniorIncomeDto = z.infer<typeof createSeniorIncomeSchema>
 
 // Update REJECTED senior income (resets to PENDING)
-export const updateSeniorIncomeSchema = z.object({
-  amount: z.number().positive().optional(),
-  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).optional(),
-  ...receiptFields,
-  notes: z.string().max(1000).optional().nullable(),
-}).refine(receiptXor, receiptXorMessage)
+export const updateSeniorIncomeSchema = z
+  .object({
+    amount: z.number().positive().optional(),
+    currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).optional(),
+    ...receiptFields,
+    notes: z.string().max(1000).optional().nullable(),
+  })
+  .refine(receiptXor, receiptXorMessage)
 export type UpdateSeniorIncomeDto = z.infer<typeof updateSeniorIncomeSchema>
 
 // EXPENSE — admin declares a company expense
-export const createExpenseSchema = z.object({
-  amount: z.number().positive(),
-  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
-  category: z.string().min(1).max(255),
-  notes: z.string().max(1000).optional().nullable(),
-  ...receiptFields,
-  txDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
-}).refine(receiptXor, receiptXorMessage)
+export const createExpenseSchema = z
+  .object({
+    amount: z.number().positive(),
+    currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+    category: z.string().min(1).max(255),
+    notes: z.string().max(1000).optional().nullable(),
+    ...receiptFields,
+    txDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional()
+      .nullable(),
+  })
+  .refine(receiptXor, receiptXorMessage)
 export type CreateExpenseDto = z.infer<typeof createExpenseSchema>
 
 // SALARY — admin creates salary transaction for HR/ACCOUNTANT/JUNIOR
@@ -185,7 +210,11 @@ export const createSalarySchema = z.object({
   currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).default('USDT'),
   salaryMonth: z.string().regex(/^\d{4}-\d{2}$/, 'Format YYYY-MM'),
   notes: z.string().max(1000).optional().nullable(),
-  txDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  txDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .nullable(),
 })
 export type CreateSalaryDto = z.infer<typeof createSalarySchema>
 
@@ -196,7 +225,11 @@ export const createAdminTransferSchema = z.object({
   amount: z.number().positive(),
   currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).default('USDT'),
   notes: z.string().max(1000).optional().nullable(),
-  txDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  txDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .nullable(),
 })
 export type CreateAdminTransferDto = z.infer<typeof createAdminTransferSchema>
 
@@ -213,9 +246,16 @@ export const createPayoutRequestSchema = z.object({
 })
 export type CreatePayoutRequestDto = z.infer<typeof createPayoutRequestSchema>
 
-// Pay payout request (senior submits txHash)
+// Pay payout request (senior submits txHash).
+//
+// `simulateResult` is a DEV-only escape hatch: when present and the API is
+// not in production, the backend either skips the etherscan check and runs
+// the success cascade ("success") or throws a deterministic 400 ("error")
+// so the SENIOR can rehearse the error path on User Testing without sending
+// a real on-chain transaction. In production the field is ignored.
 export const payPayoutRequestSchema = z.object({
   txHash: z.string().min(10).max(255),
+  simulateResult: z.enum(['success', 'error']).optional(),
 })
 export type PayPayoutRequestDto = z.infer<typeof payPayoutRequestSchema>
 
@@ -227,14 +267,19 @@ export const updateProjectFinanceSettingsSchema = z.object({
 export type UpdateProjectFinanceSettingsDto = z.infer<typeof updateProjectFinanceSettingsSchema>
 
 // Admin edit any transaction (ADMIN only, blocks PAYOUT/PAYOUT_ADMIN on backend)
-export const adminUpdateTransactionSchema = z.object({
-  amount: z.number().positive().optional(),
-  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).optional(),
-  notes: z.string().max(1000).optional().nullable(),
-  ...receiptFields,
-  category: z.string().min(1).max(255).optional(),
-  salaryMonth: z.string().regex(/^\d{4}-\d{2}$/, 'Format YYYY-MM').optional(),
-}).refine(receiptXor, receiptXorMessage)
+export const adminUpdateTransactionSchema = z
+  .object({
+    amount: z.number().positive().optional(),
+    currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).optional(),
+    notes: z.string().max(1000).optional().nullable(),
+    ...receiptFields,
+    category: z.string().min(1).max(255).optional(),
+    salaryMonth: z
+      .string()
+      .regex(/^\d{4}-\d{2}$/, 'Format YYYY-MM')
+      .optional(),
+  })
+  .refine(receiptXor, receiptXorMessage)
 export type AdminUpdateTransactionDto = z.infer<typeof adminUpdateTransactionSchema>
 
 // Mark PENDING salary as PAID (admin pays it manually)
@@ -253,17 +298,21 @@ export const financeSummarySchema = z.object({
   totalExpenses: z.number(),
   totalSalaries: z.number(),
   netBalance: z.number(),
-  adminBalances: z.array(z.object({
-    userId: z.string().uuid(),
-    displayName: z.string(),
-    balance: z.number(),
-  })),
-  monthly: z.array(z.object({
-    month: z.string(),
-    income: z.number(),
-    expenses: z.number(),
-    salaries: z.number(),
-    profit: z.number(),
-  })),
+  adminBalances: z.array(
+    z.object({
+      userId: z.string().uuid(),
+      displayName: z.string(),
+      balance: z.number(),
+    }),
+  ),
+  monthly: z.array(
+    z.object({
+      month: z.string(),
+      income: z.number(),
+      expenses: z.number(),
+      salaries: z.number(),
+      profit: z.number(),
+    }),
+  ),
 })
 export type FinanceSummaryDto = z.infer<typeof financeSummarySchema>

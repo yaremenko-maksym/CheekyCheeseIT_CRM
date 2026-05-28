@@ -681,7 +681,12 @@ export class TransactionsService {
 
   // ── Pay Payout Request ────────────────────────────────────────────────────
 
-  async payPayoutRequest(requestId: string, txHash: string, currentUser: SessionUser) {
+  async payPayoutRequest(
+    requestId: string,
+    txHash: string,
+    currentUser: SessionUser,
+    simulateResult?: 'success' | 'error',
+  ) {
     if (currentUser.role !== 'SENIOR') throw new ForbiddenException()
 
     const req = await this.db.db.query.payoutRequests.findFirst({
@@ -690,6 +695,19 @@ export class TransactionsService {
     if (!req) throw new NotFoundException('Payout request not found')
     if (req.seniorId !== currentUser.id) throw new ForbiddenException()
     if (req.status !== 'PENDING') throw new BadRequestException('Payout request is already paid')
+
+    // DEV-only simulate toggle (see PayPayoutRequestDto.simulateResult).
+    // The dev/staging UI surfaces a radio group that lets the SENIOR rehearse
+    // either branch of the etherscan stub without going on-chain. In
+    // production the flag is ignored — real verification logic owns the
+    // decision.
+    const isDevMode = process.env['NODE_ENV'] !== 'production'
+    if (isDevMode && simulateResult === 'error') {
+      throw new BadRequestException('Симуляция: транзакция не подтверждена')
+    }
+    // simulateResult === 'success' falls through to the normal cascade below
+    // (which already short-circuits etherscan today — see EtherscanService
+    // header comment about the missing real-verification call site).
 
     // Mark payout request as paid
     await this.db.db
