@@ -11,7 +11,9 @@ const envSchema = z
     GOOGLE_CALLBACK_URL: z.string().min(1),
     JWT_SECRET: z.string().min(32),
     SESSION_SECRET: z.string().min(32),
-    FRONTEND_URL: z.string().min(1),
+    // Default — для локального dev (Vite на :3000). В production должен быть задан
+    // явно через env (см. refine ниже — пустой default + NODE_ENV=production → ошибка).
+    FRONTEND_URL: z.string().min(1).default('http://localhost:3000'),
 
     // S3 / MinIO (PHASE 6 — Documents). Dev defaults point to local MinIO.
     // AWS_* defaults to 'minioadmin' for local convenience; production safety
@@ -25,31 +27,31 @@ const envSchema = z
     AWS_ACCESS_KEY_ID: z.string().min(1).default('minioadmin'),
     AWS_SECRET_ACCESS_KEY: z.string().min(1).default('minioadmin'),
   })
-  .refine(
-    (env) => env.NODE_ENV !== 'production' || env.AWS_ACCESS_KEY_ID !== 'minioadmin',
-    {
-      message:
-        'AWS_ACCESS_KEY_ID must be overridden in production (minioadmin default is for dev/MinIO only)',
-      path: ['AWS_ACCESS_KEY_ID'],
-    },
-  )
-  .refine(
-    (env) => env.NODE_ENV !== 'production' || env.AWS_SECRET_ACCESS_KEY !== 'minioadmin',
-    {
-      message:
-        'AWS_SECRET_ACCESS_KEY must be overridden in production (minioadmin default is for dev/MinIO only)',
-      path: ['AWS_SECRET_ACCESS_KEY'],
-    },
-  )
+  .refine((env) => env.NODE_ENV !== 'production' || env.AWS_ACCESS_KEY_ID !== 'minioadmin', {
+    message:
+      'AWS_ACCESS_KEY_ID must be overridden in production (minioadmin default is for dev/MinIO only)',
+    path: ['AWS_ACCESS_KEY_ID'],
+  })
+  .refine((env) => env.NODE_ENV !== 'production' || env.AWS_SECRET_ACCESS_KEY !== 'minioadmin', {
+    message:
+      'AWS_SECRET_ACCESS_KEY must be overridden in production (minioadmin default is for dev/MinIO only)',
+    path: ['AWS_SECRET_ACCESS_KEY'],
+  })
 
 export type Env = z.infer<typeof envSchema>
 
+// Note: FRONTEND_URL default 'http://localhost:3000' допустим только в dev/test.
+// В production требуется явное значение env — иначе callback Google OAuth уйдёт на
+// localhost вместо реального домена. Reach the refine via validateEnv (raw config).
 export function validateEnv(config: Record<string, unknown>): Env {
+  if (config.NODE_ENV === 'production' && !config.FRONTEND_URL) {
+    throw new Error(
+      'Invalid environment variables:\n  FRONTEND_URL: required in production (no default allowed)',
+    )
+  }
   const result = envSchema.safeParse(config)
   if (!result.success) {
-    const issues = result.error.issues
-      .map((i) => `  ${i.path.join('.')}: ${i.message}`)
-      .join('\n')
+    const issues = result.error.issues.map((i) => `  ${i.path.join('.')}: ${i.message}`).join('\n')
     throw new Error(`Invalid environment variables:\n${issues}`)
   }
   return result.data
