@@ -363,6 +363,7 @@ function InvoiceDetailContent({
           <Badge
             variant="outline"
             className="border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-300"
+            data-testid="invoice-detail-signed-badge"
           >
             <Lock className="mr-1 h-3 w-3" />
             Документ подписан
@@ -371,6 +372,7 @@ function InvoiceDetailContent({
           <Badge
             variant="outline"
             className="border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-300"
+            data-testid="invoice-detail-counterparty-only-badge"
           >
             Подпись доступна только контрагенту
           </Badge>

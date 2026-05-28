@@ -334,7 +334,7 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
 
     await expect(asSenior.getByTestId('invoice-detail-dialog')).toBeVisible()
     await expect(asSenior.getByTestId('invoice-detail-sign-button')).not.toBeVisible()
-    await expect(asSenior.getByText('Документ подписан')).toBeVisible()
+    await expect(asSenior.getByTestId('invoice-detail-signed-badge')).toBeVisible()
   })
 
   test('C6: non-counterparty (HR) sees «Подпись доступна только контрагенту» chip, no sign button', async ({
@@ -347,7 +347,7 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
     await asHr.goto(`/crm/documents?category=INVOICE&openTx=${TX_ID}`)
     await expect(asHr.getByTestId('invoice-detail-dialog')).toBeVisible()
     await expect(asHr.getByTestId('invoice-detail-sign-button')).not.toBeVisible()
-    await expect(asHr.getByText('Подпись доступна только контрагенту')).toBeVisible()
+    await expect(asHr.getByTestId('invoice-detail-counterparty-only-badge')).toBeVisible()
   })
 
   test('C7: public verify /invoice/v/:txId renders WITHOUT auth + shows both signatures', async ({
@@ -389,11 +389,15 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
     // The "verified" success state is the desired terminal — opens without
     // a login redirect (the page lives outside /crm).
     await expect(page.getByTestId('invoice-verify-success')).toBeVisible()
-    await expect(page.getByText('Документ верифицирован')).toBeVisible()
+    await expect(page.getByTestId('invoice-verify-status-heading')).toContainText(
+      'Документ верифицирован',
+    )
     await expect(
       page.getByTestId('invoice-verify-signatures-table'),
     ).toBeVisible()
-    await expect(page.getByText('Подписи (2 из 2)')).toBeVisible()
+    await expect(page.getByTestId('invoice-verify-signatures-count')).toContainText(
+      'Подписи (2 из 2)',
+    )
     await expect(page.getByText(USERS.admin.displayName)).toBeVisible()
     await expect(page.getByText(USERS.senior.displayName)).toBeVisible()
   })
@@ -425,8 +429,12 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
 
     await page.goto(`/invoice/v/${TX_ID}`)
     await expect(page.getByTestId('invoice-verify-success')).toBeVisible()
-    await expect(page.getByText('Документ ожидает подписи')).toBeVisible()
-    await expect(page.getByText('Подписи (1 из 2)')).toBeVisible()
+    await expect(page.getByTestId('invoice-verify-status-heading')).toContainText(
+      'Документ ожидает подписи',
+    )
+    await expect(page.getByTestId('invoice-verify-signatures-count')).toContainText(
+      'Подписи (1 из 2)',
+    )
   })
 
   test('C9: public verify 404 → error state', async ({ page }) => {
@@ -439,7 +447,9 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
     )
     await page.goto(`/invoice/v/${TX_ID}`)
     await expect(page.getByTestId('invoice-verify-error')).toBeVisible()
-    await expect(page.getByText('Документ не найден')).toBeVisible()
+    await expect(page.getByTestId('invoice-verify-error-message')).toContainText(
+      'Документ не найден',
+    )
   })
 
   test('C10: ADMIN signing the same invoice document re-uses the same flow + dialog', async ({
