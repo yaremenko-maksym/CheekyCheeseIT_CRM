@@ -1,13 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  Plus,
-  Search,
-  ArrowUpDown,
-  ChevronDown,
-  X,
-  Wallet,
-} from 'lucide-react'
+import { Plus, Search, ArrowUpDown, ChevronDown, X, Wallet } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import type { TransactionDto } from '@crm/shared'
@@ -25,14 +18,30 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Dialog, CrmDialogContent, CrmDialogHeader, CrmDialogBody, CrmDialogFooter, DialogTitle } from '@/components/ui/crm-dialog'
+import {
+  Dialog,
+  CrmDialogContent,
+  CrmDialogHeader,
+  CrmDialogBody,
+  CrmDialogFooter,
+  DialogTitle,
+} from '@/components/ui/crm-dialog'
 
 import { api } from '@/lib/axios'
 import { financeApi } from './api'
-import { fmtAmount, fmtDate, fmtMonth, STATUS_COLORS, STATUS_LABELS, TYPE_LABELS, type ExchangeRates } from './constants'
+import {
+  fmtAmount,
+  fmtDate,
+  fmtMonth,
+  STATUS_COLORS,
+  STATUS_LABELS,
+  TYPE_LABELS,
+  type ExchangeRates,
+} from './constants'
 import { TransactionRow } from './components/TransactionRow'
 import { Pagination } from './components/Pagination'
 import { usePaginatedFilter } from './hooks/usePaginatedFilter'
+import { compareTxByAmount, compareTxByDate } from './sort'
 import { CreateTransactionDialog } from './components/dialogs/CreateTransactionDialog'
 import { ValidateDialog } from './components/dialogs/ValidateDialog'
 import { EditSeniorIncomeDialog } from './components/dialogs/EditSeniorIncomeDialog'
@@ -79,7 +88,12 @@ function FilterBar({
       {filterSlot}
       {sortSlot}
       {hasActive && (
-        <Button variant="ghost" size="sm" className="h-8 gap-1 text-muted-foreground" onClick={onClear}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1 text-muted-foreground"
+          onClick={onClear}
+        >
           <X className="h-3.5 w-3.5" /> Сбросить
         </Button>
       )}
@@ -112,7 +126,9 @@ function SortButton({
       <ArrowUpDown className="h-3 w-3" />
       {label}
       {active && (
-        <ChevronDown className={cn('h-3 w-3 transition-transform', dir === 'asc' && 'rotate-180')} />
+        <ChevronDown
+          className={cn('h-3 w-3 transition-transform', dir === 'asc' && 'rotate-180')}
+        />
       )}
     </button>
   )
@@ -137,7 +153,9 @@ function FilterSelect({
       <SelectContent>
         <SelectItem value="all">{placeholder}</SelectItem>
         {options.map((o) => (
-          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+          <SelectItem key={o.value} value={o.value}>
+            {o.label}
+          </SelectItem>
         ))}
       </SelectContent>
     </Select>
@@ -192,38 +210,61 @@ function TransactionsTable({
 
   const toggleSort = (key: TxSort) => {
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-    else { setSortKey(key); setSortDir('desc') }
+    else {
+      setSortKey(key)
+      setSortDir('desc')
+    }
   }
 
-  const filter = useCallback((tx: TransactionDto) => {
-    if (typeFilter !== 'all' && tx.type !== typeFilter) return false
-    if (statusFilter !== 'all' && tx.status !== statusFilter) return false
-    if (search) {
-      const q = search.toLowerCase()
-      const haystack = [tx.senderName, tx.receiverName, tx.senderLabel, tx.receiverLabel, tx.projectName]
-        .filter(Boolean).join(' ').toLowerCase()
-      if (!haystack.includes(q)) return false
-    }
-    return true
-  }, [search, typeFilter, statusFilter])
-
-  const sort = useCallback((a: TransactionDto, b: TransactionDto) => {
-    const mul = sortDir === 'asc' ? 1 : -1
-    if (sortKey === 'date') return mul * (new Date(a.txDate ?? a.createdAt).getTime() - new Date(b.txDate ?? b.createdAt).getTime())
-    return mul * (parseFloat(a.amount) - parseFloat(b.amount))
-  }, [sortKey, sortDir])
-
-  const { paged, page, setPage, totalPages, totalItems, pageSize } = usePaginatedFilter<TransactionDto, TxSort>(
-    transactions, filter, sort,
+  const filter = useCallback(
+    (tx: TransactionDto) => {
+      if (typeFilter !== 'all' && tx.type !== typeFilter) return false
+      if (statusFilter !== 'all' && tx.status !== statusFilter) return false
+      if (search) {
+        const q = search.toLowerCase()
+        const haystack = [
+          tx.senderName,
+          tx.receiverName,
+          tx.senderLabel,
+          tx.receiverLabel,
+          tx.projectName,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+        if (!haystack.includes(q)) return false
+      }
+      return true
+    },
+    [search, typeFilter, statusFilter],
   )
 
+  const sort = useCallback(
+    (a: TransactionDto, b: TransactionDto) => {
+      if (sortKey === 'date') return compareTxByDate(a, b, sortDir)
+      return compareTxByAmount(a, b, sortDir)
+    },
+    [sortKey, sortDir],
+  )
+
+  const { paged, page, setPage, totalPages, totalItems, pageSize } = usePaginatedFilter<
+    TransactionDto,
+    TxSort
+  >(transactions, filter, sort)
+
   const hasActive = search !== '' || typeFilter !== 'all' || statusFilter !== 'all'
-  const onClear = () => { setSearch(''); setTypeFilter('all'); setStatusFilter('all') }
+  const onClear = () => {
+    setSearch('')
+    setTypeFilter('all')
+    setStatusFilter('all')
+  }
 
   if (loading) {
     return (
       <div className="p-6 space-y-3">
-        {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-12 rounded-lg" />)}
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Skeleton key={i} className="h-12 rounded-lg" />
+        ))}
       </div>
     )
   }
@@ -235,14 +276,34 @@ function TransactionsTable({
         onSearch={setSearch}
         filterSlot={
           <>
-            <FilterSelect value={typeFilter} onChange={setTypeFilter} placeholder="Все типы" options={TYPE_OPTIONS} />
-            <FilterSelect value={statusFilter} onChange={setStatusFilter} placeholder="Все статусы" options={STATUS_OPTIONS} />
+            <FilterSelect
+              value={typeFilter}
+              onChange={setTypeFilter}
+              placeholder="Все типы"
+              options={TYPE_OPTIONS}
+            />
+            <FilterSelect
+              value={statusFilter}
+              onChange={setStatusFilter}
+              placeholder="Все статусы"
+              options={STATUS_OPTIONS}
+            />
           </>
         }
         sortSlot={
           <div className="flex gap-1.5">
-            <SortButton label="Дата" active={sortKey === 'date'} dir={sortDir} onClick={() => toggleSort('date')} />
-            <SortButton label="Сумма" active={sortKey === 'amount'} dir={sortDir} onClick={() => toggleSort('amount')} />
+            <SortButton
+              label="Дата"
+              active={sortKey === 'date'}
+              dir={sortDir}
+              onClick={() => toggleSort('date')}
+            />
+            <SortButton
+              label="Сумма"
+              active={sortKey === 'amount'}
+              dir={sortDir}
+              onClick={() => toggleSort('amount')}
+            />
           </div>
         }
         onClear={onClear}
@@ -285,7 +346,13 @@ function TransactionsTable({
           </table>
         </div>
       )}
-      <Pagination page={page} totalPages={totalPages} totalItems={totalItems} pageSize={pageSize} onPage={setPage} />
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        totalItems={totalItems}
+        pageSize={pageSize}
+        onPage={setPage}
+      />
     </>
   )
 }
@@ -345,10 +412,16 @@ function FinancePage() {
   })
 
   const pendingPayoutTxIds = new Set(
-    payouts.filter((p) => p.status === 'PENDING').flatMap((p) => (p.transactions ?? []).map((t) => t.id)),
+    payouts
+      .filter((p) => p.status === 'PENDING')
+      .flatMap((p) => (p.transactions ?? []).map((t) => t.id)),
   )
   const validatedForPayout = transactions.filter(
-    (t) => t.type === 'SENIOR_INCOME' && t.status === 'VALIDATED' && !pendingPayoutTxIds.has(t.id) && t.senderId === userId,
+    (t) =>
+      t.type === 'SENIOR_INCOME' &&
+      t.status === 'VALIDATED' &&
+      !pendingPayoutTxIds.has(t.id) &&
+      t.senderId === userId,
   )
 
   // HR view
@@ -363,7 +436,11 @@ function FinancePage() {
         <Card>
           <CardContent className="p-0">
             {txLoading ? (
-              <div className="p-6 space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 rounded-lg" />)}</div>
+              <div className="p-6 space-y-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Skeleton key={i} className="h-12 rounded-lg" />
+                ))}
+              </div>
             ) : mySalaries.length === 0 ? (
               <div className="py-16 text-center text-sm text-muted-foreground">Выплат пока нет</div>
             ) : (
@@ -387,10 +464,19 @@ function FinancePage() {
                         <td className="py-3 px-4 text-sm tabular-nums font-medium text-green-500">
                           {fmtAmount(t.amount, t.currency)}
                         </td>
-                        <td className="py-3 px-4 text-sm text-muted-foreground">{fmtMonth(t.salaryMonth)}</td>
-                        <td className="py-3 px-4 text-xs text-muted-foreground">{fmtDate(t.txDate ?? t.createdAt)}</td>
+                        <td className="py-3 px-4 text-sm text-muted-foreground">
+                          {fmtMonth(t.salaryMonth)}
+                        </td>
+                        <td className="py-3 px-4 text-xs text-muted-foreground">
+                          {fmtDate(t.txDate ?? t.createdAt)}
+                        </td>
                         <td className="py-3 px-4">
-                          <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium', STATUS_COLORS[t.status])}>
+                          <span
+                            className={cn(
+                              'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
+                              STATUS_COLORS[t.status],
+                            )}
+                          >
                             {STATUS_LABELS[t.status]}
                           </span>
                         </td>
@@ -419,7 +505,11 @@ function FinancePage() {
         <Card>
           <CardContent className="p-0">
             {txLoading ? (
-              <div className="p-6 space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 rounded-lg" />)}</div>
+              <div className="p-6 space-y-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Skeleton key={i} className="h-12 rounded-lg" />
+                ))}
+              </div>
             ) : mySalaries.length === 0 ? (
               <div className="py-16 text-center text-sm text-muted-foreground">Выплат пока нет</div>
             ) : (
@@ -436,21 +526,31 @@ function FinancePage() {
                   </thead>
                   <tbody>
                     {mySalaries.map((t) => (
-                      <tr key={t.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
+                      <tr
+                        key={t.id}
+                        className="border-b border-border/50 hover:bg-muted/30 transition-colors"
+                      >
                         <td className="py-3 px-4 text-sm tabular-nums font-medium text-green-500">
                           {fmtAmount(t.amount, t.currency)}
                         </td>
-                        <td className="py-3 px-4 text-sm text-muted-foreground">{fmtMonth(t.salaryMonth)}</td>
-                        <td className="py-3 px-4 text-xs text-muted-foreground">{fmtDate(t.txDate ?? t.createdAt)}</td>
+                        <td className="py-3 px-4 text-sm text-muted-foreground">
+                          {fmtMonth(t.salaryMonth)}
+                        </td>
+                        <td className="py-3 px-4 text-xs text-muted-foreground">
+                          {fmtDate(t.txDate ?? t.createdAt)}
+                        </td>
                         <td className="py-3 px-4">
-                          <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium', STATUS_COLORS[t.status])}>
+                          <span
+                            className={cn(
+                              'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
+                              STATUS_COLORS[t.status],
+                            )}
+                          >
                             {STATUS_LABELS[t.status]}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-xs font-mono text-muted-foreground">
-                          {t.txHash ? (
-                            <span title={t.txHash}>{t.txHash.slice(0, 14)}…</span>
-                          ) : '—'}
+                          {t.txHash ? <span title={t.txHash}>{t.txHash.slice(0, 14)}…</span> : '—'}
                         </td>
                       </tr>
                     ))}
@@ -538,7 +638,9 @@ function FinancePage() {
             </div>
           </CrmDialogBody>
           <CrmDialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setDeleteTx(null)}>Отмена</Button>
+            <Button variant="outline" size="sm" onClick={() => setDeleteTx(null)}>
+              Отмена
+            </Button>
             <Button
               variant="destructive"
               size="sm"
