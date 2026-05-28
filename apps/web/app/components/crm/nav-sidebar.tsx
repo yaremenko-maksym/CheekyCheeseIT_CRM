@@ -102,7 +102,13 @@ interface NavSidebarProps {
   onMobileClose: () => void
 }
 
-export function NavSidebar({ user, collapsed, onToggle, mobileOpen, onMobileClose }: NavSidebarProps) {
+export function NavSidebar({
+  user,
+  collapsed,
+  onToggle,
+  mobileOpen,
+  onMobileClose,
+}: NavSidebarProps) {
   const items = NAV_ITEMS.filter((item) => item.roles.includes(user.role))
 
   return (
@@ -127,7 +133,12 @@ export function NavSidebar({ user, collapsed, onToggle, mobileOpen, onMobileClos
           <div className="border-t border-border/60 p-2">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" onClick={onToggle} className="h-8 w-full">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onToggle}
+                  className="h-8 w-full cursor-pointer"
+                >
                   {collapsed ? (
                     <ChevronRight className="h-4 w-4" />
                   ) : (
@@ -135,9 +146,7 @@ export function NavSidebar({ user, collapsed, onToggle, mobileOpen, onMobileClos
                   )}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="right">
-                {collapsed ? 'Развернуть' : 'Свернуть'}
-              </TooltipContent>
+              <TooltipContent side="right">{collapsed ? 'Развернуть' : 'Свернуть'}</TooltipContent>
             </Tooltip>
           </div>
         </aside>

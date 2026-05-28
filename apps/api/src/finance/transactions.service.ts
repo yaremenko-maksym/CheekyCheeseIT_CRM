@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto'
 import {
   BadRequestException,
   ForbiddenException,
@@ -504,21 +505,100 @@ export class TransactionsService {
     if (!tx) throw new NotFoundException('Transaction not found')
     if (tx.type !== 'SENIOR_INCOME')
       throw new BadRequestException('Only SENIOR_INCOME can be validated')
+    // AC4: idempotency. The action is only valid on PENDING rows — a second
+    // click after a successful validate would otherwise create a duplicate
+    // PAYOUT row. We throw rather than silently no-op so the UI can show
+    // a clear error to the ACCOUNTANT (vs. pretending it worked twice).
     if (tx.status !== 'PENDING')
       throw new BadRequestException('Transaction is not in PENDING status')
 
     if (action === 'validate') {
-      await this.db.db
-        .update(transactions)
-        .set({
-          status: 'VALIDATED',
-          validatedBy: currentUser.id,
-          validatedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(transactions.id, id))
+      // PR #56 final UT fix (AC2): validate atomically flips SENIOR_INCOME to
+      // **VALIDATED** (terminal state for the income) and creates the 1-to-1
+      // «Выплата» row in PENDING_PAYMENT. Rationale per user: «давай статус
+      // будет "Подтверждено" типу как финальный статус для прихода синьера,
+      // а дальше уже идет флоу Выплаты». SENIOR_INCOME no longer carries the
+      // «Оплатить» button — only the PAYOUT row does. SENIOR_INCOME flips to
+      // PAID later in payPayoutRequest once the on-chain payment lands.
+      //
+      // db.transaction() guarantees both the UPDATE and the INSERT happen
+      // together — if the PAYOUT insert fails, the SENIOR_INCOME stays
+      // PENDING and the ACCOUNTANT can retry.
+      if (!tx.receiverId) {
+        throw new BadRequestException(
+          'SENIOR_INCOME has no receiverId — cannot create payout',
+        )
+      }
+      const senior = await this.db.db.query.users.findFirst({
+        where: eq(users.id, tx.receiverId),
+      })
+      if (!senior) throw new NotFoundException('Senior receiver not found')
 
-      // Unlock junior salary for this project's current month if locked
+      // Senior keeps `sharePercent`%, pays `100 - sharePercent`% to company.
+      // Snapshot from the SENIOR_INCOME row (set at createSeniorIncome time
+      // from project override → user default) so the payout uses the same %
+      // that was visible to the senior when they submitted income.
+      const sharePercent = tx.seniorSharePercent ?? senior.seniorSharePercent ?? 26
+      const incomeAmount = parseFloat(tx.amount)
+      const payableAmount = incomeAmount * (1 - sharePercent / 100)
+
+      // Stub Ethereum-shape contract address (0x + 40 hex). Each PAYOUT gets
+      // a fresh one — when PHASE 8 ships these will be replaced by the real
+      // PaymentSplitter contract address. See createPayoutRequest for the
+      // batch counterpart that does the same thing.
+      const contractAddress = '0x' + randomBytes(20).toString('hex')
+
+      const now = new Date()
+
+      await this.db.db.transaction(async (dbtx) => {
+        // 1) Create the payout_request row first (FK target for both tx
+        //    updates below).
+        const [req] = await dbtx
+          .insert(payoutRequests)
+          .values({
+            seniorId: tx.receiverId!,
+            incomeAmount: String(incomeAmount),
+            payableAmount: String(payableAmount),
+            contractAddress,
+            status: 'PENDING',
+          })
+          .returning()
+
+        // 2) Flip SENIOR_INCOME status to VALIDATED (terminal for income —
+        //    «Подтверждено» badge) + link it to the payout_request so the UI
+        //    can group them. The «Оплатить» button moves to the PAYOUT row
+        //    inserted below.
+        await dbtx
+          .update(transactions)
+          .set({
+            status: 'VALIDATED',
+            payoutRequestId: req!.id,
+            validatedBy: currentUser.id,
+            validatedAt: now,
+            updatedAt: now,
+          })
+          .where(eq(transactions.id, id))
+
+        // 3) Insert the placeholder «Выплата» row (PAYOUT, PENDING_PAYMENT).
+        //    senderId = the senior (who pays out); receiverLabel = company.
+        //    1-to-1 with the SENIOR_INCOME row (task explicitly out-of-scope:
+        //    batch payouts where N incomes → 1 payout).
+        await dbtx.insert(transactions).values({
+          type: 'PAYOUT',
+          status: 'PENDING_PAYMENT',
+          amount: String(payableAmount),
+          currency: tx.currency,
+          senderId: tx.receiverId!,
+          receiverLabel: 'CheekyCheeseIT',
+          projectId: tx.projectId,
+          payoutRequestId: req!.id,
+          createdBy: currentUser.id,
+        })
+      })
+
+      // Unlock junior salary for this project's current month if locked.
+      // Outside the transaction is fine — it's a best-effort secondary
+      // effect; if it fails the validate still succeeded.
       await this.unlockJuniorSalaryForProject(tx.projectId, tx)
     } else {
       if (!rejectionReason) throw new BadRequestException('Rejection reason is required')
@@ -697,12 +777,18 @@ export class TransactionsService {
     // senior keeps sharePercent, pays (100-sharePercent)%
     const payableAmount = incomeAmount * (1 - sharePercent / 100)
 
+    // Stub contract address — Ethereum-shape (0x + 40 hex). Per-payout fresh
+    // address, swapped for the real PaymentSplitter when PHASE 8 ships. See
+    // migration 0019 for the column rationale.
+    const contractAddress = '0x' + randomBytes(20).toString('hex')
+
     const [req] = await this.db.db
       .insert(payoutRequests)
       .values({
         seniorId: currentUser.id,
         incomeAmount: String(incomeAmount),
         payableAmount: String(payableAmount),
+        contractAddress,
         status: 'PENDING',
       })
       .returning()
@@ -713,12 +799,34 @@ export class TransactionsService {
       .set({ payoutRequestId: req!.id, status: 'PENDING_PAYMENT', updatedAt: new Date() })
       .where(inArray(transactions.id, transactionIds))
 
+    // Create the placeholder «Выплата» transaction (PAYOUT, PENDING_PAYMENT).
+    // It's visible in the transactions table immediately so the SENIOR has a
+    // single row to click «Оплатить» on — the linked SENIOR_INCOME rows just
+    // flip status, they no longer carry the inline pay button. The same row
+    // is mutated to PAID in payPayoutRequest (txHash + status) — we don't
+    // INSERT a fresh PAYOUT there anymore.
+    await this.db.db.insert(transactions).values({
+      type: 'PAYOUT',
+      status: 'PENDING_PAYMENT',
+      amount: String(payableAmount),
+      currency: 'USDT',
+      senderId: currentUser.id,
+      receiverLabel: 'CheekyCheeseIT',
+      payoutRequestId: req!.id,
+      createdBy: currentUser.id,
+    })
+
     return this.findPayoutRequest(req!.id, currentUser)
   }
 
   // ── Pay Payout Request ────────────────────────────────────────────────────
 
-  async payPayoutRequest(requestId: string, txHash: string, currentUser: SessionUser) {
+  async payPayoutRequest(
+    requestId: string,
+    txHash: string | undefined,
+    currentUser: SessionUser,
+    simulateResult?: 'success' | 'error',
+  ) {
     if (currentUser.role !== 'SENIOR') throw new ForbiddenException()
 
     const req = await this.db.db.query.payoutRequests.findFirst({
@@ -728,11 +836,39 @@ export class TransactionsService {
     if (req.seniorId !== currentUser.id) throw new ForbiddenException()
     if (req.status !== 'PENDING') throw new BadRequestException('Payout request is already paid')
 
+    // DEV-only simulate toggle (see PayPayoutRequestDto.simulateResult).
+    // The dev/staging UI surfaces a radio group that lets the SENIOR rehearse
+    // either branch of the etherscan stub without going on-chain. In
+    // production the flag is ignored — real verification logic owns the
+    // decision.
+    const isDevMode = process.env['NODE_ENV'] !== 'production'
+    const isSimulating = isDevMode && simulateResult !== undefined
+    if (isSimulating && simulateResult === 'error') {
+      throw new BadRequestException('Симуляция: транзакция не подтверждена')
+    }
+    // simulateResult === 'success' falls through to the normal cascade below
+    // (which already short-circuits etherscan today — see EtherscanService
+    // header comment about the missing real-verification call site).
+    //
+    // When the SENIOR submits without a real on-chain hash (simulate mode),
+    // we synthesize a deterministic stub hash so the audit trail (txHash
+    // column on payout_requests + linked transactions) is never empty. The
+    // 0xSIM prefix is the convention the UI uses to skip the etherscan link
+    // (see PayoutDetailDialog footer).
+    const effectiveTxHash =
+      txHash && txHash.trim().length >= 10
+        ? txHash.trim()
+        : isSimulating
+          ? `0xSIM${randomBytes(28).toString('hex')}`
+          : (() => {
+              throw new BadRequestException('Хеш транзакции обязателен')
+            })()
+
     // Mark payout request as paid
     await this.db.db
       .update(payoutRequests)
       .set({
-        txHash,
+        txHash: effectiveTxHash,
         status: 'PAID',
         updatedAt: new Date(),
       })
@@ -761,18 +897,20 @@ export class TransactionsService {
       await this.safeAutoCreateInvoice('SENIOR_INCOME', incomeTx.id)
     }
 
-    // Create PAYOUT transaction: senior → CheekyCheeseIT
-    await this.db.db.insert(transactions).values({
-      type: 'PAYOUT',
-      status: 'PAID',
-      amount: req.payableAmount,
-      currency: 'USDT',
-      senderId: currentUser.id,
-      receiverLabel: 'CheekyCheeseIT',
-      payoutRequestId: requestId,
-      txHash,
-      createdBy: currentUser.id,
-    })
+    // Mark the placeholder PAYOUT row (created at createPayoutRequest time)
+    // as PAID + attach the on-chain txHash. We don't INSERT a fresh PAYOUT
+    // here — the row already exists with status PENDING_PAYMENT so the
+    // SENIOR could see «Выплата» in the table before clicking «Оплатить».
+    await this.db.db
+      .update(transactions)
+      .set({
+        status: 'PAID',
+        txHash: effectiveTxHash,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')),
+      )
 
     // Create 2x PAYOUT_ADMIN transactions (50/50 split)
     const adminShare = parseFloat(req.payableAmount) / 2
@@ -791,7 +929,7 @@ export class TransactionsService {
           senderId: currentUser.id,
           receiverId: adminId,
           payoutRequestId: requestId,
-          txHash,
+          txHash: effectiveTxHash,
           createdBy: currentUser.id,
         })
       }
@@ -820,6 +958,7 @@ export class TransactionsService {
         (r as typeof r & { senior: { displayName: string } | null }).senior?.displayName ?? '',
       incomeAmount: r.incomeAmount,
       payableAmount: r.payableAmount,
+      contractAddress: r.contractAddress,
       txHash: r.txHash,
       status: r.status,
       createdAt: r.createdAt.toISOString(),
@@ -852,6 +991,7 @@ export class TransactionsService {
         (req as typeof req & { senior: { displayName: string } | null }).senior?.displayName ?? '',
       incomeAmount: req.incomeAmount,
       payableAmount: req.payableAmount,
+      contractAddress: req.contractAddress,
       txHash: req.txHash,
       status: req.status,
       transactions: (req as typeof req & { transactions: TxWithRelations[] }).transactions.map(

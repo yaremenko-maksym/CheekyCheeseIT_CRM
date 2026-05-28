@@ -136,7 +136,11 @@ export function DocumentDetailDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <CrmDialogContent maxWidth="sm:max-w-2xl">
+        {/* PR #56 final UT (AC5): widened from sm:max-w-2xl to sm:max-w-4xl
+            so the new 2-column layout (metadata left, large preview right)
+            has room to breathe. On narrow viewports the grid collapses to
+            a single column — metadata first, preview below. */}
+        <CrmDialogContent maxWidth="sm:max-w-4xl">
           <CrmDialogHeader>
             <DialogTitle data-testid="document-detail-title" className="line-clamp-1 pr-8">
               {displayName}
@@ -156,82 +160,83 @@ export function DocumentDetailDialog({
             </DialogDescription>
           </CrmDialogHeader>
 
-          <CrmDialogBody className="space-y-4 pb-4">
-            {/* Preview — full-resolution image, or large PDF icon */}
-            <div
-              data-testid="document-detail-preview"
-              className="relative aspect-video w-full overflow-hidden rounded-xl border border-border bg-muted"
-            >
-              {isImage ? (
-                <DocumentImage
-                  docId={doc.id}
-                  alt={displayName}
-                  variant="full"
-                  className="h-full w-full"
-                />
-              ) : (
-                <div className="flex h-full w-full flex-col items-center justify-center gap-3 text-muted-foreground">
-                  <FileText className="h-20 w-20" />
-                  {isPdf ? (
-                    <Badge
-                      variant="secondary"
-                      className="bg-red-500/15 text-red-600"
+          <CrmDialogBody className="pb-4">
+            {/* PR #56 final UT (AC5): 2-column split — metadata on the left
+                (~40%), large preview on the right (~60%). Mirrors the layout
+                used in TransactionDetailDialog for receipt previews so the
+                two surfaces feel like the same component family. Collapses
+                to a single column on mobile. */}
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+              {/* Metadata column */}
+              <div className="flex flex-col gap-3 text-sm">
+                <DetailRow
+                  icon={UserCircle2}
+                  label="Загрузил"
+                  value={
+                    <Link
+                      to="/crm/profile/$userId"
+                      params={{ userId: doc.uploadedBy }}
+                      className="text-primary hover:underline focus:outline-none focus-visible:underline"
+                      data-testid="document-detail-uploader-link"
                     >
-                      PDF
-                    </Badge>
-                  ) : null}
-                  <p className="text-xs text-muted-foreground">
-                    Превью недоступно — нажмите «Скачать» чтобы открыть файл
-                  </p>
-                </div>
-              )}
-            </div>
+                      {uploaderLabel}
+                    </Link>
+                  }
+                />
+                <DetailRow
+                  icon={Calendar}
+                  label="Дата"
+                  value={relativeDate}
+                  title={doc.createdAt}
+                />
+                <DetailRow
+                  icon={HardDrive}
+                  label="Размер"
+                  value={formatBytes(doc.sizeBytes)}
+                />
+                <DetailRow icon={FileType} label="Формат" value={doc.mimeType} />
+                {/* AC5: «Имя файла» row deliberately removed — the title
+                    already shows displayName (original cyrillic-preserved
+                    name) and the S3 key is implementation detail. */}
+                {doc.projectId ? (
+                  <DetailRow
+                    icon={FolderOpen}
+                    label="Проект"
+                    value={`#${shortId(doc.projectId)}`}
+                  />
+                ) : null}
+              </div>
 
-            {/* Metadata grid */}
-            <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-              <DetailRow
-                icon={UserCircle2}
-                label="Загрузил"
-                value={
-                  <Link
-                    to="/crm/profile/$userId"
-                    params={{ userId: doc.uploadedBy }}
-                    className="text-primary hover:underline focus:outline-none focus-visible:underline"
-                    data-testid="document-detail-uploader-link"
-                  >
-                    {uploaderLabel}
-                  </Link>
-                }
-              />
-              <DetailRow
-                icon={Calendar}
-                label="Дата"
-                value={relativeDate}
-                title={doc.createdAt}
-              />
-              <DetailRow
-                icon={HardDrive}
-                label="Размер"
-                value={formatBytes(doc.sizeBytes)}
-              />
-              <DetailRow icon={FileType} label="Формат" value={doc.mimeType} />
-              {doc.originalName && doc.originalName !== doc.name ? (
-                <DetailRow
-                  icon={FileText}
-                  label="Имя файла"
-                  value={doc.name}
-                  title={`S3-имя: ${doc.name}`}
-                  className="sm:col-span-2"
-                />
-              ) : null}
-              {doc.projectId ? (
-                <DetailRow
-                  icon={FolderOpen}
-                  label="Проект"
-                  value={`#${shortId(doc.projectId)}`}
-                  className="sm:col-span-2"
-                />
-              ) : null}
+              {/* Preview column — large frame so even tall portrait scans
+                  remain visible end-to-end via object-contain. */}
+              <div
+                data-testid="document-detail-preview"
+                className="relative h-[60vh] max-h-[560px] min-h-[360px] w-full overflow-hidden rounded-xl border border-border bg-muted"
+              >
+                {isImage ? (
+                  <DocumentImage
+                    docId={doc.id}
+                    alt={displayName}
+                    variant="full"
+                    className="h-full w-full"
+                  />
+                ) : (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-3 text-muted-foreground">
+                    <FileText className="h-20 w-20" />
+                    {isPdf ? (
+                      <Badge
+                        variant="secondary"
+                        className="bg-red-500/15 text-red-600"
+                      >
+                        PDF
+                      </Badge>
+                    ) : null}
+                    <p className="text-xs text-muted-foreground">
+                      Превью недоступно — нажмите «Скачать» чтобы открыть файл
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           </CrmDialogBody>
 

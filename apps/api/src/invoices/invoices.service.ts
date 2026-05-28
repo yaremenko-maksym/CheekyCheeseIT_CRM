@@ -255,12 +255,16 @@ export class InvoicesService {
     })
 
     // ---- 5. Notify counterparty ----
+    // The standalone `/crm/finance/invoices` page was removed in batch 2 —
+    // notifications now deep-link into `/crm/documents` with the INVOICE
+    // category pre-selected and the transaction's invoice dialog auto-
+    // opened via `openTx=<id>`.
     await this.notificationsService.create({
       userId: counterpartyRow.id,
       type: 'INVOICE_SIGN_REQUIRED',
       title: 'Инвойс ожидает вашей подписи',
-      body: `${this.getInvoiceTypeLabel(tx.type)} — сумма ${tx.amount} ${tx.currency}`,
-      link: `/crm/finance/invoices/${tx.id}`,
+      body: `${this.getInvoiceTypeLabel(tx.type)} — сумма ${this.formatAmountForNotification(tx.amount, tx.currency)}`,
+      link: `/crm/documents?category=INVOICE&openTx=${tx.id}`,
     })
 
     this.logger.log(
@@ -543,8 +547,8 @@ export class InvoicesService {
       userId: adminId,
       type: 'INVOICE_SIGNED',
       title: `${counterpartyRow.displayName} подписал инвойс`,
-      body: `${this.getInvoiceTypeLabel(tx.type)} — сумма ${tx.amount} ${tx.currency}`,
-      link: `/crm/finance/invoices/${tx.id}`,
+      body: `${this.getInvoiceTypeLabel(tx.type)} — сумма ${this.formatAmountForNotification(tx.amount, tx.currency)}`,
+      link: `/crm/documents?category=INVOICE&openTx=${tx.id}`,
     })
 
     this.logger.log(
@@ -634,11 +638,33 @@ export class InvoicesService {
     return this.cachedAdminId
   }
 
-  /** Pretty label used in notifications. */
+  /**
+   * Pretty label used in notifications. Mirrors the frontend
+   * `apps/web/app/lib/invoice-labels.ts` helper so the notification body the
+   * user sees in the bell dropdown matches the type badge on the matching
+   * invoice card / dialog header.
+   */
   private getInvoiceTypeLabel(type: string): string {
-    if (type === 'SENIOR_INCOME') return 'Акт выполненных работ (выплата)'
-    if (type === 'SALARY') return 'Выплата зарплаты'
+    if (type === 'SENIOR_INCOME') return 'Выплата синьера'
+    if (type === 'SALARY') return 'Зарплата'
     return 'Инвойс'
+  }
+
+  /**
+   * Normalise a NUMERIC amount string for human-readable display in
+   * notifications: drop trailing zeros, cap at 2 decimals, ru-RU locale
+   * (thin-space thousands separator).
+   *
+   * UT round 1: the raw `tx.amount` was emitted into the notification body
+   * as `1500.000000` (Postgres NUMERIC trailing zeros) which looked broken.
+   */
+  private formatAmountForNotification(amount: string, currency: string): string {
+    const num = Number(amount)
+    if (!Number.isFinite(num)) return `${amount} ${currency}`
+    return `${num.toLocaleString('ru-RU', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })} ${currency}`
   }
 
   /**

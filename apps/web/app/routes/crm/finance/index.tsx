@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Search, ArrowUpDown, ChevronDown, X, Wallet } from 'lucide-react'
+import { Plus, Search, ArrowUpDown, ChevronDown, X } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import type { TransactionDto } from '@crm/shared'
@@ -46,7 +46,11 @@ import { CreateTransactionDialog } from './components/dialogs/CreateTransactionD
 import { ValidateDialog } from './components/dialogs/ValidateDialog'
 import { EditSeniorIncomeDialog } from './components/dialogs/EditSeniorIncomeDialog'
 import { PaySalaryDialog } from './components/dialogs/PaySalaryDialog'
-import { PayoutDialog } from './components/dialogs/PayoutDialog'
+// PayoutDialog (batch payout dialog) is no longer mounted as of
+// task-payout-auto-on-validate. Backend auto-creates the PAYOUT row on
+// ACCOUNTANT validate, so the SENIOR no longer needs to launch a batch.
+// The file is kept on disk for possible future batch-payout flow.
+import { PayoutDetailDialog } from './components/dialogs/PayoutDetailDialog'
 import { TransactionDetailDialog } from './components/dialogs/TransactionDetailDialog'
 import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransactionDialog'
 import { MyProjectShares } from './components/MyProjectShares'
@@ -188,6 +192,7 @@ function TransactionsTable({
   onAdminEdit,
   onDelete,
   onPaySalary,
+  onOpenPayoutDetail,
   onDetail,
 }: {
   transactions: TransactionDto[]
@@ -200,6 +205,12 @@ function TransactionsTable({
   onAdminEdit: (tx: TransactionDto) => void
   onDelete: (tx: TransactionDto) => void
   onPaySalary: (tx: TransactionDto) => void
+  /**
+   * Opens PayoutDetailDialog for PENDING_PAYMENT rows. Passed straight to
+   * TransactionRow; receives the payout_request id (already resolved by the
+   * row from tx.payoutRequestId).
+   */
+  onOpenPayoutDetail: (payoutRequestId: string) => void
   onDetail: (tx: TransactionDto) => void
 }) {
   const [search, setSearch] = useState('')
@@ -338,6 +349,7 @@ function TransactionsTable({
                     onAdminEdit={onAdminEdit}
                     onDelete={onDelete}
                     onPaySalary={onPaySalary}
+                    onOpenPayoutDetail={onOpenPayoutDetail}
                     onClick={onDetail}
                   />
                 ))}
@@ -368,7 +380,6 @@ function FinancePage() {
 
   const isAdmin = role === 'ADMIN'
   const isSenior = role === 'SENIOR'
-  const isAccountant = role === 'ACCOUNTANT'
   const isJunior = role === 'JUNIOR'
   const isHr = role === 'HR'
 
@@ -378,8 +389,20 @@ function FinancePage() {
   const [adminEditTx, setAdminEditTx] = useState<TransactionDto | null>(null)
   const [deleteTx, setDeleteTx] = useState<TransactionDto | null>(null)
   const [paySalaryTx, setPaySalaryTx] = useState<TransactionDto | null>(null)
-  const [showPayout, setShowPayout] = useState(false)
+  // Payout detail dialog — opened from the inline «Оплатить» pill on the
+  // «Выплата» (PAYOUT) row (PENDING_PAYMENT). null = closed. The PAYOUT row
+  // itself is auto-created by the backend at validate time
+  // (task-payout-auto-on-validate); SENIOR no longer launches a batch.
+  const [payoutDetailId, setPayoutDetailId] = useState<string | null>(null)
   const [detailTx, setDetailTx] = useState<TransactionDto | null>(null)
+
+  const openPayoutDetail = useCallback((payoutRequestId: string) => {
+    setPayoutDetailId(payoutRequestId)
+  }, [])
+
+  const closePayoutDetail = useCallback(() => {
+    setPayoutDetailId(null)
+  }, [])
 
   const qc = useQueryClient()
   const deleteMutation = useMutation({
@@ -392,7 +415,6 @@ function FinancePage() {
   })
 
   const canCreate = isAdmin || isSenior
-  const showPayoutsTab = isAdmin || isSenior || isAccountant
 
   const { data: transactions = [], isLoading: txLoading } = useQuery({
     queryKey: ['transactions'],
@@ -405,24 +427,11 @@ function FinancePage() {
     staleTime: 1000 * 60 * 60,
   })
 
-  const { data: payouts = [] } = useQuery({
-    queryKey: ['payout-requests'],
-    queryFn: financeApi.getPayoutRequests,
-    enabled: showPayoutsTab,
-  })
-
-  const pendingPayoutTxIds = new Set(
-    payouts
-      .filter((p) => p.status === 'PENDING')
-      .flatMap((p) => (p.transactions ?? []).map((t) => t.id)),
-  )
-  const validatedForPayout = transactions.filter(
-    (t) =>
-      t.type === 'SENIOR_INCOME' &&
-      t.status === 'VALIDATED' &&
-      !pendingPayoutTxIds.has(t.id) &&
-      t.senderId === userId,
-  )
+  // Payout-requests query was only used to compute the SENIOR's
+  // «Выплатить (N)» header counter for the batch flow. With auto-create at
+  // validate time (task-payout-auto-on-validate) the batch button is gone and
+  // PAYOUT rows are surfaced directly in the main transactions table — no
+  // separate fetch needed here.
 
   // HR view
   if (isHr) {
@@ -573,11 +582,9 @@ function FinancePage() {
           <p className="text-sm text-muted-foreground">Все транзакции</p>
         </div>
         <div className="flex gap-2">
-          {isSenior && validatedForPayout.length > 0 && (
-            <Button variant="outline" onClick={() => setShowPayout(true)}>
-              <Wallet className="h-4 w-4 mr-1" /> Выплатить ({validatedForPayout.length})
-            </Button>
-          )}
+          {/* Header «Выплатить (N)» batch button removed in
+              task-payout-auto-on-validate — PAYOUT rows now auto-created on
+              ACCOUNTANT validate and pay-out happens from the row itself. */}
           {canCreate && (
             <Button onClick={() => setShowCreate(true)}>
               <Plus className="h-4 w-4 mr-1" /> Новая транзакция
@@ -603,6 +610,7 @@ function FinancePage() {
             onAdminEdit={setAdminEditTx}
             onDelete={setDeleteTx}
             onPaySalary={setPaySalaryTx}
+            onOpenPayoutDetail={openPayoutDetail}
             onDetail={setDetailTx}
           />
         </CardContent>
@@ -614,10 +622,12 @@ function FinancePage() {
       <EditSeniorIncomeDialog tx={editTx} onClose={() => setEditTx(null)} />
       <AdminEditTransactionDialog tx={adminEditTx} onClose={() => setAdminEditTx(null)} />
       <PaySalaryDialog tx={paySalaryTx} onClose={() => setPaySalaryTx(null)} />
-      <PayoutDialog
-        open={showPayout}
-        onClose={() => setShowPayout(false)}
-        validatedTxs={validatedForPayout}
+      {/* PayoutDialog (batch payout) intentionally not mounted — see
+          task-payout-auto-on-validate. */}
+      <PayoutDetailDialog
+        open={!!payoutDetailId}
+        onClose={closePayoutDetail}
+        payoutId={payoutDetailId}
       />
       <TransactionDetailDialog tx={detailTx} onClose={() => setDetailTx(null)} />
 

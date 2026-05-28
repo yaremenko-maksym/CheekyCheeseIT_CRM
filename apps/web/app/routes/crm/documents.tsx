@@ -29,7 +29,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Archive, FileText, Plus, Receipt as ReceiptIcon, Shield } from 'lucide-react'
+import {
+  Archive,
+  FileSignature,
+  FileText,
+  Plus,
+  Receipt as ReceiptIcon,
+  Shield,
+} from 'lucide-react'
 import { z } from 'zod'
 import type {
   Document,
@@ -54,15 +61,25 @@ import { useDocuments } from '@/hooks/use-documents'
 import { DocumentList } from '@/components/documents/document-list'
 import { DocumentDetailDialog } from '@/components/documents/document-detail-dialog'
 import { UploadDocumentDialog } from '@/components/documents/upload-document-dialog'
+import { InvoiceDetailDialog } from '@/components/invoices/invoice-detail-dialog'
 
 type Role = SessionUser['role']
 type StatusTab = 'ALL' | 'ACTIVE' | 'ARCHIVED'
 type CategoryFilter = DocumentCategory | 'ALL'
 
-// `openDocId` deep-link param: when set, the matching doc is opened in
-// DocumentDetailDialog as soon as the list query resolves.
+// Deep-link params:
+//   - `openDocId` — open DocumentDetailDialog for the matching document
+//     id once the list query resolves (used by audit/restore links).
+//   - `openTx` — INVOICE-only: open InvoiceDetailDialog for that
+//     transaction id (used by notifications «инвойс подписан» / «ожидает
+//     подписи»). Also auto-narrows the category filter to INVOICE so the
+//     surrounding list reflects the deep-link target.
 const searchSchema = z.object({
   openDocId: z.string().uuid().optional(),
+  category: z
+    .enum(['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'AVATAR', 'LOGO', 'INVOICE'])
+    .optional(),
+  openTx: z.string().uuid().optional(),
 })
 
 export const Route = createFileRoute('/crm/documents')({
@@ -89,13 +106,15 @@ const CATEGORY_LABELS_RU: Record<DocumentCategory, string> = {
 /**
  * RBAC visibility per spec table «Видимость табов по ролям».
  * Maps Role → set of categories that role may see in the dropdown.
+ * INVOICE is exposed to all roles — the backend further scopes the list
+ * to "own invoices" for non-ADMIN/ACCOUNTANT (where ownerId == viewer.id).
  */
 const TAB_VISIBILITY: Record<Role, DocumentCategory[]> = {
-  ADMIN: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT'],
-  SENIOR: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT'],
-  JUNIOR: ['RESUME', 'SCAN'],
-  HR: ['RESUME', 'SCAN', 'CONTRACT'],
-  ACCOUNTANT: ['SCAN', 'RECEIPT'],
+  ADMIN: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE'],
+  SENIOR: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE'],
+  JUNIOR: ['RESUME', 'SCAN', 'INVOICE'],
+  HR: ['RESUME', 'SCAN', 'CONTRACT', 'INVOICE'],
+  ACCOUNTANT: ['SCAN', 'RECEIPT', 'INVOICE'],
 }
 
 /**
@@ -138,8 +157,12 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   const [ownerFilter, setOwnerFilter] = useState<string>('ALL')
   // Category filter: 'ALL' = no category filter (show all accessible to role).
   // Default is 'ALL' per user choice (Variant A) — show everything by default,
-  // narrow down via dropdown.
-  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('ALL')
+  // narrow down via dropdown. When the URL ships a `?category=` deep-link
+  // (e.g. from a notification → `/crm/documents?category=INVOICE&openTx=…`)
+  // we honour it as the initial filter.
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>(
+    (search.category as CategoryFilter | undefined) ?? 'ALL',
+  )
 
   // Categories this viewer is allowed to see in the dropdown.
   // ADMIN additionally gets AVATAR/LOGO (internal categories, kept compact
@@ -167,7 +190,20 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   const [detailDoc, setDetailDoc] = useState<Document | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
 
+  // Invoice dialog: INVOICE documents open InvoiceDetailDialog (signatures
+  // table + sign button) instead of the generic DocumentDetailDialog. The
+  // dialog is keyed by transaction id which lives on the Document DTO as
+  // `invoiceTransactionId` (see API LEFT JOIN with transactions). The
+  // `?openTx=<uuid>` URL deep-link (from notifications) bypasses the doc
+  // entirely — straight to the dialog by tx id.
+  const [invoiceTxId, setInvoiceTxId] = useState<string | undefined>(undefined)
+  const [invoiceOpen, setInvoiceOpen] = useState(false)
+
   function openDetail(doc: Document) {
+    if (doc.category === 'INVOICE' && doc.invoiceTransactionId) {
+      openInvoice(doc.invoiceTransactionId)
+      return
+    }
     setDetailDoc(doc)
     setDetailOpen(true)
     // Mirror the open into the URL so users can copy the link.
@@ -175,6 +211,29 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
       search: (prev) => ({ ...prev, openDocId: doc.id }),
       replace: true,
     })
+  }
+
+  function openInvoice(txId: string) {
+    setInvoiceTxId(txId)
+    setInvoiceOpen(true)
+    void navigate({
+      search: (prev) => ({ ...prev, openTx: txId }),
+      replace: true,
+    })
+  }
+
+  function closeInvoice(open: boolean) {
+    setInvoiceOpen(open)
+    if (!open) {
+      void navigate({
+        search: (prev) => {
+          const next = { ...prev }
+          delete (next as Record<string, unknown>)['openTx']
+          return next
+        },
+        replace: true,
+      })
+    }
   }
 
   function closeDetail(open: boolean) {
@@ -190,6 +249,25 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
       })
     }
   }
+
+  // Auto-open invoice dialog when `?openTx=<uuid>` deep-link arrives.
+  useEffect(() => {
+    if (search.openTx) {
+      setInvoiceTxId(search.openTx)
+      setInvoiceOpen(true)
+    }
+  }, [search.openTx])
+
+  // Pending-signature counter across all INVOICE rows the viewer can see.
+  // Drives the amber «У вас N инвойсов ожидает подписи» banner at the top
+  // of the page. We query INVOICE specifically (independent of the current
+  // category filter) so the banner is visible even when the dropdown is on
+  // a different category.
+  const { data: invoiceDocs } = useDocuments({ category: 'INVOICE', includeDeleted: false })
+  const pendingCount = useMemo(
+    () => (invoiceDocs ?? []).filter((d) => d.invoicePendingSignature).length,
+    [invoiceDocs],
+  )
 
   // Empty-access state — no categories at all.
   if (availableCategories.length === 0) {
@@ -225,6 +303,31 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
 
   return (
     <div className="space-y-6">
+      {pendingCount > 0 ? (
+        // Amber banner — invites the viewer to switch to the INVOICE tab and
+        // sign the documents that are still missing the COUNTERPARTY
+        // signature. We don't auto-redirect; clicking «Перейти» just narrows
+        // the category filter (so the URL stays shareable and the user
+        // doesn't lose their place).
+        <div
+          className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 p-4"
+          data-testid="documents-pending-signature-banner"
+        >
+          <div className="flex items-center gap-3">
+            <FileSignature className="h-5 w-5 text-amber-400" />
+            <span className="text-sm">{pluralizeInvoicesPending(pendingCount)}</span>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setCategoryFilter('INVOICE')}
+            data-testid="documents-pending-signature-banner-cta"
+          >
+            Перейти
+          </Button>
+        </div>
+      ) : null}
+
       <DocumentsHeader
         viewer={viewer}
         categoryFilter={categoryFilter}
@@ -271,6 +374,15 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
         doc={detailDoc}
         viewer={viewer}
       />
+      {/* InvoiceDetailDialog — opens for INVOICE documents (signature table +
+          «Подписать» button) and via the `?openTx=<uuid>` deep-link from
+          notifications. Replaces the standalone /crm/finance/invoices page. */}
+      <InvoiceDetailDialog
+        open={invoiceOpen}
+        onOpenChange={closeInvoice}
+        transactionId={invoiceTxId}
+        viewer={viewer}
+      />
       {/* uploadedByDisplayName comes embedded in each doc DTO (API LEFT JOIN),
           so no /api/users round-trip is needed here. */}
     </div>
@@ -299,9 +411,10 @@ function DocumentsHeader({
   onChangeCategoryFilter,
 }: HeaderProps) {
   const showOwnerFilter = canSeeOwnerFilter(viewer.role)
-  // Hide the upload button when viewing the RECEIPT-only filter — receipts
-  // come from Finance, not from this page.
+  // Hide the upload button when viewing read-only category filters
+  // (RECEIPT / INVOICE) — both are produced by Finance, not by uploads.
   const isReceiptsFilter = categoryFilter === 'RECEIPT'
+  const isInvoicesFilter = categoryFilter === 'INVOICE'
 
   const [uploadOpen, setUploadOpen] = useState(false)
 
@@ -336,6 +449,7 @@ function DocumentsHeader({
   const canShowUploadButton =
     uploadableCats.length > 0 &&
     !isReceiptsFilter &&
+    !isInvoicesFilter &&
     categoryFilter !== 'AVATAR' &&
     categoryFilter !== 'LOGO'
 
@@ -526,6 +640,28 @@ function DocumentsListSection({
     </div>
   )
 
+  // Invoices empty state: system-generated, no upload from this page. They
+  // surface here once the underlying transaction transitions to PAID.
+  const invoiceEmpty = (
+    <div
+      data-testid="documents-empty-invoices"
+      className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center"
+    >
+      <FileSignature className="h-10 w-10 text-muted-foreground/30" />
+      <p className="mt-4 text-sm font-medium">Пока нет инвойсов</p>
+      <p className="mt-1 max-w-md text-xs text-muted-foreground">
+        Инвойсы создаются автоматически после оплаты транзакций. Кликните по карточке инвойса здесь,
+        чтобы открыть PDF, увидеть подписи и подписать документ.
+      </p>
+      <Link
+        to="/crm/finance"
+        className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+      >
+        Перейти к Финансам
+      </Link>
+    </div>
+  )
+
   // For AVATAR / LOGO filters (ADMIN audit view) — neutral empty state.
   const internalEmpty = (
     <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
@@ -554,9 +690,11 @@ function DocumentsListSection({
   const emptyState =
     categoryFilter === 'RECEIPT'
       ? receiptEmpty
-      : categoryFilter === 'AVATAR' || categoryFilter === 'LOGO'
-        ? internalEmpty
-        : genericEmpty
+      : categoryFilter === 'INVOICE'
+        ? invoiceEmpty
+        : categoryFilter === 'AVATAR' || categoryFilter === 'LOGO'
+          ? internalEmpty
+          : genericEmpty
 
   // Counter label — when filtering by category, mention which one.
   const counterScope =
@@ -593,4 +731,20 @@ function pluralizeDocuments(n: number): string {
   if (mod10 === 1 && mod100 !== 11) return 'документ'
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'документа'
   return 'документов'
+}
+
+/**
+ * ru-RU plural helper for the «У вас N инвойсов ожидает подписи» banner.
+ * Returns a fully-formed sentence (not just the noun) because the verb form
+ * also depends on the count ("инвойс ожидает" vs "инвойса ожидают" vs
+ * "инвойсов ожидают"). Exported via the same module — kept colocated so the
+ * call site stays one-liner.
+ */
+export function pluralizeInvoicesPending(n: number): string {
+  const last = n % 10
+  const last2 = n % 100
+  if (last2 >= 11 && last2 <= 14) return `У вас ${n} инвойсов ожидает подписи`
+  if (last === 1) return `У вас ${n} инвойс ожидает подписи`
+  if (last >= 2 && last <= 4) return `У вас ${n} инвойса ожидают подписи`
+  return `У вас ${n} инвойсов ожидают подписи`
 }

@@ -94,15 +94,20 @@ export class S3Service {
    * for tests; production paths always use the default.
    *
    * `downloadAs` (optional): when provided, the URL embeds a
-   * Content-Disposition header that forces the browser to save the response
-   * as the given filename instead of the raw S3 key tail. We use this so a
-   * file uploaded as "Договор Иванов.pdf" (cyrillic) is saved under that
-   * exact name even though the S3 key is ASCII-only ("Dogovor_Ivanov.pdf").
+   * Content-Disposition header that pins the filename in the browser's save
+   * dialog (so a file uploaded as "Договор Иванов.pdf" survives the ASCII-
+   * only S3 key tail). The default disposition is **`inline`** — this lets
+   * receipt previews (image / PDF) render directly inside `<img>` / `<iframe>`
+   * / `<object>` tags instead of triggering an auto-download every time a
+   * user opens a transaction detail dialog. Pass `disposition: 'attachment'`
+   * when you want a real "Save as…" prompt (e.g. an explicit Download
+   * button).
    */
   async getPresignedDownloadUrl(
     key: string,
     ttlSec: number | undefined = DEFAULT_PRESIGN_TTL_SEC,
     downloadAs?: string | undefined,
+    disposition: 'inline' | 'attachment' = 'inline',
   ): Promise<PresignedDownloadResult> {
     const effectiveTtl = ttlSec ?? DEFAULT_PRESIGN_TTL_SEC
     const command = new GetObjectCommand({
@@ -113,7 +118,7 @@ export class S3Service {
             // RFC 5987 — `filename*=UTF-8''<percent-encoded>` lets us pass
             // cyrillic / unicode safely. We include a plain `filename=`
             // ASCII fallback for ancient clients (curl < 7.39, IE).
-            ResponseContentDisposition: `attachment; filename="${this.asciiFallback(downloadAs)}"; filename*=UTF-8''${encodeURIComponent(downloadAs)}`,
+            ResponseContentDisposition: `${disposition}; filename="${this.asciiFallback(downloadAs)}"; filename*=UTF-8''${encodeURIComponent(downloadAs)}`,
           }
         : {}),
     })

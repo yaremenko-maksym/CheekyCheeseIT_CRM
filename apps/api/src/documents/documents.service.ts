@@ -29,7 +29,7 @@ import {
   UnsupportedMediaTypeException,
 } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
-import { and, desc, eq, inArray, isNotNull, isNull, or, type SQL } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm'
 import {
   DOCUMENT_MAX_BYTES,
   DOCUMENT_MIME_WHITELIST,
@@ -43,7 +43,7 @@ import {
   type SessionUser,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { documents, teamMembers, users } from '../database/schema'
+import { documents, invoiceSignatures, teamMembers, transactions, users } from '../database/schema'
 import { S3Service } from './s3.service'
 import { CompressionService } from './compression.service'
 
@@ -302,13 +302,60 @@ export class DocumentsService {
     // `<Link to="/crm/users/:id">`. We use LEFT (not INNER) because the
     // uploader row may be missing (hard-deleted user, legacy data) — the
     // schema treats `uploadedByDisplayName` as nullable for that case.
+    //
+    // LEFT JOIN transactions on `invoice_document_id = documents.id` so
+    // INVOICE rows carry their parent transaction id. The UI uses it to
+    // open `InvoiceDetailDialog` (which is keyed by transaction id) from
+    // the /crm/documents INVOICE tab — replaces the standalone
+    // `/crm/finance/invoices` page.
+    //
+    // `invoicePendingSignature` is computed at SELECT time via a SQL CASE
+    // expression — it's `true` only when ALL of:
+    //   - the document is an INVOICE
+    //   - it has a parent transaction (LEFT JOIN matched)
+    //   - no COUNTERPARTY signature exists yet in `invoice_signatures`
+    //   - the viewer is the expected counterparty (SENIOR_INCOME ⇒ sender;
+    //     SALARY ⇒ receiver)
+    // The UI uses this to render an «Требует подписи» badge + a banner at
+    // the top of /crm/documents.
+    const viewerId = actor.id
+    const pendingSig = sql<boolean>`(
+      CASE
+        WHEN ${documents.category} = 'INVOICE'
+          AND ${transactions.id} IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM ${invoiceSignatures}
+            WHERE ${invoiceSignatures.transactionId} = ${transactions.id}
+              AND ${invoiceSignatures.signerRole} = 'COUNTERPARTY'
+          )
+          AND (
+            (${transactions.type} = 'SENIOR_INCOME' AND ${transactions.senderId} = ${viewerId})
+            OR (${transactions.type} = 'SALARY' AND ${transactions.receiverId} = ${viewerId})
+          )
+        THEN TRUE
+        ELSE FALSE
+      END
+    )`
     const rows = await this.db.db
-      .select({ doc: documents, uploaderName: users.displayName })
+      .select({
+        doc: documents,
+        uploaderName: users.displayName,
+        invoiceTxId: transactions.id,
+        invoicePendingSignature: pendingSig,
+      })
       .from(documents)
       .leftJoin(users, eq(users.id, documents.uploadedBy))
+      .leftJoin(transactions, eq(transactions.invoiceDocumentId, documents.id))
       .where(where)
       .orderBy(desc(documents.createdAt))
-    return rows.map((row) => this.mapDocument(row.doc, row.uploaderName ?? null))
+    return rows.map((row) =>
+      this.mapDocument(
+        row.doc,
+        row.uploaderName ?? null,
+        row.invoiceTxId ?? null,
+        Boolean(row.invoicePendingSignature),
+      ),
+    )
   }
 
   // -------------------------------------------------------------------------
@@ -517,20 +564,22 @@ export class DocumentsService {
 
     // ---- Category filter ----
     // Default behavior: hide internal categories (AVATAR, LOGO) unless an
-    // ADMIN explicitly requests them. UI never asks for them in /crm/documents.
+    // ADMIN explicitly requests them. INVOICE is system-generated but is
+    // now exposed as a regular tab in /crm/documents (read-only — uploads
+    // still go through InvoicesService), so it's part of the default set.
     if (filters.category) {
       // Caller asked for a specific category — RBAC check below decides
       // whether they're allowed to see it.
       conditions.push(eq(documents.category, filters.category))
     } else {
-      // No explicit category → exclude internals
+      // No explicit category → exclude internals (AVATAR/LOGO)
       conditions.push(
         // not in (AVATAR, LOGO)
         // Drizzle: use `notInArray` would be cleaner, but `notInArray` exists
         // in newer drizzle versions; we use a NOT IN via SQL fallback below.
         // For consistency with the rest of the codebase, use inArray + NOT
         // via an explicit OR of equality with non-internal categories.
-        inArray(documents.category, ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT']),
+        inArray(documents.category, ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE']),
       )
     }
 
@@ -628,6 +677,22 @@ export class DocumentsService {
       }
     }
 
+    if (!category || category === 'INVOICE') {
+      // INVOICE documents are produced by InvoicesService — the row's
+      // `ownerId` is the counterparty (SENIOR / JUNIOR), so visibility is
+      // scoped to `documents.ownerId == viewer.id` for non-admins.
+      // ACCOUNTANT is allowed to see ALL invoices (finance audit role,
+      // same scope as RECEIPT). ADMIN handled above. JUNIOR/HR/SENIOR
+      // only see invoices they themselves are the counterparty for.
+      if (actor.role === 'ACCOUNTANT') {
+        visibleClauses.push(eq(documents.category, 'INVOICE'))
+      } else {
+        visibleClauses.push(
+          and(eq(documents.category, 'INVOICE'), eq(documents.ownerId, actor.id))!,
+        )
+      }
+    }
+
     if (visibleClauses.length === 0) return 'NONE'
     if (visibleClauses.length === 1) return visibleClauses[0]!
     return or(...visibleClauses)!
@@ -704,6 +769,11 @@ export class DocumentsService {
       return doc
     }
 
+    // ACCOUNTANT reads any INVOICE (finance audit, same scope as RECEIPT).
+    if (actor.role === 'ACCOUNTANT' && doc.category === 'INVOICE') {
+      return doc
+    }
+
     throw new NotFoundException('Документ не найден')
   }
 
@@ -728,15 +798,29 @@ export class DocumentsService {
   /**
    * Map a `documents` row into the API DTO.
    *
-   * @param row             the `documents` row as returned by Drizzle
-   * @param uploaderName    display name resolved via a join (callers that
-   *                        already issued the join pass it in; callers that
-   *                        only have the row can pass `null` and the UI will
-   *                        fall back to a short id)
+   * @param row                       the `documents` row as returned by Drizzle
+   * @param uploaderName              display name resolved via a join (callers
+   *                                  that already issued the join pass it in;
+   *                                  callers that only have the row can pass
+   *                                  `null` and the UI will fall back to a
+   *                                  short id)
+   * @param invoiceTransactionId      for INVOICE category only — the parent
+   *                                  transaction id resolved via
+   *                                  `transactions.invoice_document_id`. Null
+   *                                  for non-INVOICE rows and for callers that
+   *                                  did not issue the join.
+   * @param invoicePendingSignature   computed by `list()` only: true when the
+   *                                  viewer is the expected counterparty and
+   *                                  no COUNTERPARTY signature exists yet.
+   *                                  Other callers (`upload`, `restore`, etc.)
+   *                                  pass `false` since the flag is purely a
+   *                                  viewer-relative UI hint.
    */
   private mapDocument(
     row: typeof documents.$inferSelect,
     uploaderName: string | null = null,
+    invoiceTransactionId: string | null = null,
+    invoicePendingSignature: boolean = false,
   ): DocumentDto {
     return {
       id: row.id,
@@ -754,6 +838,8 @@ export class DocumentsService {
       deletedAt: row.deletedAt?.toISOString() ?? null,
       deletedBy: row.deletedBy ?? null,
       createdAt: row.createdAt.toISOString(),
+      invoiceTransactionId,
+      invoicePendingSignature,
     }
   }
 

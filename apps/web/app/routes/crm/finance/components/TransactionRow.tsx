@@ -1,14 +1,29 @@
-import { Edit2, CheckCircle2, ArrowRight, Trash2 } from 'lucide-react'
+import { Edit2, CheckCircle2, ArrowRight, Trash2, Wallet } from 'lucide-react'
+// NOTE: Wallet icon is still used by the «Оплатить» pill on PAYOUT rows.
 import { Link } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
 import type { TransactionDto } from '@crm/shared'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { TYPE_LABELS, TYPE_COLORS, STATUS_LABELS, STATUS_COLORS, fmtAmount, fmtUsd, fmtDate, type ExchangeRates } from '../constants'
+import {
+  TYPE_LABELS,
+  TYPE_COLORS,
+  STATUS_LABELS,
+  STATUS_COLORS,
+  fmtAmount,
+  fmtUsd,
+  fmtDate,
+  type ExchangeRates,
+} from '../constants'
 
 function TypeBadge({ type }: { type: TransactionDto['type'] }) {
   return (
-    <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap', TYPE_COLORS[type])}>
+    <span
+      className={cn(
+        'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap',
+        TYPE_COLORS[type],
+      )}
+    >
       {TYPE_LABELS[type]}
     </span>
   )
@@ -16,7 +31,12 @@ function TypeBadge({ type }: { type: TransactionDto['type'] }) {
 
 function StatusBadge({ status }: { status: TransactionDto['status'] }) {
   return (
-    <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap', STATUS_COLORS[status])}>
+    <span
+      className={cn(
+        'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap',
+        STATUS_COLORS[status],
+      )}
+    >
       {STATUS_LABELS[status]}
     </span>
   )
@@ -73,7 +93,12 @@ function FromTo({ tx }: { tx: TransactionDto }) {
       // sender_label = client company name, receiver_id = senior user
       return (
         <div className="flex items-center gap-1.5 min-w-0">
-          <Party id={null} name={null} label={tx.senderLabel ?? tx.projectName ?? '—'} type="project" />
+          <Party
+            id={null}
+            name={null}
+            label={tx.senderLabel ?? tx.projectName ?? '—'}
+            type="project"
+          />
           <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
           <Party id={tx.receiverId} name={tx.receiverName} label={tx.receiverLabel} type="user" />
         </div>
@@ -91,7 +116,12 @@ function FromTo({ tx }: { tx: TransactionDto }) {
     case 'SALARY':
       return (
         <div className="flex items-center gap-1.5 min-w-0">
-          <Party id={tx.senderId} name={tx.senderName} label={tx.senderLabel ?? 'CheekyCheeseIT'} type="user" />
+          <Party
+            id={tx.senderId}
+            name={tx.senderName}
+            label={tx.senderLabel ?? 'CheekyCheeseIT'}
+            type="user"
+          />
           <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
           <Party id={tx.receiverId} name={tx.receiverName} label={tx.receiverLabel} type="user" />
         </div>
@@ -139,6 +169,7 @@ export function TransactionRow({
   onAdminEdit,
   onDelete,
   onPaySalary,
+  onOpenPayoutDetail,
   onClick,
 }: {
   tx: TransactionDto
@@ -151,17 +182,41 @@ export function TransactionRow({
   onAdminEdit?: (tx: TransactionDto) => void
   onDelete?: (tx: TransactionDto) => void
   onPaySalary?: (tx: TransactionDto) => void
+  /**
+   * Opens the PayoutDetailDialog for an already-created payout. Triggered by
+   * the inline «Оплатить» pill on PENDING_PAYMENT rows (where the SENIOR has
+   * already created the request and now needs to send USDT to the contract
+   * address + submit the tx hash). Receives the payout_request id.
+   */
+  onOpenPayoutDetail?: (payoutRequestId: string) => void
   onClick?: (tx: TransactionDto) => void
 }) {
   const isAdmin = role === 'ADMIN'
   const isAccountant = role === 'ACCOUNTANT'
   const isSenior = role === 'SENIOR'
 
-  const canValidate = (isAdmin || isAccountant) && tx.type === 'SENIOR_INCOME' && tx.status === 'PENDING'
+  const canValidate =
+    (isAdmin || isAccountant) && tx.type === 'SENIOR_INCOME' && tx.status === 'PENDING'
   const canEdit = isSenior && tx.type === 'SENIOR_INCOME' && tx.status === 'REJECTED'
   const canPaySalary = isAdmin && tx.type === 'SALARY' && tx.status === 'PENDING'
-  const canAdminEdit = isAdmin && tx.type !== 'PAYOUT' && tx.type !== 'PAYOUT_ADMIN' && (tx.status === 'PENDING_PAYMENT' || !tx.payoutRequestId)
+  const canAdminEdit =
+    isAdmin &&
+    tx.type !== 'PAYOUT' &&
+    tx.type !== 'PAYOUT_ADMIN' &&
+    (tx.status === 'PENDING_PAYMENT' || !tx.payoutRequestId)
   const canAdminDelete = canAdminEdit
+  // Inline «Оплатить» for the «Выплата» row (PAYOUT type, PENDING_PAYMENT).
+  // New flow (task-payout-auto-on-validate): when ACCOUNTANT clicks
+  // «Подтвердить» on a SENIOR_INCOME, the backend atomically creates a
+  // PAYOUT row carrying this button. SENIOR_INCOME rows no longer have any
+  // inline «Выплатить» pill — they just show «Ожидает выплаты» status.
+  // Scoped by senderId so a SENIOR only sees the pill for their own payouts.
+  const showPayPayout =
+    isSenior &&
+    tx.type === 'PAYOUT' &&
+    tx.status === 'PENDING_PAYMENT' &&
+    !!tx.payoutRequestId &&
+    tx.senderId === currentUserId
 
   return (
     <motion.tr
@@ -194,15 +249,15 @@ export function TransactionRow({
             {tx.projectName}
           </Link>
         )}
-        {tx.salaryMonth && (
-          <p className="text-xs text-muted-foreground mt-0.5">{tx.salaryMonth}</p>
-        )}
+        {tx.salaryMonth && <p className="text-xs text-muted-foreground mt-0.5">{tx.salaryMonth}</p>}
       </td>
 
       <td className="py-3 px-4 tabular-nums font-medium whitespace-nowrap">
         <span>{fmtUsd(tx.amount, tx.currency, rates)}</span>
         {tx.currency !== 'USD' && tx.currency !== 'USDT' && (
-          <p className="text-[11px] text-muted-foreground font-normal">{fmtAmount(tx.amount, tx.currency)}</p>
+          <p className="text-[11px] text-muted-foreground font-normal">
+            {fmtAmount(tx.amount, tx.currency)}
+          </p>
         )}
         {/* SENIOR_INCOME — show the snapshot share % so ADMIN/ACCOUNTANT/SENIOR
             can see what split this row will use at payout time. The snapshot
@@ -227,7 +282,10 @@ export function TransactionRow({
       <td className="py-3 px-4">
         <StatusBadge status={tx.status} />
         {tx.rejectionReason && (
-          <p className="text-xs text-destructive mt-0.5 max-w-40 truncate" title={tx.rejectionReason}>
+          <p
+            className="text-xs text-destructive mt-0.5 max-w-40 truncate"
+            title={tx.rejectionReason}
+          >
             {tx.rejectionReason}
           </p>
         )}
@@ -244,6 +302,18 @@ export function TransactionRow({
             >
               <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
               Проверить
+            </Button>
+          )}
+          {showPayPayout && onOpenPayoutDetail && tx.payoutRequestId && (
+            <Button
+              variant="default"
+              size="sm"
+              className="h-7 px-2 text-xs bg-primary/90 text-primary-foreground hover:bg-primary"
+              onClick={() => onOpenPayoutDetail(tx.payoutRequestId!)}
+              data-testid={`row-pay-payout-${tx.id}`}
+            >
+              <Wallet className="h-3.5 w-3.5 mr-1" />
+              Оплатить
             </Button>
           )}
           {canEdit && onEdit && (

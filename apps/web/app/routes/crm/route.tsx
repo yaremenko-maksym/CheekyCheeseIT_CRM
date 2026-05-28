@@ -1,12 +1,13 @@
 import { createFileRoute, Link, Outlet, useNavigate } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
 import { AuthProvider } from '@/context/auth'
-import { NotificationsProvider, useNotifications } from '@/context/notifications'
-import { Bell, LogOut, Menu, Search, UserCircle } from 'lucide-react'
+import { NotificationsProvider } from '@/context/notifications'
+import { LogOut, Menu, Search, UserCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { NavSidebar } from '@/components/crm/nav-sidebar'
+import { NotificationsBell } from '@/components/layout/notifications-bell'
 import { UserAvatar } from '@/components/users/UserAvatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -37,11 +38,9 @@ function CrmRoot() {
   )
 }
 
-
 function CrmLayout() {
   const { user, isLoading } = useAuth()
   const navigate = useNavigate()
-  const { unreadCount } = useNotifications()
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false
     return localStorage.getItem('sidebar-collapsed') === 'true'
@@ -128,17 +127,29 @@ function CrmLayout() {
       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
         <motion.div
           className="absolute -left-[10%] top-[10%] h-[520px] w-[520px] rounded-full bg-primary/[0.05] blur-[120px]"
-          animate={tabVisible ? { x: [0, 80, -40, 0], y: [0, -60, 40, 0], scale: [1, 1.1, 0.95, 1] } : { x: 0, y: 0, scale: 1 }}
+          animate={
+            tabVisible
+              ? { x: [0, 80, -40, 0], y: [0, -60, 40, 0], scale: [1, 1.1, 0.95, 1] }
+              : { x: 0, y: 0, scale: 1 }
+          }
           transition={{ duration: 24, repeat: tabVisible ? Infinity : 0, ease: 'easeInOut' }}
         />
         <motion.div
           className="absolute -right-[8%] bottom-[8%] h-[420px] w-[420px] rounded-full bg-violet-500/[0.05] blur-[110px]"
-          animate={tabVisible ? { x: [0, -70, 50, 0], y: [0, 50, -40, 0], scale: [1, 0.9, 1.08, 1] } : { x: 0, y: 0, scale: 1 }}
+          animate={
+            tabVisible
+              ? { x: [0, -70, 50, 0], y: [0, 50, -40, 0], scale: [1, 0.9, 1.08, 1] }
+              : { x: 0, y: 0, scale: 1 }
+          }
           transition={{ duration: 30, repeat: tabVisible ? Infinity : 0, ease: 'easeInOut' }}
         />
         <motion.div
           className="absolute left-1/3 top-1/2 h-[340px] w-[340px] rounded-full bg-amber-500/[0.035] blur-[100px]"
-          animate={tabVisible ? { x: [0, 50, -40, 0], y: [0, -40, 30, 0], scale: [1, 1.06, 0.94, 1] } : { x: 0, y: 0, scale: 1 }}
+          animate={
+            tabVisible
+              ? { x: [0, 50, -40, 0], y: [0, -40, 30, 0], scale: [1, 1.06, 0.94, 1] }
+              : { x: 0, y: 0, scale: 1 }
+          }
           transition={{ duration: 36, repeat: tabVisible ? Infinity : 0, ease: 'easeInOut' }}
         />
       </div>
@@ -149,7 +160,7 @@ function CrmLayout() {
             <Button
               variant="ghost"
               size="icon"
-              className="md:hidden"
+              className="md:hidden cursor-pointer"
               onClick={() => setMobileOpen(true)}
             >
               <Menu />
@@ -166,27 +177,34 @@ function CrmLayout() {
           </div>
 
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" aria-label="Поиск">
+            <Button variant="ghost" size="icon" aria-label="Поиск" className="cursor-pointer">
               <Search className="h-4 w-4" />
             </Button>
 
-            <Button variant="ghost" size="icon" className="relative" aria-label="Уведомления">
-              <Bell className="h-4 w-4" />
-              {unreadCount > 0 && (
-                <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </Button>
+            <NotificationsBell />
 
             <DropdownMenu>
+              {/* `asChild` forwards the trigger's ref and onClick into the
+                  child. UserAvatar is a function component without a
+                  forwardRef wrapper, so we can't use it directly here —
+                  Radix would lose the ref and the click would not toggle
+                  the dropdown. A native <button> trivially handles refs +
+                  keyboard a11y, and we render UserAvatar inside it for the
+                  visual. */}
               <DropdownMenuTrigger asChild>
-                <UserAvatar
-                  avatarDocumentId={user.avatarDocumentId ?? null}
-                  avatarUrl={user.avatarUrl}
-                  displayName={user.displayName}
-                  className="h-8 w-8 cursor-pointer ml-1 [&_[data-slot=avatar-fallback]]:bg-primary/20 [&_[data-slot=avatar-fallback]]:text-xs [&_[data-slot=avatar-fallback]]:text-primary"
-                />
+                <button
+                  type="button"
+                  aria-label="Меню пользователя"
+                  data-testid="header-user-menu-trigger"
+                  className="ml-1 inline-flex cursor-pointer items-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                >
+                  <UserAvatar
+                    avatarDocumentId={user.avatarDocumentId ?? null}
+                    avatarUrl={user.avatarUrl}
+                    displayName={user.displayName}
+                    className="h-8 w-8 [&_[data-slot=avatar-fallback]]:bg-primary/20 [&_[data-slot=avatar-fallback]]:text-xs [&_[data-slot=avatar-fallback]]:text-primary"
+                  />
+                </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-52">
                 <DropdownMenuLabel className="font-normal">
@@ -199,7 +217,14 @@ function CrmLayout() {
                 <DropdownMenuItem asChild>
                   <div className="pointer-events-none">
                     <Badge
-                      variant={user.role.toLowerCase() as 'admin' | 'senior' | 'junior' | 'hr' | 'accountant'}
+                      variant={
+                        user.role.toLowerCase() as
+                          | 'admin'
+                          | 'senior'
+                          | 'junior'
+                          | 'hr'
+                          | 'accountant'
+                      }
                     >
                       {user.role}
                     </Badge>
@@ -207,10 +232,7 @@ function CrmLayout() {
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link
-                    to="/crm/profile"
-                    className="flex items-center gap-2 text-muted-foreground"
-                  >
+                  <Link to="/crm/profile" className="flex items-center gap-2 text-muted-foreground">
                     <UserCircle className="h-4 w-4" />
                     Профиль
                   </Link>
@@ -243,7 +265,10 @@ function CrmLayout() {
           mobileOpen={mobileOpen}
           onMobileClose={() => setMobileOpen(false)}
         />
-        <main className="flex-1 overflow-y-auto p-6 flex flex-col" style={{ scrollbarGutter: 'stable' }}>
+        <main
+          className="flex-1 overflow-y-auto p-6 flex flex-col"
+          style={{ scrollbarGutter: 'stable' }}
+        >
           <Outlet />
         </main>
       </div>

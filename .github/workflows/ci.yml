@@ -96,14 +96,14 @@ jobs:
   auto_merge:
     name: Auto-Merge PR
     runs-on: ubuntu-latest
-    needs: [quality, e2e]
+    needs: [quality, e2e_summary]
     # PM must explicitly add `merge-approved` label after user-testing approval.
     # `awaiting-pm-review` blocks merge until PM reviews. Both jobs must be `success`
     # (not just non-failure — `skipped` no longer counts as pass).
     if: |
       github.event_name == 'pull_request' &&
       needs.quality.result == 'success' &&
-      needs.e2e.result == 'success' &&
+      needs.e2e_summary.result == 'success' &&
       contains(github.event.pull_request.labels.*.name, 'merge-approved') &&
       !contains(github.event.pull_request.labels.*.name, 'awaiting-pm-review') &&
       !contains(github.event.pull_request.labels.*.name, 'do-not-merge')
@@ -120,9 +120,24 @@ jobs:
           gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
 
   e2e:
-    name: E2E Tests
+    name: E2E (${{ matrix.shard.name }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: auth-nav
+            files: tests/auth.spec.ts tests/navigation.spec.ts tests/debug.spec.ts tests/mock_test.spec.ts
+          - name: team-users
+            files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/rbac-junior-on-other.spec.ts
+          - name: projects
+            files: tests/projects.spec.ts tests/projects-senior-share-override.spec.ts
+          - name: finance
+            files: tests/finance.spec.ts tests/finance-senior-flow.spec.ts
+          - name: misc
+            files: tests/interviews.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/crm
     services:
       postgres:
         image: postgres:16-alpine
@@ -243,14 +258,16 @@ jobs:
         if: steps.pw-cache.outputs.cache-hit == 'true'
         run: pnpm --filter @crm/e2e exec playwright install-deps chromium
 
-      - name: Run E2E tests
-        run: pnpm --filter @crm/e2e test
+      - name: Run E2E tests (shard ${{ matrix.shard.name }})
+        env:
+          SHARD_FILES: ${{ matrix.shard.files }}
+        run: pnpm --filter @crm/e2e exec playwright test $SHARD_FILES
 
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ github.sha }}
+          name: playwright-report-${{ matrix.shard.name }}-${{ github.sha }}
           path: apps/e2e/playwright-report/
           retention-days: 7
 
@@ -263,6 +280,26 @@ jobs:
       - name: Stop MinIO
         if: always()
         run: docker rm -f minio || true
+
+  # Aggregate status of all 5 E2E shards into one PR-level check.
+  # Branch protection / auto-merge depend on this single job rather than
+  # юзинг 5 separate matrix-instance checks.
+  e2e_summary:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: e2e
+    if: always() && needs.e2e.result != 'skipped'
+    steps:
+      - name: Aggregate shard results
+        env:
+          E2E_RESULT: ${{ needs.e2e.result }}
+        run: |
+          echo "All 5 shards aggregate result: $E2E_RESULT"
+          if [ "$E2E_RESULT" != "success" ]; then
+            echo "::error::E2E shards failed (result=$E2E_RESULT). See individual shard logs above."
+            exit 1
+          fi
+          echo "All E2E shards passed ✓"
 
   # When E2E fails on main — open a blocking issue.
   # When E2E recovers — close it automatically.

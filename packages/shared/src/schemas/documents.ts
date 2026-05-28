@@ -90,6 +90,28 @@ export const documentSchema = z.object({
   deletedAt: z.string().datetime().nullable(),
   deletedBy: z.string().uuid().nullable(),
   createdAt: z.string().datetime(),
+  /**
+   * For INVOICE category only: the parent transaction id this invoice
+   * document belongs to (joined from `transactions.invoice_document_id`).
+   * Lets the UI open `InvoiceDetailDialog` (keyed by transaction id) from
+   * a `Document` row in `/crm/documents`. Null for non-INVOICE rows and
+   * for INVOICE rows where the FK has been broken (defensive — should
+   * not happen in practice since InvoicesService writes both together).
+   */
+  invoiceTransactionId: z.string().uuid().nullable().optional(),
+  /**
+   * For INVOICE category only: `true` when the *current viewer* is the
+   * expected counterparty for the parent transaction AND no COUNTERPARTY
+   * signature has been recorded yet. Computed at SELECT time by the API
+   * (see DocumentsService.list — SQL CASE expression that LEFT JOINs the
+   * transaction + NOT EXISTS the signature). Drives:
+   *   - the «Требует подписи» badge on DocumentCard
+   *   - the amber banner at the top of /crm/documents counting how many
+   *     invoices wait for the viewer's signature
+   * Optional (back-compat with older clients) + default false on the wire
+   * for non-INVOICE rows.
+   */
+  invoicePendingSignature: z.boolean().optional(),
 })
 export type Document = z.infer<typeof documentSchema>
 

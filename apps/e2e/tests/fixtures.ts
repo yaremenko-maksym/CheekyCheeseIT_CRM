@@ -433,6 +433,20 @@ export async function mockAuthAs(
   await page.route(`${API}/auth/me`, (r) => jsonOk(r, user))
   await page.route(`${API}/auth/logout`, (r) => noContent(r))
 
+  // Notifications (Round 4 — Invoice Signing Epic) — NotificationsBell mounts
+  // in the CRM header layout and immediately fires GET /api/notifications via
+  // useNotificationsList() with a 30s polling interval. Without these mocks
+  // the request hits the real backend → 401 → axios interceptor →
+  // window.location.href = '/login' → user gets logged out mid-test (same
+  // failure mode as PR #48 documents mocks). Register specific sub-routes
+  // before the generic list route so PATCH /:id/read and PATCH /read-all
+  // hit the right handlers.
+  await page.route(new RegExp(`${API}/notifications/read-all$`), (r) => noContent(r))
+  await page.route(new RegExp(`${API}/notifications/([^/?]+)/read$`), (r) => noContent(r))
+  await page.route(new RegExp(`${API}/notifications(\\?.*)?$`), (r) =>
+    jsonOk(r, { items: [], unreadCount: 0 }),
+  )
+
   // Users — register specific sub-routes before the generic one
   // /users/me — profile shell expects UserWithPermissionsResponse shape
   await page.route(`${API}/users/me`, (r) =>

@@ -372,11 +372,13 @@ async function main() {
       [3, 9,  fermProject,     3500],
       [3, 11, onePunchProject, 4000],
     ] as [number, number, typeof fermProject, number][]) {
+      const prIdLocal = crypto.randomUUID()
       const pr = {
-        id: crypto.randomUUID(),
+        id: prIdLocal,
         seniorId: MAKSYM_ID,
         incomeAmount: String(amount),
         payableAmount: String(amount * 0.74),
+        contractAddress: '0x' + prIdLocal.replace(/-/g, '').padEnd(40, '0').slice(0, 40),
         txHash: `0xPAYOUT_M_2024_${mo.toString().padStart(2,'0')}`,
         status: 'PAID' as const,
         createdAt: monthDate(2024, mo, day + 3),
@@ -449,6 +451,7 @@ async function main() {
         seniorId: senior.id,
         incomeAmount: String(amount),
         payableAmount: String(payable),
+        contractAddress: '0x' + prId.replace(/-/g, '').padEnd(40, '0').slice(0, 40),
         txHash: `0xSENIOR_${senior.id.slice(0,4)}_2024_${String(mo).padStart(2,'0')}`,
         status: 'PAID',
         createdAt: monthDate(2024, mo, day + 5),
@@ -572,6 +575,7 @@ async function main() {
         seniorId: senior.id,
         incomeAmount: String(amount),
         payableAmount: String(payable),
+        contractAddress: '0x' + prId.replace(/-/g, '').padEnd(40, '0').slice(0, 40),
         txHash: `0xS_${senior.id.slice(0,4)}_Q2_${mo}`,
         status: 'PAID',
         createdAt: monthDate(2024, mo, 15),
@@ -646,7 +650,7 @@ async function main() {
     ] as [typeof oleksiy, typeof aiProject, number, number][]) {
       const prId = crypto.randomUUID()
       const payable = amount * 0.74
-      payoutBatch.push({ id: prId, seniorId: senior.id, incomeAmount: String(amount), payableAmount: String(payable), txHash: `0xS_${senior.id.slice(0,4)}_Q3_${mo}`, status: 'PAID', createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 18) })
+      payoutBatch.push({ id: prId, seniorId: senior.id, incomeAmount: String(amount), payableAmount: String(payable), contractAddress: '0x' + prId.replace(/-/g, '').padEnd(40, '0').slice(0, 40), txHash: `0xS_${senior.id.slice(0,4)}_Q3_${mo}`, status: 'PAID', createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 18) })
       txBatch.push({ type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT', senderId: null, senderLabel: project.companyName, receiverId: senior.id, projectId: project.id, payoutRequestId: prId, seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2024, mo, 13), receiptExternalUrl: `https://etherscan.io/tx/0xRQ3_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 9), updatedAt: monthDate(2024, mo, 18) })
       txBatch.push({ type: 'PAYOUT', status: 'PAID', amount: String(payable), currency: 'USDT', senderId: senior.id, receiverLabel: 'CheekyCheeseIT', projectId: project.id, payoutRequestId: prId, txHash: `0xS_${senior.id.slice(0,4)}_Q3_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 18) })
       for (const adminId of [MAKSYM_ID, KOSTYA_ID]) {
@@ -683,7 +687,7 @@ async function main() {
     ] as [typeof oleksiy, typeof aiProject, number, number][]) {
       const prId = crypto.randomUUID()
       const payable = amount * 0.74
-      payoutBatch.push({ id: prId, seniorId: senior.id, incomeAmount: String(amount), payableAmount: String(payable), txHash: `0xS_${senior.id.slice(0,4)}_Q4_${mo}`, status: 'PAID', createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 18) })
+      payoutBatch.push({ id: prId, seniorId: senior.id, incomeAmount: String(amount), payableAmount: String(payable), contractAddress: '0x' + prId.replace(/-/g, '').padEnd(40, '0').slice(0, 40), txHash: `0xS_${senior.id.slice(0,4)}_Q4_${mo}`, status: 'PAID', createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 18) })
       txBatch.push({ type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT', senderId: null, senderLabel: project.companyName, receiverId: senior.id, projectId: project.id, payoutRequestId: prId, seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2024, mo, 13), receiptExternalUrl: `https://etherscan.io/tx/0xRQ4_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 9), updatedAt: monthDate(2024, mo, 18) })
       txBatch.push({ type: 'PAYOUT', status: 'PAID', amount: String(payable), currency: 'USDT', senderId: senior.id, receiverLabel: 'CheekyCheeseIT', projectId: project.id, payoutRequestId: prId, txHash: `0xS_${senior.id.slice(0,4)}_Q4_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 18) })
       for (const adminId of [MAKSYM_ID, KOSTYA_ID]) {
@@ -724,7 +728,7 @@ async function main() {
     ] as [typeof oleksiy, typeof aiProject, number, number][]) {
       const prId = crypto.randomUUID()
       const payable = amount * 0.74
-      payoutBatch.push({ id: prId, seniorId: senior.id, incomeAmount: String(amount), payableAmount: String(payable), txHash: `0x25_${senior.id.slice(0,4)}_${mo}`, status: 'PAID', createdAt: monthDate(2025, mo, 17), updatedAt: monthDate(2025, mo, 18) })
+      payoutBatch.push({ id: prId, seniorId: senior.id, incomeAmount: String(amount), payableAmount: String(payable), contractAddress: '0x' + prId.replace(/-/g, '').padEnd(40, '0').slice(0, 40), txHash: `0x25_${senior.id.slice(0,4)}_${mo}`, status: 'PAID', createdAt: monthDate(2025, mo, 17), updatedAt: monthDate(2025, mo, 18) })
       txBatch.push({ type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT', senderId: null, senderLabel: project.companyName, receiverId: senior.id, projectId: project.id, payoutRequestId: prId, seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2025, mo, 13), receiptExternalUrl: `https://etherscan.io/tx/0xR25_${mo}`, createdBy: senior.id, createdAt: monthDate(2025, mo, 9), updatedAt: monthDate(2025, mo, 18) })
       txBatch.push({ type: 'PAYOUT', status: 'PAID', amount: String(payable), currency: 'USDT', senderId: senior.id, receiverLabel: 'CheekyCheeseIT', projectId: project.id, payoutRequestId: prId, txHash: `0x25_${senior.id.slice(0,4)}_${mo}`, createdBy: senior.id, createdAt: monthDate(2025, mo, 17), updatedAt: monthDate(2025, mo, 18) })
       for (const adminId of [MAKSYM_ID, KOSTYA_ID]) {

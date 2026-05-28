@@ -279,6 +279,12 @@ export const payoutRequests = pgTable('payout_requests', {
   incomeAmount: numeric('income_amount', { precision: 18, scale: 6 }).notNull(),
   // Amount senior must pay = incomeAmount * (1 - seniorSharePercent/100)
   payableAmount: numeric('payable_amount', { precision: 18, scale: 6 }).notNull(),
+  // Destination wallet — generated server-side at create time (stub until
+  // PHASE 8 deploys the real PaymentSplitter). Shape-compatible with
+  // Ethereum addresses: '0x' + 40 hex chars. SENIOR copies this and sends
+  // the payable_amount in USDT to it, then submits the tx_hash for
+  // verification.
+  contractAddress: varchar('contract_address', { length: 255 }).notNull(),
   txHash: varchar('tx_hash', { length: 255 }),
   status: payoutRequestStatusEnum().notNull().default('PENDING'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
