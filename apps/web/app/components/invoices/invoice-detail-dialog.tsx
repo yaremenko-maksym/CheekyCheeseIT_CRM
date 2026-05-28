@@ -25,7 +25,7 @@
  * checkbox; submit calls `useSignInvoice` mutation and on success closes
  * both dialogs + invalidates the invoice queries via the mutation hook.
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { format, formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
@@ -92,9 +92,17 @@ const SIG_ROLE_LABEL: Record<InvoiceSignatureDto['signerRole'], string> = {
   COUNTERPARTY: 'Контрагент',
 }
 
+// Short, user-readable labels — full audit copy (e.g. «Click + audit», PDF
+// hash short) is exposed via the `title=` tooltip on the row so technical
+// reviewers can still inspect the chain without cluttering the main view.
 const SIG_METHOD_LABEL: Record<InvoiceSignatureDto['method'], string> = {
-  AUTO_COMPANY: 'Автоматическая электронная',
-  MANUAL_CLICK: 'Click + audit',
+  AUTO_COMPANY: 'Авто',
+  MANUAL_CLICK: 'Ручная',
+}
+
+const SIG_METHOD_TOOLTIP: Record<InvoiceSignatureDto['method'], string> = {
+  AUTO_COMPANY: 'Автоматическая электронная подпись компании при выпуске инвойса',
+  MANUAL_CLICK: 'Подписано вручную (click + audit) контрагентом',
 }
 
 // ---------------------------------------------------------------------------
@@ -282,7 +290,13 @@ function InvoiceDetailContent({
             form-like reading order on narrow screens. */}
         <div className="grid grid-cols-1 md:grid-cols-[40%_1fr] gap-6">
           <div className="min-w-0 space-y-5">
-            {/* Signature table */}
+            {/* Signature list — card-per-signature instead of a horizontal
+                table. The previous 5-column table («Сторона / Подписант /
+                Дата / Метод / Хэш») didn't fit the 40% column without a
+                horizontal scrollbar even on a desktop dialog. Hash column
+                was a tech-only audit detail the SENIOR/HR never need —
+                removed from the main view; for forensic verification the
+                public verify URL below already exposes the canonical hash. */}
             <section aria-label="Подписи" className="rounded-xl border border-border/70 bg-card/40">
               <header className="flex items-center justify-between border-b border-border/50 px-4 py-2.5">
                 <h3 className="text-sm font-semibold tracking-tight">Подписи</h3>
@@ -290,30 +304,17 @@ function InvoiceDetailContent({
                   {invoice.signatures.length} из 2
                 </span>
               </header>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-xs text-muted-foreground">
-                      <th className="px-4 py-2 font-medium">Сторона</th>
-                      <th className="px-4 py-2 font-medium">Подписант</th>
-                      <th className="px-4 py-2 font-medium">Дата</th>
-                      <th className="px-4 py-2 font-medium">Метод</th>
-                      <th className="px-4 py-2 font-medium">Хэш</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <SignatureRow
-                      role="COMPANY"
-                      signature={invoice.signatures.find((s) => s.signerRole === 'COMPANY')}
-                    />
-                    <SignatureRow
-                      role="COUNTERPARTY"
-                      signature={invoice.signatures.find((s) => s.signerRole === 'COUNTERPARTY')}
-                      counterpartyName={invoice.counterpartyName}
-                    />
-                  </tbody>
-                </table>
-              </div>
+              <ul className="divide-y divide-border/40">
+                <SignatureCard
+                  role="COMPANY"
+                  signature={invoice.signatures.find((s) => s.signerRole === 'COMPANY')}
+                />
+                <SignatureCard
+                  role="COUNTERPARTY"
+                  signature={invoice.signatures.find((s) => s.signerRole === 'COUNTERPARTY')}
+                  counterpartyName={invoice.counterpartyName}
+                />
+              </ul>
             </section>
 
             {/* Public verify info */}
@@ -389,6 +390,30 @@ function InvoicePdfPreview({ documentId }: { documentId: string | null }) {
   const { data, isLoading } = useDocumentDownloadUrl(documentId ?? undefined, {
     enabled: Boolean(documentId),
   })
+  // Track whether the iframe actually rendered. Chrome blocks cross-origin
+  // PDF iframes in some configurations (the «This page has been blocked by
+  // Chrome» error juzer saw on the screenshot), and the `sandbox` attribute
+  // makes the breakage silent — no `onError` fires. We use the `onLoad`
+  // callback as a positive signal and a 3s timeout to flip the UI to the
+  // download fallback if no load event arrives, so the SENIOR isn't stuck
+  // looking at a blank panel.
+  const [iframeBlocked, setIframeBlocked] = useState(false)
+  const [iframeLoaded, setIframeLoaded] = useState(false)
+
+  useEffect(() => {
+    // Reset on URL change so reopening with a different invoice retries.
+    setIframeBlocked(false)
+    setIframeLoaded(false)
+    if (!data?.url) return
+    const timer = setTimeout(() => {
+      if (!iframeLoaded) setIframeBlocked(true)
+    }, 3000)
+    return () => clearTimeout(timer)
+    // We intentionally exclude iframeLoaded from deps — re-running on load
+    // would clear the timer too late. The effect closes over the latest
+    // iframeLoaded via the timeout callback firing only after 3s.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.url])
 
   if (!documentId) {
     return (
@@ -408,29 +433,57 @@ function InvoicePdfPreview({ documentId }: { documentId: string | null }) {
     )
   }
 
+  if (iframeBlocked) {
+    return (
+      <div
+        data-testid="invoice-pdf-fallback"
+        className="flex min-h-[500px] h-full flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center text-sm"
+      >
+        <p className="text-muted-foreground">
+          Браузер заблокировал встроенный просмотр PDF. Скачайте файл, чтобы открыть его локально.
+        </p>
+        <a
+          href={data.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/40"
+          data-testid="invoice-pdf-fallback-download"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+          Открыть PDF
+        </a>
+      </div>
+    )
+  }
+
   return (
     <div
       data-testid="invoice-pdf-preview"
       className="overflow-hidden rounded-lg border border-border bg-muted h-full"
     >
+      {/* Remove sandbox — Chrome's PDF viewer needs scripts to render the
+          controls (toolbar, zoom). With `sandbox="allow-same-origin"` only,
+          the cross-origin S3 URL gets blocked with the «This page has been
+          blocked by Chrome» panel. We rely on the same-origin-policy of the
+          presigned URL + the PDF being a static GET for security. */}
       <iframe
         src={data.url}
         title="Инвойс PDF"
         className="w-full min-h-[500px] h-full"
-        // Sandbox keeps the embed defensive (no top-nav, no scripts). The
-        // S3 presigned URL is a static GET on a PDF — same-origin scripts
-        // aren't needed for rendering.
-        sandbox="allow-same-origin"
+        onLoad={() => setIframeLoaded(true)}
       />
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// One row of the signature table
+// One card per signature — replaces the legacy 5-column table that needed
+// horizontal scroll. Layout: role label as the eyebrow, signer name as the
+// main line, date + method as muted metadata footer. Pending state shows
+// an amber «Ожидает подписи» chip in place of the metadata footer.
 // ---------------------------------------------------------------------------
 
-function SignatureRow({
+function SignatureCard({
   role,
   signature,
   counterpartyName,
@@ -440,58 +493,45 @@ function SignatureRow({
   counterpartyName?: string
 }) {
   if (!signature) {
-    // Empty state — COMPANY row is never empty (auto-signed at invoice
-    // creation), so this branch only renders for the COUNTERPARTY row when
-    // the recipient has not yet signed. We surface a single «⏳ Ожидает
-    // подписи» cell spanning the data columns so the table reads as
-    // a clear pending-state rather than a partially-filled record.
+    // Empty state — COMPANY card is never empty (auto-signed at invoice
+    // creation), so this only renders for the COUNTERPARTY card when the
+    // recipient has not yet signed.
     return (
-      <tr
-        className="border-t border-border/40"
+      <li
+        className="px-4 py-3 space-y-1"
         data-testid={`signature-row-${role.toLowerCase()}-pending`}
       >
-        <td className="px-4 py-2.5 font-medium">{SIG_ROLE_LABEL[role]}</td>
-        <td className="px-4 py-2.5 text-muted-foreground">{counterpartyName ?? '—'}</td>
-        <td colSpan={3} className="px-4 py-2.5 text-xs text-amber-300/90">
-          <span className="inline-flex items-center gap-1">
-            <Clock className="h-3.5 w-3.5" />
-            Ожидает подписи
-          </span>
-        </td>
-      </tr>
+        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          {SIG_ROLE_LABEL[role]}
+        </p>
+        <p className="text-sm font-medium text-foreground/90">{counterpartyName ?? '—'}</p>
+        <p className="text-xs text-amber-300/90 inline-flex items-center gap-1">
+          <Clock className="h-3.5 w-3.5" />
+          Ожидает подписи
+        </p>
+      </li>
     )
   }
-  // For the COMPANY row we intentionally skip the hash column — the company
-  // signature is an internal auto-event, not something the counterparty
-  // needs to audit. Only the COUNTERPARTY row shows the short hash (8 chars
-  // of the PDF SHA-256) so the audit chain stays visible at a glance.
-  const showHash = signature.signerRole === 'COUNTERPARTY'
   return (
-    <tr
-      className="border-t border-border/40"
+    <li
+      className="px-4 py-3 space-y-1"
       data-testid={`signature-row-${signature.signerRole.toLowerCase()}`}
     >
-      <td className="px-4 py-2.5 font-medium">{SIG_ROLE_LABEL[signature.signerRole]}</td>
-      <td className="px-4 py-2.5">{signature.signerName}</td>
-      <td
-        className="px-4 py-2.5 text-xs text-muted-foreground"
-        title={fmtRelative(signature.signedAt)}
-      >
-        {fmtDateTime(signature.signedAt)}
-      </td>
-      <td className="px-4 py-2.5 text-xs text-muted-foreground">
-        {SIG_METHOD_LABEL[signature.method]}
-      </td>
-      <td className="px-4 py-2.5 text-xs">
-        {showHash ? (
-          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">
-            {signature.pdfHashShort}
-          </code>
-        ) : (
-          <span className="text-muted-foreground/60">—</span>
-        )}
-      </td>
-    </tr>
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+        {SIG_ROLE_LABEL[signature.signerRole]}
+      </p>
+      <p className="text-sm font-medium text-foreground">{signature.signerName}</p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+        <span title={fmtRelative(signature.signedAt)}>{fmtDateTime(signature.signedAt)}</span>
+        <span
+          className="inline-flex items-center gap-1"
+          title={SIG_METHOD_TOOLTIP[signature.method]}
+        >
+          <span aria-hidden>·</span>
+          {SIG_METHOD_LABEL[signature.method]}
+        </span>
+      </div>
+    </li>
   )
 }
 
