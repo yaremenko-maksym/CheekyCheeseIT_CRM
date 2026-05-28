@@ -164,9 +164,12 @@ export function PayoutDetailDialog({
         if (!v) handleClose()
       }}
     >
-      <CrmDialogContent maxWidth="sm:max-w-xl">
+      <CrmDialogContent maxWidth="sm:max-w-xl" data-testid="payout-detail-dialog">
         <CrmDialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle
+            className="flex items-center gap-2"
+            data-testid="payout-detail-title"
+          >
             {isPaid ? 'Выплата (оплачена)' : 'Подтвердить выплату'}
             {isPaid && (
               <Badge variant="secondary" className="text-[10px]">

@@ -398,8 +398,20 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
         )}
 
         <CrmDialogFooter>
-          <Button variant="outline" size="sm" onClick={() => { onClose(); resetForm() }}>Отмена</Button>
-          <Button size="sm" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { onClose(); resetForm() }}
+            data-testid="create-transaction-cancel"
+          >
+            Отмена
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending}
+            data-testid="create-transaction-submit"
+          >
             {mutation.isPending ? 'Создание...' : 'Создать транзакцию'}
           </Button>
         </CrmDialogFooter>

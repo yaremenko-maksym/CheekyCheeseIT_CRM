@@ -127,8 +127,18 @@ export function EditSeniorIncomeDialog({
         </CrmDialogBody>
 
         <CrmDialogFooter>
-          <Button variant="outline" onClick={onClose}>Отмена</Button>
-          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+          <Button
+            variant="outline"
+            onClick={onClose}
+            data-testid="edit-senior-income-cancel"
+          >
+            Отмена
+          </Button>
+          <Button
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending}
+            data-testid="edit-senior-income-resubmit"
+          >
             {mutation.isPending ? 'Сохранение...' : 'Переотправить'}
           </Button>
         </CrmDialogFooter>

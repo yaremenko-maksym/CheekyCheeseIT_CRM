@@ -40,7 +40,7 @@ export function ValidateDialog({ tx, onClose }: { tx: TransactionDto | null; onC
 
   return (
     <Dialog open={!!tx} onOpenChange={(v) => { if (!v) { onClose(); setReason('') } }}>
-      <CrmDialogContent maxWidth="sm:max-w-md">
+      <CrmDialogContent maxWidth="sm:max-w-md" data-testid="validate-transaction-dialog">
         <CrmDialogHeader>
           <DialogTitle>Валидация транзакции</DialogTitle>
         </CrmDialogHeader>
@@ -102,17 +102,25 @@ export function ValidateDialog({ tx, onClose }: { tx: TransactionDto | null; onC
         </CrmDialogBody>
 
         <CrmDialogFooter>
-          <Button variant="outline" onClick={() => { onClose(); setReason('') }}>Отмена</Button>
+          <Button
+            variant="outline"
+            onClick={() => { onClose(); setReason('') }}
+            data-testid="validate-transaction-cancel"
+          >
+            Отмена
+          </Button>
           <Button
             variant="destructive"
             onClick={() => mutation.mutate({ action: 'reject' })}
             disabled={mutation.isPending || !reason.trim()}
+            data-testid="validate-transaction-reject"
           >
             Отклонить
           </Button>
           <Button
             onClick={() => mutation.mutate({ action: 'validate' })}
             disabled={mutation.isPending}
+            data-testid="validate-transaction-confirm"
           >
             {mutation.isPending ? 'Сохранение...' : 'Подтвердить'}
           </Button>
