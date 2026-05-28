@@ -25,7 +25,7 @@
  * checkbox; submit calls `useSignInvoice` mutation and on success closes
  * both dialogs + invalidates the invoice queries via the mutation hook.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { format, formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
@@ -397,23 +397,31 @@ function InvoicePdfPreview({ documentId }: { documentId: string | null }) {
   // callback as a positive signal and a 3s timeout to flip the UI to the
   // download fallback if no load event arrives, so the SENIOR isn't stuck
   // looking at a blank panel.
+  //
+  // `iframeLoadedRef` mirrors the iframe load state for the timeout callback
+  // to read at fire time. Using a state variable here introduced a stale-
+  // closure race: the timeout captured `iframeLoaded=false` from the render
+  // that scheduled it, so the fallback flipped on every invoice even when
+  // the PDF had already rendered. A ref always sees the current value, so
+  // we read the live load status when the timer actually fires.
   const [iframeBlocked, setIframeBlocked] = useState(false)
-  const [iframeLoaded, setIframeLoaded] = useState(false)
+  const iframeLoadedRef = useRef(false)
 
   useEffect(() => {
     // Reset on URL change so reopening with a different invoice retries.
     setIframeBlocked(false)
-    setIframeLoaded(false)
+    iframeLoadedRef.current = false
     if (!data?.url) return
     const timer = setTimeout(() => {
-      if (!iframeLoaded) setIframeBlocked(true)
+      if (!iframeLoadedRef.current) setIframeBlocked(true)
     }, 3000)
     return () => clearTimeout(timer)
-    // We intentionally exclude iframeLoaded from deps — re-running on load
-    // would clear the timer too late. The effect closes over the latest
-    // iframeLoaded via the timeout callback firing only after 3s.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.url])
+
+  const handleIframeLoad = () => {
+    iframeLoadedRef.current = true
+    setIframeBlocked(false)
+  }
 
   if (!documentId) {
     return (
@@ -470,7 +478,7 @@ function InvoicePdfPreview({ documentId }: { documentId: string | null }) {
         src={data.url}
         title="Инвойс PDF"
         className="w-full min-h-[500px] h-full"
-        onLoad={() => setIframeLoaded(true)}
+        onLoad={handleIframeLoad}
       />
     </div>
   )
