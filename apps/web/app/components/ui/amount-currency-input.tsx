@@ -42,6 +42,8 @@ export function AmountCurrencyInput({
   placeholder = '0.00',
   inputClassName,
   disabled,
+  error,
+  errorTestId,
 }: {
   amount: string | number
   currency: Currency
@@ -52,6 +54,10 @@ export function AmountCurrencyInput({
   placeholder?: string
   inputClassName?: string
   disabled?: boolean
+  /** Inline validation message rendered under the amount input. */
+  error?: string
+  /** data-testid for the error <p> (caller-supplied for E2E). */
+  errorTestId?: string
 }) {
   const needsRate = currency === 'EUR' || currency === 'UAH' || currency === 'USD'
 
@@ -86,7 +92,7 @@ export function AmountCurrencyInput({
             min="0"
             step="0.01"
             disabled={disabled}
-            className={cn('h-9 text-sm', inputClassName)}
+            className={cn('h-9 text-sm', error && 'border-destructive', inputClassName)}
           />
         </div>
         <div className="space-y-1.5">
@@ -103,6 +109,12 @@ export function AmountCurrencyInput({
           </Select>
         </div>
       </div>
+
+      {error && (
+        <p className="text-[11px] text-destructive" data-testid={errorTestId}>
+          {error}
+        </p>
+      )}
 
       {/* USDT peg notice */}
       {currency === 'USDT' && (

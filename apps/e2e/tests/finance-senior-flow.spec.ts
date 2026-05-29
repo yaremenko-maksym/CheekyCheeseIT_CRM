@@ -211,7 +211,11 @@ test.describe('SENIOR INCOME — шаг 1: регистрация прихода
 
     await asSenior.getByTestId('create-transaction-submit').click()
     await expect(dialog).toBeVisible()
-    await expect(dialog).toContainText(/некорректная сумма/i)
+    // AC4: amount validation now renders inline next to the field («Укажите
+    // корректную сумму») instead of the old single «Некорректная сумма»
+    // banner. Assert via the dedicated error testid.
+    await expect(dialog.getByTestId('create-transaction-error-amount')).toBeVisible()
+    await expect(dialog).toContainText(/корректную сумму/i)
   })
 })
 
