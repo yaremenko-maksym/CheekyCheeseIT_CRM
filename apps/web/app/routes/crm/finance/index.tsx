@@ -586,7 +586,10 @@ function FinancePage() {
               task-payout-auto-on-validate — PAYOUT rows now auto-created on
               ACCOUNTANT validate and pay-out happens from the row itself. */}
           {canCreate && (
-            <Button onClick={() => setShowCreate(true)}>
+            <Button
+              onClick={() => setShowCreate(true)}
+              data-testid="finance-create-transaction-button"
+            >
               <Plus className="h-4 w-4 mr-1" /> Новая транзакция
             </Button>
           )}

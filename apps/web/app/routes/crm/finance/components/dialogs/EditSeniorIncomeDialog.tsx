@@ -90,9 +90,17 @@ export function EditSeniorIncomeDialog({
 
         <CrmDialogBody className="space-y-4 pb-4">
           {tx.rejectionReason && (
-            <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+            <div
+              className="rounded-lg border border-destructive/40 bg-destructive/5 p-3"
+              data-testid="edit-senior-income-rejection-panel"
+            >
               <p className="text-xs font-medium text-destructive mb-1">Причина отклонения:</p>
-              <p className="text-sm">{tx.rejectionReason}</p>
+              <p
+                className="text-sm"
+                data-testid="edit-senior-income-rejection-reason"
+              >
+                {tx.rejectionReason}
+              </p>
             </div>
           )}
 
@@ -127,8 +135,18 @@ export function EditSeniorIncomeDialog({
         </CrmDialogBody>
 
         <CrmDialogFooter>
-          <Button variant="outline" onClick={onClose}>Отмена</Button>
-          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+          <Button
+            variant="outline"
+            onClick={onClose}
+            data-testid="edit-senior-income-cancel"
+          >
+            Отмена
+          </Button>
+          <Button
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending}
+            data-testid="edit-senior-income-resubmit"
+          >
             {mutation.isPending ? 'Сохранение...' : 'Переотправить'}
           </Button>
         </CrmDialogFooter>

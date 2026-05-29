@@ -176,7 +176,12 @@ function ErrorState({ message }: { message: string }) {
       className="flex flex-col items-center justify-center rounded-xl border border-destructive/30 bg-destructive/5 p-12 text-center"
     >
       <AlertCircle className="h-12 w-12 text-destructive" />
-      <h2 className="mt-4 text-lg font-semibold">{message}</h2>
+      <h2
+        className="mt-4 text-lg font-semibold"
+        data-testid="invoice-verify-error-message"
+      >
+        {message}
+      </h2>
       <p className="mt-2 max-w-md text-sm text-muted-foreground">
         Проверьте корректность ссылки или QR-кода. Если документ существует —
         возможно, он ещё не сгенерирован.
@@ -223,7 +228,10 @@ function VerifiedState({ data }: { data: InvoiceVerifyResponse }) {
           )}
         </div>
         <div className="mt-4 sm:mt-0">
-          <h2 className="text-2xl font-bold tracking-tight">
+          <h2
+            className="text-2xl font-bold tracking-tight"
+            data-testid="invoice-verify-status-heading"
+          >
             {isSigned ? 'Документ верифицирован' : 'Документ ожидает подписи'}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -280,7 +288,10 @@ function VerifiedState({ data }: { data: InvoiceVerifyResponse }) {
       {/* Signatures */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">
+          <CardTitle
+            className="text-base"
+            data-testid="invoice-verify-signatures-count"
+          >
             Подписи ({data.signatures.length} из 2)
           </CardTitle>
         </CardHeader>

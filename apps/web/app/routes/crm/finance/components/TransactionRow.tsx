@@ -36,6 +36,7 @@ function StatusBadge({ status }: { status: TransactionDto['status'] }) {
         'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap',
         STATUS_COLORS[status],
       )}
+      data-testid={`tx-status-badge-${status.toLowerCase()}`}
     >
       {STATUS_LABELS[status]}
     </span>
@@ -230,6 +231,8 @@ export function TransactionRow({
         onClick ? 'cursor-pointer hover:bg-muted/40' : 'hover:bg-muted/30',
       )}
       onClick={() => onClick?.(tx)}
+      data-testid={`tx-row-${tx.id}`}
+      data-tx-type={tx.type}
     >
       <td className="py-3 px-4 whitespace-nowrap">
         <TypeBadge type={tx.type} />
@@ -299,6 +302,7 @@ export function TransactionRow({
               size="sm"
               className="h-7 px-2 text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
               onClick={() => onValidate(tx)}
+              data-testid={`tx-row-validate-${tx.id}`}
             >
               <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
               Проверить
@@ -322,6 +326,7 @@ export function TransactionRow({
               size="sm"
               className="h-7 px-2 text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-500/10"
               onClick={() => onEdit(tx)}
+              data-testid={`tx-row-edit-${tx.id}`}
             >
               <Edit2 className="h-3.5 w-3.5 mr-1" />
               Исправить
@@ -333,6 +338,7 @@ export function TransactionRow({
               size="sm"
               className="h-7 px-2 text-xs text-green-400 hover:text-green-300 hover:bg-green-500/10"
               onClick={() => onPaySalary(tx)}
+              data-testid={`tx-row-pay-salary-${tx.id}`}
             >
               Выплатить
             </Button>

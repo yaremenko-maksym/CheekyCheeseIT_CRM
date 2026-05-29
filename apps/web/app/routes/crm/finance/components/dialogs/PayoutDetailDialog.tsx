@@ -164,9 +164,12 @@ export function PayoutDetailDialog({
         if (!v) handleClose()
       }}
     >
-      <CrmDialogContent maxWidth="sm:max-w-xl">
+      <CrmDialogContent maxWidth="sm:max-w-xl" data-testid="payout-detail-dialog">
         <CrmDialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle
+            className="flex items-center gap-2"
+            data-testid="payout-detail-title"
+          >
             {isPaid ? 'Выплата (оплачена)' : 'Подтвердить выплату'}
             {isPaid && (
               <Badge variant="secondary" className="text-[10px]">
@@ -211,7 +214,9 @@ export function PayoutDetailDialog({
                   main view, and the ERC-20 distinction lives in the helper
                   text below where there's room. */}
               <div className="space-y-1.5">
-                <Label className="text-xs">Адрес кошелька</Label>
+                <Label className="text-xs" data-testid="payout-detail-contract-address-label">
+                  Адрес кошелька
+                </Label>
                 <div className="flex items-center gap-2 rounded-md border border-border bg-background p-2">
                   <code
                     className="flex-1 text-xs font-mono break-all"
@@ -251,7 +256,10 @@ export function PayoutDetailDialog({
                 if (seniorIncomeTxs.length === 0) return null
                 return (
                 <div className="space-y-1.5">
-                  <Label className="text-xs">
+                  <Label
+                    className="text-xs"
+                    data-testid="payout-detail-transactions-count"
+                  >
                     Транзакции в выплате ({seniorIncomeTxs.length})
                   </Label>
                   <div className="rounded-md border border-border divide-y divide-border max-h-40 overflow-y-auto">

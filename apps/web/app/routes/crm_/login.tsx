@@ -186,6 +186,8 @@ function LoginPage() {
             className="mb-4 flex items-start gap-2.5 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
             initial={{ opacity: 0, scale: 0.97 }}
             animate={{ opacity: 1, scale: 1 }}
+            data-testid="login-error-message"
+            data-error-code={error}
           >
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{ERROR_MESSAGES[error]}</span>
@@ -199,7 +201,7 @@ function LoginPage() {
           size="lg"
           className="w-full gap-3 border-border/80 bg-card hover:bg-accent"
         >
-          <a href={`${API_URL}/auth/google`}>
+          <a href={`${API_URL}/auth/google`} data-testid="login-google-button">
             <GoogleIcon />
             Войти с Google
           </a>

@@ -16,8 +16,9 @@ test.describe('Auth flow', () => {
 
   test('login page renders correctly', async ({ page }) => {
     await page.goto('/crm/login')
+    // Brand title is the product contract — text assertion stays.
     await expect(page.getByText('CheekyCheeseIT CRM')).toBeVisible()
-    await expect(page.getByRole('link', { name: /войти с google/i })).toBeVisible()
+    await expect(page.getByTestId('login-google-button')).toBeVisible()
   })
 
   test('login page has no app console errors on load', async ({ page }) => {
@@ -53,7 +54,7 @@ test.describe('Auth flow', () => {
 
   test('Google login button has correct href', async ({ page }) => {
     await page.goto('/crm/login')
-    const link = page.getByRole('link', { name: /войти с google/i })
+    const link = page.getByTestId('login-google-button')
     const href = await link.getAttribute('href')
     // Should point to the API Google OAuth endpoint
     expect(href).toMatch(/auth\/google/)
@@ -80,19 +81,28 @@ test.describe('Auth flow', () => {
 
   test('?error=unauthorized shows error message', async ({ page }) => {
     await page.goto('/crm/login?error=unauthorized')
-    // Match the error alert div, not the footer paragraph
-    await expect(page.locator('.text-destructive').filter({ hasText: /авторизован|доступ/i }).first()).toBeVisible()
+    const banner = page.getByTestId('login-error-message')
+    await expect(banner).toBeVisible()
+    await expect(banner).toHaveAttribute('data-error-code', 'unauthorized')
+    // The Russian copy is the error contract — keep text assertion as a regex.
+    await expect(banner).toContainText(/авторизован|доступ/i)
   })
 
   test('?error=google_error shows error message', async ({ page }) => {
     await page.goto('/crm/login?error=google_error')
-    await expect(page.locator('.text-destructive').filter({ hasText: /google|oauth/i }).first()).toBeVisible()
+    const banner = page.getByTestId('login-error-message')
+    await expect(banner).toBeVisible()
+    await expect(banner).toHaveAttribute('data-error-code', 'google_error')
+    await expect(banner).toContainText(/google|oauth/i)
   })
 
   test('?error=invalid_state shows error message', async ({ page }) => {
     await page.goto('/crm/login?error=invalid_state')
+    const banner = page.getByTestId('login-error-message')
+    await expect(banner).toBeVisible()
+    await expect(banner).toHaveAttribute('data-error-code', 'invalid_state')
     // Message: "Сессия истекла. Пожалуйста, попробуйте снова."
-    await expect(page.locator('.text-destructive').filter({ hasText: /сессия|истекла|попробуйте/i }).first()).toBeVisible()
+    await expect(banner).toContainText(/сессия|истекла|попробуйте/i)
   })
 
   // ---------------------------------------------------------------------------
@@ -112,5 +122,32 @@ test.describe('Auth flow', () => {
     await page.goto('/crm/login')
     await page.waitForURL((url) => !url.pathname.endsWith('/login'), { timeout: 10000 })
     expect(page.url()).not.toMatch(/\/crm\/login/)
+  })
+
+  // ---------------------------------------------------------------------------
+  // Flow F (task-autotest-strengthen-e2e-pr56-flows): Vite dev proxy.
+  //
+  // PR #56 wired up `vite.config.ts → server.proxy: { '/api': :3001 }` so
+  // the frontend can hit its own origin (http://localhost:3000/api/*) and
+  // have Vite forward to NestJS on :3001. Without the proxy, `/api/auth/me`
+  // lands on the SPA fallback (`index.html`) and the AuthContext sees a
+  // 200 HTML response instead of JSON, which has historically caused the
+  // user to ping-pong between /crm/login and /crm.
+  //
+  // We verify the proxy by hitting `/api/auth/me` through the SPA's own
+  // origin and asserting that the response is JSON (or a 401 from the
+  // backend) — NOT HTML.
+  // ---------------------------------------------------------------------------
+
+  test('Vite proxy forwards /api → :3001 (no SPA fallback HTML)', async ({ page }) => {
+    // No /api routes mocked here on purpose — we want the real proxy chain.
+    // page.request uses the same context as the browser (same origin).
+    const res = await page.request.get('http://localhost:3000/api/auth/me')
+    const contentType = res.headers()['content-type'] ?? ''
+    // Either the API returned JSON (authenticated) or 401 JSON (anonymous).
+    // The smoking-gun regression would be `text/html` + 200 — the SPA
+    // fallback. We assert against that explicitly.
+    expect(contentType).not.toMatch(/text\/html/i)
+    expect([200, 401]).toContain(res.status())
   })
 })

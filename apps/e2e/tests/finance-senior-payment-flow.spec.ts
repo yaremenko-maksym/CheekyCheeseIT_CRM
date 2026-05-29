@@ -190,13 +190,18 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     await mockTransactions(asSenior, [pendingPaymentIncome])
 
     await asSenior.goto('/crm/finance')
-    await expect(asSenior.getByText(/Ожидает выплаты/i).first()).toBeVisible()
+    await expect(
+      asSenior.getByTestId('tx-status-badge-pending_payment').first(),
+    ).toBeVisible()
     // No inline button on the SENIOR_INCOME row — both quick-payout (old) and
     // pay-payout pills are gone for this row type.
     await expect(
       asSenior.getByTestId(`row-pay-payout-${pendingPaymentIncome.id}`),
     ).not.toBeVisible()
-    await expect(asSenior.getByRole('button', { name: /Выплатить/i })).not.toBeVisible()
+    // No row-level «Выплатить» (pay-salary) pill anywhere either.
+    await expect(
+      asSenior.getByTestId(`tx-row-pay-salary-${pendingPaymentIncome.id}`),
+    ).not.toBeVisible()
   })
 
   test('SENIOR sees inline «Оплатить» on the auto-created PAYOUT row', async ({
@@ -224,9 +229,14 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     await mockTransactions(asSenior, [pendingTx])
 
     await asSenior.goto('/crm/finance')
-    await expect(asSenior.getByText('Ожидает').first()).toBeVisible()
-    await expect(asSenior.getByRole('button', { name: /Выплатить/i })).not.toBeVisible()
-    await expect(asSenior.getByRole('button', { name: /Оплатить/i })).not.toBeVisible()
+    await expect(asSenior.getByTestId('tx-status-badge-pending').first()).toBeVisible()
+    // SENIOR_INCOME row should not carry any pay-out pill while PENDING.
+    await expect(
+      asSenior.getByTestId(`row-pay-payout-${pendingTx.id}`),
+    ).not.toBeVisible()
+    await expect(
+      asSenior.getByTestId(`tx-row-pay-salary-${pendingTx.id}`),
+    ).not.toBeVisible()
   })
 
   test('Header batch «Выплатить (N)» button is gone (removed in task-payout-auto-on-validate)', async ({
@@ -239,7 +249,11 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
 
     await asSenior.goto('/crm/finance')
     await expect(asSenior.getByTestId('header-payout-button')).not.toBeVisible()
-    await expect(asSenior.getByRole('button', { name: /Выплатить \(/i })).not.toBeVisible()
+    // Defensive: the testid would still be the canonical anchor — but as a
+    // sanity check, no Wallet-pill row-level pay-payout button either.
+    await expect(
+      asSenior.getByTestId(`row-pay-payout-${validatedTx.id}`),
+    ).not.toBeVisible()
   })
 
   test('SENIOR pays auto-created PAYOUT: inline «Оплатить» → PayoutDetailDialog → submit tx hash', async ({
@@ -260,12 +274,17 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
 
     const dialog = asSenior.getByRole('dialog')
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByRole('heading', { name: /Подтвердить выплату/i })).toBeVisible()
+    await expect(dialog.getByTestId('payout-detail-title')).toContainText(
+      /Подтвердить выплату/i,
+    )
 
     await expect(dialog.getByTestId('payout-detail-contract-address')).toContainText(
       STUB_CONTRACT,
     )
 
+    // PR #56 dev-simulate gate — real mode is blocked in dev → pick
+    // simulate-success to actually unlock the submit button.
+    await dialog.getByTestId('payout-detail-dev-simulate-success').click()
     await dialog.getByTestId('payout-detail-tx-hash-input').fill('0xabcd1234567890')
     await dialog.getByTestId('payout-detail-submit').click()
 
@@ -281,9 +300,14 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     await mockTransactions(asSenior, [rejected])
 
     await asSenior.goto('/crm/finance')
-    await expect(asSenior.getByText('Отклонено').first()).toBeVisible()
-    await expect(asSenior.getByRole('button', { name: /Выплатить/i })).not.toBeVisible()
-    await expect(asSenior.getByRole('button', { name: /Оплатить/i })).not.toBeVisible()
+    await expect(asSenior.getByTestId('tx-status-badge-rejected').first()).toBeVisible()
+    // Rejected rows must not surface any pay-related button.
+    await expect(
+      asSenior.getByTestId(`row-pay-payout-${rejected.id}`),
+    ).not.toBeVisible()
+    await expect(
+      asSenior.getByTestId(`tx-row-pay-salary-${rejected.id}`),
+    ).not.toBeVisible()
   })
 
   test('ACCOUNTANT does NOT see the «Оплатить» pill on PAYOUT rows (SENIOR-only)', async ({
@@ -299,7 +323,8 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
 
     await page.goto('/crm/finance')
     await expect(page.getByTestId(`row-pay-payout-${payoutRow.id}`)).not.toBeVisible()
-    await expect(page.getByRole('button', { name: /Выплатить \(/i })).not.toBeVisible()
+    // Header batch pay-out button is gone — anchor by testid, not text.
+    await expect(page.getByTestId('header-payout-button')).not.toBeVisible()
   })
 })
 
@@ -338,8 +363,9 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
 
     await asAdmin.goto('/crm/finance')
 
-    // Click the row to open the detail dialog.
-    await asAdmin.getByText('Приход синьора').first().click()
+    // Click the row to open the detail dialog — bind to tx.id testid so a
+    // type-label copy change cannot break the trigger.
+    await asAdmin.getByTestId(`tx-row-${txWithImageReceipt.id}`).click()
     const dialog = asAdmin.getByRole('dialog')
     await expect(dialog).toBeVisible()
 
@@ -370,7 +396,7 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
     })
 
     await asAdmin.goto('/crm/finance')
-    await asAdmin.getByText('Приход синьора').first().click()
+    await asAdmin.getByTestId(`tx-row-${txWithPdfReceipt.id}`).click()
     const dialog = asAdmin.getByRole('dialog')
     await expect(dialog).toBeVisible()
 
@@ -422,7 +448,7 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
     })
 
     await asAdmin.goto('/crm/finance')
-    await asAdmin.getByText('Приход синьора').first().click()
+    await asAdmin.getByTestId(`tx-row-${txWithUploadedReceipt.id}`).click()
     const dialog = asAdmin.getByRole('dialog')
     await expect(dialog).toBeVisible()
 
