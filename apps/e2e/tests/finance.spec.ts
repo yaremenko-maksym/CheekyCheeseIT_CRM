@@ -255,8 +255,11 @@ test.describe('Finance — таблица транзакций', () => {
   test('HR: видит свои выплаты в упрощённой таблице', async ({ asHr }) => {
     await mockTransactions(asHr, [TX_SALARY_HR])
     await asHr.goto('/crm/finance')
-    // Сумма рендерится с символом гривны (валюта UAH)
-    await expect(asHr.getByText(/1[,.  ]?000\.00/).first()).toBeVisible()
+    // AC3: amounts in the personal salary table use the shared ru-RU
+    // formatter → «1 000,00 UAH» (currency suffix, comma decimal,
+    // non-breaking-space thousands separator). The char classes tolerate
+    // space/comma/dot for the separator and comma/dot for the decimal.
+    await expect(asHr.getByText(/1[\s,.]?000[,.]00/).first()).toBeVisible()
     // Месяц выплаты — fmtMonth конвертирует "2026-05" в "май 2026 г." (ru-RU)
     await expect(asHr.getByText(/2026|май/i).first()).toBeVisible()
   })

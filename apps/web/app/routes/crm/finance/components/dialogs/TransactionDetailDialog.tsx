@@ -36,6 +36,7 @@ import {
   fmtAmount,
   fmtDate,
   fmtMonth,
+  fmtRate,
   fmtUsd,
   TYPE_LABELS,
   TYPE_COLORS,
@@ -597,8 +598,13 @@ function TransactionInfoBlock({
       {/* Amount + status header */}
       <div className="flex items-center justify-between pb-4 mb-1 border-b border-border">
         <div>
+          {/* Big figure = USD-converted (table-consistent). Subline = the
+              original currency + amount so detail view always discloses the
+              source value (AC3). USD is the only currency whose source == the
+              big figure, so it's the sole exclusion — USDT still shows
+              «7 777,00 USDT» to make the currency explicit. */}
           <p className="text-2xl font-bold tabular-nums">{fmtUsd(t.amount, t.currency, rates)}</p>
-          {t.currency !== 'USD' && t.currency !== 'USDT' && (
+          {t.currency !== 'USD' && (
             <p className="text-xs text-muted-foreground mt-0.5">
               {fmtAmount(t.amount, t.currency)}
             </p>
@@ -628,13 +634,13 @@ function TransactionInfoBlock({
         </span>
       </Row>
 
-      {/* Original amount + rate — only for non-USD/USDT */}
+      {/* Conversion rate — only for non-USD/USDT. Uses the shared fmtRate
+          helper so the «1 EUR = … USD» copy is identical across detail
+          dialogs (AC3 single source of truth). */}
       {(t.currency === 'EUR' || t.currency === 'UAH') && rates && (
         <Row icon={<RefreshCw className="h-4 w-4" />} label="Курс (USD)">
           <span className="text-muted-foreground text-xs">
-            {t.currency === 'EUR'
-              ? `1 EUR = ${(parseFloat(rates.eurUah) / parseFloat(rates.usdUah)).toFixed(4)} USD`
-              : `1 USD = ${parseFloat(rates.usdUah).toFixed(2)} UAH`}
+            {fmtRate(t.currency, rates)}
             <span className="ml-2 opacity-50">· НБУ</span>
           </span>
         </Row>
