@@ -4,51 +4,58 @@
 
 5 серверов работают. **Приоритет:** MCP → потом Bash/Read/grep.
 
-| Задача | Какой MCP использовать |
-|---|---|
-| Найти функцию / класс / импорт в коде | **ast-grep** `find_code` / `find_code_by_rule` |
-| Рефакторинг — найти все вхождения паттерна | **ast-grep** `find_code_by_rule` |
+| Задача                                       | Какой MCP использовать                                 |
+| -------------------------------------------- | ------------------------------------------------------ |
+| Найти функцию / класс / импорт в коде        | **ast-grep** `find_code` / `find_code_by_rule`         |
+| Рефакторинг — найти все вхождения паттерна   | **ast-grep** `find_code_by_rule`                       |
 | Документация NestJS / TanStack / Zod / React | **context7** `resolve-library-id` → `get-library-docs` |
-| Проверить структуру БД / выполнить SQL | **postgres** `query` |
-| Проверить соответствие кода ESLint правилам | **eslint** |
-| Проверить UI в браузере после изменений | **playwright** |
-| PR / issues / commits на GitHub | **github** |
+| Проверить структуру БД / выполнить SQL       | **postgres** `query`                                   |
+| Проверить соответствие кода ESLint правилам  | **eslint**                                             |
+| Проверить UI в браузере после изменений      | **playwright**                                         |
+| PR / issues / commits на GitHub              | **github**                                             |
 
 ### ast-grep — структурный поиск по AST ✅
+
 - Синтаксический поиск, не текстовый: находит `function foo()`, `class Bar`, импорты по паттерну
 - Инструменты: `find_code`, `find_code_by_rule`, `dump_syntax_tree`, `test_match_code_rule`
 - **Обязателен перед grep/find** — быстрее и точнее, не промахивается по вариантам синтаксиса
 
 ### context7 — документация по версиям ✅
+
 - Инжектирует актуальную документацию: NestJS 11, TanStack Router 1.168, React, Zod v4, Drizzle
 - Инструменты: `resolve-library-id` → `get-library-docs`
 - **Используй вместо угадывания API** — особенно для TanStack Router validateSearch, Zod v4 syntax
 
 ### postgres — прямой доступ к БД ✅
+
 - Инструменты: `query` — выполняет любой SQL против `crm_db` (13 таблиц, всё живое)
 - **Используй вместо чтения schema.ts** для инспекции реальной структуры таблиц и данных
 - Примеры: `SELECT * FROM information_schema.columns WHERE table_name='transactions'`, проверка seed-данных
 
 ### eslint — линтинг в реальном времени ✅
+
 - Запускает правила из `apps/web/eslint.config.mjs` и `apps/api/eslint.config.mjs`
 - **Используй перед тем как предложить код** — гарантирует что правки пройдут `pnpm lint`
 
 ### playwright — браузерная автоматизация ✅
+
 - Скриншоты, клики, навигация на localhost:3000
 - **Обязателен после каждого UI изменения** — запустить и сделать скриншот результата
 
 ### github — GitHub API ✅
+
 - Работа с PR, issues, коммитами
 - Требует `GITHUB_TOKEN` env var для полного доступа
 
-
 ## Обзор проекта
+
 Высокопроизводительная CRM-система для рекрутинговых рабочих пространств.
 **Основная цель:** Максимальная типобезопасность, скорость и профессиональный UX.
 **Язык UI:** Русский — все тексты интерфейса (кнопки, заголовки, подсказки, toast, ошибки, placeholder-ы) пишутся на русском языке.
 **Язык общения:** Русский — все агенты (PM, BA, Coder, DevOps, AutoTest, Reviewer) общаются с пользователем исключительно на русском языке. Никакого украинского.
 
 ## Архитектура
+
 - **Root (/):** Landing Page (Маркетинг).
 - **App (/crm):** Защищённое рабочее пространство.
 - **Auth:** Google SSO Only (ручной OAuth без Passport, JWT в HttpOnly cookie).
@@ -56,17 +63,18 @@
 
 ## Multi-Agent команда
 
-| Агент | Роль | Где живёт |
-|-------|------|-----------|
-| **Master (Claude Code)** | Настройка инфраструктуры агентов | Локально |
-| **BA** | Бизнес-консультант, пишет `docs/specs/pm-brief.md` | Локально |
-| **PM** | Оркестратор: декомпозиция → диспетч → мониторинг → User Testing | Локально |
-| **Coder** | Fullstack разработчик | GHA (coder.yml) |
-| **AutoTest** | E2E тест-разработчик | GHA (autotest.yml) |
-| **DevOps** | Инфраструктура CI/CD | GHA (devops.yml) |
-| **Reviewer** | Code review | GHA (ai-review.yml) |
+| Агент                    | Роль                                                            | Где живёт           |
+| ------------------------ | --------------------------------------------------------------- | ------------------- |
+| **Master (Claude Code)** | Настройка инфраструктуры агентов                                | Локально            |
+| **BA**                   | Бизнес-консультант, пишет `docs/specs/pm-brief.md`              | Локально            |
+| **PM**                   | Оркестратор: декомпозиция → диспетч → мониторинг → User Testing | Локально            |
+| **Coder**                | Fullstack разработчик                                           | GHA (coder.yml)     |
+| **AutoTest**             | E2E тест-разработчик                                            | GHA (autotest.yml)  |
+| **DevOps**               | Инфраструктура CI/CD                                            | GHA (devops.yml)    |
+| **Reviewer**             | Code review                                                     | GHA (ai-review.yml) |
 
 **Pipeline:**
+
 ```
 BA → pm-brief.md → PM → task-*.md → [параллельные GHA workflows] →
 PR → ai-review.yml (AutoTest + Reviewer) → awaiting-pm-review →
@@ -76,6 +84,7 @@ PM (User Testing) → e2e.yml → squash merge
 **Task files:** `docs/specs/tasks/task-<slug>.md` (PM создаёт, агенты читают)
 
 ## Технологический стек
+
 - **Monorepo:** Turborepo + pnpm
 - **Frontend:** React, **Vite SPA** + TanStack Router/Form/Query, Tailwind CSS v4, shadcn/ui, Framer Motion
 - **Backend:** NestJS 11, Drizzle ORM (PostgreSQL), Redis
@@ -83,6 +92,7 @@ PM (User Testing) → e2e.yml → squash merge
 - **Testing:** Vitest (Unit), Playwright (E2E/Flow)
 
 ## Архитектурные решения
+
 - **Typeshare:** Общий пакет `packages/shared` для Zod-схем и типов.
 - **Validation:** Все API запросы/ответы проходят через `.parse()`.
 - **Animations:** Framer Motion для микро-взаимодействий и переходов.
@@ -91,12 +101,14 @@ PM (User Testing) → e2e.yml → squash merge
 - **Frontend bundler:** Vite SPA (НЕ TanStack Start/vinxi) — SSR не нужен для CRM.
 
 ## Ключевые ограничения версий
+
 - **Vite:** `^6.4`
 - **TanStack Router:** `^1.168` + `@tanstack/router-plugin ^1.168` (должны совпадать!)
 - **Node:** 20 LTS
 - **pnpm:** 7.32.4
 
 ## Структура монорепо
+
 ```
 /
 ├── apps/
@@ -110,6 +122,7 @@ PM (User Testing) → e2e.yml → squash merge
 ```
 
 ## Команды
+
 ```bash
 pnpm dev           # запустить все приложения параллельно
 pnpm build         # собрать все (shared → api & web)
@@ -123,6 +136,7 @@ pnpm --filter @crm/shared typecheck
 ```
 
 ## Ключевые технические заметки
+
 - **routeTree.gen.ts** генерируется `@tanstack/router-plugin` (Vite plugin). Обновляется автоматически при `vite dev`.
 - **Vite SPA**: `app/client.tsx` — точка входа (`createRoot` + `RouterProvider`). `index.html` в корне `apps/web/`.
 - **Fastify**: принудительно через `pnpm.overrides` на `^5.8.5` (конфликт с `@fastify/helmet`).
@@ -135,6 +149,7 @@ pnpm --filter @crm/shared typecheck
 - **`@crm/shared` + API tsconfig**: Добавлены `"main"` и `"types"` в `packages/shared/package.json` для совместимости с `moduleResolution: "Node"`. API tsconfig использует `"ignoreDeprecations": "5.0"` для подавления предупреждения.
 
 ## Auth (Google OAuth)
+
 - **Схема:** `GET /api/auth/google` → redirect в Google → `GET /api/auth/google/callback` → проверка email в БД → JWT cookie → redirect на `/crm`
 - **Строгая проверка:** Если email не в таблице `users` — redirect на `/login?error=unauthorized` (403)
 - **JWT:** HttpOnly cookie, 7 дней, signed `@nestjs/jwt`, payload = `SessionUser` из `@crm/shared`
@@ -142,26 +157,31 @@ pnpm --filter @crm/shared typecheck
 - **Endpoints:** `GET /api/auth/google`, `GET /api/auth/google/callback`, `GET /api/auth/me`, `GET /api/auth/logout`
 
 ## База данных (Drizzle ORM)
+
 - **Schema:** `apps/api/src/database/schema.ts` — таблица `users` (id, email, displayName, avatar, role, googleId, createdAt, updatedAt)
 - **Enum roles:** `ADMIN | SENIOR | JUNIOR | HR | ACCOUNTANT`
 - **Миграции:** `pnpm --filter @crm/api drizzle-kit generate` / `drizzle-kit migrate`
 - **Config:** `apps/api/drizzle.config.ts`
 
 ## Компоненты дизайн-системы (`app/components/ui/`)
+
 `button` · `input` · `label` · `card` · `badge` (с role variants) · `separator` · `skeleton` · `avatar` · `sonner` · `scroll-area` · `tooltip` · `dropdown-menu` · `dialog` · `sheet`
 
 ## Frontend Auth (`apps/web/app/`)
+
 - **AuthContext:** `context/auth.tsx` — `useAuth()` хук, `AuthProvider` обёртка. Только клиент (`enabled: typeof window !== 'undefined'`), `staleTime: 5 мин`.
 - **Login страница:** `routes/login.tsx` — Google SSO кнопка, обработка ошибок (`?error=unauthorized|google_error|invalid_state`), авторедирект в `/crm` если уже залогинен.
 - **Защита CRM:** `routes/crm/route.tsx` — `useEffect` редирект в `/login` если не аутентифицирован. Скелетон при загрузке. Шапка с реальным именем/аватаром пользователя + выпадающее меню с ролью и кнопкой выхода.
 - **routeTree.gen.ts:** Обновлять вручную при добавлении новых роутов (авто-генерируется `pnpm dev`).
 
 ## Drizzle миграции
+
 - Первая миграция: `apps/api/drizzle/migrations/0000_lethal_dark_beast.sql` — создаёт enum `role` + таблицу `users`.
 - Seed: `pnpm --filter @crm/api db:seed` — добавляет начальных пользователей из `src/database/seed.ts`.
 - Docker: `docker-compose up -d` — поднимает Postgres + Redis локально.
 
 ## Текущий статус
+
 - [x] Environment Setup (MCP, .clauderules, .claudeignore)
 - [x] Initialize Turborepo structure (`apps/web`, `apps/api`, `packages/shared`)
 - [x] Setup Base apps (env validation, health endpoint, helmet, CORS, throttler, QueryClient, Axios)
@@ -178,12 +198,13 @@ pnpm --filter @crm/shared typecheck
 - [x] **PHASE 4:** Собеседования (Interviews Kanban) — interviews таблица, NestJS InterviewsModule, Kanban DnD (dnd-kit) + button move, search params `?seniorId=`, HR переключение досок
 - [x] **PHASE 7 (partial):** Профили — `/crm/profile` (редактирование своего), `/crm/users/:id` (просмотр), telegram+phone в БД, ссылки на профили из team/projects/interviews
 - [x] **PHASE 5:** Финансы — мониторинг (Finance tracking) — transactions, expenses, invoices, payouts, juniorPayments, NBU rates, PDF invoice, etherscan
-- [ ] **PHASE 6:** База знаний + Документы
+- [ ] **PHASE 6:** Документы
 - [ ] **PHASE 7:** Профиль (полный)
 - [ ] **PHASE 8:** Финансы — смарт-контракты (USDT ERC-20)
 - [ ] **PHASE 9:** Дашборд (после определения контента)
 
 ## Лендинг (/)
+
 - **Позиционирование:** Outsource/Outstaffing компания — AI, EdTech, E-Commerce
 - **Без ссылки на CRM** — только публичная страница компании
 - **Анимация:** Терминал в Hero с typewriter-эффектом, циклирует сниппеты по трём доменам (Python/TypeScript), цветной курсор + ambient glow
@@ -194,6 +215,7 @@ pnpm --filter @crm/shared typecheck
 ## Детальный план разработки
 
 ### PHASE 1 — Layout: Sidebar + Header
+
 **Цель:** Полноценный shell для всех будущих модулей.
 
 **Sidebar — RBAC навигация (видимость по ролям):**
@@ -206,23 +228,26 @@ pnpm --filter @crm/shared typecheck
 | Фінанси | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Співбесіди | ✓ | ✓ | — | ✓ | — |
 | Документи | ✓ | ✓ | ✓ | ✓ | ✓ |
-| База знань | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 **Header:**
+
 - Лого + назва → navigate `/crm/dashboard`
 - Иконка поиска (глобальный поиск — заглушка на старте)
 - Колокольчик уведомлений (badge с кол-вом непрочитанных)
 - Аватар + dropdown (имя, роль, выход)
 
 **Технические задачи:**
+
 - `NavSidebar` компонент с коллапсом (desktop) и sheet (mobile)
-- Роуты-заглушки для всех модулей: `/crm/dashboard`, `/crm/team`, `/crm/projects`, `/crm/finance`, `/crm/interviews`, `/crm/documents`, `/crm/knowledge`, `/crm/profile`
+- Роуты-заглушки для всех модулей: `/crm/dashboard`, `/crm/team`, `/crm/projects`, `/crm/finance`, `/crm/interviews`, `/crm/documents`, `/crm/profile`
 - `NotificationsContext` — хранит список уведомлений, счётчик непрочитанных
 
 ---
 
 ### PHASE 2 — Команда (Team Management)
+
 **Бизнес-логика:**
+
 - Команда = HR + SENIOR(ы) + JUNIOR(ы) + ACCOUNTANT (добавляется автоматически, один на компанию)
 - ADMIN видит все команды (макс 10), может создавать/редактировать любую
 - HR видит только свои команды (3-4 синьора = 3-4 команды), может редактировать состав
@@ -230,12 +255,14 @@ pnpm --filter @crm/shared typecheck
 - SENIOR, JUNIOR, HR, ACCOUNTANT видят список своей команды (read-only)
 
 **DB схема (новые таблицы):**
+
 ```sql
 teams: id, name, createdAt
 team_members: id, teamId, userId, joinedAt
 ```
 
 **Роуты:**
+
 - `GET /api/teams` — список команд (ADMIN: все, HR: свои)
 - `POST /api/teams` — создать команду (ADMIN, HR)
 - `PATCH /api/teams/:id` — редактировать (ADMIN, HR-owner)
@@ -244,6 +271,7 @@ team_members: id, teamId, userId, joinedAt
 - `DELETE /api/teams/:id/members/:userId` — удалить участника
 
 **UI:**
+
 - Список карточек команд с составом
 - Modal создания/редактирования команды
 - Поиск и фильтры по роли/имени
@@ -252,13 +280,16 @@ team_members: id, teamId, userId, joinedAt
 ---
 
 ### PHASE 3 — Проекты (Projects)
+
 **Бизнес-логика:**
+
 - Проект создаётся когда синьер подписал договор с компанией
 - Проект содержит: название компании, домен, дата начала, синьер, джун(ы), ставка, валюта, статус (active/closed)
 - Проект закрывается когда синьера увольняют
 - К проекту прикрепляются документы (договора, инвойсы) — ссылки на файлы в S3
 
 **DB схема:**
+
 ```sql
 projects: id, name, companyName, domain, startDate, endDate, seniorId,
           rate, currency(USDT/USD/EUR), status(active/closed), createdAt
@@ -266,12 +297,14 @@ project_members: id, projectId, userId, role, joinedAt, leftAt
 ```
 
 **Роуты:**
+
 - `GET /api/projects` — ADMIN/ACCOUNTANT: все; SENIOR: свои; HR: проекты синьоров из своих команд; JUNIOR: проекты где активный member
 - `POST /api/projects` — ADMIN, HR
 - `PATCH /api/projects/:id` — ADMIN, HR
 - `POST /api/projects/:id/members` — добавить джуна
 
 **UI:**
+
 - Список проектов с карточками (компания, синьер, джун, ставка, статус)
 - Детальная страница проекта
 - Поиск + фильтр по статусу/синьору
@@ -279,7 +312,9 @@ project_members: id, projectId, userId, role, joinedAt, leftAt
 ---
 
 ### PHASE 4 — Співбесіди (Interviews Kanban)
+
 **Бизнес-логика:**
+
 - HR общается от имени синьора с рекрутерами
 - Канбан-доска персональная для каждого синьора
 - ADMIN видит все доски; HR видит доски своих синьоров; SENIOR видит только свою
@@ -290,6 +325,7 @@ project_members: id, projectId, userId, role, joinedAt, leftAt
 `HR Screen` → `English Check` → `Tech Interview` → `Final Interview` → `Offer Received` → `Hired` / `Rejected` / `Archived`
 
 **DB схема:**
+
 ```sql
 interviews: id, seniorId, hrId, companyName, vacancyUrl, callUrl,
             stage(hr/english/tech/final/offer/hired/rejected/archived),
@@ -297,6 +333,7 @@ interviews: id, seniorId, hrId, companyName, vacancyUrl, callUrl,
 ```
 
 **UI:**
+
 - Kanban с drag-and-drop (dnd-kit)
 - Детальная карточка с формой заметок синьора
 - HR выбирает доску синьора из списка
@@ -305,7 +342,9 @@ interviews: id, seniorId, hrId, companyName, vacancyUrl, callUrl,
 ---
 
 ### PHASE 5 — Фінанси: Моніторинг
+
 **Бизнес-логика:**
+
 1. SENIOR получает зарплату → вносит транзакцию (дата, сумма, валюта, проект, прикрепляет чек)
 2. ACCOUNTANT получает уведомление → валидирует транзакцию
 3. После валидации — у синьора разблокируется кнопка "Оплатить услуги"
@@ -313,6 +352,7 @@ interviews: id, seniorId, hrId, companyName, vacancyUrl, callUrl,
 5. Пока смарт-контракт не готов — просто фиксируем факт оплаты вручную
 
 **Доступ по ролям:**
+
 - SENIOR: видит свои транзакции + личный баланс
 - ACCOUNTANT: видит все транзакции всех синьоров, валидирует
 - ADMIN: видит всё
@@ -320,6 +360,7 @@ interviews: id, seniorId, hrId, companyName, vacancyUrl, callUrl,
 - JUNIOR: не видит финансов (нет доступа к разделу)
 
 **DB схема:**
+
 ```sql
 transactions: id, seniorId, projectId, amount, currency, date,
               status(pending/validated/rejected), receiptUrl,
@@ -329,6 +370,7 @@ project_finance_settings: id, projectId, juniorSalary, juniorWalletOverride,
 ```
 
 **UI:**
+
 - Таблица транзакций с фильтрами (проект, период, статус)
 - Форма добавления транзакции (SENIOR) с загрузкой чека
 - Кнопка валидации (ACCOUNTANT)
@@ -336,30 +378,25 @@ project_finance_settings: id, projectId, juniorSalary, juniorWalletOverride,
 
 ---
 
-### PHASE 6 — База знань + Документи
-**База знань — доступ по ролям:**
-- ADMIN: всё
-- SENIOR: Корисні ресурси + своя Легенда (легенда = профиль для проекта: ФИО, дата рождения, адрес, хобби — то что знает компания)
-- JUNIOR: Легенда синьора (своего), Корисні ресурси по напряму, Курси
-- HR: Корисні ресурси + Легенди синьорів (своих)
-- ACCOUNTANT: Таблиця даних про всіх співробітників (ФИО, email, телефон, телеграм, кошелёк)
+### PHASE 6 — Документи
 
 **Документи:**
+
 - Хранилище: AWS S3 с обязательным сжатием перед загрузкой (sharp для изображений, pdf-lib для PDF)
 - Категории: Резюме (ADMIN/HR/SENIOR), Скани документів (ADMIN/HR/SENIOR), Договори (ADMIN, SENIOR — свои)
 - Метаданные в БД, файл в S3
 
 **DB схема:**
+
 ```sql
 documents: id, ownerId, projectId, category(resume/scan/contract/invoice),
            name, s3Key, sizeBytes, mimeType, uploadedBy, createdAt
-knowledge_articles: id, title, content(markdown), category, accessRoles(json), authorId, createdAt
-legends: id, userId, fullName, birthDate, address, hobbies, notes(json), createdAt, updatedAt
 ```
 
 ---
 
 ### PHASE 7 — Профіль
+
 - Фото (загрузка в S3 со сжатием)
 - Имя, email (read-only — из Google), телефон, Telegram
 - **USDT кошелёк** (обязательно для JUNIOR и SENIOR — используется смарт-контрактом)
@@ -369,7 +406,9 @@ legends: id, userId, fullName, birthDate, address, hobbies, notes(json), created
 ---
 
 ### PHASE 8 — Смарт-контракти (USDT ERC-20)
+
 **Архитектура:**
+
 - Solidity контракт `PaymentSplitter` деплоится один раз (или per-project)
 - Принимает USDT ERC-20, автоматически распределяет:
   - Джуну: фиксированная сумма (из `project_finance_settings`)
@@ -378,10 +417,12 @@ legends: id, userId, fullName, birthDate, address, hobbies, notes(json), created
 - Frontend: ethers.js для подписания транзакции MetaMask/WalletConnect
 
 **Генерация инвойса:**
+
 - PDF генерируется на бэке (pdfmake или puppeteer)
 - Содержит: проект, период, сумма, адрес контракта, хэш транзакции
 
 **Технологии:**
+
 - Hardhat (разработка/тесты контракта)
 - ethers.js v6 (frontend взаимодействие)
 - **Ethereum mainnet** (USDT ERC-20) — решение принято. При необходимости мигрировать на TRC-20.
@@ -389,12 +430,14 @@ legends: id, userId, fullName, birthDate, address, hobbies, notes(json), created
 ---
 
 ### PHASE 9 — Дашборд
+
 Содержание определяется позже после опыта работы с системой.
 Потенциально: список активных проектов, последние транзакции, ближайшие собеседования.
 
 ---
 
 ## Бизнес-логика (ключевые правила)
+
 - **Команды:** макс 10, ACCOUNTANT добавляется автоматически в каждую
 - **Финансовый флоу:** SENIOR вносит транзакцию → ACCOUNTANT валидирует → SENIOR платит 74% на смарт-контракт
 - **Распределение:** JUNIOR получает фиксированную сумму первым, остаток 50/50 между ADMIN и партнёром
@@ -406,25 +449,28 @@ legends: id, userId, fullName, birthDate, address, hobbies, notes(json), created
 - **Валюта:** только USDT ERC-20 для выплат через смарт-контракт
 
 ## Активный контекст
+
 - PHASE 1–5 полностью реализованы и работают
 - PHASE 7 (partial): Профили работают
 - Finance модуль: transactions, expenses, invoices, payouts, juniorPayments, NBU exchange rates, PDF invoice generation, etherscan integration
 - Миграции: 0000–0011 применены (включая finance, partner_ledger, exchange_rate, project_logo)
 - **Multi-agent архитектура:** PM-агент добавлен, параллельный диспетч через `docs/specs/tasks/`, e2e.yml отдельный workflow, awaiting-pm-review label в ai-review.yml, QA упразднён
 - CI/CD: ai-review.yml (AutoTest → Reviewer → PM gate), coder.yml, devops.yml, autotest.yml, e2e.yml — все workflows рабочие
-- Следующий шаг: **PHASE 6** — База знаний + Документы
+- Следующий шаг: **PHASE 6** — Документы
 
 ---
 
 ## Реализованные модули — технические детали
 
 ### Teams (PHASE 2) — ключевые особенности
+
 - **JUNIOR в команде — производное состояние**, не хранится в `team_members`. `TeamsService.mapTeam()` получает JUNIORов из `project_members` WHERE `leftAt IS NULL` AND `project.seniorId = team's senior`
 - **ADMIN исключён** из всех команд — `users.service.ts` фильтрует `ne(role, 'ADMIN')`, `addMember` бросает 400 если роль ADMIN
 - **Защита ключевых членов:** нельзя удалить SENIOR (только удалить команду), последнего HR, последнего ACCOUNTANT
 - `team_members` хранит: HR, SENIOR, ACCOUNTANT — НЕ JUNIOR
 
 ### Projects (PHASE 3) — ключевые особенности
+
 - `project_members.leftAt` — soft delete: NULL = активный, timestamp = ушёл
 - Только JUNIOR можно добавить как member (`addMember` проверяет роль)
 - RBAC: ADMIN/ACCOUNTANT видят всё; SENIOR — только свои; HR — проекты синьоров из своих команд (через team_members); JUNIOR — где активный member
@@ -432,6 +478,7 @@ legends: id, userId, fullName, birthDate, address, hobbies, notes(json), created
 - `seniorId` — FK на users.id, прямо в таблице projects (не через project_members)
 
 ### Interviews Kanban (PHASE 4) — ключевые особенности
+
 - **DnD:** dnd-kit с `closestCenter` — обязательно! Без этого cross-column drag не работает
 - Каждый `KanbanColumn` имеет `useDroppable({ id: stage })` — позволяет дроп в пустую колонку
 - `interviews.position` — integer, ренормализуется при каждом move в обоих стейджах
@@ -442,6 +489,7 @@ legends: id, userId, fullName, birthDate, address, hobbies, notes(json), created
 - Перемещение через кнопки в диалоге редактирования карточки — дополнительно к DnD
 
 ### Drizzle миграции (актуально, 0000–0011)
+
 - `0000_*` — users + role enum
 - `0001_*` — teams + team_members
 - `0002_*` — projects + project_members + enums (currency, project_status)
@@ -450,9 +498,11 @@ legends: id, userId, fullName, birthDate, address, hobbies, notes(json), created
 - Seed: `pnpm --filter @crm/api db:seed` — создаёт пользователей, команды, проекты, собеседования
 
 ### DB таблицы (актуально)
+
 `users` · `teams` · `team_members` · `projects` · `project_members` · `interviews` · `transactions` · `expenses` · `junior_payments` · `invoices` · `invoice_transactions` · `payouts` · `payout_transactions`
 
 ### Shared schemas (packages/shared/src/schemas/)
+
 - `auth.ts` — SessionUser, googleCallbackSchema
 - `teams.ts` — teamMemberSchema, teamSchema, createTeamSchema, updateTeamSchema, addTeamMemberSchema
 - `projects.ts` — projectMemberSchema, projectSchema, createProjectSchema, updateProjectSchema, addProjectMemberSchema
@@ -462,6 +512,7 @@ legends: id, userId, fullName, birthDate, address, hobbies, notes(json), created
 - `api.ts` — общие API типы
 
 ### Finance модуль (PHASE 5) — ключевые особенности
+
 - `transactions` — доход SENIOR от проекта; статусы: PENDING → VALIDATED → PENDING_PAYMENT → PAID / REJECTED
 - `expenses` — расходы компании (ADMIN/ACCOUNTANT), типы через `expense_type` enum
 - `junior_payments` — выплаты джунам, привязаны к проекту

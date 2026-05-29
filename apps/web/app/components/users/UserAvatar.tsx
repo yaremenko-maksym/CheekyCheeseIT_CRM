@@ -33,23 +33,23 @@ export function getInitials(displayName: string): string {
   return (parts[0]![0]! + parts[1]![0]!).toUpperCase()
 }
 
-export const UserAvatar = React.forwardRef<
-  React.ElementRef<typeof Avatar>,
-  UserAvatarProps
->(({ avatarDocumentId, avatarUrl, displayName, className, imgClassName, ...props }, ref) => (
-  <Avatar ref={ref} className={cn(className)} {...props}>
-    {avatarDocumentId && (
-      <DocumentImage
-        docId={avatarDocumentId}
-        alt={displayName}
-        variant="thumbnail"
-        className={cn('h-full w-full object-cover', imgClassName)}
-      />
-    )}
-    {!avatarDocumentId && avatarUrl && (
-      <AvatarImage src={avatarUrl} alt={displayName} className={cn(imgClassName)} />
-    )}
-    <AvatarFallback>{getInitials(displayName)}</AvatarFallback>
-  </Avatar>
-))
+export const UserAvatar = React.forwardRef<React.ElementRef<typeof Avatar>, UserAvatarProps>(
+  ({ avatarDocumentId, avatarUrl, displayName, className, imgClassName, ...props }, ref) => (
+    <Avatar ref={ref} className={cn(className)} {...props}>
+      {avatarDocumentId && (
+        <DocumentImage
+          docId={avatarDocumentId}
+          alt={displayName}
+          variant="thumbnail"
+          fallbackToParent
+          className={cn('h-full w-full object-cover', imgClassName)}
+        />
+      )}
+      {!avatarDocumentId && avatarUrl && (
+        <AvatarImage src={avatarUrl} alt={displayName} className={cn(imgClassName)} />
+      )}
+      <AvatarFallback>{getInitials(displayName)}</AvatarFallback>
+    </Avatar>
+  ),
+)
 UserAvatar.displayName = 'UserAvatar'
