@@ -48,6 +48,7 @@ export function ProjectLogo({
           docId={documentId}
           alt={companyName}
           variant="thumbnail"
+          fallbackToParent
           className={cn('h-full w-full object-contain', className)}
         />
       )}

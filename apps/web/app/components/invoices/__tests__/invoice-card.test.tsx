@@ -16,10 +16,11 @@ const baseInvoice: InvoiceListItem = {
 describe('InvoiceCard', () => {
   it('renders the SENIOR payout type badge with the Russian label', () => {
     render(<InvoiceCard invoice={baseInvoice} onOpen={vi.fn()} />)
-    // Round 4 fix #7 — label changed from «Выплата сеньору» to
-    // «Выплата синьера» so it matches the rest of the CRM copy.
+    // Round 4 fix #7 — label changed from «Выплата сеньору» to «Выплата
+    // синьора» (canonical spelling «синьор») so it matches the rest of the
+    // CRM copy.
     expect(screen.getByTestId(`invoice-card-type-${baseInvoice.transactionId}`)).toHaveTextContent(
-      'Выплата синьера',
+      'Выплата синьора',
     )
   })
 

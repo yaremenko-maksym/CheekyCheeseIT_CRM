@@ -66,10 +66,13 @@ function InterviewsPage() {
     void navigate({ to: '/crm/interviews', search: { seniorId: id }, replace: true })
   }
 
+  // round-2 AC2: only ADMIN/HR may list all users (board selector). SENIOR sees
+  // only their own board (effectiveSeniorId = user.id) and never needs the user
+  // list — gating prevents the 403 the backend returns for SENIOR on /users.
   const { data: allUsers = [] } = useQuery<UserDto[]>({
     queryKey: ['users'],
     queryFn: () => api.get<UserDto[]>('/users').then((r) => r.data),
-    enabled: !isJunior,
+    enabled: isAdmin || isHR,
     staleTime: 5 * 60_000,
   })
 

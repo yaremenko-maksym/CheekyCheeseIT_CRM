@@ -1,6 +1,5 @@
 import { Link } from '@tanstack/react-router'
 import {
-  BookOpen,
   Briefcase,
   ChevronLeft,
   ChevronRight,
@@ -84,12 +83,6 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Документы',
     icon: FileText,
     to: '/crm/documents',
-    roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'],
-  },
-  {
-    label: 'База знаний',
-    icon: BookOpen,
-    to: '/crm/knowledge',
     roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'],
   },
 ]

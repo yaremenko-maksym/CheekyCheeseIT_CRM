@@ -645,7 +645,7 @@ export class InvoicesService {
    * invoice card / dialog header.
    */
   private getInvoiceTypeLabel(type: string): string {
-    if (type === 'SENIOR_INCOME') return 'Выплата синьера'
+    if (type === 'SENIOR_INCOME') return 'Выплата синьора'
     if (type === 'SALARY') return 'Зарплата'
     return 'Инвойс'
   }

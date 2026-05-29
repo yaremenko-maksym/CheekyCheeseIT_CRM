@@ -55,7 +55,7 @@ const API_URL =
 // QR-target context — these labels are surfaced on a stranger-facing page
 // (QR scan from a printed PDF), not inside the authenticated CRM.
 const TYPE_LABEL: Record<InvoiceVerifyResponse['type'], string> = {
-  SENIOR_INCOME: 'Акт выполненных работ (выплата синьера)',
+  SENIOR_INCOME: 'Акт выполненных работ (выплата синьора)',
   SALARY: 'Выплата зарплаты',
 }
 
