@@ -28,6 +28,7 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import type { InvoiceVerifyResponse } from '@crm/shared'
+import { BrandMark } from '@/components/brand-mark'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -116,9 +117,7 @@ function PublicVerifyPage() {
     <div className="min-h-screen bg-background">
       <header className="border-b border-border/60 bg-card/40 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-4 sm:px-6">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary">
-            <span className="text-xs font-black text-primary-foreground">CC</span>
-          </div>
+          <BrandMark className="h-9 w-9 text-primary" />
           <div>
             <h1 className="text-base font-semibold tracking-tight">
               CheekyCheese IT

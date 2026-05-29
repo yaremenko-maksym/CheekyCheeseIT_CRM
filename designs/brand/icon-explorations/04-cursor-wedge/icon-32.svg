@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="CheekyCheeseIT favicon">
+  <title>CheekyCheeseIT</title>
+  <!--
+    32x32 simplification:
+    - Drop the split-tone gradient (banding at this size).
+    - Drop the halo, hairline highlight, accent-tinted hole.
+    - Keep: tall wedge with one slanted edge, ~2px rounded corners, two holes.
+    - Two holes is the minimum that still reads as cheese, not a notepad.
+  -->
+  <path d="
+    M 10 5
+    Q 10 4 11 4
+    L 20 4
+    Q 21 4 21.15 5
+    L 23.4 27
+    Q 23.5 28 22.5 28
+    L 11 28
+    Q 10 28 10 27
+    Z"
+    fill="#FFC300"/>
+
+  <!-- Two cheese holes, asymmetric -->
+  <circle cx="14"   cy="10" r="2.2" fill="#141414"/>
+  <circle cx="19"   cy="20" r="1.7" fill="#141414"/>
+
+  <!-- Bottom shadow band for cursor weight -->
+  <path d="M 10 25.5 L 23.25 25.5 L 23.4 27 Q 23.5 28 22.5 28 L 11 28 Q 10 28 10 27 Z"
+        fill="#D9A300"/>
+</svg>

@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { NavSidebar } from '@/components/crm/nav-sidebar'
+import { BrandMark } from '@/components/brand-mark'
 import { NotificationsBell } from '@/components/layout/notifications-bell'
 import { UserAvatar } from '@/components/users/UserAvatar'
 import { Badge } from '@/components/ui/badge'
@@ -166,9 +167,7 @@ function CrmLayout() {
               <Menu />
             </Button>
             <Link to="/crm/dashboard" className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary">
-                <span className="text-[10px] font-black text-primary-foreground">CC</span>
-              </div>
+              <BrandMark className="h-7 w-7 text-primary" />
               <span className="font-semibold tracking-tight">CheekyCheeseIT</span>
             </Link>
             <Badge variant="outline" className="hidden text-xs sm:flex">

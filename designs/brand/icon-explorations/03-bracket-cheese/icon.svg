@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="CheekyCheeseIT bracket cheese mark">
+  <title>CheekyCheeseIT</title>
+
+  <!-- Rounded square stage so the mark reads on any dark surface -->
+  <rect x="0" y="0" width="512" height="512" rx="96" ry="96" fill="#141414"/>
+
+  <defs>
+    <!-- Subtle cheese-rind gradient: top picks up light, bottom drops into shadow -->
+    <linearGradient id="cheeseFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFC300"/>
+      <stop offset="1" stop-color="#D9A300"/>
+    </linearGradient>
+
+    <!-- Inner bevel: thin warm-amber line where the bracket meets the holes,
+         giving the chiseled/chamfered feel without leaving flat-color territory -->
+    <linearGradient id="bevel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3A2F0E" stop-opacity="0.0"/>
+      <stop offset="1" stop-color="#3A2F0E" stop-opacity="0.55"/>
+    </linearGradient>
+
+    <!-- Negative-space cutter: every cheese hole is punched through the bracket
+         shapes via a mask, so the dark background shows true cheese-hole effect.
+         Black = transparent (hole), white = solid (bracket). -->
+    <mask id="cheeseHoles" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+      <rect x="0" y="0" width="512" height="512" fill="white"/>
+
+      <!-- Left bracket holes: 3-2-1 hierarchy along the bracket arm -->
+      <circle cx="138" cy="196" r="22" fill="black"/>
+      <circle cx="118" cy="262" r="14" fill="black"/>
+      <circle cx="152" cy="320" r="9"  fill="black"/>
+
+      <!-- Right bracket holes: mirrored rhythm, not identical (more playful) -->
+      <circle cx="374" cy="208" r="18" fill="black"/>
+      <circle cx="394" cy="280" r="26" fill="black"/>
+      <circle cx="360" cy="338" r="11" fill="black"/>
+    </mask>
+
+    <!-- Left angle bracket "<" — custom chunky geometry, not the typographic glyph.
+         Outer hull goes: top-outer → tip → bottom-outer → bottom-inner → mid-inner → top-inner.
+         The inner edge is parallel-offset so the bracket has uniform stroke width
+         AND a flat inside face that can host cheese holes. -->
+    <path id="leftBracket"
+          d="M 196 96
+             L 84 256
+             L 196 416
+             L 240 416
+             L 152 290
+             L 240 290
+             L 240 222
+             L 152 222
+             L 240 96
+             Z"/>
+
+    <!-- Right angle bracket ">" — mirror of left -->
+    <path id="rightBracket"
+          d="M 316 96
+             L 428 256
+             L 316 416
+             L 272 416
+             L 360 290
+             L 272 290
+             L 272 222
+             L 360 222
+             L 272 96
+             Z"/>
+  </defs>
+
+  <!-- Brackets group, holes masked out -->
+  <g mask="url(#cheeseHoles)">
+    <!-- Left bracket -->
+    <use href="#leftBracket" fill="url(#cheeseFill)"/>
+    <use href="#leftBracket" fill="url(#bevel)"/>
+
+    <!-- Right bracket -->
+    <use href="#rightBracket" fill="url(#cheeseFill)"/>
+    <use href="#rightBracket" fill="url(#bevel)"/>
+  </g>
+
+  <!-- "I" of IT — confident vertical bar between the brackets.
+       Reads as a code cursor AND the I in IT. Rounded ends echo the rounded
+       container. Sits dead-center so the silhouette is symmetric. -->
+  <rect x="248" y="176" width="16" height="160" rx="8" ry="8" fill="#FFC300"/>
+
+  <!-- A single tiny accent hole in the cursor — keeps the cheese motif consistent
+       across all three elements (left bracket, cursor, right bracket). -->
+  <circle cx="256" cy="256" r="4" fill="#141414"/>
+</svg>

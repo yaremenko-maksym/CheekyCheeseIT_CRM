@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { ArrowUpRight, Brain, ShoppingCart, GraduationCap } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { BrandMark } from '@/components/brand-mark'
 import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/')({
@@ -286,9 +287,7 @@ function LandingPage() {
       <nav className="sticky top-0 z-50 border-b border-border/40 bg-background/80 px-6 py-4 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-              <span className="text-xs font-black text-primary-foreground">CC</span>
-            </div>
+            <BrandMark className="h-8 w-8 text-primary" />
             <span className="font-semibold tracking-tight">CheekyCheeseIT</span>
           </div>
 
@@ -481,9 +480,7 @@ function LandingPage() {
       <footer className="border-t border-border/40 px-6 py-8">
         <div className="mx-auto flex max-w-7xl items-center justify-between text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
-            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary">
-              <span className="text-[9px] font-black text-primary-foreground">CC</span>
-            </div>
+            <BrandMark variant="flat" className="h-6 w-6 text-primary" />
             <span>© 2026 CheekyCheeseIT. All rights reserved.</span>
           </div>
           <span>AI · EdTech · E-Commerce</span>
