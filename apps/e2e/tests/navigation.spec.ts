@@ -28,7 +28,6 @@ const COMMON_ROUTES: { label: string; href: string; heading: RegExp }[] = [
   // Finance heading renders after API load — match the sidebar text instead
   { label: 'Финансы',      href: '/crm/finance',      heading: /финанс/i },
   { label: 'Документы',    href: '/crm/documents',    heading: /документ/i },
-  { label: 'База знаний',  href: '/crm/knowledge',    heading: /база знаний/i },
 ]
 
 // ---------------------------------------------------------------------------
@@ -82,7 +81,6 @@ test.describe('ADMIN sidebar navigation', () => {
       '/crm/finance',
       '/crm/profile',
       '/crm/documents',
-      '/crm/knowledge',
       '/crm/interviews',
     ]
 
@@ -277,7 +275,6 @@ test.describe('Unauthenticated redirect', () => {
     '/crm/interviews',
     '/crm/profile',
     '/crm/documents',
-    '/crm/knowledge',
   ]
 
   for (const route of ALL_CRM_ROUTES) {

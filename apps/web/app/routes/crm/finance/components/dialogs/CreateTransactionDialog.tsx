@@ -82,6 +82,22 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     const now = new Date()
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
   })
+  // AC4: per-field validation errors keyed by field name. Populated on submit
+  // so the user sees EVERY missing/invalid field at once (project, receipt,
+  // amount, …) inline next to the field, instead of only the first failure in
+  // a single bottom banner.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+
+  // Drop a single field's error as soon as the user edits it — keeps the
+  // inline hint from lingering after the problem is fixed.
+  function clearFieldError(field: string) {
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev
+      const next = { ...prev }
+      delete next[field]
+      return next
+    })
+  }
 
   const { data: projects = [] } = useQuery<ProjectOption[]>({
     queryKey: ['projects'],
@@ -124,34 +140,52 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     setReceiverId(prevSender)
   }
 
+  // AC4: collect ALL validation errors up front (keyed by field) so the user
+  // sees every problem inline at once. Returns an empty object when valid.
+  function validate(): Record<string, string> {
+    const errors: Record<string, string> = {}
+    const amt = parseFloat(amount)
+    if (isNaN(amt) || amt <= 0) errors.amount = 'Укажите корректную сумму'
+
+    const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
+    const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
+    const hasReceipt = receiptDocumentId || receiptExternalUrl
+
+    if (type === 'ADMIN_INCOME' || type === 'SENIOR_INCOME') {
+      if (!projectId) errors.project = 'Выберите проект'
+    }
+    if (type === 'SENIOR_INCOME') {
+      if (!hasReceipt) errors.receipt = 'Прикрепите чек или укажите ссылку на подтверждение'
+    }
+    if (type === 'SALARY') {
+      if (!receiverId) errors.receiver = 'Выберите сотрудника'
+    }
+    if (type === 'ADMIN_TRANSFER') {
+      if (!transferReceiverId) errors.receiver = 'Выберите получателя'
+    }
+    return errors
+  }
+
   const mutation = useMutation({
     mutationFn: async () => {
       const amt = parseFloat(amount)
-      if (isNaN(amt) || amt <= 0) throw new Error('Некорректная сумма')
-
       // Build XOR receipt fields: exactly one populated, or both null.
       const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
       const receiptExternalUrl = receipt.mode === 'url' ? (receipt.externalUrl || null) : null
-      const hasReceipt = receiptDocumentId || receiptExternalUrl
 
       if (type === 'ADMIN_INCOME') {
-        if (!projectId) throw new Error('Выберите проект')
         return financeApi.createAdminIncome({ projectId, amount: amt, currency, receiptDocumentId, receiptExternalUrl, notes: notes || null, txDate: txDate || null })
       }
       if (type === 'SENIOR_INCOME') {
-        if (!projectId) throw new Error('Выберите проект')
-        if (!hasReceipt) throw new Error('Прикрепите чек или укажите ссылку на подтверждение')
         return financeApi.createSeniorIncome({ projectId, amount: amt, currency, receiptDocumentId, receiptExternalUrl, notes: notes || null, txDate: txDate || null })
       }
       if (type === 'EXPENSE') {
         return financeApi.createExpense({ amount: amt, currency, category, notes: notes || null, receiptDocumentId, receiptExternalUrl, txDate: txDate || null })
       }
       if (type === 'SALARY') {
-        if (!receiverId) throw new Error('Выберите сотрудника')
         return financeApi.createSalary({ receiverId, amount: amt, currency, salaryMonth, notes: notes || null, txDate: txDate || null })
       }
       if (type === 'ADMIN_TRANSFER') {
-        if (!transferReceiverId) throw new Error('Выберите получателя')
         return financeApi.createAdminTransfer({
           senderId: effectiveTransferSenderId,
           receiverId: transferReceiverId,
@@ -171,15 +205,25 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     },
   })
 
+  // Validate first; only fire the network mutation when every field is valid.
+  function handleSubmit() {
+    const errors = validate()
+    setFieldErrors(errors)
+    if (Object.keys(errors).length > 0) return
+    mutation.mutate()
+  }
+
   function resetForm() {
     setProjectId(''); setReceiverId(''); setTransferSenderId(''); setAmount(''); setCurrency('USDT')
     setCategory(EXPENSE_CATEGORIES[0]!); setReceipt(emptyReceiptState()); setNotes('')
+    setFieldErrors({})
     const now = new Date()
     setTxDate(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`)
   }
 
   const error = mutation.error instanceof Error ? mutation.error.message : null
   const showReceipt = type === 'ADMIN_INCOME' || type === 'SENIOR_INCOME' || type === 'EXPENSE'
+  const hasFieldErrors = Object.keys(fieldErrors).length > 0
 
   // Conversion info
   const rate = needsRate ? getRate(currency, exchangeRate) : null
@@ -205,7 +249,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 <button
                   key={t}
                   type="button"
-                  onClick={() => { setType(t); setProjectId(''); setReceiverId('') }}
+                  onClick={() => { setType(t); setProjectId(''); setReceiverId(''); setFieldErrors({}) }}
                   className={cn(
                     'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
                     type === t
@@ -233,8 +277,11 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           {(type === 'SENIOR_INCOME' || type === 'ADMIN_INCOME') && (
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Проект</Label>
-              <Select value={projectId} onValueChange={setProjectId}>
-                <SelectTrigger className="h-9 text-sm">
+              <Select value={projectId} onValueChange={(v) => { setProjectId(v); clearFieldError('project') }}>
+                <SelectTrigger
+                  className={cn('h-9 text-sm', fieldErrors.project && 'border-destructive')}
+                  data-testid="create-transaction-project-trigger"
+                >
                   <SelectValue placeholder="Выберите проект" />
                 </SelectTrigger>
                 <SelectContent>
@@ -243,37 +290,52 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   ))}
                 </SelectContent>
               </Select>
+              {fieldErrors.project && (
+                <p className="text-[11px] text-destructive" data-testid="create-transaction-error-project">
+                  {fieldErrors.project}
+                </p>
+              )}
             </div>
           )}
 
           {/* Salary — receiver + month */}
           {type === 'SALARY' && (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Сотрудник</Label>
-                <Select value={receiverId} onValueChange={setReceiverId}>
-                  <SelectTrigger className="h-9 text-sm">
-                    <SelectValue placeholder="Выберите..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {salaryTargets.map((u) => (
-                      <SelectItem key={u.id} value={u.id} className="text-sm">
-                        {u.displayName}
-                        <span className="ml-1 text-[10px] text-muted-foreground">({u.role})</span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            <div className="space-y-1.5">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Сотрудник</Label>
+                  <Select value={receiverId} onValueChange={(v) => { setReceiverId(v); clearFieldError('receiver') }}>
+                    <SelectTrigger
+                      className={cn('h-9 text-sm', fieldErrors.receiver && 'border-destructive')}
+                      data-testid="create-transaction-receiver-trigger"
+                    >
+                      <SelectValue placeholder="Выберите..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {salaryTargets.map((u) => (
+                        <SelectItem key={u.id} value={u.id} className="text-sm">
+                          {u.displayName}
+                          <span className="ml-1 text-[10px] text-muted-foreground">({u.role})</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Месяц</Label>
+                  <Input
+                    value={salaryMonth}
+                    onChange={(e) => setSalaryMonth(e.target.value)}
+                    placeholder="2025-03"
+                    className="h-9 text-sm"
+                  />
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Месяц</Label>
-                <Input
-                  value={salaryMonth}
-                  onChange={(e) => setSalaryMonth(e.target.value)}
-                  placeholder="2025-03"
-                  className="h-9 text-sm"
-                />
-              </div>
+              {fieldErrors.receiver && (
+                <p className="text-[11px] text-destructive" data-testid="create-transaction-error-receiver">
+                  {fieldErrors.receiver}
+                </p>
+              )}
             </div>
           )}
 
@@ -358,8 +420,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           <AmountCurrencyInput
             amount={amount}
             currency={currency}
-            onAmountChange={setAmount}
+            onAmountChange={(v) => { setAmount(v); clearFieldError('amount') }}
             onCurrencyChange={setCurrency}
+            error={fieldErrors.amount}
+            errorTestId="create-transaction-error-amount"
           />
 
           {/* Date */}
@@ -370,11 +434,18 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
 
           {/* Receipt */}
           {showReceipt && (
-            <ReceiptInput
-              state={receipt}
-              onChange={setReceipt}
-              label={type === 'SENIOR_INCOME' ? 'Чек / подтверждение *' : 'Чек / подтверждение'}
-            />
+            <div className="space-y-1.5">
+              <ReceiptInput
+                state={receipt}
+                onChange={(s) => { setReceipt(s); clearFieldError('receipt') }}
+                label={type === 'SENIOR_INCOME' ? 'Чек / подтверждение *' : 'Чек / подтверждение'}
+              />
+              {fieldErrors.receipt && (
+                <p className="text-[11px] text-destructive" data-testid="create-transaction-error-receipt">
+                  {fieldErrors.receipt}
+                </p>
+              )}
+            </div>
           )}
 
           {/* Notes */}
@@ -390,6 +461,19 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           </div>
 
         </CrmDialogBody>
+
+        {/* AC4: when fields are missing, show a short summary banner pointing
+            at the inline hints (the offending field can be below the fold).
+            The server/mutation error keeps its own banner below it. */}
+        {hasFieldErrors && (
+          <div
+            className="flex items-center gap-2 border-t border-destructive/20 bg-destructive/5 px-4 py-2.5 text-xs text-destructive"
+            data-testid="create-transaction-field-error-summary"
+          >
+            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+            Заполните выделенные поля
+          </div>
+        )}
 
         {error && (
           <div className="flex items-center gap-2 border-t border-destructive/20 bg-destructive/5 px-4 py-2.5 text-xs text-destructive">
@@ -409,7 +493,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           </Button>
           <Button
             size="sm"
-            onClick={() => mutation.mutate()}
+            onClick={handleSubmit}
             disabled={mutation.isPending}
             data-testid="create-transaction-submit"
           >

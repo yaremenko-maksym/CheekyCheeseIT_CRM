@@ -204,7 +204,7 @@ export function PayoutDetailDialog({
                   className="text-lg font-bold tabular-nums text-primary"
                   data-testid="payout-detail-payable"
                 >
-                  ₮{parseFloat(payout.payableAmount).toFixed(2)}
+                  {fmtAmount(payout.payableAmount, 'USDT')}
                 </span>
               </div>
 

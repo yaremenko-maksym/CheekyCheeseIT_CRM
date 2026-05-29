@@ -1,4 +1,5 @@
 import type { TransactionType, TransactionStatus } from '@crm/shared'
+import { formatAmount } from '@/lib/format-amount'
 
 export const TYPE_LABELS: Record<TransactionType, string> = {
   ADMIN_INCOME: 'Приход Admin',
@@ -48,10 +49,19 @@ export const EXPENSE_CATEGORIES = [
   'Прочее',
 ]
 
+/**
+ * Original-currency amount for detail dialogs («7 777,00 USDT», «5 000,00 EUR»).
+ *
+ * AC3 (finance money strategy): detail views show the *source* currency +
+ * amount so the user sees what was actually entered, while the transaction
+ * table shows the USD-converted figure via `fmtUsd`. This delegates to the
+ * shared `formatAmount` (lib/format-amount.ts) — the same helper invoices /
+ * notifications use — so every "original amount" in the app is formatted
+ * identically (ru-RU thin-space thousands, currency suffix). This is what
+ * removed the ad-hoc Tugrik «₮» symbol that previously stood in for USDT.
+ */
 export function fmtAmount(amount: string | number, currency: string) {
-  const n = typeof amount === 'string' ? parseFloat(amount) : amount
-  const sym = currency === 'USDT' ? '₮' : currency === 'USD' ? '$' : currency === 'EUR' ? '€' : '₴'
-  return `${sym}${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  return formatAmount(amount, currency)
 }
 
 export type ExchangeRates = { usdUah: string; usdtUah: string; eurUah: string; date: string }
@@ -64,10 +74,34 @@ export function toUsd(amount: string | number, currency: string, rates: Exchange
   return n
 }
 
+/**
+ * USD-converted amount for the transaction table («$7 777,00»). USDT is
+ * pegged 1:1 to USD so it passes through. Non-USD currencies convert via the
+ * NBU rates; without rates loaded we fall back to the original-currency
+ * format so the cell never renders a bare number.
+ */
 export function fmtUsd(amount: string | number, currency: string, rates: ExchangeRates | undefined): string {
   if (!rates) return fmtAmount(amount, currency)
   const usd = toUsd(amount, currency, rates)
   return `$${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+/**
+ * Human-readable conversion-rate line for detail dialogs, e.g.
+ * «1 EUR = 1.0800 USD» or «1 USD = 41.50 UAH». Returns null for USD/USDT
+ * (no conversion happens) or when rates haven't loaded yet, so callers can
+ * conditionally render the rate row.
+ */
+export function fmtRate(currency: string, rates: ExchangeRates | undefined): string | null {
+  if (!rates) return null
+  if (currency === 'EUR') {
+    const eurUsd = parseFloat(rates.eurUah) / parseFloat(rates.usdUah)
+    return `1 EUR = ${eurUsd.toFixed(4)} USD`
+  }
+  if (currency === 'UAH') {
+    return `1 USD = ${parseFloat(rates.usdUah).toFixed(2)} UAH`
+  }
+  return null
 }
 
 export function fmtDate(iso: string) {

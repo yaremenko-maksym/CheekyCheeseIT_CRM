@@ -445,18 +445,29 @@ function TeamDetailPage() {
                         whileHover={{ scale: 1.01 }}
                         transition={{ duration: 0.15 }}
                       >
-                        <Link
-                          to="/crm/profile/$userId"
-                          params={{ userId: member.userId }}
-                          className="flex min-w-0 flex-1 items-center gap-3 hover:opacity-80 transition-opacity"
-                        >
-                          <Avatar className="h-9 w-9 shrink-0">
-                            {member.avatarUrl && <AvatarImage src={member.avatarUrl} alt={member.displayName} />}
-                            <AvatarFallback className="bg-muted text-xs">{getInitials(member.displayName)}</AvatarFallback>
-                          </Avatar>
+                        {/* round-2 AC1: avatar + name is the only profile <Link>;
+                            email/telegram/phone are sibling <a> tags (NOT nested
+                            inside another anchor) — fixes validateDOMNesting. */}
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                          <Link
+                            to="/crm/profile/$userId"
+                            params={{ userId: member.userId }}
+                            className="shrink-0 transition-opacity hover:opacity-80"
+                          >
+                            <Avatar className="h-9 w-9 shrink-0">
+                              {member.avatarUrl && <AvatarImage src={member.avatarUrl} alt={member.displayName} />}
+                              <AvatarFallback className="bg-muted text-xs">{getInitials(member.displayName)}</AvatarFallback>
+                            </Avatar>
+                          </Link>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
-                              <p className="truncate text-sm font-medium leading-tight">{member.displayName}</p>
+                              <Link
+                                to="/crm/profile/$userId"
+                                params={{ userId: member.userId }}
+                                className="min-w-0 transition-opacity hover:opacity-80"
+                              >
+                                <p className="truncate text-sm font-medium leading-tight hover:text-primary transition-colors">{member.displayName}</p>
+                              </Link>
                               <Badge variant={ROLE_VARIANT[member.role] ?? 'junior'} className="text-[9px] shrink-0">
                                 {ROLE_LABELS[member.role] ?? member.role}
                               </Badge>
@@ -472,14 +483,12 @@ function TeamDetailPage() {
                             )}
                             <div className="mt-1 flex flex-col gap-0.5 min-w-0">
                               <a href={`mailto:${member.email}`}
-                                 onClick={e => e.stopPropagation()}
                                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0">
                                 <Mail className="h-3 w-3 shrink-0" />
                                 <span className="truncate">{member.email}</span>
                               </a>
                               {member.telegram && (
                                 <a href={tgHref(member.telegram)} target="_blank" rel="noopener noreferrer"
-                                   onClick={e => e.stopPropagation()}
                                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0">
                                   <Send className="h-3 w-3 shrink-0" />
                                   <span className="truncate">{tgDisplay(member.telegram)}</span>
@@ -487,7 +496,6 @@ function TeamDetailPage() {
                               )}
                               {member.phone && (
                                 <a href={`tel:${member.phone}`}
-                                   onClick={e => e.stopPropagation()}
                                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0">
                                   <Phone className="h-3 w-3 shrink-0" />
                                   <span className="truncate">{member.phone}</span>
@@ -495,7 +503,7 @@ function TeamDetailPage() {
                               )}
                             </div>
                           </div>
-                        </Link>
+                        </div>
                         {canManage && (() => {
                           const membersByRole = team.members.reduce((acc, m) => {
                             if (!acc[m.role]) acc[m.role] = []

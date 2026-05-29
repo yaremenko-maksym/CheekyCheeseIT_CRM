@@ -215,8 +215,11 @@ test.describe('Flow B — Payout payment simulate radio (PR #56)', () => {
     // round 6's PR #56 UI cleanup).
     await expect(dialog.getByTestId('payout-detail-contract-address-label')).toBeVisible()
     await expect(dialog.getByTestId('payout-detail-contract-address')).toContainText(STUB_CONTRACT)
-    // Payable amount banner — 5000 * 0.74 = 3700
-    await expect(dialog.getByTestId('payout-detail-payable')).toContainText(/3[,.]?700/)
+    // Payable amount banner — 5000 * 0.74 = 3700. AC3 (finance money
+    // strategy) switched the amount to the shared ru-RU formatter, so it
+    // now renders «3 700,00 USDT» with a non-breaking-space thousands
+    // separator — the char class tolerates space / comma / dot / none.
+    await expect(dialog.getByTestId('payout-detail-payable')).toContainText(/3[\s,.]?700/)
     // Count line — SENIOR_INCOME-only, so «(1)» even though the payout
     // request also carries a PAYOUT placeholder row server-side.
     await expect(dialog.getByTestId('payout-detail-transactions-count')).toContainText(

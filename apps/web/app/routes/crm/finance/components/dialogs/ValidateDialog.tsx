@@ -1,17 +1,30 @@
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TransactionDto } from '@crm/shared'
+import { api } from '@/lib/axios'
 import { Button } from '@/components/ui/button'
 import { Dialog, CrmDialogContent, CrmDialogHeader, CrmDialogBody, CrmDialogFooter, DialogTitle } from '@/components/ui/crm-dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useDocumentDownloadUrl } from '@/hooks/use-documents'
 import { financeApi } from '../../api'
-import { fmtAmount, fmtDate, TYPE_LABELS } from '../../constants'
+import { fmtAmount, fmtDate, fmtRate, fmtUsd, TYPE_LABELS, type ExchangeRates } from '../../constants'
 
 export function ValidateDialog({ tx, onClose }: { tx: TransactionDto | null; onClose: () => void }) {
   const qc = useQueryClient()
   const [reason, setReason] = useState('')
+
+  // AC3 (finance money strategy): for a non-USD/USDT income the accountant
+  // needs to see the conversion they're validating — original amount, the NBU
+  // rate, and the resulting USD figure. USD/USDT transactions skip the query
+  // entirely (no conversion to show).
+  const needsRate = tx?.currency === 'EUR' || tx?.currency === 'UAH'
+  const { data: rates } = useQuery<ExchangeRates>({
+    queryKey: ['exchange-rate', 'today'],
+    queryFn: () => api.get<ExchangeRates>('/finance/exchange-rate').then((r) => r.data),
+    enabled: !!tx && needsRate,
+    staleTime: 1000 * 60 * 60,
+  })
 
   // Fetch presigned URL for uploaded receipts (only when documentId set).
   // External URL receipts skip this query and use tx.receiptExternalUrl directly.
@@ -55,6 +68,21 @@ export function ValidateDialog({ tx, onClose }: { tx: TransactionDto | null; onC
               <span className="text-muted-foreground">Сумма</span>
               <span className="font-medium tabular-nums">{fmtAmount(tx.amount, tx.currency)}</span>
             </div>
+            {needsRate && rates && (
+              <>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Курс (USD)</span>
+                  <span className="text-xs text-muted-foreground">
+                    {fmtRate(tx.currency, rates)}
+                    <span className="ml-1.5 opacity-50">· НБУ</span>
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">В USD</span>
+                  <span className="font-medium tabular-nums">{fmtUsd(tx.amount, tx.currency, rates)}</span>
+                </div>
+              </>
+            )}
             {tx.senderName && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Отправитель</span>

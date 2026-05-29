@@ -169,11 +169,11 @@ export function PayoutDialog({
                             <Badge variant="outline" className="ml-1.5 text-[9px] py-0">approx</Badge>
                           )}
                         </span>
-                        <span className="tabular-nums">{senior.toFixed(2)}</span>
+                        <span className="tabular-nums">{fmtAmount(senior, 'USDT')}</span>
                       </div>
                       <div className="flex items-center justify-between text-muted-foreground">
                         <span>К оплате {100 - sharePercent}%</span>
-                        <span className="tabular-nums">{rowPay.toFixed(2)}</span>
+                        <span className="tabular-nums">{fmtAmount(rowPay, 'USDT')}</span>
                       </div>
                     </div>
                   ))}
@@ -186,18 +186,18 @@ export function PayoutDialog({
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Общая сумма</span>
-                    <span className="font-medium tabular-nums">₮{totalIncome.toFixed(2)}</span>
+                    <span className="font-medium tabular-nums">{fmtAmount(totalIncome, 'USDT')}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Остаётся вам</span>
-                    <span className="font-medium tabular-nums">₮{totalSenior.toFixed(2)}</span>
+                    <span className="font-medium tabular-nums">{fmtAmount(totalSenior, 'USDT')}</span>
                   </div>
                   <div
                     className="flex justify-between text-primary"
                     data-testid="payout-preview-total"
                   >
                     <span>Всего к оплате</span>
-                    <span className="font-bold tabular-nums">₮{payable.toFixed(2)}</span>
+                    <span className="font-bold tabular-nums">{fmtAmount(payable, 'USDT')}</span>
                   </div>
                 </div>
               </div>

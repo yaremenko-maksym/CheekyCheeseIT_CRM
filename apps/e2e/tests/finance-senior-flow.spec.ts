@@ -211,7 +211,11 @@ test.describe('SENIOR INCOME — шаг 1: регистрация прихода
 
     await asSenior.getByTestId('create-transaction-submit').click()
     await expect(dialog).toBeVisible()
-    await expect(dialog).toContainText(/некорректная сумма/i)
+    // AC4: amount validation now renders inline next to the field («Укажите
+    // корректную сумму») instead of the old single «Некорректная сумма»
+    // banner. Assert via the dedicated error testid.
+    await expect(dialog.getByTestId('create-transaction-error-amount')).toBeVisible()
+    await expect(dialog).toContainText(/корректную сумму/i)
   })
 })
 
@@ -520,8 +524,10 @@ test.describe('SENIOR INCOME — шаг 5: оплата выплаты (PayoutDe
     await expect(dialog.getByTestId('payout-detail-contract-address')).toContainText(
       FLOW_STUB_CONTRACT,
     )
-    // payable = 5000 * 0.74 = 3700
-    await expect(dialog.getByTestId('payout-detail-payable')).toContainText(/3[,.]?700/)
+    // payable = 5000 * 0.74 = 3700. AC3 switched the banner to the shared
+    // ru-RU formatter («3 700,00 USDT», non-breaking-space separator) — the
+    // char class tolerates space / comma / dot / none.
+    await expect(dialog.getByTestId('payout-detail-payable')).toContainText(/3[\s,.]?700/)
   })
 
   test('SENIOR в dev-режиме выбирает «Симулировать успех» + вводит TX hash — submit разблокируется', async ({

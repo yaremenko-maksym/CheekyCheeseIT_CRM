@@ -1,3 +1,4 @@
+import { forwardRef } from 'react'
 import { Edit2, CheckCircle2, ArrowRight, Trash2, Wallet } from 'lucide-react'
 // NOTE: Wallet icon is still used by the «Оплатить» pill on PAYOUT rows.
 import { Link } from '@tanstack/react-router'
@@ -63,7 +64,8 @@ function Party({
         <Link
           to="/crm/profile/$userId"
           params={{ userId: id }}
-          className="text-primary hover:underline underline-offset-2 font-medium truncate max-w-28 block"
+          className="text-primary hover:underline underline-offset-2 font-medium truncate max-w-44 block"
+          title={display}
           onClick={(e) => e.stopPropagation()}
         >
           {display}
@@ -74,7 +76,8 @@ function Party({
       <Link
         to="/crm/projects/$projectId"
         params={{ projectId: id }}
-        className="text-primary hover:underline underline-offset-2 font-medium truncate max-w-28 block"
+        className="text-primary hover:underline underline-offset-2 font-medium truncate max-w-44 block"
+        title={display}
         onClick={(e) => e.stopPropagation()}
       >
         {display}
@@ -83,7 +86,11 @@ function Party({
   }
 
   // Non-clickable alias (e.g. CheekyCheeseIT, company name)
-  return <span className="text-muted-foreground truncate max-w-28 block">{display}</span>
+  return (
+    <span className="text-muted-foreground truncate max-w-44 block" title={display}>
+      {display}
+    </span>
+  )
 }
 
 function FromTo({ tx }: { tx: TransactionDto }) {
@@ -160,19 +167,7 @@ function FromTo({ tx }: { tx: TransactionDto }) {
   }
 }
 
-export function TransactionRow({
-  tx,
-  role,
-  rates,
-  currentUserId,
-  onValidate,
-  onEdit,
-  onAdminEdit,
-  onDelete,
-  onPaySalary,
-  onOpenPayoutDetail,
-  onClick,
-}: {
+type TransactionRowProps = {
   tx: TransactionDto
   role: string
   rates: ExchangeRates | undefined
@@ -191,7 +186,29 @@ export function TransactionRow({
    */
   onOpenPayoutDetail?: (payoutRequestId: string) => void
   onClick?: (tx: TransactionDto) => void
-}) {
+}
+
+// forwardRef is required because the row is rendered inside an
+// <AnimatePresence mode="popLayout"> in TransactionsTable. framer-motion needs
+// to attach a ref to the underlying <tr> to measure layout for the enter/exit
+// animation. Without forwardRef React logs «Function components cannot be given
+// refs» once per row (50-60× on /crm/finance) and the row animation breaks.
+export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProps>(function TransactionRow(
+  {
+    tx,
+    role,
+    rates,
+    currentUserId,
+    onValidate,
+    onEdit,
+    onAdminEdit,
+    onDelete,
+    onPaySalary,
+    onOpenPayoutDetail,
+    onClick,
+  },
+  ref,
+) {
   const isAdmin = role === 'ADMIN'
   const isAccountant = role === 'ACCOUNTANT'
   const isSenior = role === 'SENIOR'
@@ -221,6 +238,7 @@ export function TransactionRow({
 
   return (
     <motion.tr
+      ref={ref}
       layout="position"
       initial={{ opacity: 0, y: -4 }}
       animate={{ opacity: 1, y: 0 }}
@@ -369,4 +387,6 @@ export function TransactionRow({
       </td>
     </motion.tr>
   )
-}
+})
+
+TransactionRow.displayName = 'TransactionRow'
