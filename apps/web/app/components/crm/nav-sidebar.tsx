@@ -16,6 +16,7 @@ import {
 import type { SessionUser } from '@crm/shared'
 import type { FileRouteTypes } from '@/routeTree.gen'
 import { cn } from '@/lib/utils'
+import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
@@ -157,9 +158,7 @@ export function NavSidebar({
         <SheetContent side="left" className="w-60 p-0 gap-0">
           <div className="border-b border-border/60 px-4 py-3">
             <div className="flex items-center gap-2">
-              <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary">
-                <span className="text-[9px] font-black text-primary-foreground">CC</span>
-              </div>
+              <BrandMark variant="flat" className="h-6 w-6 text-primary" />
               <span className="text-sm font-semibold tracking-tight">CheekyCheeseIT</span>
             </div>
           </div>

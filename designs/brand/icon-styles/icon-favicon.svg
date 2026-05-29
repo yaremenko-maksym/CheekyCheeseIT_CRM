@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="CheekyCheeseIT">
+  <title>CheekyCheeseIT</title>
+  <path d="M 112 112 L 422 215 A 18 18 0 0 1 432 233 L 432 402 A 18 18 0 0 1 414 416 L 110 416 A 18 18 0 0 1 96 398 L 96 124 A 18 18 0 0 1 112 112 Z" fill="#FFC300"/>
+  <g fill="#141414">
+    <circle cx="190" cy="216" r="25"/>
+    <circle cx="244" cy="274" r="34"/>
+    <circle cx="190" cy="332" r="25"/>
+    <rect x="302" y="258" width="84" height="32" rx="13"/>
+  </g>
+</svg>

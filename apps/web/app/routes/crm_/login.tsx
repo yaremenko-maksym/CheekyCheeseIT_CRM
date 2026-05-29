@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from '../../context/auth'
 import { api } from '../../lib/axios'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
+import { BrandMark } from '../../components/brand-mark'
 
 const searchSchema = z.object({
   error: z.enum(['unauthorized', 'google_error', 'invalid_state']).optional(),
@@ -168,9 +169,7 @@ function LoginPage() {
       >
         {/* Logo */}
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/30">
-            <span className="text-xl font-black text-primary-foreground">CC</span>
-          </div>
+          <BrandMark className="h-14 w-14 text-primary drop-shadow-lg" />
           <div>
             <h1 className="text-xl font-bold tracking-tight">CheekyCheeseIT CRM</h1>
             <p className="mt-1 text-sm text-muted-foreground">Войдите через корпоративный Google</p>
