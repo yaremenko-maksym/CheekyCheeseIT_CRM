@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
 import { AlertCircle } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import { AuthProvider, useAuth } from '../../context/auth'
 import { api } from '../../lib/axios'
@@ -56,27 +56,6 @@ const ERROR_MESSAGES: Record<string, string> = {
 }
 
 const API_URL = import.meta.env['VITE_API_URL'] ?? 'http://localhost:3001/api'
-const GOOGLE_CLIENT_ID = import.meta.env['VITE_GOOGLE_CLIENT_ID'] ?? ''
-
-declare global {
-  interface Window {
-    __gsiInitialized?: boolean
-    google?: {
-      accounts: {
-        id: {
-          initialize: (config: {
-            client_id: string
-            callback: (res: { credential: string }) => void
-            use_fedcm_for_prompt?: boolean
-            cancel_on_tap_outside?: boolean
-          }) => void
-          prompt: () => void
-          cancel: () => void
-        }
-      }
-    }
-  }
-}
 
 function GoogleIcon() {
   return (
@@ -93,7 +72,6 @@ function LoginPage() {
   const { user, isLoading } = useAuth()
   const navigate = useNavigate()
   const { error } = Route.useSearch()
-  const scriptRef = useRef<HTMLScriptElement | null>(null)
   const [devLoading, setDevLoading] = useState<string | null>(null)
 
   // Redirect if already authenticated. `replace: true` prevents the browser
@@ -107,56 +85,16 @@ function LoginPage() {
     }
   }, [user, isLoading, navigate])
 
-  // Load Google Identity Services and show One Tap prompt
-  useEffect(() => {
-    if (!GOOGLE_CLIENT_ID || isLoading || user) return
-
-    // Prevent double-init from React StrictMode
-    if (window.__gsiInitialized) return
-    window.__gsiInitialized = true
-
-    const handleCredential = async (response: { credential: string }) => {
-      try {
-        await api.post('/auth/google/one-tap', { credential: response.credential })
-        // Full page reload so the new JWT cookie is picked up by AuthProvider fresh
-        window.location.href = '/crm'
-      } catch {
-        window.location.href = '/crm/login?error=google_error'
-      }
-    }
-
-    const initOneTap = () => {
-      window.google?.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: handleCredential,
-        use_fedcm_for_prompt: false,
-        cancel_on_tap_outside: false,
-      })
-      window.google?.accounts.id.prompt()
-    }
-
-    if (window.google) {
-      initOneTap()
-      return () => { window.__gsiInitialized = false }
-    }
-
-    const script = document.createElement('script')
-    script.src = 'https://accounts.google.com/gsi/client'
-    script.async = true
-    script.defer = true
-    script.onload = initOneTap
-    document.head.appendChild(script)
-    scriptRef.current = script
-
-    return () => {
-      window.__gsiInitialized = false
-      window.google?.accounts.id.cancel()
-      if (scriptRef.current) {
-        document.head.removeChild(scriptRef.current)
-        scriptRef.current = null
-      }
-    }
-  }, [isLoading, user, navigate])
+  // round-2 AC3: Google One Tap auto-prompt removed. It previously initialised
+  // GSI and called prompt() on mount, firing a FedCM credential request. With no
+  // signed-in Google account in the browser that request rejects and floods the
+  // console with noise:
+  //   [GSI_LOGGER] FedCM get() rejects with NetworkError
+  //   "Not signed in with the identity provider"
+  // The primary (and only tested) auth path is the server-side redirect button
+  // below (<a href=".../auth/google">), which does NOT depend on GSI at all.
+  // One Tap was purely supplementary, so dropping the auto-prompt removes the
+  // console noise with zero risk to the OAuth flow.
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
