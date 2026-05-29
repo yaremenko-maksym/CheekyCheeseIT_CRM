@@ -529,7 +529,12 @@ test.describe('SENIOR INCOME — шаг 5: оплата выплаты (PayoutDe
   }) => {
     // PR #56 added a dev-simulate radio. In dev «Реальная проверка» is the
     // default and intentionally disabled — the SENIOR has to opt into a
-    // simulate path. So this test now picks «Симулировать успех» first.
+    // simulate path. So this test picks «Симулировать успех» first.
+    //
+    // CI runs a production build (`vite preview`) where `import.meta.env.DEV`
+    // is `false` → the entire dev-simulate block is tree-shaken out. In that
+    // case the radio testid is absent, but a ≥10-char hash alone unlocks
+    // submit (PR #56 final UT gate logic). The test handles both modes.
     const payoutRow = makePayoutRowTx()
     await setupTransactionMocks(asSenior, payoutRow, [], [payoutRow])
 
@@ -537,8 +542,13 @@ test.describe('SENIOR INCOME — шаг 5: оплата выплаты (PayoutDe
     await asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`).click()
 
     const dialog = asSenior.getByRole('dialog')
-    // Pick the simulate-success radio first → hash optional → submit enabled.
-    await dialog.getByTestId('payout-detail-dev-simulate-success').click()
+    await expect(dialog).toBeVisible()
+    // Click simulate-success only when the dev block is actually mounted.
+    // `isVisible()` resolves instantly without waiting for a missing element.
+    const simulateRadio = dialog.getByTestId('payout-detail-dev-simulate-success')
+    if (await simulateRadio.isVisible()) {
+      await simulateRadio.click()
+    }
     await dialog.getByTestId('payout-detail-tx-hash-input').fill('0xdeadbeef123456')
     await expect(dialog.getByTestId('payout-detail-submit')).not.toBeDisabled()
   })
@@ -553,9 +563,14 @@ test.describe('SENIOR INCOME — шаг 5: оплата выплаты (PayoutDe
     await asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`).click()
 
     const dialog = asSenior.getByRole('dialog')
-    // Simulate-success unlocks the submit in dev — without picking a radio
-    // PR #56's real-mode gate keeps the button disabled even with a hash.
-    await dialog.getByTestId('payout-detail-dev-simulate-success').click()
+    await expect(dialog).toBeVisible()
+    // Simulate-success unlocks submit in dev when hash is short. In CI's
+    // production build the block is tree-shaken — a ≥10-char hash unlocks
+    // submit directly. Either path lands on the same payMutation.
+    const simulateRadio = dialog.getByTestId('payout-detail-dev-simulate-success')
+    if (await simulateRadio.isVisible()) {
+      await simulateRadio.click()
+    }
     await dialog.getByTestId('payout-detail-tx-hash-input').fill('0xdeadbeef123456')
     await dialog.getByTestId('payout-detail-submit').click()
 
@@ -827,12 +842,18 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     // SENIOR opens the auto-created «Выплата» row via its inline pill.
     await seniorPage.getByTestId(`row-pay-payout-${payoutRow.id}`).click()
     const detailDialog = seniorPage.getByRole('dialog')
+    await expect(detailDialog).toBeVisible()
     await expect(detailDialog.getByTestId('payout-detail-contract-address')).toContainText(
       FLOW_STUB_CONTRACT,
     )
-    // PR #56 dev-simulate gate: real mode is disabled in dev → SENIOR has
-    // to pick simulate-success to unlock submit.
-    await detailDialog.getByTestId('payout-detail-dev-simulate-success').click()
+    // PR #56 dev-simulate gate: in `vite` dev real mode is disabled and the
+    // SENIOR has to pick simulate-success to unlock submit. In CI's
+    // production build (`vite preview`) the whole dev block is tree-shaken
+    // out — a ≥10-char hash alone unlocks submit. Click only when visible.
+    const flowSimulateRadio = detailDialog.getByTestId('payout-detail-dev-simulate-success')
+    if (await flowSimulateRadio.isVisible()) {
+      await flowSimulateRadio.click()
+    }
     await detailDialog.getByTestId('payout-detail-tx-hash-input').fill('0xdeadbeef123456')
     await detailDialog.getByTestId('payout-detail-submit').click()
     await expect(detailDialog).not.toBeVisible()
