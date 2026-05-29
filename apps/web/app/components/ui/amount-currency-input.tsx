@@ -2,12 +2,18 @@ import { useQuery } from '@tanstack/react-query'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
 
 export const CURRENCIES = ['USDT', 'USD', 'EUR', 'UAH'] as const
-export type Currency = typeof CURRENCIES[number]
+export type Currency = (typeof CURRENCIES)[number]
 
 type ExchangeRates = { usdUah: string; usdtUah: string; eurUah: string; date: string }
 
@@ -23,10 +29,9 @@ function fmtRateDate(date: string): string {
   // (e.g. "20260522") because that's what the NBU API uses. JS Date()
   // constructor doesn't parse this — convert to ISO YYYY-MM-DD first.
   if (!date) return ''
-  const iso =
-    /^\d{8}$/.test(date)
-      ? `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`
-      : date
+  const iso = /^\d{8}$/.test(date)
+    ? `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`
+    : date
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
   return d.toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: '2-digit' })
@@ -55,9 +60,9 @@ export function AmountCurrencyInput({
   inputClassName?: string
   disabled?: boolean
   /** Inline validation message rendered under the amount input. */
-  error?: string
+  error?: string | undefined
   /** data-testid for the error <p> (caller-supplied for E2E). */
-  errorTestId?: string
+  errorTestId?: string | undefined
 }) {
   const needsRate = currency === 'EUR' || currency === 'UAH' || currency === 'USD'
 
@@ -74,9 +79,10 @@ export function AmountCurrencyInput({
   })
 
   const amountNum = typeof amount === 'string' ? parseFloat(amount) : amount
-  const convertedUsd = rates && !isNaN(amountNum) && amountNum > 0
-    ? toUsd(amountNum, currency, rates).toFixed(2)
-    : null
+  const convertedUsd =
+    rates && !isNaN(amountNum) && amountNum > 0
+      ? toUsd(amountNum, currency, rates).toFixed(2)
+      : null
 
   return (
     <div className="space-y-2">
@@ -97,13 +103,19 @@ export function AmountCurrencyInput({
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground">{currencyLabel}</Label>
-          <Select value={currency} onValueChange={(v) => onCurrencyChange(v as Currency)} disabled={disabled ?? false}>
+          <Select
+            value={currency}
+            onValueChange={(v) => onCurrencyChange(v as Currency)}
+            disabled={disabled ?? false}
+          >
             <SelectTrigger className="h-9 text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {CURRENCIES.map((c) => (
-                <SelectItem key={c} value={c} className="text-sm">{c}</SelectItem>
+                <SelectItem key={c} value={c} className="text-sm">
+                  {c}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -126,10 +138,12 @@ export function AmountCurrencyInput({
 
       {/* Conversion hint for EUR/UAH/USD */}
       {needsRate && (
-        <div className={cn(
-          'flex items-center gap-2 rounded-md border px-3 py-2 text-xs',
-          isFetching ? 'border-border/50' : 'border-blue-500/20 bg-blue-500/5 text-blue-400',
-        )}>
+        <div
+          className={cn(
+            'flex items-center gap-2 rounded-md border px-3 py-2 text-xs',
+            isFetching ? 'border-border/50' : 'border-blue-500/20 bg-blue-500/5 text-blue-400',
+          )}
+        >
           {isFetching ? (
             <Skeleton className="h-3.5 w-48 rounded" />
           ) : rates ? (
@@ -141,8 +155,8 @@ export function AmountCurrencyInput({
                 {currency === 'EUR'
                   ? `1 EUR = ${(parseFloat(rates.eurUah) / parseFloat(rates.usdUah)).toFixed(4)} USD`
                   : currency === 'USD'
-                  ? '1 USD = 1 USD'
-                  : `1 USD = ${parseFloat(rates.usdUah).toFixed(2)} UAH`}
+                    ? '1 USD = 1 USD'
+                    : `1 USD = ${parseFloat(rates.usdUah).toFixed(2)} UAH`}
               </span>
               <span className="ml-auto text-muted-foreground/60">{fmtRateDate(rates.date)}</span>
             </>
