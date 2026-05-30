@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { useActiveTeam } from '@/hooks/use-active-team'
 
 type Role = SessionUser['role']
 type RouteTo = FileRouteTypes['to']
@@ -31,6 +32,9 @@ interface NavItem {
   roles: Role[]
 }
 
+// Drop role - phase 1: DROP sees only Profile / Team / Finance (spec §4).
+// No Dashboard, no Projects, no Interviews, no Documents. Existing role
+// visibilities for ADMIN / SENIOR / JUNIOR / HR / ACCOUNTANT are unchanged.
 const NAV_ITEMS: NavItem[] = [
   {
     label: 'Дашборд',
@@ -42,7 +46,7 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Профиль',
     icon: UserCircle,
     to: '/crm/profile',
-    roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'],
+    roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'],
   },
   {
     label: 'Пользователи',
@@ -54,7 +58,7 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Команда',
     icon: UsersRound,
     to: '/crm/team',
-    roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'],
+    roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'],
   },
   {
     label: 'Проекты',
@@ -66,7 +70,7 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Финансы',
     icon: DollarSign,
     to: '/crm/finance',
-    roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'],
+    roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'],
   },
   {
     label: 'Статистика',
@@ -103,7 +107,19 @@ export function NavSidebar({
   mobileOpen,
   onMobileClose,
 }: NavSidebarProps) {
-  const items = NAV_ITEMS.filter((item) => item.roles.includes(user.role))
+  // Drop role - phase 1 (AC7): teamless SENIOR loses access to «Проекты»
+  // and «Собеседования» — both pages depend on an active team membership.
+  // For other roles the gate is a no-op (they don't go teamless).
+  const { isTeamless } = useActiveTeam()
+  const isTeamlessSenior = user.role === 'SENIOR' && isTeamless
+
+  const items = NAV_ITEMS.filter((item) => {
+    if (!item.roles.includes(user.role)) return false
+    if (isTeamlessSenior && (item.to === '/crm/projects' || item.to === '/crm/interviews')) {
+      return false
+    }
+    return true
+  })
 
   return (
     <>
