@@ -1,7 +1,11 @@
 import { useState } from 'react'
+import { UsersRound } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Button } from '@/components/ui/button'
 import { AnimatedTabs } from '@/components/ui/animated-tabs'
 import { useMe, useUser } from '@/hooks/use-user-profile'
+import { useActiveTeam } from '@/hooks/use-active-team'
+import { RejoinTeamDialog } from '@/components/users/RejoinTeamDialog'
 import { AdminActionsMenu } from './admin-actions/AdminActionsMenu'
 import { AvatarUploadDialog } from './AvatarUploadDialog'
 import { UserProfileHeader } from './UserProfileHeader'
@@ -43,6 +47,10 @@ export function UserProfileShell({
   const query = mode === 'self' ? meQuery : userQuery
   const { data, isLoading } = query
   const [avatarOpen, setAvatarOpen] = useState(false)
+  // Drop role - phase 1 (AC7): track teamless SENIOR state. Banner is
+  // shown only on the self-profile of a teamless SENIOR.
+  const { isTeamless: isTeamlessSenior } = useActiveTeam()
+  const [rejoinOpen, setRejoinOpen] = useState(false)
 
   if (isLoading || !data) {
     return (
@@ -96,6 +104,33 @@ export function UserProfileShell({
           avatarDocumentId={user.avatarDocumentId ?? null}
           avatarUrl={user.avatarUrl}
         />
+      )}
+
+      {/* Drop role - phase 1 (AC7): teamless SENIOR banner. Surfaces
+          the rejoin-team CTA on self-profile only — view-mode profile
+          for other users intentionally hides it. */}
+      {mode === 'self' && user.role === 'SENIOR' && isTeamlessSenior && (
+        <div
+          className="flex flex-col gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 sm:flex-row sm:items-center sm:justify-between"
+          data-testid="profile-teamless-banner"
+        >
+          <div className="flex items-start gap-3">
+            <UsersRound className="h-5 w-5 text-amber-500/80 shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium">У вас нет активной команды</p>
+              <p className="text-xs text-muted-foreground">
+                Создайте свою команду или присоединитесь к команде дропа, чтобы вернуть доступ
+                к проектам и собеседованиям.
+              </p>
+            </div>
+          </div>
+          <Button size="sm" onClick={() => setRejoinOpen(true)} data-testid="profile-rejoin-button">
+            Создать или выбрать команду
+          </Button>
+        </div>
+      )}
+      {mode === 'self' && (
+        <RejoinTeamDialog open={rejoinOpen} onClose={() => setRejoinOpen(false)} />
       )}
 
       {permissions.tabs.length > 0 && (

@@ -11,12 +11,13 @@ import {
   Mail,
   Pencil,
   Phone,
+  RefreshCw,
   Send,
   UserMinus,
   UserPlus,
   Users,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { ProjectDto, TeamDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
@@ -38,6 +39,13 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
@@ -55,14 +63,16 @@ const ROLE_LABELS: Record<string, string> = {
   JUNIOR: 'Джун',
   HR: 'HR',
   ACCOUNTANT: 'Бухгалтер',
+  DROP: 'Дроп',
 }
 
-const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accountant'> = {
+const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accountant' | 'drop'> = {
   ADMIN: 'admin',
   SENIOR: 'senior',
   JUNIOR: 'junior',
   HR: 'hr',
   ACCOUNTANT: 'accountant',
+  DROP: 'drop',
 }
 
 function getInitials(name: string) {
@@ -114,10 +124,34 @@ function TeamDetailPage() {
   // ut-39b: explicit Archive button triggers ArchiveConfirmDialog (same flow
   // the AdminActionsMenu dropdown used to provide).
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false)
+  // Drop role - phase 1 (AC5): rotate-senior dialog state. ADMIN / HR of
+  // the team can swap the active senior of a drop-team.
+  const [rotateSeniorOpen, setRotateSeniorOpen] = useState(false)
+  const [newSeniorId, setNewSeniorId] = useState<string>('')
 
   const removeMemberMutation = useMutation({
     mutationFn: (userId: string) => api.delete(`/teams/${teamId}/members/${userId}`),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['team', teamId] }) },
+  })
+
+  // Drop role - phase 1 (AC5): rotate-senior mutation. Calls the new
+  // controller endpoint POST /api/teams/:id/rotate-senior which delegates
+  // to TeamsService.rotateSenior (existing service primitive).
+  const rotateSeniorMutation = useMutation({
+    mutationFn: (sId: string) => api.post(`/teams/${teamId}/rotate-senior`, { newSeniorId: sId }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['team', teamId] })
+      void queryClient.invalidateQueries({ queryKey: ['teams'] })
+      void queryClient.invalidateQueries({ queryKey: ['users'] })
+      void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
+      toast.success('Синьор обновлён')
+      setRotateSeniorOpen(false)
+      setNewSeniorId('')
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      toast.error(msg ?? 'Не удалось сменить синьора')
+    },
   })
 
   if (denied) return null
@@ -136,11 +170,39 @@ function TeamDetailPage() {
 
   const canManage = user?.role === 'ADMIN' || (user?.role === 'HR' && team?.members.some(m => m.userId === user?.id))
 
+  // Drop role - phase 1 (AC5): drop-team rendering branch + rotate-senior
+  // affordance. Active SENIOR = `role='SENIOR' && leftAt === null`.
+  const isDropTeam = team?.type === 'DROP'
+  const activeSenior = team?.members.find((m) => m.role === 'SENIOR' && !m.leftAt) ?? null
+  const dropOwner = team?.members.find((m) => m.role === 'DROP' && !m.leftAt) ?? null
+  const canRotateSenior = isDropTeam && canManage && !team?.archivedAt
+
   const { data: allUsers } = useQuery<UserOption[]>({
     queryKey: ['users'],
     queryFn: () => api.get<UserOption[]>('/users').then((r) => r.data),
     enabled: !!(user && canManage),
   })
+
+  // Drop role - phase 1 (AC5): fetch all teams to filter out SENIORs that
+  // already have an active team membership. Backend's `rotateSenior` rejects
+  // such picks with 400 — this client filter is a UX guard.
+  const { data: allTeamsForRotate } = useQuery<TeamDto[]>({
+    queryKey: ['teams'],
+    queryFn: () => api.get<TeamDto[]>('/teams').then((r) => r.data),
+    enabled: !!(user && canRotateSenior && rotateSeniorOpen),
+    staleTime: 30_000,
+  })
+  const vacantSeniors = useMemo(() => {
+    if (!allUsers) return []
+    const seniorsInActiveTeam = new Set(
+      (allTeamsForRotate ?? [])
+        .filter((t) => !t.archivedAt)
+        .flatMap((t) => t.members.filter((m) => m.role === 'SENIOR' && !m.leftAt).map((m) => m.userId)),
+    )
+    return allUsers
+      .filter((u) => u.role === 'SENIOR' && !seniorsInActiveTeam.has(u.id))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName))
+  }, [allUsers, allTeamsForRotate])
 
   // Edit form
   const editForm = useForm({
@@ -179,11 +241,15 @@ function TeamDetailPage() {
 
   // Compute active projects for this team. Round 5: project lifecycle is
   // binary — active === archivedAt is null.
-  const activeProjects = projects?.filter(
-    (p) =>
-      p.archivedAt === null &&
-      team?.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
-  ) ?? []
+  // Drop role - phase 1 (AC5): drop-teams own projects via `dropId`
+  // (`projects.dropId === drop.userId`), not through the senior link.
+  const activeProjects = projects?.filter((p) => {
+    if (p.archivedAt !== null) return false
+    if (isDropTeam) {
+      return dropOwner ? p.dropId === dropOwner.userId : false
+    }
+    return team?.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId) ?? false
+  }) ?? []
 
   // Junior sees only their own project
   const visibleProjects =
@@ -300,8 +366,16 @@ function TeamDetailPage() {
             </Button>
           )}
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-2xl font-bold tracking-tight">{team.name}</h1>
+              {/* Drop role - phase 1 (AC5): DROP badge + «Команда дропа»
+                  caption surface the team type. Senior-teams render no
+                  extra badge, header rendering 1:1 as before. */}
+              {isDropTeam && (
+                <Badge variant="drop" data-testid="team-drop-badge">
+                  Команда дропа
+                </Badge>
+              )}
               {team.archivedAt ? (
                 <Badge
                   variant="outline"
@@ -319,6 +393,35 @@ function TeamDetailPage() {
                 </Badge>
               )}
             </div>
+            {/* AC5: drop owner link under the title — quick navigation to
+                the drop's profile, mirrors the «синьор» bookmark on senior
+                teams. */}
+            {isDropTeam && dropOwner && (
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Дроп:{' '}
+                <Link
+                  to="/crm/profile/$userId"
+                  params={{ userId: dropOwner.userId }}
+                  className="text-primary hover:underline font-medium"
+                >
+                  {dropOwner.displayName}
+                </Link>
+                {activeSenior ? (
+                  <>
+                    {' · Синьор: '}
+                    <Link
+                      to="/crm/profile/$userId"
+                      params={{ userId: activeSenior.userId }}
+                      className="text-primary hover:underline font-medium"
+                    >
+                      {activeSenior.displayName}
+                    </Link>
+                  </>
+                ) : (
+                  <span className="ml-1 text-amber-500/80">· Синьор не назначен</span>
+                )}
+              </p>
+            )}
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
               <div className="flex items-center gap-1.5">
                 <Calendar className="h-3.5 w-3.5" />
@@ -345,7 +448,21 @@ function TeamDetailPage() {
         {/* ut-39b: «Действия» dropdown replaced with explicit Archive /
             Unarchive buttons (matches ut-28 project detail pattern).
             Add / Edit remain side-by-side; archive controls are admin-only. */}
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 gap-2 flex-wrap justify-end">
+          {/* Drop role - phase 1 (AC5): rotate-senior is the headline
+              action for drop-teams. Senior-teams never see this button. */}
+          {canRotateSenior && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setRotateSeniorOpen(true)}
+              data-testid="team-rotate-senior-button"
+            >
+              <RefreshCw className="h-4 w-4" />
+              {activeSenior ? 'Сменить синьора' : 'Назначить синьора'}
+            </Button>
+          )}
           {canManage && !team.archivedAt && (
             <>
               <Button
@@ -790,6 +907,86 @@ function TeamDetailPage() {
           onClose={() => setArchiveDialogOpen(false)}
         />
       )}
+
+      {/* Drop role - phase 1 (AC5): rotate-senior dialog. Lists SENIORs
+          with no active team membership; backend re-validates on submit. */}
+      <Dialog
+        open={rotateSeniorOpen}
+        onOpenChange={(o) => {
+          if (!o) {
+            setRotateSeniorOpen(false)
+            setNewSeniorId('')
+          }
+        }}
+      >
+        <CrmDialogContent data-testid="team-rotate-senior-dialog">
+          <CrmDialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RefreshCw className="h-4 w-4" />
+              {activeSenior ? 'Сменить синьора' : 'Назначить синьора'}
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              {activeSenior
+                ? `Текущий синьор «${activeSenior.displayName}» будет откреплён. Новый синьор должен быть без активной команды.`
+                : 'Выберите синьора без активной команды. Дроп и остальные участники команды остаются.'}
+            </p>
+          </CrmDialogHeader>
+          <CrmDialogBody className="space-y-3">
+            <div className="grid gap-1.5">
+              <Label>Новый синьор</Label>
+              {vacantSeniors.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">
+                  Нет синьоров без активной команды
+                </p>
+              ) : (
+                <Select value={newSeniorId} onValueChange={setNewSeniorId}>
+                  <SelectTrigger data-testid="team-rotate-senior-select">
+                    <SelectValue placeholder="— выберите синьора —" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {vacantSeniors.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        <div className="flex items-center gap-2">
+                          <Avatar className="h-5 w-5">
+                            {s.avatarUrl && <AvatarImage src={s.avatarUrl} alt={s.displayName} />}
+                            <AvatarFallback className="text-[9px]">
+                              {getInitials(s.displayName)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span>{s.displayName}</span>
+                          <span className="text-[10px] text-muted-foreground">{s.email}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          </CrmDialogBody>
+          <CrmDialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setRotateSeniorOpen(false)
+                setNewSeniorId('')
+              }}
+            >
+              Отмена
+            </Button>
+            <Button
+              disabled={!newSeniorId || rotateSeniorMutation.isPending}
+              onClick={() => rotateSeniorMutation.mutate(newSeniorId)}
+              data-testid="team-rotate-senior-submit"
+            >
+              {rotateSeniorMutation.isPending
+                ? 'Сохранение...'
+                : activeSenior
+                  ? 'Сменить'
+                  : 'Назначить'}
+            </Button>
+          </CrmDialogFooter>
+        </CrmDialogContent>
+      </Dialog>
     </motion.div>
   )
 }

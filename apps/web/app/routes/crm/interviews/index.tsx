@@ -20,6 +20,9 @@ import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { RejoinTeamDialog } from '@/components/users/RejoinTeamDialog'
+import { useActiveTeam } from '@/hooks/use-active-team'
+import { UsersRound } from 'lucide-react'
 import { ACTIVE_STAGES, ALL_STAGES, TERMINAL_STAGES } from './constants'
 import { InterviewCardStatic, KanbanColumn } from './components/KanbanColumn'
 import { InterviewDetailSheet } from './components/InterviewDetailSheet'
@@ -185,6 +188,11 @@ function InterviewsPage() {
     moveMutation.mutate({ id: draggedId, stage: targetStage, position: targetIndex })
   }
 
+  // Drop role - phase 1 (AC7): teamless SENIOR empty state. Hook order
+  // is stable — `useActiveTeam` always runs; the gate just toggles render.
+  const { isTeamless: isTeamlessSenior, isLoading: isTeamLoading } = useActiveTeam()
+  const [rejoinDialogOpen, setRejoinDialogOpen] = useState(false)
+
   if (isJunior) {
     return (
       <div className="w-full">
@@ -194,6 +202,34 @@ function InterviewsPage() {
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
           <p className="text-sm font-medium text-muted-foreground">Нет доступа к разделу</p>
         </div>
+      </div>
+    )
+  }
+
+  if (isSenior && !isTeamLoading && isTeamlessSenior) {
+    return (
+      <div className="w-full">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold tracking-tight">Собеседования</h1>
+        </div>
+        <div
+          className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center"
+          data-testid="interviews-teamless-empty-state"
+        >
+          <UsersRound className="h-10 w-10 text-muted-foreground/30" />
+          <p className="mt-4 text-sm font-medium">У вас нет активной команды</p>
+          <p className="mt-1 text-xs text-muted-foreground max-w-md">
+            Доступ к собеседованиям откроется после привязки к команде.
+          </p>
+          <Button size="sm" className="mt-4 gap-1.5" onClick={() => setRejoinDialogOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Создать или выбрать команду
+          </Button>
+        </div>
+        <RejoinTeamDialog
+          open={rejoinDialogOpen}
+          onClose={() => setRejoinDialogOpen(false)}
+        />
       </div>
     )
   }

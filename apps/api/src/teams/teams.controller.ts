@@ -15,6 +15,7 @@ import {
 import {
   addTeamMemberSchema,
   createTeamSchema,
+  rotateSeniorSchema,
   type SessionUser,
   updateTeamSchema,
 } from '@crm/shared'
@@ -118,5 +119,24 @@ export class TeamsController {
     @CurrentUser() user: SessionUser,
   ) {
     return this.teamsService.removeMember(id, userId, user)
+  }
+
+  /**
+   * Drop role - phase 1 (AC5 frontend). HTTP boundary for the
+   * `TeamsService.rotateSenior` primitive — replaces the current active
+   * senior of a drop-team with a new SENIOR that has no active team
+   * membership. RBAC (ADMIN or HR of this team) is enforced inside the
+   * service; we still let RolesGuard pass without `@Roles(...)` so HR
+   * (who is "any authenticated user" for guard purposes here) can call
+   * this endpoint and have the inline check decide.
+   */
+  @Post(':id/rotate-senior')
+  rotateSenior(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const { newSeniorId } = rotateSeniorSchema.parse(body)
+    return this.teamsService.rotateSenior(id, newSeniorId, user)
   }
 }

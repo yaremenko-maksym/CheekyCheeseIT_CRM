@@ -10,6 +10,7 @@ import {
   Briefcase,
   Plus,
   Search,
+  UsersRound,
 } from 'lucide-react'
 import { useMemo, useState, useTransition } from 'react'
 import { z } from 'zod'
@@ -42,6 +43,20 @@ import {
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ProjectRow } from '@/components/projects/ProjectRow'
+import { RejoinTeamDialog } from '@/components/users/RejoinTeamDialog'
+import { useActiveTeam } from '@/hooks/use-active-team'
+
+/**
+ * Drop role - phase 1 (AC7): wraps `useActiveTeam` and short-circuits for
+ * non-SENIOR viewers so the page never accidentally hides cards for
+ * ADMIN/HR/ACCOUNTANT/JUNIOR. The underlying query always runs (same hook
+ * order across renders).
+ */
+function useTeamlessSeniorGate(isSenior: boolean) {
+  const { isTeamless, isLoading } = useActiveTeam()
+  if (!isSenior) return { isTeamless: false, isLoading: false }
+  return { isTeamless, isLoading }
+}
 
 // `archived` may arrive as a query-string ("true"/"false") for deep-links —
 // `z.coerce.boolean()` accepts both `boolean` and string forms safely.
@@ -89,6 +104,13 @@ function ProjectsPage() {
   if (denied) return null
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+
+  // Drop role - phase 1 (AC7): teamless SENIOR sees an empty-state with a
+  // CTA to create or join a team. Page is otherwise locked out — backend
+  // returns an empty list anyway, this is just a kinder surface.
+  const { isTeamless: isTeamlessSenior, isLoading: isActiveTeamLoading } =
+    useTeamlessSeniorGate(user?.role === 'SENIOR')
+  const [rejoinDialogOpen, setRejoinDialogOpen] = useState(false)
 
   const canManage = user?.role === 'ADMIN' || user?.role === 'HR'
   const canCreate = user?.role === 'ADMIN' || user?.role === 'HR'
@@ -238,6 +260,37 @@ function ProjectsPage() {
             <Skeleton key={i} className="h-19 rounded-md" />
           ))}
         </div>
+      </div>
+    )
+  }
+
+  // Drop role - phase 1 (AC7): teamless SENIOR — full-page empty state
+  // with the rejoin CTA. Other roles fall through to the regular UI.
+  if (user?.role === 'SENIOR' && !isActiveTeamLoading && isTeamlessSenior) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Проекты</h1>
+        </div>
+        <div
+          className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center"
+          data-testid="projects-teamless-empty-state"
+        >
+          <UsersRound className="h-10 w-10 text-muted-foreground/30" />
+          <p className="mt-4 text-sm font-medium">У вас нет активной команды</p>
+          <p className="mt-1 text-xs text-muted-foreground max-w-md">
+            Создайте свою команду или присоединитесь к команде дропа, чтобы получить доступ
+            к проектам.
+          </p>
+          <Button size="sm" className="mt-4 gap-1.5" onClick={() => setRejoinDialogOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Создать или выбрать команду
+          </Button>
+        </div>
+        <RejoinTeamDialog
+          open={rejoinDialogOpen}
+          onClose={() => setRejoinDialogOpen(false)}
+        />
       </div>
     )
   }

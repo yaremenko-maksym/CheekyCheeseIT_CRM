@@ -7,6 +7,8 @@ import {
   Pencil,
   Send,
   UserPlus,
+  Users,
+  Sparkles,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
@@ -19,6 +21,7 @@ import type {
   PaymentMethod,
   ProjectDto,
   TeamDto,
+  TeamMode,
   UserProfileDto,
 } from '@crm/shared'
 import {
@@ -57,6 +60,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 import {
   AmountCurrencyInput,
@@ -213,6 +217,38 @@ export function UserDialog(props: UserDialogProps) {
     enabled: isEdit && !!editingUser && editingUser.role === 'SENIOR',
   })
 
+  // Drop role - phase 1 (AC3): senior creation supports two team modes —
+  // CREATE_NEW (default; existing behavior) or JOIN_DROP_TEAM (pick a
+  // drop-team without an active senior). Fetched lazily only when the
+  // create-senior path is open: avoids an extra network call for non-senior
+  // role flows and during edit.
+  const { data: dropTeamsForJoin } = useQuery({
+    queryKey: ['teams', { type: 'DROP', vacant: true }],
+    queryFn: () => api.get<TeamDto[]>('/teams').then((r) => r.data),
+    enabled: isCreate && open,
+    staleTime: 30_000,
+  })
+  /**
+   * Drop teams eligible for `JOIN_DROP_TEAM`:
+   *  - `type === 'DROP'`
+   *  - not archived
+   *  - no active senior member (`role === 'SENIOR'` && `leftAt === null`)
+   *
+   * Backend's `addSeniorToDropTeam` enforces the same invariants — this
+   * client-side filter is a UX guard so the dropdown lists only valid
+   * options. Falling out of sync (e.g. another admin just rotated a
+   * senior in) surfaces a backend 400 toast.
+   */
+  const vacantDropTeams = useMemo(() => {
+    if (!dropTeamsForJoin) return []
+    return dropTeamsForJoin.filter(
+      (t) =>
+        t.type === 'DROP' &&
+        !t.archivedAt &&
+        !t.members.some((m) => m.role === 'SENIOR' && !m.leftAt),
+    )
+  }, [dropTeamsForJoin])
+
   /**
    * Senior's team is the team where the senior is an active member with role=SENIOR.
    * Existing HR/Accountant in that team (with leftAt=NULL) seed selections.
@@ -333,6 +369,12 @@ export function UserDialog(props: UserDialogProps) {
       // the senior's team in the `allTeams` query (useEffect below). Empty
       // string when no channel set or non-SENIOR.
       teamTelegramChannel: '' as string,
+      // Drop role - phase 1 (AC3): senior create mode picker. Default
+      // `CREATE_NEW` preserves the legacy senior-team auto-create path
+      // 1:1 — backend service also defaults to CREATE_NEW when this
+      // field is omitted (defense-in-depth).
+      teamMode: 'CREATE_NEW' as TeamMode,
+      dropTeamId: '' as string,
     },
     onSubmit: async ({ value }) => {
       const isSenior = value.role === 'SENIOR'
@@ -350,8 +392,17 @@ export function UserDialog(props: UserDialogProps) {
       }
 
       if (isCreate) {
-        if (isSenior && hrIds.length === 0) {
+        // Drop role - phase 1 (AC3): when JOIN_DROP_TEAM, HR/accountant are
+        // sourced from the existing drop-team — local pickers stay hidden
+        // and we skip the «HR required» guard. CREATE_NEW retains the
+        // legacy validation 1:1.
+        const isJoinDropTeam = isSenior && value.teamMode === 'JOIN_DROP_TEAM'
+        if (isSenior && !isJoinDropTeam && hrIds.length === 0) {
           toast.error('Выберите хотя бы одного HR для команды синьора')
+          return
+        }
+        if (isJoinDropTeam && !value.dropTeamId) {
+          toast.error('Выберите команду дропа')
           return
         }
 
@@ -380,8 +431,18 @@ export function UserDialog(props: UserDialogProps) {
           }),
           ...(isSenior && {
             seniorSharePercent: value.seniorSharePercent,
-            hrIds,
-            accountantId: accountantId || null,
+            // Drop role - phase 1 (AC3): when JOIN_DROP_TEAM, omit HR /
+            // accountant — backend reads them from the chosen drop-team.
+            // Sending stale arrays would just be ignored, but omitting
+            // them keeps the payload truthful.
+            ...(!isJoinDropTeam && {
+              hrIds,
+              accountantId: accountantId || null,
+            }),
+            ...(value.teamMode === 'JOIN_DROP_TEAM' && {
+              teamMode: 'JOIN_DROP_TEAM' as TeamMode,
+              dropTeamId: value.dropTeamId,
+            }),
           }),
           ...(!isSenior && String(value.monthlySalary).trim() && {
             monthlySalary: computeMonthlySalaryUsd() ?? undefined,
@@ -509,6 +570,10 @@ export function UserDialog(props: UserDialogProps) {
         bankUahBankName: editingUser.bankUahBankName ?? '',
         // Re-seeded again by the allTeams effect once the query resolves.
         teamTelegramChannel: '',
+        // Drop role - phase 1: team-mode picker is create-only. In edit
+        // mode the field is ignored — re-seed to default for safety.
+        teamMode: 'CREATE_NEW' as TeamMode,
+        dropTeamId: '',
       })
     }
   }, [editingUser?.id, isEdit])
@@ -1018,69 +1083,226 @@ export function UserDialog(props: UserDialogProps) {
 
                   return (
                     <Section title="Команда">
-                      {/* ut-16: HR as chips + searchable add popover. */}
-                      <HrChipsField
-                        hrUsers={hrUsers}
-                        selectedIds={selectedHrIds}
-                        onChange={setSelectedHrIds}
-                        required={isCreate}
-                        onlyHr={onlyHr}
-                      />
-
-                      {/* ut-16: Accountant as a chip in the same visual language. */}
-                      <AccountantChipField
-                        accountantUsers={accountantUsers}
-                        selectedId={selectedAccountantId}
-                        onChange={setSelectedAccountantId}
-                        onlyAccountant={onlyAccountant}
-                      />
-
-                      {/* ut-17: optional team Telegram channel. */}
-                      <form.Field
-                        name="teamTelegramChannel"
-                        validators={{
-                          onBlur: ({ value, fieldApi }) => {
-                            if (!fieldApi.state.meta.isDirty) return undefined
-                            const trimmed = value.trim()
-                            if (!trimmed) return undefined
-                            return /^@?[a-zA-Z0-9_]{5,32}$/.test(trimmed)
-                              ? undefined
-                              : 'Некорректный канал (5–32 латинских символов или _, опц. @)'
-                          },
-                        }}
-                      >
-                        {(field) => {
-                          const showError =
-                            field.state.meta.isTouched && field.state.meta.isDirty
-                          const err = showError ? field.state.meta.errors[0] : undefined
-                          return (
-                            <Field
-                              label="Telegram-канал команды"
-                              error={err}
-                              hint={err ? undefined : 'Опционально. Канал для общения команды.'}
-                            >
-                              <div className="relative">
-                                <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 text-xs text-muted-foreground">
-                                  <Send className="h-3.5 w-3.5" />
-                                  t.me/
-                                </span>
-                                <Input
-                                  placeholder="team_channel"
+                      {/* Drop role - phase 1 (AC3): two-option team picker.
+                          - CREATE_NEW (default): legacy senior-team flow.
+                          - JOIN_DROP_TEAM: pick a vacant drop-team. HR /
+                            accountant / channel sourced from that team. */}
+                      {isCreate && (
+                        <form.Field name="teamMode">
+                          {(field) => (
+                            <Field label="Тип команды" required>
+                              <RadioGroup
+                                value={field.state.value}
+                                onValueChange={(v) => field.handleChange(v as TeamMode)}
+                                className="grid gap-2"
+                                data-testid="user-dialog-team-mode"
+                              >
+                                <label
                                   className={cn(
-                                    'pl-16',
-                                    err && 'border-destructive focus-visible:ring-destructive/30',
+                                    'flex items-start gap-2 rounded-md border px-3 py-2 text-xs cursor-pointer transition-colors',
+                                    field.state.value === 'CREATE_NEW'
+                                      ? 'border-primary/50 bg-primary/5'
+                                      : 'border-input hover:bg-muted/40',
                                   )}
-                                  value={field.state.value}
-                                  onChange={(e) => field.handleChange(e.target.value)}
-                                  onBlur={field.handleBlur}
-                                  autoComplete="off"
-                                  data-testid="user-dialog-team-telegram-channel"
-                                />
-                              </div>
+                                >
+                                  <RadioGroupItem
+                                    value="CREATE_NEW"
+                                    className="mt-0.5"
+                                    data-testid="user-dialog-team-mode-create-new"
+                                  />
+                                  <div className="flex-1">
+                                    <div className="font-medium inline-flex items-center gap-1">
+                                      <Sparkles className="h-3 w-3" />
+                                      Создать свою команду
+                                    </div>
+                                    <p className="text-muted-foreground mt-0.5">
+                                      Новая команда синьора. Выберите состав ниже.
+                                    </p>
+                                  </div>
+                                </label>
+                                <label
+                                  className={cn(
+                                    'flex items-start gap-2 rounded-md border px-3 py-2 text-xs cursor-pointer transition-colors',
+                                    field.state.value === 'JOIN_DROP_TEAM'
+                                      ? 'border-primary/50 bg-primary/5'
+                                      : 'border-input hover:bg-muted/40',
+                                    vacantDropTeams.length === 0 && 'opacity-60',
+                                  )}
+                                >
+                                  <RadioGroupItem
+                                    value="JOIN_DROP_TEAM"
+                                    className="mt-0.5"
+                                    disabled={vacantDropTeams.length === 0}
+                                    data-testid="user-dialog-team-mode-join-drop"
+                                  />
+                                  <div className="flex-1">
+                                    <div className="font-medium inline-flex items-center gap-1">
+                                      <Users className="h-3 w-3" />
+                                      Добавить в команду дропа
+                                    </div>
+                                    <p className="text-muted-foreground mt-0.5">
+                                      {vacantDropTeams.length === 0
+                                        ? 'Нет команд дропа без активного синьора.'
+                                        : `${vacantDropTeams.length} ${
+                                            vacantDropTeams.length === 1
+                                              ? 'команда доступна'
+                                              : 'команд(ы) доступно'
+                                          }.`}
+                                    </p>
+                                  </div>
+                                </label>
+                              </RadioGroup>
                             </Field>
+                          )}
+                        </form.Field>
+                      )}
+
+                      {/* CREATE_NEW branch: legacy HR / accountant / channel pickers. */}
+                      <form.Subscribe selector={(s) => s.values.teamMode}>
+                        {(teamMode) => {
+                          // Edit mode: teamMode field doesn't apply — keep
+                          // the original SENIOR edit form unchanged (renders
+                          // the legacy CREATE_NEW pickers so admin can swap
+                          // HR/accountant for the existing team).
+                          if (isEdit || teamMode === 'CREATE_NEW') return (
+                            <>
+                              {/* ut-16: HR as chips + searchable add popover. */}
+                              <HrChipsField
+                                hrUsers={hrUsers}
+                                selectedIds={selectedHrIds}
+                                onChange={setSelectedHrIds}
+                                required={isCreate}
+                                onlyHr={onlyHr}
+                              />
+
+                              {/* ut-16: Accountant as a chip in the same visual language. */}
+                              <AccountantChipField
+                                accountantUsers={accountantUsers}
+                                selectedId={selectedAccountantId}
+                                onChange={setSelectedAccountantId}
+                                onlyAccountant={onlyAccountant}
+                              />
+                            </>
+                          )
+                          // JOIN_DROP_TEAM branch: pick the drop-team to attach to.
+                          // HR/accountant are inherited from that team — no local
+                          // pickers, no channel input.
+                          return (
+                            <form.Field
+                              name="dropTeamId"
+                              validators={{
+                                onBlur: ({ value, fieldApi }) => {
+                                  if (!fieldApi.state.meta.isDirty) return undefined
+                                  if (!value) return 'Выберите команду дропа'
+                                  return undefined
+                                },
+                              }}
+                            >
+                              {(field) => {
+                                const showError =
+                                  field.state.meta.isTouched && field.state.meta.isDirty
+                                const err = showError ? field.state.meta.errors[0] : undefined
+                                return (
+                                  <Field label="Команда дропа" error={err} required>
+                                    {vacantDropTeams.length === 0 ? (
+                                      <p className="text-xs text-muted-foreground italic">
+                                        Нет команд дропа без активного синьора. Создайте дропа
+                                        или выберите «Создать свою команду».
+                                      </p>
+                                    ) : (
+                                      <Select
+                                        value={field.state.value || ''}
+                                        onValueChange={(v) => field.handleChange(v)}
+                                      >
+                                        <SelectTrigger data-testid="user-dialog-drop-team-trigger">
+                                          <SelectValue placeholder="— выберите команду дропа —" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {vacantDropTeams.map((t) => {
+                                            const drop = t.members.find(
+                                              (m) => m.role === 'DROP' && !m.leftAt,
+                                            )
+                                            const hrs = t.members
+                                              .filter((m) => m.role === 'HR' && !m.leftAt)
+                                              .map((m) => m.displayName)
+                                              .join(', ')
+                                            return (
+                                              <SelectItem key={t.id} value={t.id}>
+                                                <div className="flex flex-col items-start">
+                                                  <span className="font-medium">{t.name}</span>
+                                                  <span className="text-[10px] text-muted-foreground">
+                                                    {drop?.displayName ?? 'Дроп не назначен'}
+                                                    {hrs ? ` · HR: ${hrs}` : ''}
+                                                  </span>
+                                                </div>
+                                              </SelectItem>
+                                            )
+                                          })}
+                                        </SelectContent>
+                                      </Select>
+                                    )}
+                                  </Field>
+                                )
+                              }}
+                            </form.Field>
                           )
                         }}
-                      </form.Field>
+                      </form.Subscribe>
+
+                      {/* ut-17: optional team Telegram channel.
+                          Hidden when joining an existing drop-team (channel
+                          inherited from that team). */}
+                      <form.Subscribe selector={(s) => s.values.teamMode}>
+                        {(teamMode) =>
+                          isEdit || teamMode === 'CREATE_NEW' ? (
+                            <form.Field
+                              name="teamTelegramChannel"
+                              validators={{
+                                onBlur: ({ value, fieldApi }) => {
+                                  if (!fieldApi.state.meta.isDirty) return undefined
+                                  const trimmed = value.trim()
+                                  if (!trimmed) return undefined
+                                  return /^@?[a-zA-Z0-9_]{5,32}$/.test(trimmed)
+                                    ? undefined
+                                    : 'Некорректный канал (5–32 латинских символов или _, опц. @)'
+                                },
+                              }}
+                            >
+                              {(field) => {
+                                const showError =
+                                  field.state.meta.isTouched && field.state.meta.isDirty
+                                const err = showError ? field.state.meta.errors[0] : undefined
+                                return (
+                                  <Field
+                                    label="Telegram-канал команды"
+                                    error={err}
+                                    hint={err ? undefined : 'Опционально. Канал для общения команды.'}
+                                  >
+                                    <div className="relative">
+                                      <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                        <Send className="h-3.5 w-3.5" />
+                                        t.me/
+                                      </span>
+                                      <Input
+                                        placeholder="team_channel"
+                                        className={cn(
+                                          'pl-16',
+                                          err && 'border-destructive focus-visible:ring-destructive/30',
+                                        )}
+                                        value={field.state.value}
+                                        onChange={(e) => field.handleChange(e.target.value)}
+                                        onBlur={field.handleBlur}
+                                        autoComplete="off"
+                                        data-testid="user-dialog-team-telegram-channel"
+                                      />
+                                    </div>
+                                  </Field>
+                                )
+                              }}
+                            </form.Field>
+                          ) : null
+                        }
+                      </form.Subscribe>
                     </Section>
                   )
                 }

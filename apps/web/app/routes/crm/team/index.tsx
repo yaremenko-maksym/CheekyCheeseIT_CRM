@@ -702,9 +702,19 @@ function TeamPage() {
 
                 {/* Name + HRs */}
                 <div className="relative z-20 min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold group-hover:text-primary transition-colors">
-                    {team.name}
-                  </p>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <p className="truncate text-sm font-semibold group-hover:text-primary transition-colors">
+                      {team.name}
+                    </p>
+                    {/* Drop role - phase 1 (AC4): badge surfaces drop-teams
+                        on the team list. Senior-teams render no badge so
+                        existing visuals are unchanged. */}
+                    {team.type === 'DROP' && (
+                      <Badge variant="drop" className="text-[10px] shrink-0">
+                        DROP
+                      </Badge>
+                    )}
+                  </div>
                   <p className="truncate text-xs text-muted-foreground overflow-hidden whitespace-nowrap">
                     HR: {hrMembers.map((m) => m.displayName).join(', ') || 'Без HR'}
                   </p>
