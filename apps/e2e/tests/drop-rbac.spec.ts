@@ -72,20 +72,32 @@ test.describe('Drop RBAC visibility — AC8', () => {
     await expect(main.getByRole('button', { name: /^Собеседования$/ })).toHaveCount(0)
   })
 
-  test('DROP attempt to hit /crm/finance does not redirect to login', async ({ asDrop: page }) => {
-    // Spec §4 says DROP can see Finance. The current frontend `useRoleGuard`
-    // on /crm/finance may push DROP back to /crm/profile (drop is not yet
-    // in the role-guard whitelist) — that's a non-blocking front-end gap
-    // tracked separately. What we MUST guarantee here: hitting /crm/finance
-    // never logs the user out / redirects to /login.
+  test('DROP can open /crm/finance and stays on the finance page', async ({ asDrop: page }) => {
+    // Spec §4: DROP sees Finance. `useRoleGuard` on /crm/finance now
+    // includes DROP, so the page renders the standard finance shell with
+    // the «Финансы» header and the transactions table (may be empty).
     await page.goto('/crm/finance')
-    await expect(page).not.toHaveURL(/\/login/, { timeout: 8_000 })
-    await expect(page).toHaveURL(/\/crm/, { timeout: 8_000 })
+    await expect(page).toHaveURL(/\/crm\/finance/, { timeout: 8_000 })
+    await expect(page).not.toHaveURL(/\/login/)
+    await expect(page).not.toHaveURL(/\/crm\/profile/)
+    const main = page.locator('main')
+    await expect(main.getByRole('heading', { level: 1, name: 'Финансы' })).toBeVisible({
+      timeout: 8_000,
+    })
   })
 
-  test('DROP attempt to hit /crm/team does not redirect to login', async ({ asDrop: page }) => {
+  test('DROP can open /crm/team and stays on the team page', async ({ asDrop: page }) => {
+    // Spec §4: DROP sees Team. `useRoleGuard` on /crm/team now includes
+    // DROP so the list renders (the backend filters teams to the DROP's
+    // own one — the mock returns the senior fixture which is plenty for
+    // the route-guard sanity check).
     await page.goto('/crm/team')
-    await expect(page).not.toHaveURL(/\/login/, { timeout: 8_000 })
-    await expect(page).toHaveURL(/\/crm/, { timeout: 8_000 })
+    await expect(page).toHaveURL(/\/crm\/team/, { timeout: 8_000 })
+    await expect(page).not.toHaveURL(/\/login/)
+    await expect(page).not.toHaveURL(/\/crm\/profile/)
+    const main = page.locator('main')
+    await expect(main.getByRole('heading', { level: 1, name: 'Команда' })).toBeVisible({
+      timeout: 8_000,
+    })
   })
 })

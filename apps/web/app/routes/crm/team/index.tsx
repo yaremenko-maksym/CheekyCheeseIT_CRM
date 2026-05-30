@@ -68,7 +68,14 @@ const item = {
   show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.25, 0.1, 0.25, 1] as const } },
 }
 
-type UserOption = { id: string; displayName: string; email: string; role: string; avatarUrl: string | null; avatarDocumentId: string | null }
+type UserOption = {
+  id: string
+  displayName: string
+  email: string
+  role: string
+  avatarUrl: string | null
+  avatarDocumentId: string | null
+}
 
 async function fetchTeams(archivedQuery: '' | 'true' | 'all' = ''): Promise<TeamDto[]> {
   const res = await api.get<TeamDto[]>(`/teams${archivedQuery ? `?archived=${archivedQuery}` : ''}`)
@@ -235,7 +242,9 @@ function HrCreateSeniorDialog({
               }}
             >
               {(field) => {
-                const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined
+                const err = field.state.meta.isTouched
+                  ? (field.state.meta.errors[0] as string | undefined)
+                  : undefined
                 return (
                   <Field label="Email" error={err} required>
                     <Input
@@ -262,7 +271,9 @@ function HrCreateSeniorDialog({
               }}
             >
               {(field) => {
-                const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined
+                const err = field.state.meta.isTouched
+                  ? (field.state.meta.errors[0] as string | undefined)
+                  : undefined
                 return (
                   <Field label="Имя и фамилия" error={err} required>
                     <Input
@@ -303,7 +314,9 @@ function HrCreateSeniorDialog({
               }}
             >
               {(field) => {
-                const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined
+                const err = field.state.meta.isTouched
+                  ? (field.state.meta.errors[0] as string | undefined)
+                  : undefined
                 return (
                   <Field label="Telegram" error={err}>
                     <Input
@@ -333,7 +346,9 @@ function HrCreateSeniorDialog({
               }}
             >
               {(field) => {
-                const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined
+                const err = field.state.meta.isTouched
+                  ? (field.state.meta.errors[0] as string | undefined)
+                  : undefined
                 return (
                   <Field label="Телефон" error={err}>
                     <PhoneInput
@@ -364,7 +379,9 @@ function HrCreateSeniorDialog({
                 {(field) => {
                   // ut-31: value is SENIOR's share (default 26 → 74% company / 26% senior).
                   const val = field.state.value ?? 26
-                  const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined
+                  const err = field.state.meta.isTouched
+                    ? (field.state.meta.errors[0] as string | undefined)
+                    : undefined
                   return (
                     <Field label="Доля синьора (%)" error={err} required>
                       <ShareSlider
@@ -404,7 +421,9 @@ function HrCreateSeniorDialog({
                     </SelectTrigger>
                     <SelectContent>
                       {accountantUsers.map((u) => (
-                        <SelectItem key={u.id} value={u.id}>{u.displayName}</SelectItem>
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.displayName}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -414,7 +433,9 @@ function HrCreateSeniorDialog({
           </div>
         </CrmDialogBody>
         <CrmDialogFooter>
-          <Button variant="ghost" onClick={handleClose}>Отмена</Button>
+          <Button variant="ghost" onClick={handleClose}>
+            Отмена
+          </Button>
           <Button onClick={() => void form.handleSubmit()} disabled={mutation.isPending}>
             {mutation.isPending ? 'Создание...' : 'Создать'}
           </Button>
@@ -427,7 +448,7 @@ function HrCreateSeniorDialog({
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 function TeamPage() {
-  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'])
+  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
   const { user } = useAuth()
   const navigate = useNavigate()
   const routeSearch = Route.useSearch()
@@ -461,7 +482,7 @@ function TeamPage() {
   // Auto-redirect for SENIOR and JUNIOR users who have only one team
   useEffect(() => {
     if (!teams || isLoading || !user) return
-    
+
     if (user.role === 'SENIOR' || user.role === 'JUNIOR') {
       if (teams.length === 1 && teams[0]) {
         navigate({ to: '/crm/team/$teamId', params: { teamId: teams[0].id } })
@@ -504,12 +525,16 @@ function TeamPage() {
       if (sortBy === 'projects') {
         const aProjects = projects
           ? projects.filter(
-              (p) => p.archivedAt === null && a.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
+              (p) =>
+                p.archivedAt === null &&
+                a.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
             ).length
           : 0
         const bProjects = projects
           ? projects.filter(
-              (p) => p.archivedAt === null && b.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
+              (p) =>
+                p.archivedAt === null &&
+                b.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
             ).length
           : 0
         return bProjects - aProjects
@@ -638,133 +663,142 @@ function TeamPage() {
         animate="show"
       >
         {filteredTeams.length === 0 && (teams?.length ?? 0) > 0 && (
-          <p className="py-8 text-center text-sm text-muted-foreground">
-            Ничего не найдено
-          </p>
+          <p className="py-8 text-center text-sm text-muted-foreground">Ничего не найдено</p>
         )}
         <AnimatePresence mode="popLayout" initial={false}>
-        {filteredTeams.map((team) => {
-          // ut-39a: per-card management controls removed — all team CRUD is
-          // performed from the detail page header. No need for per-team
-          // RBAC computation here.
-          const hrMembers = team.members.filter((m) => m.role === 'HR')
-          const activeProjects = projects
-            ? projects.filter(
-                (p) => p.archivedAt === null && team.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
-              ).length
-            : 0
-          const isArchived = !!team.archivedAt
+          {filteredTeams.map((team) => {
+            // ut-39a: per-card management controls removed — all team CRUD is
+            // performed from the detail page header. No need for per-team
+            // RBAC computation here.
+            const hrMembers = team.members.filter((m) => m.role === 'HR')
+            const activeProjects = projects
+              ? projects.filter(
+                  (p) =>
+                    p.archivedAt === null &&
+                    team.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
+                ).length
+              : 0
+            const isArchived = !!team.archivedAt
 
-          return (
-            <motion.div
-              key={team.id}
-              variants={item}
-              layout="position"
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.08, ease: 'easeOut' }}
-            >
-              <div
-                data-testid={`team-card-${team.id}`}
-                data-archived={isArchived ? 'true' : 'false'}
-                className={cn(
-                  'group relative flex h-14 items-center gap-3 rounded-lg border border-border/60 bg-card/50 px-3 transition-all duration-200 hover:border-primary/30 hover:bg-card cursor-pointer',
-                  isArchived && 'opacity-60',
-                )}
-                onClick={() => navigate({ to: '/crm/team/$teamId', params: { teamId: team.id } })}
+            return (
+              <motion.div
+                key={team.id}
+                variants={item}
+                layout="position"
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.08, ease: 'easeOut' }}
               >
-                <Link
-                  to="/crm/team/$teamId"
-                  params={{ teamId: team.id }}
-                  className="absolute inset-0 z-10"
-                  title={`Перейти до команди ${team.name}`}
-                />
-
-                {/* Avatars */}
-                <div className="flex shrink-0 -space-x-2 relative z-20">
-                  {team.members.slice(0, 4).map((member, index) => (
-                    <Avatar
-                      key={member.id}
-                      className="h-7 w-7 ring-2 ring-background bg-muted"
-                      style={{ zIndex: 4 - index }}
-                    >
-                      {member.avatarUrl && <AvatarImage src={member.avatarUrl} alt={member.displayName} />}
-                      <AvatarFallback className="bg-muted text-[10px]">{getInitials(member.displayName)}</AvatarFallback>
-                    </Avatar>
-                  ))}
-                  {team.members.length > 4 && (
-                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted ring-2 ring-background">
-                      <span className="text-[9px] font-medium text-muted-foreground">
-                        +{team.members.length - 4}
-                      </span>
-                    </div>
+                <div
+                  data-testid={`team-card-${team.id}`}
+                  data-archived={isArchived ? 'true' : 'false'}
+                  className={cn(
+                    'group relative flex h-14 items-center gap-3 rounded-lg border border-border/60 bg-card/50 px-3 transition-all duration-200 hover:border-primary/30 hover:bg-card cursor-pointer',
+                    isArchived && 'opacity-60',
                   )}
-                </div>
+                  onClick={() => navigate({ to: '/crm/team/$teamId', params: { teamId: team.id } })}
+                >
+                  <Link
+                    to="/crm/team/$teamId"
+                    params={{ teamId: team.id }}
+                    className="absolute inset-0 z-10"
+                    title={`Перейти до команди ${team.name}`}
+                  />
 
-                {/* Name + HRs */}
-                <div className="relative z-20 min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <p className="truncate text-sm font-semibold group-hover:text-primary transition-colors">
-                      {team.name}
-                    </p>
-                    {/* Drop role - phase 1 (AC4): badge surfaces drop-teams
-                        on the team list. Senior-teams render no badge so
-                        existing visuals are unchanged. */}
-                    {team.type === 'DROP' && (
-                      <Badge variant="drop" className="text-[10px] shrink-0">
-                        DROP
-                      </Badge>
+                  {/* Avatars */}
+                  <div className="flex shrink-0 -space-x-2 relative z-20">
+                    {team.members.slice(0, 4).map((member, index) => (
+                      <Avatar
+                        key={member.id}
+                        className="h-7 w-7 ring-2 ring-background bg-muted"
+                        style={{ zIndex: 4 - index }}
+                      >
+                        {member.avatarUrl && (
+                          <AvatarImage src={member.avatarUrl} alt={member.displayName} />
+                        )}
+                        <AvatarFallback className="bg-muted text-[10px]">
+                          {getInitials(member.displayName)}
+                        </AvatarFallback>
+                      </Avatar>
+                    ))}
+                    {team.members.length > 4 && (
+                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted ring-2 ring-background">
+                        <span className="text-[9px] font-medium text-muted-foreground">
+                          +{team.members.length - 4}
+                        </span>
+                      </div>
                     )}
                   </div>
-                  <p className="truncate text-xs text-muted-foreground overflow-hidden whitespace-nowrap">
-                    HR: {hrMembers.map((m) => m.displayName).join(', ') || 'Без HR'}
-                  </p>
-                </div>
 
-                {/* Pills */}
-                <div className="relative z-20 flex shrink-0 items-center gap-2">
-                  {isArchived && (
+                  {/* Name + HRs */}
+                  <div className="relative z-20 min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <p className="truncate text-sm font-semibold group-hover:text-primary transition-colors">
+                        {team.name}
+                      </p>
+                      {/* Drop role - phase 1 (AC4): badge surfaces drop-teams
+                        on the team list. Senior-teams render no badge so
+                        existing visuals are unchanged. */}
+                      {team.type === 'DROP' && (
+                        <Badge variant="drop" className="text-[10px] shrink-0">
+                          DROP
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="truncate text-xs text-muted-foreground overflow-hidden whitespace-nowrap">
+                      HR: {hrMembers.map((m) => m.displayName).join(', ') || 'Без HR'}
+                    </p>
+                  </div>
+
+                  {/* Pills */}
+                  <div className="relative z-20 flex shrink-0 items-center gap-2">
+                    {isArchived && (
+                      <Badge
+                        variant="outline"
+                        className="border-amber-500/30 bg-amber-500/10 text-amber-500 text-[11px]"
+                      >
+                        В архиве
+                      </Badge>
+                    )}
+                    {team.telegram && (
+                      <a
+                        href={team.telegram}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/30 px-2.5 py-1 text-xs font-medium text-blue-500 hover:bg-blue-500/10 transition-colors"
+                      >
+                        <Send className="h-3 w-3" />
+                        Telegram
+                      </a>
+                    )}
+                    <Badge variant="outline" className="text-[11px] tabular-nums">
+                      {team.members.length} уч.
+                    </Badge>
                     <Badge
                       variant="outline"
-                      className="border-amber-500/30 bg-amber-500/10 text-amber-500 text-[11px]"
+                      className={cn(
+                        'text-[11px] tabular-nums',
+                        activeProjects > 0
+                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                          : 'text-muted-foreground',
+                      )}
                     >
-                      В архиве
+                      {activeProjects}{' '}
+                      {activeProjects === 1
+                        ? 'проект'
+                        : activeProjects < 5
+                          ? 'проекта'
+                          : 'проектов'}
                     </Badge>
-                  )}
-                  {team.telegram && (
-                    <a
-                      href={team.telegram}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={e => e.stopPropagation()}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/30 px-2.5 py-1 text-xs font-medium text-blue-500 hover:bg-blue-500/10 transition-colors"
-                    >
-                      <Send className="h-3 w-3" />
-                      Telegram
-                    </a>
-                  )}
-                  <Badge variant="outline" className="text-[11px] tabular-nums">
-                    {team.members.length} уч.
-                  </Badge>
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      'text-[11px] tabular-nums',
-                      activeProjects > 0
-                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
-                        : 'text-muted-foreground',
-                    )}
-                  >
-                    {activeProjects} {activeProjects === 1 ? 'проект' : activeProjects < 5 ? 'проекта' : 'проектов'}
-                  </Badge>
-                </div>
+                  </div>
 
-                {/* ut-39a: rename / unarchive / admin actions removed from
+                  {/* ut-39a: rename / unarchive / admin actions removed from
                     list cards (matches ut-38 project pattern). All team
                     management lives on the detail page header. */}
-              </div>
-            </motion.div>
-          )
-        })}
+                </div>
+              </motion.div>
+            )
+          })}
         </AnimatePresence>
       </motion.div>
 
