@@ -37,7 +37,7 @@ export const projectMemberSchema = z.object({
   avatarUrl: z.string().url().nullable(),
   /** FK → documents.id for AVATAR uploads (null when user uses fallback). */
   avatarDocumentId: z.string().uuid().nullable(),
-  role: z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT']),
+  role: z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']),
   joinedAt: z.string().datetime(),
   leftAt: z.string().datetime().nullable(),
 })
@@ -73,6 +73,12 @@ export const projectSchema = z.object({
   startDate: z.string().datetime(),
   seniorId: z.string().uuid(),
   seniorName: z.string(),
+  /**
+   * Drop-only: when set, the project's income flows through the DROP user
+   * and the finance distribution includes the drop's share (Phase 2).
+   * `null` = legacy senior-project (no drop) — finance behavior unchanged.
+   */
+  dropId: z.string().uuid().nullable(),
   rate: z.number(),
   currency: currencySchema,
   // Per-project SENIOR share % override (0-100). NULL = use senior's
@@ -171,7 +177,7 @@ export const archiveImpactSchema = z.union([
   // User impact
   z.object({
     type: z.literal('user'),
-    role: z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT']),
+    role: z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']),
     isPaired: z.boolean().optional(),
     teamName: z.string().nullable().optional(),
     teamsCount: z.number().int().nonnegative().optional(),

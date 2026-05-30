@@ -22,7 +22,7 @@ export const sessionUserSchema = z.object({
    * download URL via the documents hooks).
    */
   avatarDocumentId: z.string().uuid().nullable().optional(),
-  role: z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT']),
+  role: z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']),
   /**
    * Global default SENIOR share % (0-100). Used by the UI to render
    * "default X%" hints in finance widgets without an extra request.

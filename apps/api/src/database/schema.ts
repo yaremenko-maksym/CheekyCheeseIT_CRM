@@ -29,7 +29,14 @@ const inet = customType<{ data: string }>({
 // Enums
 // ---------------------------------------------------------------------------
 
-export const roleEnum = pgEnum('role', ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'])
+export const roleEnum = pgEnum('role', ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
+
+/**
+ * Discriminator on `teams.type` — distinguishes the legacy senior-team
+ * (`'SENIOR'`, default) from the new drop-team (`'DROP'`). Drop role -
+ * phase 1.
+ */
+export const teamTypeEnum = pgEnum('team_type', ['SENIOR', 'DROP'])
 
 export const currencyEnum = pgEnum('currency', ['USDT', 'USD', 'EUR', 'UAH'])
 
@@ -122,6 +129,9 @@ export const users = pgTable('users', {
   bankUahBankName: text('bank_uah_bank_name'),
   // For SENIOR and ADMIN: percentage they keep from project income (0-100)
   seniorSharePercent: integer('senior_share_percent').notNull().default(26),
+  // For DROP: percentage the drop keeps from project income (0-100, default 5).
+  // Nullable for non-DROP roles. Drop role - phase 1.
+  dropSharePercent: integer('drop_share_percent').default(5),
   // For JUNIOR/HR/ACCOUNTANT: fixed monthly salary (currency set separately)
   monthlySalary: numeric('monthly_salary', { precision: 10, scale: 2 }),
   salaryCurrency: currencyEnum('salary_currency').default('USD'),
@@ -140,6 +150,10 @@ export const users = pgTable('users', {
 export const teams = pgTable('teams', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),
+  // Discriminator: 'SENIOR' = legacy senior-team (default), 'DROP' = drop-team.
+  // Mapping logic in TeamsService.mapTeam early-returns to mapDropTeam when
+  // type='DROP'. Drop role - phase 1.
+  type: teamTypeEnum('type').notNull().default('SENIOR'),
   telegram: varchar('telegram', { length: 500 }),
   // Optional Telegram channel handle (5–32 latin chars / digits / _, optional @).
   // Edited from the SENIOR's Edit dialog and propagates here via UsersService.adminUpdateUser.
@@ -178,6 +192,13 @@ export const projects = pgTable('projects', {
   seniorId: uuid('senior_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
+  // Drop-only: when set, the project's income flows through this DROP user
+  // and the finance distribution (Phase 2) includes the drop's share.
+  // `null` = legacy senior-project — no change to finance behavior.
+  // ON DELETE RESTRICT to keep drop-projects from silently losing their
+  // drop reference if a DROP user row were ever hard-deleted (we soft-delete
+  // via archivedAt). Drop role - phase 1.
+  dropId: uuid('drop_id').references(() => users.id, { onDelete: 'restrict' }),
   rate: integer('rate').notNull(),
   currency: currencyEnum().notNull().default('USDT'),
   // FK to documents (category = LOGO). When set, render priority is:
@@ -556,7 +577,8 @@ export const projectAuditLog = pgTable(
 
 export const usersRelations = relations(users, ({ many }) => ({
   teamMemberships: many(teamMembers),
-  projects: many(projects),
+  projects: many(projects, { relationName: 'projectSenior' }),
+  dropProjects: many(projects, { relationName: 'projectDrop' }),
   projectMemberships: many(projectMembers),
   seniorInterviews: many(interviews, { relationName: 'seniorInterviews' }),
   hrInterviews: many(interviews, { relationName: 'hrInterviews' }),
@@ -579,7 +601,16 @@ export const teamMembersRelations = relations(teamMembers, ({ one }) => ({
 }))
 
 export const projectsRelations = relations(projects, ({ one, many }) => ({
-  senior: one(users, { fields: [projects.seniorId], references: [users.id] }),
+  senior: one(users, {
+    fields: [projects.seniorId],
+    references: [users.id],
+    relationName: 'projectSenior',
+  }),
+  drop: one(users, {
+    fields: [projects.dropId],
+    references: [users.id],
+    relationName: 'projectDrop',
+  }),
   members: many(projectMembers),
   transactions: many(transactions),
   financeSettings: one(projectFinanceSettings),
