@@ -30,6 +30,7 @@ import {
   type SortKey,
 } from '@/components/users/constants'
 import { UnarchiveButton } from '@/components/users/UnarchiveButton'
+import { useRoleGuard } from '@/hooks/use-role-guard'
 
 // `archived` may arrive as a query-string ("true"/"false") for deep-links —
 // `z.coerce.boolean()` accepts both `boolean` and string forms safely.
@@ -50,6 +51,11 @@ async function fetchUsers(archivedQuery: '' | 'true' | 'all'): Promise<UserProfi
 }
 
 function UsersPage() {
+  // Drop role - phase 1 fix (AC4): DROP must not access /crm/users.
+  // /api/users now returns 403 for DROP — without a route guard the page
+  // would render the «Доступ только для администратора» panel since DROP is
+  // not ADMIN, but a direct redirect is cleaner and matches the spec.
+  useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'])
   const { user: me } = useAuth()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: '/crm/users' })

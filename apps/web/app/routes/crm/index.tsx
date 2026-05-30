@@ -1,11 +1,13 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
 import { BarChart3, Briefcase, Clock, TrendingUp, Users } from 'lucide-react'
+import { useEffect } from 'react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useAuth } from '@/context/auth'
 
 export const Route = createFileRoute('/crm/')({
   component: CrmDashboard,
@@ -37,6 +39,18 @@ const item = {
 }
 
 function CrmDashboard() {
+  // Drop role - phase 1 fix (AC5): /crm root for DROP → /crm/profile.
+  // DROP has no Dashboard placeholder by design (sidebar hides the link too);
+  // the index route would otherwise render this legacy placeholder.
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  useEffect(() => {
+    if (user?.role === 'DROP') {
+      void navigate({ to: '/crm/profile', replace: true })
+    }
+  }, [user?.role, navigate])
+  if (user?.role === 'DROP') return null
+
   return (
     <div className="space-y-6">
       {/* Page header */}

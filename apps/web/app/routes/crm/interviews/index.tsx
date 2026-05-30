@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { RejoinTeamDialog } from '@/components/users/RejoinTeamDialog'
 import { useActiveTeam } from '@/hooks/use-active-team'
+import { useRoleGuard } from '@/hooks/use-role-guard'
 import { UsersRound } from 'lucide-react'
 import { ACTIVE_STAGES, ALL_STAGES, TERMINAL_STAGES } from './constants'
 import { InterviewCardStatic, KanbanColumn } from './components/KanbanColumn'
@@ -50,6 +51,10 @@ export const Route = createFileRoute('/crm/interviews/')({
 })
 
 function InterviewsPage() {
+  // Drop role - phase 1 fix (AC4): DROP must not access /crm/interviews —
+  // sidebar already hides the link, but a direct URL navigation should also
+  // redirect away. Mirrors the guard pattern used by /crm/projects.
+  useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'])
   const { user } = useAuth()
   const queryClient = useQueryClient()
 

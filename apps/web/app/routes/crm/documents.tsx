@@ -58,6 +58,7 @@ import {
 import { Label } from '@/components/ui/label'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import { useDocuments } from '@/hooks/use-documents'
+import { useRoleGuard } from '@/hooks/use-role-guard'
 import { DocumentList } from '@/components/documents/document-list'
 import { DocumentDetailDialog } from '@/components/documents/document-detail-dialog'
 import { UploadDocumentDialog } from '@/components/documents/upload-document-dialog'
@@ -144,6 +145,10 @@ function canSeeOwnerFilter(role: Role): boolean {
 // ---------------------------------------------------------------------------
 
 function DocumentsPage() {
+  // Drop role - phase 1 fix (AC4): DROP must not access /crm/documents in
+  // Phase 1 (drop document UX ships later). Sidebar already hides the link;
+  // route guard catches direct URL navigation.
+  useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'])
   const { user } = useAuth()
   if (!user) return null
 
