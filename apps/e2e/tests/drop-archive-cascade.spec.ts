@@ -1,18 +1,24 @@
 /**
- * drop-archive-cascade.spec.ts — Drop role - phase 1 (AC6).
+ * drop-archive-cascade.spec.ts — Drop role - phase 1 (AC6) + round-2
+ * UI smoke layer.
  *
- * Verifies the archive-cascade flow for drop entities:
- *   - Archiving a drop-team triggers the archive confirm dialog with
- *     copy that warns about projects being archived and the senior
- *     getting detached (`ArchiveConfirmDialog` shows team-level wording).
- *   - The ADMIN-driven archive PATCH/DELETE actually fires through the
- *     drop-team URL — covers the contract change in `teams.controller`.
- *   - Archiving a DROP user via the users list mentions a separate
- *     impact (drop-team + projects archived; senior detached).
+ * This is the **mock-based UI smoke** for the drop archive flow. It runs
+ * fast (no real backend, no DB) and gates only on:
+ *   - Archive button visibility per role (ADMIN sees it; SENIOR doesn't).
+ *   - The archive confirm dialog mounts with the right testids.
+ *   - The cancel button leaves the page state untouched.
  *
- * Mock-based — `/teams/<id>/archive-impact` (if used) is provided via
- * generic mocks; the controller-level POST/PATCH is intercepted by
- * `mockAuthAs` regex.
+ * The **real backend integration** — including the actual archive cascade
+ * (drop user archived, team archived, senior detached, projects archived)
+ * — is covered by `drop-archive-real.spec.ts` and
+ * `drop-archive-user-real.spec.ts`. Those specs hit live `/api/users/drops`
+ * and `/api/teams/:id`, the only way to catch backend regressions like
+ * the one fixed in PR #63 where archiving a drop-team didn't archive the
+ * DROP user.
+ *
+ * Keep this spec lean — duplicating real-API assertions here would just
+ * mock them away. If you find yourself adding more mocked DB assertions,
+ * move them to the real-API spec instead.
  */
 
 import { test, expect, USERS, TEAMS, DROP_TEAM } from './fixtures'

@@ -1004,3 +1004,246 @@ export async function waitForPageReady(page: Page) {
 export async function dismissDialog(page: Page) {
   await page.getByRole('button', { name: 'Отмена' }).click()
 }
+
+// ---------------------------------------------------------------------------
+// Real-API helpers (task-expand-drop-e2e-coverage)
+// ---------------------------------------------------------------------------
+//
+// These helpers hit the *real* NestJS backend (no Playwright route mocks).
+// Used by `drop-archive-real.spec.ts` and siblings to exercise the actual
+// `/api/users/drops`, `/api/teams/:id`, etc. — so the test catches backend
+// regressions that mock-based specs silently mask.
+//
+// They expect a running backend at `http://localhost:3001` and the dev seed
+// applied (CI workflow runs `pnpm --filter @crm/api db:migrate && db:seed`
+// before `pnpm --filter @crm/e2e test`). For local runs, `pnpm dev` + dev
+// login work the same way (`auth.controller.devLogin` gates on NODE_ENV).
+//
+// Authentication: `loginViaApi` POSTs to `/api/auth/dev-login` and Playwright's
+// request context shares cookies with the browser, so a subsequent
+// `page.goto('/crm/...')` is authenticated.
+
+/** Backend HTTP origin used by the real-API helpers. */
+const REAL_API_BASE = 'http://localhost:3001'
+
+/**
+ * Seed ADMIN email used by the dev seed. Hardcoded here to keep the
+ * fixtures file self-contained — kept in sync with `apps/api/src/database/seed.ts`.
+ */
+export const SEED_ADMIN_EMAIL = 'yaremenkomaksym99@gmail.com'
+
+/**
+ * Seed JUNIOR/HR/SENIOR/ACCOUNTANT emails used by the dev seed.
+ * Mirror of `SEED_USERS` in `apps/api/src/database/seed.ts`.
+ */
+export const SEED_EMAILS = {
+  admin: 'yaremenkomaksym99@gmail.com',
+  seniorA: 'oleksiy.kovalenko@cheekycheese.dev',
+  seniorB: 'dmytro.marchenko@cheekycheese.dev',
+  juniorA: 'sofia.bondarenko@cheekycheese.dev',
+  juniorB: 'ivan.petrenko@cheekycheese.dev',
+  hrA: 'anna.lysenko@cheekycheese.dev',
+  hrB: 'kateryna.shevchenko@cheekycheese.dev',
+  accountant: 'mykola.savchenko@cheekycheese.dev',
+} as const
+
+/** A valid USDT ERC-20 address used as required-requisite payload filler. */
+export const VALID_USDT_WALLET = '0x' + '0'.repeat(40)
+
+/**
+ * Plant a real JWT cookie for the given email via `/api/auth/dev-login`.
+ *
+ * Throws if the backend isn't reachable or rejects the login — real-API
+ * specs must surface that loudly so the suite fails fast instead of
+ * silently running unauthenticated.
+ */
+export async function loginViaApi(page: Page, email: string): Promise<void> {
+  const res = await page.request.post(`${REAL_API_BASE}/api/auth/dev-login`, {
+    data: { email },
+  })
+  if (res.status() !== 200 && res.status() !== 201) {
+    throw new Error(
+      `dev-login failed for ${email}: HTTP ${res.status()} — ${await res.text()}`,
+    )
+  }
+}
+
+/**
+ * Resolve a seed user by email through GET /api/users. Returns `null` if
+ * the user isn't found. Useful when a test needs the seed HR / accountant
+ * UUIDs to build a CreateDropDto payload.
+ */
+export async function findUserByEmailViaApi(
+  page: Page,
+  email: string,
+): Promise<{ id: string; displayName: string; role: string } | null> {
+  const res = await page.request.get(`${REAL_API_BASE}/api/users`)
+  if (res.status() !== 200) return null
+  const users = (await res.json()) as Array<{ id: string; email: string; displayName: string; role: string }>
+  const found = users.find((u) => u.email === email)
+  return found ? { id: found.id, displayName: found.displayName, role: found.role } : null
+}
+
+/**
+ * Create a DROP user + drop-team via POST /api/users/drops.
+ *
+ * Pre-conditions:
+ *   - Caller is logged in as ADMIN via `loginViaApi(page, SEED_EMAILS.admin)`.
+ *   - The HR / accountant referenced by `hrEmails` / `accountantEmail` exist
+ *     in the DB (seed users by default).
+ *
+ * Returns the created drop user + team id. The team is provisioned with
+ * the DROP user as a member; HR/Accountant added per the payload; no
+ * SENIOR attached (use `addSeniorToDropTeamViaAPI` for that).
+ */
+export async function createDropViaAPI(
+  page: Page,
+  opts: {
+    email: string
+    displayName: string
+    hrEmails?: string[]
+    accountantEmail?: string
+    dropSharePercent?: number
+    telegramChannel?: string | null
+  },
+): Promise<{ dropId: string; teamId: string; email: string }> {
+  const hrEmails = opts.hrEmails ?? [SEED_EMAILS.hrA]
+  const accountantEmail = opts.accountantEmail ?? SEED_EMAILS.accountant
+
+  const hrIds: string[] = []
+  for (const e of hrEmails) {
+    const u = await findUserByEmailViaApi(page, e)
+    if (!u) throw new Error(`HR seed user not found: ${e}`)
+    hrIds.push(u.id)
+  }
+  const accountant = await findUserByEmailViaApi(page, accountantEmail)
+  if (!accountant) throw new Error(`Accountant seed user not found: ${accountantEmail}`)
+
+  const payload = {
+    email: opts.email,
+    displayName: opts.displayName,
+    paymentMethod: 'USDT_ERC20' as const,
+    walletUsdtErc20: VALID_USDT_WALLET,
+    hrIds,
+    accountantId: accountant.id,
+    ...(opts.dropSharePercent !== undefined && { dropSharePercent: opts.dropSharePercent }),
+    ...(opts.telegramChannel !== undefined && { telegramChannel: opts.telegramChannel }),
+  }
+
+  const res = await page.request.post(`${REAL_API_BASE}/api/users/drops`, {
+    data: payload,
+  })
+  if (res.status() !== 201 && res.status() !== 200) {
+    throw new Error(
+      `createDropViaAPI failed for ${opts.email}: HTTP ${res.status()} — ${await res.text()}`,
+    )
+  }
+  const body = (await res.json()) as { user: { id: string; email: string }; teamId?: string; team?: { id: string } }
+  // Service returns `{ user, teamId }`; some clients (UserDialog) read
+  // `team.id`. Accept both shapes defensively.
+  const teamId = body.teamId ?? body.team?.id
+  if (!teamId) {
+    throw new Error(`createDropViaAPI response missing teamId/team.id: ${JSON.stringify(body)}`)
+  }
+  return { dropId: body.user.id, teamId, email: body.user.email }
+}
+
+/**
+ * Add a SENIOR to an existing drop-team via POST /api/teams/:id/members.
+ *
+ * Used by AC1 to plant a senior on the team before archiving, so the test
+ * can assert that the senior is *detached* (leftAt set) without being archived.
+ */
+export async function addSeniorToDropTeamViaAPI(
+  page: Page,
+  teamId: string,
+  opts: { seniorEmail?: string } = {},
+): Promise<{ seniorId: string }> {
+  const seniorEmail = opts.seniorEmail ?? SEED_EMAILS.seniorA
+  const senior = await findUserByEmailViaApi(page, seniorEmail)
+  if (!senior) throw new Error(`Senior seed user not found: ${seniorEmail}`)
+  const res = await page.request.post(`${REAL_API_BASE}/api/teams/${teamId}/members`, {
+    data: { userId: senior.id },
+  })
+  if (res.status() !== 201 && res.status() !== 200) {
+    throw new Error(
+      `addSeniorToDropTeamViaAPI failed: HTTP ${res.status()} — ${await res.text()}`,
+    )
+  }
+  return { seniorId: senior.id }
+}
+
+/**
+ * Archive a drop-team via DELETE /api/teams/:id (the contract enforced
+ * by the team-detail UI «Архивировать» button after the round-2 backend
+ * fix). Used by tests that need to skip the UI dialog and just plant
+ * archived state.
+ */
+export async function archiveDropTeamViaAPI(page: Page, teamId: string): Promise<void> {
+  const res = await page.request.delete(`${REAL_API_BASE}/api/teams/${teamId}`)
+  if (res.status() !== 200 && res.status() !== 204) {
+    throw new Error(
+      `archiveDropTeamViaAPI failed for team ${teamId}: HTTP ${res.status()} — ${await res.text()}`,
+    )
+  }
+}
+
+/** Fetch a team by id via GET /api/teams/:id — returns the parsed body. */
+export async function getTeamViaAPI(
+  page: Page,
+  teamId: string,
+): Promise<{ id: string; name: string; type: string; archivedAt: string | null; members: Array<{ userId: string; role: string; leftAt: string | null }> }> {
+  const res = await page.request.get(`${REAL_API_BASE}/api/teams/${teamId}`)
+  if (res.status() !== 200) {
+    throw new Error(`GET /api/teams/${teamId} failed: HTTP ${res.status()} — ${await res.text()}`)
+  }
+  return (await res.json()) as Awaited<ReturnType<typeof getTeamViaAPI>>
+}
+
+/** Fetch a user by id via GET /api/users/:id — returns the user shell. */
+export async function getUserViaAPI(
+  page: Page,
+  userId: string,
+): Promise<{ id: string; email: string; role: string; archivedAt: string | null }> {
+  const res = await page.request.get(`${REAL_API_BASE}/api/users/${userId}`)
+  if (res.status() !== 200) {
+    throw new Error(`GET /api/users/${userId} failed: HTTP ${res.status()} — ${await res.text()}`)
+  }
+  const body = (await res.json()) as { user: { id: string; email: string; role: string; archivedAt: string | null } }
+  return body.user
+}
+
+/**
+ * Fetch projects filtered by `?dropId=` via GET /api/projects (real-API
+ * branch — backend may not expose this exact filter; in that case the
+ * helper falls back to listing all archived projects and filtering by
+ * dropId client-side).
+ */
+export async function getDropProjectsViaAPI(
+  page: Page,
+  dropId: string,
+): Promise<Array<{ id: string; dropId: string | null; archivedAt: string | null }>> {
+  // Round 5: projects list takes `?archived=true|false`. Fetch both and
+  // filter by dropId client-side — the backend doesn't expose a `?dropId`
+  // filter in the public route.
+  const [activeRes, archivedRes] = await Promise.all([
+    page.request.get(`${REAL_API_BASE}/api/projects`),
+    page.request.get(`${REAL_API_BASE}/api/projects?archived=true`),
+  ])
+  const active = activeRes.status() === 200
+    ? ((await activeRes.json()) as Array<{ id: string; dropId: string | null; archivedAt: string | null }>)
+    : []
+  const archived = archivedRes.status() === 200
+    ? ((await archivedRes.json()) as Array<{ id: string; dropId: string | null; archivedAt: string | null }>)
+    : []
+  return [...active, ...archived].filter((p) => p.dropId === dropId)
+}
+
+/**
+ * Cleanup helper — archive the drop (cascade-archives the team + projects)
+ * to leave the DB clean between tests. Idempotent: silently ignores
+ * 4xx errors when the drop is already archived or missing.
+ */
+export async function cleanupDropViaAPI(page: Page, dropId: string): Promise<void> {
+  await page.request.delete(`${REAL_API_BASE}/api/users/drops/${dropId}`).catch(() => undefined)
+}
