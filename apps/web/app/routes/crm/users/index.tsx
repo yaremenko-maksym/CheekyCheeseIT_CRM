@@ -20,6 +20,7 @@ import {
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ArchiveConfirmDialog } from '@/components/users/ArchiveConfirmDialog'
+import { CreateDropDialog } from '@/components/users/CreateDropDialog'
 import { UserDialog } from '@/components/users/UserDialog'
 import { UserRow } from '@/components/users/UserRow'
 import {
@@ -102,6 +103,10 @@ function UsersPageContent({
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [createOpen, setCreateOpen] = useState(false)
   const [createKey, setCreateKey] = useState(0)
+  // Drop role - phase 1 (AC2): dedicated «Создать дропа» dialog opens
+  // a separate flow that hits POST /api/users/drops and provisions the
+  // drop-team atomically. Lives next to the existing «Добавить» button.
+  const [createDropOpen, setCreateDropOpen] = useState(false)
   const [editUser, setEditUser] = useState<UserProfileDto | null>(null)
   const [archiveUser, setArchiveUser] = useState<UserProfileDto | null>(null)
   // ut-44: tri-state filter — local "ACTIVE" / "ALL" plus URL-driven "ARCHIVED".
@@ -214,17 +219,33 @@ function UsersPageContent({
             {currentStatusTab === 'ALL' && ' · все'}
           </p>
         </div>
-        <Button
-          ref={createTriggerRef}
-          onClick={() => {
-            setCreateKey((k) => k + 1)
-            setCreateOpen(true)
-          }}
-          data-testid="users-create-button"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          Добавить
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            ref={createTriggerRef}
+            onClick={() => {
+              setCreateKey((k) => k + 1)
+              setCreateOpen(true)
+            }}
+            data-testid="users-create-button"
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Добавить
+          </Button>
+          {/* Drop role - phase 1 (AC2): side-by-side «Создать дропа» — opens
+              a dedicated dialog hitting POST /api/users/drops. The existing
+              «Добавить» (UserDialog) does NOT change behavior; DROP role is
+              intentionally absent from its role picker (constants
+              CREATE_ALLOWED_ROLES). */}
+          <Button
+            variant="outline"
+            onClick={() => setCreateDropOpen(true)}
+            data-testid="users-create-drop-button"
+            className="gap-1.5"
+          >
+            <Plus className="h-4 w-4" />
+            Создать дропа
+          </Button>
+        </div>
       </motion.div>
 
       {/* ut-44: status tabs row — «Все | Активные | Архив». Replaces the
@@ -402,6 +423,7 @@ function UsersPageContent({
       />
       <UserDialog mode="edit" user={editUser} onClose={() => setEditUser(null)} />
       <ArchiveConfirmDialog user={archiveUser} onClose={() => setArchiveUser(null)} />
+      <CreateDropDialog open={createDropOpen} onClose={() => setCreateDropOpen(false)} />
     </div>
   )
 }
