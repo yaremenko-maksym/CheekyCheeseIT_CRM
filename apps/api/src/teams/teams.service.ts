@@ -729,6 +729,19 @@ export class TeamsService {
       .set({ leftAt: now })
       .where(and(eq(teamMembers.teamId, teamId), isNull(teamMembers.leftAt)))
 
+    // Drop-archive round 2 (B1): archive the DROP user itself — the team
+    // and the drop are a paired entity, mirrored from the SENIOR-team pair
+    // semantics. Senior is intentionally NOT archived (just detached). The
+    // ArchiveConfirmDialog copy in B3 reflects this: "будут архивированы:
+    // профиль дропа, команда…, drop-проекты". Without this update the
+    // dialog promised something the backend wouldn't deliver.
+    if (dropId) {
+      await handle
+        .update(users)
+        .set({ archivedAt: now, updatedAt: now })
+        .where(eq(users.id, dropId))
+    }
+
     await handle.update(teams).set({ archivedAt: now, updatedAt: now }).where(eq(teams.id, teamId))
 
     return { archivedProjects, detachedSeniorId }
