@@ -28,12 +28,11 @@ export type Role = (typeof ROLES)[number]
  * platform has a fixed pool of two admins; new admins must be provisioned
  * via DB seed, not through the UI. Backend mirrors this in POST /users.
  *
- * DROP is also excluded — drops are created through the dedicated
- * «Создать дропа» dialog (CreateDropDialog) → POST /api/users/drops which
- * provisions the drop-team atomically. Letting DROP slip into the generic
- * UserDialog would skip the mandatory team section.
+ * DROP is now allowed — `UserDialog` adapts to expose the drop-share
+ * slider + mandatory team section when DROP is picked, and submits to
+ * `POST /api/users/drops` which provisions the drop-team atomically.
  */
-export const CREATE_ALLOWED_ROLES = ['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'] as const
+export const CREATE_ALLOWED_ROLES = ['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] as const
 export type CreateAllowedRole = (typeof CREATE_ALLOWED_ROLES)[number]
 
 export type SortKey = 'displayName' | 'role' | 'email' | 'createdAt'

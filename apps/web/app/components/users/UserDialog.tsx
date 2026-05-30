@@ -1,15 +1,7 @@
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  Coins,
-  Landmark,
-  Pencil,
-  Send,
-  UserPlus,
-  Users,
-  Sparkles,
-} from 'lucide-react'
+import { Coins, Landmark, Pencil, Percent, Send, UserPlus, Users, Sparkles } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
 import type { Value as PhoneValue } from 'react-phone-number-input'
@@ -17,6 +9,7 @@ import { z } from 'zod'
 import type { AxiosError } from 'axios'
 import type {
   AdminUpdateUserDto,
+  CreateDropDto,
   CreateUserDto,
   PaymentMethod,
   ProjectDto,
@@ -26,6 +19,7 @@ import type {
 } from '@crm/shared'
 import {
   adminUpdateUserSchema,
+  createDropSchema,
   createUserSchema,
   updateProfileSchema,
 } from '@crm/shared'
@@ -62,10 +56,7 @@ import {
 } from '@/components/ui/select'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
-import {
-  AmountCurrencyInput,
-  type Currency,
-} from '@/components/ui/amount-currency-input'
+import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-currency-input'
 import { SegmentedToggle } from '@/components/ui/segmented-toggle'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
@@ -150,6 +141,7 @@ export type UserDialogProps = CreateProps | EditProps
  */
 export function UserDialog(props: UserDialogProps) {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const { user: me } = useAuth()
   const isCreate = props.mode === 'create'
   const isEdit = props.mode === 'edit'
@@ -278,7 +270,8 @@ export function UserDialog(props: UserDialogProps) {
       // For CREATE: defaults — pre-select if only one option exists
       const initial = hrUsers.length === 1 && hrUsers[0] ? [hrUsers[0].id] : []
       setSelectedHrIds(initial)
-      const accInitial = accountantUsers.length === 1 && accountantUsers[0] ? accountantUsers[0].id : ''
+      const accInitial =
+        accountantUsers.length === 1 && accountantUsers[0] ? accountantUsers[0].id : ''
       setSelectedAccountantId(accInitial)
     }
     // form is stable but we intentionally exclude it from deps — re-running on
@@ -321,6 +314,30 @@ export function UserDialog(props: UserDialogProps) {
     },
     onError: (err: AxiosError<{ message: string }>) => {
       toast.error(err?.response?.data?.message ?? 'Ошибка при создании')
+    },
+  })
+
+  // DROP role — separate endpoint that atomically provisions both the user
+  // and the drop-team. Response shape: `{ user, team: { id, ... }, members }`
+  // — we navigate to the new team detail page on success (mirrors the legacy
+  // CreateDropDialog flow now folded into UserDialog).
+  const createDropMutation = useMutation({
+    mutationFn: (data: CreateDropDto) =>
+      api.post<{ user: UserProfileDto; team: { id: string } }>('/users/drops', data),
+    onSuccess: (res) => {
+      void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
+      void queryClient.invalidateQueries({ queryKey: ['users'] })
+      void queryClient.invalidateQueries({ queryKey: ['teams'] })
+      void queryClient.invalidateQueries({ queryKey: ['projects'] })
+      toast.success('Дроп создан')
+      props.onClose()
+      const newTeamId = res.data.team?.id
+      if (newTeamId) {
+        void navigate({ to: '/crm/team/$teamId', params: { teamId: newTeamId } })
+      }
+    },
+    onError: (err: AxiosError<{ message: string }>) => {
+      toast.error(err?.response?.data?.message ?? 'Ошибка при создании дропа')
     },
   })
 
@@ -375,9 +392,16 @@ export function UserDialog(props: UserDialogProps) {
       // field is omitted (defense-in-depth).
       teamMode: 'CREATE_NEW' as TeamMode,
       dropTeamId: '' as string,
+      // DROP role — share % the drop keeps from each payout. Default 5
+      // matches the spec and `createDropSchema` default.
+      dropSharePercent: editingUser?.dropSharePercent ?? 5,
+      // DROP role — optional Telegram channel of the drop-team (same
+      // regex as the SENIOR team telegram channel).
+      teamTelegramChannelDrop: '' as string,
     },
     onSubmit: async ({ value }) => {
       const isSenior = value.role === 'SENIOR'
+      const isDrop = value.role === 'DROP'
       const hrIds = selectedHrIdsRef.current
       const accountantId = selectedAccountantIdRef.current
 
@@ -389,6 +413,61 @@ export function UserDialog(props: UserDialogProps) {
         if (!isFinite(num) || num < 0) return null
         if (!exchangeRates) return num // shouldn't happen — query enabled on open
         return Number(toUsd(num, value.salaryCurrency, exchangeRates).toFixed(2))
+      }
+
+      if (isCreate && isDrop) {
+        // DROP creation hits the dedicated endpoint which atomically
+        // provisions both the user and the drop-team. HR + accountant
+        // pickers are mandatory (same UI contract as senior CREATE_NEW).
+        if (hrIds.length === 0) {
+          toast.error('Выберите хотя бы одного HR')
+          return
+        }
+        if (!accountantId) {
+          toast.error('Выберите бухгалтера')
+          return
+        }
+        const trimmedChannel = value.teamTelegramChannelDrop.trim()
+        const normalizedChannel = trimmedChannel
+          ? trimmedChannel.startsWith('@')
+            ? trimmedChannel.slice(1)
+            : trimmedChannel
+          : null
+
+        const payload: CreateDropDto = {
+          email: value.email.trim(),
+          displayName: value.displayName.trim(),
+          telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : undefined,
+          phone: (value.phone as string) || undefined,
+          ...(value.techStack.length > 0 && { techStack: value.techStack }),
+          dropSharePercent: value.dropSharePercent,
+          paymentMethod: value.paymentMethod,
+          ...(value.paymentMethod === 'USDT_ERC20' && {
+            walletUsdtErc20: value.walletUsdtErc20.trim(),
+            ...(value.walletUsdtLabel.trim() && {
+              walletUsdtLabel: value.walletUsdtLabel.trim(),
+            }),
+          }),
+          ...(value.paymentMethod === 'BANK_UAH_FOP' && {
+            bankUahRecipient: value.bankUahRecipient.trim(),
+            bankUahIban: value.bankUahIban.trim(),
+            bankUahRnokpp: value.bankUahRnokpp.trim(),
+            ...(value.bankUahBankName.trim() && {
+              bankUahBankName: value.bankUahBankName.trim(),
+            }),
+          }),
+          hrIds,
+          accountantId,
+          telegramChannel: normalizedChannel,
+        }
+        const result = createDropSchema.safeParse(payload)
+        if (!result.success) {
+          const first = result.error.issues[0]
+          toast.error(first?.message ?? 'Ошибка валидации данных')
+          return
+        }
+        createDropMutation.mutate(result.data)
+        return
       }
 
       if (isCreate) {
@@ -444,14 +523,16 @@ export function UserDialog(props: UserDialogProps) {
               dropTeamId: value.dropTeamId,
             }),
           }),
-          ...(!isSenior && String(value.monthlySalary).trim() && {
-            monthlySalary: computeMonthlySalaryUsd() ?? undefined,
-            salaryCurrency: 'USD',
-          }),
+          ...(!isSenior &&
+            String(value.monthlySalary).trim() && {
+              monthlySalary: computeMonthlySalaryUsd() ?? undefined,
+              salaryCurrency: 'USD',
+            }),
           // ut-13: project optional for JUNIOR. Only attach if explicitly chosen.
-          ...(value.role === 'JUNIOR' && value.projectId && {
-            projectId: value.projectId,
-          }),
+          ...(value.role === 'JUNIOR' &&
+            value.projectId && {
+              projectId: value.projectId,
+            }),
         }
         const result = createUserSchema.safeParse(payload)
         if (!result.success) {
@@ -471,7 +552,8 @@ export function UserDialog(props: UserDialogProps) {
         // admin only edited unrelated fields like HR/Accountant.
         const paymentChanged =
           !!editingUser &&
-          (value.paymentMethod !== (editingUser.paymentMethod ?? defaultPaymentMethod(value.role)) ||
+          (value.paymentMethod !==
+            (editingUser.paymentMethod ?? defaultPaymentMethod(value.role)) ||
             value.walletUsdtErc20.trim() !== (editingUser.walletUsdtErc20 ?? '') ||
             value.walletUsdtLabel.trim() !== (editingUser.walletUsdtLabel ?? '') ||
             value.bankUahRecipient.trim() !== (editingUser.bankUahRecipient ?? '') ||
@@ -489,9 +571,10 @@ export function UserDialog(props: UserDialogProps) {
         })()
 
         const payload: AdminUpdateUserDto = {
-          ...(editingUser && value.email.trim() !== editingUser.email && {
-            email: value.email.trim(),
-          }),
+          ...(editingUser &&
+            value.email.trim() !== editingUser.email && {
+              email: value.email.trim(),
+            }),
           displayName: value.displayName.trim(),
           telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : null,
           phone: (value.phone as string) || null,
@@ -503,9 +586,7 @@ export function UserDialog(props: UserDialogProps) {
             teamTelegramChannel: normalizedTeamChannel,
           }),
           ...(!isSenior && {
-            monthlySalary: value.monthlySalary
-              ? computeMonthlySalaryUsd()
-              : null,
+            monthlySalary: value.monthlySalary ? computeMonthlySalaryUsd() : null,
             salaryCurrency: 'USD',
           }),
           // Payment requisites — only include when admin actually changed them.
@@ -574,6 +655,8 @@ export function UserDialog(props: UserDialogProps) {
         // mode the field is ignored — re-seed to default for safety.
         teamMode: 'CREATE_NEW' as TeamMode,
         dropTeamId: '',
+        dropSharePercent: editingUser.dropSharePercent ?? 5,
+        teamTelegramChannelDrop: '',
       })
     }
   }, [editingUser?.id, isEdit])
@@ -583,9 +666,10 @@ export function UserDialog(props: UserDialogProps) {
     props.onClose()
   }
 
-  const isPending = createMutation.isPending || updateMutation.isPending
+  const isPending =
+    createMutation.isPending || updateMutation.isPending || createDropMutation.isPending
   const submitLabel = isCreate
-    ? createMutation.isPending
+    ? createMutation.isPending || createDropMutation.isPending
       ? 'Создание...'
       : 'Создать'
     : updateMutation.isPending
@@ -595,855 +679,1004 @@ export function UserDialog(props: UserDialogProps) {
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <>
-    <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
-      <CrmDialogContent maxWidth="sm:max-w-lg" data-testid="user-dialog">
-        <CrmDialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            {isCreate ? (
-              <>
-                <UserPlus className="h-4 w-4" />
-                Новый пользователь
-              </>
-            ) : (
-              <>
-                <Pencil className="h-4 w-4" />
-                Редактировать пользователя
-              </>
-            )}
-          </DialogTitle>
-        </CrmDialogHeader>
+      <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
+        <CrmDialogContent maxWidth="sm:max-w-lg" data-testid="user-dialog">
+          <CrmDialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {isCreate ? (
+                <>
+                  <UserPlus className="h-4 w-4" />
+                  Новый пользователь
+                </>
+              ) : (
+                <>
+                  <Pencil className="h-4 w-4" />
+                  Редактировать пользователя
+                </>
+              )}
+            </DialogTitle>
+          </CrmDialogHeader>
 
-        <CrmDialogBody>
-          <div className="grid gap-3 py-2">
-            {/* ── Section 1: Identity ─────────────────────────────────── */}
-            <Section title="Идентичность">
-              <form.Field
-                name="email"
-                validators={{
-                  onBlur: ({ value, fieldApi }) => {
-                    // ut-8: skip validation if the field was never touched. The
-                    // dialog opens with an empty email in Create; clicking
-                    // anywhere outside the empty input shouldn't ignite the
-                    // "Invalid email" hint.
-                    if (!fieldApi.state.meta.isDirty) return undefined
-                    const trimmed = value.trim()
-                    if (!trimmed) return 'Email обязателен'
-                    const r = z.string().email('Некорректный email').safeParse(trimmed)
-                    return r.success ? undefined : r.error.issues[0]?.message
-                  },
-                }}
-              >
-                {(field) => {
-                  // ut-8: hide error until the field has been edited at least
-                  // once. `isDirty` flips after the first change — pure focus
-                  // + blur (no value change) keeps the error suppressed.
-                  const showError =
-                    field.state.meta.isTouched && field.state.meta.isDirty
-                  const err = showError ? field.state.meta.errors[0] : undefined
-                  return (
-                    <Field label="Email" error={err} required>
-                      <Input
-                        placeholder="user@cheekycheese.dev"
-                        value={field.state.value}
-                        onChange={(e) => field.handleChange(e.target.value)}
-                        onBlur={() => {
-                          field.handleBlur()
-                          // ut-9: in Edit mode, surface the warning dialog
-                          // once the admin commits an email that differs from
-                          // the original (and is non-empty + valid email).
-                          if (
-                            isEdit &&
-                            editingUser &&
-                            field.state.value.trim() !== originalEmail &&
-                            field.state.value.trim().length > 0
-                          ) {
-                            setPendingEmailChange(field.state.value.trim())
-                          }
-                        }}
-                        className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
-                        autoComplete="off"
-                        data-testid="user-dialog-email"
-                      />
-                    </Field>
-                  )
-                }}
-              </form.Field>
-
-              <form.Field
-                name="displayName"
-                validators={{
-                  onBlur: ({ value, fieldApi }) => {
-                    if (!fieldApi.state.meta.isDirty) return undefined
-                    const r = z
-                      .string()
-                      .min(2, 'Имя минимум 2 символа')
-                      .max(255)
-                      .safeParse(value.trim())
-                    return r.success ? undefined : r.error.issues[0]?.message
-                  },
-                }}
-              >
-                {(field) => {
-                  const showError = field.state.meta.isTouched && field.state.meta.isDirty
-                  const err = showError ? field.state.meta.errors[0] : undefined
-                  return (
-                    <Field label="Имя и фамилия" error={err} required>
-                      <Input
-                        placeholder="Иван Иванов"
-                        value={field.state.value}
-                        onChange={(e) => field.handleChange(e.target.value)}
-                        onBlur={field.handleBlur}
-                        className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
-                        data-testid="user-dialog-name"
-                      />
-                    </Field>
-                  )
-                }}
-              </form.Field>
-
-              <form.Field name="role">
-                {(field) => {
-                  // ut-12: in Create, ADMIN is intentionally omitted.
-                  // ut-11: in Edit, self-ADMIN cannot change away from ADMIN.
-                  const optionList: readonly Role[] = isCreate
-                    ? (CREATE_ALLOWED_ROLES as readonly CreateAllowedRole[])
-                    : ROLES
-                  return (
-                    <Field
-                      label="Роль"
-                      required
-                      hint={isSelfAdminEdit ? 'Нельзя сменить свою роль ADMIN' : undefined}
-                    >
-                      {hrOnly ? (
-                        <div className="flex items-center gap-2 rounded-md border border-input bg-muted/40 px-3 py-2">
-                          <Badge variant="senior" className="text-[11px]">Синьор</Badge>
-                          <span className="text-xs text-muted-foreground">
-                            (HR может создавать только синьоров)
-                          </span>
-                        </div>
-                      ) : (
-                        <Select
+          <CrmDialogBody>
+            <div className="grid gap-3 py-2">
+              {/* ── Section 1: Identity ─────────────────────────────────── */}
+              <Section title="Идентичность">
+                <form.Field
+                  name="email"
+                  validators={{
+                    onBlur: ({ value, fieldApi }) => {
+                      // ut-8: skip validation if the field was never touched. The
+                      // dialog opens with an empty email in Create; clicking
+                      // anywhere outside the empty input shouldn't ignite the
+                      // "Invalid email" hint.
+                      if (!fieldApi.state.meta.isDirty) return undefined
+                      const trimmed = value.trim()
+                      if (!trimmed) return 'Email обязателен'
+                      const r = z.string().email('Некорректный email').safeParse(trimmed)
+                      return r.success ? undefined : r.error.issues[0]?.message
+                    },
+                  }}
+                >
+                  {(field) => {
+                    // ut-8: hide error until the field has been edited at least
+                    // once. `isDirty` flips after the first change — pure focus
+                    // + blur (no value change) keeps the error suppressed.
+                    const showError = field.state.meta.isTouched && field.state.meta.isDirty
+                    const err = showError ? field.state.meta.errors[0] : undefined
+                    return (
+                      <Field label="Email" error={err} required>
+                        <Input
+                          placeholder="user@cheekycheese.dev"
                           value={field.state.value}
-                          onValueChange={(v) => field.handleChange(v as Role)}
-                          disabled={isSelfAdminEdit}
-                        >
-                          <SelectTrigger data-testid="user-dialog-role-trigger">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {optionList.map((r) => (
-                              <SelectItem key={r} value={r}>
-                                <div className="flex items-center gap-2">
-                                  <Badge variant={ROLE_VARIANT[r]} className="text-[11px]">
-                                    {ROLE_LABELS[r]}
-                                  </Badge>
-                                </div>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
-                    </Field>
-                  )
-                }}
-              </form.Field>
-            </Section>
+                          onChange={(e) => field.handleChange(e.target.value)}
+                          onBlur={() => {
+                            field.handleBlur()
+                            // ut-9: in Edit mode, surface the warning dialog
+                            // once the admin commits an email that differs from
+                            // the original (and is non-empty + valid email).
+                            if (
+                              isEdit &&
+                              editingUser &&
+                              field.state.value.trim() !== originalEmail &&
+                              field.state.value.trim().length > 0
+                            ) {
+                              setPendingEmailChange(field.state.value.trim())
+                            }
+                          }}
+                          className={cn(
+                            err && 'border-destructive focus-visible:ring-destructive/30',
+                          )}
+                          autoComplete="off"
+                          data-testid="user-dialog-email"
+                        />
+                      </Field>
+                    )
+                  }}
+                </form.Field>
 
-            {/* ── Section 2: Contacts ─────────────────────────────────── */}
-            <Section title="Контакты">
-              <form.Field
-                name="telegram"
-                validators={{
-                  onBlur: ({ value, fieldApi }) => {
-                    if (!fieldApi.state.meta.isDirty) return undefined
-                    if (!value.trim()) return undefined
-                    const r = telegramFieldSchema.safeParse(value.trim())
-                    return r.success ? undefined : r.error.issues[0]?.message
-                  },
-                }}
-              >
-                {(field) => {
-                  const showError = field.state.meta.isTouched && field.state.meta.isDirty
-                  const err = showError ? field.state.meta.errors[0] : undefined
-                  return (
-                    <Field label="Telegram" error={err}>
-                      <Input
-                        placeholder="@username"
-                        value={field.state.value}
-                        onChange={(e) => field.handleChange(e.target.value)}
-                        onBlur={field.handleBlur}
-                        className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
-                      />
-                    </Field>
-                  )
-                }}
-              </form.Field>
+                <form.Field
+                  name="displayName"
+                  validators={{
+                    onBlur: ({ value, fieldApi }) => {
+                      if (!fieldApi.state.meta.isDirty) return undefined
+                      const r = z
+                        .string()
+                        .min(2, 'Имя минимум 2 символа')
+                        .max(255)
+                        .safeParse(value.trim())
+                      return r.success ? undefined : r.error.issues[0]?.message
+                    },
+                  }}
+                >
+                  {(field) => {
+                    const showError = field.state.meta.isTouched && field.state.meta.isDirty
+                    const err = showError ? field.state.meta.errors[0] : undefined
+                    return (
+                      <Field label="Имя и фамилия" error={err} required>
+                        <Input
+                          placeholder="Иван Иванов"
+                          value={field.state.value}
+                          onChange={(e) => field.handleChange(e.target.value)}
+                          onBlur={field.handleBlur}
+                          className={cn(
+                            err && 'border-destructive focus-visible:ring-destructive/30',
+                          )}
+                          data-testid="user-dialog-name"
+                        />
+                      </Field>
+                    )
+                  }}
+                </form.Field>
 
-              <form.Field
-                name="phone"
-                validators={{
-                  onBlur: ({ value, fieldApi }) => {
-                    if (!fieldApi.state.meta.isDirty) return undefined
-                    const v = value as string
-                    if (!v || v.replace(/\D/g, '').length < 5) return undefined
-                    const r = phoneFieldSchema.safeParse(v)
-                    if (!r.success) return r.error.issues[0]?.message
-                    if (!isValidPhoneNumber(v)) return 'Некорректный номер телефона'
-                    return undefined
-                  },
-                }}
-              >
-                {(field) => {
-                  const showError = field.state.meta.isTouched && field.state.meta.isDirty
-                  const err = showError ? field.state.meta.errors[0] : undefined
-                  return (
-                    <Field label="Телефон" error={err}>
-                      <PhoneInput
-                        value={field.state.value as PhoneValue | undefined}
-                        onChange={(v) => field.handleChange((v ?? '') as PhoneValue | '')}
-                        onBlur={field.handleBlur}
-                        className={cn(err && '[&_input]:border-destructive')}
-                      />
-                    </Field>
-                  )
-                }}
-              </form.Field>
-            </Section>
-
-            {/* ── Section 3: Profession (Tech stack) ──────────────────── */}
-            <Section title="Профессия">
-              <form.Field name="techStack">
-                {(field) => (
-                  <Field label="Технологии">
-                    <TechAutocompleteInput
-                      value={field.state.value}
-                      onChange={field.handleChange}
-                      onBlur={field.handleBlur}
-                      placeholder="Начните вводить технологию..."
-                    />
-                  </Field>
-                )}
-              </form.Field>
-            </Section>
-
-            {/* ── Section 4: Finance ──────────────────────────────────── */}
-            <form.Subscribe selector={(s) => s.values.role}>
-              {(role) => (
-                <Section title="Финансы">
-                  {role === 'SENIOR' ? (
-                    <form.Field
-                      name="seniorSharePercent"
-                      validators={{
-                        onBlur: ({ value }) => {
-                          if (value < 1 || value > 100) return 'Введите от 1 до 100'
-                          return undefined
-                        },
-                      }}
-                    >
-                      {(field) => {
-                        const val = field.state.value ?? 26
-                        const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
-                        return (
-                          <Field
-                            label="Доля синьора (%)"
-                            hint="То, что синьор оставляет себе"
-                            error={err}
-                            required={isCreate}
+                <form.Field name="role">
+                  {(field) => {
+                    // ut-12: in Create, ADMIN is intentionally omitted.
+                    // ut-11: in Edit, self-ADMIN cannot change away from ADMIN.
+                    const optionList: readonly Role[] = isCreate
+                      ? (CREATE_ALLOWED_ROLES as readonly CreateAllowedRole[])
+                      : ROLES
+                    return (
+                      <Field
+                        label="Роль"
+                        required
+                        hint={isSelfAdminEdit ? 'Нельзя сменить свою роль ADMIN' : undefined}
+                      >
+                        {hrOnly ? (
+                          <div className="flex items-center gap-2 rounded-md border border-input bg-muted/40 px-3 py-2">
+                            <Badge variant="senior" className="text-[11px]">
+                              Синьор
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              (HR может создавать только синьоров)
+                            </span>
+                          </div>
+                        ) : (
+                          <Select
+                            value={field.state.value}
+                            onValueChange={(v) => field.handleChange(v as Role)}
+                            disabled={isSelfAdminEdit}
                           >
-                            <ShareSlider
-                              value={val}
-                              onChange={(v) => field.handleChange(v)}
-                              onBlur={field.handleBlur}
-                              error={!!err}
-                            />
-                          </Field>
-                        )
-                      }}
-                    </form.Field>
-                  ) : (
-                    <form.Field name="monthlySalary">
-                      {(field) => (
-                        <form.Field name="salaryCurrency">
-                          {(curField) => (
-                            <Field label="Месячная зарплата">
-                              <AmountCurrencyInput
-                                amount={String(field.state.value ?? '')}
-                                currency={curField.state.value}
-                                onAmountChange={field.handleChange}
-                                onCurrencyChange={curField.handleChange}
-                                label="Сумма"
-                                placeholder="0"
+                            <SelectTrigger data-testid="user-dialog-role-trigger">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {optionList.map((r) => (
+                                <SelectItem key={r} value={r}>
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant={ROLE_VARIANT[r]} className="text-[11px]">
+                                      {ROLE_LABELS[r]}
+                                    </Badge>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </Field>
+                    )
+                  }}
+                </form.Field>
+              </Section>
+
+              {/* ── Section 2: Contacts ─────────────────────────────────── */}
+              <Section title="Контакты">
+                <form.Field
+                  name="telegram"
+                  validators={{
+                    onBlur: ({ value, fieldApi }) => {
+                      if (!fieldApi.state.meta.isDirty) return undefined
+                      if (!value.trim()) return undefined
+                      const r = telegramFieldSchema.safeParse(value.trim())
+                      return r.success ? undefined : r.error.issues[0]?.message
+                    },
+                  }}
+                >
+                  {(field) => {
+                    const showError = field.state.meta.isTouched && field.state.meta.isDirty
+                    const err = showError ? field.state.meta.errors[0] : undefined
+                    return (
+                      <Field label="Telegram" error={err}>
+                        <Input
+                          placeholder="@username"
+                          value={field.state.value}
+                          onChange={(e) => field.handleChange(e.target.value)}
+                          onBlur={field.handleBlur}
+                          className={cn(
+                            err && 'border-destructive focus-visible:ring-destructive/30',
+                          )}
+                        />
+                      </Field>
+                    )
+                  }}
+                </form.Field>
+
+                <form.Field
+                  name="phone"
+                  validators={{
+                    onBlur: ({ value, fieldApi }) => {
+                      if (!fieldApi.state.meta.isDirty) return undefined
+                      const v = value as string
+                      if (!v || v.replace(/\D/g, '').length < 5) return undefined
+                      const r = phoneFieldSchema.safeParse(v)
+                      if (!r.success) return r.error.issues[0]?.message
+                      if (!isValidPhoneNumber(v)) return 'Некорректный номер телефона'
+                      return undefined
+                    },
+                  }}
+                >
+                  {(field) => {
+                    const showError = field.state.meta.isTouched && field.state.meta.isDirty
+                    const err = showError ? field.state.meta.errors[0] : undefined
+                    return (
+                      <Field label="Телефон" error={err}>
+                        <PhoneInput
+                          value={field.state.value as PhoneValue | undefined}
+                          onChange={(v) => field.handleChange((v ?? '') as PhoneValue | '')}
+                          onBlur={field.handleBlur}
+                          className={cn(err && '[&_input]:border-destructive')}
+                        />
+                      </Field>
+                    )
+                  }}
+                </form.Field>
+              </Section>
+
+              {/* ── Section 3: Profession (Tech stack) ──────────────────── */}
+              <Section title="Профессия">
+                <form.Field name="techStack">
+                  {(field) => (
+                    <Field label="Технологии">
+                      <TechAutocompleteInput
+                        value={field.state.value}
+                        onChange={field.handleChange}
+                        onBlur={field.handleBlur}
+                        placeholder="Начните вводить технологию..."
+                      />
+                    </Field>
+                  )}
+                </form.Field>
+              </Section>
+
+              {/* ── Section 4: Finance ──────────────────────────────────── */}
+              <form.Subscribe selector={(s) => s.values.role}>
+                {(role) => (
+                  <Section title="Финансы">
+                    {role === 'SENIOR' ? (
+                      <form.Field
+                        name="seniorSharePercent"
+                        validators={{
+                          onBlur: ({ value }) => {
+                            if (value < 1 || value > 100) return 'Введите от 1 до 100'
+                            return undefined
+                          },
+                        }}
+                      >
+                        {(field) => {
+                          const val = field.state.value ?? 26
+                          const err = field.state.meta.isTouched
+                            ? field.state.meta.errors[0]
+                            : undefined
+                          return (
+                            <Field
+                              label="Доля синьора (%)"
+                              hint="То, что синьор оставляет себе"
+                              error={err}
+                              required={isCreate}
+                            >
+                              <ShareSlider
+                                value={val}
+                                onChange={(v) => field.handleChange(v)}
+                                onBlur={field.handleBlur}
+                                error={!!err}
                               />
                             </Field>
-                          )}
-                        </form.Field>
-                      )}
-                    </form.Field>
-                  )}
-                </Section>
-              )}
-            </form.Subscribe>
-
-            {/* ── Section 5: Payment requisites (ut-14) ───────────────── */}
-            <form.Subscribe selector={(s) => s.values.role}>
-              {(role) => {
-                const usdtOnly = role === 'SENIOR' || role === 'ADMIN'
-                return (
-                  <Section title="Платёжные реквизиты">
-                    {usdtOnly ? (
-                      <p className="text-xs text-muted-foreground">
-                        Для роли «{ROLE_LABELS[role]}» доступна только оплата через USDT ERC-20.
-                      </p>
+                          )
+                        }}
+                      </form.Field>
+                    ) : role === 'DROP' ? (
+                      <form.Field
+                        name="dropSharePercent"
+                        validators={{
+                          onBlur: ({ value }) => {
+                            if (value < 0 || value > 100) return 'Введите от 0 до 100'
+                            return undefined
+                          },
+                        }}
+                      >
+                        {(field) => {
+                          const val = field.state.value ?? 5
+                          const err = field.state.meta.isTouched
+                            ? field.state.meta.errors[0]
+                            : undefined
+                          return (
+                            <Field
+                              label="Доля дропа (%)"
+                              hint="Сколько дроп оставляет себе с каждой выплаты"
+                              error={err}
+                              required={isCreate}
+                            >
+                              <ShareSlider
+                                value={val}
+                                onChange={(v) => field.handleChange(v)}
+                                onBlur={field.handleBlur}
+                                error={!!err}
+                              />
+                              <p className="text-[11px] text-muted-foreground mt-1 inline-flex items-center gap-1">
+                                <Percent className="h-3 w-3" />
+                                По умолчанию 5%
+                              </p>
+                            </Field>
+                          )
+                        }}
+                      </form.Field>
                     ) : (
-                      <form.Field name="paymentMethod">
+                      <form.Field name="monthlySalary">
                         {(field) => (
-                          <Field label="Способ оплаты" required>
-                            {/* ut-15 + ut-24: iOS-style segmented control with a
-                                sliding gold pill. Implemented via the shared
-                                <SegmentedToggle> primitive (apps/web/app/components/ui/segmented-toggle.tsx)
-                                so this design is consistent across the project. */}
-                            <SegmentedToggle<PaymentMethod>
-                              value={field.state.value}
-                              onChange={(v) => field.handleChange(v)}
-                              options={[
-                                { value: 'USDT_ERC20', label: 'USDT ERC-20', icon: Coins },
-                                { value: 'BANK_UAH_FOP', label: 'Bank UAH (ФОП)', icon: Landmark },
-                              ]}
-                              ariaLabel="Способ оплаты"
-                              layoutId="payment-method-active-pill"
-                              testId="user-dialog-payment-method"
-                            />
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {field.state.value === 'USDT_ERC20'
-                                ? 'Будет использоваться адрес кошелька в сети Ethereum.'
-                                : 'Будет использоваться украинский банковский счёт ФОП.'}
-                            </p>
-                          </Field>
+                          <form.Field name="salaryCurrency">
+                            {(curField) => (
+                              <Field label="Месячная зарплата">
+                                <AmountCurrencyInput
+                                  amount={String(field.state.value ?? '')}
+                                  currency={curField.state.value}
+                                  onAmountChange={field.handleChange}
+                                  onCurrencyChange={curField.handleChange}
+                                  label="Сумма"
+                                  placeholder="0"
+                                />
+                              </Field>
+                            )}
+                          </form.Field>
                         )}
                       </form.Field>
                     )}
-
-                    <form.Subscribe selector={(s) => (usdtOnly ? 'USDT_ERC20' : s.values.paymentMethod)}>
-                      {(method) =>
-                        method === 'USDT_ERC20' ? (
-                          <>
-                            <form.Field
-                              name="walletUsdtErc20"
-                              validators={{
-                                onBlur: ({ value, fieldApi }) => {
-                                  if (!fieldApi.state.meta.isDirty) return undefined
-                                  if (!value.trim()) return 'USDT кошелёк обязателен'
-                                  return usdtWalletPattern.test(value.trim())
-                                    ? undefined
-                                    : 'USDT ERC-20 адрес должен начинаться с 0x и содержать 42 символа'
-                                },
-                              }}
-                            >
-                              {(field) => {
-                                const showError = field.state.meta.isTouched && field.state.meta.isDirty
-                                const err = showError ? field.state.meta.errors[0] : undefined
-                                return (
-                                  <Field label="USDT ERC-20 кошелёк" error={err} required>
-                                    <Input
-                                      placeholder="0x..."
-                                      value={field.state.value}
-                                      onChange={(e) => field.handleChange(e.target.value)}
-                                      onBlur={field.handleBlur}
-                                      autoComplete="off"
-                                      className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
-                                      data-testid="user-dialog-wallet"
-                                    />
-                                  </Field>
-                                )
-                              }}
-                            </form.Field>
-                            <form.Field name="walletUsdtLabel">
-                              {(field) => (
-                                <Field label="Лейбл кошелька">
-                                  <Input
-                                    placeholder="Основной"
-                                    value={field.state.value}
-                                    onChange={(e) => field.handleChange(e.target.value)}
-                                    onBlur={field.handleBlur}
-                                  />
-                                </Field>
-                              )}
-                            </form.Field>
-                          </>
-                        ) : (
-                          <>
-                            <form.Field
-                              name="bankUahRecipient"
-                              validators={{
-                                onBlur: ({ value, fieldApi }) => {
-                                  if (!fieldApi.state.meta.isDirty) return undefined
-                                  return value.trim().length >= 3
-                                    ? undefined
-                                    : 'ФИО получателя минимум 3 символа'
-                                },
-                              }}
-                            >
-                              {(field) => {
-                                const showError = field.state.meta.isTouched && field.state.meta.isDirty
-                                const err = showError ? field.state.meta.errors[0] : undefined
-                                return (
-                                  <Field label="ФИО получателя (ФОП)" error={err} required>
-                                    <Input
-                                      placeholder="Иванов Иван Иванович"
-                                      value={field.state.value}
-                                      onChange={(e) => field.handleChange(e.target.value)}
-                                      onBlur={field.handleBlur}
-                                      className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
-                                    />
-                                  </Field>
-                                )
-                              }}
-                            </form.Field>
-                            <form.Field
-                              name="bankUahIban"
-                              validators={{
-                                onBlur: ({ value, fieldApi }) => {
-                                  if (!fieldApi.state.meta.isDirty) return undefined
-                                  return ibanPattern.test(value.trim())
-                                    ? undefined
-                                    : 'IBAN должен быть в формате UA + 27 цифр'
-                                },
-                              }}
-                            >
-                              {(field) => {
-                                const showError = field.state.meta.isTouched && field.state.meta.isDirty
-                                const err = showError ? field.state.meta.errors[0] : undefined
-                                return (
-                                  <Field label="IBAN" error={err} required>
-                                    <Input
-                                      placeholder="UA000000000000000000000000000"
-                                      value={field.state.value}
-                                      onChange={(e) => field.handleChange(e.target.value)}
-                                      onBlur={field.handleBlur}
-                                      className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
-                                    />
-                                  </Field>
-                                )
-                              }}
-                            </form.Field>
-                            <form.Field
-                              name="bankUahRnokpp"
-                              validators={{
-                                onBlur: ({ value, fieldApi }) => {
-                                  if (!fieldApi.state.meta.isDirty) return undefined
-                                  return rnokppPattern.test(value.trim())
-                                    ? undefined
-                                    : 'РНОКПП должен быть 10 цифр'
-                                },
-                              }}
-                            >
-                              {(field) => {
-                                const showError = field.state.meta.isTouched && field.state.meta.isDirty
-                                const err = showError ? field.state.meta.errors[0] : undefined
-                                return (
-                                  <Field label="РНОКПП (ИНН ФОП)" error={err} required>
-                                    <Input
-                                      placeholder="1234567890"
-                                      value={field.state.value}
-                                      onChange={(e) => field.handleChange(e.target.value)}
-                                      onBlur={field.handleBlur}
-                                      className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
-                                    />
-                                  </Field>
-                                )
-                              }}
-                            </form.Field>
-                            <form.Field name="bankUahBankName">
-                              {(field) => (
-                                <Field label="Банк (опционально)">
-                                  <Input
-                                    placeholder="ПриватБанк"
-                                    value={field.state.value}
-                                    onChange={(e) => field.handleChange(e.target.value)}
-                                    onBlur={field.handleBlur}
-                                  />
-                                </Field>
-                              )}
-                            </form.Field>
-                          </>
-                        )
-                      }
-                    </form.Subscribe>
                   </Section>
-                )
-              }}
-            </form.Subscribe>
+                )}
+              </form.Subscribe>
 
-            {/* ── Section 6: Team ─────────────────────────────────────── */}
-            <form.Subscribe selector={(s) => s.values.role}>
-              {(role) => {
-                if (role === 'SENIOR') {
-                  const onlyHr = hrUsers.length === 1
-                  const onlyAccountant = accountantUsers.length === 1
-
+              {/* ── Section 5: Payment requisites (ut-14) ───────────────── */}
+              <form.Subscribe selector={(s) => s.values.role}>
+                {(role) => {
+                  const usdtOnly = role === 'SENIOR' || role === 'ADMIN'
                   return (
-                    <Section title="Команда">
-                      {/* Drop role - phase 1 (AC3): two-option team picker.
-                          - CREATE_NEW (default): legacy senior-team flow.
-                          - JOIN_DROP_TEAM: pick a vacant drop-team. HR /
-                            accountant / channel sourced from that team. */}
-                      {isCreate && (
-                        <form.Field name="teamMode">
+                    <Section title="Платёжные реквизиты">
+                      {usdtOnly ? (
+                        <p className="text-xs text-muted-foreground">
+                          Для роли «{ROLE_LABELS[role]}» доступна только оплата через USDT ERC-20.
+                        </p>
+                      ) : (
+                        <form.Field name="paymentMethod">
                           {(field) => (
-                            <Field label="Тип команды" required>
-                              <RadioGroup
+                            <Field label="Способ оплаты" required>
+                              {/* ut-15 + ut-24: iOS-style segmented control with a
+                                sliding gold pill. Implemented via the shared
+                                <SegmentedToggle> primitive (apps/web/app/components/ui/segmented-toggle.tsx)
+                                so this design is consistent across the project. */}
+                              <SegmentedToggle<PaymentMethod>
                                 value={field.state.value}
-                                onValueChange={(v) => field.handleChange(v as TeamMode)}
-                                className="grid gap-2"
-                                data-testid="user-dialog-team-mode"
-                              >
-                                <label
-                                  className={cn(
-                                    'flex items-start gap-2 rounded-md border px-3 py-2 text-xs cursor-pointer transition-colors',
-                                    field.state.value === 'CREATE_NEW'
-                                      ? 'border-primary/50 bg-primary/5'
-                                      : 'border-input hover:bg-muted/40',
-                                  )}
-                                >
-                                  <RadioGroupItem
-                                    value="CREATE_NEW"
-                                    className="mt-0.5"
-                                    data-testid="user-dialog-team-mode-create-new"
-                                  />
-                                  <div className="flex-1">
-                                    <div className="font-medium inline-flex items-center gap-1">
-                                      <Sparkles className="h-3 w-3" />
-                                      Создать свою команду
-                                    </div>
-                                    <p className="text-muted-foreground mt-0.5">
-                                      Новая команда синьора. Выберите состав ниже.
-                                    </p>
-                                  </div>
-                                </label>
-                                <label
-                                  className={cn(
-                                    'flex items-start gap-2 rounded-md border px-3 py-2 text-xs cursor-pointer transition-colors',
-                                    field.state.value === 'JOIN_DROP_TEAM'
-                                      ? 'border-primary/50 bg-primary/5'
-                                      : 'border-input hover:bg-muted/40',
-                                    vacantDropTeams.length === 0 && 'opacity-60',
-                                  )}
-                                >
-                                  <RadioGroupItem
-                                    value="JOIN_DROP_TEAM"
-                                    className="mt-0.5"
-                                    disabled={vacantDropTeams.length === 0}
-                                    data-testid="user-dialog-team-mode-join-drop"
-                                  />
-                                  <div className="flex-1">
-                                    <div className="font-medium inline-flex items-center gap-1">
-                                      <Users className="h-3 w-3" />
-                                      Добавить в команду дропа
-                                    </div>
-                                    <p className="text-muted-foreground mt-0.5">
-                                      {vacantDropTeams.length === 0
-                                        ? 'Нет команд дропа без активного синьора.'
-                                        : `${vacantDropTeams.length} ${
-                                            vacantDropTeams.length === 1
-                                              ? 'команда доступна'
-                                              : 'команд(ы) доступно'
-                                          }.`}
-                                    </p>
-                                  </div>
-                                </label>
-                              </RadioGroup>
+                                onChange={(v) => field.handleChange(v)}
+                                options={[
+                                  { value: 'USDT_ERC20', label: 'USDT ERC-20', icon: Coins },
+                                  {
+                                    value: 'BANK_UAH_FOP',
+                                    label: 'Bank UAH (ФОП)',
+                                    icon: Landmark,
+                                  },
+                                ]}
+                                ariaLabel="Способ оплаты"
+                                layoutId="payment-method-active-pill"
+                                testId="user-dialog-payment-method"
+                              />
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {field.state.value === 'USDT_ERC20'
+                                  ? 'Будет использоваться адрес кошелька в сети Ethereum.'
+                                  : 'Будет использоваться украинский банковский счёт ФОП.'}
+                              </p>
                             </Field>
                           )}
                         </form.Field>
                       )}
 
-                      {/* CREATE_NEW branch: legacy HR / accountant / channel pickers. */}
-                      <form.Subscribe selector={(s) => s.values.teamMode}>
-                        {(teamMode) => {
-                          // Edit mode: teamMode field doesn't apply — keep
-                          // the original SENIOR edit form unchanged (renders
-                          // the legacy CREATE_NEW pickers so admin can swap
-                          // HR/accountant for the existing team).
-                          if (isEdit || teamMode === 'CREATE_NEW') return (
+                      <form.Subscribe
+                        selector={(s) => (usdtOnly ? 'USDT_ERC20' : s.values.paymentMethod)}
+                      >
+                        {(method) =>
+                          method === 'USDT_ERC20' ? (
                             <>
-                              {/* ut-16: HR as chips + searchable add popover. */}
-                              <HrChipsField
-                                hrUsers={hrUsers}
-                                selectedIds={selectedHrIds}
-                                onChange={setSelectedHrIds}
-                                required={isCreate}
-                                onlyHr={onlyHr}
-                              />
-
-                              {/* ut-16: Accountant as a chip in the same visual language. */}
-                              <AccountantChipField
-                                accountantUsers={accountantUsers}
-                                selectedId={selectedAccountantId}
-                                onChange={setSelectedAccountantId}
-                                onlyAccountant={onlyAccountant}
-                              />
-                            </>
-                          )
-                          // JOIN_DROP_TEAM branch: pick the drop-team to attach to.
-                          // HR/accountant are inherited from that team — no local
-                          // pickers, no channel input.
-                          return (
-                            <form.Field
-                              name="dropTeamId"
-                              validators={{
-                                onBlur: ({ value, fieldApi }) => {
-                                  if (!fieldApi.state.meta.isDirty) return undefined
-                                  if (!value) return 'Выберите команду дропа'
-                                  return undefined
-                                },
-                              }}
-                            >
-                              {(field) => {
-                                const showError =
-                                  field.state.meta.isTouched && field.state.meta.isDirty
-                                const err = showError ? field.state.meta.errors[0] : undefined
-                                return (
-                                  <Field label="Команда дропа" error={err} required>
-                                    {vacantDropTeams.length === 0 ? (
-                                      <p className="text-xs text-muted-foreground italic">
-                                        Нет команд дропа без активного синьора. Создайте дропа
-                                        или выберите «Создать свою команду».
-                                      </p>
-                                    ) : (
-                                      <Select
-                                        value={field.state.value || ''}
-                                        onValueChange={(v) => field.handleChange(v)}
-                                      >
-                                        <SelectTrigger data-testid="user-dialog-drop-team-trigger">
-                                          <SelectValue placeholder="— выберите команду дропа —" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          {vacantDropTeams.map((t) => {
-                                            const drop = t.members.find(
-                                              (m) => m.role === 'DROP' && !m.leftAt,
-                                            )
-                                            const hrs = t.members
-                                              .filter((m) => m.role === 'HR' && !m.leftAt)
-                                              .map((m) => m.displayName)
-                                              .join(', ')
-                                            return (
-                                              <SelectItem key={t.id} value={t.id}>
-                                                <div className="flex flex-col items-start">
-                                                  <span className="font-medium">{t.name}</span>
-                                                  <span className="text-[10px] text-muted-foreground">
-                                                    {drop?.displayName ?? 'Дроп не назначен'}
-                                                    {hrs ? ` · HR: ${hrs}` : ''}
-                                                  </span>
-                                                </div>
-                                              </SelectItem>
-                                            )
-                                          })}
-                                        </SelectContent>
-                                      </Select>
-                                    )}
-                                  </Field>
-                                )
-                              }}
-                            </form.Field>
-                          )
-                        }}
-                      </form.Subscribe>
-
-                      {/* ut-17: optional team Telegram channel.
-                          Hidden when joining an existing drop-team (channel
-                          inherited from that team). */}
-                      <form.Subscribe selector={(s) => s.values.teamMode}>
-                        {(teamMode) =>
-                          isEdit || teamMode === 'CREATE_NEW' ? (
-                            <form.Field
-                              name="teamTelegramChannel"
-                              validators={{
-                                onBlur: ({ value, fieldApi }) => {
-                                  if (!fieldApi.state.meta.isDirty) return undefined
-                                  const trimmed = value.trim()
-                                  if (!trimmed) return undefined
-                                  return /^@?[a-zA-Z0-9_]{5,32}$/.test(trimmed)
-                                    ? undefined
-                                    : 'Некорректный канал (5–32 латинских символов или _, опц. @)'
-                                },
-                              }}
-                            >
-                              {(field) => {
-                                const showError =
-                                  field.state.meta.isTouched && field.state.meta.isDirty
-                                const err = showError ? field.state.meta.errors[0] : undefined
-                                return (
-                                  <Field
-                                    label="Telegram-канал команды"
-                                    error={err}
-                                    hint={err ? undefined : 'Опционально. Канал для общения команды.'}
-                                  >
-                                    <div className="relative">
-                                      <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 text-xs text-muted-foreground">
-                                        <Send className="h-3.5 w-3.5" />
-                                        t.me/
-                                      </span>
+                              <form.Field
+                                name="walletUsdtErc20"
+                                validators={{
+                                  onBlur: ({ value, fieldApi }) => {
+                                    if (!fieldApi.state.meta.isDirty) return undefined
+                                    if (!value.trim()) return 'USDT кошелёк обязателен'
+                                    return usdtWalletPattern.test(value.trim())
+                                      ? undefined
+                                      : 'USDT ERC-20 адрес должен начинаться с 0x и содержать 42 символа'
+                                  },
+                                }}
+                              >
+                                {(field) => {
+                                  const showError =
+                                    field.state.meta.isTouched && field.state.meta.isDirty
+                                  const err = showError ? field.state.meta.errors[0] : undefined
+                                  return (
+                                    <Field label="USDT ERC-20 кошелёк" error={err} required>
                                       <Input
-                                        placeholder="team_channel"
-                                        className={cn(
-                                          'pl-16',
-                                          err && 'border-destructive focus-visible:ring-destructive/30',
-                                        )}
+                                        placeholder="0x..."
                                         value={field.state.value}
                                         onChange={(e) => field.handleChange(e.target.value)}
                                         onBlur={field.handleBlur}
                                         autoComplete="off"
-                                        data-testid="user-dialog-team-telegram-channel"
+                                        className={cn(
+                                          err &&
+                                            'border-destructive focus-visible:ring-destructive/30',
+                                        )}
+                                        data-testid="user-dialog-wallet"
                                       />
-                                    </div>
+                                    </Field>
+                                  )
+                                }}
+                              </form.Field>
+                              <form.Field name="walletUsdtLabel">
+                                {(field) => (
+                                  <Field label="Лейбл кошелька">
+                                    <Input
+                                      placeholder="Основной"
+                                      value={field.state.value}
+                                      onChange={(e) => field.handleChange(e.target.value)}
+                                      onBlur={field.handleBlur}
+                                    />
                                   </Field>
-                                )
-                              }}
-                            </form.Field>
-                          ) : null
+                                )}
+                              </form.Field>
+                            </>
+                          ) : (
+                            <>
+                              <form.Field
+                                name="bankUahRecipient"
+                                validators={{
+                                  onBlur: ({ value, fieldApi }) => {
+                                    if (!fieldApi.state.meta.isDirty) return undefined
+                                    return value.trim().length >= 3
+                                      ? undefined
+                                      : 'ФИО получателя минимум 3 символа'
+                                  },
+                                }}
+                              >
+                                {(field) => {
+                                  const showError =
+                                    field.state.meta.isTouched && field.state.meta.isDirty
+                                  const err = showError ? field.state.meta.errors[0] : undefined
+                                  return (
+                                    <Field label="ФИО получателя (ФОП)" error={err} required>
+                                      <Input
+                                        placeholder="Иванов Иван Иванович"
+                                        value={field.state.value}
+                                        onChange={(e) => field.handleChange(e.target.value)}
+                                        onBlur={field.handleBlur}
+                                        className={cn(
+                                          err &&
+                                            'border-destructive focus-visible:ring-destructive/30',
+                                        )}
+                                      />
+                                    </Field>
+                                  )
+                                }}
+                              </form.Field>
+                              <form.Field
+                                name="bankUahIban"
+                                validators={{
+                                  onBlur: ({ value, fieldApi }) => {
+                                    if (!fieldApi.state.meta.isDirty) return undefined
+                                    return ibanPattern.test(value.trim())
+                                      ? undefined
+                                      : 'IBAN должен быть в формате UA + 27 цифр'
+                                  },
+                                }}
+                              >
+                                {(field) => {
+                                  const showError =
+                                    field.state.meta.isTouched && field.state.meta.isDirty
+                                  const err = showError ? field.state.meta.errors[0] : undefined
+                                  return (
+                                    <Field label="IBAN" error={err} required>
+                                      <Input
+                                        placeholder="UA000000000000000000000000000"
+                                        value={field.state.value}
+                                        onChange={(e) => field.handleChange(e.target.value)}
+                                        onBlur={field.handleBlur}
+                                        className={cn(
+                                          err &&
+                                            'border-destructive focus-visible:ring-destructive/30',
+                                        )}
+                                      />
+                                    </Field>
+                                  )
+                                }}
+                              </form.Field>
+                              <form.Field
+                                name="bankUahRnokpp"
+                                validators={{
+                                  onBlur: ({ value, fieldApi }) => {
+                                    if (!fieldApi.state.meta.isDirty) return undefined
+                                    return rnokppPattern.test(value.trim())
+                                      ? undefined
+                                      : 'РНОКПП должен быть 10 цифр'
+                                  },
+                                }}
+                              >
+                                {(field) => {
+                                  const showError =
+                                    field.state.meta.isTouched && field.state.meta.isDirty
+                                  const err = showError ? field.state.meta.errors[0] : undefined
+                                  return (
+                                    <Field label="РНОКПП (ИНН ФОП)" error={err} required>
+                                      <Input
+                                        placeholder="1234567890"
+                                        value={field.state.value}
+                                        onChange={(e) => field.handleChange(e.target.value)}
+                                        onBlur={field.handleBlur}
+                                        className={cn(
+                                          err &&
+                                            'border-destructive focus-visible:ring-destructive/30',
+                                        )}
+                                      />
+                                    </Field>
+                                  )
+                                }}
+                              </form.Field>
+                              <form.Field name="bankUahBankName">
+                                {(field) => (
+                                  <Field label="Банк (опционально)">
+                                    <Input
+                                      placeholder="ПриватБанк"
+                                      value={field.state.value}
+                                      onChange={(e) => field.handleChange(e.target.value)}
+                                      onBlur={field.handleBlur}
+                                    />
+                                  </Field>
+                                )}
+                              </form.Field>
+                            </>
+                          )
                         }
                       </form.Subscribe>
                     </Section>
                   )
-                }
+                }}
+              </form.Subscribe>
 
-                if (role === 'JUNIOR') {
-                  if (isCreate) {
+              {/* ── Section 6: Team ─────────────────────────────────────── */}
+              <form.Subscribe selector={(s) => s.values.role}>
+                {(role) => {
+                  // DROP role - phase 1 fix: drop-team is provisioned
+                  // atomically with the drop user via POST /api/users/drops.
+                  // The team section is mandatory and identical in shape to
+                  // the senior CREATE_NEW flow, minus the RadioGroup (no
+                  // «join existing» option for a drop). Only renders in
+                  // create-mode: editing a DROP user keeps the role lock
+                  // and routes through PATCH /api/users/:id.
+                  if (role === 'DROP' && isCreate) {
+                    const onlyHr = hrUsers.length === 1
+                    const onlyAccountant = accountantUsers.length === 1
                     return (
-                      <Section title="Команда">
-                        <form.Field name="projectId">
-                          {(field) => (
-                            <Field
-                              label="Проект"
-                              hint="Можно прикрепить позже через раздел «Проекты»"
-                            >
-                              {availableJuniorProjects.length === 0 ? (
-                                <p className="text-xs text-muted-foreground italic">
-                                  Нет проектов без активного джуна
-                                </p>
-                              ) : (
-                                <Select
-                                  value={field.state.value || 'none'}
-                                  onValueChange={(v) => field.handleChange(v === 'none' ? '' : v)}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="— не выбран —" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="none">— не выбран —</SelectItem>
-                                    {availableJuniorProjects.map((p) => (
-                                      <SelectItem key={p.id} value={p.id}>
-                                        {p.companyName} — {p.name}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              )}
-                            </Field>
-                          )}
+                      <Section title="Команда дропа">
+                        <HrChipsField
+                          hrUsers={hrUsers}
+                          selectedIds={selectedHrIds}
+                          onChange={setSelectedHrIds}
+                          required
+                          onlyHr={onlyHr}
+                        />
+
+                        <AccountantChipField
+                          accountantUsers={accountantUsers}
+                          selectedId={selectedAccountantId}
+                          onChange={setSelectedAccountantId}
+                          onlyAccountant={onlyAccountant}
+                        />
+
+                        <form.Field
+                          name="teamTelegramChannelDrop"
+                          validators={{
+                            onBlur: ({ value, fieldApi }) => {
+                              if (!fieldApi.state.meta.isDirty) return undefined
+                              const trimmed = value.trim()
+                              if (!trimmed) return undefined
+                              return /^@?[a-zA-Z0-9_]{5,32}$/.test(trimmed)
+                                ? undefined
+                                : 'Некорректный канал (5–32 латинских символов или _, опц. @)'
+                            },
+                          }}
+                        >
+                          {(field) => {
+                            const showError = field.state.meta.isTouched && field.state.meta.isDirty
+                            const err = showError ? field.state.meta.errors[0] : undefined
+                            return (
+                              <Field
+                                label="Telegram-канал команды"
+                                error={err}
+                                hint={err ? undefined : 'Опционально. Канал для общения команды.'}
+                              >
+                                <div className="relative">
+                                  <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                    <Send className="h-3.5 w-3.5" />
+                                    t.me/
+                                  </span>
+                                  <Input
+                                    placeholder="team_channel"
+                                    className={cn(
+                                      'pl-16',
+                                      err && 'border-destructive focus-visible:ring-destructive/30',
+                                    )}
+                                    value={field.state.value}
+                                    onChange={(e) => field.handleChange(e.target.value)}
+                                    onBlur={field.handleBlur}
+                                    autoComplete="off"
+                                    data-testid="user-dialog-drop-team-telegram-channel"
+                                  />
+                                </div>
+                              </Field>
+                            )
+                          }}
                         </form.Field>
                       </Section>
                     )
                   }
-                  // Edit JUNIOR: read-only project list + link
-                  return (
-                    <Section title="Команда">
-                      <Field label="Активные проекты">
-                        {juniorActiveProjects.length === 0 ? (
-                          <p className="text-xs text-muted-foreground italic">
-                            Нет активных проектов
-                          </p>
-                        ) : (
-                          <div className="flex flex-wrap gap-1" data-testid="user-dialog-junior-projects">
-                            {juniorActiveProjects.map((p) => (
-                              <Badge key={p.id} variant="outline" className="text-[11px]">
-                                {p.companyName} — {p.name}
-                              </Badge>
-                            ))}
-                          </div>
+
+                  if (role === 'SENIOR') {
+                    const onlyHr = hrUsers.length === 1
+                    const onlyAccountant = accountantUsers.length === 1
+
+                    return (
+                      <Section title="Команда">
+                        {/* Drop role - phase 1 (AC3): two-option team picker.
+                          - CREATE_NEW (default): legacy senior-team flow.
+                          - JOIN_DROP_TEAM: pick a vacant drop-team. HR /
+                            accountant / channel sourced from that team. */}
+                        {isCreate && (
+                          <form.Field name="teamMode">
+                            {(field) => (
+                              <Field label="Тип команды" required>
+                                <RadioGroup
+                                  value={field.state.value}
+                                  onValueChange={(v) => field.handleChange(v as TeamMode)}
+                                  className="grid gap-2"
+                                  data-testid="user-dialog-team-mode"
+                                >
+                                  <label
+                                    className={cn(
+                                      'flex items-start gap-2 rounded-md border px-3 py-2 text-xs cursor-pointer transition-colors',
+                                      field.state.value === 'CREATE_NEW'
+                                        ? 'border-primary/50 bg-primary/5'
+                                        : 'border-input hover:bg-muted/40',
+                                    )}
+                                  >
+                                    <RadioGroupItem
+                                      value="CREATE_NEW"
+                                      className="mt-0.5"
+                                      data-testid="user-dialog-team-mode-create-new"
+                                    />
+                                    <div className="flex-1">
+                                      <div className="font-medium inline-flex items-center gap-1">
+                                        <Sparkles className="h-3 w-3" />
+                                        Создать свою команду
+                                      </div>
+                                      <p className="text-muted-foreground mt-0.5">
+                                        Новая команда синьора. Выберите состав ниже.
+                                      </p>
+                                    </div>
+                                  </label>
+                                  <label
+                                    className={cn(
+                                      'flex items-start gap-2 rounded-md border px-3 py-2 text-xs cursor-pointer transition-colors',
+                                      field.state.value === 'JOIN_DROP_TEAM'
+                                        ? 'border-primary/50 bg-primary/5'
+                                        : 'border-input hover:bg-muted/40',
+                                      vacantDropTeams.length === 0 && 'opacity-60',
+                                    )}
+                                  >
+                                    <RadioGroupItem
+                                      value="JOIN_DROP_TEAM"
+                                      className="mt-0.5"
+                                      disabled={vacantDropTeams.length === 0}
+                                      data-testid="user-dialog-team-mode-join-drop"
+                                    />
+                                    <div className="flex-1">
+                                      <div className="font-medium inline-flex items-center gap-1">
+                                        <Users className="h-3 w-3" />
+                                        Добавить в команду дропа
+                                      </div>
+                                      <p className="text-muted-foreground mt-0.5">
+                                        {vacantDropTeams.length === 0
+                                          ? 'Нет команд дропа без активного синьора.'
+                                          : `${vacantDropTeams.length} ${
+                                              vacantDropTeams.length === 1
+                                                ? 'команда доступна'
+                                                : 'команд(ы) доступно'
+                                            }.`}
+                                      </p>
+                                    </div>
+                                  </label>
+                                </RadioGroup>
+                              </Field>
+                            )}
+                          </form.Field>
                         )}
-                        <Link
-                          to="/crm/projects"
-                          className="text-xs text-primary hover:underline mt-1 inline-block"
-                          onClick={() => props.onClose()}
-                        >
-                          Управлять в Проектах →
-                        </Link>
-                      </Field>
-                    </Section>
-                  )
-                }
 
-                // ADMIN / HR / ACCOUNTANT — no team section (HR and ACCOUNTANT manage assignments via Teams page)
-                return null
-              }}
+                        {/* CREATE_NEW branch: legacy HR / accountant / channel pickers. */}
+                        <form.Subscribe selector={(s) => s.values.teamMode}>
+                          {(teamMode) => {
+                            // Edit mode: teamMode field doesn't apply — keep
+                            // the original SENIOR edit form unchanged (renders
+                            // the legacy CREATE_NEW pickers so admin can swap
+                            // HR/accountant for the existing team).
+                            if (isEdit || teamMode === 'CREATE_NEW')
+                              return (
+                                <>
+                                  {/* ut-16: HR as chips + searchable add popover. */}
+                                  <HrChipsField
+                                    hrUsers={hrUsers}
+                                    selectedIds={selectedHrIds}
+                                    onChange={setSelectedHrIds}
+                                    required={isCreate}
+                                    onlyHr={onlyHr}
+                                  />
+
+                                  {/* ut-16: Accountant as a chip in the same visual language. */}
+                                  <AccountantChipField
+                                    accountantUsers={accountantUsers}
+                                    selectedId={selectedAccountantId}
+                                    onChange={setSelectedAccountantId}
+                                    onlyAccountant={onlyAccountant}
+                                  />
+                                </>
+                              )
+                            // JOIN_DROP_TEAM branch: pick the drop-team to attach to.
+                            // HR/accountant are inherited from that team — no local
+                            // pickers, no channel input.
+                            return (
+                              <form.Field
+                                name="dropTeamId"
+                                validators={{
+                                  onBlur: ({ value, fieldApi }) => {
+                                    if (!fieldApi.state.meta.isDirty) return undefined
+                                    if (!value) return 'Выберите команду дропа'
+                                    return undefined
+                                  },
+                                }}
+                              >
+                                {(field) => {
+                                  const showError =
+                                    field.state.meta.isTouched && field.state.meta.isDirty
+                                  const err = showError ? field.state.meta.errors[0] : undefined
+                                  return (
+                                    <Field label="Команда дропа" error={err} required>
+                                      {vacantDropTeams.length === 0 ? (
+                                        <p className="text-xs text-muted-foreground italic">
+                                          Нет команд дропа без активного синьора. Создайте дропа или
+                                          выберите «Создать свою команду».
+                                        </p>
+                                      ) : (
+                                        <Select
+                                          value={field.state.value || ''}
+                                          onValueChange={(v) => field.handleChange(v)}
+                                        >
+                                          <SelectTrigger data-testid="user-dialog-drop-team-trigger">
+                                            <SelectValue placeholder="— выберите команду дропа —" />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {vacantDropTeams.map((t) => {
+                                              const drop = t.members.find(
+                                                (m) => m.role === 'DROP' && !m.leftAt,
+                                              )
+                                              const hrs = t.members
+                                                .filter((m) => m.role === 'HR' && !m.leftAt)
+                                                .map((m) => m.displayName)
+                                                .join(', ')
+                                              return (
+                                                <SelectItem key={t.id} value={t.id}>
+                                                  <div className="flex flex-col items-start">
+                                                    <span className="font-medium">{t.name}</span>
+                                                    <span className="text-[10px] text-muted-foreground">
+                                                      {drop?.displayName ?? 'Дроп не назначен'}
+                                                      {hrs ? ` · HR: ${hrs}` : ''}
+                                                    </span>
+                                                  </div>
+                                                </SelectItem>
+                                              )
+                                            })}
+                                          </SelectContent>
+                                        </Select>
+                                      )}
+                                    </Field>
+                                  )
+                                }}
+                              </form.Field>
+                            )
+                          }}
+                        </form.Subscribe>
+
+                        {/* ut-17: optional team Telegram channel.
+                          Hidden when joining an existing drop-team (channel
+                          inherited from that team). */}
+                        <form.Subscribe selector={(s) => s.values.teamMode}>
+                          {(teamMode) =>
+                            isEdit || teamMode === 'CREATE_NEW' ? (
+                              <form.Field
+                                name="teamTelegramChannel"
+                                validators={{
+                                  onBlur: ({ value, fieldApi }) => {
+                                    if (!fieldApi.state.meta.isDirty) return undefined
+                                    const trimmed = value.trim()
+                                    if (!trimmed) return undefined
+                                    return /^@?[a-zA-Z0-9_]{5,32}$/.test(trimmed)
+                                      ? undefined
+                                      : 'Некорректный канал (5–32 латинских символов или _, опц. @)'
+                                  },
+                                }}
+                              >
+                                {(field) => {
+                                  const showError =
+                                    field.state.meta.isTouched && field.state.meta.isDirty
+                                  const err = showError ? field.state.meta.errors[0] : undefined
+                                  return (
+                                    <Field
+                                      label="Telegram-канал команды"
+                                      error={err}
+                                      hint={
+                                        err ? undefined : 'Опционально. Канал для общения команды.'
+                                      }
+                                    >
+                                      <div className="relative">
+                                        <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                          <Send className="h-3.5 w-3.5" />
+                                          t.me/
+                                        </span>
+                                        <Input
+                                          placeholder="team_channel"
+                                          className={cn(
+                                            'pl-16',
+                                            err &&
+                                              'border-destructive focus-visible:ring-destructive/30',
+                                          )}
+                                          value={field.state.value}
+                                          onChange={(e) => field.handleChange(e.target.value)}
+                                          onBlur={field.handleBlur}
+                                          autoComplete="off"
+                                          data-testid="user-dialog-team-telegram-channel"
+                                        />
+                                      </div>
+                                    </Field>
+                                  )
+                                }}
+                              </form.Field>
+                            ) : null
+                          }
+                        </form.Subscribe>
+                      </Section>
+                    )
+                  }
+
+                  if (role === 'JUNIOR') {
+                    if (isCreate) {
+                      return (
+                        <Section title="Команда">
+                          <form.Field name="projectId">
+                            {(field) => (
+                              <Field
+                                label="Проект"
+                                hint="Можно прикрепить позже через раздел «Проекты»"
+                              >
+                                {availableJuniorProjects.length === 0 ? (
+                                  <p className="text-xs text-muted-foreground italic">
+                                    Нет проектов без активного джуна
+                                  </p>
+                                ) : (
+                                  <Select
+                                    value={field.state.value || 'none'}
+                                    onValueChange={(v) => field.handleChange(v === 'none' ? '' : v)}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="— не выбран —" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="none">— не выбран —</SelectItem>
+                                      {availableJuniorProjects.map((p) => (
+                                        <SelectItem key={p.id} value={p.id}>
+                                          {p.companyName} — {p.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                )}
+                              </Field>
+                            )}
+                          </form.Field>
+                        </Section>
+                      )
+                    }
+                    // Edit JUNIOR: read-only project list + link
+                    return (
+                      <Section title="Команда">
+                        <Field label="Активные проекты">
+                          {juniorActiveProjects.length === 0 ? (
+                            <p className="text-xs text-muted-foreground italic">
+                              Нет активных проектов
+                            </p>
+                          ) : (
+                            <div
+                              className="flex flex-wrap gap-1"
+                              data-testid="user-dialog-junior-projects"
+                            >
+                              {juniorActiveProjects.map((p) => (
+                                <Badge key={p.id} variant="outline" className="text-[11px]">
+                                  {p.companyName} — {p.name}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                          <Link
+                            to="/crm/projects"
+                            className="text-xs text-primary hover:underline mt-1 inline-block"
+                            onClick={() => props.onClose()}
+                          >
+                            Управлять в Проектах →
+                          </Link>
+                        </Field>
+                      </Section>
+                    )
+                  }
+
+                  // ADMIN / HR / ACCOUNTANT — no team section (HR and ACCOUNTANT manage assignments via Teams page)
+                  return null
+                }}
+              </form.Subscribe>
+            </div>
+          </CrmDialogBody>
+
+          <CrmDialogFooter className="items-center justify-between">
+            <form.Subscribe selector={(s) => s.values.role}>
+              {(role) => (
+                <Badge variant={ROLE_VARIANT[role]} className="text-[11px]">
+                  {ROLE_LABELS[role]}
+                </Badge>
+              )}
             </form.Subscribe>
-          </div>
-        </CrmDialogBody>
+            <div className="flex gap-2">
+              <Button variant="ghost" onClick={handleClose}>
+                Отмена
+              </Button>
+              <Button
+                onClick={() => void form.handleSubmit()}
+                disabled={isPending}
+                data-testid="user-dialog-submit"
+              >
+                {submitLabel}
+              </Button>
+            </div>
+          </CrmDialogFooter>
+        </CrmDialogContent>
+      </Dialog>
 
-        <CrmDialogFooter className="items-center justify-between">
-          <form.Subscribe selector={(s) => s.values.role}>
-            {(role) => (
-              <Badge variant={ROLE_VARIANT[role]} className="text-[11px]">
-                {ROLE_LABELS[role]}
-              </Badge>
-            )}
-          </form.Subscribe>
-          <div className="flex gap-2">
-            <Button variant="ghost" onClick={handleClose}>
-              Отмена
-            </Button>
-            <Button
-              onClick={() => void form.handleSubmit()}
-              disabled={isPending}
-              data-testid="user-dialog-submit"
+      {/* ut-9: Email change warning. Confirms or reverts the email field. */}
+      <AlertDialog
+        open={!!pendingEmailChange}
+        onOpenChange={(o) => !o && setPendingEmailChange(null)}
+      >
+        <AlertDialogContent data-testid="email-change-warning">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Сменить email?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                Смена email может разорвать вход через Google для{' '}
+                <strong>{editingUser?.displayName}</strong>. Убедись, что пользователь знает и
+                сменит свой Google account при необходимости.
+              </span>
+              <span className="block text-muted-foreground">
+                Старый: <code className="px-1 rounded bg-muted">{originalEmail}</code>
+                <br />
+                Новый: <code className="px-1 rounded bg-muted">{pendingEmailChange}</code>
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                form.setFieldValue('email', originalEmail)
+                setPendingEmailChange(null)
+              }}
             >
-              {submitLabel}
-            </Button>
-          </div>
-        </CrmDialogFooter>
-      </CrmDialogContent>
-    </Dialog>
-
-    {/* ut-9: Email change warning. Confirms or reverts the email field. */}
-    <AlertDialog
-      open={!!pendingEmailChange}
-      onOpenChange={(o) => !o && setPendingEmailChange(null)}
-    >
-      <AlertDialogContent data-testid="email-change-warning">
-        <AlertDialogHeader>
-          <AlertDialogTitle>Сменить email?</AlertDialogTitle>
-          <AlertDialogDescription className="space-y-2">
-            <span className="block">
-              Смена email может разорвать вход через Google для{' '}
-              <strong>{editingUser?.displayName}</strong>. Убедись, что пользователь
-              знает и сменит свой Google account при необходимости.
-            </span>
-            <span className="block text-muted-foreground">
-              Старый: <code className="px-1 rounded bg-muted">{originalEmail}</code>
-              <br />
-              Новый: <code className="px-1 rounded bg-muted">{pendingEmailChange}</code>
-            </span>
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel
-            onClick={() => {
-              form.setFieldValue('email', originalEmail)
-              setPendingEmailChange(null)
-            }}
-          >
-            Отмена
-          </AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() => setPendingEmailChange(null)}
-            data-testid="email-change-confirm"
-          >
-            Подтвердить изменение
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+              Отмена
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => setPendingEmailChange(null)}
+              data-testid="email-change-confirm"
+            >
+              Подтвердить изменение
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

@@ -20,7 +20,6 @@ import {
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ArchiveConfirmDialog } from '@/components/users/ArchiveConfirmDialog'
-import { CreateDropDialog } from '@/components/users/CreateDropDialog'
 import { UserDialog } from '@/components/users/UserDialog'
 import { UserRow } from '@/components/users/UserRow'
 import {
@@ -66,7 +65,9 @@ function UsersPage() {
           <h1 className="text-2xl font-bold tracking-tight">Пользователи</h1>
         </div>
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
-          <p className="text-sm font-medium text-muted-foreground">Доступ только для администратора</p>
+          <p className="text-sm font-medium text-muted-foreground">
+            Доступ только для администратора
+          </p>
         </div>
       </div>
     )
@@ -103,10 +104,6 @@ function UsersPageContent({
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [createOpen, setCreateOpen] = useState(false)
   const [createKey, setCreateKey] = useState(0)
-  // Drop role - phase 1 (AC2): dedicated «Создать дропа» dialog opens
-  // a separate flow that hits POST /api/users/drops and provisions the
-  // drop-team atomically. Lives next to the existing «Добавить» button.
-  const [createDropOpen, setCreateDropOpen] = useState(false)
   const [editUser, setEditUser] = useState<UserProfileDto | null>(null)
   const [archiveUser, setArchiveUser] = useState<UserProfileDto | null>(null)
   // ut-44: tri-state filter — local "ACTIVE" / "ALL" plus URL-driven "ARCHIVED".
@@ -162,10 +159,7 @@ function UsersPageContent({
           u.displayName.toLowerCase().includes(q) ||
           u.email.toLowerCase().includes(q) ||
           (u.telegram ?? '').toLowerCase().includes(q) ||
-          (Array.isArray(u.techStack)
-            ? u.techStack.join(', ')
-            : (u.techStack ?? '')
-          )
+          (Array.isArray(u.techStack) ? u.techStack.join(', ') : (u.techStack ?? ''))
             .toLowerCase()
             .includes(q),
       )
@@ -220,6 +214,10 @@ function UsersPageContent({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* DROP creation is now folded into UserDialog (single source of
+              truth for all roles). Picking DROP in the role select swaps
+              in the drop-share slider + mandatory drop-team section and
+              routes submit to POST /api/users/drops. */}
           <Button
             ref={createTriggerRef}
             onClick={() => {
@@ -230,20 +228,6 @@ function UsersPageContent({
           >
             <Plus className="mr-2 h-4 w-4" />
             Добавить
-          </Button>
-          {/* Drop role - phase 1 (AC2): side-by-side «Создать дропа» — opens
-              a dedicated dialog hitting POST /api/users/drops. The existing
-              «Добавить» (UserDialog) does NOT change behavior; DROP role is
-              intentionally absent from its role picker (constants
-              CREATE_ALLOWED_ROLES). */}
-          <Button
-            variant="outline"
-            onClick={() => setCreateDropOpen(true)}
-            data-testid="users-create-drop-button"
-            className="gap-1.5"
-          >
-            <Plus className="h-4 w-4" />
-            Создать дропа
           </Button>
         </div>
       </motion.div>
@@ -423,8 +407,6 @@ function UsersPageContent({
       />
       <UserDialog mode="edit" user={editUser} onClose={() => setEditUser(null)} />
       <ArchiveConfirmDialog user={archiveUser} onClose={() => setArchiveUser(null)} />
-      <CreateDropDialog open={createDropOpen} onClose={() => setCreateDropOpen(false)} />
     </div>
   )
 }
-
