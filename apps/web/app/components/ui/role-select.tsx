@@ -14,17 +14,24 @@ export const ROLE_LABELS: Record<Role, string> = {
   JUNIOR: 'Джун',
   HR: 'HR',
   ACCOUNTANT: 'Бухгалтер',
+  // Drop role - phase 1 (backend). UI polish ships in the frontend task —
+  // until then we reuse the accountant variant so the badge renders without
+  // a dedicated color.
+  DROP: 'Дроп',
 }
 
-export const ROLE_BADGE_VARIANT: Record<Role, 'admin' | 'senior' | 'junior' | 'hr' | 'accountant'> = {
-  ADMIN: 'admin',
-  SENIOR: 'senior',
-  JUNIOR: 'junior',
-  HR: 'hr',
-  ACCOUNTANT: 'accountant',
-}
+export const ROLE_BADGE_VARIANT: Record<Role, 'admin' | 'senior' | 'junior' | 'hr' | 'accountant'> =
+  {
+    ADMIN: 'admin',
+    SENIOR: 'senior',
+    JUNIOR: 'junior',
+    HR: 'hr',
+    ACCOUNTANT: 'accountant',
+    // See ROLE_LABELS — placeholder until the frontend task picks the brand color.
+    DROP: 'accountant',
+  }
 
-const ALL_ROLES: Role[] = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT']
+const ALL_ROLES: Role[] = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
 
 export interface RoleSelectProps {
   value: Role

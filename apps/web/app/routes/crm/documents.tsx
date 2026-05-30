@@ -115,6 +115,9 @@ const TAB_VISIBILITY: Record<Role, DocumentCategory[]> = {
   JUNIOR: ['RESUME', 'SCAN', 'INVOICE'],
   HR: ['RESUME', 'SCAN', 'CONTRACT', 'INVOICE'],
   ACCOUNTANT: ['SCAN', 'RECEIPT', 'INVOICE'],
+  // Drop role - phase 1 (backend): documents UX for DROP ships in a later
+  // phase. Mirror the SENIOR set so the page renders without runtime crash.
+  DROP: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE'],
 }
 
 /**
@@ -128,6 +131,8 @@ const UPLOADABLE_PER_ROLE: Record<Role, DocumentCategory[]> = {
   JUNIOR: ['RESUME', 'SCAN'],
   HR: ['RESUME', 'SCAN'],
   ACCOUNTANT: [],
+  // Drop role - phase 1 (backend): drop document UX ships in a later phase.
+  DROP: ['RESUME', 'SCAN', 'CONTRACT'],
 }
 
 function canSeeOwnerFilter(role: Role): boolean {

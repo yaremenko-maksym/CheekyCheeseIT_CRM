@@ -1323,6 +1323,9 @@ export class UsersService {
     }
     if (!permissions.fields.share) {
       filteredUser.seniorSharePercent = 0
+      // Drop role - phase 1: also mask dropSharePercent so non-privileged
+      // viewers don't see the drop's cut.
+      filteredUser.dropSharePercent = null
     }
     if (!permissions.fields.techStack) {
       filteredUser.techStack = null

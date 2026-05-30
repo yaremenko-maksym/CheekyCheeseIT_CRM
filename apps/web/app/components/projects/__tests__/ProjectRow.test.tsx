@@ -58,6 +58,7 @@ function makeProject(overrides: Partial<ProjectDto> = {}): ProjectDto {
     startDate: '2026-01-01T00:00:00.000Z',
     seniorId: SENIOR_ID,
     seniorName: 'Senior One',
+    dropId: null,
     rate: 4500,
     currency: 'USD',
     seniorSharePercentOverride: null,
@@ -100,9 +101,7 @@ describe('ProjectRow — clickable senior/junior names', () => {
     const project = makeProject()
     renderProjectRow(project)
 
-    const link = await screen.findByTestId(
-      `project-row-${project.id}-senior-link`,
-    )
+    const link = await screen.findByTestId(`project-row-${project.id}-senior-link`)
     expect(link.tagName).toBe('A')
     expect(link).toHaveAttribute('href', `/crm/profile/${SENIOR_ID}`)
     expect(link).toHaveTextContent('Senior One')
@@ -113,9 +112,7 @@ describe('ProjectRow — clickable senior/junior names', () => {
     const project = makeProject()
     renderProjectRow(project)
 
-    const link = await screen.findByTestId(
-      `project-row-${project.id}-junior-link`,
-    )
+    const link = await screen.findByTestId(`project-row-${project.id}-junior-link`)
     expect(link.tagName).toBe('A')
     expect(link).toHaveAttribute('href', `/crm/profile/${JUNIOR_ID}`)
     expect(link).toHaveTextContent('Junior One')
@@ -127,9 +124,7 @@ describe('ProjectRow — clickable senior/junior names', () => {
 
     // Wait for the row itself to render — then assert junior link is absent.
     await screen.findByTestId(`project-row-${project.id}`)
-    expect(
-      screen.queryByTestId(`project-row-${project.id}-junior-link`),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByTestId(`project-row-${project.id}-junior-link`)).not.toBeInTheDocument()
     expect(screen.getByText('Нет джуна')).toBeInTheDocument()
   })
 
@@ -160,9 +155,7 @@ describe('ProjectRow — clickable senior/junior names', () => {
 
     render(<RouterProvider router={router} />)
 
-    const link = await screen.findByTestId(
-      `project-row-${project.id}-senior-link`,
-    )
+    const link = await screen.findByTestId(`project-row-${project.id}-senior-link`)
 
     await user.click(link)
 
@@ -187,13 +180,8 @@ describe('ProjectRow — clickable senior/junior names', () => {
     const project = makeProject({ members: [leftJunior, activeJunior] })
     renderProjectRow(project)
 
-    const link = await screen.findByTestId(
-      `project-row-${project.id}-junior-link`,
-    )
-    expect(link).toHaveAttribute(
-      'href',
-      `/crm/profile/00000000-0000-0000-0000-0000000000c2`,
-    )
+    const link = await screen.findByTestId(`project-row-${project.id}-junior-link`)
+    expect(link).toHaveAttribute('href', `/crm/profile/00000000-0000-0000-0000-0000000000c2`)
     expect(link).toHaveTextContent('Junior Two')
   })
 })

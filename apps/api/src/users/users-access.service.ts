@@ -15,14 +15,18 @@ export class UsersAccessService {
     const isHr = viewer.role === 'HR'
     const isSenior = viewer.role === 'SENIOR'
     const isJunior = viewer.role === 'JUNIOR'
+    const isDrop = viewer.role === 'DROP'
     const targetIsSenior = target.role === 'SENIOR'
 
     const tabs: TabKey[] = []
     const actions: ActionKey[] = []
     const fields: Record<string, boolean> = {}
 
-    const targetIsSalaryRole = target.role === 'JUNIOR' || target.role === 'HR' || target.role === 'ACCOUNTANT'
-    const targetIsShareRole = target.role === 'SENIOR' || target.role === 'ADMIN'
+    const targetIsSalaryRole =
+      target.role === 'JUNIOR' || target.role === 'HR' || target.role === 'ACCOUNTANT'
+    // Drop role - phase 1: DROP also has a share (drop_share_percent default 5).
+    const targetIsShareRole =
+      target.role === 'SENIOR' || target.role === 'ADMIN' || target.role === 'DROP'
     // HR and ACCOUNTANT have soft-skill tech stacks ("Рекрутинг", "Account Support", "1С") —
     // visible like dev stacks.
     const targetHasTechStack = true
@@ -51,7 +55,8 @@ export class UsersAccessService {
       fields.requisites = true
     } else if (isSelf) {
       tabs.push('overview', 'projects', 'team', 'requisites', 'documents')
-      if (isSenior || isJunior || isHr || isAccountant) tabs.push('finance')
+      // Drop role - phase 1: DROP has finance access (read), same as senior/etc.
+      if (isSenior || isJunior || isHr || isAccountant || isDrop) tabs.push('finance')
       // SENIOR: interviews moved to header link; no separate tab here
       fields.salary = targetIsSalaryRole
       fields.share = targetIsShareRole
