@@ -313,6 +313,23 @@ export function UserDialog(props: UserDialogProps) {
   // key consumed by project/team dropdowns (`GET /api/users`). Without it,
   // a freshly-created SENIOR didn't appear in the «Создать проект» dropdown
   // until a manual refresh because the cached user list stayed stale.
+  //
+  // Drop-archive round 2 (B4): unified mutation error handler. 409 from
+  // `/users` (and `/users/drops`) means "email already exists" — we show
+  // a tailored toast and leave the dialog open so the operator can fix
+  // the email and resubmit. Other HTTP codes surface the backend message
+  // or a generic fallback. Shared between create-user, create-drop, and
+  // (rarely) update — same `/users` endpoint surface.
+  const explainUserMutationError = (
+    err: AxiosError<{ message?: string }>,
+    fallback: string,
+  ): string => {
+    if (err?.response?.status === 409) {
+      return 'Пользователь с таким email уже существует'
+    }
+    return err?.response?.data?.message ?? fallback
+  }
+
   const createMutation = useMutation({
     mutationFn: (data: CreateUserDto) => api.post<UserProfileDto>('/users', data),
     onSuccess: (_res, variables) => {
@@ -330,8 +347,9 @@ export function UserDialog(props: UserDialogProps) {
       toast.success(msg, { duration: 4500 })
       props.onClose()
     },
-    onError: (err: AxiosError<{ message: string }>) => {
-      toast.error(err?.response?.data?.message ?? 'Ошибка при создании')
+    onError: (err: AxiosError<{ message?: string }>) => {
+      // 409 → duplicate email toast, dialog stays open. See `explainUserMutationError`.
+      toast.error(explainUserMutationError(err, 'Ошибка при создании'))
     },
   })
 
@@ -359,8 +377,8 @@ export function UserDialog(props: UserDialogProps) {
         void navigate({ to: '/crm/team/$teamId', params: { teamId: newTeamId } })
       }
     },
-    onError: (err: AxiosError<{ message: string }>) => {
-      toast.error(err?.response?.data?.message ?? 'Ошибка при создании дропа')
+    onError: (err: AxiosError<{ message?: string }>) => {
+      toast.error(explainUserMutationError(err, 'Ошибка при создании дропа'))
     },
   })
 
@@ -375,8 +393,9 @@ export function UserDialog(props: UserDialogProps) {
       toast.success('Пользователь обновлён')
       props.onClose()
     },
-    onError: (err: AxiosError<{ message: string }>) => {
-      toast.error(err?.response?.data?.message ?? 'Ошибка при обновлении')
+    onError: (err: AxiosError<{ message?: string }>) => {
+      // Edit can hit 409 too if admin changes email to an already-taken one.
+      toast.error(explainUserMutationError(err, 'Ошибка при обновлении'))
     },
   })
 
