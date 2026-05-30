@@ -38,12 +38,21 @@ export function HrChipsField({
   onChange,
   required,
   onlyHr,
+  error,
 }: {
   hrUsers: UserProfileDto[]
   selectedIds: string[]
   onChange: (next: string[]) => void
   required: boolean
   onlyHr: boolean
+  /**
+   * Inline validation error (e.g. «Выберите минимум одного HR»). Rendered
+   * through the same `<Field />` slot used by all other form rows so the
+   * message lands directly under the label, in destructive colour, with
+   * the label itself turning red. Empty/undefined → field renders the
+   * usual placeholder layout.
+   */
+  error?: string | undefined
 }) {
   const [open, setOpen] = useState(false)
 
@@ -60,14 +69,18 @@ export function HrChipsField({
 
   if (hrUsers.length === 0) {
     return (
-      <Field label="HR" required={required}>
+      <Field label="HR" required={required} error={error}>
         <p className="text-xs text-muted-foreground italic">Нет доступных HR</p>
       </Field>
     )
   }
 
   return (
-    <Field label={`HR${selected.length > 0 ? ` (${selected.length} выбрано)` : ''}`} required={required}>
+    <Field
+      label={`HR${selected.length > 0 ? ` (${selected.length} выбрано)` : ''}`}
+      required={required}
+      error={error}
+    >
       <div className="space-y-2" data-testid="user-dialog-hr-multiselect">
         <div className="flex flex-wrap gap-1.5">
           {selected.length === 0 ? (

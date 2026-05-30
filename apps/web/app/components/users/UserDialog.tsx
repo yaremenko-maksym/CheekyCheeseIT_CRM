@@ -191,6 +191,17 @@ export function UserDialog(props: UserDialogProps) {
   // SENIOR-only team controls (HR multiselect + Accountant)
   const [selectedHrIds, setSelectedHrIds] = useState<string[]>([])
   const [selectedAccountantId, setSelectedAccountantId] = useState<string>('')
+  // Drop role - phase 1 fix (AC6): inline validation error shown under the
+  // HR multiselect. Set when submit fails the «HR ≥ 1» guard; cleared as
+  // soon as the user adds an HR (handled via `handleHrChange` below) so the
+  // red error message doesn't linger after the user fixed the issue.
+  const [hrError, setHrError] = useState<string | undefined>(undefined)
+  // Wrapping setter so we clear the error optimistically when the user
+  // edits the selection — matches `touched` semantics in TanStack Form.
+  const handleHrChange = (next: string[]) => {
+    setSelectedHrIds(next)
+    if (hrError && next.length > 0) setHrError(undefined)
+  }
 
   // Refs to avoid stale-closure in onSubmit
   const selectedHrIdsRef = useRef(selectedHrIds)
@@ -304,12 +315,19 @@ export function UserDialog(props: UserDialogProps) {
   // until a manual refresh because the cached user list stayed stale.
   const createMutation = useMutation({
     mutationFn: (data: CreateUserDto) => api.post<UserProfileDto>('/users', data),
-    onSuccess: () => {
+    onSuccess: (_res, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
       void queryClient.invalidateQueries({ queryKey: ['users'] })
       void queryClient.invalidateQueries({ queryKey: ['teams'] })
       void queryClient.invalidateQueries({ queryKey: ['projects'] })
-      toast.success('Пользователь создан')
+      // Drop role - phase 1 fix (AC8): SENIOR with JOIN_DROP_TEAM gets a
+      // tailored toast «Синьор добавлен в команду дропа» so the operator
+      // sees that the action also added them to an existing team — instead
+      // of the generic «Пользователь создан». 4500ms (default sonner = 4s,
+      // bumped to 4.5s to match the spec «4-5 sec»).
+      const isJoinDrop = variables.role === 'SENIOR' && variables.teamMode === 'JOIN_DROP_TEAM'
+      const msg = isJoinDrop ? 'Синьор добавлен в команду дропа' : 'Пользователь создан'
+      toast.success(msg, { duration: 4500 })
       props.onClose()
     },
     onError: (err: AxiosError<{ message: string }>) => {
@@ -329,7 +347,12 @@ export function UserDialog(props: UserDialogProps) {
       void queryClient.invalidateQueries({ queryKey: ['users'] })
       void queryClient.invalidateQueries({ queryKey: ['teams'] })
       void queryClient.invalidateQueries({ queryKey: ['projects'] })
-      toast.success('Дроп создан')
+      // Drop role - phase 1 fix (AC8): explicit duration so the toast lives
+      // through the team-detail navigation (sonner defaults to 4s, but we
+      // close the dialog + navigate in the same tick — the previous render
+      // sometimes pruned the toast before it ever painted). 4500ms keeps it
+      // within the spec «4-5 sec» band.
+      toast.success('Дроп создан', { duration: 4500 })
       props.onClose()
       const newTeamId = res.data.team?.id
       if (newTeamId) {
@@ -419,12 +442,21 @@ export function UserDialog(props: UserDialogProps) {
         // DROP creation hits the dedicated endpoint which atomically
         // provisions both the user and the drop-team. HR + accountant
         // pickers are mandatory (same UI contract as senior CREATE_NEW).
+        //
+        // Drop role - phase 1 fix (AC6/AC7): inline error under the HR
+        // multiselect AND a single «Заполните обязательные поля» toast.
+        // Previously submit failed silently — dialog stayed open without
+        // any feedback. We now both call out the broken field inline (so
+        // the user can see *which* field) and surface a compact toast (so
+        // they're aware submit didn't go through if their eyes are off
+        // the form).
         if (hrIds.length === 0) {
-          toast.error('Выберите хотя бы одного HR')
+          setHrError('Выберите минимум одного HR')
+          toast.error('Заполните обязательные поля')
           return
         }
         if (!accountantId) {
-          toast.error('Выберите бухгалтера')
+          toast.error('Заполните обязательные поля')
           return
         }
         const trimmedChannel = value.teamTelegramChannelDrop.trim()
@@ -477,11 +509,13 @@ export function UserDialog(props: UserDialogProps) {
         // legacy validation 1:1.
         const isJoinDropTeam = isSenior && value.teamMode === 'JOIN_DROP_TEAM'
         if (isSenior && !isJoinDropTeam && hrIds.length === 0) {
-          toast.error('Выберите хотя бы одного HR для команды синьора')
+          // Same inline + toast pair as the DROP branch — see comment above.
+          setHrError('Выберите минимум одного HR')
+          toast.error('Заполните обязательные поля')
           return
         }
         if (isJoinDropTeam && !value.dropTeamId) {
-          toast.error('Выберите команду дропа')
+          toast.error('Заполните обязательные поля')
           return
         }
 
@@ -980,6 +1014,7 @@ export function UserDialog(props: UserDialogProps) {
                                 onChange={(v) => field.handleChange(v)}
                                 onBlur={field.handleBlur}
                                 error={!!err}
+                                role="DROP"
                               />
                               <p className="text-[11px] text-muted-foreground mt-1 inline-flex items-center gap-1">
                                 <Percent className="h-3 w-3" />
@@ -1243,9 +1278,10 @@ export function UserDialog(props: UserDialogProps) {
                         <HrChipsField
                           hrUsers={hrUsers}
                           selectedIds={selectedHrIds}
-                          onChange={setSelectedHrIds}
+                          onChange={handleHrChange}
                           required
                           onlyHr={onlyHr}
+                          error={hrError}
                         />
 
                         <AccountantChipField
@@ -1397,9 +1433,10 @@ export function UserDialog(props: UserDialogProps) {
                                   <HrChipsField
                                     hrUsers={hrUsers}
                                     selectedIds={selectedHrIds}
-                                    onChange={setSelectedHrIds}
+                                    onChange={handleHrChange}
                                     required={isCreate}
                                     onlyHr={onlyHr}
+                                    error={hrError}
                                   />
 
                                   {/* ut-16: Accountant as a chip in the same visual language. */}

@@ -1,21 +1,21 @@
 import { cn } from '@/lib/utils'
 
 /**
- * Share split visualization. `value` represents the SENIOR's share —
- * the % the senior keeps (default 26%). The remaining (100 - value)
+ * Share split visualization. `value` represents the role's share —
+ * the % the SENIOR (default) or DROP keeps. The remaining (100 - value)
  * is the company's share. The visual order is:
  *
- *   [ company % ] [ senior % ]
+ *   [ company % ] [ role % ]
  *
- * matching the natural reading order "company pays senior X%".
+ * matching the natural reading order "company pays role X%".
  *
  * Field labels in the parent form follow the same convention — "Доля
- * синьора (%)" describes what `value` controls. The number badge inside
- * each bar is suffixed with the role name when there's enough room
- * (≥ 12%); below that it's shown as a bare percentage.
+ * синьора (%)" / «Доля дропа (%)» describes what `value` controls.
+ * The number badge inside each bar is suffixed with the role label when
+ * there's enough room (≥ 12%); below that it's shown as a bare percentage.
  *
  * The component is form-agnostic — it owns no state and accepts:
- *  - `value`: current senior share % (must be within [min, max])
+ *  - `value`: current role share % (must be within [min, max])
  *  - `onChange`: called with the next integer value (clamped to [min, max])
  *  - `min` / `max`: optional bounds. Defaults preserve backwards-compat
  *    with `users.seniorSharePercent` semantics (1-100). For places that
@@ -25,7 +25,19 @@ import { cn } from '@/lib/utils'
  *  - `inputTestId`: passed through to the number input — useful for
  *    targeting the editable control in E2E tests that drive the value
  *    directly via `page.fill(...)`.
+ *  - `role`: drives the right-hand label and aria text. Defaults to
+ *    `'SENIOR'` so every existing call site keeps the legacy texts
+ *    verbatim; the DROP-create form passes `'DROP'` to surface the
+ *    Drop-specific wording. New roles can extend the map without
+ *    touching call sites.
  */
+type ShareSliderRole = 'SENIOR' | 'DROP'
+
+const ROLE_LABELS: Record<ShareSliderRole, { side: string; aria: string }> = {
+  SENIOR: { side: 'синьор', aria: 'Доля синьора в процентах' },
+  DROP: { side: 'дропу', aria: 'Доля дропа в процентах' },
+}
+
 export function ShareSlider({
   value,
   onChange,
@@ -35,6 +47,7 @@ export function ShareSlider({
   min = 1,
   max = 100,
   inputTestId,
+  role = 'SENIOR',
 }: {
   value: number
   onChange: (v: number) => void
@@ -46,10 +59,12 @@ export function ShareSlider({
   min?: number
   max?: number
   inputTestId?: string
+  role?: ShareSliderRole
 }) {
   const clamp = (n: number) => Math.min(max, Math.max(min, n))
   const seniorPct = value
   const companyPct = 100 - seniorPct
+  const labels = ROLE_LABELS[role]
   return (
     <div className={cn('space-y-3', disabled && 'opacity-60')}>
       <div className="relative h-7 rounded-md overflow-hidden flex text-[11px] font-medium select-none">
@@ -63,9 +78,9 @@ export function ShareSlider({
         <div
           className="flex items-center justify-center bg-emerald-500/20 text-emerald-400 transition-all duration-150 whitespace-nowrap overflow-hidden"
           style={{ width: `${seniorPct}%` }}
-          title={`${seniorPct}% синьор`}
+          title={`${seniorPct}% ${labels.side}`}
         >
-          {seniorPct >= 12 ? `${seniorPct}% синьор` : `${seniorPct}%`}
+          {seniorPct >= 12 ? `${seniorPct}% ${labels.side}` : `${seniorPct}%`}
         </div>
       </div>
       <div className="flex items-center gap-3">
@@ -82,7 +97,7 @@ export function ShareSlider({
             'flex-1 h-2 accent-primary cursor-pointer',
             disabled && 'cursor-not-allowed',
           )}
-          aria-label="Доля синьора"
+          aria-label={labels.aria}
         />
         <input
           type="number"
@@ -103,7 +118,7 @@ export function ShareSlider({
             error && 'border-destructive',
             disabled && 'cursor-not-allowed bg-muted',
           )}
-          aria-label="Доля синьора в процентах"
+          aria-label={labels.aria}
         />
       </div>
     </div>
