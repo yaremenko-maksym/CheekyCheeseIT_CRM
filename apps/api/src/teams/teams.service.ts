@@ -296,6 +296,15 @@ export class TeamsService {
     if (!team) throw new NotFoundException('Team not found')
     if (team.archivedAt) throw new BadRequestException('Team is already archived')
 
+    // Drop-archive round 2 (B1): dispatch by team type. Drop-teams use the
+    // dedicated `archiveDropTeam` primitive (drop archived + projects
+    // cascade + HR/Acc detached + senior detached *without* archiving).
+    // Senior-teams keep the existing pair-cascade through UsersService.
+    if (team.type === 'DROP') {
+      await this.archiveDropTeam(teamId)
+      return this.findOne(teamId, currentUser)
+    }
+
     const seniorMember = team.members.find((m) => m.user?.role === 'SENIOR' && m.leftAt === null)
     if (!seniorMember) {
       throw new BadRequestException('Team has no active SENIOR — cannot archive via pair flow')
@@ -341,6 +350,73 @@ export class TeamsService {
       where: eq(teams.id, teamId),
     })
     if (!team) throw new NotFoundException('Team not found')
+
+    // Drop-archive round 2 (B2): branch by team type. Drop-teams have a
+    // different "paired" entity — the drop (not a senior). UI keys on
+    // `teamType` to render the right copy + confirm-input.
+    if (team.type === 'DROP') {
+      // Resolve the drop owner (paired user for the confirmation text).
+      const dropRow = await this.db.db
+        .select({ id: users.id, displayName: users.displayName })
+        .from(teamMembers)
+        .innerJoin(users, eq(users.id, teamMembers.userId))
+        .where(
+          and(eq(teamMembers.teamId, teamId), eq(users.role, 'DROP'), isNull(teamMembers.leftAt)),
+        )
+        .then((rows) => rows[0])
+      // Active senior (informational only — gets detached without archive).
+      const seniorRow = await this.db.db
+        .select({ id: users.id, displayName: users.displayName })
+        .from(teamMembers)
+        .innerJoin(users, eq(users.id, teamMembers.userId))
+        .where(
+          and(eq(teamMembers.teamId, teamId), eq(users.role, 'SENIOR'), isNull(teamMembers.leftAt)),
+        )
+        .then((rows) => rows[0])
+      // Active HR/Accountant count — all will be detached (leftAt=now) by
+      // `archiveDropTeam`. Computed cheaply with a single query excluding
+      // the drop + senior rows.
+      const others = await this.db.db
+        .select({ userId: teamMembers.userId })
+        .from(teamMembers)
+        .innerJoin(users, eq(users.id, teamMembers.userId))
+        .where(
+          and(eq(teamMembers.teamId, teamId), isNull(teamMembers.leftAt), eq(users.role, 'HR')),
+        )
+      const accountants = await this.db.db
+        .select({ userId: teamMembers.userId })
+        .from(teamMembers)
+        .innerJoin(users, eq(users.id, teamMembers.userId))
+        .where(
+          and(
+            eq(teamMembers.teamId, teamId),
+            isNull(teamMembers.leftAt),
+            eq(users.role, 'ACCOUNTANT'),
+          ),
+        )
+      // Drop-projects count.
+      const dropProjects = dropRow
+        ? await this.db.db
+            .select({ id: projects.id })
+            .from(projects)
+            .where(and(eq(projects.dropId, dropRow.id), isNull(projects.archivedAt)))
+        : []
+      return {
+        type: 'team',
+        isPaired: true,
+        teamName: team.name,
+        // Keep `seniorName` for legacy clients — empty if no senior attached.
+        // The new `dropName` field is what the v2 UI keys on.
+        seniorName: seniorRow?.displayName ?? '',
+        projectsCount: dropProjects.length,
+        membersAffected: others.length + accountants.length,
+        teamType: 'DROP',
+        dropName: dropRow?.displayName ?? '',
+        seniorWillBeDetached: !!seniorRow,
+      }
+    }
+
+    // SENIOR team — legacy path (unchanged 1:1 from round 1).
     const seniorRow = await this.db.db
       .select({ id: users.id, displayName: users.displayName })
       .from(teamMembers)
@@ -357,6 +433,7 @@ export class TeamsService {
         seniorName: '',
         projectsCount: 0,
         membersAffected: 0,
+        teamType: 'SENIOR',
       }
     }
     const userImpact = await this.usersService.getArchiveImpact(seniorRow.id)
@@ -369,6 +446,7 @@ export class TeamsService {
       seniorName: seniorRow.displayName,
       projectsCount: seniorImpact?.projectsCount ?? 0,
       membersAffected: seniorImpact?.hrAccountantsToBeRemoved ?? 0,
+      teamType: 'SENIOR',
     }
   }
 

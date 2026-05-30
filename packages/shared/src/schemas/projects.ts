@@ -25,7 +25,7 @@ export const IT_DOMAINS = [
   'Other',
 ] as const
 
-export type ItDomain = typeof IT_DOMAINS[number]
+export type ItDomain = (typeof IT_DOMAINS)[number]
 export const itDomainSchema = z.enum(IT_DOMAINS)
 
 export const projectMemberSchema = z.object({
@@ -109,32 +109,38 @@ export const projectSchema = z.object({
 // the list endpoint (GET /projects) returns the base `projectSchema` without this field.
 // Frontend consumes the detail shape via `projectDetailSchema` / `ProjectDetailDto`.
 export const effectiveTeamSchema = z.object({
-  senior: z.object({
-    id: z.string().uuid(),
-    displayName: z.string(),
-    email: z.string().email(),
-    avatarUrl: z.string().url().nullable(),
-    avatarDocumentId: z.string().uuid().nullable(),
-    role: z.literal('SENIOR'),
-  }).nullable(),
-  hrs: z.array(z.object({
-    id: z.string().uuid(),
-    userId: z.string().uuid(),
-    displayName: z.string(),
-    email: z.string().email(),
-    avatarUrl: z.string().url().nullable(),
-    avatarDocumentId: z.string().uuid().nullable(),
-    role: z.literal('HR'),
-  })),
-  accountants: z.array(z.object({
-    id: z.string().uuid(),
-    userId: z.string().uuid(),
-    displayName: z.string(),
-    email: z.string().email(),
-    avatarUrl: z.string().url().nullable(),
-    avatarDocumentId: z.string().uuid().nullable(),
-    role: z.literal('ACCOUNTANT'),
-  })),
+  senior: z
+    .object({
+      id: z.string().uuid(),
+      displayName: z.string(),
+      email: z.string().email(),
+      avatarUrl: z.string().url().nullable(),
+      avatarDocumentId: z.string().uuid().nullable(),
+      role: z.literal('SENIOR'),
+    })
+    .nullable(),
+  hrs: z.array(
+    z.object({
+      id: z.string().uuid(),
+      userId: z.string().uuid(),
+      displayName: z.string(),
+      email: z.string().email(),
+      avatarUrl: z.string().url().nullable(),
+      avatarDocumentId: z.string().uuid().nullable(),
+      role: z.literal('HR'),
+    }),
+  ),
+  accountants: z.array(
+    z.object({
+      id: z.string().uuid(),
+      userId: z.string().uuid(),
+      displayName: z.string(),
+      email: z.string().email(),
+      avatarUrl: z.string().url().nullable(),
+      avatarDocumentId: z.string().uuid().nullable(),
+      role: z.literal('ACCOUNTANT'),
+    }),
+  ),
   juniors: z.array(projectMemberSchema),
 })
 
@@ -186,14 +192,29 @@ export const archiveImpactSchema = z.union([
     hrAccountantsToBeRemoved: z.number().int().nonnegative().optional(),
     noDependencies: z.boolean().optional(),
   }),
-  // Team impact (alias for senior's pair)
+  // Team impact (alias for senior's pair OR drop-team standalone)
   z.object({
     type: z.literal('team'),
     isPaired: z.literal(true),
     teamName: z.string(),
+    // For SENIOR teams — name of the senior; the confirm input expects this.
+    // For DROP teams — name of the senior being detached (informational only;
+    // the senior is NOT archived, just unbound). Use `dropName` for the
+    // confirm input.
     seniorName: z.string(),
     projectsCount: z.number().int().nonnegative(),
     membersAffected: z.number().int().nonnegative(),
+    // Drop-archive round 2 (B2): explicit team-type discriminator + drop
+    // metadata. Optional so legacy senior-team responses parse unchanged.
+    // `teamType` defaults to 'SENIOR' on the client when absent.
+    teamType: z.enum(['SENIOR', 'DROP']).optional(),
+    // Drop-team only: name of the drop user that owns this team. The
+    // confirmation input asks for this name (not the senior's).
+    dropName: z.string().optional(),
+    // Drop-team only: true when an active senior is attached and will be
+    // detached (not archived) by `archiveDropTeam`. Surfaces in the
+    // confirmation dialog so admin knows the senior is released.
+    seniorWillBeDetached: z.boolean().optional(),
   }),
   // Project impact (independent)
   z.object({
@@ -205,54 +226,60 @@ export const archiveImpactSchema = z.union([
 // 409 body shape when project unarchive requires cascade (senior/team archived).
 export const cascadeRequiredErrorSchema = z.object({
   requiresCascade: z.literal(true),
-  entities: z.array(z.object({
-    type: z.enum(['user', 'team']),
-    id: z.string().uuid(),
-    name: z.string(),
-  })),
+  entities: z.array(
+    z.object({
+      type: z.enum(['user', 'team']),
+      id: z.string().uuid(),
+      name: z.string(),
+    }),
+  ),
 })
 
-export const createProjectSchema = z.object({
-  name: z.string().min(1).max(255),
-  companyName: z.string().min(1).max(255),
-  domain: itDomainSchema,
-  logoDocumentId: z.string().uuid().nullable().optional(),
-  logoExternalUrl: z.string().url().nullable().optional(),
-  startDate: z.string().datetime(),
-  seniorId: z.string().uuid(),
-  rate: z.number().int().positive(),
-  currency: currencySchema,
-  // Optional at create time; only ADMIN/ACCOUNTANT may pass this — service
-  // throws ForbiddenException for HR/SENIOR/JUNIOR.
-  seniorSharePercentOverride: z.number().int().min(0).max(100).nullable().optional(),
-  techStack: z.string().max(500).optional().nullable(),
-  teamSize: z.string().max(100).optional().nullable(),
-  benefits: z.string().max(500).optional().nullable(),
-  paymentType: z.string().max(100).optional().nullable(),
-  salaryReview: z.string().max(255).optional().nullable(),
-  corpTech: z.string().max(255).optional().nullable(),
-  notesGeneral: z.string().max(1000).optional().nullable(),
-}).superRefine(refineLogoXor)
+export const createProjectSchema = z
+  .object({
+    name: z.string().min(1).max(255),
+    companyName: z.string().min(1).max(255),
+    domain: itDomainSchema,
+    logoDocumentId: z.string().uuid().nullable().optional(),
+    logoExternalUrl: z.string().url().nullable().optional(),
+    startDate: z.string().datetime(),
+    seniorId: z.string().uuid(),
+    rate: z.number().int().positive(),
+    currency: currencySchema,
+    // Optional at create time; only ADMIN/ACCOUNTANT may pass this — service
+    // throws ForbiddenException for HR/SENIOR/JUNIOR.
+    seniorSharePercentOverride: z.number().int().min(0).max(100).nullable().optional(),
+    techStack: z.string().max(500).optional().nullable(),
+    teamSize: z.string().max(100).optional().nullable(),
+    benefits: z.string().max(500).optional().nullable(),
+    paymentType: z.string().max(100).optional().nullable(),
+    salaryReview: z.string().max(255).optional().nullable(),
+    corpTech: z.string().max(255).optional().nullable(),
+    notesGeneral: z.string().max(1000).optional().nullable(),
+  })
+  .superRefine(refineLogoXor)
 
-export const updateProjectSchema = z.object({
-  name: z.string().min(1).max(255).optional(),
-  companyName: z.string().min(1).max(255).optional(),
-  domain: itDomainSchema.optional(),
-  logoDocumentId: z.string().uuid().nullable().optional(),
-  logoExternalUrl: z.string().url().nullable().optional(),
-  rate: z.number().int().positive().optional(),
-  currency: currencySchema.optional(),
-  // Only ADMIN/ACCOUNTANT may include this field — service throws
-  // ForbiddenException for HR/SENIOR/JUNIOR if it is present (even null).
-  seniorSharePercentOverride: z.number().int().min(0).max(100).nullable().optional(),
-  techStack: z.string().max(500).optional().nullable(),
-  teamSize: z.string().max(100).optional().nullable(),
-  benefits: z.string().max(500).optional().nullable(),
-  paymentType: z.string().max(100).optional().nullable(),
-  salaryReview: z.string().max(255).optional().nullable(),
-  corpTech: z.string().max(255).optional().nullable(),
-  notesGeneral: z.string().max(1000).optional().nullable(),
-}).superRefine(refineLogoXor)
+export const updateProjectSchema = z
+  .object({
+    name: z.string().min(1).max(255).optional(),
+    companyName: z.string().min(1).max(255).optional(),
+    domain: itDomainSchema.optional(),
+    logoDocumentId: z.string().uuid().nullable().optional(),
+    logoExternalUrl: z.string().url().nullable().optional(),
+    rate: z.number().int().positive().optional(),
+    currency: currencySchema.optional(),
+    // Only ADMIN/ACCOUNTANT may include this field — service throws
+    // ForbiddenException for HR/SENIOR/JUNIOR if it is present (even null).
+    seniorSharePercentOverride: z.number().int().min(0).max(100).nullable().optional(),
+    techStack: z.string().max(500).optional().nullable(),
+    teamSize: z.string().max(100).optional().nullable(),
+    benefits: z.string().max(500).optional().nullable(),
+    paymentType: z.string().max(100).optional().nullable(),
+    salaryReview: z.string().max(255).optional().nullable(),
+    corpTech: z.string().max(255).optional().nullable(),
+    notesGeneral: z.string().max(1000).optional().nullable(),
+  })
+  .superRefine(refineLogoXor)
 
 export const addProjectMemberSchema = z.object({
   userId: z.string().uuid(),
