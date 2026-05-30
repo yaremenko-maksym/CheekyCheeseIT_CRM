@@ -15,7 +15,7 @@ import {
 } from '@nestjs/common'
 
 /** Strip keys whose value is `undefined` so exactOptionalPropertyTypes is satisfied. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function compact<T>(obj: T): T {
   return Object.fromEntries(Object.entries(obj as any).filter(([, v]) => v !== undefined)) as T
 }
@@ -59,6 +59,11 @@ export class UsersController {
     @CurrentUser() currentUser: SessionUser,
     @Query('archived') archivedParam?: string,
   ) {
+    // Drop role - phase 1 (AC3, security): DROP must not enumerate users.
+    // ADMIN/HR are the only callers that need the global directory listing —
+    // every other role (including DROP) is rejected. /me, /:id (single
+    // profile lookup) and /me/* endpoints remain available since they're
+    // self-only or used by the existing profile view.
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') throw new ForbiddenException()
     // round 7 (ut-44): tri-state filter — 'true' = archived only, 'all' = both,
     // anything else (including missing) = active only. Boolean kept for legacy

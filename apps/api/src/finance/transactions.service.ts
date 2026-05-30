@@ -186,6 +186,20 @@ export class TransactionsService {
           tx.receiverId === currentUser.id ||
           tx.senderId === currentUser.id,
       )
+    } else if (currentUser.role === 'DROP') {
+      // Drop role - phase 1 (AC1, security): DROP must only see transactions
+      // where they are the sender or receiver — never other seniors' income,
+      // payouts, expenses, or junior salaries. In Phase 1 the drop has no
+      // dedicated transactions yet (distribution lands in Phase 2), so this
+      // filter typically yields an empty list. Phase 2 will attach
+      // transactions to dropId/seniorId and this same filter naturally
+      // surfaces them. Same `PAYOUT_ADMIN` exclusion as SENIOR so dropping
+      // a row from an admin payout never leaks the admin balance.
+      result = result.filter(
+        (tx) =>
+          (tx.senderId === currentUser.id || tx.receiverId === currentUser.id) &&
+          tx.type !== 'PAYOUT_ADMIN',
+      )
     }
     // ADMIN, ACCOUNTANT see all
 
@@ -949,7 +963,18 @@ export class TransactionsService {
     })
 
     const filtered =
-      currentUser.role === 'SENIOR' ? all.filter((r) => r.seniorId === currentUser.id) : all
+      currentUser.role === 'SENIOR'
+        ? all.filter((r) => r.seniorId === currentUser.id)
+        : currentUser.role === 'DROP'
+          ? // Drop role - phase 1 (AC1, security): payout requests belong to
+            // seniors. DROP has no payouts of their own in Phase 1, so the
+            // list is empty. Phase 2 will swap this for `r.dropId === ...`
+            // when drop-payouts ship.
+            []
+          : currentUser.role === 'JUNIOR' || currentUser.role === 'HR'
+            ? // Same idea — these roles never owned payout requests.
+              []
+            : all
 
     return filtered.map((r) => ({
       id: r.id,
@@ -983,6 +1008,9 @@ export class TransactionsService {
     if (!req) throw new NotFoundException('Payout request not found')
     if (currentUser.role === 'SENIOR' && req.seniorId !== currentUser.id)
       throw new ForbiddenException()
+    // Drop role - phase 1 (AC1, security): DROP must never inspect a senior's
+    // payout request through the singular endpoint.
+    if (currentUser.role === 'DROP') throw new ForbiddenException()
 
     return {
       id: req.id,
@@ -1328,6 +1356,17 @@ export class TransactionsService {
     }
     if (currentUser.role === 'HR') {
       if (tx.receiverId === currentUser.id || tx.senderId === currentUser.id) return
+      throw new ForbiddenException()
+    }
+    // Drop role - phase 1 (AC1, security): same shape as SENIOR — own
+    // sender/receiver rows only, no PAYOUT_ADMIN. In Phase 1 the row set is
+    // typically empty; explicit clause keeps the contract crisp.
+    if (currentUser.role === 'DROP') {
+      if (
+        (tx.senderId === currentUser.id || tx.receiverId === currentUser.id) &&
+        tx.type !== 'PAYOUT_ADMIN'
+      )
+        return
       throw new ForbiddenException()
     }
     throw new ForbiddenException()
