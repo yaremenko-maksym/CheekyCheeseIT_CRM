@@ -90,6 +90,68 @@ export const USERS = {
     createdAt: '2024-01-05T00:00:00.000Z',
     updatedAt: '2024-01-05T00:00:00.000Z',
   },
+  // Drop role - phase 1 (AC1, AC8 RBAC). The DROP persona owns a dedicated
+  // drop-team. Acts as the financial conduit between the senior and the
+  // platform. Sees only Profile / Team / Finance in the sidebar.
+  drop: {
+    id: 'a0000000-0000-4000-8000-000000000007',
+    email: 'drop@cheekycheese.dev',
+    displayName: 'Drop User',
+    role: 'DROP' as const,
+    avatarUrl: null,
+    avatarDocumentId: null,
+    telegram: '@dropuser',
+    phone: null,
+    techStack: null,
+    paymentMethod: 'USDT_ERC20' as const,
+    seniorSharePercent: 0,
+    /** Drop's percentage off project income — spec default 5 (AC1 uses 7). */
+    dropSharePercent: 5,
+    monthlySalary: null,
+    salaryCurrency: 'USD' as const,
+    createdAt: '2024-01-07T00:00:00.000Z',
+    updatedAt: '2024-01-07T00:00:00.000Z',
+  },
+  // Drop role - phase 1 (AC5): a SENIOR sitting in no active team. Surfaces
+  // the «У вас нет активной команды» banner on `/crm/profile` and the
+  // empty-state on `/crm/projects` + `/crm/interviews`.
+  seniorOrphan: {
+    id: 'a0000000-0000-4000-8000-000000000008',
+    email: 'senior-orphan@cheekycheese.dev',
+    displayName: 'Senior Orphan',
+    role: 'SENIOR' as const,
+    avatarUrl: null,
+    avatarDocumentId: null,
+    telegram: null,
+    phone: null,
+    techStack: ['TypeScript'],
+    paymentMethod: 'USDT_ERC20' as const,
+    seniorSharePercent: 26,
+    monthlySalary: null,
+    salaryCurrency: 'USD' as const,
+    createdAt: '2024-01-08T00:00:00.000Z',
+    updatedAt: '2024-01-08T00:00:00.000Z',
+  },
+  // Drop role - phase 1 (AC2, AC4): a "free" SENIOR available for joining
+  // a drop-team or for rotation. Distinct from senior-orphan so AC2 (join
+  // drop-team) and AC4 (rotate-senior) can target a non-archived candidate.
+  seniorFree: {
+    id: 'a0000000-0000-4000-8000-000000000009',
+    email: 'senior-free@cheekycheese.dev',
+    displayName: 'Senior Free',
+    role: 'SENIOR' as const,
+    avatarUrl: null,
+    avatarDocumentId: null,
+    telegram: null,
+    phone: null,
+    techStack: ['TypeScript'],
+    paymentMethod: 'USDT_ERC20' as const,
+    seniorSharePercent: 26,
+    monthlySalary: null,
+    salaryCurrency: 'USD' as const,
+    createdAt: '2024-01-09T00:00:00.000Z',
+    updatedAt: '2024-01-09T00:00:00.000Z',
+  },
 }
 
 export const ALL_USERS = Object.values(USERS)
@@ -131,18 +193,73 @@ export const TEAMS = [
   {
     id: 'team-1-id',
     name: 'Alpha Team',
+    // Drop role - phase 1: `type` field added to TeamDto schema. Existing
+    // senior-team fixtures carry the default 'SENIOR' value so legacy specs
+    // remain a no-op regression.
+    type: 'SENIOR' as const,
     telegram: null,
+    telegramChannel: null,
     notes: null,
     createdAt: '2024-01-10T00:00:00.000Z',
     updatedAt: '2024-01-10T00:00:00.000Z',
+    archivedAt: null,
     members: [
-      toMember(USERS.hr),
-      toMember(USERS.senior),
-      toMember(USERS.accountant),
-      toMember(EXTRA_ACCOUNTANT),
+      { ...toMember(USERS.hr), leftAt: null },
+      { ...toMember(USERS.senior), leftAt: null },
+      { ...toMember(USERS.accountant), leftAt: null },
+      { ...toMember(EXTRA_ACCOUNTANT), leftAt: null },
     ],
   },
 ]
+
+/**
+ * Drop role - phase 1 fixtures.
+ *
+ * A DROP-typed team — paired with the DROP user. Owns its HR + accountant
+ * and (in this fixture) carries an active SENIOR via `USERS.senior` so the
+ * rotation flow (AC4) has a meaningful starting state.
+ *
+ * Tests that need a "drop-team without an active senior" can either
+ * reuse `DROP_TEAM_VACANT` below, or layer a per-test mock that overrides
+ * the team to remove the senior member.
+ */
+export const DROP_TEAM = {
+  id: 'drop-team-1-id',
+  name: 'Drop Team Alpha',
+  type: 'DROP' as const,
+  telegram: null,
+  telegramChannel: 'drop_team_channel',
+  notes: null,
+  createdAt: '2024-02-01T00:00:00.000Z',
+  updatedAt: '2024-02-01T00:00:00.000Z',
+  archivedAt: null,
+  members: [
+    { ...toMember(USERS.drop), leftAt: null },
+    { ...toMember(USERS.hr), leftAt: null },
+    { ...toMember(USERS.accountant), leftAt: null },
+    { ...toMember(USERS.senior), leftAt: null },
+  ],
+}
+
+/** Drop-team variant with NO active senior — used by AC2 (join) + AC4 (assign). */
+export const DROP_TEAM_VACANT = {
+  ...DROP_TEAM,
+  id: 'drop-team-vacant-id',
+  name: 'Drop Team Vacant',
+  members: [
+    { ...toMember(USERS.drop), leftAt: null },
+    { ...toMember(USERS.hr), leftAt: null },
+    { ...toMember(USERS.accountant), leftAt: null },
+  ],
+}
+
+/**
+ * Drop role - phase 1: unified lookup over senior + drop teams. Used by the
+ * `/api/teams/:id` route mock so a drop-team URL resolves correctly without
+ * each spec re-mocking it. Tests that need only the senior list can keep
+ * using `TEAMS`.
+ */
+export const ALL_TEAMS = [...TEAMS, DROP_TEAM, DROP_TEAM_VACANT]
 
 // Round 5: project lifecycle is binary — ACTIVE (archivedAt = null) vs
 // ARCHIVED (archivedAt = timestamp). The legacy CLOSED state and end_date
@@ -304,6 +421,10 @@ function profileExtras(user: (typeof USERS)[keyof typeof USERS]) {
     bankUahBankName: null,
     archivedAt: null,
     adminNote: null,
+    // Drop role - phase 1: nullable for non-DROP roles. Default 5 for the
+    // drop seed user (overridden per-user in USERS).
+    dropSharePercent:
+      'dropSharePercent' in user ? (user as { dropSharePercent: number }).dropSharePercent : null,
   }
 }
 
@@ -371,7 +492,12 @@ export function buildSelfView(
 ): object {
   // Mirrors users-access.service.ts isSelf branch.
   // SENIOR: interviews surfaced via header link, not tab.
-  const tabs: string[] = ['overview', 'projects', 'team', 'requisites', 'documents']
+  // Drop role - phase 1 (AC8): DROP sees Profile / Team / Finance — no
+  // projects / interviews / documents tabs on the self-view.
+  const tabs: string[] =
+    user.role === 'DROP'
+      ? ['overview', 'team', 'requisites', 'finance']
+      : ['overview', 'projects', 'team', 'requisites', 'documents']
   if (
     user.role === 'SENIOR' ||
     user.role === 'JUNIOR' ||
@@ -382,7 +508,7 @@ export function buildSelfView(
   }
 
   const isSalaryRole = user.role === 'JUNIOR' || user.role === 'HR' || user.role === 'ACCOUNTANT'
-  const isShareRole = user.role === 'SENIOR' || user.role === 'ADMIN'
+  const isShareRole = user.role === 'SENIOR' || user.role === 'ADMIN' || user.role === 'DROP'
 
   return {
     user: { ...user, ...profileExtras(user) },
@@ -534,6 +660,39 @@ export async function mockAuthAs(
     // GET — return UserWithPermissionsResponse; viewer is `user`, target is `found`
     return jsonOk(r, buildAdminViewingUser(found))
   })
+  // Drop role - phase 1 (AC1): POST /api/users/drops creates a DROP user
+  // AND atomically provisions a drop-team. Response shape per spec:
+  // `{ user, team: { id, ... }, members }` — frontend navigates to
+  // `/crm/team/<team.id>` on success (CreateDropDialog.onSuccess).
+  await page.route(new RegExp(`${API}/users/drops$`), (r) => {
+    if (r.request().method() !== 'POST') return r.fallback()
+    const body = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>
+    const newUser = {
+      ...USERS.drop,
+      id: 'drop-new-id',
+      email: (body.email as string) ?? USERS.drop.email,
+      displayName: (body.displayName as string) ?? USERS.drop.displayName,
+      dropSharePercent: (body.dropSharePercent as number) ?? 5,
+    }
+    const newTeam = {
+      ...DROP_TEAM_VACANT,
+      id: 'drop-team-new-id',
+      name: `${newUser.displayName} Drop Team`,
+      telegramChannel: (body.telegramChannel as string | null) ?? null,
+      members: [{ ...toMember(newUser), leftAt: null }],
+    }
+    return jsonOk(r, { user: newUser, team: newTeam, members: newTeam.members }, 201)
+  })
+
+  // Drop role - phase 1 (AC7): POST /api/users/me/rejoin-team — teamless
+  // SENIOR rejoins via CREATE_NEW (auto-team) or JOIN_DROP_TEAM (existing
+  // drop-team). 204 no-content is plenty for the dialog; the real API
+  // returns 200 with details, but neither path is asserted by the UI.
+  await page.route(new RegExp(`${API}/users/me/rejoin-team$`), (r) => {
+    if (r.request().method() !== 'POST') return r.fallback()
+    return jsonOk(r, { ok: true })
+  })
+
   // /users — supports `?archived=true|false` filter
   await page.route(new RegExp(`${API}/users(\\?.*)?$`), (r) => {
     if (r.request().method() === 'POST') {
@@ -546,13 +705,25 @@ export async function mockAuthAs(
   })
 
   // Teams
+  // Drop role - phase 1 (AC4): rotate-senior on a drop-team. Register
+  // BEFORE the generic `/teams/:id` matcher so PATCH on the rotate path
+  // doesn't accidentally hit the team-update handler.
+  await page.route(new RegExp(`${API}/teams/([^/?]+)/rotate-senior$`), (r) => {
+    if (r.request().method() !== 'PATCH' && r.request().method() !== 'POST') {
+      return r.fallback()
+    }
+    const teamId = r.request().url().split('/').slice(-2, -1)[0]
+    const team = ALL_TEAMS.find((t) => t.id === teamId) ?? DROP_TEAM
+    return jsonOk(r, team)
+  })
   await page.route(new RegExp(`${API}/teams/([^/?]+)/members`), (r) =>
     r.request().method() === 'DELETE' ? noContent(r) : jsonOk(r, TEAMS[0], 201),
   )
   await page.route(new RegExp(`${API}/teams/([^/?]+)$`), (r) => {
     const teamId = r.request().url().split('/').at(-1)
-    const team = TEAMS.find(t => t.id === teamId) || TEAMS[0]
-    
+    // Drop role - phase 1: search across senior + drop fixtures.
+    const team = ALL_TEAMS.find((t) => t.id === teamId) ?? TEAMS[0]
+
     return r.request().method() === 'DELETE'
       ? noContent(r)
       : r.request().method() === 'GET'
@@ -792,6 +963,8 @@ type Fixtures = {
   asSenior: Page
   asHr: Page
   asJunior: Page
+  /** Drop role - phase 1: DROP-authenticated page for AC8 RBAC sweep. */
+  asDrop: Page
 }
 
 export const test = base.extend<Fixtures>({
@@ -809,6 +982,10 @@ export const test = base.extend<Fixtures>({
   },
   asJunior: async ({ page }, use) => {
     await mockAuthAs(page, USERS.junior)
+    await use(page)
+  },
+  asDrop: async ({ page }, use) => {
+    await mockAuthAs(page, USERS.drop)
     await use(page)
   },
 })
