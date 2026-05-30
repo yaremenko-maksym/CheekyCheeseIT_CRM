@@ -1,13 +1,32 @@
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  forwardRef,
+} from '@nestjs/common'
 import { and, eq, inArray, isNotNull, isNull, ne } from 'drizzle-orm'
-import type { ArchiveImpact } from '@crm/shared'
+import type { ArchiveImpact, SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { documents, projectMembers, projects, teamMembers, teams, users, type User } from '../database/schema'
+import {
+  documents,
+  projectMembers,
+  projects,
+  teamMembers,
+  teams,
+  users,
+  type User,
+} from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { TeamAuditLogService } from '../teams/team-audit-log.service'
+import { TeamsService } from '../teams/teams.service'
 import { ProjectAuditLogService } from '../projects/project-audit-log.service'
 import { AuditLogService } from './audit-log.service'
 import { UsersAccessService } from './users-access.service'
+
+export type AppRole = 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
 
 export interface TeamMemberPreview {
   id: string
@@ -29,6 +48,8 @@ export class UsersService {
     private teamAuditLogService: TeamAuditLogService,
     @Inject(forwardRef(() => ProjectAuditLogService))
     private projectAuditLogService: ProjectAuditLogService,
+    @Inject(forwardRef(() => TeamsService))
+    private teamsService: TeamsService,
   ) {}
 
   findByEmail(email: string): Promise<User | undefined> {
@@ -71,7 +92,9 @@ export class UsersService {
     }))
   }
 
-  async findAllIncludingAdmin(filter: { archived?: boolean | 'all' } = {}): Promise<UserWithAvailability[]> {
+  async findAllIncludingAdmin(
+    filter: { archived?: boolean | 'all' } = {},
+  ): Promise<UserWithAvailability[]> {
     const archivedFilter =
       filter.archived === 'all'
         ? undefined
@@ -129,7 +152,7 @@ export class UsersService {
   async createUser(data: {
     email: string
     displayName: string
-    role: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT'
+    role: AppRole
     telegram?: string | null
     phone?: string | null
     avatarUrl?: string | null
@@ -147,11 +170,33 @@ export class UsersService {
     bankUahIban?: string | null
     bankUahRnokpp?: string | null
     bankUahBankName?: string | null
+    /**
+     * Drop role - phase 1: senior-only opt-in. `CREATE_NEW` (default)
+     * preserves the legacy auto-team flow. `JOIN_DROP_TEAM` skips auto-team
+     * and attaches the new senior to an existing drop-team.
+     */
+    teamMode?: 'CREATE_NEW' | 'JOIN_DROP_TEAM'
+    /** Required when `teamMode='JOIN_DROP_TEAM'`. */
+    dropTeamId?: string
   }): Promise<User> {
     // ut-12: ADMIN creation is reserved to the seed pool — block here as a
     // defense-in-depth measure even if the controller / Roles guard let it slip.
     if (data.role === 'ADMIN') {
       throw new ForbiddenException('Создание ADMIN запрещено — пул фиксирован')
+    }
+    // Drop role - phase 1: DROP must be created via `createDrop` (mandatory
+    // team section). Reject here defensively in case a malformed request
+    // reaches the legacy endpoint.
+    if (data.role === 'DROP') {
+      throw new BadRequestException('Создание DROP — через POST /api/users/drops')
+    }
+    if (data.teamMode === 'JOIN_DROP_TEAM') {
+      if (data.role !== 'SENIOR') {
+        throw new BadRequestException('teamMode=JOIN_DROP_TEAM доступен только при создании SENIOR')
+      }
+      if (!data.dropTeamId) {
+        throw new BadRequestException('dropTeamId обязателен при teamMode=JOIN_DROP_TEAM')
+      }
     }
     const existing = await this.findByEmail(data.email)
     if (existing) throw new ConflictException('User with this email already exists')
@@ -164,10 +209,13 @@ export class UsersService {
       role: data.role,
       telegram: data.telegram ?? null,
       phone: data.phone ?? null,
-      avatarUrl: data.avatarUrl ?? `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(data.displayName)}`,
+      avatarUrl:
+        data.avatarUrl ??
+        `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(data.displayName)}`,
       techStack: data.techStack ?? null,
     }
-    if (data.seniorSharePercent !== undefined) insertValues.seniorSharePercent = data.seniorSharePercent
+    if (data.seniorSharePercent !== undefined)
+      insertValues.seniorSharePercent = data.seniorSharePercent
     if (data.monthlySalary != null) insertValues.monthlySalary = String(data.monthlySalary)
     if (data.salaryCurrency) insertValues.salaryCurrency = data.salaryCurrency
 
@@ -185,10 +233,7 @@ export class UsersService {
       }
     }
 
-    const rows = await this.db.db
-      .insert(users)
-      .values(insertValues)
-      .returning()
+    const rows = await this.db.db.insert(users).values(insertValues).returning()
 
     const created = rows[0]
     if (!created) throw new Error('Failed to create user')
@@ -205,18 +250,26 @@ export class UsersService {
     })
 
     if (data.role === 'SENIOR') {
-      const [team] = await this.db.db
-        .insert(teams)
-        .values({ name: `Команда ${data.displayName}` })
-        .returning()
-      if (team) {
-        const memberIds = [
-          created.id,
-          ...(data.hrIds ?? []),
-          ...(data.accountantId ? [data.accountantId] : []),
-        ]
-        for (const userId of memberIds) {
-          await this.db.db.insert(teamMembers).values({ teamId: team.id, userId })
+      if (data.teamMode === 'JOIN_DROP_TEAM' && data.dropTeamId) {
+        // Drop role - phase 1: skip auto-team creation. Attach the new
+        // SENIOR to the requested drop-team. `addSeniorToDropTeam` enforces
+        // type+empty-slot+other-team checks; surfaces clear 400 on conflict.
+        await this.teamsService.addSeniorToDropTeam(data.dropTeamId, created.id)
+      } else {
+        // Default `CREATE_NEW` path — unchanged from pre-drop legacy.
+        const [team] = await this.db.db
+          .insert(teams)
+          .values({ name: `Команда ${data.displayName}` })
+          .returning()
+        if (team) {
+          const memberIds = [
+            created.id,
+            ...(data.hrIds ?? []),
+            ...(data.accountantId ? [data.accountantId] : []),
+          ]
+          for (const userId of memberIds) {
+            await this.db.db.insert(teamMembers).values({ teamId: team.id, userId })
+          }
         }
       }
     }
@@ -236,13 +289,14 @@ export class UsersService {
     data: {
       email?: string
       displayName?: string
-      role?: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT'
+      role?: AppRole
       telegram?: string | null | undefined
       phone?: string | null | undefined
       avatarUrl?: string | null | undefined
       avatarDocumentId?: string | null | undefined
       techStack?: string[] | null | undefined
       seniorSharePercent?: number | undefined
+      dropSharePercent?: number | undefined
       monthlySalary?: number | null | undefined
       salaryCurrency?: 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined
       paymentMethod?: 'USDT_ERC20' | 'BANK_UAH_FOP' | undefined
@@ -280,9 +334,7 @@ export class UsersService {
     // contract violation — reject early with 400.
     const effectiveRole = data.role ?? existing.role
     if (data.teamTelegramChannel !== undefined && effectiveRole !== 'SENIOR') {
-      throw new BadRequestException(
-        'Telegram channel can only be set for SENIOR users',
-      )
+      throw new BadRequestException('Telegram channel can only be set for SENIOR users')
     }
     // Email uniqueness check — only when actually changing it.
     if (data.email !== undefined && data.email !== existing.email) {
@@ -295,13 +347,14 @@ export class UsersService {
     const set: Partial<{
       email: string
       displayName: string
-      role: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT'
+      role: AppRole
       telegram: string | null
       phone: string | null
       avatarUrl: string | null
       avatarDocumentId: string | null
       techStack: string[] | null
       seniorSharePercent: number
+      dropSharePercent: number
       monthlySalary: string | null
       salaryCurrency: 'USDT' | 'USD' | 'EUR' | 'UAH'
       paymentMethod: 'USDT_ERC20' | 'BANK_UAH_FOP'
@@ -328,7 +381,9 @@ export class UsersService {
     }
     if ('techStack' in data) set.techStack = data.techStack ?? null
     if (data.seniorSharePercent !== undefined) set.seniorSharePercent = data.seniorSharePercent
-    if ('monthlySalary' in data) set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
+    if (data.dropSharePercent !== undefined) set.dropSharePercent = data.dropSharePercent
+    if ('monthlySalary' in data)
+      set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
     if (data.salaryCurrency !== undefined) set.salaryCurrency = data.salaryCurrency
 
     // Payment requisites — switching method clears the other branch's fields.
@@ -366,31 +421,27 @@ export class UsersService {
     // saved but team comms lost) would leave inconsistent state on the
     // critical comms field — atomicity matters here.
     const updated = await this.db.db.transaction(async (tx) => {
-      const rows = await tx
-        .update(users)
-        .set(set)
-        .where(eq(users.id, id))
-        .returning()
+      const rows = await tx.update(users).set(set).where(eq(users.id, id)).returning()
 
       const u = rows[0]
       if (!u) throw new NotFoundException('User not found')
 
       // SENIOR-only: optional team composition reconcile.
       if (u.role === 'SENIOR' && (data.hrIds !== undefined || data.accountantId !== undefined)) {
-        await this.reconcileSeniorTeamTx(tx, u.id, {
-          hrIds: data.hrIds,
-          accountantId: data.accountantId,
-        }, actorId)
+        await this.reconcileSeniorTeamTx(
+          tx,
+          u.id,
+          {
+            hrIds: data.hrIds,
+            accountantId: data.accountantId,
+          },
+          actorId,
+        )
       }
 
       // ut-17: propagate teamTelegramChannel onto the senior's team (same tx).
       if (u.role === 'SENIOR' && data.teamTelegramChannel !== undefined) {
-        await this.updateSeniorTeamTelegramChannelTx(
-          tx,
-          u.id,
-          data.teamTelegramChannel,
-          actorId,
-        )
+        await this.updateSeniorTeamTelegramChannelTx(tx, u.id, data.teamTelegramChannel, actorId)
       }
 
       return u
@@ -485,7 +536,9 @@ export class UsersService {
 
     if (data.hrIds !== undefined) {
       const desiredHrIds = new Set(data.hrIds)
-      const currentHrIds = new Set(activeMembers.filter((m) => m.role === 'HR').map((m) => m.userId))
+      const currentHrIds = new Set(
+        activeMembers.filter((m) => m.role === 'HR').map((m) => m.userId),
+      )
 
       // To remove: currently active HR not in desired set.
       const toRemove = [...currentHrIds].filter((id) => !desiredHrIds.has(id))
@@ -496,22 +549,40 @@ export class UsersService {
         await tx
           .update(teamMembers)
           .set({ leftAt: now })
-          .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)))
-        await this.teamAuditLogService.record({
-          actorId,
-          targetId: teamId,
-          action: 'team_member_removed',
-          changes: { userId: { before: userId, after: null }, role: { before: 'HR', after: null } },
-        }, tx)
+          .where(
+            and(
+              eq(teamMembers.teamId, teamId),
+              eq(teamMembers.userId, userId),
+              isNull(teamMembers.leftAt),
+            ),
+          )
+        await this.teamAuditLogService.record(
+          {
+            actorId,
+            targetId: teamId,
+            action: 'team_member_removed',
+            changes: {
+              userId: { before: userId, after: null },
+              role: { before: 'HR', after: null },
+            },
+          },
+          tx,
+        )
       }
       for (const userId of toAdd) {
         await this.upsertTeamMemberTx(tx, teamId, userId)
-        await this.teamAuditLogService.record({
-          actorId,
-          targetId: teamId,
-          action: 'team_member_added',
-          changes: { userId: { before: null, after: userId }, role: { before: null, after: 'HR' } },
-        }, tx)
+        await this.teamAuditLogService.record(
+          {
+            actorId,
+            targetId: teamId,
+            action: 'team_member_added',
+            changes: {
+              userId: { before: null, after: userId },
+              role: { before: null, after: 'HR' },
+            },
+          },
+          tx,
+        )
       }
     }
 
@@ -525,22 +596,40 @@ export class UsersService {
           await tx
             .update(teamMembers)
             .set({ leftAt: now })
-            .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, currentId), isNull(teamMembers.leftAt)))
-          await this.teamAuditLogService.record({
-            actorId,
-            targetId: teamId,
-            action: 'team_member_removed',
-            changes: { userId: { before: currentId, after: null }, role: { before: 'ACCOUNTANT', after: null } },
-          }, tx)
+            .where(
+              and(
+                eq(teamMembers.teamId, teamId),
+                eq(teamMembers.userId, currentId),
+                isNull(teamMembers.leftAt),
+              ),
+            )
+          await this.teamAuditLogService.record(
+            {
+              actorId,
+              targetId: teamId,
+              action: 'team_member_removed',
+              changes: {
+                userId: { before: currentId, after: null },
+                role: { before: 'ACCOUNTANT', after: null },
+              },
+            },
+            tx,
+          )
         }
         if (desiredId) {
           await this.upsertTeamMemberTx(tx, teamId, desiredId)
-          await this.teamAuditLogService.record({
-            actorId,
-            targetId: teamId,
-            action: 'team_member_added',
-            changes: { userId: { before: null, after: desiredId }, role: { before: null, after: 'ACCOUNTANT' } },
-          }, tx)
+          await this.teamAuditLogService.record(
+            {
+              actorId,
+              targetId: teamId,
+              action: 'team_member_added',
+              changes: {
+                userId: { before: null, after: desiredId },
+                role: { before: null, after: 'ACCOUNTANT' },
+              },
+            },
+            tx,
+          )
         }
       }
     }
@@ -550,11 +639,7 @@ export class UsersService {
    * Insert team_member; if row already exists (left previously) — clear leftAt to restore.
    * Uses the supplied transaction handle so it shares the outer atomicity boundary.
    */
-  private async upsertTeamMemberTx(
-    tx: DrizzleTx,
-    teamId: string,
-    userId: string,
-  ): Promise<void> {
+  private async upsertTeamMemberTx(tx: DrizzleTx, teamId: string, userId: string): Promise<void> {
     const existing = await tx
       .select()
       .from(teamMembers)
@@ -562,10 +647,7 @@ export class UsersService {
       .then((rows) => rows[0])
     if (existing) {
       if (existing.leftAt !== null) {
-        await tx
-          .update(teamMembers)
-          .set({ leftAt: null })
-          .where(eq(teamMembers.id, existing.id))
+        await tx.update(teamMembers).set({ leftAt: null }).where(eq(teamMembers.id, existing.id))
       }
       return
     }
@@ -637,15 +719,27 @@ export class UsersService {
   }
 
   async changeRole(id: string, role: User['role']): Promise<User> {
-    const rows = await this.db.db.update(users).set({ role, updatedAt: new Date() }).where(eq(users.id, id)).returning()
+    const rows = await this.db.db
+      .update(users)
+      .set({ role, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning()
     const updated = rows[0]
     if (!updated) throw new NotFoundException('User not found')
     return updated
   }
 
-  async changeSalary(id: string, data: { monthlySalary?: number | null; salaryCurrency?: 'USDT' | 'USD' | 'EUR' | 'UAH'; seniorSharePercent?: number }): Promise<User> {
+  async changeSalary(
+    id: string,
+    data: {
+      monthlySalary?: number | null
+      salaryCurrency?: 'USDT' | 'USD' | 'EUR' | 'UAH'
+      seniorSharePercent?: number
+    },
+  ): Promise<User> {
     const set: Record<string, unknown> = { updatedAt: new Date() }
-    if (data.monthlySalary !== undefined) set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
+    if (data.monthlySalary !== undefined)
+      set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
     if (data.salaryCurrency !== undefined) set.salaryCurrency = data.salaryCurrency
     if (data.seniorSharePercent !== undefined) set.seniorSharePercent = data.seniorSharePercent
     const rows = await this.db.db.update(users).set(set).where(eq(users.id, id)).returning()
@@ -655,7 +749,11 @@ export class UsersService {
   }
 
   async setAdminNote(id: string, note: string | null): Promise<User> {
-    const rows = await this.db.db.update(users).set({ adminNote: note, updatedAt: new Date() }).where(eq(users.id, id)).returning()
+    const rows = await this.db.db
+      .update(users)
+      .set({ adminNote: note, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning()
     const updated = rows[0]
     if (!updated) throw new NotFoundException('User not found')
     return updated
@@ -707,12 +805,15 @@ export class UsersService {
             .update(teams)
             .set({ archivedAt: now, updatedAt: now })
             .where(eq(teams.id, teamId))
-          await this.teamAuditLogService.record({
-            actorId,
-            targetId: teamId,
-            action: 'team_archived',
-            changes: { archivedAt: { before: null, after: now.toISOString() } },
-          }, tx)
+          await this.teamAuditLogService.record(
+            {
+              actorId,
+              targetId: teamId,
+              action: 'team_archived',
+              changes: { archivedAt: { before: null, after: now.toISOString() } },
+            },
+            tx,
+          )
 
           // Snapshot HR/Acc that get detached so we can write per-member audit entries
           // BEFORE the bulk UPDATE marks them as left.
@@ -720,31 +821,41 @@ export class UsersService {
             .select({ userId: teamMembers.userId, role: users.role })
             .from(teamMembers)
             .innerJoin(users, eq(users.id, teamMembers.userId))
-            .where(and(
-              eq(teamMembers.teamId, teamId),
-              isNull(teamMembers.leftAt),
-              ne(teamMembers.userId, id),
-            ))
+            .where(
+              and(
+                eq(teamMembers.teamId, teamId),
+                isNull(teamMembers.leftAt),
+                ne(teamMembers.userId, id),
+              ),
+            )
 
           // Set leftAt for HR/Acc — keep SENIOR's own row untouched (ne userId, id).
           await tx
             .update(teamMembers)
             .set({ leftAt: now })
-            .where(and(
-              eq(teamMembers.teamId, teamId),
-              isNull(teamMembers.leftAt),
-              ne(teamMembers.userId, id),
-            ))
+            .where(
+              and(
+                eq(teamMembers.teamId, teamId),
+                isNull(teamMembers.leftAt),
+                ne(teamMembers.userId, id),
+              ),
+            )
 
           // One team_member_removed audit entry per detached HR/Accountant, so the
           // team's history mirrors a manual removal (matches HR-only branch below).
           for (const m of hrAccToRemove) {
-            await this.teamAuditLogService.record({
-              actorId,
-              targetId: teamId,
-              action: 'team_member_removed',
-              changes: { userId: { before: m.userId, after: null }, role: { before: m.role, after: null } },
-            }, tx)
+            await this.teamAuditLogService.record(
+              {
+                actorId,
+                targetId: teamId,
+                action: 'team_member_removed',
+                changes: {
+                  userId: { before: m.userId, after: null },
+                  role: { before: m.role, after: null },
+                },
+              },
+              tx,
+            )
           }
         }
 
@@ -759,12 +870,15 @@ export class UsersService {
             .update(projects)
             .set({ archivedAt: now, updatedAt: now })
             .where(eq(projects.id, p.id))
-          await this.projectAuditLogService.record({
-            actorId,
-            targetId: p.id,
-            action: 'project_archived',
-            changes: { archivedAt: { before: null, after: now.toISOString() } },
-          }, tx)
+          await this.projectAuditLogService.record(
+            {
+              actorId,
+              targetId: p.id,
+              action: 'project_archived',
+              changes: { archivedAt: { before: null, after: now.toISOString() } },
+            },
+            tx,
+          )
           // Cascade-remove active JUNIORs from project_members.
           await tx
             .update(projectMembers)
@@ -783,12 +897,18 @@ export class UsersService {
             .set({ leftAt: now })
             .where(and(eq(teamMembers.userId, id), isNull(teamMembers.leftAt)))
           for (const m of memberships) {
-            await this.teamAuditLogService.record({
-              actorId,
-              targetId: m.teamId,
-              action: 'team_member_removed',
-              changes: { userId: { before: id, after: null }, role: { before: user.role, after: null } },
-            }, tx)
+            await this.teamAuditLogService.record(
+              {
+                actorId,
+                targetId: m.teamId,
+                action: 'team_member_removed',
+                changes: {
+                  userId: { before: id, after: null },
+                  role: { before: user.role, after: null },
+                },
+              },
+              tx,
+            )
           }
         }
       } else if (user.role === 'JUNIOR') {
@@ -806,24 +926,51 @@ export class UsersService {
             .set({ leftAt: now })
             .where(and(eq(projectMembers.userId, id), isNull(projectMembers.leftAt)))
           for (const pm of projectMemberships) {
-            await this.projectAuditLogService.record({
-              actorId,
-              targetId: pm.projectId,
-              action: 'project_member_removed',
-              changes: { userId: { before: id, after: null } },
-            }, tx)
+            await this.projectAuditLogService.record(
+              {
+                actorId,
+                targetId: pm.projectId,
+                action: 'project_member_removed',
+                changes: { userId: { before: id, after: null } },
+              },
+              tx,
+            )
           }
+        }
+      } else if (user.role === 'DROP') {
+        // Drop role - phase 1: pair-archive drop + drop-team + drop-projects.
+        // Active SENIOR (if any) is detached but NOT archived. Delegated to
+        // TeamsService.archiveDropTeam inside the same transaction.
+        const dropMembership = await tx
+          .select()
+          .from(teamMembers)
+          .where(and(eq(teamMembers.userId, id), isNull(teamMembers.leftAt)))
+          .then((rows) => rows[0])
+        if (dropMembership) {
+          await this.teamsService.archiveDropTeam(dropMembership.teamId, tx)
+          await this.teamAuditLogService.record(
+            {
+              actorId,
+              targetId: dropMembership.teamId,
+              action: 'team_archived',
+              changes: { archivedAt: { before: null, after: now.toISOString() } },
+            },
+            tx,
+          )
         }
       }
       // ADMIN: no dependencies.
 
       // Final user_audit_log entry.
-      await this.auditLogService.record({
-        actorId,
-        targetId: id,
-        action: 'user_archived',
-        changes: { archivedAt: { before: null, after: now.toISOString() } },
-      }, tx)
+      await this.auditLogService.record(
+        {
+          actorId,
+          targetId: id,
+          action: 'user_archived',
+          changes: { archivedAt: { before: null, after: now.toISOString() } },
+        },
+        tx,
+      )
 
       const updated = await tx
         .select()
@@ -877,17 +1024,17 @@ export class UsersService {
     const now = new Date()
     const previousArchivedAt = user.archivedAt
 
-    await tx
-      .update(users)
-      .set({ archivedAt: null, updatedAt: now })
-      .where(eq(users.id, id))
+    await tx.update(users).set({ archivedAt: null, updatedAt: now }).where(eq(users.id, id))
 
-    await this.auditLogService.record({
-      actorId,
-      targetId: id,
-      action: 'user_unarchived',
-      changes: { archivedAt: { before: previousArchivedAt?.toISOString() ?? null, after: null } },
-    }, tx)
+    await this.auditLogService.record(
+      {
+        actorId,
+        targetId: id,
+        action: 'user_unarchived',
+        changes: { archivedAt: { before: previousArchivedAt?.toISOString() ?? null, after: null } },
+      },
+      tx,
+    )
 
     if (user.role === 'SENIOR') {
       // Pair-unarchive: also unarchive the team via senior's team_member row.
@@ -911,12 +1058,17 @@ export class UsersService {
             .update(teams)
             .set({ archivedAt: null, updatedAt: now })
             .where(eq(teams.id, team.id))
-          await this.teamAuditLogService.record({
-            actorId,
-            targetId: team.id,
-            action: 'team_unarchived',
-            changes: { archivedAt: { before: teamPreviousArchivedAt.toISOString(), after: null } },
-          }, tx)
+          await this.teamAuditLogService.record(
+            {
+              actorId,
+              targetId: team.id,
+              action: 'team_unarchived',
+              changes: {
+                archivedAt: { before: teamPreviousArchivedAt.toISOString(), after: null },
+              },
+            },
+            tx,
+          )
         }
       }
       // Projects intentionally stay archived; HR/Acc team_members.leftAt stays.
@@ -946,11 +1098,13 @@ export class UsersService {
         const others = await this.db.db
           .select({ userId: teamMembers.userId })
           .from(teamMembers)
-          .where(and(
-            eq(teamMembers.teamId, seniorMembership.teamId),
-            isNull(teamMembers.leftAt),
-            ne(teamMembers.userId, id),
-          ))
+          .where(
+            and(
+              eq(teamMembers.teamId, seniorMembership.teamId),
+              isNull(teamMembers.leftAt),
+              ne(teamMembers.userId, id),
+            ),
+          )
         hrAccountantsToBeRemoved = others.length
       }
       const seniorProjects = await this.db.db
@@ -991,6 +1145,45 @@ export class UsersService {
         .from(projectMembers)
         .where(and(eq(projectMembers.userId, id), isNull(projectMembers.leftAt)))
       return { type: 'user', role: 'JUNIOR', projectsCount: memberships.length }
+    }
+
+    if (user.role === 'DROP') {
+      // Drop role - phase 1: archive impact mirrors SENIOR pair behavior.
+      // teamName + projectsCount come from the drop's team + drop-projects.
+      const dropMembership = await this.db.db.query.teamMembers.findFirst({
+        where: and(eq(teamMembers.userId, id), isNull(teamMembers.leftAt)),
+      })
+      let teamName: string | null = null
+      let hrAccountantsToBeRemoved = 0
+      if (dropMembership) {
+        const team = await this.db.db.query.teams.findFirst({
+          where: eq(teams.id, dropMembership.teamId),
+        })
+        teamName = team?.name ?? null
+        const others = await this.db.db
+          .select({ userId: teamMembers.userId })
+          .from(teamMembers)
+          .where(
+            and(
+              eq(teamMembers.teamId, dropMembership.teamId),
+              isNull(teamMembers.leftAt),
+              ne(teamMembers.userId, id),
+            ),
+          )
+        hrAccountantsToBeRemoved = others.length
+      }
+      const dropProjects = await this.db.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(eq(projects.dropId, id), isNull(projects.archivedAt)))
+      return {
+        type: 'user',
+        role: 'DROP',
+        isPaired: true,
+        teamName,
+        projectsCount: dropProjects.length,
+        hrAccountantsToBeRemoved,
+      }
     }
 
     // ADMIN
@@ -1039,6 +1232,33 @@ export class UsersService {
         .innerJoin(users, eq(teamMembers.userId, users.id))
         .where(and(inArray(teamMembers.teamId, teamIds), eq(users.role, 'SENIOR')))
       seniorIds = Array.from(new Set(seniorsInTeams.map((s) => s.userId)))
+    } else if (user.role === 'DROP') {
+      // Drop role - phase 1: drop's "team members" are the drop-team itself
+      // (HR + accountant + optional active senior). JUNIORs are not surfaced.
+      const dropMemberships = await this.db.db
+        .select({ teamId: teamMembers.teamId })
+        .from(teamMembers)
+        .where(and(eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)))
+      if (dropMemberships.length === 0) return []
+      const teamIds = dropMemberships.map((m) => m.teamId)
+      const memberRows = await this.db.db
+        .select({
+          id: users.id,
+          displayName: users.displayName,
+          role: users.role,
+          avatarUrl: users.avatarUrl,
+          avatarDocumentId: users.avatarDocumentId,
+        })
+        .from(teamMembers)
+        .innerJoin(users, eq(users.id, teamMembers.userId))
+        .where(
+          and(
+            inArray(teamMembers.teamId, teamIds),
+            isNull(teamMembers.leftAt),
+            ne(users.id, userId),
+          ),
+        )
+      return memberRows
     }
 
     if (seniorIds.length === 0) return []
@@ -1135,5 +1355,247 @@ export class UsersService {
       .set({ googleId, updatedAt: new Date() })
       .where(eq(users.id, id))
       .then(() => undefined)
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Drop role - phase 1: createDrop + archiveDrop
+  //
+  // These methods are aditional to the existing `createUser`/`archive`
+  // contract. Existing senior/HR/junior/accountant/admin flows are
+  // unchanged — only new entry points are added.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Create a DROP user atomically with its mandatory drop-team.
+   * RBAC: ADMIN only (enforced in controller layer; defensive guard here).
+   *
+   * Returns the created user + the team id so the UI can navigate to it.
+   */
+  async createDrop(
+    data: {
+      email: string
+      displayName: string
+      telegram?: string | null
+      phone?: string | null
+      avatarUrl?: string | null
+      techStack?: string[] | null
+      dropSharePercent?: number
+      paymentMethod?: 'USDT_ERC20' | 'BANK_UAH_FOP'
+      walletUsdtErc20?: string | null
+      walletUsdtLabel?: string | null
+      bankUahRecipient?: string | null
+      bankUahIban?: string | null
+      bankUahRnokpp?: string | null
+      bankUahBankName?: string | null
+      hrIds: string[]
+      accountantId: string
+      telegramChannel?: string | null
+    },
+    actor: SessionUser,
+  ): Promise<{ user: User; teamId: string }> {
+    if (actor.role !== 'ADMIN') {
+      throw new ForbiddenException('Создание дропа доступно только администратору')
+    }
+    if (data.hrIds.length < 1) {
+      throw new BadRequestException('HR обязателен (минимум 1)')
+    }
+    const existing = await this.findByEmail(data.email)
+    if (existing) throw new ConflictException('Пользователь с таким email уже существует')
+
+    return this.db.db.transaction(async (tx) => {
+      const insertValues: typeof users.$inferInsert = {
+        email: data.email,
+        displayName: data.displayName,
+        role: 'DROP',
+        telegram: data.telegram ?? null,
+        phone: data.phone ?? null,
+        avatarUrl:
+          data.avatarUrl ??
+          `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(data.displayName)}`,
+        techStack: data.techStack ?? null,
+        dropSharePercent: data.dropSharePercent ?? 5,
+      }
+      if (data.paymentMethod) {
+        insertValues.paymentMethod = data.paymentMethod
+        if (data.paymentMethod === 'USDT_ERC20') {
+          insertValues.walletUsdtErc20 = data.walletUsdtErc20 ?? null
+          insertValues.walletUsdtLabel = data.walletUsdtLabel ?? null
+        } else {
+          insertValues.bankUahRecipient = data.bankUahRecipient ?? null
+          insertValues.bankUahIban = data.bankUahIban ?? null
+          insertValues.bankUahRnokpp = data.bankUahRnokpp ?? null
+          insertValues.bankUahBankName = data.bankUahBankName ?? null
+        }
+      }
+
+      const rows = await tx.insert(users).values(insertValues).returning()
+      const created = rows[0]
+      if (!created) throw new Error('Failed to create drop user')
+
+      await this.auditLogService.record(
+        {
+          actorId: actor.id,
+          targetId: created.id,
+          action: 'profile_created',
+          changes: {
+            displayName: { before: null, after: created.displayName },
+            role: { before: null, after: created.role },
+          },
+        },
+        tx,
+      )
+
+      const team = await this.teamsService.createDropTeam(
+        created.id,
+        data.hrIds,
+        data.accountantId,
+        data.telegramChannel ?? null,
+        tx,
+      )
+      await this.teamAuditLogService.record(
+        {
+          actorId: actor.id,
+          targetId: team.id,
+          action: 'team_created',
+          changes: { name: { before: null, after: team.name } },
+        },
+        tx,
+      )
+
+      return { user: created, teamId: team.id }
+    })
+  }
+
+  /**
+   * Soft-archive a DROP user with the full cascade:
+   *  - Drop-team → archived (HR/Accountant detached).
+   *  - Drop-projects → archived (project_members.leftAt set).
+   *  - Active SENIOR (if any) → DETACHED from team_members but user row
+   *    stays active. Becomes "teamless"; controller layer guards their
+   *    sensitive endpoints (interviews → 403, projects → empty).
+   *
+   * Returns `{ archivedProjects, detachedSeniorId }` for UI confirmation.
+   * RBAC: ADMIN only (enforced in controller; defensive guard here).
+   */
+  async archiveDrop(
+    dropId: string,
+    actor: SessionUser,
+  ): Promise<{ archivedProjects: number; detachedSeniorId: string | null }> {
+    if (actor.role !== 'ADMIN') {
+      throw new ForbiddenException('Архивация дропа доступна только администратору')
+    }
+    return this.db.db.transaction(async (tx) => {
+      const user = await tx
+        .select()
+        .from(users)
+        .where(eq(users.id, dropId))
+        .then((rows) => rows[0])
+      if (!user) throw new NotFoundException('Пользователь не найден')
+      if (user.role !== 'DROP') {
+        throw new BadRequestException('Метод доступен только для DROP')
+      }
+      if (user.archivedAt) throw new BadRequestException('Дроп уже архивирован')
+
+      const dropMembership = await tx
+        .select()
+        .from(teamMembers)
+        .where(and(eq(teamMembers.userId, dropId), isNull(teamMembers.leftAt)))
+        .then((rows) => rows[0])
+
+      let result = { archivedProjects: 0, detachedSeniorId: null as string | null }
+      if (dropMembership) {
+        result = await this.teamsService.archiveDropTeam(dropMembership.teamId, tx)
+      }
+
+      const now = new Date()
+      await tx.update(users).set({ archivedAt: now, updatedAt: now }).where(eq(users.id, dropId))
+
+      await this.auditLogService.record(
+        {
+          actorId: actor.id,
+          targetId: dropId,
+          action: 'user_archived',
+          changes: { archivedAt: { before: null, after: now.toISOString() } },
+        },
+        tx,
+      )
+
+      return result
+    })
+  }
+
+  /**
+   * Rejoin-team primitive for a teamless SENIOR. Either creates a fresh
+   * senior-team (`CREATE_NEW`) or attaches to an existing drop-team
+   * (`JOIN_DROP_TEAM`). Caller must be the senior themselves (controller
+   * enforces that the path is `me`).
+   */
+  async rejoinTeam(
+    seniorId: string,
+    data: {
+      teamMode: 'CREATE_NEW' | 'JOIN_DROP_TEAM'
+      dropTeamId?: string
+      hrIds?: string[]
+      accountantId?: string | null
+    },
+  ): Promise<{ teamId: string }> {
+    const user = await this.findById(seniorId)
+    if (!user) throw new NotFoundException('Пользователь не найден')
+    if (user.role !== 'SENIOR') {
+      throw new BadRequestException('Rejoin-team доступен только для SENIOR')
+    }
+    // Caller must currently have NO active team membership.
+    const activeMembership = await this.db.db
+      .select()
+      .from(teamMembers)
+      .where(and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)))
+      .then((rows) => rows[0])
+    if (activeMembership) {
+      throw new BadRequestException('У вас уже есть активная команда')
+    }
+
+    if (data.teamMode === 'JOIN_DROP_TEAM') {
+      if (!data.dropTeamId) {
+        throw new BadRequestException('dropTeamId обязателен при teamMode=JOIN_DROP_TEAM')
+      }
+      await this.teamsService.addSeniorToDropTeam(data.dropTeamId, seniorId)
+      return { teamId: data.dropTeamId }
+    }
+
+    // CREATE_NEW path — mirrors createUser SENIOR branch.
+    if (!data.hrIds || data.hrIds.length < 1) {
+      throw new BadRequestException('HR обязателен (минимум 1) при teamMode=CREATE_NEW')
+    }
+    return this.db.db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(teams)
+        .values({ name: `Команда ${user.displayName}` })
+        .returning()
+      const team = inserted[0]
+      if (!team) throw new Error('Failed to create senior team')
+      const memberIds = [
+        seniorId,
+        ...data.hrIds!,
+        ...(data.accountantId ? [data.accountantId] : []),
+      ]
+      for (const userId of memberIds) {
+        await tx.insert(teamMembers).values({ teamId: team.id, userId })
+      }
+      return { teamId: team.id }
+    })
+  }
+
+  /**
+   * Returns `true` if the user has an active team membership. Used by
+   * controller layer to guard SENIOR endpoints (interviews / projects).
+   */
+  async userHasActiveTeam(userId: string): Promise<boolean> {
+    const row = await this.db.db
+      .select()
+      .from(teamMembers)
+      .where(and(eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)))
+      .limit(1)
+      .then((rows) => rows[0])
+    return Boolean(row)
   }
 }
