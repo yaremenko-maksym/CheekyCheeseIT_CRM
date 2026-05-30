@@ -141,6 +141,13 @@
       "when": 1781000000000,
       "tag": "0019_payout_contract_address",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1781100000000,
+      "tag": "0020_drop_role_and_schema",
+      "breakpoints": true
     }
   ]
 }

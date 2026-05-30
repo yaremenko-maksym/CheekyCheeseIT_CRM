@@ -1,15 +1,36 @@
 import {
-  Body, Controller, Delete, ForbiddenException, Get, Param, ParseUUIDPipe,
-  Patch, Post, Query, UseGuards, UseInterceptors, Optional,
+  Body,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+  UseInterceptors,
+  Optional,
 } from '@nestjs/common'
 
 /** Strip keys whose value is `undefined` so exactOptionalPropertyTypes is satisfied. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function compact<T>(obj: T): T { return Object.fromEntries(Object.entries(obj as any).filter(([, v]) => v !== undefined)) as T }
+ 
+function compact<T>(obj: T): T {
+  return Object.fromEntries(Object.entries(obj as any).filter(([, v]) => v !== undefined)) as T
+}
 import {
-  adminUpdateUserSchema, changeRequisitesSchema, changeRoleSchema, changeSalarySchema,
-  createUserSchema, paymentRequisitesSchema, setNoteSchema,
-  updateProfileSchema, type SessionUser,
+  adminUpdateUserSchema,
+  changeRequisitesSchema,
+  changeRoleSchema,
+  changeSalarySchema,
+  createDropSchema,
+  createUserSchema,
+  paymentRequisitesSchema,
+  rejoinTeamSchema,
+  setNoteSchema,
+  updateProfileSchema,
+  type SessionUser,
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { JwtAuthGuard } from '../auth/jwt.guard'
@@ -38,12 +59,16 @@ export class UsersController {
     @CurrentUser() currentUser: SessionUser,
     @Query('archived') archivedParam?: string,
   ) {
+    // Drop role - phase 1 (AC3, security): DROP must not enumerate users.
+    // ADMIN/HR are the only callers that need the global directory listing —
+    // every other role (including DROP) is rejected. /me, /:id (single
+    // profile lookup) and /me/* endpoints remain available since they're
+    // self-only or used by the existing profile view.
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') throw new ForbiddenException()
     // round 7 (ut-44): tri-state filter — 'true' = archived only, 'all' = both,
     // anything else (including missing) = active only. Boolean kept for legacy
     // E2E + clients still expecting only `true`/absent.
-    const archived: boolean | 'all' =
-      archivedParam === 'all' ? 'all' : archivedParam === 'true'
+    const archived: boolean | 'all' = archivedParam === 'all' ? 'all' : archivedParam === 'true'
     return currentUser.role === 'ADMIN'
       ? this.usersService.findAllIncludingAdmin({ archived })
       : this.usersService.findAll({ archived })
@@ -58,6 +83,10 @@ export class UsersController {
     // round-trip and surfaces a 403 instead of a 409 if the email collides.
     if (dto.role === 'ADMIN') {
       throw new ForbiddenException('Создание ADMIN запрещено — пул фиксирован')
+    }
+    // Drop role - phase 1: DROP creation goes through POST /api/users/drops.
+    if (dto.role === 'DROP') {
+      throw new ForbiddenException('Создание DROP — через POST /api/users/drops')
     }
     if (currentUser.role === 'HR' && dto.role !== 'SENIOR') {
       throw new ForbiddenException('HR может создавать только синьоров')
@@ -83,6 +112,73 @@ export class UsersController {
       bankUahIban: dto.bankUahIban ?? null,
       bankUahRnokpp: dto.bankUahRnokpp ?? null,
       bankUahBankName: dto.bankUahBankName ?? null,
+      ...(dto.teamMode !== undefined && { teamMode: dto.teamMode }),
+      ...(dto.dropTeamId !== undefined && { dropTeamId: dto.dropTeamId }),
+    })
+  }
+
+  // ─────────────────── Drop role - phase 1 endpoints ───────────────────
+
+  /**
+   * Create a DROP user + drop-team atomically. Mirrors the senior-create
+   * dialog shape but with mandatory team section and `dropSharePercent`.
+   */
+  @Post('drops')
+  @Roles('ADMIN')
+  async createDrop(@CurrentUser() currentUser: SessionUser, @Body() body: unknown) {
+    const dto = createDropSchema.parse(body)
+    return this.usersService.createDrop(
+      {
+        email: dto.email,
+        displayName: dto.displayName,
+        telegram: dto.telegram ?? null,
+        phone: dto.phone ?? null,
+        avatarUrl: dto.avatarUrl ?? null,
+        techStack: dto.techStack ?? null,
+        ...(dto.dropSharePercent !== undefined && { dropSharePercent: dto.dropSharePercent }),
+        paymentMethod: dto.paymentMethod,
+        walletUsdtErc20: dto.walletUsdtErc20 ?? null,
+        walletUsdtLabel: dto.walletUsdtLabel ?? null,
+        bankUahRecipient: dto.bankUahRecipient ?? null,
+        bankUahIban: dto.bankUahIban ?? null,
+        bankUahRnokpp: dto.bankUahRnokpp ?? null,
+        bankUahBankName: dto.bankUahBankName ?? null,
+        hrIds: dto.hrIds,
+        accountantId: dto.accountantId,
+        telegramChannel: dto.telegramChannel ?? null,
+      },
+      currentUser,
+    )
+  }
+
+  /**
+   * Archive a DROP user. Cascade: drop-team archived, drop-projects
+   * archived, active SENIOR (if any) DETACHED but kept active.
+   */
+  @Delete('drops/:id')
+  @Roles('ADMIN')
+  async archiveDrop(
+    @CurrentUser() currentUser: SessionUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.usersService.archiveDrop(id, currentUser)
+  }
+
+  /**
+   * Rejoin-team endpoint for a teamless SENIOR. Self-only — caller must
+   * be the senior themselves. Returns the new/joined team id.
+   */
+  @Post('me/rejoin-team')
+  async rejoinTeam(@CurrentUser() currentUser: SessionUser, @Body() body: unknown) {
+    if (currentUser.role !== 'SENIOR') {
+      throw new ForbiddenException('Rejoin-team доступен только для SENIOR')
+    }
+    const dto = rejoinTeamSchema.parse(body)
+    return this.usersService.rejoinTeam(currentUser.id, {
+      teamMode: dto.teamMode,
+      ...(dto.dropTeamId !== undefined && { dropTeamId: dto.dropTeamId }),
+      ...(dto.hrIds !== undefined && { hrIds: dto.hrIds }),
+      ...(dto.accountantId !== undefined && { accountantId: dto.accountantId }),
     })
   }
 
@@ -108,14 +204,23 @@ export class UsersController {
   @AuditLog('requisites_edit')
   async updateMeRequisites(@CurrentUser() currentUser: SessionUser, @Body() body: unknown) {
     const dto = paymentRequisitesSchema.parse(body)
-    if ((currentUser.role === 'SENIOR' || currentUser.role === 'ADMIN') && dto.paymentMethod !== 'USDT_ERC20') {
+    if (
+      (currentUser.role === 'SENIOR' || currentUser.role === 'ADMIN') &&
+      dto.paymentMethod !== 'USDT_ERC20'
+    ) {
       throw new ForbiddenException('Senior/Admin могут использовать только USDT ERC-20')
     }
-    return this.usersService.updateRequisites(currentUser.id, dto as Parameters<typeof this.usersService.updateRequisites>[1])
+    return this.usersService.updateRequisites(
+      currentUser.id,
+      dto as Parameters<typeof this.usersService.updateRequisites>[1],
+    )
   }
 
   @Get(':id')
-  async getProfile(@CurrentUser() currentUser: SessionUser, @Param('id', ParseUUIDPipe) id: string) {
+  async getProfile(
+    @CurrentUser() currentUser: SessionUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     const viewer = await this.usersService.findById(currentUser.id)
     if (!viewer) throw new ForbiddenException()
     return this.usersService.buildProfileView(viewer, id)
@@ -206,10 +311,16 @@ export class UsersController {
     const dto = changeRequisitesSchema.parse(body)
     const target = await this.usersService.findById(id)
     if (!target) throw new ForbiddenException('User not found')
-    if ((target.role === 'SENIOR' || target.role === 'ADMIN') && dto.paymentMethod !== 'USDT_ERC20') {
+    if (
+      (target.role === 'SENIOR' || target.role === 'ADMIN') &&
+      dto.paymentMethod !== 'USDT_ERC20'
+    ) {
       throw new ForbiddenException('Senior/Admin могут использовать только USDT ERC-20')
     }
-    return this.usersService.updateRequisites(id, dto as Parameters<typeof this.usersService.updateRequisites>[1])
+    return this.usersService.updateRequisites(
+      id,
+      dto as Parameters<typeof this.usersService.updateRequisites>[1],
+    )
   }
 
   @Patch(':id/note')
@@ -222,14 +333,20 @@ export class UsersController {
 
   @Delete(':id')
   @Roles('ADMIN')
-  async archiveUser(@CurrentUser() currentUser: SessionUser, @Param('id', ParseUUIDPipe) id: string) {
+  async archiveUser(
+    @CurrentUser() currentUser: SessionUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     if (id === currentUser.id) throw new ForbiddenException('Cannot archive yourself')
     return this.usersService.archive(id, currentUser.id)
   }
 
   @Post(':id/unarchive')
   @Roles('ADMIN')
-  async unarchiveUser(@CurrentUser() currentUser: SessionUser, @Param('id', ParseUUIDPipe) id: string) {
+  async unarchiveUser(
+    @CurrentUser() currentUser: SessionUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.usersService.unarchive(id, currentUser.id)
   }
 

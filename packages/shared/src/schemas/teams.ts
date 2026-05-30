@@ -9,7 +9,7 @@ export const teamMemberSchema = z.object({
   avatarUrl: z.string().url().nullable(),
   /** FK → documents.id for AVATAR uploads (null when user uses fallback). */
   avatarDocumentId: z.string().uuid().nullable(),
-  role: z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT']),
+  role: z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']),
   techStack: z.array(z.string()).nullable(),
   phone: z.string().nullable().optional(),
   telegram: z.string().nullable().optional(),
@@ -36,9 +36,22 @@ export const teamTelegramChannelSchema = z
   .nullable()
   .optional()
 
+/**
+ * Team type — discriminator between the legacy senior-team (SENIOR) and the
+ * new drop-team (DROP). Senior-teams keep all existing behavior; drop-teams
+ * carry a DROP owner + optional active SENIOR + HR(s) + accountant.
+ */
+export const teamTypeSchema = z.enum(['SENIOR', 'DROP'])
+export type TeamType = z.infer<typeof teamTypeSchema>
+
 export const teamSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
+  /**
+   * `'SENIOR'` for the legacy senior-team (default; spec invariant), or
+   * `'DROP'` for the drop-team (always paired with a DROP user).
+   */
+  type: teamTypeSchema.default('SENIOR'),
   telegram: z.string().nullable().optional(),
   telegramChannel: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
@@ -102,6 +115,25 @@ export const addTeamMemberSchema = z.object({
   userId: z.string().uuid(),
 })
 
+/**
+ * Rotate an active senior within a drop-team. Replaces the currently
+ * active senior (if any) with `newSeniorId`. Backend enforces:
+ *  - target team has `type='DROP'`
+ *  - `newSeniorId.role === 'SENIOR'` and has no other active team membership
+ */
+export const rotateSeniorSchema = z.object({
+  newSeniorId: z.string().uuid(),
+})
+
+/**
+ * Attach an existing SENIOR (with no active team membership) to a drop-team
+ * that has no active senior. Used by both the create-senior flow with
+ * `teamMode='JOIN_DROP_TEAM'` and the standalone rotation UI.
+ */
+export const addSeniorToDropTeamSchema = z.object({
+  seniorId: z.string().uuid(),
+})
+
 export type TeamMemberDto = z.infer<typeof teamMemberSchema>
 export type TeamDto = z.infer<typeof teamSchema>
 export type CreateTeamDto = z.infer<typeof createTeamSchema>
@@ -111,3 +143,5 @@ export type AddTeamMemberDto = z.infer<typeof addTeamMemberSchema>
 export type TeamAuditAction = z.infer<typeof teamAuditActionSchema>
 export type TeamAuditLogEntry = z.infer<typeof teamAuditLogEntrySchema>
 export type TeamAuditLogList = z.infer<typeof teamAuditLogListSchema>
+export type RotateSeniorDto = z.infer<typeof rotateSeniorSchema>
+export type AddSeniorToDropTeamDto = z.infer<typeof addSeniorToDropTeamSchema>

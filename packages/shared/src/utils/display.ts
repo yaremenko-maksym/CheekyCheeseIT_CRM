@@ -20,6 +20,7 @@ const ROLE_LABELS: Record<Role, string> = {
   JUNIOR: 'Junior',
   HR: 'HR',
   ACCOUNTANT: 'Accountant',
+  DROP: 'Drop',
 }
 
 /** Converts a role enum value to a human-readable label. */

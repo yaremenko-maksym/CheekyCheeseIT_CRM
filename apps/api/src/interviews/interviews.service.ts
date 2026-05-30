@@ -1,9 +1,5 @@
-import {
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common'
-import { and, asc, count, eq } from 'drizzle-orm'
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { and, asc, count, eq, isNull } from 'drizzle-orm'
 import type {
   CreateInterviewDto,
   InterviewDto,
@@ -14,12 +10,7 @@ import type {
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { ProjectsService } from '../projects/projects.service'
-import {
-  interviews,
-  teamMembers,
-  type Interview,
-  type User,
-} from '../database/schema'
+import { interviews, teamMembers, type Interview, type User } from '../database/schema'
 
 type InterviewWithRelations = Interview & {
   senior: User | null
@@ -58,6 +49,23 @@ export class InterviewsService {
     }
   }
 
+  /**
+   * Drop role - phase 1: teamless guard. SENIORs without an active team
+   * membership (e.g. detached after a drop-team archive) cannot reach any
+   * interview endpoint — controller-level 403 with explicit message.
+   */
+  private async assertSeniorHasActiveTeam(seniorId: string): Promise<void> {
+    const row = await this.db.db
+      .select()
+      .from(teamMembers)
+      .where(and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)))
+      .limit(1)
+      .then((rows) => rows[0])
+    if (!row) {
+      throw new ForbiddenException('У вас нет активной команды')
+    }
+  }
+
   private async getAccessibleSeniorIds(currentUser: SessionUser): Promise<Set<string>> {
     const hrTeamMemberships = await this.db.db.query.teamMembers.findMany({
       where: eq(teamMembers.userId, currentUser.id),
@@ -73,9 +81,14 @@ export class InterviewsService {
     return accessibleSeniorIds
   }
 
-  async findBySenior(seniorId: string | undefined, currentUser: SessionUser): Promise<InterviewDto[]> {
+  async findBySenior(
+    seniorId: string | undefined,
+    currentUser: SessionUser,
+  ): Promise<InterviewDto[]> {
     // SENIOR can only see their own board
     if (currentUser.role === 'SENIOR') {
+      // Drop role - phase 1: teamless SENIORs are blocked at the controller level.
+      await this.assertSeniorHasActiveTeam(currentUser.id)
       seniorId = currentUser.id
     } else if (currentUser.role === 'HR') {
       if (!seniorId) throw new ForbiddenException('seniorId is required')
@@ -100,13 +113,19 @@ export class InterviewsService {
   }
 
   async create(dto: CreateInterviewDto, currentUser: SessionUser): Promise<InterviewDto> {
-    if (currentUser.role !== 'HR' && currentUser.role !== 'SENIOR' && currentUser.role !== 'ADMIN') {
+    if (
+      currentUser.role !== 'HR' &&
+      currentUser.role !== 'SENIOR' &&
+      currentUser.role !== 'ADMIN'
+    ) {
       throw new ForbiddenException()
     }
 
     let seniorId = dto.seniorId
 
     if (currentUser.role === 'SENIOR') {
+      // Drop role - phase 1: teamless SENIOR cannot create.
+      await this.assertSeniorHasActiveTeam(currentUser.id)
       // SENIOR always creates on their own board
       seniorId = currentUser.id
     } else if (currentUser.role === 'HR') {
@@ -140,19 +159,23 @@ export class InterviewsService {
       })
       .returning()
 
-    const row = await this.db.db.query.interviews.findFirst({
+    const row = (await this.db.db.query.interviews.findFirst({
       where: eq(interviews.id, created!.id),
       with: { senior: true, hr: true },
-    }) as InterviewWithRelations
+    })) as InterviewWithRelations
 
     return this.mapInterview(row)
   }
 
-  async update(id: string, dto: UpdateInterviewDto, currentUser: SessionUser): Promise<InterviewDto> {
-    const interview = await this.db.db.query.interviews.findFirst({
+  async update(
+    id: string,
+    dto: UpdateInterviewDto,
+    currentUser: SessionUser,
+  ): Promise<InterviewDto> {
+    const interview = (await this.db.db.query.interviews.findFirst({
       where: eq(interviews.id, id),
       with: { senior: true, hr: true },
-    }) as InterviewWithRelations | undefined
+    })) as InterviewWithRelations | undefined
 
     if (!interview) throw new NotFoundException('Interview not found')
 
@@ -170,26 +193,28 @@ export class InterviewsService {
     if (dto.notesTechStack !== undefined) updateData.notesTechStack = dto.notesTechStack ?? null
     if (dto.notesTeamSize !== undefined) updateData.notesTeamSize = dto.notesTeamSize ?? null
     if (dto.notesBenefits !== undefined) updateData.notesBenefits = dto.notesBenefits ?? null
-    if (dto.notesPaymentType !== undefined) updateData.notesPaymentType = dto.notesPaymentType ?? null
-    if (dto.notesSalaryReview !== undefined) updateData.notesSalaryReview = dto.notesSalaryReview ?? null
+    if (dto.notesPaymentType !== undefined)
+      updateData.notesPaymentType = dto.notesPaymentType ?? null
+    if (dto.notesSalaryReview !== undefined)
+      updateData.notesSalaryReview = dto.notesSalaryReview ?? null
     if (dto.notesCorpTech !== undefined) updateData.notesCorpTech = dto.notesCorpTech ?? null
     if (dto.notesGeneral !== undefined) updateData.notesGeneral = dto.notesGeneral ?? null
 
     await this.db.db.update(interviews).set(updateData).where(eq(interviews.id, id))
 
-    const updated = await this.db.db.query.interviews.findFirst({
+    const updated = (await this.db.db.query.interviews.findFirst({
       where: eq(interviews.id, id),
       with: { senior: true, hr: true },
-    }) as InterviewWithRelations
+    })) as InterviewWithRelations
 
     return this.mapInterview(updated)
   }
 
   async move(id: string, dto: MoveInterviewDto, currentUser: SessionUser): Promise<InterviewDto> {
-    const interview = await this.db.db.query.interviews.findFirst({
+    const interview = (await this.db.db.query.interviews.findFirst({
       where: eq(interviews.id, id),
       with: { senior: true, hr: true },
-    }) as InterviewWithRelations | undefined
+    })) as InterviewWithRelations | undefined
 
     if (!interview) throw new NotFoundException('Interview not found')
 
@@ -231,10 +256,10 @@ export class InterviewsService {
         .where(eq(interviews.id, cardsInNewColumn[i]!.id))
     }
 
-    const updated = await this.db.db.query.interviews.findFirst({
+    const updated = (await this.db.db.query.interviews.findFirst({
       where: eq(interviews.id, id),
       with: { senior: true, hr: true },
-    }) as InterviewWithRelations
+    })) as InterviewWithRelations
 
     // Auto-create project when moved to HIRED
     let createdProjectId: string | null = null
@@ -256,17 +281,23 @@ export class InterviewsService {
 
     if (currentUser.role === 'HR') {
       const accessibleSeniorIds = await this.getAccessibleSeniorIds(currentUser)
-      if (!accessibleSeniorIds.has(interview.seniorId)) throw new ForbiddenException('This senior is not in your teams')
+      if (!accessibleSeniorIds.has(interview.seniorId))
+        throw new ForbiddenException('This senior is not in your teams')
     }
 
     await this.db.db.delete(interviews).where(eq(interviews.id, id))
   }
 
-  private async assertUpdateAccess(interview: InterviewWithRelations, currentUser: SessionUser): Promise<void> {
+  private async assertUpdateAccess(
+    interview: InterviewWithRelations,
+    currentUser: SessionUser,
+  ): Promise<void> {
     if (currentUser.role === 'ADMIN') return
 
     if (currentUser.role === 'SENIOR') {
       if (interview.seniorId !== currentUser.id) throw new ForbiddenException()
+      // Drop role - phase 1: teamless SENIOR cannot mutate interviews either.
+      await this.assertSeniorHasActiveTeam(currentUser.id)
       return
     }
 

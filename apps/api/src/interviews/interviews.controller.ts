@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   ParseUUIDPipe,
@@ -26,11 +27,25 @@ import { InterviewsService } from './interviews.service'
 export class InterviewsController {
   constructor(private readonly interviewsService: InterviewsService) {}
 
+  /**
+   * Drop role - phase 1 (AC2, security): DROP must not have any access to
+   * the interviews module — sidebar hides the link, route guard redirects,
+   * and the API rejects every endpoint at the controller boundary with 403.
+   * Defense-in-depth: even if a future refactor wires the route back into
+   * the DROP sidebar, the backend still rejects the request.
+   */
+  private assertNotDrop(user: SessionUser): void {
+    if (user.role === 'DROP') {
+      throw new ForbiddenException('Дроп не имеет доступа к собеседованиям')
+    }
+  }
+
   @Get()
   findBySenior(
     @Query('seniorId') seniorId: string | undefined,
     @CurrentUser() user: SessionUser,
   ) {
+    this.assertNotDrop(user)
     if (seniorId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seniorId)) {
       throw new BadRequestException('seniorId must be a valid UUID')
     }
@@ -40,6 +55,7 @@ export class InterviewsController {
 
   @Post()
   create(@Body() body: unknown, @CurrentUser() user: SessionUser) {
+    this.assertNotDrop(user)
     const data = createInterviewSchema.parse(body)
     return this.interviewsService.create(data, user)
   }
@@ -50,6 +66,7 @@ export class InterviewsController {
     @Body() body: unknown,
     @CurrentUser() user: SessionUser,
   ) {
+    this.assertNotDrop(user)
     const data = updateInterviewSchema.parse(body)
     return this.interviewsService.update(id, data, user)
   }
@@ -60,12 +77,14 @@ export class InterviewsController {
     @Body() body: unknown,
     @CurrentUser() user: SessionUser,
   ) {
+    this.assertNotDrop(user)
     const data = moveInterviewSchema.parse(body)
     return this.interviewsService.move(id, data, user)
   }
 
   @Delete(':id')
   remove(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
+    this.assertNotDrop(user)
     return this.interviewsService.remove(id, user)
   }
 }

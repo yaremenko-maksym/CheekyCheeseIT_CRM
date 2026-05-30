@@ -223,6 +223,7 @@ function CrmLayout() {
                           | 'junior'
                           | 'hr'
                           | 'accountant'
+                          | 'drop'
                       }
                       data-testid="header-user-menu-role-badge"
                     >

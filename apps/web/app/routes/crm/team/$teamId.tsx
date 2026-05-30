@@ -11,12 +11,13 @@ import {
   Mail,
   Pencil,
   Phone,
+  RefreshCw,
   Send,
   UserMinus,
   UserPlus,
   Users,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { ProjectDto, TeamDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
@@ -38,6 +39,13 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
@@ -55,14 +63,16 @@ const ROLE_LABELS: Record<string, string> = {
   JUNIOR: 'Джун',
   HR: 'HR',
   ACCOUNTANT: 'Бухгалтер',
+  DROP: 'Дроп',
 }
 
-const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accountant'> = {
+const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accountant' | 'drop'> = {
   ADMIN: 'admin',
   SENIOR: 'senior',
   JUNIOR: 'junior',
   HR: 'hr',
   ACCOUNTANT: 'accountant',
+  DROP: 'drop',
 }
 
 function getInitials(name: string) {
@@ -103,7 +113,7 @@ const item = {
 }
 
 function TeamDetailPage() {
-  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'])
+  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
   const { user } = useAuth()
   const { teamId } = Route.useParams()
   const queryClient = useQueryClient()
@@ -114,15 +124,45 @@ function TeamDetailPage() {
   // ut-39b: explicit Archive button triggers ArchiveConfirmDialog (same flow
   // the AdminActionsMenu dropdown used to provide).
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false)
+  // Drop role - phase 1 (AC5): rotate-senior dialog state. ADMIN / HR of
+  // the team can swap the active senior of a drop-team.
+  const [rotateSeniorOpen, setRotateSeniorOpen] = useState(false)
+  const [newSeniorId, setNewSeniorId] = useState<string>('')
 
   const removeMemberMutation = useMutation({
     mutationFn: (userId: string) => api.delete(`/teams/${teamId}/members/${userId}`),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['team', teamId] }) },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['team', teamId] })
+    },
+  })
+
+  // Drop role - phase 1 (AC5): rotate-senior mutation. Calls the new
+  // controller endpoint POST /api/teams/:id/rotate-senior which delegates
+  // to TeamsService.rotateSenior (existing service primitive).
+  const rotateSeniorMutation = useMutation({
+    mutationFn: (sId: string) => api.post(`/teams/${teamId}/rotate-senior`, { newSeniorId: sId }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['team', teamId] })
+      void queryClient.invalidateQueries({ queryKey: ['teams'] })
+      void queryClient.invalidateQueries({ queryKey: ['users'] })
+      void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
+      toast.success('Синьор обновлён')
+      setRotateSeniorOpen(false)
+      setNewSeniorId('')
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      toast.error(msg ?? 'Не удалось сменить синьора')
+    },
   })
 
   if (denied) return null
 
-  const { data: team, isLoading, error } = useQuery({
+  const {
+    data: team,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ['team', teamId],
     queryFn: () => fetchTeam(teamId),
     enabled: !!user && !!teamId,
@@ -134,7 +174,16 @@ function TeamDetailPage() {
     enabled: !!user,
   })
 
-  const canManage = user?.role === 'ADMIN' || (user?.role === 'HR' && team?.members.some(m => m.userId === user?.id))
+  const canManage =
+    user?.role === 'ADMIN' ||
+    (user?.role === 'HR' && team?.members.some((m) => m.userId === user?.id))
+
+  // Drop role - phase 1 (AC5): drop-team rendering branch + rotate-senior
+  // affordance. Active SENIOR = `role='SENIOR' && leftAt === null`.
+  const isDropTeam = team?.type === 'DROP'
+  const activeSenior = team?.members.find((m) => m.role === 'SENIOR' && !m.leftAt) ?? null
+  const dropOwner = team?.members.find((m) => m.role === 'DROP' && !m.leftAt) ?? null
+  const canRotateSenior = isDropTeam && canManage && !team?.archivedAt
 
   const { data: allUsers } = useQuery<UserOption[]>({
     queryKey: ['users'],
@@ -142,9 +191,36 @@ function TeamDetailPage() {
     enabled: !!(user && canManage),
   })
 
+  // Drop role - phase 1 (AC5): fetch all teams to filter out SENIORs that
+  // already have an active team membership. Backend's `rotateSenior` rejects
+  // such picks with 400 — this client filter is a UX guard.
+  const { data: allTeamsForRotate } = useQuery<TeamDto[]>({
+    queryKey: ['teams'],
+    queryFn: () => api.get<TeamDto[]>('/teams').then((r) => r.data),
+    enabled: !!(user && canRotateSenior && rotateSeniorOpen),
+    staleTime: 30_000,
+  })
+  const vacantSeniors = useMemo(() => {
+    if (!allUsers) return []
+    const seniorsInActiveTeam = new Set(
+      (allTeamsForRotate ?? [])
+        .filter((t) => !t.archivedAt)
+        .flatMap((t) =>
+          t.members.filter((m) => m.role === 'SENIOR' && !m.leftAt).map((m) => m.userId),
+        ),
+    )
+    return allUsers
+      .filter((u) => u.role === 'SENIOR' && !seniorsInActiveTeam.has(u.id))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName))
+  }, [allUsers, allTeamsForRotate])
+
   // Edit form
   const editForm = useForm({
-    defaultValues: { name: team?.name ?? '', telegram: team?.telegram ?? '', notes: team?.notes ?? '' },
+    defaultValues: {
+      name: team?.name ?? '',
+      telegram: team?.telegram ?? '',
+      notes: team?.notes ?? '',
+    },
     onSubmit: async ({ value }) => {
       await updateMutation.mutateAsync(value)
     },
@@ -179,17 +255,25 @@ function TeamDetailPage() {
 
   // Compute active projects for this team. Round 5: project lifecycle is
   // binary — active === archivedAt is null.
-  const activeProjects = projects?.filter(
-    (p) =>
-      p.archivedAt === null &&
-      team?.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
-  ) ?? []
+  // Drop role - phase 1 (AC5): drop-teams own projects via `dropId`
+  // (`projects.dropId === drop.userId`), not through the senior link.
+  const activeProjects =
+    projects?.filter((p) => {
+      if (p.archivedAt !== null) return false
+      if (isDropTeam) {
+        return dropOwner ? p.dropId === dropOwner.userId : false
+      }
+      return team?.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId) ?? false
+    }) ?? []
 
   // Junior sees only their own project
   const visibleProjects =
     user?.role === 'JUNIOR'
       ? activeProjects.filter((p) =>
-          p.members?.some((m: { userId: string; leftAt: string | null }) => m.userId === user.id && m.leftAt === null),
+          p.members?.some(
+            (m: { userId: string; leftAt: string | null }) =>
+              m.userId === user.id && m.leftAt === null,
+          ),
         )
       : activeProjects
 
@@ -233,7 +317,6 @@ function TeamDetailPage() {
     )
   }
 
-
   // Add member dialog filtering logic
   const memberUserIds = new Set(team?.members.map((m) => m.userId) ?? [])
   const teamHasSenior = team?.members.some((m) => m.role === 'SENIOR') ?? false
@@ -241,9 +324,9 @@ function TeamDetailPage() {
   const juniorIdsWithProjects = new Set(
     projects?.flatMap((p) =>
       p.archivedAt === null
-        ? p.members
+        ? (p.members
             ?.filter((m: { leftAt: string | null }) => m.leftAt === null)
-            .map((m: { userId: string }) => m.userId) ?? []
+            .map((m: { userId: string }) => m.userId) ?? [])
         : [],
     ) ?? [],
   )
@@ -255,7 +338,8 @@ function TeamDetailPage() {
     .map((u: UserOption): CandidateUser => {
       if (memberUserIds.has(u.id)) return { ...u, disabledReason: 'в команде' }
       if (u.role === 'SENIOR' && teamHasSenior) return { ...u, disabledReason: 'уже есть синьор' }
-      if (u.role === 'JUNIOR' && juniorIdsWithProjects.has(u.id)) return { ...u, disabledReason: 'есть проект' }
+      if (u.role === 'JUNIOR' && juniorIdsWithProjects.has(u.id))
+        return { ...u, disabledReason: 'есть проект' }
       return u
     })
     .sort((a: CandidateUser, b: CandidateUser) => {
@@ -283,12 +367,7 @@ function TeamDetailPage() {
   }
 
   return (
-    <motion.div
-      className="space-y-6"
-      variants={container}
-      initial="hidden"
-      animate="show"
-    >
+    <motion.div className="space-y-6" variants={container} initial="hidden" animate="show">
       {/* Header */}
       <motion.div variants={item} className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -300,8 +379,16 @@ function TeamDetailPage() {
             </Button>
           )}
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-2xl font-bold tracking-tight">{team.name}</h1>
+              {/* Drop role - phase 1 (AC5): DROP badge + «Команда дропа»
+                  caption surface the team type. Senior-teams render no
+                  extra badge, header rendering 1:1 as before. */}
+              {isDropTeam && (
+                <Badge variant="drop" data-testid="team-drop-badge">
+                  Команда дропа
+                </Badge>
+              )}
               {team.archivedAt ? (
                 <Badge
                   variant="outline"
@@ -319,10 +406,40 @@ function TeamDetailPage() {
                 </Badge>
               )}
             </div>
+            {/* AC5: drop owner link under the title — quick navigation to
+                the drop's profile, mirrors the «синьор» bookmark on senior
+                teams. */}
+            {isDropTeam && dropOwner && (
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Дроп:{' '}
+                <Link
+                  to="/crm/profile/$userId"
+                  params={{ userId: dropOwner.userId }}
+                  className="text-primary hover:underline font-medium"
+                >
+                  {dropOwner.displayName}
+                </Link>
+                {activeSenior ? (
+                  <>
+                    {' · Синьор: '}
+                    <Link
+                      to="/crm/profile/$userId"
+                      params={{ userId: activeSenior.userId }}
+                      className="text-primary hover:underline font-medium"
+                    >
+                      {activeSenior.displayName}
+                    </Link>
+                  </>
+                ) : (
+                  <span className="ml-1 text-amber-500/80">· Синьор не назначен</span>
+                )}
+              </p>
+            )}
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
               <div className="flex items-center gap-1.5">
                 <Calendar className="h-3.5 w-3.5" />
-                Создана {new Date(team.createdAt).toLocaleDateString('ru-RU', {
+                Создана{' '}
+                {new Date(team.createdAt).toLocaleDateString('ru-RU', {
                   day: 'numeric',
                   month: 'long',
                   year: 'numeric',
@@ -345,7 +462,21 @@ function TeamDetailPage() {
         {/* ut-39b: «Действия» dropdown replaced with explicit Archive /
             Unarchive buttons (matches ut-28 project detail pattern).
             Add / Edit remain side-by-side; archive controls are admin-only. */}
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 gap-2 flex-wrap justify-end">
+          {/* Drop role - phase 1 (AC5): rotate-senior is the headline
+              action for drop-teams. Senior-teams never see this button. */}
+          {canRotateSenior && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setRotateSeniorOpen(true)}
+              data-testid="team-rotate-senior-button"
+            >
+              <RefreshCw className="h-4 w-4" />
+              {activeSenior ? 'Сменить синьора' : 'Назначить синьора'}
+            </Button>
+          )}
           {canManage && !team.archivedAt && (
             <>
               <Button
@@ -393,224 +524,272 @@ function TeamDetailPage() {
         </div>
       </motion.div>
 
-      {user?.role === 'ADMIN' && (() => {
-        type TeamDetailTab = 'members' | 'audit'
-        const detailTabs: ReadonlyArray<SegmentedToggleOption<TeamDetailTab>> = [
-          { value: 'members', label: 'Состав', testId: 'tab-members' },
-          { value: 'audit', label: 'История изменений', testId: 'tab-audit' },
-        ]
-        return (
-          <SegmentedToggle<TeamDetailTab>
-            value={activeTab}
-            onChange={(v) => setActiveTab(v)}
-            options={detailTabs}
-            ariaLabel="Разделы команды"
-            variant="tabs"
-            size="sm"
-            layoutId={`team-detail-tabs-${team.id}`}
-            className="w-fit"
-            testId={`team-detail-tabs-${team.id}`}
-          />
-        )
-      })()}
+      {user?.role === 'ADMIN' &&
+        (() => {
+          type TeamDetailTab = 'members' | 'audit'
+          const detailTabs: ReadonlyArray<SegmentedToggleOption<TeamDetailTab>> = [
+            { value: 'members', label: 'Состав', testId: 'tab-members' },
+            { value: 'audit', label: 'История изменений', testId: 'tab-audit' },
+          ]
+          return (
+            <SegmentedToggle<TeamDetailTab>
+              value={activeTab}
+              onChange={(v) => setActiveTab(v)}
+              options={detailTabs}
+              ariaLabel="Разделы команды"
+              variant="tabs"
+              size="sm"
+              layoutId={`team-detail-tabs-${team.id}`}
+              className="w-fit"
+              testId={`team-detail-tabs-${team.id}`}
+            />
+          )
+        })()}
 
       {user?.role === 'ADMIN' && activeTab === 'audit' ? (
         <AuditLogTab entityType="team" entityId={team.id} />
       ) : (
-      <div className="space-y-6">
-        {/* Members */}
-        <motion.div variants={item}>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                Участники команды
-                <Badge variant="outline" className="ml-auto">
-                  {team.members.length}
-                </Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {(() => {
-                // Filter out other JUNIORs if current user is JUNIOR
-                const visibleMembers = user?.role === 'JUNIOR' 
-                  ? team.members.filter(m => m.role !== 'JUNIOR')
-                  : team.members
-                
-                return (
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {visibleMembers.map((member) => (
-                      <motion.div
-                        key={member.id}
-                        className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-card/50 p-3"
-                        whileHover={{ scale: 1.01 }}
-                        transition={{ duration: 0.15 }}
-                      >
-                        {/* round-2 AC1: avatar + name is the only profile <Link>;
+        <div className="space-y-6">
+          {/* Members */}
+          <motion.div variants={item}>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  Участники команды
+                  <Badge variant="outline" className="ml-auto">
+                    {team.members.length}
+                  </Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {(() => {
+                  // Filter out other JUNIORs if current user is JUNIOR
+                  const visibleMembers =
+                    user?.role === 'JUNIOR'
+                      ? team.members.filter((m) => m.role !== 'JUNIOR')
+                      : team.members
+
+                  return (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {visibleMembers.map((member) => (
+                        <motion.div
+                          key={member.id}
+                          className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-card/50 p-3"
+                          whileHover={{ scale: 1.01 }}
+                          transition={{ duration: 0.15 }}
+                        >
+                          {/* round-2 AC1: avatar + name is the only profile <Link>;
                             email/telegram/phone are sibling <a> tags (NOT nested
                             inside another anchor) — fixes validateDOMNesting. */}
-                        <div className="flex min-w-0 flex-1 items-center gap-3">
-                          <Link
-                            to="/crm/profile/$userId"
-                            params={{ userId: member.userId }}
-                            className="shrink-0 transition-opacity hover:opacity-80"
-                          >
-                            <Avatar className="h-9 w-9 shrink-0">
-                              {member.avatarUrl && <AvatarImage src={member.avatarUrl} alt={member.displayName} />}
-                              <AvatarFallback className="bg-muted text-xs">{getInitials(member.displayName)}</AvatarFallback>
-                            </Avatar>
-                          </Link>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <Link
-                                to="/crm/profile/$userId"
-                                params={{ userId: member.userId }}
-                                className="min-w-0 transition-opacity hover:opacity-80"
-                              >
-                                <p className="truncate text-sm font-medium leading-tight hover:text-primary transition-colors">{member.displayName}</p>
-                              </Link>
-                              <Badge variant={ROLE_VARIANT[member.role] ?? 'junior'} className="text-[9px] shrink-0">
-                                {ROLE_LABELS[member.role] ?? member.role}
-                              </Badge>
-                            </div>
-                            {Array.isArray(member.techStack) && member.techStack.length > 0 && (
-                              <div className="mt-1 flex flex-wrap gap-1">
-                                {(member.techStack as string[]).map((t) => (
-                                  <Badge key={t} variant="outline" className="text-[9px] px-1.5 py-0 font-mono">
-                                    {t}
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-                            <div className="mt-1 flex flex-col gap-0.5 min-w-0">
-                              <a href={`mailto:${member.email}`}
-                                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0">
-                                <Mail className="h-3 w-3 shrink-0" />
-                                <span className="truncate">{member.email}</span>
-                              </a>
-                              {member.telegram && (
-                                <a href={tgHref(member.telegram)} target="_blank" rel="noopener noreferrer"
-                                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0">
-                                  <Send className="h-3 w-3 shrink-0" />
-                                  <span className="truncate">{tgDisplay(member.telegram)}</span>
-                                </a>
-                              )}
-                              {member.phone && (
-                                <a href={`tel:${member.phone}`}
-                                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0">
-                                  <Phone className="h-3 w-3 shrink-0" />
-                                  <span className="truncate">{member.phone}</span>
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        {canManage && (() => {
-                          const membersByRole = team.members.reduce((acc, m) => {
-                            if (!acc[m.role]) acc[m.role] = []
-                            acc[m.role]!.push(m)
-                            return acc
-                          }, {} as Record<string, typeof team.members>)
-                          
-                          const isSenior = member.role === 'SENIOR'
-                          const isJunior = member.role === 'JUNIOR'
-                          const isLastHr = member.role === 'HR' && membersByRole.HR && membersByRole.HR.length <= 1
-                          const isLastAccountant = member.role === 'ACCOUNTANT' && membersByRole.ACCOUNTANT && membersByRole.ACCOUNTANT.length <= 1
-                          const isSelf = member.userId === user?.id
-                          const canRemove = !isSenior && !isJunior && !isLastHr && !isLastAccountant &&
-                            (user?.role === 'ADMIN' ? true : isSelf)
-                          return canRemove ? (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                              title="Исключить"
-                              onClick={() => removeMemberMutation.mutate(member.userId)}
+                          <div className="flex min-w-0 flex-1 items-center gap-3">
+                            <Link
+                              to="/crm/profile/$userId"
+                              params={{ userId: member.userId }}
+                              className="shrink-0 transition-opacity hover:opacity-80"
                             >
-                              <UserMinus className="h-3.5 w-3.5" />
-                            </Button>
-                          ) : null
-                        })()}
-                      </motion.div>
-                    ))}
-                    {visibleMembers.length === 0 && (
-                      <div className="flex flex-col items-center justify-center py-12 text-center col-span-2">
-                        <p className="mt-3 text-sm font-medium">Нет участников</p>
-                      </div>
-                    )}
-                  </div>
-                )
-              })()}
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Active Projects */}
-        <motion.div variants={item}>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Briefcase className="h-5 w-5" />
-                Активные проекты
-                {visibleProjects.length > 0 && (
-                  <Badge className="ml-auto bg-emerald-500/15 text-emerald-400 border-emerald-500/25 hover:bg-emerald-500/20">
-                    {visibleProjects.length}
-                  </Badge>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {visibleProjects.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">Нет активных проектов</p>
-              ) : (
-                <div className="space-y-2">
-                  {visibleProjects.map((project) => {
-                    const juniorMember = project.members?.find(
-                      (m: { role: string; leftAt: string | null }) => m.role === 'JUNIOR' && m.leftAt === null
-                    )
-                    const junior = juniorMember
-                      ? team.members.find(m => m.userId === juniorMember.userId)
-                      : null
-                    return (
-                    <Link
-                      key={project.id}
-                      to="/crm/projects/$projectId"
-                      params={{ projectId: project.id }}
-                      className="flex items-center gap-3 rounded-lg border border-border/60 bg-card/50 p-3 transition-all hover:border-primary/30 hover:bg-card"
-                    >
-                      <ProjectLogo
-                        documentId={project.logoDocumentId}
-                        externalUrl={project.logoExternalUrl}
-                        companyName={project.companyName}
-                        fallback={project.companyName.slice(0, 2).toUpperCase()}
-                        avatarClassName="h-8 w-8 rounded-md shrink-0 [&_[data-slot=avatar-fallback]]:rounded-md [&_[data-slot=avatar-fallback]]:text-xs"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{project.name}</p>
-                        <p className="truncate text-xs text-muted-foreground">{project.companyName}</p>
-                        {junior ? (
-                          <div className="flex items-center gap-1.5 mt-1">
-                            <Avatar className="h-4 w-4">
-                              {junior.avatarUrl && <AvatarImage src={junior.avatarUrl} alt={junior.displayName} />}
-                              <AvatarFallback className="bg-muted text-[8px]">{getInitials(junior.displayName)}</AvatarFallback>
-                            </Avatar>
-                            <span className="text-xs text-muted-foreground truncate">{junior.displayName}</span>
+                              <Avatar className="h-9 w-9 shrink-0">
+                                {member.avatarUrl && (
+                                  <AvatarImage src={member.avatarUrl} alt={member.displayName} />
+                                )}
+                                <AvatarFallback className="bg-muted text-xs">
+                                  {getInitials(member.displayName)}
+                                </AvatarFallback>
+                              </Avatar>
+                            </Link>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <Link
+                                  to="/crm/profile/$userId"
+                                  params={{ userId: member.userId }}
+                                  className="min-w-0 transition-opacity hover:opacity-80"
+                                >
+                                  <p className="truncate text-sm font-medium leading-tight hover:text-primary transition-colors">
+                                    {member.displayName}
+                                  </p>
+                                </Link>
+                                <Badge
+                                  variant={ROLE_VARIANT[member.role] ?? 'junior'}
+                                  className="text-[9px] shrink-0"
+                                >
+                                  {ROLE_LABELS[member.role] ?? member.role}
+                                </Badge>
+                              </div>
+                              {Array.isArray(member.techStack) && member.techStack.length > 0 && (
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {(member.techStack as string[]).map((t) => (
+                                    <Badge
+                                      key={t}
+                                      variant="outline"
+                                      className="text-[9px] px-1.5 py-0 font-mono"
+                                    >
+                                      {t}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              )}
+                              <div className="mt-1 flex flex-col gap-0.5 min-w-0">
+                                <a
+                                  href={`mailto:${member.email}`}
+                                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0"
+                                >
+                                  <Mail className="h-3 w-3 shrink-0" />
+                                  <span className="truncate">{member.email}</span>
+                                </a>
+                                {member.telegram && (
+                                  <a
+                                    href={tgHref(member.telegram)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0"
+                                  >
+                                    <Send className="h-3 w-3 shrink-0" />
+                                    <span className="truncate">{tgDisplay(member.telegram)}</span>
+                                  </a>
+                                )}
+                                {member.phone && (
+                                  <a
+                                    href={`tel:${member.phone}`}
+                                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0"
+                                  >
+                                    <Phone className="h-3 w-3 shrink-0" />
+                                    <span className="truncate">{member.phone}</span>
+                                  </a>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                        ) : (
-                          <p className="text-xs text-destructive mt-1">Джун не прикреплён</p>
-                        )}
-                      </div>
-                      <Badge className="shrink-0 bg-emerald-500/15 text-emerald-400 border-emerald-500/25 text-[10px]">
-                        Активный
-                      </Badge>
-                    </Link>
-                    )
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-      </div>
+                          {canManage &&
+                            (() => {
+                              const membersByRole = team.members.reduce(
+                                (acc, m) => {
+                                  if (!acc[m.role]) acc[m.role] = []
+                                  acc[m.role]!.push(m)
+                                  return acc
+                                },
+                                {} as Record<string, typeof team.members>,
+                              )
+
+                              const isSenior = member.role === 'SENIOR'
+                              const isJunior = member.role === 'JUNIOR'
+                              const isLastHr =
+                                member.role === 'HR' &&
+                                membersByRole.HR &&
+                                membersByRole.HR.length <= 1
+                              const isLastAccountant =
+                                member.role === 'ACCOUNTANT' &&
+                                membersByRole.ACCOUNTANT &&
+                                membersByRole.ACCOUNTANT.length <= 1
+                              const isSelf = member.userId === user?.id
+                              const canRemove =
+                                !isSenior &&
+                                !isJunior &&
+                                !isLastHr &&
+                                !isLastAccountant &&
+                                (user?.role === 'ADMIN' ? true : isSelf)
+                              return canRemove ? (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                                  title="Исключить"
+                                  onClick={() => removeMemberMutation.mutate(member.userId)}
+                                >
+                                  <UserMinus className="h-3.5 w-3.5" />
+                                </Button>
+                              ) : null
+                            })()}
+                        </motion.div>
+                      ))}
+                      {visibleMembers.length === 0 && (
+                        <div className="flex flex-col items-center justify-center py-12 text-center col-span-2">
+                          <p className="mt-3 text-sm font-medium">Нет участников</p>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* Active Projects */}
+          <motion.div variants={item}>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Briefcase className="h-5 w-5" />
+                  Активные проекты
+                  {visibleProjects.length > 0 && (
+                    <Badge className="ml-auto bg-emerald-500/15 text-emerald-400 border-emerald-500/25 hover:bg-emerald-500/20">
+                      {visibleProjects.length}
+                    </Badge>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {visibleProjects.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">
+                    Нет активных проектов
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {visibleProjects.map((project) => {
+                      const juniorMember = project.members?.find(
+                        (m: { role: string; leftAt: string | null }) =>
+                          m.role === 'JUNIOR' && m.leftAt === null,
+                      )
+                      const junior = juniorMember
+                        ? team.members.find((m) => m.userId === juniorMember.userId)
+                        : null
+                      return (
+                        <Link
+                          key={project.id}
+                          to="/crm/projects/$projectId"
+                          params={{ projectId: project.id }}
+                          className="flex items-center gap-3 rounded-lg border border-border/60 bg-card/50 p-3 transition-all hover:border-primary/30 hover:bg-card"
+                        >
+                          <ProjectLogo
+                            documentId={project.logoDocumentId}
+                            externalUrl={project.logoExternalUrl}
+                            companyName={project.companyName}
+                            fallback={project.companyName.slice(0, 2).toUpperCase()}
+                            avatarClassName="h-8 w-8 rounded-md shrink-0 [&_[data-slot=avatar-fallback]]:rounded-md [&_[data-slot=avatar-fallback]]:text-xs"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">{project.name}</p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {project.companyName}
+                            </p>
+                            {junior ? (
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <Avatar className="h-4 w-4">
+                                  {junior.avatarUrl && (
+                                    <AvatarImage src={junior.avatarUrl} alt={junior.displayName} />
+                                  )}
+                                  <AvatarFallback className="bg-muted text-[8px]">
+                                    {getInitials(junior.displayName)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <span className="text-xs text-muted-foreground truncate">
+                                  {junior.displayName}
+                                </span>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-destructive mt-1">Джун не прикреплён</p>
+                            )}
+                          </div>
+                          <Badge className="shrink-0 bg-emerald-500/15 text-emerald-400 border-emerald-500/25 text-[10px]">
+                            Активный
+                          </Badge>
+                        </Link>
+                      )
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+        </div>
       )}
 
       {/* Edit Team Dialog */}
@@ -644,7 +823,7 @@ function TeamDetailPage() {
                   </div>
                 )}
               </editForm.Field>
-              <editForm.Field 
+              <editForm.Field
                 name="telegram"
                 validators={{
                   onChange: ({ value }) => {
@@ -652,7 +831,7 @@ function TeamDetailPage() {
                       return 'Ссылка должна начинаться с https://t.me/'
                     }
                     return undefined
-                  }
+                  },
                 }}
               >
                 {(field) => (
@@ -665,7 +844,9 @@ function TeamDetailPage() {
                       placeholder="https://t.me/team_chat"
                     />
                     {field.state.meta.errors[0] && (
-                      <p className="text-xs text-destructive">{String(field.state.meta.errors[0])}</p>
+                      <p className="text-xs text-destructive">
+                        {String(field.state.meta.errors[0])}
+                      </p>
                     )}
                     <p className="text-xs text-muted-foreground">Ссылка на Telegram-чат команды</p>
                   </div>
@@ -699,7 +880,13 @@ function TeamDetailPage() {
       </Dialog>
 
       {/* Add Member Dialog */}
-      <Dialog open={showAddMember} onOpenChange={(open) => { setShowAddMember(open); if (!open) setSelectedUserIds(new Set()) }}>
+      <Dialog
+        open={showAddMember}
+        onOpenChange={(open) => {
+          setShowAddMember(open)
+          if (!open) setSelectedUserIds(new Set())
+        }}
+      >
         <CrmDialogContent>
           <CrmDialogHeader>
             <DialogTitle>Добавить участника</DialogTitle>
@@ -707,7 +894,9 @@ function TeamDetailPage() {
           <CrmDialogBody>
             <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
               {candidateUsers.length === 0 && (
-                <p className="py-4 text-center text-sm text-muted-foreground">Нет доступных пользователей</p>
+                <p className="py-4 text-center text-sm text-muted-foreground">
+                  Нет доступных пользователей
+                </p>
               )}
               {candidateUsers.map((u, idx) => {
                 const isDisabled = !!u.disabledReason
@@ -737,29 +926,39 @@ function TeamDetailPage() {
                         isDisabled
                           ? 'cursor-not-allowed opacity-35'
                           : isSelected
-                          ? 'bg-primary/10'
-                          : 'hover:bg-muted/50',
+                            ? 'bg-primary/10'
+                            : 'hover:bg-muted/50',
                       )}
                     >
                       {!isDisabled && (
-                        <div className={cn(
-                          'h-4 w-4 shrink-0 rounded border',
-                          isSelected ? 'border-primary bg-primary flex items-center justify-center' : 'border-border',
-                        )}>
-                          {isSelected && <span className="text-[10px] text-primary-foreground font-bold">✓</span>}
+                        <div
+                          className={cn(
+                            'h-4 w-4 shrink-0 rounded border',
+                            isSelected
+                              ? 'border-primary bg-primary flex items-center justify-center'
+                              : 'border-border',
+                          )}
+                        >
+                          {isSelected && (
+                            <span className="text-[10px] text-primary-foreground font-bold">✓</span>
+                          )}
                         </div>
                       )}
                       {isDisabled && <div className="h-4 w-4 shrink-0" />}
                       <Avatar className="h-6 w-6 shrink-0">
                         {u.avatarUrl && <AvatarImage src={u.avatarUrl} alt={u.displayName} />}
-                        <AvatarFallback className="text-[9px]">{getInitials(u.displayName)}</AvatarFallback>
+                        <AvatarFallback className="text-[9px]">
+                          {getInitials(u.displayName)}
+                        </AvatarFallback>
                       </Avatar>
                       <span className="flex-1 truncate text-sm">{u.displayName}</span>
                       <Badge variant="outline" className="text-[10px] shrink-0">
                         {ROLE_LABELS[u.role] ?? u.role}
                       </Badge>
                       {u.disabledReason && (
-                        <span className="text-[10px] text-muted-foreground shrink-0">{u.disabledReason}</span>
+                        <span className="text-[10px] text-muted-foreground shrink-0">
+                          {u.disabledReason}
+                        </span>
                       )}
                     </button>
                   </div>
@@ -768,7 +967,13 @@ function TeamDetailPage() {
             </div>
           </CrmDialogBody>
           <CrmDialogFooter>
-            <Button variant="outline" onClick={() => { setShowAddMember(false); setSelectedUserIds(new Set()) }}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowAddMember(false)
+                setSelectedUserIds(new Set())
+              }}
+            >
               Отмена
             </Button>
             <Button
@@ -790,6 +995,86 @@ function TeamDetailPage() {
           onClose={() => setArchiveDialogOpen(false)}
         />
       )}
+
+      {/* Drop role - phase 1 (AC5): rotate-senior dialog. Lists SENIORs
+          with no active team membership; backend re-validates on submit. */}
+      <Dialog
+        open={rotateSeniorOpen}
+        onOpenChange={(o) => {
+          if (!o) {
+            setRotateSeniorOpen(false)
+            setNewSeniorId('')
+          }
+        }}
+      >
+        <CrmDialogContent data-testid="team-rotate-senior-dialog">
+          <CrmDialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RefreshCw className="h-4 w-4" />
+              {activeSenior ? 'Сменить синьора' : 'Назначить синьора'}
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              {activeSenior
+                ? `Текущий синьор «${activeSenior.displayName}» будет откреплён. Новый синьор должен быть без активной команды.`
+                : 'Выберите синьора без активной команды. Дроп и остальные участники команды остаются.'}
+            </p>
+          </CrmDialogHeader>
+          <CrmDialogBody className="space-y-3">
+            <div className="grid gap-1.5">
+              <Label>Новый синьор</Label>
+              {vacantSeniors.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">
+                  Нет синьоров без активной команды
+                </p>
+              ) : (
+                <Select value={newSeniorId} onValueChange={setNewSeniorId}>
+                  <SelectTrigger data-testid="team-rotate-senior-select">
+                    <SelectValue placeholder="— выберите синьора —" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {vacantSeniors.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        <div className="flex items-center gap-2">
+                          <Avatar className="h-5 w-5">
+                            {s.avatarUrl && <AvatarImage src={s.avatarUrl} alt={s.displayName} />}
+                            <AvatarFallback className="text-[9px]">
+                              {getInitials(s.displayName)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span>{s.displayName}</span>
+                          <span className="text-[10px] text-muted-foreground">{s.email}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          </CrmDialogBody>
+          <CrmDialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setRotateSeniorOpen(false)
+                setNewSeniorId('')
+              }}
+            >
+              Отмена
+            </Button>
+            <Button
+              disabled={!newSeniorId || rotateSeniorMutation.isPending}
+              onClick={() => rotateSeniorMutation.mutate(newSeniorId)}
+              data-testid="team-rotate-senior-submit"
+            >
+              {rotateSeniorMutation.isPending
+                ? 'Сохранение...'
+                : activeSenior
+                  ? 'Сменить'
+                  : 'Назначить'}
+            </Button>
+          </CrmDialogFooter>
+        </CrmDialogContent>
+      </Dialog>
     </motion.div>
   )
 }

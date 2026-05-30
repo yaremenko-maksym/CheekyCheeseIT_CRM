@@ -58,6 +58,7 @@ import {
 import { Label } from '@/components/ui/label'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import { useDocuments } from '@/hooks/use-documents'
+import { useRoleGuard } from '@/hooks/use-role-guard'
 import { DocumentList } from '@/components/documents/document-list'
 import { DocumentDetailDialog } from '@/components/documents/document-detail-dialog'
 import { UploadDocumentDialog } from '@/components/documents/upload-document-dialog'
@@ -115,6 +116,9 @@ const TAB_VISIBILITY: Record<Role, DocumentCategory[]> = {
   JUNIOR: ['RESUME', 'SCAN', 'INVOICE'],
   HR: ['RESUME', 'SCAN', 'CONTRACT', 'INVOICE'],
   ACCOUNTANT: ['SCAN', 'RECEIPT', 'INVOICE'],
+  // Drop role - phase 1 (backend): documents UX for DROP ships in a later
+  // phase. Mirror the SENIOR set so the page renders without runtime crash.
+  DROP: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE'],
 }
 
 /**
@@ -128,6 +132,8 @@ const UPLOADABLE_PER_ROLE: Record<Role, DocumentCategory[]> = {
   JUNIOR: ['RESUME', 'SCAN'],
   HR: ['RESUME', 'SCAN'],
   ACCOUNTANT: [],
+  // Drop role - phase 1 (backend): drop document UX ships in a later phase.
+  DROP: ['RESUME', 'SCAN', 'CONTRACT'],
 }
 
 function canSeeOwnerFilter(role: Role): boolean {
@@ -139,6 +145,10 @@ function canSeeOwnerFilter(role: Role): boolean {
 // ---------------------------------------------------------------------------
 
 function DocumentsPage() {
+  // Drop role - phase 1 fix (AC4): DROP must not access /crm/documents in
+  // Phase 1 (drop document UX ships later). Sidebar already hides the link;
+  // route guard catches direct URL navigation.
+  useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'])
   const { user } = useAuth()
   if (!user) return null
 

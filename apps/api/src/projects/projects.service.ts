@@ -8,7 +8,13 @@ import {
   forwardRef,
 } from '@nestjs/common'
 import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
-import type { ArchiveImpact, CreateProjectDto, EffectiveTeam, SessionUser, UpdateProjectDto } from '@crm/shared'
+import type {
+  ArchiveImpact,
+  CreateProjectDto,
+  EffectiveTeam,
+  SessionUser,
+  UpdateProjectDto,
+} from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
   documents,
@@ -51,6 +57,9 @@ export class ProjectsService {
       startDate: project.startDate.toISOString(),
       seniorId: project.seniorId,
       seniorName: project.senior?.displayName ?? '',
+      // Drop role - phase 1: surfaced on the wire so FE can render drop-aware
+      // hints/badges. NULL = legacy senior-project (unchanged finance flow).
+      dropId: project.dropId ?? null,
       rate: project.rate,
       currency: project.currency,
       // Per-project SENIOR share override. NULL = senior's global default.
@@ -140,7 +149,39 @@ export class ProjectsService {
     let filtered = allProjects as ProjectWithRelations[]
 
     if (currentUser.role === 'SENIOR') {
-      filtered = filtered.filter((p) => p.seniorId === currentUser.id)
+      // SENIOR sees their own senior-projects (legacy) AND drop-projects of
+      // their current drop-team (Phase 1 visibility — full drop-project
+      // distribution lands in Phase 2). The base senior-project filter is
+      // unchanged.
+      const ownerProjects = filtered.filter((p) => p.seniorId === currentUser.id)
+      // Drop role - phase 1: senior in drop-team sees the team's drop-projects.
+      const dropTeam = await this.db.db.query.teamMembers.findFirst({
+        where: and(eq(teamMembers.userId, currentUser.id), isNull(teamMembers.leftAt)),
+        with: { team: true },
+      })
+      let dropProjects: ProjectWithRelations[] = []
+      if (dropTeam?.team?.type === 'DROP') {
+        // Find this drop-team's DROP user, then projects with dropId === that user.
+        const dropMember = await this.db.db
+          .select({ userId: teamMembers.userId })
+          .from(teamMembers)
+          .innerJoin(users, eq(users.id, teamMembers.userId))
+          .where(
+            and(
+              eq(teamMembers.teamId, dropTeam.teamId),
+              eq(users.role, 'DROP'),
+              isNull(teamMembers.leftAt),
+            ),
+          )
+          .then((rows) => rows[0])
+        if (dropMember) {
+          dropProjects = filtered.filter((p) => p.dropId === dropMember.userId)
+        }
+      }
+      // Dedupe by id (senior+drop overlap is unlikely but possible).
+      const merged = new Map<string, ProjectWithRelations>()
+      for (const p of [...ownerProjects, ...dropProjects]) merged.set(p.id, p)
+      filtered = Array.from(merged.values())
     } else if (currentUser.role === 'HR') {
       const seniorIds = await this.getHrSeniorIds(currentUser.id)
       filtered = filtered.filter((p) => p.seniorId !== null && seniorIds.includes(p.seniorId))
@@ -148,6 +189,9 @@ export class ProjectsService {
       filtered = filtered.filter((p) =>
         p.members.some((m) => m.userId === currentUser.id && m.leftAt === null),
       )
+    } else if (currentUser.role === 'DROP') {
+      // Drop role - phase 1: DROP sees only drop-projects they own.
+      filtered = filtered.filter((p) => p.dropId === currentUser.id && p.archivedAt === null)
     }
     // ADMIN, ACCOUNTANT see all
 
@@ -155,10 +199,10 @@ export class ProjectsService {
   }
 
   async findOne(id: string, currentUser: SessionUser) {
-    const project = await this.db.db.query.projects.findFirst({
+    const project = (await this.db.db.query.projects.findFirst({
       where: eq(projects.id, id),
       with: { senior: true, members: { with: { user: true } } },
-    }) as ProjectWithRelations | undefined
+    })) as ProjectWithRelations | undefined
 
     if (!project) throw new NotFoundException('Project not found')
     await this.assertAccess(project, currentUser)
@@ -209,10 +253,7 @@ export class ProjectsService {
           })
           .from(teamMembers)
           .innerJoin(users, eq(users.id, teamMembers.userId))
-          .where(and(
-            eq(teamMembers.teamId, teamId),
-            isNull(teamMembers.leftAt),
-          ))
+          .where(and(eq(teamMembers.teamId, teamId), isNull(teamMembers.leftAt)))
         hrs = teamRows
           .filter((r) => r.role === 'HR')
           .map((r) => ({
@@ -279,12 +320,11 @@ export class ProjectsService {
       where: eq(users.id, data.seniorId),
     })
     if (!senior) throw new NotFoundException('Senior not found')
-    if (senior.role !== 'SENIOR' && senior.role !== 'ADMIN') throw new BadRequestException('User is not a SENIOR or ADMIN')
+    if (senior.role !== 'SENIOR' && senior.role !== 'ADMIN')
+      throw new BadRequestException('User is not a SENIOR or ADMIN')
 
     const override =
-      data.seniorSharePercentOverride === undefined
-        ? null
-        : data.seniorSharePercentOverride
+      data.seniorSharePercentOverride === undefined ? null : data.seniorSharePercentOverride
 
     // Validate logo document FK before insert — if it points at a non-LOGO
     // document or a deleted row, fail with 400 instead of catching a DB
@@ -323,10 +363,10 @@ export class ProjectsService {
       await this.syncFinanceSettingsOverride(project.id, override, currentUser.id)
     }
 
-    const created = await this.db.db.query.projects.findFirst({
+    const created = (await this.db.db.query.projects.findFirst({
       where: eq(projects.id, project!.id),
       with: { senior: true, members: { with: { user: true } } },
-    }) as ProjectWithRelations
+    })) as ProjectWithRelations
 
     return this.mapProject(created)
   }
@@ -363,11 +403,7 @@ export class ProjectsService {
     }
   }
 
-  async update(
-    id: string,
-    data: UpdateProjectDto,
-    currentUser: SessionUser,
-  ) {
+  async update(id: string, data: UpdateProjectDto, currentUser: SessionUser) {
     // Field-scoped RBAC: `seniorSharePercentOverride` (including explicit
     // null to clear) is restricted to ADMIN and ACCOUNTANT. HR keeps full
     // edit access to every other field — we only deny when this specific
@@ -393,10 +429,10 @@ export class ProjectsService {
       throw new ForbiddenException()
     }
 
-    const project = await this.db.db.query.projects.findFirst({
+    const project = (await this.db.db.query.projects.findFirst({
       where: eq(projects.id, id),
       with: { senior: true, members: { with: { user: true } } },
-    }) as ProjectWithRelations | undefined
+    })) as ProjectWithRelations | undefined
 
     if (!project) throw new NotFoundException('Project not found')
 
@@ -460,17 +496,10 @@ export class ProjectsService {
     // snapshot logic continues to pick up the new value for SENIOR_INCOME.
     // Audit log пишет diff с уже-resolved значением (implicit null применился).
     if (overrideEffective !== undefined) {
-      await this.syncFinanceSettingsOverride(
-        id,
-        overrideEffective,
-        currentUser.id,
-      )
+      await this.syncFinanceSettingsOverride(id, overrideEffective, currentUser.id)
 
       // Record the change in audit log so admin diffs include the override.
-      if (
-        project.seniorSharePercentOverride !==
-        overrideEffective
-      ) {
+      if (project.seniorSharePercentOverride !== overrideEffective) {
         await this.projectAuditLogService.record({
           actorId: currentUser.id,
           targetId: id,
@@ -485,10 +514,10 @@ export class ProjectsService {
       }
     }
 
-    const updated = await this.db.db.query.projects.findFirst({
+    const updated = (await this.db.db.query.projects.findFirst({
       where: eq(projects.id, id),
       with: { senior: true, members: { with: { user: true } } },
-    }) as ProjectWithRelations
+    })) as ProjectWithRelations
 
     return this.mapProject(updated)
   }
@@ -509,43 +538,45 @@ export class ProjectsService {
       if (project.archivedAt) throw new BadRequestException('Project is already archived')
 
       const now = new Date()
-      await tx
-        .update(projects)
-        .set({ archivedAt: now, updatedAt: now })
-        .where(eq(projects.id, id))
+      await tx.update(projects).set({ archivedAt: now, updatedAt: now }).where(eq(projects.id, id))
 
       // Remove active juniors via leftAt.
       const activeJuniors = await tx
         .select({ id: projectMembers.id, userId: projectMembers.userId, role: users.role })
         .from(projectMembers)
         .innerJoin(users, eq(users.id, projectMembers.userId))
-        .where(and(
-          eq(projectMembers.projectId, id),
-          isNull(projectMembers.leftAt),
-          eq(users.role, 'JUNIOR'),
-        ))
+        .where(
+          and(
+            eq(projectMembers.projectId, id),
+            isNull(projectMembers.leftAt),
+            eq(users.role, 'JUNIOR'),
+          ),
+        )
       if (activeJuniors.length > 0) {
         const ids = activeJuniors.map((j) => j.id)
-        await tx
-          .update(projectMembers)
-          .set({ leftAt: now })
-          .where(inArray(projectMembers.id, ids))
+        await tx.update(projectMembers).set({ leftAt: now }).where(inArray(projectMembers.id, ids))
         for (const j of activeJuniors) {
-          await this.projectAuditLogService.record({
-            actorId: currentUser.id,
-            targetId: id,
-            action: 'project_member_removed',
-            changes: { userId: { before: j.userId, after: null } },
-          }, tx)
+          await this.projectAuditLogService.record(
+            {
+              actorId: currentUser.id,
+              targetId: id,
+              action: 'project_member_removed',
+              changes: { userId: { before: j.userId, after: null } },
+            },
+            tx,
+          )
         }
       }
 
-      await this.projectAuditLogService.record({
-        actorId: currentUser.id,
-        targetId: id,
-        action: 'project_archived',
-        changes: { archivedAt: { before: null, after: now.toISOString() } },
-      }, tx)
+      await this.projectAuditLogService.record(
+        {
+          actorId: currentUser.id,
+          targetId: id,
+          action: 'project_archived',
+          changes: { archivedAt: { before: null, after: now.toISOString() } },
+        },
+        tx,
+      )
 
       return this.findOne(id, currentUser)
     })
@@ -592,7 +623,8 @@ export class ProjectsService {
       }
 
       const entitiesToCascade: { type: 'user' | 'team'; id: string; name: string }[] = []
-      if (senior?.archivedAt) entitiesToCascade.push({ type: 'user', id: senior.id, name: senior.displayName })
+      if (senior?.archivedAt)
+        entitiesToCascade.push({ type: 'user', id: senior.id, name: senior.displayName })
       if (team?.archivedAt) entitiesToCascade.push({ type: 'team', id: team.id, name: team.name })
 
       if (entitiesToCascade.length > 0 && !cascade) {
@@ -613,17 +645,17 @@ export class ProjectsService {
         await this.usersService.unarchivePairTx(tx, senior.id, currentUser.id)
       }
 
-      await tx
-        .update(projects)
-        .set({ archivedAt: null, updatedAt: now })
-        .where(eq(projects.id, id))
+      await tx.update(projects).set({ archivedAt: null, updatedAt: now }).where(eq(projects.id, id))
 
-      await this.projectAuditLogService.record({
-        actorId: currentUser.id,
-        targetId: id,
-        action: 'project_unarchived',
-        changes: { archivedAt: { before: previousArchivedAt.toISOString(), after: null } },
-      }, tx)
+      await this.projectAuditLogService.record(
+        {
+          actorId: currentUser.id,
+          targetId: id,
+          action: 'project_unarchived',
+          changes: { archivedAt: { before: previousArchivedAt.toISOString(), after: null } },
+        },
+        tx,
+      )
 
       // project_members.leftAt intentionally NOT restored.
       return this.findOne(id, currentUser)
@@ -641,11 +673,13 @@ export class ProjectsService {
       .select({ id: projectMembers.id })
       .from(projectMembers)
       .innerJoin(users, eq(users.id, projectMembers.userId))
-      .where(and(
-        eq(projectMembers.projectId, id),
-        isNull(projectMembers.leftAt),
-        eq(users.role, 'JUNIOR'),
-      ))
+      .where(
+        and(
+          eq(projectMembers.projectId, id),
+          isNull(projectMembers.leftAt),
+          eq(users.role, 'JUNIOR'),
+        ),
+      )
 
     return { type: 'project', activeMembersCount: activeJuniors.length }
   }
@@ -655,10 +689,10 @@ export class ProjectsService {
       throw new ForbiddenException()
     }
 
-    const project = await this.db.db.query.projects.findFirst({
+    const project = (await this.db.db.query.projects.findFirst({
       where: eq(projects.id, projectId),
       with: { senior: true, members: { with: { user: true } } },
-    }) as ProjectWithRelations | undefined
+    })) as ProjectWithRelations | undefined
 
     if (!project) throw new NotFoundException('Project not found')
 
@@ -667,7 +701,9 @@ export class ProjectsService {
     })
     if (!user) throw new NotFoundException('User not found')
     if (user.role !== 'JUNIOR' && user.role !== 'HR' && user.role !== 'ACCOUNTANT') {
-      throw new BadRequestException('Only JUNIORs, HRs, and ACCOUNTANTs can be added as project members')
+      throw new BadRequestException(
+        'Only JUNIORs, HRs, and ACCOUNTANTs can be added as project members',
+      )
     }
 
     // Prevent duplicate active membership on same project
@@ -678,7 +714,8 @@ export class ProjectsService {
         isNull(projectMembers.leftAt),
       ),
     })
-    if (existingActive) throw new BadRequestException('User is already an active member of this project')
+    if (existingActive)
+      throw new BadRequestException('User is already an active member of this project')
 
     // JUNIOR: max 1 per project
     if (user.role === 'JUNIOR') {
@@ -691,10 +728,7 @@ export class ProjectsService {
 
       // JUNIOR: cannot be active on another project simultaneously
       const otherProjectMembership = await this.db.db.query.projectMembers.findFirst({
-        where: and(
-          eq(projectMembers.userId, userId),
-          isNull(projectMembers.leftAt),
-        ),
+        where: and(eq(projectMembers.userId, userId), isNull(projectMembers.leftAt)),
       })
       if (otherProjectMembership) {
         throw new BadRequestException('Junior is already an active member of another project')
@@ -721,17 +755,19 @@ export class ProjectsService {
     // Prevent removing last HR or last ACCOUNTANT from project
     const userToRemove = await this.db.db.query.users.findFirst({ where: eq(users.id, userId) })
     if (userToRemove?.role === 'HR' || userToRemove?.role === 'ACCOUNTANT') {
-      const project = await this.db.db.query.projects.findFirst({
+      const project = (await this.db.db.query.projects.findFirst({
         where: eq(projects.id, projectId),
         with: { members: { with: { user: true } } },
-      }) as ProjectWithRelations | undefined
+      })) as ProjectWithRelations | undefined
 
       if (project) {
         const activeOfRole = project.members.filter(
           (m) => m.leftAt === null && m.user?.role === userToRemove.role,
         )
         if (activeOfRole.length <= 1) {
-          throw new BadRequestException(`Cannot remove the last ${userToRemove.role} from a project`)
+          throw new BadRequestException(
+            `Cannot remove the last ${userToRemove.role} from a project`,
+          )
         }
       }
     }
@@ -742,7 +778,10 @@ export class ProjectsService {
       .where(eq(projectMembers.id, activeMember.id))
   }
 
-  async createFromInterview(interview: Interview & { senior: User | null }, _currentUser: SessionUser) {
+  async createFromInterview(
+    interview: Interview & { senior: User | null },
+    _currentUser: SessionUser,
+  ) {
     const domain = interview.notesDomain ?? 'Other'
 
     const [project] = await this.db.db
@@ -812,6 +851,8 @@ export class ProjectsService {
     ) {
       return
     }
+    // Drop role - phase 1: DROP can see their own drop-projects.
+    if (currentUser.role === 'DROP' && project.dropId === currentUser.id) return
     throw new ForbiddenException()
   }
 }

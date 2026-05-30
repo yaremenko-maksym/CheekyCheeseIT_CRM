@@ -30,6 +30,7 @@ import {
   type SortKey,
 } from '@/components/users/constants'
 import { UnarchiveButton } from '@/components/users/UnarchiveButton'
+import { useRoleGuard } from '@/hooks/use-role-guard'
 
 // `archived` may arrive as a query-string ("true"/"false") for deep-links —
 // `z.coerce.boolean()` accepts both `boolean` and string forms safely.
@@ -50,6 +51,11 @@ async function fetchUsers(archivedQuery: '' | 'true' | 'all'): Promise<UserProfi
 }
 
 function UsersPage() {
+  // Drop role - phase 1 fix (AC4): DROP must not access /crm/users.
+  // /api/users now returns 403 for DROP — without a route guard the page
+  // would render the «Доступ только для администратора» panel since DROP is
+  // not ADMIN, but a direct redirect is cleaner and matches the spec.
+  useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'])
   const { user: me } = useAuth()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: '/crm/users' })
@@ -65,7 +71,9 @@ function UsersPage() {
           <h1 className="text-2xl font-bold tracking-tight">Пользователи</h1>
         </div>
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
-          <p className="text-sm font-medium text-muted-foreground">Доступ только для администратора</p>
+          <p className="text-sm font-medium text-muted-foreground">
+            Доступ только для администратора
+          </p>
         </div>
       </div>
     )
@@ -157,10 +165,7 @@ function UsersPageContent({
           u.displayName.toLowerCase().includes(q) ||
           u.email.toLowerCase().includes(q) ||
           (u.telegram ?? '').toLowerCase().includes(q) ||
-          (Array.isArray(u.techStack)
-            ? u.techStack.join(', ')
-            : (u.techStack ?? '')
-          )
+          (Array.isArray(u.techStack) ? u.techStack.join(', ') : (u.techStack ?? ''))
             .toLowerCase()
             .includes(q),
       )
@@ -214,17 +219,23 @@ function UsersPageContent({
             {currentStatusTab === 'ALL' && ' · все'}
           </p>
         </div>
-        <Button
-          ref={createTriggerRef}
-          onClick={() => {
-            setCreateKey((k) => k + 1)
-            setCreateOpen(true)
-          }}
-          data-testid="users-create-button"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          Добавить
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* DROP creation is now folded into UserDialog (single source of
+              truth for all roles). Picking DROP in the role select swaps
+              in the drop-share slider + mandatory drop-team section and
+              routes submit to POST /api/users/drops. */}
+          <Button
+            ref={createTriggerRef}
+            onClick={() => {
+              setCreateKey((k) => k + 1)
+              setCreateOpen(true)
+            }}
+            data-testid="users-create-button"
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Добавить
+          </Button>
+        </div>
       </motion.div>
 
       {/* ut-44: status tabs row — «Все | Активные | Архив». Replaces the
@@ -405,4 +416,3 @@ function UsersPageContent({
     </div>
   )
 }
-

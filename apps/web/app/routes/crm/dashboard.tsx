@@ -1,8 +1,10 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { BarChart3, Briefcase, Clock, TrendingUp, Users } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useAuth } from '@/context/auth'
 
 export const Route = createFileRoute('/crm/dashboard')({
   component: DashboardPage,
@@ -26,6 +28,18 @@ const item = {
 }
 
 function DashboardPage() {
+  // Drop role - phase 1 (AC1): DROP has no dashboard — redirect to /crm/profile.
+  // Reuses navigate() instead of throwing 404 so deep links shared with a
+  // drop still resolve cleanly.
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  useEffect(() => {
+    if (user?.role === 'DROP') {
+      void navigate({ to: '/crm/profile', replace: true })
+    }
+  }, [user?.role, navigate])
+  if (user?.role === 'DROP') return null
+
   return (
     <div className="space-y-6">
       <div>

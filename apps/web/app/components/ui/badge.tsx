@@ -16,6 +16,9 @@ const badgeVariants = cva(
         junior: 'border-green-500/30 bg-green-500/15 text-green-400',
         hr: 'border-purple-500/30 bg-purple-500/15 text-purple-400',
         accountant: 'border-orange-500/30 bg-orange-500/15 text-orange-400',
+        // Drop role - phase 1: cyan/teal pill, distinct from senior (blue)
+        // and HR (purple) so the financial-proxy persona reads at a glance.
+        drop: 'border-cyan-500/30 bg-cyan-500/15 text-cyan-400',
       },
     },
     defaultVariants: { variant: 'default' },
