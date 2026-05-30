@@ -663,7 +663,8 @@ export async function mockAuthAs(
   // Drop role - phase 1 (AC1): POST /api/users/drops creates a DROP user
   // AND atomically provisions a drop-team. Response shape per spec:
   // `{ user, team: { id, ... }, members }` — frontend navigates to
-  // `/crm/team/<team.id>` on success (CreateDropDialog.onSuccess).
+  // `/crm/team/<team.id>` on success (UserDialog.createDropMutation
+  // — unified dialog after task-fix-drop-unify-dialog).
   await page.route(new RegExp(`${API}/users/drops$`), (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     const body = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>
