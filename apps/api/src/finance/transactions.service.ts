@@ -1307,8 +1307,15 @@ export class TransactionsService {
 
     const paid = allTxs.filter((tx) => tx.status === 'PAID')
 
+    // Drop role - phase 2: DROP_INCOME counts toward total income for
+    // reporting purposes (gross money that came in through DROPs).
     const totalIncome = paid
-      .filter((tx) => tx.type === 'ADMIN_INCOME' || tx.type === 'SENIOR_INCOME')
+      .filter(
+        (tx) =>
+          tx.type === 'ADMIN_INCOME' ||
+          tx.type === 'SENIOR_INCOME' ||
+          tx.type === 'DROP_INCOME',
+      )
       .reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
 
     const totalExpenses = paid
@@ -1340,6 +1347,25 @@ export class TransactionsService {
       return { userId: admin.id, displayName: admin.displayName, balance: received - sent }
     })
 
+    // Drop role - phase 2 (AC4): aggregate balance per DROP user — credit on
+    // PAYOUT_DROP (their slice of drop-project distribution) minus any debit
+    // (none today; field kept here for symmetry with adminBalances). Empty
+    // array when no DROP users exist. The shape is intentionally identical
+    // to adminBalances so the frontend can render both side-by-side.
+    const dropUsers = await this.db.db.query.users.findMany({
+      where: eq(users.role, 'DROP'),
+    })
+
+    const dropBalances = dropUsers.map((drop) => {
+      const received = paid
+        .filter((tx) => tx.receiverId === drop.id && tx.type === 'PAYOUT_DROP')
+        .reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
+      const sent = paid
+        .filter((tx) => tx.senderId === drop.id && tx.type === 'PAYOUT_DROP')
+        .reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
+      return { userId: drop.id, displayName: drop.displayName, balance: received - sent }
+    })
+
     // Monthly breakdown
     const monthMap = new Map<string, { income: number; expenses: number; salaries: number }>()
 
@@ -1349,8 +1375,13 @@ export class TransactionsService {
       const entry = monthMap.get(month)!
       const amt = parseFloat(tx.amount)
 
-      if (tx.type === 'ADMIN_INCOME' || tx.type === 'SENIOR_INCOME') entry.income += amt
-      else if (tx.type === 'EXPENSE') entry.expenses += amt
+      if (
+        tx.type === 'ADMIN_INCOME' ||
+        tx.type === 'SENIOR_INCOME' ||
+        tx.type === 'DROP_INCOME'
+      ) {
+        entry.income += amt
+      } else if (tx.type === 'EXPENSE') entry.expenses += amt
       else if (tx.type === 'SALARY') entry.salaries += amt
     }
 
@@ -1370,6 +1401,7 @@ export class TransactionsService {
       totalSalaries,
       netBalance: totalIncome - totalExpenses - totalSalaries,
       adminBalances,
+      dropBalances,
       monthly,
     }
   }

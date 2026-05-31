@@ -1,8 +1,8 @@
 # Progress: task-drop-phase2-backend
 
-current_milestone: 3/5 — "createDropIncome + validateTransaction handles DROP_INCOME + unlock includes drop"
-last_commit: 91e80a4
-last_push: 91e80a4
+current_milestone: 4/5 — "getSummary dropBalances + distribution UT"
+last_commit: b7c57f5
+last_push: b7c57f5
 
 ## Plan
 1. Shared schemas: `transactionTypeSchema` += `PAYOUT_DROP`, `DROP_INCOME`; `createDropIncomeSchema`; `transactionSchema.recipientId`.
