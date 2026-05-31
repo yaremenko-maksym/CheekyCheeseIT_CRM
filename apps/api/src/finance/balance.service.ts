@@ -26,7 +26,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
 import type { SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { pendingObligations, transactions } from '../database/schema'
+import { pendingObligations } from '../database/schema'
 import { NbuCurrencyService, type ExchangeRateResult } from './nbu-currency.service'
 
 export type BalanceCurrency = 'USDT' | 'USD' | 'EUR' | 'UAH'
