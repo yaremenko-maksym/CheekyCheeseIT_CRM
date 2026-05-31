@@ -34,6 +34,9 @@ import { UsersService } from '../users/users.service'
 
 type ProjectWithRelations = Project & {
   senior: User | null
+  // Drop role - phase 2: relation joined by `with: { drop: true }` when
+  // mapping a project. Null for regular senior-projects (no dropId).
+  drop?: User | null
   members: Array<ProjectMember & { user: User | null }>
 }
 
@@ -60,6 +63,11 @@ export class ProjectsService {
       // Drop role - phase 1: surfaced on the wire so FE can render drop-aware
       // hints/badges. NULL = legacy senior-project (unchanged finance flow).
       dropId: project.dropId ?? null,
+      // Drop role - phase 2: snapshot of the DROP user's display name and
+      // share % at read time. Used by the «Drop-проект» badge + the
+      // distribution breakdown panel. Both null for senior-only projects.
+      dropName: project.drop?.displayName ?? null,
+      dropSharePercent: project.drop?.dropSharePercent ?? null,
       rate: project.rate,
       currency: project.currency,
       // Per-project SENIOR share override. NULL = senior's global default.
@@ -143,7 +151,7 @@ export class ProjectsService {
           : isNull(projects.archivedAt)
     const allProjects = await this.db.db.query.projects.findMany({
       ...(archivedWhere ? { where: archivedWhere } : {}),
-      with: { senior: true, members: { with: { user: true } } },
+      with: { senior: true, drop: true, members: { with: { user: true } } },
     })
 
     let filtered = allProjects as ProjectWithRelations[]
@@ -201,7 +209,7 @@ export class ProjectsService {
   async findOne(id: string, currentUser: SessionUser) {
     const project = (await this.db.db.query.projects.findFirst({
       where: eq(projects.id, id),
-      with: { senior: true, members: { with: { user: true } } },
+      with: { senior: true, drop: true, members: { with: { user: true } } },
     })) as ProjectWithRelations | undefined
 
     if (!project) throw new NotFoundException('Project not found')
@@ -293,7 +301,23 @@ export class ProjectsService {
         leftAt: null,
       }))
 
-    return { senior, hrs, accountants, juniors }
+    // Drop role - phase 2. Surface the drop user (when project.dropId set)
+    // so FE can render «Дроп» row in the effective-team section without an
+    // extra fetch. dropSharePercent is duplicated here for the distribution
+    // breakdown widget (Phase 2 AC3).
+    const drop: EffectiveTeam['drop'] = project.drop
+      ? {
+          id: project.drop.id,
+          displayName: project.drop.displayName,
+          email: project.drop.email,
+          avatarUrl: project.drop.avatarUrl ?? null,
+          avatarDocumentId: project.drop.avatarDocumentId ?? null,
+          role: 'DROP' as const,
+          dropSharePercent: project.drop.dropSharePercent ?? 5,
+        }
+      : null
+
+    return { senior, drop, hrs, accountants, juniors }
   }
 
   async create(data: CreateProjectDto, currentUser: SessionUser) {
@@ -326,6 +350,20 @@ export class ProjectsService {
     const override =
       data.seniorSharePercentOverride === undefined ? null : data.seniorSharePercentOverride
 
+    // Drop role - phase 2: validate `dropId` references an active DROP user.
+    // `undefined`/`null` = regular senior-project (no drop). Reject any other
+    // role to keep the FK invariant (`projects.dropId` → users WHERE role=DROP).
+    let resolvedDropId: string | null = null
+    if (data.dropId !== undefined && data.dropId !== null) {
+      const drop = await this.db.db.query.users.findFirst({
+        where: eq(users.id, data.dropId),
+      })
+      if (!drop) throw new NotFoundException('Drop not found')
+      if (drop.role !== 'DROP') throw new BadRequestException('User is not a DROP')
+      if (drop.archivedAt) throw new BadRequestException('Drop is archived')
+      resolvedDropId = drop.id
+    }
+
     // Validate logo document FK before insert — if it points at a non-LOGO
     // document or a deleted row, fail with 400 instead of catching a DB
     // constraint violation. Project does not exist yet, so projectId is null.
@@ -343,6 +381,7 @@ export class ProjectsService {
         logoExternalUrl: data.logoExternalUrl ?? null,
         startDate: new Date(data.startDate),
         seniorId: data.seniorId,
+        dropId: resolvedDropId,
         rate: data.rate,
         currency: data.currency,
         seniorSharePercentOverride: override,
@@ -365,7 +404,9 @@ export class ProjectsService {
 
     const created = (await this.db.db.query.projects.findFirst({
       where: eq(projects.id, project!.id),
-      with: { senior: true, members: { with: { user: true } } },
+      // Drop role - phase 2: load `drop` relation so mapProject can emit
+      // dropName/dropSharePercent for the «Drop-проект» badge + breakdown.
+      with: { senior: true, drop: true, members: { with: { user: true } } },
     })) as ProjectWithRelations
 
     return this.mapProject(created)
@@ -431,10 +472,28 @@ export class ProjectsService {
 
     const project = (await this.db.db.query.projects.findFirst({
       where: eq(projects.id, id),
-      with: { senior: true, members: { with: { user: true } } },
+      with: { senior: true, drop: true, members: { with: { user: true } } },
     })) as ProjectWithRelations | undefined
 
     if (!project) throw new NotFoundException('Project not found')
+
+    // Drop role - phase 2: validate updated `dropId` (when present). Same
+    // contract as create: `null` → clear, uuid → set to existing DROP user.
+    // `undefined` (key absent) → leave unchanged.
+    let resolvedDropId: string | null | undefined = undefined
+    if (data.dropId !== undefined) {
+      if (data.dropId === null) {
+        resolvedDropId = null
+      } else {
+        const drop = await this.db.db.query.users.findFirst({
+          where: eq(users.id, data.dropId),
+        })
+        if (!drop) throw new NotFoundException('Drop not found')
+        if (drop.role !== 'DROP') throw new BadRequestException('User is not a DROP')
+        if (drop.archivedAt) throw new BadRequestException('Drop is archived')
+        resolvedDropId = drop.id
+      }
+    }
 
     // Round-3 implicit-null detection (PR #39 round 2): UI больше не имеет
     // toggle/«Сбросить» — слайдер всегда виден. Когда ADMIN/ACCOUNTANT
@@ -482,6 +541,11 @@ export class ProjectsService {
     if (overrideEffective !== undefined) {
       updateData.seniorSharePercentOverride = overrideEffective
     }
+    // Drop role - phase 2. Only write the column when caller explicitly
+    // included `dropId` (undefined = unchanged). `null` clears.
+    if (resolvedDropId !== undefined) {
+      updateData.dropId = resolvedDropId
+    }
     if (data.techStack !== undefined) updateData.techStack = data.techStack ?? null
     if (data.teamSize !== undefined) updateData.teamSize = data.teamSize ?? null
     if (data.benefits !== undefined) updateData.benefits = data.benefits ?? null
@@ -516,7 +580,7 @@ export class ProjectsService {
 
     const updated = (await this.db.db.query.projects.findFirst({
       where: eq(projects.id, id),
-      with: { senior: true, members: { with: { user: true } } },
+      with: { senior: true, drop: true, members: { with: { user: true } } },
     })) as ProjectWithRelations
 
     return this.mapProject(updated)
@@ -691,7 +755,7 @@ export class ProjectsService {
 
     const project = (await this.db.db.query.projects.findFirst({
       where: eq(projects.id, projectId),
-      with: { senior: true, members: { with: { user: true } } },
+      with: { senior: true, drop: true, members: { with: { user: true } } },
     })) as ProjectWithRelations | undefined
 
     if (!project) throw new NotFoundException('Project not found')

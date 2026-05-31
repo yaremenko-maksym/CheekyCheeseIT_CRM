@@ -79,6 +79,19 @@ export const projectSchema = z.object({
    * `null` = legacy senior-project (no drop) — finance behavior unchanged.
    */
   dropId: z.string().uuid().nullable(),
+  /**
+   * Drop role - phase 2. Display name of the DROP user. `null` when the
+   * project has no drop (regular senior-project). Computed on the backend
+   * from the joined users row so the UI can render «Drop-проект» badge +
+   * effective team without a separate fetch.
+   */
+  dropName: z.string().nullable(),
+  /**
+   * Drop role - phase 2. Snapshot of the DROP user's
+   * `users.dropSharePercent` at read time. Used by the distribution
+   * breakdown panel («Доля дропа N%»). `null` for senior-only projects.
+   */
+  dropSharePercent: z.number().int().min(0).max(100).nullable(),
   rate: z.number(),
   currency: currencySchema,
   // Per-project SENIOR share % override (0-100). NULL = use senior's
@@ -119,6 +132,24 @@ export const effectiveTeamSchema = z.object({
       role: z.literal('SENIOR'),
     })
     .nullable(),
+  /**
+   * Drop role - phase 2. Drop user attached to the project (when
+   * `project.dropId != null`). `null` for regular senior-projects. The
+   * `dropSharePercent` snapshot is duplicated here so the FE can render
+   * the distribution breakdown without a second fetch.
+   */
+  drop: z
+    .object({
+      id: z.string().uuid(),
+      displayName: z.string(),
+      email: z.string().email(),
+      avatarUrl: z.string().url().nullable(),
+      avatarDocumentId: z.string().uuid().nullable(),
+      role: z.literal('DROP'),
+      dropSharePercent: z.number().int().min(0).max(100),
+    })
+    .nullable()
+    .optional(),
   hrs: z.array(
     z.object({
       id: z.string().uuid(),
@@ -244,6 +275,13 @@ export const createProjectSchema = z
     logoExternalUrl: z.string().url().nullable().optional(),
     startDate: z.string().datetime(),
     seniorId: z.string().uuid(),
+    /**
+     * Drop role - phase 2. Optional DROP user reference. When set, the
+     * project becomes a drop-project and income/payout flows through the
+     * `computeDropDistribution` branch. When omitted/null, the project is
+     * a regular senior-project with unchanged finance behavior.
+     */
+    dropId: z.string().uuid().nullable().optional(),
     rate: z.number().int().positive(),
     currency: currencySchema,
     // Optional at create time; only ADMIN/ACCOUNTANT may pass this — service
@@ -266,6 +304,12 @@ export const updateProjectSchema = z
     domain: itDomainSchema.optional(),
     logoDocumentId: z.string().uuid().nullable().optional(),
     logoExternalUrl: z.string().url().nullable().optional(),
+    /**
+     * Drop role - phase 2. Same semantics as createProjectSchema.dropId —
+     * `null` clears (project becomes a regular senior-project), `string`
+     * sets/changes the drop, `undefined` (absent) means "leave unchanged".
+     */
+    dropId: z.string().uuid().nullable().optional(),
     rate: z.number().int().positive().optional(),
     currency: currencySchema.optional(),
     // Only ADMIN/ACCOUNTANT may include this field — service throws
