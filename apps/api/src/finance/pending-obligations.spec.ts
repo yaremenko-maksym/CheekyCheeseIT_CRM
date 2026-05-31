@@ -108,13 +108,13 @@ function makeService(obligations: ObligationRow[] = []): BalanceService {
     },
   }
   const db = { db: drizzleClient } as never
-  const nbu = { getRates: async () => ({ usdUah: '40', usdtUah: '40', eurUah: '44', date: '' }) } as never
+  const nbu = {
+    getRates: async () => ({ usdUah: '40', usdtUah: '40', eurUah: '44', date: '' }),
+  } as never
   return new BalanceService(db, nbu)
 }
 
-function makeObligation(
-  overrides: Partial<ObligationRow> = {},
-): ObligationRow {
+function makeObligation(overrides: Partial<ObligationRow> = {}): ObligationRow {
   const now = new Date('2026-05-30T00:00:00Z')
   return {
     id: 'oblig-1',
@@ -157,10 +157,12 @@ describe('assertCanReadAdminBalance', () => {
   it('ADMIN can read own balance', () => {
     expect(() => svc.assertCanReadAdminBalance(adminUser, adminUser.id)).not.toThrow()
   })
-  it("ADMIN can NOT read another admin's balance", () => {
-    expect(() => svc.assertCanReadAdminBalance(adminUser, 'other-admin')).toThrow(
-      ForbiddenException,
-    )
+  // Phase 4-B fix. `/crm/stats` (ADMIN/ACCOUNTANT only) shows Maksym + Kostya
+  // balances side-by-side — the old "self only" wording broke it with 403.
+  // ADMIN can now read any admin balance; the page itself is the only
+  // gate for cross-admin visibility.
+  it("ADMIN can read another admin's balance", () => {
+    expect(() => svc.assertCanReadAdminBalance(adminUser, 'other-admin')).not.toThrow()
   })
   it.each([seniorA, juniorUser, hrUser, dropUser])('%s forbidden', (user) => {
     expect(() => svc.assertCanReadAdminBalance(user, 'any-admin')).toThrow(ForbiddenException)
@@ -181,9 +183,7 @@ describe('assertCanReadSeniorBalance', () => {
     expect(() => svc.assertCanReadSeniorBalance(seniorA, seniorA.id)).not.toThrow()
   })
   it("SENIOR can NOT read another senior's balance", () => {
-    expect(() => svc.assertCanReadSeniorBalance(seniorA, seniorB.id)).toThrow(
-      ForbiddenException,
-    )
+    expect(() => svc.assertCanReadSeniorBalance(seniorA, seniorB.id)).toThrow(ForbiddenException)
   })
   it.each([juniorUser, hrUser, dropUser])('%s forbidden', (user) => {
     expect(() => svc.assertCanReadSeniorBalance(user, seniorA.id)).toThrow(ForbiddenException)
@@ -231,9 +231,7 @@ describe('getPendingObligations — wire contract', () => {
   })
 
   it('passes through debtorType=DROP + debtorUserId', async () => {
-    const svc = makeService([
-      makeObligation({ debtorType: 'DROP', debtorUserId: dropUser.id }),
-    ])
+    const svc = makeService([makeObligation({ debtorType: 'DROP', debtorUserId: dropUser.id })])
     const [row] = await svc.getPendingObligations()
     expect(row!.debtorType).toBe('DROP')
     expect(row!.debtorUserId).toBe(dropUser.id)

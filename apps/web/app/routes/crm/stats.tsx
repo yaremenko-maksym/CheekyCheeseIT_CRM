@@ -572,6 +572,23 @@ function computeExtraStats(summary: FinanceSummaryDto) {
 // permission. We surface the corporate balance with its breakdown and a flat
 // list of admin/senior balances pulled from the Phase 4-A BalanceService.
 
+// Russian labels for the TOВ breakdown keys returned by BalanceService.
+// Keys come from `apps/api/src/finance/balance.service.ts::getTOVBalance`:
+//   income, dividends_paid, expenses, tax
+// Unknown keys fall back to the snake_case → "snake case" transform inline.
+const BREAKDOWN_LABELS: Record<string, string> = {
+  income: 'Доход',
+  dividends_paid: 'Выплачено дивидендов',
+  expenses: 'Расходы',
+  tax: 'Налог',
+  // Personal admin/senior balance keys — kept here so the same map can be
+  // reused if those breakdowns are ever rendered on this page.
+  cash_income: 'Наличные поступления',
+  crypto_income: 'Крипто поступления',
+  dividends: 'Дивиденды',
+  paid_income: 'Полученные выплаты',
+}
+
 function TovBalanceSection() {
   const { data: tov, isLoading: tovLoading } = useQuery({
     queryKey: ['balance', 'tov'],
@@ -653,8 +670,8 @@ function TovBalanceSection() {
                 <ul className="space-y-1 text-xs">
                   {Object.entries(tov.breakdown).map(([key, value]) => (
                     <li key={key} className="flex items-center justify-between">
-                      <span className="text-muted-foreground capitalize">
-                        {key.replace(/_/g, ' ')}
+                      <span className="text-muted-foreground">
+                        {BREAKDOWN_LABELS[key] ?? key.replace(/_/g, ' ')}
                       </span>
                       <span className="tabular-nums font-medium">
                         $

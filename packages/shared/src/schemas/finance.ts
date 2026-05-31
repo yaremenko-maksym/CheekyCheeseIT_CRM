@@ -482,14 +482,21 @@ export type InitiateCryptoPaymentResponseDto = z.infer<typeof initiateCryptoPaym
 // recipient (3 today: senior + 2 admins) OR a single hash if Phase 5 routes
 // everything through one PaymentSplitter call. The backend just records what
 // it receives — no on-chain verification yet.
+//
+// Note on UUID shape: payment-channel body ids use `UUID_LIKE_REGEX` instead
+// of Zod v4's strict `.uuid()` (which requires an RFC version digit 1-8 in
+// the third octet). Seeded MAKSYM_ID/KOSTYA_ID + a few legacy income rows
+// have a literal `0` there. Backend re-validates existence / role / archived
+// for every body id so the format permissiveness is safe. Same pattern as
+// `confirmPayoutSchema` (Phase 3 fix).
 export const confirmCryptoPaymentSchema = z.object({
-  incomeId: z.string().uuid(),
+  incomeId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
   txHashes: z.array(z.string().min(4).max(255)).min(1),
 })
 export type ConfirmCryptoPaymentDto = z.infer<typeof confirmCryptoPaymentSchema>
 
 export const initiateCryptoPaymentSchema = z.object({
-  incomeId: z.string().uuid(),
+  incomeId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
 })
 export type InitiateCryptoPaymentDto = z.infer<typeof initiateCryptoPaymentSchema>
 
@@ -513,20 +520,20 @@ export const initiateBankPaymentResponseSchema = z.object({
 export type InitiateBankPaymentResponseDto = z.infer<typeof initiateBankPaymentResponseSchema>
 
 export const initiateBankPaymentSchema = z.object({
-  incomeId: z.string().uuid(),
+  incomeId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
 })
 export type InitiateBankPaymentDto = z.infer<typeof initiateBankPaymentSchema>
 
 export const confirmBankPaymentSchema = z.object({
-  incomeId: z.string().uuid(),
+  incomeId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
 })
 export type ConfirmBankPaymentDto = z.infer<typeof confirmBankPaymentSchema>
 
 // Cash channel — drop hands cash to one chosen admin. Creates transactions
 // immediately (no validation step on the receiving side).
 export const initiateCashPaymentSchema = z.object({
-  incomeId: z.string().uuid(),
-  recipientAdminId: z.string().uuid(),
+  incomeId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
+  recipientAdminId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
 })
 export type InitiateCashPaymentDto = z.infer<typeof initiateCashPaymentSchema>
 
