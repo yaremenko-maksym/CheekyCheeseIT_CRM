@@ -161,7 +161,11 @@ function makeService(initial: Partial<MockState> = {}) {
   // * The chainable update/insert objects mimic drizzle's builder pattern just
   //   enough for the call sequence inside confirmPayout to resolve.
   let usersFindCount = 0
-  const db = {
+  // The service accesses `this.db.db.query...` and `this.db.db.transaction(...)`
+  // because `DatabaseService` exposes a `db` field (the drizzle client). Mock
+  // that nesting exactly: outer `db` is the DatabaseService stub, inner `db`
+  // is the drizzle client.
+  const drizzleClient = {
     transaction: async (cb: (tx: unknown) => Promise<unknown>) => {
       const dbtx = {
         update: (_table: unknown) => ({
@@ -190,7 +194,8 @@ function makeService(initial: Partial<MockState> = {}) {
         }),
       },
     },
-  } as unknown as { db: unknown }
+  }
+  const db = { db: drizzleClient } as unknown
 
   const svc = new TransactionsService(db as never, {} as never)
 
