@@ -6,6 +6,7 @@ import type { UserProfileDto } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { hasRealPhone } from '@/lib/format-phone'
 import { ROLE_LABELS, ROLE_VARIANT } from './constants'
 import { UserAvatar } from './UserAvatar'
 
@@ -64,10 +65,7 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
         isArchived && 'opacity-50 hover:opacity-70',
       )}
     >
-      <div
-        className="grid items-center"
-        style={{ gridTemplateColumns: '3fr 1.4fr 64px' }}
-      >
+      <div className="grid items-center" style={{ gridTemplateColumns: '3fr 1.4fr 64px' }}>
         {/* User info column */}
         <div className="flex items-center gap-3 min-w-0 py-3 pl-3 pr-4">
           <UserAvatar
@@ -113,7 +111,9 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
               </a>
               {user.telegram && (
                 <>
-                  <span aria-hidden className="relative z-[2]">·</span>
+                  <span aria-hidden className="relative z-[2]">
+                    ·
+                  </span>
                   <a
                     // Telegram URL must strip the leading "@" — t.me/<username>
                     // is the canonical path; the leading "@" is display sugar.
@@ -127,9 +127,11 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
                   </a>
                 </>
               )}
-              {user.phone && (
+              {hasRealPhone(user.phone) && (
                 <>
-                  <span aria-hidden className="relative z-[2]">·</span>
+                  <span aria-hidden className="relative z-[2]">
+                    ·
+                  </span>
                   <a
                     href={`tel:${user.phone}`}
                     className="truncate hover:text-foreground transition-colors relative z-[2]"
@@ -143,11 +145,7 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
             {techStack.length > 0 && (
               <div className="mt-1.5 flex flex-wrap gap-1">
                 {techStack.slice(0, 5).map((tech) => (
-                  <Badge
-                    key={tech}
-                    variant="outline"
-                    className="text-[10px] font-mono px-1.5 py-0"
-                  >
+                  <Badge key={tech} variant="outline" className="text-[10px] font-mono px-1.5 py-0">
                     {tech}
                   </Badge>
                 ))}
@@ -165,13 +163,14 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
         <div className="flex flex-col items-end justify-center gap-1 py-3 pr-4">
           <div className="flex items-center gap-2">
             {isArchived && (
-              <Badge variant="outline" className="text-[10px] border-muted-foreground/40 text-muted-foreground">
+              <Badge
+                variant="outline"
+                className="text-[10px] border-muted-foreground/40 text-muted-foreground"
+              >
                 В архиве
               </Badge>
             )}
-            <Badge variant={ROLE_VARIANT[user.role] ?? 'outline'}>
-              {ROLE_LABELS[user.role]}
-            </Badge>
+            <Badge variant={ROLE_VARIANT[user.role] ?? 'outline'}>{ROLE_LABELS[user.role]}</Badge>
           </div>
           <span className="text-[11px] text-muted-foreground/70">
             {formatDistanceToNow(new Date(user.createdAt), { addSuffix: true, locale: ru })}

@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { UserProfileDto } from '@crm/shared'
 import { UserAvatar } from '@/components/users/UserAvatar'
+import { hasRealPhone } from '@/lib/format-phone'
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Администратор',
@@ -83,7 +84,7 @@ export function UserProfileHeader({
             <Mail className="h-4 w-4" />
             {user.email}
           </a>
-          {user.phone && (
+          {hasRealPhone(user.phone) && (
             <a
               href={`tel:${user.phone}`}
               className="inline-flex items-center gap-1.5 underline-offset-4 hover:text-foreground hover:underline transition-colors"
