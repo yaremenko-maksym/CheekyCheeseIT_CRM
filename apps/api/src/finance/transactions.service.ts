@@ -142,9 +142,91 @@ export class TransactionsService {
       notes: tx.notes,
       salaryMonth: tx.salaryMonth,
       txDate: tx.txDate ? tx.txDate.toISOString() : null,
+      // Drop role - phase 2. Optional explicit recipient — populated on
+      // PAYOUT_DROP today; null on every legacy row. Exposing on the DTO so
+      // the frontend list/detail views can distinguish drop payouts cleanly.
+      recipientId: (tx as Transaction & { recipientId?: string | null }).recipientId ?? null,
       createdBy: tx.createdBy,
       createdAt: tx.createdAt.toISOString(),
       updatedAt: tx.updatedAt.toISOString(),
+    }
+  }
+
+  // ── Distribution helpers (Drop role - phase 2) ───────────────────────────
+  //
+  // Pure helpers — no DB writes, no side-effects. The drop-project flow
+  // branches on `project.dropId` and calls `computeDropDistribution`, while
+  // the senior-project flow keeps calling `computePartnersSplit` directly.
+  // Senior path math is byte-for-byte identical to pre-phase-2 behavior:
+  // `computePartnersSplit(payable)` returns `[{ MAKSYM_ID, payable/2 }, …]`
+  // which is what the legacy inline loop produced.
+
+  /**
+   * Split a payable amount 50/50 between the two hard-coded admin partners
+   * (Maksym + Kostya). Used by:
+   *   - senior-project `payPayoutRequest` (pre-phase-2 path, unchanged result)
+   *   - `computeDropDistribution` for the residual after senior + drop cuts
+   *
+   * Returns an array (length=2) so callers can iterate without caring about
+   * the admin identities — keeps the test surface small and future-proofs
+   * for an N-partner split if the model ever changes.
+   */
+  computePartnersSplit(payableAmount: number): { adminId: string; amount: number }[] {
+    const half = payableAmount / 2
+    return [
+      { adminId: MAKSYM_ID, amount: half },
+      { adminId: KOSTYA_ID, amount: half },
+    ]
+  }
+
+  /**
+   * Distribute a drop-project's incoming amount across senior, drop, and the
+   * two admin partners. Spec §8.1 example for income $1000, senior 26%,
+   * drop 5%:
+   *   senior: 260, drop: 50, partners: [345, 345].
+   *
+   * Inputs:
+   *   - income — gross amount that landed on the DROP from the client.
+   *   - project — drop-project row (must have `dropId !== null` — caller
+   *     verifies before invoking). Reserved for future per-project overrides.
+   *   - drop — DROP user row (read `dropSharePercent`, default 5).
+   *   - senior — SENIOR user row (read `seniorSharePercent`, default 26).
+   *
+   * Errors:
+   *   - Throws `BadRequestException` if senior + drop percents exceed 100.
+   *     This is a deliberate guard — the spec keeps both shares additive
+   *     against the gross, so >100% is a configuration bug, not a math one.
+   *
+   * Returns a pure JS object — no DB writes. The caller threads the result
+   * into `db.transaction(...)` and inserts one transaction per share.
+   */
+  computeDropDistribution(
+    income: number,
+    _project: { id: string; dropId: string | null },
+    drop: { id: string; dropSharePercent: number | null },
+    senior: { id: string; seniorSharePercent: number | null },
+  ): {
+    seniorShare: { amount: number; percent: number }
+    dropShare: { amount: number; percent: number }
+    partnerShares: { adminId: string; amount: number }[]
+  } {
+    const seniorPercent = senior.seniorSharePercent ?? 26
+    const dropPercent = drop.dropSharePercent ?? 5
+
+    if (seniorPercent + dropPercent > 100) {
+      throw new BadRequestException(
+        'Sum of senior+drop shares exceeds 100%',
+      )
+    }
+
+    const seniorAmount = (income * seniorPercent) / 100
+    const dropAmount = (income * dropPercent) / 100
+    const remainder = income - seniorAmount - dropAmount
+
+    return {
+      seniorShare: { amount: seniorAmount, percent: seniorPercent },
+      dropShare: { amount: dropAmount, percent: dropPercent },
+      partnerShares: this.computePartnersSplit(remainder),
     }
   }
 
@@ -899,10 +981,11 @@ export class TransactionsService {
 
     // Trigger 1: invoice auto-create for each SENIOR_INCOME just paid.
     // Best-effort — see safeAutoCreateInvoice for the no-rollback contract.
-    // Fetched separately (the UPDATE above doesn't return rows in drizzle's
-    // current Postgres flavour without `.returning()` chaining).
+    // We re-fetch (the UPDATE above doesn't return rows in drizzle's current
+    // Postgres flavour without `.returning()` chaining); the result feeds
+    // both invoice generation and the drop-vs-senior project routing below.
     const paidSeniorIncomeTxs = await this.db.db
-      .select({ id: transactions.id })
+      .select({ id: transactions.id, projectId: transactions.projectId })
       .from(transactions)
       .where(
         and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'SENIOR_INCOME')),
@@ -926,26 +1009,119 @@ export class TransactionsService {
         and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')),
       )
 
-    // Create 2x PAYOUT_ADMIN transactions (50/50 split)
-    const adminShare = parseFloat(req.payableAmount) / 2
-    const adminIds = [MAKSYM_ID, KOSTYA_ID]
-
-    for (const adminId of adminIds) {
-      const admin = await this.db.db.query.users.findFirst({
-        where: eq(users.id, adminId),
-      })
-      if (admin) {
-        await this.db.db.insert(transactions).values({
-          type: 'PAYOUT_ADMIN',
-          status: 'PAID',
-          amount: String(adminShare),
-          currency: 'USDT',
-          senderId: currentUser.id,
-          receiverId: adminId,
-          payoutRequestId: requestId,
-          txHash: effectiveTxHash,
-          createdBy: currentUser.id,
+    // Drop role - phase 2 (AC3). Resolve whether the linked SENIOR_INCOMEs
+    // belong to a drop-project. Senior-projects (project.dropId === null)
+    // keep the legacy 50/50 split untouched — this is the regression-safe
+    // path. Drop-projects route the partner residual through
+    // `computeDropDistribution` and additionally insert PAYOUT_DROP.
+    //
+    // The payout_request groups SENIOR_INCOMEs by senior; in the current
+    // model all of them target the same senior, but they may span multiple
+    // projects. We treat the FIRST linked SENIOR_INCOME's project as the
+    // "primary" project for drop-vs-senior routing. The standing UX is "a
+    // payout = one project" — see PayoutDetailDialog header — so this
+    // assumption matches what the SENIOR sees.
+    const primaryProjectId = paidSeniorIncomeTxs[0]?.projectId ?? null
+    const primaryProject = primaryProjectId
+      ? await this.db.db.query.projects.findFirst({
+          where: eq(projects.id, primaryProjectId),
         })
+      : null
+
+    const dropUser =
+      primaryProject?.dropId
+        ? await this.db.db.query.users.findFirst({
+            where: eq(users.id, primaryProject.dropId),
+          })
+        : null
+
+    const payable = parseFloat(req.payableAmount)
+
+    if (dropUser && primaryProject) {
+      // Drop-project branch.
+      //
+      // Distribution is computed on the GROSS income, not on `payable`.
+      // `payable` is `income * (1 - seniorShare/100)` — the legacy 74% that
+      // the SENIOR transfers off-platform under the senior-project model.
+      // In the drop model the senior keeps their share off-ledger (it was
+      // never on the drop's wallet), so the partner residual that lands
+      // on-chain is exactly `income - seniorShare - dropShare` — which is
+      // what `computeDropDistribution.partnerShares` already reflects.
+      const senior = await this.db.db.query.users.findFirst({
+        where: eq(users.id, req.seniorId),
+      })
+      if (!senior) throw new NotFoundException('Senior not found')
+
+      const income = parseFloat(req.incomeAmount)
+      const distribution = this.computeDropDistribution(
+        income,
+        { id: primaryProject.id, dropId: primaryProject.dropId },
+        { id: dropUser.id, dropSharePercent: dropUser.dropSharePercent },
+        { id: senior.id, seniorSharePercent: senior.seniorSharePercent },
+      )
+
+      // Drop's slice — visible on the DROP user's balance.
+      // senderId = senior (who initiated the off-platform settlement);
+      // receiverId + recipientId both = drop (explicit semantics — see
+      // schema comment on recipient_id).
+      await this.db.db.insert(transactions).values({
+        type: 'PAYOUT_DROP',
+        status: 'PAID',
+        amount: String(distribution.dropShare.amount),
+        currency: 'USDT',
+        senderId: currentUser.id,
+        receiverId: dropUser.id,
+        recipientId: dropUser.id,
+        projectId: primaryProject.id,
+        payoutRequestId: requestId,
+        txHash: effectiveTxHash,
+        createdBy: currentUser.id,
+      })
+
+      // Partner residual (50/50 split) on the drop-project's remainder.
+      for (const share of distribution.partnerShares) {
+        const admin = await this.db.db.query.users.findFirst({
+          where: eq(users.id, share.adminId),
+        })
+        if (admin) {
+          await this.db.db.insert(transactions).values({
+            type: 'PAYOUT_ADMIN',
+            status: 'PAID',
+            amount: String(share.amount),
+            currency: 'USDT',
+            senderId: currentUser.id,
+            receiverId: share.adminId,
+            projectId: primaryProject.id,
+            payoutRequestId: requestId,
+            txHash: effectiveTxHash,
+            createdBy: currentUser.id,
+          })
+        }
+      }
+    } else {
+      // Senior-project branch (legacy — must stay byte-identical to the
+      // pre-AC1 inline loop). `computePartnersSplit(payable)` returns
+      // `[{maksym, payable/2}, {kostya, payable/2}]` — same math, same
+      // ordering, same INSERT shape.
+      const partnerShares = this.computePartnersSplit(payable)
+
+      for (const share of partnerShares) {
+        const admin = await this.db.db.query.users.findFirst({
+          where: eq(users.id, share.adminId),
+        })
+        if (admin) {
+          await this.db.db.insert(transactions).values({
+            type: 'PAYOUT_ADMIN',
+            status: 'PAID',
+            amount: String(share.amount),
+            currency: 'USDT',
+            senderId: currentUser.id,
+            receiverId: share.adminId,
+            payoutRequestId: requestId,
+            txHash: effectiveTxHash,
+            createdBy: currentUser.id,
+          })
+        }
       }
     }
 

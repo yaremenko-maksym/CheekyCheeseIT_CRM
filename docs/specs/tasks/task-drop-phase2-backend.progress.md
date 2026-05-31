@@ -1,8 +1,8 @@
 # Progress: task-drop-phase2-backend
 
-current_milestone: 1/5 — "shared schemas + drizzle enum + migration"
-last_commit: pending
-last_push: pending
+current_milestone: 2/5 — "extract computePartnersSplit + computeDropDistribution + branch in payPayoutRequest"
+last_commit: 3c12080
+last_push: 3c12080
 
 ## Plan
 1. Shared schemas: `transactionTypeSchema` += `PAYOUT_DROP`, `DROP_INCOME`; `createDropIncomeSchema`; `transactionSchema.recipientId`.
