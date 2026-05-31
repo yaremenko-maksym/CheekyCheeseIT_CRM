@@ -60,6 +60,11 @@ export const transactionTypeEnum = pgEnum('transaction_type', [
   'ADMIN_TRANSFER', // Balance transfer between Maksym and Kostya
   'PAYOUT', // Senior pays CheekyCheeseIT (from payout_request)
   'PAYOUT_ADMIN', // Auto-created: 50/50 split to each admin after payout
+  // Drop role - phase 2. New types for the drop-project distribution flow.
+  // Migration 0021 adds these enum values; existing senior-only flows do not
+  // emit them.
+  'DROP_INCOME', // Drop income from drop-project — requires validation flow
+  'PAYOUT_DROP', // Auto-created drop share after payPayoutRequest on a drop-project
 ])
 
 export const transactionStatusEnum = pgEnum('transaction_status', [
@@ -326,6 +331,14 @@ export const transactions = pgTable('transactions', {
   // Receiver: real user or null
   receiverId: uuid('receiver_id').references(() => users.id, { onDelete: 'set null' }),
   receiverLabel: varchar('receiver_label', { length: 255 }),
+  // Drop role - phase 2. Optional, nullable explicit recipient reference for
+  // transactions whose intended payee is NOT the same as receiverId (e.g.
+  // PAYOUT_DROP semantics — receiverId = DROP user, recipientId = DROP user;
+  // future-friendly for transactions that need a 3rd-party FK).
+  // For backward compatibility every existing row keeps NULL.
+  // FK ON DELETE SET NULL: keeps audit trail intact if a referenced user is
+  // hard-deleted (we soft-delete via archivedAt — this is defensive).
+  recipientId: uuid('recipient_id').references(() => users.id, { onDelete: 'set null' }),
   // Project this income/payout is associated with
   projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
   // For PAYOUT / PAYOUT_ADMIN: links to the payout_request that triggered them

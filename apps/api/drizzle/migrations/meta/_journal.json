@@ -148,6 +148,13 @@
       "when": 1781100000000,
       "tag": "0020_drop_role_and_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1781200000000,
+      "tag": "0021_drop_finance_transaction_types",
+      "breakpoints": true
     }
   ]
 }
