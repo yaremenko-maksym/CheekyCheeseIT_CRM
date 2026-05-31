@@ -19,6 +19,18 @@ export const TYPE_LABELS: Record<TransactionType, string> = {
   // ACCOUNTANT's manual confirmation reads as a deliberate action in the
   // table.
   PAYOUT_CONFIRMED: 'Подтверждённая выплата',
+  // Drop role - phase 4-A. Minimal labels to satisfy the exhaustive Record<>
+  // contract — the actual UI for these flows lands in Phase 4-B. They never
+  // appear in the legacy lists until then because no flow currently emits
+  // these enum values.
+  TOV_INCOME: 'Приход ТОВ',
+  SENIOR_PENDING_PAYOUT: 'Ожидаемая выплата синьору',
+  SENIOR_PAID: 'Выплата синьору',
+  ADMIN_INCOME_CASH: 'Приход Admin (наличные)',
+  ADMIN_INCOME_CRYPTO: 'Приход Admin (крипто)',
+  SENIOR_INCOME_CRYPTO: 'Приход синьора (крипто)',
+  DIVIDEND_TO_ADMIN: 'Дивиденды Admin',
+  DIVIDEND_TAX: 'Налог на дивиденды',
 }
 
 export const STATUS_LABELS: Record<TransactionStatus, string> = {
@@ -60,6 +72,17 @@ export const TYPE_COLORS: Record<TransactionType, string> = {
   // (PAYOUT_ADMIN auto-split) so manual confirmations stand out in mixed lists
   // when both phases produce rows for the same payout cluster.
   PAYOUT_CONFIRMED: 'bg-lime-500/15 text-lime-300 border-lime-500/30',
+  // Drop role - phase 4-A. Placeholder palettes until Phase 4-B finalizes
+  // the UI. Reuses tones from the closest semantic neighbours so any early
+  // surfacing in lists stays legible.
+  TOV_INCOME: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+  SENIOR_PENDING_PAYOUT: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+  SENIOR_PAID: 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40',
+  ADMIN_INCOME_CASH: 'bg-green-500/15 text-green-300 border-green-500/30',
+  ADMIN_INCOME_CRYPTO: 'bg-green-500/20 text-green-200 border-green-500/40',
+  SENIOR_INCOME_CRYPTO: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
+  DIVIDEND_TO_ADMIN: 'bg-indigo-500/20 text-indigo-200 border-indigo-500/40',
+  DIVIDEND_TAX: 'bg-red-500/15 text-red-300 border-red-500/30',
 }
 
 export const EXPENSE_CATEGORIES = ['Оплата сервиса', 'Комиссия', 'Прочее']
