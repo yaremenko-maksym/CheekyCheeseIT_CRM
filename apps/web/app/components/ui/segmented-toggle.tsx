@@ -108,10 +108,7 @@ export function SegmentedToggle<V extends string>({
   const layoutIdRef = useRef(layoutId ?? `segmented-toggle-${autoId}`)
   const pillLayoutId = layoutId ?? layoutIdRef.current
 
-  const sizeStyles =
-    size === 'sm'
-      ? 'px-2 py-1 text-xs gap-1.5'
-      : 'px-3 py-2 text-sm gap-2'
+  const sizeStyles = size === 'sm' ? 'px-2 py-1 text-xs gap-1.5' : 'px-3 py-2 text-sm gap-2'
 
   // 'tabs' variant uses a more saturated active pill so page-level segmented
   // tabs read as a focal control (vs the subtle in-form 'pill' default).
@@ -130,7 +127,7 @@ export function SegmentedToggle<V extends string>({
       aria-disabled={disabled || undefined}
       data-testid={testId}
       className={cn(
-        'relative grid gap-1 rounded-lg border border-border bg-muted/60 p-1',
+        'relative grid gap-1 overflow-hidden rounded-lg border border-border bg-muted/60 p-1',
         className,
       )}
       style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
@@ -145,9 +142,7 @@ export function SegmentedToggle<V extends string>({
             key={option.value}
             type="button"
             role={itemRole}
-            {...(itemRole === 'tab'
-              ? { 'aria-selected': active }
-              : { 'aria-checked': active })}
+            {...(itemRole === 'tab' ? { 'aria-selected': active } : { 'aria-checked': active })}
             // Prefer explicit ariaLabel (icon-only / opaque enums), then visible label,
             // then enum value as a last-resort fallback so screen-reader users
             // always have *some* name even if a caller mis-configures the option.
@@ -165,9 +160,7 @@ export function SegmentedToggle<V extends string>({
               'focus-visible:ring-1 focus-visible:ring-primary/50',
               sizeStyles,
               'font-medium',
-              active
-                ? 'text-foreground'
-                : 'text-muted-foreground hover:text-foreground',
+              active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
               buttonDisabled && 'cursor-not-allowed opacity-50 hover:text-muted-foreground',
             )}
           >

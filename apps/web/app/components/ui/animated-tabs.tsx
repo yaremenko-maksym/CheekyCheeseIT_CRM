@@ -33,7 +33,7 @@ export function AnimatedTabs({ tabs, value, onChange, className }: AnimatedTabsP
     <LayoutGroup id={groupId}>
       <div
         className={cn(
-          'relative inline-flex items-center gap-1 rounded-lg border bg-muted/30 p-1',
+          'relative inline-flex items-center gap-1 overflow-hidden rounded-lg border bg-muted/30 p-1',
           className,
         )}
       >
