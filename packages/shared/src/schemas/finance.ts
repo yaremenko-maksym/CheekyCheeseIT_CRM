@@ -18,6 +18,13 @@ export const transactionTypeSchema = z.enum([
   // 1:1 with pre-phase-2 behavior. See drop-role-and-finance-spec.md §8.1.
   'DROP_INCOME', // Drop income from project — requires accountant/admin validation
   'PAYOUT_DROP', // Auto-created drop share after payPayoutRequest on a drop-project
+  // Drop role - phase 3. Manual payout confirmation (spec §8.4): ACCOUNTANT/ADMIN
+  // confirms that an off-platform PAYOUT actually landed on a specific admin
+  // partner. Distinct from PAYOUT_ADMIN (which is the automated 50/50 split
+  // from payPayoutRequest) so the manual safety-net flow stays separable from
+  // the auto-distribution in reports / filters / balance attribution. See
+  // drop-role-and-finance-spec.md §8.4 and migration 0022.
+  'PAYOUT_CONFIRMED',
 ])
 export type TransactionType = z.infer<typeof transactionTypeSchema>
 
@@ -340,6 +347,23 @@ export const paySalarySchema = z.object({
   notes: z.string().max(1000).optional().nullable(),
 })
 export type PaySalaryDto = z.infer<typeof paySalarySchema>
+
+// Drop role - phase 3 (spec §8.4). Manual payout confirmation — ACCOUNTANT/ADMIN
+// confirms a PAYOUT actually arrived to a selected admin partner. Body carries
+// the chosen admin id; backend validates: PAYOUT row in PENDING_PAYMENT,
+// recipient is an active (non-archived) ADMIN, idempotency (no double-confirm).
+//
+// Note: we accept any UUID shape (not just strict RFC-versioned). The seeded
+// partner ids `00000000-0000-0000-0000-00000000000{1,2}` (MAKSYM_ID/KOSTYA_ID)
+// have a literal `0` in the version nibble, which Zod v4's built-in `.uuid()`
+// rejects. The recipient is re-validated server-side (must exist, role=ADMIN,
+// not archived) so format permissiveness is safe here.
+const UUID_LIKE_REGEX =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
+export const confirmPayoutSchema = z.object({
+  recipientAdminId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
+})
+export type ConfirmPayoutDto = z.infer<typeof confirmPayoutSchema>
 
 // ---------------------------------------------------------------------------
 // Finance summary / stats

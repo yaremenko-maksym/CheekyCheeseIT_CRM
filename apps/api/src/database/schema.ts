@@ -65,6 +65,13 @@ export const transactionTypeEnum = pgEnum('transaction_type', [
   // emit them.
   'DROP_INCOME', // Drop income from drop-project — requires validation flow
   'PAYOUT_DROP', // Auto-created drop share after payPayoutRequest on a drop-project
+  // Drop role - phase 3 (manual payout confirmation, spec §8.4). Migration 0022
+  // adds this enum value. Distinct from PAYOUT_ADMIN (which is the automated
+  // 50/50 partner split from `payPayoutRequest`) so the manual confirmation
+  // safety net stays separable in reports / filters / balance computation.
+  // ACCOUNTANT/ADMIN confirms a PAYOUT actually landed on a chosen admin and
+  // a PAYOUT_CONFIRMED row is inserted alongside the now-PAID PAYOUT row.
+  'PAYOUT_CONFIRMED',
 ])
 
 export const transactionStatusEnum = pgEnum('transaction_status', [

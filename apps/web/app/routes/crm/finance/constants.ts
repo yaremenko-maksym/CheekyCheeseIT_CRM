@@ -14,6 +14,11 @@ export const TYPE_LABELS: Record<TransactionType, string> = {
   // frontend task.
   DROP_INCOME: 'Приход дропа',
   PAYOUT_DROP: 'Доля дропа',
+  // Drop role - phase 3 (manual payout confirmation, spec §8.4). Distinct from
+  // «Доля партнёра» (auto 50/50 PAYOUT_ADMIN) so a row created by the
+  // ACCOUNTANT's manual confirmation reads as a deliberate action in the
+  // table.
+  PAYOUT_CONFIRMED: 'Подтверждённая выплата',
 }
 
 export const STATUS_LABELS: Record<TransactionStatus, string> = {
@@ -51,6 +56,10 @@ export const TYPE_COLORS: Record<TransactionType, string> = {
   // refine if needed.
   DROP_INCOME: 'bg-teal-500/15 text-teal-300 border-teal-500/30',
   PAYOUT_DROP: 'bg-teal-500/20 text-teal-200 border-teal-500/40',
+  // Drop role - phase 3. Lime accent — visually distinct from indigo
+  // (PAYOUT_ADMIN auto-split) so manual confirmations stand out in mixed lists
+  // when both phases produce rows for the same payout cluster.
+  PAYOUT_CONFIRMED: 'bg-lime-500/15 text-lime-300 border-lime-500/30',
 }
 
 export const EXPENSE_CATEGORIES = ['Оплата сервиса', 'Комиссия', 'Прочее']

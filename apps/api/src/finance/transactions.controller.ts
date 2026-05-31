@@ -13,6 +13,7 @@ import {
 import type { SessionUser } from '@crm/shared'
 import {
   adminUpdateTransactionSchema,
+  confirmPayoutSchema,
   createAdminIncomeSchema,
   createAdminTransferSchema,
   createDropIncomeSchema,
@@ -135,6 +136,17 @@ export class TransactionsController {
   validate(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     const data = validateTransactionSchema.parse(body)
     return this.svc.validateTransaction(id, data.action, data.rejectionReason, user)
+  }
+
+  // Drop role - phase 3 (manual payout confirmation, spec §8.4). ACCOUNTANT or
+  // ADMIN selects which admin partner actually received the off-platform
+  // PAYOUT and the backend records both halves in one transaction (PAYOUT →
+  // PAID + new PAYOUT_CONFIRMED row crediting the chosen admin). See
+  // `confirmPayout` in transactions.service.ts for the full contract.
+  @Post(':id/confirm-payout')
+  confirmPayout(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
+    const data = confirmPayoutSchema.parse(body)
+    return this.svc.confirmPayout(id, data.recipientAdminId, user)
   }
 
   @Patch(':id/pay')

@@ -1,0 +1,31 @@
+-- 0022_payout_confirmed_type.sql
+--
+-- Drop role - phase 3 (manual payout confirmation, spec §8.4). Strictly
+-- additive: existing senior-only and phase-2 drop flows are not touched.
+--
+-- ACCOUNTANT/ADMIN can manually confirm an off-platform PAYOUT actually landed
+-- on a specific admin partner (Maksym/Kostya). On confirmation:
+--   1) the originating PAYOUT row flips PENDING_PAYMENT → PAID (validatedBy +
+--      validatedAt are set, mirroring SENIOR_INCOME validate semantics).
+--   2) a fresh PAYOUT_CONFIRMED row is inserted with the chosen admin in
+--      receiverId/recipientId; amount/currency/projectId mirror the PAYOUT.
+--
+-- Why a NEW enum value vs. reusing ADMIN_INCOME:
+--   * ADMIN_INCOME is the existing type for "admin declares project income, no
+--     validation needed" — it sources from a project, not from a PAYOUT
+--     confirmation. Mixing the two would muddle reporting, balance
+--     attribution, and the "where did this money come from" audit trail.
+--   * PAYOUT_ADMIN is the automated 50/50 partner split from
+--     `payPayoutRequest`. The manual confirmation flow lives in parallel
+--     (phase 2 auto-distribution NOT touched, per task scope) so the two MUST
+--     stay distinguishable in filters / sums / UI.
+--   * Distinct enum value → ledger queries can opt-in to count manual
+--     confirmations alongside ADMIN_INCOME for the admin balance row (see
+--     `getSummary` changes in this PR).
+--
+-- This migration is enum-only (no column / table changes). Backfill is a no-op:
+-- legacy rows never had this type, and the manual-confirmation flow only fires
+-- on new ACCOUNTANT/ADMIN actions.
+
+--> statement-breakpoint
+ALTER TYPE "transaction_type" ADD VALUE IF NOT EXISTS 'PAYOUT_CONFIRMED';

@@ -1678,3 +1678,141 @@ export async function getTransactionViaAPI(
   }
   return (await res.json()) as Awaited<ReturnType<typeof getTransactionViaAPI>>
 }
+
+// ---------------------------------------------------------------------------
+// Phase 3 real-API helpers (task-drop-phase3-e2e — AC1)
+// ---------------------------------------------------------------------------
+//
+// Manual payout confirmation flow — ACCOUNTANT/ADMIN selects which admin
+// partner actually received the off-platform PAYOUT. Backend (spec §8.4):
+//   1) Flips PAYOUT row PENDING_PAYMENT → PAID + records validatedBy/At.
+//   2) Inserts a fresh PAYOUT_CONFIRMED row crediting the chosen admin.
+//
+// Phase 2 auto-50/50 PAYOUT_ADMIN distribution is NOT replaced — the manual
+// flow runs in parallel as a safety-net / audit-trail for the actual on-chain
+// recipient. These helpers let tests trigger the endpoint without UI clicks
+// (for RBAC sweeps and edge-case probes).
+
+/**
+ * Confirm a PAYOUT via POST /api/transactions/:id/confirm-payout.
+ *
+ * Pre-conditions:
+ *   - Caller is ADMIN or ACCOUNTANT (anyone else → 403).
+ *   - `payoutTxId` references a row with type=PAYOUT, status=PENDING_PAYMENT.
+ *   - `recipientAdminId` is an active (non-archived) ADMIN — pass
+ *     `MAKSYM_ID` or `KOSTYA_ID` for the seed partners.
+ *
+ * Returns the parsed `{ payout, confirmed }` body (matches the controller
+ * response shape — `confirmed` may be `null` if the post-write lookup races
+ * a transaction commit, but the cascade itself is atomic).
+ *
+ * Throws on any non-2xx response so tests surface backend regressions loudly.
+ * Use `confirmPayoutRawViaAPI` below when the spec needs to assert a specific
+ * non-2xx status (RBAC 403, validation 400).
+ */
+export async function confirmPayoutViaAPI(
+  page: Page,
+  payoutTxId: string,
+  recipientAdminId: string,
+): Promise<{
+  payout: { id: string; status: string; validatedBy: string | null; validatedAt: string | null }
+  confirmed: {
+    id: string
+    type: string
+    status: string
+    amount: string
+    recipientId: string | null
+    receiverId: string | null
+    projectId: string | null
+  } | null
+}> {
+  const res = await page.request.post(
+    `${REAL_API_BASE}/api/transactions/${payoutTxId}/confirm-payout`,
+    { data: { recipientAdminId } },
+  )
+  if (res.status() !== 200 && res.status() !== 201) {
+    throw new Error(
+      `confirmPayoutViaAPI failed for ${payoutTxId}: HTTP ${res.status()} — ${await res.text()}`,
+    )
+  }
+  return (await res.json()) as Awaited<ReturnType<typeof confirmPayoutViaAPI>>
+}
+
+/**
+ * Raw variant of `confirmPayoutViaAPI` — does NOT throw on non-2xx.
+ *
+ * Returns the HTTP status + parsed body (best-effort, falls back to text).
+ * Used by RBAC + edge-case specs that need to assert "this role gets 403"
+ * or "wrong tx type → 400 with backend message".
+ */
+export async function confirmPayoutRawViaAPI(
+  page: Page,
+  payoutTxId: string,
+  recipientAdminId: string,
+): Promise<{ status: number; body: unknown }> {
+  const res = await page.request.post(
+    `${REAL_API_BASE}/api/transactions/${payoutTxId}/confirm-payout`,
+    { data: { recipientAdminId } },
+  )
+  let body: unknown
+  try {
+    body = await res.json()
+  } catch {
+    body = await res.text()
+  }
+  return { status: res.status(), body }
+}
+
+/**
+ * Find PENDING_PAYMENT PAYOUT rows for a given project via
+ * GET /api/transactions?projectId=. Returns the filtered array — empty if no
+ * payouts are pending (e.g. the cascade hasn't fired yet, or the row was
+ * already confirmed).
+ *
+ * The endpoint returns the full transaction shape; we re-read raw JSON here
+ * (instead of casting `listTransactionsByProjectViaAPI`'s narrower type) so
+ * the spec assertions get `payoutRequestId` + `currency` directly, which the
+ * Phase 3 helpers actually use.
+ *
+ * Caller must be ADMIN or ACCOUNTANT to see the full unfiltered list. Other
+ * roles get a partial slice per RBAC and may miss PAYOUT rows.
+ */
+export async function findPendingPayoutsForProjectViaAPI(
+  page: Page,
+  projectId: string,
+): Promise<
+  Array<{
+    id: string
+    type: string
+    status: string
+    amount: string
+    currency: string
+    senderId: string | null
+    receiverId: string | null
+    recipientId: string | null
+    projectId: string | null
+    payoutRequestId: string | null
+  }>
+> {
+  const res = await page.request.get(
+    `${REAL_API_BASE}/api/transactions?projectId=${projectId}`,
+  )
+  if (res.status() !== 200) {
+    throw new Error(
+      `findPendingPayoutsForProjectViaAPI failed for ${projectId}: HTTP ${res.status()} — ${await res.text()}`,
+    )
+  }
+  const rows = (await res.json()) as Array<{
+    id: string
+    type: string
+    status: string
+    amount: string
+    currency: string
+    senderId: string | null
+    receiverId: string | null
+    recipientId: string | null
+    projectId: string | null
+    payoutRequestId: string | null
+  }>
+  return rows.filter((t) => t.type === 'PAYOUT' && t.status === 'PENDING_PAYMENT')
+}

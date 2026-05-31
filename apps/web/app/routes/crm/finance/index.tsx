@@ -55,6 +55,7 @@ import { TransactionDetailDialog } from './components/dialogs/TransactionDetailD
 import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransactionDialog'
 import { MyProjectShares } from './components/MyProjectShares'
 import { DropBalanceCard } from './components/KpiCards'
+import { ConfirmPayoutDialog } from '@/components/finance/ConfirmPayoutDialog'
 import type { FinanceSummaryDto } from '@crm/shared'
 
 export const Route = createFileRoute('/crm/finance/')({
@@ -195,6 +196,7 @@ function TransactionsTable({
   onDelete,
   onPaySalary,
   onOpenPayoutDetail,
+  onConfirmPayout,
   onDetail,
 }: {
   transactions: TransactionDto[]
@@ -213,6 +215,11 @@ function TransactionsTable({
    * row from tx.payoutRequestId).
    */
   onOpenPayoutDetail: (payoutRequestId: string) => void
+  /**
+   * Drop role - phase 3 (spec §8.4). Opens ConfirmPayoutDialog for an
+   * ADMIN/ACCOUNTANT on PAYOUT rows in PENDING_PAYMENT.
+   */
+  onConfirmPayout: (tx: TransactionDto) => void
   onDetail: (tx: TransactionDto) => void
 }) {
   const [search, setSearch] = useState('')
@@ -352,6 +359,7 @@ function TransactionsTable({
                     onDelete={onDelete}
                     onPaySalary={onPaySalary}
                     onOpenPayoutDetail={onOpenPayoutDetail}
+                    onConfirmPayout={onConfirmPayout}
                     onClick={onDetail}
                   />
                 ))}
@@ -400,6 +408,10 @@ function FinancePage() {
   // itself is auto-created by the backend at validate time
   // (task-payout-auto-on-validate); SENIOR no longer launches a batch.
   const [payoutDetailId, setPayoutDetailId] = useState<string | null>(null)
+  // Drop role - phase 3 (spec §8.4). PAYOUT row whose manual confirmation
+  // dialog is currently open. Visible only to ADMIN/ACCOUNTANT (the row
+  // button itself is hidden for other roles — see TransactionRow).
+  const [confirmPayoutTx, setConfirmPayoutTx] = useState<TransactionDto | null>(null)
   const [detailTx, setDetailTx] = useState<TransactionDto | null>(null)
 
   const openPayoutDetail = useCallback((payoutRequestId: string) => {
@@ -634,6 +646,7 @@ function FinancePage() {
             onDelete={setDeleteTx}
             onPaySalary={setPaySalaryTx}
             onOpenPayoutDetail={openPayoutDetail}
+            onConfirmPayout={setConfirmPayoutTx}
             onDetail={setDetailTx}
           />
         </CardContent>
@@ -652,6 +665,7 @@ function FinancePage() {
         onClose={closePayoutDetail}
         payoutId={payoutDetailId}
       />
+      <ConfirmPayoutDialog tx={confirmPayoutTx} onClose={() => setConfirmPayoutTx(null)} />
       <TransactionDetailDialog tx={detailTx} onClose={() => setDetailTx(null)} />
 
       {/* Delete confirmation */}
