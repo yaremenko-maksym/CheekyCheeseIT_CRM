@@ -272,13 +272,21 @@ export class BalanceService {
   }
 
   /**
-   * /api/balances/admin/:id — ADMIN can read only their own; ACCOUNTANT can
-   * read any. Other roles are forbidden.
+   * /api/balances/admin/:id — ADMIN can read **any** admin balance (needed
+   * for /crm/stats where the page shows Maksym + Kostya side-by-side);
+   * ACCOUNTANT can read any. Other roles are forbidden.
+   *
+   * Earlier wording restricted ADMIN to self only — that broke /crm/stats
+   * with 403 on the non-self balance card. The page lives only behind
+   * ADMIN/ACCOUNTANT navigation anyway, so widening ADMIN to "any" stays
+   * inside the original threat model. `_targetAdminId` is kept in the
+   * signature (with `_` prefix to satisfy the no-unused-vars rule) so future
+   * per-target audit can hook in without an API change.
    */
-  assertCanReadAdminBalance(viewer: SessionUser, targetAdminId: string): void {
+  assertCanReadAdminBalance(viewer: SessionUser, _targetAdminId: string): void {
     if (viewer.role === 'ACCOUNTANT') return
-    if (viewer.role === 'ADMIN' && viewer.id === targetAdminId) return
-    throw new ForbiddenException('Доступ к балансу админа: ACCOUNTANT или сам админ')
+    if (viewer.role === 'ADMIN') return
+    throw new ForbiddenException('Доступ к балансу админа: ADMIN или ACCOUNTANT')
   }
 
   /**
@@ -297,11 +305,7 @@ export class BalanceService {
    * SENIOR caller before delegating here.
    */
   assertCanListPendingObligations(viewer: SessionUser): void {
-    if (
-      viewer.role !== 'ADMIN' &&
-      viewer.role !== 'ACCOUNTANT' &&
-      viewer.role !== 'SENIOR'
-    ) {
+    if (viewer.role !== 'ADMIN' && viewer.role !== 'ACCOUNTANT' && viewer.role !== 'SENIOR') {
       throw new ForbiddenException(
         'Доступ к pending obligations: ADMIN, ACCOUNTANT или SENIOR (свои)',
       )

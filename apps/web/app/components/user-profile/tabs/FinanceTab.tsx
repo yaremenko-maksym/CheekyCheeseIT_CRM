@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
-import { Plus, Search, X } from 'lucide-react'
+import { Plus, Search, Send, X } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
 import type { TransactionDto } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -15,6 +16,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/axios'
 import { useAuth } from '@/context/auth'
+import { formatAmountUsd } from '@/lib/format-amount'
 import { financeApi } from '@/routes/crm/finance/api'
 import { STATUS_LABELS, TYPE_LABELS, type ExchangeRates } from '@/routes/crm/finance/constants'
 import { TransactionRow } from '@/routes/crm/finance/components/TransactionRow'
@@ -36,6 +38,7 @@ const STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ 
  */
 export function FinanceTab({ userId }: { userId: string }) {
   const { user: viewer } = useAuth()
+  const navigate = useNavigate()
   const role = viewer?.role ?? ''
   const isPrivileged = role === 'ADMIN' || role === 'ACCOUNTANT'
   // Drop role - phase 2. When the DROP user is viewing their own profile,
@@ -43,6 +46,11 @@ export function FinanceTab({ userId }: { userId: string }) {
   // (it auto-selects DROP_INCOME for the role). Other roles never see
   // the button on this tab.
   const isOwnDropProfile = role === 'DROP' && viewer?.id === userId
+  // Drop role - phase 4-B. «Платить компании» appears on every VALIDATED
+  // DROP_INCOME row of the profile owner — but only the owner-DROP themselves
+  // and privileged ADMIN/ACCOUNTANT see the action.
+  const showInitiatePaymentForDrop =
+    (isOwnDropProfile || isPrivileged) && (role === 'DROP' || isPrivileged)
   const [createOpen, setCreateOpen] = useState(false)
 
   const { data: transactions = [], isLoading } = useQuery({
@@ -104,6 +112,20 @@ export function FinanceTab({ userId }: { userId: string }) {
 
   const hasActive = search !== '' || typeFilter !== 'all' || statusFilter !== 'all'
 
+  // Drop role - phase 4-B. Surface DROP_INCOME rows awaiting settlement so the
+  // drop / accountant can launch the «Платить компании» flow per row without
+  // hunting through filters first. Only VALIDATED rows (no payment cascade
+  // yet) are actionable.
+  const actionableDropIncomes = useMemo(() => {
+    if (!showInitiatePaymentForDrop) return []
+    return transactions.filter(
+      (tx) =>
+        tx.type === 'DROP_INCOME' &&
+        tx.status === 'VALIDATED' &&
+        (tx.recipientId === userId || tx.receiverId === userId),
+    )
+  }, [transactions, showInitiatePaymentForDrop, userId])
+
   if (isLoading) return <Skeleton className="h-64 w-full" />
 
   if (transactions.length === 0) {
@@ -142,6 +164,49 @@ export function FinanceTab({ userId }: { userId: string }) {
             <Plus className="h-4 w-4 mr-1" /> Добавить приход
           </Button>
         </div>
+      )}
+      {actionableDropIncomes.length > 0 && (
+        <Card className="mb-3 border-emerald-500/40" data-testid="actionable-drop-incomes-card">
+          <CardContent className="py-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
+              Приходы, ожидающие оплаты компании
+            </p>
+            <ul className="space-y-1.5">
+              {actionableDropIncomes.map((tx) => (
+                <li
+                  key={tx.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/30 px-3 py-2"
+                  data-testid={`actionable-drop-income-${tx.id}`}
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">
+                      {tx.projectName ?? tx.senderLabel ?? 'Drop income'}
+                    </p>
+                    <p
+                      className="text-xs text-muted-foreground tabular-nums"
+                      data-testid={`actionable-drop-income-amount-${tx.id}`}
+                    >
+                      {formatAmountUsd(tx.amount, tx.currency)}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    onClick={() =>
+                      void navigate({
+                        to: '/crm/payments/initiate/$incomeId',
+                        params: { incomeId: tx.id },
+                      })
+                    }
+                    data-testid={`pay-company-button-${tx.id}`}
+                  >
+                    <Send className="h-3.5 w-3.5 mr-1" /> Платить компании
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
       )}
       <Card>
         <CardContent className="p-0">

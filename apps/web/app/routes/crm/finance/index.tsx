@@ -55,6 +55,7 @@ import { TransactionDetailDialog } from './components/dialogs/TransactionDetailD
 import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransactionDialog'
 import { MyProjectShares } from './components/MyProjectShares'
 import { DropBalanceCard } from './components/KpiCards'
+import { PendingCashCard } from './components/PendingCashCard'
 import { ConfirmPayoutDialog } from '@/components/finance/ConfirmPayoutDialog'
 import type { FinanceSummaryDto } from '@crm/shared'
 
@@ -630,6 +631,11 @@ function FinancePage() {
       {/* Drop role - phase 2. ADMIN/ACCOUNTANT-only «Балансы дропов» panel.
           Auto-hidden when no drop balances exist (empty array). */}
       {summary && <DropBalanceCard summary={summary} />}
+
+      {/* Drop role - phase 4-B round 2. ADMIN/ACCOUNTANT-only «Ожидают
+          подтверждения cash» — DROP-initiated cash channel waiting for the
+          accountant to pick the recipient admin. Auto-hidden when empty. */}
+      {(isAdmin || role === 'ACCOUNTANT') && <PendingCashCard />}
 
       {/* Transactions table */}
       <Card>

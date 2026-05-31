@@ -40,6 +40,9 @@ export const STATUS_LABELS: Record<TransactionStatus, string> = {
   REJECTED: 'Отклонено',
   PAID: 'Оплачено',
   LOCKED: 'Заблокировано',
+  // Drop role - phase 4-B round 2. Cash-channel placeholder while DROP awaits
+  // accountant confirmation of which admin received the cash.
+  PENDING_CASH_CONFIRM: 'Ожидает подтверждения нала',
 }
 
 export const STATUS_COLORS: Record<TransactionStatus, string> = {
@@ -53,6 +56,7 @@ export const STATUS_COLORS: Record<TransactionStatus, string> = {
   REJECTED: 'bg-red-500/15 text-red-400 border-red-500/30',
   PAID: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
   LOCKED: 'bg-gray-500/15 text-gray-400 border-gray-500/30',
+  PENDING_CASH_CONFIRM: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
 }
 
 export const TYPE_COLORS: Record<TransactionType, string> = {

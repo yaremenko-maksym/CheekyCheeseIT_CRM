@@ -16,6 +16,14 @@ import type {
   PaySalaryDto,
   AdminUpdateTransactionDto,
   ConfirmPayoutDto,
+  InitiateCryptoPaymentResponseDto,
+  ConfirmCryptoPaymentDto,
+  InitiateBankPaymentResponseDto,
+  InitiateCashPaymentResponseDto,
+  ConfirmCashPaymentDto,
+  PendingCashListResponseDto,
+  PaymentChannelCascadeResponseDto,
+  BalanceDto,
 } from '@crm/shared'
 
 export const financeApi = {
@@ -99,4 +107,52 @@ export const financeApi = {
         date: string
       }>('/finance/exchange-rate', { ...(date !== undefined && { params: { date } }) })
       .then((r) => r.data),
+
+  // Phase 4-A balances (BalanceService — runs alongside legacy getSummary)
+  getTOVBalance: (currency?: string) =>
+    api
+      .get<BalanceDto>('/balances/tov', {
+        ...(currency !== undefined && { params: { currency } }),
+      })
+      .then((r) => r.data),
+  getAdminBalance: (adminId: string, currency?: string) =>
+    api
+      .get<BalanceDto>(`/balances/admin/${adminId}`, {
+        ...(currency !== undefined && { params: { currency } }),
+      })
+      .then((r) => r.data),
+  getSeniorBalance: (seniorId: string, currency?: string) =>
+    api
+      .get<BalanceDto>(`/balances/senior/${seniorId}`, {
+        ...(currency !== undefined && { params: { currency } }),
+      })
+      .then((r) => r.data),
+
+  // Phase 4-B payment channels
+  initiateCryptoPayment: (incomeId: string) =>
+    api
+      .post<InitiateCryptoPaymentResponseDto>('/payments/initiate-crypto', { incomeId })
+      .then((r) => r.data),
+  confirmCryptoPayment: (data: ConfirmCryptoPaymentDto) =>
+    api
+      .post<PaymentChannelCascadeResponseDto>('/payments/confirm-crypto', data)
+      .then((r) => r.data),
+  initiateBankPayment: (incomeId: string) =>
+    api
+      .post<InitiateBankPaymentResponseDto>('/payments/initiate-bank', { incomeId })
+      .then((r) => r.data),
+  confirmBankPayment: (incomeId: string) =>
+    api
+      .post<PaymentChannelCascadeResponseDto>('/payments/confirm-bank', { incomeId })
+      .then((r) => r.data),
+  // Round-2 flow: drop only signals "I handed cash". ACCOUNTANT/ADMIN later
+  // picks the actual recipient via /payments/confirm-cash.
+  initiateCashPayment: (incomeId: string) =>
+    api
+      .post<InitiateCashPaymentResponseDto>('/payments/initiate-cash', { incomeId })
+      .then((r) => r.data),
+  confirmCashPayment: (data: ConfirmCashPaymentDto) =>
+    api.post<PaymentChannelCascadeResponseDto>('/payments/confirm-cash', data).then((r) => r.data),
+  listPendingCash: () =>
+    api.get<PendingCashListResponseDto>('/payments/pending-cash').then((r) => r.data),
 }

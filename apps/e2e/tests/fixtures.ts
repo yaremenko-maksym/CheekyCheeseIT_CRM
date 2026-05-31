@@ -573,6 +573,15 @@ export async function mockAuthAs(
     jsonOk(r, { items: [], unreadCount: 0 }),
   )
 
+  // Drop role - phase 4-B round 2. PendingCashCard mounts on /crm/finance for
+  // ADMIN/ACCOUNTANT and immediately fires GET /api/payments/pending-cash via
+  // TanStack Query. Without a mock this hits the real backend without a JWT
+  // cookie (mockAuthAs never logs in) → 401 → axios interceptor →
+  // window.location.href = '/login' → every sidebar nav test that touches
+  // /crm/finance redirects out of CRM. Same fix pattern as the notifications
+  // mock immediately above.
+  await page.route(new RegExp(`${API}/payments/pending-cash(\\?.*)?$`), (r) => jsonOk(r, []))
+
   // Users — register specific sub-routes before the generic one
   // /users/me — profile shell expects UserWithPermissionsResponse shape
   await page.route(`${API}/users/me`, (r) =>

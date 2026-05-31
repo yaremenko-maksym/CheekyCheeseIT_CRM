@@ -58,6 +58,12 @@ export const transactionStatusSchema = z.enum([
   'REJECTED', // Accountant/admin rejected; senior must edit and resubmit
   'PAID', // Completed
   'LOCKED', // Junior salary locked until senior has validated income
+  // Drop role - phase 4-B round 2. PAYOUT row sits in this status from the
+  // moment the DROP clicks «Я передал нал админу» until ACCOUNTANT/ADMIN
+  // picks which admin actually received the cash via /confirm-cash. While in
+  // this status NO income transactions exist for the cascade — the row is a
+  // placeholder. /confirm-cash flips it to PAID and inserts the cascade.
+  'PENDING_CASH_CONFIRM',
 ])
 export type TransactionStatus = z.infer<typeof transactionStatusSchema>
 
@@ -438,6 +444,150 @@ export const pendingObligationSchema = z.object({
   updatedAt: z.string().datetime(),
 })
 export type PendingObligationDto = z.infer<typeof pendingObligationSchema>
+
+// ---------------------------------------------------------------------------
+// Phase 4-B — Payment Channels (crypto / bank / cash)
+// ---------------------------------------------------------------------------
+//
+// PaymentChannelService (apps/api/src/finance/payment-channel.service.ts) is
+// the entry point for drop-projects that need to settle a validated
+// DROP_INCOME with the company. Three alternative channels (crypto, bank,
+// cash) live alongside the legacy Phase 2 `payPayoutRequest` and Phase 3
+// `confirmPayout` flows — both remain functional. Phase 4-B does NOT replace
+// the existing paths.
+//
+// Numbers are spec-aligned for the canonical $3500 example:
+//   - 10% drop share ($350) — stays with the drop, no transaction recorded
+//   - 16% senior share ($560) — paid out (crypto direct OR senior IOU)
+//   - 37% / 37% admin partner shares ($1295 each)
+// Generic math: `senior = income * seniorPercent / 100`,
+//               `drop   = income * dropPercent / 100`,
+//               `partners = income - senior - drop`, split 50/50.
+
+// Recipient shape for the crypto channel — drop sees one row per wallet
+// transfer (senior + Maksym + Kostya). The frontend renders this as 3 cards
+// with "send $X USDT to 0x…" instructions.
+export const cryptoRecipientSchema = z.object({
+  userId: z.string().uuid(),
+  displayName: z.string(),
+  address: z.string(),
+  amount: z.string(), // numeric string mirrors transactions.amount
+  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+  role: z.enum(['SENIOR', 'ADMIN']),
+})
+export type CryptoRecipientDto = z.infer<typeof cryptoRecipientSchema>
+
+export const initiateCryptoPaymentResponseSchema = z.object({
+  contractAddress: z.string().nullable(), // Phase 5: PaymentSplitter address; null today
+  recipients: z.array(cryptoRecipientSchema),
+  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+})
+export type InitiateCryptoPaymentResponseDto = z.infer<typeof initiateCryptoPaymentResponseSchema>
+
+// Request body for /api/payments/confirm-crypto. txHashes is one hash per
+// recipient (3 today: senior + 2 admins) OR a single hash if Phase 5 routes
+// everything through one PaymentSplitter call. The backend just records what
+// it receives — no on-chain verification yet.
+//
+// Note on UUID shape: payment-channel body ids use `UUID_LIKE_REGEX` instead
+// of Zod v4's strict `.uuid()` (which requires an RFC version digit 1-8 in
+// the third octet). Seeded MAKSYM_ID/KOSTYA_ID + a few legacy income rows
+// have a literal `0` there. Backend re-validates existence / role / archived
+// for every body id so the format permissiveness is safe. Same pattern as
+// `confirmPayoutSchema` (Phase 3 fix).
+export const confirmCryptoPaymentSchema = z.object({
+  incomeId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
+  txHashes: z.array(z.string().min(4).max(255)).min(1),
+})
+export type ConfirmCryptoPaymentDto = z.infer<typeof confirmCryptoPaymentSchema>
+
+export const initiateCryptoPaymentSchema = z.object({
+  incomeId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
+})
+export type InitiateCryptoPaymentDto = z.infer<typeof initiateCryptoPaymentSchema>
+
+// Bank channel — drop transfers UAH to the corporate ТОВ account. Backend
+// returns the ТОВ banking details + a unique reference (per income) the drop
+// includes in the wire description so accountant can match it later.
+export const tovBankDetailsSchema = z.object({
+  recipient: z.string(),
+  iban: z.string(),
+  rnokpp: z.string(),
+  bankName: z.string(),
+  reference: z.string(), // INV-INC-<id>
+})
+export type TovBankDetailsDto = z.infer<typeof tovBankDetailsSchema>
+
+export const initiateBankPaymentResponseSchema = z.object({
+  tovBankDetails: tovBankDetailsSchema,
+  amount: z.string(), // total drop pays to ТОВ (all but drop share)
+  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+})
+export type InitiateBankPaymentResponseDto = z.infer<typeof initiateBankPaymentResponseSchema>
+
+export const initiateBankPaymentSchema = z.object({
+  incomeId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
+})
+export type InitiateBankPaymentDto = z.infer<typeof initiateBankPaymentSchema>
+
+export const confirmBankPaymentSchema = z.object({
+  incomeId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
+})
+export type ConfirmBankPaymentDto = z.infer<typeof confirmBankPaymentSchema>
+
+// Cash channel — drop hands cash to ONE of the admins out-of-band (Maksym or
+// Kostya). Round-2 fix: the drop no longer chooses the recipient. The
+// `/initiate-cash` call only marks the PAYOUT as `PENDING_CASH_CONFIRM` and
+// records no income transactions — the ACCOUNTANT/ADMIN then picks which
+// admin actually received the cash via `/confirm-cash`, which creates the
+// real `ADMIN_INCOME_CASH` + `SENIOR_PENDING_PAYOUT` rows.
+export const initiateCashPaymentSchema = z.object({
+  incomeId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
+})
+export type InitiateCashPaymentDto = z.infer<typeof initiateCashPaymentSchema>
+
+// Confirm-cash body — accountant picks one of the active admins.
+export const confirmCashPaymentSchema = z.object({
+  incomeId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
+  recipientAdminId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
+})
+export type ConfirmCashPaymentDto = z.infer<typeof confirmCashPaymentSchema>
+
+// Lightweight initiate-cash response — frontend just needs to know the
+// status; transactions appear only after confirm.
+export const initiateCashPaymentResponseSchema = z.object({
+  incomeId: z.string(),
+  payoutId: z.string().nullable(),
+  status: z.literal('PENDING_CASH_CONFIRM'),
+})
+export type InitiateCashPaymentResponseDto = z.infer<typeof initiateCashPaymentResponseSchema>
+
+// GET /api/payments/pending-cash — one row per PAYOUT in PENDING_CASH_CONFIRM,
+// enriched with drop / project / amount so the accountant can pick the
+// recipient admin without follow-up requests.
+export const pendingCashItemSchema = z.object({
+  incomeId: z.string(),
+  payoutId: z.string(),
+  dropId: z.string(),
+  dropName: z.string(),
+  projectId: z.string().nullable(),
+  projectName: z.string().nullable(),
+  amount: z.string(),
+  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+  initiatedAt: z.string(),
+})
+export type PendingCashItemDto = z.infer<typeof pendingCashItemSchema>
+
+export const pendingCashListResponseSchema = z.array(pendingCashItemSchema)
+export type PendingCashListResponseDto = z.infer<typeof pendingCashListResponseSchema>
+
+// Wire response for the cash and bank confirm flows — returns the list of
+// transactions created so the UI can refresh without a second round-trip.
+export const paymentChannelCascadeResponseSchema = z.object({
+  income: transactionSchema,
+  created: z.array(transactionSchema),
+})
+export type PaymentChannelCascadeResponseDto = z.infer<typeof paymentChannelCascadeResponseSchema>
 
 export const financeSummarySchema = z.object({
   totalIncome: z.number(),

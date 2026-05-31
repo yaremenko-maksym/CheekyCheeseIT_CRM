@@ -120,6 +120,11 @@ export const transactionStatusEnum = pgEnum('transaction_status', [
   'REJECTED', // Accountant/admin rejected; senior must edit and resubmit
   'PAID', // Completed/paid
   'LOCKED', // Junior salary locked until senior has validated income for the month
+  // Drop role - phase 4-B round 2. Cash channel placeholder — set on the PAYOUT
+  // row when DROP clicks «Я передал нал админу». No income transactions exist
+  // for the cascade until ACCOUNTANT/ADMIN confirms which admin received the
+  // cash via /confirm-cash. See migration 0024_pending_cash_confirm.sql.
+  'PENDING_CASH_CONFIRM',
 ])
 
 export const payoutRequestStatusEnum = pgEnum('payout_request_status', [
