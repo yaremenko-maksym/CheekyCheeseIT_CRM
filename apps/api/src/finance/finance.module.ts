@@ -7,6 +7,8 @@ import { BalanceController, PendingObligationsController } from './balance.contr
 import { BalanceService } from './balance.service'
 import { EtherscanService } from './etherscan.service'
 import { NbuCurrencyService } from './nbu-currency.service'
+import { PaymentChannelController } from './payment-channel.controller'
+import { PaymentChannelService } from './payment-channel.service'
 import { SalaryCronService } from './salary-cron.service'
 import {
   FinanceSummaryController,
@@ -35,6 +37,8 @@ import { TransactionsService } from './transactions.service'
     NbuCurrencyService,
     // Phase 4-A: balance pipeline runs alongside the legacy getSummary.
     BalanceService,
+    // Phase 4-B: drop-project payment channels (crypto/bank/cash).
+    PaymentChannelService,
   ],
   controllers: [
     TransactionsController,
@@ -44,7 +48,9 @@ import { TransactionsService } from './transactions.service'
     // Phase 4-A: /api/balances/{tov,admin,senior} + /api/pending-obligations
     BalanceController,
     PendingObligationsController,
+    // Phase 4-B: /api/payments/{initiate,confirm}-{crypto,bank,cash}
+    PaymentChannelController,
   ],
-  exports: [TransactionsService, BalanceService],
+  exports: [TransactionsService, BalanceService, PaymentChannelService],
 })
 export class FinanceModule {}

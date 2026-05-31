@@ -1,8 +1,8 @@
 # Progress: task-drop-phase4b-payment-channels
 
-current_milestone: 0/5 — "starting backend service skeleton"
-last_commit: a61befb
-last_push: (not yet)
+current_milestone: 3/5 — "backend (service + controller + 28 UTs green) done"
+last_commit: 5fe4755
+last_push: 2026-05-31
 
 milestones:
 
