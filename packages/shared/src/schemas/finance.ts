@@ -25,6 +25,29 @@ export const transactionTypeSchema = z.enum([
   // the auto-distribution in reports / filters / balance attribution. See
   // drop-role-and-finance-spec.md §8.4 and migration 0022.
   'PAYOUT_CONFIRMED',
+  // Drop role - phase 4-A (spec). New balance infrastructure types — used by
+  // the BalanceService computed-on-demand balance pipeline. Migration 0023 adds
+  // these enum values. They DO NOT replace the legacy summary computed by
+  // TransactionsService.getSummary; the new BalanceService runs in parallel.
+  //
+  // TOV_INCOME           — money lands on the corporate (ТОВ) account.
+  // SENIOR_PENDING_PAYOUT — TOВ owes a senior; obligation row in pending_obligations.
+  //                         Does NOT move the senior's balance until closed.
+  // SENIOR_PAID          — closes a pending obligation; credits the senior's
+  //                         real balance; links to the pending_obligation row.
+  // ADMIN_INCOME_CASH    — admin personally received cash for a project.
+  // ADMIN_INCOME_CRYPTO  — admin personally received USDT on crypto wallet.
+  // SENIOR_INCOME_CRYPTO — senior personally received USDT on crypto wallet.
+  // DIVIDEND_TO_ADMIN    — distribution from TOВ → admin balance (50/50 to each).
+  // DIVIDEND_TAX         — 6.5% tax on dividends; debits TOВ balance only.
+  'TOV_INCOME',
+  'SENIOR_PENDING_PAYOUT',
+  'SENIOR_PAID',
+  'ADMIN_INCOME_CASH',
+  'ADMIN_INCOME_CRYPTO',
+  'SENIOR_INCOME_CRYPTO',
+  'DIVIDEND_TO_ADMIN',
+  'DIVIDEND_TAX',
 ])
 export type TransactionType = z.infer<typeof transactionTypeSchema>
 
@@ -368,6 +391,53 @@ export type ConfirmPayoutDto = z.infer<typeof confirmPayoutSchema>
 // ---------------------------------------------------------------------------
 // Finance summary / stats
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 4-A — Balance infrastructure (computed on-demand, multi-currency)
+// ---------------------------------------------------------------------------
+//
+// `BalanceService` (apps/api/src/finance/balance.service.ts) returns these
+// shapes via /api/balances/{tov,admin/:id,senior/:id}. Balances are derived
+// from the unified `transactions` ledger on every request (no stored balance
+// columns). Multi-currency: amounts are converted to the requested base
+// currency through `NbuCurrencyService` rates.
+//
+// `breakdown` is a free-form `Record<string, number>` so callers can show a
+// per-component split (income, dividends_paid, expenses, tax, etc.) without
+// pinning the contract to one specific layout. Each balance method returns
+// a stable, documented set of keys (see balance.service.ts JSDoc).
+
+export const balanceSchema = z.object({
+  balance: z.number(),
+  currency: z.string(),
+  breakdown: z.record(z.string(), z.number()),
+})
+export type BalanceDto = z.infer<typeof balanceSchema>
+
+// Pending obligations — table-backed, distinct lifecycle from the
+// transactions ledger. Each row: "creditor (senior) is owed `amount`
+// `currency` by debtor (DROP user / TOВ / admin)". A SENIOR_PAID
+// transaction closes the obligation (status → PAID + closingTransactionId).
+export const pendingObligationDebtorTypeSchema = z.enum(['DROP', 'TOV', 'ADMIN'])
+export type PendingObligationDebtorType = z.infer<typeof pendingObligationDebtorTypeSchema>
+
+export const pendingObligationStatusSchema = z.enum(['PENDING', 'PAID', 'CANCELLED'])
+export type PendingObligationStatus = z.infer<typeof pendingObligationStatusSchema>
+
+export const pendingObligationSchema = z.object({
+  id: z.string().uuid(),
+  creditorUserId: z.string().uuid(),
+  debtorType: pendingObligationDebtorTypeSchema,
+  debtorUserId: z.string().uuid().nullable(),
+  sourceTransactionId: z.string().uuid(),
+  closingTransactionId: z.string().uuid().nullable(),
+  amount: z.string(), // numeric string from DB to avoid float drift
+  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+  status: pendingObligationStatusSchema,
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+})
+export type PendingObligationDto = z.infer<typeof pendingObligationSchema>
 
 export const financeSummarySchema = z.object({
   totalIncome: z.number(),
