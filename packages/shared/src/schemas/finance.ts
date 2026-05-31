@@ -352,8 +352,16 @@ export type PaySalaryDto = z.infer<typeof paySalarySchema>
 // confirms a PAYOUT actually arrived to a selected admin partner. Body carries
 // the chosen admin id; backend validates: PAYOUT row in PENDING_PAYMENT,
 // recipient is an active (non-archived) ADMIN, idempotency (no double-confirm).
+//
+// Note: we accept any UUID shape (not just strict RFC-versioned). The seeded
+// partner ids `00000000-0000-0000-0000-00000000000{1,2}` (MAKSYM_ID/KOSTYA_ID)
+// have a literal `0` in the version nibble, which Zod v4's built-in `.uuid()`
+// rejects. The recipient is re-validated server-side (must exist, role=ADMIN,
+// not archived) so format permissiveness is safe here.
+const UUID_LIKE_REGEX =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
 export const confirmPayoutSchema = z.object({
-  recipientAdminId: z.string().uuid(),
+  recipientAdminId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
 })
 export type ConfirmPayoutDto = z.infer<typeof confirmPayoutSchema>
 

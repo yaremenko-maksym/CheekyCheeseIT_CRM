@@ -162,6 +162,18 @@ function FromTo({ tx }: { tx: TransactionDto }) {
         </div>
       )
 
+    // Drop role - phase 3 (spec §8.4). Sender mirrors the original PAYOUT
+    // (drop / senior). Receiver is the admin partner chosen during manual
+    // confirmation — surfaced through receiverId/receiverName.
+    case 'PAYOUT_CONFIRMED':
+      return (
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Party id={tx.senderId} name={tx.senderName} label={tx.senderLabel} type="user" />
+          <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+          <Party id={tx.receiverId} name={tx.receiverName} label={tx.receiverLabel} type="user" />
+        </div>
+      )
+
     default:
       return <span className="text-muted-foreground">—</span>
   }
