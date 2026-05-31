@@ -14,18 +14,46 @@ export const Route = createFileRoute('/crm/')({
 })
 
 const stats = [
-  { label: 'Active Candidates', value: '—', icon: Users, hint: 'Connect DB to see data' },
-  { label: 'Open Vacancies', value: '—', icon: Briefcase, hint: 'Connect DB to see data' },
-  { label: 'Placements MTD', value: '—', icon: TrendingUp, hint: 'Connect DB to see data' },
-  { label: 'Avg. Time to Hire', value: '—', icon: Clock, hint: 'Connect DB to see data' },
+  {
+    label: 'Активные кандидаты',
+    value: '—',
+    icon: Users,
+    hint: 'Подключите БД для просмотра данных',
+  },
+  {
+    label: 'Открытые вакансии',
+    value: '—',
+    icon: Briefcase,
+    hint: 'Подключите БД для просмотра данных',
+  },
+  {
+    label: 'Найм за месяц',
+    value: '—',
+    icon: TrendingUp,
+    hint: 'Подключите БД для просмотра данных',
+  },
+  {
+    label: 'Среднее время найма',
+    value: '—',
+    icon: Clock,
+    hint: 'Подключите БД для просмотра данных',
+  },
 ]
 
+const ROLE_LABELS_RU: Record<'admin' | 'senior' | 'junior' | 'hr' | 'accountant', string> = {
+  admin: 'Админ',
+  senior: 'Синьор',
+  junior: 'Джун',
+  hr: 'HR',
+  accountant: 'Бухгалтер',
+}
+
 const teamMembers = [
-  { name: 'Administrator', initials: 'AD', role: 'admin' as const },
-  { name: 'Senior Recruiter', initials: 'SR', role: 'senior' as const },
-  { name: 'Junior Recruiter', initials: 'JR', role: 'junior' as const },
-  { name: 'HR Manager', initials: 'HR', role: 'hr' as const },
-  { name: 'Accountant', initials: 'AC', role: 'accountant' as const },
+  { name: 'Администратор', initials: 'АД', role: 'admin' as const },
+  { name: 'Старший рекрутер', initials: 'СР', role: 'senior' as const },
+  { name: 'Младший рекрутер', initials: 'МР', role: 'junior' as const },
+  { name: 'HR-менеджер', initials: 'HR', role: 'hr' as const },
+  { name: 'Бухгалтер', initials: 'БХ', role: 'accountant' as const },
 ]
 
 const container = {
@@ -55,10 +83,8 @@ function CrmDashboard() {
     <div className="space-y-6">
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">
-          Welcome back to CheekyCheeseIT CRM
-        </p>
+        <h1 className="text-2xl font-bold tracking-tight">Дашборд</h1>
+        <p className="text-sm text-muted-foreground">Добро пожаловать в CheekyCheeseIT CRM</p>
       </div>
 
       {/* Stats grid */}
@@ -97,7 +123,7 @@ function CrmDashboard() {
         <motion.div variants={item}>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-base">Recent Candidates</CardTitle>
+              <CardTitle className="text-base">Последние кандидаты</CardTitle>
               <BarChart3 className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent className="space-y-4">
@@ -119,7 +145,7 @@ function CrmDashboard() {
         <motion.div variants={item}>
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Team Roles</CardTitle>
+              <CardTitle className="text-base">Роли команды</CardTitle>
             </CardHeader>
             <CardContent className="space-y-1">
               {teamMembers.map((member, i) => (
@@ -131,7 +157,7 @@ function CrmDashboard() {
                       </AvatarFallback>
                     </Avatar>
                     <span className="flex-1 text-sm font-medium">{member.name}</span>
-                    <Badge variant={member.role}>{member.role.toUpperCase()}</Badge>
+                    <Badge variant={member.role}>{ROLE_LABELS_RU[member.role]}</Badge>
                   </div>
                   {i < teamMembers.length - 1 && <Separator className="opacity-50" />}
                 </div>

@@ -23,6 +23,17 @@ import { PDFDocument } from 'pdf-lib'
 import { InvoicePdfService, type GenerateSignableInvoiceParams } from './invoice-pdf.service'
 import { sha256Hex, shortHash } from './invoice-pdf.utils'
 
+// Each test below exercises the *real* PDF generation pipeline (pdf-lib +
+// fontkit + qrcode + the bundled Roboto TTF). Per the file-header comment the
+// whole point is byte-level verification of the output, so mocking pdf-lib is
+// off the table. On slower CI runners (and even locally under cold node
+// caches) a single `generateSignableInvoicePdf` call can comfortably exceed
+// Vitest's default 5 s timeout — and several tests above call it 2–3 times
+// to compare hashes between variants. Bump the per-file timeout to 20 s so
+// the tests stay deterministic and aren't flagged for timeout-flakiness on
+// the slower job pools.
+const TEST_TIMEOUT_MS = 20_000
+
 // Fixed timestamp keeps every test deterministic — pdf-lib uses metadata
 // dates internally, and we override them with this value in the service.
 const FIXED_DATE = new Date('2026-05-26T14:00:00.000Z')
@@ -67,163 +78,187 @@ describe('InvoicePdfService', () => {
   })
 
   describe('generateSignableInvoicePdf — 0 signatures', () => {
-    it('produces a valid PDF that contains the "Ожидает подписи" placeholder', async () => {
-      const params = baseParams()
-      params.signatures = [] // explicit: no auto-COMPANY yet
+    it(
+      'produces a valid PDF that contains the "Ожидает подписи" placeholder',
+      { timeout: TEST_TIMEOUT_MS },
+      async () => {
+        const params = baseParams()
+        params.signatures = [] // explicit: no auto-COMPANY yet
 
-      const { pdfBuffer, sha256Hash } = await service.generateSignableInvoicePdf(params)
+        const { pdfBuffer, sha256Hash } = await service.generateSignableInvoicePdf(params)
 
-      // PDF magic
-      expect(pdfBuffer.slice(0, 5).toString('utf8')).toBe('%PDF-')
-      // EOF marker (tolerate trailing newline)
-      expect(pdfBuffer.slice(-7).toString('utf8')).toMatch(/%%EOF\s*$/)
-      // Hash format
-      expect(sha256Hash).toMatch(/^[0-9a-f]{64}$/)
-      // Hash matches independent computation
-      expect(sha256Hash).toBe(sha256Hex(pdfBuffer))
+        // PDF magic
+        expect(pdfBuffer.slice(0, 5).toString('utf8')).toBe('%PDF-')
+        // EOF marker (tolerate trailing newline)
+        expect(pdfBuffer.slice(-7).toString('utf8')).toMatch(/%%EOF\s*$/)
+        // Hash format
+        expect(sha256Hash).toMatch(/^[0-9a-f]{64}$/)
+        // Hash matches independent computation
+        expect(sha256Hash).toBe(sha256Hex(pdfBuffer))
 
-      // PDF should re-parse without errors
-      const reparsed = await PDFDocument.load(pdfBuffer)
-      expect(reparsed.getPageCount()).toBe(1)
+        // PDF should re-parse without errors
+        const reparsed = await PDFDocument.load(pdfBuffer)
+        expect(reparsed.getPageCount()).toBe(1)
 
-      // Size sanity: must be > 30 KB (font + QR embed alone is ~25 KB)
-      expect(pdfBuffer.length).toBeGreaterThan(20_000)
-      // Size cap: should be well under 1 MB for a single-page invoice
-      expect(pdfBuffer.length).toBeLessThan(500_000)
-    })
+        // Size sanity: must be > 30 KB (font + QR embed alone is ~25 KB)
+        expect(pdfBuffer.length).toBeGreaterThan(20_000)
+        // Size cap: should be well under 1 MB for a single-page invoice
+        expect(pdfBuffer.length).toBeLessThan(500_000)
+      },
+    )
   })
 
   describe('generateSignableInvoicePdf — 1 signature (COMPANY only)', () => {
-    it('renders only the company signature block + Ожидает подписи for counterparty', async () => {
-      const params = baseParams()
-      params.signatures = [
-        {
-          role: 'COMPANY',
-          signerName: 'Maksym Y.',
-          signedAt: FIXED_SIGNED_AT_COMPANY,
-          method: 'AUTO_COMPANY',
-        },
-      ]
+    it(
+      'renders only the company signature block + Ожидает подписи for counterparty',
+      { timeout: TEST_TIMEOUT_MS },
+      async () => {
+        const params = baseParams()
+        params.signatures = [
+          {
+            role: 'COMPANY',
+            signerName: 'Maksym Y.',
+            signedAt: FIXED_SIGNED_AT_COMPANY,
+            method: 'AUTO_COMPANY',
+          },
+        ]
 
-      const { pdfBuffer, sha256Hash } = await service.generateSignableInvoicePdf(params)
+        const { pdfBuffer, sha256Hash } = await service.generateSignableInvoicePdf(params)
 
-      expect(sha256Hash).toMatch(/^[0-9a-f]{64}$/)
-      const reparsed = await PDFDocument.load(pdfBuffer)
-      expect(reparsed.getPageCount()).toBe(1)
-      // The PDF should be larger than the zero-sig variant because it
-      // includes the company name + timestamp string.
-      const zeroSig = await service.generateSignableInvoicePdf({
-        ...params,
-        signatures: [],
-      })
-      // We can't reliably assert strict size ordering due to PDF compression,
-      // but both must be valid and have different hashes.
-      expect(sha256Hash).not.toBe(zeroSig.sha256Hash)
-    })
+        expect(sha256Hash).toMatch(/^[0-9a-f]{64}$/)
+        const reparsed = await PDFDocument.load(pdfBuffer)
+        expect(reparsed.getPageCount()).toBe(1)
+        // The PDF should be larger than the zero-sig variant because it
+        // includes the company name + timestamp string.
+        const zeroSig = await service.generateSignableInvoicePdf({
+          ...params,
+          signatures: [],
+        })
+        // We can't reliably assert strict size ordering due to PDF compression,
+        // but both must be valid and have different hashes.
+        expect(sha256Hash).not.toBe(zeroSig.sha256Hash)
+      },
+    )
   })
 
   describe('generateSignableInvoicePdf — 2 signatures (both sides)', () => {
-    it('embeds the short hash for the counterparty signature and renders both blocks', async () => {
-      const params = baseParams()
-      const fakeFullHash = 'a1b2c3d4' + '0'.repeat(56) // 64 chars, valid hex
-      params.signatures = [
-        {
-          role: 'COMPANY',
+    it(
+      'embeds the short hash for the counterparty signature and renders both blocks',
+      { timeout: TEST_TIMEOUT_MS },
+      async () => {
+        const params = baseParams()
+        const fakeFullHash = 'a1b2c3d4' + '0'.repeat(56) // 64 chars, valid hex
+        params.signatures = [
+          {
+            role: 'COMPANY',
+            signerName: 'Maksym Y.',
+            signedAt: FIXED_SIGNED_AT_COMPANY,
+            method: 'AUTO_COMPANY',
+          },
+          {
+            role: 'COUNTERPARTY',
+            signerName: 'Иван Иванов',
+            signedAt: FIXED_SIGNED_AT_COUNTERPARTY,
+            method: 'MANUAL_CLICK',
+            pdfHashFull: fakeFullHash,
+            ipLastOctet: '42',
+          },
+        ]
+
+        const { pdfBuffer, sha256Hash } = await service.generateSignableInvoicePdf(params)
+
+        expect(sha256Hash).toMatch(/^[0-9a-f]{64}$/)
+        const reparsed = await PDFDocument.load(pdfBuffer)
+        expect(reparsed.getPageCount()).toBe(1)
+
+        // Hash differs from 1-signature variant.
+        const oneSig = await service.generateSignableInvoicePdf({
+          ...params,
+          signatures: [params.signatures[0]!],
+        })
+        expect(sha256Hash).not.toBe(oneSig.sha256Hash)
+
+        // Title metadata propagates the short tx id
+        expect(reparsed.getTitle()).toContain('11111111')
+      },
+    )
+
+    it(
+      'renders signatures in COMPANY-first order regardless of input order',
+      { timeout: TEST_TIMEOUT_MS },
+      async () => {
+        const params = baseParams()
+        const fakeFullHash = 'a1b2c3d4' + '0'.repeat(56)
+        const companySig = {
+          role: 'COMPANY' as const,
           signerName: 'Maksym Y.',
           signedAt: FIXED_SIGNED_AT_COMPANY,
-          method: 'AUTO_COMPANY',
-        },
-        {
-          role: 'COUNTERPARTY',
+          method: 'AUTO_COMPANY' as const,
+        }
+        const counterpartySig = {
+          role: 'COUNTERPARTY' as const,
           signerName: 'Иван Иванов',
           signedAt: FIXED_SIGNED_AT_COUNTERPARTY,
-          method: 'MANUAL_CLICK',
+          method: 'MANUAL_CLICK' as const,
           pdfHashFull: fakeFullHash,
-          ipLastOctet: '42',
-        },
-      ]
+        }
 
-      const { pdfBuffer, sha256Hash } = await service.generateSignableInvoicePdf(params)
+        const orderA = await service.generateSignableInvoicePdf({
+          ...params,
+          signatures: [companySig, counterpartySig],
+        })
+        const orderB = await service.generateSignableInvoicePdf({
+          ...params,
+          signatures: [counterpartySig, companySig],
+        })
 
-      expect(sha256Hash).toMatch(/^[0-9a-f]{64}$/)
-      const reparsed = await PDFDocument.load(pdfBuffer)
-      expect(reparsed.getPageCount()).toBe(1)
-
-      // Hash differs from 1-signature variant.
-      const oneSig = await service.generateSignableInvoicePdf({
-        ...params,
-        signatures: [params.signatures[0]!],
-      })
-      expect(sha256Hash).not.toBe(oneSig.sha256Hash)
-
-      // Title metadata propagates the short tx id
-      expect(reparsed.getTitle()).toContain('11111111')
-    })
-
-    it('renders signatures in COMPANY-first order regardless of input order', async () => {
-      const params = baseParams()
-      const fakeFullHash = 'a1b2c3d4' + '0'.repeat(56)
-      const companySig = {
-        role: 'COMPANY' as const,
-        signerName: 'Maksym Y.',
-        signedAt: FIXED_SIGNED_AT_COMPANY,
-        method: 'AUTO_COMPANY' as const,
-      }
-      const counterpartySig = {
-        role: 'COUNTERPARTY' as const,
-        signerName: 'Иван Иванов',
-        signedAt: FIXED_SIGNED_AT_COUNTERPARTY,
-        method: 'MANUAL_CLICK' as const,
-        pdfHashFull: fakeFullHash,
-      }
-
-      const orderA = await service.generateSignableInvoicePdf({
-        ...params,
-        signatures: [companySig, counterpartySig],
-      })
-      const orderB = await service.generateSignableInvoicePdf({
-        ...params,
-        signatures: [counterpartySig, companySig],
-      })
-
-      // Deterministic sort -> same output regardless of input order.
-      expect(orderA.sha256Hash).toBe(orderB.sha256Hash)
-    })
+        // Deterministic sort -> same output regardless of input order.
+        expect(orderA.sha256Hash).toBe(orderB.sha256Hash)
+      },
+    )
   })
 
   describe('hash determinism', () => {
-    it('produces the same SHA-256 for identical inputs across calls', async () => {
-      const params = baseParams()
-      params.signatures = [
-        {
-          role: 'COMPANY',
-          signerName: 'Maksym Y.',
-          signedAt: FIXED_SIGNED_AT_COMPANY,
-          method: 'AUTO_COMPANY',
-        },
-      ]
+    it(
+      'produces the same SHA-256 for identical inputs across calls',
+      { timeout: TEST_TIMEOUT_MS },
+      async () => {
+        const params = baseParams()
+        params.signatures = [
+          {
+            role: 'COMPANY',
+            signerName: 'Maksym Y.',
+            signedAt: FIXED_SIGNED_AT_COMPANY,
+            method: 'AUTO_COMPANY',
+          },
+        ]
 
-      const first = await service.generateSignableInvoicePdf(params)
-      const second = await service.generateSignableInvoicePdf(params)
+        const first = await service.generateSignableInvoicePdf(params)
+        const second = await service.generateSignableInvoicePdf(params)
 
-      expect(first.sha256Hash).toBe(second.sha256Hash)
-      expect(first.pdfBuffer.length).toBe(second.pdfBuffer.length)
-    })
+        expect(first.sha256Hash).toBe(second.sha256Hash)
+        expect(first.pdfBuffer.length).toBe(second.pdfBuffer.length)
+      },
+    )
 
-    it('produces a different SHA-256 when any field changes', async () => {
-      const a = baseParams()
-      const b = baseParams()
-      b.transaction.amount = '9999.99'
+    it(
+      'produces a different SHA-256 when any field changes',
+      { timeout: TEST_TIMEOUT_MS },
+      async () => {
+        const a = baseParams()
+        const b = baseParams()
+        b.transaction.amount = '9999.99'
 
-      const resA = await service.generateSignableInvoicePdf(a)
-      const resB = await service.generateSignableInvoicePdf(b)
+        const resA = await service.generateSignableInvoicePdf(a)
+        const resB = await service.generateSignableInvoicePdf(b)
 
-      expect(resA.sha256Hash).not.toBe(resB.sha256Hash)
-    })
+        expect(resA.sha256Hash).not.toBe(resB.sha256Hash)
+      },
+    )
   })
 
   describe('SALARY transaction type', () => {
-    it('produces a valid PDF with the salary title', async () => {
+    it('produces a valid PDF with the salary title', { timeout: TEST_TIMEOUT_MS }, async () => {
       const params = baseParams()
       params.transaction.type = 'SALARY'
       params.transaction.projectName = null
@@ -239,21 +274,25 @@ describe('InvoicePdfService', () => {
   })
 
   describe('counterparty with no payment method', () => {
-    it('renders the "Не указано" warning and still produces a valid PDF', async () => {
-      const params = baseParams()
-      params.counterparty.paymentMethod = null
-      params.counterparty.paymentDetails = []
+    it(
+      'renders the "Не указано" warning and still produces a valid PDF',
+      { timeout: TEST_TIMEOUT_MS },
+      async () => {
+        const params = baseParams()
+        params.counterparty.paymentMethod = null
+        params.counterparty.paymentDetails = []
 
-      const { pdfBuffer, sha256Hash } = await service.generateSignableInvoicePdf(params)
+        const { pdfBuffer, sha256Hash } = await service.generateSignableInvoicePdf(params)
 
-      expect(sha256Hash).toMatch(/^[0-9a-f]{64}$/)
-      const reparsed = await PDFDocument.load(pdfBuffer)
-      expect(reparsed.getPageCount()).toBe(1)
-    })
+        expect(sha256Hash).toMatch(/^[0-9a-f]{64}$/)
+        const reparsed = await PDFDocument.load(pdfBuffer)
+        expect(reparsed.getPageCount()).toBe(1)
+      },
+    )
   })
 
   describe('QR code embedding', () => {
-    it('embeds an image stream (the QR code PNG)', async () => {
+    it('embeds an image stream (the QR code PNG)', { timeout: TEST_TIMEOUT_MS }, async () => {
       const params = baseParams()
       const { pdfBuffer } = await service.generateSignableInvoicePdf(params)
 
@@ -265,36 +304,44 @@ describe('InvoicePdfService', () => {
       expect(raw).toContain('/Subtype')
     })
 
-    it('different verify URLs produce different QR-bearing PDFs', async () => {
-      const a = baseParams()
-      const b = baseParams()
-      b.verifyUrl = 'https://crm.example.com/invoice/v/different-id'
+    it(
+      'different verify URLs produce different QR-bearing PDFs',
+      { timeout: TEST_TIMEOUT_MS },
+      async () => {
+        const a = baseParams()
+        const b = baseParams()
+        b.verifyUrl = 'https://crm.example.com/invoice/v/different-id'
 
-      const resA = await service.generateSignableInvoicePdf(a)
-      const resB = await service.generateSignableInvoicePdf(b)
+        const resA = await service.generateSignableInvoicePdf(a)
+        const resB = await service.generateSignableInvoicePdf(b)
 
-      expect(resA.sha256Hash).not.toBe(resB.sha256Hash)
-    })
+        expect(resA.sha256Hash).not.toBe(resB.sha256Hash)
+      },
+    )
   })
 
   describe('cyrillic content', () => {
-    it('produces a non-empty, parseable PDF for cyrillic input (font subset embeds glyphs)', async () => {
-      // If the Cyrillic font wasn't actually embedded the call would either
-      // throw (pdf-lib WinAnsi encoder rejects U+0400+) or produce a
-      // suspiciously small file.
-      const params = baseParams()
-      params.counterparty.displayName = 'Олександр Сергійович Лук’яненко'
-      params.company.address = 'м. Київ, пр-т Перемоги, буд. 100, оф. 5'
+    it(
+      'produces a non-empty, parseable PDF for cyrillic input (font subset embeds glyphs)',
+      { timeout: TEST_TIMEOUT_MS },
+      async () => {
+        // If the Cyrillic font wasn't actually embedded the call would either
+        // throw (pdf-lib WinAnsi encoder rejects U+0400+) or produce a
+        // suspiciously small file.
+        const params = baseParams()
+        params.counterparty.displayName = 'Олександр Сергійович Лук’яненко'
+        params.company.address = 'м. Київ, пр-т Перемоги, буд. 100, оф. 5'
 
-      const { pdfBuffer, sha256Hash } = await service.generateSignableInvoicePdf(params)
+        const { pdfBuffer, sha256Hash } = await service.generateSignableInvoicePdf(params)
 
-      expect(sha256Hash).toMatch(/^[0-9a-f]{64}$/)
-      expect(pdfBuffer.length).toBeGreaterThan(20_000)
+        expect(sha256Hash).toMatch(/^[0-9a-f]{64}$/)
+        expect(pdfBuffer.length).toBeGreaterThan(20_000)
 
-      // Re-parsing must succeed
-      const reparsed = await PDFDocument.load(pdfBuffer)
-      expect(reparsed.getPageCount()).toBe(1)
-    })
+        // Re-parsing must succeed
+        const reparsed = await PDFDocument.load(pdfBuffer)
+        expect(reparsed.getPageCount()).toBe(1)
+      },
+    )
   })
 })
 
