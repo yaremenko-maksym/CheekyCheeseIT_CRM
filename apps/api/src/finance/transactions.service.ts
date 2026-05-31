@@ -441,6 +441,59 @@ export class TransactionsService {
     return this.findOne(tx!.id, currentUser)
   }
 
+  // ── Create DROP_INCOME (Drop role - phase 2) ─────────────────────────────
+  //
+  // Parallel to `createSeniorIncome` for DROP users on drop-projects. Keeps
+  // the senior-income path unchanged. Validation cascade (validateTransaction
+  // below) understands both types and routes DROP_INCOME through the
+  // distribution branch.
+
+  async createDropIncome(
+    data: {
+      projectId: string
+      amount: number
+      currency: string
+      receiptDocumentId?: string | null | undefined
+      receiptExternalUrl?: string | null | undefined
+      notes?: string | null | undefined
+      txDate?: string | null | undefined
+    },
+    currentUser: SessionUser,
+  ) {
+    if (currentUser.role !== 'DROP') throw new ForbiddenException()
+
+    const project = await this.db.db.query.projects.findFirst({
+      where: eq(projects.id, data.projectId),
+    })
+    if (!project) throw new NotFoundException('Project not found')
+    // The drop can only declare income on a drop-project routed through them.
+    if (project.dropId !== currentUser.id) {
+      throw new ForbiddenException('Это не drop-проект под вами')
+    }
+
+    const [tx] = await this.db.db
+      .insert(transactions)
+      .values({
+        type: 'DROP_INCOME',
+        status: 'PENDING',
+        amount: String(data.amount),
+        currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
+        senderId: null,
+        senderLabel: project.companyName,
+        receiverId: currentUser.id,
+        recipientId: currentUser.id,
+        projectId: data.projectId,
+        receiptDocumentId: data.receiptDocumentId ?? null,
+        receiptExternalUrl: data.receiptExternalUrl ?? null,
+        notes: data.notes ?? null,
+        txDate: this.resolveTxDate(data.txDate),
+        createdBy: currentUser.id,
+      })
+      .returning()
+
+    return this.findOne(tx!.id, currentUser)
+  }
+
   // ── Update REJECTED SENIOR_INCOME ────────────────────────────────────────
 
   async updateSeniorIncome(
@@ -599,8 +652,15 @@ export class TransactionsService {
       where: eq(transactions.id, id),
     })
     if (!tx) throw new NotFoundException('Transaction not found')
-    if (tx.type !== 'SENIOR_INCOME')
-      throw new BadRequestException('Only SENIOR_INCOME can be validated')
+    // Drop role - phase 2: validate also handles DROP_INCOME with the same
+    // shape — flip to VALIDATED + create payout_request + insert placeholder
+    // PAYOUT row. The drop-specific distribution math lives in
+    // `payPayoutRequest` (drop branch) — at validate time we only book a
+    // payable that represents what the wallet owner will transfer off-platform
+    // (= income * (1 - share/100), using dropSharePercent for DROP_INCOME).
+    if (tx.type !== 'SENIOR_INCOME' && tx.type !== 'DROP_INCOME') {
+      throw new BadRequestException('Only SENIOR_INCOME or DROP_INCOME can be validated')
+    }
     // AC4: idempotency. The action is only valid on PENDING rows — a second
     // click after a successful validate would otherwise create a duplicate
     // PAYOUT row. We throw rather than silently no-op so the UI can show
@@ -622,19 +682,22 @@ export class TransactionsService {
       // PENDING and the ACCOUNTANT can retry.
       if (!tx.receiverId) {
         throw new BadRequestException(
-          'SENIOR_INCOME has no receiverId — cannot create payout',
+          `${tx.type} has no receiverId — cannot create payout`,
         )
       }
-      const senior = await this.db.db.query.users.findFirst({
+      const walletOwner = await this.db.db.query.users.findFirst({
         where: eq(users.id, tx.receiverId),
       })
-      if (!senior) throw new NotFoundException('Senior receiver not found')
+      if (!walletOwner) throw new NotFoundException('Receiver not found')
 
-      // Senior keeps `sharePercent`%, pays `100 - sharePercent`% to company.
-      // Snapshot from the SENIOR_INCOME row (set at createSeniorIncome time
-      // from project override → user default) so the payout uses the same %
-      // that was visible to the senior when they submitted income.
-      const sharePercent = tx.seniorSharePercent ?? senior.seniorSharePercent ?? 26
+      // Resolve the share kept by the wallet owner:
+      //   SENIOR_INCOME → tx.seniorSharePercent ?? users.seniorSharePercent ?? 26
+      //   DROP_INCOME   → users.dropSharePercent ?? 5
+      // Pays `100 - share`% off-platform (placeholder PAYOUT amount).
+      const sharePercent =
+        tx.type === 'DROP_INCOME'
+          ? (walletOwner.dropSharePercent ?? 5)
+          : (tx.seniorSharePercent ?? walletOwner.seniorSharePercent ?? 26)
       const incomeAmount = parseFloat(tx.amount)
       const payableAmount = incomeAmount * (1 - sharePercent / 100)
 
@@ -923,7 +986,14 @@ export class TransactionsService {
     currentUser: SessionUser,
     simulateResult?: 'success' | 'error',
   ) {
-    if (currentUser.role !== 'SENIOR') throw new ForbiddenException()
+    // Drop role - phase 2: DROP users own drop-project payouts. The legacy
+    // SENIOR check is kept for senior-projects; either role can call this
+    // endpoint and the `req.seniorId === currentUser.id` line below enforces
+    // ownership in both cases. payout_requests.seniorId is a FK to users.id
+    // (not constrained by role) — for drop flows it points at the DROP user.
+    if (currentUser.role !== 'SENIOR' && currentUser.role !== 'DROP') {
+      throw new ForbiddenException()
+    }
 
     const req = await this.db.db.query.payoutRequests.findFirst({
       where: eq(payoutRequests.id, requestId),
@@ -979,18 +1049,30 @@ export class TransactionsService {
       })
       .where(eq(transactions.payoutRequestId, requestId))
 
-    // Trigger 1: invoice auto-create for each SENIOR_INCOME just paid.
+    // Trigger 1: invoice auto-create for each linked income just paid.
     // Best-effort — see safeAutoCreateInvoice for the no-rollback contract.
     // We re-fetch (the UPDATE above doesn't return rows in drizzle's current
     // Postgres flavour without `.returning()` chaining); the result feeds
     // both invoice generation and the drop-vs-senior project routing below.
-    const paidSeniorIncomeTxs = await this.db.db
-      .select({ id: transactions.id, projectId: transactions.projectId })
+    // Drop role - phase 2: DROP_INCOME is included here so drop-projects also
+    // get an invoice generated for the income side.
+    const paidIncomeTxs = await this.db.db
+      .select({ id: transactions.id, projectId: transactions.projectId, type: transactions.type })
       .from(transactions)
       .where(
-        and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'SENIOR_INCOME')),
+        and(
+          eq(transactions.payoutRequestId, requestId),
+          or(
+            eq(transactions.type, 'SENIOR_INCOME'),
+            eq(transactions.type, 'DROP_INCOME'),
+          ),
+        ),
       )
-    for (const incomeTx of paidSeniorIncomeTxs) {
+    for (const incomeTx of paidIncomeTxs) {
+      // SENIOR_INCOME invoice generation path is the only one that exists
+      // today; DROP_INCOME re-uses the same artefact (recipient = wallet
+      // owner). Keeping the kind argument as SENIOR_INCOME until a
+      // dedicated drop invoice template lands.
       await this.safeAutoCreateInvoice('SENIOR_INCOME', incomeTx.id)
     }
 
@@ -1021,7 +1103,7 @@ export class TransactionsService {
     // "primary" project for drop-vs-senior routing. The standing UX is "a
     // payout = one project" — see PayoutDetailDialog header — so this
     // assumption matches what the SENIOR sees.
-    const primaryProjectId = paidSeniorIncomeTxs[0]?.projectId ?? null
+    const primaryProjectId = paidIncomeTxs[0]?.projectId ?? null
     const primaryProject = primaryProjectId
       ? await this.db.db.query.projects.findFirst({
           where: eq(projects.id, primaryProjectId),
@@ -1041,16 +1123,22 @@ export class TransactionsService {
       // Drop-project branch.
       //
       // Distribution is computed on the GROSS income, not on `payable`.
-      // `payable` is `income * (1 - seniorShare/100)` — the legacy 74% that
-      // the SENIOR transfers off-platform under the senior-project model.
-      // In the drop model the senior keeps their share off-ledger (it was
-      // never on the drop's wallet), so the partner residual that lands
-      // on-chain is exactly `income - seniorShare - dropShare` — which is
-      // what `computeDropDistribution.partnerShares` already reflects.
-      const senior = await this.db.db.query.users.findFirst({
-        where: eq(users.id, req.seniorId),
-      })
-      if (!senior) throw new NotFoundException('Senior not found')
+      // `payable` is `income * (1 - dropShare/100)` here (validateTransaction
+      // recorded this when flipping DROP_INCOME→VALIDATED on a drop-project),
+      // and represents what the drop transfers off-platform — the residual
+      // for partners after the drop keeps their slice. In the senior-project
+      // path the same `payable` field means something different (income *
+      // (1 - seniorShare/100)) — context is the project, not the column.
+      //
+      // The SENIOR share is computed on GROSS, not on payable, so we read
+      // the senior from the project (not from `req.seniorId` — that field
+      // points at the wallet owner, which is the DROP in this flow).
+      const senior = primaryProject.seniorId
+        ? await this.db.db.query.users.findFirst({
+            where: eq(users.id, primaryProject.seniorId),
+          })
+        : null
+      if (!senior) throw new NotFoundException('Senior not found on drop-project')
 
       const income = parseFloat(req.incomeAmount)
       const distribution = this.computeDropDistribution(
@@ -1454,9 +1542,15 @@ export class TransactionsService {
       const nextMonthStart = new Date(currentMonthStart)
       nextMonthStart.setMonth(nextMonthStart.getMonth() + 1)
 
+      // Drop role - phase 2 (AC5): drop-projects unlock junior salary on a
+      // validated DROP_INCOME as well — the income side is what matters for
+      // the unlock, not whether the wallet is a SENIOR or a DROP.
       const hasValidatedIncome = await this.db.db.query.transactions.findFirst({
         where: and(
-          eq(transactions.type, 'SENIOR_INCOME'),
+          or(
+            eq(transactions.type, 'SENIOR_INCOME'),
+            eq(transactions.type, 'DROP_INCOME'),
+          ),
           eq(transactions.projectId, project.id),
           eq(transactions.status, 'VALIDATED'),
         ),
@@ -1481,7 +1575,10 @@ export class TransactionsService {
     }
   }
 
-  // Unlock LOCKED junior salary when a senior income is validated
+  // Unlock LOCKED junior salary when a senior OR drop income is validated.
+  // Drop role - phase 2 (AC5): the trigger condition is "any validated income
+  // on the project" — caller passes the validated row (SENIOR_INCOME or
+  // DROP_INCOME) and we flip the LOCKED salary for the active junior.
   private async unlockJuniorSalaryForProject(projectId: string | null, incomeTx: Transaction) {
     if (!projectId) return
 

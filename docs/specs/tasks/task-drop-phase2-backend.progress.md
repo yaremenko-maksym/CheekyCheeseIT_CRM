@@ -1,8 +1,8 @@
 # Progress: task-drop-phase2-backend
 
-current_milestone: 2/5 — "extract computePartnersSplit + computeDropDistribution + branch in payPayoutRequest"
-last_commit: 3c12080
-last_push: 3c12080
+current_milestone: 3/5 — "createDropIncome + validateTransaction handles DROP_INCOME + unlock includes drop"
+last_commit: 91e80a4
+last_push: 91e80a4
 
 ## Plan
 1. Shared schemas: `transactionTypeSchema` += `PAYOUT_DROP`, `DROP_INCOME`; `createDropIncomeSchema`; `transactionSchema.recipientId`.
