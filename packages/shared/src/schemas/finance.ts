@@ -18,6 +18,13 @@ export const transactionTypeSchema = z.enum([
   // 1:1 with pre-phase-2 behavior. See drop-role-and-finance-spec.md §8.1.
   'DROP_INCOME', // Drop income from project — requires accountant/admin validation
   'PAYOUT_DROP', // Auto-created drop share after payPayoutRequest on a drop-project
+  // Drop role - phase 3. Manual payout confirmation (spec §8.4): ACCOUNTANT/ADMIN
+  // confirms that an off-platform PAYOUT actually landed on a specific admin
+  // partner. Distinct from PAYOUT_ADMIN (which is the automated 50/50 split
+  // from payPayoutRequest) so the manual safety-net flow stays separable from
+  // the auto-distribution in reports / filters / balance attribution. See
+  // drop-role-and-finance-spec.md §8.4 and migration 0022.
+  'PAYOUT_CONFIRMED',
 ])
 export type TransactionType = z.infer<typeof transactionTypeSchema>
 
@@ -340,6 +347,15 @@ export const paySalarySchema = z.object({
   notes: z.string().max(1000).optional().nullable(),
 })
 export type PaySalaryDto = z.infer<typeof paySalarySchema>
+
+// Drop role - phase 3 (spec §8.4). Manual payout confirmation — ACCOUNTANT/ADMIN
+// confirms a PAYOUT actually arrived to a selected admin partner. Body carries
+// the chosen admin id; backend validates: PAYOUT row in PENDING_PAYMENT,
+// recipient is an active (non-archived) ADMIN, idempotency (no double-confirm).
+export const confirmPayoutSchema = z.object({
+  recipientAdminId: z.string().uuid(),
+})
+export type ConfirmPayoutDto = z.infer<typeof confirmPayoutSchema>
 
 // ---------------------------------------------------------------------------
 // Finance summary / stats
