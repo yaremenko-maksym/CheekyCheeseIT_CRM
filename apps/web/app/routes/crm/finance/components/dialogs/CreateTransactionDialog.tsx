@@ -1,15 +1,29 @@
 import React, { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, ArrowLeftRight, TrendingUp, Wallet } from 'lucide-react'
+import { toast } from 'sonner'
 import type { TransactionType } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Dialog, CrmDialogContent, CrmDialogHeader, CrmDialogBody, CrmDialogFooter, DialogTitle } from '@/components/ui/crm-dialog'
+import {
+  Dialog,
+  CrmDialogContent,
+  CrmDialogHeader,
+  CrmDialogBody,
+  CrmDialogFooter,
+  DialogTitle,
+} from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
 import { Textarea } from '@/components/ui/textarea'
 import { DatePickerField } from '@/components/ui/date-picker'
@@ -17,7 +31,10 @@ import { financeApi } from '../../api'
 import { EXPENSE_CATEGORIES, TYPE_LABELS } from '../../constants'
 import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptInput'
 
-type ProjectOption = { id: string; name: string; seniorId: string }
+// Drop role - phase 2. Extended with `dropId` so the DROP_INCOME path can
+// filter projects by `project.dropId === user.id`. Backward compatible —
+// `dropId` is optional + null for legacy senior-projects.
+type ProjectOption = { id: string; name: string; seniorId: string; dropId?: string | null }
 type UserOption = { id: string; displayName: string; role: string }
 type ExchangeRate = { usdUah: string; usdtUah: string; eurUah: string; date: string }
 
@@ -26,6 +43,9 @@ type Currency = 'USDT' | 'USD' | 'EUR' | 'UAH'
 const TYPE_ICONS: Record<string, React.ReactNode> = {
   ADMIN_INCOME: <TrendingUp className="h-4 w-4" />,
   SENIOR_INCOME: <TrendingUp className="h-4 w-4" />,
+  // Drop role - phase 2. DROP_INCOME reuses TrendingUp — same business
+  // semantics (income), different recipient.
+  DROP_INCOME: <TrendingUp className="h-4 w-4" />,
   EXPENSE: <Wallet className="h-4 w-4" />,
   SALARY: <Wallet className="h-4 w-4" />,
   ADMIN_TRANSFER: <ArrowLeftRight className="h-4 w-4" />,
@@ -34,6 +54,7 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
 const TYPE_DESCRIPTIONS: Record<string, string> = {
   ADMIN_INCOME: 'Доход с собственного проекта',
   SENIOR_INCOME: 'Доход синьора с проекта',
+  DROP_INCOME: 'Доход дропа с drop-проекта',
   EXPENSE: 'Расход компании',
   SALARY: 'Выплата зарплаты сотруднику',
   ADMIN_TRANSFER: 'Перевод между партнёрами',
@@ -57,12 +78,18 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
 
   const isAdmin = user?.role === 'ADMIN'
   const isSenior = user?.role === 'SENIOR'
+  // Drop role - phase 2. DROP user can only declare DROP_INCOME via this
+  // dialog (mirrors SENIOR_INCOME from the senior path). Other roles never
+  // reach this dialog (FinancePage guards them out).
+  const isDrop = user?.role === 'DROP'
 
   const availableTypes: TransactionType[] = isAdmin
     ? ['ADMIN_INCOME', 'EXPENSE', 'SALARY', 'ADMIN_TRANSFER']
     : isSenior
-    ? ['SENIOR_INCOME']
-    : []
+      ? ['SENIOR_INCOME']
+      : isDrop
+        ? ['DROP_INCOME']
+        : []
 
   const [type, setType] = useState<TransactionType>(availableTypes[0] ?? 'SENIOR_INCOME')
   const [projectId, setProjectId] = useState('')
@@ -102,7 +129,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   const { data: projects = [] } = useQuery<ProjectOption[]>({
     queryKey: ['projects'],
     queryFn: () => api.get<ProjectOption[]>('/projects').then((r) => r.data),
-    enabled: open && (isAdmin || isSenior),
+    enabled: open && (isAdmin || isSenior || isDrop),
   })
 
   const { data: allUsers = [] } = useQuery<UserOption[]>({
@@ -116,13 +143,17 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   const rateDateParam = txDate.replace(/-/g, '') // YYYY-MM-DD → YYYYMMDD
   const { data: exchangeRate, isFetching: _rateFetching } = useQuery<ExchangeRate>({
     queryKey: ['exchange-rate', rateDateParam],
-    queryFn: () => api.get<ExchangeRate>(`/finance/exchange-rate?date=${rateDateParam}`).then((r) => r.data),
+    queryFn: () =>
+      api.get<ExchangeRate>(`/finance/exchange-rate?date=${rateDateParam}`).then((r) => r.data),
     enabled: open && needsRate,
     staleTime: 1000 * 60 * 60 * 24, // 24h — historical rates don't change
   })
 
   const myProjects = isSenior ? projects.filter((p) => p.seniorId === user?.id) : projects
   const adminProjects = isAdmin ? projects.filter((p) => p.seniorId === user?.id) : []
+  // Drop role - phase 2. DROP user can only declare income on drop-projects
+  // routed through them. Backend enforces this too — UI mirrors the rule.
+  const dropProjects = isDrop ? projects.filter((p) => p.dropId === user?.id) : []
   const salaryTargets = allUsers.filter((u) => ['JUNIOR', 'HR', 'ACCOUNTANT'].includes(u.role))
   const adminUsers = allUsers.filter((u) => u.role === 'ADMIN')
   const adminTargets = adminUsers.filter((u) => u.id !== user?.id)
@@ -151,10 +182,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
     const hasReceipt = receiptDocumentId || receiptExternalUrl
 
-    if (type === 'ADMIN_INCOME' || type === 'SENIOR_INCOME') {
+    if (type === 'ADMIN_INCOME' || type === 'SENIOR_INCOME' || type === 'DROP_INCOME') {
       if (!projectId) errors.project = 'Выберите проект'
     }
-    if (type === 'SENIOR_INCOME') {
+    if (type === 'SENIOR_INCOME' || type === 'DROP_INCOME') {
       if (!hasReceipt) errors.receipt = 'Прикрепите чек или укажите ссылку на подтверждение'
     }
     if (type === 'SALARY') {
@@ -171,19 +202,63 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
       const amt = parseFloat(amount)
       // Build XOR receipt fields: exactly one populated, or both null.
       const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
-      const receiptExternalUrl = receipt.mode === 'url' ? (receipt.externalUrl || null) : null
+      const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
 
       if (type === 'ADMIN_INCOME') {
-        return financeApi.createAdminIncome({ projectId, amount: amt, currency, receiptDocumentId, receiptExternalUrl, notes: notes || null, txDate: txDate || null })
+        return financeApi.createAdminIncome({
+          projectId,
+          amount: amt,
+          currency,
+          receiptDocumentId,
+          receiptExternalUrl,
+          notes: notes || null,
+          txDate: txDate || null,
+        })
       }
       if (type === 'SENIOR_INCOME') {
-        return financeApi.createSeniorIncome({ projectId, amount: amt, currency, receiptDocumentId, receiptExternalUrl, notes: notes || null, txDate: txDate || null })
+        return financeApi.createSeniorIncome({
+          projectId,
+          amount: amt,
+          currency,
+          receiptDocumentId,
+          receiptExternalUrl,
+          notes: notes || null,
+          txDate: txDate || null,
+        })
+      }
+      // Drop role - phase 2. Same payload shape as senior income — mirror
+      // path goes through `POST /transactions/drop-income`.
+      if (type === 'DROP_INCOME') {
+        return financeApi.createDropIncome({
+          projectId,
+          amount: amt,
+          currency,
+          receiptDocumentId,
+          receiptExternalUrl,
+          notes: notes || null,
+          txDate: txDate || null,
+        })
       }
       if (type === 'EXPENSE') {
-        return financeApi.createExpense({ amount: amt, currency, category, notes: notes || null, receiptDocumentId, receiptExternalUrl, txDate: txDate || null })
+        return financeApi.createExpense({
+          amount: amt,
+          currency,
+          category,
+          notes: notes || null,
+          receiptDocumentId,
+          receiptExternalUrl,
+          txDate: txDate || null,
+        })
       }
       if (type === 'SALARY') {
-        return financeApi.createSalary({ receiverId, amount: amt, currency, salaryMonth, notes: notes || null, txDate: txDate || null })
+        return financeApi.createSalary({
+          receiverId,
+          amount: amt,
+          currency,
+          salaryMonth,
+          notes: notes || null,
+          txDate: txDate || null,
+        })
       }
       if (type === 'ADMIN_TRANSFER') {
         return financeApi.createAdminTransfer({
@@ -200,6 +275,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['transactions'] })
       void qc.invalidateQueries({ queryKey: ['finance-summary'] })
+      // Drop role - phase 2. Confirm the new flow loudly so the DROP user
+      // knows their tx is registered + queued for validation. Other types
+      // already surface via the table refresh so a toast would be noise.
+      if (type === 'DROP_INCOME') {
+        toast.success('Приход зарегистрирован, ожидает валидации')
+      }
       onClose()
       resetForm()
     },
@@ -214,15 +295,27 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   }
 
   function resetForm() {
-    setProjectId(''); setReceiverId(''); setTransferSenderId(''); setAmount(''); setCurrency('USDT')
-    setCategory(EXPENSE_CATEGORIES[0]!); setReceipt(emptyReceiptState()); setNotes('')
+    setProjectId('')
+    setReceiverId('')
+    setTransferSenderId('')
+    setAmount('')
+    setCurrency('USDT')
+    setCategory(EXPENSE_CATEGORIES[0]!)
+    setReceipt(emptyReceiptState())
+    setNotes('')
     setFieldErrors({})
     const now = new Date()
-    setTxDate(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`)
+    setTxDate(
+      `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`,
+    )
   }
 
   const error = mutation.error instanceof Error ? mutation.error.message : null
-  const showReceipt = type === 'ADMIN_INCOME' || type === 'SENIOR_INCOME' || type === 'EXPENSE'
+  const showReceipt =
+    type === 'ADMIN_INCOME' ||
+    type === 'SENIOR_INCOME' ||
+    type === 'DROP_INCOME' ||
+    type === 'EXPENSE'
   const hasFieldErrors = Object.keys(fieldErrors).length > 0
 
   // Conversion info
@@ -231,7 +324,15 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   const _convertedUsd = rate && !isNaN(amtNum) && amtNum > 0 ? (amtNum * rate).toFixed(2) : null
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) { onClose(); resetForm() } }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) {
+          onClose()
+          resetForm()
+        }
+      }}
+    >
       <CrmDialogContent maxWidth="sm:max-w-lg" data-testid="create-transaction-dialog">
         <CrmDialogHeader>
           <DialogTitle className="text-base" data-testid="create-transaction-dialog-title">
@@ -240,7 +341,6 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
         </CrmDialogHeader>
 
         <CrmDialogBody className="space-y-4 py-1">
-
           {/* Type selector — card-style */}
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Тип операции</Label>
@@ -249,7 +349,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 <button
                   key={t}
                   type="button"
-                  onClick={() => { setType(t); setProjectId(''); setReceiverId(''); setFieldErrors({}) }}
+                  onClick={() => {
+                    setType(t)
+                    setProjectId('')
+                    setReceiverId('')
+                    setFieldErrors({})
+                  }}
                   className={cn(
                     'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
                     type === t
@@ -261,11 +366,11 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   <span className="text-muted-foreground shrink-0">{TYPE_ICONS[t]}</span>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium leading-tight">{TYPE_LABELS[t]}</div>
-                    <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">{TYPE_DESCRIPTIONS[t]}</div>
+                    <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                      {TYPE_DESCRIPTIONS[t]}
+                    </div>
                   </div>
-                  {type === t && (
-                    <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
-                  )}
+                  {type === t && <div className="h-2 w-2 rounded-full bg-primary shrink-0" />}
                 </button>
               ))}
             </div>
@@ -274,10 +379,16 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           <div className="h-px bg-border/60" />
 
           {/* Project selector */}
-          {(type === 'SENIOR_INCOME' || type === 'ADMIN_INCOME') && (
+          {(type === 'SENIOR_INCOME' || type === 'ADMIN_INCOME' || type === 'DROP_INCOME') && (
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Проект</Label>
-              <Select value={projectId} onValueChange={(v) => { setProjectId(v); clearFieldError('project') }}>
+              <Select
+                value={projectId}
+                onValueChange={(v) => {
+                  setProjectId(v)
+                  clearFieldError('project')
+                }}
+              >
                 <SelectTrigger
                   className={cn('h-9 text-sm', fieldErrors.project && 'border-destructive')}
                   data-testid="create-transaction-project-trigger"
@@ -285,13 +396,23 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   <SelectValue placeholder="Выберите проект" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(type === 'ADMIN_INCOME' ? adminProjects : myProjects).map((p) => (
-                    <SelectItem key={p.id} value={p.id} className="text-sm">{p.name}</SelectItem>
+                  {(type === 'ADMIN_INCOME'
+                    ? adminProjects
+                    : type === 'DROP_INCOME'
+                      ? dropProjects
+                      : myProjects
+                  ).map((p) => (
+                    <SelectItem key={p.id} value={p.id} className="text-sm">
+                      {p.name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               {fieldErrors.project && (
-                <p className="text-[11px] text-destructive" data-testid="create-transaction-error-project">
+                <p
+                  className="text-[11px] text-destructive"
+                  data-testid="create-transaction-error-project"
+                >
                   {fieldErrors.project}
                 </p>
               )}
@@ -304,7 +425,13 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs text-muted-foreground">Сотрудник</Label>
-                  <Select value={receiverId} onValueChange={(v) => { setReceiverId(v); clearFieldError('receiver') }}>
+                  <Select
+                    value={receiverId}
+                    onValueChange={(v) => {
+                      setReceiverId(v)
+                      clearFieldError('receiver')
+                    }}
+                  >
                     <SelectTrigger
                       className={cn('h-9 text-sm', fieldErrors.receiver && 'border-destructive')}
                       data-testid="create-transaction-receiver-trigger"
@@ -332,7 +459,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 </div>
               </div>
               {fieldErrors.receiver && (
-                <p className="text-[11px] text-destructive" data-testid="create-transaction-error-receiver">
+                <p
+                  className="text-[11px] text-destructive"
+                  data-testid="create-transaction-error-receiver"
+                >
                   {fieldErrors.receiver}
                 </p>
               )}
@@ -357,7 +487,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   <div className="h-8 w-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-sm font-bold text-primary">
                     {transferSender?.displayName.charAt(0) ?? '?'}
                   </div>
-                  <span className="text-xs font-medium leading-tight">{transferSender?.displayName ?? '—'}</span>
+                  <span className="text-xs font-medium leading-tight">
+                    {transferSender?.displayName ?? '—'}
+                  </span>
                   <span className="text-[10px] text-muted-foreground">отправляет</span>
                 </button>
 
@@ -384,11 +516,15 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   <div className="h-8 w-8 rounded-full bg-muted/40 border border-border flex items-center justify-center text-sm font-bold text-muted-foreground">
                     {transferReceiver?.displayName.charAt(0) ?? '?'}
                   </div>
-                  <span className="text-xs font-medium leading-tight">{transferReceiver?.displayName ?? '—'}</span>
+                  <span className="text-xs font-medium leading-tight">
+                    {transferReceiver?.displayName ?? '—'}
+                  </span>
                   <span className="text-[10px] text-muted-foreground">получает</span>
                 </button>
               </div>
-              <p className="text-[10px] text-muted-foreground/60 text-center">Нажмите на карточки или стрелку, чтобы поменять направление</p>
+              <p className="text-[10px] text-muted-foreground/60 text-center">
+                Нажмите на карточки или стрелку, чтобы поменять направление
+              </p>
             </div>
           )}
 
@@ -420,7 +556,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           <AmountCurrencyInput
             amount={amount}
             currency={currency}
-            onAmountChange={(v) => { setAmount(v); clearFieldError('amount') }}
+            onAmountChange={(v) => {
+              setAmount(v)
+              clearFieldError('amount')
+            }}
             onCurrencyChange={setCurrency}
             error={fieldErrors.amount}
             errorTestId="create-transaction-error-amount"
@@ -437,11 +576,17 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             <div className="space-y-1.5">
               <ReceiptInput
                 state={receipt}
-                onChange={(s) => { setReceipt(s); clearFieldError('receipt') }}
+                onChange={(s) => {
+                  setReceipt(s)
+                  clearFieldError('receipt')
+                }}
                 label={type === 'SENIOR_INCOME' ? 'Чек / подтверждение *' : 'Чек / подтверждение'}
               />
               {fieldErrors.receipt && (
-                <p className="text-[11px] text-destructive" data-testid="create-transaction-error-receipt">
+                <p
+                  className="text-[11px] text-destructive"
+                  data-testid="create-transaction-error-receipt"
+                >
                   {fieldErrors.receipt}
                 </p>
               )}
@@ -450,7 +595,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
 
           {/* Notes */}
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Заметки <span className="text-muted-foreground/50">(необязательно)</span></Label>
+            <Label className="text-xs text-muted-foreground">
+              Заметки <span className="text-muted-foreground/50">(необязательно)</span>
+            </Label>
             <Textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -459,7 +606,6 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
               className="text-sm resize-none"
             />
           </div>
-
         </CrmDialogBody>
 
         {/* AC4: when fields are missing, show a short summary banner pointing
@@ -486,7 +632,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           <Button
             variant="outline"
             size="sm"
-            onClick={() => { onClose(); resetForm() }}
+            onClick={() => {
+              onClose()
+              resetForm()
+            }}
             data-testid="create-transaction-cancel"
           >
             Отмена

@@ -5,6 +5,7 @@ import type {
   PayoutRequestDto,
   CreateAdminIncomeDto,
   CreateSeniorIncomeDto,
+  CreateDropIncomeDto,
   CreateExpenseDto,
   CreateSalaryDto,
   CreateAdminTransferDto,
@@ -29,6 +30,12 @@ export const financeApi = {
 
   createSeniorIncome: (data: CreateSeniorIncomeDto) =>
     api.post<TransactionDto>('/transactions/senior-income', data).then((r) => r.data),
+
+  // Drop role - phase 2. DROP user registers project income; same flow as
+  // senior-income but goes to a separate endpoint that enforces the
+  // `project.dropId === caller.id` invariant.
+  createDropIncome: (data: CreateDropIncomeDto) =>
+    api.post<TransactionDto>('/transactions/drop-income', data).then((r) => r.data),
 
   updateSeniorIncome: (id: string, data: UpdateSeniorIncomeDto) =>
     api.patch<TransactionDto>(`/transactions/senior-income/${id}`, data).then((r) => r.data),
@@ -55,8 +62,7 @@ export const financeApi = {
     api.delete<{ deleted: boolean }>(`/transactions/${id}`).then((r) => r.data),
 
   // Payout requests
-  getPayoutRequests: () =>
-    api.get<PayoutRequestDto[]>('/payout-requests').then((r) => r.data),
+  getPayoutRequests: () => api.get<PayoutRequestDto[]>('/payout-requests').then((r) => r.data),
 
   getPayoutRequest: (id: string) =>
     api.get<PayoutRequestDto>(`/payout-requests/${id}`).then((r) => r.data),
@@ -68,13 +74,16 @@ export const financeApi = {
     api.patch<PayoutRequestDto>(`/payout-requests/${id}/pay`, data).then((r) => r.data),
 
   // Summary
-  getSummary: () =>
-    api.get<FinanceSummaryDto>('/finance/summary').then((r) => r.data),
+  getSummary: () => api.get<FinanceSummaryDto>('/finance/summary').then((r) => r.data),
 
   // NBU exchange rate (date = YYYYMMDD, optional)
   getExchangeRate: (date?: string) =>
-    api.get<{ usdUah: string; usdtUah: string; eurUah: string; date: string }>(
-      '/finance/exchange-rate',
-      { ...(date !== undefined && { params: { date } }) },
-    ).then((r) => r.data),
+    api
+      .get<{
+        usdUah: string
+        usdtUah: string
+        eurUah: string
+        date: string
+      }>('/finance/exchange-rate', { ...(date !== undefined && { params: { date } }) })
+      .then((r) => r.data),
 }
