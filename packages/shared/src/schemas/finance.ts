@@ -439,6 +439,105 @@ export const pendingObligationSchema = z.object({
 })
 export type PendingObligationDto = z.infer<typeof pendingObligationSchema>
 
+// ---------------------------------------------------------------------------
+// Phase 4-B — Payment Channels (crypto / bank / cash)
+// ---------------------------------------------------------------------------
+//
+// PaymentChannelService (apps/api/src/finance/payment-channel.service.ts) is
+// the entry point for drop-projects that need to settle a validated
+// DROP_INCOME with the company. Three alternative channels (crypto, bank,
+// cash) live alongside the legacy Phase 2 `payPayoutRequest` and Phase 3
+// `confirmPayout` flows — both remain functional. Phase 4-B does NOT replace
+// the existing paths.
+//
+// Numbers are spec-aligned for the canonical $3500 example:
+//   - 10% drop share ($350) — stays with the drop, no transaction recorded
+//   - 16% senior share ($560) — paid out (crypto direct OR senior IOU)
+//   - 37% / 37% admin partner shares ($1295 each)
+// Generic math: `senior = income * seniorPercent / 100`,
+//               `drop   = income * dropPercent / 100`,
+//               `partners = income - senior - drop`, split 50/50.
+
+// Recipient shape for the crypto channel — drop sees one row per wallet
+// transfer (senior + Maksym + Kostya). The frontend renders this as 3 cards
+// with "send $X USDT to 0x…" instructions.
+export const cryptoRecipientSchema = z.object({
+  userId: z.string().uuid(),
+  displayName: z.string(),
+  address: z.string(),
+  amount: z.string(), // numeric string mirrors transactions.amount
+  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+  role: z.enum(['SENIOR', 'ADMIN']),
+})
+export type CryptoRecipientDto = z.infer<typeof cryptoRecipientSchema>
+
+export const initiateCryptoPaymentResponseSchema = z.object({
+  contractAddress: z.string().nullable(), // Phase 5: PaymentSplitter address; null today
+  recipients: z.array(cryptoRecipientSchema),
+  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+})
+export type InitiateCryptoPaymentResponseDto = z.infer<typeof initiateCryptoPaymentResponseSchema>
+
+// Request body for /api/payments/confirm-crypto. txHashes is one hash per
+// recipient (3 today: senior + 2 admins) OR a single hash if Phase 5 routes
+// everything through one PaymentSplitter call. The backend just records what
+// it receives — no on-chain verification yet.
+export const confirmCryptoPaymentSchema = z.object({
+  incomeId: z.string().uuid(),
+  txHashes: z.array(z.string().min(4).max(255)).min(1),
+})
+export type ConfirmCryptoPaymentDto = z.infer<typeof confirmCryptoPaymentSchema>
+
+export const initiateCryptoPaymentSchema = z.object({
+  incomeId: z.string().uuid(),
+})
+export type InitiateCryptoPaymentDto = z.infer<typeof initiateCryptoPaymentSchema>
+
+// Bank channel — drop transfers UAH to the corporate ТОВ account. Backend
+// returns the ТОВ banking details + a unique reference (per income) the drop
+// includes in the wire description so accountant can match it later.
+export const tovBankDetailsSchema = z.object({
+  recipient: z.string(),
+  iban: z.string(),
+  rnokpp: z.string(),
+  bankName: z.string(),
+  reference: z.string(), // INV-INC-<id>
+})
+export type TovBankDetailsDto = z.infer<typeof tovBankDetailsSchema>
+
+export const initiateBankPaymentResponseSchema = z.object({
+  tovBankDetails: tovBankDetailsSchema,
+  amount: z.string(), // total drop pays to ТОВ (all but drop share)
+  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+})
+export type InitiateBankPaymentResponseDto = z.infer<typeof initiateBankPaymentResponseSchema>
+
+export const initiateBankPaymentSchema = z.object({
+  incomeId: z.string().uuid(),
+})
+export type InitiateBankPaymentDto = z.infer<typeof initiateBankPaymentSchema>
+
+export const confirmBankPaymentSchema = z.object({
+  incomeId: z.string().uuid(),
+})
+export type ConfirmBankPaymentDto = z.infer<typeof confirmBankPaymentSchema>
+
+// Cash channel — drop hands cash to one chosen admin. Creates transactions
+// immediately (no validation step on the receiving side).
+export const initiateCashPaymentSchema = z.object({
+  incomeId: z.string().uuid(),
+  recipientAdminId: z.string().uuid(),
+})
+export type InitiateCashPaymentDto = z.infer<typeof initiateCashPaymentSchema>
+
+// Wire response for the cash and bank confirm flows — returns the list of
+// transactions created so the UI can refresh without a second round-trip.
+export const paymentChannelCascadeResponseSchema = z.object({
+  income: transactionSchema,
+  created: z.array(transactionSchema),
+})
+export type PaymentChannelCascadeResponseDto = z.infer<typeof paymentChannelCascadeResponseSchema>
+
 export const financeSummarySchema = z.object({
   totalIncome: z.number(),
   totalExpenses: z.number(),
