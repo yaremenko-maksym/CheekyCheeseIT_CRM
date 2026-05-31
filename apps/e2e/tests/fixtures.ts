@@ -582,6 +582,32 @@ export async function mockAuthAs(
   // mock immediately above.
   await page.route(new RegExp(`${API}/payments/pending-cash(\\?.*)?$`), (r) => jsonOk(r, []))
 
+  // Drop role - phase 4-C. PendingSettlement{Senior,Drop,Tov}Card mount on
+  // /crm/finance + DROP FinanceTab and immediately fire GET
+  // /api/pending-settlements/{senior,drop,tov}. Without these mocks → 401 →
+  // axios interceptor → redirect to /login → every test that touches
+  // /crm/finance or /crm/profile?tab=finance fails. Same fix pattern as
+  // /api/payments/pending-cash mock above.
+  await page.route(new RegExp(`${API}/pending-settlements/senior(\\?.*)?$`), (r) => jsonOk(r, []))
+  await page.route(new RegExp(`${API}/pending-settlements/drop(\\?.*)?$`), (r) => jsonOk(r, []))
+  await page.route(new RegExp(`${API}/pending-settlements/tov(\\?.*)?$`), (r) => jsonOk(r, []))
+
+  // Drop role - phase 4-A/4-C. PendingSettlementTovCard (ADMIN/ACCOUNTANT view)
+  // fetches the TOV running balance via GET /api/balances/tov?currency=USD to
+  // know whether the «Выплатить из ТОВ» button should be disabled. Without
+  // this mock the request 401s → axios interceptor → /login → ADMIN nav tests
+  // landing on /crm/finance fail. Stats page (`/crm/stats`) also queries
+  // /balances/admin/:id and /balances/senior/:id — mock all three.
+  await page.route(new RegExp(`${API}/balances/tov(\\?.*)?$`), (r) =>
+    jsonOk(r, { balance: 100000, currency: 'USD', breakdown: {} }),
+  )
+  await page.route(new RegExp(`${API}/balances/admin/([^/?]+)(\\?.*)?$`), (r) =>
+    jsonOk(r, { balance: 0, currency: 'USD', breakdown: {} }),
+  )
+  await page.route(new RegExp(`${API}/balances/senior/([^/?]+)(\\?.*)?$`), (r) =>
+    jsonOk(r, { balance: 0, currency: 'USD', breakdown: {} }),
+  )
+
   // Users — register specific sub-routes before the generic one
   // /users/me — profile shell expects UserWithPermissionsResponse shape
   await page.route(`${API}/users/me`, (r) =>
