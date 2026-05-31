@@ -16,6 +16,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/axios'
 import { useAuth } from '@/context/auth'
+import { formatAmountUsd } from '@/lib/format-amount'
 import { financeApi } from '@/routes/crm/finance/api'
 import { STATUS_LABELS, TYPE_LABELS, type ExchangeRates } from '@/routes/crm/finance/constants'
 import { TransactionRow } from '@/routes/crm/finance/components/TransactionRow'
@@ -181,8 +182,11 @@ export function FinanceTab({ userId }: { userId: string }) {
                     <p className="text-sm font-medium truncate">
                       {tx.projectName ?? tx.senderLabel ?? 'Drop income'}
                     </p>
-                    <p className="text-xs text-muted-foreground tabular-nums">
-                      {tx.amount} {tx.currency}
+                    <p
+                      className="text-xs text-muted-foreground tabular-nums"
+                      data-testid={`actionable-drop-income-amount-${tx.id}`}
+                    >
+                      {formatAmountUsd(tx.amount, tx.currency)}
                     </p>
                   </div>
                   <Button

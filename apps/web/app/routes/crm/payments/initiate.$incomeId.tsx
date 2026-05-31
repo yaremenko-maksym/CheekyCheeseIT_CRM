@@ -6,7 +6,7 @@
  * RBAC: DROP can only act on their OWN income; ACCOUNTANT/ADMIN can access
  * any. Other roles are redirected to /crm/dashboard.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Banknote, CheckCircle2, Coins, Copy, Loader2, Wallet } from 'lucide-react'
@@ -18,14 +18,6 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { financeApi } from '../finance/api'
 
@@ -429,11 +421,10 @@ function BankDetailsRow({
 }
 
 // ── Cash channel ──────────────────────────────────────────────────────────
-
-interface AdminLite {
-  id: string
-  displayName: string
-}
+//
+// Round-2 rewrite: the DROP no longer picks who receives the cash. They just
+// confirm physical handoff happened — the ACCOUNTANT/ADMIN later picks which
+// admin actually received the money via the /crm/finance pending-cash list.
 
 function CashChannelCard({
   incomeId,
@@ -442,25 +433,16 @@ function CashChannelCard({
   incomeId: string
   queryClient: QueryClientType
 }) {
-  const [adminId, setAdminId] = useState<string>('')
   const [done, setDone] = useState(false)
 
-  const { data: users, isLoading } = useQuery({
-    queryKey: ['admins-cash-recipients'],
-    queryFn: () => api.get<AdminLite[]>('/users?role=ADMIN').then((r) => r.data),
-    staleTime: 5 * 60_000,
-  })
-
-  const admins = useMemo(() => users ?? [], [users])
-
-  const confirm = useMutation({
-    mutationFn: (recipientAdminId: string) =>
-      financeApi.initiateCashPayment(incomeId, recipientAdminId),
+  const initiate = useMutation({
+    mutationFn: () => financeApi.initiateCashPayment(incomeId),
     onSuccess: () => {
-      toast.success('Оплата налом зафиксирована')
+      toast.success('Ожидает подтверждения бухгалтера')
       setDone(true)
       void queryClient.invalidateQueries({ queryKey: ['transaction', incomeId] })
       void queryClient.invalidateQueries({ queryKey: ['profile-transactions'] })
+      void queryClient.invalidateQueries({ queryKey: ['payments-pending-cash'] })
     },
     onError: (err) => toast.error(extractErrorMessage(err)),
   })
@@ -473,45 +455,30 @@ function CashChannelCard({
           Наличные админу
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          Передать нал одному из админов. Транзакции создаются сразу.
+          Передайте нал любому из админов (Maksym или Kostya). После этого нажмите кнопку —
+          бухгалтер подтвердит зачисление.
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
         {done ? (
-          <SuccessBlock label="Cash-оплата зафиксирована" />
+          <SuccessBlock label="Ожидает подтверждения бухгалтера" />
         ) : (
           <>
-            <div className="space-y-1">
-              <Label className="text-xs">Получатель</Label>
-              {isLoading ? (
-                <Skeleton className="h-9 w-full" />
-              ) : (
-                <Select value={adminId} onValueChange={setAdminId}>
-                  <SelectTrigger className="h-9" data-testid="cash-admin-select">
-                    <SelectValue placeholder="Выберите админа" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {admins.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.displayName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
+            <div
+              className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100"
+              data-testid="cash-channel-hint"
+            >
+              Бухгалтер выберет получившего админа после того как нал будет передан. Senior-доля
+              остаётся долгом дропа синьору и закроется позже.
             </div>
-            <p className="text-[11px] text-muted-foreground">
-              Партнёрская доля целиком уходит выбранному админу. Senior-доля записывается как долг
-              дропа синьору (закроется позже).
-            </p>
             <Button
               className="w-full"
-              disabled={!adminId || confirm.isPending}
-              onClick={() => confirm.mutate(adminId)}
-              data-testid="cash-confirm-button"
+              disabled={initiate.isPending}
+              onClick={() => initiate.mutate()}
+              data-testid="cash-initiate-button"
             >
-              {confirm.isPending && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
-              Передал нал, подтвердить
+              {initiate.isPending && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}Я передал нал
+              админу
             </Button>
           </>
         )}

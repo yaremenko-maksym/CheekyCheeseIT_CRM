@@ -19,6 +19,9 @@ import type {
   InitiateCryptoPaymentResponseDto,
   ConfirmCryptoPaymentDto,
   InitiateBankPaymentResponseDto,
+  InitiateCashPaymentResponseDto,
+  ConfirmCashPaymentDto,
+  PendingCashListResponseDto,
   PaymentChannelCascadeResponseDto,
   BalanceDto,
 } from '@crm/shared'
@@ -142,11 +145,14 @@ export const financeApi = {
     api
       .post<PaymentChannelCascadeResponseDto>('/payments/confirm-bank', { incomeId })
       .then((r) => r.data),
-  initiateCashPayment: (incomeId: string, recipientAdminId: string) =>
+  // Round-2 flow: drop only signals "I handed cash". ACCOUNTANT/ADMIN later
+  // picks the actual recipient via /payments/confirm-cash.
+  initiateCashPayment: (incomeId: string) =>
     api
-      .post<PaymentChannelCascadeResponseDto>('/payments/initiate-cash', {
-        incomeId,
-        recipientAdminId,
-      })
+      .post<InitiateCashPaymentResponseDto>('/payments/initiate-cash', { incomeId })
       .then((r) => r.data),
+  confirmCashPayment: (data: ConfirmCashPaymentDto) =>
+    api.post<PaymentChannelCascadeResponseDto>('/payments/confirm-cash', data).then((r) => r.data),
+  listPendingCash: () =>
+    api.get<PendingCashListResponseDto>('/payments/pending-cash').then((r) => r.data),
 }
