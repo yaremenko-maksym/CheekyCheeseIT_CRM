@@ -1,0 +1,243 @@
+/**
+ * drop-distribution-edge.spec.ts — task-drop-phase2-e2e (AC3).
+ *
+ * Edge cases for the Phase 2 distribution math (§8.1):
+ *
+ *   - senior 50% + drop 50% → remainder = $0, partners [$0, $0].
+ *     4 rows still created (PAYOUT placeholder + PAYOUT_DROP + 2×PAYOUT_ADMIN),
+ *     but the two PAYOUT_ADMIN amounts are 0.
+ *   - senior 60% + drop 50% → backend 400 BadRequest at pay-time
+ *     ("Sum of senior+drop shares exceeds 100%"). The income lives PENDING /
+ *     VALIDATED but the payout never completes.
+ *   - senior 0% + drop 0% → partners 500 / 500 (full residual). Spec edge
+ *     for "all to partners".
+ *
+ * To avoid mutating the seed seniors across parallel runs each scenario
+ * creates a *fresh* drop user with the appropriate `dropSharePercent`
+ * and bumps the chosen seed senior's share via `patchUserSharePercentViaAPI`.
+ * Tests serialise the senior share mutations by using DIFFERENT seed seniors
+ * per scenario (seniorA / seniorB) and run `test.describe.configure({ mode:
+ * 'serial' })` so a half-finished cleanup can't bleed into the next case.
+ *
+ * Cleanup: each scenario restores the senior's seniorSharePercent to the seed
+ * default (26) and cascade-archives the drop.
+ */
+
+import { test, expect } from './fixtures'
+import {
+  SEED_ADMIN_EMAIL,
+  SEED_EMAILS,
+  MAKSYM_ID,
+  KOSTYA_ID,
+  loginViaApi,
+  createDropViaAPI,
+  cleanupDropViaAPI,
+  createDropProjectViaAPI,
+  createDropIncomeViaAPI,
+  validateTransactionViaAPI,
+  payPayoutRequestViaAPI,
+  listTransactionsByProjectViaAPI,
+  findUserByEmailViaApi,
+  patchUserSharePercentViaAPI,
+} from './fixtures'
+
+function uniqueSuffix(): string {
+  return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+}
+
+const SEED_DEFAULT_SHARE = 26
+
+test.describe.configure({ mode: 'serial' })
+
+test.describe('Drop distribution edge cases — real API (AC3)', () => {
+  test('senior 50% + drop 50% → remainder 0, partners [0, 0] (4 rows still created)', async ({
+    page,
+  }) => {
+    const suffix = uniqueSuffix()
+    const dropEmail = `drop-edge-50-50-${suffix}@cheekycheese.dev`
+
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
+    const senior = await findUserByEmailViaApi(page, SEED_EMAILS.seniorA)
+    if (!senior) throw new Error('Seed senior not found')
+
+    // Bump senior to 50%.
+    await patchUserSharePercentViaAPI(page, senior.id, { seniorSharePercent: 50 })
+
+    // Drop with 50% share.
+    const { dropId } = await createDropViaAPI(page, {
+      email: dropEmail,
+      displayName: `Drop Edge 50/50 ${suffix}`,
+      dropSharePercent: 50,
+    })
+
+    try {
+      const { projectId } = await createDropProjectViaAPI(page, {
+        dropId,
+        seniorEmail: SEED_EMAILS.seniorA,
+      })
+
+      // DROP posts $1000, ACCOUNTANT validates, DROP pays.
+      await loginViaApi(page, dropEmail)
+      const { txId } = await createDropIncomeViaAPI(page, { projectId, amount: 1000 })
+
+      await loginViaApi(page, SEED_EMAILS.accountant)
+      const { payoutRequestId } = await validateTransactionViaAPI(page, txId)
+      expect(payoutRequestId).toBeTruthy()
+
+      await loginViaApi(page, dropEmail)
+      const paid = await payPayoutRequestViaAPI(page, payoutRequestId!)
+      expect(paid.status).toBe('PAID')
+
+      // Assertions.
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
+      const txs = await listTransactionsByProjectViaAPI(page, projectId)
+      const payouts = txs.filter((t) => t.type === 'PAYOUT')
+      const payoutDrops = txs.filter((t) => t.type === 'PAYOUT_DROP')
+      const payoutAdmins = txs.filter((t) => t.type === 'PAYOUT_ADMIN')
+
+      // PAYOUT placeholder = income * (1 - dropShare/100) = 1000 * 0.5 = 500.
+      expect(payouts).toHaveLength(1)
+      expect(parseFloat(payouts[0]!.amount)).toBeCloseTo(500, 2)
+
+      // PAYOUT_DROP = 50% of income = 500.
+      expect(payoutDrops).toHaveLength(1)
+      expect(parseFloat(payoutDrops[0]!.amount)).toBeCloseTo(500, 2)
+
+      // PAYOUT_ADMIN = remainder/2 each; remainder = 1000 − 500 − 500 = 0.
+      expect(payoutAdmins).toHaveLength(2)
+      for (const row of payoutAdmins) {
+        expect(parseFloat(row.amount)).toBeCloseTo(0, 2)
+      }
+      const maksym = payoutAdmins.find((r) => r.receiverId === MAKSYM_ID)
+      const kostya = payoutAdmins.find((r) => r.receiverId === KOSTYA_ID)
+      expect(maksym).toBeTruthy()
+      expect(kostya).toBeTruthy()
+
+    } finally {
+      // Restore seed senior% to default + cascade-archive the drop.
+      await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
+      await patchUserSharePercentViaAPI(page, senior.id, {
+        seniorSharePercent: SEED_DEFAULT_SHARE,
+      }).catch(() => undefined)
+      await cleanupDropViaAPI(page, dropId)
+    }
+  })
+
+  test('senior 60% + drop 50% → pay-time 400 BadRequest "exceeds 100%"', async ({ page }) => {
+    const suffix = uniqueSuffix()
+    const dropEmail = `drop-edge-60-50-${suffix}@cheekycheese.dev`
+
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
+    // Use seniorB to avoid cross-test interference if the 50/50 cleanup lags.
+    const senior = await findUserByEmailViaApi(page, SEED_EMAILS.seniorB)
+    if (!senior) throw new Error('Seed senior not found')
+
+    await patchUserSharePercentViaAPI(page, senior.id, { seniorSharePercent: 60 })
+
+    const { dropId } = await createDropViaAPI(page, {
+      email: dropEmail,
+      displayName: `Drop Edge 60/50 ${suffix}`,
+      dropSharePercent: 50,
+    })
+
+    try {
+      const { projectId } = await createDropProjectViaAPI(page, {
+        dropId,
+        seniorEmail: SEED_EMAILS.seniorB,
+      })
+
+      await loginViaApi(page, dropEmail)
+      const { txId } = await createDropIncomeViaAPI(page, { projectId, amount: 1000 })
+
+      // Validate still succeeds — payable = 1000 * 0.5 = 500 (drop only).
+      // The 60+50 violation is caught later, at pay-time, when the backend
+      // attempts the senior/drop share math.
+      await loginViaApi(page, SEED_EMAILS.accountant)
+      const { payoutRequestId } = await validateTransactionViaAPI(page, txId)
+      expect(payoutRequestId).toBeTruthy()
+
+      // Now try to pay → expect 400 BadRequest with the exceeds-100% body.
+      await loginViaApi(page, dropEmail)
+      const res = await page.request.patch(
+        `http://localhost:3001/api/payout-requests/${payoutRequestId}/pay`,
+        { data: { simulateResult: 'success' } },
+      )
+      expect(res.status()).toBe(400)
+      const body = await res.text()
+      expect(body).toMatch(/Sum of senior\+drop shares exceeds 100%/i)
+
+      // Sanity: no PAYOUT_DROP / PAYOUT_ADMIN rows were inserted (the failed
+      // pay is wrapped in the backend's request handling, not a DB
+      // transaction, so the placeholder PAYOUT exists from validate but
+      // the distribution rows must NOT).
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
+      const txs = await listTransactionsByProjectViaAPI(page, projectId)
+      expect(txs.filter((t) => t.type === 'PAYOUT_DROP')).toHaveLength(0)
+      expect(txs.filter((t) => t.type === 'PAYOUT_ADMIN')).toHaveLength(0)
+
+    } finally {
+      await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
+      await patchUserSharePercentViaAPI(page, senior.id, {
+        seniorSharePercent: SEED_DEFAULT_SHARE,
+      }).catch(() => undefined)
+      await cleanupDropViaAPI(page, dropId)
+    }
+  })
+
+  test('senior 0% + drop 0% → partners 500 / 500 (all residual to partners)', async ({ page }) => {
+    const suffix = uniqueSuffix()
+    const dropEmail = `drop-edge-0-0-${suffix}@cheekycheese.dev`
+
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
+    const senior = await findUserByEmailViaApi(page, SEED_EMAILS.seniorA)
+    if (!senior) throw new Error('Seed senior not found')
+
+    await patchUserSharePercentViaAPI(page, senior.id, { seniorSharePercent: 0 })
+
+    const { dropId } = await createDropViaAPI(page, {
+      email: dropEmail,
+      displayName: `Drop Edge 0/0 ${suffix}`,
+      dropSharePercent: 0,
+    })
+
+    try {
+      const { projectId } = await createDropProjectViaAPI(page, {
+        dropId,
+        seniorEmail: SEED_EMAILS.seniorA,
+      })
+
+      await loginViaApi(page, dropEmail)
+      const { txId } = await createDropIncomeViaAPI(page, { projectId, amount: 1000 })
+
+      await loginViaApi(page, SEED_EMAILS.accountant)
+      const { payoutRequestId } = await validateTransactionViaAPI(page, txId)
+      expect(payoutRequestId).toBeTruthy()
+
+      await loginViaApi(page, dropEmail)
+      await payPayoutRequestViaAPI(page, payoutRequestId!)
+
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
+      const txs = await listTransactionsByProjectViaAPI(page, projectId)
+      const payoutDrops = txs.filter((t) => t.type === 'PAYOUT_DROP')
+      const payoutAdmins = txs.filter((t) => t.type === 'PAYOUT_ADMIN')
+
+      // PAYOUT_DROP = 0 (drop kept 0%).
+      expect(payoutDrops).toHaveLength(1)
+      expect(parseFloat(payoutDrops[0]!.amount)).toBeCloseTo(0, 2)
+
+      // PAYOUT_ADMIN = 500 / 500.
+      expect(payoutAdmins).toHaveLength(2)
+      const maksym = payoutAdmins.find((r) => r.receiverId === MAKSYM_ID)
+      const kostya = payoutAdmins.find((r) => r.receiverId === KOSTYA_ID)
+      expect(parseFloat(maksym!.amount)).toBeCloseTo(500, 2)
+      expect(parseFloat(kostya!.amount)).toBeCloseTo(500, 2)
+
+    } finally {
+      await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
+      await patchUserSharePercentViaAPI(page, senior.id, {
+        seniorSharePercent: SEED_DEFAULT_SHARE,
+      }).catch(() => undefined)
+      await cleanupDropViaAPI(page, dropId)
+    }
+  })
+})
