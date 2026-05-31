@@ -1,7 +1,7 @@
 # Progress: task-drop-phase4b-payment-channels
 
-current_milestone: 5/5 — "frontend page + FinanceTab + stats TOВ done; typecheck green"
-last_commit: e18e53c
+current_milestone: 5/5 — "DONE: verified via Playwright MCP, all 6 screenshots saved"
+last_commit: 70c482a
 last_push: 2026-05-31
 
 milestones:
