@@ -9,6 +9,8 @@ import { EtherscanService } from './etherscan.service'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { PaymentChannelController } from './payment-channel.controller'
 import { PaymentChannelService } from './payment-channel.service'
+import { PendingSettlementController } from './pending-settlement.controller'
+import { PendingSettlementService } from './pending-settlement.service'
 import { SalaryCronService } from './salary-cron.service'
 import {
   FinanceSummaryController,
@@ -39,6 +41,8 @@ import { TransactionsService } from './transactions.service'
     BalanceService,
     // Phase 4-B: drop-project payment channels (crypto/bank/cash).
     PaymentChannelService,
+    // Phase 4-C: pending senior IOU settlement (close TOV/DROP debts).
+    PendingSettlementService,
   ],
   controllers: [
     TransactionsController,
@@ -50,7 +54,9 @@ import { TransactionsService } from './transactions.service'
     PendingObligationsController,
     // Phase 4-B: /api/payments/{initiate,confirm}-{crypto,bank,cash}
     PaymentChannelController,
+    // Phase 4-C: /api/pending-settlements/{senior,drop,tov,:id/settle-*}
+    PendingSettlementController,
   ],
-  exports: [TransactionsService, BalanceService, PaymentChannelService],
+  exports: [TransactionsService, BalanceService, PaymentChannelService, PendingSettlementService],
 })
 export class FinanceModule {}
