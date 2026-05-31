@@ -58,6 +58,12 @@ export const transactionStatusSchema = z.enum([
   'REJECTED', // Accountant/admin rejected; senior must edit and resubmit
   'PAID', // Completed
   'LOCKED', // Junior salary locked until senior has validated income
+  // Drop role - phase 4-B round 2. PAYOUT row sits in this status from the
+  // moment the DROP clicks «Я передал нал админу» until ACCOUNTANT/ADMIN
+  // picks which admin actually received the cash via /confirm-cash. While in
+  // this status NO income transactions exist for the cascade — the row is a
+  // placeholder. /confirm-cash flips it to PAID and inserts the cascade.
+  'PENDING_CASH_CONFIRM',
 ])
 export type TransactionStatus = z.infer<typeof transactionStatusSchema>
 
@@ -529,13 +535,51 @@ export const confirmBankPaymentSchema = z.object({
 })
 export type ConfirmBankPaymentDto = z.infer<typeof confirmBankPaymentSchema>
 
-// Cash channel — drop hands cash to one chosen admin. Creates transactions
-// immediately (no validation step on the receiving side).
+// Cash channel — drop hands cash to ONE of the admins out-of-band (Maksym or
+// Kostya). Round-2 fix: the drop no longer chooses the recipient. The
+// `/initiate-cash` call only marks the PAYOUT as `PENDING_CASH_CONFIRM` and
+// records no income transactions — the ACCOUNTANT/ADMIN then picks which
+// admin actually received the cash via `/confirm-cash`, which creates the
+// real `ADMIN_INCOME_CASH` + `SENIOR_PENDING_PAYOUT` rows.
 export const initiateCashPaymentSchema = z.object({
+  incomeId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
+})
+export type InitiateCashPaymentDto = z.infer<typeof initiateCashPaymentSchema>
+
+// Confirm-cash body — accountant picks one of the active admins.
+export const confirmCashPaymentSchema = z.object({
   incomeId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
   recipientAdminId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
 })
-export type InitiateCashPaymentDto = z.infer<typeof initiateCashPaymentSchema>
+export type ConfirmCashPaymentDto = z.infer<typeof confirmCashPaymentSchema>
+
+// Lightweight initiate-cash response — frontend just needs to know the
+// status; transactions appear only after confirm.
+export const initiateCashPaymentResponseSchema = z.object({
+  incomeId: z.string(),
+  payoutId: z.string().nullable(),
+  status: z.literal('PENDING_CASH_CONFIRM'),
+})
+export type InitiateCashPaymentResponseDto = z.infer<typeof initiateCashPaymentResponseSchema>
+
+// GET /api/payments/pending-cash — one row per PAYOUT in PENDING_CASH_CONFIRM,
+// enriched with drop / project / amount so the accountant can pick the
+// recipient admin without follow-up requests.
+export const pendingCashItemSchema = z.object({
+  incomeId: z.string(),
+  payoutId: z.string(),
+  dropId: z.string(),
+  dropName: z.string(),
+  projectId: z.string().nullable(),
+  projectName: z.string().nullable(),
+  amount: z.string(),
+  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+  initiatedAt: z.string(),
+})
+export type PendingCashItemDto = z.infer<typeof pendingCashItemSchema>
+
+export const pendingCashListResponseSchema = z.array(pendingCashItemSchema)
+export type PendingCashListResponseDto = z.infer<typeof pendingCashListResponseSchema>
 
 // Wire response for the cash and bank confirm flows — returns the list of
 // transactions created so the UI can refresh without a second round-trip.

@@ -169,6 +169,13 @@
       "when": 1781400000000,
       "tag": "0023_phase4a_balance_types",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1781500000000,
+      "tag": "0024_pending_cash_confirm",
+      "breakpoints": true
     }
   ]
 }

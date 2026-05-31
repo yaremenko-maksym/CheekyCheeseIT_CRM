@@ -5,15 +5,20 @@
  *   POST /api/payments/confirm-crypto   → creates 3 INCOME rows, closes PAYOUT
  *   POST /api/payments/initiate-bank    → ТОВ banking details + reference
  *   POST /api/payments/confirm-bank     → creates TOV_INCOME + SENIOR_PENDING_PAYOUT
- *   POST /api/payments/initiate-cash    → creates ADMIN_INCOME_CASH + SENIOR_PENDING_PAYOUT
+ *   POST /api/payments/initiate-cash    → marks PAYOUT as PENDING_CASH_CONFIRM
+ *                                         (NO transactions yet)
+ *   POST /api/payments/confirm-cash     → accountant/admin picks recipient admin,
+ *                                         creates ADMIN_INCOME_CASH + SENIOR_PENDING_PAYOUT
+ *   GET  /api/payments/pending-cash     → accountant/admin dashboard list
  *
  * RBAC is enforced inside `PaymentChannelService` so the controller stays
  * thin. Each handler parses the body through the shared Zod schema before
  * delegating.
  */
-import { Body, Controller, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common'
 import {
   confirmBankPaymentSchema,
+  confirmCashPaymentSchema,
   confirmCryptoPaymentSchema,
   initiateBankPaymentSchema,
   initiateCashPaymentSchema,
@@ -56,6 +61,17 @@ export class PaymentChannelController {
   @Post('initiate-cash')
   initiateCash(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     const data = initiateCashPaymentSchema.parse(body)
-    return this.svc.initiateCashPayment(data.incomeId, data.recipientAdminId, user)
+    return this.svc.initiateCashPayment(data.incomeId, user)
+  }
+
+  @Post('confirm-cash')
+  confirmCash(@Body() body: unknown, @CurrentUser() user: SessionUser) {
+    const data = confirmCashPaymentSchema.parse(body)
+    return this.svc.confirmCashPayment(data.incomeId, data.recipientAdminId, user)
+  }
+
+  @Get('pending-cash')
+  pendingCash(@CurrentUser() user: SessionUser) {
+    return this.svc.listPendingCash(user)
   }
 }

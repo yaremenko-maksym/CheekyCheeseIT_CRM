@@ -330,15 +330,87 @@ export class PaymentChannelService {
     return { income: refreshed ?? ctx.income, created }
   }
 
-  // ── Cash channel ────────────────────────────────────────────────────────
+  // ── Cash channel (round-2 architecture) ────────────────────────────────
+  //
+  // Two-step flow:
+  //   1. /initiate-cash — DROP (or ACCOUNTANT/ADMIN acting on the drop's
+  //      behalf) marks the placeholder PAYOUT row as PENDING_CASH_CONFIRM.
+  //      No income transactions are inserted yet — the recipient admin is
+  //      decided out-of-band (call, physical handoff) and recorded in step 2.
+  //   2. /confirm-cash — ACCOUNTANT/ADMIN picks which admin actually got the
+  //      cash. ADMIN_INCOME_CASH + SENIOR_PENDING_PAYOUT cascade is inserted
+  //      against that admin and the PAYOUT flips to PAID.
 
   async initiateCashPayment(
+    incomeId: string,
+    actor: SessionUser,
+  ): Promise<{ incomeId: string; payoutId: string | null; status: 'PENDING_CASH_CONFIRM' }> {
+    const ctx = await this.resolveIncome(incomeId, actor)
+    this.assertCanInitiate(ctx, actor)
+
+    if (!ctx.payoutTxId) {
+      // Legacy DROP_INCOMEs (pre-Phase-2) skip the cascade — we cannot mark
+      // anything as PENDING_CASH_CONFIRM without a PAYOUT row. Reject so the
+      // UI never lands in a state where the drop "submitted" but the
+      // accountant has nothing to confirm.
+      throw new BadRequestException(
+        'DROP_INCOME has no placeholder PAYOUT row — cash channel is unavailable',
+      )
+    }
+
+    // Re-fetch to detect "already initiated" state — resolveIncome doesn't
+    // distinguish between PENDING_PAYMENT and PENDING_CASH_CONFIRM (both are
+    // "not yet PAID"), so we surface a friendlier 400 here.
+    const payoutRow = await this.db.db.query.transactions.findFirst({
+      where: eq(transactions.id, ctx.payoutTxId),
+    })
+    if (payoutRow?.status === 'PENDING_CASH_CONFIRM') {
+      throw new BadRequestException('Этот приход уже ожидает подтверждения бухгалтера')
+    }
+
+    await this.db.db
+      .update(transactions)
+      .set({ status: 'PENDING_CASH_CONFIRM', updatedAt: new Date() })
+      .where(eq(transactions.id, ctx.payoutTxId))
+
+    return {
+      incomeId: ctx.income.id,
+      payoutId: ctx.payoutTxId,
+      status: 'PENDING_CASH_CONFIRM',
+    }
+  }
+
+  async confirmCashPayment(
     incomeId: string,
     recipientAdminId: string,
     actor: SessionUser,
   ): Promise<{ income: Transaction; created: Transaction[] }> {
-    const ctx = await this.resolveIncome(incomeId, actor)
-    this.assertCanInitiate(ctx, actor)
+    // RBAC: only ACCOUNTANT / ADMIN — DROP is explicitly forbidden.
+    if (actor.role !== 'ACCOUNTANT' && actor.role !== 'ADMIN') {
+      throw new ForbiddenException(
+        'Подтверждать получение нала может только бухгалтер или администратор',
+      )
+    }
+
+    // Re-resolve income context. We allow the resolver to run as ACCOUNTANT/
+    // ADMIN — DROP-only guards inside `resolveIncome` are skipped because the
+    // actor role isn't DROP here.
+    const ctx = await this.resolveIncomeForConfirm(incomeId)
+
+    if (!ctx.payoutTxId) {
+      throw new BadRequestException('No placeholder PAYOUT row to confirm')
+    }
+    const payoutRow = await this.db.db.query.transactions.findFirst({
+      where: eq(transactions.id, ctx.payoutTxId),
+    })
+    if (!payoutRow) {
+      throw new NotFoundException('PAYOUT row not found')
+    }
+    if (payoutRow.status !== 'PENDING_CASH_CONFIRM') {
+      throw new BadRequestException(
+        `PAYOUT must be in PENDING_CASH_CONFIRM to confirm cash receipt (is ${payoutRow.status})`,
+      )
+    }
 
     const admin = await this.db.db.query.users.findFirst({
       where: eq(users.id, recipientAdminId),
@@ -351,10 +423,10 @@ export class PaymentChannelService {
       throw new BadRequestException('Recipient admin is archived')
     }
 
-    // Cash = drop physically handed the full partner share (both admins'
-    // 50-50 combined) to one chosen admin. Senior share remains owed by the
-    // drop personally (debtorType=DROP) — Phase 4-C will close it via
-    // SENIOR_PAID when the drop and senior settle off-platform.
+    // Cash = the chosen admin received the full partner share (both admins'
+    // 50-50 combined). Senior share remains owed by the drop personally
+    // (debtorType=DROP) — Phase 4-C will close it via SENIOR_PAID when the
+    // drop and senior settle off-platform.
     const partnerTotal = ctx.distribution.partnerShares.reduce((s, p) => s + p.amount, 0)
 
     const created: Transaction[] = []
@@ -414,6 +486,154 @@ export class PaymentChannelService {
       where: eq(transactions.id, ctx.income.id),
     })
     return { income: refreshed ?? ctx.income, created }
+  }
+
+  /**
+   * GET /api/payments/pending-cash — accountant / admin dashboard list of
+   * PAYOUT rows sitting in PENDING_CASH_CONFIRM. One row per income; we walk
+   * back to the drop user + project for display.
+   */
+  async listPendingCash(actor: SessionUser): Promise<
+    {
+      incomeId: string
+      payoutId: string
+      dropId: string
+      dropName: string
+      projectId: string | null
+      projectName: string | null
+      amount: string
+      currency: 'USDT' | 'USD' | 'EUR' | 'UAH'
+      initiatedAt: string
+    }[]
+  > {
+    if (actor.role !== 'ACCOUNTANT' && actor.role !== 'ADMIN') {
+      throw new ForbiddenException(
+        'Список ожидающих подтверждения нала виден только бухгалтеру и админу',
+      )
+    }
+    const pendingRows = await this.db.db.query.transactions.findMany({
+      where: and(eq(transactions.type, 'PAYOUT'), eq(transactions.status, 'PENDING_CASH_CONFIRM')),
+    })
+
+    const result: Awaited<ReturnType<PaymentChannelService['listPendingCash']>> = []
+    for (const payout of pendingRows) {
+      if (!payout.payoutRequestId) continue
+      // Find the DROP_INCOME that drives this payout.
+      const income = await this.db.db.query.transactions.findFirst({
+        where: and(
+          eq(transactions.payoutRequestId, payout.payoutRequestId),
+          eq(transactions.type, 'DROP_INCOME'),
+        ),
+      })
+      if (!income) continue
+      const [drop, project] = await Promise.all([
+        payout.senderId
+          ? this.db.db.query.users.findFirst({ where: eq(users.id, payout.senderId) })
+          : Promise.resolve(undefined),
+        income.projectId
+          ? this.db.db.query.projects.findFirst({ where: eq(projects.id, income.projectId) })
+          : Promise.resolve(undefined),
+      ])
+      result.push({
+        incomeId: income.id,
+        payoutId: payout.id,
+        dropId: drop?.id ?? payout.senderId ?? '',
+        dropName: drop?.displayName ?? '—',
+        projectId: project?.id ?? null,
+        projectName: project?.name ?? null,
+        amount: payout.amount,
+        currency: payout.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
+        initiatedAt: (payout.updatedAt ?? payout.createdAt).toISOString(),
+      })
+    }
+    return result
+  }
+
+  /**
+   * Confirm-cash variant of `resolveIncome` that does NOT trip the
+   * "channel cascade already exists" guard — by design the placeholder
+   * PAYOUT row is in PENDING_CASH_CONFIRM (not PAID) and no cascade rows
+   * exist yet. Skips the cascade-existence check and the DROP-only RBAC.
+   */
+  private async resolveIncomeForConfirm(incomeId: string): Promise<ResolvedIncomeContext> {
+    const income = await this.db.db.query.transactions.findFirst({
+      where: eq(transactions.id, incomeId),
+    })
+    if (!income) throw new NotFoundException('Income transaction not found')
+    if (income.type !== 'DROP_INCOME') {
+      throw new BadRequestException('Only DROP_INCOME can be paid via channels')
+    }
+    if (income.status !== 'VALIDATED') {
+      throw new BadRequestException('DROP_INCOME must be VALIDATED before payment')
+    }
+
+    if (!income.projectId) {
+      throw new BadRequestException('DROP_INCOME has no projectId')
+    }
+    const project = await this.db.db.query.projects.findFirst({
+      where: eq(projects.id, income.projectId),
+    })
+    if (!project) throw new NotFoundException('Project not found')
+    if (!project.dropId) {
+      throw new BadRequestException('Project is not a drop-project')
+    }
+    if (!project.seniorId) {
+      throw new BadRequestException('Project has no senior assigned')
+    }
+
+    const [drop, senior] = await Promise.all([
+      this.db.db.query.users.findFirst({ where: eq(users.id, project.dropId) }),
+      this.db.db.query.users.findFirst({ where: eq(users.id, project.seniorId) }),
+    ])
+    if (!drop) throw new NotFoundException('Drop user not found')
+    if (!senior) throw new NotFoundException('Senior user not found')
+
+    const gross = parseFloat(income.amount)
+    const distribution = this.transactionsService.computeDropDistribution(
+      gross,
+      { id: project.id, dropId: project.dropId },
+      { id: drop.id, dropSharePercent: drop.dropSharePercent },
+      { id: senior.id, seniorSharePercent: senior.seniorSharePercent },
+    )
+    const payableTotal =
+      distribution.seniorShare.amount + distribution.partnerShares.reduce((s, p) => s + p.amount, 0)
+
+    let payoutTxId: string | null = null
+    if (income.payoutRequestId) {
+      const payoutRow = await this.db.db.query.transactions.findFirst({
+        where: and(
+          eq(transactions.payoutRequestId, income.payoutRequestId),
+          eq(transactions.type, 'PAYOUT'),
+        ),
+      })
+      if (payoutRow) {
+        // For confirm-cash we expect PENDING_CASH_CONFIRM; caller checks the
+        // exact value.
+        payoutTxId = payoutRow.id
+      }
+    }
+
+    return {
+      income,
+      project: { id: project.id, dropId: project.dropId, seniorId: project.seniorId },
+      drop: {
+        id: drop.id,
+        displayName: drop.displayName,
+        walletUsdtErc20: drop.walletUsdtErc20,
+      },
+      senior: {
+        id: senior.id,
+        displayName: senior.displayName,
+        walletUsdtErc20: senior.walletUsdtErc20,
+      },
+      distribution: {
+        seniorAmount: distribution.seniorShare.amount,
+        dropAmount: distribution.dropShare.amount,
+        partnerShares: distribution.partnerShares,
+        payableTotal,
+      },
+      payoutTxId,
+    }
   }
 
   // ── Internal helpers ────────────────────────────────────────────────────
