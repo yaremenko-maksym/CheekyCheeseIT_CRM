@@ -1536,12 +1536,21 @@ export async function payPayoutRequestViaAPI(
 
 /**
  * List a payout_request's transactions (full join) via
- * GET /api/payout-requests/:id. The senior-payout flow inserts PAYOUT_ADMIN
- * rows WITHOUT `projectId` — so a `?projectId=` filter misses them. The
- * payout_request endpoint surfaces every transaction linked via
- * `payout_request_id`, which is what tests need for distribution assertions.
+ * GET /api/payout-requests/:id. The payout_request endpoint surfaces every
+ * transaction linked via `payout_request_id`, which is what tests need for
+ * distribution assertions.
+ *
+ * Historical context (backlog AC5): PAYOUT_ADMIN rows for senior-projects
+ * used to be inserted WITHOUT `projectId`, which meant a `?projectId=` filter
+ * missed them — this helper was the workaround. The cascade now sets
+ * `projectId` on every PAYOUT_ADMIN row (both drop and senior branches), so
+ * `listTransactionsByProjectViaAPI` is also viable. This helper stays around
+ * because it's still the simplest path to fetch a single payout's rows in
+ * deterministic order.
  *
  * Caller must be ADMIN/ACCOUNTANT to view another user's payout request.
+ * SENIOR/DROP callers can fetch their OWN payout requests (per
+ * `findPayoutRequest` RBAC widened in backlog AC4).
  */
 export async function listPayoutRequestTransactionsViaAPI(
   page: Page,
@@ -1586,9 +1595,11 @@ export async function listPayoutRequestTransactionsViaAPI(
  * unfiltered list — SENIOR/DROP-scoped callers will receive a subset
  * (their own send/receive only) per the RBAC rules in TransactionsService.
  *
- * NOTE: PAYOUT_ADMIN rows for senior-projects don't carry `projectId`
- * (legacy quirk — see `payPayoutRequest`). Use
- * `listPayoutRequestTransactionsViaAPI` to capture every linked row.
+ * Backlog AC5 (resolved): PAYOUT_ADMIN rows for senior-projects now carry
+ * `projectId` (cascade was updated to insert it explicitly), so the
+ * `?projectId=` filter captures them on both drop and senior flows. The
+ * legacy workaround (`listPayoutRequestTransactionsViaAPI`) is still useful
+ * when you want a single payout's rows in order.
  */
 export async function listTransactionsByProjectViaAPI(
   page: Page,
