@@ -536,12 +536,67 @@ describe('PaymentChannelService.confirmBankPayment', () => {
   })
 })
 
-// ── Cash channel ────────────────────────────────────────────────────────────
+// ── Cash channel (round-2 architecture) ────────────────────────────────────
+//
+// Round-2 split: initiate-cash only marks the placeholder PAYOUT row as
+// PENDING_CASH_CONFIRM (NO income transactions). confirm-cash (called only
+// by ACCOUNTANT/ADMIN) inserts the cascade and flips PAYOUT → PAID.
 
 describe('PaymentChannelService.initiateCashPayment', () => {
-  it('creates ADMIN_INCOME_CASH + SENIOR_PENDING_PAYOUT + pending_obligation (DROP)', async () => {
-    const { svc, getInsertsFor } = makeService()
-    await svc.initiateCashPayment(INCOME_ID, MAKSYM_ID, dropUser)
+  it('flips PAYOUT to PENDING_CASH_CONFIRM and does NOT insert income rows', async () => {
+    const { svc, getInsertsFor, getUpdatesFor } = makeService()
+    const result = await svc.initiateCashPayment(INCOME_ID, dropUser)
+
+    expect(result.status).toBe('PENDING_CASH_CONFIRM')
+    expect(result.payoutId).toBe(PAYOUT_ID)
+
+    // No new transactions or obligations inserted.
+    const txInserts = getInsertsFor(transactions)
+    const oblInserts = getInsertsFor(pendingObligations)
+    expect(txInserts).toHaveLength(0)
+    expect(oblInserts).toHaveLength(0)
+
+    // PAYOUT row updated to PENDING_CASH_CONFIRM.
+    const txUpdates = getUpdatesFor(transactions)
+    expect(txUpdates).toHaveLength(1)
+    expect(txUpdates[0]?.['status']).toBe('PENDING_CASH_CONFIRM')
+  })
+
+  it('SENIOR caller → 403', async () => {
+    const { svc } = makeService()
+    await expect(svc.initiateCashPayment(INCOME_ID, seniorUser)).rejects.toThrow(ForbiddenException)
+  })
+
+  it('JUNIOR caller → 403', async () => {
+    const { svc } = makeService()
+    await expect(svc.initiateCashPayment(INCOME_ID, juniorUser)).rejects.toThrow(ForbiddenException)
+  })
+
+  it('DROP on someone else’s income → 403', async () => {
+    const { svc } = makeService()
+    const otherDrop: SessionUser = { ...dropUser, id: 'other-drop' }
+    await expect(svc.initiateCashPayment(INCOME_ID, otherDrop)).rejects.toThrow(ForbiddenException)
+  })
+
+  it('ACCOUNTANT may initiate on behalf of the drop', async () => {
+    const { svc, getUpdatesFor } = makeService()
+    await expect(svc.initiateCashPayment(INCOME_ID, accountantUser)).resolves.toBeDefined()
+    const txUpdates = getUpdatesFor(transactions)
+    expect(txUpdates[0]?.['status']).toBe('PENDING_CASH_CONFIRM')
+  })
+
+  it('No PAYOUT row → 400 (cash channel unavailable)', async () => {
+    const { svc } = makeService({ payout: null, income: makeIncomeRow({ payoutRequestId: null }) })
+    await expect(svc.initiateCashPayment(INCOME_ID, dropUser)).rejects.toThrow(BadRequestException)
+  })
+})
+
+describe('PaymentChannelService.confirmCashPayment', () => {
+  it('creates ADMIN_INCOME_CASH + SENIOR_PENDING_PAYOUT + obligation (DROP), closes PAYOUT', async () => {
+    const { svc, getInsertsFor, getUpdatesFor } = makeService({
+      payout: makePayoutRow({ status: 'PENDING_CASH_CONFIRM' }),
+    })
+    await svc.confirmCashPayment(INCOME_ID, MAKSYM_ID, accountantUser)
 
     const txInserts = getInsertsFor(transactions)
     const oblInserts = getInsertsFor(pendingObligations)
@@ -563,36 +618,55 @@ describe('PaymentChannelService.initiateCashPayment', () => {
     expect(oblInserts[0]?.['debtorType']).toBe('DROP')
     expect(oblInserts[0]?.['debtorUserId']).toBe(DROP_ID)
     expect(oblInserts[0]?.['creditorUserId']).toBe(SENIOR_ID)
+
+    // PAYOUT row flipped to PAID.
+    const txUpdates = getUpdatesFor(transactions)
+    expect(txUpdates.some((u) => u['status'] === 'PAID')).toBe(true)
+  })
+
+  it('ADMIN can confirm', async () => {
+    const { svc } = makeService({ payout: makePayoutRow({ status: 'PENDING_CASH_CONFIRM' }) })
+    await expect(svc.confirmCashPayment(INCOME_ID, MAKSYM_ID, adminUser)).resolves.toBeDefined()
+  })
+
+  it('DROP caller → 403', async () => {
+    const { svc } = makeService({ payout: makePayoutRow({ status: 'PENDING_CASH_CONFIRM' }) })
+    await expect(svc.confirmCashPayment(INCOME_ID, MAKSYM_ID, dropUser)).rejects.toThrow(
+      ForbiddenException,
+    )
+  })
+
+  it('SENIOR caller → 403', async () => {
+    const { svc } = makeService({ payout: makePayoutRow({ status: 'PENDING_CASH_CONFIRM' }) })
+    await expect(svc.confirmCashPayment(INCOME_ID, MAKSYM_ID, seniorUser)).rejects.toThrow(
+      ForbiddenException,
+    )
+  })
+
+  it('payout not in PENDING_CASH_CONFIRM → 400', async () => {
+    const { svc } = makeService({ payout: makePayoutRow({ status: 'PENDING_PAYMENT' }) })
+    await expect(svc.confirmCashPayment(INCOME_ID, MAKSYM_ID, accountantUser)).rejects.toThrow(
+      BadRequestException,
+    )
   })
 
   it('Non-ADMIN recipient → 400', async () => {
-    const { svc, state } = makeService()
+    const { svc, state } = makeService({
+      payout: makePayoutRow({ status: 'PENDING_CASH_CONFIRM' }),
+    })
     state.admins.set(MAKSYM_ID, { ...makeAdminUserRow(MAKSYM_ID), role: 'SENIOR' })
-    await expect(svc.initiateCashPayment(INCOME_ID, MAKSYM_ID, dropUser)).rejects.toThrow(
+    await expect(svc.confirmCashPayment(INCOME_ID, MAKSYM_ID, accountantUser)).rejects.toThrow(
       BadRequestException,
     )
   })
 
   it('Archived ADMIN recipient → 400', async () => {
-    const { svc, state } = makeService()
+    const { svc, state } = makeService({
+      payout: makePayoutRow({ status: 'PENDING_CASH_CONFIRM' }),
+    })
     state.admins.set(MAKSYM_ID, { ...makeAdminUserRow(MAKSYM_ID), archivedAt: new Date() })
-    await expect(svc.initiateCashPayment(INCOME_ID, MAKSYM_ID, dropUser)).rejects.toThrow(
+    await expect(svc.confirmCashPayment(INCOME_ID, MAKSYM_ID, accountantUser)).rejects.toThrow(
       BadRequestException,
-    )
-  })
-
-  it('SENIOR caller → 403', async () => {
-    const { svc } = makeService()
-    await expect(svc.initiateCashPayment(INCOME_ID, MAKSYM_ID, seniorUser)).rejects.toThrow(
-      ForbiddenException,
-    )
-  })
-
-  it('DROP on someone else’s income → 403', async () => {
-    const { svc } = makeService()
-    const otherDrop: SessionUser = { ...dropUser, id: 'other-drop' }
-    await expect(svc.initiateCashPayment(INCOME_ID, MAKSYM_ID, otherDrop)).rejects.toThrow(
-      ForbiddenException,
     )
   })
 })

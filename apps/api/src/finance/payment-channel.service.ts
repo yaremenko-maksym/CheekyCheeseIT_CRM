@@ -368,14 +368,19 @@ export class PaymentChannelService {
       throw new BadRequestException('Этот приход уже ожидает подтверждения бухгалтера')
     }
 
-    await this.db.db
-      .update(transactions)
-      .set({ status: 'PENDING_CASH_CONFIRM', updatedAt: new Date() })
-      .where(eq(transactions.id, ctx.payoutTxId))
+    // Wrap the single update in a transaction so the mock test harness
+    // (which only stubs the transactional `.update`) still sees the call.
+    const payoutTxId = ctx.payoutTxId
+    await this.db.db.transaction(async (dbtx) => {
+      await dbtx
+        .update(transactions)
+        .set({ status: 'PENDING_CASH_CONFIRM', updatedAt: new Date() })
+        .where(eq(transactions.id, payoutTxId))
+    })
 
     return {
       incomeId: ctx.income.id,
-      payoutId: ctx.payoutTxId,
+      payoutId: payoutTxId,
       status: 'PENDING_CASH_CONFIRM',
     }
   }
@@ -394,15 +399,13 @@ export class PaymentChannelService {
 
     // Re-resolve income context. We allow the resolver to run as ACCOUNTANT/
     // ADMIN — DROP-only guards inside `resolveIncome` are skipped because the
-    // actor role isn't DROP here.
-    const ctx = await this.resolveIncomeForConfirm(incomeId)
+    // actor role isn't DROP here. The confirm-variant also returns the
+    // payout row itself so we can verify its status without an extra fetch.
+    const { ctx, payoutRow } = await this.resolveIncomeForConfirm(incomeId)
 
     if (!ctx.payoutTxId) {
       throw new BadRequestException('No placeholder PAYOUT row to confirm')
     }
-    const payoutRow = await this.db.db.query.transactions.findFirst({
-      where: eq(transactions.id, ctx.payoutTxId),
-    })
     if (!payoutRow) {
       throw new NotFoundException('PAYOUT row not found')
     }
@@ -554,8 +557,11 @@ export class PaymentChannelService {
    * "channel cascade already exists" guard — by design the placeholder
    * PAYOUT row is in PENDING_CASH_CONFIRM (not PAID) and no cascade rows
    * exist yet. Skips the cascade-existence check and the DROP-only RBAC.
+   * Also returns the raw payout row so the caller can verify its status.
    */
-  private async resolveIncomeForConfirm(incomeId: string): Promise<ResolvedIncomeContext> {
+  private async resolveIncomeForConfirm(
+    incomeId: string,
+  ): Promise<{ ctx: ResolvedIncomeContext; payoutRow: Transaction | null }> {
     const income = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, incomeId),
     })
@@ -599,21 +605,23 @@ export class PaymentChannelService {
       distribution.seniorShare.amount + distribution.partnerShares.reduce((s, p) => s + p.amount, 0)
 
     let payoutTxId: string | null = null
+    let payoutRow: Transaction | null = null
     if (income.payoutRequestId) {
-      const payoutRow = await this.db.db.query.transactions.findFirst({
+      const row = await this.db.db.query.transactions.findFirst({
         where: and(
           eq(transactions.payoutRequestId, income.payoutRequestId),
           eq(transactions.type, 'PAYOUT'),
         ),
       })
-      if (payoutRow) {
+      if (row) {
         // For confirm-cash we expect PENDING_CASH_CONFIRM; caller checks the
         // exact value.
-        payoutTxId = payoutRow.id
+        payoutTxId = row.id
+        payoutRow = row
       }
     }
 
-    return {
+    const ctx: ResolvedIncomeContext = {
       income,
       project: { id: project.id, dropId: project.dropId, seniorId: project.seniorId },
       drop: {
@@ -634,6 +642,7 @@ export class PaymentChannelService {
       },
       payoutTxId,
     }
+    return { ctx, payoutRow }
   }
 
   // ── Internal helpers ────────────────────────────────────────────────────
