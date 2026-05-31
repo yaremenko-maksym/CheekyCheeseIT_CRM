@@ -85,7 +85,7 @@ type UserOption = {
 }
 
 // TanStack Form field render props require all 23 FieldApi generics — use unknown to avoid any
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 type AnyField = FieldApi<
   any,
   any,
@@ -111,6 +111,7 @@ type AnyField = FieldApi<
   any,
   any
 >
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 function ProjectsPage() {
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'JUNIOR'])

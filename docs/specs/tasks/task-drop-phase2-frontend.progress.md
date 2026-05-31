@@ -1,7 +1,7 @@
 # Progress: task-drop-phase2-frontend
 
-current_milestone: 1/6 — "shared schemas + backend acceptance done"
-last_commit: pending wip1
+current_milestone: 6/6 — "final: typecheck/lint/build/api-tests all green"
+last_commit: pending finalization
 last_push: pending
 
 files_done: []
