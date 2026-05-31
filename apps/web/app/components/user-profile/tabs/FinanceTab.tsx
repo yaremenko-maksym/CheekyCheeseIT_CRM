@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Search, X } from 'lucide-react'
+import { Plus, Search, X } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import type { TransactionDto } from '@crm/shared'
 import { Button } from '@/components/ui/button'
@@ -16,13 +16,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/axios'
 import { useAuth } from '@/context/auth'
 import { financeApi } from '@/routes/crm/finance/api'
-import {
-  STATUS_LABELS,
-  TYPE_LABELS,
-  type ExchangeRates,
-} from '@/routes/crm/finance/constants'
+import { STATUS_LABELS, TYPE_LABELS, type ExchangeRates } from '@/routes/crm/finance/constants'
 import { TransactionRow } from '@/routes/crm/finance/components/TransactionRow'
 import { TransactionDetailDialog } from '@/routes/crm/finance/components/dialogs/TransactionDetailDialog'
+import { CreateTransactionDialog } from '@/routes/crm/finance/components/dialogs/CreateTransactionDialog'
 
 const TYPE_OPTIONS = Object.entries(TYPE_LABELS).map(([value, label]) => ({ value, label }))
 const STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }))
@@ -41,6 +38,12 @@ export function FinanceTab({ userId }: { userId: string }) {
   const { user: viewer } = useAuth()
   const role = viewer?.role ?? ''
   const isPrivileged = role === 'ADMIN' || role === 'ACCOUNTANT'
+  // Drop role - phase 2. When the DROP user is viewing their own profile,
+  // expose «Добавить приход» CTA that reuses CreateTransactionDialog
+  // (it auto-selects DROP_INCOME for the role). Other roles never see
+  // the button on this tab.
+  const isOwnDropProfile = role === 'DROP' && viewer?.id === userId
+  const [createOpen, setCreateOpen] = useState(false)
 
   const { data: transactions = [], isLoading } = useQuery({
     queryKey: ['profile-transactions', userId, role],
@@ -50,8 +53,13 @@ export function FinanceTab({ userId }: { userId: string }) {
     // public /transactions endpoint and client-filter by sender/receiver.
     queryFn: () =>
       isPrivileged
-        ? api.get<TransactionDto[]>(`/users/${userId}/transactions`).then((r) => r.data).catch(() => [])
-        : financeApi.getTransactions().then((list) => list.filter((t) => t.senderId === userId || t.receiverId === userId)),
+        ? api
+            .get<TransactionDto[]>(`/users/${userId}/transactions`)
+            .then((r) => r.data)
+            .catch(() => [])
+        : financeApi
+            .getTransactions()
+            .then((list) => list.filter((t) => t.senderId === userId || t.receiverId === userId)),
     staleTime: 30_000,
   })
 
@@ -73,7 +81,14 @@ export function FinanceTab({ userId }: { userId: string }) {
         if (statusFilter !== 'all' && tx.status !== statusFilter) return false
         if (search) {
           const q = search.toLowerCase()
-          const haystack = [tx.senderName, tx.receiverName, tx.senderLabel, tx.receiverLabel, tx.projectName, tx.notes]
+          const haystack = [
+            tx.senderName,
+            tx.receiverName,
+            tx.senderLabel,
+            tx.receiverLabel,
+            tx.projectName,
+            tx.notes,
+          ]
             .filter(Boolean)
             .join(' ')
             .toLowerCase()
@@ -81,7 +96,10 @@ export function FinanceTab({ userId }: { userId: string }) {
         }
         return true
       })
-      .sort((a, b) => new Date(b.txDate ?? b.createdAt).getTime() - new Date(a.txDate ?? a.createdAt).getTime())
+      .sort(
+        (a, b) =>
+          new Date(b.txDate ?? b.createdAt).getTime() - new Date(a.txDate ?? a.createdAt).getTime(),
+      )
   }, [transactions, search, typeFilter, statusFilter])
 
   const hasActive = search !== '' || typeFilter !== 'all' || statusFilter !== 'all'
@@ -90,16 +108,41 @@ export function FinanceTab({ userId }: { userId: string }) {
 
   if (transactions.length === 0) {
     return (
-      <Card>
-        <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          Транзакций пока нет
-        </CardContent>
-      </Card>
+      <>
+        {isOwnDropProfile && (
+          <div className="mb-3 flex justify-end">
+            <Button
+              size="sm"
+              onClick={() => setCreateOpen(true)}
+              data-testid="profile-drop-income-button"
+            >
+              <Plus className="h-4 w-4 mr-1" /> Добавить приход
+            </Button>
+          </div>
+        )}
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-muted-foreground">
+            Транзакций пока нет
+          </CardContent>
+        </Card>
+        <CreateTransactionDialog open={createOpen} onClose={() => setCreateOpen(false)} />
+      </>
     )
   }
 
   return (
     <>
+      {isOwnDropProfile && (
+        <div className="mb-3 flex justify-end">
+          <Button
+            size="sm"
+            onClick={() => setCreateOpen(true)}
+            data-testid="profile-drop-income-button"
+          >
+            <Plus className="h-4 w-4 mr-1" /> Добавить приход
+          </Button>
+        </div>
+      )}
       <Card>
         <CardContent className="p-0">
           {/* Filter bar — same look as /finance */}
@@ -120,7 +163,9 @@ export function FinanceTab({ userId }: { userId: string }) {
               <SelectContent>
                 <SelectItem value="all">Все типы</SelectItem>
                 {TYPE_OPTIONS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -131,7 +176,9 @@ export function FinanceTab({ userId }: { userId: string }) {
               <SelectContent>
                 <SelectItem value="all">Все статусы</SelectItem>
                 {STATUS_OPTIONS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -187,6 +234,7 @@ export function FinanceTab({ userId }: { userId: string }) {
       </Card>
 
       <TransactionDetailDialog tx={detailTx} onClose={() => setDetailTx(null)} />
+      <CreateTransactionDialog open={createOpen} onClose={() => setCreateOpen(false)} />
     </>
   )
 }

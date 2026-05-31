@@ -50,8 +50,53 @@ export function AdminBalanceCard({ summary }: { summary: FinanceSummaryDto }) {
           <div key={ab.userId} className="space-y-1">
             <div className="flex justify-between items-baseline">
               <span className="text-sm font-medium">{ab.displayName}</span>
-              <span className={cn('text-sm font-bold tabular-nums', ab.balance >= 0 ? 'text-green-500' : 'text-red-500')}>
-                ${ab.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              <span
+                className={cn(
+                  'text-sm font-bold tabular-nums',
+                  ab.balance >= 0 ? 'text-green-500' : 'text-red-500',
+                )}
+              >
+                $
+                {ab.balance.toLocaleString('en-US', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </span>
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * Drop role - phase 2. Standalone «Балансы дропов» panel — shows the
+ * aggregated PAYOUT_DROP credit-minus-debit balance per DROP user. Hidden
+ * entirely when the backend hasn't surfaced any DROP balances (empty array
+ * = no drop-projects in the system or no validated drop payouts yet).
+ */
+export function DropBalanceCard({ summary }: { summary: FinanceSummaryDto }) {
+  if (!summary.dropBalances?.length) return null
+  return (
+    <Card className="border-blue-500/20 bg-blue-500/[0.03]" data-testid="drop-balances-card">
+      <CardContent className="pt-5 space-y-3">
+        <p className="text-xs font-semibold text-blue-400">Балансы дропов</p>
+        {summary.dropBalances.map((db) => (
+          <div key={db.userId} className="space-y-1">
+            <div className="flex justify-between items-baseline">
+              <span className="text-sm font-medium">{db.displayName}</span>
+              <span
+                className={cn(
+                  'text-sm font-bold tabular-nums',
+                  db.balance >= 0 ? 'text-green-500' : 'text-red-500',
+                )}
+              >
+                $
+                {db.balance.toLocaleString('en-US', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
               </span>
             </div>
           </div>

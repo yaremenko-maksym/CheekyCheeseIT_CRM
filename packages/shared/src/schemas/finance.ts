@@ -12,6 +12,12 @@ export const transactionTypeSchema = z.enum([
   'ADMIN_TRANSFER', // Balance equalization between Maksym and Kostya
   'PAYOUT', // Senior pays CheekyCheeseIT (linked to payout_request)
   'PAYOUT_ADMIN', // Auto-created 50/50 split to each admin after payout
+  // Drop role - phase 2. DROP receives project income through their account
+  // and is the financial pass-through for the senior. These mirror
+  // SENIOR_INCOME/PAYOUT but live in their own type so the senior path stays
+  // 1:1 with pre-phase-2 behavior. See drop-role-and-finance-spec.md §8.1.
+  'DROP_INCOME', // Drop income from project — requires accountant/admin validation
+  'PAYOUT_DROP', // Auto-created drop share after payPayoutRequest on a drop-project
 ])
 export type TransactionType = z.infer<typeof transactionTypeSchema>
 
@@ -69,6 +75,13 @@ export const transactionSchema = z.object({
   notes: z.string().nullable(),
   salaryMonth: z.string().nullable(), // YYYY-MM
   txDate: z.string().datetime().nullable(),
+  // Drop role - phase 2. Optional, nullable explicit recipient pointer for
+  // transactions whose intended payee is NOT the senior on the row (e.g.
+  // PAYOUT_DROP whose receiverId is the DROP user). Existing types
+  // (SENIOR_INCOME, PAYOUT, …) keep their semantics — recipientId is set
+  // alongside receiverId only for the new PAYOUT_DROP path. Adding it as
+  // optional + nullable keeps the existing client contract compatible.
+  recipientId: z.string().uuid().nullable().optional(),
   createdBy: z.string().uuid(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -174,6 +187,26 @@ export const createSeniorIncomeSchema = z
   })
   .refine(receiptXor, receiptXorMessage)
 export type CreateSeniorIncomeDto = z.infer<typeof createSeniorIncomeSchema>
+
+// DROP_INCOME — drop registers project income on a drop-project, awaits
+// validation. Mirror of createSeniorIncomeSchema field-for-field so the
+// frontend can reuse the same form. Drop role - phase 2.
+// Constraint enforced server-side: project.dropId must equal the caller's id.
+export const createDropIncomeSchema = z
+  .object({
+    projectId: z.string().uuid(),
+    amount: z.number().positive(),
+    currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+    ...receiptFields,
+    notes: z.string().max(1000).optional().nullable(),
+    txDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional()
+      .nullable(),
+  })
+  .refine(receiptXor, receiptXorMessage)
+export type CreateDropIncomeDto = z.infer<typeof createDropIncomeSchema>
 
 // Update REJECTED senior income (resets to PENDING)
 export const updateSeniorIncomeSchema = z
@@ -324,6 +357,19 @@ export const financeSummarySchema = z.object({
       balance: z.number(),
     }),
   ),
+  // Drop role - phase 2. Aggregated PAYOUT_DROP credit minus debit per DROP
+  // user — surfaced on the DROP user's profile / finance overview. Empty array
+  // when there are no DROP users in the system. Existing UIs that ignore this
+  // field stay unaffected.
+  dropBalances: z
+    .array(
+      z.object({
+        userId: z.string().uuid(),
+        displayName: z.string(),
+        balance: z.number(),
+      }),
+    )
+    .default([]),
   monthly: z.array(
     z.object({
       month: z.string(),

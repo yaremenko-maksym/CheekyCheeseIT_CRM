@@ -15,6 +15,7 @@ import {
   adminUpdateTransactionSchema,
   createAdminIncomeSchema,
   createAdminTransferSchema,
+  createDropIncomeSchema,
   createExpenseSchema,
   createPayoutRequestSchema,
   createSeniorIncomeSchema,
@@ -74,6 +75,17 @@ export class TransactionsController {
       createSeniorIncomeSchema.parse(body) as Parameters<
         TransactionsService['createSeniorIncome']
       >[0],
+      user,
+    )
+  }
+
+  // Drop role - phase 2. Parallel endpoint for DROP role only — service
+  // enforces RBAC (DROP role + project.dropId === caller.id). The frontend
+  // can call the same shape as senior-income.
+  @Post('drop-income')
+  createDropIncome(@Body() body: unknown, @CurrentUser() user: SessionUser) {
+    return this.svc.createDropIncome(
+      createDropIncomeSchema.parse(body) as Parameters<TransactionsService['createDropIncome']>[0],
       user,
     )
   }

@@ -142,9 +142,91 @@ export class TransactionsService {
       notes: tx.notes,
       salaryMonth: tx.salaryMonth,
       txDate: tx.txDate ? tx.txDate.toISOString() : null,
+      // Drop role - phase 2. Optional explicit recipient — populated on
+      // PAYOUT_DROP today; null on every legacy row. Exposing on the DTO so
+      // the frontend list/detail views can distinguish drop payouts cleanly.
+      recipientId: (tx as Transaction & { recipientId?: string | null }).recipientId ?? null,
       createdBy: tx.createdBy,
       createdAt: tx.createdAt.toISOString(),
       updatedAt: tx.updatedAt.toISOString(),
+    }
+  }
+
+  // ── Distribution helpers (Drop role - phase 2) ───────────────────────────
+  //
+  // Pure helpers — no DB writes, no side-effects. The drop-project flow
+  // branches on `project.dropId` and calls `computeDropDistribution`, while
+  // the senior-project flow keeps calling `computePartnersSplit` directly.
+  // Senior path math is byte-for-byte identical to pre-phase-2 behavior:
+  // `computePartnersSplit(payable)` returns `[{ MAKSYM_ID, payable/2 }, …]`
+  // which is what the legacy inline loop produced.
+
+  /**
+   * Split a payable amount 50/50 between the two hard-coded admin partners
+   * (Maksym + Kostya). Used by:
+   *   - senior-project `payPayoutRequest` (pre-phase-2 path, unchanged result)
+   *   - `computeDropDistribution` for the residual after senior + drop cuts
+   *
+   * Returns an array (length=2) so callers can iterate without caring about
+   * the admin identities — keeps the test surface small and future-proofs
+   * for an N-partner split if the model ever changes.
+   */
+  computePartnersSplit(payableAmount: number): { adminId: string; amount: number }[] {
+    const half = payableAmount / 2
+    return [
+      { adminId: MAKSYM_ID, amount: half },
+      { adminId: KOSTYA_ID, amount: half },
+    ]
+  }
+
+  /**
+   * Distribute a drop-project's incoming amount across senior, drop, and the
+   * two admin partners. Spec §8.1 example for income $1000, senior 26%,
+   * drop 5%:
+   *   senior: 260, drop: 50, partners: [345, 345].
+   *
+   * Inputs:
+   *   - income — gross amount that landed on the DROP from the client.
+   *   - project — drop-project row (must have `dropId !== null` — caller
+   *     verifies before invoking). Reserved for future per-project overrides.
+   *   - drop — DROP user row (read `dropSharePercent`, default 5).
+   *   - senior — SENIOR user row (read `seniorSharePercent`, default 26).
+   *
+   * Errors:
+   *   - Throws `BadRequestException` if senior + drop percents exceed 100.
+   *     This is a deliberate guard — the spec keeps both shares additive
+   *     against the gross, so >100% is a configuration bug, not a math one.
+   *
+   * Returns a pure JS object — no DB writes. The caller threads the result
+   * into `db.transaction(...)` and inserts one transaction per share.
+   */
+  computeDropDistribution(
+    income: number,
+    _project: { id: string; dropId: string | null },
+    drop: { id: string; dropSharePercent: number | null },
+    senior: { id: string; seniorSharePercent: number | null },
+  ): {
+    seniorShare: { amount: number; percent: number }
+    dropShare: { amount: number; percent: number }
+    partnerShares: { adminId: string; amount: number }[]
+  } {
+    const seniorPercent = senior.seniorSharePercent ?? 26
+    const dropPercent = drop.dropSharePercent ?? 5
+
+    if (seniorPercent + dropPercent > 100) {
+      throw new BadRequestException(
+        'Sum of senior+drop shares exceeds 100%',
+      )
+    }
+
+    const seniorAmount = (income * seniorPercent) / 100
+    const dropAmount = (income * dropPercent) / 100
+    const remainder = income - seniorAmount - dropAmount
+
+    return {
+      seniorShare: { amount: seniorAmount, percent: seniorPercent },
+      dropShare: { amount: dropAmount, percent: dropPercent },
+      partnerShares: this.computePartnersSplit(remainder),
     }
   }
 
@@ -359,6 +441,59 @@ export class TransactionsService {
     return this.findOne(tx!.id, currentUser)
   }
 
+  // ── Create DROP_INCOME (Drop role - phase 2) ─────────────────────────────
+  //
+  // Parallel to `createSeniorIncome` for DROP users on drop-projects. Keeps
+  // the senior-income path unchanged. Validation cascade (validateTransaction
+  // below) understands both types and routes DROP_INCOME through the
+  // distribution branch.
+
+  async createDropIncome(
+    data: {
+      projectId: string
+      amount: number
+      currency: string
+      receiptDocumentId?: string | null | undefined
+      receiptExternalUrl?: string | null | undefined
+      notes?: string | null | undefined
+      txDate?: string | null | undefined
+    },
+    currentUser: SessionUser,
+  ) {
+    if (currentUser.role !== 'DROP') throw new ForbiddenException()
+
+    const project = await this.db.db.query.projects.findFirst({
+      where: eq(projects.id, data.projectId),
+    })
+    if (!project) throw new NotFoundException('Project not found')
+    // The drop can only declare income on a drop-project routed through them.
+    if (project.dropId !== currentUser.id) {
+      throw new ForbiddenException('Это не drop-проект под вами')
+    }
+
+    const [tx] = await this.db.db
+      .insert(transactions)
+      .values({
+        type: 'DROP_INCOME',
+        status: 'PENDING',
+        amount: String(data.amount),
+        currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
+        senderId: null,
+        senderLabel: project.companyName,
+        receiverId: currentUser.id,
+        recipientId: currentUser.id,
+        projectId: data.projectId,
+        receiptDocumentId: data.receiptDocumentId ?? null,
+        receiptExternalUrl: data.receiptExternalUrl ?? null,
+        notes: data.notes ?? null,
+        txDate: this.resolveTxDate(data.txDate),
+        createdBy: currentUser.id,
+      })
+      .returning()
+
+    return this.findOne(tx!.id, currentUser)
+  }
+
   // ── Update REJECTED SENIOR_INCOME ────────────────────────────────────────
 
   async updateSeniorIncome(
@@ -517,8 +652,15 @@ export class TransactionsService {
       where: eq(transactions.id, id),
     })
     if (!tx) throw new NotFoundException('Transaction not found')
-    if (tx.type !== 'SENIOR_INCOME')
-      throw new BadRequestException('Only SENIOR_INCOME can be validated')
+    // Drop role - phase 2: validate also handles DROP_INCOME with the same
+    // shape — flip to VALIDATED + create payout_request + insert placeholder
+    // PAYOUT row. The drop-specific distribution math lives in
+    // `payPayoutRequest` (drop branch) — at validate time we only book a
+    // payable that represents what the wallet owner will transfer off-platform
+    // (= income * (1 - share/100), using dropSharePercent for DROP_INCOME).
+    if (tx.type !== 'SENIOR_INCOME' && tx.type !== 'DROP_INCOME') {
+      throw new BadRequestException('Only SENIOR_INCOME or DROP_INCOME can be validated')
+    }
     // AC4: idempotency. The action is only valid on PENDING rows — a second
     // click after a successful validate would otherwise create a duplicate
     // PAYOUT row. We throw rather than silently no-op so the UI can show
@@ -540,19 +682,22 @@ export class TransactionsService {
       // PENDING and the ACCOUNTANT can retry.
       if (!tx.receiverId) {
         throw new BadRequestException(
-          'SENIOR_INCOME has no receiverId — cannot create payout',
+          `${tx.type} has no receiverId — cannot create payout`,
         )
       }
-      const senior = await this.db.db.query.users.findFirst({
+      const walletOwner = await this.db.db.query.users.findFirst({
         where: eq(users.id, tx.receiverId),
       })
-      if (!senior) throw new NotFoundException('Senior receiver not found')
+      if (!walletOwner) throw new NotFoundException('Receiver not found')
 
-      // Senior keeps `sharePercent`%, pays `100 - sharePercent`% to company.
-      // Snapshot from the SENIOR_INCOME row (set at createSeniorIncome time
-      // from project override → user default) so the payout uses the same %
-      // that was visible to the senior when they submitted income.
-      const sharePercent = tx.seniorSharePercent ?? senior.seniorSharePercent ?? 26
+      // Resolve the share kept by the wallet owner:
+      //   SENIOR_INCOME → tx.seniorSharePercent ?? users.seniorSharePercent ?? 26
+      //   DROP_INCOME   → users.dropSharePercent ?? 5
+      // Pays `100 - share`% off-platform (placeholder PAYOUT amount).
+      const sharePercent =
+        tx.type === 'DROP_INCOME'
+          ? (walletOwner.dropSharePercent ?? 5)
+          : (tx.seniorSharePercent ?? walletOwner.seniorSharePercent ?? 26)
       const incomeAmount = parseFloat(tx.amount)
       const payableAmount = incomeAmount * (1 - sharePercent / 100)
 
@@ -841,7 +986,14 @@ export class TransactionsService {
     currentUser: SessionUser,
     simulateResult?: 'success' | 'error',
   ) {
-    if (currentUser.role !== 'SENIOR') throw new ForbiddenException()
+    // Drop role - phase 2: DROP users own drop-project payouts. The legacy
+    // SENIOR check is kept for senior-projects; either role can call this
+    // endpoint and the `req.seniorId === currentUser.id` line below enforces
+    // ownership in both cases. payout_requests.seniorId is a FK to users.id
+    // (not constrained by role) — for drop flows it points at the DROP user.
+    if (currentUser.role !== 'SENIOR' && currentUser.role !== 'DROP') {
+      throw new ForbiddenException()
+    }
 
     const req = await this.db.db.query.payoutRequests.findFirst({
       where: eq(payoutRequests.id, requestId),
@@ -897,17 +1049,30 @@ export class TransactionsService {
       })
       .where(eq(transactions.payoutRequestId, requestId))
 
-    // Trigger 1: invoice auto-create for each SENIOR_INCOME just paid.
+    // Trigger 1: invoice auto-create for each linked income just paid.
     // Best-effort — see safeAutoCreateInvoice for the no-rollback contract.
-    // Fetched separately (the UPDATE above doesn't return rows in drizzle's
-    // current Postgres flavour without `.returning()` chaining).
-    const paidSeniorIncomeTxs = await this.db.db
-      .select({ id: transactions.id })
+    // We re-fetch (the UPDATE above doesn't return rows in drizzle's current
+    // Postgres flavour without `.returning()` chaining); the result feeds
+    // both invoice generation and the drop-vs-senior project routing below.
+    // Drop role - phase 2: DROP_INCOME is included here so drop-projects also
+    // get an invoice generated for the income side.
+    const paidIncomeTxs = await this.db.db
+      .select({ id: transactions.id, projectId: transactions.projectId, type: transactions.type })
       .from(transactions)
       .where(
-        and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'SENIOR_INCOME')),
+        and(
+          eq(transactions.payoutRequestId, requestId),
+          or(
+            eq(transactions.type, 'SENIOR_INCOME'),
+            eq(transactions.type, 'DROP_INCOME'),
+          ),
+        ),
       )
-    for (const incomeTx of paidSeniorIncomeTxs) {
+    for (const incomeTx of paidIncomeTxs) {
+      // SENIOR_INCOME invoice generation path is the only one that exists
+      // today; DROP_INCOME re-uses the same artefact (recipient = wallet
+      // owner). Keeping the kind argument as SENIOR_INCOME until a
+      // dedicated drop invoice template lands.
       await this.safeAutoCreateInvoice('SENIOR_INCOME', incomeTx.id)
     }
 
@@ -926,26 +1091,125 @@ export class TransactionsService {
         and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')),
       )
 
-    // Create 2x PAYOUT_ADMIN transactions (50/50 split)
-    const adminShare = parseFloat(req.payableAmount) / 2
-    const adminIds = [MAKSYM_ID, KOSTYA_ID]
-
-    for (const adminId of adminIds) {
-      const admin = await this.db.db.query.users.findFirst({
-        where: eq(users.id, adminId),
-      })
-      if (admin) {
-        await this.db.db.insert(transactions).values({
-          type: 'PAYOUT_ADMIN',
-          status: 'PAID',
-          amount: String(adminShare),
-          currency: 'USDT',
-          senderId: currentUser.id,
-          receiverId: adminId,
-          payoutRequestId: requestId,
-          txHash: effectiveTxHash,
-          createdBy: currentUser.id,
+    // Drop role - phase 2 (AC3). Resolve whether the linked SENIOR_INCOMEs
+    // belong to a drop-project. Senior-projects (project.dropId === null)
+    // keep the legacy 50/50 split untouched — this is the regression-safe
+    // path. Drop-projects route the partner residual through
+    // `computeDropDistribution` and additionally insert PAYOUT_DROP.
+    //
+    // The payout_request groups SENIOR_INCOMEs by senior; in the current
+    // model all of them target the same senior, but they may span multiple
+    // projects. We treat the FIRST linked SENIOR_INCOME's project as the
+    // "primary" project for drop-vs-senior routing. The standing UX is "a
+    // payout = one project" — see PayoutDetailDialog header — so this
+    // assumption matches what the SENIOR sees.
+    const primaryProjectId = paidIncomeTxs[0]?.projectId ?? null
+    const primaryProject = primaryProjectId
+      ? await this.db.db.query.projects.findFirst({
+          where: eq(projects.id, primaryProjectId),
         })
+      : null
+
+    const dropUser =
+      primaryProject?.dropId
+        ? await this.db.db.query.users.findFirst({
+            where: eq(users.id, primaryProject.dropId),
+          })
+        : null
+
+    const payable = parseFloat(req.payableAmount)
+
+    if (dropUser && primaryProject) {
+      // Drop-project branch.
+      //
+      // Distribution is computed on the GROSS income, not on `payable`.
+      // `payable` is `income * (1 - dropShare/100)` here (validateTransaction
+      // recorded this when flipping DROP_INCOME→VALIDATED on a drop-project),
+      // and represents what the drop transfers off-platform — the residual
+      // for partners after the drop keeps their slice. In the senior-project
+      // path the same `payable` field means something different (income *
+      // (1 - seniorShare/100)) — context is the project, not the column.
+      //
+      // The SENIOR share is computed on GROSS, not on payable, so we read
+      // the senior from the project (not from `req.seniorId` — that field
+      // points at the wallet owner, which is the DROP in this flow).
+      const senior = primaryProject.seniorId
+        ? await this.db.db.query.users.findFirst({
+            where: eq(users.id, primaryProject.seniorId),
+          })
+        : null
+      if (!senior) throw new NotFoundException('Senior not found on drop-project')
+
+      const income = parseFloat(req.incomeAmount)
+      const distribution = this.computeDropDistribution(
+        income,
+        { id: primaryProject.id, dropId: primaryProject.dropId },
+        { id: dropUser.id, dropSharePercent: dropUser.dropSharePercent },
+        { id: senior.id, seniorSharePercent: senior.seniorSharePercent },
+      )
+
+      // Drop's slice — visible on the DROP user's balance.
+      // senderId = senior (who initiated the off-platform settlement);
+      // receiverId + recipientId both = drop (explicit semantics — see
+      // schema comment on recipient_id).
+      await this.db.db.insert(transactions).values({
+        type: 'PAYOUT_DROP',
+        status: 'PAID',
+        amount: String(distribution.dropShare.amount),
+        currency: 'USDT',
+        senderId: currentUser.id,
+        receiverId: dropUser.id,
+        recipientId: dropUser.id,
+        projectId: primaryProject.id,
+        payoutRequestId: requestId,
+        txHash: effectiveTxHash,
+        createdBy: currentUser.id,
+      })
+
+      // Partner residual (50/50 split) on the drop-project's remainder.
+      for (const share of distribution.partnerShares) {
+        const admin = await this.db.db.query.users.findFirst({
+          where: eq(users.id, share.adminId),
+        })
+        if (admin) {
+          await this.db.db.insert(transactions).values({
+            type: 'PAYOUT_ADMIN',
+            status: 'PAID',
+            amount: String(share.amount),
+            currency: 'USDT',
+            senderId: currentUser.id,
+            receiverId: share.adminId,
+            projectId: primaryProject.id,
+            payoutRequestId: requestId,
+            txHash: effectiveTxHash,
+            createdBy: currentUser.id,
+          })
+        }
+      }
+    } else {
+      // Senior-project branch (legacy — must stay byte-identical to the
+      // pre-AC1 inline loop). `computePartnersSplit(payable)` returns
+      // `[{maksym, payable/2}, {kostya, payable/2}]` — same math, same
+      // ordering, same INSERT shape.
+      const partnerShares = this.computePartnersSplit(payable)
+
+      for (const share of partnerShares) {
+        const admin = await this.db.db.query.users.findFirst({
+          where: eq(users.id, share.adminId),
+        })
+        if (admin) {
+          await this.db.db.insert(transactions).values({
+            type: 'PAYOUT_ADMIN',
+            status: 'PAID',
+            amount: String(share.amount),
+            currency: 'USDT',
+            senderId: currentUser.id,
+            receiverId: share.adminId,
+            payoutRequestId: requestId,
+            txHash: effectiveTxHash,
+            createdBy: currentUser.id,
+          })
+        }
       }
     }
 
@@ -1043,8 +1307,15 @@ export class TransactionsService {
 
     const paid = allTxs.filter((tx) => tx.status === 'PAID')
 
+    // Drop role - phase 2: DROP_INCOME counts toward total income for
+    // reporting purposes (gross money that came in through DROPs).
     const totalIncome = paid
-      .filter((tx) => tx.type === 'ADMIN_INCOME' || tx.type === 'SENIOR_INCOME')
+      .filter(
+        (tx) =>
+          tx.type === 'ADMIN_INCOME' ||
+          tx.type === 'SENIOR_INCOME' ||
+          tx.type === 'DROP_INCOME',
+      )
       .reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
 
     const totalExpenses = paid
@@ -1076,6 +1347,25 @@ export class TransactionsService {
       return { userId: admin.id, displayName: admin.displayName, balance: received - sent }
     })
 
+    // Drop role - phase 2 (AC4): aggregate balance per DROP user — credit on
+    // PAYOUT_DROP (their slice of drop-project distribution) minus any debit
+    // (none today; field kept here for symmetry with adminBalances). Empty
+    // array when no DROP users exist. The shape is intentionally identical
+    // to adminBalances so the frontend can render both side-by-side.
+    const dropUsers = await this.db.db.query.users.findMany({
+      where: eq(users.role, 'DROP'),
+    })
+
+    const dropBalances = dropUsers.map((drop) => {
+      const received = paid
+        .filter((tx) => tx.receiverId === drop.id && tx.type === 'PAYOUT_DROP')
+        .reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
+      const sent = paid
+        .filter((tx) => tx.senderId === drop.id && tx.type === 'PAYOUT_DROP')
+        .reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
+      return { userId: drop.id, displayName: drop.displayName, balance: received - sent }
+    })
+
     // Monthly breakdown
     const monthMap = new Map<string, { income: number; expenses: number; salaries: number }>()
 
@@ -1085,8 +1375,13 @@ export class TransactionsService {
       const entry = monthMap.get(month)!
       const amt = parseFloat(tx.amount)
 
-      if (tx.type === 'ADMIN_INCOME' || tx.type === 'SENIOR_INCOME') entry.income += amt
-      else if (tx.type === 'EXPENSE') entry.expenses += amt
+      if (
+        tx.type === 'ADMIN_INCOME' ||
+        tx.type === 'SENIOR_INCOME' ||
+        tx.type === 'DROP_INCOME'
+      ) {
+        entry.income += amt
+      } else if (tx.type === 'EXPENSE') entry.expenses += amt
       else if (tx.type === 'SALARY') entry.salaries += amt
     }
 
@@ -1106,6 +1401,7 @@ export class TransactionsService {
       totalSalaries,
       netBalance: totalIncome - totalExpenses - totalSalaries,
       adminBalances,
+      dropBalances,
       monthly,
     }
   }
@@ -1278,9 +1574,15 @@ export class TransactionsService {
       const nextMonthStart = new Date(currentMonthStart)
       nextMonthStart.setMonth(nextMonthStart.getMonth() + 1)
 
+      // Drop role - phase 2 (AC5): drop-projects unlock junior salary on a
+      // validated DROP_INCOME as well — the income side is what matters for
+      // the unlock, not whether the wallet is a SENIOR or a DROP.
       const hasValidatedIncome = await this.db.db.query.transactions.findFirst({
         where: and(
-          eq(transactions.type, 'SENIOR_INCOME'),
+          or(
+            eq(transactions.type, 'SENIOR_INCOME'),
+            eq(transactions.type, 'DROP_INCOME'),
+          ),
           eq(transactions.projectId, project.id),
           eq(transactions.status, 'VALIDATED'),
         ),
@@ -1305,7 +1607,10 @@ export class TransactionsService {
     }
   }
 
-  // Unlock LOCKED junior salary when a senior income is validated
+  // Unlock LOCKED junior salary when a senior OR drop income is validated.
+  // Drop role - phase 2 (AC5): the trigger condition is "any validated income
+  // on the project" — caller passes the validated row (SENIOR_INCOME or
+  // DROP_INCOME) and we flip the LOCKED salary for the active junior.
   private async unlockJuniorSalaryForProject(projectId: string | null, incomeTx: Transaction) {
     if (!projectId) return
 

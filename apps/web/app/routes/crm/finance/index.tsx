@@ -54,6 +54,8 @@ import { PayoutDetailDialog } from './components/dialogs/PayoutDetailDialog'
 import { TransactionDetailDialog } from './components/dialogs/TransactionDetailDialog'
 import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransactionDialog'
 import { MyProjectShares } from './components/MyProjectShares'
+import { DropBalanceCard } from './components/KpiCards'
+import type { FinanceSummaryDto } from '@crm/shared'
 
 export const Route = createFileRoute('/crm/finance/')({
   component: FinancePage,
@@ -382,6 +384,10 @@ function FinancePage() {
   const isSenior = role === 'SENIOR'
   const isJunior = role === 'JUNIOR'
   const isHr = role === 'HR'
+  // Drop role - phase 2. DROP user reaches the normal finance table and
+  // can register new income via «Новая транзакция» (which renders the
+  // DROP_INCOME card from CreateTransactionDialog).
+  const isDrop = role === 'DROP'
 
   const [showCreate, setShowCreate] = useState(false)
   const [validateTx, setValidateTx] = useState<TransactionDto | null>(null)
@@ -414,7 +420,7 @@ function FinancePage() {
     },
   })
 
-  const canCreate = isAdmin || isSenior
+  const canCreate = isAdmin || isSenior || isDrop
 
   const { data: transactions = [], isLoading: txLoading } = useQuery({
     queryKey: ['transactions'],
@@ -425,6 +431,16 @@ function FinancePage() {
     queryKey: ['exchange-rate', 'today'],
     queryFn: () => api.get<ExchangeRates>('/finance/exchange-rate').then((r) => r.data),
     staleTime: 1000 * 60 * 60,
+  })
+
+  // Drop role - phase 2. ADMIN / ACCOUNTANT see the global «Балансы дропов»
+  // panel rolled up across all DROP users. Hidden for other roles (returns
+  // null when the array is empty too, so a zero-drop deployment shows nothing).
+  const { data: summary } = useQuery<FinanceSummaryDto>({
+    queryKey: ['finance-summary'],
+    queryFn: () => financeApi.getSummary(),
+    enabled: isAdmin || role === 'ACCOUNTANT',
+    staleTime: 30_000,
   })
 
   // Payout-requests query was only used to compute the SENIOR's
@@ -598,6 +614,10 @@ function FinancePage() {
 
       {/* SENIOR — own projects + effective share % (no impact for other roles). */}
       {isSenior && <MyProjectShares />}
+
+      {/* Drop role - phase 2. ADMIN/ACCOUNTANT-only «Балансы дропов» panel.
+          Auto-hidden when no drop balances exist (empty array). */}
+      {summary && <DropBalanceCard summary={summary} />}
 
       {/* Transactions table */}
       <Card>

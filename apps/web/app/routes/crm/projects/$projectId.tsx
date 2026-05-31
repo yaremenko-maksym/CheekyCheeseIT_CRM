@@ -61,7 +61,11 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
 import { AuditLogTab } from '@/components/audit-log/AuditLogTab'
-import { useUnarchiveEntity, type UnarchiveCascadeEntity, type UnarchiveError } from '@/hooks/use-archive'
+import {
+  useUnarchiveEntity,
+  type UnarchiveCascadeEntity,
+  type UnarchiveError,
+} from '@/hooks/use-archive'
 import { CascadeUnarchiveModal } from '@/components/archive/CascadeUnarchiveModal'
 import type { AxiosError } from 'axios'
 
@@ -77,9 +81,7 @@ import type { AxiosError } from 'axios'
  * in-place; this is the runtime safety net for any future drift.
  */
 function coerceDomain(value: string | null | undefined): ItDomain {
-  return (IT_DOMAINS as readonly string[]).includes(value ?? '')
-    ? (value as ItDomain)
-    : 'Other'
+  return (IT_DOMAINS as readonly string[]).includes(value ?? '') ? (value as ItDomain) : 'Other'
 }
 
 export const Route = createFileRoute('/crm/projects/$projectId')({
@@ -102,7 +104,6 @@ const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accou
   ACCOUNTANT: 'accountant',
 }
 
-
 function getInitials(name: string) {
   return (name || '?')
     .split(' ')
@@ -111,7 +112,6 @@ function getInitials(name: string) {
     .toUpperCase()
     .slice(0, 2)
 }
-
 
 // TanStack Form field/form render props require many generics — suppress with eslint
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -167,7 +167,8 @@ function ProjectEditFields({
           <ImageUploadField
             value={{
               documentId: (form.state.values as { logoDocumentId: string | null }).logoDocumentId,
-              externalUrl: (form.state.values as { logoExternalUrl: string | null }).logoExternalUrl,
+              externalUrl: (form.state.values as { logoExternalUrl: string | null })
+                .logoExternalUrl,
             }}
             onChange={(v) => {
               form.setFieldValue('logoDocumentId', v.documentId)
@@ -312,13 +313,20 @@ function ProjectEditFields({
           </form.Field>
         </div>
 
-        <form.Subscribe selector={(s: { values: { rate: number; currency: string } }) => ({ rate: s.values.rate, currency: s.values.currency })}>
+        <form.Subscribe
+          selector={(s: { values: { rate: number; currency: string } }) => ({
+            rate: s.values.rate,
+            currency: s.values.currency,
+          })}
+        >
           {({ rate, currency }: { rate: number; currency: string }) => (
             <AmountCurrencyInput
               amount={String(rate ?? '')}
               currency={currency as Currency}
               onAmountChange={(v) => form.setFieldValue('rate', Number(v) as unknown as number)}
-              onCurrencyChange={(v) => form.setFieldValue('currency', v as 'USDT' | 'USD' | 'EUR' | 'UAH')}
+              onCurrencyChange={(v) =>
+                form.setFieldValue('currency', v as 'USDT' | 'USD' | 'EUR' | 'UAH')
+              }
               label="Ставка"
               placeholder="5000"
             />
@@ -335,7 +343,8 @@ function ProjectEditFields({
             name="seniorSharePercentOverride"
             validators={{
               onBlur: ({ value }: { value: number | null }) => {
-                if (value === null || value === undefined || (value as unknown as string) === '') return undefined
+                if (value === null || value === undefined || (value as unknown as string) === '')
+                  return undefined
                 const num = Number(value)
                 if (!Number.isInteger(num) || num < 0 || num > 100) {
                   return 'Введите целое число от 0 до 100'
@@ -352,9 +361,7 @@ function ProjectEditFields({
               const sliderValue = hasOverride ? (raw as number) : defaultSharePercent
               return (
                 <div className="space-y-2" data-testid="project-edit-senior-share-section">
-                  <Label className={cn(err && 'text-destructive')}>
-                    Доля синьора (%)
-                  </Label>
+                  <Label className={cn(err && 'text-destructive')}>Доля синьора (%)</Label>
                   <ShareSlider
                     value={sliderValue}
                     min={0}
@@ -366,8 +373,8 @@ function ProjectEditFields({
                     inputTestId="project-edit-senior-share-override"
                   />
                   <p className="text-xs text-muted-foreground">
-                    По умолчанию: {defaultSharePercent}%. Установите то же
-                    значение, чтобы сбросить переопределение.
+                    По умолчанию: {defaultSharePercent}%. Установите то же значение, чтобы сбросить
+                    переопределение.
                   </p>
                   {!canEditOverride && (
                     <p className="text-xs text-muted-foreground italic">
@@ -420,10 +427,7 @@ function ProjectShareInfo({
   testId = 'project-senior-share',
   badgeTestId = 'project-senior-share-override-badge',
 }: {
-  project: Pick<
-    ProjectDetailDto,
-    'seniorSharePercentOverride' | 'seniorSharePercentDefault'
-  >
+  project: Pick<ProjectDetailDto, 'seniorSharePercentOverride' | 'seniorSharePercentDefault'>
   variant?: 'block' | 'inline'
   /** Override the default `data-testid` so multiple instances can coexist on the same page. */
   testId?: string
@@ -435,24 +439,15 @@ function ProjectShareInfo({
   const effective = hasOverride ? overrideRaw : fallback
   return (
     <span
-      className={cn(
-        'inline-flex items-center gap-2',
-        variant === 'inline' && 'text-sm',
-      )}
+      className={cn('inline-flex items-center gap-2', variant === 'inline' && 'text-sm')}
       data-testid={testId}
     >
-      {variant === 'inline' && (
-        <span className="text-muted-foreground">Доля синьора:</span>
-      )}
+      {variant === 'inline' && <span className="text-muted-foreground">Доля синьора:</span>}
       <span className="font-medium tabular-nums">{effective}%</span>
       {hasOverride ? (
         <Tooltip>
           <TooltipTrigger asChild>
-            <Badge
-              variant="secondary"
-              className="text-[10px]"
-              data-testid={badgeTestId}
-            >
+            <Badge variant="secondary" className="text-[10px]" data-testid={badgeTestId}>
               Override
             </Badge>
           </TooltipTrigger>
@@ -491,7 +486,9 @@ function ProjectDetailPage() {
   const [addedMemberIds, setAddedMemberIds] = useState<Set<string>>(new Set())
   const [pendingMemberIds, setPendingMemberIds] = useState<Set<string>>(new Set())
   const [removeMemberTarget, setRemoveMemberTarget] = useState<ProjectMemberDto | null>(null)
-  const [activeTab, setActiveTab] = useState<'overview' | 'members' | 'audit' | 'finance'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'members' | 'audit' | 'finance'>(
+    'overview',
+  )
   // ut-28: explicit Archive button in header replaces «Действия» dropdown + «Завершить» button.
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false)
   const [cascadeEntities, setCascadeEntities] = useState<UnarchiveCascadeEntity[] | null>(null)
@@ -507,8 +504,6 @@ function ProjectDetailPage() {
     queryFn: () => api.get<ProjectDetailDto>(`/projects/${projectId}`).then((r) => r.data),
     enabled: !!user,
   })
-
-
 
   const canEditOverride = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
 
@@ -577,7 +572,7 @@ function ProjectDetailPage() {
   // therefore removed.
   // Archive is triggered via the explicit Archive button → ArchiveConfirmDialog.
 
-const removeMemberMutation = useMutation({
+  const removeMemberMutation = useMutation({
     mutationFn: (userId: string) => api.delete(`/projects/${projectId}/members/${userId}`),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['projects', projectId] })
@@ -586,7 +581,15 @@ const removeMemberMutation = useMutation({
     },
   })
 
-  type UserForAdd = { id: string; displayName: string; email: string; role: string; avatarUrl: string | null; avatarDocumentId: string | null; hasActiveProject: boolean }
+  type UserForAdd = {
+    id: string
+    displayName: string
+    email: string
+    role: string
+    avatarUrl: string | null
+    avatarDocumentId: string | null
+    hasActiveProject: boolean
+  }
 
   const { data: allUsers } = useQuery({
     queryKey: ['users'],
@@ -601,10 +604,18 @@ const removeMemberMutation = useMutation({
       void qc.invalidateQueries({ queryKey: ['projects'] })
       void qc.invalidateQueries({ queryKey: ['users'] })
       setAddedMemberIds((prev) => new Set(prev).add(userId))
-      setPendingMemberIds((prev) => { const next = new Set(prev); next.delete(userId); return next })
+      setPendingMemberIds((prev) => {
+        const next = new Set(prev)
+        next.delete(userId)
+        return next
+      })
     },
     onError: (_, userId) => {
-      setPendingMemberIds((prev) => { const next = new Set(prev); next.delete(userId); return next })
+      setPendingMemberIds((prev) => {
+        const next = new Set(prev)
+        next.delete(userId)
+        return next
+      })
     },
   })
 
@@ -663,9 +674,8 @@ const removeMemberMutation = useMutation({
     return true
   })
 
-return (
+  return (
     <div className="space-y-5">
-
       {/* ── Hero banner ── */}
       <motion.div
         className="relative overflow-hidden rounded-2xl border border-border/40 bg-card"
@@ -719,7 +729,21 @@ return (
                     В архиве
                   </Badge>
                 )}
-                <Badge variant="outline" className="text-xs">{project.domain}</Badge>
+                {/* Drop role - phase 2. Distinct blue/info badge for drop-
+                    projects so it's obvious at a glance that money flows
+                    through a DROP user. Hidden for regular senior-projects. */}
+                {project.dropId && (
+                  <Badge
+                    variant="outline"
+                    className="border-blue-500/30 bg-blue-500/10 text-blue-400 text-xs"
+                    data-testid="project-drop-badge"
+                  >
+                    Drop-проект
+                  </Badge>
+                )}
+                <Badge variant="outline" className="text-xs">
+                  {project.domain}
+                </Badge>
               </div>
             </div>
           </div>
@@ -768,9 +792,13 @@ return (
             <DollarSign className="h-4 w-4 text-emerald-400 shrink-0" />
             <div>
               <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Ставка</p>
-              <p className="text-sm font-semibold tabular-nums">{project.rate.toLocaleString()} {project.currency}</p>
+              <p className="text-sm font-semibold tabular-nums">
+                {project.rate.toLocaleString()} {project.currency}
+              </p>
               {rates && project.currency !== 'USD' && project.currency !== 'USDT' && (
-                <p className="text-[10px] text-muted-foreground tabular-nums">≈ {fmtUsd(project.rate, project.currency, rates)}</p>
+                <p className="text-[10px] text-muted-foreground tabular-nums">
+                  ≈ {fmtUsd(project.rate, project.currency, rates)}
+                </p>
               )}
             </div>
           </div>
@@ -779,7 +807,11 @@ return (
             <div>
               <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Старт</p>
               <p className="text-sm font-semibold">
-                {new Date(project.startDate).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                {new Date(project.startDate).toLocaleDateString('ru-RU', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric',
+                })}
               </p>
             </div>
           </div>
@@ -787,9 +819,15 @@ return (
             <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
               <Calendar className="h-4 w-4 text-amber-400 shrink-0" />
               <div>
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Завершён</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                  Завершён
+                </p>
                 <p className="text-sm font-semibold">
-                  {new Date(project.archivedAt).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                  {new Date(project.archivedAt).toLocaleDateString('ru-RU', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                  })}
                 </p>
               </div>
             </div>
@@ -838,9 +876,7 @@ return (
         )
       })()}
 
-      {activeTab === 'members' && (
-        <ProjectEffectiveTeamCard project={project} />
-      )}
+      {activeTab === 'members' && <ProjectEffectiveTeamCard project={project} />}
 
       {activeTab === 'audit' && isAdmin && (
         <AuditLogTab entityType="project" entityId={project.id} />
@@ -849,184 +885,222 @@ return (
       {activeTab !== 'overview' && activeTab !== 'finance' && null}
 
       {activeTab === 'overview' && (
-      <motion.div
-        className="grid gap-4 lg:grid-cols-2"
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, delay: 0.08 }}
-      >
-        {/* Details card */}
-        <Card className="border-border/40">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Детали проекта
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-0 divide-y divide-border/40">
-            <InfoRow icon={<Briefcase className="h-3.5 w-3.5" />} label="Стек">
-              {project.techStack
-                ? <span className="font-medium">{project.techStack}</span>
-                : <span className="text-muted-foreground/40 italic">—</span>}
-            </InfoRow>
-            <InfoRow icon={<Users className="h-3.5 w-3.5" />} label="Команда">
-              {project.teamSize
-                ? <span className="font-medium">{project.teamSize}</span>
-                : <span className="text-muted-foreground/40 italic">—</span>}
-            </InfoRow>
-            <InfoRow icon={<Building2 className="h-3.5 w-3.5" />} label="Бенефиты">
-              {project.benefits
-                ? <span className="font-medium">{project.benefits}</span>
-                : <span className="text-muted-foreground/40 italic">—</span>}
-            </InfoRow>
-            <InfoRow icon={<CreditCard className="h-3.5 w-3.5" />} label="Тип оплаты">
-              {project.paymentType
-                ? <span className="font-medium">{project.paymentType}</span>
-                : <span className="text-muted-foreground/40 italic">—</span>}
-            </InfoRow>
-            <InfoRow icon={<RefreshCw className="h-3.5 w-3.5" />} label="Пересмотр ЗП">
-              {project.salaryReview
-                ? <span className="font-medium">{project.salaryReview}</span>
-                : <span className="text-muted-foreground/40 italic">—</span>}
-            </InfoRow>
-            <InfoRow icon={<Laptop className="h-3.5 w-3.5" />} label="Корп. техника">
-              {project.corpTech
-                ? <span className="font-medium">{project.corpTech}</span>
-                : <span className="text-muted-foreground/40 italic">—</span>}
-            </InfoRow>
-            <div className="flex items-start gap-2 py-3 text-sm">
-              <StickyNote className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
-              <div className="min-w-0">
-                <p className="text-xs text-muted-foreground mb-1">Общие заметки</p>
-                {project.notesGeneral
-                  ? <p className="text-sm whitespace-pre-wrap leading-relaxed">{project.notesGeneral}</p>
-                  : <span className="text-muted-foreground/40 italic">—</span>}
+        <motion.div
+          className="grid gap-4 lg:grid-cols-2"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.08 }}
+        >
+          {/* Details card */}
+          <Card className="border-border/40">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Детали проекта
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-0 divide-y divide-border/40">
+              <InfoRow icon={<Briefcase className="h-3.5 w-3.5" />} label="Стек">
+                {project.techStack ? (
+                  <span className="font-medium">{project.techStack}</span>
+                ) : (
+                  <span className="text-muted-foreground/40 italic">—</span>
+                )}
+              </InfoRow>
+              <InfoRow icon={<Users className="h-3.5 w-3.5" />} label="Команда">
+                {project.teamSize ? (
+                  <span className="font-medium">{project.teamSize}</span>
+                ) : (
+                  <span className="text-muted-foreground/40 italic">—</span>
+                )}
+              </InfoRow>
+              <InfoRow icon={<Building2 className="h-3.5 w-3.5" />} label="Бенефиты">
+                {project.benefits ? (
+                  <span className="font-medium">{project.benefits}</span>
+                ) : (
+                  <span className="text-muted-foreground/40 italic">—</span>
+                )}
+              </InfoRow>
+              <InfoRow icon={<CreditCard className="h-3.5 w-3.5" />} label="Тип оплаты">
+                {project.paymentType ? (
+                  <span className="font-medium">{project.paymentType}</span>
+                ) : (
+                  <span className="text-muted-foreground/40 italic">—</span>
+                )}
+              </InfoRow>
+              <InfoRow icon={<RefreshCw className="h-3.5 w-3.5" />} label="Пересмотр ЗП">
+                {project.salaryReview ? (
+                  <span className="font-medium">{project.salaryReview}</span>
+                ) : (
+                  <span className="text-muted-foreground/40 italic">—</span>
+                )}
+              </InfoRow>
+              <InfoRow icon={<Laptop className="h-3.5 w-3.5" />} label="Корп. техника">
+                {project.corpTech ? (
+                  <span className="font-medium">{project.corpTech}</span>
+                ) : (
+                  <span className="text-muted-foreground/40 italic">—</span>
+                )}
+              </InfoRow>
+              <div className="flex items-start gap-2 py-3 text-sm">
+                <StickyNote className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground mb-1">Общие заметки</p>
+                  {project.notesGeneral ? (
+                    <p className="text-sm whitespace-pre-wrap leading-relaxed">
+                      {project.notesGeneral}
+                    </p>
+                  ) : (
+                    <span className="text-muted-foreground/40 italic">—</span>
+                  )}
+                </div>
               </div>
-            </div>
-            {/* Per-project SENIOR share — read-only view. Renders the same
+              {/* Per-project SENIOR share — read-only view. Renders the same
                 ProjectShareInfo widget used in the Финансы по проекту section
                 below so the two stay in sync. RBAC enforcement lives at the
                 API layer; UI ut-fix-round2 also hides this row for HR. */}
-            {canSeeProjectFinance && (
-              <InfoRow icon={<Percent className="h-3.5 w-3.5" />} label="Доля синьора">
-                <ProjectShareInfo project={project} />
-              </InfoRow>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Team card */}
-        <Card className="border-border/40">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Команда
-              </CardTitle>
-              {canManage && !project.archivedAt && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
-                        disabled={availableToAdd.length === 0}
-                        onClick={() => { setAddedMemberIds(new Set()); setAddMemberOpen(true) }}
-                      >
-                        <UserPlus className="h-3 w-3" />
-                        Добавить
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  {availableToAdd.length === 0 && (
-                    <TooltipContent>Некого добавлять</TooltipContent>
-                  )}
-                </Tooltip>
+              {canSeeProjectFinance && (
+                <InfoRow icon={<Percent className="h-3.5 w-3.5" />} label="Доля синьора">
+                  <ProjectShareInfo project={project} />
+                </InfoRow>
               )}
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-1 divide-y divide-border/30">
-            {/* Senior — always shown */}
-            <div className="pb-3">
-              <Link
-                to="/crm/profile/$userId"
-                params={{ userId: senior.userId }}
-                className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0"
-              >
-                <Avatar className="h-8 w-8 shrink-0 ring-2 ring-[#6366f1]/30">
-                  <AvatarFallback className="text-[11px] font-semibold">
-                    {getInitials(senior.displayName)}
-                  </AvatarFallback>
-                </Avatar>
-                <span className="text-sm font-medium truncate text-primary hover:underline underline-offset-2">
-                  {senior.displayName}
-                </span>
-                <Badge variant="senior" className="shrink-0 text-[9px] ml-auto">Синьор</Badge>
-              </Link>
-            </div>
+            </CardContent>
+          </Card>
 
-            {/* HR */}
-            <div className="pt-3 pb-3">
-              {activeHRs.length === 0 ? (
-                <p className="text-xs text-muted-foreground/50 italic">Не назначен</p>
-              ) : (
-                <div className="space-y-1.5">
-                  {activeHRs.map((m) => (
-                    <MemberRow key={m.id} member={m} canManage={canRemoveMembers} onRemove={() => setRemoveMemberTarget(m)} />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Accountants */}
-            <div className="pt-3 pb-3">
-              {activeAccountants.length === 0 ? (
-                <p className="text-xs text-muted-foreground/50 italic">Не назначен</p>
-              ) : (
-                <div className="space-y-1.5">
-                  {activeAccountants.map((m) => (
-                    <MemberRow key={m.id} member={m} canManage={canRemoveMembers} onRemove={() => setRemoveMemberTarget(m)} />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Junior */}
-            <div className="pt-3">
-              {activeJuniors.length === 0 ? (
-                <p className="text-xs text-amber-500/80 font-medium">Джун не назначен</p>
-              ) : (
-                <div className="space-y-1.5">
-                  {activeJuniors.map((m) => (
-                    <MemberRow key={m.id} member={m} canManage={canRemoveMembers} onRemove={() => setRemoveMemberTarget(m)} />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Past members */}
-            {pastMembers.length > 0 && (
-              <div className="pt-3">
-                <p className="text-[10px] font-semibold text-muted-foreground/40 uppercase tracking-wider mb-2">Покинули проект</p>
-                <div className="space-y-1.5 opacity-50">
-                  {pastMembers.map((m) => (
-                    <MemberRow key={m.id} member={m} canManage={false} onRemove={() => {}} />
-                  ))}
-                </div>
+          {/* Team card */}
+          <Card className="border-border/40">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Команда
+                </CardTitle>
+                {canManage && !project.archivedAt && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
+                          disabled={availableToAdd.length === 0}
+                          onClick={() => {
+                            setAddedMemberIds(new Set())
+                            setAddMemberOpen(true)
+                          }}
+                        >
+                          <UserPlus className="h-3 w-3" />
+                          Добавить
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    {availableToAdd.length === 0 && (
+                      <TooltipContent>Некого добавлять</TooltipContent>
+                    )}
+                  </Tooltip>
+                )}
               </div>
-            )}
-          </CardContent>
-        </Card>
-      </motion.div>
+            </CardHeader>
+            <CardContent className="space-y-1 divide-y divide-border/30">
+              {/* Senior — always shown */}
+              <div className="pb-3">
+                <Link
+                  to="/crm/profile/$userId"
+                  params={{ userId: senior.userId }}
+                  className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0"
+                >
+                  <Avatar className="h-8 w-8 shrink-0 ring-2 ring-[#6366f1]/30">
+                    <AvatarFallback className="text-[11px] font-semibold">
+                      {getInitials(senior.displayName)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="text-sm font-medium truncate text-primary hover:underline underline-offset-2">
+                    {senior.displayName}
+                  </span>
+                  <Badge variant="senior" className="shrink-0 text-[9px] ml-auto">
+                    Синьор
+                  </Badge>
+                </Link>
+              </div>
+
+              {/* HR */}
+              <div className="pt-3 pb-3">
+                {activeHRs.length === 0 ? (
+                  <p className="text-xs text-muted-foreground/50 italic">Не назначен</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {activeHRs.map((m) => (
+                      <MemberRow
+                        key={m.id}
+                        member={m}
+                        canManage={canRemoveMembers}
+                        onRemove={() => setRemoveMemberTarget(m)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Accountants */}
+              <div className="pt-3 pb-3">
+                {activeAccountants.length === 0 ? (
+                  <p className="text-xs text-muted-foreground/50 italic">Не назначен</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {activeAccountants.map((m) => (
+                      <MemberRow
+                        key={m.id}
+                        member={m}
+                        canManage={canRemoveMembers}
+                        onRemove={() => setRemoveMemberTarget(m)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Junior */}
+              <div className="pt-3">
+                {activeJuniors.length === 0 ? (
+                  <p className="text-xs text-amber-500/80 font-medium">Джун не назначен</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {activeJuniors.map((m) => (
+                      <MemberRow
+                        key={m.id}
+                        member={m}
+                        canManage={canRemoveMembers}
+                        onRemove={() => setRemoveMemberTarget(m)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Past members */}
+              {pastMembers.length > 0 && (
+                <div className="pt-3">
+                  <p className="text-[10px] font-semibold text-muted-foreground/40 uppercase tracking-wider mb-2">
+                    Покинули проект
+                  </p>
+                  <div className="space-y-1.5 opacity-50">
+                    {pastMembers.map((m) => (
+                      <MemberRow key={m.id} member={m} canManage={false} onRemove={() => {}} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
       )}
 
       {activeTab === 'finance' && canSeeProjectFinance && (
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, delay: 0.16 }}
-      >
-        <ProjectTransactions projectId={projectId} project={project} />
-      </motion.div>
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.16 }}
+        >
+          <ProjectTransactions projectId={projectId} project={project} />
+        </motion.div>
       )}
 
       {/* ── Edit / Add member dialog ── */}
@@ -1096,7 +1170,12 @@ return (
       </Dialog>
 
       {/* ── Add member ── */}
-      <Dialog open={addMemberOpen} onOpenChange={(v) => { if (!v) setAddMemberOpen(false) }}>
+      <Dialog
+        open={addMemberOpen}
+        onOpenChange={(v) => {
+          if (!v) setAddMemberOpen(false)
+        }}
+      >
         <CrmDialogContent maxWidth="max-w-sm">
           <CrmDialogHeader>
             <DialogTitle>Добавить участника</DialogTitle>
@@ -1110,25 +1189,30 @@ return (
                 const isAdded = addedMemberIds.has(u.id)
                 const isPending = pendingMemberIds.has(u.id)
                 return (
-                  <div
-                    key={u.id}
-                    className="flex items-center gap-2.5 rounded-md px-3 py-2"
-                  >
+                  <div key={u.id} className="flex items-center gap-2.5 rounded-md px-3 py-2">
                     <Avatar className="h-7 w-7 shrink-0">
                       {u.avatarUrl && <AvatarImage src={u.avatarUrl} />}
-                      <AvatarFallback className="text-[10px]">{getInitials(u.displayName)}</AvatarFallback>
+                      <AvatarFallback className="text-[10px]">
+                        {getInitials(u.displayName)}
+                      </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{u.displayName}</p>
                       <p className="truncate text-xs text-muted-foreground">{u.email}</p>
                     </div>
-                    <Badge variant={ROLE_VARIANT[u.role] ?? 'junior'} className="shrink-0 text-[9px]">
+                    <Badge
+                      variant={ROLE_VARIANT[u.role] ?? 'junior'}
+                      className="shrink-0 text-[9px]"
+                    >
                       {ROLE_LABELS[u.role] ?? u.role}
                     </Badge>
                     <Button
                       size="sm"
                       variant={isAdded ? 'outline' : 'default'}
-                      className={cn('shrink-0 h-7 text-xs px-2.5', isAdded && 'text-emerald-500 border-emerald-500/40')}
+                      className={cn(
+                        'shrink-0 h-7 text-xs px-2.5',
+                        isAdded && 'text-emerald-500 border-emerald-500/40',
+                      )}
                       disabled={isAdded || isPending}
                       onClick={() => {
                         setPendingMemberIds((prev) => new Set(prev).add(u.id))
@@ -1233,6 +1317,66 @@ function ProjectCascadeUnarchiveModal({
   )
 }
 
+/**
+ * Drop role - phase 2 (AC3). Distribution breakdown panel for drop-projects.
+ *
+ * Renders the formula visualisation specified in §8.1 of
+ * drop-role-and-finance-spec.md — example income $1000:
+ *   Доля синьора 26%   $260
+ *   Доля дропа 5%      $50
+ *   Партнёрам 50/50    $345 / $345
+ *
+ * Senior share = `seniorSharePercentOverride ?? seniorSharePercentDefault`
+ * (same rule as the existing «Override» badge widget). Drop share is read
+ * from the snapshot on the project DTO. The remainder is split 50/50
+ * between partners. Component is mounted only when the project is a
+ * drop-project (`project.dropId != null`); the caller enforces the RBAC
+ * (ADMIN/ACCOUNTANT/SENIOR/DROP — same audience that sees the Финансы tab).
+ */
+function ProjectDropDistribution({ project }: { project: ProjectDetailDto }) {
+  // Use $1000 as the canonical example. Numbers shown without currency
+  // suffix to keep the formula abstract — actual amounts vary per income.
+  const seniorPct = project.seniorSharePercentOverride ?? project.seniorSharePercentDefault ?? 26
+  const dropPct = project.dropSharePercent ?? 5
+  const exampleIncome = 1000
+  const seniorShare = (exampleIncome * seniorPct) / 100
+  const dropShare = (exampleIncome * dropPct) / 100
+  const remainder = exampleIncome - seniorShare - dropShare
+  const partnerEach = remainder / 2
+  const fmt = (n: number) =>
+    `$${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
+  return (
+    <Card className="border-blue-500/20 bg-blue-500/[0.03]" data-testid="project-drop-distribution">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-xs font-semibold text-blue-400 uppercase tracking-wider">
+          Распределение прихода (пример {fmt(exampleIncome)})
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-1.5 text-sm">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Доля синьора ({seniorPct}%)</span>
+          <span className="font-semibold tabular-nums" data-testid="dist-senior-share">
+            {fmt(seniorShare)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Доля дропа ({dropPct}%)</span>
+          <span className="font-semibold tabular-nums" data-testid="dist-drop-share">
+            {fmt(dropShare)}
+          </span>
+        </div>
+        <div className="h-px bg-border/60 my-1" />
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Партнёрам (50 / 50)</span>
+          <span className="font-semibold tabular-nums" data-testid="dist-partner-share">
+            {fmt(partnerEach)} / {fmt(partnerEach)}
+          </span>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 function ProjectTransactions({
   projectId,
   project,
@@ -1258,8 +1402,23 @@ function ProjectTransactions({
 
   if (!user) return null
 
+  // Drop role - phase 2 (AC3). Distribution panel visible to ADMIN /
+  // ACCOUNTANT / SENIOR (the project's) / DROP (the project's). Other
+  // roles never reach this tab (gated upstream by `canSeeProjectFinance`).
+  const role = user.role
+  const isProjectSenior = role === 'SENIOR' && project.seniorId === user.id
+  const isProjectDrop = role === 'DROP' && project.dropId === user.id
+  const canSeeDistribution =
+    !!project.dropId &&
+    (role === 'ADMIN' || role === 'ACCOUNTANT' || isProjectSenior || isProjectDrop)
+
   return (
     <>
+      {canSeeDistribution && (
+        <div className="mb-4">
+          <ProjectDropDistribution project={project} />
+        </div>
+      )}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1270,10 +1429,7 @@ function ProjectTransactions({
                 row in the table below. Mirrors the read-only marker in
                 the Project info card so it's obvious which split was
                 used at the moment each transaction was created. */}
-            <div
-              className="flex items-center"
-              data-testid="project-transactions-share-row"
-            >
+            <div className="flex items-center" data-testid="project-transactions-share-row">
               <ProjectShareInfo
                 project={project}
                 variant="inline"
@@ -1291,7 +1447,9 @@ function ProjectTransactions({
               ))}
             </div>
           ) : !transactions?.length ? (
-            <p className="text-sm text-muted-foreground px-4 pb-4">Транзакций по проекту пока нет</p>
+            <p className="text-sm text-muted-foreground px-4 pb-4">
+              Транзакций по проекту пока нет
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -1388,9 +1546,14 @@ function MemberRow({
 function ProjectEffectiveTeamCard({ project }: { project: ProjectDetailDto }) {
   const effective = project.effectiveTeam
   const senior = effective?.senior ?? null
+  // Drop role - phase 2. Optional drop row in the «Эффективный состав»
+  // card. Shown only when `effectiveTeam.drop` is set (the project has a
+  // dropId). Regular senior-projects render exactly as before.
+  const drop = effective?.drop ?? null
   const hrs = effective?.hrs ?? []
   const accountants = effective?.accountants ?? []
-  const juniors = effective?.juniors ?? project.members.filter((m) => m.role === 'JUNIOR' && m.leftAt === null)
+  const juniors =
+    effective?.juniors ?? project.members.filter((m) => m.role === 'JUNIOR' && m.leftAt === null)
 
   // ut-30: flat list — single «Эффективный состав» heading; role-specific
   // section headings («СИНЬОР», «HR (N)», «БУХГАЛТЕРЫ (N)», «ДЖУНЫ (N)») removed.
@@ -1401,7 +1564,7 @@ function ProjectEffectiveTeamCard({ project }: { project: ProjectDetailDto }) {
     displayName: string
     avatarUrl: string | null
     avatarDocumentId: string | null
-    role: 'SENIOR' | 'HR' | 'ACCOUNTANT' | 'JUNIOR'
+    role: 'SENIOR' | 'DROP' | 'HR' | 'ACCOUNTANT' | 'JUNIOR'
     sectionTestId: string
   }
   const flatMembers: FlatMember[] = []
@@ -1414,6 +1577,19 @@ function ProjectEffectiveTeamCard({ project }: { project: ProjectDetailDto }) {
       avatarDocumentId: senior.avatarDocumentId,
       role: 'SENIOR',
       sectionTestId: 'effective-team-senior',
+    })
+  }
+  // Drop role - phase 2. Insert drop directly after senior to keep the
+  // financial chain visible at a glance (income → drop → senior → juniors).
+  if (drop) {
+    flatMembers.push({
+      key: `drop-${drop.id}`,
+      profileId: drop.id,
+      displayName: drop.displayName,
+      avatarUrl: drop.avatarUrl,
+      avatarDocumentId: drop.avatarDocumentId,
+      role: 'DROP',
+      sectionTestId: 'effective-team-drop',
     })
   }
   for (const m of hrs) {
@@ -1487,14 +1663,44 @@ function ProjectEffectiveTeamCard({ project }: { project: ProjectDetailDto }) {
           >
             <Avatar className="h-7 w-7 shrink-0">
               {m.avatarUrl && <AvatarImage src={m.avatarUrl} alt={m.displayName} />}
-              <AvatarFallback className="text-[10px] font-semibold">{getInitials(m.displayName)}</AvatarFallback>
+              <AvatarFallback className="text-[10px] font-semibold">
+                {getInitials(m.displayName)}
+              </AvatarFallback>
             </Avatar>
             <span className="text-sm font-medium truncate flex-1 text-primary hover:underline">
               {m.displayName}
             </span>
-            <Badge variant={m.role === 'SENIOR' ? 'senior' : m.role === 'HR' ? 'hr' : m.role === 'ACCOUNTANT' ? 'accountant' : 'junior'} className="shrink-0 text-[9px]">
-              {m.role === 'SENIOR' ? 'Синьор' : m.role === 'HR' ? 'HR' : m.role === 'ACCOUNTANT' ? 'Бухгалтер' : 'Джун'}
-            </Badge>
+            {/* Drop role - phase 2. DROP gets a distinct blue/info badge so
+                it is visually separable from SENIOR/HR/ACCOUNTANT/JUNIOR. */}
+            {m.role === 'DROP' ? (
+              <Badge
+                variant="outline"
+                className="border-blue-500/30 bg-blue-500/10 text-blue-400 shrink-0 text-[9px]"
+              >
+                Дроп
+              </Badge>
+            ) : (
+              <Badge
+                variant={
+                  m.role === 'SENIOR'
+                    ? 'senior'
+                    : m.role === 'HR'
+                      ? 'hr'
+                      : m.role === 'ACCOUNTANT'
+                        ? 'accountant'
+                        : 'junior'
+                }
+                className="shrink-0 text-[9px]"
+              >
+                {m.role === 'SENIOR'
+                  ? 'Синьор'
+                  : m.role === 'HR'
+                    ? 'HR'
+                    : m.role === 'ACCOUNTANT'
+                      ? 'Бухгалтер'
+                      : 'Джун'}
+              </Badge>
+            )}
           </Link>
         ))}
       </CardContent>

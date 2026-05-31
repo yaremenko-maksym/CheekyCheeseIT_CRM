@@ -9,6 +9,11 @@ export const TYPE_LABELS: Record<TransactionType, string> = {
   ADMIN_TRANSFER: 'Перевод',
   PAYOUT: 'Выплата',
   PAYOUT_ADMIN: 'Доля партнёра',
+  // Drop role - phase 2. Minimal labels to satisfy the exhaustive Record<>
+  // contract. UI polish (icons / placement in lists) lands in the Phase 2
+  // frontend task.
+  DROP_INCOME: 'Приход дропа',
+  PAYOUT_DROP: 'Доля дропа',
 }
 
 export const STATUS_LABELS: Record<TransactionStatus, string> = {
@@ -41,13 +46,14 @@ export const TYPE_COLORS: Record<TransactionType, string> = {
   ADMIN_TRANSFER: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
   PAYOUT: 'bg-rose-500/15 text-rose-400 border-rose-500/30',
   PAYOUT_ADMIN: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30',
+  // Drop role - phase 2. Distinct tone (teal) so drop rows are visually
+  // separable from PAYOUT/PAYOUT_ADMIN in mixed lists. Frontend task will
+  // refine if needed.
+  DROP_INCOME: 'bg-teal-500/15 text-teal-300 border-teal-500/30',
+  PAYOUT_DROP: 'bg-teal-500/20 text-teal-200 border-teal-500/40',
 }
 
-export const EXPENSE_CATEGORIES = [
-  'Оплата сервиса',
-  'Комиссия',
-  'Прочее',
-]
+export const EXPENSE_CATEGORIES = ['Оплата сервиса', 'Комиссия', 'Прочее']
 
 /**
  * Original-currency amount for detail dialogs («7 777,00 USDT», «5 000,00 EUR»).
@@ -80,7 +86,11 @@ export function toUsd(amount: string | number, currency: string, rates: Exchange
  * NBU rates; without rates loaded we fall back to the original-currency
  * format so the cell never renders a bare number.
  */
-export function fmtUsd(amount: string | number, currency: string, rates: ExchangeRates | undefined): string {
+export function fmtUsd(
+  amount: string | number,
+  currency: string,
+  rates: ExchangeRates | undefined,
+): string {
   if (!rates) return fmtAmount(amount, currency)
   const usd = toUsd(amount, currency, rates)
   return `$${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -105,12 +115,19 @@ export function fmtRate(currency: string, rates: ExchangeRates | undefined): str
 }
 
 export function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: '2-digit' })
+  return new Date(iso).toLocaleDateString('uk-UA', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+  })
 }
 
 export function fmtMonth(ym: string | null | undefined): string {
   if (!ym) return '—'
   const [year, month] = ym.split('-').map(Number)
   if (!year || !month) return ym
-  return new Date(year, month - 1, 1).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })
+  return new Date(year, month - 1, 1).toLocaleDateString('ru-RU', {
+    month: 'long',
+    year: 'numeric',
+  })
 }
