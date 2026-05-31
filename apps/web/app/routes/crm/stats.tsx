@@ -1,9 +1,10 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import {
   ArrowDownLeft,
   ArrowRight,
   BarChart3,
+  Building2,
   Clock,
   DollarSign,
   HelpCircle,
@@ -24,7 +25,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import type { FinanceSummaryDto } from '@crm/shared'
+import type { BalanceDto, FinanceSummaryDto, UserProfileDto } from '@crm/shared'
+import { api } from '@/lib/axios'
 import { useAuth } from '@/context/auth'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -108,15 +110,23 @@ function StatCard({
             <p className={cn('text-2xl font-bold tabular-nums', colorMap[color])}>{value}</p>
             {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
             {trend && (
-              <div className={cn('flex items-center gap-1 text-xs font-medium', trend.value >= 0 ? 'text-green-500' : 'text-red-500')}>
-                {trend.value >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                {trend.value >= 0 ? '+' : ''}{trend.value.toFixed(1)}% {trend.label}
+              <div
+                className={cn(
+                  'flex items-center gap-1 text-xs font-medium',
+                  trend.value >= 0 ? 'text-green-500' : 'text-red-500',
+                )}
+              >
+                {trend.value >= 0 ? (
+                  <TrendingUp className="h-3 w-3" />
+                ) : (
+                  <TrendingDown className="h-3 w-3" />
+                )}
+                {trend.value >= 0 ? '+' : ''}
+                {trend.value.toFixed(1)}% {trend.label}
               </div>
             )}
           </div>
-          <div className={cn('rounded-lg p-2 shrink-0', bgMap[color], colorMap[color])}>
-            {icon}
-          </div>
+          <div className={cn('rounded-lg p-2 shrink-0', bgMap[color], colorMap[color])}>{icon}</div>
         </div>
       </CardContent>
     </Card>
@@ -130,9 +140,8 @@ function PartnerBalancesCard({ summary }: { summary: FinanceSummaryDto }) {
 
   const sorted = [...summary.adminBalances].sort((a, b) => b.balance - a.balance)
   const [rich, poor] = [sorted[0], sorted[sorted.length - 1]]
-  const debt = rich && poor && rich.userId !== poor.userId
-    ? Math.abs(rich.balance - poor.balance) / 2
-    : 0
+  const debt =
+    rich && poor && rich.userId !== poor.userId ? Math.abs(rich.balance - poor.balance) / 2 : 0
   const total = sorted.reduce((s, b) => s + b.balance, 0)
   const isSettled = debt <= 0.01
 
@@ -148,13 +157,21 @@ function PartnerBalancesCard({ summary }: { summary: FinanceSummaryDto }) {
                   <HelpCircle className="h-3.5 w-3.5 text-muted-foreground/40 cursor-help" />
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-60 text-xs leading-relaxed">
-                  Накопленный баланс каждого партнёра: входящие PAYOUT_ADMIN + ADMIN_INCOME минус исходящие ADMIN_TRANSFER (все со статусом PAID).
+                  Накопленный баланс каждого партнёра: входящие PAYOUT_ADMIN + ADMIN_INCOME минус
+                  исходящие ADMIN_TRANSFER (все со статусом PAID).
                 </TooltipContent>
               </UITooltip>
             </TooltipProvider>
           </div>
           <span className="text-xs text-muted-foreground">
-            Итого: <span className="font-semibold text-foreground">${total.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+            Итого:{' '}
+            <span className="font-semibold text-foreground">
+              $
+              {total.toLocaleString('en-US', {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0,
+              })}
+            </span>
           </span>
         </div>
       </CardHeader>
@@ -169,25 +186,36 @@ function PartnerBalancesCard({ summary }: { summary: FinanceSummaryDto }) {
               <div key={ab.userId} className="space-y-1">
                 <div className="flex items-center justify-between text-sm">
                   <div className="flex items-center gap-2">
-                    <div className={cn(
-                      'h-2.5 w-2.5 rounded-full shrink-0',
-                      isLeading ? 'bg-violet-500' : 'bg-sky-500',
-                    )} />
+                    <div
+                      className={cn(
+                        'h-2.5 w-2.5 rounded-full shrink-0',
+                        isLeading ? 'bg-violet-500' : 'bg-sky-500',
+                      )}
+                    />
                     <span className="font-medium">{ab.displayName}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">{pct}%</span>
-                    <span className={cn(
-                      'font-bold tabular-nums',
-                      ab.balance >= 0 ? 'text-foreground' : 'text-red-400',
-                    )}>
-                      ${ab.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <span
+                      className={cn(
+                        'font-bold tabular-nums',
+                        ab.balance >= 0 ? 'text-foreground' : 'text-red-400',
+                      )}
+                    >
+                      $
+                      {ab.balance.toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
                     </span>
                   </div>
                 </div>
                 <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
                   <div
-                    className={cn('h-full rounded-full transition-all', isLeading ? 'bg-violet-500' : 'bg-sky-500')}
+                    className={cn(
+                      'h-full rounded-full transition-all',
+                      isLeading ? 'bg-violet-500' : 'bg-sky-500',
+                    )}
                     style={{ width: `${Math.max(2, pct)}%` }}
                   />
                 </div>
@@ -213,7 +241,9 @@ function PartnerBalancesCard({ summary }: { summary: FinanceSummaryDto }) {
           <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 overflow-hidden">
             <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-amber-500/10">
               <Info className="h-3 w-3 text-amber-400/70 shrink-0" />
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Для выравнивания</span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">
+                Для выравнивания
+              </span>
             </div>
             <div className="px-3 py-3 flex items-center gap-3">
               {/* Sender */}
@@ -221,14 +251,20 @@ function PartnerBalancesCard({ summary }: { summary: FinanceSummaryDto }) {
                 <div className="h-8 w-8 rounded-full bg-violet-500/15 flex items-center justify-center text-xs font-bold text-violet-400">
                   {rich.displayName.charAt(0)}
                 </div>
-                <span className="text-[11px] font-medium text-center leading-tight truncate w-full text-center">{rich.displayName}</span>
+                <span className="text-[11px] font-medium text-center leading-tight truncate w-full text-center">
+                  {rich.displayName}
+                </span>
                 <span className="text-[10px] text-muted-foreground">отправляет</span>
               </div>
 
               {/* Arrow + amount */}
               <div className="flex flex-col items-center gap-0.5 shrink-0">
                 <span className="text-lg font-black tabular-nums text-amber-400">
-                  ${debt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  $
+                  {debt.toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
                 </span>
                 <div className="flex items-center gap-0.5 text-amber-500/60">
                   <div className="h-px w-6 bg-amber-500/40" />
@@ -243,7 +279,9 @@ function PartnerBalancesCard({ summary }: { summary: FinanceSummaryDto }) {
                 <div className="h-8 w-8 rounded-full bg-sky-500/15 flex items-center justify-center text-xs font-bold text-sky-400">
                   {poor.displayName.charAt(0)}
                 </div>
-                <span className="text-[11px] font-medium text-center leading-tight truncate w-full text-center">{poor.displayName}</span>
+                <span className="text-[11px] font-medium text-center leading-tight truncate w-full text-center">
+                  {poor.displayName}
+                </span>
                 <span className="text-[10px] text-muted-foreground">получает</span>
               </div>
             </div>
@@ -259,10 +297,10 @@ function PartnerBalancesCard({ summary }: { summary: FinanceSummaryDto }) {
 type ChartMode = 'income' | 'expenses' | 'salary' | 'profit'
 
 const CHART_MODES: { value: ChartMode; label: string; key: string; color: string }[] = [
-  { value: 'income',   label: 'Приходы',  key: 'Доход',    color: '#22c55e' },
-  { value: 'profit',   label: 'Прибыль',  key: 'Прибыль',  color: '#06b6d4' },
-  { value: 'expenses', label: 'Расходы',  key: 'Расходы',  color: '#f97316' },
-  { value: 'salary',   label: 'Зарплаты', key: 'Зарплаты', color: '#a855f7' },
+  { value: 'income', label: 'Приходы', key: 'Доход', color: '#22c55e' },
+  { value: 'profit', label: 'Прибыль', key: 'Прибыль', color: '#06b6d4' },
+  { value: 'expenses', label: 'Расходы', key: 'Расходы', color: '#f97316' },
+  { value: 'salary', label: 'Зарплаты', key: 'Зарплаты', color: '#a855f7' },
 ]
 
 const BAR_WIDTH = 80
@@ -280,11 +318,18 @@ function ChartTooltip(props: Record<string, unknown>) {
       {payload.map((entry) => (
         <div key={entry.dataKey} className="flex items-center justify-between gap-4 py-0.5">
           <span className="flex items-center gap-1.5 text-muted-foreground">
-            <span className="inline-block h-2.5 w-2.5 rounded-sm shrink-0" style={{ background: entry.color }} />
+            <span
+              className="inline-block h-2.5 w-2.5 rounded-sm shrink-0"
+              style={{ background: entry.color }}
+            />
             {entry.dataKey}
           </span>
           <span className="font-medium tabular-nums text-foreground">
-            ${entry.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            $
+            {entry.value.toLocaleString('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
           </span>
         </div>
       ))}
@@ -298,10 +343,10 @@ function FinanceChart({ summary }: { summary: FinanceSummaryDto }) {
 
   const chartData = summary.monthly.map((m) => ({
     month: m.month,
-    'Доход':    m.income,
-    'Расходы':  m.expenses,
-    'Зарплаты': m.salaries,
-    'Прибыль':  m.profit,
+    Доход: m.income,
+    Расходы: m.expenses,
+    Зарплаты: m.salaries,
+    Прибыль: m.profit,
   }))
 
   const effectiveMode = CHART_MODES.find((m) => m.value === mode) ?? CHART_MODES[0]!
@@ -332,10 +377,22 @@ function FinanceChart({ summary }: { summary: FinanceSummaryDto }) {
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     const el = scrollRef.current
     if (!el) return
-    if (e.key === 'ArrowRight') { e.preventDefault(); el.scrollLeft += BAR_WIDTH }
-    if (e.key === 'ArrowLeft')  { e.preventDefault(); el.scrollLeft -= BAR_WIDTH }
-    if (e.key === 'Home')       { e.preventDefault(); el.scrollLeft = 0 }
-    if (e.key === 'End')        { e.preventDefault(); el.scrollLeft = el.scrollWidth }
+    if (e.key === 'ArrowRight') {
+      e.preventDefault()
+      el.scrollLeft += BAR_WIDTH
+    }
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault()
+      el.scrollLeft -= BAR_WIDTH
+    }
+    if (e.key === 'Home') {
+      e.preventDefault()
+      el.scrollLeft = 0
+    }
+    if (e.key === 'End') {
+      e.preventDefault()
+      el.scrollLeft = el.scrollWidth
+    }
   }, [])
 
   const dragRef = useRef<{ startX: number; scrollLeft: number } | null>(null)
@@ -383,7 +440,10 @@ function FinanceChart({ summary }: { summary: FinanceSummaryDto }) {
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <span className="inline-block h-3 w-3 rounded-sm" style={{ background: effectiveMode.color }} />
+            <span
+              className="inline-block h-3 w-3 rounded-sm"
+              style={{ background: effectiveMode.color }}
+            />
             Динамика по месяцам
           </CardTitle>
           <Select value={effectiveMode.value} onValueChange={(v) => setMode(v as ChartMode)}>
@@ -392,7 +452,9 @@ function FinanceChart({ summary }: { summary: FinanceSummaryDto }) {
             </SelectTrigger>
             <SelectContent>
               {CHART_MODES.map((m) => (
-                <SelectItem key={m.value} value={m.value} className="text-xs">{m.label}</SelectItem>
+                <SelectItem key={m.value} value={m.value} className="text-xs">
+                  {m.label}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -409,7 +471,9 @@ function FinanceChart({ summary }: { summary: FinanceSummaryDto }) {
                   tick={{ fontSize: 11, fill: '#94a3b8' }}
                   tickLine={false}
                   axisLine={false}
-                  tickFormatter={(v: number) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`}
+                  tickFormatter={(v: number) =>
+                    v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`
+                  }
                   width={Y_AXIS_WIDTH}
                   domain={yDomain}
                 />
@@ -434,7 +498,11 @@ function FinanceChart({ summary }: { summary: FinanceSummaryDto }) {
             <style>{`.finance-chart-scroll::-webkit-scrollbar { display: none; }`}</style>
             <div style={{ minWidth: chartWidth }}>
               <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={chartData} margin={{ top: 8, right: 16, bottom: 4, left: 0 }} barCategoryGap="20%">
+                <BarChart
+                  data={chartData}
+                  margin={{ top: 8, right: 16, bottom: 4, left: 0 }}
+                  barCategoryGap="20%"
+                >
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
                   <XAxis
                     dataKey="month"
@@ -445,7 +513,10 @@ function FinanceChart({ summary }: { summary: FinanceSummaryDto }) {
                   />
                   <YAxis domain={yDomain} hide />
                   {hasNegative && <ReferenceLine y={0} stroke="#334155" strokeWidth={1.5} />}
-                  <Tooltip cursor={false} content={(props) => <ChartTooltip {...props as Record<string, unknown>} />} />
+                  <Tooltip
+                    cursor={false}
+                    content={(props) => <ChartTooltip {...(props as Record<string, unknown>)} />}
+                  />
                   <Bar
                     dataKey={effectiveMode.key}
                     fill={effectiveMode.color}
@@ -472,20 +543,216 @@ function computeExtraStats(summary: FinanceSummaryDto) {
   const lastMonth = months[months.length - 1]!
   const prevMonth = months.length >= 2 ? months[months.length - 2] : null
 
-  const incomeTrend = prevMonth && prevMonth.income > 0
-    ? ((lastMonth.income - prevMonth.income) / prevMonth.income) * 100
-    : null
+  const incomeTrend =
+    prevMonth && prevMonth.income > 0
+      ? ((lastMonth.income - prevMonth.income) / prevMonth.income) * 100
+      : null
 
-  const profitMargin = lastMonth.income > 0
-    ? (lastMonth.profit / lastMonth.income) * 100
-    : null
+  const profitMargin = lastMonth.income > 0 ? (lastMonth.profit / lastMonth.income) * 100 : null
 
   const avgMonthlyIncome = months.reduce((s, m) => s + m.income, 0) / months.length
   const avgMonthlyProfit = months.reduce((s, m) => s + m.profit, 0) / months.length
 
   const bestMonth = [...months].sort((a, b) => b.income - a.income)[0]!
 
-  return { lastMonth, prevMonth, incomeTrend, profitMargin, avgMonthlyIncome, avgMonthlyProfit, bestMonth }
+  return {
+    lastMonth,
+    prevMonth,
+    incomeTrend,
+    profitMargin,
+    avgMonthlyIncome,
+    avgMonthlyProfit,
+    bestMonth,
+  }
+}
+
+// ── TOВ balance + participants list (Phase 4-B) ───────────────────────────────
+//
+// Visible only to ADMIN/ACCOUNTANT; the backend route also enforces the
+// permission. We surface the corporate balance with its breakdown and a flat
+// list of admin/senior balances pulled from the Phase 4-A BalanceService.
+
+function TovBalanceSection() {
+  const { data: tov, isLoading: tovLoading } = useQuery({
+    queryKey: ['balance', 'tov'],
+    queryFn: () => api.get<BalanceDto>('/balances/tov').then((r) => r.data),
+  })
+
+  const { data: users = [], isLoading: usersLoading } = useQuery({
+    queryKey: ['stats-participants'],
+    queryFn: () => api.get<UserProfileDto[]>('/users').then((r) => r.data),
+    staleTime: 5 * 60_000,
+  })
+
+  const admins = users.filter((u) => u.role === 'ADMIN' && !u.archivedAt)
+  const seniors = users.filter((u) => u.role === 'SENIOR' && !u.archivedAt)
+
+  const adminQueries = useQueries({
+    queries: admins.map((a) => ({
+      queryKey: ['balance', 'admin', a.id],
+      queryFn: () => api.get<BalanceDto>(`/balances/admin/${a.id}`).then((r) => r.data),
+      enabled: !!a.id,
+    })),
+  })
+  const seniorQueries = useQueries({
+    queries: seniors.map((s) => ({
+      queryKey: ['balance', 'senior', s.id],
+      queryFn: () => api.get<BalanceDto>(`/balances/senior/${s.id}`).then((r) => r.data),
+      enabled: !!s.id,
+    })),
+  })
+
+  return (
+    <section className="space-y-4">
+      <div className="flex items-center gap-2">
+        <Building2 className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+          ТОВ + участники
+        </h2>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-1" data-testid="tov-balance-card">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-emerald-400" />
+                Баланс ТОВ
+              </CardTitle>
+              <TooltipProvider delayDuration={200}>
+                <UITooltip>
+                  <TooltipTrigger asChild>
+                    <HelpCircle className="h-3 w-3 text-muted-foreground/50 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-60 text-xs">
+                    Баланс корпоративного (ТОВ) счёта — приход минус дивиденды, расходы (FIAT_TOV) и
+                    налоги.
+                  </TooltipContent>
+                </UITooltip>
+              </TooltipProvider>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {tovLoading || !tov ? (
+              <Skeleton className="h-24 w-full" />
+            ) : (
+              <>
+                <div
+                  className={cn(
+                    'text-3xl font-bold tabular-nums',
+                    tov.balance >= 0 ? 'text-emerald-400' : 'text-red-400',
+                  )}
+                  data-testid="tov-balance-value"
+                >
+                  $
+                  {tov.balance.toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </div>
+                <ul className="space-y-1 text-xs">
+                  {Object.entries(tov.breakdown).map(([key, value]) => (
+                    <li key={key} className="flex items-center justify-between">
+                      <span className="text-muted-foreground capitalize">
+                        {key.replace(/_/g, ' ')}
+                      </span>
+                      <span className="tabular-nums font-medium">
+                        $
+                        {value.toLocaleString('en-US', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-2" data-testid="participants-balances-card">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">Балансы участников</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {usersLoading ? (
+              <Skeleton className="h-24 w-full" />
+            ) : (
+              <>
+                <ParticipantList
+                  title="Админы"
+                  members={admins.map((a, i) => ({
+                    id: a.id,
+                    displayName: a.displayName,
+                    balance: adminQueries[i]?.data?.balance ?? null,
+                    role: 'ADMIN',
+                  }))}
+                />
+                <ParticipantList
+                  title="Синьоры"
+                  members={seniors.map((s, i) => ({
+                    id: s.id,
+                    displayName: s.displayName,
+                    balance: seniorQueries[i]?.data?.balance ?? null,
+                    role: 'SENIOR',
+                  }))}
+                />
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+  )
+}
+
+function ParticipantList({
+  title,
+  members,
+}: {
+  title: string
+  members: { id: string; displayName: string; balance: number | null; role: string }[]
+}) {
+  if (!members.length) return null
+  return (
+    <div className="space-y-1">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{title}</p>
+      <ul className="divide-y divide-border/40">
+        {members.map((m) => (
+          <li
+            key={m.id}
+            className="flex items-center justify-between py-1.5"
+            data-testid={`participant-row-${m.id}`}
+          >
+            <span className="text-sm truncate min-w-0">
+              {m.displayName}{' '}
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                {m.role}
+              </span>
+            </span>
+            <span
+              className={cn(
+                'tabular-nums font-medium text-sm',
+                m.balance === null
+                  ? 'text-muted-foreground'
+                  : m.balance >= 0
+                    ? 'text-foreground'
+                    : 'text-red-400',
+              )}
+            >
+              {m.balance === null
+                ? '—'
+                : `$${m.balance.toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}`}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
 }
 
 // ── Main page ──────────────────────────────────────────────────────────────────
@@ -494,19 +761,24 @@ function StatsPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
 
+  // Drop role - phase 4-B. ACCOUNTANT joins ADMIN as a viewer on /crm/stats so
+  // both roles can see the new ТОВ balance card + participants list. Other
+  // roles are bounced to the dashboard.
+  const isPrivilegedViewer = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
+
   useEffect(() => {
-    if (user && user.role !== 'ADMIN') {
+    if (user && !isPrivilegedViewer) {
       void navigate({ to: '/crm/dashboard' })
     }
-  }, [user, navigate])
+  }, [user, isPrivilegedViewer, navigate])
 
   const { data: summary, isLoading } = useQuery({
     queryKey: ['finance-summary'],
     queryFn: financeApi.getSummary,
-    enabled: user?.role === 'ADMIN',
+    enabled: isPrivilegedViewer,
   })
 
-  if (!user || user.role !== 'ADMIN') return null
+  if (!user || !isPrivilegedViewer) return null
 
   const extra = summary ? computeExtraStats(summary) : null
 
@@ -518,21 +790,31 @@ function StatsPage() {
           <h1 className="text-2xl font-bold tracking-tight">Статистика</h1>
           <p className="text-sm text-muted-foreground">Аналитика и метрики компании</p>
         </div>
-        <Badge variant="outline" className="text-xs text-amber-400 border-amber-400/40 bg-amber-400/5">
+        <Badge
+          variant="outline"
+          className="text-xs text-amber-400 border-amber-400/40 bg-amber-400/5"
+        >
           Раздел в разработке — сейчас только финансовая статистика
         </Badge>
       </div>
+
+      {/* ── ТОВ balance + participants (Phase 4-B) ── */}
+      <TovBalanceSection />
 
       {/* ── Finance section ── */}
       <section className="space-y-4">
         <div className="flex items-center gap-2">
           <DollarSign className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Финансы</h2>
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+            Финансы
+          </h2>
         </div>
 
         {isLoading ? (
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Skeleton key={i} className="h-28 rounded-xl" />
+            ))}
           </div>
         ) : summary ? (
           <>
@@ -588,7 +870,9 @@ function StatsPage() {
                   value={`$${extra.lastMonth.profit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   icon={<TrendingUp className="h-5 w-5" />}
                   color={extra.lastMonth.profit >= 0 ? 'cyan' : 'red'}
-                  {...(extra.profitMargin !== null ? { sub: `Маржа: ${extra.profitMargin.toFixed(1)}%` } : {})}
+                  {...(extra.profitMargin !== null
+                    ? { sub: `Маржа: ${extra.profitMargin.toFixed(1)}%` }
+                    : {})}
                 />
                 <StatCard
                   title="Средний доход / мес."
@@ -624,16 +908,23 @@ function StatsPage() {
       <section className="space-y-4">
         <div className="flex items-center gap-2">
           <HelpCircle className="h-4 w-4 text-muted-foreground/40" />
-          <h2 className="text-sm font-semibold text-muted-foreground/40 uppercase tracking-wider">Другие разделы</h2>
+          <h2 className="text-sm font-semibold text-muted-foreground/40 uppercase tracking-wider">
+            Другие разделы
+          </h2>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {['HR — воронка собеседований', 'Команда — активность', 'Проекты — загрузка'].map((label) => (
-            <div key={label} className="rounded-xl border border-dashed border-border/50 p-6 text-center text-sm text-muted-foreground/40">
-              {label}
-              <br />
-              <span className="text-xs">в разработке</span>
-            </div>
-          ))}
+          {['HR — воронка собеседований', 'Команда — активность', 'Проекты — загрузка'].map(
+            (label) => (
+              <div
+                key={label}
+                className="rounded-xl border border-dashed border-border/50 p-6 text-center text-sm text-muted-foreground/40"
+              >
+                {label}
+                <br />
+                <span className="text-xs">в разработке</span>
+              </div>
+            ),
+          )}
         </div>
       </section>
     </div>

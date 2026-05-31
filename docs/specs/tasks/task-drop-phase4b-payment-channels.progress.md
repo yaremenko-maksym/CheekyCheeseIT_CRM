@@ -1,7 +1,7 @@
 # Progress: task-drop-phase4b-payment-channels
 
-current_milestone: 3/5 — "backend (service + controller + 28 UTs green) done"
-last_commit: 5fe4755
+current_milestone: 5/5 — "frontend page + FinanceTab + stats TOВ done; typecheck green"
+last_commit: e18e53c
 last_push: 2026-05-31
 
 milestones:

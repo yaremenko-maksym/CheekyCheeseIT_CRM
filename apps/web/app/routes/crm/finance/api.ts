@@ -16,6 +16,11 @@ import type {
   PaySalaryDto,
   AdminUpdateTransactionDto,
   ConfirmPayoutDto,
+  InitiateCryptoPaymentResponseDto,
+  ConfirmCryptoPaymentDto,
+  InitiateBankPaymentResponseDto,
+  PaymentChannelCascadeResponseDto,
+  BalanceDto,
 } from '@crm/shared'
 
 export const financeApi = {
@@ -98,5 +103,50 @@ export const financeApi = {
         eurUah: string
         date: string
       }>('/finance/exchange-rate', { ...(date !== undefined && { params: { date } }) })
+      .then((r) => r.data),
+
+  // Phase 4-A balances (BalanceService — runs alongside legacy getSummary)
+  getTOVBalance: (currency?: string) =>
+    api
+      .get<BalanceDto>('/balances/tov', {
+        ...(currency !== undefined && { params: { currency } }),
+      })
+      .then((r) => r.data),
+  getAdminBalance: (adminId: string, currency?: string) =>
+    api
+      .get<BalanceDto>(`/balances/admin/${adminId}`, {
+        ...(currency !== undefined && { params: { currency } }),
+      })
+      .then((r) => r.data),
+  getSeniorBalance: (seniorId: string, currency?: string) =>
+    api
+      .get<BalanceDto>(`/balances/senior/${seniorId}`, {
+        ...(currency !== undefined && { params: { currency } }),
+      })
+      .then((r) => r.data),
+
+  // Phase 4-B payment channels
+  initiateCryptoPayment: (incomeId: string) =>
+    api
+      .post<InitiateCryptoPaymentResponseDto>('/payments/initiate-crypto', { incomeId })
+      .then((r) => r.data),
+  confirmCryptoPayment: (data: ConfirmCryptoPaymentDto) =>
+    api
+      .post<PaymentChannelCascadeResponseDto>('/payments/confirm-crypto', data)
+      .then((r) => r.data),
+  initiateBankPayment: (incomeId: string) =>
+    api
+      .post<InitiateBankPaymentResponseDto>('/payments/initiate-bank', { incomeId })
+      .then((r) => r.data),
+  confirmBankPayment: (incomeId: string) =>
+    api
+      .post<PaymentChannelCascadeResponseDto>('/payments/confirm-bank', { incomeId })
+      .then((r) => r.data),
+  initiateCashPayment: (incomeId: string, recipientAdminId: string) =>
+    api
+      .post<PaymentChannelCascadeResponseDto>('/payments/initiate-cash', {
+        incomeId,
+        recipientAdminId,
+      })
       .then((r) => r.data),
 }
