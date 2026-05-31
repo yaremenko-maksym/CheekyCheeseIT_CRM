@@ -77,7 +77,7 @@ export function AdminBalanceCard({ summary }: { summary: FinanceSummaryDto }) {
  * = no drop-projects in the system or no validated drop payouts yet).
  */
 export function DropBalanceCard({ summary }: { summary: FinanceSummaryDto }) {
-  if (!summary.dropBalances.length) return null
+  if (!summary.dropBalances?.length) return null
   return (
     <Card className="border-blue-500/20 bg-blue-500/[0.03]" data-testid="drop-balances-card">
       <CardContent className="pt-5 space-y-3">
