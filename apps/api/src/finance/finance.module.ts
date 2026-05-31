@@ -3,6 +3,8 @@ import { ScheduleModule } from '@nestjs/schedule'
 import { AuthModule } from '../auth/auth.module'
 import { DatabaseModule } from '../database/database.module'
 import { InvoicesModule } from '../invoices/invoices.module'
+import { BalanceController, PendingObligationsController } from './balance.controller'
+import { BalanceService } from './balance.service'
 import { EtherscanService } from './etherscan.service'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { SalaryCronService } from './salary-cron.service'
@@ -26,13 +28,23 @@ import { TransactionsService } from './transactions.service'
     // means Nest resolves the providers in the correct order at runtime.
     forwardRef(() => InvoicesModule),
   ],
-  providers: [TransactionsService, EtherscanService, SalaryCronService, NbuCurrencyService],
+  providers: [
+    TransactionsService,
+    EtherscanService,
+    SalaryCronService,
+    NbuCurrencyService,
+    // Phase 4-A: balance pipeline runs alongside the legacy getSummary.
+    BalanceService,
+  ],
   controllers: [
     TransactionsController,
     PayoutRequestsController,
     FinanceSummaryController,
     ProjectFinanceSettingsController,
+    // Phase 4-A: /api/balances/{tov,admin,senior} + /api/pending-obligations
+    BalanceController,
+    PendingObligationsController,
   ],
-  exports: [TransactionsService],
+  exports: [TransactionsService, BalanceService],
 })
 export class FinanceModule {}

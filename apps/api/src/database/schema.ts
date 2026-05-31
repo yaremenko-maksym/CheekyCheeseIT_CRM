@@ -72,6 +72,45 @@ export const transactionTypeEnum = pgEnum('transaction_type', [
   // ACCOUNTANT/ADMIN confirms a PAYOUT actually landed on a chosen admin and
   // a PAYOUT_CONFIRMED row is inserted alongside the now-PAID PAYOUT row.
   'PAYOUT_CONFIRMED',
+  // Drop role - phase 4-A. New balance infrastructure types — emitted by the
+  // future Phase 4-B payment channels and consumed by BalanceService for
+  // computed-on-demand balances. Migration 0023 adds these enum values; legacy
+  // flows do not emit them and getSummary continues to ignore them.
+  //
+  // TOV_INCOME            — corporate (ТОВ) account receives money.
+  // SENIOR_PENDING_PAYOUT — TOВ owes a senior; logged separately in
+  //                          pending_obligations and DOES NOT move the senior
+  //                          balance until closed by a SENIOR_PAID row.
+  // SENIOR_PAID           — closes a pending obligation; credits the senior's
+  //                          real balance; links via closing_transaction_id.
+  // ADMIN_INCOME_CASH     — admin received cash on personal balance.
+  // ADMIN_INCOME_CRYPTO   — admin received USDT on personal crypto wallet.
+  // SENIOR_INCOME_CRYPTO  — senior received USDT on personal crypto wallet.
+  // DIVIDEND_TO_ADMIN     — distribution from TOВ to an admin's balance.
+  // DIVIDEND_TAX          — 6.5% tax on dividends; debits TOВ balance only.
+  'TOV_INCOME',
+  'SENIOR_PENDING_PAYOUT',
+  'SENIOR_PAID',
+  'ADMIN_INCOME_CASH',
+  'ADMIN_INCOME_CRYPTO',
+  'SENIOR_INCOME_CRYPTO',
+  'DIVIDEND_TO_ADMIN',
+  'DIVIDEND_TAX',
+])
+
+// Phase 4-A: pending senior obligations live in their own table so the
+// lifecycle is explicit (PENDING → PAID / CANCELLED) and balance queries
+// don't have to recompute the closure from transaction pairs every time.
+export const pendingObligationDebtorTypeEnum = pgEnum('pending_obligation_debtor_type', [
+  'DROP', // a DROP user owes the senior (their share leftover from drop-project)
+  'TOV', // the corporate account (ТОВ) owes the senior
+  'ADMIN', // an admin owes the senior personally
+])
+
+export const pendingObligationStatusEnum = pgEnum('pending_obligation_status', [
+  'PENDING', // awaiting close — does NOT credit the creditor's balance yet
+  'PAID', // closed by a SENIOR_PAID transaction; closingTransactionId set
+  'CANCELLED', // abandoned (e.g. wrote off, dispute) — closingTransactionId may be null
 ])
 
 export const transactionStatusEnum = pgEnum('transaction_status', [
@@ -391,6 +430,57 @@ export const transactions = pgTable('transactions', {
 })
 
 // ---------------------------------------------------------------------------
+// Pending Obligations (Phase 4-A)
+// ---------------------------------------------------------------------------
+//
+// Tracks "X owes senior Y `amount` `currency`". Separate from the
+// transactions ledger because the lifecycle is its own state machine:
+//   PENDING (created with the source transaction, e.g. TOV_INCOME)
+//     ↓
+//   PAID (closed by a SENIOR_PAID transaction; closingTransactionId set)
+//     ↓
+//   CANCELLED (written off; closingTransactionId may stay null)
+//
+// Why a dedicated table vs. computing closure from a (TOV_INCOME, SENIOR_PAID)
+// pair: explicit lifecycle = explicit history. Cancellation, partial payment
+// (future), and multi-source obligations are first-class concepts here. The
+// senior's *real* balance still derives from SENIOR_PAID / SENIOR_INCOME_*
+// rows on the transactions ledger — this table is auxiliary.
+
+export const pendingObligations = pgTable(
+  'pending_obligations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    // Senior who is owed money.
+    creditorUserId: uuid('creditor_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    debtorType: pendingObligationDebtorTypeEnum('debtor_type').notNull(),
+    // FK populated when debtorType is DROP or ADMIN (a user). NULL when
+    // debtorType is TOV (corporate account, no user row).
+    debtorUserId: uuid('debtor_user_id').references(() => users.id, { onDelete: 'set null' }),
+    // Transaction that created this obligation (TOV_INCOME, SENIOR_PENDING_PAYOUT, …).
+    sourceTransactionId: uuid('source_transaction_id')
+      .notNull()
+      .references(() => transactions.id, { onDelete: 'restrict' }),
+    // SENIOR_PAID row that closed it; nullable until the close.
+    closingTransactionId: uuid('closing_transaction_id').references(() => transactions.id, {
+      onDelete: 'set null',
+    }),
+    amount: numeric('amount', { precision: 20, scale: 6 }).notNull(),
+    currency: currencyEnum().notNull().default('USDT'),
+    status: pendingObligationStatusEnum('status').notNull().default('PENDING'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => [
+    index('idx_pending_obligations_creditor').on(t.creditorUserId),
+    index('idx_pending_obligations_status').on(t.status),
+    index('idx_pending_obligations_source').on(t.sourceTransactionId),
+  ],
+)
+
+// ---------------------------------------------------------------------------
 // Documents (PHASE 6)
 // ---------------------------------------------------------------------------
 //
@@ -702,6 +792,29 @@ export const transactionsRelations = relations(transactions, ({ one, many }) => 
   signatures: many(invoiceSignatures),
 }))
 
+export const pendingObligationsRelations = relations(pendingObligations, ({ one }) => ({
+  creditor: one(users, {
+    fields: [pendingObligations.creditorUserId],
+    references: [users.id],
+    relationName: 'pendingObligationsAsCreditor',
+  }),
+  debtor: one(users, {
+    fields: [pendingObligations.debtorUserId],
+    references: [users.id],
+    relationName: 'pendingObligationsAsDebtor',
+  }),
+  sourceTransaction: one(transactions, {
+    fields: [pendingObligations.sourceTransactionId],
+    references: [transactions.id],
+    relationName: 'pendingObligationsAsSource',
+  }),
+  closingTransaction: one(transactions, {
+    fields: [pendingObligations.closingTransactionId],
+    references: [transactions.id],
+    relationName: 'pendingObligationsAsClosing',
+  }),
+}))
+
 export const invoiceSignaturesRelations = relations(invoiceSignatures, ({ one }) => ({
   transaction: one(transactions, {
     fields: [invoiceSignatures.transactionId],
@@ -793,3 +906,5 @@ export type InvoiceSignature = typeof invoiceSignatures.$inferSelect
 export type NewInvoiceSignature = typeof invoiceSignatures.$inferInsert
 export type Notification = typeof notifications.$inferSelect
 export type NewNotification = typeof notifications.$inferInsert
+export type PendingObligation = typeof pendingObligations.$inferSelect
+export type NewPendingObligation = typeof pendingObligations.$inferInsert
