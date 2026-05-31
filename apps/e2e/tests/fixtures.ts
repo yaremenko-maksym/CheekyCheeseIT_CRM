@@ -1521,29 +1521,10 @@ export async function payPayoutRequestViaAPI(
     `${REAL_API_BASE}/api/payout-requests/${payoutRequestId}/pay`,
     { data: { simulateResult: 'success' }, timeout: 60_000 },
   )
-  // Known backend wart (Phase 2 partial): `payPayoutRequest` returns
-  // `this.findPayoutRequest(requestId, currentUser)` at the end, and
-  // `findPayoutRequest` throws ForbiddenException for the DROP role. So a
-  // pay-as-DROP request ends with the cascade COMPLETED (DB-side: the
-  // payout_request flips to PAID, distribution transactions are inserted),
-  // but the HTTP response is 403. We treat the 403 here as success — the
-  // caller verifies the distribution via a follow-up `getPayoutRequest`
-  // call (as ADMIN) or via `listTransactionsByProjectViaAPI`.
-  if (res.status() === 403) {
-    // Re-read state as ADMIN-readable shape so the helper's promise still
-    // returns something useful. We use the SENIOR/ACCOUNTANT view by GET.
-    const followup = await page.request.get(
-      `${REAL_API_BASE}/api/payout-requests/${payoutRequestId}`,
-    )
-    if (followup.status() === 200) {
-      const body = (await followup.json()) as { status: string; txHash: string | null }
-      return { status: body.status, txHash: body.txHash }
-    }
-    // If the follow-up also fails (e.g. DROP can't read either), assume
-    // success — the listTransactions assertions in the test cover the
-    // distribution rows directly.
-    return { status: 'PAID', txHash: 'pay-success-403-workaround' }
-  }
+  // Backlog AC4 fix: the `payPayoutRequest` endpoint now returns 200 for
+  // both SENIOR and DROP — `findPayoutRequest` was widened to let DROP read
+  // their OWN payout_request (matching the SENIOR rule). Anything other
+  // than 200 here is a real error.
   if (res.status() !== 200) {
     throw new Error(
       `payPayoutRequestViaAPI failed for ${payoutRequestId}: HTTP ${res.status()} — ${await res.text()}`,
