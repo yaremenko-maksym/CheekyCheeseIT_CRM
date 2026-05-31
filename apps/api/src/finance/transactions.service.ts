@@ -251,10 +251,15 @@ export class TransactionsService {
 
     // RBAC filtering
     if (currentUser.role === 'SENIOR') {
+      // Drop role - phase 3: PAYOUT_CONFIRMED rows live on the admin side of
+      // the ledger (manual confirmation step). SENIOR/DROP must not see them
+      // for the same reason PAYOUT_ADMIN is filtered out — these rows expose
+      // partner attribution that's none of their business.
       result = result.filter(
         (tx) =>
           (tx.senderId === currentUser.id || tx.receiverId === currentUser.id) &&
-          tx.type !== 'PAYOUT_ADMIN',
+          tx.type !== 'PAYOUT_ADMIN' &&
+          tx.type !== 'PAYOUT_CONFIRMED',
       )
     } else if (currentUser.role === 'JUNIOR') {
       result = result.filter((tx) => tx.receiverId === currentUser.id)
@@ -278,7 +283,8 @@ export class TransactionsService {
       result = result.filter(
         (tx) =>
           (tx.senderId === currentUser.id || tx.receiverId === currentUser.id) &&
-          tx.type !== 'PAYOUT_ADMIN',
+          tx.type !== 'PAYOUT_ADMIN' &&
+          tx.type !== 'PAYOUT_CONFIRMED',
       )
     }
     // ADMIN, ACCOUNTANT see all
@@ -570,7 +576,11 @@ export class TransactionsService {
       where: eq(transactions.id, id),
     })
     if (!tx) throw new NotFoundException('Transaction not found')
-    if (tx.type === 'PAYOUT' || tx.type === 'PAYOUT_ADMIN') {
+    // Drop role - phase 3: PAYOUT_CONFIRMED rows are the audit trail of a
+    // manual confirmation — editing them in-place would corrupt the link to
+    // the originating PAYOUT. Group the prohibition with the existing PAYOUT
+    // family so the contract is consistent.
+    if (tx.type === 'PAYOUT' || tx.type === 'PAYOUT_ADMIN' || tx.type === 'PAYOUT_CONFIRMED') {
       throw new BadRequestException('Cannot edit PAYOUT transactions')
     }
     if (tx.payoutRequestId) {
@@ -623,7 +633,9 @@ export class TransactionsService {
       where: eq(transactions.id, id),
     })
     if (!tx) throw new NotFoundException('Transaction not found')
-    if (tx.type === 'PAYOUT' || tx.type === 'PAYOUT_ADMIN') {
+    // Drop role - phase 3: PAYOUT_CONFIRMED is also non-deletable for the same
+    // audit-trail reason as PAYOUT/PAYOUT_ADMIN.
+    if (tx.type === 'PAYOUT' || tx.type === 'PAYOUT_ADMIN' || tx.type === 'PAYOUT_CONFIRMED') {
       throw new BadRequestException('Cannot delete PAYOUT transactions')
     }
     if (tx.payoutRequestId) {
@@ -770,6 +782,121 @@ export class TransactionsService {
     }
 
     return this.findOne(id, currentUser)
+  }
+
+  // ── Manual payout confirmation (Drop role - phase 3, spec §8.4) ──────────
+  //
+  // ACCOUNTANT/ADMIN confirms a previously created PAYOUT actually landed on a
+  // specific admin partner (Maksym/Kostya) off-platform. This is a **safety
+  // net** on top of the auto 50/50 PAYOUT_ADMIN split that `payPayoutRequest`
+  // emits — both flows live in parallel; phase 2 distribution math is NOT
+  // touched here.
+  //
+  // Effects (single DB transaction):
+  //   1) The PAYOUT row flips PENDING_PAYMENT → PAID. `validatedBy` +
+  //      `validatedAt` are set on the PAYOUT row so the audit trail mirrors
+  //      SENIOR_INCOME validation semantics.
+  //   2) A fresh PAYOUT_CONFIRMED row is inserted in PAID:
+  //      - `receiverId` + `recipientId` = chosen ADMIN (recipientId mirrors
+  //        the phase-2 PAYOUT_DROP pattern for explicit "money landed here"
+  //        attribution).
+  //      - `amount` / `currency` / `projectId` mirror the PAYOUT row.
+  //      - `senderId` = `PAYOUT.senderId` so the chain "senior/drop pays →
+  //        admin receives" stays traceable.
+  //      - `payoutRequestId` is copied so reporting can group the auto-split
+  //        rows with this manual confirmation under one umbrella.
+  //      - `notes` records who confirmed + when, for the audit trail.
+  //
+  // Validation:
+  //   - RBAC: ADMIN + ACCOUNTANT only. Anyone else → 403.
+  //   - PAYOUT row must exist, type = PAYOUT, status = PENDING_PAYMENT.
+  //   - `recipientAdminId` must exist, role = ADMIN, NOT archived.
+  //
+  // Idempotency:
+  //   - A second click on an already-PAID PAYOUT throws 400 («Already
+  //     confirmed»). This is enforced by the status check on the PAYOUT row —
+  //     once it's PAID the predicate fails before any insert runs, so we can
+  //     never double-credit an admin.
+  async confirmPayout(payoutTxId: string, recipientAdminId: string, currentUser: SessionUser) {
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+      throw new ForbiddenException()
+    }
+
+    const payoutTx = await this.db.db.query.transactions.findFirst({
+      where: eq(transactions.id, payoutTxId),
+    })
+    if (!payoutTx) throw new NotFoundException('Transaction not found')
+    if (payoutTx.type !== 'PAYOUT') {
+      throw new BadRequestException('Only PAYOUT transactions can be confirmed')
+    }
+    // Idempotency guard. Once PAYOUT has flipped to PAID a second confirm
+    // would either no-op or duplicate the PAYOUT_CONFIRMED row depending on
+    // which side races; throw early so the UI can show «уже подтверждено».
+    if (payoutTx.status !== 'PENDING_PAYMENT') {
+      throw new BadRequestException('Payout is not pending payment (already confirmed?)')
+    }
+
+    const recipient = await this.db.db.query.users.findFirst({
+      where: eq(users.id, recipientAdminId),
+    })
+    if (!recipient) throw new BadRequestException('Recipient admin not found')
+    if (recipient.role !== 'ADMIN') {
+      throw new BadRequestException('Recipient must be an ADMIN')
+    }
+    if (recipient.archivedAt) {
+      throw new BadRequestException('Recipient admin is archived')
+    }
+
+    const now = new Date()
+    const confirmationNote = `Manual payout confirmation by ${currentUser.id} at ${now.toISOString()}`
+
+    await this.db.db.transaction(async (dbtx) => {
+      // 1) Flip PAYOUT to PAID + record who/when confirmed.
+      await dbtx
+        .update(transactions)
+        .set({
+          status: 'PAID',
+          validatedBy: currentUser.id,
+          validatedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(transactions.id, payoutTxId))
+
+      // 2) Insert the PAYOUT_CONFIRMED row crediting the chosen admin. The
+      //    inputs (amount/currency/projectId/payoutRequestId) snapshot the
+      //    PAYOUT row so a later edit to PAYOUT (out of scope here — PAYOUT
+      //    is non-editable per `adminUpdateTransaction`) wouldn't desync the
+      //    credit row. senderId mirrors PAYOUT.senderId for traceability.
+      await dbtx.insert(transactions).values({
+        type: 'PAYOUT_CONFIRMED',
+        status: 'PAID',
+        amount: payoutTx.amount,
+        currency: payoutTx.currency,
+        senderId: payoutTx.senderId,
+        receiverId: recipient.id,
+        recipientId: recipient.id,
+        projectId: payoutTx.projectId,
+        payoutRequestId: payoutTx.payoutRequestId,
+        notes: confirmationNote,
+        createdBy: currentUser.id,
+      })
+    })
+
+    // Return both rows so the UI can update the table in a single round-trip:
+    // the now-PAID PAYOUT and the freshly created credit row.
+    const updatedPayout = await this.findOne(payoutTxId, currentUser)
+    const confirmedRow = await this.db.db.query.transactions.findFirst({
+      where: and(
+        eq(transactions.type, 'PAYOUT_CONFIRMED'),
+        eq(transactions.payoutRequestId, payoutTx.payoutRequestId ?? ''),
+        eq(transactions.receiverId, recipient.id),
+        eq(transactions.notes, confirmationNote),
+      ),
+      orderBy: [desc(transactions.createdAt)],
+    })
+    const confirmed = confirmedRow ? await this.findOne(confirmedRow.id, currentUser) : null
+
+    return { payout: updatedPayout, confirmed }
   }
 
   // ── Create EXPENSE ───────────────────────────────────────────────────────
@@ -1330,7 +1457,15 @@ export class TransactionsService {
       .filter((tx) => tx.type === 'SALARY')
       .reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
 
-    // Admin balances: sum of PAYOUT_ADMIN received + ADMIN_INCOME - ADMIN_TRANSFER sent
+    // Admin balances: sum of PAYOUT_ADMIN received + ADMIN_INCOME - ADMIN_TRANSFER sent.
+    // Drop role - phase 3 (spec §8.4): PAYOUT_CONFIRMED — the row inserted by
+    // `confirmPayout` when ACCOUNTANT/ADMIN manually confirms an off-platform
+    // payout — also credits the chosen admin's balance. Phase 2 PAYOUT_ADMIN
+    // (automatic 50/50 split) remains untouched and continues to count too;
+    // both flows run in parallel per task scope ("Phase 2 auto-50/50 НЕ
+    // ТРОГАТЬ — manual flow живёт параллельно"). Senior-only / legacy admin
+    // balance values are unchanged because they never produce PAYOUT_CONFIRMED
+    // rows.
     const adminUsers = await this.db.db.query.users.findMany({
       where: eq(users.role, 'ADMIN'),
     })
@@ -1342,7 +1477,8 @@ export class TransactionsService {
             tx.receiverId === admin.id &&
             (tx.type === 'PAYOUT_ADMIN' ||
               tx.type === 'ADMIN_INCOME' ||
-              tx.type === 'ADMIN_TRANSFER'),
+              tx.type === 'ADMIN_TRANSFER' ||
+              tx.type === 'PAYOUT_CONFIRMED'),
         )
         .reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
       const sent = paid
@@ -1645,9 +1781,12 @@ export class TransactionsService {
   private assertReadAccess(tx: TxWithRelations, currentUser: SessionUser) {
     if (currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT') return
     if (currentUser.role === 'SENIOR') {
+      // Drop role - phase 3: PAYOUT_CONFIRMED matches PAYOUT_ADMIN — admin
+      // attribution rows are never visible to SENIOR via findOne either.
       if (
         (tx.senderId === currentUser.id || tx.receiverId === currentUser.id) &&
-        tx.type !== 'PAYOUT_ADMIN'
+        tx.type !== 'PAYOUT_ADMIN' &&
+        tx.type !== 'PAYOUT_CONFIRMED'
       )
         return
       throw new ForbiddenException()
@@ -1666,7 +1805,8 @@ export class TransactionsService {
     if (currentUser.role === 'DROP') {
       if (
         (tx.senderId === currentUser.id || tx.receiverId === currentUser.id) &&
-        tx.type !== 'PAYOUT_ADMIN'
+        tx.type !== 'PAYOUT_ADMIN' &&
+        tx.type !== 'PAYOUT_CONFIRMED'
       )
         return
       throw new ForbiddenException()
