@@ -23,6 +23,7 @@ import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
+import { hasRealPhone } from '@/lib/format-phone'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProjectLogo } from '@/components/projects/ProjectLogo'
 import { Badge } from '@/components/ui/badge'
@@ -646,7 +647,7 @@ function TeamDetailPage() {
                                     <span className="truncate">{tgDisplay(member.telegram)}</span>
                                   </a>
                                 )}
-                                {member.phone && (
+                                {hasRealPhone(member.phone) && (
                                   <a
                                     href={`tel:${member.phone}`}
                                     className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0"

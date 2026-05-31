@@ -214,9 +214,7 @@ export class TransactionsService {
     const dropPercent = drop.dropSharePercent ?? 5
 
     if (seniorPercent + dropPercent > 100) {
-      throw new BadRequestException(
-        'Sum of senior+drop shares exceeds 100%',
-      )
+      throw new BadRequestException('Sum of senior+drop shares exceeds 100%')
     }
 
     const seniorAmount = (income * seniorPercent) / 100
@@ -681,9 +679,7 @@ export class TransactionsService {
       // together — if the PAYOUT insert fails, the SENIOR_INCOME stays
       // PENDING and the ACCOUNTANT can retry.
       if (!tx.receiverId) {
-        throw new BadRequestException(
-          `${tx.type} has no receiverId — cannot create payout`,
-        )
+        throw new BadRequestException(`${tx.type} has no receiverId — cannot create payout`)
       }
       const walletOwner = await this.db.db.query.users.findFirst({
         where: eq(users.id, tx.receiverId),
@@ -1062,10 +1058,7 @@ export class TransactionsService {
       .where(
         and(
           eq(transactions.payoutRequestId, requestId),
-          or(
-            eq(transactions.type, 'SENIOR_INCOME'),
-            eq(transactions.type, 'DROP_INCOME'),
-          ),
+          or(eq(transactions.type, 'SENIOR_INCOME'), eq(transactions.type, 'DROP_INCOME')),
         ),
       )
     for (const incomeTx of paidIncomeTxs) {
@@ -1087,9 +1080,7 @@ export class TransactionsService {
         txHash: effectiveTxHash,
         updatedAt: new Date(),
       })
-      .where(
-        and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')),
-      )
+      .where(and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')))
 
     // Drop role - phase 2 (AC3). Resolve whether the linked SENIOR_INCOMEs
     // belong to a drop-project. Senior-projects (project.dropId === null)
@@ -1110,12 +1101,11 @@ export class TransactionsService {
         })
       : null
 
-    const dropUser =
-      primaryProject?.dropId
-        ? await this.db.db.query.users.findFirst({
-            where: eq(users.id, primaryProject.dropId),
-          })
-        : null
+    const dropUser = primaryProject?.dropId
+      ? await this.db.db.query.users.findFirst({
+          where: eq(users.id, primaryProject.dropId),
+        })
+      : null
 
     const payable = parseFloat(req.payableAmount)
 
@@ -1187,11 +1177,16 @@ export class TransactionsService {
         }
       }
     } else {
-      // Senior-project branch (legacy — must stay byte-identical to the
-      // pre-AC1 inline loop). `computePartnersSplit(payable)` returns
-      // `[{maksym, payable/2}, {kostya, payable/2}]` — same math, same
-      // ordering, same INSERT shape.
+      // Senior-project branch (legacy split math). `computePartnersSplit(payable)`
+      // returns `[{maksym, payable/2}, {kostya, payable/2}]` — unchanged from
+      // pre-AC1. Backlog AC5: include `projectId` on each PAYOUT_ADMIN insert
+      // so the row is traceable back to the originating project (matches the
+      // drop-branch shape above). `primaryProject` is null only when the
+      // payout has no linked SENIOR_INCOME rows — a degenerate case that
+      // can't actually happen here (the cascade short-circuits earlier on
+      // empty payouts) but we keep the fallback to `null` for safety.
       const partnerShares = this.computePartnersSplit(payable)
+      const senderProjectId = primaryProject?.id ?? null
 
       for (const share of partnerShares) {
         const admin = await this.db.db.query.users.findFirst({
@@ -1205,6 +1200,7 @@ export class TransactionsService {
             currency: 'USDT',
             senderId: currentUser.id,
             receiverId: share.adminId,
+            projectId: senderProjectId,
             payoutRequestId: requestId,
             txHash: effectiveTxHash,
             createdBy: currentUser.id,
@@ -1230,11 +1226,13 @@ export class TransactionsService {
       currentUser.role === 'SENIOR'
         ? all.filter((r) => r.seniorId === currentUser.id)
         : currentUser.role === 'DROP'
-          ? // Drop role - phase 1 (AC1, security): payout requests belong to
-            // seniors. DROP has no payouts of their own in Phase 1, so the
-            // list is empty. Phase 2 will swap this for `r.dropId === ...`
-            // when drop-payouts ship.
-            []
+          ? // Drop role - phase 2 (backlog AC4): DROP sees only their OWN
+            // payout requests. In drop-project flows `payoutRequests.seniorId`
+            // points at the DROP user (the column is reused as "owner of the
+            // payout" — see `payPayoutRequest` header comment around the
+            // `req.seniorId === currentUser.id` check). Same filter shape as
+            // SENIOR.
+            all.filter((r) => r.seniorId === currentUser.id)
           : currentUser.role === 'JUNIOR' || currentUser.role === 'HR'
             ? // Same idea — these roles never owned payout requests.
               []
@@ -1272,9 +1270,17 @@ export class TransactionsService {
     if (!req) throw new NotFoundException('Payout request not found')
     if (currentUser.role === 'SENIOR' && req.seniorId !== currentUser.id)
       throw new ForbiddenException()
-    // Drop role - phase 1 (AC1, security): DROP must never inspect a senior's
-    // payout request through the singular endpoint.
-    if (currentUser.role === 'DROP') throw new ForbiddenException()
+    // Drop role - phase 2 (backlog AC4): DROP CAN inspect their own payout
+    // requests. In drop-project flows `payout_requests.seniorId` actually
+    // points at the DROP user (the column is reused as "owner of the
+    // payout"; see `payPayoutRequest` header comment around the
+    // `req.seniorId === currentUser.id` check). The phase-1 blanket
+    // ForbiddenException made `payPayoutRequest` return HTTP 403 even after
+    // the cascade had committed, because the method tail-calls this lookup
+    // to build the response. Allow DROP to read THEIR OWN payout request;
+    // continue to deny when they would peek at someone else's.
+    if (currentUser.role === 'DROP' && req.seniorId !== currentUser.id)
+      throw new ForbiddenException()
 
     return {
       id: req.id,
@@ -1312,9 +1318,7 @@ export class TransactionsService {
     const totalIncome = paid
       .filter(
         (tx) =>
-          tx.type === 'ADMIN_INCOME' ||
-          tx.type === 'SENIOR_INCOME' ||
-          tx.type === 'DROP_INCOME',
+          tx.type === 'ADMIN_INCOME' || tx.type === 'SENIOR_INCOME' || tx.type === 'DROP_INCOME',
       )
       .reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
 
@@ -1375,11 +1379,7 @@ export class TransactionsService {
       const entry = monthMap.get(month)!
       const amt = parseFloat(tx.amount)
 
-      if (
-        tx.type === 'ADMIN_INCOME' ||
-        tx.type === 'SENIOR_INCOME' ||
-        tx.type === 'DROP_INCOME'
-      ) {
+      if (tx.type === 'ADMIN_INCOME' || tx.type === 'SENIOR_INCOME' || tx.type === 'DROP_INCOME') {
         entry.income += amt
       } else if (tx.type === 'EXPENSE') entry.expenses += amt
       else if (tx.type === 'SALARY') entry.salaries += amt
@@ -1579,10 +1579,7 @@ export class TransactionsService {
       // the unlock, not whether the wallet is a SENIOR or a DROP.
       const hasValidatedIncome = await this.db.db.query.transactions.findFirst({
         where: and(
-          or(
-            eq(transactions.type, 'SENIOR_INCOME'),
-            eq(transactions.type, 'DROP_INCOME'),
-          ),
+          or(eq(transactions.type, 'SENIOR_INCOME'), eq(transactions.type, 'DROP_INCOME')),
           eq(transactions.projectId, project.id),
           eq(transactions.status, 'VALIDATED'),
         ),

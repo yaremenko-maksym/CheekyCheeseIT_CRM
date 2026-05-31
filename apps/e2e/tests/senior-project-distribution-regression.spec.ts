@@ -85,8 +85,11 @@ test.describe('Senior-project distribution regression — real API (AC7)', () =>
       expect(paid.status).toBe('PAID')
 
       // 5) Full ledger via ADMIN read — fetch ALL transactions linked to
-      //    the payout_request. PAYOUT_ADMIN rows omit projectId on the
-      //    senior path (legacy), so a `?projectId=` query misses them.
+      //    the payout_request. After backlog AC5 the senior-path
+      //    PAYOUT_ADMIN rows DO carry projectId (both branches now do), but
+      //    we still use the payout_request_id-based helper because it
+      //    returns rows in a deterministic order suitable for the
+      //    assertions below.
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       const txs = await listPayoutRequestTransactionsViaAPI(page, payoutRequestId!)
 

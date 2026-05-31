@@ -1521,29 +1521,10 @@ export async function payPayoutRequestViaAPI(
     `${REAL_API_BASE}/api/payout-requests/${payoutRequestId}/pay`,
     { data: { simulateResult: 'success' }, timeout: 60_000 },
   )
-  // Known backend wart (Phase 2 partial): `payPayoutRequest` returns
-  // `this.findPayoutRequest(requestId, currentUser)` at the end, and
-  // `findPayoutRequest` throws ForbiddenException for the DROP role. So a
-  // pay-as-DROP request ends with the cascade COMPLETED (DB-side: the
-  // payout_request flips to PAID, distribution transactions are inserted),
-  // but the HTTP response is 403. We treat the 403 here as success — the
-  // caller verifies the distribution via a follow-up `getPayoutRequest`
-  // call (as ADMIN) or via `listTransactionsByProjectViaAPI`.
-  if (res.status() === 403) {
-    // Re-read state as ADMIN-readable shape so the helper's promise still
-    // returns something useful. We use the SENIOR/ACCOUNTANT view by GET.
-    const followup = await page.request.get(
-      `${REAL_API_BASE}/api/payout-requests/${payoutRequestId}`,
-    )
-    if (followup.status() === 200) {
-      const body = (await followup.json()) as { status: string; txHash: string | null }
-      return { status: body.status, txHash: body.txHash }
-    }
-    // If the follow-up also fails (e.g. DROP can't read either), assume
-    // success — the listTransactions assertions in the test cover the
-    // distribution rows directly.
-    return { status: 'PAID', txHash: 'pay-success-403-workaround' }
-  }
+  // Backlog AC4 fix: the `payPayoutRequest` endpoint now returns 200 for
+  // both SENIOR and DROP — `findPayoutRequest` was widened to let DROP read
+  // their OWN payout_request (matching the SENIOR rule). Anything other
+  // than 200 here is a real error.
   if (res.status() !== 200) {
     throw new Error(
       `payPayoutRequestViaAPI failed for ${payoutRequestId}: HTTP ${res.status()} — ${await res.text()}`,
@@ -1555,12 +1536,21 @@ export async function payPayoutRequestViaAPI(
 
 /**
  * List a payout_request's transactions (full join) via
- * GET /api/payout-requests/:id. The senior-payout flow inserts PAYOUT_ADMIN
- * rows WITHOUT `projectId` — so a `?projectId=` filter misses them. The
- * payout_request endpoint surfaces every transaction linked via
- * `payout_request_id`, which is what tests need for distribution assertions.
+ * GET /api/payout-requests/:id. The payout_request endpoint surfaces every
+ * transaction linked via `payout_request_id`, which is what tests need for
+ * distribution assertions.
+ *
+ * Historical context (backlog AC5): PAYOUT_ADMIN rows for senior-projects
+ * used to be inserted WITHOUT `projectId`, which meant a `?projectId=` filter
+ * missed them — this helper was the workaround. The cascade now sets
+ * `projectId` on every PAYOUT_ADMIN row (both drop and senior branches), so
+ * `listTransactionsByProjectViaAPI` is also viable. This helper stays around
+ * because it's still the simplest path to fetch a single payout's rows in
+ * deterministic order.
  *
  * Caller must be ADMIN/ACCOUNTANT to view another user's payout request.
+ * SENIOR/DROP callers can fetch their OWN payout requests (per
+ * `findPayoutRequest` RBAC widened in backlog AC4).
  */
 export async function listPayoutRequestTransactionsViaAPI(
   page: Page,
@@ -1605,9 +1595,11 @@ export async function listPayoutRequestTransactionsViaAPI(
  * unfiltered list — SENIOR/DROP-scoped callers will receive a subset
  * (their own send/receive only) per the RBAC rules in TransactionsService.
  *
- * NOTE: PAYOUT_ADMIN rows for senior-projects don't carry `projectId`
- * (legacy quirk — see `payPayoutRequest`). Use
- * `listPayoutRequestTransactionsViaAPI` to capture every linked row.
+ * Backlog AC5 (resolved): PAYOUT_ADMIN rows for senior-projects now carry
+ * `projectId` (cascade was updated to insert it explicitly), so the
+ * `?projectId=` filter captures them on both drop and senior flows. The
+ * legacy workaround (`listPayoutRequestTransactionsViaAPI`) is still useful
+ * when you want a single payout's rows in order.
  */
 export async function listTransactionsByProjectViaAPI(
   page: Page,
