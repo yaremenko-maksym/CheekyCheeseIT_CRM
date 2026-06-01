@@ -94,9 +94,11 @@ test.describe('Senior confirm-payout — manual confirmation (AC3)', () => {
       const dialog = page.getByTestId('confirm-payout-dialog')
       await expect(dialog).toBeVisible()
 
-      // Pick Kostya in the select.
+      // Pick Kostya in the select. Phase 4 refactor (AC10): pick CASH method
+      // to skip the now-required txHash entry.
       await page.getByTestId('confirm-payout-admin-select').click()
       await page.getByRole('option', { name: /Kostya/i }).click()
+      await page.getByTestId('confirm-payout-method-cash').click()
 
       const submit = page.getByTestId('confirm-payout-submit')
       await expect(submit).toBeEnabled()

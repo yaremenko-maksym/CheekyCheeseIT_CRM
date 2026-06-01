@@ -1741,9 +1741,13 @@ export async function confirmPayoutViaAPI(
     projectId: string | null
   } | null
 }> {
+  // Phase 4 refactor (AC4): confirmPayout now requires a payment method.
+  // Tests don't care about the method semantics, so default to CASH which
+  // doesn't need a real txHash. RBAC/edge specs override status assertions
+  // anyway.
   const res = await page.request.post(
     `${REAL_API_BASE}/api/transactions/${payoutTxId}/confirm-payout`,
-    { data: { recipientAdminId } },
+    { data: { recipientAdminId, method: 'CASH' } },
   )
   if (res.status() !== 200 && res.status() !== 201) {
     throw new Error(
@@ -1765,9 +1769,11 @@ export async function confirmPayoutRawViaAPI(
   payoutTxId: string,
   recipientAdminId: string,
 ): Promise<{ status: number; body: unknown }> {
+  // Phase 4 refactor (AC4): same method=CASH default as above so RBAC tests
+  // still hit the RBAC branch (which runs before the method check).
   const res = await page.request.post(
     `${REAL_API_BASE}/api/transactions/${payoutTxId}/confirm-payout`,
-    { data: { recipientAdminId } },
+    { data: { recipientAdminId, method: 'CASH' } },
   )
   let body: unknown
   try {
