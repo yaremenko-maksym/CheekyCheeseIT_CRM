@@ -1,19 +1,20 @@
 /**
- * Drop role - phase 4-C. Unit tests for `PendingSettlementService`.
+ * Drop role - phase 4 (refactor — task-drop-phase4-refactor-remove-tov.md).
+ * Unit tests for `PendingSettlementService`.
  *
  * Coverage:
- *   - listSeniorObligations / listDropObligations / listTovObligations RBAC.
+ *   - listSeniorObligations / listDropObligations RBAC.
  *   - settleByDrop: closes obligation + inserts SENIOR_PAID; DROP can only
  *     close own debt; non-DROP obligation rejected.
- *   - settleByTov: insufficient TOV balance → 400; happy path inserts both
- *     EXPENSE (FIAT_TOV) + SENIOR_PAID and patches obligation.
  *   - Edge: already-settled obligation → 400; non-existent obligation → 404.
+ *
+ * Removed in the refactor: listTovObligations / settleByTov tests — the
+ * TOV-debt lifecycle is gone (AC3, AC9).
  */
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { pendingObligations, transactions } from '../database/schema'
-import { BalanceService } from './balance.service'
 import { PendingSettlementService } from './pending-settlement.service'
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
@@ -22,7 +23,6 @@ const SENIOR_ID = '11111111-1111-4111-8111-111111111111'
 const DROP_ID = '22222222-2222-4222-8222-222222222222'
 const OTHER_DROP_ID = '33333333-3333-4333-8333-333333333333'
 const OBLIGATION_DROP = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-const OBLIGATION_TOV = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const SOURCE_TX_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const PROJECT_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 
@@ -143,7 +143,7 @@ interface MockState {
   updates: Array<{ table: unknown; set: Record<string, unknown>; obligationId: string }>
 }
 
-function makeService(initial: Partial<MockState> = {}, tovBalance: number = 10000) {
+function makeService(initial: Partial<MockState> = {}) {
   const state: MockState = {
     obligations: new Map([[OBLIGATION_DROP, makeObligation()]]),
     sourceTxs: new Map([[SOURCE_TX_ID, makeSourceTx()]]),
@@ -185,7 +185,7 @@ function makeService(initial: Partial<MockState> = {}, tovBalance: number = 1000
           // The service always updates a specific obligation row — the id is
           // the only literal in the eq() predicate.
           const values = collectStringValues(predicate)
-          const oblId = values.find((v) => v === OBLIGATION_DROP || v === OBLIGATION_TOV) ?? ''
+          const oblId = values.find((v) => v === OBLIGATION_DROP) ?? ''
           lastUpdateObligationId = oblId
           state.updates.push({ table, set: patch, obligationId: oblId })
           // Mutate the in-memory obligation so the post-update findFirst
@@ -270,16 +270,7 @@ function makeService(initial: Partial<MockState> = {}, tovBalance: number = 1000
   }
   const dbStub = { db: drizzleClient } as unknown
 
-  // Mock BalanceService — only getTOVBalance is consumed by settleByTov.
-  const balanceStub = {
-    getTOVBalance: vi.fn(async () => ({
-      balance: tovBalance,
-      currency: 'USDT',
-      breakdown: { income: tovBalance, dividends_paid: 0, expenses: 0, tax: 0 },
-    })),
-  } as unknown as BalanceService
-
-  const svc = new PendingSettlementService(dbStub as never, balanceStub)
+  const svc = new PendingSettlementService(dbStub as never)
   return {
     svc,
     state,
@@ -370,116 +361,6 @@ describe('PendingSettlementService.settleByDrop', () => {
   })
 })
 
-// ── settleByTov ─────────────────────────────────────────────────────────────
-
-describe('PendingSettlementService.settleByTov', () => {
-  it('inserts TOV_EXPENSE (FIAT_TOV) + SENIOR_PAID and patches obligation', async () => {
-    const { svc, getInsertsFor, getUpdatesFor, state } = makeService({
-      obligations: new Map([
-        [
-          OBLIGATION_TOV,
-          makeObligation({ id: OBLIGATION_TOV, debtorType: 'TOV', debtorUserId: null }),
-        ],
-      ]),
-    })
-    await svc.settleByTov(OBLIGATION_TOV, accountantUser)
-
-    const txInserts = getInsertsFor(transactions)
-    expect(txInserts).toHaveLength(2)
-    const expense = txInserts.find((r) => r['type'] === 'EXPENSE')!
-    const paid = txInserts.find((r) => r['type'] === 'SENIOR_PAID')!
-    expect(expense['receiverLabel']).toBe('FIAT_TOV')
-    expect(expense['amount']).toBe('560')
-    expect(paid['receiverId']).toBe(SENIOR_ID)
-    expect(paid['senderLabel']).toBe('ТОВ')
-
-    const oblUpdates = getUpdatesFor(pendingObligations)
-    expect(oblUpdates).toHaveLength(1)
-    expect(oblUpdates[0]?.['status']).toBe('PAID')
-    expect(state.obligations.get(OBLIGATION_TOV)?.status).toBe('PAID')
-  })
-
-  it('ADMIN may settle TOV', async () => {
-    const { svc, getInsertsFor } = makeService({
-      obligations: new Map([
-        [
-          OBLIGATION_TOV,
-          makeObligation({ id: OBLIGATION_TOV, debtorType: 'TOV', debtorUserId: null }),
-        ],
-      ]),
-    })
-    await svc.settleByTov(OBLIGATION_TOV, adminUser)
-    expect(getInsertsFor(transactions)).toHaveLength(2)
-  })
-
-  it('DROP cannot settle from TOV → 403', async () => {
-    const { svc } = makeService({
-      obligations: new Map([
-        [
-          OBLIGATION_TOV,
-          makeObligation({ id: OBLIGATION_TOV, debtorType: 'TOV', debtorUserId: null }),
-        ],
-      ]),
-    })
-    await expect(svc.settleByTov(OBLIGATION_TOV, dropUser)).rejects.toThrow(ForbiddenException)
-  })
-
-  it('SENIOR cannot settle from TOV → 403', async () => {
-    const { svc } = makeService({
-      obligations: new Map([
-        [
-          OBLIGATION_TOV,
-          makeObligation({ id: OBLIGATION_TOV, debtorType: 'TOV', debtorUserId: null }),
-        ],
-      ]),
-    })
-    await expect(svc.settleByTov(OBLIGATION_TOV, seniorUser)).rejects.toThrow(ForbiddenException)
-  })
-
-  it('insufficient TOV balance → 400', async () => {
-    const { svc } = makeService(
-      {
-        obligations: new Map([
-          [
-            OBLIGATION_TOV,
-            makeObligation({ id: OBLIGATION_TOV, debtorType: 'TOV', debtorUserId: null }),
-          ],
-        ]),
-      },
-      100,
-    )
-    await expect(svc.settleByTov(OBLIGATION_TOV, accountantUser)).rejects.toThrow(
-      BadRequestException,
-    )
-  })
-
-  it('debtorType=DROP cannot be closed by settleByTov → 400', async () => {
-    const { svc } = makeService()
-    await expect(svc.settleByTov(OBLIGATION_DROP, accountantUser)).rejects.toThrow(
-      BadRequestException,
-    )
-  })
-
-  it('already-PAID obligation → 400', async () => {
-    const { svc } = makeService({
-      obligations: new Map([
-        [
-          OBLIGATION_TOV,
-          makeObligation({
-            id: OBLIGATION_TOV,
-            debtorType: 'TOV',
-            debtorUserId: null,
-            status: 'PAID',
-          }),
-        ],
-      ]),
-    })
-    await expect(svc.settleByTov(OBLIGATION_TOV, accountantUser)).rejects.toThrow(
-      BadRequestException,
-    )
-  })
-})
-
 // ── list endpoints RBAC ─────────────────────────────────────────────────────
 
 describe('PendingSettlementService.listSeniorObligations', () => {
@@ -538,41 +419,6 @@ describe('PendingSettlementService.listDropObligations', () => {
   })
 })
 
-describe('PendingSettlementService.listTovObligations', () => {
-  it('ACCOUNTANT sees all TOV debts', async () => {
-    const { svc } = makeService({
-      obligations: new Map([
-        [
-          OBLIGATION_TOV,
-          makeObligation({ id: OBLIGATION_TOV, debtorType: 'TOV', debtorUserId: null }),
-        ],
-      ]),
-    })
-    const result = await svc.listTovObligations(accountantUser)
-    expect(result).toHaveLength(1)
-    expect(result[0]?.debtorType).toBe('TOV')
-  })
-
-  it('ADMIN sees all TOV debts', async () => {
-    const { svc } = makeService({
-      obligations: new Map([
-        [
-          OBLIGATION_TOV,
-          makeObligation({ id: OBLIGATION_TOV, debtorType: 'TOV', debtorUserId: null }),
-        ],
-      ]),
-    })
-    const result = await svc.listTovObligations(adminUser)
-    expect(result).toHaveLength(1)
-  })
-
-  it('DROP forbidden → 403', async () => {
-    const { svc } = makeService()
-    await expect(svc.listTovObligations(dropUser)).rejects.toThrow(ForbiddenException)
-  })
-
-  it('SENIOR forbidden → 403', async () => {
-    const { svc } = makeService()
-    await expect(svc.listTovObligations(seniorUser)).rejects.toThrow(ForbiddenException)
-  })
-})
+// Phase 4 refactor: listTovObligations removed (AC3, AC9). Tests deleted
+// alongside the implementation. TOV-debtor history rows remain in the
+// table but are not surfaced by the service.

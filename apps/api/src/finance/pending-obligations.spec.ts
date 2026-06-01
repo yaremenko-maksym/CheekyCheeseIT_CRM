@@ -132,20 +132,8 @@ function makeObligation(overrides: Partial<ObligationRow> = {}): ObligationRow {
   }
 }
 
-// ── RBAC: assertCanReadTOV ────────────────────────────────────────────────
-
-describe('assertCanReadTOV', () => {
-  const svc = makeService()
-  it('ADMIN allowed', () => {
-    expect(() => svc.assertCanReadTOV(adminUser)).not.toThrow()
-  })
-  it('ACCOUNTANT allowed', () => {
-    expect(() => svc.assertCanReadTOV(accountantUser)).not.toThrow()
-  })
-  it.each([seniorA, juniorUser, hrUser, dropUser])('%s forbidden', (user) => {
-    expect(() => svc.assertCanReadTOV(user)).toThrow(ForbiddenException)
-  })
-})
+// Phase 4 refactor: assertCanReadTOV removed (AC3) — TOV balance endpoint
+// is gone. Tests deleted alongside the implementation.
 
 // ── RBAC: assertCanReadAdminBalance ───────────────────────────────────────
 

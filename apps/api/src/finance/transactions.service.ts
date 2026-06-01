@@ -817,10 +817,27 @@ export class TransactionsService {
   //     confirmed»). This is enforced by the status check on the PAYOUT row —
   //     once it's PAID the predicate fails before any insert runs, so we can
   //     never double-credit an admin.
-  async confirmPayout(payoutTxId: string, recipientAdminId: string, currentUser: SessionUser) {
+  async confirmPayout(
+    payoutTxId: string,
+    recipientAdminId: string,
+    currentUser: SessionUser,
+    options: { method?: 'CRYPTO' | 'CASH'; txHash?: string | null } = {},
+  ) {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
       throw new ForbiddenException()
     }
+
+    // Drop role - phase 4 refactor (task-drop-phase4-refactor-remove-tov.md
+    // AC4). PAYOUT_CONFIRMED rows now carry an explicit payment method:
+    // CRYPTO (default — txHash required) or CASH (no on-chain hash). Cash
+    // path covers manual confirmations where the senior settled with the
+    // partner via fiat / hand-off; crypto path keeps the legacy contract.
+    const method = options.method ?? 'CRYPTO'
+    const txHashRaw = options.txHash?.trim() ?? ''
+    if (method === 'CRYPTO' && txHashRaw.length < 10) {
+      throw new BadRequestException('Для crypto-метода требуется txHash минимум 10 символов')
+    }
+    const recordedTxHash = method === 'CRYPTO' ? txHashRaw : null
 
     const payoutTx = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, payoutTxId),
@@ -848,10 +865,12 @@ export class TransactionsService {
     }
 
     const now = new Date()
-    const confirmationNote = `Manual payout confirmation by ${currentUser.id} at ${now.toISOString()}`
+    const confirmationNote = `Manual payout confirmation by ${currentUser.id} at ${now.toISOString()} (method=${method})`
 
     await this.db.db.transaction(async (dbtx) => {
-      // 1) Flip PAYOUT to PAID + record who/when confirmed.
+      // 1) Flip PAYOUT to PAID + record who/when confirmed. For CRYPTO method
+      //    also stamp the txHash on the PAYOUT row so the senior-side audit
+      //    matches the new credit row.
       await dbtx
         .update(transactions)
         .set({
@@ -859,6 +878,7 @@ export class TransactionsService {
           validatedBy: currentUser.id,
           validatedAt: now,
           updatedAt: now,
+          ...(method === 'CRYPTO' && recordedTxHash ? { txHash: recordedTxHash } : {}),
         })
         .where(eq(transactions.id, payoutTxId))
 
@@ -867,16 +887,21 @@ export class TransactionsService {
       //    PAYOUT row so a later edit to PAYOUT (out of scope here — PAYOUT
       //    is non-editable per `adminUpdateTransaction`) wouldn't desync the
       //    credit row. senderId mirrors PAYOUT.senderId for traceability.
+      //    The payment method is captured via senderLabel marker so existing
+      //    schema columns are reused (no schema change needed). Cash method
+      //    keeps txHash null per AC4; crypto records the on-chain hash.
       await dbtx.insert(transactions).values({
         type: 'PAYOUT_CONFIRMED',
         status: 'PAID',
         amount: payoutTx.amount,
         currency: payoutTx.currency,
         senderId: payoutTx.senderId,
+        senderLabel: `PAYOUT_METHOD:${method}`,
         receiverId: recipient.id,
         recipientId: recipient.id,
         projectId: payoutTx.projectId,
         payoutRequestId: payoutTx.payoutRequestId,
+        txHash: recordedTxHash,
         notes: confirmationNote,
         createdBy: currentUser.id,
       })

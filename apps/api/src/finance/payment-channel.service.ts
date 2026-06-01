@@ -1,23 +1,27 @@
 /**
- * Drop role - phase 4-B. Payment channels for settling a validated
- * DROP_INCOME with the company. Three alternative channels live alongside the
- * legacy Phase 2 `payPayoutRequest` and Phase 3 `confirmPayout` flows — none
- * of those existing paths are touched by this service.
+ * Drop role - phase 4 (refactor — task-drop-phase4-refactor-remove-tov.md).
  *
- *   1. Crypto direct  — drop sends USDT to 3 wallets (senior + 2 admins).
- *                       Creates SENIOR_INCOME_CRYPTO + 2× ADMIN_INCOME_CRYPTO
- *                       on confirm.
- *   2. Bank transfer  — drop wires UAH to the corporate ТОВ account. On
- *                       accountant confirmation creates TOV_INCOME +
- *                       SENIOR_PENDING_PAYOUT (debtorType=TOV) and registers
- *                       a pending_obligations row for the senior payout.
- *   3. Cash to admin  — drop hands physical cash to ONE admin (Maksym/Kostya).
- *                       Creates ADMIN_INCOME_CASH + SENIOR_PENDING_PAYOUT
- *                       (debtorType=DROP) immediately — no validation step.
+ * Payment channels for settling a validated DROP_INCOME with the company.
+ * After the refactor only two channels remain, and the cash flow is
+ * admin-initiated:
  *
- * All three channels close the placeholder PAYOUT row (PENDING_PAYMENT → PAID)
- * created during DROP_INCOME validation so the drop's «Платить компании»
- * action is single-use per income.
+ *   1. Crypto direct — drop sends USDT to 3 wallets (senior + 2 admins).
+ *                      Creates SENIOR_INCOME_CRYPTO + 2× ADMIN_INCOME_CRYPTO
+ *                      on confirm.
+ *   2. Cash to admin — ACCOUNTANT/ADMIN clicks «Cash передан» on the
+ *                      VALIDATED DROP_INCOME row in /crm/finance, picks
+ *                      Maksym/Kostya in a dialog. Creates ADMIN_INCOME_CASH
+ *                      + SENIOR_PENDING_PAYOUT (debtorType=DROP).
+ *                      DROP no longer has any UI to initiate cash.
+ *
+ * Bank channel (was: corporate ТОВ wire transfer) has been removed
+ * entirely. The TOV_INCOME / debtorType='TOV' code path that produced
+ * SENIOR_PENDING_PAYOUT against the ТОВ balance is gone — see refactor
+ * task AC1 / AC3.
+ *
+ * Both remaining channels close the placeholder PAYOUT row
+ * (PENDING_PAYMENT → PAID) created during DROP_INCOME validation so the
+ * drop's «Платить компании» action is single-use per income.
  *
  * Numbers — math is generic but spec uses 16% senior / 10% drop / 37%+37%
  * partners on $3500: senior=$560, drop=$350, partners=$1295 each.
@@ -41,18 +45,6 @@ import {
 } from '../database/schema'
 import { TransactionsService } from './transactions.service'
 
-// Banking details of the corporate (ТОВ) account. Server-side env-driven so
-// production/staging can swap without code changes. Defaults are documented
-// placeholders matching the Phase 4-B spec example.
-function readTovBankDetails() {
-  return {
-    recipient: process.env['TOV_BANK_RECIPIENT'] ?? 'ТОВ "Cheeky Cheese IT"',
-    iban: process.env['TOV_BANK_IBAN'] ?? 'UA00 0000 0000 0000 0000 0000 000',
-    rnokpp: process.env['TOV_BANK_RNOKPP'] ?? '00000000',
-    bankName: process.env['TOV_BANK_NAME'] ?? 'JSC «Universal Bank»',
-  }
-}
-
 export interface CryptoRecipient {
   userId: string
   displayName: string
@@ -65,18 +57,6 @@ export interface CryptoRecipient {
 export interface InitiateCryptoResult {
   contractAddress: string | null
   recipients: CryptoRecipient[]
-  currency: 'USDT' | 'USD' | 'EUR' | 'UAH'
-}
-
-export interface InitiateBankResult {
-  tovBankDetails: {
-    recipient: string
-    iban: string
-    rnokpp: string
-    bankName: string
-    reference: string
-  }
-  amount: string
   currency: 'USDT' | 'USD' | 'EUR' | 'UAH'
 }
 
@@ -226,164 +206,16 @@ export class PaymentChannelService {
     return { income: refreshed ?? ctx.income, created }
   }
 
-  // ── Bank channel ────────────────────────────────────────────────────────
-
-  initiateBankPayment(incomeId: string, _actor?: SessionUser): InitiateBankResult
-  initiateBankPayment(incomeId: string, actor: SessionUser): Promise<InitiateBankResult>
-  initiateBankPayment(
-    incomeId: string,
-    actor?: SessionUser,
-  ): InitiateBankResult | Promise<InitiateBankResult> {
-    // Two-arg overload returns a promise — we hit the DB to verify access.
-    if (actor) {
-      return (async () => {
-        const ctx = await this.resolveIncome(incomeId, actor)
-        this.assertCanInitiate(ctx, actor)
-        const details = readTovBankDetails()
-        return {
-          tovBankDetails: { ...details, reference: `INV-INC-${ctx.income.id}` },
-          amount: String(ctx.distribution.payableTotal),
-          currency: 'USDT',
-        }
-      })()
-    }
-    // Single-arg sync overload — used by unit tests to verify the reference
-    // shape without standing up the DB. Kept private to the module surface.
-    const details = readTovBankDetails()
-    return {
-      tovBankDetails: { ...details, reference: `INV-INC-${incomeId}` },
-      amount: '0',
-      currency: 'USDT',
-    }
-  }
-
-  async confirmBankPayment(
-    incomeId: string,
-    actor: SessionUser,
-  ): Promise<{ income: Transaction; created: Transaction[] }> {
-    if (actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') {
-      throw new ForbiddenException('Только ADMIN/ACCOUNTANT может подтверждать банковскую оплату')
-    }
-    const ctx = await this.resolveIncome(incomeId, actor)
-    this.assertNotAlreadyPaid(ctx)
-
-    const created: Transaction[] = []
-    await this.db.db.transaction(async (dbtx) => {
-      // 1) TOV_INCOME — money lands on the corporate account. Amount is the
-      //    entire payable (senior + partners), not just the partner residual.
-      const [tovRow] = await dbtx
-        .insert(transactions)
-        .values({
-          type: 'TOV_INCOME',
-          status: 'PAID',
-          amount: String(ctx.distribution.payableTotal),
-          currency: 'USDT',
-          senderId: ctx.drop.id,
-          receiverLabel: 'FIAT_TOV',
-          projectId: ctx.project.id,
-          payoutRequestId: ctx.income.payoutRequestId,
-          notes: `Phase 4-B bank channel — ТОВ счёт, ref INV-INC-${ctx.income.id}`,
-          createdBy: actor.id,
-        })
-        .returning()
-      if (tovRow) created.push(tovRow)
-
-      // 2) SENIOR_PENDING_PAYOUT — TOВ owes the senior. Source row carries
-      //    the obligation amount; balance is NOT moved until a SENIOR_PAID
-      //    row closes it (Phase 4-C).
-      const [pendingRow] = await dbtx
-        .insert(transactions)
-        .values({
-          type: 'SENIOR_PENDING_PAYOUT',
-          status: 'PENDING_PAYMENT',
-          amount: String(ctx.distribution.seniorAmount),
-          currency: 'USDT',
-          senderLabel: 'ТОВ',
-          receiverId: ctx.senior.id,
-          recipientId: ctx.senior.id,
-          projectId: ctx.project.id,
-          payoutRequestId: ctx.income.payoutRequestId,
-          notes: 'Phase 4-B bank channel — senior IOU (debtor=TOV)',
-          createdBy: actor.id,
-        })
-        .returning()
-      if (pendingRow) {
-        created.push(pendingRow)
-        await dbtx.insert(pendingObligations).values({
-          creditorUserId: ctx.senior.id,
-          debtorType: 'TOV',
-          debtorUserId: null,
-          sourceTransactionId: pendingRow.id,
-          amount: String(ctx.distribution.seniorAmount),
-          currency: 'USDT',
-          status: 'PENDING',
-        })
-      }
-
-      // 3) Close the placeholder PAYOUT row.
-      await this.closePayout(dbtx, ctx.payoutTxId, null)
-    })
-
-    const refreshed = await this.db.db.query.transactions.findFirst({
-      where: eq(transactions.id, ctx.income.id),
-    })
-    return { income: refreshed ?? ctx.income, created }
-  }
-
-  // ── Cash channel (round-2 architecture) ────────────────────────────────
+  // ── Cash channel (admin-initiated, post-Phase-4-refactor) ───────────────
   //
-  // Two-step flow:
-  //   1. /initiate-cash — DROP (or ACCOUNTANT/ADMIN acting on the drop's
-  //      behalf) marks the placeholder PAYOUT row as PENDING_CASH_CONFIRM.
-  //      No income transactions are inserted yet — the recipient admin is
-  //      decided out-of-band (call, physical handoff) and recorded in step 2.
-  //   2. /confirm-cash — ACCOUNTANT/ADMIN picks which admin actually got the
-  //      cash. ADMIN_INCOME_CASH + SENIOR_PENDING_PAYOUT cascade is inserted
-  //      against that admin and the PAYOUT flips to PAID.
-
-  async initiateCashPayment(
-    incomeId: string,
-    actor: SessionUser,
-  ): Promise<{ incomeId: string; payoutId: string | null; status: 'PENDING_CASH_CONFIRM' }> {
-    const ctx = await this.resolveIncome(incomeId, actor)
-    this.assertCanInitiate(ctx, actor)
-
-    if (!ctx.payoutTxId) {
-      // Legacy DROP_INCOMEs (pre-Phase-2) skip the cascade — we cannot mark
-      // anything as PENDING_CASH_CONFIRM without a PAYOUT row. Reject so the
-      // UI never lands in a state where the drop "submitted" but the
-      // accountant has nothing to confirm.
-      throw new BadRequestException(
-        'DROP_INCOME has no placeholder PAYOUT row — cash channel is unavailable',
-      )
-    }
-
-    // Re-fetch to detect "already initiated" state — resolveIncome doesn't
-    // distinguish between PENDING_PAYMENT and PENDING_CASH_CONFIRM (both are
-    // "not yet PAID"), so we surface a friendlier 400 here.
-    const payoutRow = await this.db.db.query.transactions.findFirst({
-      where: eq(transactions.id, ctx.payoutTxId),
-    })
-    if (payoutRow?.status === 'PENDING_CASH_CONFIRM') {
-      throw new BadRequestException('Этот приход уже ожидает подтверждения бухгалтера')
-    }
-
-    // Wrap the single update in a transaction so the mock test harness
-    // (which only stubs the transactional `.update`) still sees the call.
-    const payoutTxId = ctx.payoutTxId
-    await this.db.db.transaction(async (dbtx) => {
-      await dbtx
-        .update(transactions)
-        .set({ status: 'PENDING_CASH_CONFIRM', updatedAt: new Date() })
-        .where(eq(transactions.id, payoutTxId))
-    })
-
-    return {
-      incomeId: ctx.income.id,
-      payoutId: payoutTxId,
-      status: 'PENDING_CASH_CONFIRM',
-    }
-  }
+  // Single-step flow:
+  //   ACCOUNTANT/ADMIN sees the VALIDATED DROP_INCOME row that does not yet
+  //   have a payment-channel cascade. They click «Cash передан», pick which
+  //   admin actually received the cash, and submit. The handler inserts
+  //   ADMIN_INCOME_CASH + SENIOR_PENDING_PAYOUT (debtorType=DROP) and flips
+  //   the placeholder PAYOUT to PAID — same shape as the prior round-2
+  //   confirm-cash flow, only without the DROP-initiated PENDING_CASH_CONFIRM
+  //   intermediate state.
 
   async confirmCashPayment(
     incomeId: string,
@@ -397,23 +229,10 @@ export class PaymentChannelService {
       )
     }
 
-    // Re-resolve income context. We allow the resolver to run as ACCOUNTANT/
-    // ADMIN — DROP-only guards inside `resolveIncome` are skipped because the
-    // actor role isn't DROP here. The confirm-variant also returns the
-    // payout row itself so we can verify its status without an extra fetch.
-    const { ctx, payoutRow } = await this.resolveIncomeForConfirm(incomeId)
-
-    if (!ctx.payoutTxId) {
-      throw new BadRequestException('No placeholder PAYOUT row to confirm')
-    }
-    if (!payoutRow) {
-      throw new NotFoundException('PAYOUT row not found')
-    }
-    if (payoutRow.status !== 'PENDING_CASH_CONFIRM') {
-      throw new BadRequestException(
-        `PAYOUT must be in PENDING_CASH_CONFIRM to confirm cash receipt (is ${payoutRow.status})`,
-      )
-    }
+    // Resolve income context. We use a confirm-variant resolver that returns
+    // the payout row (if any) but DOES enforce the cascade-existence guard so
+    // a second click on an already-settled income surfaces a clean 400.
+    const ctx = await this.resolveIncomeForCashConfirm(incomeId)
 
     const admin = await this.db.db.query.users.findFirst({
       where: eq(users.id, recipientAdminId),
@@ -428,8 +247,7 @@ export class PaymentChannelService {
 
     // Cash = the chosen admin received the full partner share (both admins'
     // 50-50 combined). Senior share remains owed by the drop personally
-    // (debtorType=DROP) — Phase 4-C will close it via SENIOR_PAID when the
-    // drop and senior settle off-platform.
+    // (debtorType=DROP) until SENIOR_PAID closes the obligation.
     const partnerTotal = ctx.distribution.partnerShares.reduce((s, p) => s + p.amount, 0)
 
     const created: Transaction[] = []
@@ -446,7 +264,7 @@ export class PaymentChannelService {
           recipientId: admin.id,
           projectId: ctx.project.id,
           payoutRequestId: ctx.income.payoutRequestId,
-          notes: 'Phase 4-B cash channel — admin received cash',
+          notes: 'Phase 4 cash channel — admin received cash (admin-initiated)',
           createdBy: actor.id,
         })
         .returning()
@@ -465,7 +283,7 @@ export class PaymentChannelService {
           recipientId: ctx.senior.id,
           projectId: ctx.project.id,
           payoutRequestId: ctx.income.payoutRequestId,
-          notes: 'Phase 4-B cash channel — senior IOU (debtor=DROP)',
+          notes: 'Phase 4 cash channel — senior IOU (debtor=DROP)',
           createdBy: actor.id,
         })
         .returning()
@@ -482,7 +300,27 @@ export class PaymentChannelService {
         })
       }
 
-      await this.closePayout(dbtx, ctx.payoutTxId, null)
+      // Close or create the PAYOUT placeholder. Pre-existing legacy
+      // DROP_INCOMEs (created before Phase 2 cascade) lack a PAYOUT row;
+      // re-create it as PAID so audit/list views see a consistent record.
+      if (ctx.payoutTxId) {
+        await this.closePayout(dbtx, ctx.payoutTxId, null)
+      } else {
+        await dbtx.insert(transactions).values({
+          type: 'PAYOUT',
+          status: 'PAID',
+          amount: String(ctx.distribution.payableTotal),
+          currency: 'USDT',
+          senderId: ctx.drop.id,
+          receiverLabel: 'CheekyCheeseIT',
+          projectId: ctx.project.id,
+          payoutRequestId: ctx.income.payoutRequestId,
+          notes: 'Phase 4 cash channel — PAYOUT auto-created at confirm time',
+          createdBy: actor.id,
+          validatedBy: actor.id,
+          validatedAt: new Date(),
+        })
+      }
     })
 
     const refreshed = await this.db.db.query.transactions.findFirst({
@@ -492,76 +330,12 @@ export class PaymentChannelService {
   }
 
   /**
-   * GET /api/payments/pending-cash — accountant / admin dashboard list of
-   * PAYOUT rows sitting in PENDING_CASH_CONFIRM. One row per income; we walk
-   * back to the drop user + project for display.
+   * Cash-confirm variant of `resolveIncome`. Enforces the same DROP_INCOME +
+   * VALIDATED gate as `resolveIncome`, AND also runs the cascade-existence
+   * guard so a second confirm on an already-settled income surfaces 400.
+   * Skips the DROP-only RBAC because cash confirm is ADMIN/ACCOUNTANT only.
    */
-  async listPendingCash(actor: SessionUser): Promise<
-    {
-      incomeId: string
-      payoutId: string
-      dropId: string
-      dropName: string
-      projectId: string | null
-      projectName: string | null
-      amount: string
-      currency: 'USDT' | 'USD' | 'EUR' | 'UAH'
-      initiatedAt: string
-    }[]
-  > {
-    if (actor.role !== 'ACCOUNTANT' && actor.role !== 'ADMIN') {
-      throw new ForbiddenException(
-        'Список ожидающих подтверждения нала виден только бухгалтеру и админу',
-      )
-    }
-    const pendingRows = await this.db.db.query.transactions.findMany({
-      where: and(eq(transactions.type, 'PAYOUT'), eq(transactions.status, 'PENDING_CASH_CONFIRM')),
-    })
-
-    const result: Awaited<ReturnType<PaymentChannelService['listPendingCash']>> = []
-    for (const payout of pendingRows) {
-      if (!payout.payoutRequestId) continue
-      // Find the DROP_INCOME that drives this payout.
-      const income = await this.db.db.query.transactions.findFirst({
-        where: and(
-          eq(transactions.payoutRequestId, payout.payoutRequestId),
-          eq(transactions.type, 'DROP_INCOME'),
-        ),
-      })
-      if (!income) continue
-      const [drop, project] = await Promise.all([
-        payout.senderId
-          ? this.db.db.query.users.findFirst({ where: eq(users.id, payout.senderId) })
-          : Promise.resolve(undefined),
-        income.projectId
-          ? this.db.db.query.projects.findFirst({ where: eq(projects.id, income.projectId) })
-          : Promise.resolve(undefined),
-      ])
-      result.push({
-        incomeId: income.id,
-        payoutId: payout.id,
-        dropId: drop?.id ?? payout.senderId ?? '',
-        dropName: drop?.displayName ?? '—',
-        projectId: project?.id ?? null,
-        projectName: project?.name ?? null,
-        amount: payout.amount,
-        currency: payout.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
-        initiatedAt: (payout.updatedAt ?? payout.createdAt).toISOString(),
-      })
-    }
-    return result
-  }
-
-  /**
-   * Confirm-cash variant of `resolveIncome` that does NOT trip the
-   * "channel cascade already exists" guard — by design the placeholder
-   * PAYOUT row is in PENDING_CASH_CONFIRM (not PAID) and no cascade rows
-   * exist yet. Skips the cascade-existence check and the DROP-only RBAC.
-   * Also returns the raw payout row so the caller can verify its status.
-   */
-  private async resolveIncomeForConfirm(
-    incomeId: string,
-  ): Promise<{ ctx: ResolvedIncomeContext; payoutRow: Transaction | null }> {
+  private async resolveIncomeForCashConfirm(incomeId: string): Promise<ResolvedIncomeContext> {
     const income = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, incomeId),
     })
@@ -604,24 +378,44 @@ export class PaymentChannelService {
     const payableTotal =
       distribution.seniorShare.amount + distribution.partnerShares.reduce((s, p) => s + p.amount, 0)
 
+    // Find PAYOUT row (might be PENDING_PAYMENT, PAID, or — legacy — absent).
     let payoutTxId: string | null = null
-    let payoutRow: Transaction | null = null
+    let payoutAlreadyPaid = false
     if (income.payoutRequestId) {
-      const row = await this.db.db.query.transactions.findFirst({
+      const payoutRow = await this.db.db.query.transactions.findFirst({
         where: and(
           eq(transactions.payoutRequestId, income.payoutRequestId),
           eq(transactions.type, 'PAYOUT'),
         ),
       })
-      if (row) {
-        // For confirm-cash we expect PENDING_CASH_CONFIRM; caller checks the
-        // exact value.
-        payoutTxId = row.id
-        payoutRow = row
+      if (payoutRow) {
+        payoutTxId = payoutRow.id
+        if (payoutRow.status === 'PAID') payoutAlreadyPaid = true
+      }
+    }
+    if (payoutAlreadyPaid) {
+      throw new BadRequestException('DROP_INCOME already settled via another channel')
+    }
+
+    // Cascade-existence guard: no Phase 4 income/credit rows must exist yet.
+    if (income.payoutRequestId) {
+      const channelRows = await this.db.db.query.transactions.findMany({
+        where: and(
+          eq(transactions.payoutRequestId, income.payoutRequestId),
+          inArray(transactions.type, [
+            'SENIOR_INCOME_CRYPTO',
+            'ADMIN_INCOME_CRYPTO',
+            'ADMIN_INCOME_CASH',
+            'SENIOR_PENDING_PAYOUT',
+          ]),
+        ),
+      })
+      if (channelRows.length > 0) {
+        throw new BadRequestException('DROP_INCOME already has a payment-channel cascade')
       }
     }
 
-    const ctx: ResolvedIncomeContext = {
+    return {
       income,
       project: { id: project.id, dropId: project.dropId, seniorId: project.seniorId },
       drop: {
@@ -642,7 +436,6 @@ export class PaymentChannelService {
       },
       payoutTxId,
     }
-    return { ctx, payoutRow }
   }
 
   // ── Internal helpers ────────────────────────────────────────────────────
@@ -650,7 +443,7 @@ export class PaymentChannelService {
   /**
    * Pulls the DROP_INCOME row, the drop project, the drop + senior users,
    * computes the distribution, and locates the placeholder PAYOUT row from
-   * validation cascade. The same context backs all three channels.
+   * validation cascade. The same context backs the crypto channel.
    */
   private async resolveIncome(
     incomeId: string,
@@ -723,7 +516,7 @@ export class PaymentChannelService {
       }
     }
 
-    // Additional double-payment guard: any Phase 4-B credit rows for this
+    // Additional double-payment guard: any Phase 4 credit rows for this
     // income already in the ledger means a previous attempt landed.
     if (income.payoutRequestId) {
       const channelRows = await this.db.db.query.transactions.findMany({
@@ -732,7 +525,6 @@ export class PaymentChannelService {
           inArray(transactions.type, [
             'SENIOR_INCOME_CRYPTO',
             'ADMIN_INCOME_CRYPTO',
-            'TOV_INCOME',
             'ADMIN_INCOME_CASH',
             'SENIOR_PENDING_PAYOUT',
           ]),

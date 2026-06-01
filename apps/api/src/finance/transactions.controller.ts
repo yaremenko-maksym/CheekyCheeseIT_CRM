@@ -146,7 +146,10 @@ export class TransactionsController {
   @Post(':id/confirm-payout')
   confirmPayout(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     const data = confirmPayoutSchema.parse(body)
-    return this.svc.confirmPayout(id, data.recipientAdminId, user)
+    return this.svc.confirmPayout(id, data.recipientAdminId, user, {
+      method: data.method,
+      ...(data.txHash !== undefined && data.txHash !== null ? { txHash: data.txHash } : {}),
+    })
   }
 
   @Patch(':id/pay')
