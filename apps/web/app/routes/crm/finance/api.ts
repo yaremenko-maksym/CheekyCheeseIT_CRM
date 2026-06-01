@@ -24,6 +24,8 @@ import type {
   PendingCashListResponseDto,
   PaymentChannelCascadeResponseDto,
   BalanceDto,
+  PendingSettlementListResponseDto,
+  SettleObligationResponseDto,
 } from '@crm/shared'
 
 export const financeApi = {
@@ -155,4 +157,20 @@ export const financeApi = {
     api.post<PaymentChannelCascadeResponseDto>('/payments/confirm-cash', data).then((r) => r.data),
   listPendingCash: () =>
     api.get<PendingCashListResponseDto>('/payments/pending-cash').then((r) => r.data),
+
+  // Phase 4-C pending senior settlement
+  listSeniorPendingSettlements: () =>
+    api.get<PendingSettlementListResponseDto>('/pending-settlements/senior').then((r) => r.data),
+  listDropPendingSettlements: () =>
+    api.get<PendingSettlementListResponseDto>('/pending-settlements/drop').then((r) => r.data),
+  listTovPendingSettlements: () =>
+    api.get<PendingSettlementListResponseDto>('/pending-settlements/tov').then((r) => r.data),
+  settleObligationByDrop: (id: string) =>
+    api
+      .post<SettleObligationResponseDto>(`/pending-settlements/${id}/settle-drop`, {})
+      .then((r) => r.data),
+  settleObligationByTov: (id: string) =>
+    api
+      .post<SettleObligationResponseDto>(`/pending-settlements/${id}/settle-tov`, {})
+      .then((r) => r.data),
 }

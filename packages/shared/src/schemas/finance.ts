@@ -589,6 +589,61 @@ export const paymentChannelCascadeResponseSchema = z.object({
 })
 export type PaymentChannelCascadeResponseDto = z.infer<typeof paymentChannelCascadeResponseSchema>
 
+// ---------------------------------------------------------------------------
+// Phase 4-C — Pending senior settlement
+// ---------------------------------------------------------------------------
+//
+// Phase 4-B leaves senior-owed amounts open in two places after the drop
+// settles with the company:
+//
+//   1. Bank channel → debtorType='TOV': the corporate ТОВ owes the senior.
+//      Closed by ACCOUNTANT/ADMIN via /api/pending-settlements/:id/settle-tov
+//      which spends from the TOV balance and credits the senior.
+//   2. Cash channel → debtorType='DROP': the DROP user personally owes the
+//      senior (they kept the senior share when they handed cash to the admin).
+//      Closed by the DROP themselves (or by ACCOUNTANT/ADMIN acting on their
+//      behalf) via /api/pending-settlements/:id/settle-drop.
+//
+// The wire DTO denormalises drop/senior/project names so the UI cards render
+// without follow-up requests — mirrors the PendingCashItemDto pattern.
+
+export const pendingSettlementItemSchema = z.object({
+  obligationId: z.string(), // pending_obligations.id
+  sourceTransactionId: z.string(),
+  debtorType: pendingObligationDebtorTypeSchema, // DROP | TOV (ADMIN reserved)
+  debtorUserId: z.string().nullable(),
+  debtorName: z.string().nullable(),
+  seniorId: z.string(),
+  seniorName: z.string(),
+  projectId: z.string().nullable(),
+  projectName: z.string().nullable(),
+  amount: z.string(),
+  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+  createdAt: z.string(),
+})
+export type PendingSettlementItemDto = z.infer<typeof pendingSettlementItemSchema>
+
+export const pendingSettlementListResponseSchema = z.array(pendingSettlementItemSchema)
+export type PendingSettlementListResponseDto = z.infer<typeof pendingSettlementListResponseSchema>
+
+// Both settle endpoints take an empty body — the obligation id is in the URL.
+// The route param `:id` is validated as UUID-like (same permissive shape as
+// payment-channel ids) since seeded users carry version-nibble 0 in their UUIDs.
+export const settleObligationParamSchema = z.object({
+  id: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
+})
+export type SettleObligationParamDto = z.infer<typeof settleObligationParamSchema>
+
+// Response after a successful settle: returns the updated obligation snapshot
+// plus the new SENIOR_PAID transaction (and SENIOR_PAID source `senderLabel`
+// reflects 'TOV' or 'DROP' for audit). Frontend uses this to invalidate
+// balances / pending lists in one round-trip.
+export const settleObligationResponseSchema = z.object({
+  obligation: pendingObligationSchema,
+  created: z.array(transactionSchema),
+})
+export type SettleObligationResponseDto = z.infer<typeof settleObligationResponseSchema>
+
 export const financeSummarySchema = z.object({
   totalIncome: z.number(),
   totalExpenses: z.number(),

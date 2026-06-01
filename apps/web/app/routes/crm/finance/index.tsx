@@ -56,6 +56,8 @@ import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransa
 import { MyProjectShares } from './components/MyProjectShares'
 import { DropBalanceCard } from './components/KpiCards'
 import { PendingCashCard } from './components/PendingCashCard'
+import { PendingSettlementSeniorCard } from './components/PendingSettlementSeniorCard'
+import { PendingSettlementTovCard } from './components/PendingSettlementTovCard'
 import { ConfirmPayoutDialog } from '@/components/finance/ConfirmPayoutDialog'
 import type { FinanceSummaryDto } from '@crm/shared'
 
@@ -636,6 +638,16 @@ function FinancePage() {
           подтверждения cash» — DROP-initiated cash channel waiting for the
           accountant to pick the recipient admin. Auto-hidden when empty. */}
       {(isAdmin || role === 'ACCOUNTANT') && <PendingCashCard />}
+
+      {/* Drop role - phase 4-C. Senior view: passive list of pending senior
+          IOUs (debtor=DROP or debtor=TOV). Closure happens on the debtor
+          side. Card hides itself when there's nothing pending. */}
+      {(isSenior || isAdmin || role === 'ACCOUNTANT') && <PendingSettlementSeniorCard />}
+
+      {/* Drop role - phase 4-C. ADMIN/ACCOUNTANT-only «Долги ТОВ перед
+          синьорами» — closes via /settle-tov, debits TOV balance. Auto-hidden
+          when there are no TOV debts. */}
+      {(isAdmin || role === 'ACCOUNTANT') && <PendingSettlementTovCard />}
 
       {/* Transactions table */}
       <Card>
