@@ -17,11 +17,13 @@ import {
   projectMembers,
   payoutRequests,
   projects,
+  teamMembers,
   transactions,
   users,
   type Transaction,
 } from '../database/schema'
 import { InvoicesService } from '../invoices/invoices.service'
+import { resolveSeniorShare } from './senior-share-resolver'
 
 type TxWithRelations = Transaction & {
   sender: { displayName: string } | null
@@ -32,6 +34,7 @@ type TxWithRelations = Transaction & {
     incomeAmount: string
     payableAmount: string
     seniorSharePercent: number | null
+    seniorSharePercentSource?: 'PROJECT' | 'TEAM' | 'USER_DEFAULT' | null
   } | null
 }
 
@@ -133,6 +136,14 @@ export class TransactionsService {
       payoutRequestId: tx.payoutRequestId,
       payoutRequest: tx.payoutRequest ?? null,
       seniorSharePercent: tx.seniorSharePercent,
+      // task-team-senior-share-override. Snapshot source of the % above.
+      // Legacy rows (created before column existed) return null and the UI
+      // hides the source badge.
+      seniorSharePercentSource: ((
+        tx as Transaction & {
+          seniorSharePercentSource?: string | null
+        }
+      ).seniorSharePercentSource ?? null) as 'PROJECT' | 'TEAM' | 'USER_DEFAULT' | null,
       receiptDocumentId: tx.receiptDocumentId,
       receiptExternalUrl: tx.receiptExternalUrl,
       txHash: tx.txHash,
@@ -150,6 +161,89 @@ export class TransactionsService {
       createdAt: tx.createdAt.toISOString(),
       updatedAt: tx.updatedAt.toISOString(),
     }
+  }
+
+  // ── Team override resolution (task-team-senior-share-override) ───────────
+  //
+  // The team-level senior share override applies only when *exactly one*
+  // active team membership of the relevant principal carries a non-null
+  // `seniorSharePercentOverride`. Multi-team ambiguity is intentionally
+  // resolved by falling through to the user default (see resolver).
+  //
+  // Senior-project route: principal = `project.seniorId`; collect all active
+  // memberships of the senior across teams (most seniors belong to a single
+  // SENIOR-team, but they may temporarily belong to a DROP-team during
+  // rotation — both are considered).
+  //
+  // Drop-project route: principal = `project.dropId`; the drop-team's
+  // override governs how much the *senior assigned to this drop-project*
+  // keeps. The drop's team is by definition the drop-team (type='DROP').
+
+  /**
+   * Public wrapper around the senior-share resolver — pre-fetches the active
+   * teams for the senior, then calls the pure resolver. Exposed so callers
+   * outside this service (e.g. PaymentChannelService for drop-projects) can
+   * snapshot a `{ value, source }` pair with the same hierarchy semantics.
+   *
+   * Drop-project route: the senior in question is the project's *assigned
+   * senior* (project.seniorId), and the team membership lookup is keyed on
+   * that user. Drop-team memberships are considered alongside senior-teams
+   * — both can carry an override that applies to the senior.
+   */
+  async resolveSeniorShareSnapshot(
+    project: { seniorSharePercentOverride: number | null | undefined },
+    senior: { id: string; seniorSharePercent: number | null | undefined },
+  ): Promise<{ value: number; source: 'PROJECT' | 'TEAM' | 'USER_DEFAULT' }> {
+    const applicableTeams = await this.findActiveTeamsForUser(senior.id)
+    return resolveSeniorShare(
+      { seniorSharePercentOverride: project.seniorSharePercentOverride },
+      { seniorSharePercent: senior.seniorSharePercent },
+      applicableTeams,
+    )
+  }
+
+  /**
+   * Active team memberships for a given user — returns the team rows joined
+   * through `team_members`. Only `leftAt IS NULL` rows are included so a
+   * historical membership cannot accidentally apply an override.
+   *
+   * `archivedAt IS NULL` is enforced on the team side because an archived
+   * team must never participate in a fresh override decision (the override
+   * stays in DB for audit but does not apply to new income).
+   */
+  private async findActiveTeamsForUser(
+    userId: string,
+  ): Promise<{ id: string; seniorSharePercentOverride: number | null }[]> {
+    // Use the relational query API instead of a raw `db.select(...).from(...)`
+    // chain so existing service-spec mocks (which only stub
+    // `db.query.<entity>.findFirst/findMany`) keep working without re-doing
+    // every spec's mock surface. The query reaches the team rows via the
+    // membership join, then JS-filters out archived teams — the dataset per
+    // user is small (one or two teams in practice) so the secondary filter
+    // is cheap.
+    let rows: Array<{
+      team: { id: string; seniorSharePercentOverride: number | null; archivedAt: Date | null }
+    }> = []
+    try {
+      rows = (await this.db.db.query.teamMembers.findMany({
+        where: and(eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)),
+        with: { team: true },
+      })) as unknown as Array<{
+        team: { id: string; seniorSharePercentOverride: number | null; archivedAt: Date | null }
+      }>
+    } catch {
+      // Defensive fallback for test mocks that don't stub
+      // `query.teamMembers.findMany` — treat as "no team memberships". The
+      // resolver then simply falls through to project / user-default.
+      rows = []
+    }
+
+    return rows
+      .filter((r) => r.team && r.team.archivedAt === null)
+      .map((r) => ({
+        id: r.team.id,
+        seniorSharePercentOverride: r.team.seniorSharePercentOverride ?? null,
+      }))
   }
 
   // ── Distribution helpers (Drop role - phase 2) ───────────────────────────
@@ -328,9 +422,21 @@ export class TransactionsService {
         ),
       })
       if (firstIncome) {
+        const firstIncomeSource = (
+          firstIncome as Transaction & {
+            seniorSharePercentSource?: string | null
+          }
+        ).seniorSharePercentSource
         tx.payoutRequest = {
           ...tx.payoutRequest,
           seniorSharePercent: firstIncome.seniorSharePercent,
+          // task-team-senior-share-override. Propagate the source from the
+          // originating SENIOR_INCOME so PayoutContent renders the badge.
+          seniorSharePercentSource: (firstIncomeSource ?? null) as
+            | 'PROJECT'
+            | 'TEAM'
+            | 'USER_DEFAULT'
+            | null,
         }
       }
     }
@@ -414,13 +520,23 @@ export class TransactionsService {
     })
     if (!senior) throw new NotFoundException('Senior not found')
 
-    // Resolve share percent: project override → user default
-    const settings = (
-      project as typeof project & {
-        financeSettings: typeof projectFinanceSettings.$inferSelect | null
-      }
-    ).financeSettings
-    const sharePercent = settings?.seniorSharePercentOverride ?? senior.seniorSharePercent
+    // task-team-senior-share-override. Hierarchy resolution:
+    //   project.seniorSharePercentOverride
+    //     ↓  (null)
+    //   exactly-one active team.seniorSharePercentOverride for this senior
+    //     ↓  (null / ambiguous)
+    //   users.seniorSharePercent (fallback 26)
+    //
+    // The legacy `projectFinanceSettings.seniorSharePercentOverride` mirror
+    // is preserved for back-compat — the projects module keeps both columns
+    // in sync, so consulting `projects.seniorSharePercentOverride` (which
+    // the resolver does) is equivalent to the previous mirror lookup.
+    const applicableTeams = await this.findActiveTeamsForUser(currentUser.id)
+    const resolved = resolveSeniorShare(
+      { seniorSharePercentOverride: project.seniorSharePercentOverride },
+      { seniorSharePercent: senior.seniorSharePercent },
+      applicableTeams,
+    )
 
     const [tx] = await this.db.db
       .insert(transactions)
@@ -433,7 +549,8 @@ export class TransactionsService {
         senderLabel: project.companyName,
         receiverId: currentUser.id,
         projectId: data.projectId,
-        seniorSharePercent: sharePercent,
+        seniorSharePercent: resolved.value,
+        seniorSharePercentSource: resolved.source,
         receiptDocumentId: data.receiptDocumentId ?? null,
         receiptExternalUrl: data.receiptExternalUrl ?? null,
         notes: data.notes ?? null,

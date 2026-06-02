@@ -176,6 +176,13 @@
       "when": 1781500000000,
       "tag": "0024_pending_cash_confirm",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1781600000000,
+      "tag": "0025_team_senior_share_override",
+      "breakpoints": true
     }
   ]
 }

@@ -174,6 +174,24 @@ function SeniorIncomeContent({ tx }: { tx: TransactionDto }) {
       {tx.seniorSharePercent != null && (
         <Row icon={<Percent className="h-4 w-4" />} label="Доля синьора">
           <span>{tx.seniorSharePercent}%</span>
+          {/* task-team-senior-share-override. Show the snapshot source
+              right next to the percent so the SENIOR can see whether the
+              split came from a project / team override or the user default.
+              Legacy rows (no source) keep the previous rendering. */}
+          {tx.seniorSharePercentSource ? (
+            <span
+              className="text-[11px] text-muted-foreground ml-2 uppercase tracking-wide"
+              data-testid={`tx-detail-senior-share-source`}
+              data-share-source={tx.seniorSharePercentSource}
+            >
+              ·{' '}
+              {tx.seniorSharePercentSource === 'PROJECT'
+                ? 'проект'
+                : tx.seniorSharePercentSource === 'TEAM'
+                  ? 'команда'
+                  : 'default'}
+            </span>
+          ) : null}
           <span className="text-xs text-muted-foreground ml-2">
             (к выплате:{' '}
             {fmtAmount(
@@ -287,6 +305,23 @@ function PayoutContent({ tx }: { tx: TransactionDto }) {
           {pr.seniorSharePercent != null && (
             <Row icon={<Percent className="h-4 w-4" />} label="Доля синьора">
               <span>{pr.seniorSharePercent}%</span>
+              {/* task-team-senior-share-override. Mirror the source badge
+                  on the payout view so SENIORs can see "why this %" without
+                  drilling into the originating SENIOR_INCOME row. */}
+              {pr.seniorSharePercentSource ? (
+                <span
+                  className="text-[11px] text-muted-foreground ml-2 uppercase tracking-wide"
+                  data-testid="payout-detail-senior-share-source"
+                  data-share-source={pr.seniorSharePercentSource}
+                >
+                  ·{' '}
+                  {pr.seniorSharePercentSource === 'PROJECT'
+                    ? 'проект'
+                    : pr.seniorSharePercentSource === 'TEAM'
+                      ? 'команда'
+                      : 'default'}
+                </span>
+              ) : null}
               <span className="text-xs text-muted-foreground ml-2">
                 → выплачено: {fmtAmount(pr.payableAmount, 'USDT')}
               </span>
@@ -432,7 +467,9 @@ function ReceiptPanel({ tx }: { tx: TransactionDto }) {
         </div>
       )}
       {!isImage && !isPdf && (
-        <div className={`flex flex-col items-center justify-center gap-2 ${PREVIEW_FRAME} border-dashed border-border bg-muted/20 p-6`}>
+        <div
+          className={`flex flex-col items-center justify-center gap-2 ${PREVIEW_FRAME} border-dashed border-border bg-muted/20 p-6`}
+        >
           <FileIcon className="h-10 w-10 text-muted-foreground/40" />
           <p className="text-sm text-muted-foreground">Предпросмотр недоступен</p>
         </div>

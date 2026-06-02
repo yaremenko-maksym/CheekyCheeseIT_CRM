@@ -94,6 +94,10 @@ export class TeamsService {
       telegram: team.telegram ?? null,
       telegramChannel: team.telegramChannel ?? null,
       notes: team.notes ?? null,
+      // task-team-senior-share-override. Surfaced on the wire so the FE can
+      // render the override field in the edit dialog + the MyProjectShares
+      // source badge. NULL = no team override (resolver falls through).
+      seniorSharePercentOverride: team.seniorSharePercentOverride ?? null,
       archivedAt: team.archivedAt ? team.archivedAt.toISOString() : null,
       createdAt: team.createdAt,
       updatedAt: team.updatedAt,
@@ -137,6 +141,10 @@ export class TeamsService {
       telegram: team.telegram ?? null,
       telegramChannel: team.telegramChannel ?? null,
       notes: team.notes ?? null,
+      // task-team-senior-share-override. Drop-team can also carry an
+      // override — applies to the drop-projects routed through this team
+      // (when the project has no project-level override).
+      seniorSharePercentOverride: team.seniorSharePercentOverride ?? null,
       archivedAt: team.archivedAt ? team.archivedAt.toISOString() : null,
       createdAt: team.createdAt,
       updatedAt: team.updatedAt,
@@ -251,6 +259,15 @@ export class TeamsService {
     notes: string | null | undefined,
     currentUser: SessionUser,
     telegramChannel?: string | null | undefined,
+    extra?: {
+      // task-team-senior-share-override. Optional team-level override for
+      // the SENIOR's share percent. Integer 0-100 or null (clear). Defined
+      // when the PATCH body explicitly carries the field (a JSON `null` is
+      // distinct from "absent" because zod's `.optional().nullable()`
+      // surfaces both). Validation (range / integer) lives in the shared
+      // updateTeamSchema; this method only enforces RBAC.
+      seniorSharePercentOverride?: number | null | undefined
+    },
   ) {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') {
       throw new ForbiddenException()
@@ -266,6 +283,10 @@ export class TeamsService {
       throw new ForbiddenException()
     }
 
+    const overrideTouched =
+      extra !== undefined &&
+      Object.prototype.hasOwnProperty.call(extra, 'seniorSharePercentOverride')
+
     const [updated] = await this.db.db
       .update(teams)
       .set({
@@ -273,6 +294,9 @@ export class TeamsService {
         ...(telegram !== undefined ? { telegram } : {}),
         ...(telegramChannel !== undefined ? { telegramChannel } : {}),
         ...(notes !== undefined ? { notes } : {}),
+        ...(overrideTouched
+          ? { seniorSharePercentOverride: extra!.seniorSharePercentOverride ?? null }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(teams.id, id))

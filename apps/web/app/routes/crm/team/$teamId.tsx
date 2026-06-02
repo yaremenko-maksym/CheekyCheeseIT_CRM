@@ -216,20 +216,39 @@ function TeamDetailPage() {
   }, [allUsers, allTeamsForRotate])
 
   // Edit form
+  // task-team-senior-share-override. `seniorSharePercentOverride` is a
+  // string in the form (empty string = "no override", numeric string = a
+  // 0-100 integer). We map it to `number | null` only at submit time so
+  // the user can clear the field with no jumps in the input.
   const editForm = useForm({
     defaultValues: {
       name: team?.name ?? '',
       telegram: team?.telegram ?? '',
       notes: team?.notes ?? '',
+      seniorSharePercentOverride:
+        team?.seniorSharePercentOverride !== null && team?.seniorSharePercentOverride !== undefined
+          ? String(team.seniorSharePercentOverride)
+          : '',
     },
     onSubmit: async ({ value }) => {
-      await updateMutation.mutateAsync(value)
+      const raw = value.seniorSharePercentOverride.trim()
+      const parsedOverride = raw === '' ? null : Number(raw)
+      await updateMutation.mutateAsync({
+        name: value.name,
+        telegram: value.telegram,
+        notes: value.notes,
+        seniorSharePercentOverride: parsedOverride,
+      })
     },
   })
 
   const updateMutation = useMutation({
-    mutationFn: (data: { name: string; telegram: string; notes: string }) =>
-      api.patch(`/teams/${teamId}`, data),
+    mutationFn: (data: {
+      name: string
+      telegram: string
+      notes: string
+      seniorSharePercentOverride: number | null
+    }) => api.patch(`/teams/${teamId}`, data),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['team', teamId] })
       void queryClient.invalidateQueries({ queryKey: ['teams'] })
@@ -499,6 +518,13 @@ function TeamDetailPage() {
                   editForm.setFieldValue('name', team.name)
                   editForm.setFieldValue('telegram', team.telegram ?? '')
                   editForm.setFieldValue('notes', team.notes ?? '')
+                  editForm.setFieldValue(
+                    'seniorSharePercentOverride',
+                    team.seniorSharePercentOverride !== null &&
+                      team.seniorSharePercentOverride !== undefined
+                      ? String(team.seniorSharePercentOverride)
+                      : '',
+                  )
                   setShowEdit(true)
                 }}
               >
@@ -864,6 +890,71 @@ function TeamDetailPage() {
                       placeholder="Внутренние заметки…"
                       className="min-h-20"
                     />
+                  </div>
+                )}
+              </editForm.Field>
+              {/*
+                task-team-senior-share-override. Team-level override for the
+                SENIOR's share percent. Integer 0-100, empty input = "no
+                override → fall through to project / user default". A
+                "Сбросить" button clears the field in one click.
+              */}
+              <editForm.Field
+                name="seniorSharePercentOverride"
+                validators={{
+                  onChange: ({ value }) => {
+                    const trimmed = value.trim()
+                    if (trimmed === '') return undefined
+                    const n = Number(trimmed)
+                    if (!Number.isFinite(n) || !Number.isInteger(n)) {
+                      return 'Должно быть целое число'
+                    }
+                    if (n < 0 || n > 100) return 'Диапазон 0–100'
+                    return undefined
+                  },
+                }}
+              >
+                {(field) => (
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="edit-senior-share-override">
+                      Доля синьора (override для команды)
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="edit-senior-share-override"
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={1}
+                        inputMode="numeric"
+                        value={field.state.value}
+                        onChange={(e) => field.handleChange(e.target.value)}
+                        placeholder="Не задано"
+                        className="max-w-32"
+                        data-testid="team-edit-senior-share-override-input"
+                      />
+                      <span className="text-sm text-muted-foreground">%</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-3 text-xs"
+                        onClick={() => field.handleChange('')}
+                        disabled={field.state.value.trim() === ''}
+                        data-testid="team-edit-senior-share-override-reset"
+                      >
+                        Сбросить
+                      </Button>
+                    </div>
+                    {field.state.meta.errors[0] && (
+                      <p className="text-xs text-destructive">
+                        {String(field.state.meta.errors[0])}
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Если задано — применяется ко всем проектам команды (приоритет ниже project
+                      override, выше user default).
+                    </p>
                   </div>
                 )}
               </editForm.Field>

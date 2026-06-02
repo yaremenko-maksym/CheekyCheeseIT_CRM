@@ -5,7 +5,14 @@ import type { TransactionDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Dialog, CrmDialogContent, CrmDialogHeader, CrmDialogBody, CrmDialogFooter, DialogTitle } from '@/components/ui/crm-dialog'
+import {
+  Dialog,
+  CrmDialogContent,
+  CrmDialogHeader,
+  CrmDialogBody,
+  CrmDialogFooter,
+  DialogTitle,
+} from '@/components/ui/crm-dialog'
 import { financeApi } from '../../api'
 import { fmtAmount } from '../../constants'
 
@@ -39,9 +46,7 @@ export function PayoutDialog({
 }) {
   const qc = useQueryClient()
   const { user } = useAuth()
-  const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(preselectedTxIds ?? []),
-  )
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(preselectedTxIds ?? []))
 
   // Sync selection when the dialog re-opens with a different preselection.
   // Important: the dialog component is mounted permanently in the parent and
@@ -104,7 +109,12 @@ export function PayoutDialog({
   const createError = createMutation.error instanceof Error ? createMutation.error.message : null
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose() }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) handleClose()
+      }}
+    >
       <CrmDialogContent maxWidth="sm:max-w-lg">
         <CrmDialogHeader>
           <DialogTitle>Выбрать транзакции для выплаты</DialogTitle>
@@ -113,7 +123,9 @@ export function PayoutDialog({
         <CrmDialogBody className="pb-4">
           <div className="space-y-4">
             {validatedTxs.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">Нет подтверждённых транзакций</p>
+              <p className="text-sm text-muted-foreground text-center py-4">
+                Нет подтверждённых транзакций
+              </p>
             ) : (
               <div className="space-y-2">
                 {validatedTxs.map((tx) => (
@@ -147,36 +159,59 @@ export function PayoutDialog({
                     SENIOR can sanity-check what each row contributes. */}
                 <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2 text-xs">
                   <p className="font-medium text-foreground/80">Превью расчёта</p>
-                  {previewRows.map(({ tx, sharePercent, isApproximate, senior, payable: rowPay }) => (
-                    <div
-                      key={tx.id}
-                      className="space-y-0.5 border-l-2 border-border/60 pl-2"
-                      data-testid={`payout-preview-row-${tx.id}`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-foreground truncate">
-                          Транзакция #{tx.id.slice(0, 6)} от{' '}
-                          {new Date(tx.txDate ?? tx.createdAt).toLocaleDateString('ru-RU')}
-                        </span>
-                        <span className="tabular-nums font-medium text-foreground shrink-0">
-                          {fmtAmount(tx.amount, tx.currency)}
-                        </span>
+                  {previewRows.map(
+                    ({ tx, sharePercent, isApproximate, senior, payable: rowPay }) => (
+                      <div
+                        key={tx.id}
+                        className="space-y-0.5 border-l-2 border-border/60 pl-2"
+                        data-testid={`payout-preview-row-${tx.id}`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-foreground truncate">
+                            Транзакция #{tx.id.slice(0, 6)} от{' '}
+                            {new Date(tx.txDate ?? tx.createdAt).toLocaleDateString('ru-RU')}
+                          </span>
+                          <span className="tabular-nums font-medium text-foreground shrink-0">
+                            {fmtAmount(tx.amount, tx.currency)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-muted-foreground">
+                          <span>
+                            Ваша доля {sharePercent}%
+                            {/* task-team-senior-share-override. Reuse the
+                              per-row snapshot source so the SENIOR knows if
+                              the share came from a project / team override
+                              or their user default. Legacy rows (no source)
+                              keep the old «approx» badge. */}
+                            {tx.seniorSharePercentSource ? (
+                              <span
+                                className="ml-1.5 text-[10px] uppercase tracking-wide opacity-75"
+                                data-testid={`payout-preview-source-${tx.id}`}
+                                data-share-source={tx.seniorSharePercentSource}
+                              >
+                                ·{' '}
+                                {tx.seniorSharePercentSource === 'PROJECT'
+                                  ? 'проект'
+                                  : tx.seniorSharePercentSource === 'TEAM'
+                                    ? 'команда'
+                                    : 'default'}
+                              </span>
+                            ) : null}
+                            {isApproximate && (
+                              <Badge variant="outline" className="ml-1.5 text-[9px] py-0">
+                                approx
+                              </Badge>
+                            )}
+                          </span>
+                          <span className="tabular-nums">{fmtAmount(senior, 'USDT')}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-muted-foreground">
+                          <span>К оплате {100 - sharePercent}%</span>
+                          <span className="tabular-nums">{fmtAmount(rowPay, 'USDT')}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center justify-between text-muted-foreground">
-                        <span>
-                          Ваша доля {sharePercent}%
-                          {isApproximate && (
-                            <Badge variant="outline" className="ml-1.5 text-[9px] py-0">approx</Badge>
-                          )}
-                        </span>
-                        <span className="tabular-nums">{fmtAmount(senior, 'USDT')}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-muted-foreground">
-                        <span>К оплате {100 - sharePercent}%</span>
-                        <span className="tabular-nums">{fmtAmount(rowPay, 'USDT')}</span>
-                      </div>
-                    </div>
-                  ))}
+                    ),
+                  )}
                 </div>
 
                 <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1 text-sm">
@@ -186,11 +221,15 @@ export function PayoutDialog({
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Общая сумма</span>
-                    <span className="font-medium tabular-nums">{fmtAmount(totalIncome, 'USDT')}</span>
+                    <span className="font-medium tabular-nums">
+                      {fmtAmount(totalIncome, 'USDT')}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Остаётся вам</span>
-                    <span className="font-medium tabular-nums">{fmtAmount(totalSenior, 'USDT')}</span>
+                    <span className="font-medium tabular-nums">
+                      {fmtAmount(totalSenior, 'USDT')}
+                    </span>
                   </div>
                   <div
                     className="flex justify-between text-primary"
@@ -208,7 +247,9 @@ export function PayoutDialog({
         </CrmDialogBody>
 
         <CrmDialogFooter>
-          <Button variant="outline" onClick={handleClose}>Отмена</Button>
+          <Button variant="outline" onClick={handleClose}>
+            Отмена
+          </Button>
           <Button
             onClick={() => createMutation.mutate()}
             disabled={selected.size === 0 || createMutation.isPending}

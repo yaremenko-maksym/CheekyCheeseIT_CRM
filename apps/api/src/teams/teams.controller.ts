@@ -47,8 +47,7 @@ export class TeamsController {
   @Get()
   findAll(@CurrentUser() user: SessionUser, @Query('archived') archivedParam?: string) {
     // round 7 (ut-44): tri-state filter — 'true' / 'all' / default ('active').
-    const archived: boolean | 'all' =
-      archivedParam === 'all' ? 'all' : archivedParam === 'true'
+    const archived: boolean | 'all' = archivedParam === 'all' ? 'all' : archivedParam === 'true'
     return this.teamsService.findAll(user, { archived })
   }
 
@@ -63,8 +62,11 @@ export class TeamsController {
     @Body() body: unknown,
     @CurrentUser() user: SessionUser,
   ) {
-    const { name, telegram, telegramChannel, notes } = updateTeamSchema.parse(body)
-    return this.teamsService.update(id, name, telegram, notes, user, telegramChannel)
+    const { name, telegram, telegramChannel, notes, seniorSharePercentOverride } =
+      updateTeamSchema.parse(body)
+    return this.teamsService.update(id, name, telegram, notes, user, telegramChannel, {
+      seniorSharePercentOverride,
+    })
   }
 
   @Delete(':id')
