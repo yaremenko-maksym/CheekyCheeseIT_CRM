@@ -297,7 +297,7 @@ describe('InvoicePdfService', () => {
 
   describe('counterparty with CASH payment method (SALARY only)', () => {
     it(
-      'renders "Наличка" + "(без реквизитов)" hint and produces a valid PDF',
+      'renders "Метод: Cash (<CCY>)" without "(без реквизитов)" hint and produces a valid PDF',
       { timeout: TEST_TIMEOUT_MS },
       async () => {
         const params = baseParams()
@@ -324,6 +324,34 @@ describe('InvoicePdfService', () => {
         nullParams.counterparty.paymentDetails = []
         const nullVariant = await service.generateSignableInvoicePdf(nullParams)
         expect(sha256Hash).not.toBe(nullVariant.sha256Hash)
+      },
+    )
+
+    it(
+      'CASH render differs by currency — Cash (UAH) vs Cash (USD)',
+      { timeout: TEST_TIMEOUT_MS },
+      async () => {
+        const uahParams = baseParams()
+        uahParams.transaction.type = 'SALARY'
+        uahParams.transaction.projectName = null
+        uahParams.transaction.currency = 'UAH'
+        uahParams.uahEquivalent = null
+        uahParams.counterparty.paymentMethod = 'CASH'
+        uahParams.counterparty.paymentDetails = []
+        const uahResult = await service.generateSignableInvoicePdf(uahParams)
+
+        const usdParams = baseParams()
+        usdParams.transaction.type = 'SALARY'
+        usdParams.transaction.projectName = null
+        usdParams.transaction.currency = 'USD'
+        usdParams.uahEquivalent = null
+        usdParams.counterparty.paymentMethod = 'CASH'
+        usdParams.counterparty.paymentDetails = []
+        const usdResult = await service.generateSignableInvoicePdf(usdParams)
+
+        // Different currency suffix in the "Метод: Cash (<CCY>)" line — hashes
+        // must diverge to confirm the suffix is wired into the rendered text.
+        expect(uahResult.sha256Hash).not.toBe(usdResult.sha256Hash)
       },
     )
   })

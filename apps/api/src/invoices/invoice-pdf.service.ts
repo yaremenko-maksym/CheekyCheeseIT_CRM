@@ -64,14 +64,16 @@ export interface InvoiceCompanyInfo {
  * column populated in PHASE 7. When `details` is empty the PDF falls back to
  * "Не указано, обратитесь к ADMIN" so we never silently ship a PDF with no
  * payment requisites.
- *
- * `CASH` is supported only for SALARY invoices — used when the company pays
- * an employee in cash and there are no payment requisites to render. In this
- * case `paymentDetails` is ignored and a "(без реквизитов)" hint is drawn
- * instead, never the "Не указано" warning.
  */
 export interface InvoiceCounterpartyInfo {
   displayName: string
+  /**
+   * `CASH` is supported only for SALARY invoices — used when the company pays
+   * an employee in cash and there are no payment requisites to render. In this
+   * case `paymentDetails` is ignored and the renderer draws only a single
+   * `Метод: Cash (<CCY>)` line (no requisites placeholder), where `<CCY>` is
+   * the transaction currency (UAH / USD / EUR / USDT).
+   */
   paymentMethod: 'USDT_ERC20' | 'BANK_UAH_FOP' | 'CASH' | null
   /** Free-form lines specific to the chosen method (wallet address, IBAN, etc.) */
   paymentDetails: string[]
@@ -341,10 +343,13 @@ export class InvoicePdfService {
         layout.colors.warning,
       )
     } else if (counterparty.paymentMethod === 'CASH') {
-      // CASH (SALARY only): no requisites to render. Show method + a soft
-      // muted hint instead of the "Не указано" warning.
-      y = this.drawLine(page, 'Метод: Наличка', y, layout, fontRegular)
-      y = this.drawLine(page, '(без реквизитов)', y, layout, fontRegular, layout.colors.muted)
+      // CASH (SALARY only): no requisites to render. The currency suffix
+      // disambiguates the payout currency at a glance — 35 000 UAH cash vs
+      // $500 USD cash vs €400 EUR cash look very different to a stakeholder.
+      // No "(без реквизитов)" hint is drawn — the absence of requisites lines
+      // is itself the signal, and the muted hint was visual noise (round 2
+      // user feedback on PR #81).
+      y = this.drawLine(page, `Метод: Cash (${transaction.currency})`, y, layout, fontRegular)
     } else {
       const methodLabel =
         counterparty.paymentMethod === 'USDT_ERC20' ? 'USDT ERC-20' : 'Bank UAH (ФОП)'
