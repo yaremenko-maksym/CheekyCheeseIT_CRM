@@ -1,8 +1,8 @@
 # Progress: task-team-senior-share-override
 
-current_milestone: 3/5 — "Backend resolver + UT + teams update done, frontend next"
-last_commit: f907b3d (pending wip3)
-last_push: f907b3d
+current_milestone: 4/5 — "Frontend integration done, verification next"
+last_commit: 4d4ffa2 (pending wip4)
+last_push: 4d4ffa2
 
 ## Milestones
 

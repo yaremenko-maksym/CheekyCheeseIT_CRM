@@ -102,6 +102,20 @@ export const projectSchema = z.object({
   // project's senior. Used by the UI as a hint ("default X%") when the
   // override is null. Not persisted on the project row.
   seniorSharePercentDefault: z.number().int().min(0).max(100),
+  /**
+   * task-team-senior-share-override. The effective share % that *would*
+   * apply to a new SENIOR_INCOME on this project — pre-computed by the
+   * backend using the same resolver as the snapshot path. Lets
+   * MyProjectShares / project detail render the source badge without a
+   * separate fetch (which would otherwise need the senior's team list).
+   * `null` only on rows where the senior is unknown.
+   */
+  effectiveSeniorSharePercent: z.number().int().min(0).max(100).nullable().optional(),
+  /**
+   * task-team-senior-share-override. Where `effectiveSeniorSharePercent`
+   * came from. `null` when the field above is null.
+   */
+  effectiveSeniorShareSource: z.enum(['PROJECT', 'TEAM', 'USER_DEFAULT']).nullable().optional(),
   members: z.array(projectMemberSchema),
   techStack: z.string().nullable(),
   teamSize: z.string().nullable(),

@@ -64,9 +64,24 @@ export function MyProjectShares() {
           <p className="text-xs text-muted-foreground italic">У вас пока нет активных проектов.</p>
         ) : (
           activeProjects.map((p) => {
+            // task-team-senior-share-override. Prefer the backend-computed
+            // `effectiveSeniorSharePercent` + `effectiveSeniorShareSource`
+            // pair — it folds in the new team override rung. Fall back to
+            // the legacy override/default logic for backwards compatibility
+            // with older API responses (graceful degradation).
             const overrideRaw = p.seniorSharePercentOverride
             const hasOverride = overrideRaw !== null && overrideRaw !== undefined
-            const effective = hasOverride ? overrideRaw : seniorDefault
+            const fallbackEffective = hasOverride ? overrideRaw : seniorDefault
+            const effective =
+              p.effectiveSeniorSharePercent !== null && p.effectiveSeniorSharePercent !== undefined
+                ? p.effectiveSeniorSharePercent
+                : fallbackEffective
+            const source: 'PROJECT' | 'TEAM' | 'USER_DEFAULT' =
+              p.effectiveSeniorShareSource ?? (hasOverride ? 'PROJECT' : 'USER_DEFAULT')
+            const sourceLabel =
+              source === 'PROJECT' ? '(проект)' : source === 'TEAM' ? '(команда)' : '(по умолчанию)'
+            const badgeVariant =
+              source === 'PROJECT' ? 'secondary' : source === 'TEAM' ? 'default' : null
             return (
               <Link
                 key={p.id}
@@ -74,6 +89,7 @@ export function MyProjectShares() {
                 params={{ projectId: p.id }}
                 className="flex items-center justify-between gap-2 rounded-md border border-border/40 bg-muted/20 px-3 py-2 text-sm hover:bg-muted/40 transition-colors"
                 data-testid={`my-project-share-${p.id}`}
+                data-share-source={source}
               >
                 <span className="min-w-0 flex-1 truncate">
                   <span className="font-medium">{p.name}</span>
@@ -81,10 +97,12 @@ export function MyProjectShares() {
                 </span>
                 <span className="flex items-center gap-1.5 shrink-0">
                   <span className="font-semibold tabular-nums">{effective}%</span>
-                  {hasOverride ? (
-                    <Badge variant="secondary" className="text-[9px] py-0">Override</Badge>
+                  {badgeVariant ? (
+                    <Badge variant={badgeVariant} className="text-[9px] py-0">
+                      {source === 'PROJECT' ? 'Override' : 'Команда'}
+                    </Badge>
                   ) : (
-                    <span className="text-[10px] text-muted-foreground">(по умолчанию)</span>
+                    <span className="text-[10px] text-muted-foreground">{sourceLabel}</span>
                   )}
                 </span>
               </Link>

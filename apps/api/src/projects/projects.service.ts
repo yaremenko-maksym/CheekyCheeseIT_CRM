@@ -31,6 +31,7 @@ import {
 } from '../database/schema'
 import { ProjectAuditLogService } from './project-audit-log.service'
 import { UsersService } from '../users/users.service'
+import { resolveSeniorShare } from '../finance/senior-share-resolver'
 
 type ProjectWithRelations = Project & {
   senior: User | null
@@ -49,7 +50,85 @@ export class ProjectsService {
     private usersService: UsersService,
   ) {}
 
-  private mapProject(project: ProjectWithRelations) {
+  /**
+   * task-team-senior-share-override. Pre-computes the active senior-team
+   * overrides for every senior referenced by the supplied projects, in one
+   * DB hit. The result feeds `mapProject` so each row carries
+   * `effectiveSeniorSharePercent` + `effectiveSeniorShareSource` without
+   * an N+1 round-trip per project. Keyed by `senior.id`.
+   */
+  private async loadTeamOverridesBySenior(
+    projects: ProjectWithRelations[],
+  ): Promise<Map<string, { id: string; seniorSharePercentOverride: number | null }[]>> {
+    const seniorIds = Array.from(
+      new Set(
+        projects
+          .map((p) => p.seniorId)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0),
+      ),
+    )
+    const map = new Map<string, { id: string; seniorSharePercentOverride: number | null }[]>()
+    if (seniorIds.length === 0) return map
+
+    // Use the relational query API instead of a raw `db.select(...).from(...)`
+    // join chain so existing service-spec mocks (which only stub the
+    // `db.query.<entity>.find*` surface) keep working without a wholesale
+    // mock rewrite. Try/catch protects against test doubles that don't even
+    // stub `query.teamMembers.findMany` — those simply fall through to "no
+    // overrides", which is the correct default for the resolver.
+    let rows: Array<{
+      userId: string
+      team: { id: string; seniorSharePercentOverride: number | null; archivedAt: Date | null }
+    }> = []
+    try {
+      rows = (await this.db.db.query.teamMembers.findMany({
+        where: and(inArray(teamMembers.userId, seniorIds), isNull(teamMembers.leftAt)),
+        with: { team: true },
+      })) as unknown as Array<{
+        userId: string
+        team: { id: string; seniorSharePercentOverride: number | null; archivedAt: Date | null }
+      }>
+    } catch {
+      rows = []
+    }
+
+    for (const row of rows) {
+      if (!row.team || row.team.archivedAt !== null) continue
+      const list = map.get(row.userId) ?? []
+      list.push({
+        id: row.team.id,
+        seniorSharePercentOverride: row.team.seniorSharePercentOverride ?? null,
+      })
+      map.set(row.userId, list)
+    }
+    return map
+  }
+
+  private mapProject(
+    project: ProjectWithRelations,
+    teamOverridesBySeniorId?: Map<
+      string,
+      { id: string; seniorSharePercentOverride: number | null }[]
+    >,
+  ) {
+    // task-team-senior-share-override. Compute effective share + source for
+    // the UI. The resolver mirrors the snapshot logic in
+    // TransactionsService.createSeniorIncome / PaymentChannelService so the
+    // value rendered here equals the value that *would* be stamped on the
+    // next income created against this project.
+    const senior = project.senior
+    let effectiveSeniorSharePercent: number | null = null
+    let effectiveSeniorShareSource: 'PROJECT' | 'TEAM' | 'USER_DEFAULT' | null = null
+    if (senior) {
+      const applicableTeams = teamOverridesBySeniorId?.get(senior.id) ?? []
+      const resolved = resolveSeniorShare(
+        { seniorSharePercentOverride: project.seniorSharePercentOverride },
+        { seniorSharePercent: senior.seniorSharePercent },
+        applicableTeams,
+      )
+      effectiveSeniorSharePercent = resolved.value
+      effectiveSeniorShareSource = resolved.source
+    }
     return {
       id: project.id,
       name: project.name,
@@ -75,6 +154,11 @@ export class ProjectsService {
       // Computed default for UI hints — falls back to 26 when senior is
       // unreachable (e.g. soft-deleted) so the front-end never sees `null`.
       seniorSharePercentDefault: project.senior?.seniorSharePercent ?? 26,
+      // task-team-senior-share-override. Pre-resolved effective share for
+      // the project's senior. Mirrors what the snapshot would store on a
+      // new SENIOR_INCOME row created right now.
+      effectiveSeniorSharePercent,
+      effectiveSeniorShareSource,
       techStack: project.techStack ?? null,
       teamSize: project.teamSize ?? null,
       benefits: project.benefits ?? null,
@@ -203,7 +287,11 @@ export class ProjectsService {
     }
     // ADMIN, ACCOUNTANT see all
 
-    return filtered.map((p) => this.mapProject(p))
+    // task-team-senior-share-override. Batch-load team overrides for every
+    // senior referenced by the filtered set so `mapProject` resolves the
+    // effective share + source without N+1 queries.
+    const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior(filtered)
+    return filtered.map((p) => this.mapProject(p, teamOverridesBySeniorId))
   }
 
   async findOne(id: string, currentUser: SessionUser) {
@@ -215,8 +303,9 @@ export class ProjectsService {
     if (!project) throw new NotFoundException('Project not found')
     await this.assertAccess(project, currentUser)
 
+    const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([project])
     const effectiveTeam = await this.computeEffectiveTeam(project)
-    return { ...this.mapProject(project), effectiveTeam }
+    return { ...this.mapProject(project, teamOverridesBySeniorId), effectiveTeam }
   }
 
   /**
@@ -409,7 +498,8 @@ export class ProjectsService {
       with: { senior: true, drop: true, members: { with: { user: true } } },
     })) as ProjectWithRelations
 
-    return this.mapProject(created)
+    const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([created])
+    return this.mapProject(created, teamOverridesBySeniorId)
   }
 
   /**
@@ -583,7 +673,8 @@ export class ProjectsService {
       with: { senior: true, drop: true, members: { with: { user: true } } },
     })) as ProjectWithRelations
 
-    return this.mapProject(updated)
+    const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([updated])
+    return this.mapProject(updated, teamOverridesBySeniorId)
   }
 
   /**

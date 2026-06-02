@@ -422,9 +422,21 @@ export class TransactionsService {
         ),
       })
       if (firstIncome) {
+        const firstIncomeSource = (
+          firstIncome as Transaction & {
+            seniorSharePercentSource?: string | null
+          }
+        ).seniorSharePercentSource
         tx.payoutRequest = {
           ...tx.payoutRequest,
           seniorSharePercent: firstIncome.seniorSharePercent,
+          // task-team-senior-share-override. Propagate the source from the
+          // originating SENIOR_INCOME so PayoutContent renders the badge.
+          seniorSharePercentSource: (firstIncomeSource ?? null) as
+            | 'PROJECT'
+            | 'TEAM'
+            | 'USER_DEFAULT'
+            | null,
         }
       }
     }

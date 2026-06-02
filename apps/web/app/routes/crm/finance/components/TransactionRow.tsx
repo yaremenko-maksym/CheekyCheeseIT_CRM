@@ -353,15 +353,42 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
           {/* SENIOR_INCOME — show the snapshot share % so ADMIN/ACCOUNTANT/SENIOR
             can see what split this row will use at payout time. The snapshot
             is immutable (set on creation), so historical rows keep their
-            original % even if the project override changes later. */}
+            original % even if the project override changes later.
+            task-team-senior-share-override: also surface the source if the
+            row has one — legacy rows (no source) render as before. */}
           {tx.type === 'SENIOR_INCOME' &&
             tx.seniorSharePercent !== null &&
             (isAdmin || isAccountant || (isSenior && tx.receiverId === currentUserId)) && (
               <p
                 className="text-[11px] text-muted-foreground font-normal"
                 data-testid={`tx-row-senior-share-${tx.id}`}
+                title={
+                  tx.seniorSharePercentSource
+                    ? `Источник: ${
+                        tx.seniorSharePercentSource === 'PROJECT'
+                          ? 'проект'
+                          : tx.seniorSharePercentSource === 'TEAM'
+                            ? 'команда'
+                            : 'по умолчанию'
+                      }`
+                    : undefined
+                }
               >
                 Доля: {tx.seniorSharePercent}%
+                {tx.seniorSharePercentSource ? (
+                  <span
+                    className="ml-1 text-[10px] uppercase tracking-wide opacity-75"
+                    data-testid={`tx-row-senior-share-source-${tx.id}`}
+                    data-share-source={tx.seniorSharePercentSource}
+                  >
+                    ·{' '}
+                    {tx.seniorSharePercentSource === 'PROJECT'
+                      ? 'проект'
+                      : tx.seniorSharePercentSource === 'TEAM'
+                        ? 'команда'
+                        : 'default'}
+                  </span>
+                ) : null}
               </p>
             )}
         </td>
