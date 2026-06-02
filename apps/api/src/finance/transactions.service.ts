@@ -100,16 +100,24 @@ export class TransactionsService {
    * status flip is the source of truth; the invoice is a derived artefact
    * that can always be re-generated (autoCreate is idempotent on
    * `invoice_document_id`).
+   *
+   * task-aggregate-invoice-per-payout: a third kind `PAYOUT` was added —
+   * `payPayoutRequest` now fires one PAYOUT-trigger after the cascade
+   * instead of N SENIOR_INCOME-triggers (one per linked income). The
+   * SENIOR_INCOME branch is kept for legacy callers
+   * (`PendingSettlementService.settleByCompany`).
    */
   private async safeAutoCreateInvoice(
-    kind: 'SENIOR_INCOME' | 'SALARY',
+    kind: 'SENIOR_INCOME' | 'SALARY' | 'PAYOUT',
     transactionId: string,
   ): Promise<void> {
     try {
       if (kind === 'SENIOR_INCOME') {
         await this.invoicesService.autoCreateForSeniorPayout(transactionId)
-      } else {
+      } else if (kind === 'SALARY') {
         await this.invoicesService.autoCreateForSalary(transactionId)
+      } else {
+        await this.invoicesService.autoCreateForPayout(transactionId)
       }
     } catch (err) {
       this.logger.warn(
@@ -1314,13 +1322,13 @@ export class TransactionsService {
       })
       .where(eq(transactions.payoutRequestId, requestId))
 
-    // Trigger 1: invoice auto-create for each linked income just paid.
-    // Best-effort — see safeAutoCreateInvoice for the no-rollback contract.
-    // We re-fetch (the UPDATE above doesn't return rows in drizzle's current
-    // Postgres flavour without `.returning()` chaining); the result feeds
-    // both invoice generation and the drop-vs-senior project routing below.
-    // Drop role - phase 2: DROP_INCOME is included here so drop-projects also
-    // get an invoice generated for the income side.
+    // Re-fetch the linked incomes for the drop-vs-senior routing below.
+    // task-aggregate-invoice-per-payout: the per-income invoice trigger that
+    // used to live here has been replaced by a single PAYOUT-trigger fired
+    // AFTER the PAYOUT row flips to PAID (see below) — one invoice that
+    // aggregates all linked SENIOR_INCOME / DROP_INCOME rows.
+    // Drop role - phase 2: DROP_INCOME is included so drop-projects flow
+    // through the same aggregation.
     const paidIncomeTxs = await this.db.db
       .select({ id: transactions.id, projectId: transactions.projectId, type: transactions.type })
       .from(transactions)
@@ -1330,13 +1338,6 @@ export class TransactionsService {
           or(eq(transactions.type, 'SENIOR_INCOME'), eq(transactions.type, 'DROP_INCOME')),
         ),
       )
-    for (const incomeTx of paidIncomeTxs) {
-      // SENIOR_INCOME invoice generation path is the only one that exists
-      // today; DROP_INCOME re-uses the same artefact (recipient = wallet
-      // owner). Keeping the kind argument as SENIOR_INCOME until a
-      // dedicated drop invoice template lands.
-      await this.safeAutoCreateInvoice('SENIOR_INCOME', incomeTx.id)
-    }
 
     // Mark the placeholder PAYOUT row (created at createPayoutRequest time)
     // as PAID + attach the on-chain txHash. We don't INSERT a fresh PAYOUT
@@ -1350,6 +1351,21 @@ export class TransactionsService {
         updatedAt: new Date(),
       })
       .where(and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')))
+
+    // task-aggregate-invoice-per-payout. ONE aggregated invoice anchored on
+    // the PAYOUT row. Best-effort — see safeAutoCreateInvoice for the
+    // no-rollback contract. We re-fetch the PAYOUT id (the UPDATE above
+    // doesn't return rows in drizzle's current Postgres flavour without
+    // `.returning()` chaining); idempotency is guarded by the PAYOUT row's
+    // own `invoice_document_id` field.
+    const [payoutRow] = await this.db.db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')))
+      .limit(1)
+    if (payoutRow) {
+      await this.safeAutoCreateInvoice('PAYOUT', payoutRow.id)
+    }
 
     // Drop role - phase 2 (AC3). Resolve whether the linked SENIOR_INCOMEs
     // belong to a drop-project. Senior-projects (project.dropId === null)
