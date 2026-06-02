@@ -1,8 +1,22 @@
 # Progress: task-team-senior-share-override
 
-current_milestone: 4/5 — "Frontend integration done, verification next"
-last_commit: 4d4ffa2 (pending wip4)
-last_push: 4d4ffa2
+current_milestone: 5/5 — "Verification complete, ready for PR"
+last_commit: 28682bb (pending finalize)
+last_push: 28682bb
+
+## Verification summary
+
+- typecheck — all 4 packages green
+- lint — green (existing warnings only, not added by this task)
+- API tests — 414/414 passed (includes new senior-share-resolver.spec.ts with 11 cases)
+- Web build — green
+- Web tests — 129/129 passed
+- E2E — 548 passed; 16 pre-existing flaky failures (verified failing on origin/main too — unrelated)
+- Migration 0025 — applied cleanly, columns verified via postgres MCP
+- Playwright (AC10) — ADMIN edits team override → 16 persisted in DB → /crm/finance shows «16% Команда» badge
+- Playwright (AC10) — SENIOR_INCOME created via API → backend stamps seniorSharePercent=16 + seniorSharePercentSource=TEAM
+- Playwright (AC11) — all 3 cases verified: PROJECT (40% Override), TEAM (16% Команда), USER_DEFAULT (26% по умолчанию)
+- Playwright (AC11) — legacy SENIOR_INCOME rows (no source) still render «Доля: 26%» without a source badge — no regression
 
 ## Milestones
 
