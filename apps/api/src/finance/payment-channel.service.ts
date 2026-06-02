@@ -79,6 +79,16 @@ interface ResolvedIncomeContext {
     /** total drop has to pay company-side (= senior + partners) */
     payableTotal: number
   }
+  /**
+   * task-team-senior-share-override. Snapshot of the senior-share
+   * resolution used for `distribution` — propagated into every cascade
+   * transaction insert (SENIOR_INCOME_CRYPTO, SENIOR_PENDING_PAYOUT, …)
+   * so the source badge follows the money trail through the ledger.
+   */
+  seniorShareSnapshot: {
+    value: number
+    source: 'PROJECT' | 'TEAM' | 'USER_DEFAULT'
+  }
   payoutTxId: string | null
 }
 
@@ -151,6 +161,9 @@ export class PaymentChannelService {
     const created: Transaction[] = []
     await this.db.db.transaction(async (dbtx) => {
       // 1) Senior income (crypto direct).
+      // task-team-senior-share-override. Snapshot both value + source on
+      // the cascade row so the UI can render «Доля: X% · команда» (or
+      // 'проект' / 'default') on the SENIOR_INCOME_CRYPTO line.
       const [seniorRow] = await dbtx
         .insert(transactions)
         .values({
@@ -163,6 +176,8 @@ export class PaymentChannelService {
           recipientId: ctx.senior.id,
           projectId: ctx.project.id,
           payoutRequestId: ctx.income.payoutRequestId,
+          seniorSharePercent: ctx.seniorShareSnapshot.value,
+          seniorSharePercentSource: ctx.seniorShareSnapshot.source,
           txHash: hashFor(0),
           notes: 'Phase 4-B crypto channel — senior direct',
           createdBy: actor.id,
@@ -270,6 +285,8 @@ export class PaymentChannelService {
         .returning()
       if (cashRow) created.push(cashRow)
 
+      // task-team-senior-share-override. Same source-propagation as the
+      // crypto branch — the IOU carries the snapshot used to compute it.
       const [pendingRow] = await dbtx
         .insert(transactions)
         .values({
@@ -283,6 +300,8 @@ export class PaymentChannelService {
           recipientId: ctx.senior.id,
           projectId: ctx.project.id,
           payoutRequestId: ctx.income.payoutRequestId,
+          seniorSharePercent: ctx.seniorShareSnapshot.value,
+          seniorSharePercentSource: ctx.seniorShareSnapshot.source,
           notes: 'Phase 4 cash channel — senior IOU (debtor=DROP)',
           createdBy: actor.id,
         })
@@ -369,11 +388,19 @@ export class PaymentChannelService {
     if (!senior) throw new NotFoundException('Senior user not found')
 
     const gross = parseFloat(income.amount)
+    // task-team-senior-share-override. Resolve senior share with source
+    // before distribution math — the `value` overrides the senior's user
+    // default in `computeDropDistribution`, the `source` is preserved on
+    // the returned context for downstream cascade inserts.
+    const snapshot = await this.transactionsService.resolveSeniorShareSnapshot(
+      { seniorSharePercentOverride: project.seniorSharePercentOverride },
+      { id: senior.id, seniorSharePercent: senior.seniorSharePercent },
+    )
     const distribution = this.transactionsService.computeDropDistribution(
       gross,
       { id: project.id, dropId: project.dropId },
       { id: drop.id, dropSharePercent: drop.dropSharePercent },
-      { id: senior.id, seniorSharePercent: senior.seniorSharePercent },
+      { id: senior.id, seniorSharePercent: snapshot.value },
     )
     const payableTotal =
       distribution.seniorShare.amount + distribution.partnerShares.reduce((s, p) => s + p.amount, 0)
@@ -434,6 +461,7 @@ export class PaymentChannelService {
         partnerShares: distribution.partnerShares,
         payableTotal,
       },
+      seniorShareSnapshot: snapshot,
       payoutTxId,
     }
   }
@@ -487,12 +515,18 @@ export class PaymentChannelService {
     }
 
     // Distribution math reuses the same primitives as Phase 2.
+    // task-team-senior-share-override. Apply the same resolver hierarchy
+    // as `assertCanInitiate` so the cascade math matches across paths.
     const gross = parseFloat(income.amount)
+    const snapshot = await this.transactionsService.resolveSeniorShareSnapshot(
+      { seniorSharePercentOverride: project.seniorSharePercentOverride },
+      { id: senior.id, seniorSharePercent: senior.seniorSharePercent },
+    )
     const distribution = this.transactionsService.computeDropDistribution(
       gross,
       { id: project.id, dropId: project.dropId },
       { id: drop.id, dropSharePercent: drop.dropSharePercent },
-      { id: senior.id, seniorSharePercent: senior.seniorSharePercent },
+      { id: senior.id, seniorSharePercent: snapshot.value },
     )
     const payableTotal =
       distribution.seniorShare.amount + distribution.partnerShares.reduce((s, p) => s + p.amount, 0)
@@ -554,6 +588,7 @@ export class PaymentChannelService {
         partnerShares: distribution.partnerShares,
         payableTotal,
       },
+      seniorShareSnapshot: snapshot,
       payoutTxId,
     }
   }

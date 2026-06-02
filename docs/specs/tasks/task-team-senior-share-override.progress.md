@@ -1,8 +1,8 @@
 # Progress: task-team-senior-share-override
 
-current_milestone: 0/5 — "Map done, starting shared schemas"
-last_commit: -
-last_push: -
+current_milestone: 3/5 — "Backend resolver + UT + teams update done, frontend next"
+last_commit: f907b3d (pending wip3)
+last_push: f907b3d
 
 ## Milestones
 
