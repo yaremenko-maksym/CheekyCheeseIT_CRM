@@ -253,6 +253,14 @@ export class InvoicePdfService {
     y = this.drawSeparator(page, y, layout)
 
     // ----- Title + № + date row -----
+    // task-fix-invoice-pdf-polish round 3 / AC2: rebalance the vertical
+    // padding around the title. Round 2 left the title visually glued to the
+    // header separator (no top breathing room) while leaving ~22pt below it
+    // before the № / date row — net effect: title looked stitched to the
+    // header. We now add 14pt of top padding and tighten the post-title
+    // advance from 22pt to 16pt so the title sits centrally between the
+    // header separator and the metadata row.
+    y -= 14
     const title =
       transaction.type === 'SENIOR_INCOME' ? 'АКТ ВЫПОЛНЕННЫХ РАБОТ' : 'ВЫПЛАТА ЗАРПЛАТЫ'
     this.drawText(page, title, {
@@ -262,7 +270,7 @@ export class InvoicePdfService {
       size: 18,
       color: layout.colors.text,
     })
-    y -= 22
+    y -= 16
 
     const shortId = transaction.id.replace(/-/g, '').slice(0, 8)
     this.drawText(page, `№ ${shortId}`, {
@@ -734,16 +742,13 @@ export class InvoicePdfService {
       y -= layout.lineHeight
     }
 
-    if (sig.ipLastOctet) {
-      this.drawText(page, `   IP: ...${sig.ipLastOctet}`, {
-        x: layout.margin,
-        y,
-        font: fontRegular,
-        size: 10,
-        color: layout.colors.muted,
-      })
-      y -= layout.lineHeight
-    }
+    // task-fix-invoice-pdf-polish round 3 / AC1: the IP last-octet was
+    // previously rendered as "IP: ...42" below the hash line. User feedback
+    // (02.06.2026) flagged it as out of place in a customer-facing signature
+    // block — the IP remains persisted on `invoice_signatures` for audit
+    // purposes but is no longer drawn on the PDF. The `ipLastOctet` field
+    // stays on the input interface so existing callers compile without
+    // changes; the value is simply not rendered.
 
     const methodLabel =
       sig.method === 'AUTO_COMPANY' ? 'Автоматическая электронная' : 'Электронная click-подпись'
