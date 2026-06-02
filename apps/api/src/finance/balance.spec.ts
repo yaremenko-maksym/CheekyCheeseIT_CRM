@@ -1,7 +1,7 @@
 /**
- * Drop role - phase 4-A. Unit tests for `BalanceService` — verifies the
- * computed-on-demand TOВ / admin / senior balance math and the multi-currency
- * conversion via NBU rates.
+ * Drop role - phase 4 (refactor). Unit tests for `BalanceService` —
+ * verifies the computed-on-demand admin / senior balance math and the
+ * multi-currency conversion via NBU rates.
  *
  * The service is instantiated with mock `DatabaseService` + mock
  * `NbuCurrencyService` shaped exactly like the real ones. The drizzle
@@ -10,14 +10,14 @@
  * never touch a real DB.
  *
  * Coverage:
- *   - TOВ: empty → 0; +TOV_INCOME → income; −DIVIDEND_TO_ADMIN; −EXPENSE
- *     (FIAT_TOV label); −DIVIDEND_TAX.
  *   - Admin: empty → 0; +ADMIN_INCOME_CASH; +DIVIDEND_TO_ADMIN; recipientId
  *     fallback; cross-admin attribution does not leak.
  *   - Senior: SENIOR_PENDING_PAYOUT does NOT credit the balance; SENIOR_PAID
  *     does.
  *   - Multi-currency: USDT + UAH + USD rows are normalized to USD via NBU
- *     rates.
+ *     rates (admin balance path).
+ *
+ * Removed in the refactor (AC3): TOV balance aggregate + tests.
  */
 import { describe, expect, it } from 'vitest'
 import { BalanceService, convertToBase } from './balance.service'
@@ -119,107 +119,18 @@ describe('convertToBase', () => {
 
   it('converts UAH to USD using usdUah rate', () => {
     // 4000 UAH / 40 UAH per USD = 100 USD
-    expect(convertToBase(4000, 'UAH', 'USD', makeRates('40.0000', '44.0000'))).toBeCloseTo(
-      100,
-      6,
-    )
+    expect(convertToBase(4000, 'UAH', 'USD', makeRates('40.0000', '44.0000'))).toBeCloseTo(100, 6)
   })
 
   it('converts EUR to USD via UAH triangulation', () => {
     // 100 EUR → 100 * 44 UAH = 4400 UAH → 4400 / 40 = 110 USD
-    expect(convertToBase(100, 'EUR', 'USD', makeRates('40.0000', '44.0000'))).toBeCloseTo(
-      110,
-      6,
-    )
+    expect(convertToBase(100, 'EUR', 'USD', makeRates('40.0000', '44.0000'))).toBeCloseTo(110, 6)
   })
 })
 
-describe('BalanceService.getTOVBalance', () => {
-  it('empty ledger → 0 with zero breakdown', async () => {
-    const svc = makeService({ transactions: [] })
-    const result = await svc.getTOVBalance('USD')
-    expect(result.balance).toBe(0)
-    expect(result.currency).toBe('USD')
-    expect(result.breakdown).toEqual({
-      income: 0,
-      dividends_paid: 0,
-      expenses: 0,
-      tax: 0,
-    })
-  })
-
-  it('1× TOV_INCOME $1000 → balance 1000', async () => {
-    const svc = makeService({
-      transactions: [makeTx({ type: 'TOV_INCOME', amount: '1000', currency: 'USD' })],
-    })
-    const result = await svc.getTOVBalance('USD')
-    expect(result.balance).toBeCloseTo(1000, 6)
-    expect(result.breakdown.income).toBeCloseTo(1000, 6)
-  })
-
-  it('after DIVIDEND_TO_ADMIN $500 → balance 500', async () => {
-    const svc = makeService({
-      transactions: [
-        makeTx({ type: 'TOV_INCOME', amount: '1000', currency: 'USD' }),
-        makeTx({ type: 'DIVIDEND_TO_ADMIN', amount: '500', currency: 'USD' }),
-      ],
-    })
-    const result = await svc.getTOVBalance('USD')
-    expect(result.balance).toBeCloseTo(500, 6)
-    expect(result.breakdown.income).toBeCloseTo(1000, 6)
-    expect(result.breakdown.dividends_paid).toBeCloseTo(500, 6)
-  })
-
-  it('after FIAT_TOV EXPENSE $100 → balance 400', async () => {
-    const svc = makeService({
-      transactions: [
-        makeTx({ type: 'TOV_INCOME', amount: '1000', currency: 'USD' }),
-        makeTx({ type: 'DIVIDEND_TO_ADMIN', amount: '500', currency: 'USD' }),
-        makeTx({
-          type: 'EXPENSE',
-          amount: '100',
-          currency: 'USD',
-          receiverLabel: 'FIAT_TOV: Cloud bill',
-        }),
-      ],
-    })
-    const result = await svc.getTOVBalance('USD')
-    expect(result.balance).toBeCloseTo(400, 6)
-    expect(result.breakdown.expenses).toBeCloseTo(100, 6)
-  })
-
-  it('legacy EXPENSE without FIAT_TOV label is ignored', async () => {
-    const svc = makeService({
-      transactions: [
-        makeTx({ type: 'TOV_INCOME', amount: '1000', currency: 'USD' }),
-        // No FIAT_TOV marker — this is a legacy expense, getSummary still
-        // counts it, BalanceService.getTOVBalance must not.
-        makeTx({
-          type: 'EXPENSE',
-          amount: '100',
-          currency: 'USD',
-          receiverLabel: 'Прочее',
-        }),
-      ],
-    })
-    const result = await svc.getTOVBalance('USD')
-    expect(result.balance).toBeCloseTo(1000, 6)
-    expect(result.breakdown.expenses).toBe(0)
-  })
-
-  it('DIVIDEND_TAX debits the balance', async () => {
-    const svc = makeService({
-      transactions: [
-        makeTx({ type: 'TOV_INCOME', amount: '1000', currency: 'USD' }),
-        // 6.5% of 1000 = 65
-        makeTx({ type: 'DIVIDEND_TAX', amount: '65', currency: 'USD' }),
-      ],
-    })
-    const result = await svc.getTOVBalance('USD')
-    expect(result.balance).toBeCloseTo(935, 6)
-    expect(result.breakdown.tax).toBeCloseTo(65, 6)
-  })
-})
+// Phase 4 refactor: BalanceService.getTOVBalance removed (see
+// task-drop-phase4-refactor-remove-tov.md AC3). Tests for that path
+// deleted alongside the implementation.
 
 describe('BalanceService.getAdminBalance', () => {
   const MAKSYM = '00000000-0000-0000-0000-000000000001'
@@ -413,36 +324,67 @@ describe('BalanceService.getSeniorBalance', () => {
   })
 })
 
-describe('BalanceService multi-currency conversion (edge case AC7)', () => {
-  it('TOV_INCOME 1000 USDT + 4000 UAH + 100 EUR → USD via NBU rates', async () => {
+describe('BalanceService multi-currency conversion (admin balance)', () => {
+  const MAKSYM = '00000000-0000-0000-0000-000000000001'
+
+  it('ADMIN_INCOME_CASH 1000 USDT + 4000 UAH + 100 EUR → USD via NBU rates', async () => {
     const svc = makeService({
       transactions: [
-        makeTx({ type: 'TOV_INCOME', amount: '1000', currency: 'USDT' }), // = 1000 USD
-        makeTx({ type: 'TOV_INCOME', amount: '4000', currency: 'UAH' }), // = 100 USD @ 40
-        makeTx({ type: 'TOV_INCOME', amount: '100', currency: 'EUR' }), // = 110 USD via 44/40
+        makeTx({
+          type: 'ADMIN_INCOME_CASH',
+          amount: '1000',
+          currency: 'USDT',
+          recipientId: MAKSYM,
+        }), // = 1000 USD
+        makeTx({
+          type: 'ADMIN_INCOME_CASH',
+          amount: '4000',
+          currency: 'UAH',
+          recipientId: MAKSYM,
+        }), // = 100 USD @ 40
+        makeTx({
+          type: 'ADMIN_INCOME_CASH',
+          amount: '100',
+          currency: 'EUR',
+          recipientId: MAKSYM,
+        }), // = 110 USD via 44/40
       ],
       rates: makeRates('40.0000', '44.0000'),
     })
-    const result = await svc.getTOVBalance('USD')
+    const result = await svc.getAdminBalance(MAKSYM, 'USD')
     expect(result.balance).toBeCloseTo(1210, 4)
     expect(result.currency).toBe('USD')
   })
 
-  it('TOV_INCOME 1000 USD returned in UAH → 40000 UAH at rate 40', async () => {
+  it('ADMIN_INCOME_CASH 1000 USD returned in UAH → 40000 UAH at rate 40', async () => {
     const svc = makeService({
-      transactions: [makeTx({ type: 'TOV_INCOME', amount: '1000', currency: 'USD' })],
+      transactions: [
+        makeTx({
+          type: 'ADMIN_INCOME_CASH',
+          amount: '1000',
+          currency: 'USD',
+          recipientId: MAKSYM,
+        }),
+      ],
       rates: makeRates('40.0000', '44.0000'),
     })
-    const result = await svc.getTOVBalance('UAH')
+    const result = await svc.getAdminBalance(MAKSYM, 'UAH')
     expect(result.balance).toBeCloseTo(40000, 4)
     expect(result.currency).toBe('UAH')
   })
 
   it('default currency is USD when not specified', async () => {
     const svc = makeService({
-      transactions: [makeTx({ type: 'TOV_INCOME', amount: '500', currency: 'USDT' })],
+      transactions: [
+        makeTx({
+          type: 'ADMIN_INCOME_CASH',
+          amount: '500',
+          currency: 'USDT',
+          recipientId: MAKSYM,
+        }),
+      ],
     })
-    const result = await svc.getTOVBalance()
+    const result = await svc.getAdminBalance(MAKSYM)
     expect(result.currency).toBe('USD')
     expect(result.balance).toBeCloseTo(500, 6)
   })

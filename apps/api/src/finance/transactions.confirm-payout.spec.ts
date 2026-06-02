@@ -220,43 +220,43 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
   describe('RBAC', () => {
     it('SENIOR → ForbiddenException', async () => {
       const { svc } = makeService()
-      await expect(svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, seniorUser)).rejects.toThrow(
-        ForbiddenException,
-      )
+      await expect(
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, seniorUser, { method: 'CASH' }),
+      ).rejects.toThrow(ForbiddenException)
     })
 
     it('DROP → ForbiddenException', async () => {
       const { svc } = makeService()
-      await expect(svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, dropUser)).rejects.toThrow(
-        ForbiddenException,
-      )
+      await expect(
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, dropUser, { method: 'CASH' }),
+      ).rejects.toThrow(ForbiddenException)
     })
 
     it('JUNIOR → ForbiddenException', async () => {
       const { svc } = makeService()
-      await expect(svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, juniorUser)).rejects.toThrow(
-        ForbiddenException,
-      )
+      await expect(
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, juniorUser, { method: 'CASH' }),
+      ).rejects.toThrow(ForbiddenException)
     })
 
     it('HR → ForbiddenException', async () => {
       const { svc } = makeService()
-      await expect(svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, hrUser)).rejects.toThrow(
-        ForbiddenException,
-      )
+      await expect(
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, hrUser, { method: 'CASH' }),
+      ).rejects.toThrow(ForbiddenException)
     })
 
     it('ADMIN may call (happy path doesn’t throw 403)', async () => {
       const { svc } = makeService()
       await expect(
-        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, adminUser),
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, adminUser, { method: 'CASH' }),
       ).resolves.toBeDefined()
     })
 
     it('ACCOUNTANT may call', async () => {
       const { svc } = makeService()
       await expect(
-        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser),
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
       ).resolves.toBeDefined()
     })
   })
@@ -265,9 +265,9 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
   describe('PAYOUT row validation', () => {
     it('PAYOUT not found → NotFoundException', async () => {
       const { svc } = makeService({ payoutRow: null })
-      await expect(svc.confirmPayout('missing-id', MAKSYM_USER.id, accountantUser)).rejects.toThrow(
-        NotFoundException,
-      )
+      await expect(
+        svc.confirmPayout('missing-id', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
+      ).rejects.toThrow(NotFoundException)
     })
 
     it('Wrong type (SENIOR_INCOME) → BadRequestException', async () => {
@@ -275,7 +275,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         payoutRow: makePayoutRow({ type: 'SENIOR_INCOME' }),
       })
       await expect(
-        svc.confirmPayout('senior-income-id', MAKSYM_USER.id, accountantUser),
+        svc.confirmPayout('senior-income-id', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
       ).rejects.toThrow(BadRequestException)
     })
 
@@ -284,7 +284,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         payoutRow: makePayoutRow({ status: 'PAID' }),
       })
       await expect(
-        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser),
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
       ).rejects.toThrow(BadRequestException)
     })
 
@@ -293,7 +293,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         payoutRow: makePayoutRow({ status: 'REJECTED' }),
       })
       await expect(
-        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser),
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
       ).rejects.toThrow(BadRequestException)
     })
 
@@ -302,7 +302,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         payoutRow: makePayoutRow({ status: 'PENDING' }),
       })
       await expect(
-        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser),
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
       ).rejects.toThrow(BadRequestException)
     })
   })
@@ -311,27 +311,27 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
   describe('Recipient validation', () => {
     it('Recipient user not found → BadRequestException', async () => {
       const { svc } = makeService({ recipient: null })
-      await expect(svc.confirmPayout('payout-tx-1', 'ghost-id', accountantUser)).rejects.toThrow(
-        BadRequestException,
-      )
+      await expect(
+        svc.confirmPayout('payout-tx-1', 'ghost-id', accountantUser, { method: 'CASH' }),
+      ).rejects.toThrow(BadRequestException)
     })
 
     it('Recipient is not ADMIN (SENIOR) → BadRequestException', async () => {
       const { svc } = makeService({
         recipient: { id: 'senior-2', role: 'SENIOR', archivedAt: null },
       })
-      await expect(svc.confirmPayout('payout-tx-1', 'senior-2', accountantUser)).rejects.toThrow(
-        BadRequestException,
-      )
+      await expect(
+        svc.confirmPayout('payout-tx-1', 'senior-2', accountantUser, { method: 'CASH' }),
+      ).rejects.toThrow(BadRequestException)
     })
 
     it('Recipient is ACCOUNTANT (not ADMIN) → BadRequestException', async () => {
       const { svc } = makeService({
         recipient: { id: 'acc-2', role: 'ACCOUNTANT', archivedAt: null },
       })
-      await expect(svc.confirmPayout('payout-tx-1', 'acc-2', accountantUser)).rejects.toThrow(
-        BadRequestException,
-      )
+      await expect(
+        svc.confirmPayout('payout-tx-1', 'acc-2', accountantUser, { method: 'CASH' }),
+      ).rejects.toThrow(BadRequestException)
     })
 
     it('Recipient archived → BadRequestException', async () => {
@@ -339,7 +339,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         recipient: { id: MAKSYM_USER.id, role: 'ADMIN', archivedAt: new Date('2026-01-01') },
       })
       await expect(
-        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser),
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
       ).rejects.toThrow(BadRequestException)
     })
   })
@@ -349,7 +349,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
     it('flips PAYOUT to PAID + inserts PAYOUT_CONFIRMED with correct fields', async () => {
       const { svc, state } = makeService()
 
-      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser)
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' })
 
       // PAYOUT row updated to PAID, validation fields set.
       expect(state.updates).toHaveLength(1)
@@ -376,7 +376,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
     it('selecting Kostya credits Kostya, not Maksym', async () => {
       const { svc, state } = makeService({ recipient: KOSTYA_USER })
 
-      await svc.confirmPayout('payout-tx-1', KOSTYA_USER.id, accountantUser)
+      await svc.confirmPayout('payout-tx-1', KOSTYA_USER.id, accountantUser, { method: 'CASH' })
 
       const confirmed = state.inserts[0]!
       expect(confirmed['receiverId']).toBe(KOSTYA_USER.id)
@@ -388,7 +388,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         payoutRow: makePayoutRow({ currency: 'USD' }),
       })
 
-      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser)
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' })
 
       expect(state.inserts[0]!['currency']).toBe('USD')
     })
@@ -398,7 +398,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         payoutRow: makePayoutRow({ amount: '123.456789' }),
       })
 
-      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser)
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' })
 
       expect(state.inserts[0]!['amount']).toBe('123.456789')
     })
@@ -408,7 +408,7 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         payoutRow: makePayoutRow({ payoutRequestId: null }),
       })
 
-      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser)
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' })
 
       expect(state.inserts[0]!['payoutRequestId']).toBeNull()
     })
@@ -416,13 +416,80 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
     it('notes field carries a confirmation audit string (actor id + ISO timestamp)', async () => {
       const { svc, state } = makeService()
 
-      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser)
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' })
 
       const note = state.inserts[0]!['notes'] as string
       expect(note).toContain('Manual payout confirmation')
       expect(note).toContain(accountantUser.id)
       // ISO 8601 timestamp suffix.
       expect(note).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
+    })
+  })
+
+  // ── Payment method (Phase 4 refactor — AC4 / AC11) ────────────────────────
+  // The PAYOUT_CONFIRMED row now carries an explicit method marker. CRYPTO
+  // requires a txHash (≥ 10 chars), CASH does not. See
+  // task-drop-phase4-refactor-remove-tov.md.
+  describe('Payment method (AC4)', () => {
+    it('method=CRYPTO without txHash → BadRequestException', async () => {
+      const { svc } = makeService()
+      await expect(
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CRYPTO' }),
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('method=CRYPTO with txHash < 10 chars → BadRequestException', async () => {
+      const { svc } = makeService()
+      await expect(
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+          method: 'CRYPTO',
+          txHash: '0xshort',
+        }),
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('method=CRYPTO with valid txHash → records txHash on PAYOUT_CONFIRMED', async () => {
+      const { svc, state } = makeService()
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+        method: 'CRYPTO',
+        txHash: '0xabcdef1234567890abcdef',
+      })
+      const confirmed = state.inserts[0]!
+      expect(confirmed['txHash']).toBe('0xabcdef1234567890abcdef')
+      expect(confirmed['senderLabel']).toBe('PAYOUT_METHOD:CRYPTO')
+    })
+
+    it('method=CRYPTO also stamps txHash on the PAYOUT update', async () => {
+      const { svc, state } = makeService()
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+        method: 'CRYPTO',
+        txHash: '0xabcdef1234567890abcdef',
+      })
+      expect(state.updates[0]!.set['txHash']).toBe('0xabcdef1234567890abcdef')
+    })
+
+    it('method=CASH without txHash → succeeds, txHash null on PAYOUT_CONFIRMED', async () => {
+      const { svc, state } = makeService()
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' })
+      const confirmed = state.inserts[0]!
+      expect(confirmed['txHash']).toBeNull()
+      expect(confirmed['senderLabel']).toBe('PAYOUT_METHOD:CASH')
+    })
+
+    it('method=CASH does NOT touch txHash on PAYOUT update', async () => {
+      const { svc, state } = makeService()
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' })
+      expect(state.updates[0]!.set['txHash']).toBeUndefined()
+    })
+
+    it('method=CASH ignores txHash field even if provided', async () => {
+      const { svc, state } = makeService()
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+        method: 'CASH',
+        txHash: '0xshouldbeignored',
+      })
+      const confirmed = state.inserts[0]!
+      expect(confirmed['txHash']).toBeNull()
     })
   })
 })

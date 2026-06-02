@@ -55,9 +55,8 @@ import { TransactionDetailDialog } from './components/dialogs/TransactionDetailD
 import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransactionDialog'
 import { MyProjectShares } from './components/MyProjectShares'
 import { DropBalanceCard } from './components/KpiCards'
-import { PendingCashCard } from './components/PendingCashCard'
 import { PendingSettlementSeniorCard } from './components/PendingSettlementSeniorCard'
-import { PendingSettlementTovCard } from './components/PendingSettlementTovCard'
+import { LogCashPaymentDialog } from './components/dialogs/LogCashPaymentDialog'
 import { ConfirmPayoutDialog } from '@/components/finance/ConfirmPayoutDialog'
 import type { FinanceSummaryDto } from '@crm/shared'
 
@@ -200,6 +199,7 @@ function TransactionsTable({
   onPaySalary,
   onOpenPayoutDetail,
   onConfirmPayout,
+  onLogCash,
   onDetail,
 }: {
   transactions: TransactionDto[]
@@ -223,6 +223,12 @@ function TransactionsTable({
    * ADMIN/ACCOUNTANT on PAYOUT rows in PENDING_PAYMENT.
    */
   onConfirmPayout: (tx: TransactionDto) => void
+  /**
+   * Drop role - phase 4 refactor (AC7). Opens LogCashPaymentDialog for an
+   * ADMIN/ACCOUNTANT on VALIDATED DROP_INCOME rows without a payment-channel
+   * cascade yet. Lets them log that cash was handed off to a chosen admin.
+   */
+  onLogCash: (tx: TransactionDto) => void
   onDetail: (tx: TransactionDto) => void
 }) {
   const [search, setSearch] = useState('')
@@ -356,6 +362,7 @@ function TransactionsTable({
                     role={role}
                     rates={rates}
                     currentUserId={currentUserId ?? null}
+                    transactions={transactions}
                     onValidate={onValidate}
                     onEdit={onEdit}
                     onAdminEdit={onAdminEdit}
@@ -363,6 +370,7 @@ function TransactionsTable({
                     onPaySalary={onPaySalary}
                     onOpenPayoutDetail={onOpenPayoutDetail}
                     onConfirmPayout={onConfirmPayout}
+                    onLogCash={onLogCash}
                     onClick={onDetail}
                   />
                 ))}
@@ -415,6 +423,11 @@ function FinancePage() {
   // dialog is currently open. Visible only to ADMIN/ACCOUNTANT (the row
   // button itself is hidden for other roles — see TransactionRow).
   const [confirmPayoutTx, setConfirmPayoutTx] = useState<TransactionDto | null>(null)
+  // Drop role - phase 4 refactor (task-drop-phase4-refactor-remove-tov.md AC7).
+  // VALIDATED DROP_INCOME row whose «Cash передан» dialog is currently open.
+  // ADMIN/ACCOUNTANT-only — the dialog lets them pick which admin received
+  // the cash and runs /payments/confirm-cash.
+  const [logCashTx, setLogCashTx] = useState<TransactionDto | null>(null)
   const [detailTx, setDetailTx] = useState<TransactionDto | null>(null)
 
   const openPayoutDetail = useCallback((payoutRequestId: string) => {
@@ -634,20 +647,12 @@ function FinancePage() {
           Auto-hidden when no drop balances exist (empty array). */}
       {summary && <DropBalanceCard summary={summary} />}
 
-      {/* Drop role - phase 4-B round 2. ADMIN/ACCOUNTANT-only «Ожидают
-          подтверждения cash» — DROP-initiated cash channel waiting for the
-          accountant to pick the recipient admin. Auto-hidden when empty. */}
-      {(isAdmin || role === 'ACCOUNTANT') && <PendingCashCard />}
-
-      {/* Drop role - phase 4-C. Senior view: passive list of pending senior
-          IOUs (debtor=DROP or debtor=TOV). Closure happens on the debtor
-          side. Card hides itself when there's nothing pending. */}
+      {/* Drop role - phase 4-C (refactor — task-drop-phase4-refactor-remove-tov.md).
+          Senior view: passive list of pending senior IOUs (debtor=DROP only).
+          Closure happens on the debtor side. Card hides itself when there's
+          nothing pending. Cards «Ожидают подтверждения cash» и «Долги ТОВ
+          перед синьорами» удалены вместе с bank/TOV-каналами (AC8, AC9). */}
       {(isSenior || isAdmin || role === 'ACCOUNTANT') && <PendingSettlementSeniorCard />}
-
-      {/* Drop role - phase 4-C. ADMIN/ACCOUNTANT-only «Долги ТОВ перед
-          синьорами» — closes via /settle-tov, debits TOV balance. Auto-hidden
-          when there are no TOV debts. */}
-      {(isAdmin || role === 'ACCOUNTANT') && <PendingSettlementTovCard />}
 
       {/* Transactions table */}
       <Card>
@@ -665,6 +670,7 @@ function FinancePage() {
             onPaySalary={setPaySalaryTx}
             onOpenPayoutDetail={openPayoutDetail}
             onConfirmPayout={setConfirmPayoutTx}
+            onLogCash={setLogCashTx}
             onDetail={setDetailTx}
           />
         </CardContent>
@@ -684,6 +690,7 @@ function FinancePage() {
         payoutId={payoutDetailId}
       />
       <ConfirmPayoutDialog tx={confirmPayoutTx} onClose={() => setConfirmPayoutTx(null)} />
+      <LogCashPaymentDialog tx={logCashTx} onClose={() => setLogCashTx(null)} />
       <TransactionDetailDialog tx={detailTx} onClose={() => setDetailTx(null)} />
 
       {/* Delete confirmation */}

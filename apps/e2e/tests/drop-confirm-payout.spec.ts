@@ -144,8 +144,10 @@ test.describe('Drop confirm-payout — manual confirmation happy path (AC2)', ()
       await expect(page.getByRole('option', { name: /Maksym/i })).toBeVisible()
       await expect(page.getByRole('option', { name: /Kostya/i })).toBeVisible()
 
-      // Pick Maksym → submit.
+      // Pick Maksym → submit. Phase 4 refactor (AC10): pick CASH method so
+      // we don't need a real txHash for this happy-path assertion.
       await page.getByRole('option', { name: /Maksym/i }).click()
+      await page.getByTestId('confirm-payout-method-cash').click()
       const submit = page.getByTestId('confirm-payout-submit')
       await expect(submit).toBeEnabled()
       await submit.click()

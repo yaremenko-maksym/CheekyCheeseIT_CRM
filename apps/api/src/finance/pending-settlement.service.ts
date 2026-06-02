@@ -1,30 +1,25 @@
 /**
- * Drop role - phase 4-C. Pending senior settlement service.
+ * Drop role - phase 4 (refactor — task-drop-phase4-refactor-remove-tov.md).
+ * Pending senior settlement service.
  *
- * Phase 4-B left two open lifecycles after a DROP_INCOME is paid via the
- * bank or cash channel:
+ * After the refactor only the DROP-debt lifecycle remains:
  *
- *   1. Bank channel  → debtorType='TOV'. The corporate ТОВ owes the senior.
- *      ACCOUNTANT/ADMIN closes this via `settleByTov` which DEBITS the TOВ
- *      balance (TOV_EXPENSE row with FIAT_TOV channel marker) and CREDITS
- *      the senior balance (SENIOR_PAID row).
- *   2. Cash channel  → debtorType='DROP'. The DROP user kept the senior
- *      share when they handed cash to the admin. The DROP closes this via
- *      `settleByDrop` once they pay the senior out-of-band — single
- *      SENIOR_PAID row records the closure (no TOV impact).
+ *   debtorType='DROP': the DROP user kept the senior share when they handed
+ *   cash to the admin. The DROP closes this via `settleByDrop` once they
+ *   pay the senior out-of-band — single SENIOR_PAID row records the closure.
  *
- * Both `settle*` methods atomically:
- *   - validate the obligation status (PENDING) and debtorType,
- *   - insert the SENIOR_PAID row (and optional TOV_EXPENSE for TOV),
- *   - patch the pending_obligations row → status=PAID + closingTransactionId.
+ * The TOV-debt lifecycle (bank channel) has been removed (AC3): both
+ * `listTovObligations` and `settleByTov` are gone. Historical rows that
+ * carry `debtorType='TOV'` may still exist in the table but are not surfaced
+ * by the read endpoints below — only DROP-debtor rows are returned.
  *
- * Read endpoints surface the same data the FE needs in one round-trip:
- *   - `listSeniorObligations` — SENIOR sees own; ADMIN/ACCOUNTANT see all.
+ * Read endpoints:
+ *   - `listSeniorObligations` — SENIOR sees own; ADMIN/ACCOUNTANT see all
+ *     (DROP-debtor obligations only).
  *   - `listDropObligations`   — DROP sees own debts; ADMIN/ACCOUNTANT see all.
- *   - `listTovObligations`    — ADMIN/ACCOUNTANT only.
  *
  * The DTO denormalises drop/senior/project names so the UI cards render
- * without follow-up requests — mirrors PendingCashItemDto pattern.
+ * without follow-up requests.
  */
 import {
   BadRequestException,
@@ -47,20 +42,17 @@ import {
   users,
   type Transaction,
 } from '../database/schema'
-import { BalanceService, type BalanceCurrency } from './balance.service'
 
 @Injectable()
 export class PendingSettlementService {
-  constructor(
-    private readonly db: DatabaseService,
-    private readonly balance: BalanceService,
-  ) {}
+  constructor(private readonly db: DatabaseService) {}
 
   // ── Read endpoints ────────────────────────────────────────────────────────
 
   /**
-   * SENIOR self-view: returns own PENDING obligations regardless of debtor.
-   * ADMIN/ACCOUNTANT: returns every PENDING obligation across all seniors.
+   * SENIOR self-view: returns own PENDING obligations from DROP debtors.
+   * ADMIN/ACCOUNTANT: returns every PENDING obligation from DROP debtors
+   * across all seniors. TOV-debtor history rows are intentionally excluded.
    */
   async listSeniorObligations(actor: SessionUser): Promise<PendingSettlementItemDto[]> {
     if (actor.role !== 'SENIOR' && actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') {
@@ -68,7 +60,10 @@ export class PendingSettlementService {
         'Список ожидающих зачислений доступен синьорам, бухгалтерам и админам',
       )
     }
-    const conjuncts = [eq(pendingObligations.status, 'PENDING')]
+    const conjuncts = [
+      eq(pendingObligations.status, 'PENDING'),
+      eq(pendingObligations.debtorType, 'DROP'),
+    ]
     if (actor.role === 'SENIOR') {
       conjuncts.push(eq(pendingObligations.creditorUserId, actor.id))
     }
@@ -92,24 +87,6 @@ export class PendingSettlementService {
     if (actor.role === 'DROP') {
       conjuncts.push(eq(pendingObligations.debtorUserId, actor.id))
     }
-    return this.loadAndDenormalise(conjuncts)
-  }
-
-  /**
-   * TOV-debt view — ACCOUNTANT/ADMIN only. The senior amounts owed by the
-   * corporate ТОВ account; closed by `settleByTov` which moves money from the
-   * TOV balance to the senior balance.
-   */
-  async listTovObligations(actor: SessionUser): Promise<PendingSettlementItemDto[]> {
-    if (actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') {
-      throw new ForbiddenException(
-        'Список долгов ТОВ перед синьорами доступен только бухгалтерам и админам',
-      )
-    }
-    const conjuncts = [
-      eq(pendingObligations.status, 'PENDING'),
-      eq(pendingObligations.debtorType, 'TOV'),
-    ]
     return this.loadAndDenormalise(conjuncts)
   }
 
@@ -184,101 +161,6 @@ export class PendingSettlementService {
     }
   }
 
-  /**
-   * Close a TOV-debt obligation. RBAC: ACCOUNTANT/ADMIN only (DROP is
-   * explicitly forbidden — DROP has no authority over the corporate balance).
-   *
-   * Pre-flight: verify the TOV balance (in the obligation currency, defaulting
-   * to USD) is at least the obligation amount. Surface a friendly 400 if not.
-   *
-   * Atomic cascade:
-   *   - Insert TOV_EXPENSE (`type='EXPENSE'`, `receiverLabel='FIAT_TOV'`) so
-   *     `getTOVBalance` debits the ТОВ snapshot. The `receiverLabel` prefix
-   *     `FIAT_TOV` is the agreed marker for the corporate fiat channel.
-   *   - Insert SENIOR_PAID transaction crediting the senior.
-   *   - Patch obligation → status=PAID + closingTransactionId.
-   */
-  async settleByTov(
-    obligationId: string,
-    actor: SessionUser,
-  ): Promise<{ obligation: PendingObligationDto; created: TransactionDto[] }> {
-    if (actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') {
-      throw new ForbiddenException('Выплачивать из ТОВ могут только бухгалтер или админ')
-    }
-    const obligation = await this.loadObligation(obligationId)
-    if (obligation.debtorType !== 'TOV') {
-      throw new BadRequestException('Этот долг не закрывается из ТОВ (debtorType должен быть TOV)')
-    }
-    if (obligation.status !== 'PENDING') {
-      throw new BadRequestException('Долг уже закрыт или отменён')
-    }
-
-    // Balance check in the obligation's own currency. We use the obligation
-    // currency rather than always USD so a UAH-pegged debt is compared
-    // against a UAH-pegged corporate balance without an extra fx conversion.
-    const obligationCurrency = obligation.currency as BalanceCurrency
-    const tovBalance = await this.balance.getTOVBalance(obligationCurrency)
-    const owed = parseFloat(obligation.amount)
-    if (Number.isFinite(owed) && tovBalance.balance + 1e-6 < owed) {
-      throw new BadRequestException('Недостаточно средств на ТОВ')
-    }
-
-    const project = await this.resolveSourceProject(obligation.sourceTransactionId)
-    const created: Transaction[] = []
-    await this.db.db.transaction(async (dbtx) => {
-      const [tovExpenseRow] = await dbtx
-        .insert(transactions)
-        .values({
-          type: 'EXPENSE',
-          status: 'PAID',
-          amount: obligation.amount,
-          currency: obligation.currency,
-          senderLabel: 'ТОВ',
-          receiverId: obligation.creditorUserId,
-          receiverLabel: 'FIAT_TOV',
-          projectId: project?.id ?? null,
-          notes: `Phase 4-C — выплата из ТОВ синьору (obligation ${obligation.id})`,
-          createdBy: actor.id,
-        })
-        .returning()
-      if (tovExpenseRow) created.push(tovExpenseRow)
-
-      const [paidRow] = await dbtx
-        .insert(transactions)
-        .values({
-          type: 'SENIOR_PAID',
-          status: 'PAID',
-          amount: obligation.amount,
-          currency: obligation.currency,
-          senderLabel: 'ТОВ',
-          receiverId: obligation.creditorUserId,
-          recipientId: obligation.creditorUserId,
-          projectId: project?.id ?? null,
-          notes: `Phase 4-C — ТОВ закрыл senior IOU (obligation ${obligation.id})`,
-          createdBy: actor.id,
-        })
-        .returning()
-      if (paidRow) created.push(paidRow)
-
-      await dbtx
-        .update(pendingObligations)
-        .set({
-          status: 'PAID',
-          closingTransactionId: paidRow?.id ?? null,
-          updatedAt: new Date(),
-        })
-        .where(eq(pendingObligations.id, obligation.id))
-    })
-
-    const refreshed = await this.db.db.query.pendingObligations.findFirst({
-      where: eq(pendingObligations.id, obligation.id),
-    })
-    return {
-      obligation: this.toObligationDto(refreshed ?? { ...obligation, status: 'PAID' as const }),
-      created: created.map((c) => this.toTransactionDto(c)),
-    }
-  }
-
   // ── Internals ─────────────────────────────────────────────────────────────
 
   private async loadObligation(obligationId: string) {
@@ -290,9 +172,9 @@ export class PendingSettlementService {
   }
 
   /**
-   * Walk source transaction → projectId so the SENIOR_PAID / TOV_EXPENSE row
-   * keeps the project pointer for audit. Failures are non-fatal: a missing
-   * source or missing project just yields `null`.
+   * Walk source transaction → projectId so the SENIOR_PAID row keeps the
+   * project pointer for audit. Failures are non-fatal: a missing source or
+   * missing project just yields `null`.
    */
   private async resolveSourceProject(
     sourceTransactionId: string,
@@ -340,7 +222,7 @@ export class PendingSettlementService {
         sourceTransactionId: row.sourceTransactionId,
         debtorType: row.debtorType,
         debtorUserId: row.debtorUserId,
-        debtorName: debtor?.displayName ?? (row.debtorType === 'TOV' ? 'ТОВ' : null),
+        debtorName: debtor?.displayName ?? null,
         seniorId: row.creditorUserId,
         seniorName: senior?.displayName ?? '—',
         projectId: project?.id ?? null,

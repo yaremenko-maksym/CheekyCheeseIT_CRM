@@ -58,11 +58,11 @@ export const transactionStatusSchema = z.enum([
   'REJECTED', // Accountant/admin rejected; senior must edit and resubmit
   'PAID', // Completed
   'LOCKED', // Junior salary locked until senior has validated income
-  // Drop role - phase 4-B round 2. PAYOUT row sits in this status from the
-  // moment the DROP clicks «Я передал нал админу» until ACCOUNTANT/ADMIN
-  // picks which admin actually received the cash via /confirm-cash. While in
-  // this status NO income transactions exist for the cascade — the row is a
-  // placeholder. /confirm-cash flips it to PAID and inserts the cascade.
+  // Drop role - phase 4-B round 2 (DEPRECATED in Phase 4 refactor).
+  // Status value left in the enum so historical rows that may carry it can
+  // still be loaded. NEW rows MUST NOT set this status — the bank/cash drop
+  // initiation flows that produced it have been removed (refactor task
+  // task-drop-phase4-refactor-remove-tov.md, AC2).
   'PENDING_CASH_CONFIRM',
 ])
 export type TransactionStatus = z.infer<typeof transactionStatusSchema>
@@ -379,8 +379,9 @@ export type PaySalaryDto = z.infer<typeof paySalarySchema>
 
 // Drop role - phase 3 (spec §8.4). Manual payout confirmation — ACCOUNTANT/ADMIN
 // confirms a PAYOUT actually arrived to a selected admin partner. Body carries
-// the chosen admin id; backend validates: PAYOUT row in PENDING_PAYMENT,
-// recipient is an active (non-archived) ADMIN, idempotency (no double-confirm).
+// the chosen admin id, the payment method (crypto vs cash — refactor task
+// task-drop-phase4-refactor-remove-tov.md AC4), and conditionally a txHash
+// (required for CRYPTO, omitted for CASH).
 //
 // Note: we accept any UUID shape (not just strict RFC-versioned). The seeded
 // partner ids `00000000-0000-0000-0000-00000000000{1,2}` (MAKSYM_ID/KOSTYA_ID)
@@ -389,9 +390,28 @@ export type PaySalaryDto = z.infer<typeof paySalarySchema>
 // not archived) so format permissiveness is safe here.
 const UUID_LIKE_REGEX =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
-export const confirmPayoutSchema = z.object({
-  recipientAdminId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
-})
+
+export const payoutMethodSchema = z.enum(['CRYPTO', 'CASH'])
+export type PayoutMethod = z.infer<typeof payoutMethodSchema>
+
+export const confirmPayoutSchema = z
+  .object({
+    recipientAdminId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
+    method: payoutMethodSchema.default('CRYPTO'),
+    txHash: z.string().max(255).optional().nullable(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.method === 'CRYPTO') {
+      const trimmed = data.txHash?.trim() ?? ''
+      if (trimmed.length < 10) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'txHash должен содержать минимум 10 символов',
+          path: ['txHash'],
+        })
+      }
+    }
+  })
 export type ConfirmPayoutDto = z.infer<typeof confirmPayoutSchema>
 
 // ---------------------------------------------------------------------------
@@ -422,8 +442,13 @@ export type BalanceDto = z.infer<typeof balanceSchema>
 
 // Pending obligations — table-backed, distinct lifecycle from the
 // transactions ledger. Each row: "creditor (senior) is owed `amount`
-// `currency` by debtor (DROP user / TOВ / admin)". A SENIOR_PAID
-// transaction closes the obligation (status → PAID + closingTransactionId).
+// `currency` by debtor (DROP user or admin)". A SENIOR_PAID transaction
+// closes the obligation (status → PAID + closingTransactionId).
+//
+// Post-Phase-4 refactor (task-drop-phase4-refactor-remove-tov.md AC3): the
+// 'TOV' value remains in the enum because legacy/history rows may carry it,
+// but NEW obligations are never created with debtorType='TOV' — the bank
+// channel that produced them has been removed.
 export const pendingObligationDebtorTypeSchema = z.enum(['DROP', 'TOV', 'ADMIN'])
 export type PendingObligationDebtorType = z.infer<typeof pendingObligationDebtorTypeSchema>
 
@@ -506,82 +531,19 @@ export const initiateCryptoPaymentSchema = z.object({
 })
 export type InitiateCryptoPaymentDto = z.infer<typeof initiateCryptoPaymentSchema>
 
-// Bank channel — drop transfers UAH to the corporate ТОВ account. Backend
-// returns the ТОВ banking details + a unique reference (per income) the drop
-// includes in the wire description so accountant can match it later.
-export const tovBankDetailsSchema = z.object({
-  recipient: z.string(),
-  iban: z.string(),
-  rnokpp: z.string(),
-  bankName: z.string(),
-  reference: z.string(), // INV-INC-<id>
-})
-export type TovBankDetailsDto = z.infer<typeof tovBankDetailsSchema>
-
-export const initiateBankPaymentResponseSchema = z.object({
-  tovBankDetails: tovBankDetailsSchema,
-  amount: z.string(), // total drop pays to ТОВ (all but drop share)
-  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
-})
-export type InitiateBankPaymentResponseDto = z.infer<typeof initiateBankPaymentResponseSchema>
-
-export const initiateBankPaymentSchema = z.object({
-  incomeId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
-})
-export type InitiateBankPaymentDto = z.infer<typeof initiateBankPaymentSchema>
-
-export const confirmBankPaymentSchema = z.object({
-  incomeId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
-})
-export type ConfirmBankPaymentDto = z.infer<typeof confirmBankPaymentSchema>
-
-// Cash channel — drop hands cash to ONE of the admins out-of-band (Maksym or
-// Kostya). Round-2 fix: the drop no longer chooses the recipient. The
-// `/initiate-cash` call only marks the PAYOUT as `PENDING_CASH_CONFIRM` and
-// records no income transactions — the ACCOUNTANT/ADMIN then picks which
-// admin actually received the cash via `/confirm-cash`, which creates the
-// real `ADMIN_INCOME_CASH` + `SENIOR_PENDING_PAYOUT` rows.
-export const initiateCashPaymentSchema = z.object({
-  incomeId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
-})
-export type InitiateCashPaymentDto = z.infer<typeof initiateCashPaymentSchema>
-
-// Confirm-cash body — accountant picks one of the active admins.
+// Cash channel — drop→company cash flow (post Phase 4 refactor, task
+// task-drop-phase4-refactor-remove-tov.md AC2). The DROP no longer has any UI
+// to initiate cash; instead, ACCOUNTANT/ADMIN sees the VALIDATED DROP_INCOME
+// row on /crm/finance and triggers `/confirm-cash` directly from the table.
+// The endpoint creates ADMIN_INCOME_CASH + SENIOR_PENDING_PAYOUT
+// (debtorType=DROP) and closes the placeholder PAYOUT row.
 export const confirmCashPaymentSchema = z.object({
   incomeId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
   recipientAdminId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
 })
 export type ConfirmCashPaymentDto = z.infer<typeof confirmCashPaymentSchema>
 
-// Lightweight initiate-cash response — frontend just needs to know the
-// status; transactions appear only after confirm.
-export const initiateCashPaymentResponseSchema = z.object({
-  incomeId: z.string(),
-  payoutId: z.string().nullable(),
-  status: z.literal('PENDING_CASH_CONFIRM'),
-})
-export type InitiateCashPaymentResponseDto = z.infer<typeof initiateCashPaymentResponseSchema>
-
-// GET /api/payments/pending-cash — one row per PAYOUT in PENDING_CASH_CONFIRM,
-// enriched with drop / project / amount so the accountant can pick the
-// recipient admin without follow-up requests.
-export const pendingCashItemSchema = z.object({
-  incomeId: z.string(),
-  payoutId: z.string(),
-  dropId: z.string(),
-  dropName: z.string(),
-  projectId: z.string().nullable(),
-  projectName: z.string().nullable(),
-  amount: z.string(),
-  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
-  initiatedAt: z.string(),
-})
-export type PendingCashItemDto = z.infer<typeof pendingCashItemSchema>
-
-export const pendingCashListResponseSchema = z.array(pendingCashItemSchema)
-export type PendingCashListResponseDto = z.infer<typeof pendingCashListResponseSchema>
-
-// Wire response for the cash and bank confirm flows — returns the list of
+// Wire response for the crypto + cash confirm flows — returns the list of
 // transactions created so the UI can refresh without a second round-trip.
 export const paymentChannelCascadeResponseSchema = z.object({
   income: transactionSchema,
@@ -590,27 +552,23 @@ export const paymentChannelCascadeResponseSchema = z.object({
 export type PaymentChannelCascadeResponseDto = z.infer<typeof paymentChannelCascadeResponseSchema>
 
 // ---------------------------------------------------------------------------
-// Phase 4-C — Pending senior settlement
+// Phase 4-C — Pending senior settlement (post-Phase-4 refactor)
 // ---------------------------------------------------------------------------
 //
-// Phase 4-B leaves senior-owed amounts open in two places after the drop
-// settles with the company:
+// After the Phase 4 refactor (task-drop-phase4-refactor-remove-tov.md AC3),
+// only cash-channel drop→company flows leave a senior IOU open:
 //
-//   1. Bank channel → debtorType='TOV': the corporate ТОВ owes the senior.
-//      Closed by ACCOUNTANT/ADMIN via /api/pending-settlements/:id/settle-tov
-//      which spends from the TOV balance and credits the senior.
-//   2. Cash channel → debtorType='DROP': the DROP user personally owes the
-//      senior (they kept the senior share when they handed cash to the admin).
-//      Closed by the DROP themselves (or by ACCOUNTANT/ADMIN acting on their
-//      behalf) via /api/pending-settlements/:id/settle-drop.
+//   debtorType='DROP': the DROP user personally owes the senior (they kept
+//   the senior share when ACCOUNTANT/ADMIN logged the cash handoff). Closed
+//   by the DROP themselves (or by ACCOUNTANT/ADMIN acting on their behalf)
+//   via /api/pending-settlements/:id/settle-drop.
 //
-// The wire DTO denormalises drop/senior/project names so the UI cards render
-// without follow-up requests — mirrors the PendingCashItemDto pattern.
+// The TOV-debt path (bank channel) has been removed.
 
 export const pendingSettlementItemSchema = z.object({
   obligationId: z.string(), // pending_obligations.id
   sourceTransactionId: z.string(),
-  debtorType: pendingObligationDebtorTypeSchema, // DROP | TOV (ADMIN reserved)
+  debtorType: pendingObligationDebtorTypeSchema, // DROP (TOV/ADMIN legacy/reserved)
   debtorUserId: z.string().nullable(),
   debtorName: z.string().nullable(),
   seniorId: z.string(),
@@ -626,7 +584,7 @@ export type PendingSettlementItemDto = z.infer<typeof pendingSettlementItemSchem
 export const pendingSettlementListResponseSchema = z.array(pendingSettlementItemSchema)
 export type PendingSettlementListResponseDto = z.infer<typeof pendingSettlementListResponseSchema>
 
-// Both settle endpoints take an empty body — the obligation id is in the URL.
+// settle-drop endpoint takes an empty body — the obligation id is in the URL.
 // The route param `:id` is validated as UUID-like (same permissive shape as
 // payment-channel ids) since seeded users carry version-nibble 0 in their UUIDs.
 export const settleObligationParamSchema = z.object({
@@ -635,8 +593,7 @@ export const settleObligationParamSchema = z.object({
 export type SettleObligationParamDto = z.infer<typeof settleObligationParamSchema>
 
 // Response after a successful settle: returns the updated obligation snapshot
-// plus the new SENIOR_PAID transaction (and SENIOR_PAID source `senderLabel`
-// reflects 'TOV' or 'DROP' for audit). Frontend uses this to invalidate
+// plus the new SENIOR_PAID transaction. Frontend uses this to invalidate
 // balances / pending lists in one round-trip.
 export const settleObligationResponseSchema = z.object({
   obligation: pendingObligationSchema,

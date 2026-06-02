@@ -117,15 +117,34 @@ export function FinanceTab({ userId }: { userId: string }) {
   // drop / accountant can launch the «Платить компании» flow per row without
   // hunting through filters first. Only VALIDATED rows (no payment cascade
   // yet) are actionable.
+  //
+  // Drop role - phase 4 refactor (task-fix-refactor-tov-financetab-filter.md):
+  // exclude DROP_INCOME rows whose payment cascade has already settled. The
+  // cascade is detectable via a PAID PAYOUT row sharing the same
+  // payoutRequestId — produced both by the senior crypto flow (confirmPayout)
+  // and the admin-initiated cash flow (confirmCashPayment). Without this
+  // guard a settled income still showed the «Платить компании» CTA, which
+  // dead-ended at /crm/payments/initiate/:id with a backend 400.
+  const settledPayoutRequestIds = useMemo(() => {
+    const set = new Set<string>()
+    for (const tx of transactions) {
+      if (tx.type === 'PAYOUT' && tx.status === 'PAID' && tx.payoutRequestId) {
+        set.add(tx.payoutRequestId)
+      }
+    }
+    return set
+  }, [transactions])
+
   const actionableDropIncomes = useMemo(() => {
     if (!showInitiatePaymentForDrop) return []
     return transactions.filter(
       (tx) =>
         tx.type === 'DROP_INCOME' &&
         tx.status === 'VALIDATED' &&
-        (tx.recipientId === userId || tx.receiverId === userId),
+        (tx.recipientId === userId || tx.receiverId === userId) &&
+        !(tx.payoutRequestId && settledPayoutRequestIds.has(tx.payoutRequestId)),
     )
-  }, [transactions, showInitiatePaymentForDrop, userId])
+  }, [transactions, showInitiatePaymentForDrop, userId, settledPayoutRequestIds])
 
   if (isLoading) return <Skeleton className="h-64 w-full" />
 

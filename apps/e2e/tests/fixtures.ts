@@ -573,34 +573,14 @@ export async function mockAuthAs(
     jsonOk(r, { items: [], unreadCount: 0 }),
   )
 
-  // Drop role - phase 4-B round 2. PendingCashCard mounts on /crm/finance for
-  // ADMIN/ACCOUNTANT and immediately fires GET /api/payments/pending-cash via
-  // TanStack Query. Without a mock this hits the real backend without a JWT
-  // cookie (mockAuthAs never logs in) → 401 → axios interceptor →
-  // window.location.href = '/login' → every sidebar nav test that touches
-  // /crm/finance redirects out of CRM. Same fix pattern as the notifications
-  // mock immediately above.
-  await page.route(new RegExp(`${API}/payments/pending-cash(\\?.*)?$`), (r) => jsonOk(r, []))
-
-  // Drop role - phase 4-C. PendingSettlement{Senior,Drop,Tov}Card mount on
-  // /crm/finance + DROP FinanceTab and immediately fire GET
-  // /api/pending-settlements/{senior,drop,tov}. Without these mocks → 401 →
-  // axios interceptor → redirect to /login → every test that touches
-  // /crm/finance or /crm/profile?tab=finance fails. Same fix pattern as
-  // /api/payments/pending-cash mock above.
+  // Drop role - phase 4 (refactor — task-drop-phase4-refactor-remove-tov.md
+  // AC13). Mocks for /payments/pending-cash, /pending-settlements/tov and
+  // /balances/tov removed alongside the endpoints. Senior/drop settlement
+  // mocks remain — those cards still render. /balances/admin/:id and
+  // /balances/senior/:id stay for /crm/stats.
   await page.route(new RegExp(`${API}/pending-settlements/senior(\\?.*)?$`), (r) => jsonOk(r, []))
   await page.route(new RegExp(`${API}/pending-settlements/drop(\\?.*)?$`), (r) => jsonOk(r, []))
-  await page.route(new RegExp(`${API}/pending-settlements/tov(\\?.*)?$`), (r) => jsonOk(r, []))
 
-  // Drop role - phase 4-A/4-C. PendingSettlementTovCard (ADMIN/ACCOUNTANT view)
-  // fetches the TOV running balance via GET /api/balances/tov?currency=USD to
-  // know whether the «Выплатить из ТОВ» button should be disabled. Without
-  // this mock the request 401s → axios interceptor → /login → ADMIN nav tests
-  // landing on /crm/finance fail. Stats page (`/crm/stats`) also queries
-  // /balances/admin/:id and /balances/senior/:id — mock all three.
-  await page.route(new RegExp(`${API}/balances/tov(\\?.*)?$`), (r) =>
-    jsonOk(r, { balance: 100000, currency: 'USD', breakdown: {} }),
-  )
   await page.route(new RegExp(`${API}/balances/admin/([^/?]+)(\\?.*)?$`), (r) =>
     jsonOk(r, { balance: 0, currency: 'USD', breakdown: {} }),
   )
@@ -1761,9 +1741,13 @@ export async function confirmPayoutViaAPI(
     projectId: string | null
   } | null
 }> {
+  // Phase 4 refactor (AC4): confirmPayout now requires a payment method.
+  // Tests don't care about the method semantics, so default to CASH which
+  // doesn't need a real txHash. RBAC/edge specs override status assertions
+  // anyway.
   const res = await page.request.post(
     `${REAL_API_BASE}/api/transactions/${payoutTxId}/confirm-payout`,
-    { data: { recipientAdminId } },
+    { data: { recipientAdminId, method: 'CASH' } },
   )
   if (res.status() !== 200 && res.status() !== 201) {
     throw new Error(
@@ -1785,9 +1769,11 @@ export async function confirmPayoutRawViaAPI(
   payoutTxId: string,
   recipientAdminId: string,
 ): Promise<{ status: number; body: unknown }> {
+  // Phase 4 refactor (AC4): same method=CASH default as above so RBAC tests
+  // still hit the RBAC branch (which runs before the method check).
   const res = await page.request.post(
     `${REAL_API_BASE}/api/transactions/${payoutTxId}/confirm-payout`,
-    { data: { recipientAdminId } },
+    { data: { recipientAdminId, method: 'CASH' } },
   )
   let body: unknown
   try {

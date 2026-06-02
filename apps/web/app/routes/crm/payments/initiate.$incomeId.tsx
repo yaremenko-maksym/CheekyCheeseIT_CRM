@@ -1,7 +1,11 @@
 /**
- * Drop role - phase 4-B. «Платить компании» — alternative settlement channels
- * for a validated DROP_INCOME. Three cards (crypto / bank / cash) sit on the
- * page; clicking through each runs the matching backend cascade.
+ * Drop role - phase 4 (refactor — task-drop-phase4-refactor-remove-tov.md AC6).
+ *
+ * «Платить компании» — crypto-only settlement channel for a validated
+ * DROP_INCOME. The bank UAH on ТОВ card has been removed (bank channel gone)
+ * and the Cash card has been removed too — cash flow now lives in
+ * /crm/finance where ACCOUNTANT/ADMIN clicks «Cash передан» directly on the
+ * income row.
  *
  * RBAC: DROP can only act on their OWN income; ACCOUNTANT/ADMIN can access
  * any. Other roles are redirected to /crm/dashboard.
@@ -9,12 +13,11 @@
 import { useEffect, useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Banknote, CheckCircle2, Coins, Copy, Loader2, Wallet } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Coins, Copy, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { TransactionDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
-import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -79,7 +82,7 @@ function InitiatePaymentPage() {
   if (!user) return null
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6 max-w-3xl">
       <header className="space-y-2">
         <Link
           to="/crm/profile/$userId"
@@ -91,7 +94,8 @@ function InitiatePaymentPage() {
         </Link>
         <h1 className="text-2xl font-bold tracking-tight">Платить компании</h1>
         <p className="text-sm text-muted-foreground">
-          Выберите канал оплаты для зачисленного прихода drop-проекта
+          Отправьте USDT на три кошелька: синьору и двум админам. После подтверждения транзакции
+          появятся в реестре.
         </p>
       </header>
 
@@ -100,12 +104,7 @@ function InitiatePaymentPage() {
       ) : (
         <>
           <IncomeSummary income={income} />
-
-          <div className="grid gap-4 lg:grid-cols-3">
-            <CryptoChannelCard incomeId={incomeId} queryClient={queryClient} />
-            <BankChannelCard incomeId={incomeId} queryClient={queryClient} />
-            <CashChannelCard incomeId={incomeId} queryClient={queryClient} />
-          </div>
+          <CryptoChannelCard incomeId={incomeId} queryClient={queryClient} />
         </>
       )}
     </div>
@@ -144,7 +143,7 @@ function IncomeSummary({ income }: { income: TransactionDto }) {
   )
 }
 
-// ── Crypto channel ────────────────────────────────────────────────────────
+// ── Crypto channel (only remaining channel) ───────────────────────────────
 
 type QueryClientType = ReturnType<typeof useQueryClient>
 
@@ -182,47 +181,45 @@ function CryptoChannelCard({
   return (
     <Card className="border-violet-500/30" data-testid="channel-crypto">
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-          <Coins className="h-4 w-4 text-violet-400" />
+        <CardTitle className="flex items-center gap-2 text-base font-semibold">
+          <Coins className="h-5 w-5 text-violet-400" />
           USDT (crypto)
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          Отправьте USDT на 3 кошелька (синьор + 2 админа)
+          Отправьте USDT на 3 кошелька (синьор + 2 админа) и подтвердите отправку, указав txHash.
         </p>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-4">
         {done ? (
           <SuccessBlock label="Crypto-оплата зафиксирована" />
         ) : isLoading ? (
           <Skeleton className="h-32 w-full" />
         ) : (
           <>
-            <ul className="space-y-2">
+            <ul className="space-y-3">
               {recipients.map((r, i) => (
                 <li
                   key={r.userId}
-                  className="rounded-lg border border-border/60 p-3 space-y-1"
+                  className="rounded-lg border border-border/60 p-3 space-y-2"
                   data-testid={`crypto-recipient-${i}`}
                 >
-                  <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center justify-between text-sm">
                     <span className="font-medium">{r.displayName}</span>
-                    <span className="text-muted-foreground uppercase tracking-wide">{r.role}</span>
+                    <span className="text-xs text-muted-foreground uppercase tracking-wide">
+                      {r.role}
+                    </span>
                   </div>
                   <div className="flex items-center gap-1">
-                    <Input
-                      readOnly
-                      value={r.address || '—'}
-                      className="h-7 text-[11px] font-mono"
-                    />
+                    <Input readOnly value={r.address || '—'} className="h-8 text-xs font-mono" />
                     {r.address && (
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-7 w-7 p-0"
+                        className="h-8 w-8 p-0"
                         onClick={() => copyToClipboard(r.address, 'Адрес')}
                         title="Скопировать адрес"
                       >
-                        <Copy className="h-3 w-3" />
+                        <Copy className="h-3.5 w-3.5" />
                       </Button>
                     )}
                   </div>
@@ -238,7 +235,7 @@ function CryptoChannelCard({
                       next[i] = e.target.value
                       setHashes(next)
                     }}
-                    className="h-7 text-[11px]"
+                    className="h-8 text-xs"
                     data-testid={`crypto-hash-input-${i}`}
                   />
                 </li>
@@ -263,222 +260,6 @@ function CryptoChannelCard({
             >
               {confirm.isPending && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
               Подтвердить отправку
-            </Button>
-          </>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-// ── Bank channel ──────────────────────────────────────────────────────────
-
-function BankChannelCard({
-  incomeId,
-  queryClient,
-}: {
-  incomeId: string
-  queryClient: QueryClientType
-}) {
-  const { user } = useAuth()
-  const [acknowledged, setAcknowledged] = useState(false)
-  const [done, setDone] = useState(false)
-
-  const { data: bankData, isLoading } = useQuery({
-    queryKey: ['payment-channel-bank', incomeId],
-    queryFn: () => financeApi.initiateBankPayment(incomeId),
-    enabled: !done,
-    staleTime: 30_000,
-    retry: false,
-  })
-
-  const confirm = useMutation({
-    mutationFn: () => financeApi.confirmBankPayment(incomeId),
-    onSuccess: () => {
-      toast.success('Зачисление на ТОВ подтверждено')
-      setDone(true)
-      void queryClient.invalidateQueries({ queryKey: ['transaction', incomeId] })
-      void queryClient.invalidateQueries({ queryKey: ['profile-transactions'] })
-    },
-    onError: (err) => toast.error(extractErrorMessage(err)),
-  })
-
-  const canConfirm = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
-
-  return (
-    <Card className="border-sky-500/30" data-testid="channel-bank">
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-          <Banknote className="h-4 w-4 text-sky-400" />
-          Банк UAH на ТОВ
-        </CardTitle>
-        <p className="text-xs text-muted-foreground">
-          Перевод на корпоративный счёт. Бухгалтер подтвердит зачисление.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {done ? (
-          <SuccessBlock label="Зачисление подтверждено" />
-        ) : isLoading || !bankData ? (
-          <Skeleton className="h-32 w-full" />
-        ) : (
-          <>
-            <BankDetailsRow label="Получатель" value={bankData.tovBankDetails.recipient} />
-            <BankDetailsRow label="IBAN" value={bankData.tovBankDetails.iban} mono />
-            <BankDetailsRow label="ЕДРПОУ / РНОКПП" value={bankData.tovBankDetails.rnokpp} />
-            <BankDetailsRow label="Банк" value={bankData.tovBankDetails.bankName} />
-            <BankDetailsRow
-              label="Назначение платежа"
-              value={bankData.tovBankDetails.reference}
-              mono
-              testid="bank-reference"
-            />
-            <div className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2">
-              <span className="text-xs text-muted-foreground">Сумма</span>
-              <span className="font-bold tabular-nums">{fmtUsd(bankData.amount)}</span>
-            </div>
-            <Button
-              variant="secondary"
-              className="w-full"
-              onClick={() => {
-                copyToClipboard(
-                  `${bankData.tovBankDetails.recipient}\n${bankData.tovBankDetails.iban}\n${bankData.tovBankDetails.rnokpp}\n${bankData.tovBankDetails.reference}`,
-                  'Реквизиты',
-                )
-              }}
-              data-testid="bank-copy-button"
-            >
-              <Copy className="h-3 w-3 mr-1" /> Скопировать реквизиты
-            </Button>
-            {!acknowledged ? (
-              <Button
-                className="w-full"
-                onClick={() => {
-                  setAcknowledged(true)
-                  toast.info('Спасибо. Бухгалтер подтвердит зачисление.')
-                }}
-                data-testid="bank-acknowledge-button"
-              >
-                Я перевёл
-              </Button>
-            ) : (
-              <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs">
-                Ожидаем подтверждения от бухгалтера.
-              </div>
-            )}
-            {canConfirm && acknowledged && (
-              <Button
-                variant="default"
-                className="w-full"
-                disabled={confirm.isPending}
-                onClick={() => confirm.mutate()}
-                data-testid="bank-confirm-button"
-              >
-                {confirm.isPending && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
-                Подтвердить зачисление (бухгалтер)
-              </Button>
-            )}
-          </>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function BankDetailsRow({
-  label,
-  value,
-  mono,
-  testid,
-}: {
-  label: string
-  value: string
-  mono?: boolean
-  testid?: string
-}) {
-  return (
-    <div className="space-y-1">
-      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
-      <div className="flex items-center gap-1">
-        <Input
-          readOnly
-          value={value}
-          className={cn('h-7 text-[11px]', mono ? 'font-mono' : '')}
-          {...(testid !== undefined ? { 'data-testid': testid } : {})}
-        />
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-7 w-7 p-0"
-          onClick={() => copyToClipboard(value, label)}
-          title="Скопировать"
-        >
-          <Copy className="h-3 w-3" />
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-// ── Cash channel ──────────────────────────────────────────────────────────
-//
-// Round-2 rewrite: the DROP no longer picks who receives the cash. They just
-// confirm physical handoff happened — the ACCOUNTANT/ADMIN later picks which
-// admin actually received the money via the /crm/finance pending-cash list.
-
-function CashChannelCard({
-  incomeId,
-  queryClient,
-}: {
-  incomeId: string
-  queryClient: QueryClientType
-}) {
-  const [done, setDone] = useState(false)
-
-  const initiate = useMutation({
-    mutationFn: () => financeApi.initiateCashPayment(incomeId),
-    onSuccess: () => {
-      toast.success('Ожидает подтверждения бухгалтера')
-      setDone(true)
-      void queryClient.invalidateQueries({ queryKey: ['transaction', incomeId] })
-      void queryClient.invalidateQueries({ queryKey: ['profile-transactions'] })
-      void queryClient.invalidateQueries({ queryKey: ['payments-pending-cash'] })
-    },
-    onError: (err) => toast.error(extractErrorMessage(err)),
-  })
-
-  return (
-    <Card className="border-amber-500/30" data-testid="channel-cash">
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-          <Wallet className="h-4 w-4 text-amber-400" />
-          Наличные админу
-        </CardTitle>
-        <p className="text-xs text-muted-foreground">
-          Передайте нал любому из админов (Maksym или Kostya). После этого нажмите кнопку —
-          бухгалтер подтвердит зачисление.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {done ? (
-          <SuccessBlock label="Ожидает подтверждения бухгалтера" />
-        ) : (
-          <>
-            <div
-              className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100"
-              data-testid="cash-channel-hint"
-            >
-              Бухгалтер выберет получившего админа после того как нал будет передан. Senior-доля
-              остаётся долгом дропа синьору и закроется позже.
-            </div>
-            <Button
-              className="w-full"
-              disabled={initiate.isPending}
-              onClick={() => initiate.mutate()}
-              data-testid="cash-initiate-button"
-            >
-              {initiate.isPending && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}Я передал нал
-              админу
             </Button>
           </>
         )}

@@ -1,15 +1,16 @@
 /**
- * Drop role - phase 4-A. Public read-only endpoints for the new on-demand
- * balance pipeline. The controllers stay thin: RBAC checks delegate into
- * BalanceService.assertCan… helpers, and the service returns wire-ready DTOs.
+ * Drop role - phase 4 (refactor — task-drop-phase4-refactor-remove-tov.md).
+ * Read-only endpoints for personal balance lookups (admin / senior) and the
+ * pending-obligations list.
  *
- *   GET /api/balances/tov
  *   GET /api/balances/admin/:adminId
  *   GET /api/balances/senior/:seniorId
  *   GET /api/pending-obligations
  *
+ * Removed in the refactor (AC3): GET /api/balances/tov. The corporate ТОВ
+ * balance has no place in the post-refactor model.
+ *
  * Mounted alongside the legacy `FinanceSummaryController` in `FinanceModule`.
- * Phase 2 getSummary is intentionally NOT migrated here; both flows coexist.
  */
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
@@ -33,15 +34,6 @@ function parseCurrency(input: string | undefined): BalanceCurrency {
 @Controller('balances')
 export class BalanceController {
   constructor(private readonly balance: BalanceService) {}
-
-  @Get('tov')
-  async getTOV(
-    @CurrentUser() user: SessionUser,
-    @Query('currency') currency: string | undefined,
-  ) {
-    this.balance.assertCanReadTOV(user)
-    return this.balance.getTOVBalance(parseCurrency(currency))
-  }
 
   @Get('admin/:adminId')
   async getAdmin(

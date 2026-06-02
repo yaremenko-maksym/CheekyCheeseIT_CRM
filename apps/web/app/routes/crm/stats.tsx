@@ -566,35 +566,14 @@ function computeExtraStats(summary: FinanceSummaryDto) {
   }
 }
 
-// ── TOВ balance + participants list (Phase 4-B) ───────────────────────────────
+// ── Participants balances list (Phase 4 refactor) ─────────────────────────────
 //
 // Visible only to ADMIN/ACCOUNTANT; the backend route also enforces the
-// permission. We surface the corporate balance with its breakdown and a flat
-// list of admin/senior balances pulled from the Phase 4-A BalanceService.
+// permission. The corporate ТОВ balance card has been removed in the refactor
+// (task-drop-phase4-refactor-remove-tov.md AC5). Only the flat list of
+// admin/senior balances pulled from BalanceService is rendered now.
 
-// Russian labels for the TOВ breakdown keys returned by BalanceService.
-// Keys come from `apps/api/src/finance/balance.service.ts::getTOVBalance`:
-//   income, dividends_paid, expenses, tax
-// Unknown keys fall back to the snake_case → "snake case" transform inline.
-const BREAKDOWN_LABELS: Record<string, string> = {
-  income: 'Доход',
-  dividends_paid: 'Выплачено дивидендов',
-  expenses: 'Расходы',
-  tax: 'Налог',
-  // Personal admin/senior balance keys — kept here so the same map can be
-  // reused if those breakdowns are ever rendered on this page.
-  cash_income: 'Наличные поступления',
-  crypto_income: 'Крипто поступления',
-  dividends: 'Дивиденды',
-  paid_income: 'Полученные выплаты',
-}
-
-function TovBalanceSection() {
-  const { data: tov, isLoading: tovLoading } = useQuery({
-    queryKey: ['balance', 'tov'],
-    queryFn: () => api.get<BalanceDto>('/balances/tov').then((r) => r.data),
-  })
-
+function ParticipantsBalancesSection() {
   const { data: users = [], isLoading: usersLoading } = useQuery({
     queryKey: ['stats-participants'],
     queryFn: () => api.get<UserProfileDto[]>('/users').then((r) => r.data),
@@ -624,102 +603,41 @@ function TovBalanceSection() {
       <div className="flex items-center gap-2">
         <Building2 className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-          ТОВ + участники
+          Балансы участников
         </h2>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-1" data-testid="tov-balance-card">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between gap-2">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <Building2 className="h-4 w-4 text-emerald-400" />
-                Баланс ТОВ
-              </CardTitle>
-              <TooltipProvider delayDuration={200}>
-                <UITooltip>
-                  <TooltipTrigger asChild>
-                    <HelpCircle className="h-3 w-3 text-muted-foreground/50 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-60 text-xs">
-                    Баланс корпоративного (ТОВ) счёта — приход минус дивиденды, расходы (FIAT_TOV) и
-                    налоги.
-                  </TooltipContent>
-                </UITooltip>
-              </TooltipProvider>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {tovLoading || !tov ? (
-              <Skeleton className="h-24 w-full" />
-            ) : (
-              <>
-                <div
-                  className={cn(
-                    'text-3xl font-bold tabular-nums',
-                    tov.balance >= 0 ? 'text-emerald-400' : 'text-red-400',
-                  )}
-                  data-testid="tov-balance-value"
-                >
-                  $
-                  {tov.balance.toLocaleString('en-US', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </div>
-                <ul className="space-y-1 text-xs">
-                  {Object.entries(tov.breakdown).map(([key, value]) => (
-                    <li key={key} className="flex items-center justify-between">
-                      <span className="text-muted-foreground">
-                        {BREAKDOWN_LABELS[key] ?? key.replace(/_/g, ' ')}
-                      </span>
-                      <span className="tabular-nums font-medium">
-                        $
-                        {value.toLocaleString('en-US', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-2" data-testid="participants-balances-card">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Балансы участников</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {usersLoading ? (
-              <Skeleton className="h-24 w-full" />
-            ) : (
-              <>
-                <ParticipantList
-                  title="Админы"
-                  members={admins.map((a, i) => ({
-                    id: a.id,
-                    displayName: a.displayName,
-                    balance: adminQueries[i]?.data?.balance ?? null,
-                    role: 'ADMIN',
-                  }))}
-                />
-                <ParticipantList
-                  title="Синьоры"
-                  members={seniors.map((s, i) => ({
-                    id: s.id,
-                    displayName: s.displayName,
-                    balance: seniorQueries[i]?.data?.balance ?? null,
-                    role: 'SENIOR',
-                  }))}
-                />
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      <Card data-testid="participants-balances-card">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold">Балансы участников</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {usersLoading ? (
+            <Skeleton className="h-24 w-full" />
+          ) : (
+            <>
+              <ParticipantList
+                title="Админы"
+                members={admins.map((a, i) => ({
+                  id: a.id,
+                  displayName: a.displayName,
+                  balance: adminQueries[i]?.data?.balance ?? null,
+                  role: 'ADMIN',
+                }))}
+              />
+              <ParticipantList
+                title="Синьоры"
+                members={seniors.map((s, i) => ({
+                  id: s.id,
+                  displayName: s.displayName,
+                  balance: seniorQueries[i]?.data?.balance ?? null,
+                  role: 'SENIOR',
+                }))}
+              />
+            </>
+          )}
+        </CardContent>
+      </Card>
     </section>
   )
 }
@@ -815,8 +733,8 @@ function StatsPage() {
         </Badge>
       </div>
 
-      {/* ── ТОВ balance + participants (Phase 4-B) ── */}
-      <TovBalanceSection />
+      {/* ── Participants balances (Phase 4 refactor — TOV card removed) ── */}
+      <ParticipantsBalancesSection />
 
       {/* ── Finance section ── */}
       <section className="space-y-4">
