@@ -1,28 +1,28 @@
 /**
- * Drop role - phase 4 (refactor — task-drop-phase4-refactor-remove-tov.md).
+ * task-drop-company-debt-and-invoices.
  * Unit tests for `PendingSettlementService`.
  *
  * Coverage:
- *   - listSeniorObligations / listDropObligations RBAC.
- *   - settleByDrop: closes obligation + inserts SENIOR_PAID; DROP can only
- *     close own debt; non-DROP obligation rejected.
+ *   - listSeniorObligations / listCompanyObligations RBAC (DROP cannot list
+ *     company obligations).
+ *   - settleByCompany: closes COMPANY-debt obligation + inserts SENIOR_INCOME
+ *     row (status=PAID) + triggers invoice auto-create.
+ *   - settleByCompany RBAC: ADMIN/ACCOUNTANT only; DROP → 403, SENIOR → 403.
+ *   - settleByDrop / listDropObligations removed — no tests for them.
  *   - Edge: already-settled obligation → 400; non-existent obligation → 404.
- *
- * Removed in the refactor: listTovObligations / settleByTov tests — the
- * TOV-debt lifecycle is gone (AC3, AC9).
  */
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { pendingObligations, transactions } from '../database/schema'
 import { PendingSettlementService } from './pending-settlement.service'
+import type { InvoicesService } from '../invoices/invoices.service'
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
 const SENIOR_ID = '11111111-1111-4111-8111-111111111111'
 const DROP_ID = '22222222-2222-4222-8222-222222222222'
-const OTHER_DROP_ID = '33333333-3333-4333-8333-333333333333'
-const OBLIGATION_DROP = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+const OBLIGATION_COMPANY = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const SOURCE_TX_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const PROJECT_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 
@@ -74,12 +74,12 @@ const juniorUser: SessionUser = {
 
 function makeObligation(overrides: Record<string, unknown> = {}) {
   return {
-    id: OBLIGATION_DROP,
+    id: OBLIGATION_COMPANY,
     creditorUserId: SENIOR_ID,
-    debtorType: 'DROP' as const,
-    debtorUserId: DROP_ID,
+    debtorType: 'COMPANY' as const,
+    debtorUserId: null as string | null,
     sourceTransactionId: SOURCE_TX_ID,
-    closingTransactionId: null,
+    closingTransactionId: null as string | null,
     amount: '560',
     currency: 'USDT' as const,
     status: 'PENDING' as const,
@@ -96,10 +96,10 @@ function makeSourceTx(overrides: Record<string, unknown> = {}) {
     projectId: PROJECT_ID,
     amount: '560',
     currency: 'USDT' as const,
-    senderId: DROP_ID,
+    senderId: null,
     receiverId: SENIOR_ID,
     recipientId: SENIOR_ID,
-    senderLabel: 'DROP',
+    senderLabel: 'COMPANY',
     receiverLabel: null,
     status: 'PENDING_PAYMENT' as const,
     payoutRequestId: null,
@@ -114,7 +114,7 @@ function makeSourceTx(overrides: Record<string, unknown> = {}) {
     receiptDocumentId: null,
     receiptExternalUrl: null,
     invoiceDocumentId: null,
-    createdBy: DROP_ID,
+    createdBy: 'system',
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
@@ -141,23 +141,22 @@ interface MockState {
   drop: ReturnType<typeof makeDropRow> | null
   inserts: Array<{ table: unknown; row: Record<string, unknown> }>
   updates: Array<{ table: unknown; set: Record<string, unknown>; obligationId: string }>
+  invoiceCalls: string[]
 }
 
 function makeService(initial: Partial<MockState> = {}) {
   const state: MockState = {
-    obligations: new Map([[OBLIGATION_DROP, makeObligation()]]),
+    obligations: new Map([[OBLIGATION_COMPANY, makeObligation()]]),
     sourceTxs: new Map([[SOURCE_TX_ID, makeSourceTx()]]),
     project: makeProject(),
     senior: makeSeniorRow(),
     drop: makeDropRow(),
     inserts: [],
     updates: [],
+    invoiceCalls: [],
     ...initial,
   }
 
-  // Match obligation id by extracting the literal embedded inside the
-  // `where: eq(pendingObligations.id, X)` operator. We don't traverse
-  // PgTable cycles — just collect shallow string values.
   const collectStringValues = (obj: unknown, acc: string[] = [], depth = 0): string[] => {
     if (acc.length > 50 || depth > 6 || obj === null || obj === undefined) return acc
     if (typeof obj === 'string') {
@@ -182,14 +181,10 @@ function makeService(initial: Partial<MockState> = {}) {
     update: (table: unknown) => ({
       set: (patch: Record<string, unknown>) => ({
         where: async (predicate: unknown) => {
-          // The service always updates a specific obligation row — the id is
-          // the only literal in the eq() predicate.
           const values = collectStringValues(predicate)
-          const oblId = values.find((v) => v === OBLIGATION_DROP) ?? ''
+          const oblId = values.find((v) => state.obligations.has(v)) ?? lastUpdateObligationId
           lastUpdateObligationId = oblId
           state.updates.push({ table, set: patch, obligationId: oblId })
-          // Mutate the in-memory obligation so the post-update findFirst
-          // returns the patched row.
           const existing = state.obligations.get(oblId)
           if (existing) {
             state.obligations.set(oblId, {
@@ -204,7 +199,7 @@ function makeService(initial: Partial<MockState> = {}) {
       values: (row: Record<string, unknown>) => {
         const id = `inserted-${state.inserts.length + 1}`
         state.inserts.push({ table, row: { ...row, id } })
-        const returning = async () => [{ id }]
+        const returning = async () => [{ id, ...row, type: row['type'] }]
         return { returning } as unknown as Promise<unknown[]> & { returning: typeof returning }
       },
     }),
@@ -226,21 +221,18 @@ function makeService(initial: Partial<MockState> = {}) {
         findMany: vi.fn(async (args: unknown) => {
           const values = collectStringValues(args)
           let rows = Array.from(state.obligations.values())
-          // Status conjunct — always PENDING in our tests.
           rows = rows.filter((r) => r.status === 'PENDING')
-          // creditorUserId / debtorType / debtorUserId predicates: filter by
-          // literal presence. Crude but matches what the service emits.
           if (values.includes(SENIOR_ID)) {
             rows = rows.filter((r) => r.creditorUserId === SENIOR_ID)
           }
-          if (values.includes(DROP_ID)) {
-            rows = rows.filter((r) => r.debtorUserId === DROP_ID)
-          }
           if (values.includes('TOV')) {
             rows = rows.filter((r) => r.debtorType === 'TOV')
-          } else if (values.includes('DROP') && !values.includes(SENIOR_ID)) {
-            // listDropObligations passes debtorType='DROP'
-            rows = rows.filter((r) => r.debtorType === 'DROP')
+          } else if (values.includes('COMPANY') && !values.includes('DROP')) {
+            // listCompanyObligations passes only debtorType='COMPANY'
+            rows = rows.filter((r) => r.debtorType === 'COMPANY')
+          } else if (values.includes('COMPANY') && values.includes('DROP')) {
+            // listSeniorObligations passes inArray(['COMPANY','DROP'])
+            rows = rows.filter((r) => r.debtorType === 'COMPANY' || r.debtorType === 'DROP')
           }
           return rows
         }),
@@ -270,10 +262,18 @@ function makeService(initial: Partial<MockState> = {}) {
   }
   const dbStub = { db: drizzleClient } as unknown
 
-  const svc = new PendingSettlementService(dbStub as never)
+  // Mock InvoicesService — only `autoCreateForSeniorPayout` is called.
+  const invoicesMock = {
+    autoCreateForSeniorPayout: vi.fn(async (transactionId: string) => {
+      state.invoiceCalls.push(transactionId)
+    }),
+  } as unknown as InvoicesService
+
+  const svc = new PendingSettlementService(dbStub as never, invoicesMock)
   return {
     svc,
     state,
+    invoicesMock,
     getInsertsFor: (table: unknown) =>
       state.inserts.filter((i) => i.table === table).map((i) => i.row),
     getUpdatesFor: (table: unknown) =>
@@ -281,20 +281,20 @@ function makeService(initial: Partial<MockState> = {}) {
   }
 }
 
-// ── settleByDrop ────────────────────────────────────────────────────────────
+// ── settleByCompany ─────────────────────────────────────────────────────────
 
-describe('PendingSettlementService.settleByDrop', () => {
-  it('closes obligation + inserts SENIOR_PAID transaction', async () => {
+describe('PendingSettlementService.settleByCompany', () => {
+  it('closes COMPANY obligation + inserts SENIOR_INCOME transaction', async () => {
     const { svc, getInsertsFor, getUpdatesFor, state } = makeService()
-    const result = await svc.settleByDrop(OBLIGATION_DROP, dropUser)
+    const result = await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
 
     const txInserts = getInsertsFor(transactions)
     expect(txInserts).toHaveLength(1)
-    expect(txInserts[0]?.['type']).toBe('SENIOR_PAID')
-    expect(txInserts[0]?.['senderId']).toBe(DROP_ID)
-    expect(txInserts[0]?.['senderLabel']).toBe('DROP')
+    expect(txInserts[0]?.['type']).toBe('SENIOR_INCOME')
+    expect(txInserts[0]?.['senderLabel']).toBe('COMPANY')
     expect(txInserts[0]?.['receiverId']).toBe(SENIOR_ID)
     expect(txInserts[0]?.['amount']).toBe('560')
+    expect(txInserts[0]?.['status']).toBe('PAID')
 
     const oblUpdates = getUpdatesFor(pendingObligations)
     expect(oblUpdates).toHaveLength(1)
@@ -303,59 +303,76 @@ describe('PendingSettlementService.settleByDrop', () => {
 
     expect(result.obligation.status).toBe('PAID')
     expect(result.created).toHaveLength(1)
-    expect(state.obligations.get(OBLIGATION_DROP)?.status).toBe('PAID')
+    expect(state.obligations.get(OBLIGATION_COMPANY)?.status).toBe('PAID')
   })
 
-  it('ACCOUNTANT may close any DROP debt', async () => {
+  it('triggers invoice auto-create on SENIOR_INCOME row', async () => {
+    const { svc, state } = makeService()
+    await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+    expect(state.invoiceCalls).toHaveLength(1)
+    expect(state.invoiceCalls[0]).toBe('inserted-1')
+  })
+
+  it('ADMIN may settle', async () => {
     const { svc, getInsertsFor } = makeService()
-    await svc.settleByDrop(OBLIGATION_DROP, accountantUser)
+    await svc.settleByCompany(OBLIGATION_COMPANY, adminUser)
     expect(getInsertsFor(transactions)).toHaveLength(1)
   })
 
-  it('ADMIN may close any DROP debt', async () => {
-    const { svc, getInsertsFor } = makeService()
-    await svc.settleByDrop(OBLIGATION_DROP, adminUser)
-    expect(getInsertsFor(transactions)).toHaveLength(1)
+  it('DROP forbidden → 403', async () => {
+    const { svc } = makeService()
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, dropUser)).rejects.toThrow(
+      ForbiddenException,
+    )
   })
 
-  it("DROP cannot close someone else's debt → 403", async () => {
-    const { svc } = makeService({
-      obligations: new Map([[OBLIGATION_DROP, makeObligation({ debtorUserId: OTHER_DROP_ID })]]),
+  it('SENIOR forbidden → 403', async () => {
+    const { svc } = makeService()
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, seniorUser)).rejects.toThrow(
+      ForbiddenException,
+    )
+  })
+
+  it('JUNIOR forbidden → 403', async () => {
+    const { svc } = makeService()
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, juniorUser)).rejects.toThrow(
+      ForbiddenException,
+    )
+  })
+
+  it('legacy DROP-debt can also be closed by company (admin clean-up)', async () => {
+    const { svc, getInsertsFor } = makeService({
+      obligations: new Map([
+        [OBLIGATION_COMPANY, makeObligation({ debtorType: 'DROP', debtorUserId: DROP_ID })],
+      ]),
     })
-    await expect(svc.settleByDrop(OBLIGATION_DROP, dropUser)).rejects.toThrow(ForbiddenException)
+    await svc.settleByCompany(OBLIGATION_COMPANY, adminUser)
+    expect(getInsertsFor(transactions)).toHaveLength(1)
   })
 
-  it('SENIOR cannot settle (only ACCOUNTANT/ADMIN/debtor-DROP) → 403', async () => {
-    const { svc } = makeService()
-    await expect(svc.settleByDrop(OBLIGATION_DROP, seniorUser)).rejects.toThrow(ForbiddenException)
-  })
-
-  it('JUNIOR cannot settle → 403', async () => {
-    const { svc } = makeService()
-    await expect(svc.settleByDrop(OBLIGATION_DROP, juniorUser)).rejects.toThrow(ForbiddenException)
+  it('TOV obligation rejected → 400', async () => {
+    const { svc } = makeService({
+      obligations: new Map([
+        [OBLIGATION_COMPANY, makeObligation({ debtorType: 'TOV', debtorUserId: null })],
+      ]),
+    })
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
+      BadRequestException,
+    )
   })
 
   it('already-PAID obligation → 400', async () => {
     const { svc } = makeService({
-      obligations: new Map([[OBLIGATION_DROP, makeObligation({ status: 'PAID' })]]),
+      obligations: new Map([[OBLIGATION_COMPANY, makeObligation({ status: 'PAID' })]]),
     })
-    await expect(svc.settleByDrop(OBLIGATION_DROP, dropUser)).rejects.toThrow(BadRequestException)
-  })
-
-  it('debtorType=TOV cannot be closed by settleByDrop → 400', async () => {
-    const { svc } = makeService({
-      obligations: new Map([
-        [OBLIGATION_DROP, makeObligation({ debtorType: 'TOV', debtorUserId: null })],
-      ]),
-    })
-    await expect(svc.settleByDrop(OBLIGATION_DROP, accountantUser)).rejects.toThrow(
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
       BadRequestException,
     )
   })
 
   it('obligation not found → 404', async () => {
     const { svc } = makeService({ obligations: new Map() })
-    await expect(svc.settleByDrop(OBLIGATION_DROP, accountantUser)).rejects.toThrow(
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
       NotFoundException,
     )
   })
@@ -369,6 +386,7 @@ describe('PendingSettlementService.listSeniorObligations', () => {
     const result = await svc.listSeniorObligations(seniorUser)
     expect(result).toHaveLength(1)
     expect(result[0]?.seniorId).toBe(SENIOR_ID)
+    expect(result[0]?.debtorType).toBe('COMPANY')
   })
 
   it('ACCOUNTANT sees all senior obligations', async () => {
@@ -394,31 +412,32 @@ describe('PendingSettlementService.listSeniorObligations', () => {
   })
 })
 
-describe('PendingSettlementService.listDropObligations', () => {
-  it('DROP sees only own debts', async () => {
+describe('PendingSettlementService.listCompanyObligations', () => {
+  it('ADMIN sees pending COMPANY debts', async () => {
     const { svc } = makeService()
-    const result = await svc.listDropObligations(dropUser)
+    const result = await svc.listCompanyObligations(adminUser)
     expect(result).toHaveLength(1)
-    expect(result[0]?.debtorUserId).toBe(DROP_ID)
+    expect(result[0]?.debtorType).toBe('COMPANY')
   })
 
-  it('ACCOUNTANT sees all drop debts', async () => {
+  it('ACCOUNTANT sees pending COMPANY debts', async () => {
     const { svc } = makeService()
-    const result = await svc.listDropObligations(accountantUser)
+    const result = await svc.listCompanyObligations(accountantUser)
     expect(result).toHaveLength(1)
+  })
+
+  it('DROP forbidden → 403', async () => {
+    const { svc } = makeService()
+    await expect(svc.listCompanyObligations(dropUser)).rejects.toThrow(ForbiddenException)
   })
 
   it('SENIOR forbidden → 403', async () => {
     const { svc } = makeService()
-    await expect(svc.listDropObligations(seniorUser)).rejects.toThrow(ForbiddenException)
+    await expect(svc.listCompanyObligations(seniorUser)).rejects.toThrow(ForbiddenException)
   })
 
   it('JUNIOR forbidden → 403', async () => {
     const { svc } = makeService()
-    await expect(svc.listDropObligations(juniorUser)).rejects.toThrow(ForbiddenException)
+    await expect(svc.listCompanyObligations(juniorUser)).rejects.toThrow(ForbiddenException)
   })
 })
-
-// Phase 4 refactor: listTovObligations removed (AC3, AC9). Tests deleted
-// alongside the implementation. TOV-debtor history rows remain in the
-// table but are not surfaced by the service.
