@@ -128,6 +128,12 @@ export class InvoicesService {
    * `TransactionsService.payPayoutRequest` after the payout request flips to
    * PAID. The senior themselves is the counterparty (the invoice represents
    * the 74% they're paying back to the company).
+   *
+   * task-aggregate-invoice-per-payout: this trigger is kept for legacy /
+   * settle-by-company callers (`PendingSettlementService.settleByCompany`)
+   * that still create one invoice per SENIOR_INCOME row. The main payout
+   * flow now uses `autoCreateForPayout` (one invoice per PAYOUT, aggregating
+   * all linked income rows).
    */
   async autoCreateForSeniorPayout(transactionId: string): Promise<void> {
     const tx = await this.db.db.query.transactions.findFirst({
@@ -136,6 +142,207 @@ export class InvoicesService {
     if (!tx) return // tx gone — nothing to do (defensive)
     if (tx.type !== 'SENIOR_INCOME') return
     await this.autoCreate(tx)
+  }
+
+  /**
+   * task-aggregate-invoice-per-payout. Trigger 3: PAYOUT → invoice. Called
+   * from `TransactionsService.payPayoutRequest` after the cascade flips the
+   * PAYOUT row to PAID. Aggregates every SENIOR_INCOME / DROP_INCOME row that
+   * shares the same `payoutRequestId` into a single invoice:
+   *
+   *   - Amount = sum of linked income amounts (defensive: also matches the
+   *     PAYOUT row's own amount for the senior-keeps share, but we use the
+   *     income sum so the invoice text aligns with what the SENIOR billed
+   *     the company for).
+   *   - Currency = first linked income's currency (mixed-currency is an
+   *     unsupported edge case; PHASE 8 will rework when smart-contracts ship).
+   *   - Description = «Услуги исполнителя согласно контракту № <N>» where
+   *     `<N>` is the placeholder formula `CHK-<userId-prefix>-<year>` per
+   *     spec AC3 Variant B (no migration).
+   *   - Counterparty = receiver of the PAYOUT cascade. In senior-projects
+   *     this is the senior themselves (= receiver of the income); in
+   *     drop-projects this is the drop user (project.dropId). We resolve via
+   *     the first linked income's `receiverId` which is the correct field for
+   *     both flows.
+   *
+   * Idempotency anchor: `transactions.invoice_document_id` on the PAYOUT row
+   * itself. Replaying the trigger (e.g. retry after S3 outage) is a no-op
+   * once the doc is linked.
+   */
+  async autoCreateForPayout(payoutTxId: string): Promise<void> {
+    const payoutTx = await this.db.db.query.transactions.findFirst({
+      where: eq(transactions.id, payoutTxId),
+    })
+    if (!payoutTx) return
+    if (payoutTx.type !== 'PAYOUT') return
+    if (!payoutTx.payoutRequestId) {
+      this.logger.warn(`autoCreateForPayout: PAYOUT tx=${payoutTxId} has no payoutRequestId`)
+      return
+    }
+
+    // Idempotency guard on the PAYOUT row.
+    if (payoutTx.invoiceDocumentId) {
+      this.logger.debug(`autoCreateForPayout: PAYOUT ${payoutTxId} already has invoice — skip`)
+      return
+    }
+
+    // Fetch all linked income rows that contributed to this payout.
+    const linkedIncomes = await this.db.db.query.transactions.findMany({
+      where: and(
+        eq(transactions.payoutRequestId, payoutTx.payoutRequestId),
+        inArray(transactions.type, ['SENIOR_INCOME', 'DROP_INCOME']),
+      ),
+    })
+    if (linkedIncomes.length === 0) {
+      this.logger.warn(
+        `autoCreateForPayout: PAYOUT ${payoutTxId} has no linked SENIOR_INCOME/DROP_INCOME — skip`,
+      )
+      return
+    }
+
+    // Counterparty resolution: receiver of the income rows (drop owner or
+    // senior). All linked incomes share the same receiver in practice — a
+    // payout_request is per-senior (or per-drop in the drop flow). We pick
+    // the first non-null receiver defensively.
+    const firstWithReceiver = linkedIncomes.find((i) => i.receiverId)
+    const counterpartyId = firstWithReceiver?.receiverId ?? null
+    if (!counterpartyId) {
+      this.logger.warn(
+        `autoCreateForPayout: PAYOUT ${payoutTxId} — no receiver found on linked incomes`,
+      )
+      return
+    }
+
+    const counterpartyRow = await this.db.db.query.users.findFirst({
+      where: eq(users.id, counterpartyId),
+    })
+    if (!counterpartyRow) {
+      this.logger.warn(`autoCreateForPayout: counterparty ${counterpartyId} missing`)
+      return
+    }
+
+    const adminId = await this.getAdminId()
+    const adminRow = await this.db.db.query.users.findFirst({
+      where: eq(users.id, adminId),
+    })
+    if (!adminRow) {
+      this.logger.error(`autoCreateForPayout: ADMIN user ${adminId} not found`)
+      return
+    }
+
+    // Aggregate amount + collect project names. Per-project lookup is
+    // tolerated as the linked income count is bounded by the number of
+    // active projects per senior (typically ≤ 6). The N+1 query is
+    // acceptable here — caching would over-engineer for the expected fanout.
+    const aggregatedAmount = linkedIncomes
+      .reduce((sum, row) => sum + parseFloat(row.amount), 0)
+      .toString()
+    const projectNames: string[] = []
+    const seenProjectIds = new Set<string>()
+    for (const incomeRow of linkedIncomes) {
+      if (!incomeRow.projectId || seenProjectIds.has(incomeRow.projectId)) continue
+      seenProjectIds.add(incomeRow.projectId)
+      const project = await this.db.db.query.projects.findFirst({
+        where: eq(projects.id, incomeRow.projectId),
+      })
+      if (project) projectNames.push(project.name)
+    }
+
+    // Resolve txDate/period/currency for the invoice payload. The PAYOUT row
+    // itself is what the SENIOR signed on-chain — its txDate (= request paid
+    // moment) is the most precise stamp.
+    const aggregatedCurrency = (linkedIncomes[0]?.currency ?? payoutTx.currency) as
+      | 'USDT'
+      | 'USD'
+      | 'EUR'
+      | 'UAH'
+    const txDate = payoutTx.txDate ?? payoutTx.createdAt
+    const contractNumber = this.buildContractNumber(counterpartyRow.id, txDate)
+
+    // PDF generation — aggregated invoice uses the new contract-line
+    // description, with the project list as a secondary line if any are
+    // known.
+    const txInfo: InvoiceTransactionInfo = {
+      id: payoutTx.id,
+      type: 'SENIOR_INCOME',
+      amount: aggregatedAmount,
+      currency: aggregatedCurrency,
+      projectName: null,
+      projectNames,
+      contractNumber,
+      // Use the salary month of the first linked income — they all belong to
+      // the same payout cycle so the month is consistent. NULL falls through
+      // to "no period line".
+      salaryMonth: linkedIncomes[0]?.salaryMonth ?? null,
+      txDate,
+    }
+    const counterpartyInfo = this.buildCounterpartyInfo(counterpartyRow)
+    const verifyUrl = this.buildVerifyUrl(payoutTx.id)
+    const sigForAdmin: InvoiceSignatureInfo = {
+      role: 'COMPANY',
+      signerName: adminRow.displayName,
+      signedAt: new Date(),
+      method: 'AUTO_COMPANY',
+    }
+
+    const { pdfBuffer, sha256Hash } = await this.pdfService.generateSignableInvoicePdf({
+      transaction: txInfo,
+      company: COMPANY_INFO,
+      counterparty: counterpartyInfo,
+      signatures: [sigForAdmin],
+      verifyUrl,
+    })
+
+    const doc = await this.documentsService.uploadInternal({
+      category: 'INVOICE',
+      ownerId: counterpartyRow.id,
+      file: pdfBuffer,
+      mimeType: 'application/pdf',
+      name: `invoice-${payoutTx.id.slice(0, 8)}.pdf`,
+      uploadedById: adminId,
+    })
+
+    await this.db.db
+      .update(transactions)
+      .set({ invoiceDocumentId: doc.id, updatedAt: new Date() })
+      .where(eq(transactions.id, payoutTx.id))
+
+    await this.db.db.insert(invoiceSignatures).values({
+      transactionId: payoutTx.id,
+      signerRole: 'COMPANY',
+      signerId: adminId,
+      pdfHash: sha256Hash,
+      method: 'AUTO_COMPANY',
+      ipAddress: null,
+      userAgent: null,
+    })
+
+    await this.notificationsService.create({
+      userId: counterpartyRow.id,
+      type: 'INVOICE_SIGN_REQUIRED',
+      title: 'Инвойс ожидает вашей подписи',
+      body: `Выплата синьора — сумма ${this.formatAmountForNotification(aggregatedAmount, aggregatedCurrency)}`,
+      link: `/crm/documents?category=INVOICE&openTx=${payoutTx.id}`,
+    })
+
+    this.logger.log(
+      `autoCreateForPayout: PAYOUT=${payoutTx.id} req=${payoutTx.payoutRequestId} ` +
+        `incomes=${linkedIncomes.length} projects=${projectNames.length} ` +
+        `counterparty=${counterpartyRow.id} doc=${doc.id} hash=${sha256Hash.slice(0, 8)}`,
+    )
+  }
+
+  /**
+   * task-aggregate-invoice-per-payout. Build the placeholder contract number
+   * as `CHK-<first 8 chars of userId>-<UTC year>`. This is Variant B from the
+   * task spec — no DB migration, no per-user override. Replaced by the
+   * dedicated contracts module in a later phase; until then every active
+   * contractor deterministically maps to one «CHK-…» identifier for the
+   * current calendar year.
+   */
+  private buildContractNumber(userId: string, txDate: Date): string {
+    const prefix = userId.replace(/-/g, '').slice(0, 8).toLowerCase()
+    return `CHK-${prefix}-${txDate.getUTCFullYear()}`
   }
 
   /**
@@ -281,24 +488,39 @@ export class InvoicesService {
   // ===========================================================================
 
   async listInvoices(viewer: SessionUser, filters: InvoiceListFilters): Promise<InvoiceListItem[]> {
-    // Only SENIOR_INCOME + SALARY rows with a generated invoice are listed.
+    // task-aggregate-invoice-per-payout. PAYOUT rows now also carry an
+    // invoice (the aggregated one). The counterparty for PAYOUT is the
+    // sender (senior / drop) — see getCounterpartyId — so the join below
+    // resolves via COALESCE(receiverId, senderId).
     const baseConditions = [
-      inArray(transactions.type, ['SENIOR_INCOME', 'SALARY']),
+      inArray(transactions.type, ['SENIOR_INCOME', 'SALARY', 'PAYOUT']),
       isNotNull(transactions.invoiceDocumentId),
     ]
 
     // ---- RBAC ----
     if (viewer.role !== 'ADMIN' && viewer.role !== 'ACCOUNTANT') {
-      // Counterparty rule: SENIOR_INCOME counterparty is the receiver (the
-      // senior themselves); SALARY counterparty is also the receiver
-      // (JUNIOR / HR / ACCOUNTANT). So in both cases viewer.id must equal
-      // transactions.receiverId.
-      baseConditions.push(eq(transactions.receiverId, viewer.id))
+      // Counterparty rule:
+      //   - SENIOR_INCOME / SALARY counterparty = `receiverId`
+      //   - PAYOUT counterparty = `senderId`
+      // The viewer must match the appropriate field for the row's type.
+      baseConditions.push(
+        sql`((${transactions.type} IN ('SENIOR_INCOME', 'SALARY') AND ${transactions.receiverId} = ${viewer.id})
+            OR (${transactions.type} = 'PAYOUT' AND ${transactions.senderId} = ${viewer.id}))`,
+      )
     }
 
     // ---- Type filter ----
     if (filters.type) {
-      baseConditions.push(eq(transactions.type, filters.type))
+      // Allow only invoice-eligible types as before. The public InvoiceType
+      // schema is SENIOR_INCOME | SALARY; PAYOUT-anchored invoices surface
+      // to the UI as `SENIOR_INCOME` (mapped below). When the caller
+      // filters `type=SENIOR_INCOME` we include both real SENIOR_INCOMEs
+      // and the aggregated PAYOUT rows so the existing UI stays intact.
+      if (filters.type === 'SENIOR_INCOME') {
+        baseConditions.push(sql`${transactions.type} IN ('SENIOR_INCOME', 'PAYOUT')`)
+      } else {
+        baseConditions.push(eq(transactions.type, filters.type))
+      }
     }
 
     // ---- Status filter (computed via EXISTS on invoice_signatures) ----
@@ -319,23 +541,33 @@ export class InvoicesService {
         amount: transactions.amount,
         currency: transactions.currency,
         receiverId: transactions.receiverId,
-        receiverName: users.displayName,
+        // task-aggregate-invoice-per-payout. Join the user via COALESCE so
+        // PAYOUT rows resolve through senderId. The expression returns the
+        // counterparty's displayName regardless of row type.
+        counterpartyName: sql<string | null>`COALESCE(${users.displayName}, '—')`,
         createdAt: transactions.createdAt,
         // Subquery flag — true when a COUNTERPARTY signature exists.
         signedFlag: sql<boolean>`EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${transactions.id} AND signer_role = 'COUNTERPARTY')`,
       })
       .from(transactions)
-      .leftJoin(users, eq(users.id, transactions.receiverId))
+      .leftJoin(
+        users,
+        sql`${users.id} = COALESCE(${transactions.receiverId}, ${transactions.senderId})`,
+      )
       .where(and(...baseConditions))
       .orderBy(desc(transactions.createdAt))
 
     return rows.map((r) => ({
       transactionId: r.id,
       status: (r.signedFlag ? 'SIGNED' : 'PENDING') as InvoiceStatus,
-      type: r.type as InvoiceType,
+      // Public InvoiceType is SENIOR_INCOME | SALARY. Aggregated PAYOUT
+      // invoices map to SENIOR_INCOME so the UI label («Выплата синьора»)
+      // and existing filters keep working — the aggregation is an
+      // implementation detail of the backend.
+      type: (r.type === 'PAYOUT' ? 'SENIOR_INCOME' : r.type) as InvoiceType,
       amount: r.amount,
       currency: r.currency,
-      counterpartyName: r.receiverName ?? '—',
+      counterpartyName: r.counterpartyName ?? '—',
       createdAt: r.createdAt.toISOString(),
     }))
   }
@@ -349,6 +581,7 @@ export class InvoicesService {
       where: eq(transactions.id, transactionId),
       with: {
         receiver: { columns: { id: true, displayName: true } },
+        sender: { columns: { id: true, displayName: true } },
         project: { columns: { name: true } },
       },
     })
@@ -356,10 +589,12 @@ export class InvoicesService {
 
     const tx = row as Transaction & {
       receiver: { id: string; displayName: string } | null
+      sender: { id: string; displayName: string } | null
       project: { name: string } | null
     }
 
-    if (tx.type !== 'SENIOR_INCOME' && tx.type !== 'SALARY') {
+    // task-aggregate-invoice-per-payout: PAYOUT rows now carry invoices too.
+    if (tx.type !== 'SENIOR_INCOME' && tx.type !== 'SALARY' && tx.type !== 'PAYOUT') {
       throw new NotFoundException('Инвойс не предусмотрен для этого типа транзакции')
     }
     if (!tx.invoiceDocumentId) {
@@ -374,15 +609,21 @@ export class InvoicesService {
       ? 'SIGNED'
       : 'PENDING'
 
+    // Counterparty side for the DTO depends on the row's type — for PAYOUT
+    // it's the sender (senior / drop), otherwise the receiver. See
+    // `getCounterpartyId` for the canonical rule.
+    const counterpartyUser = tx.type === 'PAYOUT' ? tx.sender : tx.receiver
     return {
       transactionId: tx.id,
       documentId: tx.invoiceDocumentId,
       status,
-      type: tx.type,
+      // PAYOUT-anchored invoices are surfaced as SENIOR_INCOME to the UI
+      // (the InvoiceType enum is SENIOR_INCOME | SALARY).
+      type: (tx.type === 'PAYOUT' ? 'SENIOR_INCOME' : tx.type) as InvoiceType,
       amount: tx.amount,
       currency: tx.currency,
-      counterpartyId: tx.receiver?.id ?? this.getCounterpartyId(tx) ?? '',
-      counterpartyName: tx.receiver?.displayName ?? '—',
+      counterpartyId: counterpartyUser?.id ?? this.getCounterpartyId(tx) ?? '',
+      counterpartyName: counterpartyUser?.displayName ?? '—',
       projectName: tx.project?.name ?? null,
       salaryMonth: tx.salaryMonth ?? null,
       signatures: signatures.map((s) => ({
@@ -412,7 +653,8 @@ export class InvoicesService {
       where: eq(transactions.id, transactionId),
     })
     if (!tx) throw new NotFoundException('Транзакция не найдена')
-    if (tx.type !== 'SENIOR_INCOME' && tx.type !== 'SALARY') {
+    // task-aggregate-invoice-per-payout: PAYOUT rows now sign too.
+    if (tx.type !== 'SENIOR_INCOME' && tx.type !== 'SALARY' && tx.type !== 'PAYOUT') {
       throw new NotFoundException('Инвойс не предусмотрен для этого типа транзакции')
     }
     if (!tx.invoiceDocumentId) {
@@ -505,8 +747,35 @@ export class InvoicesService {
       ipLastOctet: s.signerRole === 'COUNTERPARTY' && ip ? this.lastOctet(ip) : null,
     }))
 
+    // task-aggregate-invoice-per-payout. For PAYOUT rows we re-resolve the
+    // aggregated description (contract number + project list) on every sign
+    // so the re-rendered PDF matches what the COMPANY originally signed
+    // byte-for-byte (which is what the hash-equality check above already
+    // verified). For SENIOR_INCOME / SALARY we keep the legacy
+    // project-name-per-row path.
     let projectName: string | null = null
-    if (tx.type === 'SENIOR_INCOME' && tx.projectId) {
+    let projectNames: string[] | null = null
+    let contractNumber: string | null = null
+    if (tx.type === 'PAYOUT' && tx.payoutRequestId) {
+      const linkedIncomes = await this.db.db.query.transactions.findMany({
+        where: and(
+          eq(transactions.payoutRequestId, tx.payoutRequestId),
+          inArray(transactions.type, ['SENIOR_INCOME', 'DROP_INCOME']),
+        ),
+      })
+      const names: string[] = []
+      const seen = new Set<string>()
+      for (const incomeRow of linkedIncomes) {
+        if (!incomeRow.projectId || seen.has(incomeRow.projectId)) continue
+        seen.add(incomeRow.projectId)
+        const project = await this.db.db.query.projects.findFirst({
+          where: eq(projects.id, incomeRow.projectId),
+        })
+        if (project) names.push(project.name)
+      }
+      projectNames = names
+      contractNumber = this.buildContractNumber(counterpartyRow.id, tx.txDate ?? tx.createdAt)
+    } else if (tx.type === 'SENIOR_INCOME' && tx.projectId) {
       const project = await this.db.db.query.projects.findFirst({
         where: eq(projects.id, tx.projectId),
       })
@@ -515,10 +784,14 @@ export class InvoicesService {
 
     const txInfo: InvoiceTransactionInfo = {
       id: tx.id,
-      type: tx.type as 'SENIOR_INCOME' | 'SALARY',
+      // PAYOUT rows render with the SENIOR_INCOME template (АКТ ВЫПОЛНЕННЫХ
+      // РАБОТ) — same legal document, just aggregated content.
+      type: (tx.type === 'PAYOUT' ? 'SENIOR_INCOME' : tx.type) as 'SENIOR_INCOME' | 'SALARY',
       amount: tx.amount,
       currency: tx.currency,
       projectName,
+      projectNames,
+      contractNumber,
       salaryMonth: tx.salaryMonth ?? null,
       txDate: tx.txDate ?? tx.createdAt,
     }
@@ -571,7 +844,8 @@ export class InvoicesService {
       where: eq(transactions.id, transactionId),
     })
     if (!tx) throw new NotFoundException('Инвойс не найден')
-    if (tx.type !== 'SENIOR_INCOME' && tx.type !== 'SALARY') {
+    // task-aggregate-invoice-per-payout: PAYOUT rows are valid invoice anchors.
+    if (tx.type !== 'SENIOR_INCOME' && tx.type !== 'SALARY' && tx.type !== 'PAYOUT') {
       throw new NotFoundException('Инвойс не найден')
     }
     if (!tx.invoiceDocumentId) {
@@ -588,7 +862,9 @@ export class InvoicesService {
       status,
       amount: tx.amount,
       currency: tx.currency,
-      type: tx.type,
+      // Public InvoiceType enum is SENIOR_INCOME | SALARY — PAYOUT maps to
+      // SENIOR_INCOME for the verify response.
+      type: (tx.type === 'PAYOUT' ? 'SENIOR_INCOME' : tx.type) as 'SENIOR_INCOME' | 'SALARY',
       // CRITICAL: only public fields. Strip ip / user_agent / full hash.
       signatures: sigs.map((s) => ({
         role: s.signerRole,
@@ -608,13 +884,20 @@ export class InvoicesService {
    *   SENIOR_INCOME — the senior is the counterparty (receiver of the income).
    *   SALARY        — the employee is the counterparty (receiver of the
    *                   salary).
-   * In both flows, `transactions.receiverId` is the right field. Returning
-   * null defensively when the column is unexpectedly NULL (the DB FK ON
-   * DELETE SET NULL means a deleted user breaks the link).
+   *   PAYOUT        — task-aggregate-invoice-per-payout. The aggregated
+   *                   invoice anchors on the PAYOUT row. The PAYOUT row's
+   *                   `senderId` is the senior / drop that initiated the
+   *                   payout — they are the counterparty (the entity signing
+   *                   on behalf of «ИСПОЛНИТЕЛЬ» in the act).
+   * Returning null defensively when the column is unexpectedly NULL (the DB
+   * FK ON DELETE SET NULL means a deleted user breaks the link).
    */
   private getCounterpartyId(tx: Transaction): string | null {
     if (tx.type === 'SENIOR_INCOME' || tx.type === 'SALARY') {
       return tx.receiverId
+    }
+    if (tx.type === 'PAYOUT') {
+      return tx.senderId
     }
     return null
   }
@@ -649,7 +932,10 @@ export class InvoicesService {
    * invoice card / dialog header.
    */
   private getInvoiceTypeLabel(type: string): string {
-    if (type === 'SENIOR_INCOME') return 'Выплата синьора'
+    // task-aggregate-invoice-per-payout: PAYOUT rows share the senior
+    // payout label (the invoice represents the same money flow — senior
+    // settling with the company).
+    if (type === 'SENIOR_INCOME' || type === 'PAYOUT') return 'Выплата синьора'
     if (type === 'SALARY') return 'Зарплата'
     return 'Инвойс'
   }

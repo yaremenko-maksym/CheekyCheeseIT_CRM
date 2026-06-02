@@ -53,6 +53,7 @@ interface TxRow {
   senderId: string | null
   receiverId: string | null
   projectId: string | null
+  payoutRequestId?: string | null
   invoiceDocumentId: string | null
   salaryMonth: string | null
   txDate: Date | null
@@ -110,6 +111,20 @@ function buildHarness(state: HarnessState) {
     lookupProjectId: null as string | null,
     userFindFirstQueue: [] as string[],
     sigQueueRoles: [] as Array<'COMPANY' | 'COUNTERPARTY'>,
+    // task-aggregate-invoice-per-payout. When set, transactions.findMany
+    // returns the SENIOR_INCOME / DROP_INCOME rows from `state.txs` whose
+    // `payoutRequestId` matches this value. Used by autoCreateForPayout
+    // happy-path tests.
+    linkedPayoutRequestId: null as string | null,
+    // The projects lookup id queue: autoCreateForPayout iterates over the
+    // linked income rows and calls projects.findFirst once per unique project.
+    // The test seeds the queue in the order the service will consume them.
+    projectFindQueue: [] as string[],
+    // task-aggregate-invoice-per-payout. When set, the update().set().where()
+    // patch targets this specific tx id instead of the `findTxId` (used by
+    // aggregated PAYOUT flow which queries the PAYOUT row via findFirst but
+    // patches it via a separate update keyed on its id).
+    updateTargetTxId: null as string | null,
   }
 
   // -------- select chains --------
@@ -236,6 +251,21 @@ function buildHarness(state: HarnessState) {
             }
             return t
           },
+          // task-aggregate-invoice-per-payout. autoCreateForPayout uses
+          // findMany to pull all SENIOR_INCOME / DROP_INCOME rows linked to a
+          // PAYOUT row via payoutRequestId. The harness returns the income tx
+          // rows pre-seeded in state.txs whose `payoutRequestId` matches the
+          // pinned `linkedPayoutRequestId` hint (set by the test before calling
+          // the service).
+          findMany: async (_args: { where?: unknown }) => {
+            const reqId = ctrl.linkedPayoutRequestId
+            if (!reqId) return []
+            return state.txs.filter(
+              (t) =>
+                t.payoutRequestId === reqId &&
+                (t.type === 'SENIOR_INCOME' || t.type === 'DROP_INCOME'),
+            )
+          },
         },
         users: {
           findFirst: async (_args: unknown) => {
@@ -246,7 +276,12 @@ function buildHarness(state: HarnessState) {
         },
         projects: {
           findFirst: async (_args: unknown) => {
-            const id = ctrl.lookupProjectId
+            // Aggregated PAYOUT flow consumes the projectFindQueue (one call
+            // per linked income's projectId). Falls back to the legacy single
+            // `lookupProjectId` hint when the queue is empty — keeps the
+            // existing autoCreateForSeniorPayout tests untouched.
+            const queued = ctrl.projectFindQueue.shift()
+            const id = queued ?? ctrl.lookupProjectId
             if (!id) return undefined
             return state.projects.find((p) => p.id === id)
           },
@@ -277,7 +312,12 @@ function buildHarness(state: HarnessState) {
         set: (v: Record<string, unknown>) => ({
           where: async (_p: unknown) => {
             if ('invoiceDocumentId' in v) {
-              const id = ctrl.findTxId
+              // task-aggregate-invoice-per-payout. When `updateTargetTxId` is
+              // set, prefer that as the update target — aggregated PAYOUT
+              // flow patches the PAYOUT row, not the row matched by
+              // `findTxId` (which is the income tx the test pinned for the
+              // primary lookup). Falls back to legacy behavior when unset.
+              const id = ctrl.updateTargetTxId ?? ctrl.findTxId
               const target = id ? state.txs.find((t) => t.id === id) : state.txs[0]
               if (target) target.invoiceDocumentId = v['invoiceDocumentId'] as string | null
             }
@@ -379,6 +419,7 @@ function tx(overrides: Partial<TxRow> = {}): TxRow {
     senderId: overrides.senderId ?? null,
     receiverId: overrides.receiverId ?? null,
     projectId: overrides.projectId ?? null,
+    payoutRequestId: overrides.payoutRequestId ?? null,
     invoiceDocumentId: overrides.invoiceDocumentId ?? null,
     salaryMonth: overrides.salaryMonth ?? null,
     txDate: overrides.txDate ?? null,
@@ -736,6 +777,204 @@ describe('InvoicesService', () => {
       const h = buildHarness({ txs: [], sigs: [], users: [], projects: [] })
       h.ctrl.findTxId = 'tx-missing'
       await expect(h.svc.verifyInvoice('tx-missing')).rejects.toThrow(NotFoundException)
+    })
+  })
+
+  // task-aggregate-invoice-per-payout — AC1 / AC2 / AC7.
+  //
+  // The aggregated PAYOUT invoice model: one PAYOUT row (created at
+  // createPayoutRequest time) gets exactly ONE invoice that aggregates all
+  // linked SENIOR_INCOME / DROP_INCOME rows sharing the same payoutRequestId.
+  // The PAYOUT row's `invoice_document_id` is the idempotency anchor.
+  describe('autoCreateForPayout (aggregated invoice per PAYOUT)', () => {
+    const REQ_ID = 'req-1'
+    const PAYOUT_TX_ID = 'tx-payout-1'
+
+    function makePayoutHarness(opts: {
+      payoutHasInvoice?: boolean
+      incomeRows?: Array<{ id: string; amount: string; projectId: string }>
+      projects?: Array<{ id: string; name: string }>
+    }) {
+      const incomeRows = opts.incomeRows ?? [{ id: 'inc-1', amount: '1000', projectId: 'p-1' }]
+      const projectRows = opts.projects ?? [{ id: 'p-1', name: 'Acme Corp' }]
+      const payoutTotal = incomeRows.reduce((s, r) => s + parseFloat(r.amount), 0).toString()
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: PAYOUT_TX_ID,
+            type: 'PAYOUT',
+            senderId: SENIOR.id,
+            receiverId: null,
+            amount: payoutTotal,
+            currency: 'USDT',
+            payoutRequestId: REQ_ID,
+            invoiceDocumentId: opts.payoutHasInvoice ? 'doc-existing' : null,
+          }),
+          ...incomeRows.map((r) =>
+            tx({
+              id: r.id,
+              type: 'SENIOR_INCOME',
+              status: 'PAID',
+              amount: r.amount,
+              currency: 'USDT',
+              receiverId: SENIOR.id,
+              projectId: r.projectId,
+              payoutRequestId: REQ_ID,
+            }),
+          ),
+        ],
+        sigs: [],
+        users: [
+          {
+            id: SENIOR.id,
+            displayName: SENIOR.displayName,
+            role: 'SENIOR',
+            paymentMethod: 'USDT_ERC20',
+            walletUsdtErc20: '0xabc',
+            createdAt: new Date('2026-02-01'),
+          },
+          {
+            id: ADMIN.id,
+            displayName: ADMIN.displayName,
+            role: 'ADMIN',
+            createdAt: new Date('2026-01-01'),
+          },
+        ],
+        projects: projectRows,
+      })
+      return { h, incomeRows, projectRows, payoutTotal }
+    }
+
+    it('idempotent — second trigger for the same PAYOUT is a no-op', async () => {
+      const { h } = makePayoutHarness({ payoutHasInvoice: true })
+      h.ctrl.findTxId = PAYOUT_TX_ID
+      await h.svc.autoCreateForPayout(PAYOUT_TX_ID)
+      expect(h.pdfService.generateSignableInvoicePdf).not.toHaveBeenCalled()
+      expect(h.uploadInternal).not.toHaveBeenCalled()
+      expect(h.notifCreate).not.toHaveBeenCalled()
+    })
+
+    it('returns early for non-PAYOUT transaction', async () => {
+      const h = buildHarness({
+        txs: [tx({ id: 'tx-1', type: 'SENIOR_INCOME' })],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-1'
+      await h.svc.autoCreateForPayout('tx-1')
+      expect(h.pdfService.generateSignableInvoicePdf).not.toHaveBeenCalled()
+    })
+
+    it('1-project happy path — single invoice with sum amount', async () => {
+      const { h, projectRows } = makePayoutHarness({
+        incomeRows: [{ id: 'inc-1', amount: '1500', projectId: 'p-1' }],
+      })
+      h.ctrl.findTxId = PAYOUT_TX_ID
+      h.ctrl.linkedPayoutRequestId = REQ_ID
+      // Service calls users.findFirst twice: counterparty, then admin.
+      h.ctrl.userFindFirstQueue = [SENIOR.id, ADMIN.id]
+      h.ctrl.projectFindQueue = projectRows.map((p) => p.id)
+      h.ctrl.updateTargetTxId = PAYOUT_TX_ID
+
+      await h.svc.autoCreateForPayout(PAYOUT_TX_ID)
+
+      expect(h.pdfService.generateSignableInvoicePdf).toHaveBeenCalledTimes(1)
+      const pdfArgs = (
+        h.pdfService.generateSignableInvoicePdf as unknown as {
+          mock: { calls: unknown[][] }
+        }
+      ).mock.calls[0]?.[0] as {
+        transaction: {
+          amount: string
+          contractNumber?: string
+          projectNames?: string[]
+        }
+      }
+      expect(pdfArgs.transaction.amount).toBe('1500')
+      // Contract number is the placeholder formula `CHK-<userId-prefix>-<year>`.
+      // In production userIds are UUIDs (hex+dashes), but the fixture uses
+      // `senior-1` for readability, so the prefix slice will include the dash.
+      // We just assert the CHK-<prefix>-<year> shape with a permissive prefix.
+      expect(pdfArgs.transaction.contractNumber).toMatch(/^CHK-[a-z0-9]{1,8}-\d{4}$/)
+      expect(pdfArgs.transaction.projectNames).toEqual(['Acme Corp'])
+
+      // Doc must be linked to the PAYOUT row, not the income.
+      const payoutRow = h.state.txs.find((t) => t.id === PAYOUT_TX_ID)
+      expect(payoutRow?.invoiceDocumentId).not.toBeNull()
+      // Signature inserted against the PAYOUT row id.
+      expect(h.state.sigs.length).toBe(1)
+      expect(h.state.sigs[0]!.transactionId).toBe(PAYOUT_TX_ID)
+      expect(h.state.sigs[0]!.signerRole).toBe('COMPANY')
+      // Notification fired to the receiver (= senior).
+      expect(h.notifCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: SENIOR.id,
+          type: 'INVOICE_SIGN_REQUIRED',
+        }),
+      )
+    })
+
+    it('6-project happy path — single aggregated invoice, sum amount, all project names', async () => {
+      const incomes = [
+        { id: 'inc-1', amount: '1000', projectId: 'p-1' },
+        { id: 'inc-2', amount: '500', projectId: 'p-2' },
+        { id: 'inc-3', amount: '200', projectId: 'p-3' },
+        { id: 'inc-4', amount: '700', projectId: 'p-4' },
+        { id: 'inc-5', amount: '300', projectId: 'p-5' },
+        { id: 'inc-6', amount: '800', projectId: 'p-6' },
+      ]
+      const projects = [
+        { id: 'p-1', name: 'Acme Corp' },
+        { id: 'p-2', name: 'LearnSpace' },
+        { id: 'p-3', name: 'TechCorp AI' },
+        { id: 'p-4', name: 'Senior Regression' },
+        { id: 'p-5', name: 'Drop Phase 2' },
+        { id: 'p-6', name: 'Sixth Project' },
+      ]
+      const { h } = makePayoutHarness({ incomeRows: incomes, projects })
+      h.ctrl.findTxId = PAYOUT_TX_ID
+      h.ctrl.linkedPayoutRequestId = REQ_ID
+      h.ctrl.userFindFirstQueue = [SENIOR.id, ADMIN.id]
+      h.ctrl.projectFindQueue = projects.map((p) => p.id)
+      h.ctrl.updateTargetTxId = PAYOUT_TX_ID
+
+      await h.svc.autoCreateForPayout(PAYOUT_TX_ID)
+
+      // ONE invoice for SIX incomes.
+      expect(h.pdfService.generateSignableInvoicePdf).toHaveBeenCalledTimes(1)
+      expect(h.uploadInternal).toHaveBeenCalledTimes(1)
+      expect(h.notifCreate).toHaveBeenCalledTimes(1)
+
+      const pdfArgs = (
+        h.pdfService.generateSignableInvoicePdf as unknown as {
+          mock: { calls: unknown[][] }
+        }
+      ).mock.calls[0]?.[0] as {
+        transaction: {
+          amount: string
+          projectNames?: string[]
+        }
+      }
+      // Sum amount: 1000 + 500 + 200 + 700 + 300 + 800 = 3500
+      expect(pdfArgs.transaction.amount).toBe('3500')
+      // All 6 project names are passed through — the PDF service decides
+      // how to render (truncation happens there).
+      expect(pdfArgs.transaction.projectNames).toEqual([
+        'Acme Corp',
+        'LearnSpace',
+        'TechCorp AI',
+        'Senior Regression',
+        'Drop Phase 2',
+        'Sixth Project',
+      ])
+    })
+
+    it('does nothing when PAYOUT row not found', async () => {
+      const h = buildHarness({ txs: [], sigs: [], users: [], projects: [] })
+      h.ctrl.findTxId = 'tx-missing'
+      await h.svc.autoCreateForPayout('tx-missing')
+      expect(h.pdfService.generateSignableInvoicePdf).not.toHaveBeenCalled()
     })
   })
 })

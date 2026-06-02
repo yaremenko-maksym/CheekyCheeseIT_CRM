@@ -64,10 +64,15 @@ export interface InvoiceCompanyInfo {
  * column populated in PHASE 7. When `details` is empty the PDF falls back to
  * "Не указано, обратитесь к ADMIN" so we never silently ship a PDF with no
  * payment requisites.
+ *
+ * `CASH` is supported only for SALARY invoices — used when the company pays
+ * an employee in cash and there are no payment requisites to render. In this
+ * case `paymentDetails` is ignored and a "(без реквизитов)" hint is drawn
+ * instead, never the "Не указано" warning.
  */
 export interface InvoiceCounterpartyInfo {
   displayName: string
-  paymentMethod: 'USDT_ERC20' | 'BANK_UAH_FOP' | null
+  paymentMethod: 'USDT_ERC20' | 'BANK_UAH_FOP' | 'CASH' | null
   /** Free-form lines specific to the chosen method (wallet address, IBAN, etc.) */
   paymentDetails: string[]
 }
@@ -86,8 +91,27 @@ export interface InvoiceTransactionInfo {
   /** Decimal string (matches numeric serialization from the DB). */
   amount: string
   currency: 'USDT' | 'USD' | 'EUR' | 'UAH'
-  /** Project name for SENIOR_INCOME; null/undefined for SALARY. */
+  /** Project name for SENIOR_INCOME; null/undefined for SALARY. Legacy:
+   *  used by per-tx (non-aggregated) invoices; aggregated PAYOUT flow uses
+   *  `projectNames` array instead. */
   projectName?: string | null
+  /**
+   * task-aggregate-invoice-per-payout round 2. Kept on the interface for
+   * back-compat with the InvoicesService caller (which still passes it for
+   * audit / logging), but the PDF body NEVER renders it: the description
+   * block is intentionally limited to the contract reference + optional
+   * period line. See `buildDescription` for the round-2 rationale.
+   */
+  projectNames?: string[] | null
+  /**
+   * task-aggregate-invoice-per-payout. When set, the «Описание услуг» block
+   * renders «Услуги исполнителя согласно контракту № <contractNumber>» as the
+   * primary line. Required for the new aggregated-PAYOUT flow; when null/
+   * undefined the legacy «Доля по проекту X» description is used.
+   * Placeholder formula in v1: `CHK-${userId.slice(0,8)}-${year}`. A dedicated
+   * contracts module will replace the formula in a later phase.
+   */
+  contractNumber?: string | null
   /** YYYY-MM. Used in "Период: ..." line for both flows. */
   salaryMonth?: string | null
   /** Timestamp shown next to "Дата:", typically `tx_date ?? created_at`. */
@@ -857,7 +881,19 @@ export class InvoicePdfService {
   private buildDescription(tx: InvoiceTransactionInfo): string[] {
     if (tx.type === 'SENIOR_INCOME') {
       const lines: string[] = []
-      if (tx.projectName) {
+      // task-aggregate-invoice-per-payout round 2: the description must contain
+      // ONLY the contract reference + (optional) period line. The list of
+      // projects was previously rendered as a secondary «Проекты: A · B · C»
+      // line, but user feedback (round 2, 02.06.2026) flagged it as noise — a
+      // signed act covers the contractual scope, the per-project breakdown
+      // lives in the linked transactions / payout receipt rather than the act
+      // itself. We keep `projectNames` on the input interface for back-compat
+      // with the InvoicesService caller (which still passes it for audit /
+      // logging) but the PDF body never renders it.
+      if (tx.contractNumber) {
+        lines.push(`Услуги исполнителя согласно контракту № ${tx.contractNumber}`)
+      } else if (tx.projectName) {
+        // Legacy single-project per-tx invoices keep their original phrasing.
         lines.push(`Доля по проекту "${tx.projectName}"`)
       } else {
         lines.push('Доля по проекту')
