@@ -1,10 +1,11 @@
 /**
- * Generate 3 visual sample salary-invoices for different payment methods.
+ * Generate visual sample salary-invoices for different payment methods.
  *
  * Demo task: shows how a SALARY-type invoice looks when paid via:
- *   1. BANK_FOP   — Ukrainian sole proprietor (UAH bank account, IBAN + ЄДРПОУ)
- *   2. CRYPTO     — USDT ERC-20 wallet address
- *   3. CASH       — no requisites, marked "Наличка"
+ *   1. BANK_FOP    — Ukrainian sole proprietor (UAH bank account, IBAN + ЄДРПОУ)
+ *   2. CRYPTO      — USDT ERC-20 wallet address
+ *   3. CASH (UAH)  — no requisites, label «Cash (UAH)»
+ *   4. CASH (USD)  — no requisites, label «Cash (USD)» (round 2: demo currency suffix)
  *
  * Usage:
  *   pnpm --filter @crm/api exec tsx scripts/generate-salary-invoice-samples.ts
@@ -13,6 +14,7 @@
  *   /tmp/salary-invoice-fop.pdf
  *   /tmp/salary-invoice-crypto.pdf
  *   /tmp/salary-invoice-cash.pdf
+ *   /tmp/salary-invoice-cash-usd.pdf
  *
  * These are fixed-data invoices (employee «Иван Петренко», salary month
  * `2026-05`). They are NOT inserted in the DB and do NOT touch the signing
@@ -39,7 +41,7 @@ interface SampleSpec {
   filename: string
   txId: string
   amount: string
-  currency: 'USDT' | 'UAH'
+  currency: 'USDT' | 'UAH' | 'USD' | 'EUR'
   counterparty: GenerateSignableInvoiceParams['counterparty']
   uahEquivalent: GenerateSignableInvoiceParams['uahEquivalent']
 }
@@ -83,7 +85,7 @@ const samples: SampleSpec[] = [
       rateDate: '26.05.2026',
     },
   },
-  // 3. Cash — no requisites, just method
+  // 3. Cash (UAH) — no requisites, label «Cash (UAH)»
   {
     filename: '/tmp/salary-invoice-cash.pdf',
     txId: '33333333-aaaa-bbbb-cccc-333333333333',
@@ -95,6 +97,24 @@ const samples: SampleSpec[] = [
       paymentDetails: [],
     },
     uahEquivalent: null,
+  },
+  // 4. Cash (USD) — no requisites, label «Cash (USD)». Round 2 demo: the
+  // currency suffix disambiguates the payout currency at a glance ($1 200
+  // USD in cash vs 35 000 UAH in cash).
+  {
+    filename: '/tmp/salary-invoice-cash-usd.pdf',
+    txId: '44444444-aaaa-bbbb-cccc-444444444444',
+    amount: '1200.00',
+    currency: 'USD',
+    counterparty: {
+      displayName: EMPLOYEE_NAME,
+      paymentMethod: 'CASH',
+      paymentDetails: [],
+    },
+    uahEquivalent: {
+      formatted: '49 380.00',
+      rateDate: '26.05.2026',
+    },
   },
 ]
 
