@@ -7,7 +7,8 @@
     "tsConfigPath": "tsconfig.build.json",
     "assets": [
       { "include": "assets/fonts/*.ttf", "outDir": "dist" },
-      { "include": "assets/fonts/LICENSE.txt", "outDir": "dist" }
+      { "include": "assets/fonts/LICENSE.txt", "outDir": "dist" },
+      { "include": "assets/brand/*.svg", "outDir": "dist" }
     ],
     "watchAssets": true
   }

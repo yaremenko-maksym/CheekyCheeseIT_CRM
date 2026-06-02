@@ -101,10 +101,14 @@ export const transactionTypeEnum = pgEnum('transaction_type', [
 // Phase 4-A: pending senior obligations live in their own table so the
 // lifecycle is explicit (PENDING → PAID / CANCELLED) and balance queries
 // don't have to recompute the closure from transaction pairs every time.
+//
+// task-drop-company-debt-and-invoices: new obligations use 'COMPANY'.
+// 'DROP' remains for legacy historical rows that pre-date the refactor.
 export const pendingObligationDebtorTypeEnum = pgEnum('pending_obligation_debtor_type', [
-  'DROP', // a DROP user owes the senior (their share leftover from drop-project)
-  'TOV', // the corporate account (ТОВ) owes the senior
-  'ADMIN', // an admin owes the senior personally
+  'DROP', // legacy — historical pre-refactor cash flow rows
+  'TOV', // legacy — historical bank-channel rows
+  'ADMIN', // an admin owes the senior personally (reserved)
+  'COMPANY', // the company owes the senior (new — both crypto + cash flows)
 ])
 
 export const pendingObligationStatusEnum = pgEnum('pending_obligation_status', [

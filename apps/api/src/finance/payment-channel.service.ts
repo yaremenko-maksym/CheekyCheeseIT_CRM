@@ -1,27 +1,27 @@
 /**
- * Drop role - phase 4 (refactor — task-drop-phase4-refactor-remove-tov.md).
+ * Drop role - phase 4 + task-drop-company-debt-and-invoices.
  *
  * Payment channels for settling a validated DROP_INCOME with the company.
- * After the refactor only two channels remain, and the cash flow is
- * admin-initiated:
+ * The senior share is **always** owed by the company after drop→company
+ * payment — never by the drop personally. Two channels:
  *
- *   1. Crypto direct — drop sends USDT to 3 wallets (senior + 2 admins).
- *                      Creates SENIOR_INCOME_CRYPTO + 2× ADMIN_INCOME_CRYPTO
- *                      on confirm.
+ *   1. Crypto direct — drop sends USDT to the 2 admin wallets only. Creates
+ *                      2× ADMIN_INCOME_CRYPTO + 1× SENIOR_PENDING_PAYOUT
+ *                      (debtorType=COMPANY). Senior receives nothing yet —
+ *                      the senior share is a debt the company will close
+ *                      later via `settleByCompany`.
  *   2. Cash to admin — ACCOUNTANT/ADMIN clicks «Cash передан» on the
  *                      VALIDATED DROP_INCOME row in /crm/finance, picks
  *                      Maksym/Kostya in a dialog. Creates ADMIN_INCOME_CASH
- *                      + SENIOR_PENDING_PAYOUT (debtorType=DROP).
+ *                      + SENIOR_PENDING_PAYOUT (debtorType=COMPANY).
  *                      DROP no longer has any UI to initiate cash.
  *
- * Bank channel (was: corporate ТОВ wire transfer) has been removed
- * entirely. The TOV_INCOME / debtorType='TOV' code path that produced
- * SENIOR_PENDING_PAYOUT against the ТОВ balance is gone — see refactor
- * task AC1 / AC3.
+ * Both channels close the placeholder PAYOUT row (PENDING_PAYMENT → PAID)
+ * created during DROP_INCOME validation so the drop's «Платить компании»
+ * action is single-use per income.
  *
- * Both remaining channels close the placeholder PAYOUT row
- * (PENDING_PAYMENT → PAID) created during DROP_INCOME validation so the
- * drop's «Платить компании» action is single-use per income.
+ * The bank channel (corporate ТОВ wire transfer) was removed in the
+ * previous Phase 4 refactor and is gone for good.
  *
  * Numbers — math is generic but spec uses 16% senior / 10% drop / 37%+37%
  * partners on $3500: senior=$560, drop=$350, partners=$1295 each.
@@ -105,20 +105,10 @@ export class PaymentChannelService {
     const ctx = await this.resolveIncome(incomeId, actor)
     this.assertCanInitiate(ctx, actor)
 
-    // Wallets: senior + 2 admin partners. Phase 4-B doesn't auto-create
-    // wallets; if a participant has no wallet on file we surface an empty
-    // string so the frontend can prompt them rather than failing the entire
-    // flow. The actual transaction creation in confirm requires non-empty
-    // hashes (one per recipient).
+    // task-drop-company-debt-and-invoices. Drop sends USDT to the 2 admin
+    // wallets only. Senior share is kept as a COMPANY debt — the senior
+    // receives nothing on this step.
     const recipients: CryptoRecipient[] = []
-    recipients.push({
-      userId: ctx.senior.id,
-      displayName: ctx.senior.displayName,
-      address: ctx.senior.walletUsdtErc20 ?? '',
-      amount: String(ctx.distribution.seniorAmount),
-      currency: 'USDT',
-      role: 'SENIOR',
-    })
     for (const share of ctx.distribution.partnerShares) {
       const admin = await this.db.db.query.users.findFirst({
         where: eq(users.id, share.adminId),
@@ -152,41 +142,16 @@ export class PaymentChannelService {
     const ctx = await this.resolveIncome(incomeId, actor)
     this.assertCanConfirmCrypto(ctx, actor)
 
-    // We log one hash per recipient. If the drop supplied only one (single
-    // PaymentSplitter call), we reuse it across all 3 rows so the audit trail
-    // never carries a null hash. If they supplied 3 distinct hashes we
-    // align by index (senior first, partners after).
+    // task-drop-company-debt-and-invoices. We log one hash per admin
+    // partner (2 in total). If the drop supplied only one (single
+    // PaymentSplitter call), we reuse it across both rows so the audit
+    // trail never carries a null hash.
     const hashFor = (i: number): string => txHashes[i] ?? txHashes[0] ?? '0xUNKNOWN'
 
     const created: Transaction[] = []
     await this.db.db.transaction(async (dbtx) => {
-      // 1) Senior income (crypto direct).
-      // task-team-senior-share-override. Snapshot both value + source on
-      // the cascade row so the UI can render «Доля: X% · команда» (or
-      // 'проект' / 'default') on the SENIOR_INCOME_CRYPTO line.
-      const [seniorRow] = await dbtx
-        .insert(transactions)
-        .values({
-          type: 'SENIOR_INCOME_CRYPTO',
-          status: 'PAID',
-          amount: String(ctx.distribution.seniorAmount),
-          currency: 'USDT',
-          senderId: ctx.drop.id,
-          receiverId: ctx.senior.id,
-          recipientId: ctx.senior.id,
-          projectId: ctx.project.id,
-          payoutRequestId: ctx.income.payoutRequestId,
-          seniorSharePercent: ctx.seniorShareSnapshot.value,
-          seniorSharePercentSource: ctx.seniorShareSnapshot.source,
-          txHash: hashFor(0),
-          notes: 'Phase 4-B crypto channel — senior direct',
-          createdBy: actor.id,
-        })
-        .returning()
-      if (seniorRow) created.push(seniorRow)
-
-      // 2) Admin partners (crypto direct), one row each.
-      let i = 1
+      // 1) Admin partners (crypto direct), one row each.
+      let i = 0
       for (const share of ctx.distribution.partnerShares) {
         const [adminRow] = await dbtx
           .insert(transactions)
@@ -201,12 +166,46 @@ export class PaymentChannelService {
             projectId: ctx.project.id,
             payoutRequestId: ctx.income.payoutRequestId,
             txHash: hashFor(i),
-            notes: 'Phase 4-B crypto channel — admin direct',
+            notes: 'Crypto channel — admin direct (task-drop-company-debt-and-invoices)',
             createdBy: actor.id,
           })
           .returning()
         if (adminRow) created.push(adminRow)
         i += 1
+      }
+
+      // 2) Senior IOU (debt of the COMPANY). The senior receives no crypto
+      //    on this step — the company owes the senior share until
+      //    ACCOUNTANT/ADMIN closes it via `settleByCompany`.
+      const [pendingRow] = await dbtx
+        .insert(transactions)
+        .values({
+          type: 'SENIOR_PENDING_PAYOUT',
+          status: 'PENDING_PAYMENT',
+          amount: String(ctx.distribution.seniorAmount),
+          currency: 'USDT',
+          senderLabel: 'COMPANY',
+          receiverId: ctx.senior.id,
+          recipientId: ctx.senior.id,
+          projectId: ctx.project.id,
+          payoutRequestId: ctx.income.payoutRequestId,
+          seniorSharePercent: ctx.seniorShareSnapshot.value,
+          seniorSharePercentSource: ctx.seniorShareSnapshot.source,
+          notes: 'Crypto channel — senior IOU (debtor=COMPANY)',
+          createdBy: actor.id,
+        })
+        .returning()
+      if (pendingRow) {
+        created.push(pendingRow)
+        await dbtx.insert(pendingObligations).values({
+          creditorUserId: ctx.senior.id,
+          debtorType: 'COMPANY',
+          debtorUserId: null,
+          sourceTransactionId: pendingRow.id,
+          amount: String(ctx.distribution.seniorAmount),
+          currency: 'USDT',
+          status: 'PENDING',
+        })
       }
 
       // 3) Close the placeholder PAYOUT row, if one exists. The DROP_INCOME
@@ -221,16 +220,15 @@ export class PaymentChannelService {
     return { income: refreshed ?? ctx.income, created }
   }
 
-  // ── Cash channel (admin-initiated, post-Phase-4-refactor) ───────────────
+  // ── Cash channel (admin-initiated) ───────────────────────────────────────
   //
   // Single-step flow:
   //   ACCOUNTANT/ADMIN sees the VALIDATED DROP_INCOME row that does not yet
   //   have a payment-channel cascade. They click «Cash передан», pick which
   //   admin actually received the cash, and submit. The handler inserts
-  //   ADMIN_INCOME_CASH + SENIOR_PENDING_PAYOUT (debtorType=DROP) and flips
-  //   the placeholder PAYOUT to PAID — same shape as the prior round-2
-  //   confirm-cash flow, only without the DROP-initiated PENDING_CASH_CONFIRM
-  //   intermediate state.
+  //   ADMIN_INCOME_CASH + SENIOR_PENDING_PAYOUT (debtorType=COMPANY) and
+  //   flips the placeholder PAYOUT to PAID. Senior IOU is owed by the
+  //   company (not the drop) — closed later via `settleByCompany`.
 
   async confirmCashPayment(
     incomeId: string,
@@ -261,8 +259,8 @@ export class PaymentChannelService {
     }
 
     // Cash = the chosen admin received the full partner share (both admins'
-    // 50-50 combined). Senior share remains owed by the drop personally
-    // (debtorType=DROP) until SENIOR_PAID closes the obligation.
+    // 50-50 combined). Senior share remains owed by the **company**
+    // (debtorType=COMPANY) until `settleByCompany` closes the obligation.
     const partnerTotal = ctx.distribution.partnerShares.reduce((s, p) => s + p.amount, 0)
 
     const created: Transaction[] = []
@@ -285,8 +283,9 @@ export class PaymentChannelService {
         .returning()
       if (cashRow) created.push(cashRow)
 
-      // task-team-senior-share-override. Same source-propagation as the
-      // crypto branch — the IOU carries the snapshot used to compute it.
+      // task-drop-company-debt-and-invoices. Senior IOU is a COMPANY debt
+      // (not a personal DROP debt). The snapshot of the senior share %
+      // still propagates so the source badge follows the trail.
       const [pendingRow] = await dbtx
         .insert(transactions)
         .values({
@@ -294,15 +293,14 @@ export class PaymentChannelService {
           status: 'PENDING_PAYMENT',
           amount: String(ctx.distribution.seniorAmount),
           currency: 'USDT',
-          senderId: ctx.drop.id,
-          senderLabel: 'DROP',
+          senderLabel: 'COMPANY',
           receiverId: ctx.senior.id,
           recipientId: ctx.senior.id,
           projectId: ctx.project.id,
           payoutRequestId: ctx.income.payoutRequestId,
           seniorSharePercent: ctx.seniorShareSnapshot.value,
           seniorSharePercentSource: ctx.seniorShareSnapshot.source,
-          notes: 'Phase 4 cash channel — senior IOU (debtor=DROP)',
+          notes: 'Cash channel — senior IOU (debtor=COMPANY)',
           createdBy: actor.id,
         })
         .returning()
@@ -310,8 +308,8 @@ export class PaymentChannelService {
         created.push(pendingRow)
         await dbtx.insert(pendingObligations).values({
           creditorUserId: ctx.senior.id,
-          debtorType: 'DROP',
-          debtorUserId: ctx.drop.id,
+          debtorType: 'COMPANY',
+          debtorUserId: null,
           sourceTransactionId: pendingRow.id,
           amount: String(ctx.distribution.seniorAmount),
           currency: 'USDT',

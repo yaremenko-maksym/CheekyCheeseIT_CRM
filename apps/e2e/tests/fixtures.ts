@@ -573,13 +573,11 @@ export async function mockAuthAs(
     jsonOk(r, { items: [], unreadCount: 0 }),
   )
 
-  // Drop role - phase 4 (refactor — task-drop-phase4-refactor-remove-tov.md
-  // AC13). Mocks for /payments/pending-cash, /pending-settlements/tov and
-  // /balances/tov removed alongside the endpoints. Senior/drop settlement
-  // mocks remain — those cards still render. /balances/admin/:id and
-  // /balances/senior/:id stay for /crm/stats.
+  // task-drop-company-debt-and-invoices. Senior IOUs are owed by the
+  // company — DROP no longer has any debts. Replaced
+  // `/pending-settlements/drop` with `/pending-settlements/company`.
   await page.route(new RegExp(`${API}/pending-settlements/senior(\\?.*)?$`), (r) => jsonOk(r, []))
-  await page.route(new RegExp(`${API}/pending-settlements/drop(\\?.*)?$`), (r) => jsonOk(r, []))
+  await page.route(new RegExp(`${API}/pending-settlements/company(\\?.*)?$`), (r) => jsonOk(r, []))
 
   await page.route(new RegExp(`${API}/balances/admin/([^/?]+)(\\?.*)?$`), (r) =>
     jsonOk(r, { balance: 0, currency: 'USD', breakdown: {} }),

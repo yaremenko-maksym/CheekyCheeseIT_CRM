@@ -136,13 +136,14 @@ export const financeApi = {
   confirmCashPayment: (data: ConfirmCashPaymentDto) =>
     api.post<PaymentChannelCascadeResponseDto>('/payments/confirm-cash', data).then((r) => r.data),
 
-  // Phase 4-C pending senior settlement (DROP debts only after refactor).
+  // task-drop-company-debt-and-invoices. Senior IOUs are owed by the
+  // company — ADMIN/ACCOUNTANT-only flow.
   listSeniorPendingSettlements: () =>
     api.get<PendingSettlementListResponseDto>('/pending-settlements/senior').then((r) => r.data),
-  listDropPendingSettlements: () =>
-    api.get<PendingSettlementListResponseDto>('/pending-settlements/drop').then((r) => r.data),
-  settleObligationByDrop: (id: string) =>
+  listCompanyPendingSettlements: () =>
+    api.get<PendingSettlementListResponseDto>('/pending-settlements/company').then((r) => r.data),
+  settleObligationByCompany: (id: string) =>
     api
-      .post<SettleObligationResponseDto>(`/pending-settlements/${id}/settle-drop`, {})
+      .post<SettleObligationResponseDto>(`/pending-settlements/${id}/settle-company`, {})
       .then((r) => r.data),
 }

@@ -56,6 +56,7 @@ import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransa
 import { MyProjectShares } from './components/MyProjectShares'
 import { DropBalanceCard } from './components/KpiCards'
 import { PendingSettlementSeniorCard } from './components/PendingSettlementSeniorCard'
+import { PendingSettlementCompanyCard } from './components/PendingSettlementCompanyCard'
 import { LogCashPaymentDialog } from './components/dialogs/LogCashPaymentDialog'
 import { ConfirmPayoutDialog } from '@/components/finance/ConfirmPayoutDialog'
 import type { FinanceSummaryDto } from '@crm/shared'
@@ -647,12 +648,11 @@ function FinancePage() {
           Auto-hidden when no drop balances exist (empty array). */}
       {summary && <DropBalanceCard summary={summary} />}
 
-      {/* Drop role - phase 4-C (refactor — task-drop-phase4-refactor-remove-tov.md).
-          Senior view: passive list of pending senior IOUs (debtor=DROP only).
-          Closure happens on the debtor side. Card hides itself when there's
-          nothing pending. Cards «Ожидают подтверждения cash» и «Долги ТОВ
-          перед синьорами» удалены вместе с bank/TOV-каналами (AC8, AC9). */}
+      {/* task-drop-company-debt-and-invoices. Senior IOUs and the
+          ADMIN/ACCOUNTANT-only "Долги компании перед синьорами" card.
+          DROP no longer holds senior debts — the DropCard was removed. */}
       {(isSenior || isAdmin || role === 'ACCOUNTANT') && <PendingSettlementSeniorCard />}
+      {(isAdmin || role === 'ACCOUNTANT') && <PendingSettlementCompanyCard />}
 
       {/* Transactions table */}
       <Card>

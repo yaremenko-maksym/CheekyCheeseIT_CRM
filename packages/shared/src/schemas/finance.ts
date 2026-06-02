@@ -466,14 +466,21 @@ export type BalanceDto = z.infer<typeof balanceSchema>
 
 // Pending obligations — table-backed, distinct lifecycle from the
 // transactions ledger. Each row: "creditor (senior) is owed `amount`
-// `currency` by debtor (DROP user or admin)". A SENIOR_PAID transaction
-// closes the obligation (status → PAID + closingTransactionId).
+// `currency` by debtor (DROP / COMPANY / admin)". A SENIOR_PAID
+// transaction closes the obligation (status → PAID + closingTransactionId).
 //
 // Post-Phase-4 refactor (task-drop-phase4-refactor-remove-tov.md AC3): the
 // 'TOV' value remains in the enum because legacy/history rows may carry it,
 // but NEW obligations are never created with debtorType='TOV' — the bank
 // channel that produced them has been removed.
-export const pendingObligationDebtorTypeSchema = z.enum(['DROP', 'TOV', 'ADMIN'])
+//
+// task-drop-company-debt-and-invoices (post-refactor): the senior share
+// from drop-projects is now owed by **the COMPANY**, not the DROP user.
+// New cash + crypto flows insert SENIOR_PENDING_PAYOUT with
+// `debtorType='COMPANY'`; closure happens via `settleByCompany` (ADMIN /
+// ACCOUNTANT only). Historical 'DROP'-debt rows are left untouched so the
+// audit trail stays intact.
+export const pendingObligationDebtorTypeSchema = z.enum(['DROP', 'TOV', 'ADMIN', 'COMPANY'])
 export type PendingObligationDebtorType = z.infer<typeof pendingObligationDebtorTypeSchema>
 
 export const pendingObligationStatusSchema = z.enum(['PENDING', 'PAID', 'CANCELLED'])
@@ -555,12 +562,13 @@ export const initiateCryptoPaymentSchema = z.object({
 })
 export type InitiateCryptoPaymentDto = z.infer<typeof initiateCryptoPaymentSchema>
 
-// Cash channel — drop→company cash flow (post Phase 4 refactor, task
-// task-drop-phase4-refactor-remove-tov.md AC2). The DROP no longer has any UI
-// to initiate cash; instead, ACCOUNTANT/ADMIN sees the VALIDATED DROP_INCOME
+// Cash channel — drop→company cash flow (post Phase 4 refactor + task
+// task-drop-company-debt-and-invoices). The DROP no longer has any UI to
+// initiate cash; instead, ACCOUNTANT/ADMIN sees the VALIDATED DROP_INCOME
 // row on /crm/finance and triggers `/confirm-cash` directly from the table.
 // The endpoint creates ADMIN_INCOME_CASH + SENIOR_PENDING_PAYOUT
-// (debtorType=DROP) and closes the placeholder PAYOUT row.
+// (debtorType=COMPANY) and closes the placeholder PAYOUT row. The senior
+// share is now a debt of the **company**, not the drop personally.
 export const confirmCashPaymentSchema = z.object({
   incomeId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
   recipientAdminId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
@@ -576,23 +584,30 @@ export const paymentChannelCascadeResponseSchema = z.object({
 export type PaymentChannelCascadeResponseDto = z.infer<typeof paymentChannelCascadeResponseSchema>
 
 // ---------------------------------------------------------------------------
-// Phase 4-C — Pending senior settlement (post-Phase-4 refactor)
+// Phase 4-C — Pending senior settlement (post task-drop-company-debt-and-invoices)
 // ---------------------------------------------------------------------------
 //
-// After the Phase 4 refactor (task-drop-phase4-refactor-remove-tov.md AC3),
-// only cash-channel drop→company flows leave a senior IOU open:
+// Senior share from drop-projects is owed by **the COMPANY**, not the DROP:
 //
-//   debtorType='DROP': the DROP user personally owes the senior (they kept
-//   the senior share when ACCOUNTANT/ADMIN logged the cash handoff). Closed
-//   by the DROP themselves (or by ACCOUNTANT/ADMIN acting on their behalf)
-//   via /api/pending-settlements/:id/settle-drop.
+//   debtorType='COMPANY': both crypto + cash channels create the senior IOU
+//   against the company (after sending the admin share via crypto, or after
+//   ADMIN/ACCOUNTANT logged the cash handoff). Closed by ACCOUNTANT/ADMIN
+//   via /api/pending-settlements/:id/settle-company — never by DROP.
 //
-// The TOV-debt path (bank channel) has been removed.
+// Settle-company also auto-creates an INVOICE on the resulting SENIOR_INCOME
+// row, mirroring the Phase 2 `payPayoutRequest` trigger.
+//
+// Legacy values:
+//   debtorType='DROP' — historical rows from the pre-refactor cash flow.
+//   debtorType='TOV'  — historical rows from the removed bank channel.
 
 export const pendingSettlementItemSchema = z.object({
   obligationId: z.string(), // pending_obligations.id
   sourceTransactionId: z.string(),
-  debtorType: pendingObligationDebtorTypeSchema, // DROP (TOV/ADMIN legacy/reserved)
+  // task-drop-company-debt-and-invoices: new obligations carry
+  // debtorType='COMPANY'. 'DROP' is legacy (kept for historical rows),
+  // 'TOV'/'ADMIN' reserved.
+  debtorType: pendingObligationDebtorTypeSchema,
   debtorUserId: z.string().nullable(),
   debtorName: z.string().nullable(),
   seniorId: z.string(),

@@ -1,21 +1,16 @@
 /**
- * Drop role - phase 4 (refactor — task-drop-phase4-refactor-remove-tov.md).
+ * task-drop-company-debt-and-invoices.
  * Unit tests for `PaymentChannelService`.
  *
- * Coverage (post-refactor — AC1, AC2, AC11):
- *   - Crypto path: 3 transactions (SENIOR_INCOME_CRYPTO + 2× ADMIN_INCOME_CRYPTO).
+ * Coverage:
+ *   - Crypto path: 2× ADMIN_INCOME_CRYPTO + 1× SENIOR_PENDING_PAYOUT
+ *     (debtor=COMPANY). Senior wallet is NOT included in `initiateCrypto`.
  *   - Cash path (admin-initiated): ADMIN_INCOME_CASH + SENIOR_PENDING_PAYOUT
- *     (debtor=DROP) + obligation; DROP → 403.
+ *     (debtor=COMPANY) + obligation; DROP → 403.
  *   - Cash on non-VALIDATED → 400; cascade-exists guard → 400.
  *   - RBAC: SENIOR/JUNIOR/HR → 403 on initiate*. DROP — only own income.
  *   - Edge: already-paid DROP_INCOME (PAYOUT row in PAID) → 400.
  *   - Edge: status PENDING (not VALIDATED) → 400.
- *
- * Bank channel + DROP-initiated cash flow have been removed.
- *
- * The drizzle layer is mocked at the same fidelity as the Phase 3 spec — we
- * collect inserts/updates by table reference and assert on the recorded rows.
- * No real DB.
  */
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
@@ -215,12 +210,7 @@ function makeService(initial: Partial<MockState> = {}) {
     ...initial,
   }
 
-  // Drizzle stub. Same shape as Phase 3 — the service touches:
-  //   - db.query.transactions.findFirst — for income, for PAYOUT row.
-  //   - db.query.transactions.findMany — for channel-row guard.
-  //   - db.query.projects.findFirst — project lookup.
-  //   - db.query.users.findFirst — drop, senior, partner admins.
-  //   - db.transaction(cb) — wraps inserts/updates.
+  // Drizzle stub.
   const txFindFirstCalls: string[] = []
   const userFindFirstCalls: string[] = []
 
@@ -315,18 +305,18 @@ function makeService(initial: Partial<MockState> = {}) {
 // ── Crypto channel ──────────────────────────────────────────────────────────
 
 describe('PaymentChannelService.initiateCryptoPayment', () => {
-  it('returns 3 recipients (senior + 2 admins) with correct amounts', async () => {
+  it('returns 2 admin recipients only (no senior wallet) with correct amounts', async () => {
     const { svc } = makeService()
     const result = await svc.initiateCryptoPayment(INCOME_ID, dropUser)
 
     expect(result.contractAddress).toBeNull()
-    expect(result.recipients).toHaveLength(3)
-    const senior = result.recipients.find((r) => r.role === 'SENIOR')!
+    expect(result.recipients).toHaveLength(2)
+    const senior = result.recipients.find((r) => r.role === 'SENIOR')
     const admins = result.recipients.filter((r) => r.role === 'ADMIN')
 
-    // 3500 * 16% = 560 senior, 3500 - 350 - 560 = 2590 / 2 = 1295 per admin.
-    expect(parseFloat(senior.amount)).toBeCloseTo(560)
-    expect(senior.address).toBe('0xSENIORADDR')
+    // Senior wallet must NOT be in the recipient list — drop pays company only.
+    expect(senior).toBeUndefined()
+    // 3500 - 350 - 560 = 2590 / 2 = 1295 per admin (16% senior, 10% drop).
     expect(admins).toHaveLength(2)
     for (const admin of admins) {
       expect(parseFloat(admin.amount)).toBeCloseTo(1295)
@@ -395,7 +385,7 @@ describe('PaymentChannelService.initiateCryptoPayment', () => {
 
   it('channel cascade already exists → 400', async () => {
     const { svc } = makeService({
-      channelRows: [makeIncomeRow({ type: 'SENIOR_INCOME_CRYPTO' })],
+      channelRows: [makeIncomeRow({ type: 'ADMIN_INCOME_CRYPTO' })],
     })
     await expect(svc.initiateCryptoPayment(INCOME_ID, dropUser)).rejects.toThrow(
       BadRequestException,
@@ -404,23 +394,18 @@ describe('PaymentChannelService.initiateCryptoPayment', () => {
 })
 
 describe('PaymentChannelService.confirmCryptoPayment', () => {
-  it('creates SENIOR_INCOME_CRYPTO + 2× ADMIN_INCOME_CRYPTO with correct shape', async () => {
+  it('creates 2× ADMIN_INCOME_CRYPTO + 1× SENIOR_PENDING_PAYOUT (debtor=COMPANY)', async () => {
     const { svc, getInsertsFor, getUpdatesFor } = makeService()
-    const hashes = ['0xhash-senior', '0xhash-maksym', '0xhash-kostya']
+    const hashes = ['0xhash-maksym', '0xhash-kostya']
     await svc.confirmCryptoPayment(INCOME_ID, hashes, dropUser)
 
     const inserts = getInsertsFor(transactions)
     expect(inserts).toHaveLength(3)
 
-    const senior = inserts.find((r) => r['type'] === 'SENIOR_INCOME_CRYPTO')!
+    // No SENIOR_INCOME_CRYPTO — refactor moved senior share to a COMPANY debt.
+    expect(inserts.find((r) => r['type'] === 'SENIOR_INCOME_CRYPTO')).toBeUndefined()
+
     const admins = inserts.filter((r) => r['type'] === 'ADMIN_INCOME_CRYPTO')
-
-    expect(senior['receiverId']).toBe(SENIOR_ID)
-    expect(senior['recipientId']).toBe(SENIOR_ID)
-    expect(senior['senderId']).toBe(DROP_ID)
-    expect(parseFloat(senior['amount'] as string)).toBeCloseTo(560)
-    expect(senior['txHash']).toBe('0xhash-senior')
-
     expect(admins).toHaveLength(2)
     for (const a of admins) {
       expect(parseFloat(a['amount'] as string)).toBeCloseTo(1295)
@@ -428,11 +413,23 @@ describe('PaymentChannelService.confirmCryptoPayment', () => {
       expect(a['currency']).toBe('USDT')
     }
 
-    // Payout row should be flipped to PAID with the first hash recorded.
+    const pending = inserts.find((r) => r['type'] === 'SENIOR_PENDING_PAYOUT')!
+    expect(pending['status']).toBe('PENDING_PAYMENT')
+    expect(pending['receiverId']).toBe(SENIOR_ID)
+    expect(pending['senderLabel']).toBe('COMPANY')
+    expect(parseFloat(pending['amount'] as string)).toBeCloseTo(560)
+
+    // Obligation row created with debtor=COMPANY.
+    const oblInserts = getInsertsFor(pendingObligations)
+    expect(oblInserts).toHaveLength(1)
+    expect(oblInserts[0]?.['debtorType']).toBe('COMPANY')
+    expect(oblInserts[0]?.['creditorUserId']).toBe(SENIOR_ID)
+
+    // Payout row flipped to PAID with the first hash recorded.
     const updates = getUpdatesFor(transactions)
     expect(updates.length).toBeGreaterThan(0)
     expect(updates[0]?.['status']).toBe('PAID')
-    expect(updates[0]?.['txHash']).toBe('0xhash-senior')
+    expect(updates[0]?.['txHash']).toBe('0xhash-maksym')
   })
 
   it('empty txHashes → 400', async () => {
@@ -458,17 +455,13 @@ describe('PaymentChannelService.confirmCryptoPayment', () => {
   })
 })
 
-// ── Cash channel (admin-initiated, post-refactor) ──────────────────────────
+// ── Cash channel (admin-initiated) ──────────────────────────────────────────
 //
-// AC2 / AC11. Bank channel + DROP-initiated cash flow have been removed:
-//   - initiateBankPayment / confirmBankPayment → method removed; if a stale
-//     test reference survives the typecheck would flag it.
-//   - initiateCashPayment / listPendingCash → method removed; tests deleted.
-// confirmCashPayment now requires ACCOUNTANT/ADMIN (DROP → 403) and runs
-// the cascade in one step.
+// task-drop-company-debt-and-invoices. SENIOR_PENDING_PAYOUT carries
+// debtorType='COMPANY' (was 'DROP' in the previous refactor).
 
-describe('PaymentChannelService.confirmCashPayment (AC2, AC11)', () => {
-  it('creates ADMIN_INCOME_CASH + SENIOR_PENDING_PAYOUT + obligation (DROP), closes PAYOUT', async () => {
+describe('PaymentChannelService.confirmCashPayment', () => {
+  it('creates ADMIN_INCOME_CASH + SENIOR_PENDING_PAYOUT + obligation (COMPANY), closes PAYOUT', async () => {
     const { svc, getInsertsFor, getUpdatesFor } = makeService()
     await svc.confirmCashPayment(INCOME_ID, MAKSYM_ID, accountantUser)
 
@@ -481,16 +474,14 @@ describe('PaymentChannelService.confirmCashPayment (AC2, AC11)', () => {
 
     expect(cash['receiverId']).toBe(MAKSYM_ID)
     expect(cash['recipientId']).toBe(MAKSYM_ID)
-    // Partner total = 2590 ($1295 + $1295) — entire admin slice goes to the
-    // chosen admin.
     expect(parseFloat(cash['amount'] as string)).toBeCloseTo(2590)
 
     expect(parseFloat(pending['amount'] as string)).toBeCloseTo(560)
     expect(pending['receiverId']).toBe(SENIOR_ID)
+    expect(pending['senderLabel']).toBe('COMPANY')
 
     expect(oblInserts).toHaveLength(1)
-    expect(oblInserts[0]?.['debtorType']).toBe('DROP')
-    expect(oblInserts[0]?.['debtorUserId']).toBe(DROP_ID)
+    expect(oblInserts[0]?.['debtorType']).toBe('COMPANY')
     expect(oblInserts[0]?.['creditorUserId']).toBe(SENIOR_ID)
 
     // PAYOUT row flipped to PAID.

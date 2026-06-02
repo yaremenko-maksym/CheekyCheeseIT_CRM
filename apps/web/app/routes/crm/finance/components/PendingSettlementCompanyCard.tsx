@@ -1,20 +1,21 @@
 /**
- * Drop role - phase 4-C. DROP view of own debts to seniors (cash-channel
- * leftovers — senior share retained when the drop handed cash to admin).
+ * task-drop-company-debt-and-invoices.
  *
- * Each item exposes a «Я заплатил синьору» button that calls
- * /api/pending-settlements/:id/settle-drop. Closure happens optimistically
- * via TanStack Query invalidation — the row disappears once the obligation
- * is patched to PAID.
+ * ADMIN / ACCOUNTANT view of pending COMPANY debts to seniors. Shown on
+ * /crm/finance only — DROP no longer holds (or closes) senior debts after
+ * the refactor.
  *
- * Hidden when there are no open DROP debts.
+ * Each item exposes a «Выплатить синьору» button that calls
+ * POST /api/pending-settlements/:id/settle-company. The backend:
+ *   - inserts a SENIOR_INCOME (status=PAID) crediting the senior balance,
+ *   - patches the obligation → status=PAID,
+ *   - auto-generates a signable invoice for the senior (same trigger as
+ *     payPayoutRequest).
  *
- * Reused on /crm/profile?tab=finance (mounted inside FinanceTab when the
- * profile owner is the DROP themselves OR when an ADMIN/ACCOUNTANT views a
- * DROP profile).
+ * Hidden when there are no open COMPANY debts.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, Loader2, Handshake } from 'lucide-react'
+import { Building2, CheckCircle2, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -46,24 +47,25 @@ function fmtDate(iso: string): string {
   }
 }
 
-export function PendingSettlementDropCard() {
+export function PendingSettlementCompanyCard() {
   const qc = useQueryClient()
   const { data: items = [], isLoading } = useQuery({
-    queryKey: ['pending-settlements-drop'],
-    queryFn: () => financeApi.listDropPendingSettlements(),
+    queryKey: ['pending-settlements-company'],
+    queryFn: () => financeApi.listCompanyPendingSettlements(),
     staleTime: 15_000,
   })
 
   const settle = useMutation({
-    mutationFn: (obligationId: string) => financeApi.settleObligationByDrop(obligationId),
+    mutationFn: (obligationId: string) => financeApi.settleObligationByCompany(obligationId),
     onSuccess: () => {
-      toast.success('Долг закрыт')
-      void qc.invalidateQueries({ queryKey: ['pending-settlements-drop'] })
+      toast.success('Выплата проведена')
+      void qc.invalidateQueries({ queryKey: ['pending-settlements-company'] })
       void qc.invalidateQueries({ queryKey: ['pending-settlements-senior'] })
       void qc.invalidateQueries({ queryKey: ['pending-obligations'] })
       void qc.invalidateQueries({ queryKey: ['transactions'] })
       void qc.invalidateQueries({ queryKey: ['profile-transactions'] })
       void qc.invalidateQueries({ queryKey: ['finance-summary'] })
+      void qc.invalidateQueries({ queryKey: ['invoices'] })
     },
     onError: (err) => toast.error(extractErrorMessage(err)),
   })
@@ -71,15 +73,15 @@ export function PendingSettlementDropCard() {
   if (!isLoading && items.length === 0) return null
 
   return (
-    <Card className="border-rose-500/40" data-testid="pending-settlement-drop-card">
+    <Card className="border-amber-500/40" data-testid="pending-settlement-company-card">
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-          <Handshake className="h-4 w-4 text-rose-400" />
-          Долги перед синьорами
+          <Building2 className="h-4 w-4 text-amber-400" />
+          Долги компании перед синьорами
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          Вы оставили себе senior-долю при передаче нала админу. Закройте долг кнопкой «Я заплатил
-          синьору» после оплаты вне платформы.
+          Senior-доля от дроп-проекта. Закройте оплатив синьору кнопкой «Выплатить синьору» — инвойс
+          сгенерируется автоматически.
         </p>
       </CardHeader>
       <CardContent className="p-0">
@@ -91,7 +93,7 @@ export function PendingSettlementDropCard() {
               <li
                 key={it.obligationId}
                 className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
-                data-testid={`pending-settlement-drop-item-${it.obligationId}`}
+                data-testid={`pending-settlement-company-item-${it.obligationId}`}
               >
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">
@@ -99,7 +101,10 @@ export function PendingSettlementDropCard() {
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Синьор:{' '}
-                    <span className="font-medium" data-testid="pending-settlement-drop-senior-name">
+                    <span
+                      className="font-medium"
+                      data-testid="pending-settlement-company-senior-name"
+                    >
                       {it.seniorName}
                     </span>{' '}
                     · {fmtDate(it.createdAt)}
@@ -107,7 +112,7 @@ export function PendingSettlementDropCard() {
                 </div>
                 <div
                   className="text-sm font-bold tabular-nums"
-                  data-testid="pending-settlement-drop-amount"
+                  data-testid="pending-settlement-company-amount"
                 >
                   {formatAmountUsd(it.amount, it.currency)}
                 </div>
@@ -116,14 +121,14 @@ export function PendingSettlementDropCard() {
                   variant="default"
                   disabled={settle.isPending}
                   onClick={() => settle.mutate(it.obligationId)}
-                  data-testid={`pending-settlement-drop-settle-button-${it.obligationId}`}
+                  data-testid={`pending-settlement-company-settle-button-${it.obligationId}`}
                 >
                   {settle.isPending ? (
                     <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
                   ) : (
                     <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
                   )}
-                  Я заплатил синьору
+                  Выплатить синьору
                 </Button>
               </li>
             ))}
