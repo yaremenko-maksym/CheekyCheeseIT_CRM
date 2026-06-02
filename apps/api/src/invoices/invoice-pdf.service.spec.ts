@@ -295,6 +295,39 @@ describe('InvoicePdfService', () => {
     )
   })
 
+  describe('counterparty with CASH payment method (SALARY only)', () => {
+    it(
+      'renders "Наличка" + "(без реквизитов)" hint and produces a valid PDF',
+      { timeout: TEST_TIMEOUT_MS },
+      async () => {
+        const params = baseParams()
+        params.transaction.type = 'SALARY'
+        params.transaction.projectName = null
+        params.transaction.currency = 'UAH'
+        params.uahEquivalent = null
+        params.counterparty.paymentMethod = 'CASH'
+        params.counterparty.paymentDetails = []
+
+        const { pdfBuffer, sha256Hash } = await service.generateSignableInvoicePdf(params)
+
+        expect(sha256Hash).toMatch(/^[0-9a-f]{64}$/)
+        const reparsed = await PDFDocument.load(pdfBuffer)
+        expect(reparsed.getPageCount()).toBe(1)
+
+        // Hash differs from the `null` variant — different rendering path.
+        const nullParams = baseParams()
+        nullParams.transaction.type = 'SALARY'
+        nullParams.transaction.projectName = null
+        nullParams.transaction.currency = 'UAH'
+        nullParams.uahEquivalent = null
+        nullParams.counterparty.paymentMethod = null
+        nullParams.counterparty.paymentDetails = []
+        const nullVariant = await service.generateSignableInvoicePdf(nullParams)
+        expect(sha256Hash).not.toBe(nullVariant.sha256Hash)
+      },
+    )
+  })
+
   describe('QR code embedding', () => {
     it('embeds an image stream (the QR code PNG)', { timeout: TEST_TIMEOUT_MS }, async () => {
       const params = baseParams()

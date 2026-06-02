@@ -340,8 +340,14 @@ export class InvoicePdfService {
         fontRegular,
         layout.colors.warning,
       )
+    } else if (counterparty.paymentMethod === 'CASH') {
+      // CASH (SALARY only): no requisites to render. Show method + a soft
+      // muted hint instead of the "Не указано" warning.
+      y = this.drawLine(page, 'Метод: Наличка', y, layout, fontRegular)
+      y = this.drawLine(page, '(без реквизитов)', y, layout, fontRegular, layout.colors.muted)
     } else {
-      const methodLabel = counterparty.paymentMethod === 'USDT_ERC20' ? 'USDT ERC-20' : 'ФОП UAH'
+      const methodLabel =
+        counterparty.paymentMethod === 'USDT_ERC20' ? 'USDT ERC-20' : 'Bank UAH (ФОП)'
       y = this.drawLine(page, `Метод: ${methodLabel}`, y, layout, fontRegular)
       for (const detail of counterparty.paymentDetails) {
         y = this.drawLine(page, detail, y, layout, fontRegular)
