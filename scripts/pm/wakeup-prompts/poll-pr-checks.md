@@ -23,10 +23,13 @@ Built-in vars:
 # Шаг 1 — Bootstrap PM роли
 
 Прочитай:
+
 1. `docs/agents/pm.md`
-2. `docs/agents/CLAUDE-pm.md`
-3. `docs/agents/memory/pm/lessons.md`
-4. `docs/specs/pm-state.json`
+2. `docs/agents/RULES.md`
+3. `docs/agents/project-state.md`
+4. `docs/agents/pm-snippets.md` (секция «Cross-session wake-up»)
+5. `docs/agents/memory/pm/lessons.md`
+6. `docs/specs/pm-state.json`
 
 # Шаг 2 — Найти контекст в pm-state
 
@@ -47,15 +50,16 @@ gh pr view {{PR}} --repo {{REPO}} \
 # Шаг 4 — Классификация
 
 Группы checks:
+
 - **All success** — все `conclusion: SUCCESS`, ни одного `PENDING/IN_PROGRESS`
 - **Any failed** — хотя бы один `conclusion: FAILURE|CANCELLED|TIMED_OUT`
 - **Still running** — есть `status: IN_PROGRESS|QUEUED` и нет failure
 
-| Группа | Действие |
-|--------|----------|
-| All success | Шаг 5 |
-| Any failed | Шаг 6 |
-| Still running | Шаг 7 |
+| Группа        | Действие |
+| ------------- | -------- |
+| All success   | Шаг 5    |
+| Any failed    | Шаг 6    |
+| Still running | Шаг 7    |
 
 # Шаг 5 — All success
 
@@ -88,6 +92,7 @@ gh pr view {{PR}} --repo {{REPO}} \
 # Шаг 7 — Still running
 
 Аналогично `poll-e2e-run.md` Шаг 6:
+
 - (now - SCHEDULED_AT) < 30 мин → оставить `next_action`, завершить
 - ≥ 30 мин → флагать stuck-run, очистить `next_action`
 

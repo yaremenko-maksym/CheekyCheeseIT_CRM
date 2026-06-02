@@ -1,5 +1,17 @@
 # CRM Project Memory Bank
 
+> 📌 **Multi-agent docs обновлены 2026-06-02 (architecture v2).** Начало работы агентов — `docs/agents/README.md`.
+>
+> **Single source of truth** теперь разделён по файлам:
+>
+> - `docs/agents/RULES.md` — cross-agent rules (MCP, git, skills, zone-of-write, version pins)
+> - `docs/agents/project-state.md` — phases / migrations / RBAC / tech stack / business rules
+> - `docs/agents/contracts.md` — cross-agent state-machine (Mermaid)
+> - `docs/agents/<agent>.md` — system-промпт каждого агента (golden rules + recovery + workflow)
+>
+> Этот `CLAUDE.md` сохранён как high-level overview для USER-сессии. Изменения фаз / миграций /
+> RBAC — теперь делаются в `docs/agents/project-state.md` (single source). См. `docs/agents/CHANGES.md`.
+
 ## MCP серверы (активные) — ИСПОЛЬЗОВАТЬ В ПЕРВУЮ ОЧЕРЕДЬ
 
 5 серверов работают. **Приоритет:** MCP → потом Bash/Read/grep.
