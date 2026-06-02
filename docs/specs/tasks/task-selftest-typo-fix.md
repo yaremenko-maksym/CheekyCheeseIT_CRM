@@ -18,7 +18,7 @@ Self-test для нового docs/agents/ v2 рефакторинга. Цель
 
 ## Конкретное изменение
 
-**Файл:** `apps/web/app/components/ui/phone-input.tsx`, строка 116.
+**Файл:** `apps/web/app/components/ui/phone-input.tsx`, строка 139 (искать `nubmer` через grep — единственное вхождение в файле).
 
 **Сейчас:**
 
@@ -36,7 +36,7 @@ Self-test для нового docs/agents/ v2 рефакторинга. Цель
 
 ## Acceptance Criteria
 
-- [ ] AC1: Файл `apps/web/app/components/ui/phone-input.tsx` строка 116 содержит правильное слово `number` вместо `nubmer`.
+- [ ] AC1: Файл `apps/web/app/components/ui/phone-input.tsx` строка 139 содержит правильное слово `number` вместо `nubmer`.
 - [ ] AC2: Других изменений в файле нет (только эта строка в diff).
 - [ ] AC3: Никаких других файлов не тронуто (zone-of-write: только этот один файл).
 - [ ] AC4: Финальный коммит содержит `ac_verified: 1,2,3` (без `vision:` — это не UI-задача).
