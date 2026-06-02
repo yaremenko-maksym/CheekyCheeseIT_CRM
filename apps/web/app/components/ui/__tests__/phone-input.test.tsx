@@ -1,5 +1,5 @@
 import React from 'react'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { validatePhoneNumberLength } from 'libphonenumber-js/min'
@@ -135,7 +135,10 @@ describe('checkIfValidInput', () => {
 // ---------------------------------------------------------------------------
 
 // Controlled wrapper so RPNInput receives updated value on every onChange
-function ControlledPhoneInput({ defaultCountry = 'UA' as RPNInput.Country, onChange }: {
+function ControlledPhoneInput({
+  defaultCountry = 'UA' as RPNInput.Country,
+  onChange,
+}: {
   defaultCountry?: RPNInput.Country
   onChange: (v: RPNInput.Value) => void
 }) {
@@ -143,7 +146,10 @@ function ControlledPhoneInput({ defaultCountry = 'UA' as RPNInput.Country, onCha
   return (
     <PhoneInput
       value={value}
-      onChange={(v) => { setValue(v); onChange(v) }}
+      onChange={(v) => {
+        setValue(v)
+        onChange(v)
+      }}
       defaultCountry={defaultCountry}
     />
   )
@@ -211,16 +217,31 @@ describe('PhoneInput component', () => {
   // Country switching scenarios
   // ---------------------------------------------------------------------------
 
-  // Helper: open dropdown, optionally search, click the country label span
+  // Helper: open dropdown, search, click the country option.
+  // Each waitFor/findBy gets an explicit 5s timeout — under slow CI runners the
+  // Radix Popover portal mount + cmdk filter + click commit pipeline can exceed
+  // the default 1s waitFor budget even though it completes in ~3s.
   async function selectCountry(user: ReturnType<typeof userEvent.setup>, searchQuery: string) {
     const trigger = screen.getByRole('button')
     await user.click(trigger)
-    const searchInput = screen.getByPlaceholderText('Поиск страны...')
+    // Wait for Radix Popover portal to mount before typing into search input
+    const searchInput = await waitFor(() => screen.getByPlaceholderText('Поиск страны...'), {
+      timeout: 5000,
+    })
     await user.type(searchInput, searchQuery)
     // Find by role=option to avoid matching SVG <title> elements
-    const option = await screen.findByRole('option', { name: new RegExp(searchQuery, 'i') })
+    const option = await screen.findByRole(
+      'option',
+      { name: new RegExp(searchQuery, 'i') },
+      { timeout: 5000 },
+    )
     await user.click(option)
   }
+
+  // Per-test timeout bumps (default 15000ms) — these scenarios exercise Radix Popover
+  // open animation + cmdk filter pipeline + click commit, which is the slowest path
+  // in the component. Locally ~3s per test, but CI runners (~1 vCPU) can exceed 15s.
+  // Bumping per-test budget gives headroom without hiding real regressions in other tests.
 
   it('sets country calling code in input after switching country via dropdown', async () => {
     const user = userEvent.setup({ delay: null })
@@ -233,7 +254,7 @@ describe('PhoneInput component', () => {
     // After switching to US, the migrated value must start with +1
     const lastCall = onChange.mock.calls.at(-1)?.[0] as string
     expect(lastCall).toMatch(/^\+1/)
-  })
+  }, 30000)
 
   it('can type a number after switching country', async () => {
     const user = userEvent.setup({ delay: null })
@@ -246,7 +267,7 @@ describe('PhoneInput component', () => {
     expect(onChange).toHaveBeenCalled()
     const lastCall = onChange.mock.calls.at(-1)?.[0] as string
     expect(lastCall).toMatch(/^\+49/)
-  })
+  }, 30000)
 
   it('can switch countries multiple times and type after each', async () => {
     const user = userEvent.setup({ delay: null })
@@ -267,7 +288,9 @@ describe('PhoneInput component', () => {
       const lastCall = onChange.mock.calls.at(-1)?.[0] as string
       expect(lastCall).toMatch(new RegExp(`^\\${prefix}`))
     }
-  }, 30000)
+    // 45s — 3 selectCountry rounds × up to ~5s per round + typing + commit.
+    // Locally ~8s; slow CI runners ~25s.
+  }, 45000)
 
   it('normalizes local UA number (0XXXXXXXXX) to e164 (+380XXXXXXXXX)', async () => {
     const user = userEvent.setup({ delay: null })

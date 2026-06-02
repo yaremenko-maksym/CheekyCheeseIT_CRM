@@ -2,9 +2,24 @@ import { CheckIcon, ChevronsUpDown } from 'lucide-react'
 import * as RPNInput from 'react-phone-number-input'
 import flags from 'react-phone-number-input/flags'
 import { validatePhoneNumberLength } from 'libphonenumber-js/min'
-import React, { createContext, forwardRef, useContext, useDeferredValue, useEffect, useRef, useState } from 'react'
+import React, {
+  createContext,
+  forwardRef,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import type { ComponentProps, ElementRef, ForwardRefExoticComponent } from 'react'
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -35,7 +50,7 @@ const PhoneInput: ForwardRefExoticComponent<PhoneInputProps> = forwardRef<
   useEffect(() => {
     if (!value) {
       const callingCode = RPNInput.getCountryCallingCode(defaultCountry)
-      if (callingCode) onChange((`+${callingCode}`) as RPNInput.Value)
+      if (callingCode) onChange(`+${callingCode}` as RPNInput.Value)
     }
   }, [])
 
@@ -46,15 +61,23 @@ const PhoneInput: ForwardRefExoticComponent<PhoneInputProps> = forwardRef<
       suppressNextUndefined.current = false
       return
     }
-    if (!val) { onChange(val); return }
-    if (val.startsWith('+')) { onChange(val); return }
+    if (!val) {
+      onChange(val)
+      return
+    }
+    if (val.startsWith('+')) {
+      onChange(val)
+      return
+    }
     try {
       const parsed = RPNInput.parsePhoneNumber(val, currentCountry)
       if (parsed?.isValid()) {
         onChange(parsed.number as RPNInput.Value)
         return
       }
-    } catch { /* unparseable — pass through raw */ }
+    } catch {
+      /* unparseable — pass through raw */
+    }
     onChange(val)
   }
 
@@ -64,7 +87,7 @@ const PhoneInput: ForwardRefExoticComponent<PhoneInputProps> = forwardRef<
     const callingCode = RPNInput.getCountryCallingCode(country)
     if (callingCode) {
       suppressNextUndefined.current = true
-      onChange((`+${callingCode}`) as RPNInput.Value)
+      onChange(`+${callingCode}` as RPNInput.Value)
     }
   }
 
@@ -95,7 +118,7 @@ const PhoneTextInput = forwardRef<HTMLInputElement, ComponentProps<'input'>>(
     const { currentCountry, inputRef } = useContext(PhoneInputContext)
 
     const setRefs = (el: HTMLInputElement | null) => {
-      (inputRef as React.MutableRefObject<HTMLInputElement | null>).current = el
+      ;(inputRef as React.MutableRefObject<HTMLInputElement | null>).current = el
       if (typeof ref === 'function') ref(el)
       else if (ref) (ref as React.MutableRefObject<HTMLInputElement | null>).current = el
     }
@@ -154,12 +177,7 @@ type CountrySelectProps = {
 
 const CountrySelectWrapper = (props: CountrySelectProps) => {
   const { defaultCountry } = useContext(PhoneInputContext)
-  return (
-    <CountrySelect
-      {...props}
-      value={props.value ?? defaultCountry}
-    />
-  )
+  return <CountrySelect {...props} value={props.value ?? defaultCountry} />
 }
 
 const CountrySelect = ({
@@ -173,10 +191,16 @@ const CountrySelect = ({
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const [searchValue, setSearchValue] = useState('')
   const [isOpen, setIsOpen] = useState(false)
-  const deferredSearch = useDeferredValue(searchValue)
 
-  const countryList = options.filter(
-    (opt) => Boolean(opt.value) && opt.label.toLowerCase().includes(deferredSearch.toLowerCase()),
+  // Synchronous filtering — useDeferredValue introduced non-deterministic
+  // commit timing which caused flaky CI test (sets country calling code in input
+  // after switching country via dropdown). Filtering 200 entries is cheap.
+  const countryList = useMemo(
+    () =>
+      options.filter(
+        (opt) => Boolean(opt.value) && opt.label.toLowerCase().includes(searchValue.toLowerCase()),
+      ),
+    [options, searchValue],
   )
 
   return (
@@ -189,7 +213,9 @@ const CountrySelect = ({
           setSearchValue('')
         } else {
           // Popover restores focus to trigger on close — override with input focus
-          setTimeout(() => { inputRef.current?.focus() }, 0)
+          setTimeout(() => {
+            inputRef.current?.focus()
+          }, 0)
         }
       }}
     >
