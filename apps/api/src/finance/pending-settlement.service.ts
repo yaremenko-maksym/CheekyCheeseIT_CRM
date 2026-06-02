@@ -1,33 +1,47 @@
 /**
- * Drop role - phase 4 (refactor — task-drop-phase4-refactor-remove-tov.md).
  * Pending senior settlement service.
  *
- * After the refactor only the DROP-debt lifecycle remains:
+ * task-drop-company-debt-and-invoices (post Phase 4 refactor):
  *
- *   debtorType='DROP': the DROP user kept the senior share when they handed
- *   cash to the admin. The DROP closes this via `settleByDrop` once they
- *   pay the senior out-of-band — single SENIOR_PAID row records the closure.
+ * Senior share from drop-projects is owed by **the COMPANY**, not by the
+ * DROP user. The new flows:
  *
- * The TOV-debt lifecycle (bank channel) has been removed (AC3): both
- * `listTovObligations` and `settleByTov` are gone. Historical rows that
- * carry `debtorType='TOV'` may still exist in the table but are not surfaced
- * by the read endpoints below — only DROP-debtor rows are returned.
+ *   debtorType='COMPANY': both crypto + cash channels create a
+ *   SENIOR_PENDING_PAYOUT (debtor=COMPANY) immediately after the
+ *   drop→company payment is recorded. The senior balance only moves once
+ *   ACCOUNTANT/ADMIN closes the obligation via `settleByCompany`, which:
+ *     - inserts a SENIOR_INCOME row (status=PAID, the legal invoice type),
+ *     - marks the obligation PAID,
+ *     - triggers `safeAutoCreateInvoice('SENIOR_INCOME', ...)` so the
+ *       senior receives a signable invoice mirroring the existing
+ *       payPayoutRequest cascade.
+ *
+ *   The DROP user no longer holds any debt to the senior and has no UI
+ *   to close one — `listDropObligations` + `settleByDrop` are removed.
+ *
+ * Legacy values remain readable:
+ *   debtorType='DROP' — historical pre-refactor cash rows. We still list
+ *   them under `listSeniorObligations` so the senior view shows them.
+ *   debtorType='TOV'  — bank channel rows (read endpoints filter them out).
  *
  * Read endpoints:
  *   - `listSeniorObligations` — SENIOR sees own; ADMIN/ACCOUNTANT see all
- *     (DROP-debtor obligations only).
- *   - `listDropObligations`   — DROP sees own debts; ADMIN/ACCOUNTANT see all.
+ *     active COMPANY-debt + legacy DROP-debt obligations.
+ *   - `listCompanyObligations` — ADMIN/ACCOUNTANT-only view of pending
+ *     COMPANY debts to seniors. Used by the new finance page card.
  *
- * The DTO denormalises drop/senior/project names so the UI cards render
+ * The DTO denormalises debtor/senior/project names so the UI cards render
  * without follow-up requests.
  */
 import {
   BadRequestException,
   ForbiddenException,
+  forwardRef,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import type {
   PendingSettlementItemDto,
   PendingObligationDto,
@@ -42,17 +56,23 @@ import {
   users,
   type Transaction,
 } from '../database/schema'
+import { InvoicesService } from '../invoices/invoices.service'
 
 @Injectable()
 export class PendingSettlementService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    @Inject(forwardRef(() => InvoicesService))
+    private readonly invoicesService: InvoicesService,
+  ) {}
 
   // ── Read endpoints ────────────────────────────────────────────────────────
 
   /**
-   * SENIOR self-view: returns own PENDING obligations from DROP debtors.
-   * ADMIN/ACCOUNTANT: returns every PENDING obligation from DROP debtors
-   * across all seniors. TOV-debtor history rows are intentionally excluded.
+   * SENIOR self-view: returns own PENDING obligations (COMPANY-debt + legacy
+   * DROP-debt for backwards compatibility). ADMIN/ACCOUNTANT: returns every
+   * PENDING obligation across all seniors. TOV-debtor history rows are
+   * intentionally excluded.
    */
   async listSeniorObligations(actor: SessionUser): Promise<PendingSettlementItemDto[]> {
     if (actor.role !== 'SENIOR' && actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') {
@@ -60,85 +80,95 @@ export class PendingSettlementService {
         'Список ожидающих зачислений доступен синьорам, бухгалтерам и админам',
       )
     }
-    const conjuncts = [
-      eq(pendingObligations.status, 'PENDING'),
-      eq(pendingObligations.debtorType, 'DROP'),
-    ]
+    const conjuncts: Array<ReturnType<typeof eq>> = [eq(pendingObligations.status, 'PENDING')]
+    // Include both new COMPANY-debt rows and legacy DROP-debt rows so the
+    // senior view continues to show pre-refactor obligations.
     if (actor.role === 'SENIOR') {
       conjuncts.push(eq(pendingObligations.creditorUserId, actor.id))
     }
-    return this.loadAndDenormalise(conjuncts)
+    const rows = await this.db.db.query.pendingObligations.findMany({
+      where: and(...conjuncts, inArray(pendingObligations.debtorType, ['COMPANY', 'DROP'])),
+      orderBy: (table, { desc }) => [desc(table.createdAt)],
+    })
+    return this.denormalise(rows)
   }
 
   /**
-   * DROP-debt view. DROP sees only own obligations (debtorUserId === actor.id);
-   * ADMIN/ACCOUNTANT see every debtorType='DROP' obligation across all drops.
+   * Company-debt view. ADMIN/ACCOUNTANT-only — DROP no longer has any
+   * obligations to close. Returns every PENDING obligation with
+   * debtorType='COMPANY'.
    */
-  async listDropObligations(actor: SessionUser): Promise<PendingSettlementItemDto[]> {
-    if (actor.role !== 'DROP' && actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') {
+  async listCompanyObligations(actor: SessionUser): Promise<PendingSettlementItemDto[]> {
+    if (actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') {
       throw new ForbiddenException(
-        'Список долгов перед синьорами доступен дропам, бухгалтерам и админам',
+        'Список долгов компании перед синьорами доступен только админам и бухгалтерам',
       )
     }
-    const conjuncts = [
-      eq(pendingObligations.status, 'PENDING'),
-      eq(pendingObligations.debtorType, 'DROP'),
-    ]
-    if (actor.role === 'DROP') {
-      conjuncts.push(eq(pendingObligations.debtorUserId, actor.id))
-    }
-    return this.loadAndDenormalise(conjuncts)
+    const rows = await this.db.db.query.pendingObligations.findMany({
+      where: and(
+        eq(pendingObligations.status, 'PENDING'),
+        eq(pendingObligations.debtorType, 'COMPANY'),
+      ),
+      orderBy: (table, { desc }) => [desc(table.createdAt)],
+    })
+    return this.denormalise(rows)
   }
 
   // ── Settle endpoints ──────────────────────────────────────────────────────
 
   /**
-   * Close a DROP-debt obligation. RBAC: the debtor DROP themselves OR
-   * ACCOUNTANT/ADMIN acting on their behalf.
+   * Close a COMPANY-debt obligation. RBAC: ACCOUNTANT / ADMIN only. DROP is
+   * explicitly forbidden — they no longer hold or close senior debts.
    *
    * Atomic cascade:
-   *   - Insert SENIOR_PAID transaction (senderId=drop, receiverId=senior).
-   *     `senderLabel='DROP'` marks the audit trail so the senior balance
-   *     breakdown can attribute the credit.
+   *   - Insert SENIOR_INCOME transaction (senderLabel='COMPANY',
+   *     receiverId=senior) with status=PAID. This is the legally signable
+   *     invoice type per InvoicesService.autoCreateForSeniorPayout.
    *   - Patch obligation → status=PAID, closingTransactionId=<paid row id>.
+   *   - Trigger `safeAutoCreateInvoice('SENIOR_INCOME', <id>)` outside the
+   *     transaction so a failing PDF/S3 step doesn't roll back the closure.
    */
-  async settleByDrop(
+  async settleByCompany(
     obligationId: string,
     actor: SessionUser,
   ): Promise<{ obligation: PendingObligationDto; created: TransactionDto[] }> {
+    if (actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') {
+      throw new ForbiddenException('Закрывать долг компании могут только админ или бухгалтер')
+    }
+
     const obligation = await this.loadObligation(obligationId)
-    if (obligation.debtorType !== 'DROP') {
-      throw new BadRequestException('Этот долг не закрывается дропом (debtorType должен быть DROP)')
+    if (obligation.debtorType !== 'COMPANY' && obligation.debtorType !== 'DROP') {
+      // Keep legacy 'DROP'-debt closeable through this endpoint so admins
+      // can clean up pre-refactor rows the same way.
+      throw new BadRequestException(
+        'Этот долг не закрывается компанией (debtorType должен быть COMPANY)',
+      )
     }
     if (obligation.status !== 'PENDING') {
       throw new BadRequestException('Долг уже закрыт или отменён')
-    }
-    // RBAC: drop debtor themselves, or ACCOUNTANT/ADMIN. Other roles 403.
-    if (actor.role === 'DROP') {
-      if (obligation.debtorUserId !== actor.id) {
-        throw new ForbiddenException('Дроп может закрывать только свои долги')
-      }
-    } else if (actor.role !== 'ACCOUNTANT' && actor.role !== 'ADMIN') {
-      throw new ForbiddenException('Закрывать DROP-долг могут только сам дроп, бухгалтер или админ')
     }
 
     const project = await this.resolveSourceProject(obligation.sourceTransactionId)
     const created: Transaction[] = []
     await this.db.db.transaction(async (dbtx) => {
+      // task-drop-company-debt-and-invoices. Use SENIOR_INCOME (status=PAID)
+      // so InvoicesService.autoCreateForSeniorPayout picks it up — the
+      // existing invoice trigger gates on `tx.type === 'SENIOR_INCOME'`.
       const [paidRow] = await dbtx
         .insert(transactions)
         .values({
-          type: 'SENIOR_PAID',
+          type: 'SENIOR_INCOME',
           status: 'PAID',
           amount: obligation.amount,
           currency: obligation.currency,
-          senderId: obligation.debtorUserId,
-          senderLabel: 'DROP',
+          senderLabel: 'COMPANY',
           receiverId: obligation.creditorUserId,
           recipientId: obligation.creditorUserId,
           projectId: project?.id ?? null,
-          notes: `Phase 4-C — DROP закрыл senior IOU (obligation ${obligation.id})`,
+          notes: `Выплата компанией senior IOU (obligation ${obligation.id})`,
           createdBy: actor.id,
+          validatedBy: actor.id,
+          validatedAt: new Date(),
         })
         .returning()
       if (paidRow) created.push(paidRow)
@@ -151,6 +181,18 @@ export class PendingSettlementService {
         })
         .where(eq(pendingObligations.id, obligation.id))
     })
+
+    // Fire-and-forget invoice trigger — outside the DB transaction so a
+    // failing PDF/S3 step does not roll back the settlement.
+    const seniorIncomeId = created.find((c) => c.type === 'SENIOR_INCOME')?.id
+    if (seniorIncomeId) {
+      try {
+        await this.invoicesService.autoCreateForSeniorPayout(seniorIncomeId)
+      } catch {
+        // Swallow — the invoice can be re-triggered manually. Status change is
+        // already persisted, the obligation is closed regardless.
+      }
+    }
 
     const refreshed = await this.db.db.query.pendingObligations.findFirst({
       where: eq(pendingObligations.id, obligation.id),
@@ -172,7 +214,7 @@ export class PendingSettlementService {
   }
 
   /**
-   * Walk source transaction → projectId so the SENIOR_PAID row keeps the
+   * Walk source transaction → projectId so the SENIOR_INCOME row keeps the
    * project pointer for audit. Failures are non-fatal: a missing source or
    * missing project just yields `null`.
    */
@@ -190,18 +232,21 @@ export class PendingSettlementService {
   }
 
   /**
-   * Load obligations matching the AND-conjuncts, then resolve creditor/debtor
-   * display names + project name in batched per-row lookups. Result rows are
-   * sorted by createdAt DESC (most recent first).
+   * Denormalise obligation rows with creditor / debtor / project names so the
+   * UI cards render without follow-up requests.
    */
-  private async loadAndDenormalise(
-    conjuncts: Array<ReturnType<typeof eq>>,
+  private async denormalise(
+    rows: Array<{
+      id: string
+      creditorUserId: string
+      debtorType: 'DROP' | 'TOV' | 'ADMIN' | 'COMPANY'
+      debtorUserId: string | null
+      sourceTransactionId: string
+      amount: string
+      currency: string
+      createdAt: Date
+    }>,
   ): Promise<PendingSettlementItemDto[]> {
-    const rows = await this.db.db.query.pendingObligations.findMany({
-      where: and(...conjuncts),
-      orderBy: (table, { desc }) => [desc(table.createdAt)],
-    })
-
     const result: PendingSettlementItemDto[] = []
     for (const row of rows) {
       const [senior, debtor, source] = await Promise.all([
@@ -238,7 +283,7 @@ export class PendingSettlementService {
   private toObligationDto(row: {
     id: string
     creditorUserId: string
-    debtorType: 'DROP' | 'TOV' | 'ADMIN'
+    debtorType: 'DROP' | 'TOV' | 'ADMIN' | 'COMPANY'
     debtorUserId: string | null
     sourceTransactionId: string
     closingTransactionId: string | null
@@ -287,6 +332,7 @@ export class PendingSettlementService {
       projectName: null,
       payoutRequestId: row.payoutRequestId ?? null,
       seniorSharePercent: row.seniorSharePercent ?? null,
+      seniorSharePercentSource: null,
       receiptDocumentId: row.receiptDocumentId ?? null,
       receiptExternalUrl: row.receiptExternalUrl ?? null,
       txHash: row.txHash ?? null,
