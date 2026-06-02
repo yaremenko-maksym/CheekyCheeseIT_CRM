@@ -1,0 +1,22 @@
+-- 0026_company_debtor.sql
+--
+-- task-drop-company-debt-and-invoices.
+--
+-- Adds 'COMPANY' value to the pending_obligation_debtor_type enum so the
+-- new senior IOU rows created by:
+--   * confirmCryptoPayment (crypto channel — admin gets share, company
+--     keeps senior share as debt)
+--   * confirmCashPayment (cash channel — admin receives cash, company
+--     keeps senior share as debt)
+-- can carry debtorType='COMPANY' instead of 'DROP'. Existing 'DROP' /
+-- 'TOV' rows are NOT touched — they remain readable for audit. Closure of
+-- COMPANY-debt rows happens via `settleByCompany` (ADMIN / ACCOUNTANT
+-- only) which also triggers invoice auto-creation on the resulting
+-- SENIOR_INCOME transaction.
+--
+-- Postgres requires `ALTER TYPE … ADD VALUE` to run outside an explicit
+-- transaction block, which drizzle-orm's migrator already handles by
+-- splitting on `--> statement-breakpoint`.
+
+--> statement-breakpoint
+ALTER TYPE "pending_obligation_debtor_type" ADD VALUE IF NOT EXISTS 'COMPANY';
