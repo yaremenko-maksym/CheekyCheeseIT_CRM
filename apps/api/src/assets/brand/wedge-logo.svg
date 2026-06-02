@@ -1,31 +1,29 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  CheekyCheeseIT "Wedge Terminal" brand mark — outline variant, graphite stroke
-  for the white-background PDF render. See user memory `feedback_brand_icon`
-  (commit 3bc5dc5 on branch `claude/naughty-rubin-9c42c5` for the canonical
-  apps/web/app/components/brand-mark.tsx implementation).
+  CheekyCheeseIT "Wedge Terminal" brand mark — flat (filled) variant.
+  This matches `apps/web/app/components/brand-mark.tsx` `variant="flat"`,
+  the icon shown in the in-app sidebar header (see `nav-sidebar.tsx:170`).
 
-  Used by `apps/api/src/invoices/invoice-pdf.service.ts` — drawn into the
-  invoice header via pdf-lib's PDFOperator path drawing primitives. Kept as
-  SVG so designers can iterate without touching code, even though pdf-lib
-  itself doesn't render SVG (we re-encode the path data into native pdf-lib
-  draw calls inside `drawBrandMark`).
+  Used by `apps/api/src/invoices/invoice-pdf.service.ts` `drawBrandMark`,
+  which re-encodes this geometry into pdf-lib draw calls (pdf-lib does not
+  render SVG directly). Keep this file in sync with the flat variant in
+  brand-mark.tsx so PDF and in-app icons stay visually identical.
 
-  Geometry skeleton (512 viewBox): wedge apex (96,124) → ... → (110,416);
-  holes chevron (192,216 r14) (240,272 r20) (192,328 r14) + cursor pill
-  rect (300,258, 80×28) + 1 ambient hole (396,340, r9).
+  Geometry (viewBox 512): filled wedge body (96,112)→(432,416) with three
+  punched-out holes forming the `>_` terminal chevron — (190,216 r25),
+  (244,274 r34), (190,332 r25) — plus the cursor pill (302,258 84×32 rx13).
+  Holes use `text-background` (white in light mode) to read as cut-outs of
+  the filled wedge silhouette.
 -->
-<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor">
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <path
     d="M 112 112 L 422 215 A 18 18 0 0 1 432 233 L 432 402 A 18 18 0 0 1 414 416 L 110 416 A 18 18 0 0 1 96 398 L 96 124 A 18 18 0 0 1 112 112 Z"
-    stroke-width="18"
-    stroke-linejoin="round"
+    fill="currentColor"
   />
-  <g stroke-linecap="round">
-    <circle cx="192" cy="216" r="14" stroke-width="10" />
-    <circle cx="240" cy="272" r="20" stroke-width="12" />
-    <circle cx="192" cy="328" r="14" stroke-width="10" />
-    <rect x="300" y="258" width="80" height="28" rx="13" stroke-width="11" />
-    <circle cx="396" cy="340" r="9" stroke-width="7" />
+  <g fill="#ffffff">
+    <circle cx="190" cy="216" r="25" />
+    <circle cx="244" cy="274" r="34" />
+    <circle cx="190" cy="332" r="25" />
+    <rect x="302" y="258" width="84" height="32" rx="13" />
   </g>
 </svg>

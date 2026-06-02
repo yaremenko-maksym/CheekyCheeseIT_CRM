@@ -182,7 +182,12 @@ export class InvoicePdfService {
   async generateSignableInvoicePdf(
     params: GenerateSignableInvoiceParams,
   ): Promise<GenerateSignableInvoiceResult> {
-    const { transaction, company, counterparty, verifyUrl, uahEquivalent } = params
+    // task-fix-invoice-pdf-polish AC2: `company` is destructured for
+    // back-compat with the InvoiceCompanyInfo struct shape but is no longer
+    // rendered anywhere on the PDF (address line dropped from both header
+    // and ИСПОЛНИТЕЛЬ block). Prefix with `_` so the unused-vars lint rule
+    // recognises the intent.
+    const { transaction, company: _company, counterparty, verifyUrl, uahEquivalent } = params
 
     // ----- Setup -----
     const doc = await PDFDocument.create()
@@ -238,15 +243,11 @@ export class InvoicePdfService {
       size: 16,
       color: layout.colors.text,
     })
-    const addrText = company.address
-    const addrWidth = fontRegular.widthOfTextAtSize(addrText, 9)
-    this.drawText(page, addrText, {
-      x: pageWidth - layout.margin - addrWidth,
-      y: markY + 11,
-      font: fontRegular,
-      size: 9,
-      color: layout.colors.muted,
-    })
+    // task-fix-invoice-pdf-polish AC2: header-right address line removed.
+    // The header now contains only the brand mark + wordmark. The `company`
+    // param is still accepted (back-compat with `InvoicesService` callers)
+    // but the address is never rendered. See the ИСПОЛНИТЕЛЬ block below
+    // for the matching simplification.
 
     y -= markSize + 18
     y = this.drawSeparator(page, y, layout)
@@ -285,9 +286,13 @@ export class InvoicePdfService {
     y = this.drawSeparator(page, y, layout)
 
     // ----- ИСПОЛНИТЕЛЬ block -----
+    // task-fix-invoice-pdf-polish AC2: render brand name only — no address,
+    // email or other contact fields. The `company.address` value remains on
+    // the InvoiceCompanyInfo struct for backward compatibility but is no
+    // longer drawn anywhere on the PDF body (the header-right address line
+    // is removed below too).
     y = this.drawSectionHeader(page, 'ИСПОЛНИТЕЛЬ', y, layout, fontBold)
     y = this.drawLine(page, COMPANY_BRAND_NAME, y, layout, fontRegular)
-    y = this.drawLine(page, `Адрес: ${company.address}`, y, layout, fontRegular)
     y -= 6
     y = this.drawSeparator(page, y, layout)
 
@@ -323,21 +328,30 @@ export class InvoicePdfService {
     y = this.drawSeparator(page, y, layout)
 
     // ----- СУММА К ОПЛАТЕ block (large prominent amount) -----
+    // task-fix-invoice-pdf-polish AC3: previous layout used 22pt for the
+    // amount with a 26pt advance — at A4 the trailing ПОДПИСИ / QR / footer
+    // overflowed past the bottom margin (user screenshot 02.06.2026). We
+    // tighten the amount font to 18pt and reduce the advance to 22pt; the
+    // visual weight is still distinctly larger than the surrounding body
+    // text (11pt) but ~8pt of vertical room is reclaimed for the bottom
+    // sections. Long-amount safety: `formatAmount` outputs e.g.
+    // "10 000 000.00" which fits well within the available content width
+    // even at 18pt (≈196pt wide vs the 495pt content width).
     y = this.drawSectionHeader(page, 'СУММА К ОПЛАТЕ', y, layout, fontBold)
     const amountLine = `${this.formatAmount(transaction.amount)} ${transaction.currency}`
     this.drawText(page, amountLine, {
       x: layout.margin,
       y,
       font: fontBold,
-      size: 22,
+      size: 18,
       color: layout.colors.text,
     })
-    y -= 26
+    y -= 22
     if (uahEquivalent && transaction.currency !== 'UAH') {
       const equivLine = `≈ ${uahEquivalent.formatted} UAH (курс НБУ ${uahEquivalent.rateDate})`
       y = this.drawLine(page, equivLine, y, layout, fontRegular, layout.colors.muted)
     }
-    y -= 6
+    y -= 4
     y = this.drawSeparator(page, y, layout)
 
     // ----- ПОДПИСИ block -----
@@ -350,7 +364,7 @@ export class InvoicePdfService {
     const counterpartySig = sortedSignatures.find((s) => s.role === 'COUNTERPARTY')
 
     y = this.drawCompanySignature(page, y, layout, fontBold, fontRegular, companySig)
-    y -= 8
+    y -= 4
     y = this.drawCounterpartySignature(
       page,
       y,
@@ -360,7 +374,7 @@ export class InvoicePdfService {
       counterpartySig,
       counterparty.displayName,
     )
-    y -= 8
+    y -= 4
     y = this.drawSeparator(page, y, layout)
 
     // ----- QR + verify link -----
@@ -428,66 +442,73 @@ export class InvoicePdfService {
 
   /**
    * Draw the "Wedge Terminal" brand mark using pdf-lib drawing primitives.
-   * Mirrors the SVG in `apps/api/src/assets/brand/wedge-logo.svg` and the
-   * frontend `<BrandMark>` outline variant (geometry skeleton viewBox 512).
-   * Graphite stroke (`color`) for white-background render.
+   *
+   * Matches the frontend `<BrandMark variant="flat" />` used in the CRM
+   * sidebar header — a filled graphite wedge with the chevron holes + cursor
+   * pill rendered in white (page background) so they read as cut-outs of the
+   * silhouette. This keeps the in-app header and the PDF header visually
+   * identical (AC1 — task-fix-invoice-pdf-polish).
+   *
+   * Previous implementation drew the outline (line-art) variant which at 32pt
+   * looked like a hollow rectangle on the PDF — the "wrong icon" the user
+   * flagged after visual review.
+   *
+   * Geometry source: `apps/web/app/components/brand-mark.tsx` flat variant
+   * (viewBox 512): holes (190,216 r25)·(244,274 r34)·(190,332 r25) + cursor
+   * pill (302,258 84×32).
    */
   private drawBrandMark(page: PDFPage, x: number, y: number, size: number, color: Color): void {
     const scale = size / 512
     const px = (vx: number) => x + vx * scale
     const py = (vy: number) => y + (512 - vy) * scale
-    const sw = (w: number) => Math.max(0.8, w * scale)
+    // Background fill for the "punched" holes. We use pure white so the
+    // wedge silhouette reads correctly against the PDF page background
+    // (which is also white). If the invoice background ever turns non-white
+    // this constant must change in lockstep.
+    const bg = rgb(1, 1, 1)
 
-    // Wedge body — outline rect approximating the rounded wedge silhouette.
-    // pdf-lib doesn't support arbitrary SVG paths; at 32pt the simplified
-    // rectangle reads identically to the rounded brand SVG.
+    // ---- 1. Wedge body — filled rectangle (graphite) ----
+    // pdf-lib doesn't render arbitrary SVG paths; the source wedge is a
+    // rounded parallelogram which at 32pt reads as a rectangle once filled.
     page.drawRectangle({
       x: px(96),
       y: py(416),
       width: (432 - 96) * scale,
       height: (416 - 112) * scale,
-      borderColor: color,
-      borderWidth: sw(18),
-      borderOpacity: 1,
+      color,
     })
-    // Chevron holes (>_ terminal prompt)
+
+    // ---- 2. Punched-out chevron holes (>_ terminal prompt) ----
+    // Filled with the page background so they read as cut-outs of the wedge.
     page.drawCircle({
-      x: px(192),
+      x: px(190),
       y: py(216),
-      size: 14 * scale,
-      borderColor: color,
-      borderWidth: sw(10),
+      size: 25 * scale,
+      color: bg,
     })
     page.drawCircle({
-      x: px(240),
-      y: py(272),
-      size: 20 * scale,
-      borderColor: color,
-      borderWidth: sw(12),
+      x: px(244),
+      y: py(274),
+      size: 34 * scale,
+      color: bg,
     })
     page.drawCircle({
-      x: px(192),
-      y: py(328),
-      size: 14 * scale,
-      borderColor: color,
-      borderWidth: sw(10),
+      x: px(190),
+      y: py(332),
+      size: 25 * scale,
+      color: bg,
     })
-    // Cursor pill
+
+    // ---- 3. Cursor pill — punched-out rectangle ----
+    // pdf-lib drawRectangle does not expose corner-radius in the bundled
+    // version (1.17); at 32pt the squared corners are visually
+    // indistinguishable from the SVG's rx=13 rounded corners.
     page.drawRectangle({
-      x: px(300),
-      y: py(286),
-      width: 80 * scale,
-      height: 28 * scale,
-      borderColor: color,
-      borderWidth: sw(11),
-    })
-    // Ambient hole
-    page.drawCircle({
-      x: px(396),
-      y: py(340),
-      size: 9 * scale,
-      borderColor: color,
-      borderWidth: sw(7),
+      x: px(302),
+      y: py(290),
+      width: 84 * scale,
+      height: 32 * scale,
+      color: bg,
     })
   }
 
