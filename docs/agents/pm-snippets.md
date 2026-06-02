@@ -514,6 +514,7 @@ cat docs/specs/tasks/<task>.progress.md
 После того как Coder сделал миграцию, до User Testing:
 
 1. **Создать DevOps task на `__drizzle_migrations` sync** если миграции были созданы вручную или переименованы:
+
    ```markdown
    # task-infra-migrations-sync
 
@@ -528,6 +529,7 @@ cat docs/specs/tasks/<task>.progress.md
    - [ ] `pnpm --filter @crm/api db:init-tracking` синхронизирует state
    - [ ] Smoke test: `docker-compose down -v && docker-compose up -d && pnpm db:migrate && pnpm db:seed` проходит без ошибок
    ```
+
 2. **Smoke test fresh-DB flow** до User Testing — если миграции не применяются на чистой БД, User Testing будет видеть данные но fresh deploy сломается.
 3. **Записать в pm-state.json** event `migration_rebuild_required` с PR номером.
 
