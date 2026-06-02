@@ -328,16 +328,27 @@ export class InvoicePdfService {
     y = this.drawSeparator(page, y, layout)
 
     // ----- СУММА К ОПЛАТЕ block (large prominent amount) -----
-    // task-fix-invoice-pdf-polish AC3: previous layout used 22pt for the
-    // amount with a 26pt advance — at A4 the trailing ПОДПИСИ / QR / footer
-    // overflowed past the bottom margin (user screenshot 02.06.2026). We
-    // tighten the amount font to 18pt and reduce the advance to 22pt; the
-    // visual weight is still distinctly larger than the surrounding body
-    // text (11pt) but ~8pt of vertical room is reclaimed for the bottom
-    // sections. Long-amount safety: `formatAmount` outputs e.g.
-    // "10 000 000.00" which fits well within the available content width
-    // even at 18pt (≈196pt wide vs the 495pt content width).
+    // task-fix-invoice-pdf-polish AC3 (round 2): the amount block must be
+    // VERTICALLY SYMMETRIC — equal optical padding above and below the big
+    // amount glyph. Previous round-1 layout had `y -= 16` above the amount
+    // (inherited from drawSectionHeader's 14pt lineHeight + 2pt) but `y -= 22`
+    // below it → the amount sat ~6pt closer to the section header than to the
+    // UAH equivalent line, which read as a left-aligned crooked block in the
+    // user's screenshot (02.06.2026 round 2).
+    //
+    // Fix: equalise both gaps by adding +4pt top-padding after the section
+    // header and tightening the amount-to-UAH advance from 22pt → 18pt. Both
+    // visual gaps now read as ~20pt and the block scans as a single centred
+    // unit. Below the UAH line we keep the standard 14pt drawLine return +
+    // 6pt margin before the separator so the next section breathes correctly.
+    //
+    // Long-amount safety: `formatAmount("10 000 000.00")` -> "10 000 000.00"
+    // at 18pt Roboto-Bold ~ 196pt wide, well within the 495pt content width.
     y = this.drawSectionHeader(page, 'СУММА К ОПЛАТЕ', y, layout, fontBold)
+    // +4pt top-padding (over the drawSectionHeader's native 16pt) so the
+    // distance from the section label baseline to the amount baseline (20pt)
+    // matches the amount-to-UAH baseline distance below.
+    y -= 4
     const amountLine = `${this.formatAmount(transaction.amount)} ${transaction.currency}`
     this.drawText(page, amountLine, {
       x: layout.margin,
@@ -346,12 +357,14 @@ export class InvoicePdfService {
       size: 18,
       color: layout.colors.text,
     })
-    y -= 22
+    // Symmetric 20pt advance (matches the 4pt+16pt above) so the amount glyph
+    // sits dead-centre between its label and the UAH equiv line.
+    y -= 20
     if (uahEquivalent && transaction.currency !== 'UAH') {
       const equivLine = `≈ ${uahEquivalent.formatted} UAH (курс НБУ ${uahEquivalent.rateDate})`
       y = this.drawLine(page, equivLine, y, layout, fontRegular, layout.colors.muted)
     }
-    y -= 4
+    y -= 6
     y = this.drawSeparator(page, y, layout)
 
     // ----- ПОДПИСИ block -----
@@ -441,74 +454,84 @@ export class InvoicePdfService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Draw the "Wedge Terminal" brand mark using pdf-lib drawing primitives.
+   * Draw the "Wedge Terminal" brand mark using pdf-lib's `drawSvgPath`.
    *
-   * Matches the frontend `<BrandMark variant="flat" />` used in the CRM
-   * sidebar header — a filled graphite wedge with the chevron holes + cursor
-   * pill rendered in white (page background) so they read as cut-outs of the
-   * silhouette. This keeps the in-app header and the PDF header visually
-   * identical (AC1 — task-fix-invoice-pdf-polish).
+   * AC1 — task-fix-invoice-pdf-polish (round 2). Renders an EXACT byte-faithful
+   * copy of the frontend `<BrandMark variant="flat" />` (see
+   * `apps/web/app/components/brand-mark.tsx`) using the same SVG path data
+   * (`viewBox 0 0 512 512`):
    *
-   * Previous implementation drew the outline (line-art) variant which at 32pt
-   * looked like a hollow rectangle on the PDF — the "wrong icon" the user
-   * flagged after visual review.
+   *   - Wedge body  : `M 112 112 L 422 215 A 18 18 0 0 1 432 233 …` (the
+   *                   slanted top edge + rounded corners are reproduced — the
+   *                   previous `drawRectangle` approach lost the slant and read
+   *                   as a generic flat rectangle).
+   *   - Holes (>_)  : three circles + one rounded-rect cursor pill, drawn in
+   *                   the page background colour to read as cut-outs.
    *
-   * Geometry source: `apps/web/app/components/brand-mark.tsx` flat variant
-   * (viewBox 512): holes (190,216 r25)·(244,274 r34)·(190,332 r25) + cursor
-   * pill (302,258 84×32).
+   * pdf-lib 1.17 `drawSvgPath` supports M/L/A/C/Q/Z commands (see
+   * `node_modules/pdf-lib/es/api/svgPath.js` — `solveArc` handles A commands
+   * via Bezier approximation). It internally:
+   *   - translates SVG (0,0) -> PDF (`options.x`, `options.y`)
+   *   - flips the Y axis (`scale(s, -s)`) so SVG y-down draws upward in PDF
+   *
+   * So the caller anchors the SVG top-left at PDF coords `(x, y + size)` — i.e.
+   * the same `(markX, markY + markSize)` the surrounding layout already
+   * computes for the icon's top-left corner.
+   *
+   * IMPORTANT: the hole shapes are filled with the page background (white). If
+   * the invoice ever switches to a non-white background, the `bg` constant
+   * must change in lockstep.
    */
   private drawBrandMark(page: PDFPage, x: number, y: number, size: number, color: Color): void {
     const scale = size / 512
-    const px = (vx: number) => x + vx * scale
-    const py = (vy: number) => y + (512 - vy) * scale
-    // Background fill for the "punched" holes. We use pure white so the
-    // wedge silhouette reads correctly against the PDF page background
-    // (which is also white). If the invoice background ever turns non-white
-    // this constant must change in lockstep.
+    // pdf-lib drawSvgPath anchors SVG (0,0) at (x, y) and flips Y axis. So we
+    // need to anchor at the TOP-LEFT of the icon, which is `y + size` in PDF
+    // coords (the caller passes `y = markY = headerY - markSize` — bottom-
+    // left of the icon).
+    const anchorY = y + size
     const bg = rgb(1, 1, 1)
 
-    // ---- 1. Wedge body — filled rectangle (graphite) ----
-    // pdf-lib doesn't render arbitrary SVG paths; the source wedge is a
-    // rounded parallelogram which at 32pt reads as a rectangle once filled.
-    page.drawRectangle({
-      x: px(96),
-      y: py(416),
-      width: (432 - 96) * scale,
-      height: (416 - 112) * scale,
+    // ---- 1. Wedge body — exact path copied from BrandMark.tsx (flat var.) ----
+    // M / L / A / Z — fully supported by pdf-lib 1.17 svgPath.js parser.
+    const WEDGE_PATH =
+      'M 112 112 L 422 215 A 18 18 0 0 1 432 233 L 432 402 A 18 18 0 0 1 414 416 L 110 416 A 18 18 0 0 1 96 398 L 96 124 A 18 18 0 0 1 112 112 Z'
+    page.drawSvgPath(WEDGE_PATH, {
+      x,
+      y: anchorY,
+      scale,
       color,
+      borderWidth: 0,
     })
 
-    // ---- 2. Punched-out chevron holes (>_ terminal prompt) ----
-    // Filled with the page background so they read as cut-outs of the wedge.
-    page.drawCircle({
-      x: px(190),
-      y: py(216),
-      size: 25 * scale,
-      color: bg,
-    })
-    page.drawCircle({
-      x: px(244),
-      y: py(274),
-      size: 34 * scale,
-      color: bg,
-    })
-    page.drawCircle({
-      x: px(190),
-      y: py(332),
-      size: 25 * scale,
-      color: bg,
-    })
+    // ---- 2. Punched-out chevron holes (`>_` terminal prompt) ----
+    // Three circles drawn as SVG arc-based closed paths so we use the same
+    // coordinate machinery as the wedge body (no risk of a 1px offset between
+    // a `drawCircle` call and the path-based wedge).
+    //
+    // SVG circle-as-arc trick: `M cx,(cy-r) A r,r 0 1,0 cx,(cy+r) A r,r 0 1,0
+    // cx,(cy-r) Z` draws a full circle of radius `r` centred at (cx, cy).
+    const circle = (cx: number, cy: number, r: number): string =>
+      `M ${cx} ${cy - r} A ${r} ${r} 0 1 0 ${cx} ${cy + r} A ${r} ${r} 0 1 0 ${cx} ${cy - r} Z`
+    const HOLES = [circle(190, 216, 25), circle(244, 274, 34), circle(190, 332, 25)]
+    for (const path of HOLES) {
+      page.drawSvgPath(path, { x, y: anchorY, scale, color: bg, borderWidth: 0 })
+    }
 
-    // ---- 3. Cursor pill — punched-out rectangle ----
-    // pdf-lib drawRectangle does not expose corner-radius in the bundled
-    // version (1.17); at 32pt the squared corners are visually
-    // indistinguishable from the SVG's rx=13 rounded corners.
-    page.drawRectangle({
-      x: px(302),
-      y: py(290),
-      width: 84 * scale,
-      height: 32 * scale,
+    // ---- 3. Cursor pill — rounded rectangle (rx=13 in source SVG) ----
+    // Built as a path so the rounded corners are preserved (drawRectangle in
+    // pdf-lib 1.17 has no corner-radius parameter; at 32pt the rounded vs
+    // squared difference is visible on a high-DPI render).
+    //
+    // Source SVG: <rect x=302 y=258 width=84 height=32 rx=13/>
+    //   -> top-left at (302,258), bottom-right at (386,290), corner radius 13.
+    const PILL_PATH =
+      'M 315 258 L 373 258 A 13 13 0 0 1 386 271 L 386 277 A 13 13 0 0 1 373 290 L 315 290 A 13 13 0 0 1 302 277 L 302 271 A 13 13 0 0 1 315 258 Z'
+    page.drawSvgPath(PILL_PATH, {
+      x,
+      y: anchorY,
+      scale,
       color: bg,
+      borderWidth: 0,
     })
   }
 
