@@ -64,10 +64,15 @@ export interface InvoiceCompanyInfo {
  * column populated in PHASE 7. When `details` is empty the PDF falls back to
  * "Не указано, обратитесь к ADMIN" so we never silently ship a PDF with no
  * payment requisites.
+ *
+ * `CASH` is supported only for SALARY invoices — used when the company pays
+ * an employee in cash and there are no payment requisites to render. In this
+ * case `paymentDetails` is ignored and a "(без реквизитов)" hint is drawn
+ * instead, never the "Не указано" warning.
  */
 export interface InvoiceCounterpartyInfo {
   displayName: string
-  paymentMethod: 'USDT_ERC20' | 'BANK_UAH_FOP' | null
+  paymentMethod: 'USDT_ERC20' | 'BANK_UAH_FOP' | 'CASH' | null
   /** Free-form lines specific to the chosen method (wallet address, IBAN, etc.) */
   paymentDetails: string[]
 }
@@ -91,10 +96,11 @@ export interface InvoiceTransactionInfo {
    *  `projectNames` array instead. */
   projectName?: string | null
   /**
-   * task-aggregate-invoice-per-payout. Aggregated PAYOUT invoices replace the
-   * single `projectName` with a list — the description below the contract line
-   * becomes «Проекты: A · B · C» (compact, ≤ 3) or «Проекты: A · B · C …»
-   * (truncated, > 3). Empty / undefined falls back to legacy `projectName`.
+   * task-aggregate-invoice-per-payout round 2. Kept on the interface for
+   * back-compat with the InvoicesService caller (which still passes it for
+   * audit / logging), but the PDF body NEVER renders it: the description
+   * block is intentionally limited to the contract reference + optional
+   * period line. See `buildDescription` for the round-2 rationale.
    */
   projectNames?: string[] | null
   /**
@@ -875,15 +881,17 @@ export class InvoicePdfService {
   private buildDescription(tx: InvoiceTransactionInfo): string[] {
     if (tx.type === 'SENIOR_INCOME') {
       const lines: string[] = []
-      // task-aggregate-invoice-per-payout. When `contractNumber` is set the
-      // primary line is the contract reference. The list of projects (if any)
-      // moves to a secondary line below the contract reference. This is the
-      // model used by aggregated PAYOUT invoices — one invoice covers multiple
-      // projects, so the original «Доля по проекту "X"» is no longer accurate.
+      // task-aggregate-invoice-per-payout round 2: the description must contain
+      // ONLY the contract reference + (optional) period line. The list of
+      // projects was previously rendered as a secondary «Проекты: A · B · C»
+      // line, but user feedback (round 2, 02.06.2026) flagged it as noise — a
+      // signed act covers the contractual scope, the per-project breakdown
+      // lives in the linked transactions / payout receipt rather than the act
+      // itself. We keep `projectNames` on the input interface for back-compat
+      // with the InvoicesService caller (which still passes it for audit /
+      // logging) but the PDF body never renders it.
       if (tx.contractNumber) {
         lines.push(`Услуги исполнителя согласно контракту № ${tx.contractNumber}`)
-        const projectsLine = this.formatProjectsLine(tx.projectNames)
-        if (projectsLine) lines.push(projectsLine)
       } else if (tx.projectName) {
         // Legacy single-project per-tx invoices keep their original phrasing.
         lines.push(`Доля по проекту "${tx.projectName}"`)
@@ -903,25 +911,6 @@ export class InvoicePdfService {
       lines.push('Заработная плата сотрудника')
     }
     return lines
-  }
-
-  /**
-   * task-aggregate-invoice-per-payout. Build the optional secondary line that
-   * lists the project(s) the aggregated invoice covers.
-   *
-   * Rules:
-   *   - 0 projects (or undefined / empty) → null (no line rendered).
-   *   - 1–3 projects → «Проекты: A · B · C» (compact dotted list).
-   *   - >3 projects → first 3 names + « …» suffix so the PDF stays single-line.
-   *
-   * The dot separator (U+00B7) is preferred over comma so the line scans
-   * cleanly visually and matches the project-card chip style used in the UI.
-   */
-  private formatProjectsLine(names: string[] | null | undefined): string | null {
-    if (!names || names.length === 0) return null
-    const visible = names.slice(0, 3)
-    const suffix = names.length > 3 ? ' …' : ''
-    return `Проекты: ${visible.join(' · ')}${suffix}`
   }
 
   /** "2026-05" -> "май 2026". Fallback to raw string on parse failure. */

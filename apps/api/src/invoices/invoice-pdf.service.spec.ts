@@ -426,8 +426,13 @@ describe('InvoicePdfService', () => {
       },
     )
 
+    // task-aggregate-invoice-per-payout round 2: the projects list line was
+    // removed from the PDF description block. We keep `projectNames` on the
+    // input interface for back-compat (callers still pass it for audit / log
+    // metadata) but the PDF body is invariant to its value — the two tests
+    // below pin that invariant.
     it(
-      'renders compact project list when projectNames.length <= 3',
+      'ignores projectNames when <= 3 — PDF identical to no-list variant',
       { timeout: TEST_TIMEOUT_MS },
       async () => {
         const params = baseParams()
@@ -447,19 +452,19 @@ describe('InvoicePdfService', () => {
         expect(sha256Hash).toMatch(/^[0-9a-f]{64}$/)
         expect(pdfBuffer.length).toBeGreaterThan(20_000)
 
-        // Same params without projectNames produces a different PDF (the list
-        // is rendered as a separate line on the page).
+        // Same params without projectNames must produce an IDENTICAL PDF —
+        // the description block ignores the value.
         const noList = baseParams()
         noList.transaction.contractNumber = params.transaction.contractNumber
         delete noList.transaction.projectName
         noList.signatures = params.signatures
         const noListRes = await service.generateSignableInvoicePdf(noList)
-        expect(sha256Hash).not.toBe(noListRes.sha256Hash)
+        expect(sha256Hash).toBe(noListRes.sha256Hash)
       },
     )
 
     it(
-      'truncates project list when projectNames.length > 3',
+      'ignores projectNames when > 3 — PDF identical regardless of list length',
       { timeout: TEST_TIMEOUT_MS },
       async () => {
         const params = baseParams()
@@ -487,12 +492,13 @@ describe('InvoicePdfService', () => {
         const reparsed = await PDFDocument.load(pdfBuffer)
         expect(reparsed.getPageCount()).toBe(1)
 
-        // PDF still fits one page even with 6 projects.
+        // PDF still fits one page (it always did — round 2 just removed a
+        // single optional line).
         expect(pdfBuffer.length).toBeGreaterThan(20_000)
         expect(pdfBuffer.length).toBeLessThan(500_000)
 
-        // Hash differs from the 3-project list — truncation is a content
-        // difference, not a cosmetic one.
+        // Hash IDENTICAL to the 3-project list variant — projectNames is
+        // intentionally not part of the PDF content surface anymore.
         const threeOnly = baseParams()
         threeOnly.transaction.contractNumber = params.transaction.contractNumber
         threeOnly.transaction.projectNames = (params.transaction.projectNames as string[]).slice(
@@ -502,7 +508,7 @@ describe('InvoicePdfService', () => {
         delete threeOnly.transaction.projectName
         threeOnly.signatures = params.signatures
         const threeOnlyRes = await service.generateSignableInvoicePdf(threeOnly)
-        expect(sha256Hash).not.toBe(threeOnlyRes.sha256Hash)
+        expect(sha256Hash).toBe(threeOnlyRes.sha256Hash)
       },
     )
 
