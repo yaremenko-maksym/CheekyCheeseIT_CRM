@@ -20,7 +20,11 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { PDFDocument } from 'pdf-lib'
 
-import { InvoicePdfService, type GenerateSignableInvoiceParams } from './invoice-pdf.service'
+import {
+  COMPANY_BRAND_NAME,
+  InvoicePdfService,
+  type GenerateSignableInvoiceParams,
+} from './invoice-pdf.service'
 import { sha256Hex, shortHash } from './invoice-pdf.utils'
 
 // Each test below exercises the *real* PDF generation pipeline (pdf-lib +
@@ -316,6 +320,43 @@ describe('InvoicePdfService', () => {
         const resB = await service.generateSignableInvoicePdf(b)
 
         expect(resA.sha256Hash).not.toBe(resB.sha256Hash)
+      },
+    )
+  })
+
+  describe('task-drop-company-debt-and-invoices: brand-only company signature', () => {
+    it(
+      'COMPANY signature renders brand "CheekyCheeseIT" identically regardless of signerName',
+      { timeout: TEST_TIMEOUT_MS },
+      async () => {
+        // Admin personal names must NEVER affect PDF output — different
+        // `signerName` values for the COMPANY signature should produce the
+        // same hash because we render the brand name only.
+        const paramsMaksym = baseParams()
+        paramsMaksym.signatures = [
+          {
+            role: 'COMPANY',
+            signerName: 'Maksym Yaremenko',
+            signedAt: FIXED_SIGNED_AT_COMPANY,
+            method: 'AUTO_COMPANY',
+          },
+        ]
+        const paramsKostya = baseParams()
+        paramsKostya.signatures = [
+          {
+            role: 'COMPANY',
+            signerName: 'Kostya',
+            signedAt: FIXED_SIGNED_AT_COMPANY,
+            method: 'AUTO_COMPANY',
+          },
+        ]
+
+        const a = await service.generateSignableInvoicePdf(paramsMaksym)
+        const b = await service.generateSignableInvoicePdf(paramsKostya)
+
+        expect(a.sha256Hash).toBe(b.sha256Hash)
+        // Sanity — brand constant is exposed and used.
+        expect(COMPANY_BRAND_NAME).toBe('CheekyCheeseIT')
       },
     )
   })

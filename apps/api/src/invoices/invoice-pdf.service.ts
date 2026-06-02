@@ -2,30 +2,30 @@
  * InvoicePdfService — generates the signable invoice PDF for the two
  * transaction flows that require client-side counter-signing:
  *
- *   1. SENIOR_INCOME (74% senior payout to the company smart contract) ->
- *      "АКТ ВЫПОЛНЕННЫХ РАБОТ"
+ *   1. SENIOR_INCOME (senior payout to the company / company → senior IOU
+ *      settlement) -> "АКТ ВЫПОЛНЕННЫХ РАБОТ"
  *   2. SALARY (company -> employee monthly salary) ->
  *      "ВЫПЛАТА ЗАРПЛАТЫ"
  *
+ * task-drop-company-debt-and-invoices (PDF refresh):
+ *   - Brand "Wedge Terminal" mark drawn in the header (left), brand
+ *     wordmark "CheekyCheeseIT" right of the mark.
+ *   - Admin personal names (Maksym / Kostya / Maksym Yaremenko) are NEVER
+ *     rendered. The COMPANY signature shows only "CheekyCheeseIT".
+ *   - Counterparty signature shows the contractor's display name.
+ *   - Footer: "© <year> CheekyCheeseIT · verify URL".
+ *
  * Two passes:
- *   - Auto-sign COMPANY: PDF generated with only the ADMIN signature block;
- *     "Ожидает подписи" placeholder where the counterparty will sign.
+ *   - Auto-sign COMPANY: PDF generated with only the COMPANY signature
+ *     block (brand name); "Ожидает подписи" placeholder for counterparty.
  *   - After counterparty click-sign: re-generated with both signature blocks
  *     including the 8-char short hash, timestamp, IP last-octet stamp.
- *
- * Why a dedicated service (instead of extending existing `pdf-invoice.service`):
- * the existing finance module has NO such file (only `etherscan.service`,
- * `nbu-currency.service`, `salary-cron.service`, `transactions.*`). PDFs are
- * touched today only by `documents/compression.service.ts` which optimises
- * incoming PDF uploads, completely orthogonal. Creating a new service inside
- * `invoices/` keeps the upcoming `invoices.service.ts` (Round 3) and its PDF
- * dependency colocated and avoids leaking PDF concerns into FinanceModule.
  *
  * Fonts: pdf-lib's standard 14 fonts (Helvetica/Times/Courier) are AFM-encoded
  * with no Cyrillic glyphs. We ship Roboto Regular + Bold (Apache 2.0) under
  * `src/assets/fonts/`. pdf-lib needs `@pdf-lib/fontkit` registered on the doc
- * to embed custom TTFs; that bit is easy to miss; without it pdf-lib falls
- * back to WinAnsi which renders cyrillic as boxes.
+ * to embed custom TTFs; without it pdf-lib falls back to WinAnsi which
+ * renders cyrillic as boxes.
  *
  * The generated PDF is purely a presentational record; the legal hook is the
  * `pdf_hash` (SHA-256 of these exact bytes) stored in `invoice_signatures`.
@@ -95,8 +95,9 @@ export interface InvoiceTransactionInfo {
 }
 
 /**
- * One signature row to be rendered. The PDF service stays unaware of the DB;
- * the caller (Round 3 InvoicesService) joins `users` to provide `signerName`.
+ * One signature row to be rendered. task-drop-company-debt-and-invoices:
+ * `signerName` for COMPANY signatures is ignored — the PDF always renders
+ * the brand "CheekyCheeseIT" so admin personal names never appear.
  */
 export interface InvoiceSignatureInfo {
   role: InvoiceSignerRole
@@ -111,6 +112,12 @@ export interface InvoiceSignatureInfo {
    *  signal. Optional and intentionally lossy (full IP never leaves the DB). */
   ipLastOctet?: string | null
 }
+
+/**
+ * Brand name used in PDF signatures + footer. Replaces former admin
+ * personal name renderings.
+ */
+export const COMPANY_BRAND_NAME = 'CheekyCheeseIT'
 
 /**
  * UAH equivalent block, pre-computed by the caller (Round 3 will call
@@ -191,80 +198,101 @@ export class InvoicePdfService {
     doc.setCreationDate(transaction.txDate)
     doc.setModificationDate(transaction.txDate)
     doc.setTitle(`Invoice ${transaction.id.slice(0, 8)}`)
-    doc.setProducer('CheekyCheese IT CRM')
-    doc.setCreator('CheekyCheese IT CRM')
+    doc.setProducer(`${COMPANY_BRAND_NAME} CRM`)
+    doc.setCreator(`${COMPANY_BRAND_NAME} CRM`)
 
     // A4 portrait in points: 595.28 x 841.89
-    const page = doc.addPage([595.28, 841.89])
+    const pageWidth = 595.28
+    const pageHeight = 841.89
+    const page = doc.addPage([pageWidth, pageHeight])
 
     // ----- Layout constants -----
     const layout = {
       margin: 50,
-      contentWidth: 595.28 - 100,
+      contentWidth: pageWidth - 100,
       lineHeight: 14,
       sectionGap: 18,
       colors: {
         text: rgb(0.1, 0.1, 0.12),
         muted: rgb(0.45, 0.45, 0.5),
-        accent: rgb(0.15, 0.35, 0.7),
+        accent: rgb(0.85, 0.66, 0.0),
+        brand: rgb(0.12, 0.12, 0.12), // graphite — outline mark on white BG
         separator: rgb(0.85, 0.85, 0.88),
         warning: rgb(0.85, 0.55, 0.1),
+        footer: rgb(0.5, 0.5, 0.55),
       },
     } as const
 
-    let y = 841.89 - layout.margin
+    let y = pageHeight - layout.margin
 
-    // ----- Header (brand) -----
-    this.drawText(page, company.name, {
-      x: layout.margin,
-      y,
+    // ----- Header: brand mark + wordmark + address -----
+    const markSize = 32
+    const markX = layout.margin
+    const markY = y - markSize
+    this.drawBrandMark(page, markX, markY, markSize, layout.colors.brand)
+
+    this.drawText(page, COMPANY_BRAND_NAME, {
+      x: markX + markSize + 12,
+      y: markY + 11,
       font: fontBold,
-      size: 18,
+      size: 16,
       color: layout.colors.text,
     })
-    y -= 24
+    const addrText = company.address
+    const addrWidth = fontRegular.widthOfTextAtSize(addrText, 9)
+    this.drawText(page, addrText, {
+      x: pageWidth - layout.margin - addrWidth,
+      y: markY + 11,
+      font: fontRegular,
+      size: 9,
+      color: layout.colors.muted,
+    })
 
-    // ----- Title -----
+    y -= markSize + 18
+    y = this.drawSeparator(page, y, layout)
+
+    // ----- Title + № + date row -----
     const title =
       transaction.type === 'SENIOR_INCOME' ? 'АКТ ВЫПОЛНЕННЫХ РАБОТ' : 'ВЫПЛАТА ЗАРПЛАТЫ'
     this.drawText(page, title, {
       x: layout.margin,
       y,
       font: fontBold,
-      size: 16,
-      color: layout.colors.accent,
+      size: 18,
+      color: layout.colors.text,
     })
     y -= 22
 
-    // ----- Number + Date row -----
     const shortId = transaction.id.replace(/-/g, '').slice(0, 8)
-    this.drawText(page, `№: ${shortId}`, {
+    this.drawText(page, `№ ${shortId}`, {
       x: layout.margin,
       y,
       font: fontRegular,
       size: 11,
-      color: layout.colors.text,
+      color: layout.colors.muted,
     })
-    this.drawText(page, `Дата: ${this.formatDate(transaction.txDate)}`, {
-      x: layout.margin + 250,
+    const dateLabel = `Дата: ${this.formatDate(transaction.txDate)}`
+    const dateWidth = fontRegular.widthOfTextAtSize(dateLabel, 11)
+    this.drawText(page, dateLabel, {
+      x: pageWidth - layout.margin - dateWidth,
       y,
       font: fontRegular,
       size: 11,
-      color: layout.colors.text,
+      color: layout.colors.muted,
     })
-    y -= layout.lineHeight + 4
+    y -= layout.lineHeight + 8
 
     y = this.drawSeparator(page, y, layout)
 
     // ----- ИСПОЛНИТЕЛЬ block -----
-    y = this.drawSectionHeader(page, 'ИСПОЛНИТЕЛЬ:', y, layout, fontBold)
-    y = this.drawLine(page, company.name, y, layout, fontRegular)
+    y = this.drawSectionHeader(page, 'ИСПОЛНИТЕЛЬ', y, layout, fontBold)
+    y = this.drawLine(page, COMPANY_BRAND_NAME, y, layout, fontRegular)
     y = this.drawLine(page, `Адрес: ${company.address}`, y, layout, fontRegular)
-    y -= 4
+    y -= 6
     y = this.drawSeparator(page, y, layout)
 
     // ----- ЗАКАЗЧИК block -----
-    y = this.drawSectionHeader(page, 'ЗАКАЗЧИК:', y, layout, fontBold)
+    y = this.drawSectionHeader(page, 'ЗАКАЗЧИК', y, layout, fontBold)
     y = this.drawLine(page, counterparty.displayName, y, layout, fontRegular)
     if (counterparty.paymentMethod === null) {
       y = this.drawLine(
@@ -282,45 +310,39 @@ export class InvoicePdfService {
         y = this.drawLine(page, detail, y, layout, fontRegular)
       }
     }
-    y -= 4
+    y -= 6
     y = this.drawSeparator(page, y, layout)
 
     // ----- ОПИСАНИЕ УСЛУГИ block -----
-    y = this.drawSectionHeader(page, 'ОПИСАНИЕ УСЛУГИ:', y, layout, fontBold)
+    y = this.drawSectionHeader(page, 'ОПИСАНИЕ УСЛУГИ', y, layout, fontBold)
     const description = this.buildDescription(transaction)
     for (const line of description) {
       y = this.drawLine(page, line, y, layout, fontRegular)
     }
-    y -= 4
+    y -= 6
     y = this.drawSeparator(page, y, layout)
 
-    // ----- СУММА К ОПЛАТЕ block -----
-    y = this.drawSectionHeader(page, 'СУММА К ОПЛАТЕ:', y, layout, fontBold)
+    // ----- СУММА К ОПЛАТЕ block (large prominent amount) -----
+    y = this.drawSectionHeader(page, 'СУММА К ОПЛАТЕ', y, layout, fontBold)
     const amountLine = `${this.formatAmount(transaction.amount)} ${transaction.currency}`
     this.drawText(page, amountLine, {
       x: layout.margin,
       y,
       font: fontBold,
-      size: 14,
-      color: layout.colors.accent,
+      size: 22,
+      color: layout.colors.text,
     })
-    y -= 18
-    if (
-      uahEquivalent &&
-      transaction.currency !== 'UAH' // skip when transaction itself is UAH
-    ) {
-      const equivLine = `(приблизительно ${uahEquivalent.formatted} UAH по курсу НБУ ${uahEquivalent.rateDate})`
+    y -= 26
+    if (uahEquivalent && transaction.currency !== 'UAH') {
+      const equivLine = `≈ ${uahEquivalent.formatted} UAH (курс НБУ ${uahEquivalent.rateDate})`
       y = this.drawLine(page, equivLine, y, layout, fontRegular, layout.colors.muted)
     }
-    y -= 4
+    y -= 6
     y = this.drawSeparator(page, y, layout)
 
     // ----- ПОДПИСИ block -----
-    y = this.drawSectionHeader(page, 'ПОДПИСИ:', y, layout, fontBold)
+    y = this.drawSectionHeader(page, 'ПОДПИСИ', y, layout, fontBold)
 
-    // Always render the COMPANY slot first, COUNTERPARTY second. Sort the
-    // input so a caller swapping the array order can't change the PDF bytes
-    // (would break the hash determinism contract).
     const sortedSignatures = [...params.signatures].sort((a, b) =>
       a.role === 'COMPANY' ? -1 : b.role === 'COMPANY' ? 1 : 0,
     )
@@ -328,13 +350,41 @@ export class InvoicePdfService {
     const counterpartySig = sortedSignatures.find((s) => s.role === 'COUNTERPARTY')
 
     y = this.drawCompanySignature(page, y, layout, fontBold, fontRegular, companySig)
-    y -= 6
-    y = this.drawCounterpartySignature(page, y, layout, fontBold, fontRegular, counterpartySig)
-    y -= 6
+    y -= 8
+    y = this.drawCounterpartySignature(
+      page,
+      y,
+      layout,
+      fontBold,
+      fontRegular,
+      counterpartySig,
+      counterparty.displayName,
+    )
+    y -= 8
     y = this.drawSeparator(page, y, layout)
 
     // ----- QR + verify link -----
     await this.drawVerifyBlock(page, doc, y, layout, fontRegular, verifyUrl)
+
+    // ----- Footer -----
+    const year = transaction.txDate.getUTCFullYear()
+    const footerText = `© ${year} ${COMPANY_BRAND_NAME}`
+    this.drawText(page, footerText, {
+      x: layout.margin,
+      y: layout.margin / 2,
+      font: fontRegular,
+      size: 9,
+      color: layout.colors.footer,
+    })
+    const verifyShort = verifyUrl.replace(/^https?:\/\//, '')
+    const verifyShortWidth = fontRegular.widthOfTextAtSize(verifyShort, 9)
+    this.drawText(page, verifyShort, {
+      x: pageWidth - layout.margin - verifyShortWidth,
+      y: layout.margin / 2,
+      font: fontRegular,
+      size: 9,
+      color: layout.colors.footer,
+    })
 
     // ----- Save with deterministic options -----
     // useObjectStreams: false produces a slightly larger file but a more
@@ -376,6 +426,71 @@ export class InvoicePdfService {
   // Drawing helpers
   // ---------------------------------------------------------------------------
 
+  /**
+   * Draw the "Wedge Terminal" brand mark using pdf-lib drawing primitives.
+   * Mirrors the SVG in `apps/api/src/assets/brand/wedge-logo.svg` and the
+   * frontend `<BrandMark>` outline variant (geometry skeleton viewBox 512).
+   * Graphite stroke (`color`) for white-background render.
+   */
+  private drawBrandMark(page: PDFPage, x: number, y: number, size: number, color: Color): void {
+    const scale = size / 512
+    const px = (vx: number) => x + vx * scale
+    const py = (vy: number) => y + (512 - vy) * scale
+    const sw = (w: number) => Math.max(0.8, w * scale)
+
+    // Wedge body — outline rect approximating the rounded wedge silhouette.
+    // pdf-lib doesn't support arbitrary SVG paths; at 32pt the simplified
+    // rectangle reads identically to the rounded brand SVG.
+    page.drawRectangle({
+      x: px(96),
+      y: py(416),
+      width: (432 - 96) * scale,
+      height: (416 - 112) * scale,
+      borderColor: color,
+      borderWidth: sw(18),
+      borderOpacity: 1,
+    })
+    // Chevron holes (>_ terminal prompt)
+    page.drawCircle({
+      x: px(192),
+      y: py(216),
+      size: 14 * scale,
+      borderColor: color,
+      borderWidth: sw(10),
+    })
+    page.drawCircle({
+      x: px(240),
+      y: py(272),
+      size: 20 * scale,
+      borderColor: color,
+      borderWidth: sw(12),
+    })
+    page.drawCircle({
+      x: px(192),
+      y: py(328),
+      size: 14 * scale,
+      borderColor: color,
+      borderWidth: sw(10),
+    })
+    // Cursor pill
+    page.drawRectangle({
+      x: px(300),
+      y: py(286),
+      width: 80 * scale,
+      height: 28 * scale,
+      borderColor: color,
+      borderWidth: sw(11),
+    })
+    // Ambient hole
+    page.drawCircle({
+      x: px(396),
+      y: py(340),
+      size: 9 * scale,
+      borderColor: color,
+      borderWidth: sw(7),
+    })
+  }
+
   private drawText(
     page: PDFPage,
     text: string,
@@ -402,7 +517,7 @@ export class InvoicePdfService {
       thickness: 0.5,
       color: layout.colors.separator,
     })
-    return y - 12
+    return y - 14
   }
 
   private drawSectionHeader(
@@ -416,7 +531,7 @@ export class InvoicePdfService {
       x: layout.margin,
       y,
       font: fontBold,
-      size: 10,
+      size: 9,
       color: layout.colors.muted,
     })
     return y - layout.lineHeight - 2
@@ -440,6 +555,11 @@ export class InvoicePdfService {
     return y - layout.lineHeight
   }
 
+  /**
+   * task-drop-company-debt-and-invoices. COMPANY signature renders the brand
+   * "CheekyCheeseIT" only — never the underlying admin's personal name. The
+   * `signerName` field on `sig` is intentionally ignored.
+   */
   private drawCompanySignature(
     page: PDFPage,
     y: number,
@@ -452,7 +572,7 @@ export class InvoicePdfService {
     fontRegular: PDFFont,
     sig: InvoiceSignatureInfo | undefined,
   ): number {
-    this.drawText(page, '1. От ИСПОЛНИТЕЛЯ:', {
+    this.drawText(page, '1. От ИСПОЛНИТЕЛЯ', {
       x: layout.margin,
       y,
       font: fontBold,
@@ -462,8 +582,6 @@ export class InvoicePdfService {
     y -= layout.lineHeight + 2
 
     if (!sig) {
-      // Should never happen; the caller always passes COMPANY signature in
-      // the PDF that exists (AUTO_COMPANY is the first thing to happen).
       this.drawText(page, '   Ожидает авто-подписи', {
         x: layout.margin,
         y,
@@ -474,8 +592,8 @@ export class InvoicePdfService {
       return y - layout.lineHeight
     }
 
-    const name = sig.signerName || 'ADMIN'
-    this.drawText(page, `   ${name} (ADMIN)`, {
+    // Brand name only — admin personal names must never appear on the PDF.
+    this.drawText(page, `   ${COMPANY_BRAND_NAME}`, {
       x: layout.margin,
       y,
       font: fontRegular,
@@ -514,8 +632,9 @@ export class InvoicePdfService {
     fontBold: PDFFont,
     fontRegular: PDFFont,
     sig: InvoiceSignatureInfo | undefined,
+    fallbackName: string,
   ): number {
-    this.drawText(page, '2. От ЗАКАЗЧИКА:', {
+    this.drawText(page, '2. От ЗАКАЗЧИКА', {
       x: layout.margin,
       y,
       font: fontBold,
@@ -532,7 +651,14 @@ export class InvoicePdfService {
         size: 11,
         color: layout.colors.warning,
       })
-      return y - layout.lineHeight
+      this.drawText(page, `   (${fallbackName})`, {
+        x: layout.margin,
+        y: y - layout.lineHeight,
+        font: fontRegular,
+        size: 10,
+        color: layout.colors.muted,
+      })
+      return y - layout.lineHeight * 2
     }
 
     this.drawText(page, `   ${sig.signerName}`, {
@@ -607,11 +733,11 @@ export class InvoicePdfService {
       type: 'png',
       width: 220,
       margin: 1,
-      color: { dark: '#1a2540', light: '#ffffff' },
+      color: { dark: '#141414', light: '#ffffff' },
     })
 
     const qrImage = await doc.embedPng(qrPngBuffer)
-    const qrSize = 90
+    const qrSize = 80
     const qrX = layout.margin
     const qrY = y - qrSize
 
@@ -624,7 +750,7 @@ export class InvoicePdfService {
 
     const textX = qrX + qrSize + 14
     const textY = y - 16
-    this.drawText(page, 'Проверить документ:', {
+    this.drawText(page, 'Проверить документ', {
       x: textX,
       y: textY,
       font: fontRegular,
