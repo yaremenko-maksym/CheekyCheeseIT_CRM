@@ -22,7 +22,6 @@ import { STATUS_LABELS, TYPE_LABELS, type ExchangeRates } from '@/routes/crm/fin
 import { TransactionRow } from '@/routes/crm/finance/components/TransactionRow'
 import { TransactionDetailDialog } from '@/routes/crm/finance/components/dialogs/TransactionDetailDialog'
 import { CreateTransactionDialog } from '@/routes/crm/finance/components/dialogs/CreateTransactionDialog'
-import { PendingSettlementDropCard } from '@/routes/crm/finance/components/PendingSettlementDropCard'
 
 const TYPE_OPTIONS = Object.entries(TYPE_LABELS).map(([value, label]) => ({ value, label }))
 const STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }))
@@ -162,15 +161,9 @@ export function FinanceTab({ userId }: { userId: string }) {
             </Button>
           </div>
         )}
-        {/* Drop role - phase 4-C. DROP может видеть свои долги перед синьорами
-            даже если в личной таблице транзакций пусто (Phase 4-B SENIOR_PENDING_PAYOUT
-            ходит через senior как receiver — на странице drop'а не появляется в
-            transactions, но obligation хранится отдельно). */}
-        {isOwnDropProfile && (
-          <div className="mb-3">
-            <PendingSettlementDropCard />
-          </div>
-        )}
+        {/* task-drop-company-debt-and-invoices: DROP no longer holds
+            debts to seniors — section removed. The company settles via
+            /crm/finance (PendingSettlementCompanyCard). */}
         <Card>
           <CardContent className="py-8 text-center text-sm text-muted-foreground">
             Транзакций пока нет
@@ -194,16 +187,9 @@ export function FinanceTab({ userId }: { userId: string }) {
           </Button>
         </div>
       )}
-      {/* Drop role - phase 4-C. DROP debts to seniors — own profile only.
-          The endpoint enforces the filter, but we keep the mount strictly
-          to the own-DROP self-view so privileged ADMIN/ACCOUNTANT viewers
-          looking at a DROP profile aren't surprised with global system data
-          on what should be a personal card. */}
-      {isOwnDropProfile && (
-        <div className="mb-3">
-          <PendingSettlementDropCard />
-        </div>
-      )}
+      {/* task-drop-company-debt-and-invoices: the DROP debts-to-seniors
+          section has been removed. The company is now the debtor and
+          settles centrally on /crm/finance. */}
       {actionableDropIncomes.length > 0 && (
         <Card className="mb-3 border-emerald-500/40" data-testid="actionable-drop-incomes-card">
           <CardContent className="py-3">

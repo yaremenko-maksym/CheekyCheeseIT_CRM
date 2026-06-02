@@ -1,14 +1,11 @@
 /**
- * Drop role - phase 4 (refactor — task-drop-phase4-refactor-remove-tov.md AC9).
+ * task-drop-company-debt-and-invoices.
  * SENIOR view of pending senior IOUs.
  *
- * Passive list — the SENIOR sees what's owed to them by DROP debtors and
- * waits for the DROP (or ACCOUNTANT/ADMIN on their behalf) to close it.
- * There is no action button on this card — the closure is triggered by the
- * debtor side. Hidden when the list is empty.
- *
- * The TOV-debt path has been removed (bank channel gone) — the backend now
- * returns only debtorType='DROP' obligations.
+ * Passive list — the SENIOR sees what's owed to them by the COMPANY (new
+ * default after the refactor) or the legacy DROP debtor (historical rows).
+ * There is no action button on this card — closure happens on the
+ * ADMIN/ACCOUNTANT side via `settleByCompany`. Hidden when empty.
  *
  * Also doubles as the «общий список ожидающих» for ADMIN/ACCOUNTANT who
  * may want to see every open senior debt across the system; the same
@@ -51,8 +48,8 @@ export function PendingSettlementSeniorCard() {
           Ожидают зачисления
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          Senior-доля от дропа. Закроется автоматически, когда дроп заплатит синьору или бухгалтер
-          оформит выплату.
+          Senior-доля от дроп-проекта. Закроется, когда бухгалтер или админ обработает выплату от
+          компании.
         </p>
       </CardHeader>
       <CardContent className="p-0">
@@ -73,7 +70,7 @@ export function PendingSettlementSeniorCard() {
                   <p className="text-xs text-muted-foreground">
                     Должник:{' '}
                     <span className="font-medium" data-testid="pending-settlement-senior-debtor">
-                      Дроп · {it.debtorName ?? '—'}
+                      {it.debtorType === 'COMPANY' ? 'Компания' : `Дроп · ${it.debtorName ?? '—'}`}
                     </span>{' '}
                     · {fmtDate(it.createdAt)}
                   </p>
