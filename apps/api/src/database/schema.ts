@@ -215,6 +215,14 @@ export const teams = pgTable('teams', {
   // Edited from the SENIOR's Edit dialog and propagates here via UsersService.adminUpdateUser.
   telegramChannel: text('telegram_channel'),
   notes: text('notes'),
+  // task-team-senior-share-override. Team-level override for the SENIOR's
+  // share percent (0-100). NULL = no team override → fall through to the
+  // legacy resolver (project override → user default). Editable by ADMIN
+  // and by HR (when owner of the team). Snapshotted into
+  // `transactions.seniorSharePercent` + `seniorSharePercentSource` at
+  // SENIOR_INCOME / DROP_INCOME creation time, so historical rows keep
+  // their value after edits.
+  seniorSharePercentOverride: integer('senior_share_percent_override'),
   // Soft delete (archived teams hidden from main UI, restorable)
   archivedAt: timestamp('archived_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -398,6 +406,11 @@ export const transactions = pgTable('transactions', {
   }),
   // Snapshot of senior share percent at time of SENIOR_INCOME creation
   seniorSharePercent: integer('senior_share_percent'),
+  // task-team-senior-share-override. Snapshot of *where* the percent above
+  // came from at creation time. One of 'PROJECT' | 'TEAM' | 'USER_DEFAULT'.
+  // Nullable to keep legacy rows (pre-task) renderable as-is. The hierarchy
+  // resolved here is: project override → team override → user default.
+  seniorSharePercentSource: varchar('senior_share_percent_source', { length: 16 }),
   // Receipt — uploaded file (FK to documents.id, category=RECEIPT) OR an
   // external URL (etherscan link, screenshot). Mutually exclusive — enforced
   // by a row-level CHECK constraint, see migration 0013. Both NULL = no

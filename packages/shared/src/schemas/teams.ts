@@ -29,10 +29,7 @@ export const teamMemberSchema = z.object({
  */
 export const teamTelegramChannelSchema = z
   .string()
-  .regex(
-    /^@?[a-zA-Z0-9_]{5,32}$/,
-    'Некорректный канал (5–32 латинских символов или _, опц. @)',
-  )
+  .regex(/^@?[a-zA-Z0-9_]{5,32}$/, 'Некорректный канал (5–32 латинских символов или _, опц. @)')
   .nullable()
   .optional()
 
@@ -55,6 +52,16 @@ export const teamSchema = z.object({
   telegram: z.string().nullable().optional(),
   telegramChannel: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  /**
+   * Team-level senior share percent override (0-100, integer). NULL means
+   * "no team override — fall back to project override → user default".
+   * Hierarchy (highest priority first): project override > team override >
+   * user default. Snapshotted into `transactions.seniorSharePercent` +
+   * `transactions.seniorSharePercentSource` at SENIOR_INCOME / DROP_INCOME
+   * creation time so historical rows keep their value even after edits.
+   * task-team-senior-share-override.
+   */
+  seniorSharePercentOverride: z.number().int().min(0).max(100).nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   archivedAt: z.string().datetime().nullable(),
@@ -109,6 +116,13 @@ export const updateTeamSchema = z.object({
     .optional(),
   telegramChannel: teamTelegramChannelSchema,
   notes: z.string().nullable().optional(),
+  /**
+   * Team-level senior share percent override. Integer 0-100 or null (clear).
+   * Optional — only included in PATCH bodies that touch the field.
+   * Resolver hierarchy: project override > team override > user default.
+   * RBAC: ADMIN + HR (HR only when owner of the team) per task AC3.
+   */
+  seniorSharePercentOverride: z.number().int().min(0).max(100).nullable().optional(),
 })
 
 export const addTeamMemberSchema = z.object({

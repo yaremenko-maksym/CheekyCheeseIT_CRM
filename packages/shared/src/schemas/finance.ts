@@ -74,6 +74,23 @@ export type PayoutRequestStatus = z.infer<typeof payoutRequestStatusSchema>
 // Transaction DTO
 // ---------------------------------------------------------------------------
 
+/**
+ * Where the snapshotted `seniorSharePercent` on a transaction came from at
+ * SENIOR_INCOME / DROP_INCOME creation time. Drives the source badge on
+ * TransactionRow / TransactionDetailDialog / PayoutDialog / MyProjectShares.
+ *
+ * Hierarchy (highest priority first):
+ *   - `'PROJECT'`      — `projects.seniorSharePercentOverride` was set.
+ *   - `'TEAM'`         — `teams.seniorSharePercentOverride` was set (new in
+ *                        task-team-senior-share-override).
+ *   - `'USER_DEFAULT'` — fell back to `users.seniorSharePercent`.
+ *
+ * Nullable to keep legacy transactions (created before the source column
+ * existed) renderable as-is — the UI shows "—" / hides the badge.
+ */
+export const seniorSharePercentSourceSchema = z.enum(['PROJECT', 'TEAM', 'USER_DEFAULT'])
+export type SeniorSharePercentSource = z.infer<typeof seniorSharePercentSourceSchema>
+
 export const transactionSchema = z.object({
   id: z.string().uuid(),
   type: transactionTypeSchema,
@@ -95,10 +112,17 @@ export const transactionSchema = z.object({
       incomeAmount: z.string(),
       payableAmount: z.string(),
       seniorSharePercent: z.number().nullable(),
+      seniorSharePercentSource: seniorSharePercentSourceSchema.nullable().optional(),
     })
     .nullable()
     .optional(),
   seniorSharePercent: z.number().nullable(),
+  /**
+   * Snapshot source for `seniorSharePercent` — set at creation time, never
+   * mutated. Nullable for legacy rows (transactions created before the
+   * column existed). See `seniorSharePercentSourceSchema`.
+   */
+  seniorSharePercentSource: seniorSharePercentSourceSchema.nullable().optional(),
   // Receipt: either a documents.id reference (uploaded RECEIPT file) OR an
   // external URL (etherscan, screenshot link). Mutually exclusive — the
   // backend enforces a row-level CHECK constraint. Both null = no receipt.
