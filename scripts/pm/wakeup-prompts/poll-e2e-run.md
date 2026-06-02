@@ -25,15 +25,18 @@ Built-in vars:
 Прочитай **в этом порядке** (они должны лежать на disk, не выдумывай):
 
 1. `docs/agents/pm.md` — системный промпт
-2. `docs/agents/CLAUDE-pm.md` — оперативные нотки, секция «⚠️ ScheduleWakeup limitations»
-3. `docs/agents/memory/pm/lessons.md` — накопленные уроки (особенно `#topic-tag` `wakeup`, `e2e`)
-4. `docs/specs/pm-state.json` — текущее состояние работы
+2. `docs/agents/RULES.md` — cross-agent rules (MCP, git, skills)
+3. `docs/agents/project-state.md` — фазы / RBAC / миграции
+4. `docs/agents/pm-snippets.md` — секция «Cross-session wake-up» (ScheduleWakeup limitations + mcp\_\_scheduled-tasks workflow)
+5. `docs/agents/memory/pm/lessons.md` — накопленные уроки (особенно `#topic-tag` `wakeup`, `e2e`)
+6. `docs/specs/pm-state.json` — текущее состояние работы
 
 # Шаг 2 — Найти контекст в pm-state
 
 Прочитай `docs/specs/pm-state.json`. Найди задачу в `active[]` у которой `next_action.scheduled_task_id == "{{TASK_ID}}"`. Возьми её `id`, `branch`, `pr_number`.
 
 Если не нашёл — задача либо уже завершилась (PR смерджен), либо state файл переписан. В этом случае:
+
 - Проверь `completed[]` — если PR `{{PR}}` там → выйти, ничего не делать
 - Иначе записать в `events[]` или новую секцию `orphan_wakeups[]` запись `{ at, type: "orphan_wakeup", scheduled_task_id: "{{TASK_ID}}" }` и выйти
 
@@ -45,11 +48,11 @@ gh run view {{RUN_ID}} --repo {{REPO}} --json status,conclusion,name,createdAt,u
 
 Анализ результата:
 
-| `status` | `conclusion` | Действие |
-|----------|--------------|----------|
-| `completed` | `success` | E2E прошёл — следовать Шагу 4 («Success path») |
-| `completed` | `failure`/`cancelled`/`timed_out` | E2E упал — следовать Шагу 5 («Failure path») |
-| `in_progress`/`queued` | (null) | Ещё работает — следовать Шагу 6 («Still running») |
+| `status`               | `conclusion`                      | Действие                                          |
+| ---------------------- | --------------------------------- | ------------------------------------------------- |
+| `completed`            | `success`                         | E2E прошёл — следовать Шагу 4 («Success path»)    |
+| `completed`            | `failure`/`cancelled`/`timed_out` | E2E упал — следовать Шагу 5 («Failure path»)      |
+| `in_progress`/`queued` | (null)                            | Ещё работает — следовать Шагу 6 («Still running») |
 
 # Шаг 4 — Success path
 

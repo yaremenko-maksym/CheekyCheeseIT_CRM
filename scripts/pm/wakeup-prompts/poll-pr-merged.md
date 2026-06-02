@@ -24,9 +24,11 @@ Built-in vars:
 # Шаг 1 — Bootstrap PM роли
 
 Прочитай:
+
 1. `docs/agents/pm.md`
-2. `docs/agents/CLAUDE-pm.md`
-3. `docs/specs/pm-state.json`
+2. `docs/agents/RULES.md`
+3. `docs/agents/project-state.md`
+4. `docs/specs/pm-state.json`
 
 # Шаг 2 — Найти контекст в pm-state
 
@@ -50,14 +52,14 @@ gh pr view {{PR}} --repo {{REPO}} \
 
 # Шаг 4 — Классификация
 
-| `state` | `merged` | Действие |
-|---------|----------|----------|
-| `MERGED` | `true` | Шаг 5 (success) |
-| `OPEN` + есть `merge-approved` лейбл + есть `failedChecks` | `false` | Шаг 6 (auto-merge заблокирован failed CI) |
-| `OPEN` + есть `merge-approved` лейбл + есть `pendingChecks` | `false` | Шаг 7 (CI ещё идёт, дать время) |
-| `OPEN` + НЕТ `merge-approved` лейбла | `false` | Шаг 8 (лейбл был снят кем-то — orphan wake-up) |
-| `OPEN` + есть `merge-approved` + НЕТ failed/pending | `false` | Шаг 9 (auto-merge workflow не сработал — investigate) |
-| `CLOSED` без merged | `false` | Шаг 10 (PR закрыт без мерджа — investigate) |
+| `state`                                                     | `merged` | Действие                                              |
+| ----------------------------------------------------------- | -------- | ----------------------------------------------------- |
+| `MERGED`                                                    | `true`   | Шаг 5 (success)                                       |
+| `OPEN` + есть `merge-approved` лейбл + есть `failedChecks`  | `false`  | Шаг 6 (auto-merge заблокирован failed CI)             |
+| `OPEN` + есть `merge-approved` лейбл + есть `pendingChecks` | `false`  | Шаг 7 (CI ещё идёт, дать время)                       |
+| `OPEN` + НЕТ `merge-approved` лейбла                        | `false`  | Шаг 8 (лейбл был снят кем-то — orphan wake-up)        |
+| `OPEN` + есть `merge-approved` + НЕТ failed/pending         | `false`  | Шаг 9 (auto-merge workflow не сработал — investigate) |
+| `CLOSED` без merged                                         | `false`  | Шаг 10 (PR закрыт без мерджа — investigate)           |
 
 # Шаг 5 — Success (PR merged)
 
@@ -104,6 +106,7 @@ auto-merge-on-label workflow умеет ждать `gh pr checks --watch` до 3
 # Шаг 9 — Лейбл есть, CI зелёный, но не смерджено
 
 Anomaly. Возможные причины:
+
 - `auto-merge-on-label.yml` сломан или не сконфигурирован
 - Branch protection требует дополнительных проверок
 - Merge conflict с base

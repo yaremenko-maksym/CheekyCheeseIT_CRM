@@ -6,7 +6,7 @@
 
 `mcp__scheduled-tasks` запускает Claude-сессию БЕЗ контекста от source-сессии (та, что создала task). Поэтому prompt должен:
 
-1. **Bootstrap PM роли** — "Ты — PM-агент CRM Cheeky Cheese IT, прочитай pm.md и CLAUDE-pm.md"
+1. **Bootstrap PM роли** — "Ты — PM-агент CRM Cheeky Cheese IT, прочитай pm.md + RULES.md + project-state.md"
 2. **State retrieval** — найти контекст в `docs/specs/pm-state.json` через `scheduled_task_id` (matching against `active[].next_action.scheduled_task_id`)
 3. **Action** — что именно делать (poll workflow, check PR, etc.)
 4. **Outcome handling** — куда идти при success / failure / still-running
@@ -25,11 +25,11 @@
 
 ## Доступные templates
 
-| Template | Use case | Required vars |
-|----------|----------|---------------|
-| `poll-e2e-run.md` | Ожидание GHA E2E workflow | `REPO`, `RUN_ID`, `PR` |
-| `poll-pr-checks.md` | Ожидание CI checks на PR | `REPO`, `PR` |
-| `poll-pr-merged.md` | Verify auto-merge сработал после `merge-approved` label | `REPO`, `PR` |
+| Template            | Use case                                                | Required vars          |
+| ------------------- | ------------------------------------------------------- | ---------------------- |
+| `poll-e2e-run.md`   | Ожидание GHA E2E workflow                               | `REPO`, `RUN_ID`, `PR` |
+| `poll-pr-checks.md` | Ожидание CI checks на PR                                | `REPO`, `PR`           |
+| `poll-pr-merged.md` | Verify auto-merge сработал после `merge-approved` label | `REPO`, `PR`           |
 
 ## Добавить новый template
 

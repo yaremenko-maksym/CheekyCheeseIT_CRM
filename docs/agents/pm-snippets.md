@@ -15,8 +15,9 @@ Agent(
   isolation="worktree",
   description="Coder: task-<slug>",
   prompt="""Ты — Coder-агент для CRM Cheeky Cheese IT.
-Прочитай docs/agents/coder.md — системный промпт.
-Прочитай docs/agents/CLAUDE-coder.md — архитектура монорепо.
+Прочитай docs/agents/coder.md — системный промпт (golden rules + workflow + recovery).
+Прочитай docs/agents/RULES.md — cross-agent rules (MCP, git, skills, zone-of-write).
+Прочитай docs/agents/project-state.md — фазы / миграции / RBAC / shared schemas / технические gotchas.
 Прочитай docs/agents/memory/coder/lessons.md — накопленные уроки.
 Task-файл: docs/specs/tasks/task-<slug>.md
 Repo: yaremenko-maksym/CheekyCheeseIT_CRM"""
@@ -29,8 +30,9 @@ Repo: yaremenko-maksym/CheekyCheeseIT_CRM"""
 Agent(
   isolation="worktree",
   description="Coder: fix-<slug>",
-  prompt="""Ты — Coder-агент. Прочитай docs/agents/coder.md.
-Прочитай docs/agents/CLAUDE-coder.md.
+  prompt="""Ты — Coder-агент. Прочитай docs/agents/coder.md (golden rules + recovery).
+Прочитай docs/agents/RULES.md (cross-agent rules).
+Прочитай docs/agents/project-state.md (фазы / миграции / gotchas).
 Прочитай docs/agents/memory/coder/lessons.md.
 Task: docs/specs/tasks/task-fix-<slug>.md
 target_branch: <pr_branch>
@@ -43,7 +45,9 @@ target_branch: <pr_branch>
 ```
 Agent(
   description="AutoTest: PR #<N>",
-  prompt="""Ты — AutoTest-агент. Прочитай docs/agents/autotest.md.
+  prompt="""Ты — AutoTest-агент. Прочитай docs/agents/autotest.md (golden rules + 3 режима).
+Прочитай docs/agents/RULES.md (cross-agent rules).
+Прочитай docs/agents/project-state.md (RBAC / seed users).
 Прочитай docs/agents/memory/autotest/lessons.md.
 PR для анализа: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM.
 Режим 1: Post-approval — написать E2E тесты для новых AC."""
@@ -57,6 +61,8 @@ Agent(
   isolation="worktree",
   description="AutoTest: fix-e2e-<slug>",
   prompt="""Ты — AutoTest-агент. Прочитай docs/agents/autotest.md.
+Прочитай docs/agents/RULES.md.
+Прочитай docs/agents/project-state.md.
 Прочитай docs/agents/memory/autotest/lessons.md.
 Task: docs/specs/tasks/task-fix-e2e-<slug>.md
 target_branch: <pr_branch>
@@ -69,7 +75,9 @@ target_branch: <pr_branch>
 ```
 Agent(
   description="Reviewer: PR #<N>",
-  prompt="""Ты — Reviewer-агент. Прочитай docs/agents/reviewer.md.
+  prompt="""Ты — Reviewer-агент. Прочитай docs/agents/reviewer.md (golden rules + write-then-post).
+Прочитай docs/agents/RULES.md (zero-tolerance patterns).
+Прочитай docs/agents/project-state.md (canonical architecture / version pins / RBAC).
 Прочитай docs/agents/memory/reviewer/lessons.md.
 PR для review: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM"""
 )
@@ -81,7 +89,9 @@ PR для review: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM"""
 Agent(
   isolation="worktree",
   description="DevOps: task-infra-<slug>",
-  prompt="""Ты — DevOps-агент. Прочитай docs/agents/devops.md.
+  prompt="""Ты — DevOps-агент. Прочитай docs/agents/devops.md (golden rules + workflow).
+Прочитай docs/agents/RULES.md (version pins / git / skills).
+Прочитай docs/agents/project-state.md (CI/CD pipeline актуальный — §11).
 Прочитай docs/agents/memory/devops/lessons.md.
 Task: docs/specs/tasks/task-infra-<slug>.md"""
 )
@@ -115,6 +125,7 @@ gh pr view <N> --repo yaremenko-maksym/CheekyCheeseIT_CRM \
 ```
 
 Или через MCP:
+
 ```
 mcp__github__get_pull_request_status({owner: "yaremenko-maksym", repo: "CheekyCheeseIT_CRM", pull_number: <N>})
 ```
@@ -189,11 +200,115 @@ gh run view <run_id> --repo yaremenko-maksym/CheekyCheeseIT_CRM --log-failed
 - **Короткий wait (< 30 мин), активная сессия** — `ScheduleWakeup(delay=270)`. Простой harness API, но **не выживает session boundary**.
 - **Длинный wait или критичный fire** — `mcp__scheduled-tasks` через `pm-schedule.sh` (см. секцию ниже). Survives session boundary, но stand-up'ит fresh Claude-сессию.
 
-Полная матрица выбора — `CLAUDE-pm.md` секция «⚠️ ScheduleWakeup limitations (D1 [P0])».
+Полная матрица — секция «⚠️ ScheduleWakeup limitations» ниже в этом файле.
 
 ---
 
-## Cross-session wake-up (mcp__scheduled-tasks через pm-schedule.sh)
+## ⚠️ ScheduleWakeup limitations (D1 [P0])
+
+**ScheduleWakeup не выживает session boundary.** Real incident: 2026-05-23 PM поставил wake-up на 2 часа, session завершилась → wake-up потерян → PR висел без действия.
+
+PM имеет **два слоя** для wake-up'ов с разными гарантиями. Выбирать по длительности и критичности.
+
+### Layer 1 — `ScheduleWakeup` (in-session, < 30 минут)
+
+Прямой harness API. Дёшево, быстро, но **умирает с сессией**.
+
+**Используй когда:**
+
+- Wait < 30 минут (короткий CI poll)
+- Чёткая уверенность что сессия не закроется (active interactive turn)
+- Wake-up — нежёсткое требование (если потеряется, USER увидит и перезапустит)
+
+**Workaround pattern (если всё-таки используешь Layer 1 для важного wait):**
+
+```python
+# Перед wake-up — сохрани действие в state, чтобы новая сессия могла catch-up
+pm_state["active"][task_idx]["next_action"] = {
+    "type": "poll_e2e_run",
+    "run_id": run_id,
+    "scheduled_at": now_iso(),
+    "max_age_min": 30
+}
+ScheduleWakeup(delay=270)  # 4.5 мин для GHA E2E
+
+# При старте новой session (Mode 3) — catch-up:
+for task in pm_state["active"]:
+    if next_action := task.get("next_action"):
+        age_min = (now() - parse_iso(next_action["scheduled_at"])).total_seconds() / 60
+        if age_min > next_action["max_age_min"]:
+            handle_next_action(next_action)  # missed wake-up — immediate execute
+```
+
+### Layer 2 — `mcp__scheduled-tasks__*` (cross-session, любая длительность)
+
+External scheduler, **выживает session boundary**. Запускает fresh Claude-сессию на запланированное время с self-contained prompt. Полноценный workaround D1.
+
+**Используй когда:**
+
+- Wait ≥ 30 минут (длинный CI, GHA E2E, deploy verification)
+- Жёсткое требование fire'а (потеря недопустима)
+- Длительный wait через session timeout
+
+**Workflow (PM шаги):**
+
+1. **Сгенерировать параметры** через `pm-schedule.sh`:
+
+```bash
+bash scripts/pm/pm-schedule.sh \
+  --delay-min 15 \
+  --task-id-hint poll-e2e-pr42 \
+  --description "Poll E2E run 26298999300 for PR #42" \
+  --prompt-template poll-e2e-run \
+  --prompt-var REPO=yaremenko-maksym/CheekyCheeseIT_CRM \
+  --prompt-var RUN_ID=26298999300 \
+  --prompt-var PR=42 \
+  --state-file docs/specs/pm-state.json \
+  --state-task-id task-knowledge-api
+```
+
+Это:
+
+- Вычисляет `fireAt` в local TZ (BSD/GNU date compat)
+- Генерит unique `taskId` (kebab-case + UTC timestamp suffix)
+- Материализует self-contained prompt из `scripts/pm/wakeup-prompts/<template>.md`
+- Append event `wakeup_scheduled` + `next_action` в pm-state.json
+- Печатает JSON в stdout
+
+2. **Прочитать materialized prompt:**
+
+```bash
+cat $(jq -r .promptPath <stdout-json>)
+```
+
+3. **Вызвать MCP-tool** прямо из PM-сессии:
+
+```
+mcp__scheduled-tasks__create_scheduled_task({
+  taskId: "<from JSON>",
+  description: "<from JSON>",
+  fireAt: "<from JSON>",
+  prompt: "<contents of promptPath>"
+})
+```
+
+### Матрица выбора
+
+| Сценарий                                              | Layer                      | Почему                              |
+| ----------------------------------------------------- | -------------------------- | ----------------------------------- |
+| `pnpm test` finishing, ждать unit (~5 мин)            | 1 (ScheduleWakeup)         | Сессия active, короткий wait        |
+| GHA E2E workflow (~10-20 мин)                         | 2 (mcp\_\_scheduled-tasks) | Может пережить session timeout      |
+| Daily morning check (12 часов)                        | 2                          | Точно cross-session                 |
+| Сразу после dispatch агента, проверить через 2 мин    | 1                          | Foreground agent уже notify'ит      |
+| User Testing wait → пользователь даст ответ через ~1ч | 2                          | Сессия закроется во time of waiting |
+
+**Не комбинируй оба слоя на same wait** — это дублирует wake-up'ы и spamит scheduled-tasks store.
+
+**Связанная задача:** `docs/specs/tasks/task-harness-schedule-wakeup-persistence.md` — изначально NEEDS-USER. Layer 2 — полноценный workaround, harness-fix остаётся nice-to-have для unification API.
+
+---
+
+## Cross-session wake-up (mcp\_\_scheduled-tasks через pm-schedule.sh)
 
 Используется для wait'ов которые могут не уложиться в текущую PM-сессию: длинный GHA E2E, deploy verification, daily checks.
 
@@ -246,11 +361,11 @@ mcp__scheduled-tasks__update_scheduled_task({
 
 ### Доступные templates
 
-| Template | Use case | Required vars |
-|----------|----------|---------------|
-| `poll-e2e-run` | GHA E2E workflow result | `REPO`, `RUN_ID`, `PR` |
-| `poll-pr-checks` | Все CI checks на PR | `REPO`, `PR` |
-| `poll-pr-merged` | Verify auto-merge сработал | `REPO`, `PR` |
+| Template         | Use case                   | Required vars          |
+| ---------------- | -------------------------- | ---------------------- |
+| `poll-e2e-run`   | GHA E2E workflow result    | `REPO`, `RUN_ID`, `PR` |
+| `poll-pr-checks` | Все CI checks на PR        | `REPO`, `PR`           |
+| `poll-pr-merged` | Verify auto-merge сработал | `REPO`, `PR`           |
 
 Подробнее — `scripts/pm/wakeup-prompts/README.md`.
 
@@ -289,6 +404,7 @@ gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<N>/files \
 После dev-flow RCA hook `.claude/hooks/coder-progress-marker.sh` пишет activity лог в `<main-repo>/.claude/coder-activity.log` (gitignored, TSV). PM использует его для detection silent termination.
 
 Лог содержит **два типа** rows (поле `$2`):
+
 - **`Edit`/`Write`/`MultiEdit`/`NotebookEdit`** — auto-hook PostToolUse, что Coder писал. Покрывает «живой ли».
 - **`INTENT`** — explicit marker от Coder через `bash scripts/coder/coder-intent.sh "<text>"`. Покрывает «что планировал». См. `coder.md` секция 8.1.1.
 
@@ -313,12 +429,12 @@ awk -F'\t' '$2!="INTENT"' "$LOG" | tail -10
 
 **Как интерпретировать пару intent+edit:**
 
-| Последний INTENT | Последний Edit | Интерпретация |
-|------------------|----------------|---------------|
-| `intent: starting test run for auth` | `apps/api/.../auth.service.ts` | Coder остановился в момент edit ПОСЛЕ старта tests |
-| `intent: AC #3 implementing` | None после intent | Coder обрывался ДО любого edit — задача на AC #3 не начата |
-| `intent: rebasing onto main` | `apps/...` без вновь intent | Rebase завершён, Coder начал работу — обрыв midway |
-| (нет INTENT в последнем часу) | `apps/...` | Coder не записывал intent — recovery строится только на git state |
+| Последний INTENT                     | Последний Edit                 | Интерпретация                                                     |
+| ------------------------------------ | ------------------------------ | ----------------------------------------------------------------- |
+| `intent: starting test run for auth` | `apps/api/.../auth.service.ts` | Coder остановился в момент edit ПОСЛЕ старта tests                |
+| `intent: AC #3 implementing`         | None после intent              | Coder обрывался ДО любого edit — задача на AC #3 не начата        |
+| `intent: rebasing onto main`         | `apps/...` без вновь intent    | Rebase завершён, Coder начал работу — обрыв midway                |
+| (нет INTENT в последнем часу)        | `apps/...`                     | Coder не записывал intent — recovery строится только на git state |
 
 ### Шаг 2: Detect hung
 
@@ -400,12 +516,216 @@ cat docs/specs/tasks/<task>.progress.md
 1. **Создать DevOps task на `__drizzle_migrations` sync** если миграции были созданы вручную или переименованы:
    ```markdown
    # task-infra-migrations-sync
+
    ## Агент: devops
+
    ## Контекст
+
    В PR #<N> добавлена/изменена миграция. Проверить что `__drizzle_migrations` table sync с `drizzle/migrations/meta/_journal.json` — иначе db:migrate упадёт на fresh DB.
+
    ## AC
+
    - [ ] `pnpm --filter @crm/api db:init-tracking` синхронизирует state
    - [ ] Smoke test: `docker-compose down -v && docker-compose up -d && pnpm db:migrate && pnpm db:seed` проходит без ошибок
    ```
 2. **Smoke test fresh-DB flow** до User Testing — если миграции не применяются на чистой БД, User Testing будет видеть данные но fresh deploy сломается.
 3. **Записать в pm-state.json** event `migration_rebuild_required` с PR номером.
+
+---
+
+## Типичные длительности агентов
+
+| Тип задачи                            | Ожидаемое время                                                  |
+| ------------------------------------- | ---------------------------------------------------------------- |
+| Coder: 1-2 файла                      | 8-12 мин                                                         |
+| Coder: модуль (3-6 файлов)            | 15-25 мин                                                        |
+| Coder: большой модуль (7+)            | 25-40 мин                                                        |
+| AutoTest: написание/обновление тестов | 8-15 мин                                                         |
+| Reviewer: code review                 | 5-10 мин                                                         |
+| DevOps: workflow изменения            | 5-10 мин                                                         |
+| E2E через e2e.yml (GHA)               | 10-20 мин — использовать `ScheduleWakeup(delay=270)` или Layer 2 |
+
+**Foreground агенты** блокируют PM до завершения — результат приходит сразу.
+**Background агенты** (`run_in_background=True`) — PM получает уведомление автоматически.
+
+---
+
+## Именование веток
+
+- `feature/<slug>` — новая фича (Coder)
+- `test/<slug>` — тесты (AutoTest standalone)
+- `infra/<slug>` — инфраструктура (DevOps)
+- `fix/<slug>` — фикс бага или E2E
+
+---
+
+## Структура `docs/specs/tasks/`
+
+```
+docs/specs/tasks/
+├── task-<slug>.md            # активная задача
+├── task-<slug>.blocked.md    # блокер от агента
+├── task-<slug>.progress.md   # sentinel Coder для крупных задач (>4 файлов)
+├── templates/
+│   └── task.md.tpl
+└── archive/
+    └── <date>-<slug>.md      # завершённые задачи
+```
+
+### Правила именования task-файлов
+
+- Новая фича: `task-<module>-<aspect>.md` (`task-knowledge-api.md`)
+- Фикс от reviewer: `task-fix-pr-<N>.md`
+- Фикс E2E: `task-fix-e2e-<slug>.md`
+- Фикс теста: `task-fix-test-<slug>.md`
+- Фикс от user testing: `task-fix-<short-description>.md`
+
+---
+
+## pm-state.json schema v2
+
+Файл локальный, gitignored. PM пишет и читает между сессиями. Формат поддерживает события и метрики.
+
+```json
+{
+  "feature": "Knowledge Base",
+  "brief": "docs/specs/pm-brief.md",
+  "started_at": "2026-05-18T10:00:00Z",
+  "phase": "development",
+  "active": [
+    {
+      "id": "task-knowledge-api",
+      "file": "docs/specs/tasks/task-knowledge-api.md",
+      "agent": "coder",
+      "branch": "feature/knowledge-api",
+      "pr_number": null,
+      "status": "running",
+      "started_at": "2026-05-18T10:00:00Z",
+      "review_rounds": 0,
+      "max_review_rounds": 5,
+      "agent_invocations": {
+        "coder": 1,
+        "reviewer": 0,
+        "autotest": 0,
+        "devops": 0
+      },
+      "events": [{ "at": "2026-05-18T10:00:00Z", "type": "agent_started", "agent": "coder" }],
+      "pending_fixes": []
+    }
+  ],
+  "completed": [
+    {
+      "id": "task-fix-pr22-ui-round5",
+      "duration_min": 18,
+      "rounds": 5,
+      "regression_count": 1,
+      "agent_invocations": {
+        "coder": 5,
+        "reviewer": 4,
+        "autotest": 1,
+        "devops": 0
+      },
+      "merged_at": "2026-05-20T07:03:35Z",
+      "pr_number": 22
+    }
+  ],
+  "blocked": [],
+  "blocking_issue": null
+}
+```
+
+### Поля
+
+**Top-level:**
+
+- `feature` — название текущей фичи
+- `brief` — путь к pm-brief.md
+- `started_at` — когда PM стартовал работу
+- `phase` — `development` / `user-testing` / `merging` / `archived`
+- `active[]` — текущие незавершённые задачи
+- `completed[]` — завершённые задачи (для метрик)
+- `blocked[]` — заблокированные (с `.blocked.md`)
+- `blocking_issue` — глобальный blocker (например, `e2e-broken` на main)
+
+**Active task:**
+
+- Базовые: `id`, `file`, `agent`, `branch`, `pr_number`, `status`
+- `review_rounds` — счётчик раундов (circuit breaker `>=3`)
+- `agent_invocations` — счётчики dispatch
+- `events[]` — лог событий
+- `pending_fixes[]` — правки от User Testing
+
+**Event types:**
+
+- `agent_started` — `{ at, type, agent, task_file? }`
+- `agent_finished` — `{ at, type, agent, result: "success"|"blocked"|"no-op" }`
+- `pr_opened` — `{ at, type, pr }`
+- `review_approve` — `{ at, type, pr }`
+- `review_blocked` — `{ at, type, pr, verdict: "BLOCK", rounds }`
+- `review_rejected` — `{ at, type, pr, rounds }` (от внешних reviewer-ов)
+- `autotest_skipped` — `{ at, type, reason }` — skip без записи запрещён
+- `worktree_isolation_warning` — `{ at, type, files: [...] }`
+- `e2e_started` — `{ at, type, run_id }`
+- `e2e_passed` — `{ at, type, run_id }`
+- `e2e_failed` — `{ at, type, run_id, failure_type: "code"|"test"|"infra" }`
+- `user_approved` — `{ at, type, pr }`
+- `merge_approved_label` — `{ at, type, pr }`
+- `do_not_merge_label` — `{ at, type, pr, reason }`
+- `merged` — `{ at, type, pr }`
+- `wakeup_scheduled` — `{ at, type, scheduled_task_id, fireAt }`
+
+**Completed task** (агрегаты для метрик):
+
+- `duration_min` — от `started_at` до `merged_at`
+- `rounds` — итоговое число review_rounds
+- `regression_count` — сколько раз round*N сломал что-то из round*{N-1}
+- `agent_invocations` — финальные счётчики
+- `merged_at`, `pr_number`
+
+### Статусы задачи
+
+`running` → `pr_open` → `awaiting_pm_review` → `user_testing` → `e2e_running` → `merged` | `failed`
+
+Промежуточные: `blocked` (есть `.blocked.md`), `pending_fixes` (User Testing вернул правки).
+
+### Метрики (из completed[])
+
+- `avg(rounds)` — среднее число раундов на задачу (цель: ≤ 2)
+- `avg(duration_min)` — среднее от старта до merge
+- `sum(regression_count) / count(*)` — частота регрессий
+- Распределение `agent_invocations.coder` — сколько раз перезапускали Coder
+
+---
+
+## GHA Secrets (актуальные)
+
+| Secret                    | Для чего                      |
+| ------------------------- | ----------------------------- |
+| `CLAUDE_CODE_OAUTH_TOKEN` | claude-code-action auth       |
+| `JWT_SECRET`              | E2E тесты (auth через cookie) |
+
+---
+
+## Полезные команды мониторинга
+
+```bash
+# Список open PR
+gh pr list --repo yaremenko-maksym/CheekyCheeseIT_CRM --state open
+
+# Labels на PR
+gh pr view <pr_number> --repo yaremenko-maksym/CheekyCheeseIT_CRM \
+  --json labels --jq '[.labels[].name]'
+
+# PR reviews
+gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<N>/reviews \
+  --jq '.[] | {state, body}'
+
+# Найти PR по ветке
+gh pr list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
+  --head "feature/<slug>" --json number --jq '.[0].number'
+
+# Мониторинг GHA E2E
+gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM --workflow=e2e.yml --limit 5
+gh run view <run_id> --repo yaremenko-maksym/CheekyCheeseIT_CRM --json status,conclusion
+gh run view <run_id> --repo yaremenko-maksym/CheekyCheeseIT_CRM --log-failed
+```
