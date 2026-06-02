@@ -384,6 +384,175 @@ describe('InvoicePdfService', () => {
       },
     )
   })
+
+  // task-aggregate-invoice-per-payout — AC2/AC6
+  // The new aggregated invoice flow renders description as
+  // «Услуги исполнителя согласно контракту № <contractNumber>» instead of
+  // the legacy «Доля по проекту <X>» line. Project names move to a secondary
+  // line (compact if ≤3, truncated with «…» if >3).
+  describe('aggregated invoice description (task-aggregate-invoice-per-payout)', () => {
+    it(
+      'renders contract description when contractNumber is set',
+      { timeout: TEST_TIMEOUT_MS },
+      async () => {
+        const params = baseParams()
+        params.transaction.contractNumber = 'CHK-deadbeef-2026'
+        // No projectNames → no secondary projects line.
+        delete params.transaction.projectName
+        params.signatures = [
+          {
+            role: 'COMPANY',
+            signerName: 'Maksym Y.',
+            signedAt: FIXED_SIGNED_AT_COMPANY,
+            method: 'AUTO_COMPANY',
+          },
+        ]
+
+        const { pdfBuffer, sha256Hash } = await service.generateSignableInvoicePdf(params)
+        expect(sha256Hash).toMatch(/^[0-9a-f]{64}$/)
+        const reparsed = await PDFDocument.load(pdfBuffer)
+        expect(reparsed.getPageCount()).toBe(1)
+
+        // Different contractNumber → different hash (sanity: contract # rendered).
+        const other = baseParams()
+        other.transaction.contractNumber = 'CHK-aaaaaaaa-2026'
+        delete other.transaction.projectName
+        other.signatures = params.signatures
+        const otherRes = await service.generateSignableInvoicePdf(other)
+        expect(sha256Hash).not.toBe(otherRes.sha256Hash)
+
+        // Sanity: buffer length reasonable (invoice + font subset + QR)
+        expect(pdfBuffer.length).toBeGreaterThan(20_000)
+      },
+    )
+
+    it(
+      'renders compact project list when projectNames.length <= 3',
+      { timeout: TEST_TIMEOUT_MS },
+      async () => {
+        const params = baseParams()
+        params.transaction.contractNumber = 'CHK-deadbeef-2026'
+        params.transaction.projectNames = ['Acme Corp', 'LearnSpace', 'TechCorp AI']
+        delete params.transaction.projectName
+        params.signatures = [
+          {
+            role: 'COMPANY',
+            signerName: 'Maksym Y.',
+            signedAt: FIXED_SIGNED_AT_COMPANY,
+            method: 'AUTO_COMPANY',
+          },
+        ]
+
+        const { pdfBuffer, sha256Hash } = await service.generateSignableInvoicePdf(params)
+        expect(sha256Hash).toMatch(/^[0-9a-f]{64}$/)
+        expect(pdfBuffer.length).toBeGreaterThan(20_000)
+
+        // Same params without projectNames produces a different PDF (the list
+        // is rendered as a separate line on the page).
+        const noList = baseParams()
+        noList.transaction.contractNumber = params.transaction.contractNumber
+        delete noList.transaction.projectName
+        noList.signatures = params.signatures
+        const noListRes = await service.generateSignableInvoicePdf(noList)
+        expect(sha256Hash).not.toBe(noListRes.sha256Hash)
+      },
+    )
+
+    it(
+      'truncates project list when projectNames.length > 3',
+      { timeout: TEST_TIMEOUT_MS },
+      async () => {
+        const params = baseParams()
+        params.transaction.contractNumber = 'CHK-deadbeef-2026'
+        params.transaction.projectNames = [
+          'Acme Corp',
+          'LearnSpace',
+          'TechCorp AI',
+          'Senior Regression',
+          'Drop Phase 2',
+          'Sixth Project',
+        ]
+        delete params.transaction.projectName
+        params.signatures = [
+          {
+            role: 'COMPANY',
+            signerName: 'Maksym Y.',
+            signedAt: FIXED_SIGNED_AT_COMPANY,
+            method: 'AUTO_COMPANY',
+          },
+        ]
+
+        const { pdfBuffer, sha256Hash } = await service.generateSignableInvoicePdf(params)
+        expect(sha256Hash).toMatch(/^[0-9a-f]{64}$/)
+        const reparsed = await PDFDocument.load(pdfBuffer)
+        expect(reparsed.getPageCount()).toBe(1)
+
+        // PDF still fits one page even with 6 projects.
+        expect(pdfBuffer.length).toBeGreaterThan(20_000)
+        expect(pdfBuffer.length).toBeLessThan(500_000)
+
+        // Hash differs from the 3-project list — truncation is a content
+        // difference, not a cosmetic one.
+        const threeOnly = baseParams()
+        threeOnly.transaction.contractNumber = params.transaction.contractNumber
+        threeOnly.transaction.projectNames = (params.transaction.projectNames as string[]).slice(
+          0,
+          3,
+        )
+        delete threeOnly.transaction.projectName
+        threeOnly.signatures = params.signatures
+        const threeOnlyRes = await service.generateSignableInvoicePdf(threeOnly)
+        expect(sha256Hash).not.toBe(threeOnlyRes.sha256Hash)
+      },
+    )
+
+    it(
+      'preserves Период line when salaryMonth provided',
+      { timeout: TEST_TIMEOUT_MS },
+      async () => {
+        // Same params with vs. without salaryMonth must produce different PDFs.
+        const withMonth = baseParams()
+        withMonth.transaction.contractNumber = 'CHK-deadbeef-2026'
+        withMonth.transaction.salaryMonth = '2026-05'
+        delete withMonth.transaction.projectName
+        withMonth.signatures = []
+
+        const withoutMonth = baseParams()
+        withoutMonth.transaction.contractNumber = 'CHK-deadbeef-2026'
+        delete withoutMonth.transaction.projectName
+        withoutMonth.transaction.salaryMonth = null
+        withoutMonth.signatures = []
+
+        const a = await service.generateSignableInvoicePdf(withMonth)
+        const b = await service.generateSignableInvoicePdf(withoutMonth)
+        expect(a.sha256Hash).not.toBe(b.sha256Hash)
+      },
+    )
+
+    it(
+      'legacy fallback — without contractNumber renders previous Доля по проекту',
+      { timeout: TEST_TIMEOUT_MS },
+      async () => {
+        // Existing invoices (per-tx SENIOR_INCOME) keep working — neither
+        // contractNumber nor projectNames provided. We only need to verify
+        // the PDF still renders without throwing.
+        const params = baseParams()
+        params.signatures = [
+          {
+            role: 'COMPANY',
+            signerName: 'Maksym Y.',
+            signedAt: FIXED_SIGNED_AT_COMPANY,
+            method: 'AUTO_COMPANY',
+          },
+        ]
+
+        const { pdfBuffer, sha256Hash } = await service.generateSignableInvoicePdf(params)
+        expect(sha256Hash).toMatch(/^[0-9a-f]{64}$/)
+        const reparsed = await PDFDocument.load(pdfBuffer)
+        expect(reparsed.getPageCount()).toBe(1)
+      },
+    )
+  })
 })
 
 describe('invoice-pdf.utils', () => {
