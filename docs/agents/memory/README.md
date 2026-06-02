@@ -7,20 +7,47 @@
 ```
 docs/agents/memory/
 ├── README.md          (этот файл)
-├── coder/lessons.md
-├── autotest/lessons.md
-├── reviewer/lessons.md
-├── devops/lessons.md
-└── pm/lessons.md
+├── coder/
+│   ├── lessons.md          (active, ≤ 20 строк)
+│   └── lessons.archive.md  (historical, full record)
+├── autotest/
+│   ├── lessons.md
+│   └── lessons.archive.md
+├── reviewer/
+│   ├── lessons.md
+│   └── lessons.archive.md
+├── devops/
+│   ├── lessons.md
+│   └── lessons.archive.md
+└── pm/
+    ├── lessons.md
+    └── lessons.archive.md
 ```
+
+Per-agent archive structure (User answer #6) — каждый агент имеет свой `lessons.archive.md` в той же папке.
 
 ## Когда читать
 
-Каждый агент читает свой `lessons.md` при старте — это часть обязательного чтения (см. секцию "Обязательное чтение" в `<agent>.md`).
+Каждый агент читает свой `lessons.md` при старте — это часть обязательного чтения (см. `docs/agents/<self>.md` секция «Session-recovery»). Архив **НЕ читается upfront** — только для retrospective.
 
 ## Когда писать
 
-После каждого **merged PR** — PM аппендит ОДНУ строку в файл соответствующего агента (того кто делал основную работу).
+**Trigger-based** (User answer #5 — skill-driven через `anthropic-skills:consolidate-memory`):
+
+После каждого **merged PR** PM ОБЯЗАН:
+
+1. Append 1-3 урока в `docs/agents/memory/<agent>/lessons.md` соответствующего агента (тот кто делал основную работу).
+2. Вызвать skill `anthropic-skills:consolidate-memory` при достижении threshold:
+   - `lessons.md` ≥ **20 строк**, ИЛИ
+   - после batch merged PRs (по выбору PM).
+
+Skill анализирует duplicates / упрощает / выделяет паттерны → promotion levels:
+
+- **P0 (5+ повторений)** → promote в Golden rules соответствующего agent doc (`<agent>.md`).
+- **P1** → consolidate в `docs/agents/RULES.md` (если cross-agent) или `<agent>.md` (если agent-specific).
+- **P2** → archive в `docs/agents/memory/<agent>/lessons.archive.md`.
+
+Это «levelling-up» урока: персональный case → общее правило → enforced rule.
 
 ## Формат строки
 
@@ -29,23 +56,25 @@ docs/agents/memory/
 ```
 
 **Поля:**
-- `<YYYY-MM-DD>` — дата урока
-- `[P0]|[P1]|[P2]` — **приоритет**, новое поле (D4 [P2] фикс, 2026-05-23):
+
+- `<YYYY-MM-DD>` — дата урока.
+- `[P0]|[P1]|[P2]` — **приоритет** (D4 [P2] фикс, 2026-05-23):
   - **P0** — критическое правило. Нарушение ведёт к: data loss, security gap, repeat regression, потеря коммитов, отказ системы. Агент ОБЯЗАН прочитать P0 при старте.
-  - **P1** — важное правило. Нарушение ведёт к: rework, увеличение раундов review, замедление пайплайна. Агент должен учитывать.
-  - **P2** — nice-to-know. Помогает оптимизировать, но не блокирует.
-- `[<task-id>]` — task-id когда урок возник (для трассируемости)
+  - **P1** — важное правило. Нарушение ведёт к: rework, увеличение раундов review, замедление пайплайна.
+  - **P2** — nice-to-know. Помогает оптимизировать, не блокирует.
+- `[<task-id>]` — task-id для трассируемости.
 - `#topic` — опциональный topic-тег для grep'абельности. Примеры: `#tunnel`, `#tdd`, `#review-gate`, `#commit-hygiene`, `#layout`, `#ci`, `#worktree`, `#workflow`.
 
 Примеры хороших уроков:
+
 ```
 2026-05-20 [P0] [task-fix-pr22-ui-round4] #commit-hygiene git add . подметает чужие debug-артефакты — только явный список файлов из task.
 2026-05-19 [P0] [task-teams-redesign] #testing data-testid обязателен для back-button/dialog-close — Playwright strict mode падает на дублях в sidebar+content.
 2026-05-18 [P1] [task-fix-flaky-tests] #test-stability userEvent в RTL требует delay:null для стабильности — иначе race с act().
-2026-05-22 [P2] [retro-session-after-archive-pr] #communication Для нетривиальных visual багов — присылать пользователю свою интерпретацию ДО dispatch Coder.
 ```
 
 Примеры **плохих** уроков (не писать):
+
 ```
 2026-05-20 [P1] [task-knowledge-api] Сделал задачу.       # ← бесполезно
 2026-05-20 [P2] [task-x] Использовал TanStack Query.      # ← очевидно из кода
@@ -53,27 +82,20 @@ docs/agents/memory/
 ```
 
 **Как выбрать приоритет (rule of thumb):**
+
 - Урок про **mechanism** (gate, label, hook) → P0
 - Урок про **safety/security/data** → P0
-- Урок про **regression-prevention** → P0 или P1 в зависимости от impact
+- Урок про **regression-prevention** → P0 или P1
 - Урок про **process/communication** → P1
 - Урок про **optimization/style** → P2
-
-**Retro-tag legacy lessons:** все уроки до 2026-05-23 (когда введена приоритизация) получили priority tag по best-effort оценке. Если видишь несогласие — корректируй inline при чтении.
 
 ## Правила
 
 1. **Один урок = одна строка.** Не размазывать на абзац.
 2. **Конкретность.** «Layout regression потому что X» лучше чем «осторожнее с layout».
 3. **Применимость.** Урок должен помочь следующему агенту в похожей ситуации.
-4. **Лимит.** Не больше 30 последних уроков в файле. Старые → `lessons.archive.md`.
+4. **Лимит.** Active `lessons.md` ≤ 20 строк. Достигли — вызвать `anthropic-skills:consolidate-memory`.
 
-## Ротация
+## Где жил этот файл раньше
 
-Когда `lessons.md` превышает 30 строк — PM перемещает старшие в `lessons.archive.md` (та же папка). Архив агенты не читают upfront, но могут заглянуть если ищут конкретный исторический случай.
-
-```bash
-# Ротация (примерная команда — PM выполняет вручную при необходимости)
-head -n -30 docs/agents/memory/coder/lessons.md >> docs/agents/memory/coder/lessons.archive.md
-tail -n 30 docs/agents/memory/coder/lessons.md > /tmp/recent.md && mv /tmp/recent.md docs/agents/memory/coder/lessons.md
-```
+Старая версия (до 2026-06-02 refactor) описывала threshold-based ротацию (30 строк). Это не работало — lessons недозаписывались (см. `architect-audit.md` §4.5). Новая версия — trigger-based + skill-driven (PM вызывает skill после merged PR при threshold 20 строк).
