@@ -7,22 +7,22 @@ Main branch: `main`
 
 ## GHA Secrets
 
-| Secret | Для чего |
-|--------|----------|
+| Secret                    | Для чего                             |
+| ------------------------- | ------------------------------------ |
 | `CLAUDE_CODE_OAUTH_TOKEN` | claude-code-action auth (все агенты) |
-| `JWT_SECRET` | E2E тесты (auth через cookie) |
+| `JWT_SECRET`              | E2E тесты (auth через cookie)        |
 
 ## Типичные длительности агентов
 
-| Тип задачи | Ожидаемое время |
-|-----------|-----------------|
-| Coder: 1-2 файла | 8-12 мин |
-| Coder: модуль (3-6 файлов) | 15-25 мин |
-| Coder: большой модуль (7+) | 25-40 мин |
-| AutoTest: написание/обновление тестов | 8-15 мин |
-| Reviewer: code review | 5-10 мин |
-| DevOps: workflow изменения | 5-10 мин |
-| E2E через e2e.yml (GHA) | 10-20 мин — использовать `ScheduleWakeup(delay=270)` |
+| Тип задачи                            | Ожидаемое время                                      |
+| ------------------------------------- | ---------------------------------------------------- |
+| Coder: 1-2 файла                      | 8-12 мин                                             |
+| Coder: модуль (3-6 файлов)            | 15-25 мин                                            |
+| Coder: большой модуль (7+)            | 25-40 мин                                            |
+| AutoTest: написание/обновление тестов | 8-15 мин                                             |
+| Reviewer: code review                 | 5-10 мин                                             |
+| DevOps: workflow изменения            | 5-10 мин                                             |
+| E2E через e2e.yml (GHA)               | 10-20 мин — использовать `ScheduleWakeup(delay=270)` |
 
 **Foreground агенты** блокируют PM до завершения — результат приходит сразу.
 **Background агенты** (`run_in_background=True`) — PM получает уведомление автоматически.
@@ -39,11 +39,13 @@ PM имеет **два слоя** для wake-up'ов с разными гара
 Прямой harness API. Дёшево, быстро, но **умирает с сессией**.
 
 **Используй когда:**
+
 - Wait < 30 минут (e.g. короткий CI poll)
 - Чёткая уверенность что сессия не закроется (active interactive turn)
 - Wake-up — нежёсткое требование (если потеряется, пользователь увидит и перезапустит)
 
 **Workaround pattern (если всё-таки используешь Layer 1 для важного wait):**
+
 ```python
 # Перед wake-up — сохрани действие в state, чтобы новая сессия могла catch-up
 pm_state["active"][task_idx]["next_action"] = {
@@ -67,6 +69,7 @@ for task in pm_state["active"]:
 External scheduler, **выживает session boundary**. Запускает fresh Claude-сессию на запланированное время с self-contained prompt. Это полноценный workaround D1.
 
 **Используй когда:**
+
 - Wait ≥ 30 минут (длинный CI, GHA E2E, deploy verification)
 - Жёсткое требование fire'а (потеря недопустима)
 - Длительный wait через session timeout
@@ -74,6 +77,7 @@ External scheduler, **выживает session boundary**. Запускает fr
 **Workflow (PM шаги):**
 
 1. **Сгенерировать параметры** через `pm-schedule.sh`:
+
    ```bash
    bash scripts/pm/pm-schedule.sh \
      --delay-min 15 \
@@ -95,6 +99,7 @@ External scheduler, **выживает session boundary**. Запускает fr
    - Печатает JSON в stdout: `{taskId, fireAt, description, promptPath, promptSize}`
 
 2. **Прочитать materialized prompt:**
+
    ```bash
    cat $(jq -r .promptPath <stdout-json>)
    ```
@@ -111,13 +116,14 @@ External scheduler, **выживает session boundary**. Запускает fr
 
 **Доступные templates** (см. `scripts/pm/wakeup-prompts/README.md`):
 
-| Template | Use case | Required vars |
-|----------|----------|---------------|
-| `poll-e2e-run` | GHA E2E workflow result | `REPO`, `RUN_ID`, `PR` |
-| `poll-pr-checks` | Все CI checks на PR | `REPO`, `PR` |
-| `poll-pr-merged` | Verify auto-merge сработал | `REPO`, `PR` |
+| Template         | Use case                   | Required vars          |
+| ---------------- | -------------------------- | ---------------------- |
+| `poll-e2e-run`   | GHA E2E workflow result    | `REPO`, `RUN_ID`, `PR` |
+| `poll-pr-checks` | Все CI checks на PR        | `REPO`, `PR`           |
+| `poll-pr-merged` | Verify auto-merge сработал | `REPO`, `PR`           |
 
 **Что важно:**
+
 - Каждый scheduled-task run = fresh PM-сессия БЕЗ context от source. Template должен бутстрапить PM роль и читать pm-state.json для контекста.
 - `taskId` уникален и сохраняется в `pm-state.json.active[task].events[].scheduled_task_id` — для трассировки.
 - Wake-up'ы fire'ятся только когда Claude Code открыт. Если closed когда fire due → runs at next launch (пользователь увидит).
@@ -125,13 +131,13 @@ External scheduler, **выживает session boundary**. Запускает fr
 
 #### Когда использовать что
 
-| Сценарий | Layer | Почему |
-|----------|-------|--------|
-| `pnpm test` finishing, ждать unit (~5 мин) | 1 (ScheduleWakeup) | Сессия active, короткий wait |
-| GHA E2E workflow (~10-20 мин) | 2 (mcp__scheduled-tasks) | Может пережить session timeout |
-| Daily morning check (12 часов) | 2 | Точно cross-session |
-| Сразу после dispatch агента, проверить через 2 мин | 1 | Foreground agent уже notify'ит |
-| User Testing wait → пользователь даст ответ через ~1ч | 2 | Сессия закроется во time of waiting |
+| Сценарий                                              | Layer                      | Почему                              |
+| ----------------------------------------------------- | -------------------------- | ----------------------------------- |
+| `pnpm test` finishing, ждать unit (~5 мин)            | 1 (ScheduleWakeup)         | Сессия active, короткий wait        |
+| GHA E2E workflow (~10-20 мин)                         | 2 (mcp\_\_scheduled-tasks) | Может пережить session timeout      |
+| Daily morning check (12 часов)                        | 2                          | Точно cross-session                 |
+| Сразу после dispatch агента, проверить через 2 мин    | 1                          | Foreground agent уже notify'ит      |
+| User Testing wait → пользователь даст ответ через ~1ч | 2                          | Сессия закроется во time of waiting |
 
 **Не комбинируй оба слоя на same wait** — это дублирует wake-up'ы и spamит scheduled-tasks store.
 
@@ -228,9 +234,7 @@ docs/specs/tasks/
         "autotest": 0,
         "devops": 0
       },
-      "events": [
-        { "at": "2026-05-18T10:00:00Z", "type": "agent_started", "agent": "coder" }
-      ],
+      "events": [{ "at": "2026-05-18T10:00:00Z", "type": "agent_started", "agent": "coder" }],
       "pending_fixes": []
     }
   ],
@@ -258,6 +262,7 @@ docs/specs/tasks/
 ### Поля
 
 **Top-level:**
+
 - `feature` — название текущей фичи (читаемое имя)
 - `brief` — путь к pm-brief.md
 - `started_at` — когда PM стартовал работу над фичей
@@ -268,6 +273,7 @@ docs/specs/tasks/
 - `blocking_issue` — если есть глобальный blocker (например, e2e-broken на main)
 
 **Active task:**
+
 - Базовые поля: `id`, `file`, `agent`, `branch`, `pr_number`, `status`
 - `review_rounds` — счётчик раундов code review (circuit breaker при `>=3`)
 - `agent_invocations` — счётчики сколько раз PM запускал каждого агента
@@ -275,6 +281,7 @@ docs/specs/tasks/
 - `pending_fixes[]` — правки от User Testing, ещё не отправленные в Coder
 
 **Event types** (записываются в `events[]`):
+
 - `agent_started` — `{ at, type, agent, task_file? }`
 - `agent_finished` — `{ at, type, agent, result: "success"|"blocked"|"no-op" }`
 - `pr_opened` — `{ at, type, pr }`
@@ -292,9 +299,10 @@ docs/specs/tasks/
 - `merged` — `{ at, type, pr }` — CI смерджил
 
 **Completed task** (агрегаты для метрик):
+
 - `duration_min` — от `started_at` до `merged_at` в минутах
 - `rounds` — итоговое число review_rounds
-- `regression_count` — сколько раз round_N сломал что-то из round_{N-1}
+- `regression_count` — сколько раз round*N сломал что-то из round*{N-1}
 - `agent_invocations` — финальные счётчики
 - `merged_at`, `pr_number` — для трассировки
 
@@ -303,12 +311,14 @@ docs/specs/tasks/
 `running` → `pr_open` → `awaiting_pm_review` → `user_testing` → `e2e_running` → `merged` | `failed`
 
 Промежуточные:
+
 - `blocked` — есть `.blocked.md` файл, PM нужен резолв
 - `pending_fixes` — User Testing вернул правки, ждёт следующего раунда Coder
 
 ### Метрики (выводятся из completed[])
 
 PM может посчитать в любой момент:
+
 - `avg(rounds)` — среднее число раундов на задачу
 - `avg(duration_min)` — среднее время от старта до merge
 - `sum(regression_count) / count(*)` — частота регрессий
@@ -319,8 +329,90 @@ PM может посчитать в любой момент:
 ### Migration со старого формата
 
 Старый формат имел: `tasks`, `merged`, `pending_fixes` (top-level). Mapping:
+
 - `tasks` → `active`
 - `merged` → `completed` (доп. поля заполнить дефолтами для исторических: `rounds: null`, `duration_min: null`)
 - `pending_fixes` (top-level) → внутрь `active[task].pending_fixes`
 
 Migration происходит лениво — PM при чтении старого формата перепишет в новый при первом сохранении.
+
+---
+
+## Session learnings 2026-06-02 — workflow hardening
+
+Эти правила добавлены после retrospective сессии Phase 4. Игнорирование = повторение реальных инцидентов.
+
+### L1. Mandatory skill priority
+
+PM **обязан** инвоковать skill **до** dispatch агента / commit / ответа в этих случаях:
+
+| Триггер                                                                   | Skill                                                                                               |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Task spec > 10 AC ИЛИ user 2+ раза менял scope                            | `superpowers:brainstorming` (написать decision-doc до writeFile task'a)                             |
+| Перед claim «ready to merge» / «verified»                                 | `superpowers:verification-before-completion`                                                        |
+| После Coder PR > 500 LOC ИЛИ touches finance/payment ИЛИ has DB migration | label `ai-review-ready` + ждать Reviewer ОК **до** `merge-approved`                                 |
+| PR содержит PDF/SVG/image artifact                                        | screenshot через `mcp__playwright__browser_take_screenshot` обязателен, текстовый grep недостаточен |
+
+Real incident 2026-06-02: PR #74 (PDF refresh + finance refactor + DB migration) смержен без Reviewer-pass. PM «проверил» PDF через UTF-16 grep — не открыл глазами.
+
+### L2. Cleanup discipline
+
+**Перед `bash scripts/pm/prep-user-testing.sh`**:
+
+1. Kill stale dev processes по PID (не только по портам — pnpm watch может перезапустить себя):
+   ```bash
+   pkill -f "@crm/api.*dev" 2>/dev/null
+   pkill -f "vite preview" 2>/dev/null
+   pkill -f "vite dev" 2>/dev/null
+   ```
+2. `lsof -ti :3000 :3001 | xargs kill -9 2>/dev/null`
+
+**После dispatch Coder**:
+
+- НЕ schedule wakeup если: (a) Coder вернётся через task-notification, (b) задача уже выполнена.
+- Перед `ScheduleWakeup` — `grep pending_action pm-state.json` чтобы убедиться что нет дублирующего wake.
+
+Real incident: 4+ часа висели stale `nest start --watch` (PID 53801) и ScheduleWakeup'ы firing на done work.
+
+### L3. AC limit для task spec
+
+- **AC > 10** → split на несколько task-файлов, каждый со своим PR.
+- **3+ different concerns** (e.g. refactor + new feature + design change) → НИКОГДА в одном PR.
+
+Real incident: task-drop-company-debt-and-invoices.md содержал 16 AC + 3 эпика (refactor crypto/cash + переименование settle + PDF redesign с logo). Coder сделал 5 wip-коммитов, PDF redesign прошёл без visual verify.
+
+### L4. Reviewer dispatching правило
+
+PR попадает в **обязательный Reviewer** (label `ai-review-ready`, ждать ОК до `merge-approved`) если выполнено **любое** из:
+
+- Diff > 500 LOC (`gh pr diff <num> | wc -l`).
+- Содержит файлы в `apps/api/drizzle/migrations/**` (новая миграция).
+- Touches `apps/api/src/finance/**` ИЛИ `apps/api/src/payments/**` (financial logic).
+- Touches `apps/api/src/auth/**` (security).
+- Touches `.github/workflows/**` (CI).
+
+Иначе Reviewer опционален. Auto-merge через `merge-approved` остаётся.
+
+### L5. Visual verification протокол
+
+Для **любого artifact с визуальной составляющей** (PDF, SVG, logo, новый UI компонент):
+
+1. `mcp__playwright__browser_navigate` на artifact URL ИЛИ страницу где он рендерится.
+2. `mcp__playwright__browser_take_screenshot` — **обязательный шаг**.
+3. Визуально проверить screenshot перед claim «verified».
+
+Текстовый grep / UTF-16 search / data-testid existence — **недостаточно** для visual artifact.
+
+Real incident: PDF invoice «verified без имён админов» — на самом деле проверял UTF-16 hex strings, body PDF в FlateDecode-stream остался непроверенным.
+
+### L6. Regression budget / churn detector
+
+Перед dispatch Coder на изменение файла:
+
+```bash
+gh pr list --search "<filename>" --limit 5 --json number,title,mergedAt
+```
+
+Если файл изменялся 3+ раз за последние 14 дней — **флагать как churn**, переспросить user'а нужен ли refactor или это можно сделать инкрементально.
+
+Real incident: `payment-channel.service.ts` и `pending-settlement.service.ts` переписывались 4 раза подряд (Phase 4-B → 4-C → Refactor TOV → Drop pays company). 3 из 4 раз возвращали назад изменения предыдущей итерации.

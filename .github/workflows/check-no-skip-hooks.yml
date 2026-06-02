@@ -1,0 +1,121 @@
+# Detect attempts to skip git hooks in PR commits.
+#
+# Git itself doesn't record whether `--no-verify` was used at commit time, but:
+#   1. pre-commit hooks (lint-staged) run prettier on staged files. If the commit
+#      contains unformatted code that the hook would have fixed, the hook was
+#      either skipped or never installed.
+#   2. pre-push hook (apps/api tests + apps/web tests). We re-run them in CI
+#      against the PR head — if they fail, the developer either didn't run
+#      locally or bypassed the hook.
+#
+# Heuristic check: run `prettier --check` on PR-changed files (mimics lint-staged)
+# and verify there are no auto-fixable formatting issues. If prettier-check
+# fails on files that lint-staged would have formatted, the hook was almost
+# certainly skipped.
+#
+# Real incident 2026-06-02: 3 Coder agents in one session used
+# `git push --no-verify` due to "flaky test" → each time CI later failed on the
+# same test. This workflow catches pre-commit hook bypass (formatting).
+# Pre-push hook fail is caught separately (unit tests in the main workflow).
+#
+# Failure ≠ outright reject. Workflow marks PR with `hook-bypass-warning` label
+# and leaves a comment with remediation steps. Reviewer must resolve.
+
+name: Check no hook bypass
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  check-formatting:
+    runs-on: ubuntu-latest
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_NUM: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 7.32.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Collect PR-changed files of types we format (ts/tsx/js/jsx/json/md/yml).
+      - name: List PR-changed files
+        run: |
+          git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" \
+            | grep -E '\.(ts|tsx|js|jsx|json|md|yml|yaml)$' \
+            > /tmp/pr-files.txt || true
+          echo "Found $(wc -l < /tmp/pr-files.txt) candidate files."
+
+      # Run prettier --check on those files. lint-staged runs `prettier --write`
+      # before commit; if the committed version differs from prettier's expected
+      # output, the hook was bypassed (or never installed).
+      - name: Verify formatting (prettier --check)
+        id: prettier
+        continue-on-error: true
+        run: |
+          if [ ! -s /tmp/pr-files.txt ]; then
+            echo "No relevant files changed — skipping format check."
+            exit 0
+          fi
+          xargs -a /tmp/pr-files.txt pnpm exec prettier --check
+
+      # If prettier-check failed, label PR and post a comment.
+      - name: Flag hook bypass
+        if: steps.prettier.outcome == 'failure'
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ env.PR_NUM }}
+        with:
+          script: |
+            const prNum = parseInt(process.env.PR_NUMBER, 10)
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNum,
+              labels: ['hook-bypass-warning'],
+            })
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNum,
+              body: [
+                '⚠️ **Possible hook bypass detected**',
+                '',
+                'Pre-commit hook (lint-staged → prettier) was likely skipped — files in this PR contain',
+                'formatting that `prettier --write` would have corrected, but the changes were committed',
+                'anyway. Common cause: `git commit --no-verify` / `git push --no-verify`.',
+                '',
+                '**Policy**: hook bypass is forbidden (see `docs/agents/CLAUDE-coder.md` § «Запрещённые',
+                'паттерны»). If the underlying hook is genuinely broken, fix it as a separate commit',
+                'first, then push without `--no-verify`.',
+                '',
+                'To resolve:',
+                '1. `pnpm install` (ensure local hooks are linked).',
+                '2. `pnpm exec prettier --write <files>` on the flagged files.',
+                '3. Push the fix.',
+                '',
+                'Reviewer must verify before approving.',
+              ].join('\n'),
+            })
+
+      # Re-fail the job so the check is visible as red on the PR.
+      - name: Mark check failed if formatting violated
+        if: steps.prettier.outcome == 'failure'
+        run: exit 1
