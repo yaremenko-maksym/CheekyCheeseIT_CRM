@@ -136,7 +136,7 @@ const PhoneTextInput = forwardRef<HTMLInputElement, ComponentProps<'input'>>(
         try {
           isCurrentCountry = RPNInput.parsePhoneNumber(withoutPlus)?.country === currentCountry
         } catch {
-          // unparseable number — treat as not matching current country
+          // unparsable nubmer — treat as not matching current country
         }
 
         if (isCurrentCountry) {
