@@ -91,3 +91,58 @@ packages/shared/
 ## Design System компоненты (apps/web/app/components/ui/)
 
 `button` · `input` · `label` · `card` · `badge` · `separator` · `skeleton` · `avatar` · `sonner` · `scroll-area` · `tooltip` · `dropdown-menu` · `dialog` · `sheet`
+
+## Запрещённые паттерны (zero-tolerance)
+
+### 1. `--no-verify` / обход hooks
+
+**НИКОГДА**:
+
+- `git commit --no-verify` / `-n`
+- `git push --no-verify`
+- `git rebase --no-verify`
+- `-c core.hooksPath=/dev/null`
+- любой иной обход pre-commit / pre-push / commit-msg hooks
+
+Если hook падает:
+
+1. Сначала запустить тот же тест в изоляции: `pnpm --filter @crm/web test -- <suite>`.
+2. Если flake — добавить `it.retry(2)` или fix корня; закоммитить.
+3. Если real bug — отдельный коммит с fix перед wip-push.
+4. Только потом обычный `git push`.
+
+PM-инцидент 2026-06-02: 3 Coder агента подряд обошли pre-push hook → 100% случаев CI потом падал на том же тесте.
+
+### 2. «Pre-existing flake» без proof
+
+Запрещено сообщать «X — pre-existing flake» в финальном отчёте без:
+
+1. `git stash` твоих изменений.
+2. `git checkout origin/main` (или указанной base ветки).
+3. Запуск того же теста в изоляции.
+4. Приложить diff/выводы обеих прогонок.
+
+Иначе — это rationalization. PM-инцидент 2026-06-02: «E2E 540 passed, 24 pre-existing» оказались real bugs.
+
+### 3. Финальный отчёт без proof of push
+
+**Финальный response Coder ДОЛЖЕН содержать**:
+
+```bash
+git log origin/<branch> -1 --oneline   # ← вывод этой команды
+gh pr view <PR_NUM> --json number,headRefName,state  # ← если создавал PR
+```
+
+Без actual output этих команд — отчёт **недействителен**. Если последний commit на origin не твой — push не прошёл, нужно повторить.
+
+## Verify checklist перед финальным отчётом
+
+После всех проверок (typecheck, lint, test, build) **ОБЯЗАТЕЛЬНО**:
+
+- [ ] `git status` — clean (нет неcommit'нутых файлов).
+- [ ] `git log -1 --oneline` — local HEAD.
+- [ ] `git fetch origin && git log origin/<branch> -1 --oneline` — remote HEAD. Должно совпадать с локальным.
+- [ ] Если PR ожидается — `gh pr view <num>` возвращает 200, state OPEN.
+- [ ] Для PDF/SVG/image артефактов — приложить скриншот (через playwright MCP).
+
+Без всего чек-листа отчёт не финальный — продолжай работу.

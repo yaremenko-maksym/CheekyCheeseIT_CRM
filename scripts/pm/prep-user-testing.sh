@@ -348,6 +348,18 @@ echo "[8/$TOTAL_STEPS] Kill previous processes + production build + start"
 _kill_port 3001 TERM   # API
 _kill_port 3000 TERM   # Vite preview
 pkill -f "ssh.*serveo\.net" 2>/dev/null || true   # Serveo SSH (порт remote, lsof тут не подходит)
+
+# L2 (session-2026-06-02): kill stale dev процессы которые могли остаться от Coder
+# агентов в worktrees. NestJS `nest start --watch` сам себя рестартует при изменении
+# файла — port-only kill его не достанет потому что новый child процесс grabs port
+# заново. Killer по pattern `@crm/api.*dev` ловит главный watch wrapper, который
+# тогда не resurrect'нет ребёнка. Cosmetic precaution: vite preview/dev из других
+# branches ветвей тоже завершить. Если у разработчика есть legit running `vite dev`
+# на 3000 в другом проекте — он не использует эти patterns.
+pkill -f "@crm/api.*\<dev\>" 2>/dev/null || true   # NestJS watch wrapper
+pkill -f "@crm/web.*\<dev\>" 2>/dev/null || true   # Vite dev
+pkill -f "@crm/web.*preview" 2>/dev/null || true   # Vite preview (старый instance из другой ветки)
+
 sleep 2
 
 # B2: pre-flight check что порты реально освободились. Если нет — понятная диагностика
