@@ -70,18 +70,44 @@ target_branch: <pr_branch>
 )
 ```
 
-### Reviewer — code review
+### code-reviewer — default code review (любой PR)
+
+**Phase 3b split:** sonnet, default на каждый PR с product-code changes. Зона: TypeScript strict / ESLint / arch patterns / zone-of-write / write-then-post / Verdict: BLOCK first-line. Использует `mcp__eslint__lint-files` ДО review и Pre-Report Gate (HIGH→body / MED→warnings / LOW→summary-only).
 
 ```
 Agent(
-  description="Reviewer: PR #<N>",
-  prompt="""Ты — Reviewer-агент. Прочитай docs/agents/reviewer.md (golden rules + write-then-post).
+  description="code-reviewer: PR #<N>",
+  prompt="""Ты — code-reviewer агент. Прочитай docs/agents/code-reviewer.md (golden rules + write-then-post + Pre-Report Gate).
 Прочитай docs/agents/RULES.md (zero-tolerance patterns).
 Прочитай docs/agents/project-state.md (canonical architecture / version pins / RBAC).
-Прочитай docs/agents/memory/reviewer/lessons.md.
-PR для review: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM"""
+Прочитай docs/agents/memory/reviewer/lessons.md (legacy общий с security-reviewer до Phase 4 split).
+PR для review: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM
+Sensitive paths flag: <none|list>  # PM передаёт если задеты critical-path zones — это сигнал что security-reviewer диспатчится параллельно""",
+  run_in_background=True
 )
 ```
+
+При aggregate-verdict logic — code-reviewer всегда даёт `code_review_done` event с verdict APPROVE/BLOCK. См. `pm.md` Mode 2 "Aggregate verdict logic".
+
+### security-reviewer — для critical-path PR (auth/finance/USDT/wallets)
+
+**Phase 3b split:** opus, диспатчится **параллельно** с code-reviewer когда PR трогает critical-path trigger zones (см. `pm.md` §"Critical-path trigger zones" — единый DRY-список). Зона: OWASP Top 10 / npm audit / secrets detection / USDT-ETH patterns / write-then-post / Verdict: BLOCK first-line.
+
+```
+Agent(
+  description="security-reviewer: PR #<N>",
+  prompt="""Ты — security-reviewer агент. Прочитай docs/agents/security-reviewer.md (golden rules + OWASP чеклист + write-then-post + Pre-Report Gate).
+Прочитай docs/agents/RULES.md.
+Прочитай docs/agents/project-state.md (RBAC матрица / shared schemas / auth flow).
+Прочитай docs/agents/memory/reviewer/lessons.md (legacy общий с code-reviewer до Phase 4 split).
+PR для security review: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM
+Sensitive paths которые тригернули dispatch: <list, e.g. apps/api/src/finance/**, packages/shared/src/schemas/finance.ts>
+Code-reviewer параллельно — не дублируй его code/lint checks.""",
+  run_in_background=True
+)
+```
+
+При aggregate-verdict logic — security-reviewer даёт `security_review_done` event с verdict APPROVE/BLOCK. PM объединяет с code-reviewer verdict (см. `pm.md` Mode 2).
 
 ### DevOps — инфра-задача
 
@@ -192,14 +218,74 @@ Append `## Ответ юриста` в consultation-файл по структу
 )
 ```
 
-### Параллельный запуск Reviewer + Legal (critical PR zones)
+### Параллельный запуск code-reviewer + security-reviewer + Legal (critical-path PR)
+
+**Триггер:** PR трогает любой путь из `pm.md` §"Critical-path trigger zones" (auth/finance/transactions/payouts/wallets/documents/users + соответствующие shared schemas + package.json/lockfile + contracts/**).
+
+**Все три агента параллельно — один dispatch message, все `run_in_background=True`:**
 
 ```
-Agent(description="Reviewer: PR #<N>", prompt="...", run_in_background=True)
-Agent(description="Legal: pr-review-<N>", prompt="...", run_in_background=True)
+# code-reviewer (sonnet) — default reviewer
+Agent(
+  description="code-reviewer: PR #<N>",
+  prompt="""Ты — code-reviewer. Прочитай docs/agents/code-reviewer.md.
+Прочитай docs/agents/RULES.md.
+Прочитай docs/agents/project-state.md.
+Прочитай docs/agents/memory/reviewer/lessons.md.
+PR для review: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM
+Sensitive paths flag: <list>  # security-reviewer параллельно""",
+  run_in_background=True
+)
+
+# security-reviewer (opus) — обязателен для critical-path
+Agent(
+  description="security-reviewer: PR #<N>",
+  prompt="""Ты — security-reviewer. Прочитай docs/agents/security-reviewer.md.
+Прочитай docs/agents/RULES.md.
+Прочитай docs/agents/project-state.md.
+Прочитай docs/agents/memory/reviewer/lessons.md.
+PR: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM
+Triggered paths: <list>
+Code-reviewer параллельно — не дублируй его проверки.""",
+  run_in_background=True
+)
+
+# Legal Mode B (info-only) — диспатчится по тому же DRY-списку trigger paths
+Agent(
+  description="Legal: pr-review-<N>",
+  prompt="""Ты — Legal-агент. Прочитай docs/agents/legal.md.
+Прочитай docs/agents/CLAUDE-legal.md.
+Прочитай docs/agents/RULES.md.
+Прочитай docs/agents/project-state.md.
+Прочитай docs/agents/memory/legal/lessons.md.
+Прочитай docs/legal/cross-cutting/escalation-zones.md.
+Прочитай docs/legal/cross-cutting/citation-rules.md.
+
+mode: pr-review
+pr_number: <N>
+repo: yaremenko-maksym/CheekyCheeseIT_CRM
+Triggered paths: <list>""",
+  run_in_background=True
+)
 ```
 
-Оба info — Reviewer на code quality, Legal на legal angle. Legal — info-only (label `legal-noted`), Reviewer — gate.
+**Verdict aggregation для PM:**
+
+- code-reviewer event: `code_review_done` (APPROVE | BLOCK) — **gate** (parsed Verdict: first line).
+- security-reviewer event: `security_review_done` (APPROVE | BLOCK) — **gate** (parsed Verdict: first line).
+- Legal event: `legal_review_posted` с `confidence` — **info-only**, label `legal-noted`, не блокирует merge.
+
+PM ждёт оба review events (code + security) перед принятием решения. Aggregate = BLOCK если любой BLOCK; APPROVE если оба APPROVE. См. `pm.md` Mode 2 "Aggregate verdict logic".
+
+### Параллельный запуск code-reviewer только (без security/Legal — обычный PR)
+
+Для PR который **не** трогает critical-path zones — диспатчить только code-reviewer:
+
+```
+Agent(description="code-reviewer: PR #<N>", prompt="...", run_in_background=True)
+```
+
+Только `code_review_done` event ожидается. PM не ждёт `security_review_done` потому что security-reviewer не диспатчен.
 
 ---
 
@@ -235,7 +321,7 @@ gh pr view <N> --repo yaremenko-maksym/CheekyCheeseIT_CRM \
 ### Управление лейблами
 
 ```bash
-# Pre-review (Reviewer выставляет когда APPROVE)
+# Pre-review (code-reviewer выставляет когда code-reviewer APPROVE; security-reviewer ставит security-noted)
 gh pr edit <N> --repo yaremenko-maksym/CheekyCheeseIT_CRM --add-label "awaiting-pm-review"
 
 # После User Testing апрува (PM выставляет)
@@ -638,7 +724,10 @@ cat docs/specs/tasks/<task>.progress.md
 | Coder: модуль (3-6 файлов)                        | 15-25 мин                                                        |
 | Coder: большой модуль (7+)                        | 25-40 мин                                                        |
 | AutoTest: написание/обновление тестов             | 8-15 мин                                                         |
-| Reviewer: code review                             | 5-10 мин                                                         |
+| code-reviewer: code review (small/medium PR)      | 5-10 мин                                                         |
+| code-reviewer: large PR (>500 LOC)                | 10-15 мин                                                        |
+| security-reviewer: small PR (auth/finance touch)  | 8-12 мин                                                         |
+| security-reviewer: large PR + npm audit + WebSearch CVE | 15-25 мин                                                  |
 | DevOps: workflow изменения                        | 5-10 мин                                                         |
 | E2E через e2e.yml (GHA)                           | 10-20 мин — использовать `ScheduleWakeup(delay=270)` или Layer 2 |
 | Legal: Mode A consult (static база покрывает)     | 5-8 мин                                                          |
@@ -678,7 +767,7 @@ docs/specs/tasks/
 ### Правила именования task-файлов
 
 - Новая фича: `task-<module>-<aspect>.md` (`task-knowledge-api.md`)
-- Фикс от reviewer: `task-fix-pr-<N>.md`
+- Фикс от reviewer (code-reviewer / security-reviewer / оба): `task-fix-pr-<N>.md`
 - Фикс E2E: `task-fix-e2e-<slug>.md`
 - Фикс теста: `task-fix-test-<slug>.md`
 - Фикс от user testing: `task-fix-<short-description>.md`
@@ -708,9 +797,11 @@ docs/specs/tasks/
       "max_review_rounds": 5,
       "agent_invocations": {
         "coder": 1,
-        "reviewer": 0,
+        "code_reviewer": 0,
+        "security_reviewer": 0,
         "autotest": 0,
-        "devops": 0
+        "devops": 0,
+        "legal": 0
       },
       "events": [{ "at": "2026-05-18T10:00:00Z", "type": "agent_started", "agent": "coder" }],
       "pending_fixes": []
@@ -724,9 +815,11 @@ docs/specs/tasks/
       "regression_count": 1,
       "agent_invocations": {
         "coder": 5,
-        "reviewer": 4,
+        "code_reviewer": 4,
+        "security_reviewer": 2,
         "autotest": 1,
-        "devops": 0
+        "devops": 0,
+        "legal": 1
       },
       "merged_at": "2026-05-20T07:03:35Z",
       "pr_number": 22
@@ -762,10 +855,16 @@ docs/specs/tasks/
 
 - `agent_started` — `{ at, type, agent, task_file? }`
 - `agent_finished` — `{ at, type, agent, result: "success"|"blocked"|"no-op" }`
+- `brief_approved` — `{ at, type, brief }` — BA brief принят, PM приступил к decomposition
+- `task_file_created` — `{ at, type, file }` — PM создал новый task-file для Coder/AutoTest/DevOps
 - `pr_opened` — `{ at, type, pr }`
-- `review_approve` — `{ at, type, pr }`
-- `review_blocked` — `{ at, type, pr, verdict: "BLOCK", rounds }`
-- `review_rejected` — `{ at, type, pr, rounds }` (от внешних reviewer-ов)
+- **`code_review_started`** — `{ at, type, pr }` — PM dispatched code-reviewer
+- **`code_review_done`** — `{ at, type, pr, verdict: "APPROVE"|"BLOCK", rounds, findings_count? }` — code-reviewer завершил, Verdict parsed из first line review body. Default reviewer post Phase 3b.
+- **`security_review_started`** — `{ at, type, pr, triggered_paths: [...] }` — PM dispatched security-reviewer (только когда PR трогает critical-path zones)
+- **`security_review_done`** — `{ at, type, pr, verdict: "APPROVE"|"BLOCK", rounds, owasp_categories_hit?: [...], findings_count? }` — security-reviewer завершил
+- `security_dispatched` — `{ at, type, pr, triggered_paths: [...] }` — alias для security_review_started (PM шорт-форма при логировании в Mode 2 таблице)
+- `review_timeout` — `{ at, type, pr, agent: "code-reviewer"|"security-reviewer", dispatched_at, timeout_at }` — reviewer не вернул verdict за 2× expected duration (Mode 2.F)
+- `review_rejected` — `{ at, type, pr, rounds }` (от внешних non-AI reviewer-ов через REQUEST_CHANGES)
 - `autotest_skipped` — `{ at, type, reason }` — skip без записи запрещён
 - `worktree_isolation_warning` — `{ at, type, files: [...] }`
 - `e2e_started` — `{ at, type, run_id }`
@@ -780,6 +879,17 @@ docs/specs/tasks/
 - `legal_review_posted` — `{ at, type, pr, confidence }` — Mode B: review запостен на PR. `confidence` ∈ {HIGH, MED, LOW}
 - `legal_pre_feature_done` — `{ at, type, brief, recommendations_count }` — Mode C: Legal вернул recommendations для AC
 - `legal_escalated_to_human` — `{ at, type, reason }` — Mode B/A: Confidence: LOW + hard zone → USER informed эскалировать к human-юристу
+
+**Deprecated (historical, не пишутся новые) — преобразование post Phase 3b:**
+
+- `review_approve` — заменено на `code_review_done` с `verdict: "APPROVE"`. Историческое legacy в `completed[]` оставить как есть.
+- `review_blocked` — заменено на `code_review_done` ИЛИ `security_review_done` с `verdict: "BLOCK"`. Историческое legacy оставить.
+
+**Aggregate verdict (не event, а derived state в memory PM):**
+
+PM объединяет `code_review_done` + (опц.) `security_review_done` в aggregate per `pm.md` Mode 2 "Aggregate verdict logic". Aggregate не пишется как отдельный event — derived при чтении `events[]`.
+
+Полный документ возможных types — `docs/specs/pm-state-events.md`.
 
 **Completed task** (агрегаты для метрик):
 
