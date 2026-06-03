@@ -12,17 +12,15 @@ on:
     # Default types [opened, synchronize, reopened] — no `labeled` here.
     # Label-triggered fast merge lives in .github/workflows/auto-merge-on-label.yml
     # which does NOT re-run CI (just waits for green checks, then squash-merges).
+    #
+    # NOTE: paths-ignore intentionally NOT used here. Branch protection requires
+    # `Typecheck · Lint · Unit Tests` and `E2E Tests` contexts; if the workflow
+    # is skipped entirely (via paths-ignore), required checks never appear and
+    # docs-only PRs are permanently BLOCKED. Instead we always-run skeleton jobs
+    # and gate work via `dorny/paths-filter` early-exit (see jobs below).
     branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '**.md'
-      - '.github/CODEOWNERS'
   push:
     branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '**.md'
-      - '.github/CODEOWNERS'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -46,33 +44,60 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 2
+
+      # Always-run skeleton: detect whether any non-docs file changed. If only
+      # docs/markdown/CODEOWNERS were touched, every work-step below is skipped
+      # and the job short-circuits to success — satisfying the required status
+      # check without doing wasted work.
+      - name: Detect non-docs changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - '!docs/**'
+              - '!**.md'
+              - '!.github/CODEOWNERS'
 
       - uses: pnpm/action-setup@v4
+        if: steps.filter.outputs.code == 'true'
         with:
           version: 7.32.4
 
       - uses: actions/setup-node@v4
+        if: steps.filter.outputs.code == 'true'
         with:
           node-version: '20'
           cache: 'pnpm'
 
       - uses: actions/cache@v4
+        if: steps.filter.outputs.code == 'true'
         with:
           path: .turbo
           key: turbo-${{ runner.os }}-${{ github.sha }}
           restore-keys: turbo-${{ runner.os }}-
 
-      - run: pnpm install --frozen-lockfile
+      - if: steps.filter.outputs.code == 'true'
+        run: pnpm install --frozen-lockfile
 
       # Full build needed so vite generates routeTree.gen.ts before tsc runs.
       # Turbo cache makes this a no-op on subsequent runs for unchanged packages.
-      - run: pnpm build
+      - if: steps.filter.outputs.code == 'true'
+        run: pnpm build
 
-      - run: pnpm typecheck
+      - if: steps.filter.outputs.code == 'true'
+        run: pnpm typecheck
 
-      - run: pnpm lint
+      - if: steps.filter.outputs.code == 'true'
+        run: pnpm lint
 
-      - run: pnpm --filter @crm/shared --filter @crm/api --filter @crm/web test
+      - if: steps.filter.outputs.code == 'true'
+        run: pnpm --filter @crm/shared --filter @crm/api --filter @crm/web test
+
+      - name: Docs-only short-circuit
+        if: steps.filter.outputs.code != 'true'
+        run: echo "Docs-only PR — skipping quality work, satisfying required status."
 
       - name: Remove ci-failed label on success
         if: success() && github.event_name == 'pull_request'
@@ -189,17 +214,36 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      # Always-run skeleton: detect whether any non-docs file changed. If only
+      # docs were touched, all work-steps skip and the shard short-circuits to
+      # success — `e2e_summary` aggregator sees success and propagates to the
+      # required `E2E Tests` status check.
+      - name: Detect non-docs changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - '!docs/**'
+              - '!**.md'
+              - '!.github/CODEOWNERS'
 
       - uses: pnpm/action-setup@v4
+        if: steps.filter.outputs.code == 'true'
         with:
           version: 7.32.4
 
       - uses: actions/setup-node@v4
+        if: steps.filter.outputs.code == 'true'
         with:
           node-version: '20'
           cache: 'pnpm'
 
       - uses: actions/cache@v4
+        if: steps.filter.outputs.code == 'true'
         with:
           path: .turbo
           key: turbo-${{ runner.os }}-${{ github.sha }}
@@ -207,13 +251,16 @@ jobs:
 
       - uses: actions/cache@v4
         id: pw-cache
+        if: steps.filter.outputs.code == 'true'
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('apps/e2e/package.json') }}
 
-      - run: pnpm install --frozen-lockfile
+      - if: steps.filter.outputs.code == 'true'
+        run: pnpm install --frozen-lockfile
 
       - name: Start MinIO + bucket
+        if: steps.filter.outputs.code == 'true'
         run: |
           docker run -d --name minio \
             --network host \
@@ -233,38 +280,49 @@ jobs:
             echo 'MinIO bucket crm-documents ready (CI)'
           "
 
-      - run: pnpm build
+      - if: steps.filter.outputs.code == 'true'
+        run: pnpm build
 
-      - run: pnpm --filter @crm/api db:push
+      - if: steps.filter.outputs.code == 'true'
+        run: pnpm --filter @crm/api db:push
 
-      - run: pnpm --filter @crm/api db:seed
+      - if: steps.filter.outputs.code == 'true'
+        run: pnpm --filter @crm/api db:seed
 
       - name: Start API
+        if: steps.filter.outputs.code == 'true'
         run: nohup pnpm --filter @crm/api start > /tmp/api.log 2>&1 &
 
       - name: Start Web
+        if: steps.filter.outputs.code == 'true'
         run: nohup pnpm --filter @crm/web start > /tmp/web.log 2>&1 &
 
       - name: Wait for services
+        if: steps.filter.outputs.code == 'true'
         run: |
           timeout 60 bash -c 'until curl -sf http://localhost:3001/api/health; do sleep 2; done'
           timeout 30 bash -c 'until curl -sf http://localhost:3000; do sleep 2; done'
 
       - name: Install Playwright browsers
-        if: steps.pw-cache.outputs.cache-hit != 'true'
+        if: steps.filter.outputs.code == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
         run: pnpm --filter @crm/e2e exec playwright install --with-deps chromium
 
       - name: Install Playwright system deps (cached run)
-        if: steps.pw-cache.outputs.cache-hit == 'true'
+        if: steps.filter.outputs.code == 'true' && steps.pw-cache.outputs.cache-hit == 'true'
         run: pnpm --filter @crm/e2e exec playwright install-deps chromium
 
       - name: Run E2E tests (shard ${{ matrix.shard.name }})
+        if: steps.filter.outputs.code == 'true'
         env:
           SHARD_FILES: ${{ matrix.shard.files }}
         run: pnpm --filter @crm/e2e exec playwright test $SHARD_FILES
 
+      - name: Docs-only short-circuit
+        if: steps.filter.outputs.code != 'true'
+        run: echo "Docs-only PR — skipping E2E shard ${{ matrix.shard.name }}, satisfying required status."
+
       - name: Upload Playwright report
-        if: failure()
+        if: failure() && steps.filter.outputs.code == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-${{ matrix.shard.name }}-${{ github.sha }}
@@ -272,13 +330,13 @@ jobs:
           retention-days: 7
 
       - name: Print logs on failure
-        if: failure()
+        if: failure() && steps.filter.outputs.code == 'true'
         run: |
           echo "=== API LOG ===" && cat /tmp/api.log || true
           echo "=== WEB LOG ===" && cat /tmp/web.log || true
 
       - name: Stop MinIO
-        if: always()
+        if: always() && steps.filter.outputs.code == 'true'
         run: docker rm -f minio || true
 
   # Aggregate status of all 5 E2E shards into one PR-level check.
