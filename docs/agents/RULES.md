@@ -182,7 +182,7 @@ Phase 4 (см. `docs/architecture/2026-06-03-phase4-deliverable.md`) лифтн�
 | `code-reviewer.md` + `security-reviewer.md` | Reviewer    | ~10 KB | Workflow + security + write-then-post               |
 | `autotest.md`                      | AutoTest            | ~10 KB | 3 режима + AC-first + anti-patterns                 |
 | `devops.md`                        | DevOps              | ~9 KB  | Workflow + CI pipeline + secrets                    |
-| `ba.md`                            | BA                  | ~10 KB | Сценарий 1 (новая фича) + role boundaries           |
+| `../business/roles/ba.md`          | BA (human)          | ~10 KB | Сценарий 1 (новая фича) + role boundaries (Phase 6) |
 | `architect.md`                     | Architect           | ~12 KB | ECC migration workflow + zone-of-write              |
 | `legal.md`                         | Legal               | ~17 KB | 4 modes A/B/C/D + UA jurisdictional                 |
 | `memory/<agent>/lessons.md`        | Each agent          | varies | Накопленные уроки (Phase 4: skills primary)         |

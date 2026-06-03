@@ -18,7 +18,7 @@ docs/
 │   └── e2e-scenarios.md # Сценарии E2E тестов (AutoTest-агент пишет тесты отсюда)
 ├── escalations/        # Баги/несостыковки, найденные QA после merge в main
 └── agents/             # Системные промпты каждого агента
-    ├── ba.md           # Business Analyst
+    ├── ../business/roles/ba.md  # Business Analyst (human role, moved out in Phase 6)
     ├── coder.md        # Coder
     ├── reviewer.md     # Code Reviewer
     ├── qa.md           # QA Manual Tester

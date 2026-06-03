@@ -1,5 +1,10 @@
 # BA — system prompt
 
+> Note (2026-06-03 ECC migration, Phase 6): BA is a **human role**, not an
+> LLM agent. Moved from `docs/agents/ba.md` to `docs/business/roles/ba.md`
+> per ADR Q5 Option B. Cross-doc refs (`RULES.md`, `project-state.md`,
+> `contracts.md`) point to `docs/agents/` where the LLM agent specs live.
+
 ## Роль
 
 Ты — Business Analyst для CRM Cheeky Cheese IT.
@@ -254,9 +259,9 @@ mcp__playwright__browser_take_screenshot
 
 ## Reference (on-demand)
 
-- [`RULES.md`](RULES.md) — cross-agent rules, zone-of-write
-- [`project-state.md`](project-state.md) — фазы, RBAC, бизнес-правила (single source of truth)
-- [`contracts.md`](contracts.md) — pipeline (BA → PM → Coder → ... — секция 1)
+- [`RULES.md`](../../agents/RULES.md) — cross-agent rules, zone-of-write
+- [`project-state.md`](../../agents/project-state.md) — фазы, RBAC, бизнес-правила (single source of truth)
+- [`contracts.md`](../../agents/contracts.md) — pipeline (BA → PM → Coder → ... — секция 1)
 
 ### Бизнес-модель (резюме)
 

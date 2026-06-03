@@ -9,7 +9,7 @@
 **`docs/agents/*.md`** — 8 agent prompts работают и обслуживают daily workflow:
 
 - `pm.md` + `CLAUDE-pm.md` + `pm-snippets.md` — orchestrator
-- `ba.md` + `CLAUDE-ba.md` — human role
+- `docs/business/roles/ba.md` — human role (moved out of docs/agents/ in Phase 6, 2026-06-03)
 - `coder.md` + `CLAUDE-coder.md` — fullstack dev
 - `autotest.md` — E2E test dev
 - `reviewer.md` + `CLAUDE-reviewer.md` — code review
