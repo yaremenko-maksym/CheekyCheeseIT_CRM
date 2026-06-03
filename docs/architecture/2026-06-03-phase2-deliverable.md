@@ -21,21 +21,21 @@ remain authoritative until Phase 2.5 activation.
 
 ## Decision matrix
 
-| # | Legacy hook                       | Phase 2 decision           | ECC stable id                          | Status      |
-| - | --------------------------------- | -------------------------- | -------------------------------------- | ----------- |
-| 1 | `safety.sh`                       | **Adapt** (specific preds) | `pre:bash:safety`                      | Ported      |
-| 2 | `block-production-edits.sh`       | **Keep custom** (port)     | `pre:edit-write:zone-of-write`         | Ported      |
-| 3 | `coder-pre-push.sh`               | **Keep custom** (narrowed) | `pre:bash:coder-push-gate`             | Ported      |
-| 4 | `coder-progress-marker.sh`        | **Adapt** (kept; spike)    | `post:edit-write:coder-progress`       | Reused as-is |
-| 5 | `eslint-feedback.sh`              | **Replace** via eslint MCP | (removed; tracked in `_removed_` blk)  | Strategy doc |
+| #   | Legacy hook                 | Phase 2 decision           | ECC stable id                         | Status       |
+| --- | --------------------------- | -------------------------- | ------------------------------------- | ------------ |
+| 1   | `safety.sh`                 | **Adapt** (specific preds) | `pre:bash:safety`                     | Ported       |
+| 2   | `block-production-edits.sh` | **Keep custom** (port)     | `pre:edit-write:zone-of-write`        | Ported       |
+| 3   | `coder-pre-push.sh`         | **Keep custom** (narrowed) | `pre:bash:coder-push-gate`            | Ported       |
+| 4   | `coder-progress-marker.sh`  | **Adapt** (kept; spike)    | `post:edit-write:coder-progress`      | Reused as-is |
+| 5   | `eslint-feedback.sh`        | **Replace** via eslint MCP | (removed; tracked in `_removed_` blk) | Strategy doc |
 
 Per-hook references:
 
-- (1) safety:        new `.claude/hooks-ecc/pre-bash-safety.sh`
+- (1) safety: new `.claude/hooks-ecc/pre-bash-safety.sh`
 - (2) zone-of-write: new `.claude/hooks-ecc/pre-edit-write-zone-of-write.sh`
-- (3) push-gate:     new `.claude/hooks-ecc/pre-bash-coder-push-gate.sh`
-- (4) progress:      legacy `.claude/hooks/coder-progress-marker.sh` reused
-- (5) eslint:        no script — replacement strategy in
+- (3) push-gate: new `.claude/hooks-ecc/pre-bash-coder-push-gate.sh`
+- (4) progress: legacy `.claude/hooks/coder-progress-marker.sh` reused
+- (5) eslint: no script — replacement strategy in
   `docs/architecture/2026-06-03-phase2-eslint-mcp-replacement.md`
 
 ---
@@ -51,6 +51,7 @@ pre-edit-write-zone-of-write.sh   3.0 KB  pre:edit-write:zone-of-write
 ```
 
 All three:
+
 - Are POSIX-compatible bash, no Node bootstrap (per Architect constraint
   "не имитируй ECC node.js dispatcher").
 - Emit ECC-style exit codes (0 = allow, 2 = block) AND legacy Claude Code
@@ -61,6 +62,7 @@ All three:
 ### Draft registration
 
 `.claude/hooks-ecc-draft.json` — NOT loaded by Claude Code. Contains:
+
 - Three PreToolUse entries with stable IDs.
 - One PostToolUse entry (`post:edit-write:coder-progress`) reusing the
   legacy `.sh` per spike decision.
@@ -144,11 +146,8 @@ safe.
 - [ ] All smoke tests D1, D1b, D2, D3, D3b, D4 pass (output matches
       "Expected" column).
 - [ ] CI green after `.claude/settings.json` swap.
-- [ ] Dispatch one Coder task end-to-end (any small task) to confirm:
-      - Coder can Edit apps/** from worktree
-      - Coder cannot push without ac_verified
-      - PM tail of `coder-activity.log` still receives entries
-- [ ] Architect cannot Edit apps/** from main repo cwd (manual check).
+- [ ] Dispatch one Coder task end-to-end (any small task) to confirm: - Coder can Edit apps/\*\* from worktree - Coder cannot push without ac_verified - PM tail of `coder-activity.log` still receives entries
+- [ ] Architect cannot Edit apps/\*\* from main repo cwd (manual check).
 - [ ] One destructive command (e.g., `rm -rf /etc` dry-run via the
       hook script with stdin echo) returns exit 2.
 
@@ -188,11 +187,13 @@ safe.
 ## Confidence
 
 **HIGH** for:
+
 - Decision matrix correctness (per ADR § 2.2)
 - Script logic (1-to-1 port of legacy behavior + tightened predicates)
 - Activation plan (small, reversible)
 
 **MEDIUM** for:
+
 - Smoke test exit-code expectations (haven't actually executed —
   scheduled for Phase 2.5; ECC PreToolUse `exit 2` vs JSON-decision is
   documented in ECC `hooks/README.md` but may have version-specific

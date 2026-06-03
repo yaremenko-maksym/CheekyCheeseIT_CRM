@@ -42,6 +42,7 @@ echo "exit=$?"
 ```
 
 **Expected:**
+
 - Exit code: `0`
 - Stdout: empty
 - Stderr: empty
@@ -61,6 +62,7 @@ echo "exit=$?"
 ```
 
 **Expected:**
+
 - Exit code: `2`
 - Stdout: `{"decision":"block","reason":"Заблокировано safety хуком: rm -rf on root/home path. ..."}`
 - Stderr: `[pre:bash:safety] BLOCK: rm -rf on root/home path`
@@ -96,6 +98,7 @@ git branch -D feature/d2-smoke-test
 ```
 
 **Expected:**
+
 - Exit code: `2`
 - Stdout: JSON `{"decision":"block","reason":"🚫 PRE-PUSH BLOCK: ... feature/d2-smoke-test ..."}`
 - Stderr: `[pre:bash:coder-push-gate] BLOCK branch=feature/d2-smoke-test (no ac_verified)`
@@ -106,7 +109,7 @@ git branch -D feature/d2-smoke-test
 
 ---
 
-## D3 — Architect cannot Edit apps/** from main repo cwd
+## D3 — Architect cannot Edit apps/\*\* from main repo cwd
 
 **Hypothesis:** Zone-of-write hook blocks production-code edits unless
 inside a `.claude/worktrees/` cwd or escape hatch is present.
@@ -126,6 +129,7 @@ test -f /tmp/escape-hatch.bak && mv /tmp/escape-hatch.bak .claude/.allow-direct-
 ```
 
 **Expected:**
+
 - Exit code: `2`
 - Stdout: JSON `{"decision":"block","reason":"🚫 PRODUCTION-EDIT BLOCK: попытка править apps/api/src/test.ts ..."}`
 - Stderr: `[pre:edit-write:zone-of-write] BLOCK path=apps/api/src/test.ts cwd=...`
@@ -136,7 +140,7 @@ test -f /tmp/escape-hatch.bak && mv /tmp/escape-hatch.bak .claude/.allow-direct-
 
 ---
 
-## D3b — Coder worktree CAN Edit apps/**
+## D3b — Coder worktree CAN Edit apps/\*\*
 
 ```bash
 git worktree add /tmp/d3b-coder-test -b feature/d3b-test origin/main
@@ -154,6 +158,7 @@ git branch -D feature/d3b-test
 ```
 
 **Expected:**
+
 - Exit code: `0`
 - Stdout: empty
 - Stderr: empty
@@ -183,6 +188,7 @@ time (
 ```
 
 **Expected:**
+
 - Both exit `0` with no output
 - Total real time: < 100 ms on a warm shell (no git calls, no python imports for the push-gate because the `git push` regex fails first)
 

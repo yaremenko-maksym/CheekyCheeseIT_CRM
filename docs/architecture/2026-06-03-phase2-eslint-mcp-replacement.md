@@ -22,12 +22,12 @@ Phase 2.5. Deferred removal of the `.sh` file itself: **Phase 5 cleanup**.
 
 ### 1. Latency / feedback-loop placement
 
-| Stage                                              | PostToolUse hook                                                          | MCP pre-check                                                                      |
-| -------------------------------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| When violation is surfaced                         | After file is already written → hook re-injects errors → agent re-edits   | Before agent suggests the code at all → cleaner write                              |
-| Number of write/edit cycles per violation          | At minimum 2 (write → eslint flag → re-edit). Often more if errors cascade | 1 (agent validates intended snippet → writes once)                                  |
-| Token cost of feedback                             | Full hook output injected as `additionalContext`                          | Targeted lint result on the snippet only                                           |
-| Auto-fix behavior                                  | `eslint --fix` runs on disk → silent mutation between agent thoughts      | Agent sees fix proposal explicitly, decides to accept                              |
+| Stage                                     | PostToolUse hook                                                           | MCP pre-check                                         |
+| ----------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------- |
+| When violation is surfaced                | After file is already written → hook re-injects errors → agent re-edits    | Before agent suggests the code at all → cleaner write |
+| Number of write/edit cycles per violation | At minimum 2 (write → eslint flag → re-edit). Often more if errors cascade | 1 (agent validates intended snippet → writes once)    |
+| Token cost of feedback                    | Full hook output injected as `additionalContext`                           | Targeted lint result on the snippet only              |
+| Auto-fix behavior                         | `eslint --fix` runs on disk → silent mutation between agent thoughts       | Agent sees fix proposal explicitly, decides to accept |
 
 ### 2. Workspace correctness
 
@@ -99,12 +99,12 @@ Tracking checklist item for the Phase 5 PM/Architect:
 
 ## Risks & mitigations
 
-| Risk                                                                       | Mitigation                                                                                                                                  |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Agent forgets to call MCP eslint pre-check                                 | CI `pnpm lint` still gates merge. ECC `stop:format-typecheck` (after Phase 5 activation) catches at Stop time.                              |
-| MCP eslint server temporarily down                                         | Fallback: legacy `.sh` remains in repo until Phase 5. Re-enable via `.claude/settings.json` if needed.                                      |
-| Some IDE workflows depended on hook side-effect (auto-fix on disk)         | Document removal in Phase 5 CLAUDE.md note. Devs run `pnpm lint --fix` manually if needed.                                                  |
-| coder-progress-marker / safety / push-gate hooks accidentally affected     | Each hook is independently registered with its own stable ID; removing eslint-feedback does not touch them.                                  |
+| Risk                                                                   | Mitigation                                                                                                     |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Agent forgets to call MCP eslint pre-check                             | CI `pnpm lint` still gates merge. ECC `stop:format-typecheck` (after Phase 5 activation) catches at Stop time. |
+| MCP eslint server temporarily down                                     | Fallback: legacy `.sh` remains in repo until Phase 5. Re-enable via `.claude/settings.json` if needed.         |
+| Some IDE workflows depended on hook side-effect (auto-fix on disk)     | Document removal in Phase 5 CLAUDE.md note. Devs run `pnpm lint --fix` manually if needed.                     |
+| coder-progress-marker / safety / push-gate hooks accidentally affected | Each hook is independently registered with its own stable ID; removing eslint-feedback does not touch them.    |
 
 ---
 
