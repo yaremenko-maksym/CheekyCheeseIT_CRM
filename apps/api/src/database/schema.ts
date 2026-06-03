@@ -1,5 +1,6 @@
 import { relations, sql } from 'drizzle-orm'
 import {
+  boolean,
   char,
   customType,
   index,
@@ -607,6 +608,103 @@ export const invoiceSignatures = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// Onboarding (Phase 6A) — MSA contracts + Terms of Service
+// ---------------------------------------------------------------------------
+//
+// Workflow: every non-ADMIN user must sign one MSA (per their role) and
+// accept the current ToS version before the OnboardingGuard lets them past
+// `/api/onboarding/*` / `/api/auth/*` / `/api/tos/current` / `/api/contracts/
+// templates/current/*` / `/api/contracts/sign` / `/api/tos/accept`. ADMINs
+// bypass the guard entirely and never sign contracts (DB-level CHECK on
+// `contract_templates.target_role` enforces the latter).
+//
+// Templates carry `is_active` semantics: at most one row per (target_role)
+// can have `is_active=true` (partial unique index). Publishing a new version
+// atomically deactivates the previous one (service layer). Signed contracts
+// freeze the template body via `body_markdown_snapshot` + `variables_filled`
+// JSONB at the moment of signing — they are immutable audit trail.
+//
+// `contract_number` (CHK-<seq>-<year>) is generated server-side via
+// `contract_number_seq` (PostgreSQL SEQUENCE). Monotonic, gaps possible on
+// rollback but harmless.
+
+export const contractTemplates = pgTable(
+  'contract_templates',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    // CHECK constraint `<> 'ADMIN'` + partial unique index `is_active=true`
+    // live in migration 0027 — kept out of Drizzle to keep the builder clean.
+    targetRole: roleEnum('target_role').notNull(),
+    version: integer('version').notNull(),
+    bodyMarkdown: text('body_markdown').notNull(),
+    isActive: boolean('is_active').notNull().default(false),
+    createdByUserId: uuid('created_by_user_id')
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [unique('contract_templates_target_role_version_unique').on(t.targetRole, t.version)],
+)
+
+export const signedContracts = pgTable(
+  'signed_contracts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    templateId: uuid('template_id')
+      .notNull()
+      .references(() => contractTemplates.id),
+    bodyMarkdownSnapshot: text('body_markdown_snapshot').notNull(),
+    // JSONB blob of `{ employeeName, employeeEmail, role, onboardingDate,
+    // companyName, walletUsdt, bankUahFop, preferredMethod }` resolved at
+    // signing time. Stored verbatim so we can re-render the snapshot exactly
+    // without a re-resolve later.
+    variablesFilled: jsonb('variables_filled').notNull().default({}),
+    signedTypedName: text('signed_typed_name').notNull(),
+    signedIp: text('signed_ip'),
+    signedUserAgent: text('signed_user_agent'),
+    signedAt: timestamp('signed_at').defaultNow().notNull(),
+    contractNumber: text('contract_number').notNull().unique(),
+  },
+  (t) => [index('signed_contracts_user_id_idx').on(t.userId)],
+)
+
+export const tosVersions = pgTable('tos_versions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  version: integer('version').notNull().unique(),
+  bodyMarkdown: text('body_markdown').notNull(),
+  // Partial unique index `WHERE is_active = true` lives in migration 0027
+  // (one row globally active).
+  isActive: boolean('is_active').notNull().default(false),
+  createdByUserId: uuid('created_by_user_id')
+    .notNull()
+    .references(() => users.id),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+})
+
+export const tosAcceptances = pgTable(
+  'tos_acceptances',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    tosVersionId: uuid('tos_version_id')
+      .notNull()
+      .references(() => tosVersions.id),
+    acceptedAt: timestamp('accepted_at').defaultNow().notNull(),
+    acceptedIp: text('accepted_ip'),
+    acceptedUserAgent: text('accepted_user_agent'),
+  },
+  (t) => [
+    unique('tos_acceptances_user_id_tos_version_id_unique').on(t.userId, t.tosVersionId),
+    index('tos_acceptances_user_id_idx').on(t.userId),
+  ],
+)
+
+// ---------------------------------------------------------------------------
 // Notifications (Invoice Signing Epic — also reusable for future events)
 // ---------------------------------------------------------------------------
 //
@@ -894,6 +992,49 @@ export const documentsRelations = relations(documents, ({ one }) => ({
   }),
 }))
 
+// Onboarding relations
+export const contractTemplatesRelations = relations(contractTemplates, ({ one, many }) => ({
+  createdBy: one(users, {
+    fields: [contractTemplates.createdByUserId],
+    references: [users.id],
+    relationName: 'contractTemplatesAsCreator',
+  }),
+  signed: many(signedContracts),
+}))
+
+export const signedContractsRelations = relations(signedContracts, ({ one }) => ({
+  user: one(users, {
+    fields: [signedContracts.userId],
+    references: [users.id],
+    relationName: 'signedContractsAsUser',
+  }),
+  template: one(contractTemplates, {
+    fields: [signedContracts.templateId],
+    references: [contractTemplates.id],
+  }),
+}))
+
+export const tosVersionsRelations = relations(tosVersions, ({ one, many }) => ({
+  createdBy: one(users, {
+    fields: [tosVersions.createdByUserId],
+    references: [users.id],
+    relationName: 'tosVersionsAsCreator',
+  }),
+  acceptances: many(tosAcceptances),
+}))
+
+export const tosAcceptancesRelations = relations(tosAcceptances, ({ one }) => ({
+  user: one(users, {
+    fields: [tosAcceptances.userId],
+    references: [users.id],
+    relationName: 'tosAcceptancesAsUser',
+  }),
+  version: one(tosVersions, {
+    fields: [tosAcceptances.tosVersionId],
+    references: [tosVersions.id],
+  }),
+}))
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -930,3 +1071,11 @@ export type Notification = typeof notifications.$inferSelect
 export type NewNotification = typeof notifications.$inferInsert
 export type PendingObligation = typeof pendingObligations.$inferSelect
 export type NewPendingObligation = typeof pendingObligations.$inferInsert
+export type ContractTemplate = typeof contractTemplates.$inferSelect
+export type NewContractTemplate = typeof contractTemplates.$inferInsert
+export type SignedContract = typeof signedContracts.$inferSelect
+export type NewSignedContract = typeof signedContracts.$inferInsert
+export type TosVersion = typeof tosVersions.$inferSelect
+export type NewTosVersion = typeof tosVersions.$inferInsert
+export type TosAcceptance = typeof tosAcceptances.$inferSelect
+export type NewTosAcceptance = typeof tosAcceptances.$inferInsert
