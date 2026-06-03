@@ -7,30 +7,19 @@
  *   POST  /:transactionId/sign       counterparty signing
  *
  * Public verification — `/api/invoices/verify/:transactionId` — lives in a
- * separate controller (`InvoicesVerifyController`) so it can skip the global
- * JwtAuthGuard. Splitting controllers is the simplest way to opt out of
- * @UseGuards in NestJS without introducing a `@Public()` decorator + a
- * reflection-aware guard.
+ * separate controller (`InvoicesVerifyController`) marked with `@Public()`
+ * so the globally registered JwtAuthGuard short-circuits.
+ *
+ * Auth on this controller is enforced by the global JwtAuthGuard (see
+ * AppModule APP_GUARD).
  */
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  ParseUUIDPipe,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common'
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, Req } from '@nestjs/common'
 import type { FastifyRequest } from 'fastify'
 import { invoiceListFiltersSchema, signInvoiceRequestSchema, type SessionUser } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
-import { JwtAuthGuard } from '../auth/jwt.guard'
 import { InvoicesService } from './invoices.service'
 
 @Controller('invoices')
-@UseGuards(JwtAuthGuard)
 export class InvoicesController {
   constructor(private readonly svc: InvoicesService) {}
 

@@ -260,19 +260,23 @@ async function main() {
     console.log(`  + ${def.name}`)
 
     const senior = byEmail[def.seniorEmail]
-    if (!senior) { console.warn(`    ! senior ${def.seniorEmail} not found`); continue }
+    if (!senior) {
+      console.warn(`    ! senior ${def.seniorEmail} not found`)
+      continue
+    }
 
     const hr = byEmail[def.hrEmail]
-    if (!hr) { console.warn(`    ! HR ${def.hrEmail} not found`); continue }
+    if (!hr) {
+      console.warn(`    ! HR ${def.hrEmail} not found`)
+      continue
+    }
 
-    const memberIds = [
-      senior.id,
-      hr.id,
-      ...accountantUsers.map((u) => u.id),
-    ]
+    const memberIds = [senior.id, hr.id, ...accountantUsers.map((u) => u.id)]
 
     const unique = [...new Set(memberIds)]
-    await db.insert(schema.teamMembers).values(unique.map((userId) => ({ teamId: team!.id, userId })))
+    await db
+      .insert(schema.teamMembers)
+      .values(unique.map((userId) => ({ teamId: team!.id, userId })))
     console.log(`    members: ${unique.length}`)
   }
 
@@ -283,7 +287,10 @@ async function main() {
 
   for (const def of SEED_PROJECTS) {
     const senior = byEmail[def.seniorEmail]
-    if (!senior) { console.warn(`  ! senior ${def.seniorEmail} not found`); continue }
+    if (!senior) {
+      console.warn(`  ! senior ${def.seniorEmail} not found`)
+      continue
+    }
 
     let projectId: string
     if (existingProjectNames.has(def.name)) {
@@ -314,7 +321,10 @@ async function main() {
     ]
     for (const memberEmail of membersToAdd) {
       const member = byEmail[memberEmail]
-      if (!member) { console.warn(`    ! member ${memberEmail} not found`); continue }
+      if (!member) {
+        console.warn(`    ! member ${memberEmail} not found`)
+        continue
+      }
 
       const existingMember = await db.query.projectMembers.findFirst({
         where: (pm, { and, eq, isNull }) =>
@@ -354,7 +364,7 @@ async function main() {
     type NewTx = typeof schema.transactions.$inferInsert
 
     const txBatch: NewTx[] = []
-    const payoutBatch: typeof schema.payoutRequests.$inferInsert[] = []
+    const payoutBatch: (typeof schema.payoutRequests.$inferInsert)[] = []
 
     // Helper: date offset from a base month
     function monthDate(year: number, month: number, day = 10): Date {
@@ -365,11 +375,11 @@ async function main() {
 
     // Q1 2024 — Maksym active on Ferm + OnePunch, Kostya on Artkai
     for (const [mo, day, project, amount] of [
-      [1, 8,  fermProject,     3500],
+      [1, 8, fermProject, 3500],
       [1, 12, onePunchProject, 4000],
-      [2, 7,  fermProject,     3500],
+      [2, 7, fermProject, 3500],
       [2, 14, onePunchProject, 4000],
-      [3, 9,  fermProject,     3500],
+      [3, 9, fermProject, 3500],
       [3, 11, onePunchProject, 4000],
     ] as [number, number, typeof fermProject, number][]) {
       const prIdLocal = crypto.randomUUID()
@@ -379,7 +389,7 @@ async function main() {
         incomeAmount: String(amount),
         payableAmount: String(amount * 0.74),
         contractAddress: '0x' + prIdLocal.replace(/-/g, '').padEnd(40, '0').slice(0, 40),
-        txHash: `0xPAYOUT_M_2024_${mo.toString().padStart(2,'0')}`,
+        txHash: `0xPAYOUT_M_2024_${mo.toString().padStart(2, '0')}`,
         status: 'PAID' as const,
         createdAt: monthDate(2024, mo, day + 3),
         updatedAt: monthDate(2024, mo, day + 4),
@@ -402,7 +412,7 @@ async function main() {
         receiverId: MAKSYM_ID,
         projectId: project.id,
         seniorSharePercent: 26,
-        notes: `Monthly income ${2024}-${String(mo).padStart(2,'0')}`,
+        notes: `Monthly income ${2024}-${String(mo).padStart(2, '0')}`,
         createdBy: MAKSYM_ID,
         createdAt: monthDate(2024, mo, day),
         updatedAt: monthDate(2024, mo, day),
@@ -412,8 +422,8 @@ async function main() {
 
     // Kostya admin income Q1 2024
     for (const [mo, day, project, amount] of [
-      [1, 9,  artkaiProject, 3900],
-      [2, 9,  artkaiProject, 3900],
+      [1, 9, artkaiProject, 3900],
+      [2, 9, artkaiProject, 3900],
       [3, 10, artkaiProject, 3900],
     ] as [number, number, typeof artkaiProject, number][]) {
       txBatch.push({
@@ -434,12 +444,12 @@ async function main() {
 
     // Oleksiy + Dmytro SENIOR_INCOME Q1 2024 — VALIDATED + payout done
     const seniorIncomeQ1: [typeof oleksiy, typeof aiProject, number, number, number][] = [
-      [oleksiy, aiProject,    5000, 1, 5],
-      [oleksiy, aiProject,    5000, 2, 6],
-      [oleksiy, aiProject,    5000, 3, 7],
-      [dmytro,  edtechProject, 4500, 1, 6],
-      [dmytro,  edtechProject, 4500, 2, 7],
-      [dmytro,  edtechProject, 4500, 3, 8],
+      [oleksiy, aiProject, 5000, 1, 5],
+      [oleksiy, aiProject, 5000, 2, 6],
+      [oleksiy, aiProject, 5000, 3, 7],
+      [dmytro, edtechProject, 4500, 1, 6],
+      [dmytro, edtechProject, 4500, 2, 7],
+      [dmytro, edtechProject, 4500, 3, 8],
     ]
     for (const [senior, project, amount, mo, day] of seniorIncomeQ1) {
       const incomeId = crypto.randomUUID()
@@ -452,7 +462,7 @@ async function main() {
         incomeAmount: String(amount),
         payableAmount: String(payable),
         contractAddress: '0x' + prId.replace(/-/g, '').padEnd(40, '0').slice(0, 40),
-        txHash: `0xSENIOR_${senior.id.slice(0,4)}_2024_${String(mo).padStart(2,'0')}`,
+        txHash: `0xSENIOR_${senior.id.slice(0, 4)}_2024_${String(mo).padStart(2, '0')}`,
         status: 'PAID',
         createdAt: monthDate(2024, mo, day + 5),
         updatedAt: monthDate(2024, mo, day + 6),
@@ -472,7 +482,7 @@ async function main() {
         seniorSharePercent: 26,
         validatedBy: mykola.id,
         validatedAt: monthDate(2024, mo, day + 2),
-        receiptExternalUrl: `https://etherscan.io/tx/0xRECEIPT_${mo}_${senior.id.slice(0,4)}`,
+        receiptExternalUrl: `https://etherscan.io/tx/0xRECEIPT_${mo}_${senior.id.slice(0, 4)}`,
         createdBy: senior.id,
         createdAt: monthDate(2024, mo, day),
         updatedAt: monthDate(2024, mo, day + 6),
@@ -487,7 +497,7 @@ async function main() {
         receiverLabel: 'CheekyCheeseIT',
         projectId: project.id,
         payoutRequestId: prId,
-        txHash: `0xSENIOR_${senior.id.slice(0,4)}_2024_${String(mo).padStart(2,'0')}`,
+        txHash: `0xSENIOR_${senior.id.slice(0, 4)}_2024_${String(mo).padStart(2, '0')}`,
         createdBy: senior.id,
         createdAt: monthDate(2024, mo, day + 5),
         updatedAt: monthDate(2024, mo, day + 6),
@@ -502,7 +512,7 @@ async function main() {
           senderId: senior.id,
           receiverId: adminId,
           payoutRequestId: prId,
-          txHash: `0xSENIOR_${senior.id.slice(0,4)}_2024_${String(mo).padStart(2,'0')}`,
+          txHash: `0xSENIOR_${senior.id.slice(0, 4)}_2024_${String(mo).padStart(2, '0')}`,
           createdBy: senior.id,
           createdAt: monthDate(2024, mo, day + 5),
           updatedAt: monthDate(2024, mo, day + 5),
@@ -514,11 +524,11 @@ async function main() {
     // company, receiverId = the admin who got the money. See Q1 block
     // above for the rationale.
     for (const [mo, day, project, amount] of [
-      [4, 8,  fermProject,     3500],
+      [4, 8, fermProject, 3500],
       [4, 12, onePunchProject, 4000],
-      [5, 7,  fermProject,     3700],
+      [5, 7, fermProject, 3700],
       [5, 14, onePunchProject, 4000],
-      [6, 9,  fermProject,     3700],
+      [6, 9, fermProject, 3700],
       [6, 11, onePunchProject, 4200],
     ] as [number, number, typeof fermProject, number][]) {
       txBatch.push({
@@ -561,12 +571,12 @@ async function main() {
 
     // Senior incomes Q2 2024
     for (const [senior, project, amount, mo] of [
-      [oleksiy, aiProject,    5200, 4],
-      [oleksiy, aiProject,    5200, 5],
-      [oleksiy, aiProject,    5000, 6],
-      [dmytro,  edtechProject, 4500, 4],
-      [dmytro,  edtechProject, 4800, 5],
-      [dmytro,  edtechProject, 4800, 6],
+      [oleksiy, aiProject, 5200, 4],
+      [oleksiy, aiProject, 5200, 5],
+      [oleksiy, aiProject, 5000, 6],
+      [dmytro, edtechProject, 4500, 4],
+      [dmytro, edtechProject, 4800, 5],
+      [dmytro, edtechProject, 4800, 6],
     ] as [typeof oleksiy, typeof aiProject, number, number][]) {
       const prId = crypto.randomUUID()
       const payable = amount * 0.74
@@ -576,226 +586,710 @@ async function main() {
         incomeAmount: String(amount),
         payableAmount: String(payable),
         contractAddress: '0x' + prId.replace(/-/g, '').padEnd(40, '0').slice(0, 40),
-        txHash: `0xS_${senior.id.slice(0,4)}_Q2_${mo}`,
+        txHash: `0xS_${senior.id.slice(0, 4)}_Q2_${mo}`,
         status: 'PAID',
         createdAt: monthDate(2024, mo, 15),
         updatedAt: monthDate(2024, mo, 16),
       })
       txBatch.push({
-        type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT',
-        senderId: null, senderLabel: project.companyName, receiverId: senior.id,
-        projectId: project.id, payoutRequestId: prId,
-        seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2024, mo, 12),
-        receiptExternalUrl: `https://etherscan.io/tx/0xRQ2_${mo}_${senior.id.slice(0,4)}`,
-        createdBy: senior.id, createdAt: monthDate(2024, mo, 8), updatedAt: monthDate(2024, mo, 16),
+        type: 'SENIOR_INCOME',
+        status: 'PAID',
+        amount: String(amount),
+        currency: 'USDT',
+        senderId: null,
+        senderLabel: project.companyName,
+        receiverId: senior.id,
+        projectId: project.id,
+        payoutRequestId: prId,
+        seniorSharePercent: 26,
+        validatedBy: mykola.id,
+        validatedAt: monthDate(2024, mo, 12),
+        receiptExternalUrl: `https://etherscan.io/tx/0xRQ2_${mo}_${senior.id.slice(0, 4)}`,
+        createdBy: senior.id,
+        createdAt: monthDate(2024, mo, 8),
+        updatedAt: monthDate(2024, mo, 16),
       })
       txBatch.push({
-        type: 'PAYOUT', status: 'PAID', amount: String(payable), currency: 'USDT',
-        senderId: senior.id, receiverLabel: 'CheekyCheeseIT', projectId: project.id, payoutRequestId: prId,
-        txHash: `0xS_${senior.id.slice(0,4)}_Q2_${mo}`,
-        createdBy: senior.id, createdAt: monthDate(2024, mo, 15), updatedAt: monthDate(2024, mo, 16),
+        type: 'PAYOUT',
+        status: 'PAID',
+        amount: String(payable),
+        currency: 'USDT',
+        senderId: senior.id,
+        receiverLabel: 'CheekyCheeseIT',
+        projectId: project.id,
+        payoutRequestId: prId,
+        txHash: `0xS_${senior.id.slice(0, 4)}_Q2_${mo}`,
+        createdBy: senior.id,
+        createdAt: monthDate(2024, mo, 15),
+        updatedAt: monthDate(2024, mo, 16),
       })
       for (const adminId of [MAKSYM_ID, KOSTYA_ID]) {
         txBatch.push({
-          type: 'PAYOUT_ADMIN', status: 'PAID', amount: String(payable / 2), currency: 'USDT',
-          senderId: senior.id, receiverId: adminId, payoutRequestId: prId,
-          txHash: `0xS_${senior.id.slice(0,4)}_Q2_${mo}`,
-          createdBy: senior.id, createdAt: monthDate(2024, mo, 15), updatedAt: monthDate(2024, mo, 15),
+          type: 'PAYOUT_ADMIN',
+          status: 'PAID',
+          amount: String(payable / 2),
+          currency: 'USDT',
+          senderId: senior.id,
+          receiverId: adminId,
+          payoutRequestId: prId,
+          txHash: `0xS_${senior.id.slice(0, 4)}_Q2_${mo}`,
+          createdBy: senior.id,
+          createdAt: monthDate(2024, mo, 15),
+          updatedAt: monthDate(2024, mo, 15),
         })
       }
     }
 
     // Q3 2024 — Favbet joins Maksym's portfolio
     for (const [mo, project, amount] of [
-      [7,  fermProject,     3700],
-      [7,  onePunchProject, 4200],
-      [7,  favbetProject,   4500],
-      [8,  fermProject,     3700],
-      [8,  onePunchProject, 4200],
-      [8,  favbetProject,   4500],
-      [9,  fermProject,     3700],
-      [9,  onePunchProject, 4500],
-      [9,  favbetProject,   4800],
+      [7, fermProject, 3700],
+      [7, onePunchProject, 4200],
+      [7, favbetProject, 4500],
+      [8, fermProject, 3700],
+      [8, onePunchProject, 4200],
+      [8, favbetProject, 4500],
+      [9, fermProject, 3700],
+      [9, onePunchProject, 4500],
+      [9, favbetProject, 4800],
     ] as [number, typeof fermProject, number][]) {
       txBatch.push({
-        type: 'ADMIN_INCOME', status: 'PAID', amount: String(amount), currency: 'USD',
-        senderId: null, senderLabel: project.companyName, receiverId: MAKSYM_ID,
-        projectId: project.id, seniorSharePercent: 26,
-        createdBy: MAKSYM_ID, createdAt: monthDate(2024, mo, 10), updatedAt: monthDate(2024, mo, 10),
+        type: 'ADMIN_INCOME',
+        status: 'PAID',
+        amount: String(amount),
+        currency: 'USD',
+        senderId: null,
+        senderLabel: project.companyName,
+        receiverId: MAKSYM_ID,
+        projectId: project.id,
+        seniorSharePercent: 26,
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2024, mo, 10),
+        updatedAt: monthDate(2024, mo, 10),
       })
     }
 
     // Kostya Q3
     for (const [mo, project, amount] of [
-      [7,  artkaiProject, 3900],
-      [8,  artkaiProject, 3900],
-      [9,  artkaiProject, 4100],
+      [7, artkaiProject, 3900],
+      [8, artkaiProject, 3900],
+      [9, artkaiProject, 4100],
     ] as [number, typeof artkaiProject, number][]) {
       txBatch.push({
-        type: 'ADMIN_INCOME', status: 'PAID', amount: String(amount), currency: 'USD',
-        senderId: null, senderLabel: project.companyName, receiverId: KOSTYA_ID,
-        projectId: project.id, seniorSharePercent: 26,
-        createdBy: KOSTYA_ID, createdAt: monthDate(2024, mo, 11), updatedAt: monthDate(2024, mo, 11),
+        type: 'ADMIN_INCOME',
+        status: 'PAID',
+        amount: String(amount),
+        currency: 'USD',
+        senderId: null,
+        senderLabel: project.companyName,
+        receiverId: KOSTYA_ID,
+        projectId: project.id,
+        seniorSharePercent: 26,
+        createdBy: KOSTYA_ID,
+        createdAt: monthDate(2024, mo, 11),
+        updatedAt: monthDate(2024, mo, 11),
       })
     }
 
     // Senior incomes Q3 2024
     for (const [senior, project, amount, mo] of [
-      [oleksiy, aiProject,    5000, 7],
-      [oleksiy, aiProject,    5500, 8],
-      [oleksiy, aiProject,    5500, 9],
-      [dmytro,  edtechProject, 4800, 7],
-      [dmytro,  edtechProject, 4800, 8],
-      [dmytro,  edtechProject, 5000, 9],
+      [oleksiy, aiProject, 5000, 7],
+      [oleksiy, aiProject, 5500, 8],
+      [oleksiy, aiProject, 5500, 9],
+      [dmytro, edtechProject, 4800, 7],
+      [dmytro, edtechProject, 4800, 8],
+      [dmytro, edtechProject, 5000, 9],
     ] as [typeof oleksiy, typeof aiProject, number, number][]) {
       const prId = crypto.randomUUID()
       const payable = amount * 0.74
-      payoutBatch.push({ id: prId, seniorId: senior.id, incomeAmount: String(amount), payableAmount: String(payable), contractAddress: '0x' + prId.replace(/-/g, '').padEnd(40, '0').slice(0, 40), txHash: `0xS_${senior.id.slice(0,4)}_Q3_${mo}`, status: 'PAID', createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 18) })
-      txBatch.push({ type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT', senderId: null, senderLabel: project.companyName, receiverId: senior.id, projectId: project.id, payoutRequestId: prId, seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2024, mo, 13), receiptExternalUrl: `https://etherscan.io/tx/0xRQ3_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 9), updatedAt: monthDate(2024, mo, 18) })
-      txBatch.push({ type: 'PAYOUT', status: 'PAID', amount: String(payable), currency: 'USDT', senderId: senior.id, receiverLabel: 'CheekyCheeseIT', projectId: project.id, payoutRequestId: prId, txHash: `0xS_${senior.id.slice(0,4)}_Q3_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 18) })
+      payoutBatch.push({
+        id: prId,
+        seniorId: senior.id,
+        incomeAmount: String(amount),
+        payableAmount: String(payable),
+        contractAddress: '0x' + prId.replace(/-/g, '').padEnd(40, '0').slice(0, 40),
+        txHash: `0xS_${senior.id.slice(0, 4)}_Q3_${mo}`,
+        status: 'PAID',
+        createdAt: monthDate(2024, mo, 17),
+        updatedAt: monthDate(2024, mo, 18),
+      })
+      txBatch.push({
+        type: 'SENIOR_INCOME',
+        status: 'PAID',
+        amount: String(amount),
+        currency: 'USDT',
+        senderId: null,
+        senderLabel: project.companyName,
+        receiverId: senior.id,
+        projectId: project.id,
+        payoutRequestId: prId,
+        seniorSharePercent: 26,
+        validatedBy: mykola.id,
+        validatedAt: monthDate(2024, mo, 13),
+        receiptExternalUrl: `https://etherscan.io/tx/0xRQ3_${mo}`,
+        createdBy: senior.id,
+        createdAt: monthDate(2024, mo, 9),
+        updatedAt: monthDate(2024, mo, 18),
+      })
+      txBatch.push({
+        type: 'PAYOUT',
+        status: 'PAID',
+        amount: String(payable),
+        currency: 'USDT',
+        senderId: senior.id,
+        receiverLabel: 'CheekyCheeseIT',
+        projectId: project.id,
+        payoutRequestId: prId,
+        txHash: `0xS_${senior.id.slice(0, 4)}_Q3_${mo}`,
+        createdBy: senior.id,
+        createdAt: monthDate(2024, mo, 17),
+        updatedAt: monthDate(2024, mo, 18),
+      })
       for (const adminId of [MAKSYM_ID, KOSTYA_ID]) {
-        txBatch.push({ type: 'PAYOUT_ADMIN', status: 'PAID', amount: String(payable / 2), currency: 'USDT', senderId: senior.id, receiverId: adminId, payoutRequestId: prId, txHash: `0xS_${senior.id.slice(0,4)}_Q3_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 17) })
+        txBatch.push({
+          type: 'PAYOUT_ADMIN',
+          status: 'PAID',
+          amount: String(payable / 2),
+          currency: 'USDT',
+          senderId: senior.id,
+          receiverId: adminId,
+          payoutRequestId: prId,
+          txHash: `0xS_${senior.id.slice(0, 4)}_Q3_${mo}`,
+          createdBy: senior.id,
+          createdAt: monthDate(2024, mo, 17),
+          updatedAt: monthDate(2024, mo, 17),
+        })
       }
     }
 
     // Q4 2024 — Artkai grows, Maksym adds it
     for (const [mo, project, amount] of [
-      [10, fermProject,     3700],
+      [10, fermProject, 3700],
       [10, onePunchProject, 4500],
-      [10, favbetProject,   4800],
-      [11, fermProject,     3700],
+      [10, favbetProject, 4800],
+      [11, fermProject, 3700],
       [11, onePunchProject, 4500],
-      [11, favbetProject,   5000],
-      [12, fermProject,     3700],
+      [11, favbetProject, 5000],
+      [12, fermProject, 3700],
       [12, onePunchProject, 4500],
-      [12, favbetProject,   5000],
+      [12, favbetProject, 5000],
     ] as [number, typeof fermProject, number][]) {
-      txBatch.push({ type: 'ADMIN_INCOME', status: 'PAID', amount: String(amount), currency: 'USD', senderId: null, senderLabel: project.companyName, receiverId: MAKSYM_ID, projectId: project.id, seniorSharePercent: 26, createdBy: MAKSYM_ID, createdAt: monthDate(2024, mo, 10), updatedAt: monthDate(2024, mo, 10) })
+      txBatch.push({
+        type: 'ADMIN_INCOME',
+        status: 'PAID',
+        amount: String(amount),
+        currency: 'USD',
+        senderId: null,
+        senderLabel: project.companyName,
+        receiverId: MAKSYM_ID,
+        projectId: project.id,
+        seniorSharePercent: 26,
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2024, mo, 10),
+        updatedAt: monthDate(2024, mo, 10),
+      })
     }
-    for (const [mo, amount] of [[10, 4100], [11, 4100], [12, 4300]] as [number, number][]) {
-      txBatch.push({ type: 'ADMIN_INCOME', status: 'PAID', amount: String(amount), currency: 'USD', senderId: null, senderLabel: artkaiProject.companyName, receiverId: KOSTYA_ID, projectId: artkaiProject.id, seniorSharePercent: 26, createdBy: KOSTYA_ID, createdAt: monthDate(2024, mo, 11), updatedAt: monthDate(2024, mo, 11) })
+    for (const [mo, amount] of [
+      [10, 4100],
+      [11, 4100],
+      [12, 4300],
+    ] as [number, number][]) {
+      txBatch.push({
+        type: 'ADMIN_INCOME',
+        status: 'PAID',
+        amount: String(amount),
+        currency: 'USD',
+        senderId: null,
+        senderLabel: artkaiProject.companyName,
+        receiverId: KOSTYA_ID,
+        projectId: artkaiProject.id,
+        seniorSharePercent: 26,
+        createdBy: KOSTYA_ID,
+        createdAt: monthDate(2024, mo, 11),
+        updatedAt: monthDate(2024, mo, 11),
+      })
     }
 
     // Senior incomes Q4 2024
     for (const [senior, project, amount, mo] of [
-      [oleksiy, aiProject,    5500, 10],
-      [oleksiy, aiProject,    5800, 11],
-      [oleksiy, aiProject,    5800, 12],
-      [dmytro,  edtechProject, 5000, 10],
-      [dmytro,  edtechProject, 5000, 11],
-      [dmytro,  edtechProject, 5200, 12],
+      [oleksiy, aiProject, 5500, 10],
+      [oleksiy, aiProject, 5800, 11],
+      [oleksiy, aiProject, 5800, 12],
+      [dmytro, edtechProject, 5000, 10],
+      [dmytro, edtechProject, 5000, 11],
+      [dmytro, edtechProject, 5200, 12],
     ] as [typeof oleksiy, typeof aiProject, number, number][]) {
       const prId = crypto.randomUUID()
       const payable = amount * 0.74
-      payoutBatch.push({ id: prId, seniorId: senior.id, incomeAmount: String(amount), payableAmount: String(payable), contractAddress: '0x' + prId.replace(/-/g, '').padEnd(40, '0').slice(0, 40), txHash: `0xS_${senior.id.slice(0,4)}_Q4_${mo}`, status: 'PAID', createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 18) })
-      txBatch.push({ type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT', senderId: null, senderLabel: project.companyName, receiverId: senior.id, projectId: project.id, payoutRequestId: prId, seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2024, mo, 13), receiptExternalUrl: `https://etherscan.io/tx/0xRQ4_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 9), updatedAt: monthDate(2024, mo, 18) })
-      txBatch.push({ type: 'PAYOUT', status: 'PAID', amount: String(payable), currency: 'USDT', senderId: senior.id, receiverLabel: 'CheekyCheeseIT', projectId: project.id, payoutRequestId: prId, txHash: `0xS_${senior.id.slice(0,4)}_Q4_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 18) })
+      payoutBatch.push({
+        id: prId,
+        seniorId: senior.id,
+        incomeAmount: String(amount),
+        payableAmount: String(payable),
+        contractAddress: '0x' + prId.replace(/-/g, '').padEnd(40, '0').slice(0, 40),
+        txHash: `0xS_${senior.id.slice(0, 4)}_Q4_${mo}`,
+        status: 'PAID',
+        createdAt: monthDate(2024, mo, 17),
+        updatedAt: monthDate(2024, mo, 18),
+      })
+      txBatch.push({
+        type: 'SENIOR_INCOME',
+        status: 'PAID',
+        amount: String(amount),
+        currency: 'USDT',
+        senderId: null,
+        senderLabel: project.companyName,
+        receiverId: senior.id,
+        projectId: project.id,
+        payoutRequestId: prId,
+        seniorSharePercent: 26,
+        validatedBy: mykola.id,
+        validatedAt: monthDate(2024, mo, 13),
+        receiptExternalUrl: `https://etherscan.io/tx/0xRQ4_${mo}`,
+        createdBy: senior.id,
+        createdAt: monthDate(2024, mo, 9),
+        updatedAt: monthDate(2024, mo, 18),
+      })
+      txBatch.push({
+        type: 'PAYOUT',
+        status: 'PAID',
+        amount: String(payable),
+        currency: 'USDT',
+        senderId: senior.id,
+        receiverLabel: 'CheekyCheeseIT',
+        projectId: project.id,
+        payoutRequestId: prId,
+        txHash: `0xS_${senior.id.slice(0, 4)}_Q4_${mo}`,
+        createdBy: senior.id,
+        createdAt: monthDate(2024, mo, 17),
+        updatedAt: monthDate(2024, mo, 18),
+      })
       for (const adminId of [MAKSYM_ID, KOSTYA_ID]) {
-        txBatch.push({ type: 'PAYOUT_ADMIN', status: 'PAID', amount: String(payable / 2), currency: 'USDT', senderId: senior.id, receiverId: adminId, payoutRequestId: prId, txHash: `0xS_${senior.id.slice(0,4)}_Q4_${mo}`, createdBy: senior.id, createdAt: monthDate(2024, mo, 17), updatedAt: monthDate(2024, mo, 17) })
+        txBatch.push({
+          type: 'PAYOUT_ADMIN',
+          status: 'PAID',
+          amount: String(payable / 2),
+          currency: 'USDT',
+          senderId: senior.id,
+          receiverId: adminId,
+          payoutRequestId: prId,
+          txHash: `0xS_${senior.id.slice(0, 4)}_Q4_${mo}`,
+          createdBy: senior.id,
+          createdAt: monthDate(2024, mo, 17),
+          updatedAt: monthDate(2024, mo, 17),
+        })
       }
     }
 
     // ── 2025 (Jan–Apr, active period) ──────────────────────────────────────
 
     for (const [mo, project, amount] of [
-      [1,  fermProject,     3700],
-      [1,  onePunchProject, 4500],
-      [1,  favbetProject,   5000],
-      [2,  fermProject,     3700],
-      [2,  onePunchProject, 4500],
-      [2,  favbetProject,   5200],
-      [3,  fermProject,     3700],
-      [3,  onePunchProject, 4500],
-      [3,  favbetProject,   5200],
-      [4,  fermProject,     3700],
-      [4,  onePunchProject, 4500],
-      [4,  favbetProject,   5200],
+      [1, fermProject, 3700],
+      [1, onePunchProject, 4500],
+      [1, favbetProject, 5000],
+      [2, fermProject, 3700],
+      [2, onePunchProject, 4500],
+      [2, favbetProject, 5200],
+      [3, fermProject, 3700],
+      [3, onePunchProject, 4500],
+      [3, favbetProject, 5200],
+      [4, fermProject, 3700],
+      [4, onePunchProject, 4500],
+      [4, favbetProject, 5200],
     ] as [number, typeof fermProject, number][]) {
-      txBatch.push({ type: 'ADMIN_INCOME', status: 'PAID', amount: String(amount), currency: 'USD', senderId: null, senderLabel: project.companyName, receiverId: MAKSYM_ID, projectId: project.id, seniorSharePercent: 26, createdBy: MAKSYM_ID, createdAt: monthDate(2025, mo, 10), updatedAt: monthDate(2025, mo, 10) })
+      txBatch.push({
+        type: 'ADMIN_INCOME',
+        status: 'PAID',
+        amount: String(amount),
+        currency: 'USD',
+        senderId: null,
+        senderLabel: project.companyName,
+        receiverId: MAKSYM_ID,
+        projectId: project.id,
+        seniorSharePercent: 26,
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2025, mo, 10),
+        updatedAt: monthDate(2025, mo, 10),
+      })
     }
-    for (const [mo, amount] of [[1, 4300], [2, 4500], [3, 4500], [4, 4500]] as [number, number][]) {
-      txBatch.push({ type: 'ADMIN_INCOME', status: 'PAID', amount: String(amount), currency: 'USD', senderId: null, senderLabel: artkaiProject.companyName, receiverId: KOSTYA_ID, projectId: artkaiProject.id, seniorSharePercent: 26, createdBy: KOSTYA_ID, createdAt: monthDate(2025, mo, 11), updatedAt: monthDate(2025, mo, 11) })
+    for (const [mo, amount] of [
+      [1, 4300],
+      [2, 4500],
+      [3, 4500],
+      [4, 4500],
+    ] as [number, number][]) {
+      txBatch.push({
+        type: 'ADMIN_INCOME',
+        status: 'PAID',
+        amount: String(amount),
+        currency: 'USD',
+        senderId: null,
+        senderLabel: artkaiProject.companyName,
+        receiverId: KOSTYA_ID,
+        projectId: artkaiProject.id,
+        seniorSharePercent: 26,
+        createdBy: KOSTYA_ID,
+        createdAt: monthDate(2025, mo, 11),
+        updatedAt: monthDate(2025, mo, 11),
+      })
     }
 
     // Senior incomes 2025 Q1
     for (const [senior, project, amount, mo] of [
-      [oleksiy, aiProject,    6000, 1],
-      [oleksiy, aiProject,    6000, 2],
-      [oleksiy, aiProject,    6200, 3],
-      [dmytro,  edtechProject, 5200, 1],
-      [dmytro,  edtechProject, 5200, 2],
-      [dmytro,  edtechProject, 5500, 3],
+      [oleksiy, aiProject, 6000, 1],
+      [oleksiy, aiProject, 6000, 2],
+      [oleksiy, aiProject, 6200, 3],
+      [dmytro, edtechProject, 5200, 1],
+      [dmytro, edtechProject, 5200, 2],
+      [dmytro, edtechProject, 5500, 3],
     ] as [typeof oleksiy, typeof aiProject, number, number][]) {
       const prId = crypto.randomUUID()
       const payable = amount * 0.74
-      payoutBatch.push({ id: prId, seniorId: senior.id, incomeAmount: String(amount), payableAmount: String(payable), contractAddress: '0x' + prId.replace(/-/g, '').padEnd(40, '0').slice(0, 40), txHash: `0x25_${senior.id.slice(0,4)}_${mo}`, status: 'PAID', createdAt: monthDate(2025, mo, 17), updatedAt: monthDate(2025, mo, 18) })
-      txBatch.push({ type: 'SENIOR_INCOME', status: 'PAID', amount: String(amount), currency: 'USDT', senderId: null, senderLabel: project.companyName, receiverId: senior.id, projectId: project.id, payoutRequestId: prId, seniorSharePercent: 26, validatedBy: mykola.id, validatedAt: monthDate(2025, mo, 13), receiptExternalUrl: `https://etherscan.io/tx/0xR25_${mo}`, createdBy: senior.id, createdAt: monthDate(2025, mo, 9), updatedAt: monthDate(2025, mo, 18) })
-      txBatch.push({ type: 'PAYOUT', status: 'PAID', amount: String(payable), currency: 'USDT', senderId: senior.id, receiverLabel: 'CheekyCheeseIT', projectId: project.id, payoutRequestId: prId, txHash: `0x25_${senior.id.slice(0,4)}_${mo}`, createdBy: senior.id, createdAt: monthDate(2025, mo, 17), updatedAt: monthDate(2025, mo, 18) })
+      payoutBatch.push({
+        id: prId,
+        seniorId: senior.id,
+        incomeAmount: String(amount),
+        payableAmount: String(payable),
+        contractAddress: '0x' + prId.replace(/-/g, '').padEnd(40, '0').slice(0, 40),
+        txHash: `0x25_${senior.id.slice(0, 4)}_${mo}`,
+        status: 'PAID',
+        createdAt: monthDate(2025, mo, 17),
+        updatedAt: monthDate(2025, mo, 18),
+      })
+      txBatch.push({
+        type: 'SENIOR_INCOME',
+        status: 'PAID',
+        amount: String(amount),
+        currency: 'USDT',
+        senderId: null,
+        senderLabel: project.companyName,
+        receiverId: senior.id,
+        projectId: project.id,
+        payoutRequestId: prId,
+        seniorSharePercent: 26,
+        validatedBy: mykola.id,
+        validatedAt: monthDate(2025, mo, 13),
+        receiptExternalUrl: `https://etherscan.io/tx/0xR25_${mo}`,
+        createdBy: senior.id,
+        createdAt: monthDate(2025, mo, 9),
+        updatedAt: monthDate(2025, mo, 18),
+      })
+      txBatch.push({
+        type: 'PAYOUT',
+        status: 'PAID',
+        amount: String(payable),
+        currency: 'USDT',
+        senderId: senior.id,
+        receiverLabel: 'CheekyCheeseIT',
+        projectId: project.id,
+        payoutRequestId: prId,
+        txHash: `0x25_${senior.id.slice(0, 4)}_${mo}`,
+        createdBy: senior.id,
+        createdAt: monthDate(2025, mo, 17),
+        updatedAt: monthDate(2025, mo, 18),
+      })
       for (const adminId of [MAKSYM_ID, KOSTYA_ID]) {
-        txBatch.push({ type: 'PAYOUT_ADMIN', status: 'PAID', amount: String(payable / 2), currency: 'USDT', senderId: senior.id, receiverId: adminId, payoutRequestId: prId, txHash: `0x25_${senior.id.slice(0,4)}_${mo}`, createdBy: senior.id, createdAt: monthDate(2025, mo, 17), updatedAt: monthDate(2025, mo, 17) })
+        txBatch.push({
+          type: 'PAYOUT_ADMIN',
+          status: 'PAID',
+          amount: String(payable / 2),
+          currency: 'USDT',
+          senderId: senior.id,
+          receiverId: adminId,
+          payoutRequestId: prId,
+          txHash: `0x25_${senior.id.slice(0, 4)}_${mo}`,
+          createdBy: senior.id,
+          createdAt: monthDate(2025, mo, 17),
+          updatedAt: monthDate(2025, mo, 17),
+        })
       }
     }
 
     // Apr 2025 — recent (VALIDATED, no payout yet)
     for (const [senior, project, amount] of [
-      [oleksiy, aiProject,    6200],
-      [dmytro,  edtechProject, 5500],
+      [oleksiy, aiProject, 6200],
+      [dmytro, edtechProject, 5500],
     ] as [typeof oleksiy, typeof aiProject, number][]) {
       txBatch.push({
-        type: 'SENIOR_INCOME', status: 'VALIDATED', amount: String(amount), currency: 'USDT',
-        senderId: null, senderLabel: project.companyName, receiverId: senior.id,
-        projectId: project.id, seniorSharePercent: 26,
-        validatedBy: mykola.id, validatedAt: monthDate(2025, 4, 13),
-        receiptExternalUrl: `https://etherscan.io/tx/0xR25_4_${senior.id.slice(0,4)}`,
-        createdBy: senior.id, createdAt: monthDate(2025, 4, 9), updatedAt: monthDate(2025, 4, 13),
+        type: 'SENIOR_INCOME',
+        status: 'VALIDATED',
+        amount: String(amount),
+        currency: 'USDT',
+        senderId: null,
+        senderLabel: project.companyName,
+        receiverId: senior.id,
+        projectId: project.id,
+        seniorSharePercent: 26,
+        validatedBy: mykola.id,
+        validatedAt: monthDate(2025, 4, 13),
+        receiptExternalUrl: `https://etherscan.io/tx/0xR25_4_${senior.id.slice(0, 4)}`,
+        createdBy: senior.id,
+        createdAt: monthDate(2025, 4, 9),
+        updatedAt: monthDate(2025, 4, 13),
       })
     }
 
     // May 2025 — current month, pending
     txBatch.push({
-      type: 'SENIOR_INCOME', status: 'PENDING', amount: '6500', currency: 'USDT',
-      senderId: null, senderLabel: aiProject.companyName, receiverId: oleksiy.id,
-      projectId: aiProject.id, seniorSharePercent: 26,
-      receiptExternalUrl: 'https://etherscan.io/tx/0xRECENT_MAY', notes: 'May 2025 payment',
-      createdBy: oleksiy.id, createdAt: monthDate(2025, 5, 8), updatedAt: monthDate(2025, 5, 8),
+      type: 'SENIOR_INCOME',
+      status: 'PENDING',
+      amount: '6500',
+      currency: 'USDT',
+      senderId: null,
+      senderLabel: aiProject.companyName,
+      receiverId: oleksiy.id,
+      projectId: aiProject.id,
+      seniorSharePercent: 26,
+      receiptExternalUrl: 'https://etherscan.io/tx/0xRECENT_MAY',
+      notes: 'May 2025 payment',
+      createdBy: oleksiy.id,
+      createdAt: monthDate(2025, 5, 8),
+      updatedAt: monthDate(2025, 5, 8),
     })
     txBatch.push({
-      type: 'SENIOR_INCOME', status: 'REJECTED', amount: '5300', currency: 'USDT',
-      senderId: null, senderLabel: edtechProject.companyName, receiverId: dmytro.id,
-      projectId: edtechProject.id, seniorSharePercent: 26,
+      type: 'SENIOR_INCOME',
+      status: 'REJECTED',
+      amount: '5300',
+      currency: 'USDT',
+      senderId: null,
+      senderLabel: edtechProject.companyName,
+      receiverId: dmytro.id,
+      projectId: edtechProject.id,
+      seniorSharePercent: 26,
       rejectionReason: 'Неверная сумма, должно быть 5500 USDT',
-      createdBy: dmytro.id, createdAt: monthDate(2025, 5, 7), updatedAt: monthDate(2025, 5, 10),
+      createdBy: dmytro.id,
+      createdAt: monthDate(2025, 5, 7),
+      updatedAt: monthDate(2025, 5, 10),
     })
     // Maksym May 2025
     for (const [project, amount] of [
-      [fermProject,     3700],
+      [fermProject, 3700],
       [onePunchProject, 4500],
-      [favbetProject,   5200],
+      [favbetProject, 5200],
     ] as [typeof fermProject, number][]) {
-      txBatch.push({ type: 'ADMIN_INCOME', status: 'PAID', amount: String(amount), currency: 'USD', senderId: null, senderLabel: project.companyName, receiverId: MAKSYM_ID, projectId: project.id, seniorSharePercent: 26, createdBy: MAKSYM_ID, createdAt: monthDate(2025, 5, 10), updatedAt: monthDate(2025, 5, 10) })
+      txBatch.push({
+        type: 'ADMIN_INCOME',
+        status: 'PAID',
+        amount: String(amount),
+        currency: 'USD',
+        senderId: null,
+        senderLabel: project.companyName,
+        receiverId: MAKSYM_ID,
+        projectId: project.id,
+        seniorSharePercent: 26,
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2025, 5, 10),
+        updatedAt: monthDate(2025, 5, 10),
+      })
     }
 
     // ── Expenses ────────────────────────────────────────────────────────────
     const expenses: NewTx[] = [
       // 2024
-      { type: 'EXPENSE', status: 'PAID', amount: '199', currency: 'USD', senderId: MAKSYM_ID, receiverLabel: 'Оплата сервиса', notes: 'AWS hosting Jan 2024', createdBy: MAKSYM_ID, createdAt: monthDate(2024, 1, 15), updatedAt: monthDate(2024, 1, 15) },
-      { type: 'EXPENSE', status: 'PAID', amount: '150', currency: 'USD', senderId: MAKSYM_ID, receiverLabel: 'Реклама', notes: 'LinkedIn ads Q1', createdBy: MAKSYM_ID, createdAt: monthDate(2024, 2, 10), updatedAt: monthDate(2024, 2, 10) },
-      { type: 'EXPENSE', status: 'PAID', amount: '89',  currency: 'USD', senderId: KOSTYA_ID, receiverLabel: 'Комиссия', notes: 'Platform fee Mar', createdBy: KOSTYA_ID, createdAt: monthDate(2024, 3, 8), updatedAt: monthDate(2024, 3, 8) },
-      { type: 'EXPENSE', status: 'PAID', amount: '300', currency: 'USD', senderId: MAKSYM_ID, receiverLabel: 'Аренда', notes: 'Office Apr 2024', createdBy: MAKSYM_ID, createdAt: monthDate(2024, 4, 1), updatedAt: monthDate(2024, 4, 1) },
-      { type: 'EXPENSE', status: 'PAID', amount: '250', currency: 'USD', senderId: KOSTYA_ID, receiverLabel: 'Реклама', notes: 'Google ads Q2', createdBy: KOSTYA_ID, createdAt: monthDate(2024, 5, 5), updatedAt: monthDate(2024, 5, 5) },
-      { type: 'EXPENSE', status: 'PAID', amount: '120', currency: 'USD', senderId: MAKSYM_ID, receiverLabel: 'Оплата сервиса', notes: 'GitHub Teams', createdBy: MAKSYM_ID, createdAt: monthDate(2024, 6, 12), updatedAt: monthDate(2024, 6, 12) },
-      { type: 'EXPENSE', status: 'PAID', amount: '300', currency: 'USD', senderId: MAKSYM_ID, receiverLabel: 'Аренда', notes: 'Office Jul 2024', createdBy: MAKSYM_ID, createdAt: monthDate(2024, 7, 1), updatedAt: monthDate(2024, 7, 1) },
-      { type: 'EXPENSE', status: 'PAID', amount: '199', currency: 'USD', senderId: MAKSYM_ID, receiverLabel: 'Оплата сервиса', notes: 'AWS hosting Aug', createdBy: MAKSYM_ID, createdAt: monthDate(2024, 8, 15), updatedAt: monthDate(2024, 8, 15) },
-      { type: 'EXPENSE', status: 'PAID', amount: '75',  currency: 'USD', senderId: KOSTYA_ID, receiverLabel: 'Комиссия', notes: 'Stripe fees Sep', createdBy: KOSTYA_ID, createdAt: monthDate(2024, 9, 5), updatedAt: monthDate(2024, 9, 5) },
-      { type: 'EXPENSE', status: 'PAID', amount: '300', currency: 'USD', senderId: MAKSYM_ID, receiverLabel: 'Аренда', notes: 'Office Oct 2024', createdBy: MAKSYM_ID, createdAt: monthDate(2024, 10, 1), updatedAt: monthDate(2024, 10, 1) },
-      { type: 'EXPENSE', status: 'PAID', amount: '400', currency: 'USD', senderId: KOSTYA_ID, receiverLabel: 'Реклама', notes: 'Conference Nov', createdBy: KOSTYA_ID, createdAt: monthDate(2024, 11, 20), updatedAt: monthDate(2024, 11, 20) },
-      { type: 'EXPENSE', status: 'PAID', amount: '199', currency: 'USD', senderId: MAKSYM_ID, receiverLabel: 'Оплата сервиса', notes: 'AWS hosting Dec', createdBy: MAKSYM_ID, createdAt: monthDate(2024, 12, 15), updatedAt: monthDate(2024, 12, 15) },
+      {
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '199',
+        currency: 'USD',
+        senderId: MAKSYM_ID,
+        receiverLabel: 'Оплата сервиса',
+        notes: 'AWS hosting Jan 2024',
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2024, 1, 15),
+        updatedAt: monthDate(2024, 1, 15),
+      },
+      {
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '150',
+        currency: 'USD',
+        senderId: MAKSYM_ID,
+        receiverLabel: 'Реклама',
+        notes: 'LinkedIn ads Q1',
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2024, 2, 10),
+        updatedAt: monthDate(2024, 2, 10),
+      },
+      {
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '89',
+        currency: 'USD',
+        senderId: KOSTYA_ID,
+        receiverLabel: 'Комиссия',
+        notes: 'Platform fee Mar',
+        createdBy: KOSTYA_ID,
+        createdAt: monthDate(2024, 3, 8),
+        updatedAt: monthDate(2024, 3, 8),
+      },
+      {
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '300',
+        currency: 'USD',
+        senderId: MAKSYM_ID,
+        receiverLabel: 'Аренда',
+        notes: 'Office Apr 2024',
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2024, 4, 1),
+        updatedAt: monthDate(2024, 4, 1),
+      },
+      {
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '250',
+        currency: 'USD',
+        senderId: KOSTYA_ID,
+        receiverLabel: 'Реклама',
+        notes: 'Google ads Q2',
+        createdBy: KOSTYA_ID,
+        createdAt: monthDate(2024, 5, 5),
+        updatedAt: monthDate(2024, 5, 5),
+      },
+      {
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '120',
+        currency: 'USD',
+        senderId: MAKSYM_ID,
+        receiverLabel: 'Оплата сервиса',
+        notes: 'GitHub Teams',
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2024, 6, 12),
+        updatedAt: monthDate(2024, 6, 12),
+      },
+      {
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '300',
+        currency: 'USD',
+        senderId: MAKSYM_ID,
+        receiverLabel: 'Аренда',
+        notes: 'Office Jul 2024',
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2024, 7, 1),
+        updatedAt: monthDate(2024, 7, 1),
+      },
+      {
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '199',
+        currency: 'USD',
+        senderId: MAKSYM_ID,
+        receiverLabel: 'Оплата сервиса',
+        notes: 'AWS hosting Aug',
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2024, 8, 15),
+        updatedAt: monthDate(2024, 8, 15),
+      },
+      {
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '75',
+        currency: 'USD',
+        senderId: KOSTYA_ID,
+        receiverLabel: 'Комиссия',
+        notes: 'Stripe fees Sep',
+        createdBy: KOSTYA_ID,
+        createdAt: monthDate(2024, 9, 5),
+        updatedAt: monthDate(2024, 9, 5),
+      },
+      {
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '300',
+        currency: 'USD',
+        senderId: MAKSYM_ID,
+        receiverLabel: 'Аренда',
+        notes: 'Office Oct 2024',
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2024, 10, 1),
+        updatedAt: monthDate(2024, 10, 1),
+      },
+      {
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '400',
+        currency: 'USD',
+        senderId: KOSTYA_ID,
+        receiverLabel: 'Реклама',
+        notes: 'Conference Nov',
+        createdBy: KOSTYA_ID,
+        createdAt: monthDate(2024, 11, 20),
+        updatedAt: monthDate(2024, 11, 20),
+      },
+      {
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '199',
+        currency: 'USD',
+        senderId: MAKSYM_ID,
+        receiverLabel: 'Оплата сервиса',
+        notes: 'AWS hosting Dec',
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2024, 12, 15),
+        updatedAt: monthDate(2024, 12, 15),
+      },
       // 2025
-      { type: 'EXPENSE', status: 'PAID', amount: '300', currency: 'USD', senderId: MAKSYM_ID, receiverLabel: 'Аренда', notes: 'Office Jan 2025', createdBy: MAKSYM_ID, createdAt: monthDate(2025, 1, 2), updatedAt: monthDate(2025, 1, 2) },
-      { type: 'EXPENSE', status: 'PAID', amount: '199', currency: 'USD', senderId: MAKSYM_ID, receiverLabel: 'Оплата сервиса', notes: 'AWS hosting Feb', createdBy: MAKSYM_ID, createdAt: monthDate(2025, 2, 15), updatedAt: monthDate(2025, 2, 15) },
-      { type: 'EXPENSE', status: 'PAID', amount: '500', currency: 'USD', senderId: KOSTYA_ID, receiverLabel: 'Реклама', notes: 'Q1 marketing push', createdBy: KOSTYA_ID, createdAt: monthDate(2025, 3, 3), updatedAt: monthDate(2025, 3, 3) },
-      { type: 'EXPENSE', status: 'PAID', amount: '300', currency: 'USD', senderId: MAKSYM_ID, receiverLabel: 'Аренда', notes: 'Office Apr 2025', createdBy: MAKSYM_ID, createdAt: monthDate(2025, 4, 1), updatedAt: monthDate(2025, 4, 1) },
-      { type: 'EXPENSE', status: 'PAID', amount: '120', currency: 'USD', senderId: MAKSYM_ID, receiverLabel: 'Прочее', notes: 'Team lunch May', createdBy: MAKSYM_ID, createdAt: monthDate(2025, 5, 5), updatedAt: monthDate(2025, 5, 5) },
+      {
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '300',
+        currency: 'USD',
+        senderId: MAKSYM_ID,
+        receiverLabel: 'Аренда',
+        notes: 'Office Jan 2025',
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2025, 1, 2),
+        updatedAt: monthDate(2025, 1, 2),
+      },
+      {
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '199',
+        currency: 'USD',
+        senderId: MAKSYM_ID,
+        receiverLabel: 'Оплата сервиса',
+        notes: 'AWS hosting Feb',
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2025, 2, 15),
+        updatedAt: monthDate(2025, 2, 15),
+      },
+      {
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '500',
+        currency: 'USD',
+        senderId: KOSTYA_ID,
+        receiverLabel: 'Реклама',
+        notes: 'Q1 marketing push',
+        createdBy: KOSTYA_ID,
+        createdAt: monthDate(2025, 3, 3),
+        updatedAt: monthDate(2025, 3, 3),
+      },
+      {
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '300',
+        currency: 'USD',
+        senderId: MAKSYM_ID,
+        receiverLabel: 'Аренда',
+        notes: 'Office Apr 2025',
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2025, 4, 1),
+        updatedAt: monthDate(2025, 4, 1),
+      },
+      {
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '120',
+        currency: 'USD',
+        senderId: MAKSYM_ID,
+        receiverLabel: 'Прочее',
+        notes: 'Team lunch May',
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2025, 5, 5),
+        updatedAt: monthDate(2025, 5, 5),
+      },
     ]
     txBatch.push(...expenses)
 
@@ -808,10 +1302,14 @@ async function main() {
     for (let mo = 1; mo <= 12; mo++) {
       for (const [employee, salary] of salaryTargets) {
         txBatch.push({
-          type: 'SALARY', status: 'PAID', amount: salary, currency: 'USD',
-          senderId: MAKSYM_ID, receiverId: employee.id,
+          type: 'SALARY',
+          status: 'PAID',
+          amount: salary,
+          currency: 'USD',
+          senderId: MAKSYM_ID,
+          receiverId: employee.id,
           salaryMonth: `2024-${String(mo).padStart(2, '0')}`,
-          notes: `Salary ${employee.displayName} ${String(mo).padStart(2,'0')}/2024`,
+          notes: `Salary ${employee.displayName} ${String(mo).padStart(2, '0')}/2024`,
           createdBy: MAKSYM_ID,
           createdAt: monthDate(2024, mo, 28),
           updatedAt: monthDate(2024, mo, 28),
@@ -822,8 +1320,12 @@ async function main() {
     for (let mo = 1; mo <= 3; mo++) {
       for (const [employee, salary] of salaryTargets) {
         txBatch.push({
-          type: 'SALARY', status: 'PAID', amount: salary, currency: 'USD',
-          senderId: MAKSYM_ID, receiverId: employee.id,
+          type: 'SALARY',
+          status: 'PAID',
+          amount: salary,
+          currency: 'USD',
+          senderId: MAKSYM_ID,
+          receiverId: employee.id,
           salaryMonth: `2025-${String(mo).padStart(2, '0')}`,
           createdBy: MAKSYM_ID,
           createdAt: monthDate(2025, mo, 28),
@@ -834,8 +1336,12 @@ async function main() {
     // April 2025 salaries — PENDING (cron runs on May 1st, creates for previous month = April)
     for (const [employee, salary] of salaryTargets) {
       txBatch.push({
-        type: 'SALARY', status: 'PENDING', amount: salary, currency: 'USD',
-        senderId: MAKSYM_ID, receiverId: employee.id,
+        type: 'SALARY',
+        status: 'PENDING',
+        amount: salary,
+        currency: 'USD',
+        senderId: MAKSYM_ID,
+        receiverId: employee.id,
         salaryMonth: '2025-04',
         createdBy: MAKSYM_ID,
         createdAt: monthDate(2025, 5, 1),
@@ -847,46 +1353,125 @@ async function main() {
     // 2024: both active
     for (let mo = 1; mo <= 12; mo++) {
       txBatch.push({
-        type: 'SALARY', status: 'PAID', amount: '500', currency: 'USD',
-        senderId: MAKSYM_ID, receiverId: sofia.id,
+        type: 'SALARY',
+        status: 'PAID',
+        amount: '500',
+        currency: 'USD',
+        senderId: MAKSYM_ID,
+        receiverId: sofia.id,
         salaryMonth: `2024-${String(mo).padStart(2, '0')}`,
         txHash: `0xJR_SOFIA_2024_${mo}`,
-        createdBy: MAKSYM_ID, createdAt: monthDate(2024, mo, 28), updatedAt: monthDate(2024, mo, 28),
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2024, mo, 28),
+        updatedAt: monthDate(2024, mo, 28),
       })
       // Ivan paid manually
       txBatch.push({
-        type: 'SALARY', status: 'PAID', amount: '600', currency: 'USD',
-        senderId: MAKSYM_ID, receiverId: ivan.id,
+        type: 'SALARY',
+        status: 'PAID',
+        amount: '600',
+        currency: 'USD',
+        senderId: MAKSYM_ID,
+        receiverId: ivan.id,
         salaryMonth: `2024-${String(mo).padStart(2, '0')}`,
         notes: 'Paid manually (no wallet)',
-        createdBy: MAKSYM_ID, createdAt: monthDate(2024, mo, 28), updatedAt: monthDate(2024, mo, 28),
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2024, mo, 28),
+        updatedAt: monthDate(2024, mo, 28),
       })
     }
     for (let mo = 1; mo <= 3; mo++) {
       txBatch.push({
-        type: 'SALARY', status: 'PAID', amount: '500', currency: 'USD',
-        senderId: MAKSYM_ID, receiverId: sofia.id,
+        type: 'SALARY',
+        status: 'PAID',
+        amount: '500',
+        currency: 'USD',
+        senderId: MAKSYM_ID,
+        receiverId: sofia.id,
         salaryMonth: `2025-${String(mo).padStart(2, '0')}`,
         txHash: `0xJR_SOFIA_2025_${mo}`,
-        createdBy: MAKSYM_ID, createdAt: monthDate(2025, mo, 28), updatedAt: monthDate(2025, mo, 28),
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2025, mo, 28),
+        updatedAt: monthDate(2025, mo, 28),
       })
       txBatch.push({
-        type: 'SALARY', status: 'PAID', amount: '600', currency: 'USD',
-        senderId: MAKSYM_ID, receiverId: ivan.id,
+        type: 'SALARY',
+        status: 'PAID',
+        amount: '600',
+        currency: 'USD',
+        senderId: MAKSYM_ID,
+        receiverId: ivan.id,
         salaryMonth: `2025-${String(mo).padStart(2, '0')}`,
         notes: 'Paid manually',
-        createdBy: MAKSYM_ID, createdAt: monthDate(2025, mo, 28), updatedAt: monthDate(2025, mo, 28),
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2025, mo, 28),
+        updatedAt: monthDate(2025, mo, 28),
       })
     }
     // April 2025 — Sofia PENDING, Ivan LOCKED (cron May 1st → salary for April)
-    txBatch.push({ type: 'SALARY', status: 'PENDING', amount: '500', currency: 'USD', senderId: MAKSYM_ID, receiverId: sofia.id, salaryMonth: '2025-04', createdBy: MAKSYM_ID, createdAt: monthDate(2025, 5, 1), updatedAt: monthDate(2025, 5, 1) })
-    txBatch.push({ type: 'SALARY', status: 'LOCKED', amount: '600', currency: 'USD', senderId: MAKSYM_ID, receiverId: ivan.id, salaryMonth: '2025-04', createdBy: MAKSYM_ID, createdAt: monthDate(2025, 5, 1), updatedAt: monthDate(2025, 5, 1) })
+    txBatch.push({
+      type: 'SALARY',
+      status: 'PENDING',
+      amount: '500',
+      currency: 'USD',
+      senderId: MAKSYM_ID,
+      receiverId: sofia.id,
+      salaryMonth: '2025-04',
+      createdBy: MAKSYM_ID,
+      createdAt: monthDate(2025, 5, 1),
+      updatedAt: monthDate(2025, 5, 1),
+    })
+    txBatch.push({
+      type: 'SALARY',
+      status: 'LOCKED',
+      amount: '600',
+      currency: 'USD',
+      senderId: MAKSYM_ID,
+      receiverId: ivan.id,
+      salaryMonth: '2025-04',
+      createdBy: MAKSYM_ID,
+      createdAt: monthDate(2025, 5, 1),
+      updatedAt: monthDate(2025, 5, 1),
+    })
 
     // ── Admin transfers ──────────────────────────────────────────────────────
     txBatch.push(
-      { type: 'ADMIN_TRANSFER', status: 'PAID', amount: '1200', currency: 'USD', senderId: KOSTYA_ID, receiverId: MAKSYM_ID, notes: 'Q1 equalization', createdBy: KOSTYA_ID, createdAt: monthDate(2024, 4, 2), updatedAt: monthDate(2024, 4, 2) },
-      { type: 'ADMIN_TRANSFER', status: 'PAID', amount: '800', currency: 'USD', senderId: MAKSYM_ID, receiverId: KOSTYA_ID, notes: 'Q3 balance top-up', createdBy: MAKSYM_ID, createdAt: monthDate(2024, 10, 5), updatedAt: monthDate(2024, 10, 5) },
-      { type: 'ADMIN_TRANSFER', status: 'PAID', amount: '1500', currency: 'USD', senderId: KOSTYA_ID, receiverId: MAKSYM_ID, notes: 'Year-end settlement', createdBy: KOSTYA_ID, createdAt: monthDate(2025, 1, 15), updatedAt: monthDate(2025, 1, 15) },
+      {
+        type: 'ADMIN_TRANSFER',
+        status: 'PAID',
+        amount: '1200',
+        currency: 'USD',
+        senderId: KOSTYA_ID,
+        receiverId: MAKSYM_ID,
+        notes: 'Q1 equalization',
+        createdBy: KOSTYA_ID,
+        createdAt: monthDate(2024, 4, 2),
+        updatedAt: monthDate(2024, 4, 2),
+      },
+      {
+        type: 'ADMIN_TRANSFER',
+        status: 'PAID',
+        amount: '800',
+        currency: 'USD',
+        senderId: MAKSYM_ID,
+        receiverId: KOSTYA_ID,
+        notes: 'Q3 balance top-up',
+        createdBy: MAKSYM_ID,
+        createdAt: monthDate(2024, 10, 5),
+        updatedAt: monthDate(2024, 10, 5),
+      },
+      {
+        type: 'ADMIN_TRANSFER',
+        status: 'PAID',
+        amount: '1500',
+        currency: 'USD',
+        senderId: KOSTYA_ID,
+        receiverId: MAKSYM_ID,
+        notes: 'Year-end settlement',
+        createdBy: KOSTYA_ID,
+        createdAt: monthDate(2025, 1, 15),
+        updatedAt: monthDate(2025, 1, 15),
+      },
     )
 
     // Insert payout requests first (transactions reference them)
@@ -915,14 +1500,84 @@ async function main() {
 
     if (oleksiy && dmytro && anna) {
       const interviewSeed: schema.NewInterview[] = [
-        { seniorId: oleksiy.id, hrId: anna.id, companyName: 'GlobalTech', vacancyUrl: 'https://globaltech.com/jobs/senior-dev', stage: 'HR_SCREEN', position: 0 },
-        { seniorId: oleksiy.id, hrId: anna.id, companyName: 'DataCorp', vacancyUrl: 'https://datacorp.io/careers/fullstack', stage: 'TECH_INTERVIEW', position: 0, notesDomain: 'Data Engineering', notesTechStack: 'Python, Spark, Kafka' },
-        { seniorId: oleksiy.id, hrId: anna.id, companyName: 'AIStartup', vacancyUrl: 'https://aistartup.ai/roles/lead', stage: 'OFFER_RECEIVED', position: 0, notesDomain: 'AI / ML', notesTechStack: 'Python, FastAPI, PyTorch', notesPaymentType: 'гиг-контракт', notesSalaryReview: 'через 6 місяців' },
-        { seniorId: oleksiy.id, hrId: anna.id, companyName: 'CloudSystems', stage: 'HIRED', position: 0, notesDomain: 'Cloud / DevOps', notesTechStack: 'AWS, Terraform, Node.js', notesPaymentType: 'ФОП' },
-        { seniorId: dmytro.id, hrId: anna.id, companyName: 'WebAgency', vacancyUrl: 'https://webagency.com/jobs/react-dev', stage: 'HR_SCREEN', position: 0 },
-        { seniorId: dmytro.id, hrId: anna.id, companyName: 'FinTech Ltd', vacancyUrl: 'https://fintech.com/careers', stage: 'ENGLISH_CHECK', position: 0, notesDomain: 'FinTech', notesTechStack: 'React, TypeScript, Node.js' },
-        { seniorId: dmytro.id, hrId: anna.id, companyName: 'EdTechPro', vacancyUrl: 'https://edtechpro.com/jobs/senior', stage: 'FINAL_INTERVIEW', position: 0, notesDomain: 'EdTech', notesTechStack: 'Vue.js, Python, PostgreSQL', notesBenefits: '25 days vacation, health insurance', notesPaymentType: 'крипта' },
-        { seniorId: dmytro.id, hrId: anna.id, companyName: 'OldCompany', stage: 'REJECTED', position: 0, notesGeneral: 'Не прошёл технический этап' },
+        {
+          seniorId: oleksiy.id,
+          hrId: anna.id,
+          companyName: 'GlobalTech',
+          vacancyUrl: 'https://globaltech.com/jobs/senior-dev',
+          stage: 'HR_SCREEN',
+          position: 0,
+        },
+        {
+          seniorId: oleksiy.id,
+          hrId: anna.id,
+          companyName: 'DataCorp',
+          vacancyUrl: 'https://datacorp.io/careers/fullstack',
+          stage: 'TECH_INTERVIEW',
+          position: 0,
+          notesDomain: 'Data Engineering',
+          notesTechStack: 'Python, Spark, Kafka',
+        },
+        {
+          seniorId: oleksiy.id,
+          hrId: anna.id,
+          companyName: 'AIStartup',
+          vacancyUrl: 'https://aistartup.ai/roles/lead',
+          stage: 'OFFER_RECEIVED',
+          position: 0,
+          notesDomain: 'AI / ML',
+          notesTechStack: 'Python, FastAPI, PyTorch',
+          notesPaymentType: 'гиг-контракт',
+          notesSalaryReview: 'через 6 місяців',
+        },
+        {
+          seniorId: oleksiy.id,
+          hrId: anna.id,
+          companyName: 'CloudSystems',
+          stage: 'HIRED',
+          position: 0,
+          notesDomain: 'Cloud / DevOps',
+          notesTechStack: 'AWS, Terraform, Node.js',
+          notesPaymentType: 'ФОП',
+        },
+        {
+          seniorId: dmytro.id,
+          hrId: anna.id,
+          companyName: 'WebAgency',
+          vacancyUrl: 'https://webagency.com/jobs/react-dev',
+          stage: 'HR_SCREEN',
+          position: 0,
+        },
+        {
+          seniorId: dmytro.id,
+          hrId: anna.id,
+          companyName: 'FinTech Ltd',
+          vacancyUrl: 'https://fintech.com/careers',
+          stage: 'ENGLISH_CHECK',
+          position: 0,
+          notesDomain: 'FinTech',
+          notesTechStack: 'React, TypeScript, Node.js',
+        },
+        {
+          seniorId: dmytro.id,
+          hrId: anna.id,
+          companyName: 'EdTechPro',
+          vacancyUrl: 'https://edtechpro.com/jobs/senior',
+          stage: 'FINAL_INTERVIEW',
+          position: 0,
+          notesDomain: 'EdTech',
+          notesTechStack: 'Vue.js, Python, PostgreSQL',
+          notesBenefits: '25 days vacation, health insurance',
+          notesPaymentType: 'крипта',
+        },
+        {
+          seniorId: dmytro.id,
+          hrId: anna.id,
+          companyName: 'OldCompany',
+          stage: 'REJECTED',
+          position: 0,
+          notesGeneral: 'Не прошёл технический этап',
+        },
       ]
       await db.insert(schema.interviews).values(interviewSeed)
       console.log(`  + seeded ${interviewSeed.length} interviews`)
@@ -1004,8 +1659,12 @@ async function main() {
       ): schema.NewDocument => {
         const id = crypto.randomUUID()
         const ext = opts.ext ?? (category === 'SCAN' || category === 'RECEIPT' ? 'jpg' : 'pdf')
-        const mime = opts.mime ?? (ext === 'pdf' ? 'application/pdf' : ext === 'jpg' ? 'image/jpeg' : 'image/png')
-        const name = opts.name ?? `${category.toLowerCase()}-${owner.displayName.split(' ')[0]?.toLowerCase() ?? 'doc'}.${ext}`
+        const mime =
+          opts.mime ??
+          (ext === 'pdf' ? 'application/pdf' : ext === 'jpg' ? 'image/jpeg' : 'image/png')
+        const name =
+          opts.name ??
+          `${category.toLowerCase()}-${owner.displayName.split(' ')[0]?.toLowerCase() ?? 'doc'}.${ext}`
         return {
           id,
           ownerId: owner.id,
@@ -1039,8 +1698,8 @@ async function main() {
       docs.push(mintRow('SCAN', adminMaksym))
       docs.push(mintRow('SCAN', oleksiy))
       docs.push(mintRow('SCAN', dmytro))
-      docs.push(mintRow('SCAN', sofia, { uploadedBy: anna.id }))  // HR uploaded for junior
-      docs.push(mintRow('SCAN', ivan, { uploadedBy: anna.id }))   // HR uploaded for junior
+      docs.push(mintRow('SCAN', sofia, { uploadedBy: anna.id })) // HR uploaded for junior
+      docs.push(mintRow('SCAN', ivan, { uploadedBy: anna.id })) // HR uploaded for junior
       docs.push(mintRow('SCAN', kateryna))
 
       // CONTRACT (4) — one per active project; ownerId = senior, projectId set
@@ -1051,7 +1710,8 @@ async function main() {
       if (aiProject) docs.push(mintRow('CONTRACT', oleksiy, { projectId: aiProject.id }))
       if (edtechProject) docs.push(mintRow('CONTRACT', dmytro, { projectId: edtechProject.id }))
       if (fermProject) docs.push(mintRow('CONTRACT', adminMaksym, { projectId: fermProject.id }))
-      if (onePunchProject) docs.push(mintRow('CONTRACT', adminMaksym, { projectId: onePunchProject.id }))
+      if (onePunchProject)
+        docs.push(mintRow('CONTRACT', adminMaksym, { projectId: onePunchProject.id }))
 
       // RECEIPT (12) — owner = sender of the transaction. We don't write the
       // FK transactions.receipt_document_id here (that column does not exist
@@ -1079,7 +1739,14 @@ async function main() {
       // stay logo-less to cover the placeholder code path.
       const artkaiProject = byProjectName['Artkai']
       const favbetProject = byProjectName['Фавбет']
-      const projectsForLogo = [aiProject, edtechProject, fermProject, onePunchProject, artkaiProject, favbetProject]
+      const projectsForLogo = [
+        aiProject,
+        edtechProject,
+        fermProject,
+        onePunchProject,
+        artkaiProject,
+        favbetProject,
+      ]
       const projectIdToLogoDocId = new Map<string, string>()
       for (const project of projectsForLogo) {
         if (!project) continue
@@ -1116,14 +1783,22 @@ async function main() {
       // 1 untouched (placeholder). Avoids the XOR check failing — we never
       // set both columns on the same row.
       const logoExternalAssignments: Array<{ projectId: string; url: string }> = []
-      if (aiProject) logoExternalAssignments.push({ projectId: aiProject.id, url: 'https://example.com/logos/ai-platform.svg' })
-      if (favbetProject) logoExternalAssignments.push({ projectId: favbetProject.id, url: 'https://favbet.com/logo.svg' })
+      if (aiProject)
+        logoExternalAssignments.push({
+          projectId: aiProject.id,
+          url: 'https://example.com/logos/ai-platform.svg',
+        })
+      if (favbetProject)
+        logoExternalAssignments.push({
+          projectId: favbetProject.id,
+          url: 'https://favbet.com/logo.svg',
+        })
 
-      const wireDocsForProjects = new Set([
-        edtechProject?.id,
-        fermProject?.id,
-        onePunchProject?.id,
-      ].filter((v): v is string => Boolean(v)))
+      const wireDocsForProjects = new Set(
+        [edtechProject?.id, fermProject?.id, onePunchProject?.id].filter((v): v is string =>
+          Boolean(v),
+        ),
+      )
 
       for (const [projectId, docId] of projectIdToLogoDocId.entries()) {
         if (!wireDocsForProjects.has(projectId)) continue
@@ -1138,7 +1813,9 @@ async function main() {
           .set({ logoExternalUrl: url, updatedAt: new Date() })
           .where(eq(schema.projects.id, projectId))
       }
-      console.log(`  + wired logo: ${wireDocsForProjects.size} via doc, ${logoExternalAssignments.length} via external url`)
+      console.log(
+        `  + wired logo: ${wireDocsForProjects.size} via doc, ${logoExternalAssignments.length} via external url`,
+      )
 
       // Best-effort: push the real sample PDF into MinIO under each PDF
       // row's s3_key. Image-MIME rows are skipped (the fixture is a PDF;
@@ -1179,9 +1856,7 @@ async function main() {
             if (failed === 1) {
               // Log only the first failure to avoid a flood — the seed
               // can still finish even if MinIO is unhappy.
-              console.warn(
-                `  ! S3 upload failed for ${d.s3Key}: ${(err as Error).message}`,
-              )
+              console.warn(`  ! S3 upload failed for ${d.s3Key}: ${(err as Error).message}`)
             }
           }
         }
@@ -1190,16 +1865,142 @@ async function main() {
             (failed ? `, ${failed} failed` : ''),
         )
       } else if (!samplePdfBytes) {
-        console.warn(
-          `  ! sample-receipt-real.pdf missing at ${samplePdfPath} — skipped S3 uploads`,
-        )
+        console.warn(`  ! sample-receipt-real.pdf missing at ${samplePdfPath} — skipped S3 uploads`)
       } else {
-        console.log(
-          '  ~ S3 env vars not set (S3_ENDPOINT/S3_BUCKET/AWS_*) — skipped S3 uploads',
-        )
+        console.log('  ~ S3 env vars not set (S3_ENDPOINT/S3_BUCKET/AWS_*) — skipped S3 uploads')
       }
     } else {
       console.warn('  ! Missing required seed users — documents seed skipped')
+    }
+  }
+
+  // ── Onboarding seed (Phase 6A) ────────────────────────────────────────────
+  //
+  // Five MSA contract_templates (one per non-ADMIN role: HR, SENIOR, JUNIOR,
+  // DROP, ACCOUNTANT) + one ToS v1, all is_active=true. Bodies are
+  // placeholder Markdown with `{{variable}}` substitution markers — ADMIN
+  // edits real content later through `/crm/admin/templates/*` (Phase 6C).
+  //
+  // Idempotent: skip per-role if a row already exists for that role.
+  console.log('Seeding onboarding (contract templates + ToS)...')
+  const adminCreator = byEmail['yaremenkomaksym99@gmail.com']
+  if (!adminCreator) {
+    console.warn('  ! Maksym (admin) not found — onboarding seed skipped')
+  } else {
+    const contractTemplateBodies: Record<
+      'HR' | 'SENIOR' | 'JUNIOR' | 'DROP' | 'ACCOUNTANT',
+      string
+    > = {
+      HR:
+        '# Master Service Agreement — HR Specialist\n\n' +
+        '**Виконавець:** {{employeeName}} ({{employeeEmail}})\n' +
+        '**Дата онбордингу:** {{onboardingDate}}\n' +
+        '**Замовник:** {{companyName}}\n\n' +
+        '## Платіжні реквізити\n\n' +
+        '- USDT (ERC-20): {{walletUsdt}}\n' +
+        '- ФОП (UAH): {{bankUahFop}}\n' +
+        '- Метод оплати за замовчуванням: {{preferredMethod}}\n\n' +
+        '## Умови співпраці\n\n' +
+        'Заглушка для початкового запуску. Адміністратор оновить тіло через ' +
+        '`/crm/admin/templates/contracts/HR`.',
+      SENIOR:
+        '# Master Service Agreement — Senior Engineer\n\n' +
+        '**Виконавець:** {{employeeName}} ({{employeeEmail}})\n' +
+        '**Дата онбордингу:** {{onboardingDate}}\n' +
+        '**Замовник:** {{companyName}}\n\n' +
+        '## Платіжні реквізити\n\n' +
+        '- USDT (ERC-20): {{walletUsdt}}\n' +
+        '- ФОП (UAH): {{bankUahFop}}\n' +
+        '- Метод оплати за замовчуванням: {{preferredMethod}}\n\n' +
+        '## Умови співпраці\n\n' +
+        'Заглушка для початкового запуску. Адміністратор оновить тіло через ' +
+        '`/crm/admin/templates/contracts/SENIOR`.\n\n' +
+        'Підписант: ____________________',
+      JUNIOR:
+        '# Master Service Agreement — Junior Developer\n\n' +
+        '**Виконавець:** {{employeeName}} ({{employeeEmail}})\n' +
+        '**Дата онбордингу:** {{onboardingDate}}\n' +
+        '**Замовник:** {{companyName}}\n\n' +
+        '## Платіжні реквізити\n\n' +
+        '- USDT (ERC-20): {{walletUsdt}}\n' +
+        '- ФОП (UAH): {{bankUahFop}}\n' +
+        '- Метод оплати за замовчуванням: {{preferredMethod}}\n\n' +
+        '## Умови співпраці\n\n' +
+        'Заглушка для початкового запуску. Адміністратор оновить тіло через ' +
+        '`/crm/admin/templates/contracts/JUNIOR`.',
+      DROP:
+        '# Master Service Agreement — Drop\n\n' +
+        '**Виконавець:** {{employeeName}} ({{employeeEmail}})\n' +
+        '**Дата онбордингу:** {{onboardingDate}}\n' +
+        '**Замовник:** {{companyName}}\n\n' +
+        '## Платіжні реквізити\n\n' +
+        '- USDT (ERC-20): {{walletUsdt}}\n' +
+        '- ФОП (UAH): {{bankUahFop}}\n' +
+        '- Метод оплати за замовчуванням: {{preferredMethod}}\n\n' +
+        '## Умови співпраці\n\n' +
+        'Заглушка для початкового запуску. Адміністратор оновить тіло через ' +
+        '`/crm/admin/templates/contracts/DROP`.',
+      ACCOUNTANT:
+        '# Master Service Agreement — Accountant\n\n' +
+        '**Виконавець:** {{employeeName}} ({{employeeEmail}})\n' +
+        '**Дата онбордингу:** {{onboardingDate}}\n' +
+        '**Замовник:** {{companyName}}\n\n' +
+        '## Платіжні реквізити\n\n' +
+        '- USDT (ERC-20): {{walletUsdt}}\n' +
+        '- ФОП (UAH): {{bankUahFop}}\n' +
+        '- Метод оплати за замовчуванням: {{preferredMethod}}\n\n' +
+        '## Умови співпраці\n\n' +
+        'Заглушка для початкового запуску. Адміністратор оновить тіло через ' +
+        '`/crm/admin/templates/contracts/ACCOUNTANT`.',
+    }
+
+    const existingTemplates = await db.select().from(schema.contractTemplates)
+    const existingRoles = new Set(existingTemplates.map((t) => t.targetRole))
+    let templatesInserted = 0
+    for (const role of ['HR', 'SENIOR', 'JUNIOR', 'DROP', 'ACCOUNTANT'] as const) {
+      if (existingRoles.has(role)) {
+        console.log(`  ~ template for ${role} already exists, skipping`)
+        continue
+      }
+      await db.insert(schema.contractTemplates).values({
+        targetRole: role,
+        version: 1,
+        bodyMarkdown: contractTemplateBodies[role],
+        isActive: true,
+        createdByUserId: adminCreator.id,
+      })
+      templatesInserted += 1
+      console.log(`  + ${role} contract template v1 (active)`)
+    }
+    if (templatesInserted === 0) console.log('  ~ no new templates inserted')
+
+    const existingTosCount = await db.$count(schema.tosVersions)
+    if (existingTosCount > 0) {
+      console.log('  ~ ToS already seeded, skipping')
+    } else {
+      const tosBody =
+        '# Terms of Service — Cheeky Cheese IT\n\n' +
+        'Версия 1 — стартовая заглушка. Полный текст утвердит ADMIN через ' +
+        '`/crm/admin/templates/tos`.\n\n' +
+        '## 1. Загальні положення\n\n' +
+        'Используя CRM, вы соглашаетесь с правилами обработки данных и ' +
+        'конфиденциальностью.\n\n' +
+        "## 2. Обов'язки користувача\n\n" +
+        'Сотрудник обязуется выполнять задачи добросовестно и не нарушать ' +
+        'конфиденциальность данных клиентов.\n\n' +
+        '## 3. Контактна інформація\n\n' +
+        'По вопросам обращаться к ADMIN через CRM.\n\n' +
+        '## 4. Зміни\n\n' +
+        'Новые версии ToS будут публиковаться через CRM; пользователю придёт ' +
+        'soft-notify банер с ссылкой на чтение.'
+
+      await db.insert(schema.tosVersions).values({
+        version: 1,
+        bodyMarkdown: tosBody,
+        isActive: true,
+        createdByUserId: adminCreator.id,
+      })
+      console.log('  + ToS v1 (active)')
     }
   }
 

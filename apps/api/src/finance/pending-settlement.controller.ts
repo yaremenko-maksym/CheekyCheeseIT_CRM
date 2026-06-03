@@ -16,14 +16,13 @@
  * holds debts to seniors — the senior share is owed by the company itself
  * and closed by ADMIN/ACCOUNTANT only.
  */
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Param, Post } from '@nestjs/common'
 import { settleObligationParamSchema } from '@crm/shared'
 import type { SessionUser } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
-import { JwtAuthGuard } from '../auth/jwt.guard'
 import { PendingSettlementService } from './pending-settlement.service'
 
-@UseGuards(JwtAuthGuard)
+// Auth enforced by global JwtAuthGuard (see AppModule APP_GUARD).
 @Controller('pending-settlements')
 export class PendingSettlementController {
   constructor(private readonly svc: PendingSettlementService) {}

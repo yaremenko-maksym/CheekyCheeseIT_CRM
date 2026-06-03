@@ -12,10 +12,9 @@
  *
  * Mounted alongside the legacy `FinanceSummaryController` in `FinanceModule`.
  */
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common'
+import { Controller, Get, Param, Query } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
-import { JwtAuthGuard } from '../auth/jwt.guard'
 import {
   BalanceService,
   type BalanceCurrency,
@@ -30,7 +29,7 @@ function parseCurrency(input: string | undefined): BalanceCurrency {
   return SUPPORTED_CURRENCIES.includes(normalised) ? normalised : 'USD'
 }
 
-@UseGuards(JwtAuthGuard)
+// Auth enforced by global JwtAuthGuard (see AppModule APP_GUARD).
 @Controller('balances')
 export class BalanceController {
   constructor(private readonly balance: BalanceService) {}
@@ -61,7 +60,7 @@ export class BalanceController {
  * BalanceController) so URL grouping reads naturally — balances are an
  * aggregate, pending obligations are an entity list with its own lifecycle.
  */
-@UseGuards(JwtAuthGuard)
+// Auth enforced by global JwtAuthGuard (see AppModule APP_GUARD).
 @Controller('pending-obligations')
 export class PendingObligationsController {
   constructor(private readonly balance: BalanceService) {}

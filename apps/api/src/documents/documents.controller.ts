@@ -26,7 +26,6 @@ import {
   Post,
   Query,
   Req,
-  UseGuards,
 } from '@nestjs/common'
 import type { FastifyRequest } from 'fastify'
 import {
@@ -36,7 +35,6 @@ import {
   type SessionUser,
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
-import { JwtAuthGuard } from '../auth/jwt.guard'
 import { DocumentsService } from './documents.service'
 
 /** Minimal shape of a multipart field as returned by @fastify/multipart. */
@@ -49,8 +47,8 @@ interface MultipartField {
   filename?: string
 }
 
+// Auth enforced by global JwtAuthGuard (see AppModule APP_GUARD).
 @Controller('documents')
-@UseGuards(JwtAuthGuard)
 export class DocumentsController {
   constructor(private readonly documentsService: DocumentsService) {}
 
@@ -125,10 +123,7 @@ export class DocumentsController {
   // ---------------------------------------------------------------------------
 
   @Get(':id/download')
-  download(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: SessionUser,
-  ) {
+  download(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
     return this.documentsService.getDownloadUrl(user, id)
   }
 
@@ -143,10 +138,7 @@ export class DocumentsController {
    * back to a category icon on the 204 response.
    */
   @Get(':id/thumbnail')
-  async thumbnail(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: SessionUser,
-  ) {
+  async thumbnail(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
     const result = await this.documentsService.getThumbnailUrl(user, id)
     if (!result) {
       // Returning null short-circuits to a JSON null body which the frontend
@@ -175,10 +167,7 @@ export class DocumentsController {
   // ---------------------------------------------------------------------------
 
   @Post(':id/restore')
-  restore(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: SessionUser,
-  ) {
+  restore(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
     return this.documentsService.restore(user, id)
   }
 
@@ -194,5 +183,4 @@ export class DocumentsController {
   ): Promise<void> {
     await this.documentsService.hardDelete(user, id)
   }
-
 }

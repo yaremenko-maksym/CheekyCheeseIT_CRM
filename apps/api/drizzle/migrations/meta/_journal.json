@@ -190,6 +190,13 @@
       "when": 1781700000000,
       "tag": "0026_company_debtor",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1781800000000,
+      "tag": "0027_onboarding",
+      "breakpoints": true
     }
   ]
 }

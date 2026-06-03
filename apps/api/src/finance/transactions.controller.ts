@@ -1,15 +1,4 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  Param,
-  Patch,
-  Post,
-  Query,
-  UseGuards,
-} from '@nestjs/common'
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
 import {
   adminUpdateTransactionSchema,
@@ -28,11 +17,11 @@ import {
   validateTransactionSchema,
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
-import { JwtAuthGuard } from '../auth/jwt.guard'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { TransactionsService } from './transactions.service'
 
-@UseGuards(JwtAuthGuard)
+// Auth enforced by global JwtAuthGuard (see AppModule APP_GUARD) for all
+// controllers in this file.
 @Controller('transactions')
 export class TransactionsController {
   constructor(private readonly svc: TransactionsService) {}
@@ -169,7 +158,6 @@ export class TransactionsController {
   }
 }
 
-@UseGuards(JwtAuthGuard)
 @Controller('payout-requests')
 export class PayoutRequestsController {
   constructor(private readonly svc: TransactionsService) {}
@@ -204,7 +192,6 @@ export class PayoutRequestsController {
   }
 }
 
-@UseGuards(JwtAuthGuard)
 @Controller('finance')
 export class FinanceSummaryController {
   constructor(
@@ -224,7 +211,6 @@ export class FinanceSummaryController {
   }
 }
 
-@UseGuards(JwtAuthGuard)
 @Controller('projects/:projectId/finance-settings')
 export class ProjectFinanceSettingsController {
   constructor(private readonly svc: TransactionsService) {}

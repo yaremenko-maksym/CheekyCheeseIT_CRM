@@ -11,7 +11,6 @@ import {
   Req,
   Res,
   UnauthorizedException,
-  UseGuards,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { JwtService } from '@nestjs/jwt'
@@ -22,7 +21,7 @@ import type { Env } from '../config/env'
 import { UsersService } from '../users/users.service'
 import { AuthService } from './auth.service'
 import { CurrentUser } from './current-user.decorator'
-import { JwtAuthGuard } from './jwt.guard'
+import { Public } from './public.decorator'
 
 const STATE_COOKIE = 'oauth_state'
 const JWT_COOKIE = 'jwt'
@@ -45,6 +44,7 @@ export class AuthController {
   }
 
   @Get('google')
+  @Public()
   async initiateGoogleAuth(@Res() reply: FastifyReply) {
     const state = randomBytes(16).toString('hex')
     const authUrl = this.authService.buildGoogleAuthUrl(state)
@@ -60,6 +60,7 @@ export class AuthController {
   }
 
   @Get('google/callback')
+  @Public()
   async googleCallback(
     @Query('code') code: string,
     @Query('state') state: string,
@@ -117,8 +118,8 @@ export class AuthController {
     await reply.redirect(`${this.frontendUrl}/crm`, 302)
   }
 
+  // `/me` requires auth (no @Public) — caller is the global JwtAuthGuard now.
   @Get('me')
-  @UseGuards(JwtAuthGuard)
   async me(@CurrentUser() user: ReturnType<typeof sessionUserSchema.parse>) {
     // Re-hydrate latest displayName / avatarUrl / avatarDocumentId from DB so the
     // global header reflects edits without a re-login. Role is taken from DB too
@@ -137,6 +138,7 @@ export class AuthController {
   }
 
   @Post('google/one-tap')
+  @Public()
   @HttpCode(HttpStatus.OK)
   async googleOneTap(
     @Body() body: { credential: string },
@@ -180,6 +182,7 @@ export class AuthController {
   }
 
   @Get('logout')
+  @Public()
   async logout(@Res() reply: FastifyReply) {
     reply.clearCookie(JWT_COOKIE, { path: '/' })
     await reply.redirect(`${this.frontendUrl}/crm/login`, 302)
@@ -187,6 +190,7 @@ export class AuthController {
 
   // DEV ONLY — быстрый вход по email без Google OAuth
   @Post('dev-login')
+  @Public()
   @HttpCode(HttpStatus.OK)
   async devLogin(@Body() body: { email: string }, @Res({ passthrough: true }) reply: FastifyReply) {
     if (this.isProduction) throw new UnauthorizedException('Not available in production')

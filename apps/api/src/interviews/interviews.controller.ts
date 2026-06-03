@@ -10,7 +10,6 @@ import {
   Patch,
   Post,
   Query,
-  UseGuards,
 } from '@nestjs/common'
 import {
   createInterviewSchema,
@@ -19,11 +18,10 @@ import {
   updateInterviewSchema,
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
-import { JwtAuthGuard } from '../auth/jwt.guard'
 import { InterviewsService } from './interviews.service'
 
+// Auth enforced by global JwtAuthGuard (see AppModule APP_GUARD).
 @Controller('interviews')
-@UseGuards(JwtAuthGuard)
 export class InterviewsController {
   constructor(private readonly interviewsService: InterviewsService) {}
 
@@ -41,12 +39,12 @@ export class InterviewsController {
   }
 
   @Get()
-  findBySenior(
-    @Query('seniorId') seniorId: string | undefined,
-    @CurrentUser() user: SessionUser,
-  ) {
+  findBySenior(@Query('seniorId') seniorId: string | undefined, @CurrentUser() user: SessionUser) {
     this.assertNotDrop(user)
-    if (seniorId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seniorId)) {
+    if (
+      seniorId !== undefined &&
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seniorId)
+    ) {
       throw new BadRequestException('seniorId must be a valid UUID')
     }
     // For SENIOR role, service will override seniorId with currentUser.id

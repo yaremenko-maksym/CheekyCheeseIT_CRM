@@ -20,18 +20,17 @@ import {
   updateTeamSchema,
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
-import { JwtAuthGuard } from '../auth/jwt.guard'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { TeamAuditLogService } from './team-audit-log.service'
 import { TeamsService } from './teams.service'
 
-// Class-level RolesGuard mirrors UsersController for defense-in-depth:
-// inline role checks remain in TeamsService, and the guard rejects
-// disallowed roles before the handler runs. Endpoints without @Roles(...)
-// are open to any authenticated user (RolesGuard passes when ROLES_KEY is empty).
+// JwtAuthGuard runs globally (AppModule APP_GUARD); RolesGuard remains
+// controller-level because it depends on `req.user.role`. Endpoints without
+// @Roles(...) are open to any authenticated user (RolesGuard passes when
+// ROLES_KEY is empty).
 @Controller('teams')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(RolesGuard)
 export class TeamsController {
   constructor(
     private readonly teamsService: TeamsService,
