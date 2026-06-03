@@ -121,21 +121,45 @@ async function mockOnboardingApi(
 
   // GET /onboarding/status — dynamic based on state
   await page.route(`${API}/onboarding/status`, (r) => {
-    if (tosAcceptDone) return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(STATUS_ONBOARDED) })
-    if (signDone) return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opts.statusAfterSign ?? { ...opts.initialStatus, requiresContract: false }) })
-    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opts.initialStatus) })
+    if (tosAcceptDone)
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(STATUS_ONBOARDED),
+      })
+    if (signDone)
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          opts.statusAfterSign ?? { ...opts.initialStatus, requiresContract: false },
+        ),
+      })
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(opts.initialStatus),
+    })
   })
 
   // GET /contracts/templates/current/:role
   await page.route(new RegExp(`${API}/contracts/templates/current/[A-Z]+$`), (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(CONTRACT_TEMPLATE) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(CONTRACT_TEMPLATE),
+    }),
   )
 
   // POST /contracts/sign
   await page.route(`${API}/contracts/sign`, (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     signDone = true
-    return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(SIGNED_CONTRACT) })
+    return r.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify(SIGNED_CONTRACT),
+    })
   })
 
   // GET /tos/current
@@ -257,7 +281,9 @@ test.describe('Onboarding flow', () => {
     await expect(page).toHaveURL(/\/crm\/dashboard/, { timeout: 8000 })
   })
 
-  test('DROP: unboarded user → onboarding wizard → profile (DROP has no dashboard)', async ({ page }) => {
+  test('DROP: unboarded user → onboarding wizard → profile (DROP has no dashboard)', async ({
+    page,
+  }) => {
     await mockAuthAs(page, USERS.drop)
     await mockOnboardingApi(page, { initialStatus: statusUnboarded('DROP') })
 
@@ -268,7 +294,9 @@ test.describe('Onboarding flow', () => {
     await expect(page).toHaveURL(/\/crm\/profile/, { timeout: 8000 })
   })
 
-  test('ACCOUNTANT: unboarded user → onboarding wizard → dashboard', async ({ asAccountant: page }) => {
+  test('ACCOUNTANT: unboarded user → onboarding wizard → dashboard', async ({
+    asAccountant: page,
+  }) => {
     await mockOnboardingApi(page, { initialStatus: statusUnboarded('ACCOUNTANT') })
 
     await page.goto('/crm/dashboard')
@@ -286,7 +314,11 @@ test.describe('Onboarding flow', () => {
 
     // Mock onboarding status as admin bypass
     await page.route(`${API}/onboarding/status`, (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(STATUS_ADMIN) }),
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(STATUS_ADMIN),
+      }),
     )
 
     await page.goto('/crm/dashboard')
@@ -305,7 +337,11 @@ test.describe('Onboarding flow', () => {
 
     // Status = fully onboarded
     await page.route(`${API}/onboarding/status`, (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(STATUS_ONBOARDED) }),
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(STATUS_ONBOARDED),
+      }),
     )
 
     await page.goto('/crm/dashboard')
