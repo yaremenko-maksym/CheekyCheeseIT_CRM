@@ -106,6 +106,101 @@ Agent(isolation="worktree", run_in_background=True, description="Coder: task-<sl
 Agent(isolation="worktree", run_in_background=True, description="DevOps: task-infra-<slug>", prompt="...")
 ```
 
+### Legal — Mode A (on-demand consult)
+
+```
+Agent(
+  description="Legal: consult-<slug>",
+  prompt="""Ты — Legal-агент. Прочитай docs/agents/legal.md (golden rules + 4 modes).
+Прочитай docs/agents/CLAUDE-legal.md.
+Прочитай docs/agents/RULES.md (cross-agent rules).
+Прочитай docs/agents/project-state.md.
+Прочитай docs/agents/memory/legal/lessons.md.
+Прочитай docs/legal/cross-cutting/escalation-zones.md.
+Прочитай docs/legal/cross-cutting/citation-rules.md.
+
+mode: consult
+Task: docs/specs/tasks/task-legal-<slug>.md
+
+Append `## Ответ юриста` в task-файл по структуре из legal.md.
+После завершения верни PM summary: Confidence + TL;DR."""
+)
+```
+
+### Legal — Mode B (auto PR review, critical zones)
+
+```
+Agent(
+  description="Legal: pr-review-<N>",
+  prompt="""Ты — Legal-агент. Прочитай docs/agents/legal.md.
+Прочитай docs/agents/CLAUDE-legal.md.
+Прочитай docs/agents/RULES.md.
+Прочитай docs/agents/project-state.md.
+Прочитай docs/agents/memory/legal/lessons.md.
+Прочитай docs/legal/cross-cutting/escalation-zones.md.
+Прочитай docs/legal/cross-cutting/citation-rules.md.
+
+mode: pr-review
+pr_number: <N>
+repo: yaremenko-maksym/CheekyCheeseIT_CRM
+
+Используй write-then-post pattern (CLAUDE-legal.md секция).
+Постить с event: COMMENT (НЕ APPROVE / REQUEST_CHANGES).
+Первая строка body: `Legal Review: <CONFIDENCE>`.
+Добавь label `legal-noted` на PR через gh."""
+)
+```
+
+### Legal — Mode C (pre-feature brief check)
+
+```
+Agent(
+  description="Legal: brief-check",
+  prompt="""Ты — Legal-агент. Прочитай docs/agents/legal.md.
+Прочитай docs/agents/CLAUDE-legal.md.
+Прочитай docs/agents/RULES.md.
+Прочитай docs/agents/project-state.md.
+Прочитай docs/agents/memory/legal/lessons.md.
+Прочитай docs/legal/cross-cutting/escalation-zones.md.
+Прочитай docs/legal/cross-cutting/citation-rules.md.
+
+mode: brief-check
+brief_file: docs/specs/pm-brief.md
+
+Идентифицируй legal touchpoints в brief. Вывод — `docs/specs/pm-brief-legal-check.md` с акцентом на Recommendations для AC."""
+)
+```
+
+### Legal — Mode D (strategic advisor, direct user question)
+
+```
+Agent(
+  description="Legal: strategic-<slug>",
+  prompt="""Ты — Legal-агент. Прочитай docs/agents/legal.md.
+Прочитай docs/agents/CLAUDE-legal.md.
+Прочитай docs/agents/RULES.md.
+Прочитай docs/agents/project-state.md.
+Прочитай docs/agents/memory/legal/lessons.md.
+Прочитай docs/legal/cross-cutting/escalation-zones.md.
+Прочитай docs/legal/cross-cutting/citation-rules.md.
+
+mode: strategic
+consultation_file: docs/specs/legal-consultations/<YYYY-MM-DD-slug>.md
+
+Append `## Ответ юриста` в consultation-файл по структуре из legal.md.
+После завершения верни PM summary для отправки USER в чат: Confidence + TL;DR + 1-2 ключевые recommendation."""
+)
+```
+
+### Параллельный запуск Reviewer + Legal (critical PR zones)
+
+```
+Agent(description="Reviewer: PR #<N>", prompt="...", run_in_background=True)
+Agent(description="Legal: pr-review-<N>", prompt="...", run_in_background=True)
+```
+
+Оба info — Reviewer на code quality, Legal на legal angle. Legal — info-only (label `legal-noted`), Reviewer — gate.
+
 ---
 
 ## PR и CI команды
@@ -537,15 +632,21 @@ cat docs/specs/tasks/<task>.progress.md
 
 ## Типичные длительности агентов
 
-| Тип задачи                            | Ожидаемое время                                                  |
-| ------------------------------------- | ---------------------------------------------------------------- |
-| Coder: 1-2 файла                      | 8-12 мин                                                         |
-| Coder: модуль (3-6 файлов)            | 15-25 мин                                                        |
-| Coder: большой модуль (7+)            | 25-40 мин                                                        |
-| AutoTest: написание/обновление тестов | 8-15 мин                                                         |
-| Reviewer: code review                 | 5-10 мин                                                         |
-| DevOps: workflow изменения            | 5-10 мин                                                         |
-| E2E через e2e.yml (GHA)               | 10-20 мин — использовать `ScheduleWakeup(delay=270)` или Layer 2 |
+| Тип задачи                                        | Ожидаемое время                                                  |
+| ------------------------------------------------- | ---------------------------------------------------------------- |
+| Coder: 1-2 файла                                  | 8-12 мин                                                         |
+| Coder: модуль (3-6 файлов)                        | 15-25 мин                                                        |
+| Coder: большой модуль (7+)                        | 25-40 мин                                                        |
+| AutoTest: написание/обновление тестов             | 8-15 мин                                                         |
+| Reviewer: code review                             | 5-10 мин                                                         |
+| DevOps: workflow изменения                        | 5-10 мин                                                         |
+| E2E через e2e.yml (GHA)                           | 10-20 мин — использовать `ScheduleWakeup(delay=270)` или Layer 2 |
+| Legal: Mode A consult (static база покрывает)     | 5-8 мин                                                          |
+| Legal: Mode A consult (нужен WebSearch)           | 10-15 мин                                                        |
+| Legal: Mode B pr-review (small PR)                | 8-12 мин                                                         |
+| Legal: Mode B pr-review (large finance/auth + S3) | 15-25 мин                                                        |
+| Legal: Mode C brief-check                         | 8-12 мин                                                         |
+| Legal: Mode D strategic (deep question)           | 10-20 мин                                                        |
 
 **Foreground агенты** блокируют PM до завершения — результат приходит сразу.
 **Background агенты** (`run_in_background=True`) — PM получает уведомление автоматически.
@@ -675,6 +776,10 @@ docs/specs/tasks/
 - `do_not_merge_label` — `{ at, type, pr, reason }`
 - `merged` — `{ at, type, pr }`
 - `wakeup_scheduled` — `{ at, type, scheduled_task_id, fireAt }`
+- `legal_dispatched` — `{ at, type, mode, target }` — PM запустил Legal через `Agent()`. `mode` ∈ {consult, pr-review, brief-check, strategic}. `target` = task-file / pr-number / brief-file / consultation-file
+- `legal_review_posted` — `{ at, type, pr, confidence }` — Mode B: review запостен на PR. `confidence` ∈ {HIGH, MED, LOW}
+- `legal_pre_feature_done` — `{ at, type, brief, recommendations_count }` — Mode C: Legal вернул recommendations для AC
+- `legal_escalated_to_human` — `{ at, type, reason }` — Mode B/A: Confidence: LOW + hard zone → USER informed эскалировать к human-юристу
 
 **Completed task** (агрегаты для метрик):
 
