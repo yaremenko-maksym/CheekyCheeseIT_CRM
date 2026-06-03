@@ -20,14 +20,19 @@ Multi-agent инфраструктура для CRM Cheeky Cheese IT. Содер
 
 ### Agent system prompts
 
-| Agent        | Doc                          | Назначение                                                             |
-| ------------ | ---------------------------- | ---------------------------------------------------------------------- |
-| **PM**       | [`pm.md`](pm.md)             | Project Manager: 4 режима, dispatch decision, User Testing, merge gate |
-| **Coder**    | [`coder.md`](coder.md)       | Fullstack developer: workflow, wip-push, watchdog, vision check        |
-| **Reviewer** | [`reviewer.md`](reviewer.md) | Code review: workflow, security, write-then-post resilience            |
-| **AutoTest** | [`autotest.md`](autotest.md) | E2E QA: 3 режима, AC-first, anti-patterns                              |
-| **DevOps**   | [`devops.md`](devops.md)     | CI/CD, workflows, branch protection                                    |
-| **BA**       | [`ba.md`](ba.md)             | Business Analyst: brief writing, role boundaries                       |
+| Agent                 | Doc                                            | Назначение                                                                              |
+| --------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------- |
+| **PM**                | [`pm.md`](pm.md)                               | Project Manager: 4 режима, dispatch decision, User Testing, merge gate                  |
+| **Coder**             | [`coder.md`](coder.md)                         | Fullstack developer: workflow, wip-push, watchdog, vision check                         |
+| **code-reviewer**     | [`code-reviewer.md`](code-reviewer.md)         | Narrow code review: TypeScript strict, ESLint, zone-of-write, write-then-post (default) |
+| **security-reviewer** | [`security-reviewer.md`](security-reviewer.md) | Security review: OWASP, npm audit, secrets, USDT/ETH (для auth/finance/wallets PR)      |
+| **Architect**         | [`architect.md`](architect.md)                 | Migration architect: ECC migration phases, ADRs, rollback granularity                   |
+| **Legal**             | [`legal.md`](legal.md)                         | UA jurisdictional legal advisor: 4 modes (consult / pr-review / brief-check / strategic) |
+| **AutoTest**          | [`autotest.md`](autotest.md)                   | E2E QA: 3 режима, AC-first, anti-patterns                                               |
+| **DevOps**            | [`devops.md`](devops.md)                       | CI/CD, workflows, branch protection                                                     |
+| **BA**                | [`ba.md`](ba.md)                               | Business Analyst: brief writing, role boundaries                                        |
+
+**Reviewer split (Phase 3b ECC migration, 2026-06-03):** монолитный `reviewer.md` → split на `code-reviewer.md` + `security-reviewer.md` per ADR § 2.1.5. `reviewer.md` остался как **deprecated shim** (redirect) во время Phase 3c PM dispatch transition. См. [`docs/architecture/2026-06-03-phase3b-deliverable.md`](../architecture/2026-06-03-phase3b-deliverable.md).
 
 ### Human roles (not LLM agents)
 
@@ -49,15 +54,16 @@ Multi-agent инфраструктура для CRM Cheeky Cheese IT. Содер
 
 ### Deprecated (redirect stubs, для backward compat)
 
+- [`reviewer.md`](reviewer.md) → `code-reviewer.md` + `security-reviewer.md` (Phase 3b ECC split, 2026-06-03)
 - [`CLAUDE-pm.md`](CLAUDE-pm.md) → `pm.md` + `project-state.md` + `pm-snippets.md`
 - [`CLAUDE-coder.md`](CLAUDE-coder.md) → `coder.md` + `project-state.md`
-- [`CLAUDE-reviewer.md`](CLAUDE-reviewer.md) → `reviewer.md` + `project-state.md`
+- [`CLAUDE-reviewer.md`](CLAUDE-reviewer.md) → `code-reviewer.md` + `security-reviewer.md` + `project-state.md`
 - [`CLAUDE-autotest.md`](CLAUDE-autotest.md) → `autotest.md` + `project-state.md`
 - [`CLAUDE-devops.md`](CLAUDE-devops.md) → `devops.md` + `project-state.md`
 - [`CLAUDE-ba.md`](CLAUDE-ba.md) → `ba.md` + `project-state.md`
 - [`CLAUDE-tools.md`](CLAUDE-tools.md) → `RULES.md` §1 + §3
 
-Сохранены как 1-line redirect stubs для архивных workflows (`.github/workflows/archive/*.yml`) и legacy task-файлов.
+Сохранены как redirect stubs для архивных workflows (`.github/workflows/archive/*.yml`) и legacy task-файлов.
 
 ### Audit / Design (Phase 1)
 
