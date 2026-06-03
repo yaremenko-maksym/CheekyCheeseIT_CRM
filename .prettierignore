@@ -1,0 +1,27 @@
+# .prettierignore — ECC v2.0.0-rc.1 upstream reference snapshots
+# These directories contain immutable imports from affaan-m/ECC (SHA 928076cc).
+# Reformatting would defeat their purpose as drift-detection baselines.
+# See: docs/architecture/2026-05-31-ecc-migration-design.md § «Wisdom Transfer»
+
+# Imported ECC catalog (read-only references)
+agents/
+skills/ecc/
+hooks/
+rules/ecc/
+manifests/
+mcp-configs/
+docs/architecture/ecc-reference/
+
+# Lockfiles & build artifacts (defensive — usually auto-ignored but be explicit)
+**/pnpm-lock.yaml
+**/node_modules/
+**/dist/
+**/.turbo/
+**/coverage/
+**/playwright-report/
+**/test-results/
+.next/
+.cache/
+
+# Generated routing
+**/routeTree.gen.ts
