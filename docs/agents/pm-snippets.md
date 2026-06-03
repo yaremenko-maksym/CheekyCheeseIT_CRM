@@ -24,6 +24,13 @@ Repo: yaremenko-maksym/CheekyCheeseIT_CRM"""
 )
 ```
 
+**Phase 3d.2 (ECC):** PM dispatches только Coder shell. Coder **сам** инвоукает ECC sub-agents в своём workflow:
+
+- §1.5 — `tdd-guide` (TDD план для новой фичи)
+- §2.5 — `typescript-reviewer` (self-review TS/TSX ДО push)
+
+PM не передаёт дополнительные prompts для sub-agents — Coder читает свою же coder.md.
+
 ### Coder — фикс в существующую ветку
 
 ```
@@ -39,6 +46,8 @@ target_branch: <pr_branch>
 Ветка уже существует — переключись: git checkout <pr_branch>"""
 )
 ```
+
+**Phase 3d.2 (ECC) — для bugfix:** `tdd-guide` НЕ диспатчится (это для новых фич). Coder использует `superpowers:systematic-debugging` skill (см. coder.md §1.5). `typescript-reviewer` self-review остаётся обязательным для milestones с TS/TSX изменениями.
 
 ### AutoTest — post-approval тесты
 
