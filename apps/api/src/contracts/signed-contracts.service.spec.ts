@@ -267,6 +267,38 @@ describe('SignedContractsService', () => {
         expect(result.body).toBe(`Роль: ${label}`)
       }
     })
+
+    it('SECURITY: user-controlled value containing {{walletUsdt}} is NOT re-substituted', () => {
+      // Defends against template injection: a malicious user who sets their
+      // displayName to `{{walletUsdt}}` should NOT have their wallet address
+      // rendered in place of their name.
+      const tmpl = makeTemplate({
+        bodyMarkdown: 'Имя: {{employeeName}}\nWallet: {{walletUsdt}}',
+      })
+      const user = makeUser({
+        displayName: '{{walletUsdt}}',
+        walletUsdtErc20: '0xSECRET',
+      })
+      const result = SignedContractsService.interpolateVariables(
+        tmpl.bodyMarkdown,
+        user as never,
+        new Date(),
+      )
+      // Single-pass substitution: employeeName slot literally contains the
+      // string `{{walletUsdt}}`; walletUsdt slot contains the real wallet.
+      expect(result.body).toBe('Имя: {{walletUsdt}}\nWallet: 0xSECRET')
+    })
+
+    it('leaves unknown placeholders intact (visible to ADMIN for debugging)', () => {
+      const tmpl = makeTemplate({ bodyMarkdown: 'Hi {{employeeName}} / {{unknownToken}}' })
+      const user = makeUser()
+      const result = SignedContractsService.interpolateVariables(
+        tmpl.bodyMarkdown,
+        user as never,
+        new Date(),
+      )
+      expect(result.body).toContain('{{unknownToken}}')
+    })
   })
 
   describe('sign', () => {

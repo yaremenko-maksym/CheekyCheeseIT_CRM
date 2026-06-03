@@ -100,10 +100,16 @@ export class SignedContractsService {
       preferredMethod,
     }
 
-    let body = bodyMarkdown
-    for (const [key, value] of Object.entries(variables)) {
-      body = body.split(`{{${key}}}`).join(value)
-    }
+    // SECURITY: substitute in a SINGLE pass via one regex so user-controlled
+    // values (e.g. `displayName = '{{walletUsdt}}'`) CANNOT trigger a second
+    // round of substitution. The replacer function looks up each match in
+    // `variables` and emits the literal value — values containing further
+    // `{{...}}` tokens stay as-is in the rendered body. Defense in depth: we
+    // also reject the substitution if no key matched (keeps unknown tokens
+    // visible to ADMIN auditing template authoring mistakes).
+    const body = bodyMarkdown.replace(/\{\{([a-zA-Z0-9_]+)\}\}/g, (match, key: string) => {
+      return Object.prototype.hasOwnProperty.call(variables, key) ? variables[key]! : match
+    })
 
     return { body, variables }
   }
@@ -137,6 +143,16 @@ export class SignedContractsService {
     if (existing) return existing
 
     return this.db.db.transaction(async (tx: DrizzleTx) => {
+      // SECURITY: re-check existing inside the tx to close the race window
+      // between the read-only pre-check and the INSERT. Two concurrent sign
+      // requests from the same user would both observe `existing=null`
+      // outside the tx; the second one re-reads here and bails out with the
+      // first row instead of producing a duplicate signed_contract.
+      const reCheck = await tx.query.signedContracts.findFirst({
+        where: (tbl, { eq, and }) => and(eq(tbl.userId, userId), eq(tbl.templateId, template.id)),
+      })
+      if (reCheck) return reCheck
+
       // Resolve user row inside tx for fresh requisites.
       const user = (await tx.query.users.findFirst({
         where: (tbl, { eq }) => eq(tbl.id, userId),
