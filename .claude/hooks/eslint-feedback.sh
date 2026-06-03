@@ -1,4 +1,11 @@
 #!/bin/bash
+# DEPRECATED (Phase 2.5): removed from live hook registration. Replaced by
+# the eslint MCP server (see rules/common/eslint-mcp-first.md) which gives
+# PRE-edit feedback in agent context instead of slower POST-edit feedback
+# from this script. Kept as fallback artifact; will be removed in Phase 6
+# cleanup. Active registration: .claude/settings.json now omits this hook
+# entirely. If you want auto-lint feedback, use the eslint MCP.
+#
 # Fires after Edit/Write on TS/TSX files.
 # Runs eslint --fix, then injects any remaining errors into Claude's context
 # so it sees them immediately without needing a separate lint step.

@@ -1,4 +1,10 @@
 #!/bin/bash
+# DEPRECATED (Phase 2.5): replaced by .claude/hooks-ecc/pre-bash-coder-push-gate.sh.
+# Kept as rollback fallback artifact; will be removed in Phase 6 cleanup.
+# Active registration lives in .claude/settings.json which now points at
+# hooks-ecc/. If you are editing this file you almost certainly want to
+# edit the ECC port instead.
+#
 # Pre-push gate for Coder/AutoTest agents.
 # Fires before every Bash tool call — filters for `git push` commands.
 # Blocks push if last commit on agent branches lacks `ac_verified:` line.

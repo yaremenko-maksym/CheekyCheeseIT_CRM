@@ -6,22 +6,15 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/eslint-feedback.sh"
-          }
-        ]
-      },
-      {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/coder-progress-marker.sh"
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks-ecc/post-edit-write-coder-progress.sh"
           }
-        ]
+        ],
+        "description": "Coder progress marker — append durable activity log for PM silent-termination recovery",
+        "id": "post:edit-write:coder-progress"
       }
     ],
     "PreToolUse": [
@@ -30,22 +23,44 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/safety.sh"
-          },
-          {
-            "type": "command",
-            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/coder-pre-push.sh"
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks-ecc/pre-bash-safety.sh"
           }
-        ]
+        ],
+        "description": "Safety gate — block catastrophic Bash patterns (rm -rf /, force push to main, DROP DATABASE crm_db)",
+        "id": "pre:bash:safety"
       },
       {
-        "matcher": "Edit|Write|NotebookEdit",
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/block-production-edits.sh"
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks-ecc/pre-bash-coder-push-gate.sh"
           }
-        ]
+        ],
+        "description": "Coder push gate — require ac_verified: in commit msg before push on feature|fix|infra|test branches",
+        "id": "pre:bash:coder-push-gate"
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks-ecc/pre-edit-write-zone-of-write.sh"
+          }
+        ],
+        "description": "Zone-of-write gate — block apps/** and packages/** edits from non-Coder sessions",
+        "id": "pre:edit-write:zone-of-write"
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks-ecc/pre-edit-write-suggest-compact.sh"
+          }
+        ],
+        "description": "Compact suggestion — surface /compact reminder every 50 Edit/Write invocations (never blocks)",
+        "id": "pre:edit-write:suggest-compact"
       }
     ]
   }

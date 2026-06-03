@@ -1,4 +1,10 @@
 #!/bin/bash
+# DEPRECATED (Phase 2.5): replaced by .claude/hooks-ecc/post-edit-write-coder-progress.sh.
+# Kept as rollback fallback artifact; will be removed in Phase 6 cleanup.
+# Active registration lives in .claude/settings.json which now points at
+# hooks-ecc/. If you are editing this file you almost certainly want to
+# edit the ECC port instead.
+#
 # PostToolUse hook — записывает Edit/Write/MultiEdit активность из subagent
 # worktrees в durable activity log. PM использует tail этого лога для detection
 # silent termination (C1 [P0] из dev-flow RCA 2026-05-23).

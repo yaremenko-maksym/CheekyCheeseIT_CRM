@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ECC stable id: pre:edit-write:zone-of-write
-# Phase 2 ECC port of legacy .claude/hooks/block-production-edits.sh.
+# Phase 2.5 — hardened ECC port of legacy .claude/hooks/block-production-edits.sh.
 #
 # Purpose: enforce that Edit/Write/MultiEdit/NotebookEdit on production zones
 # (apps/**, packages/**) only happens from Coder-isolated subagent worktrees.
@@ -13,11 +13,30 @@
 #   - Fast-exit (0) on file paths outside apps/**, packages/**.
 #   - exit 2 + JSON decision body on block.
 #
+# AGENT DETECTION (Phase 2.5 empirical finding):
+#   Tested 2026-06-03 against Claude Code v2.1.148: `$CLAUDE_AGENT_ID` and
+#   `$CLAUDE_SUBAGENT_TYPE` are NOT propagated by the runtime to hook
+#   subshells. Only `CLAUDE_CODE_SESSION_ID` is reliably set. This makes the
+#   env-var detection path a *dead branch* under current runtime, but we
+#   keep it for forward-compat with future ECC plugin install.
+#
+#   Operational allow paths today (fail-closed by default — safer for
+#   production zone gating):
+#
 # Allow conditions (any one):
-#   1. cwd contains `/.claude/worktrees/` (Coder/AutoTest subagent worktree).
-#   2. Env var `$CLAUDE_AGENT_ID == "coder"` (future ECC agent-id propagation).
-#   3. Escape hatch file `<repo>/.claude/.allow-direct-edits` (gitignored;
+#   1. cwd contains `/.claude/worktrees/` (primary path — Coder/AutoTest
+#      subagent worktree; this is how PM dispatches isolated work).
+#   2. cwd starts with /tmp/ AND git branch matches `coder/*|feature/*|
+#      fix/*|infra/*|test/*` (heuristic — manual `git worktree add /tmp/...`
+#      with agent branch naming).
+#   3. Env var `$CLAUDE_AGENT_ID == "coder"` (forward-compat — currently
+#      unused per empirical finding above).
+#   4. Escape hatch file `<repo>/.claude/.allow-direct-edits` (gitignored;
 #      user-explicit opt-out for emergency edits).
+#
+# Default: deny (fail-closed). Better to surface a false-positive block
+# (easy to unblock via escape hatch) than to silently allow a stray edit
+# from PM/Architect/Legal sessions.
 
 set -u
 
@@ -46,17 +65,28 @@ if ! echo "$FILE_PATH" | grep -qE '(^|/)(apps|packages)/'; then
   exit 0
 fi
 
-# Allow #1: subagent worktree cwd.
+# Allow #1: subagent worktree cwd (primary path).
 if echo "$PWD" | grep -q '/\.claude/worktrees/'; then
   exit 0
 fi
 
-# Allow #2: explicit Coder agent-id (future ECC convention — env propagation).
+# Allow #2: /tmp/ worktree with agent-style branch naming (heuristic per
+# Step 3 — fallback when CLAUDE_AGENT_ID is not propagated by runtime).
+if echo "$PWD" | grep -qE '^/tmp/' ; then
+  BRANCH_FOR_HEURISTIC=$(git branch --show-current 2>/dev/null || echo "")
+  if echo "$BRANCH_FOR_HEURISTIC" | grep -qE '^(coder|feature|fix|infra|test)/'; then
+    exit 0
+  fi
+fi
+
+# Allow #3: explicit Coder agent-id (forward-compat; currently dead branch
+# per empirical finding — runtime does not propagate this var as of
+# Claude Code v2.1.148).
 if [ "${CLAUDE_AGENT_ID:-}" = "coder" ]; then
   exit 0
 fi
 
-# Allow #3: escape hatch file.
+# Allow #4: escape hatch file.
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/.claude/.allow-direct-edits" ]; then
   exit 0

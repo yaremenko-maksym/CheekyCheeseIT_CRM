@@ -37,8 +37,16 @@ CMD=$(python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_inp
 BLOCKED=""
 
 # Predicate 1+2: rm -rf on dangerous root/home paths.
-# Matches `rm -rf /<alpha>` or `rm -rf ~` or `rm -rf ~/<not-Downloads>`.
-if echo "$CMD" | grep -qE 'rm[[:space:]]+-rf?[[:space:]]+(/[a-zA-Z]|~/?$|~/[^D])'; then
+# Matches:
+#   - `rm -rf /<alpha>` — root-level system dirs (/etc, /usr, /var, /home, ...)
+#     BUT exempt the obviously safe scratch roots /tmp/ and /var/folders/
+#     so common test cleanup like `rm -rf /tmp/test-dir` is not gated.
+#   - `rm -rf ~` or `rm -rf ~/<not-Downloads>` — home blast radius.
+# Implementation: first check the exemption (fast positive — allow path), then
+# the danger pattern. Single subshell per check; cost stays microseconds.
+if echo "$CMD" | grep -qE 'rm[[:space:]]+-rf?[[:space:]]+/(tmp|var/folders)/'; then
+  : # Allow: /tmp/** and /var/folders/** scratch paths.
+elif echo "$CMD" | grep -qE 'rm[[:space:]]+-rf?[[:space:]]+(/[a-zA-Z]|~/?$|~/[^D])'; then
   BLOCKED="rm -rf on root/home path"
 fi
 
