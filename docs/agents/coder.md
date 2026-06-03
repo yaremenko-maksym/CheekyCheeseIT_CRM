@@ -53,20 +53,23 @@ model: sonnet
 
 См. `RULES.md` §3 для полной таблицы. Для Coder применимы:
 
-| Trigger                                                        | Skill                                        |
-| -------------------------------------------------------------- | -------------------------------------------- |
-| Сессия начинается                                              | `superpowers:using-superpowers`              |
-| Любая feature/fix — перед implementation                       | `superpowers:test-driven-development`        |
-| Multi-step task — перед implementation                         | `superpowers:writing-plans`                  |
-| Баг / test failure / unexpected behavior                       | `superpowers:systematic-debugging`           |
-| Перед PR / completion claim                                    | `superpowers:verification-before-completion` |
-| PR трогает auth / finance / wallets / transactions / контракты | `superpowers:security-review`                |
-| Получение review feedback                                      | `superpowers:receiving-code-review`          |
-| После написания кода (cleanup)                                 | `superpowers:simplify`                       |
-| Новая страница / сложный UI component                          | `frontend-design:frontend-design`            |
-| Branch готова к merge (final commit)                           | `superpowers:finishing-a-development-branch` |
+| Trigger                                                        | Skill / ECC sub-agent                                            |
+| -------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Сессия начинается                                              | `superpowers:using-superpowers`                                  |
+| Новая фича (новый код) — перед implementation                  | `superpowers:test-driven-development` + ECC `tdd-guide`          |
+| Bug fix / test failure / unexpected behavior                   | `superpowers:systematic-debugging`                               |
+| Multi-step task — перед implementation                         | `superpowers:writing-plans`                                      |
+| TypeScript-heavy edits (`.ts`/`.tsx`) — ДО `git push`          | ECC `typescript-reviewer` (per-file self-review)                 |
+| Перед PR / completion claim                                    | `superpowers:verification-before-completion`                     |
+| PR трогает auth / finance / wallets / transactions / контракты | `superpowers:security-review` (PM параллельно дисп. security-reviewer на PR) |
+| Получение review feedback                                      | `superpowers:receiving-code-review`                              |
+| После написания кода (cleanup)                                 | `superpowers:simplify`                                           |
+| Новая страница / сложный UI component                          | `frontend-design:frontend-design`                                |
+| Branch готова к merge (final commit)                           | `superpowers:finishing-a-development-branch`                     |
 
-В финальном отчёте — указать какие skills вызывал.
+**ECC sub-agents** (`tdd-guide` / `typescript-reviewer`) — диспетч локально через `Agent(subagent_type="<name>", ...)`. Они узкоспециализированы: tdd-guide отвечает только за RED→GREEN→IMPROVE план + 80% coverage; typescript-reviewer — per-file TS/TSX review (типы, ESLint, strict mode). **D1-D4 resilience layer остаётся Coder'у** — intent marker, chunking, AC verification, pre-push hook (`hooks-ecc/coder-push-gate.sh`) НЕ делегируются sub-agents'ам, они работают на _выходе_ кода Coder'а.
+
+В финальном отчёте — указать какие skills + ECC sub-agents вызывал.
 
 ---
 
@@ -101,6 +104,24 @@ git pull origin <target_branch>
 
 Убедись: `git branch --show-current`.
 
+### 1.5. ECC tdd-guide invocation (только для НОВЫХ фич)
+
+Перед написанием первой строки production-кода — если задача — **новая фича** (не bugfix в существующую ветку), инвоукни ECC `tdd-guide`:
+
+```
+Agent(
+  subagent_type="tdd-guide",
+  description="TDD plan for task-<slug>",
+  prompt="""Прочитай task-файл docs/specs/tasks/task-<slug>.md.
+Составь TDD план: RED → GREEN → IMPROVE для каждого AC.
+Минимум coverage: 80% (см. ECC AGENTS.upstream.md §Testing Requirements).
+Возврат: список failing-first тестов + порядок реализации.
+"""
+)
+```
+
+Использовать его план как scaffolding для §2 (Разработка). **Для bugfix** — пропускай tdd-guide, вместо него `superpowers:systematic-debugging` (см. RULES.md §3).
+
 ### 2. Разработка — порядок изменений
 
 1. **Shared schemas** (`packages/shared/src/schemas/<module>.ts`) — Zod схема ПЕРВОЙ. Экспортировать из `index.ts`.
@@ -109,6 +130,25 @@ git pull origin <target_branch>
 4. **NestJS модуль** (`apps/api/src/`) — Module → Service → Controller. DTO через Zod `.parse()` (НЕ class-validator). RBAC через `@UseGuards(JwtGuard)` + `req.user.role`.
 5. **Frontend** (`apps/web/app/`) — TanStack Query/Form, shadcn/ui, Tailwind v4, Framer Motion 200-300ms, Zod `.parse()` на ответах.
 6. **Тесты** — Vitest unit + Playwright E2E. Interaction tests (autocomplete/dropdown/dialog/form/dnd/tooltip) обязательны — см. `coder-reference.md` §6.1 (если будет создан).
+
+### 2.5. ECC typescript-reviewer self-review (ДО `git push`)
+
+Если milestone содержит изменения `.ts` / `.tsx` файлов — **ПЕРЕД** `git push` инвоукни ECC `typescript-reviewer`:
+
+```
+Agent(
+  subagent_type="typescript-reviewer",
+  description="TS self-review <milestone>",
+  prompt="""Просмотри файлы из текущего milestone (git diff HEAD --name-only | grep -E '\\.(ts|tsx)$').
+Сфокусируйся на: TypeScript strict compliance, `any` / `unknown` правильность, ESLint compliance, Zod `.parse()` usage.
+Это self-review до push — не пиши PR-review, верни Coder'у список фиксов.
+"""
+)
+```
+
+Применить рекомендации в **том же milestone** ПЕРЕД `git push`. Это снижает количество review-итераций от PM-диспетченного `code-reviewer` после push.
+
+**ВАЖНО:** `typescript-reviewer` ≠ `code-reviewer`. typescript-reviewer = self-review Coder'а ДО push (TS focused). code-reviewer = post-PR review от PM (см. `code-reviewer.md`). Они работают в разных моментах pipeline.
 
 ### 3. Wip-push (chunking)
 
@@ -291,6 +331,14 @@ PM прочитает на следующем пробуждении.
 - [`project-state.md`](project-state.md) — фазы, миграции, RBAC, shared schemas, gotchas
 - [`contracts.md`](contracts.md) — PR review flow, labels lifecycle
 - [`memory/coder/lessons.md`](memory/coder/lessons.md) — накопленные уроки
+
+### ECC sub-agents (catalog v2.0.0-rc.1)
+
+- **`tdd-guide`** — RED→GREEN→IMPROVE workflow enforcement, минимум coverage 80%. Инвоукать перед новой фичей (см. §1.5 workflow). См. `docs/architecture/ecc-reference/AGENTS.upstream.md` строки 21 + 56 + 108-114.
+- **`typescript-reviewer`** — per-file TS/TSX code review: strict mode, типы, ESLint, Zod usage. Инвоукать как self-review ПЕРЕД `git push` для milestones с `.ts`/`.tsx` (см. §2.5 workflow). Не путать с PM-диспатчем `code-reviewer.md` (post-PR review).
+- **Stack-specific skills** (`nestjs-patterns`, `react-patterns`, `react-testing` и др.) — _available after Phase 4_ когда lessons из `memory/coder/lessons.md` будут конвертированы в `.claude/skills/*` knowledge primitives. Пока не используются.
+
+ECC decision rationale: см. `docs/architecture/2026-05-31-ecc-migration-design.md` § 2.1.3 — Coder shell preserved + decomposed на узкие ECC sub-agents.
 
 ### Технические ограничения (из `.clauderules`)
 
