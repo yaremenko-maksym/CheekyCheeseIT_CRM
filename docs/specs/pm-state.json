@@ -2,58 +2,44 @@
   "feature": "Onboarding flow + редактируемые шаблоны контрактов (Phase 6)",
   "brief": "docs/specs/onboarding-brief.md",
   "started_at": "2026-06-03T00:00:00Z",
-  "phase": "development",
+  "phase": "merging",
   "active": [
     {
       "id": "task-onboarding-6a-data-backend",
-      "file": "docs/specs/tasks/task-onboarding-6a-data-backend.md",
-      "agent": "coder",
       "branch": "feature/onboarding-data-backend",
       "pr_number": 83,
       "pr_url": "https://github.com/yaremenko-maksym/CheekyCheeseIT_CRM/pull/83",
-      "status": "fix_dispatched_after_block",
+      "status": "user_approved_merge_pending",
       "started_at": "2026-06-03T00:00:00Z",
       "review_rounds": 1,
-      "max_review_rounds": 5,
-      "agent_invocations": { "coder": 3, "reviewer": 2, "autotest": 0, "devops": 0 },
+      "agent_invocations": { "coder": 3, "reviewer": 5 },
       "events": [
-        { "at": "2026-06-03T00:00:00Z", "type": "brief_approved", "brief": "docs/specs/onboarding-brief.md" },
-        { "at": "2026-06-03T00:00:00Z", "type": "task_file_created", "file": "docs/specs/tasks/task-onboarding-6a-data-backend.md" },
-        { "at": "2026-06-03T00:00:00Z", "type": "agent_started", "agent": "coder" },
-        { "at": "2026-06-03T04:42:00Z", "type": "pr_opened", "pr": 83, "branch": "feature/onboarding-data-backend" },
-        { "at": "2026-06-03T04:42:38Z", "type": "ci_workflow_failed", "workflow": "Check no hook bypass", "label_added": "hook-bypass-warning" },
-        { "at": "2026-06-03T07:30:00Z", "type": "reviewer_stalled", "agent_id": "a8d7d80e60962fde9", "reason": "stream watchdog 600s timeout, no published review" },
-        { "at": "2026-06-03T08:30:00Z", "type": "fix_task_created", "file": "docs/specs/tasks/task-fix-pr-83-formatting.md", "purpose": "prettier --write" },
-        { "at": "2026-06-03T08:40:00Z", "type": "agent_started", "agent": "coder", "task": "fix-pr-83-formatting" },
-        { "at": "2026-06-03T08:40:00Z", "type": "agent_started", "agent": "reviewer", "task": "re-review pr 83" },
-        { "at": "2026-06-03T08:50:00Z", "type": "fix_pushed", "commit": "67af7bf", "result": "check-formatting SUCCESS, hook-bypass-warning removed" },
-        { "at": "2026-06-03T09:00:00Z", "type": "review_blocked", "pr": 83, "verdict": "BLOCK", "review_id": 4415687659, "reason": "OnboardingGuard global-registered before JwtAuthGuard — req.user undefined → gate no-op", "rounds": 1 },
-        { "at": "2026-06-03T09:05:00Z", "type": "labels_updated", "added": "do-not-merge" },
-        { "at": "2026-06-03T09:10:00Z", "type": "fix_task_created", "file": "docs/specs/tasks/task-fix-pr-83-guard-order.md", "purpose": "fix guard order + integration test + minor nits" }
+        { "at": "2026-06-03T00:00:00Z", "type": "brief_approved" },
+        { "at": "2026-06-03T04:42:00Z", "type": "pr_opened", "pr": 83 },
+        { "at": "2026-06-03T08:50:00Z", "type": "fix_pushed", "commit": "67af7bf", "purpose": "prettier --write" },
+        { "at": "2026-06-03T09:00:00Z", "type": "review_blocked", "verdict": "BLOCK", "review_id": 4415687659, "reason": "guard order", "rounds": 1 },
+        { "at": "2026-06-03T09:30:00Z", "type": "fix_pushed", "commit": "7a4cd3a", "purpose": "guard order + integration test" },
+        { "at": "2026-06-03T09:50:00Z", "type": "reviewer_overloaded_3x", "reason": "API 529 × 3" },
+        { "at": "2026-06-03T10:00:00Z", "type": "pm_manual_review_posted", "review_id": 4416079350 },
+        { "at": "2026-06-03T10:15:00Z", "type": "user_approved" },
+        { "at": "2026-06-03T10:15:00Z", "type": "merge_approved_label" },
+        { "at": "2026-06-03T10:20:00Z", "type": "user_pause_for_migration" }
       ],
-      "pending_fixes": [],
-      "next_action_on_resume": {
-        "type": "dispatch_coder_with_fix_task",
-        "task_file": "docs/specs/tasks/task-fix-pr-83-guard-order.md",
-        "target_branch": "feature/onboarding-data-backend",
-        "after_push": "re-dispatch Reviewer (round 2) → if APPROVE → Mode 4 (User Testing)"
-      },
-      "notes": "Phase 6A. Next phases: 6B (UI+gate), 6C (admin editor), 6D (invoice contract_number). Critical bug в guard order — fix-task создан, dispatch ждёт."
+      "user_feedback_for_next_phase": [
+        {
+          "phase": "6B",
+          "feedback": "В UI НЕ должно быть ссылки на /crm/onboarding. Bi-directional gate: not-onboarded → forced redirect TO; onboarded → redirect AWAY. Записано в onboarding-brief §6.2.",
+          "source": "USER 2026-06-03"
+        }
+      ],
+      "notes": "Phase 6A merged-pending. USER paused для AI architecture migration."
     }
   ],
-  "completed": [
-    { "id": "legacy-may-2026-batch", "note": "stale state — previous PM feature was Teams UI/E2E. See git log for merged PRs." }
-  ],
+  "completed": [],
   "blocked": [],
-  "blocking_issue": null,
-  "background_agents_external": [
-    {
-      "id": "autotest-business-logic-e2e",
-      "agent": "autotest",
-      "session_hint": "a76209d",
-      "pr_number": 82,
-      "branch": "test/business-logic-coverage",
-      "notes": "Background AutoTest agent: бизнес-логика E2E coverage. НЕ дублировать, ждать notification."
-    }
+  "next_phases_backlog": [
+    { "id": "6B", "title": "Onboarding UI + bi-directional frontend gate", "dependencies": ["6A merged"] },
+    { "id": "6C", "title": "Admin template editor", "dependencies": ["6A merged"] },
+    { "id": "6D", "title": "Invoice contract_number replacement", "dependencies": ["6A merged"] }
   ]
 }

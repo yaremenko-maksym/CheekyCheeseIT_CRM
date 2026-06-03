@@ -253,6 +253,13 @@ Frontend banner показывает при `tosUpdateAvailable && !requiresTos`
 - Если `requiresContract || requiresTos` AND current route != `/crm/onboarding/**` → redirect via `Navigate` to `/crm/onboarding`
 - Если `tosUpdateAvailable` → sticky banner сверху layout с CTA «Прочитать новую версию ToS» (link на `/crm/onboarding?step=tos`)
 
+**ВАЖНО — bi-directional gate (правка USER 2026-06-03):**
+
+- **В UI НЕ должно быть ссылки на `/crm/onboarding`** (sidebar, header menu, dashboard cards — ничего). Это «hidden» страница, реальный gate.
+- **Только пользователи `requiresContract || requiresTos === true` могут попасть на `/crm/onboarding`** — force-redirect туда от guard.
+- **Если пользователь уже подписал всё (requiresContract === false && requiresTos === false) — он НЕ может перейти на `/crm/onboarding`**. Прямой URL → redirect на `/crm/dashboard`. Это симметричный gate: страница доступна **только** когда обязательно нужна.
+- Soft-notify banner (`tosUpdateAvailable && !requiresTos`) — отдельная история, ведёт через `/crm/onboarding?step=tos` (только когда есть update); пользователь приходит туда, принимает new ToS, обратно на dashboard.
+
 ### 6.3. Sign mechanism UI
 
 Onboarding Step 1 (Sign Contract):
