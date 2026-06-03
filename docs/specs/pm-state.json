@@ -1,52 +1,49 @@
 {
-  "feature": "E2E Fix + E2E Watchdog + Teams UI Polish",
-  "started_at": "2026-05-19T11:30:00Z",
-  "tasks": [
+  "feature": "Onboarding flow + редактируемые шаблоны контрактов (Phase 6)",
+  "brief": "docs/specs/onboarding-brief.md",
+  "started_at": "2026-06-03T00:00:00Z",
+  "phase": "development",
+  "active": [
     {
-      "id": "task-fix-pr22-ui-round4",
-      "file": "docs/specs/tasks/task-fix-pr22-ui-round4.md",
+      "id": "task-onboarding-6a-data-backend",
+      "file": "docs/specs/tasks/task-onboarding-6a-data-backend.md",
       "agent": "coder",
-      "workflow": "coder.yml",
-      "run_id": "26140884018",
-      "branch": "fix/teams-ui-polish",
-      "pr_number": 22,
-      "status": "running",
-      "started_at": "2026-05-20T03:10:00Z",
-      "expected_duration_min": 10,
+      "branch": "feature/onboarding-data-backend",
+      "pr_number": null,
+      "status": "pending_dispatch",
+      "started_at": "2026-06-03T00:00:00Z",
       "review_rounds": 0,
       "max_review_rounds": 5,
-      "notes": "Round4: 5 UI fixes from user testing — TG href, back button RBAC, contacts layout, TG pill text, avatar bg"
+      "agent_invocations": { "coder": 0, "reviewer": 0, "autotest": 0, "devops": 0 },
+      "events": [
+        {
+          "at": "2026-06-03T00:00:00Z",
+          "type": "brief_approved",
+          "brief": "docs/specs/onboarding-brief.md"
+        },
+        {
+          "at": "2026-06-03T00:00:00Z",
+          "type": "task_file_created",
+          "file": "docs/specs/tasks/task-onboarding-6a-data-backend.md"
+        }
+      ],
+      "pending_fixes": [],
+      "notes": "Phase 6A. Next phases: 6B (UI+gate), 6C (admin editor), 6D (invoice contract_number)."
     }
+  ],
+  "completed": [
+    { "id": "legacy-may-2026-batch", "note": "stale state — previous PM feature was Teams UI/E2E. See git log for merged PRs." }
   ],
   "blocked": [],
-  "merged": [
+  "blocking_issue": null,
+  "background_agents_external": [
     {
-      "id": "task-infra-branch-protection",
-      "pr_number": 16,
-      "merged_at": "2026-05-19T08:51:13Z"
-    },
-    {
-      "id": "task-teams-ui-improvements",
-      "pr_number": 18,
-      "merged_at": "2026-05-19T11:12:06Z"
-    },
-    {
-      "id": "task-fix-e2e-team-selectors",
-      "pr_number": 21,
-      "merged_at": "2026-05-19T16:59:22Z"
-    },
-    {
-      "id": "task-infra-e2e-watchdog",
-      "pr_number": 20,
-      "merged_at": "2026-05-19T17:08:36Z"
-    },
-    {
-      "id": "task-fix-flaky-tests",
-      "pr_number": 23,
-      "merged_at": "2026-05-19T21:07:00Z"
+      "id": "autotest-business-logic-e2e",
+      "agent": "autotest",
+      "session_hint": "a76209d",
+      "pr_number": 82,
+      "branch": "test/business-logic-coverage",
+      "notes": "Background AutoTest agent: бизнес-логика E2E coverage. НЕ дублировать, ждать notification."
     }
-  ],
-  "phase": "development",
-  "pending_fixes": [],
-  "blocking_issue": null
+  ]
 }
