@@ -20,23 +20,23 @@
 
 - name: documentation
   color: 0075ca
-  description: "Improvements or additions to documentation"
+  description: 'Improvements or additions to documentation'
 
 - name: duplicate
   color: cfd3d7
-  description: "This issue or pull request already exists"
+  description: 'This issue or pull request already exists'
 
 - name: enhancement
   color: a2eeef
-  description: "New feature or request"
+  description: 'New feature or request'
 
 - name: good first issue
   color: 7057ff
-  description: "Good for newcomers"
+  description: 'Good for newcomers'
 
 - name: help wanted
   color: 008672
-  description: "Extra attention is needed"
+  description: 'Extra attention is needed'
 
 - name: invalid
   color: e4e669
@@ -44,11 +44,11 @@
 
 - name: question
   color: d876e3
-  description: "Further information is requested"
+  description: 'Further information is requested'
 
 - name: wontfix
   color: ffffff
-  description: "This will not be worked on"
+  description: 'This will not be worked on'
 
 # ─────────────────────────────────────────────────────────────────────────────
 # AI Agent pipeline labels (custom, см. docs/agents/pm.md)
@@ -56,36 +56,40 @@
 
 - name: ai-review-ready
   color: 0075ca
-  description: "Coder finished — triggers Reviewer + AutoTest dispatch"
+  description: 'Coder finished — triggers Reviewer + AutoTest dispatch'
 
 - name: awaiting-pm-review
   color: FFA500
-  description: "Reviewer APPROVE — PM анализирует review перед User Testing"
+  description: 'Reviewer APPROVE — PM анализирует review перед User Testing'
 
 - name: merge-approved
   color: 0e8a16
-  description: "PM получил явный апрув пользователя — CI может мерджить (auto-merge-on-label.yml)"
+  description: 'PM получил явный апрув пользователя — CI может мерджить (auto-merge-on-label.yml)'
 
 - name: do-not-merge
   color: b60205
-  description: "Reviewer вернул Verdict: BLOCK — мердж запрещён до фикса"
+  description: 'Reviewer вернул Verdict: BLOCK — мердж запрещён до фикса'
 
 - name: ci-failed
   color: d73a4a
-  description: "CI checks failed — PM создаёт fix-задачу для Coder (D2 fix, 2026-05-23)"
+  description: 'CI checks failed — PM создаёт fix-задачу для Coder (D2 fix, 2026-05-23)'
 
 - name: e2e-broken
   color: d73a4a
-  description: "E2E failing on main — команда на паузе, watchdog issue открыт"
+  description: 'E2E failing on main — команда на паузе, watchdog issue открыт'
 
 - name: pm-blocker
   color: FF0000
-  description: "Agent создал .blocked.md — PM нужен резолв"
+  description: 'Agent создал .blocked.md — PM нужен резолв'
 
 - name: needs-ba-action
   color: d93f0b
-  description: "BA agent — анализ и обновление docs/business/"
+  description: 'BA agent — анализ и обновление docs/business/'
 
 - name: escalation
   color: e4e669
-  description: "Business logic / staging bug escalation от QA или Reviewer"
+  description: 'Business logic / staging bug escalation от QA или Reviewer'
+
+- name: legal-noted
+  color: 0075ca
+  description: 'Legal review posted на PR (Mode B) — info-only, не блокирует merge'

@@ -67,6 +67,21 @@
 
 Прочитать `pm-brief.md`. Если `pm-state.json` существует с незавершённой работой → **Mode 3** (resume).
 
+### Шаг 1.5: Legal touchpoints heuristic check
+
+Если в brief упоминается **любое** из следующих:
+
+- финансы / payments / transactions / payouts / invoices
+- user data storage (passport, wallet, telegram, phone, паспорт-сканы)
+- contracts / NDA / IP / договора
+- crypto / USDT / smart-contract
+- third-party integration (S3, Etherscan, NBU API, новые SaaS)
+- hiring / employment (новые user roles или сценарии работы)
+
+→ диспетчить Legal в Mode C (brief-check) **ДО декомпозиции** — `pm-snippets.md` секция «Legal — Mode C (pre-feature brief check)». Legal вернёт `docs/specs/pm-brief-legal-check.md` с recommendations для AC. PM включает их в decomposition (Шаг 2). Записать event `legal_pre_feature_done` в `pm-state.json`.
+
+Если ни один trigger не сработал — пропустить Legal, перейти к декомпозиции (skip event не пишется).
+
 ### Шаг 2: Декомпозиция
 
 Skill `superpowers:writing-plans`. Для каждой задачи:
@@ -107,20 +122,22 @@ ls docs/specs/tasks/*.blocked.md 2>/dev/null
 
 ### Шаг 1: Событие → действие
 
-| Событие                                            | Действие                                                                                                                                           |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Agent завершил → PR создан                         | **MUST** Reviewer; AutoTest — условный (см. `contracts.md` §5). Skip без записи `autotest_skipped` запрещён.                                       |
-| Agent создал `.blocked.md`                         | **Mode 2.A** (read → ask USER → resume)                                                                                                            |
-| AutoTest no-op (0 файлов в `apps/e2e/`)            | Новый task с картой селекторов → перезапустить AutoTest                                                                                            |
-| PR label `ci-failed`                               | Fix-task для Coder (target_branch = ветка PR)                                                                                                      |
-| PR label `awaiting-pm-review`                      | **Mode 2.B** (post-review анализ → Mode 4)                                                                                                         |
-| Reviewer APPROVE event                             | **Mode 2.B**                                                                                                                                       |
-| Reviewer COMMENT с первой строкой `Verdict: BLOCK` | **Mode 2.D** (BLOCK handler)                                                                                                                       |
-| Reviewer REQUEST_CHANGES                           | `review_rounds++`. Если `>=3` — STOP, эскалация. Иначе fix-task. (AI-агенты используют COMMENT+Verdict, REQUEST_CHANGES — от внешних reviewer-ов.) |
-| E2E run = `success`                                | Записать event → ждать «мерджи» / **Mode 4**                                                                                                       |
-| E2E run = `failure`                                | **Mode 2.C** (e2e fail)                                                                                                                            |
-| CI auto-merge → PR merged                          | Metrics в `completed` → memory append → next task / архив `pm-state.json`                                                                          |
-| После `Agent(isolation="worktree")` returns        | **Mode 2.E** (state sync)                                                                                                                          |
+| Событие                                                                                                                                                                                                     | Действие                                                                                                                                           |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agent завершил → PR создан                                                                                                                                                                                  | **MUST** Reviewer; AutoTest — условный (см. `contracts.md` §5). Skip без записи `autotest_skipped` запрещён.                                       |
+| Agent создал `.blocked.md`                                                                                                                                                                                  | **Mode 2.A** (read → ask USER → resume)                                                                                                            |
+| AutoTest no-op (0 файлов в `apps/e2e/`)                                                                                                                                                                     | Новый task с картой селекторов → перезапустить AutoTest                                                                                            |
+| PR label `ci-failed`                                                                                                                                                                                        | Fix-task для Coder (target_branch = ветка PR)                                                                                                      |
+| PR label `awaiting-pm-review`                                                                                                                                                                               | **Mode 2.B** (post-review анализ → Mode 4)                                                                                                         |
+| Reviewer APPROVE event                                                                                                                                                                                      | **Mode 2.B**                                                                                                                                       |
+| Reviewer COMMENT с первой строкой `Verdict: BLOCK`                                                                                                                                                          | **Mode 2.D** (BLOCK handler)                                                                                                                       |
+| Reviewer REQUEST_CHANGES                                                                                                                                                                                    | `review_rounds++`. Если `>=3` — STOP, эскалация. Иначе fix-task. (AI-агенты используют COMMENT+Verdict, REQUEST_CHANGES — от внешних reviewer-ов.) |
+| E2E run = `success`                                                                                                                                                                                         | Записать event → ждать «мерджи» / **Mode 4**                                                                                                       |
+| E2E run = `failure`                                                                                                                                                                                         | **Mode 2.C** (e2e fail)                                                                                                                            |
+| CI auto-merge → PR merged                                                                                                                                                                                   | Metrics в `completed` → memory append → next task / архив `pm-state.json`                                                                          |
+| После `Agent(isolation="worktree")` returns                                                                                                                                                                 | **Mode 2.E** (state sync)                                                                                                                          |
+| PR diff matches critical legal zones (`apps/api/src/{finance,auth,documents,users}/**`, `packages/shared/src/schemas/{auth,finance,users,documents}.ts`, добавление S3/wallet/passport/personal-data полей) | **MUST** dispatch Legal в Mode B параллельно с Reviewer. Legal — info-only (label `legal-noted`), не gate. Записать `legal_dispatched` event       |
+| User в чате просит «спроси юриста про X»                                                                                                                                                                    | **Mode 5** (Legal Mode A consult или Mode D strategic — см. ниже)                                                                                  |
 
 ### Шаг 2: Запись event в `pm-state.json.active[task].events[]`
 
@@ -288,6 +305,80 @@ APPROVE → **Mode 2.B** → **Mode 4 (Шаг 0)**. BLOCK → fix-task → во�
 ### Если USER присылает правки пока Coder работает
 
 Добавить в `pending_fixes`, ответить: «Записал — добавлю к следующей партии (сейчас Coder ещё работает)». Когда текущий Coder завершится → новый task из накопленных правок.
+
+---
+
+## Режим 5 — Legal consultations
+
+Legal-агент работает в 4 modes (см. `docs/agents/legal.md`). PM-side handling каждого:
+
+### Mode A — On-demand consult
+
+**Триггер:** USER просит «спроси юриста про X» где X — конкретная задача / feature / PR. Или PM сам видит legal-вопрос в текущей работе.
+
+**Шаги:**
+
+1. Создать `docs/specs/tasks/task-legal-<slug>.md` по шаблону `templates/task-legal.md.tpl` — заполнить `## Контекст` + `## Вопрос`
+2. Диспетчить Legal через snippet «Legal — Mode A» из `pm-snippets.md`
+3. Legal append'ит `## Ответ юриста` в тот же файл
+4. PM читает результат, показывает USER TL;DR + Confidence + ключевую рекомендацию
+5. Если Confidence: LOW + action-критичная decision → явно сказать USER «нужна верификация у human-юриста ДО action»
+6. Записать `legal_dispatched` event в `pm-state.json`
+
+### Mode B — Auto PR review (critical zones)
+
+См. Mode 2 таблица — диспетч автоматический при diff match critical zones. Параллельно с Reviewer (оба `run_in_background=True`).
+
+Legal постит review с `event: COMMENT`, первая строка `Legal Review: <Confidence>`. Добавляет label `legal-noted`. **Не блокирует merge.**
+
+PM при получении legal review:
+
+1. Записать `legal_review_posted` event с `confidence`
+2. Если Confidence: LOW + critical findings → информировать USER отдельным сообщением: «PR #N — Legal флагит [risk]. Verify с human-юристом перед merge?»
+3. Решение блокировать / продолжать — за USER. PM **не** делает `do-not-merge` automatically на legal findings.
+
+### Mode C — Pre-feature brief check
+
+См. Mode 1 Шаг 1.5 — диспетч автоматический при match legal heuristic в `pm-brief.md`.
+
+Legal возвращает `docs/specs/pm-brief-legal-check.md` с recommendations. PM:
+
+1. Читает recommendations
+2. Включает релевантные в task decomposition (Mode 1 Шаг 2 — добавляет AC из Legal output)
+3. Записывает `legal_pre_feature_done` event с `recommendations_count`
+
+### Mode D — Strategic advisor
+
+**Триггер:** USER в чате «спроси юриста — можно ли X» где X — strategic вопрос вне конкретной feature (нанять JUNIOR по ФОП 2, открыть филиал, перейти на новый налоговый режим, изменить структуру выплат).
+
+**Шаги:**
+
+1. Создать `docs/specs/legal-consultations/YYYY-MM-DD-<slug>.md` с `## Вопрос` + `## Контекст`
+2. Диспетчить Legal через snippet «Legal — Mode D» из `pm-snippets.md`
+3. Legal append'ит `## Ответ юриста` в consultation-файл
+4. PM показывает USER TL;DR + Confidence + ключевую рекомендацию + полный путь к файлу для деталей
+5. Файл остаётся как permanent reference — не удалять / не редактировать
+
+### Разделение Mode A vs Mode D (если неясно куда отнести)
+
+| Признак                         | Mode A (consult)                                                          | Mode D (strategic)                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Привязан к конкретной фиче / PR | да                                                                        | нет                                                                                 |
+| Live task в pipeline            | да                                                                        | нет                                                                                 |
+| Lifecycle файла                 | как другие task (archive после)                                           | permanent log                                                                       |
+| Контекст в вопросе              | feature-specific                                                          | бизнес-стратегический                                                               |
+| Пример                          | «Можно ли S3 без encryption для passport?» (привязан к Documents feature) | «Можно ли перейти всех SENIOR на ФОП 2 группу?» (strategic, нет конкретной feature) |
+
+При сомнениях — Mode A (узкий контекст легче handle).
+
+### Hard escalation триггеры (PM-side)
+
+Если Legal вернул Confidence: LOW в hard zone (см. `docs/legal/cross-cutting/escalation-zones.md`):
+
+1. Записать `legal_escalated_to_human` event с `reason`
+2. **Не** диспатчить Coder / Reviewer auto-actions по этой теме
+3. Сообщить USER в чате: «Legal flagged hard escalation zone [<zone>]. Нужна консультация human-юриста ДО любого дальнейшего action. Жду твой signal как продолжать»
+4. Wait for USER decision
 
 ---
 
