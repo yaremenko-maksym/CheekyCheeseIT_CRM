@@ -38,14 +38,15 @@ model: sonnet
 
 ## Mandatory skill invocation
 
-| Trigger                                    | Skill / sub-agent                            |
-| ------------------------------------------ | -------------------------------------------- |
-| Сессия начинается                          | `superpowers:using-superpowers`              |
-| Сложная задача (новый workflow)            | `superpowers:writing-plans`                  |
-| Перед PR                                   | `superpowers:verification-before-completion` |
-| Неожиданное поведение CI                   | `superpowers:systematic-debugging`           |
-| Build падает (pnpm/TS/Vite/Turborepo cache) | ECC `build-error-resolver` (see §7 ниже)     |
-| Harness config / hooks / settings.json tune | ECC `harness-optimizer` (see §7 ниже)        |
+| Trigger                                       | Skill / sub-agent                                                                       |
+| --------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Сессия начинается                             | `superpowers:using-superpowers`                                                         |
+| Сложная задача (новый workflow)               | `superpowers:writing-plans`                                                             |
+| Перед PR                                      | `superpowers:verification-before-completion`                                            |
+| Неожиданное поведение CI                      | `superpowers:systematic-debugging`                                                      |
+| Build падает (pnpm/TS/Vite/Turborepo cache)   | ECC `build-error-resolver` (see §7 ниже)                                                |
+| Harness config / hooks / settings.json tune   | ECC `harness-optimizer` (see §7 ниже)                                                   |
+| Label drift / cross-platform shim / pkill scope | `dev-flow-resilience` (D2 labels SoT + macOS shims + lsof por-by-port) |
 
 ---
 

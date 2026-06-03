@@ -55,16 +55,18 @@ model: opus
 
 См. `RULES.md` §3. Для PM применимы:
 
-| Trigger                                          | Skill                                                                         |
-| ------------------------------------------------ | ----------------------------------------------------------------------------- |
-| Сессия начинается                                | `superpowers:using-superpowers`                                               |
-| Новая фича (декомпозиция)                        | `superpowers:brainstorming` → `writing-plans`                                 |
-| Multi-task dispatch                              | `superpowers:dispatching-parallel-agents`                                     |
-| Coder dispatch                                   | `superpowers:using-git-worktrees` + `pm-dispatching` (loads `pm-snippets.md`) |
-| Implementation plan execution                    | `superpowers:executing-plans`                                                 |
-| Анализ блокера / E2E fail                        | `superpowers:systematic-debugging`                                            |
-| Перед PR merge — финальная верификация           | `superpowers:verification-before-completion`                                  |
-| Lessons rotation (> 20 строк OR после merged PR) | `anthropic-skills:consolidate-memory`                                         |
+| Trigger                                                       | Skill                                                                                |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Сессия начинается                                             | `superpowers:using-superpowers`                                                      |
+| Новая фича (декомпозиция)                                     | `superpowers:brainstorming` → `writing-plans`                                        |
+| Multi-task dispatch                                           | `superpowers:dispatching-parallel-agents`                                            |
+| Coder dispatch                                                | `superpowers:using-git-worktrees` + `pm-dispatching` (loads `pm-snippets.md`)        |
+| Implementation plan execution                                 | `superpowers:executing-plans`                                                        |
+| Long wait > 30 мин / cross-session / silent termination recovery | `dev-flow-resilience` (D1 Layer 1/2 scheduling + C1 sentinel recovery)               |
+| User iterates evasion variants после Legal hard-refuse        | `legal-escalation-patterns` (5-step PM behavior: identify pattern, add insight, fork) |
+| Анализ блокера / E2E fail                                     | `superpowers:systematic-debugging`                                                   |
+| Перед PR merge — финальная верификация                        | `superpowers:verification-before-completion`                                         |
+| Lessons rotation (> 20 строк OR после merged PR)              | `anthropic-skills:consolidate-memory`                                                |
 
 ---
 

@@ -53,19 +53,21 @@ model: sonnet
 
 См. `RULES.md` §3 для полной таблицы. Для Coder применимы:
 
-| Trigger                                                        | Skill / ECC sub-agent                                            |
-| -------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Сессия начинается                                              | `superpowers:using-superpowers`                                  |
-| Новая фича (новый код) — перед implementation                  | `superpowers:test-driven-development` + ECC `tdd-guide`          |
-| Bug fix / test failure / unexpected behavior                   | `superpowers:systematic-debugging`                               |
-| Multi-step task — перед implementation                         | `superpowers:writing-plans`                                      |
-| TypeScript-heavy edits (`.ts`/`.tsx`) — ДО `git push`          | ECC `typescript-reviewer` (per-file self-review)                 |
-| Перед PR / completion claim                                    | `superpowers:verification-before-completion`                     |
+| Trigger                                                        | Skill / ECC sub-agent                                                        |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Сессия начинается                                              | `superpowers:using-superpowers`                                              |
+| Новая фича (новый код) — перед implementation                  | `superpowers:test-driven-development` + ECC `tdd-guide`                      |
+| Bug fix / test failure / unexpected behavior                   | `superpowers:systematic-debugging`                                           |
+| Multi-step task — перед implementation                         | `superpowers:writing-plans`                                                  |
+| Long task (>2 файлов / >5 мин) или silent termination diagnosis | `dev-flow-resilience` (C1 chunking/sentinel/intent + C3 zone-of-write)        |
+| Написание / правка `.spec.ts` (Playwright E2E)                 | `playwright-patterns` (CRM cookbook: strict-mode, Radix radio, testids)      |
+| TypeScript-heavy edits (`.ts`/`.tsx`) — ДО `git push`          | ECC `typescript-reviewer` (per-file self-review)                             |
+| Перед PR / completion claim                                    | `superpowers:verification-before-completion`                                 |
 | PR трогает auth / finance / wallets / transactions / контракты | `superpowers:security-review` (PM параллельно дисп. security-reviewer на PR) |
-| Получение review feedback                                      | `superpowers:receiving-code-review`                              |
-| После написания кода (cleanup)                                 | `superpowers:simplify`                                           |
-| Новая страница / сложный UI component                          | `frontend-design:frontend-design`                                |
-| Branch готова к merge (final commit)                           | `superpowers:finishing-a-development-branch`                     |
+| Получение review feedback                                      | `superpowers:receiving-code-review`                                          |
+| После написания кода (cleanup)                                 | `superpowers:simplify`                                                       |
+| Новая страница / сложный UI component                          | `frontend-design:frontend-design`                                            |
+| Branch готова к merge (final commit)                           | `superpowers:finishing-a-development-branch`                                 |
 
 **ECC sub-agents** (`tdd-guide` / `typescript-reviewer`) — диспетч локально через `Agent(subagent_type="<name>", ...)`. Они узкоспециализированы: tdd-guide отвечает только за RED→GREEN→IMPROVE план + 80% coverage; typescript-reviewer — per-file TS/TSX review (типы, ESLint, strict mode). **D1-D4 resilience layer остаётся Coder'у** — intent marker, chunking, AC verification, pre-push hook (`hooks-ecc/coder-push-gate.sh`) НЕ делегируются sub-agents'ам, они работают на _выходе_ кода Coder'а.
 
@@ -336,7 +338,10 @@ PM прочитает на следующем пробуждении.
 
 - **`tdd-guide`** — RED→GREEN→IMPROVE workflow enforcement, минимум coverage 80%. Инвоукать перед новой фичей (см. §1.5 workflow). См. `docs/architecture/ecc-reference/AGENTS.upstream.md` строки 21 + 56 + 108-114.
 - **`typescript-reviewer`** — per-file TS/TSX code review: strict mode, типы, ESLint, Zod usage. Инвоукать как self-review ПЕРЕД `git push` для milestones с `.ts`/`.tsx` (см. §2.5 workflow). Не путать с PM-диспатчем `code-reviewer.md` (post-PR review).
-- **Stack-specific skills** (`nestjs-patterns`, `react-patterns`, `react-testing` и др.) — _available after Phase 4_ когда lessons из `memory/coder/lessons.md` будут конвертированы в `.claude/skills/*` knowledge primitives. Пока не используются.
+- **Stack-specific skills (status после Phase 4):**
+  - `playwright-patterns` (CRM cookbook для E2E) — **доступен** в `.claude/skills/playwright-patterns/`.
+  - `dev-flow-resilience` (D1-D4 resilience) — **доступен** в `.claude/skills/dev-flow-resilience/`.
+  - `nestjs-patterns`, `react-patterns`, `react-testing` — **SKIP в Phase 4** (insufficient substantive content в lessons.md, reassess Phase 6+). См. `docs/architecture/2026-06-03-phase4-skills-viability.md`.
 
 ECC decision rationale: см. `docs/architecture/2026-05-31-ecc-migration-design.md` § 2.1.3 — Coder shell preserved + decomposed на узкие ECC sub-agents.
 

@@ -62,12 +62,14 @@ model: opus
 
 ## Mandatory skill invocation
 
-| Trigger                                                      | Skill                                |
-| ------------------------------------------------------------ | ------------------------------------ |
-| Сессия начинается                                            | `superpowers:using-superpowers`      |
-| Начало каждого security review                               | `superpowers:requesting-code-review` |
-| PR трогает auth/finance/wallets/transactions/smart-contracts | `superpowers:security-review`        |
-| Перед финальным post review                                  | `superpowers:verification-before-completion` |
+| Trigger                                                      | Skill                                                                         |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| Сессия начинается                                            | `superpowers:using-superpowers`                                               |
+| Начало каждого security review                               | `superpowers:requesting-code-review`                                          |
+| PR трогает auth/finance/wallets/transactions/smart-contracts | `superpowers:security-review`                                                 |
+| Перед формулированием Verdict / post review                  | `code-review-discipline` (BLOCK first-line, write-then-post, zone-violations) |
+| Long review / MCP I/O > 5 сек / sentinel diagnosis           | `dev-flow-resilience` (C2 write-then-post chain)                              |
+| Перед финальным post review                                  | `superpowers:verification-before-completion`                                  |
 
 `superpowers:security-review` — обязателен для каждого dispatch (это твоя зона).
 

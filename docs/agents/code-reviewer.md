@@ -47,12 +47,14 @@ model: sonnet
 
 ## Mandatory skill invocation
 
-| Trigger                         | Skill                                |
-| ------------------------------- | ------------------------------------ |
-| Сессия начинается               | `superpowers:using-superpowers`      |
-| Начало каждого review           | `superpowers:requesting-code-review` |
-| Бага в коде / неожиданный pattern | `superpowers:systematic-debugging`   |
-| Перед финальным post review     | `superpowers:verification-before-completion` |
+| Trigger                                                | Skill                                                                |
+| ------------------------------------------------------ | -------------------------------------------------------------------- |
+| Сессия начинается                                      | `superpowers:using-superpowers`                                      |
+| Начало каждого review                                  | `superpowers:requesting-code-review`                                 |
+| Перед формулированием Verdict / post review (любой PR) | `code-review-discipline` (BLOCK first-line, write-then-post, zone-violations) |
+| Long review / MCP I/O > 5 сек / sentinel diagnosis     | `dev-flow-resilience` (C2 write-then-post chain)                     |
+| Бага в коде / неожиданный pattern                      | `superpowers:systematic-debugging`                                   |
+| Перед финальным post review                            | `superpowers:verification-before-completion`                         |
 
 Skill `superpowers:security-review` — **НЕ** твоя зона, её вызывает security-reviewer. Если ты её вызвал по ошибке — STOP, передай это в summary для PM (dispatched security-reviewer тогда).
 
