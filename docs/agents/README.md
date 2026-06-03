@@ -29,6 +29,10 @@ Multi-agent инфраструктура для CRM Cheeky Cheese IT. Содер
 | **DevOps**   | [`devops.md`](devops.md)     | CI/CD, workflows, branch protection                                    |
 | **BA**       | [`ba.md`](ba.md)             | Business Analyst: brief writing, role boundaries                       |
 
+### Human roles (not LLM agents)
+
+- **BA** (`docs/agents/ba.md`) — Business consultant. Writes `docs/specs/pm-brief.md` for PM consumption. **Not an LLM agent.** Located here for project clarity (alongside LLM agent docs); no YAML frontmatter.
+
 ### On-demand reference
 
 | Doc                                | Что                                                                             |
