@@ -7,7 +7,7 @@
 agents/
 skills/ecc/
 hooks/
-rules/ecc/
+.claude/rules/ecc/
 manifests/
 mcp-configs/
 docs/architecture/ecc-reference/

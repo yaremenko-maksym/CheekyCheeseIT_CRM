@@ -1,11 +1,12 @@
 ---
 name: pm-dispatching
-description: Use when PM needs to dispatch an agent (Coder/AutoTest/Reviewer/DevOps) or run PR/CI/User-Testing commands. Loads on-demand snippets from docs/agents/pm-snippets.md instead of keeping them in PM system prompt.
+description: Use when PM needs to dispatch an agent (Coder/AutoTest/Reviewer/DevOps) or run PR/CI/User-Testing commands. Loads on-demand snippets from .claude/agents/pm-snippets.md instead of keeping them in PM system prompt.
 ---
 
 # PM Dispatching — Loading Snippets
 
 Этот skill вызывается PM-агентом когда нужен готовый сниппет для:
+
 - Диспетча агента (Coder / AutoTest / Reviewer / DevOps)
 - Проверки PR / CI / лейблов
 - Подготовки окружения User Testing
@@ -13,21 +14,21 @@ description: Use when PM needs to dispatch an agent (Coder/AutoTest/Reviewer/Dev
 
 ## Использование
 
-Прочитай файл `docs/agents/pm-snippets.md` целиком и используй секцию которая подходит к текущей задаче:
+Прочитай файл `.claude/agents/pm-snippets.md` целиком и используй секцию которая подходит к текущей задаче:
 
-| Задача PM | Секция snippets |
-|-----------|-----------------|
-| Запустить нового Coder на task | "Coder — новая фича" |
-| Запустить Coder на fix в существующую ветку | "Coder — фикс в существующую ветку" |
-| Запустить Reviewer после Coder | "Reviewer — code review" |
-| Запустить AutoTest для post-approval тестов | "AutoTest — post-approval тесты" |
-| Параллельный запуск нескольких агентов | "Параллельный запуск" |
-| Найти PR по ветке | "PR и CI команды" |
-| Проверить статус CI | "PR и CI команды" → "Статус CI на PR" |
+| Задача PM                                               | Секция snippets                           |
+| ------------------------------------------------------- | ----------------------------------------- |
+| Запустить нового Coder на task                          | "Coder — новая фича"                      |
+| Запустить Coder на fix в существующую ветку             | "Coder — фикс в существующую ветку"       |
+| Запустить Reviewer после Coder                          | "Reviewer — code review"                  |
+| Запустить AutoTest для post-approval тестов             | "AutoTest — post-approval тесты"          |
+| Параллельный запуск нескольких агентов                  | "Параллельный запуск"                     |
+| Найти PR по ветке                                       | "PR и CI команды"                         |
+| Проверить статус CI                                     | "PR и CI команды" → "Статус CI на PR"     |
 | Управлять лейблами (merge-approved, awaiting-pm-review) | "PR и CI команды" → "Управление лейблами" |
-| User Testing подготовка | "User Testing подготовка окружения" |
-| Запустить E2E через GHA | "E2E запуск" |
-| Проверить что AutoTest не no-op | "Workflow lookups" |
+| User Testing подготовка                                 | "User Testing подготовка окружения"       |
+| Запустить E2E через GHA                                 | "E2E запуск"                              |
+| Проверить что AutoTest не no-op                         | "Workflow lookups"                        |
 
 ## Принцип
 

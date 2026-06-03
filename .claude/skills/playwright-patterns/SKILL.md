@@ -5,7 +5,7 @@ description: When AutoTest или Coder пишет Playwright E2E / flow тес�
 
 # Playwright Patterns (CRM)
 
-Custom cookbook поверх ECC playwright slot. CRM использует Playwright @1.40+, Radix UI, mock-based fixtures (`apps/e2e/tests/fixtures/`). Уроки лифтнуты из `docs/agents/memory/autotest/lessons.md` + `coder/lessons.md` (2026-05-19 — 2026-06-02).
+Custom cookbook поверх ECC playwright slot. CRM использует Playwright @1.40+, Radix UI, mock-based fixtures (`apps/e2e/tests/fixtures/`). Уроки лифтнуты из `.claude/agents/memory/autotest/lessons.md` + `coder/lessons.md` (2026-05-19 — 2026-06-02).
 
 ## When to invoke
 
@@ -116,12 +116,12 @@ await page.screenshot({ path: `${debugDir}/team-form.png` })
 ## References
 
 - Source lessons (lifted 2026-06-03):
-  - `docs/agents/memory/autotest/lessons.md` (2026-05-18 — 2026-05-30)
-  - `docs/agents/memory/coder/lessons.md` (2026-05-19, 2026-05-21, 2026-05-30, 2026-06-02 строки про testids / strict-mode / no-verify ban)
+  - `.claude/agents/memory/autotest/lessons.md` (2026-05-18 — 2026-05-30)
+  - `.claude/agents/memory/coder/lessons.md` (2026-05-19, 2026-05-21, 2026-05-30, 2026-06-02 строки про testids / strict-mode / no-verify ban)
 - Project config: `apps/e2e/playwright.config.ts`, `apps/e2e/tests/fixtures/`
 - Related agent docs:
-  - `docs/agents/autotest.md` секция "Anti-patterns" (Phase 4 будет вычищена в пользу этого skill)
-  - `docs/agents/coder.md` §6.1 (testids checklist по типам компонентов)
+  - `.claude/agents/autotest.md` секция "Anti-patterns" (Phase 4 будет вычищена в пользу этого skill)
+  - `.claude/agents/coder.md` §6.1 (testids checklist по типам компонентов)
 - Related skills:
   - `dev-flow-resilience` (для E2E + watchdog interaction)
   - `superpowers:test-driven-development`, `superpowers:systematic-debugging`

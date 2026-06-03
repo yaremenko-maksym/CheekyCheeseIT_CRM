@@ -6,10 +6,10 @@
 
 ### Active (production) — naшая система
 
-**`docs/agents/*.md`** — 8 agent prompts работают и обслуживают daily workflow:
+**`.claude/agents/*.md`** — 8 agent prompts работают и обслуживают daily workflow:
 
 - `pm.md` + `CLAUDE-pm.md` + `pm-snippets.md` — orchestrator
-- `docs/business/roles/ba.md` — human role (moved out of docs/agents/ in Phase 6, 2026-06-03)
+- `docs/business/roles/ba.md` — human role (moved out of .claude/agents/ in Phase 6, 2026-06-03)
 - `coder.md` + `CLAUDE-coder.md` — fullstack dev
 - `autotest.md` — E2E test dev
 - `reviewer.md` + `CLAUDE-reviewer.md` — code review
@@ -59,7 +59,7 @@
 
 После Phase 3 cutover:
 
-- `docs/agents/*.md` move to `docs/agents/_legacy/`
+- `.claude/agents/*.md` move to `.claude/agents/_legacy/`
 - New project agents live в `agents/` или в hybrid pattern (TBD)
 - 1 неделя coexistence period before cleanup
 
@@ -67,7 +67,7 @@
 
 - Не редактировать `agents/*.md` напрямую — это ECC upstream reference (read-only до Phase 3)
 - Phase 3 миграция создаст НОВЫЕ project agent файлы (PM/Coder/etc.) в this directory, рядом с ECC catalog
-- Daily workflow продолжает dispatch через `docs/agents/*.md` пока Phase 3 не сделает cutover
+- Daily workflow продолжает dispatch через `.claude/agents/*.md` пока Phase 3 не сделает cutover
 
 ## Источники
 

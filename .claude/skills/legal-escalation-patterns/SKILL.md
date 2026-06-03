@@ -5,7 +5,7 @@ description: When Legal-agent encounters hard refuse zones (multi-issuer schemes
 
 # Legal Escalation Patterns
 
-Cross-cutting skill: handling evasion variants, hard refuse zones, lawyer engagement boundaries. Лифтнуто из `docs/agents/memory/legal/lessons.md` (#escalation items, 2026-05-31) + `pm-side` PM lessons.
+Cross-cutting skill: handling evasion variants, hard refuse zones, lawyer engagement boundaries. Лифтнуто из `.claude/agents/memory/legal/lessons.md` (#escalation items, 2026-05-31) + `pm-side` PM lessons.
 
 ## When to invoke
 
@@ -99,7 +99,7 @@ Net assessment: <viable / not viable + reason>
 
 **Implementation:**
 
-- Прочитати `docs/legal/consultations/<date>-<topic>.md` (якщо існує).
+- Прочитати `.claude/knowledge/legal/consultations/<date>-<topic>.md` (якщо існує).
 - Reference: «Базою — ваша консультація 2026-05-31 про top-pattern».
 - Delta-focused answer (§4).
 
@@ -148,14 +148,14 @@ practitioner (юриспруденція UA / inter-jurisdictional law).
 ## References
 
 - Source lessons (lifted 2026-06-03):
-  - `docs/agents/memory/legal/lessons.md` (2026-05-31 — 4 substantive items #escalation)
-  - `docs/agents/memory/pm/lessons.md` (`pm-side` items про evasion variant handling)
+  - `.claude/agents/memory/legal/lessons.md` (2026-05-31 — 4 substantive items #escalation)
+  - `.claude/agents/memory/pm/lessons.md` (`pm-side` items про evasion variant handling)
 - Citations within patterns:
   - ст. 212 ККУ (податкове уклонення поріг ₴4.99M)
   - GDPR / EU regulation 2016/679
 - Related agent docs:
-  - `docs/agents/legal.md` Mode A / Mode D
-  - `docs/agents/pm.md` (escalation handling Mode 2)
+  - `.claude/agents/legal.md` Mode A / Mode D
+  - `.claude/agents/pm.md` (escalation handling Mode 2)
 - Related skills:
   - `ua-tax-compliance` (legitimate path alternatives)
   - `ua-crypto-compliance` (crypto hard refuse zones)

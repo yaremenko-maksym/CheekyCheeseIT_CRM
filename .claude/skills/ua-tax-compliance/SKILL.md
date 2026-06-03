@@ -5,7 +5,7 @@ description: When Legal-agent отвечает на UA tax / company structure q
 
 # UA Tax Compliance (Legal knowledge primitive)
 
-UA-specific tax / company structure знания. Лифтнуто из `docs/agents/memory/legal/lessons.md` (2026-05-31 consultations). НЕ покрыто ECC — это jurisdictional knowledge.
+UA-specific tax / company structure знания. Лифтнуто из `.claude/agents/memory/legal/lessons.md` (2026-05-31 consultations). НЕ покрыто ECC — это jurisdictional knowledge.
 
 **Disclaimer:** Этот skill — справочный материал для Legal-agent при формулировании консультаций. Каждая рекомендация на consultation выходе должна иметь stronger disclaimer + IT-corporate lawyer engagement для final sign-off (см. `legal-escalation-patterns` skill).
 
@@ -160,14 +160,14 @@ UA-specific tax / company structure знания. Лифтнуто из `docs/ag
 ## References
 
 - Source lessons (lifted 2026-06-03):
-  - `docs/agents/memory/legal/lessons.md` (2026-05-31 — 12+ substantive items #ua-fop #tax)
+  - `.claude/agents/memory/legal/lessons.md` (2026-05-31 — 12+ substantive items #ua-fop #tax)
 - Citations within patterns:
   - ст. 39² ПКУ (CFC rules)
   - Меморандум НБУ + АБУ 14.05.2026 (banking caps)
   - Форма 743 / blank.dtkt.ua (audit form)
   - UAE MD 229/230 (substance)
 - Related agent docs:
-  - `docs/agents/legal.md` Mode A (consultation)
+  - `.claude/agents/legal.md` Mode A (consultation)
 - Related skills:
   - `ua-crypto-compliance` (related crypto/AML restrictions)
   - `ua-it-contract` (gig contracts recharacterization)

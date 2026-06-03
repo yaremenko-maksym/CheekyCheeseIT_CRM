@@ -5,7 +5,7 @@ description: When Legal-agent advises on UA IT-contract structure (SENIOR/JUNIOR
 
 # UA IT-Contract (Legal knowledge primitive)
 
-UA-specific IT-contract risk patterns. Лифтнуто из `docs/agents/memory/legal/lessons.md` (#it-contract items, 2026-05-31 consultation `templates-analysis-pack`).
+UA-specific IT-contract risk patterns. Лифтнуто из `.claude/agents/memory/legal/lessons.md` (#it-contract items, 2026-05-31 consultation `templates-analysis-pack`).
 
 **Disclaimer:** Этот skill дает structural risk patterns. AI Legal-agent **НЕ генерує** ready-to-sign юридичні шаблони (recharacterization risk, missing clauses). Final text — **виключно IT-corporate lawyer**.
 
@@ -134,7 +134,7 @@ UA-specific IT-contract risk patterns. Лифтнуто из `docs/agents/memory
 ## References
 
 - Source lessons (lifted 2026-06-03):
-  - `docs/agents/memory/legal/lessons.md` (2026-05-31 — 6+ substantive items #it-contract #personal-data)
+  - `.claude/agents/memory/legal/lessons.md` (2026-05-31 — 6+ substantive items #it-contract #personal-data)
 - Citations within patterns:
   - ЗУ 2297-VI (personal data «спеціальна» consent)
   - ст. 17 ПКУ (tax info disclosure limits)
@@ -145,4 +145,4 @@ UA-specific IT-contract risk patterns. Лифтнуто из `docs/agents/memory
   - `ua-crypto-compliance` (wallet field changes + payment requisites)
   - `legal-escalation-patterns` (lawyer engagement strategy + escalation patterns)
 - Related agent docs:
-  - `docs/agents/legal.md` Mode A / Mode B / Mode C
+  - `.claude/agents/legal.md` Mode A / Mode B / Mode C

@@ -60,7 +60,7 @@ mcp__github__create_pull_request_review({
 
 - `scripts/pm/**` (PM-only)
 - `scripts/devops/**` (DevOps-only)
-- `docs/agents/**` (Architect-only)
+- `.claude/agents/**` (Architect-only)
 - `docs/business/**` (BA-only)
 - `.github/workflows/**` (DevOps-only)
 - `.claude/hooks/**` (DevOps + Architect)
@@ -69,14 +69,14 @@ mcp__github__create_pull_request_review({
 **Implementation:**
 
 ```bash
-gh pr view <N> --json files --jq '.files[].path' | grep -E '^(scripts/pm/|scripts/devops/|docs/agents/|docs/business/|\.github/workflows/|\.claude/hooks/)'
+gh pr view <N> --json files --jq '.files[].path' | grep -E '^(scripts/pm/|scripts/devops/|.claude/agents/|docs/business/|\.github/workflows/|\.claude/hooks/)'
 ```
 
 Если есть match → Verdict: BLOCK + body содержит конкретные file paths и ссылку на `coder.md` "Zone-of-write" секцию.
 
 ### 4. Confidence-tagged findings (cross-reference ECC)
 
-**Уже в ECC code-reviewer.md** — этот skill **НЕ дублирует** HIGH/MED/LOW gate. Reference: `docs/agents/code-reviewer.md` §"Confidence policy (Pre-Report Gate)".
+**Уже в ECC code-reviewer.md** — этот skill **НЕ дублирует** HIGH/MED/LOW gate. Reference: `.claude/agents/code-reviewer.md` §"Confidence policy (Pre-Report Gate)".
 
 **Delta поверх ECC:**
 
@@ -103,13 +103,13 @@ gh pr view <N> --json files --jq '.files[].path' | grep -E '^(scripts/pm/|script
 ## References
 
 - Source lessons (lifted 2026-06-03):
-  - `docs/agents/memory/reviewer/lessons.md` (2026-05-21, 2026-05-23 — 3 substantive items)
+  - `.claude/agents/memory/reviewer/lessons.md` (2026-05-21, 2026-05-23 — 3 substantive items)
 - ECC equivalent (parent, NOT duplicated here):
-  - `docs/agents/code-reviewer.md` §"Confidence policy (Pre-Report Gate)" — HIGH/MED/LOW levels
-  - `docs/agents/security-reviewer.md` §"Confidence policy" — OWASP-tagged HIGH
+  - `.claude/agents/code-reviewer.md` §"Confidence policy (Pre-Report Gate)" — HIGH/MED/LOW levels
+  - `.claude/agents/security-reviewer.md` §"Confidence policy" — OWASP-tagged HIGH
 - Related agent docs:
-  - `docs/agents/pm.md` Mode 2 (aggregate verdict logic + Mode 2.F review timeout)
-  - `docs/agents/coder.md` §"Zone-of-write" (full forbidden list)
+  - `.claude/agents/pm.md` Mode 2 (aggregate verdict logic + Mode 2.F review timeout)
+  - `.claude/agents/coder.md` §"Zone-of-write" (full forbidden list)
 - Related skills:
   - `dev-flow-resilience` (write-then-post — same pattern, applied to Coder/PM)
   - `superpowers:requesting-code-review`

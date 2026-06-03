@@ -1,16 +1,16 @@
 # CRM Project Memory Bank
 
-> 📌 **Multi-agent docs обновлены 2026-06-02 (architecture v2).** Начало работы агентов — `docs/agents/README.md`.
+> 📌 **Multi-agent docs обновлены 2026-06-02 (architecture v2).** Начало работы агентов — `.claude/agents/README.md`.
 >
 > **Single source of truth** теперь разделён по файлам:
 >
-> - `docs/agents/RULES.md` — cross-agent rules (MCP, git, skills, zone-of-write, version pins)
-> - `docs/agents/project-state.md` — phases / migrations / RBAC / tech stack / business rules
-> - `docs/agents/contracts.md` — cross-agent state-machine (Mermaid)
-> - `docs/agents/<agent>.md` — system-промпт каждого агента (golden rules + recovery + workflow)
+> - `.claude/RULES.md` — cross-agent rules (MCP, git, skills, zone-of-write, version pins)
+> - `.claude/agents/project-state.md` — phases / migrations / RBAC / tech stack / business rules
+> - `.claude/agents/contracts.md` — cross-agent state-machine (Mermaid)
+> - `.claude/agents/<agent>.md` — system-промпт каждого агента (golden rules + recovery + workflow)
 >
 > Этот `CLAUDE.md` сохранён как high-level overview для USER-сессии. Изменения фаз / миграций /
-> RBAC — теперь делаются в `docs/agents/project-state.md` (single source). См. `docs/agents/CHANGES.md`.
+> RBAC — теперь делаются в `.claude/agents/project-state.md` (single source). См. `.claude/agents/CHANGES.md`.
 
 ## MCP серверы (активные) — ИСПОЛЬЗОВАТЬ В ПЕРВУЮ ОЧЕРЕДЬ
 
@@ -78,7 +78,7 @@
 | Агент                    | Роль                                                            | Где живёт           |
 | ------------------------ | --------------------------------------------------------------- | ------------------- |
 | **Master (Claude Code)** | Настройка инфраструктуры агентов                                | Локально            |
-| **BA**                   | Бизнес-консультант, пишет `docs/specs/pm-brief.md`              | Локально            |
+| **BA**                   | Бизнес-консультант, пишет `.claude/briefs/pm-brief.md`          | Локально            |
 | **PM**                   | Оркестратор: декомпозиция → диспетч → мониторинг → User Testing | Локально            |
 | **Coder**                | Fullstack разработчик                                           | GHA (coder.yml)     |
 | **AutoTest**             | E2E тест-разработчик                                            | GHA (autotest.yml)  |
@@ -93,7 +93,7 @@ PR → ai-review.yml (AutoTest + Reviewer) → awaiting-pm-review →
 PM (User Testing) → e2e.yml → squash merge
 ```
 
-**Task files:** `docs/specs/tasks/task-<slug>.md` (PM создаёт, агенты читают)
+**Task files:** `.claude/tasks/task-<slug>.md` (PM создаёт, агенты читают)
 
 ## Технологический стек
 
@@ -466,7 +466,7 @@ documents: id, ownerId, projectId, category(resume/scan/contract/invoice),
 - PHASE 7 (partial): Профили работают
 - Finance модуль: transactions, expenses, invoices, payouts, juniorPayments, NBU exchange rates, PDF invoice generation, etherscan integration
 - Миграции: 0000–0011 применены (включая finance, partner_ledger, exchange_rate, project_logo)
-- **Multi-agent архитектура:** PM-агент добавлен, параллельный диспетч через `docs/specs/tasks/`, e2e.yml отдельный workflow, awaiting-pm-review label в ai-review.yml, QA упразднён
+- **Multi-agent архитектура:** PM-агент добавлен, параллельный диспетч через `.claude/tasks/`, e2e.yml отдельный workflow, awaiting-pm-review label в ai-review.yml, QA упразднён
 - CI/CD: ai-review.yml (AutoTest → Reviewer → PM gate), coder.yml, devops.yml, autotest.yml, e2e.yml — все workflows рабочие
 - Следующий шаг: **PHASE 6** — Документы
 

@@ -33,14 +33,14 @@ Custom resilience patterns для CRM AI pipeline. ECC покрывает workfl
 **Applied fix (3-layer):**
 
 1. **Chunking (hard rule):** `wip:` push после **каждых 2 файлов ИЛИ 5 минут**. Раньше было 3/30 — слишком мягко, Coder обрывался ДО первого милстоуна.
-2. **Sentinel file:** `docs/specs/tasks/<task>.progress.md` — Coder обновляет `last_update` / `last_commit` / `last_push` после каждого милстоуна. PM при таймауте читает sentinel, видит расхождение `last_update` vs `last_push` → забирает работу из worktree.
+2. **Sentinel file:** `.claude/tasks/<task>.progress.md` — Coder обновляет `last_update` / `last_commit` / `last_push` после каждого милстоуна. PM при таймауте читает sentinel, видит расхождение `last_update` vs `last_push` → забирает работу из worktree.
 3. **Intent markers (opt-in):** Перед длинной операцией (test run > 30 сек, AC start, milestone, rebase, migration) — `bash scripts/coder/coder-intent.sh "<intent>"`. Даёт PM при recovery semantic контекст. Anti-pattern: писать intent на каждый Edit (auto-hook уже покрывает — это spam).
 
 **Recovery:** PM Mode 3 (continuation):
 
 ```bash
 # 1. Прочитать sentinel
-cat docs/specs/tasks/<task>.progress.md
+cat .claude/tasks/<task>.progress.md
 # 2. Сравнить last_update vs last_push (timestamps)
 # 3. Если расхождение > 5 мин → достать незакоммиченную работу
 cd <coder-worktree>
@@ -79,7 +79,7 @@ git status   # видим untracked / unstaged
 - В `coder.md` явный список **off-limits zones**:
   - `scripts/pm/**` — PM scripts
   - `scripts/devops/**` — DevOps scripts
-  - `docs/agents/**` — Architect zone (system prompts)
+  - `.claude/agents/**` — Architect zone (system prompts)
   - `docs/business/**` — BA zone
   - `.github/workflows/**` — DevOps zone
   - `.claude/hooks/**` — DevOps + Architect zone
@@ -113,7 +113,7 @@ git status   # видим untracked / unstaged
 
 - При старте сессии — PM читает `pm-state.json.active[task].next_action`.
 - Если `scheduled_at` старше `max_age_min` → immediate execute (missed wake-up).
-- См. `docs/agents/pm.md` Mode 3.
+- См. `.claude/agents/pm.md` Mode 3.
 
 ### D2: Missing label declarative drift
 
@@ -161,7 +161,7 @@ git status   # видим untracked / unstaged
 **Read pattern:**
 
 ```bash
-grep '\[P0\]' docs/agents/memory/coder/lessons.md
+grep '\[P0\]' .claude/agents/memory/coder/lessons.md
 ```
 
 ## Anti-patterns
@@ -184,18 +184,18 @@ grep '\[P0\]' docs/agents/memory/coder/lessons.md
 
 - Source RCA: `docs/architecture/2026-05-23-dev-flow-rca.md` (полный D1-D4 + verification + sub-tasks)
 - Lifted lessons (2026-06-03):
-  - `docs/agents/memory/coder/lessons.md` — chunking, intent markers, zone-of-write, sentinel
-  - `docs/agents/memory/reviewer/lessons.md` — write-then-post
-  - `docs/agents/memory/pm/lessons.md` — ScheduleWakeup, silent completion, Mode 3 catch-up
-  - `docs/agents/memory/devops/lessons.md` — labels, macOS shims, pkill safety, worktree checkout
+  - `.claude/agents/memory/coder/lessons.md` — chunking, intent markers, zone-of-write, sentinel
+  - `.claude/agents/memory/reviewer/lessons.md` — write-then-post
+  - `.claude/agents/memory/pm/lessons.md` — ScheduleWakeup, silent completion, Mode 3 catch-up
+  - `.claude/agents/memory/devops/lessons.md` — labels, macOS shims, pkill safety, worktree checkout
 - Project scripts:
   - `scripts/coder/coder-intent.sh` (intent marker)
   - `scripts/pm/pm-schedule.sh` (Layer 2 scheduling)
   - `scripts/pm/wakeup-prompts/*.md` (templates for fresh sessions)
 - Agent docs:
-  - `docs/agents/coder.md` §7 (chunking), §8 (sentinel), §"Zone-of-write"
-  - `docs/agents/pm.md` Mode 3 (continuation / catch-up)
-  - `docs/agents/code-reviewer.md` §"Write-then-post"
+  - `.claude/agents/coder.md` §7 (chunking), §8 (sentinel), §"Zone-of-write"
+  - `.claude/agents/pm.md` Mode 3 (continuation / catch-up)
+  - `.claude/agents/code-reviewer.md` §"Write-then-post"
 - Related skills:
   - `code-review-discipline` (write-then-post applied to Reviewer)
   - `pm-dispatching` (PM uses Layer 2 scheduling)
