@@ -1,8 +1,11 @@
 import { Module } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config'
+import { APP_GUARD } from '@nestjs/core'
 import { ThrottlerModule } from '@nestjs/throttler'
 import { AuthModule } from './auth/auth.module'
+import { OnboardingGuard } from './auth/onboarding.guard'
 import { validateEnv } from './config/env'
+import { ContractsModule } from './contracts/contracts.module'
 import { DatabaseModule } from './database/database.module'
 import { DocumentsModule } from './documents/documents.module'
 import { HealthModule } from './health/health.module'
@@ -10,8 +13,10 @@ import { FinanceModule } from './finance/finance.module'
 import { InterviewsModule } from './interviews/interviews.module'
 import { InvoicesModule } from './invoices/invoices.module'
 import { NotificationsModule } from './notifications/notifications.module'
+import { OnboardingModule } from './onboarding/onboarding.module'
 import { ProjectsModule } from './projects/projects.module'
 import { TeamsModule } from './teams/teams.module'
+import { TosModule } from './tos/tos.module'
 import { UsersModule } from './users/users.module'
 
 @Module({
@@ -37,7 +42,21 @@ import { UsersModule } from './users/users.module'
     NotificationsModule,
     InvoicesModule,
     FinanceModule,
+    // Onboarding (Phase 6A) — MSA contracts + ToS + redirect gate.
+    // ContractsModule + TosModule must be imported before OnboardingModule
+    // because OnboardingService injects services from both.
+    ContractsModule,
+    TosModule,
+    OnboardingModule,
     HealthModule,
+  ],
+  providers: [
+    // Global guard — runs alongside JwtAuthGuard on every request that
+    // doesn't match a bypass path. Lets `req.user` undefined through so
+    // JwtAuthGuard (controller-level) emits the canonical 401; non-ADMIN
+    // users with unfulfilled onboarding hit a 403 with
+    // `{error:'ONBOARDING_REQUIRED', missing:string[]}`.
+    { provide: APP_GUARD, useClass: OnboardingGuard },
   ],
 })
 export class AppModule {}
