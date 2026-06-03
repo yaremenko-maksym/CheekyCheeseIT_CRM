@@ -591,7 +591,7 @@ gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<N>/files \
 
 ## Coder hung — recovery (C1 detection layer)
 
-После dev-flow RCA hook `.claude/hooks/coder-progress-marker.sh` пишет activity лог в `<main-repo>/.claude/coder-activity.log` (gitignored, TSV). PM использует его для detection silent termination.
+После dev-flow RCA hook `.claude/hooks-ecc/post-edit-write-coder-progress.sh` пишет activity лог в `<main-repo>/.claude/coder-activity.log` (gitignored, TSV). PM использует его для detection silent termination.
 
 Лог содержит **два типа** rows (поле `$2`):
 

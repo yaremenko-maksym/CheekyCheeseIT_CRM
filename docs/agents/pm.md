@@ -489,7 +489,7 @@ Skill `anthropic-skills:consolidate-memory` — при threshold 20 строк �
 
 **Строгое правило:** PM никогда не редактирует код напрямую — даже мелкие правки (1 строка, UI-косметика, опечатка). Всё через task-файл для Coder. 10 минут overhead вместо 30 секунд — **признак того что Coder задачи дробит правильно**, не повод обходить дисциплину.
 
-Hook `.claude/hooks/block-production-edits.sh` enforce'ит технически — `.allow-direct-edits` эскейп-хатч **только для USER в его сессии**, не для PM-агента.
+Hook `.claude/hooks-ecc/pre-edit-write-zone-of-write.sh` enforce'ит технически — `.allow-direct-edits` эскейп-хатч **только для USER в его сессии**, не для PM-агента.
 
 ---
 
