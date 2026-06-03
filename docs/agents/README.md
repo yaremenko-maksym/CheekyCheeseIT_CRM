@@ -28,8 +28,8 @@ Multi-agent инфраструктура для CRM Cheeky Cheese IT. Содер
 | **security-reviewer** | [`security-reviewer.md`](security-reviewer.md) | Security review: OWASP, npm audit, secrets, USDT/ETH (для auth/finance/wallets PR)      |
 | **Architect**         | [`architect.md`](architect.md)                 | Migration architect: ECC migration phases, ADRs, rollback granularity                   |
 | **Legal**             | [`legal.md`](legal.md)                         | UA jurisdictional legal advisor: 4 modes (consult / pr-review / brief-check / strategic) |
-| **AutoTest**          | [`autotest.md`](autotest.md)                   | E2E QA: 3 режима, AC-first, anti-patterns                                               |
-| **DevOps**            | [`devops.md`](devops.md)                       | CI/CD, workflows, branch protection                                                     |
+| **AutoTest**          | [`autotest.md`](autotest.md)                   | E2E QA: 3 режима, AC-first, anti-patterns (ECC frontmatter, model: sonnet, Phase 3e)    |
+| **DevOps**            | [`devops.md`](devops.md)                       | CI/CD, workflows, branch protection + ECC build-error-resolver / harness-optimizer delegation (Phase 3e) |
 | **BA**                | [`ba.md`](ba.md)                               | Business Analyst: brief writing, role boundaries                                        |
 
 **Reviewer split (Phase 3b ECC migration, 2026-06-03):** монолитный `reviewer.md` → split на `code-reviewer.md` + `security-reviewer.md` per ADR § 2.1.5. `reviewer.md` остался как **deprecated shim** (redirect) во время Phase 3c PM dispatch transition. См. [`docs/architecture/2026-06-03-phase3b-deliverable.md`](../architecture/2026-06-03-phase3b-deliverable.md).
@@ -124,6 +124,7 @@ Reference / snippets / contracts — on-demand, не upfront.
 
 ## История
 
+- **2026-06-03** — Phase 3e ECC migration: AutoTest + DevOps frontmatter port + ECC `build-error-resolver` / `harness-optimizer` decomposition. См. [`docs/architecture/2026-06-03-phase3e-deliverable.md`](../architecture/2026-06-03-phase3e-deliverable.md).
 - **2026-06-02** — Architecture v2 (этот рефактор). См. [`CHANGES.md`](CHANGES.md).
 - **2026-05-23** — dev-flow RCA (wip-push, intent markers, sentinel).
 - **2026-05-21** — Reviewer Verdict: BLOCK pattern (COMMENT + first-line marker).
