@@ -888,6 +888,20 @@ export async function mockAuthAs(
     jsonOk(r, { projects: [], users: [] }),
   )
 
+  // Onboarding (Phase 6B) — default: fully onboarded, no wizard redirect.
+  // Tests that need unboarded state call mockOnboardingApi() AFTER mockAuthAs();
+  // Playwright's LIFO route-handler stack ensures the later registration wins.
+  await page.route(`${API}/onboarding/status`, (r) =>
+    jsonOk(r, {
+      requiresContract: false,
+      requiresTos: false,
+      contractTemplate: null,
+      tosVersion: null,
+      tosUpdateAvailable: false,
+      latestTosVersion: null,
+    }),
+  )
+
   // Documents (PHASE 6) — register specific sub-routes before the generic one.
   // navigation.spec.ts and others click sidebar → /crm/documents which mounts
   // DocumentsPage → useDocuments() → GET /documents. Without these mocks the
