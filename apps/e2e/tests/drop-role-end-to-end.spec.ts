@@ -44,9 +44,7 @@ function uniqueSuffix(): string {
 }
 
 test.describe('DROP role — end-to-end journey', () => {
-  test('create → income → validate → cash settle → company settle → archive', async ({
-    page,
-  }) => {
+  test('create → income → validate → cash settle → company settle → archive', async ({ page }) => {
     const suffix = uniqueSuffix()
     const dropEmail = `e2e-drop-${suffix}@cheekycheese.dev`
 

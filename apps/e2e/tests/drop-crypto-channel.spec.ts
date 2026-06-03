@@ -41,9 +41,7 @@ function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 }
 
-async function plantValidatedDropIncome(
-  page: import('@playwright/test').Page,
-): Promise<{
+async function plantValidatedDropIncome(page: import('@playwright/test').Page): Promise<{
   dropId: string
   projectId: string
   incomeTxId: string

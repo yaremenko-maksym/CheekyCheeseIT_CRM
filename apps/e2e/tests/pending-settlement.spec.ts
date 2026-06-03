@@ -87,9 +87,7 @@ async function plantCompanyDebt(page: import('@playwright/test').Page): Promise<
 }
 
 test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
-  test('after confirm-cash → /senior surfaces the obligation for the senior', async ({
-    page,
-  }) => {
+  test('after confirm-cash → /senior surfaces the obligation for the senior', async ({ page }) => {
     const { dropId } = await plantCompanyDebt(page)
 
     try {
@@ -113,9 +111,7 @@ test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
     }
   })
 
-  test('after confirm-cash → /company surfaces the obligation for ADMIN', async ({
-    page,
-  }) => {
+  test('after confirm-cash → /company surfaces the obligation for ADMIN', async ({ page }) => {
     const { dropId, seniorId } = await plantCompanyDebt(page)
 
     try {

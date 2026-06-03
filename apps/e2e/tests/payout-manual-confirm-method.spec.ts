@@ -88,10 +88,9 @@ test.describe('Manual confirmPayout — method=CASH vs method=CRYPTO', () => {
 
       // Then: CRYPTO with txHash → succeeds.
       const validHash = '0x' + 'a'.repeat(64)
-      const ok = await page.request.post(
-        `${REAL_API}/transactions/${payoutTxId}/confirm-payout`,
-        { data: { recipientAdminId: MAKSYM_ID, method: 'CRYPTO', txHash: validHash } },
-      )
+      const ok = await page.request.post(`${REAL_API}/transactions/${payoutTxId}/confirm-payout`, {
+        data: { recipientAdminId: MAKSYM_ID, method: 'CRYPTO', txHash: validHash },
+      })
       expect(ok.status()).toBeLessThan(400)
 
       // Read back the PAYOUT row and the new PAYOUT_CONFIRMED.
@@ -100,9 +99,7 @@ test.describe('Manual confirmPayout — method=CASH vs method=CRYPTO', () => {
       expect(payoutRow['status']).toBe('PAID')
 
       // Find the PAYOUT_CONFIRMED row on the project to read paymentMethod.
-      const txsRes = await page.request.get(
-        `${REAL_API}/transactions?projectId=${projectId}`,
-      )
+      const txsRes = await page.request.get(`${REAL_API}/transactions?projectId=${projectId}`)
       const txs = (await txsRes.json()) as Array<Record<string, unknown>>
       const confirmed = txs.find((t) => t['type'] === 'PAYOUT_CONFIRMED')
       expect(confirmed, 'expected PAYOUT_CONFIRMED row after confirm-payout').toBeTruthy()
@@ -124,22 +121,17 @@ test.describe('Manual confirmPayout — method=CASH vs method=CRYPTO', () => {
     }
   })
 
-  test('CASH mode succeeds without txHash and persists payment_method=CASH', async ({
-    page,
-  }) => {
+  test('CASH mode succeeds without txHash and persists payment_method=CASH', async ({ page }) => {
     const { projectId, payoutTxId } = await plantPendingSeniorPayout(page)
 
     try {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
-      const res = await page.request.post(
-        `${REAL_API}/transactions/${payoutTxId}/confirm-payout`,
-        { data: { recipientAdminId: MAKSYM_ID, method: 'CASH' } },
-      )
+      const res = await page.request.post(`${REAL_API}/transactions/${payoutTxId}/confirm-payout`, {
+        data: { recipientAdminId: MAKSYM_ID, method: 'CASH' },
+      })
       expect(res.status()).toBeLessThan(400)
 
-      const txsRes = await page.request.get(
-        `${REAL_API}/transactions?projectId=${projectId}`,
-      )
+      const txsRes = await page.request.get(`${REAL_API}/transactions?projectId=${projectId}`)
       const txs = (await txsRes.json()) as Array<Record<string, unknown>>
       const confirmed = txs.find((t) => t['type'] === 'PAYOUT_CONFIRMED')
       expect(confirmed).toBeTruthy()
@@ -155,9 +147,7 @@ test.describe('Manual confirmPayout — method=CASH vs method=CRYPTO', () => {
     }
   })
 
-  test('UI: ConfirmPayoutDialog method radio toggles txHash input visibility', async ({
-    page,
-  }) => {
+  test('UI: ConfirmPayoutDialog method radio toggles txHash input visibility', async ({ page }) => {
     const { projectId, payoutTxId } = await plantPendingSeniorPayout(page)
 
     try {

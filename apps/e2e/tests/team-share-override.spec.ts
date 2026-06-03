@@ -54,9 +54,7 @@ async function getSeniorTeamId(
     (t) =>
       t.type === 'SENIOR' &&
       t.archivedAt === null &&
-      t.members.some(
-        (m) => m.email === seniorEmail && m.role === 'SENIOR' && m.leftAt === null,
-      ),
+      t.members.some((m) => m.email === seniorEmail && m.role === 'SENIOR' && m.leftAt === null),
   )
   return seniorTeams[0]?.id ?? null
 }

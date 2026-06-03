@@ -54,9 +54,7 @@ function rbacPassed(status: number): boolean {
 }
 
 test.describe('RBAC matrix smoke — Phase 4 endpoints', () => {
-  test('GET /api/balances/admin/:id — ADMIN / ACCOUNTANT 200, others 403', async ({
-    page,
-  }) => {
+  test('GET /api/balances/admin/:id — ADMIN / ACCOUNTANT 200, others 403', async ({ page }) => {
     // Allowed roles
     for (const email of [SEED_ADMIN_EMAIL, SEED_EMAILS.accountant]) {
       await loginViaApi(page, email)
@@ -240,7 +238,12 @@ test.describe('RBAC matrix smoke — Phase 4 endpoints', () => {
         // No obligation surfaced — confirm-cash may have failed silently.
         // Bail with a soft sanity check so the RBAC matrix still asserts
         // the forbidden-roles branch using a synthetic UUID.
-        for (const email of [dropEmail, SEED_EMAILS.seniorA, SEED_EMAILS.juniorA, SEED_EMAILS.hrA]) {
+        for (const email of [
+          dropEmail,
+          SEED_EMAILS.seniorA,
+          SEED_EMAILS.juniorA,
+          SEED_EMAILS.hrA,
+        ]) {
           await loginViaApi(page, email)
           const ghostId = '11111111-1111-1111-1111-111111111111'
           const r = await page.request.post(

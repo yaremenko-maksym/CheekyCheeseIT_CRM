@@ -81,7 +81,8 @@ test.describe('Invoice signing — real API', () => {
       // creation; retry a couple of times.
       let invoice: Record<string, unknown> | null = null
       for (let attempt = 0; attempt < 5; attempt++) {
-        const res = attempt === 0 ? invoiceRes : await page.request.get(`${REAL_API}/invoices/${payoutTxId}`)
+        const res =
+          attempt === 0 ? invoiceRes : await page.request.get(`${REAL_API}/invoices/${payoutTxId}`)
         if (res.status() === 200) {
           invoice = (await res.json()) as Record<string, unknown>
           break

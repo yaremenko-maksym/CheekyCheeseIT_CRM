@@ -97,7 +97,10 @@ test.describe('Invoice public verify endpoint — real API', () => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     const invoicesRes = await page.request.get(`${REAL_API}/invoices?status=SIGNED`)
     if (invoicesRes.status() !== 200) {
-      test.skip(true, `Could not list invoices to pick a SIGNED one (status=${invoicesRes.status()})`)
+      test.skip(
+        true,
+        `Could not list invoices to pick a SIGNED one (status=${invoicesRes.status()})`,
+      )
       return
     }
     const invoices = (await invoicesRes.json()) as Array<{
@@ -130,14 +133,8 @@ test.describe('Invoice public verify endpoint — real API', () => {
       // DTO without thinking about the public exposure.
       const sigs = body['signatures'] as Array<Record<string, unknown>>
       for (const sig of sigs) {
-        expect(
-          'ip' in sig,
-          'verify response must not expose signer IP',
-        ).toBe(false)
-        expect(
-          'userAgent' in sig,
-          'verify response must not expose signer user-agent',
-        ).toBe(false)
+        expect('ip' in sig, 'verify response must not expose signer IP').toBe(false)
+        expect('userAgent' in sig, 'verify response must not expose signer user-agent').toBe(false)
         // pdfHash (full) — only the short prefix should be exposed.
         if ('pdfHashShort' in sig) {
           const short = sig['pdfHashShort'] as string

@@ -47,9 +47,7 @@ function uniqueSuffix(): string {
 }
 
 /** Setup helper: drop + drop-project + DROP_INCOME validated to PENDING_PAYMENT. */
-async function plantValidatedDropIncome(
-  page: import('@playwright/test').Page,
-): Promise<{
+async function plantValidatedDropIncome(page: import('@playwright/test').Page): Promise<{
   dropId: string
   projectId: string
   incomeTxId: string
@@ -151,9 +149,7 @@ test.describe('Drop cash channel — confirm-cash (Phase 4)', () => {
     }
   })
 
-  test('Second confirm-cash on the same income → 400 (already settled)', async ({
-    page,
-  }) => {
+  test('Second confirm-cash on the same income → 400 (already settled)', async ({ page }) => {
     const { dropId, incomeTxId } = await plantValidatedDropIncome(page)
 
     try {
@@ -173,9 +169,7 @@ test.describe('Drop cash channel — confirm-cash (Phase 4)', () => {
     }
   })
 
-  test('recipientAdminId must be ADMIN role → 400 for SENIOR recipient', async ({
-    page,
-  }) => {
+  test('recipientAdminId must be ADMIN role → 400 for SENIOR recipient', async ({ page }) => {
     const { dropId, incomeTxId } = await plantValidatedDropIncome(page)
 
     try {
