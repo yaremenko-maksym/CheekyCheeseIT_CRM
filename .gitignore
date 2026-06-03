@@ -60,3 +60,15 @@ apps/e2e/test-*.mjs
 apps/e2e/test-*.js
 apps/e2e/temp-*
 apps/e2e/scratch-*
+
+# Visual verification screenshots (PM/agents save locally; do not commit to repo)
+/*.png
+/*.jpg
+/*.jpeg
+.claude/tasks/*.png
+.claude/tasks/*.jpg
+.claude/tasks/*.jpeg
+# Whitelist legitimate assets under apps/web/public/ (favicon, og-image, etc.)
+!apps/web/public/**/*.png
+!apps/web/public/**/*.jpg
+!apps/web/public/**/*.jpeg
