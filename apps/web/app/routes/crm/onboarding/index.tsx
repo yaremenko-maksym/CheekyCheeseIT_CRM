@@ -74,7 +74,7 @@ function OnboardingPage() {
 
   // Progress indicator data
   const steps: Array<{ id: OnboardingStep; label: string; icon: React.ReactNode }> = [
-    { id: 'contract', label: 'Підписати контракт', icon: <FileText className="h-4 w-4" /> },
+    { id: 'contract', label: 'Подписать контракт', icon: <FileText className="h-4 w-4" /> },
     { id: 'tos', label: 'Terms of Service', icon: <ScrollText className="h-4 w-4" /> },
   ]
 
@@ -85,10 +85,10 @@ function OnboardingPage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight" data-testid="onboarding-title">
-          Ласкаво просимо до CRM
+          Добро пожаловать в CRM
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Для початку роботи необхідно виконати кілька кроків
+          Для начала работы необходимо выполнить несколько шагов
         </p>
       </div>
 
@@ -134,7 +134,7 @@ function OnboardingPage() {
       </div>
 
       <div className="text-xs text-muted-foreground" data-testid="onboarding-step-indicator">
-        Крок {Math.min(currentStepIndex + 1, steps.length)} з {steps.length}
+        Шаг {Math.min(currentStepIndex + 1, steps.length)} из {steps.length}
       </div>
 
       {/* Divider */}
@@ -151,7 +151,7 @@ function OnboardingPage() {
             transition={{ duration: 0.2 }}
             data-testid="onboarding-step-contract"
           >
-            <h2 className="mb-4 text-lg font-semibold">Підписання MSA-контракту</h2>
+            <h2 className="mb-4 text-lg font-semibold">Подписание MSA-контракта</h2>
             <SignContractStep onSuccess={handleContractSuccess} />
           </motion.div>
         )}
@@ -180,9 +180,9 @@ function OnboardingPage() {
             data-testid="onboarding-step-done"
           >
             <CheckCircle2 className="h-14 w-14 text-primary" />
-            <p className="text-center text-lg font-medium">Онбординг завершено!</p>
+            <p className="text-center text-lg font-medium">Онбординг завершён!</p>
             <p className="text-center text-sm text-muted-foreground">
-              Перенаправлення на дашборд...
+              Перенаправление на дашборд...
             </p>
           </motion.div>
         )}

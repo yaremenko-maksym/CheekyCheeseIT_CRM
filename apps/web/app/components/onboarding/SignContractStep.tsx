@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { z } from 'zod'
 import { Loader2, FileText, PenLine } from 'lucide-react'
@@ -22,6 +22,7 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
   const [typedName, setTypedName] = useState('')
   const [confirmed, setConfirmed] = useState(false)
   const [nameError, setNameError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
 
   const { data: template, isLoading: templateLoading } = useQuery<ContractTemplateDto>({
     queryKey: ['contract-template', user?.role],
@@ -39,15 +40,17 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
       const res = await api.post<SignedContractDto>('/contracts/sign', body)
       return res.data
     },
-    onSuccess: (data) => {
-      toast.success(`Контракт підписано. Номер: ${data.contractNumber}`)
+    onSuccess: async (data) => {
+      toast.success(`Контракт подписан. Номер: ${data.contractNumber}`)
+      // Symmetry with AcceptTosStep — invalidate onboarding-status so gate sees fresh state.
+      await queryClient.invalidateQueries({ queryKey: ['onboarding-status'] })
       onSuccess()
     },
     onError: (err: unknown) => {
-      const message = err instanceof Error ? err.message : 'Не вдалося підписати контракт'
+      const message = err instanceof Error ? err.message : 'Не удалось подписать контракт'
       // Defensive: ADMIN_DOES_NOT_SIGN_CONTRACTS shouldn't reach here via gate
       if (message.includes('ADMIN_DOES_NOT_SIGN_CONTRACTS')) {
-        toast.info('Адмін не підписує контракт')
+        toast.info('Админ не подписывает контракт')
         return
       }
       toast.error(message)
@@ -58,7 +61,7 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
     e.preventDefault()
     const result = signContractSchema.safeParse({ typedName })
     if (!result.success) {
-      setNameError(result.error.issues[0]?.message ?? 'Помилка валідації')
+      setNameError(result.error.issues[0]?.message ?? 'Ошибка валидации')
       return
     }
     setNameError(null)
@@ -69,7 +72,7 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
     return (
       <div className="flex flex-col items-center gap-4 py-12">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="text-sm text-muted-foreground">Завантаження контракту...</p>
+        <p className="text-sm text-muted-foreground">Загрузка контракта...</p>
       </div>
     )
   }
@@ -79,7 +82,7 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
       <div className="flex flex-col items-center gap-4 py-12">
         <FileText className="h-10 w-10 text-muted-foreground" />
         <p className="text-sm text-muted-foreground">
-          Шаблон контракту для вашої ролі не знайдено. Зверніться до адміністратора.
+          Шаблон контракта для вашей роли не найден. Обратитесь к администратору.
         </p>
       </div>
     )
@@ -98,14 +101,14 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
 
       {/* Typed name */}
       <div className="flex flex-col gap-2">
-        <Label htmlFor="typed-name">Введіть ваше ім'я для підпису</Label>
+        <Label htmlFor="typed-name">Введите ваше имя для подписи</Label>
         <div className="relative">
           <PenLine className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             id="typed-name"
             data-testid="typed-name-input"
             className="pl-9"
-            placeholder="Ваше повне ім'я"
+            placeholder="Ваше полное имя"
             value={typedName}
             onChange={(e) => {
               setTypedName(e.target.value)
@@ -130,7 +133,7 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
           onChange={(e) => setConfirmed(e.target.checked)}
         />
         <span className="text-sm leading-snug">
-          Я ознайомився та підтверджую умови MSA-контракту
+          Я ознакомился и подтверждаю условия MSA-контракта
         </span>
       </label>
 
@@ -144,10 +147,10 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
         {signMutation.isPending ? (
           <>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Підписання...
+            Подписание...
           </>
         ) : (
-          'Підписати контракт'
+          'Подписать контракт'
         )}
       </Button>
     </form>

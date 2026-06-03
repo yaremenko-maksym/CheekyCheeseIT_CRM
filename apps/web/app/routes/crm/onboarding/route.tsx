@@ -67,7 +67,7 @@ function OnboardingRoot() {
 
       {/* Footer */}
       <p className="mt-6 text-xs text-muted-foreground">
-        © {new Date().getFullYear()} Cheeky Cheese IT. Всі права захищені.
+        © {new Date().getFullYear()} Cheeky Cheese IT. Все права защищены.
       </p>
     </div>
   )

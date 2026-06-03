@@ -18,14 +18,14 @@ export function TosUpdateBanner() {
     >
       <Info className="h-4 w-4 text-primary" />
       <AlertDescription className="flex items-center gap-2 text-sm">
-        Опубліковано нову версію Terms of Service.{' '}
+        Опубликована новая версия Terms of Service.{' '}
         <Link
           to="/crm/onboarding"
           search={{ step: 'tos' }}
           className="font-medium text-primary underline-offset-2 hover:underline"
           data-testid="tos-update-banner-link"
         >
-          Прочитати →
+          Читать →
         </Link>
       </AlertDescription>
     </Alert>
