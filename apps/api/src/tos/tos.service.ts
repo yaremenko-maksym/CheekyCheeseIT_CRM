@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { desc, eq, sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { DatabaseService } from '../database/database.service'
 import { tosAcceptances, tosVersions } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
@@ -103,7 +103,3 @@ export class TosService {
     })
   }
 }
-
-// Suppress unused-imports lint warning — keep imports used in dynamic mocks.
-void desc
-void tosAcceptances

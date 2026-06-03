@@ -22,7 +22,7 @@
  * thin. Each handler parses the body through the shared Zod schema before
  * delegating.
  */
-import { Body, Controller, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, Post } from '@nestjs/common'
 import {
   confirmCashPaymentSchema,
   confirmCryptoPaymentSchema,
@@ -30,10 +30,9 @@ import {
 } from '@crm/shared'
 import type { SessionUser } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
-import { JwtAuthGuard } from '../auth/jwt.guard'
 import { PaymentChannelService } from './payment-channel.service'
 
-@UseGuards(JwtAuthGuard)
+// Auth enforced by global JwtAuthGuard (see AppModule APP_GUARD).
 @Controller('payments')
 export class PaymentChannelController {
   constructor(private readonly svc: PaymentChannelService) {}

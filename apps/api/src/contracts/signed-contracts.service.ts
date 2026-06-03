@@ -2,9 +2,10 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common'
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { desc, eq, sql } from 'drizzle-orm'
 import type { ContractTargetRole, SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { signedContracts, type User } from '../database/schema'
@@ -177,7 +178,14 @@ export class SignedContractsService {
       const contractNumber =
         typeof firstRow?.['contract_number'] === 'string'
           ? (firstRow['contract_number'] as string)
-          : `CHK-1-${signedAt.getUTCFullYear()}`
+          : null
+      if (!contractNumber) {
+        // Defense in depth — a silent fallback like `CHK-1-${year}` would race
+        // against `signed_contracts.contract_number UNIQUE` once seq has produced
+        // any prior row. Surface the failure so the caller sees a 500 instead
+        // of a duplicate-key INSERT.
+        throw new InternalServerErrorException('Failed to allocate contract_number from sequence')
+      }
 
       const [inserted] = await tx
         .insert(signedContracts)
@@ -217,6 +225,3 @@ export class SignedContractsService {
     })
   }
 }
-
-// Suppress unused-imports lint warnings — `and` is used in the publish tx.
-void and

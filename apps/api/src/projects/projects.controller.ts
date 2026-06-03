@@ -18,18 +18,17 @@ import {
   updateProjectSchema,
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
-import { JwtAuthGuard } from '../auth/jwt.guard'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { ProjectAuditLogService } from './project-audit-log.service'
 import { ProjectsService } from './projects.service'
 
-// Class-level RolesGuard mirrors UsersController for defense-in-depth:
-// inline role checks remain in ProjectsService, and the guard rejects
-// disallowed roles before the handler runs. Endpoints without @Roles(...)
-// are open to any authenticated user (RolesGuard passes when ROLES_KEY is empty).
+// JwtAuthGuard runs globally (AppModule APP_GUARD); RolesGuard remains
+// controller-level because it depends on `req.user.role`. Endpoints without
+// @Roles(...) are open to any authenticated user (RolesGuard passes when
+// ROLES_KEY is empty).
 @Controller('projects')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(RolesGuard)
 export class ProjectsController {
   constructor(
     private readonly projectsService: ProjectsService,
@@ -39,8 +38,7 @@ export class ProjectsController {
   @Get()
   findAll(@CurrentUser() user: SessionUser, @Query('archived') archivedParam?: string) {
     // round 7 (ut-44): tri-state filter — 'true' / 'all' / default ('active').
-    const archived: boolean | 'all' =
-      archivedParam === 'all' ? 'all' : archivedParam === 'true'
+    const archived: boolean | 'all' = archivedParam === 'all' ? 'all' : archivedParam === 'true'
     return this.projectsService.findAll(user, { archived })
   }
 

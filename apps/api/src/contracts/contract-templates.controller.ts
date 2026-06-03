@@ -17,7 +17,6 @@ import {
   type SessionUser,
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
-import { JwtAuthGuard } from '../auth/jwt.guard'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { ContractTemplatesService } from './contract-templates.service'
@@ -36,8 +35,10 @@ import { ContractTemplatesService } from './contract-templates.service'
  * bypass list — non-ADMIN callers MUST request their OWN role and nothing
  * else.
  */
+// JwtAuthGuard runs globally (AppModule APP_GUARD); RolesGuard stays
+// controller-level because it depends on `req.user.role`.
 @Controller('contracts/templates')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(RolesGuard)
 export class ContractTemplatesController {
   constructor(private readonly service: ContractTemplatesService) {}
 

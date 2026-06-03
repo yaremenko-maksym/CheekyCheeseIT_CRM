@@ -23,15 +23,14 @@ import {
   ParseUUIDPipe,
   Patch,
   Query,
-  UseGuards,
 } from '@nestjs/common'
 import { notificationListFiltersSchema, type SessionUser } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
-import { JwtAuthGuard } from '../auth/jwt.guard'
 import { NotificationsService } from './notifications.service'
 
+// Auth enforced by global JwtAuthGuard (see AppModule APP_GUARD). All routes
+// in this controller require an authenticated user (no `@Public()`).
 @Controller('notifications')
-@UseGuards(JwtAuthGuard)
 export class NotificationsController {
   constructor(private readonly svc: NotificationsService) {}
 

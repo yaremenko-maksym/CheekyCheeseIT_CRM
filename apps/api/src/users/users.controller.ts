@@ -15,7 +15,7 @@ import {
 } from '@nestjs/common'
 
 /** Strip keys whose value is `undefined` so exactOptionalPropertyTypes is satisfied. */
- 
+
 function compact<T>(obj: T): T {
   return Object.fromEntries(Object.entries(obj as any).filter(([, v]) => v !== undefined)) as T
 }
@@ -33,7 +33,6 @@ import {
   type SessionUser,
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
-import { JwtAuthGuard } from '../auth/jwt.guard'
 import { Roles } from '../common/decorators/roles.decorator'
 import { AuditLog } from '../common/decorators/audit-log.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
@@ -43,8 +42,10 @@ import { UsersAccessService } from './users-access.service'
 import { UsersService } from './users.service'
 import { TransactionsService } from '../finance/transactions.service'
 
+// JwtAuthGuard runs globally (AppModule APP_GUARD); RolesGuard remains
+// controller-level because it depends on `req.user.role`.
 @Controller('users')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(RolesGuard)
 @UseInterceptors(AuditInterceptor)
 export class UsersController {
   constructor(

@@ -8,17 +8,13 @@
  * private fields (full pdf hash, ip address, user-agent) — see
  * `InvoicesService.verifyInvoice` for the projection rules.
  *
- * Why a separate controller (not @Public() + reflection):
- *   The project does not have a global JwtAuthGuard nor a `@Public()`
- *   decorator infrastructure today. The simplest "opt-out" of auth is to
- *   live on a controller that does NOT declare `@UseGuards(JwtAuthGuard)`.
- *   Path is namespaced under `invoices/verify/:id` so the route ordering
- *   does not conflict with the authenticated `:transactionId` route on the
- *   sibling InvoicesController (NestJS picks the more specific match
- *   regardless of declaration order, but using a distinct path segment
- *   removes any ambiguity).
+ * Marked `@Public()` so the globally registered JwtAuthGuard (AppModule
+ * APP_GUARD) does not 401 the request. The path is namespaced under
+ * `invoices/verify/:id` so it does not collide with the authenticated
+ * `:transactionId` route on the sibling InvoicesController.
  */
 import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common'
+import { Public } from '../auth/public.decorator'
 import { InvoicesService } from './invoices.service'
 
 @Controller('invoices')
@@ -26,6 +22,7 @@ export class InvoicesVerifyController {
   constructor(private readonly svc: InvoicesService) {}
 
   @Get('verify/:transactionId')
+  @Public()
   verify(@Param('transactionId', ParseUUIDPipe) transactionId: string) {
     return this.svc.verifyInvoice(transactionId)
   }

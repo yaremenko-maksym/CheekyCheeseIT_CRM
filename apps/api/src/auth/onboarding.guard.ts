@@ -51,7 +51,9 @@ export class OnboardingGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<FastifyRequest & { user?: SessionUser }>()
     const rawUrl = (request.url as string | undefined) ?? ''
-    const path = rawUrl.split('?')[0] ?? rawUrl
+    // `String#split('?')[0]` always returns a string. The `!` resolves
+    // `noUncheckedIndexedAccess` since TS can't prove the non-empty guarantee.
+    const path = rawUrl.split('?')[0]!
 
     if (this.isBypass(path)) return true
 

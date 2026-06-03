@@ -3,7 +3,6 @@ import type { FastifyRequest } from 'fastify'
 
 import { createTosVersionSchema, type SessionUser } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
-import { JwtAuthGuard } from '../auth/jwt.guard'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { TosService } from './tos.service'
@@ -21,8 +20,11 @@ import { TosService } from './tos.service'
  * `current` and `accept` are in the bypass list because mid-onboarding users
  * need them to fulfill the gate.
  */
+// JwtAuthGuard runs globally (AppModule APP_GUARD); RolesGuard stays
+// controller-level because it depends on `req.user.role` populated by the
+// global guard.
 @Controller('tos')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(RolesGuard)
 export class TosController {
   constructor(private readonly service: TosService) {}
 
