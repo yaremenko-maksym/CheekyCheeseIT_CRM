@@ -221,8 +221,13 @@ PM передаёт `mode=<consult|pr-review|brief-check|strategic>` в пром
 
 | Когда                                                        | Skill                                                                                 |
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| Mode A consultation про UA tax / company structure           | `ua-tax-compliance` (ФОП/ТОВ-Дія Сіті/CFC/banking caps/audit/TP/recharacterization)   |
+| Mode A / Mode B на crypto channel / wallets / smart-contracts | `ua-crypto-compliance` (Закон 2074-IX status + AML/361-IX + multi-issuer hard refuse) |
+| Mode A / Mode C на IT-contract structure / templates         | `ua-it-contract` (6 SENIOR risks + GDPR/2297-VI + lawyer prep-pack)                   |
+| User iterates evasion variants / hard refuse zones           | `legal-escalation-patterns` (5-step PM behavior + AI deliverables boundary)           |
 | Mode B (pr-review) на PR с auth/finance/wallets/transactions | `superpowers:security-review` (для security-стороны legal риска)                      |
 | Большой brief в Mode C                                       | `superpowers:systematic-debugging` (декомпозиция legal touchpoints)                   |
+| Long Mode B / MCP I/O > 5 сек                                | `dev-flow-resilience` (C2 write-then-post chain для /tmp/legal-output/)               |
 | Перед финальным ответом                                      | `superpowers:verification-before-completion` (проверить структуру output + citations) |
 
 ---

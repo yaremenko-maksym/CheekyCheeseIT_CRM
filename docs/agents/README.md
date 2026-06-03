@@ -28,15 +28,14 @@ Multi-agent инфраструктура для CRM Cheeky Cheese IT. Содер
 | **security-reviewer** | [`security-reviewer.md`](security-reviewer.md) | Security review: OWASP, npm audit, secrets, USDT/ETH (для auth/finance/wallets PR)      |
 | **Architect**         | [`architect.md`](architect.md)                 | Migration architect: ECC migration phases, ADRs, rollback granularity                   |
 | **Legal**             | [`legal.md`](legal.md)                         | UA jurisdictional legal advisor: 4 modes (consult / pr-review / brief-check / strategic) |
-| **AutoTest**          | [`autotest.md`](autotest.md)                   | E2E QA: 3 режима, AC-first, anti-patterns                                               |
-| **DevOps**            | [`devops.md`](devops.md)                       | CI/CD, workflows, branch protection                                                     |
-| **BA**                | [`ba.md`](ba.md)                               | Business Analyst: brief writing, role boundaries                                        |
+| **AutoTest**          | [`autotest.md`](autotest.md)                   | E2E QA: 3 режима, AC-first, anti-patterns (ECC frontmatter, model: sonnet, Phase 3e)    |
+| **DevOps**            | [`devops.md`](devops.md)                       | CI/CD, workflows, branch protection + ECC build-error-resolver / harness-optimizer delegation (Phase 3e) |
 
 **Reviewer split (Phase 3b ECC migration, 2026-06-03):** монолитный `reviewer.md` → split на `code-reviewer.md` + `security-reviewer.md` per ADR § 2.1.5. `reviewer.md` остался как **deprecated shim** (redirect) во время Phase 3c PM dispatch transition. См. [`docs/architecture/2026-06-03-phase3b-deliverable.md`](../architecture/2026-06-03-phase3b-deliverable.md).
 
 ### Human roles (not LLM agents)
 
-- **BA** (`docs/agents/ba.md`) — Business consultant. Writes `docs/specs/pm-brief.md` for PM consumption. **Not an LLM agent.** Located here for project clarity (alongside LLM agent docs); no YAML frontmatter.
+- **BA** (`docs/business/roles/ba.md`) — Business consultant. Writes `docs/specs/pm-brief.md` for PM consumption. **Not an LLM agent.** Moved out of `docs/agents/` in Phase 6 (2026-06-03) per ADR Q5 Option B; no YAML frontmatter. Cross-doc refs (`RULES.md`, `project-state.md`, `contracts.md`) point back to `docs/agents/`.
 
 ### On-demand reference
 
@@ -52,6 +51,23 @@ Multi-agent инфраструктура для CRM Cheeky Cheese IT. Содер
 | [`memory/<agent>/lessons.md`](memory/coder/lessons.md)                 | PM аппендит после merged PR (1-3 уроков) |
 | [`memory/<agent>/lessons.archive.md`](memory/coder/lessons.archive.md) | PM при rotation: P2 (>90 дней) сюда      |
 
+### Skills (Phase 4 ECC migration, 2026-06-03)
+
+Skills — canonical workflow surface per ECC AGENTS.upstream.md. После Phase 4 в `.claude/skills/` доступны:
+
+| Skill                       | Path                                                                                         | Когда инвоукать                                                          |
+| --------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `pm-dispatching`            | `.claude/skills/pm-dispatching/SKILL.md`                                                     | PM: загрузка `pm-snippets.md` для dispatch / PR / CI / User Testing      |
+| `playwright-patterns`       | `.claude/skills/playwright-patterns/SKILL.md`                                                | AutoTest / Coder: перед написанием / правкой `.spec.ts` (CRM cookbook)   |
+| `code-review-discipline`    | `.claude/skills/code-review-discipline/SKILL.md`                                             | Reviewers: перед post review (BLOCK / write-then-post / zone-violations) |
+| `dev-flow-resilience`       | `.claude/skills/dev-flow-resilience/SKILL.md`                                                | Все: long-running / MCP I/O / cross-session — D1-D4 RCA patterns         |
+| `ua-tax-compliance`         | `.claude/skills/ua-tax-compliance/SKILL.md`                                                  | Legal Mode A / Mode B на UA tax / company structure                      |
+| `ua-crypto-compliance`      | `.claude/skills/ua-crypto-compliance/SKILL.md`                                               | Legal на crypto / wallets / smart contracts                              |
+| `ua-it-contract`            | `.claude/skills/ua-it-contract/SKILL.md`                                                     | Legal на IT-contract structure / templates                               |
+| `legal-escalation-patterns` | `.claude/skills/legal-escalation-patterns/SKILL.md`                                          | Legal / PM на evasion variants / hard refuse zones                       |
+
+См. `docs/architecture/2026-06-03-phase4-deliverable.md` для full inventory + skipped candidates + cross-skill dependency graph.
+
 ### Deprecated (redirect stubs, для backward compat)
 
 - [`reviewer.md`](reviewer.md) → `code-reviewer.md` + `security-reviewer.md` (Phase 3b ECC split, 2026-06-03)
@@ -60,8 +76,9 @@ Multi-agent инфраструктура для CRM Cheeky Cheese IT. Содер
 - [`CLAUDE-reviewer.md`](CLAUDE-reviewer.md) → `code-reviewer.md` + `security-reviewer.md` + `project-state.md`
 - [`CLAUDE-autotest.md`](CLAUDE-autotest.md) → `autotest.md` + `project-state.md`
 - [`CLAUDE-devops.md`](CLAUDE-devops.md) → `devops.md` + `project-state.md`
-- [`CLAUDE-ba.md`](CLAUDE-ba.md) → `ba.md` + `project-state.md`
 - [`CLAUDE-tools.md`](CLAUDE-tools.md) → `RULES.md` §1 + §3
+
+`CLAUDE-ba.md` removed in Phase 6 (2026-06-03) — BA is a human role with no LLM context-skip prompt to preserve. See `docs/business/roles/ba.md`.
 
 Сохранены как redirect stubs для архивных workflows (`.github/workflows/archive/*.yml`) и legacy task-файлов.
 
@@ -124,6 +141,9 @@ Reference / snippets / contracts — on-demand, не upfront.
 
 ## История
 
+- **2026-06-03** — Phase 6 ECC migration: cleanup. Удалены deprecated `.claude/hooks/*.sh` (replaced by `.claude/hooks-ecc/` в Phase 2.5) + `.claude/hooks-ecc-draft.json`. BA docs перемещены `docs/agents/ba.md` → `docs/business/roles/ba.md` (ADR Q5 Option B, BA = human role). `CLAUDE-ba.md` удалён. См. [`docs/architecture/2026-06-03-phase6-deliverable.md`](../architecture/2026-06-03-phase6-deliverable.md).
+- **2026-06-03** — Phase 4 ECC migration: skills lift из lessons.md + dev-flow-rca → `.claude/skills/<name>/SKILL.md`. 7 new skills (playwright-patterns, code-review-discipline, dev-flow-resilience, ua-tax/crypto/it-contract, legal-escalation-patterns) + agent mandatory tables update + viability matrix. См. [`docs/architecture/2026-06-03-phase4-deliverable.md`](../architecture/2026-06-03-phase4-deliverable.md).
+- **2026-06-03** — Phase 3e ECC migration: AutoTest + DevOps frontmatter port + ECC `build-error-resolver` / `harness-optimizer` decomposition. См. [`docs/architecture/2026-06-03-phase3e-deliverable.md`](../architecture/2026-06-03-phase3e-deliverable.md).
 - **2026-06-02** — Architecture v2 (этот рефактор). См. [`CHANGES.md`](CHANGES.md).
 - **2026-05-23** — dev-flow RCA (wip-push, intent markers, sentinel).
 - **2026-05-21** — Reviewer Verdict: BLOCK pattern (COMMENT + first-line marker).

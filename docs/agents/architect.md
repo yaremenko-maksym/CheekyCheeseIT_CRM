@@ -271,7 +271,7 @@ User reviews ADR, approves → Phase 1.
 - `.claude/hooks/*.sh` → JSON matcher-based registration per ECC RULES.md
 - Конкретные migrations (с примером conversion):
 
-  **Current (`.claude/settings.json` + `.claude/hooks/coder-pre-push.sh`):**
+  **Current (`.claude/settings.json` + `.claude/hooks-ecc/pre-bash-coder-push-gate.sh`):**
 
   ```json
   {
@@ -279,7 +279,7 @@ User reviews ADR, approves → Phase 1.
       "PreToolUse": [
         {
           "matcher": "Bash",
-          "hooks": [{ "type": "command", "command": ".claude/hooks/coder-pre-push.sh" }]
+          "hooks": [{ "type": "command", "command": ".claude/hooks-ecc/pre-bash-coder-push-gate.sh" }]
         }
       ]
     }
@@ -449,7 +449,7 @@ ECC JSON registration:
       "hooks": [
         {
           "type": "command",
-          "command": ".claude/hooks/coder-pre-push.sh"
+          "command": ".claude/hooks-ecc/pre-bash-coder-push-gate.sh"
         }
       ]
     }

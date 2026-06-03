@@ -1,0 +1,127 @@
+# ECC code-reviewer additive job — DRAFT / DISABLED
+#
+# Status: Phase 5 stub (2026-06-03). Workflow file exists for future activation
+# in Phase 6+, but the job is gated `if: false` and does NOT execute on any
+# trigger. It will appear in the Actions UI as "skipped" — that is intentional.
+#
+# Why a stub (and not a fully-wired workflow):
+#
+# - Per ADR §2.3 (docs/architecture/2026-05-31-ecc-migration-design.md),
+#   "GHA stays Cheeky-Cheese-owned. Phase 5 integrates ECC agent invocations
+#   _inside_ existing GHA jobs (additive), not replaces." This file is the
+#   additive surface, intentionally inert until activation prerequisites are
+#   met.
+#
+# - Activating a real ECC `code-reviewer` invocation in CI requires:
+#     1. `ANTHROPIC_API_KEY` repository secret (NOT yet configured — must be
+#        added by repo owner via `gh secret set ANTHROPIC_API_KEY`).
+#     2. A vetted choice of Claude action wrapper (e.g.
+#        `anthropics/claude-code-action`, or a custom step that pipes
+#        `gh pr diff` into Claude CLI). The current ECC v2.0.0-rc.1 repo
+#        does NOT ship a turnkey GHA action — the activation step requires
+#        either upstream support or our own wrapper.
+#     3. Decision on whether the job should be BLOCKING or INFORMATIONAL on
+#        first activation (recommended: informational for the first 2 weeks
+#        per ADR §6 Phase 5 mitigation — "start as informational, promote
+#        to blocking later").
+#
+# - Existing review pipeline (local `docs/agents/code-reviewer.md` +
+#   `docs/agents/security-reviewer.md` invoked via PM Agent dispatch) is the
+#   live review surface today. This stub does NOT replace, conflict with, or
+#   duplicate that flow.
+#
+# Security note (read before activating):
+#
+# - When wiring real steps, NEVER interpolate untrusted PR metadata
+#   (titles, bodies, commit messages, branch names, head refs) directly into
+#   `run:` strings. Always route them through `env:` with quoted variable
+#   expansions in the shell. See
+#   https://github.blog/security/vulnerability-research/how-to-catch-github-actions-workflow-injections-before-attackers-do/
+#   for the canonical guide. The placeholder `env:` blocks below model this
+#   pattern.
+#
+# Activation steps (Phase 6+):
+#
+#   1. Verify `ANTHROPIC_API_KEY` secret is set on the repository.
+#   2. Replace `if: false` on the job below with a real condition
+#      (e.g. `if: github.event.pull_request.draft == false`).
+#   3. Fill in the `Run ECC code-reviewer` step with the chosen action /
+#      CLI invocation, keeping PR metadata flowing only through `env:`.
+#   4. Decide post-comment vs PR-review API call (per ADR §2.3 stub picks
+#      "post structured comment" by default to avoid duplicate-review noise
+#      vs the existing code-reviewer agent).
+#   5. Open a single PR titled `feat(architect): activate ECC code-reviewer
+#      in CI`, run on a draft PR first to validate, then merge.
+#
+# Existing workflows untouched: ci.yml, e2e.yml, e2e-watchdog.yml,
+# auto-merge-on-label.yml, labels-sync.yml, check-no-skip-hooks.yml. Per ADR
+# §2.3 explicit guidance — additive only.
+
+name: ECC Code Review (draft, disabled)
+
+on:
+  # Listed so that GitHub indexes the workflow and contributors can see the
+  # job in the Actions UI as "skipped" when triggered. Once activated, this
+  # block stays the same — only the job-level `if:` changes.
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ecc-code-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ecc-code-review:
+    name: ECC code-reviewer (additive, disabled)
+    runs-on: ubuntu-latest
+
+    # GATE: `if: false` keeps this job inert. Phase 5 ships the file structure
+    # only — no work runs. Flip to a real condition in Phase 6+ once activation
+    # prerequisites (ANTHROPIC_API_KEY + wrapper choice) are met. See header
+    # comment for the full activation checklist.
+    if: false
+
+    permissions:
+      contents: read
+      pull-requests: write # needed once activated, to post review/comment
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so `gh pr diff` works against base
+
+      - name: Collect PR diff
+        # Placeholder: once activated, this step writes the PR diff to a file
+        # which the next step pipes into the ECC `code-reviewer` agent.
+        # PR number is sourced via env: + quoted expansion (no direct
+        # interpolation in the shell line) to model the safe pattern future
+        # implementers must follow when they wire in untrusted PR metadata.
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          echo "Stub: would run 'gh pr diff \"$PR_NUMBER\" > /tmp/pr-diff.txt' here."
+          echo "Skipped under stub gate (if: false on job)."
+
+      - name: Run ECC code-reviewer
+        # Placeholder: once activated, this step invokes Claude with the
+        # `code-reviewer` agent prompt + the diff, parses the response, and
+        # posts it as a PR review comment (NOT as a formal review event, to
+        # avoid colliding with the local code-reviewer agent's review).
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          echo "Stub: would invoke ECC code-reviewer agent on the diff."
+          echo "ANTHROPIC_API_KEY presence: ${ANTHROPIC_API_KEY:+set}"
+          echo "Skipped under stub gate (if: false on job)."
+
+      - name: Post review comment
+        # Placeholder: once activated, this step posts the review output as a
+        # structured PR comment with a stable header so PM / Reviewer can
+        # locate / re-run / dedupe.
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          echo "Stub: would post structured review comment to PR #$PR_NUMBER."
+          echo "Skipped under stub gate (if: false on job)."
