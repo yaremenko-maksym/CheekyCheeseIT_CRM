@@ -9,62 +9,36 @@
       "file": "docs/specs/tasks/task-onboarding-6a-data-backend.md",
       "agent": "coder",
       "branch": "feature/onboarding-data-backend",
-      "pr_number": null,
-      "status": "paused_awaiting_reviewer",
       "pr_number": 83,
       "pr_url": "https://github.com/yaremenko-maksym/CheekyCheeseIT_CRM/pull/83",
-      "branch": "feature/onboarding-data-backend",
+      "status": "fix_dispatched_after_block",
       "started_at": "2026-06-03T00:00:00Z",
-      "paused_at": "2026-06-03T07:30:00Z",
-      "review_rounds": 0,
+      "review_rounds": 1,
       "max_review_rounds": 5,
-      "expected_duration_min": 30,
-      "agent_invocations": { "coder": 1, "reviewer": 1, "autotest": 0, "devops": 0 },
+      "agent_invocations": { "coder": 3, "reviewer": 2, "autotest": 0, "devops": 0 },
       "events": [
-        {
-          "at": "2026-06-03T00:00:00Z",
-          "type": "brief_approved",
-          "brief": "docs/specs/onboarding-brief.md"
-        },
-        {
-          "at": "2026-06-03T00:00:00Z",
-          "type": "task_file_created",
-          "file": "docs/specs/tasks/task-onboarding-6a-data-backend.md"
-        },
-        {
-          "at": "2026-06-03T00:00:00Z",
-          "type": "agent_started",
-          "agent": "coder",
-          "task_file": "docs/specs/tasks/task-onboarding-6a-data-backend.md",
-          "base_branch": "claude/hungry-mcnulty-48b17d",
-          "target_branch": "feature/onboarding-data-backend"
-        }
+        { "at": "2026-06-03T00:00:00Z", "type": "brief_approved", "brief": "docs/specs/onboarding-brief.md" },
+        { "at": "2026-06-03T00:00:00Z", "type": "task_file_created", "file": "docs/specs/tasks/task-onboarding-6a-data-backend.md" },
+        { "at": "2026-06-03T00:00:00Z", "type": "agent_started", "agent": "coder" },
+        { "at": "2026-06-03T04:42:00Z", "type": "pr_opened", "pr": 83, "branch": "feature/onboarding-data-backend" },
+        { "at": "2026-06-03T04:42:38Z", "type": "ci_workflow_failed", "workflow": "Check no hook bypass", "label_added": "hook-bypass-warning" },
+        { "at": "2026-06-03T07:30:00Z", "type": "reviewer_stalled", "agent_id": "a8d7d80e60962fde9", "reason": "stream watchdog 600s timeout, no published review" },
+        { "at": "2026-06-03T08:30:00Z", "type": "fix_task_created", "file": "docs/specs/tasks/task-fix-pr-83-formatting.md", "purpose": "prettier --write" },
+        { "at": "2026-06-03T08:40:00Z", "type": "agent_started", "agent": "coder", "task": "fix-pr-83-formatting" },
+        { "at": "2026-06-03T08:40:00Z", "type": "agent_started", "agent": "reviewer", "task": "re-review pr 83" },
+        { "at": "2026-06-03T08:50:00Z", "type": "fix_pushed", "commit": "67af7bf", "result": "check-formatting SUCCESS, hook-bypass-warning removed" },
+        { "at": "2026-06-03T09:00:00Z", "type": "review_blocked", "pr": 83, "verdict": "BLOCK", "review_id": 4415687659, "reason": "OnboardingGuard global-registered before JwtAuthGuard — req.user undefined → gate no-op", "rounds": 1 },
+        { "at": "2026-06-03T09:05:00Z", "type": "labels_updated", "added": "do-not-merge" },
+        { "at": "2026-06-03T09:10:00Z", "type": "fix_task_created", "file": "docs/specs/tasks/task-fix-pr-83-guard-order.md", "purpose": "fix guard order + integration test + minor nits" }
       ],
-      "pending_fixes": [
-        {
-          "source": "ci-workflow-check-no-skip-hooks",
-          "issue": "prettier --check failed on PR-changed files",
-          "label_added": "hook-bypass-warning",
-          "fix": "Coder fix-task: pnpm exec prettier --write на flagged files + push. См. workflow logs run 26864162708 для конкретного списка."
-        }
-      ],
+      "pending_fixes": [],
       "next_action_on_resume": {
-        "type": "re_dispatch_reviewer_then_bundle_fix",
-        "scheduled_at": "2026-06-03T07:30:00Z",
-        "steps": [
-          "1. mcp__github__get_pull_request_reviews({pull_number: 83}) — проверить, опубликовал ли упавший Reviewer partial review ДО stall (могло остаться)",
-          "2. gh pr view 83 --json statusCheckRollup — финальный CI статус",
-          "3. Re-dispatch Reviewer (старый failed: stream watchdog timeout 600s). Используй pm-snippets «Reviewer — code review». Reminder в prompt: review focus areas из предыдущего dispatch (см. git log task-fix-pr-83 если был — иначе текущий task-onboarding-6a-data-backend + design брифа)",
-          "4. Параллельно (если CI prettier failed без других проблем) — fix-task для Coder: pnpm exec prettier --write на flagged files, target_branch=feature/onboarding-data-backend",
-          "5. После APPROVE — Mode 4 (User Testing) → bash scripts/pm/prep-user-testing.sh feature/onboarding-data-backend"
-        ]
+        "type": "dispatch_coder_with_fix_task",
+        "task_file": "docs/specs/tasks/task-fix-pr-83-guard-order.md",
+        "target_branch": "feature/onboarding-data-backend",
+        "after_push": "re-dispatch Reviewer (round 2) → if APPROVE → Mode 4 (User Testing)"
       },
-      "known_issues_at_pause": [
-        "Label hook-bypass-warning на PR (prettier failure)",
-        "Reviewer agent FAILED stream watchdog 600s timeout — partial review мог остаться на PR (проверить через gh/MCP). НУЖЕН RE-DISPATCH.",
-        "CI Typecheck/Lint/Unit Tests + E2E shards были IN_PROGRESS на момент паузы — статус мог измениться"
-      ],
-      "notes": "Phase 6A. Next phases: 6B (UI+gate), 6C (admin editor), 6D (invoice contract_number)."
+      "notes": "Phase 6A. Next phases: 6B (UI+gate), 6C (admin editor), 6D (invoice contract_number). Critical bug в guard order — fix-task создан, dispatch ждёт."
     }
   ],
   "completed": [
