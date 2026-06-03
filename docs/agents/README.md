@@ -52,6 +52,23 @@ Multi-agent инфраструктура для CRM Cheeky Cheese IT. Содер
 | [`memory/<agent>/lessons.md`](memory/coder/lessons.md)                 | PM аппендит после merged PR (1-3 уроков) |
 | [`memory/<agent>/lessons.archive.md`](memory/coder/lessons.archive.md) | PM при rotation: P2 (>90 дней) сюда      |
 
+### Skills (Phase 4 ECC migration, 2026-06-03)
+
+Skills — canonical workflow surface per ECC AGENTS.upstream.md. После Phase 4 в `.claude/skills/` доступны:
+
+| Skill                       | Path                                                                                         | Когда инвоукать                                                          |
+| --------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `pm-dispatching`            | `.claude/skills/pm-dispatching/SKILL.md`                                                     | PM: загрузка `pm-snippets.md` для dispatch / PR / CI / User Testing      |
+| `playwright-patterns`       | `.claude/skills/playwright-patterns/SKILL.md`                                                | AutoTest / Coder: перед написанием / правкой `.spec.ts` (CRM cookbook)   |
+| `code-review-discipline`    | `.claude/skills/code-review-discipline/SKILL.md`                                             | Reviewers: перед post review (BLOCK / write-then-post / zone-violations) |
+| `dev-flow-resilience`       | `.claude/skills/dev-flow-resilience/SKILL.md`                                                | Все: long-running / MCP I/O / cross-session — D1-D4 RCA patterns         |
+| `ua-tax-compliance`         | `.claude/skills/ua-tax-compliance/SKILL.md`                                                  | Legal Mode A / Mode B на UA tax / company structure                      |
+| `ua-crypto-compliance`      | `.claude/skills/ua-crypto-compliance/SKILL.md`                                               | Legal на crypto / wallets / smart contracts                              |
+| `ua-it-contract`            | `.claude/skills/ua-it-contract/SKILL.md`                                                     | Legal на IT-contract structure / templates                               |
+| `legal-escalation-patterns` | `.claude/skills/legal-escalation-patterns/SKILL.md`                                          | Legal / PM на evasion variants / hard refuse zones                       |
+
+См. `docs/architecture/2026-06-03-phase4-deliverable.md` для full inventory + skipped candidates + cross-skill dependency graph.
+
 ### Deprecated (redirect stubs, для backward compat)
 
 - [`reviewer.md`](reviewer.md) → `code-reviewer.md` + `security-reviewer.md` (Phase 3b ECC split, 2026-06-03)
@@ -124,6 +141,7 @@ Reference / snippets / contracts — on-demand, не upfront.
 
 ## История
 
+- **2026-06-03** — Phase 4 ECC migration: skills lift из lessons.md + dev-flow-rca → `.claude/skills/<name>/SKILL.md`. 7 new skills (playwright-patterns, code-review-discipline, dev-flow-resilience, ua-tax/crypto/it-contract, legal-escalation-patterns) + agent mandatory tables update + viability matrix. См. [`docs/architecture/2026-06-03-phase4-deliverable.md`](../architecture/2026-06-03-phase4-deliverable.md).
 - **2026-06-03** — Phase 3e ECC migration: AutoTest + DevOps frontmatter port + ECC `build-error-resolver` / `harness-optimizer` decomposition. См. [`docs/architecture/2026-06-03-phase3e-deliverable.md`](../architecture/2026-06-03-phase3e-deliverable.md).
 - **2026-06-02** — Architecture v2 (этот рефактор). См. [`CHANGES.md`](CHANGES.md).
 - **2026-05-23** — dev-flow RCA (wip-push, intent markers, sentinel).
