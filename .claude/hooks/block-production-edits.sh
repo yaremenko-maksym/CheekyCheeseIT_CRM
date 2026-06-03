@@ -1,4 +1,12 @@
 #!/bin/bash
+# DEPRECATED (Phase 2.5): replaced by .claude/hooks-ecc/pre-edit-write-zone-of-write.sh.
+# Kept as rollback fallback artifact; will be removed in Phase 6 cleanup.
+# Active registration lives in .claude/settings.json which now points at
+# hooks-ecc/. The ECC port adds a /tmp/ + agent-branch heuristic for
+# CLAUDE_AGENT_ID-less runtime (empirical finding 2026-06-03).
+# If you are editing this file you almost certainly want to edit the ECC
+# port instead.
+#
 # Blocks Edit/Write/NotebookEdit on apps/** and packages/** when NOT in a subagent worktree.
 #
 # Rationale: PM-агент не редактирует production-код напрямую (rule from pm.md "Зоны записи").
