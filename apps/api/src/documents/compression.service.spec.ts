@@ -144,7 +144,10 @@ describe('CompressionService — Pass 2 trigger', () => {
     // are acceptable, but the typical path for a huge noise JPEG is pass-2.
     // We accept anything < original to confirm the pipeline did work.
     expect(result.sizeBytes).toBeLessThan(input.length)
-  }, 30000)
+    // 60 s: Sharp 6000x6000 noise JPEG can exceed 30 s under concurrent load
+    // (vitest + Playwright running in parallel). This is a compute-heavy test,
+    // not a logic test — we give it ample headroom.
+  }, 60000)
 })
 
 // -----------------------------------------------------------------------------
