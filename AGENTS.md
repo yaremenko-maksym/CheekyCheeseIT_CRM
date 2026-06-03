@@ -32,14 +32,14 @@
 
 | Agent         | Purpose                                      | When to Use                            | Location                            |
 | ------------- | -------------------------------------------- | -------------------------------------- | ----------------------------------- |
-| **PM**        | Orchestrator daily workflow (Mode 1–5)       | Любой product request от user          | `docs/agents/pm.md`                 |
+| **PM**        | Orchestrator daily workflow (Mode 1–5)       | Любой product request от user          | `.claude/agents/pm.md`              |
 | **BA**        | Human role — пишет pm-brief                  | User business discussion               | `docs/business/roles/ba.md` (human) |
-| **Coder**     | Fullstack implementation                     | Feature/bugfix tasks                   | `docs/agents/coder.md`              |
-| **AutoTest**  | Playwright E2E development                   | New flow / flaky fix / coverage audit  | `docs/agents/autotest.md`           |
-| **Reviewer**  | Code review (verdict BLOCK, write-then-post) | PR review                              | `docs/agents/reviewer.md`           |
-| **DevOps**    | CI/CD, GHA, environment                      | Infrastructure tasks                   | `docs/agents/devops.md`             |
-| **Legal**     | UA jurisdictional advisor (4 modes A/B/C/D)  | Legal consult / contract / brief check | `docs/agents/legal.md`              |
-| **Architect** | ECC migration orchestrator                   | Migration phases (текущая работа)      | `docs/agents/architect.md`          |
+| **Coder**     | Fullstack implementation                     | Feature/bugfix tasks                   | `.claude/agents/coder.md`           |
+| **AutoTest**  | Playwright E2E development                   | New flow / flaky fix / coverage audit  | `.claude/agents/autotest.md`        |
+| **Reviewer**  | Code review (verdict BLOCK, write-then-post) | PR review                              | `.claude/agents/reviewer.md`        |
+| **DevOps**    | CI/CD, GHA, environment                      | Infrastructure tasks                   | `.claude/agents/devops.md`          |
+| **Legal**     | UA jurisdictional advisor (4 modes A/B/C/D)  | Legal consult / contract / brief check | `.claude/agents/legal.md`           |
+| **Architect** | ECC migration orchestrator                   | Migration phases (текущая работа)      | `.claude/agents/architect.md`       |
 
 ### ECC catalog agents (доступны через `agents/`)
 
@@ -85,7 +85,7 @@
 
 - **ECC skills** (`skills/ecc/<name>/SKILL.md`) — 36 first-party skills, скопировано в Phase 1 (relevant subset из `developer` + `security` profile)
 - **Custom skills** (`skills/<name>/SKILL.md`) — Phase 4 миграция lessons → skills, UA-legal stubs, recruiting-domain rules
-- **Lessons.md** (`docs/agents/memory/<role>/lessons.md`) — продолжают как append-log даже после Phase 4
+- **Lessons.md** (`.claude/agents/memory/<role>/lessons.md`) — продолжают как append-log даже после Phase 4
 
 Skills принцип: `When to Activate` / `Workflow` / `Tested examples` — структурно (ECC RULES.md).
 
@@ -254,6 +254,6 @@ Skills принцип: `When to Activate` / `Workflow` / `Tested examples` — �
 
 - Upstream catalog: `docs/architecture/ecc-reference/AGENTS.upstream.md`
 - Master ADR: `docs/architecture/2026-05-31-ecc-migration-design.md`
-- Architect role spec: `docs/agents/architect.md`
+- Architect role spec: `.claude/agents/architect.md`
 - ECC version pin: `ecc-pin.txt`
 - ECC user guide: `docs/architecture/2026-05-31-ecc-user-guide.md`

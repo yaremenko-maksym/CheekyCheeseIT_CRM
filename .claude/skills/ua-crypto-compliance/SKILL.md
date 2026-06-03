@@ -5,7 +5,7 @@ description: When Legal-agent advises on USDT / crypto payouts in CRM Phase 8 (s
 
 # UA Crypto Compliance (Legal knowledge primitive)
 
-UA-specific crypto / virtual assets / AML knowledge для CRM Phase 8 (Smart Contracts USDT). НЕ покрыто ECC. Лифтнуто из `docs/agents/memory/legal/lessons.md` (#usdt #aml items).
+UA-specific crypto / virtual assets / AML knowledge для CRM Phase 8 (Smart Contracts USDT). НЕ покрыто ECC. Лифтнуто из `.claude/agents/memory/legal/lessons.md` (#usdt #aml items).
 
 **Disclaimer:** Legal vacuum status. Любая production crypto channel = legal risk. Этот skill — справочный материал; final sign-off — IT-corporate lawyer.
 
@@ -88,7 +88,7 @@ UA-specific crypto / virtual assets / AML knowledge для CRM Phase 8 (Smart Co
 ## References
 
 - Source lessons (lifted 2026-06-03):
-  - `docs/agents/memory/legal/lessons.md` (2026-05-31 — 4 substantive items #usdt #aml)
+  - `.claude/agents/memory/legal/lessons.md` (2026-05-31 — 4 substantive items #usdt #aml)
 - Citations within patterns:
   - Закон 2074-IX «Про віртуальні активи» (17.02.2022, не введений)
   - Законопроект 10225-д (перше читання 03.09.2025)
@@ -101,5 +101,5 @@ UA-specific crypto / virtual assets / AML knowledge для CRM Phase 8 (Smart Co
   - `ua-it-contract` (wallet/payment requisites in contracts)
   - `legal-escalation-patterns` (hard refuse zone handling)
 - Related agent docs:
-  - `docs/agents/legal.md` Mode A + Mode B
-  - `docs/agents/legal-escalation-zones.md` (если existing)
+  - `.claude/agents/legal.md` Mode A + Mode B
+  - `.claude/agents/legal-escalation-zones.md` (если existing)

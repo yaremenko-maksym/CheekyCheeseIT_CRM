@@ -25,8 +25,8 @@
 #        per ADR §6 Phase 5 mitigation — "start as informational, promote
 #        to blocking later").
 #
-# - Existing review pipeline (local `docs/agents/code-reviewer.md` +
-#   `docs/agents/security-reviewer.md` invoked via PM Agent dispatch) is the
+# - Existing review pipeline (local `.claude/agents/code-reviewer.md` +
+#   `.claude/agents/security-reviewer.md` invoked via PM Agent dispatch) is the
 #   live review surface today. This stub does NOT replace, conflict with, or
 #   duplicate that flow.
 #

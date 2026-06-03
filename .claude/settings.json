@@ -10,7 +10,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks-ecc/post-edit-write-coder-progress.sh"
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/post-edit-write-coder-progress.sh"
           }
         ],
         "description": "Coder progress marker — append durable activity log for PM silent-termination recovery",
@@ -23,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks-ecc/pre-bash-safety.sh"
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/pre-bash-safety.sh"
           }
         ],
         "description": "Safety gate — block catastrophic Bash patterns (rm -rf /, force push to main, DROP DATABASE crm_db)",
@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks-ecc/pre-bash-coder-push-gate.sh"
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/pre-bash-coder-push-gate.sh"
           }
         ],
         "description": "Coder push gate — require ac_verified: in commit msg before push on feature|fix|infra|test branches",
@@ -45,7 +45,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks-ecc/pre-edit-write-zone-of-write.sh"
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/pre-edit-write-zone-of-write.sh"
           }
         ],
         "description": "Zone-of-write gate — block apps/** and packages/** edits from non-Coder sessions",
@@ -56,7 +56,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks-ecc/pre-edit-write-suggest-compact.sh"
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/pre-edit-write-suggest-compact.sh"
           }
         ],
         "description": "Compact suggestion — surface /compact reminder every 50 Edit/Write invocations (never blocks)",

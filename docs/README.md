@@ -34,7 +34,7 @@ docs/
    BA-агент (локально)
    - задаёт вопросы
    - пишет docs/business/
-   - создаёт docs/specs/active-task.md
+   - создаёт .claude/briefs/active-task.md
         ↓
  ┌──────────────────────────────┐
  │ Coder-агент  │ AutoTest-агент│
@@ -52,11 +52,11 @@ docs/
 ## Как создать задачу для Coder-агента
 
 1. Запустить BA-агента локально в Claude Code
-2. BA пишет `docs/specs/active-task.md` по шаблону
+2. BA пишет `.claude/briefs/active-task.md` по шаблону
 3. Coder читает файл, создаёт ветку `feature/<slug>`, делает PR
 4. Добавить label `ai-review-ready` → запустятся Reviewer + QA
 
 ## Как читать agent prompts
 
-Каждый `docs/agents/*.md` — это системный промпт для соответствующего агента.
+Каждый `.claude/agents/*.md` — это системный промпт для соответствующего агента.
 Агент ВСЕГДА читает его первым перед любой работой.
