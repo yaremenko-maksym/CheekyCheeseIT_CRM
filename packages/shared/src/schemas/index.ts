@@ -14,6 +14,7 @@ export * from './notifications'
 export * from './contracts'
 export * from './tos'
 export * from './onboarding'
+export * from './audit'
 
 // Hardcoded partner user IDs (stable across environments)
 export const MAKSYM_ID = '00000000-0000-0000-0000-000000000001'

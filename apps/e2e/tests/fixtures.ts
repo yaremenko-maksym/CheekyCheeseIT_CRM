@@ -986,6 +986,63 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
         )
       : jsonOk(r, []),
   )
+
+  // Compliance audit trail (Phase 6 polish PR3)
+  // GET /me/audit-trail — self-service data portability endpoint
+  await page.route(`${API}/me/audit-trail`, (r) =>
+    jsonOk(r, {
+      signedContracts: [
+        {
+          type: 'contract',
+          id: 'sc-mock-1',
+          contractNumber: 'CHK-1-2026',
+          signedAt: '2026-01-15T10:00:00.000Z',
+          signedTypedName: user.displayName,
+          signedIp: '192.168.1.1',
+          templateRole: user.role === 'ADMIN' ? 'SENIOR' : user.role,
+          templateVersion: 1,
+          bodyMarkdownSnapshot: `# MSA Contract\n\nПодписал: ${user.displayName}`,
+        },
+      ],
+      tosAcceptances: [
+        {
+          type: 'tos',
+          id: 'ta-mock-1',
+          acceptedAt: '2026-01-10T08:00:00.000Z',
+          acceptedIp: '10.0.0.1',
+          tosVersion: 1,
+          tosBodyMarkdown: '# Terms of Service v1\n\nAll rights reserved.',
+        },
+      ],
+    }),
+  )
+  // GET /audit/all — ACCOUNTANT + ADMIN compliance view
+  await page.route(new RegExp(`${API}/audit/all(\\?.*)?$`), (r) =>
+    jsonOk(r, {
+      items: [
+        {
+          type: 'contract',
+          id: 'sc-mock-1',
+          contractNumber: 'CHK-1-2026',
+          signedAt: '2026-01-15T10:00:00.000Z',
+          signedTypedName: 'Senior Dev',
+          signedIp: '192.168.1.1',
+          templateRole: 'SENIOR',
+          templateVersion: 1,
+          bodyMarkdownSnapshot: '# MSA Contract\n\nПодписал: Senior Dev',
+        },
+        {
+          type: 'tos',
+          id: 'ta-mock-1',
+          acceptedAt: '2026-01-10T08:00:00.000Z',
+          acceptedIp: '10.0.0.1',
+          tosVersion: 1,
+          tosBodyMarkdown: '# Terms of Service v1\n\nAll rights reserved.',
+        },
+      ],
+      total: 2,
+    }),
+  )
 }
 
 // ---------------------------------------------------------------------------
