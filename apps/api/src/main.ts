@@ -13,9 +13,31 @@ async function bootstrap() {
     new FastifyAdapter({ logger: process.env['NODE_ENV'] !== 'test' }),
   )
 
+  const isProd = process.env['NODE_ENV'] === 'production'
+
   await app.register(helmet, {
-    // Disable CSP in dev for easier debugging
-    contentSecurityPolicy: process.env['NODE_ENV'] === 'production',
+    // In development CSP is disabled for easier debugging (hot-reload, devtools).
+    // In production an explicit policy is applied:
+    //   script-src 'self'          — no inline scripts, no CDN
+    //   frame-src 'none'           — no embedding in iframes
+    //   img-src 'self' data:       — allow inline data: images (avatars, logos)
+    //   font-src 'self'            — self-hosted fonts only
+    //   connect-src 'self'         — XHR/fetch to same origin only
+    contentSecurityPolicy: isProd
+      ? {
+          directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", 'data:'],
+            fontSrc: ["'self'"],
+            connectSrc: ["'self'"],
+            frameSrc: ["'none'"],
+            objectSrc: ["'none'"],
+            baseUri: ["'self'"],
+          },
+        }
+      : false,
   })
 
   await app.register(cookie, {
