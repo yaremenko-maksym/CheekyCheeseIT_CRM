@@ -148,6 +148,10 @@ test('ADMIN sees 5 role cards, edits SENIOR contract, publishes new version', as
   // Confirm publish
   await page.getByTestId('publish-template-button').click()
   await expect(page.getByTestId('publish-confirm-dialog')).toBeVisible()
+
+  // NEW: assert diff panel visible inside confirm dialog
+  await expect(page.locator('[data-testid^="markdown-diff"]')).toBeVisible()
+
   await page.getByTestId('confirm-publish-button').click()
 
   // Toast success
@@ -200,6 +204,10 @@ test('ADMIN publishes new ToS, soft-notify banner visible for onboarded user', a
   // Confirm publish
   await page.getByTestId('publish-tos-button').click()
   await expect(page.getByTestId('publish-tos-confirm-dialog')).toBeVisible()
+
+  // NEW: assert diff panel visible inside confirm dialog
+  await expect(page.locator('[data-testid^="markdown-diff"]')).toBeVisible()
+
   await page.getByTestId('confirm-publish-tos-button').click()
 
   // Toast success

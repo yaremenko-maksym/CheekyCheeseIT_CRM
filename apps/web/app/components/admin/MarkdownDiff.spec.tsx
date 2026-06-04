@@ -27,7 +27,8 @@ describe('MarkdownDiff', () => {
   })
 
   it('handles trailing whitespace gracefully (trim both sides)', () => {
-    render(<MarkdownDiff oldText="text\n\n" newText="text" />)
+    // Use template literal so \n is interpreted as real newlines
+    render(<MarkdownDiff oldText={`text\n\n`} newText="text" />)
     expect(screen.getByTestId('markdown-diff-empty')).toBeInTheDocument()
   })
 })
