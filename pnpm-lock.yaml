@@ -146,6 +146,7 @@ importers:
       '@testing-library/jest-dom': ^6.9.1
       '@testing-library/react': ^16.3.2
       '@testing-library/user-event': ^14.6.1
+      '@types/diff': ^7.0.0
       '@types/react': ^18.3.0
       '@types/react-dom': ^18.3.0
       '@types/react-signature-canvas': ^1.0.7
@@ -159,6 +160,7 @@ importers:
       clsx: ^2.1.1
       cmdk: ^1.1.1
       date-fns: ^4.1.0
+      diff: ^7.0.0
       eslint: ^10.3.0
       framer-motion: ^12.0.0
       happy-dom: ^20.9.0
@@ -211,6 +213,7 @@ importers:
       clsx: 2.1.1
       cmdk: 1.1.1_vgjtmu5g52dd7aolrd4gasxklm
       date-fns: 4.1.0
+      diff: 7.0.0
       framer-motion: 12.38.0_nnrd3gsncyragczmpvfhocinkq
       libphonenumber-js: 1.12.42
       lucide-react: 1.14.0_react@18.3.1
@@ -233,6 +236,7 @@ importers:
       '@testing-library/jest-dom': 6.9.1
       '@testing-library/react': 16.3.2_fk6i5xy5xwgnk52yacssu6qosu
       '@testing-library/user-event': 14.6.1_rwcxf7kajngkz26znmtz643644
+      '@types/diff': 7.0.2
       '@types/react': 18.3.28
       '@types/react-dom': 18.3.7_@types+react@18.3.28
       '@types/react-signature-canvas': 1.0.7
@@ -5014,6 +5018,10 @@ packages:
     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
     dev: true
 
+  /@types/diff/7.0.2:
+    resolution: {integrity: sha512-JSWRMozjFKsGlEjiiKajUjIJVKuKdE3oVy2DNtK+fUo8q82nhFZ2CPQwicAIkXrofahDXrWJ7mjelvZphMS98Q==}
+    dev: true
+
   /@types/eslint-scope/3.7.7:
     resolution: {integrity: sha512-MzMFlSLBqNF2gcHWO0G1vP/YQyfvrxZ0bF+u7mzUdZ1/xK4A4sru+nraZz5i3iEIk1l1uyicaDVTB4QbbEkAYg==}
     dependencies:
@@ -5390,7 +5398,7 @@ packages:
       '@vitest/spy': 3.2.4
       estree-walker: 3.0.3
       magic-string: 0.30.21
-      vite: 6.4.2
+      vite: 6.4.2_qxu3yldjezns4u3yvc3sj7vlyy
     dev: true
 
   /@vitest/pretty-format/3.2.4:
@@ -6384,6 +6392,11 @@ packages:
 
   /dfa/1.2.0:
     resolution: {integrity: sha512-ED3jP8saaweFTjeGX8HQPjeC1YYyZs98jGNZx6IiBvxW7JG5v492kamAQB3m2wop07CvU/RQmzcKr6bgcC5D/Q==}
+    dev: false
+
+  /diff/7.0.0:
+    resolution: {integrity: sha512-PJWHUb1RFevKCwaFA9RlG5tCd+FO5iRh9A8HEtkmBH2Li03iJriB6m6JIN4rGz3K3JLawI7/veA1xzRKP6ISBw==}
+    engines: {node: '>=0.3.1'}
     dev: false
 
   /diff/8.0.4:

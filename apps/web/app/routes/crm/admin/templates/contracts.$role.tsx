@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { AlertTriangle, ChevronLeft, Info } from 'lucide-react'
+import { MarkdownDiff } from '@/components/admin/MarkdownDiff'
 
 export const Route = createFileRoute('/crm/admin/templates/contracts/$role')({
   component: ContractEditorPage,
@@ -254,6 +255,7 @@ function ContractEditorPage() {
               увидят новый текст при следующем онбординге.
             </DialogDescription>
           </DialogHeader>
+          <MarkdownDiff oldText={template?.bodyMarkdown ?? ''} newText={currentBody} />
           <DialogFooter>
             <Button
               variant="outline"
