@@ -25,7 +25,8 @@ import {
   InvoicePdfService,
   type GenerateSignableInvoiceParams,
 } from './invoice-pdf.service'
-import { sha256Hex, shortHash } from './invoice-pdf.utils'
+import { sha256Hex, shortHash } from '../common/pdf/pdf.utils'
+import { PdfGenerationService } from '../common/pdf/pdf-generation.service'
 
 // Each test below exercises the *real* PDF generation pipeline (pdf-lib +
 // fontkit + qrcode + the bundled Roboto TTF). Per the file-header comment the
@@ -78,7 +79,10 @@ describe('InvoicePdfService', () => {
   let service: InvoicePdfService
 
   beforeAll(() => {
-    service = new InvoicePdfService()
+    // InvoicePdfService now requires PdfGenerationService via DI.
+    // In unit tests we instantiate both directly — no NestJS container needed
+    // because PdfGenerationService has no further constructor dependencies.
+    service = new InvoicePdfService(new PdfGenerationService())
   })
 
   describe('generateSignableInvoicePdf — 0 signatures', () => {
@@ -650,7 +654,9 @@ describe('InvoicePdfService', () => {
   })
 })
 
-describe('invoice-pdf.utils', () => {
+// sha256Hex / shortHash moved to common/pdf/pdf.utils (task-polish-7).
+// Imported above from there; describe label updated accordingly.
+describe('common/pdf/pdf.utils — hash helpers', () => {
   describe('sha256Hex', () => {
     it('returns a 64-char lowercase hex digest', () => {
       const buf = Buffer.from('hello world', 'utf8')
