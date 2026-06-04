@@ -115,6 +115,7 @@ export class UsersController {
       bankUahBankName: dto.bankUahBankName ?? null,
       ...(dto.teamMode !== undefined && { teamMode: dto.teamMode }),
       ...(dto.dropTeamId !== undefined && { dropTeamId: dto.dropTeamId }),
+      ...(dto.legalFullName !== undefined && { legalFullName: dto.legalFullName }),
     })
   }
 

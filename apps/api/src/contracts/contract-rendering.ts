@@ -16,6 +16,7 @@ import type { User } from '../database/schema'
 export type ContractRenderUserContext = Pick<
   User,
   | 'displayName'
+  | 'legalFullName'
   | 'email'
   | 'role'
   | 'walletUsdtErc20'
@@ -70,7 +71,11 @@ export function renderContractTemplate(
     : 'не указано'
 
   const variables: Record<InterpolatableVariableKey, string> = {
-    employeeName: user.displayName ?? 'не указано',
+    // Fallback chain: legal ФИО → platform displayName → 'не указано' (AC1).
+    // legalFullName is set by ADMIN (Cyrillic ФИО for the contract).
+    // Fallback through displayName preserves backward compat for users
+    // created before this field was introduced.
+    employeeName: user.legalFullName?.trim() || user.displayName || 'не указано',
     employeeEmail: user.email ?? 'не указано',
     role: ROLE_LABELS[user.role] ?? user.role,
     onboardingDate: signedAt.toISOString().slice(0, 10),

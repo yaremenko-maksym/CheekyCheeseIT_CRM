@@ -36,7 +36,47 @@ export interface TeamMemberPreview {
   avatarDocumentId: string | null
 }
 
-export type UserWithAvailability = User & { hasActiveProject: boolean }
+// legalFullName is intentionally excluded from the list projection — it is PII
+// (passport name) and must only be surfaced through the single-resource
+// GET /api/users/:id endpoint where buildProfileView applies RBAC masking.
+// ADMIN-only use-cases that require legal names in bulk should use a dedicated
+// admin endpoint, not the shared list.
+export type UserListItem = Omit<User, 'legalFullName'>
+export type UserWithAvailability = UserListItem & { hasActiveProject: boolean }
+
+/**
+ * Drizzle select projection for list endpoints (GET /api/users).
+ * legalFullName (passport PII) is intentionally excluded — it is only
+ * accessible via GET /api/users/:id through buildProfileView + RBAC masking.
+ */
+const USER_LIST_PROJECTION = {
+  id: users.id,
+  email: users.email,
+  displayName: users.displayName,
+  role: users.role,
+  avatarUrl: users.avatarUrl,
+  avatarDocumentId: users.avatarDocumentId,
+  googleId: users.googleId,
+  telegram: users.telegram,
+  phone: users.phone,
+  techStack: users.techStack,
+  paymentMethod: users.paymentMethod,
+  walletUsdtErc20: users.walletUsdtErc20,
+  walletUsdtLabel: users.walletUsdtLabel,
+  bankUahRecipient: users.bankUahRecipient,
+  bankUahIban: users.bankUahIban,
+  bankUahRnokpp: users.bankUahRnokpp,
+  bankUahBankName: users.bankUahBankName,
+  seniorSharePercent: users.seniorSharePercent,
+  dropSharePercent: users.dropSharePercent,
+  monthlySalary: users.monthlySalary,
+  salaryCurrency: users.salaryCurrency,
+  archivedAt: users.archivedAt,
+  adminNote: users.adminNote,
+  createdAt: users.createdAt,
+  updatedAt: users.updatedAt,
+  // legalFullName intentionally omitted — see UserListItem type
+} as const
 
 @Injectable()
 export class UsersService {
@@ -80,7 +120,8 @@ export class UsersService {
     const where = archivedFilter
       ? and(ne(users.role, 'ADMIN'), archivedFilter)
       : ne(users.role, 'ADMIN')
-    const allUsers = await this.db.db.select().from(users).where(where)
+    // USER_LIST_PROJECTION excludes legalFullName — see module-level constant.
+    const allUsers = await this.db.db.select(USER_LIST_PROJECTION).from(users).where(where)
     const activeProjectMemberships = await this.db.db
       .select({ userId: projectMembers.userId })
       .from(projectMembers)
@@ -101,9 +142,10 @@ export class UsersService {
         : filter.archived === true
           ? isNotNull(users.archivedAt)
           : isNull(users.archivedAt)
+    // USER_LIST_PROJECTION excludes legalFullName — see module-level constant.
     const allUsers = archivedFilter
-      ? await this.db.db.select().from(users).where(archivedFilter)
-      : await this.db.db.select().from(users)
+      ? await this.db.db.select(USER_LIST_PROJECTION).from(users).where(archivedFilter)
+      : await this.db.db.select(USER_LIST_PROJECTION).from(users)
     const activeProjectMemberships = await this.db.db
       .select({ userId: projectMembers.userId })
       .from(projectMembers)
@@ -171,6 +213,11 @@ export class UsersService {
     bankUahRnokpp?: string | null
     bankUahBankName?: string | null
     /**
+     * Legal full name (Cyrillic, order: Surname First Patronymic).
+     * Used in MSA contract instead of displayName. Optional at creation time.
+     */
+    legalFullName?: string
+    /**
      * Drop role - phase 1: senior-only opt-in. `CREATE_NEW` (default)
      * preserves the legacy auto-team flow. `JOIN_DROP_TEAM` skips auto-team
      * and attaches the new senior to an existing drop-team.
@@ -218,6 +265,7 @@ export class UsersService {
       insertValues.seniorSharePercent = data.seniorSharePercent
     if (data.monthlySalary != null) insertValues.monthlySalary = String(data.monthlySalary)
     if (data.salaryCurrency) insertValues.salaryCurrency = data.salaryCurrency
+    if (data.legalFullName?.trim()) insertValues.legalFullName = data.legalFullName.trim()
 
     // Payment requisites — only persist the fields matching the selected method.
     if (data.paymentMethod) {
@@ -309,6 +357,11 @@ export class UsersService {
       hrIds?: string[] | undefined
       accountantId?: string | null | undefined
       teamTelegramChannel?: string | null | undefined
+      /**
+       * Legal full name (Cyrillic, order: Surname First Patronymic).
+       * Used in MSA contract instead of displayName. Optional in admin update.
+       */
+      legalFullName?: string | undefined
     },
     actorId: string | null = null,
   ): Promise<User> {
@@ -364,6 +417,7 @@ export class UsersService {
       bankUahIban: string | null
       bankUahRnokpp: string | null
       bankUahBankName: string | null
+      legalFullName: string | null
       updatedAt: Date
     }> = { updatedAt: new Date() }
 
@@ -385,6 +439,7 @@ export class UsersService {
     if ('monthlySalary' in data)
       set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
     if (data.salaryCurrency !== undefined) set.salaryCurrency = data.salaryCurrency
+    if (data.legalFullName !== undefined) set.legalFullName = data.legalFullName.trim() || null
 
     // Payment requisites — switching method clears the other branch's fields.
     if (data.paymentMethod !== undefined) {
@@ -1338,6 +1393,10 @@ export class UsersService {
       filteredUser.bankUahIban = null
       filteredUser.bankUahRnokpp = null
       filteredUser.bankUahBankName = null
+    }
+    // legalFullName is passport PII — visible only to ADMIN and the user themselves.
+    if (!permissions.fields.legalName) {
+      filteredUser.legalFullName = null
     }
 
     const data: Record<string, unknown> = {}

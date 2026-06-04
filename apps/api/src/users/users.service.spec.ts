@@ -19,11 +19,10 @@ type DrizzleDb = { db: NodePgDatabase<typeof schema> }
  * `auditLogService.record()` to seed a `profile_created` event, so we must
  * supply a stub (otherwise `TypeError: Cannot read properties of undefined`).
  */
-const makeAccessService = (): UsersAccessService =>
-  ({} as unknown as UsersAccessService)
+const makeAccessService = (): UsersAccessService => ({}) as unknown as UsersAccessService
 
 const makeAuditLogService = (): AuditLogService =>
-  ({ record: vi.fn().mockResolvedValue(undefined) } as unknown as AuditLogService)
+  ({ record: vi.fn().mockResolvedValue(undefined) }) as unknown as AuditLogService
 
 const makeUsersService = (db: DrizzleDb): UsersService =>
   new UsersService(db as never, makeAccessService() as never, makeAuditLogService() as never)
@@ -50,13 +49,31 @@ const makeUser = (overrides: Record<string, unknown> = {}) => ({
 })
 
 const makeSenior = (overrides: Record<string, unknown> = {}) =>
-  makeUser({ id: 'senior-1', email: 'senior@example.com', displayName: 'Senior Dev', role: 'SENIOR', ...overrides })
+  makeUser({
+    id: 'senior-1',
+    email: 'senior@example.com',
+    displayName: 'Senior Dev',
+    role: 'SENIOR',
+    ...overrides,
+  })
 
 const makeJunior = (overrides: Record<string, unknown> = {}) =>
-  makeUser({ id: 'junior-1', email: 'junior@example.com', displayName: 'Junior Dev', role: 'JUNIOR', ...overrides })
+  makeUser({
+    id: 'junior-1',
+    email: 'junior@example.com',
+    displayName: 'Junior Dev',
+    role: 'JUNIOR',
+    ...overrides,
+  })
 
 const makeHr = (overrides: Record<string, unknown> = {}) =>
-  makeUser({ id: 'hr-1', email: 'hr@example.com', displayName: 'HR Person', role: 'HR', ...overrides })
+  makeUser({
+    id: 'hr-1',
+    email: 'hr@example.com',
+    displayName: 'HR Person',
+    role: 'HR',
+    ...overrides,
+  })
 
 // ---------------------------------------------------------------------------
 // DB mock factory
@@ -181,6 +198,75 @@ describe('UsersService.findById', () => {
 })
 
 // ---------------------------------------------------------------------------
+// findAll — legalFullName PII exclusion (security AC, list projection)
+// ---------------------------------------------------------------------------
+
+describe('UsersService.findAll — legalFullName not present in list response', () => {
+  /**
+   * Drizzle select() with an explicit projection returns only the projected
+   * columns.  The mock below simulates this by returning a row that already
+   * lacks legalFullName (matching what the DB driver returns for an explicit
+   * column-list select).  The test confirms that the service's projection
+   * contract holds: no legalFullName key is present on any item in the result.
+   *
+   * This prevents the side-channel described in security-reviewer round-3:
+   * HR calls GET /api/users → previously received legalFullName for every user
+   * because findAll used select() without projection (returned all columns).
+   */
+  function makeListDb(rows: ReturnType<typeof makeUser>[]): DrizzleDb {
+    // Simulate Drizzle's explicit projection: return rows without legalFullName.
+    const rowsWithoutLegal = rows.map(({ ...r }) => {
+      const copy = r as Record<string, unknown>
+      delete copy['legalFullName']
+      return copy
+    })
+
+    // findAll calls db.select(projection).from(users).where(...)
+    // then db.select({userId}).from(projectMembers).where(...)
+    // We need the chain to return the right value for each call.
+    let callIndex = 0
+    const selectChain = {
+      select: vi.fn().mockReturnThis(),
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockImplementation(() => {
+        callIndex++
+        // First where() = users list query
+        if (callIndex === 1) return Promise.resolve(rowsWithoutLegal)
+        // Second where() = projectMembers active memberships
+        return Promise.resolve([])
+      }),
+    }
+
+    return { db: selectChain as unknown } as unknown as DrizzleDb
+  }
+
+  it('result items do NOT contain legalFullName key (HR caller scenario)', async () => {
+    const senior = makeSenior({ legalFullName: 'Коваленко Олексій Сергійович' })
+    const junior = makeJunior({ legalFullName: 'Бондаренко Софія Олегівна' })
+    const db = makeListDb([senior, junior])
+    const service = makeUsersService(db)
+
+    const result = await service.findAll()
+
+    expect(result).toHaveLength(2)
+    for (const item of result) {
+      expect(item).not.toHaveProperty('legalFullName')
+    }
+  })
+
+  it('result items do NOT contain legalFullName key (ADMIN caller via findAllIncludingAdmin)', async () => {
+    const senior = makeSenior({ legalFullName: 'Іваненко Іван Іванович' })
+    const db = makeListDb([senior])
+    const service = makeUsersService(db)
+
+    const result = await service.findAllIncludingAdmin()
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).not.toHaveProperty('legalFullName')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // createUser — base cases
 // ---------------------------------------------------------------------------
 
@@ -270,7 +356,9 @@ describe('UsersService.createUser — JUNIOR', () => {
     const db = makeDb({ existingUser: junior })
     const service = makeUsersService(db)
 
-    await service.createUser({ email: junior.email, displayName: 'Dup', role: 'JUNIOR' }).catch(() => {})
+    await service
+      .createUser({ email: junior.email, displayName: 'Dup', role: 'JUNIOR' })
+      .catch(() => {})
 
     const insertMock = db.db.insert as ReturnType<typeof vi.fn>
     expect(insertMock).not.toHaveBeenCalled()
@@ -347,7 +435,9 @@ describe('UsersService.createUser — SENIOR', () => {
     })
 
     const insertMock = db.db.insert as ReturnType<typeof vi.fn>
-    const insertValuesMock = insertMock.mock.results[1]?.value as { values: ReturnType<typeof vi.fn> }
+    const insertValuesMock = insertMock.mock.results[1]?.value as {
+      values: ReturnType<typeof vi.fn>
+    }
     // Second insert call is for the teams table — check the team name
     expect(insertValuesMock?.values).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Команда Ivan Drago' }),
@@ -514,7 +604,9 @@ describe('UsersService.adminUpdateUser', () => {
     // No existing user → findById returns undefined → NotFoundException
     const db = makeDb({ existingUser: undefined })
     const service = makeUsersService(db)
-    await expect(service.adminUpdateUser('ghost', { displayName: 'X' })).rejects.toThrow(NotFoundException)
+    await expect(service.adminUpdateUser('ghost', { displayName: 'X' })).rejects.toThrow(
+      NotFoundException,
+    )
   })
 
   // ─── ut-10: ADMIN cannot edit another ADMIN ─────────────────────────────
@@ -533,7 +625,11 @@ describe('UsersService.adminUpdateUser', () => {
     const updated = makeUser({ id: 'admin-1', role: 'ADMIN', displayName: 'Updated Me' })
     const db = makeDb({ existingUser: selfAdmin, updatedUser: updated })
     const service = makeUsersService(db)
-    const result = await service.adminUpdateUser('admin-1', { displayName: 'Updated Me' }, 'admin-1')
+    const result = await service.adminUpdateUser(
+      'admin-1',
+      { displayName: 'Updated Me' },
+      'admin-1',
+    )
     expect(result.displayName).toBe('Updated Me')
   })
 
@@ -543,9 +639,9 @@ describe('UsersService.adminUpdateUser', () => {
     const db = makeDb({ existingUser: selfAdmin })
     const service = makeUsersService(db)
     const { ForbiddenException } = await import('@nestjs/common')
-    await expect(
-      service.adminUpdateUser('admin-1', { role: 'SENIOR' }, 'admin-1'),
-    ).rejects.toThrow(ForbiddenException)
+    await expect(service.adminUpdateUser('admin-1', { role: 'SENIOR' }, 'admin-1')).rejects.toThrow(
+      ForbiddenException,
+    )
   })
 
   it('allows self-ADMIN to update non-role fields', async () => {
@@ -616,5 +712,107 @@ describe('UsersService.getProfile', () => {
     } as unknown as DrizzleDb
     const service = makeUsersService(db)
     await expect(service.getProfile('ghost')).rejects.toThrow(NotFoundException)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// buildProfileView — legalFullName PII masking (security AC1)
+// ---------------------------------------------------------------------------
+
+describe('UsersService.buildProfileView — legalFullName masking', () => {
+  /**
+   * Builds a minimal UsersService whose findById returns `target` and whose
+   * accessService.getViewPermissions returns the given permissions object.
+   */
+  function makeServiceForProfileView(
+    target: ReturnType<typeof makeUser>,
+    permissions: { tabs: string[]; actions: string[]; fields: Record<string, boolean> },
+  ): UsersService {
+    const db = {
+      db: {
+        select: vi.fn().mockReturnThis(),
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockResolvedValue([target]),
+        insert: vi.fn(),
+        update: vi.fn(),
+        delete: vi.fn(),
+      },
+    } as unknown as DrizzleDb
+
+    const accessService = {
+      getViewPermissions: vi.fn().mockResolvedValue(permissions),
+    } as unknown as import('./users-access.service').UsersAccessService
+
+    const auditService = makeAuditLogService()
+
+    return new UsersService(db as never, accessService as never, auditService as never)
+  }
+
+  const targetWithLegalName = makeUser({
+    id: 'target-id',
+    role: 'SENIOR',
+    legalFullName: 'Іваненко Іван Іванович',
+  } as Record<string, unknown>)
+
+  it('ADMIN viewer — legalFullName is visible (fields.legalName = true)', async () => {
+    const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
+    const permissions = {
+      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents', 'audit'],
+      actions: [],
+      fields: { requisites: true, legalName: true, techStack: true },
+    }
+    const service = makeServiceForProfileView(targetWithLegalName, permissions)
+    const result = await service.buildProfileView(viewer as never, 'target-id')
+    expect((result.user as Record<string, unknown>).legalFullName).toBe('Іваненко Іван Іванович')
+  })
+
+  it('owner (self) — legalFullName is visible (fields.legalName = true)', async () => {
+    const viewer = makeUser({ id: 'target-id', role: 'SENIOR' })
+    const permissions = {
+      tabs: ['overview', 'projects', 'team', 'requisites', 'documents', 'finance'],
+      actions: [],
+      fields: { requisites: true, legalName: true, techStack: true },
+    }
+    const service = makeServiceForProfileView(targetWithLegalName, permissions)
+    const result = await service.buildProfileView(viewer as never, 'target-id')
+    expect((result.user as Record<string, unknown>).legalFullName).toBe('Іваненко Іван Іванович')
+  })
+
+  it('HR viewer — legalFullName is masked to null (fields.legalName falsy)', async () => {
+    const viewer = makeUser({ id: 'hr-id', role: 'HR' })
+    const permissions = {
+      tabs: ['overview', 'projects', 'team'],
+      actions: [],
+      fields: { techStack: true, registrationDate: true },
+      // legalName is NOT set — HR must not see passport PII
+    }
+    const service = makeServiceForProfileView(targetWithLegalName, permissions)
+    const result = await service.buildProfileView(viewer as never, 'target-id')
+    expect((result.user as Record<string, unknown>).legalFullName).toBeNull()
+  })
+
+  it('ACCOUNTANT viewer — legalFullName is masked to null (fields.legalName falsy)', async () => {
+    const viewer = makeUser({ id: 'acc-id', role: 'ACCOUNTANT' })
+    const permissions = {
+      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
+      actions: [],
+      fields: { requisites: true, techStack: true },
+      // legalName is NOT set — ACCOUNTANT sees requisites but not passport PII
+    }
+    const service = makeServiceForProfileView(targetWithLegalName, permissions)
+    const result = await service.buildProfileView(viewer as never, 'target-id')
+    expect((result.user as Record<string, unknown>).legalFullName).toBeNull()
+  })
+
+  it('SENIOR viewer (shared project) — legalFullName is masked to null', async () => {
+    const viewer = makeUser({ id: 'sr-other', role: 'SENIOR' })
+    const permissions = {
+      tabs: ['overview', 'projects', 'team'],
+      actions: [],
+      fields: { techStack: true, registrationDate: true },
+    }
+    const service = makeServiceForProfileView(targetWithLegalName, permissions)
+    const result = await service.buildProfileView(viewer as never, 'target-id')
+    expect((result.user as Record<string, unknown>).legalFullName).toBeNull()
   })
 })

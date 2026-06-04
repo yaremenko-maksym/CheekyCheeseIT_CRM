@@ -53,6 +53,8 @@ export class UsersAccessService {
       fields.registrationDate = !isSelf
       fields.techStack = targetHasTechStack
       fields.requisites = true
+      // legalFullName (passport PII) — ADMIN always sees it (including self)
+      fields.legalName = true
     } else if (isSelf) {
       tabs.push('overview', 'projects', 'team', 'requisites', 'documents')
       // Drop role - phase 1: DROP has finance access (read), same as senior/etc.
@@ -64,6 +66,8 @@ export class UsersAccessService {
       fields.registrationDate = true
       fields.techStack = targetHasTechStack
       fields.requisites = true
+      // legalFullName (passport PII) — owner always sees own legal name
+      fields.legalName = true
     } else if (isAccountant) {
       tabs.push('overview', 'finance', 'projects', 'team', 'requisites', 'documents')
       fields.salary = targetIsSalaryRole

@@ -18,6 +18,7 @@ import { renderContractTemplate, type ContractRenderUserContext } from './contra
 function makeUser(overrides: Partial<ContractRenderUserContext> = {}): ContractRenderUserContext {
   return {
     displayName: 'Test User',
+    legalFullName: null,
     email: 'test@cc.com',
     role: 'SENIOR',
     walletUsdtErc20: '0x1234567890123456789012345678901234567890',
@@ -195,6 +196,77 @@ describe('renderContractTemplate', () => {
         FIXED_DATE,
       )
       expect(body).toBe('не указано')
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // AC1: legalFullName fallback chain (spec §4.3 Option A)
+  // Priority: legalFullName?.trim() → displayName → 'не указано'
+  // ---------------------------------------------------------------------------
+
+  describe('AC1: legalFullName priority chain for {{employeeName}}', () => {
+    it('uses legalFullName when both legalFullName and displayName are present', () => {
+      const { body } = renderContractTemplate(
+        '{{employeeName}}',
+        makeUser({ legalFullName: 'Шевченко Іван Миколайович', displayName: 'Ivan Shevchenko' }),
+        FIXED_DATE,
+      )
+      // legalFullName takes priority over displayName (AC1)
+      expect(body).toBe('Шевченко Іван Миколайович')
+    })
+
+    it('falls back to displayName when legalFullName is null', () => {
+      const { body } = renderContractTemplate(
+        '{{employeeName}}',
+        makeUser({ legalFullName: null, displayName: 'Ivan Shevchenko' }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('Ivan Shevchenko')
+    })
+
+    it('falls back to displayName when legalFullName is empty string', () => {
+      const { body } = renderContractTemplate(
+        '{{employeeName}}',
+        makeUser({ legalFullName: '', displayName: 'Ivan Shevchenko' }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('Ivan Shevchenko')
+    })
+
+    it('falls back to displayName when legalFullName is whitespace-only', () => {
+      const { body } = renderContractTemplate(
+        '{{employeeName}}',
+        makeUser({ legalFullName: '   ', displayName: 'Ivan Shevchenko' }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('Ivan Shevchenko')
+    })
+
+    it('uses "не указано" when both legalFullName and displayName are null', () => {
+      const { body } = renderContractTemplate(
+        '{{employeeName}}',
+        makeUser({ legalFullName: null, displayName: null }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('не указано')
+    })
+
+    it('trims leading/trailing whitespace from legalFullName before using it', () => {
+      const { body } = renderContractTemplate(
+        '{{employeeName}}',
+        makeUser({ legalFullName: '  Коваленко Олена  ', displayName: 'Olena' }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('Коваленко Олена')
+    })
+
+    it('variables snapshot uses legalFullName value for employeeName key', () => {
+      const { variables } = renderContractTemplate(
+        '{{employeeName}}',
+        makeUser({ legalFullName: 'Бойко Петро Іванович', displayName: 'Petro Boiko' }),
+        FIXED_DATE,
+      )
+      expect(variables.employeeName).toBe('Бойко Петро Іванович')
     })
   })
 
