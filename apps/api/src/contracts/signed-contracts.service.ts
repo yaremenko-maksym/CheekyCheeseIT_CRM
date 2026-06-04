@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { desc, eq, sql } from 'drizzle-orm'
-import type { ContractTargetRole, SessionUser } from '@crm/shared'
+import type { ContractTargetRole, InterpolatableVariableKey, SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { signedContracts, type User } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
@@ -90,10 +90,7 @@ export class SignedContractsService {
       ? (methodLabels[user.paymentMethod] ?? user.paymentMethod)
       : 'не указано'
 
-    // Keys here must match CONTRACT_VARIABLE_DESCRIPTIONS in @crm/shared/schemas/contracts.ts
-    // (without `{{}}` delimiters). ContractVariableKey is the authoritative type — update
-    // CONTRACT_VARIABLE_DESCRIPTIONS in shared whenever new variables are added here.
-    const variables: Record<string, string> = {
+    const variables: Record<InterpolatableVariableKey, string> = {
       employeeName: user.displayName ?? 'не указано',
       employeeEmail: user.email ?? 'не указано',
       role: roleLabels[user.role] ?? user.role,
@@ -112,7 +109,9 @@ export class SignedContractsService {
     // also reject the substitution if no key matched (keeps unknown tokens
     // visible to ADMIN auditing template authoring mistakes).
     const body = bodyMarkdown.replace(/\{\{([a-zA-Z0-9_]+)\}\}/g, (match, key: string) => {
-      return Object.prototype.hasOwnProperty.call(variables, key) ? variables[key]! : match
+      return Object.prototype.hasOwnProperty.call(variables, key)
+        ? variables[key as InterpolatableVariableKey]!
+        : match
     })
 
     return { body, variables }

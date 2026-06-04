@@ -99,29 +99,45 @@ export interface ContractTemplateRow {
 }
 
 /**
- * Canonical map of template variable placeholders → human-readable Russian
- * descriptions.
+ * Canonical map of template variable bare-keys → human-readable Russian descriptions.
+ *
+ * Bare-key form (without `{{...}}` delimiters) is the authoritative type source.
+ * Braced form is derived via CONTRACT_VARIABLE_DESCRIPTIONS_BRACED for admin hint
+ * panel display and template authoring UI.
  *
  * This is the single source of truth for variable names used in:
- *   - Backend: SignedContractsService.interpolateVariables() — resolves values
- *   - Frontend: contract-variables.ts — re-exports this map for the admin hint panel
- *
- * Key format: `{{camelCaseKey}}` — must match the regex in interpolateVariables
- * (`/\{\{([a-zA-Z0-9_]+)\}\}/g`).
+ *   - Backend: SignedContractsService.interpolateVariables() — types the variables map
+ *   - Frontend: contract-variables.ts — re-exports braced form for the admin hint panel
  *
  * `contractNumber` is generated server-side (CHK-N-YYYY) and not resolved via
- * interpolateVariables — included here for admin documentation purposes only.
+ * interpolateVariables — included for admin documentation purposes only (see
+ * InterpolatableVariableKey which excludes it).
  */
 export const CONTRACT_VARIABLE_DESCRIPTIONS = {
-  '{{employeeName}}': 'Полное имя сотрудника',
-  '{{employeeEmail}}': 'Email сотрудника',
-  '{{role}}': 'Роль (HR / Синьор / Джун / Дроп / Бухгалтер)',
-  '{{onboardingDate}}': 'Дата подписания контракта',
-  '{{companyName}}': 'Название компании (Cheeky Cheese IT)',
-  '{{walletUsdt}}': 'USDT ERC-20 кошелёк (если указан)',
-  '{{bankUahFop}}': 'Банковские реквизиты UAH (ФОП)',
-  '{{preferredMethod}}': 'Предпочтительный метод оплаты (crypto / fop)',
-  '{{contractNumber}}': 'Номер контракта (генерируется автоматически, CHK-N-YYYY)',
+  employeeName: 'Полное имя сотрудника',
+  employeeEmail: 'Email сотрудника',
+  role: 'Роль (HR / Синьор / Джун / Дроп / Бухгалтер)',
+  onboardingDate: 'Дата подписания контракта',
+  companyName: 'Название компании (Cheeky Cheese IT)',
+  walletUsdt: 'USDT ERC-20 кошелёк (если указан)',
+  bankUahFop: 'Банковские реквизиты UAH (ФОП)',
+  preferredMethod: 'Предпочтительный метод оплаты (crypto / fop)',
+  contractNumber: 'Номер контракта (генерируется автоматически, CHK-N-YYYY)',
 } as const
 
 export type ContractVariableKey = keyof typeof CONTRACT_VARIABLE_DESCRIPTIONS
+
+/**
+ * Variables resolved at sign-time via interpolateVariables.
+ * `contractNumber` is generated server-side (NOT interpolated from user data) — excluded
+ * so the backend variables map is typed without it.
+ */
+export type InterpolatableVariableKey = Exclude<ContractVariableKey, 'contractNumber'>
+
+/**
+ * Derived braced form for admin UI display and template authoring hint panel.
+ * Example: { '{{employeeName}}': 'Полное имя сотрудника', ... }
+ */
+export const CONTRACT_VARIABLE_DESCRIPTIONS_BRACED = Object.fromEntries(
+  Object.entries(CONTRACT_VARIABLE_DESCRIPTIONS).map(([key, desc]) => [`{{${key}}}`, desc]),
+) as Record<`{{${ContractVariableKey}}}`, string>
