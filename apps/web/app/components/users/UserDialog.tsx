@@ -440,6 +440,8 @@ export function UserDialog(props: UserDialogProps) {
       // DROP role — optional Telegram channel of the drop-team (same
       // regex as the SENIOR team telegram channel).
       teamTelegramChannelDrop: '' as string,
+      // Данные для контракта — юридическое ФИО (задаётся ADMIN, используется в MSA)
+      legalFullName: editingUser?.legalFullName ?? '',
     },
     onSubmit: async ({ value }) => {
       const isSenior = value.role === 'SENIOR'
@@ -586,6 +588,10 @@ export function UserDialog(props: UserDialogProps) {
             value.projectId && {
               projectId: value.projectId,
             }),
+          // Contract data — legal full name for MSA contract (optional at create time).
+          ...(value.legalFullName.trim() && {
+            legalFullName: value.legalFullName.trim(),
+          }),
         }
         const result = createUserSchema.safeParse(payload)
         if (!result.success) {
@@ -641,6 +647,11 @@ export function UserDialog(props: UserDialogProps) {
           ...(!isSenior && {
             monthlySalary: value.monthlySalary ? computeMonthlySalaryUsd() : null,
             salaryCurrency: 'USD',
+          }),
+          // Contract data — legal full name for MSA contract. Empty string → omit
+          // (backend treats absence as "no change").
+          ...(value.legalFullName.trim() && {
+            legalFullName: value.legalFullName.trim(),
           }),
           // Payment requisites — only include when admin actually changed them.
           // Sending paymentMethod without matching requisite fields would trip
@@ -710,6 +721,7 @@ export function UserDialog(props: UserDialogProps) {
         dropTeamId: '',
         dropSharePercent: editingUser.dropSharePercent ?? 5,
         teamTelegramChannelDrop: '',
+        legalFullName: editingUser.legalFullName ?? '',
       })
     }
   }, [editingUser?.id, isEdit])
@@ -890,6 +902,55 @@ export function UserDialog(props: UserDialogProps) {
                   }}
                 </form.Field>
               </Section>
+
+              {/* ── Section 1.5: Contract data (non-ADMIN only) ─────────── */}
+              <form.Subscribe selector={(s) => s.values.role}>
+                {(role) =>
+                  role !== 'ADMIN' ? (
+                    <Section title="Данные для контракта">
+                      <form.Field
+                        name="legalFullName"
+                        validators={{
+                          onBlur: ({ value, fieldApi }) => {
+                            if (!fieldApi.state.meta.isDirty) return undefined
+                            if (!value.trim()) return undefined
+                            const r = z
+                              .string()
+                              .min(5, 'ФИО минимум 5 символов')
+                              .max(200)
+                              .safeParse(value.trim())
+                            return r.success ? undefined : r.error.issues[0]?.message
+                          },
+                        }}
+                      >
+                        {(field) => {
+                          const showError =
+                            field.state.meta.isTouched && field.state.meta.isDirty
+                          const err = showError ? field.state.meta.errors[0] : undefined
+                          return (
+                            <Field
+                              label="Юридическое ФИО"
+                              error={err}
+                              hint="Используется в MSA-контракте вместо display name. Формат: Фамилия Имя Отчество."
+                            >
+                              <Input
+                                placeholder="Іваненко Іван Іванович"
+                                value={field.state.value}
+                                onChange={(e) => field.handleChange(e.target.value)}
+                                onBlur={field.handleBlur}
+                                className={cn(
+                                  err && 'border-destructive focus-visible:ring-destructive/30',
+                                )}
+                                data-testid="user-dialog-legal-full-name"
+                              />
+                            </Field>
+                          )
+                        }}
+                      </form.Field>
+                    </Section>
+                  ) : null
+                }
+              </form.Subscribe>
 
               {/* ── Section 2: Contacts ─────────────────────────────────── */}
               <Section title="Контакты">
