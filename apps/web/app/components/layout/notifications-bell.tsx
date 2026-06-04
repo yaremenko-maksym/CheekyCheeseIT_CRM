@@ -60,10 +60,22 @@ function fmtRelative(iso: string): string {
 // Component
 // ---------------------------------------------------------------------------
 
-export function NotificationsBell() {
+interface NotificationsBellProps {
+  /**
+   * Gate flag: when false the underlying query is disabled and no network
+   * request is issued. Use `useOnboardingGate().isComplete` to populate this
+   * so the bell stays silent while the user is still in the onboarding wizard
+   * (avoids 403 spam from pre-onboarding API calls).
+   *
+   * Defaults to `true` for backward compatibility.
+   */
+  enabled?: boolean
+}
+
+export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
-  const { data, isLoading } = useNotificationsList({ limit: 10 })
+  const { data, isLoading } = useNotificationsList({ limit: 10, enabled })
   const markRead = useMarkNotificationRead()
   const markAllRead = useMarkAllNotificationsRead()
   const deleteNotification = useDeleteNotification()

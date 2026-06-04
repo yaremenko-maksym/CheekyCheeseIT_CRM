@@ -7,8 +7,10 @@ import { Pool } from 'pg'
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import * as schema from './schema'
 
-export const MAKSYM_ID = '00000000-0000-0000-0000-000000000001'
-export const KOSTYA_ID = '00000000-0000-0000-0000-000000000002'
+// Valid RFC 4122 v4 UUIDs (version nibble = 4, variant = 10xx).
+// Must match migration 0028_admin_uuid_normalize.sql.
+export const MAKSYM_ID = 'a8f4d3b1-c2e5-4a1f-9b3d-8c7e6f5a4b21'
+export const KOSTYA_ID = 'b9e5c4d2-d3f6-4b2e-ac4e-9d8f7a6b5c32'
 
 const SEED_USERS: schema.NewUser[] = [
   {
@@ -21,7 +23,7 @@ const SEED_USERS: schema.NewUser[] = [
     phone: '+380671000001',
     seniorSharePercent: 26,
     paymentMethod: 'USDT_ERC20',
-    walletUsdtErc20: '0x1111111111111111111111111111111111111111',
+    walletUsdtErc20: '0x742d35Cc6634C0532925a3b8D40b34A9F0c0BC54',
     techStack: ['React', 'TypeScript', 'Node.js', 'NestJS', 'PostgreSQL'],
   },
   {
@@ -34,7 +36,7 @@ const SEED_USERS: schema.NewUser[] = [
     phone: '+380671000002',
     seniorSharePercent: 26,
     paymentMethod: 'USDT_ERC20',
-    walletUsdtErc20: '0x2222222222222222222222222222222222222222',
+    walletUsdtErc20: '0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199',
     techStack: ['Vue.js', 'Python', 'Django', 'AWS'],
   },
   {
@@ -46,7 +48,7 @@ const SEED_USERS: schema.NewUser[] = [
     phone: '+380671000003',
     seniorSharePercent: 26,
     paymentMethod: 'USDT_ERC20',
-    walletUsdtErc20: '0x3333333333333333333333333333333333333333',
+    walletUsdtErc20: '0x5B38Da6a701c568545dCfcB03FcB875f56beddC4',
     techStack: ['React', 'TypeScript', 'Node.js', 'Python', 'AWS'],
   },
   {
@@ -58,7 +60,7 @@ const SEED_USERS: schema.NewUser[] = [
     phone: '+380671000004',
     seniorSharePercent: 26,
     paymentMethod: 'USDT_ERC20',
-    walletUsdtErc20: '0x4444444444444444444444444444444444444444',
+    walletUsdtErc20: '0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2',
     techStack: ['Vue.js', 'TypeScript', 'Python', 'PostgreSQL'],
   },
   {

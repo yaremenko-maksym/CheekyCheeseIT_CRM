@@ -1149,8 +1149,8 @@ export const VALID_USDT_WALLET = '0x' + '0'.repeat(40)
  * so the duplication is benign — a CI guard catches drift if the seed ever
  * changes.
  */
-export const MAKSYM_ID = '00000000-0000-0000-0000-000000000001'
-export const KOSTYA_ID = '00000000-0000-0000-0000-000000000002'
+export const MAKSYM_ID = 'a8f4d3b1-c2e5-4a1f-9b3d-8c7e6f5a4b21'
+export const KOSTYA_ID = 'b9e5c4d2-d3f6-4b2e-ac4e-9d8f7a6b5c32'
 
 /**
  * Plant a real JWT cookie for the given email via `/api/auth/dev-login`.

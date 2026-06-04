@@ -25,6 +25,10 @@ import { OnboardingService } from '../onboarding/onboarding.service'
  *   - `/api/tos/current` (rendered in the wizard)
  *   - `/api/tos/accept` (the exit door for ToS)
  *   - `/api/contracts/templates/current/<role>` (rendered in the wizard)
+ *   - `/api/contracts/templates/preview-rendered/` (personalised preview in
+ *      the onboarding wizard — safe to bypass because the endpoint resolves
+ *      the user's data from `req.user.id` (JWT), not from the URL path, so
+ *      there is no IDOR surface)
  *   - `/api/contracts/sign` (the exit door for MSA)
  *
  * ADMIN: bypass entirely.
@@ -40,6 +44,7 @@ export class OnboardingGuard implements CanActivate {
     '/api/tos/current',
     '/api/tos/accept',
     '/api/contracts/templates/current/',
+    '/api/contracts/templates/preview-rendered/',
     '/api/contracts/sign',
   ]
 

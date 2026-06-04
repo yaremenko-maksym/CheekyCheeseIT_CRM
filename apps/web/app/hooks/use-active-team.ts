@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import type { TeamDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
+import { useOnboardingGate } from '@/context/onboarding'
 import { api } from '@/lib/axios'
 
 /**
@@ -26,6 +27,11 @@ export function useActiveTeam(): {
   isLoading: boolean
 } {
   const { user } = useAuth()
+  // Gate: do not call /api/teams while the user is still in the onboarding
+  // wizard — OnboardingGuard would 403 non-ADMIN pre-onboarding callers and
+  // produce console noise. ADMIN always has isComplete=true so the gate is
+  // transparent for them.
+  const { isComplete } = useOnboardingGate()
 
   const { data, isLoading } = useQuery({
     queryKey: ['teams', { archived: 'active' }],
@@ -33,7 +39,7 @@ export function useActiveTeam(): {
       const res = await api.get<TeamDto[]>('/teams')
       return res.data
     },
-    enabled: !!user,
+    enabled: !!user && isComplete,
     staleTime: 60_000,
   })
 

@@ -128,6 +128,17 @@ export const CONTRACT_VARIABLE_DESCRIPTIONS = {
 export type ContractVariableKey = keyof typeof CONTRACT_VARIABLE_DESCRIPTIONS
 
 /**
+ * Response shape for `GET /api/contracts/preview-rendered/:templateId`.
+ * Returns the template body with all `{{placeholder}}` tokens substituted
+ * using the calling user's current profile data (preview before signing).
+ */
+export const contractRenderedPreviewSchema = z.object({
+  bodyMarkdown: z.string(),
+})
+
+export type ContractRenderedPreviewDto = z.infer<typeof contractRenderedPreviewSchema>
+
+/**
  * Variables resolved at sign-time via interpolateVariables.
  * `contractNumber` is generated server-side (NOT interpolated from user data) — excluded
  * so the backend variables map is typed without it.

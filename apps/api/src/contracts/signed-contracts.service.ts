@@ -12,6 +12,7 @@ import { signedContracts, type User } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { ContractTemplatesService } from './contract-templates.service'
 import type { GenerateContractPdfParams } from './contract-pdf.service'
+import { renderContractTemplate, type ContractRenderUserContext } from './contract-rendering'
 
 /**
  * Onboarding Phase 6A — sign mechanism + immutable audit trail.
@@ -36,86 +37,19 @@ export class SignedContractsService {
   ) {}
 
   /**
-   * Pure helper — substitutes `{{placeholder}}` tokens with values resolved
-   * from the `users` row. Missing payment requisites collapse to the literal
-   * Russian string `'не указано'`. Returns both the rendered body and the
-   * variables map (snapshotted into `signed_contracts.variables_filled`).
+   * Backward-compatible static wrapper around `renderContractTemplate`.
    *
-   * Translated role labels: HR / Senior / Junior / Drop / Accountant.
-   *
-   * Payment-method label: `'USDT (ERC-20)'` / `'ФОП (UAH)'` / `'не указано'`.
-   *
-   * `signedAt` is formatted as ISO date (YYYY-MM-DD, UTC).
+   * Kept as a static method so existing unit tests that reference
+   * `SignedContractsService.interpolateVariables(...)` continue to work
+   * without changes. Internally delegates to the shared helper in
+   * `contract-rendering.ts` (single source of truth for substitution logic).
    */
   static interpolateVariables(
     bodyMarkdown: string,
-    user: Pick<
-      User,
-      | 'displayName'
-      | 'email'
-      | 'role'
-      | 'walletUsdtErc20'
-      | 'walletUsdtLabel'
-      | 'bankUahRecipient'
-      | 'bankUahIban'
-      | 'bankUahRnokpp'
-      | 'bankUahBankName'
-      | 'paymentMethod'
-    >,
+    user: ContractRenderUserContext,
     signedAt: Date,
-  ) {
-    const roleLabels: Record<string, string> = {
-      HR: 'HR',
-      SENIOR: 'Senior',
-      JUNIOR: 'Junior',
-      DROP: 'Drop',
-      ACCOUNTANT: 'Accountant',
-      ADMIN: 'Admin',
-    }
-    const methodLabels: Record<string, string> = {
-      USDT_ERC20: 'USDT (ERC-20)',
-      BANK_UAH_FOP: 'ФОП (UAH)',
-    }
-
-    const walletUsdt = user.walletUsdtErc20?.trim() || 'не указано'
-
-    const fopParts = [
-      user.bankUahRecipient,
-      user.bankUahIban,
-      user.bankUahRnokpp,
-      user.bankUahBankName,
-    ].filter((p): p is string => Boolean(p && p.trim()))
-    const bankUahFop = fopParts.length > 0 ? fopParts.join(', ') : 'не указано'
-
-    const preferredMethod = user.paymentMethod
-      ? (methodLabels[user.paymentMethod] ?? user.paymentMethod)
-      : 'не указано'
-
-    const variables: Record<InterpolatableVariableKey, string> = {
-      employeeName: user.displayName ?? 'не указано',
-      employeeEmail: user.email ?? 'не указано',
-      role: roleLabels[user.role] ?? user.role,
-      onboardingDate: signedAt.toISOString().slice(0, 10),
-      companyName: 'Cheeky Cheese IT',
-      walletUsdt,
-      bankUahFop,
-      preferredMethod,
-    }
-
-    // SECURITY: substitute in a SINGLE pass via one regex so user-controlled
-    // values (e.g. `displayName = '{{walletUsdt}}'`) CANNOT trigger a second
-    // round of substitution. The replacer function looks up each match in
-    // `variables` and emits the literal value — values containing further
-    // `{{...}}` tokens stay as-is in the rendered body. Defense in depth: we
-    // also reject the substitution if no key matched (keeps unknown tokens
-    // visible to ADMIN auditing template authoring mistakes).
-    const body = bodyMarkdown.replace(/\{\{([a-zA-Z0-9_]+)\}\}/g, (match, key: string) => {
-      return Object.prototype.hasOwnProperty.call(variables, key)
-        ? variables[key as InterpolatableVariableKey]!
-        : match
-    })
-
-    return { body, variables }
+  ): { body: string; variables: Record<InterpolatableVariableKey, string> } {
+    return renderContractTemplate(bodyMarkdown, user, signedAt)
   }
 
   async sign({

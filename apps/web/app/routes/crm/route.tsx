@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
 import { AuthProvider } from '@/context/auth'
 import { NotificationsProvider } from '@/context/notifications'
+import { useOnboardingGate } from '@/context/onboarding'
 import { LogOut, Menu, Search, UserCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/auth'
@@ -51,6 +52,9 @@ function CrmLayout() {
     return localStorage.getItem('sidebar-collapsed') === 'true'
   })
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  // Onboarding gate completeness — gates post-onboarding queries in header.
+  const { isComplete: onboardingComplete } = useOnboardingGate()
 
   // Onboarding gate: fetch status after user is authenticated
   const { data: onboardingStatus } = useQuery<OnboardingStatusDto>({
@@ -204,7 +208,7 @@ function CrmLayout() {
               <Search className="h-4 w-4" />
             </Button>
 
-            <NotificationsBell />
+            <NotificationsBell enabled={onboardingComplete} />
 
             <DropdownMenu>
               {/* `asChild` forwards the trigger's ref and onClick into the
@@ -222,7 +226,11 @@ function CrmLayout() {
                   className="ml-1 inline-flex cursor-pointer items-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 >
                   <UserAvatar
-                    avatarDocumentId={user.avatarDocumentId ?? null}
+                    // Suppress the thumbnail query while onboarding is
+                    // incomplete: /api/documents/:id/thumbnail is blocked by
+                    // OnboardingGuard for pre-onboarding non-ADMIN users and
+                    // would produce a 403 console error.
+                    avatarDocumentId={onboardingComplete ? (user.avatarDocumentId ?? null) : null}
                     avatarUrl={user.avatarUrl}
                     displayName={user.displayName}
                     className="h-8 w-8 [&_[data-slot=avatar-fallback]]:bg-primary/20 [&_[data-slot=avatar-fallback]]:text-xs [&_[data-slot=avatar-fallback]]:text-primary"

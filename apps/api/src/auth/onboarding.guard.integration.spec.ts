@@ -83,6 +83,11 @@ class TestController {
     return { ok: true, scope: 'contracts-sign' }
   }
 
+  @Get('contracts/templates/preview-rendered/:templateId')
+  previewRendered() {
+    return { ok: true, scope: 'preview-rendered' }
+  }
+
   @Get('health')
   @Public()
   health() {
@@ -268,6 +273,36 @@ describe('OnboardingGuard + JwtAuthGuard (integration / real request lifecycle)'
     })
 
     expect(res.statusCode).toBe(401)
+    expect(onboardingServiceMock.getStatus).not.toHaveBeenCalled()
+  })
+
+  it('case 8 (Bug #2 regression): pre-onboarding SENIOR → GET /api/contracts/templates/preview-rendered/:id → 200 (bypass)', async () => {
+    // Regression guard for the bug where preview-rendered was NOT in
+    // bypassPrefixes — OnboardingGuard blocked pre-onboarding non-ADMIN users
+    // with 403, so the onboarding wizard showed raw {{employeeName}} tokens
+    // instead of personalised content.
+    //
+    // The endpoint is safe to bypass: it resolves user data from req.user.id
+    // (JWT), never from the URL path — no IDOR surface.
+    onboardingServiceMock.getStatus.mockResolvedValue({
+      requiresContract: true,
+      requiresTos: false,
+      contractTemplate: null,
+      tosVersion: null,
+      tosUpdateAvailable: false,
+      latestTosVersion: null,
+    })
+
+    const templateId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/contracts/templates/preview-rendered/${templateId}`,
+      cookies: { jwt: signFor(seniorPayload) },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ ok: true, scope: 'preview-rendered' })
+    // Guard must NOT call getStatus — the bypass fires before the auth check.
     expect(onboardingServiceMock.getStatus).not.toHaveBeenCalled()
   })
 })

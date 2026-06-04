@@ -197,6 +197,20 @@
       "when": 1781800000000,
       "tag": "0027_onboarding",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1781900000000,
+      "tag": "0028_admin_uuid_normalize",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1782000000000,
+      "tag": "0029_fix_orphaned_admin_refs",
+      "breakpoints": true
     }
   ]
 }
