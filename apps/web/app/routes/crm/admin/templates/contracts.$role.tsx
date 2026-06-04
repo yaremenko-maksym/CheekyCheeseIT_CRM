@@ -1,12 +1,9 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { api } from '@/lib/axios'
-import { contractTargetRoleSchema } from '@crm/shared'
-import type { ContractTargetRole } from '@crm/shared'
-import { CONTRACT_VARIABLES } from '@/lib/contract-variables'
-import CodeMirror from '@uiw/react-codemirror'
-import { markdown } from '@codemirror/lang-markdown'
+import { contractTargetRoleSchema, CONTRACT_VARIABLE_DESCRIPTIONS } from '@crm/shared'
+import type { ContractTargetRole, ContractTemplateRow } from '@crm/shared'
 import ReactMarkdown from 'react-markdown'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -26,14 +23,21 @@ export const Route = createFileRoute('/crm/admin/templates/contracts/$role')({
   component: ContractEditorPage,
 })
 
-interface ContractTemplateRow {
-  id: string
-  targetRole: ContractTargetRole
-  version: number
-  bodyMarkdown: string
-  isActive: boolean
-  createdAt: string
-}
+// Lazy-load CodeMirror + markdown extension — heavy deps (~500 KB gzip) loaded
+// only when ADMIN navigates to the editor route. React.lazy requires a module
+// with a `.default` export, so we wrap the dynamic import in a thin adapter.
+const CodeMirrorEditor = lazy(async () => {
+  const [{ default: CodeMirror }, { markdown }] = await Promise.all([
+    import('@uiw/react-codemirror'),
+    import('@codemirror/lang-markdown'),
+  ])
+  const mdExtension = markdown()
+  function LazyEditor(props: React.ComponentProps<typeof CodeMirror>) {
+    const extensions = [mdExtension, ...(props.extensions ?? [])]
+    return <CodeMirror {...props} extensions={extensions} />
+  }
+  return { default: LazyEditor }
+})
 
 const ROLE_LABELS: Record<ContractTargetRole, string> = {
   HR: 'HR-менеджер',
@@ -166,7 +170,7 @@ function ContractEditorPage() {
         >
           <p className="mb-2 text-sm font-medium">Доступные переменные</p>
           <div className="grid gap-1 sm:grid-cols-2">
-            {Object.entries(CONTRACT_VARIABLES).map(([variable, description]) => (
+            {Object.entries(CONTRACT_VARIABLE_DESCRIPTIONS).map(([variable, description]) => (
               <div key={variable} className="flex items-start gap-2 text-xs">
                 <code className="shrink-0 rounded bg-primary/10 px-1 py-0.5 font-mono text-primary">
                   {variable}
@@ -186,33 +190,34 @@ function ContractEditorPage() {
             Markdown редактор
           </div>
           <div className="flex-1 overflow-auto">
-            <CodeMirror
-              value={currentBody}
-              onChange={(val) => setBody(val)}
-              extensions={[markdown()]}
-              basicSetup={{
-                lineNumbers: true,
-                highlightActiveLineGutter: true,
-                highlightSpecialChars: true,
-                foldGutter: false,
-                drawSelection: true,
-                dropCursor: true,
-                allowMultipleSelections: false,
-                indentOnInput: false,
-                syntaxHighlighting: true,
-                bracketMatching: false,
-                closeBrackets: false,
-                autocompletion: false,
-                rectangularSelection: false,
-                crosshairCursor: false,
-                highlightActiveLine: true,
-                highlightSelectionMatches: false,
-                closeBracketsKeymap: false,
-                searchKeymap: false,
-              }}
-              style={{ height: '100%', fontSize: '13px' }}
-              data-testid="contract-editor-codemirror"
-            />
+            <Suspense fallback={<Skeleton className="h-72 w-full" />}>
+              <CodeMirrorEditor
+                value={currentBody}
+                onChange={(val) => setBody(val)}
+                basicSetup={{
+                  lineNumbers: true,
+                  highlightActiveLineGutter: true,
+                  highlightSpecialChars: true,
+                  foldGutter: false,
+                  drawSelection: true,
+                  dropCursor: true,
+                  allowMultipleSelections: false,
+                  indentOnInput: false,
+                  syntaxHighlighting: true,
+                  bracketMatching: false,
+                  closeBrackets: false,
+                  autocompletion: false,
+                  rectangularSelection: false,
+                  crosshairCursor: false,
+                  highlightActiveLine: true,
+                  highlightSelectionMatches: false,
+                  closeBracketsKeymap: false,
+                  searchKeymap: false,
+                }}
+                style={{ height: '100%', fontSize: '13px' }}
+                data-testid="contract-editor-codemirror"
+              />
+            </Suspense>
           </div>
         </div>
 

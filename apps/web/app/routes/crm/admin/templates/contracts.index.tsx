@@ -2,7 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/axios'
 import { contractTargetRoleSchema } from '@crm/shared'
-import type { ContractTargetRole } from '@crm/shared'
+import type { ContractTargetRole, ContractTemplateRow } from '@crm/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -13,15 +13,6 @@ import { format } from 'date-fns'
 export const Route = createFileRoute('/crm/admin/templates/contracts/')({
   component: ContractsListPage,
 })
-
-interface ContractTemplateRow {
-  id: string
-  targetRole: ContractTargetRole
-  version: number
-  bodyMarkdown: string
-  isActive: boolean
-  createdAt: string
-}
 
 // All 5 possible roles (ADMIN excluded per spec)
 const ALL_ROLES: ContractTargetRole[] = ['HR', 'SENIOR', 'JUNIOR', 'DROP', 'ACCOUNTANT']
