@@ -19,7 +19,7 @@ async function bootstrap() {
     // In development CSP is disabled for easier debugging (hot-reload, devtools).
     // In production an explicit policy is applied:
     //   script-src 'self'          — no inline scripts, no CDN
-    //   frame-src 'none'           — no embedding in iframes
+    //   frame-src 'self' blob:     — allow blob: for PDF viewer iframe
     //   img-src 'self' data:       — allow inline data: images (avatars, logos)
     //   font-src 'self'            — self-hosted fonts only
     //   connect-src 'self'         — XHR/fetch to same origin only
@@ -32,8 +32,8 @@ async function bootstrap() {
             imgSrc: ["'self'", 'data:', 'https://api.dicebear.com', 'https:'],
             fontSrc: ["'self'", 'data:'],
             connectSrc: ["'self'"],
-            frameSrc: ["'none'"],
-            objectSrc: ["'none'"],
+            frameSrc: ["'self'", 'blob:'],
+            objectSrc: ["'self'", 'blob:'],
             baseUri: ["'self'"],
             frameAncestors: ["'none'"], // clickjacking defense (#100 MED-1)
             formAction: ["'self'"], // restrict form submissions to same origin (#100 LOW-1)

@@ -539,16 +539,22 @@ test.describe('Team page', () => {
     })
 
     test('search filters teams by name', async ({ asAdmin: page }) => {
+      // Fetch first team name dynamically so the test survives seed changes
+      const apiResponse = await page.request.get('/api/teams')
+      const teams = (await apiResponse.json()) as Array<{ name: string }>
+      const firstTeamName = teams[0].name
+      const searchPrefix = firstTeamName.substring(0, 5)
+
       await page.goto('/crm/team')
-      await expect(page.getByText('Alpha Team')).toBeVisible()
+      await expect(page.getByText(firstTeamName)).toBeVisible()
 
       // Search for non-existent team
       await page.getByPlaceholder('Поиск по названию…').fill('NonExistent')
       await expect(page.getByText('Ничего не найдено')).toBeVisible()
 
-      // Search for existing team
-      await page.getByPlaceholder('Поиск по названию…').fill('Alpha')
-      await expect(page.getByText('Alpha Team')).toBeVisible()
+      // Search for existing team by prefix
+      await page.getByPlaceholder('Поиск по названию…').fill(searchPrefix)
+      await expect(page.getByText(firstTeamName)).toBeVisible()
     })
 
     test.skip('role filter was removed from toolbar (PR #18)', async ({ asAdmin: page }) => {

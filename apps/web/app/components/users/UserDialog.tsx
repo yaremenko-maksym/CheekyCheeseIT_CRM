@@ -924,8 +924,7 @@ export function UserDialog(props: UserDialogProps) {
                         }}
                       >
                         {(field) => {
-                          const showError =
-                            field.state.meta.isTouched && field.state.meta.isDirty
+                          const showError = field.state.meta.isTouched && field.state.meta.isDirty
                           const err = showError ? field.state.meta.errors[0] : undefined
                           return (
                             <Field

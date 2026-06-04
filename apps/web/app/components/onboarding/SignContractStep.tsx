@@ -8,11 +8,7 @@ import { api } from '@/lib/axios'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 /** Derives 1–2 uppercase initials from a display/legal name. */
@@ -200,8 +196,8 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
 
       {/* Info alert */}
       <p className="rounded-md border border-border bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
-        Данные в контракте: имя, email, реквизиты — задаются администратором. При ошибке
-        обратитесь к ADMIN.
+        Данные в контракте: имя, email, реквизиты — задаются администратором. При ошибке обратитесь
+        к ADMIN.
       </p>
 
       {/* Checkbox — h-6 w-6 per WCAG SC 2.5.8 (24×24px target) */}
@@ -229,8 +225,8 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
           data-testid="legal-name-missing-alert"
         >
           <AlertTriangle className="inline h-4 w-4 mr-2" />
-          Юридическое ФИО не заполнено администратором. Подписание контракта невозможно.
-          Обратитесь к ADMIN.
+          Юридическое ФИО не заполнено администратором. Подписание контракта невозможно. Обратитесь
+          к ADMIN.
         </div>
       )}
 
@@ -246,9 +242,7 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
         </Avatar>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium leading-none">{displayName || '—'}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Подпись — юридическое ФИО из профиля
-          </p>
+          <p className="mt-1 text-xs text-muted-foreground">Подпись — юридическое ФИО из профиля</p>
         </div>
       </div>
 

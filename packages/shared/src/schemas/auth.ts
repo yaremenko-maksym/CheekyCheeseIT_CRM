@@ -8,10 +8,9 @@ export const googleCallbackSchema = z.object({
 })
 
 export const sessionUserSchema = z.object({
-  id: z.string().regex(
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-    'Invalid UUID',
-  ),
+  id: z
+    .string()
+    .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, 'Invalid UUID'),
   email: z.string().email(),
   displayName: z.string(),
   /** Google / dicebear fallback URL. Renamed from `avatar` in migration 0013. */
