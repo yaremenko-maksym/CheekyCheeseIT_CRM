@@ -58,8 +58,10 @@ export const auditTrailResponseSchema = z.object({
 
 export const auditAllQuerySchema = z.object({
   userId: z.string().uuid().optional(),
-  from: z.string().optional(), // ISO date string
-  to: z.string().optional(), // ISO date string
+  // Strict ISO 8601 datetime validation — rejects garbage strings (DoS defense).
+  // offset: true allows timezone-qualified strings (e.g. 2026-06-04T07:00:00Z or +02:00).
+  from: z.string().datetime({ offset: true }).optional(),
+  to: z.string().datetime({ offset: true }).optional(),
   type: z.enum(['contract', 'tos']).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
