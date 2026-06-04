@@ -989,12 +989,13 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
 
   // Compliance audit trail (Phase 6 polish PR3)
   // GET /me/audit-trail — self-service data portability endpoint
+  // NOTE: ids must be valid UUIDs — auditTrailResponseSchema uses z.string().uuid()
   await page.route(`${API}/me/audit-trail`, (r) =>
     jsonOk(r, {
       signedContracts: [
         {
           type: 'contract',
-          id: 'sc-mock-1',
+          id: 'a0000000-0000-4000-8000-000000000101',
           contractNumber: 'CHK-1-2026',
           signedAt: '2026-01-15T10:00:00.000Z',
           signedTypedName: user.displayName,
@@ -1007,7 +1008,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
       tosAcceptances: [
         {
           type: 'tos',
-          id: 'ta-mock-1',
+          id: 'a0000000-0000-4000-8000-000000000102',
           acceptedAt: '2026-01-10T08:00:00.000Z',
           acceptedIp: '10.0.0.1',
           tosVersion: 1,
@@ -1017,12 +1018,13 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
     }),
   )
   // GET /audit/all — ACCOUNTANT + ADMIN compliance view
+  // NOTE: ids must be valid UUIDs — auditAllResponseSchema uses z.string().uuid()
   await page.route(new RegExp(`${API}/audit/all(\\?.*)?$`), (r) =>
     jsonOk(r, {
       items: [
         {
           type: 'contract',
-          id: 'sc-mock-1',
+          id: 'a0000000-0000-4000-8000-000000000101',
           contractNumber: 'CHK-1-2026',
           signedAt: '2026-01-15T10:00:00.000Z',
           signedTypedName: 'Senior Dev',
@@ -1033,7 +1035,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
         },
         {
           type: 'tos',
-          id: 'ta-mock-1',
+          id: 'a0000000-0000-4000-8000-000000000102',
           acceptedAt: '2026-01-10T08:00:00.000Z',
           acceptedIp: '10.0.0.1',
           tosVersion: 1,
