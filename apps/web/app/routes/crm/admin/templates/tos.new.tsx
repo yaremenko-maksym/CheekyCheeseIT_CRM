@@ -1,12 +1,24 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { api } from '@/lib/axios'
-import CodeMirror from '@uiw/react-codemirror'
-import { markdown } from '@codemirror/lang-markdown'
 import ReactMarkdown from 'react-markdown'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+
+// Lazy-load CodeMirror + markdown extension — only ADMIN reaches this route.
+const CodeMirrorEditor = lazy(async () => {
+  const [{ default: CodeMirror }, { markdown }] = await Promise.all([
+    import('@uiw/react-codemirror'),
+    import('@codemirror/lang-markdown'),
+  ])
+  const mdExtension = markdown()
+  function LazyEditor(props: React.ComponentProps<typeof CodeMirror>) {
+    const extensions = [mdExtension, ...(props.extensions ?? [])]
+    return <CodeMirror {...props} extensions={extensions} />
+  }
+  return { default: LazyEditor }
+})
 import {
   Dialog,
   DialogContent,
@@ -120,24 +132,25 @@ function TosNewPage() {
             Markdown редактор
           </div>
           <div className="flex-1 overflow-auto">
-            <CodeMirror
-              value={currentBody}
-              onChange={(val) => setBody(val)}
-              extensions={[markdown()]}
-              basicSetup={{
-                lineNumbers: true,
-                highlightActiveLineGutter: true,
-                foldGutter: false,
-                drawSelection: true,
-                syntaxHighlighting: true,
-                bracketMatching: false,
-                closeBrackets: false,
-                autocompletion: false,
-                searchKeymap: false,
-              }}
-              style={{ height: '100%', fontSize: '13px' }}
-              data-testid="tos-editor-codemirror"
-            />
+            <Suspense fallback={<Skeleton className="h-72 w-full" />}>
+              <CodeMirrorEditor
+                value={currentBody}
+                onChange={(val) => setBody(val)}
+                basicSetup={{
+                  lineNumbers: true,
+                  highlightActiveLineGutter: true,
+                  foldGutter: false,
+                  drawSelection: true,
+                  syntaxHighlighting: true,
+                  bracketMatching: false,
+                  closeBrackets: false,
+                  autocompletion: false,
+                  searchKeymap: false,
+                }}
+                style={{ height: '100%', fontSize: '13px' }}
+                data-testid="tos-editor-codemirror"
+              />
+            </Suspense>
           </div>
         </div>
 

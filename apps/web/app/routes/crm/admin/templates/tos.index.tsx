@@ -1,16 +1,28 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/axios'
-import CodeMirror from '@uiw/react-codemirror'
-import { markdown } from '@codemirror/lang-markdown'
 import ReactMarkdown from 'react-markdown'
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
 import { format } from 'date-fns'
 import { Plus, Clock } from 'lucide-react'
+
+// Lazy-load CodeMirror + markdown extension — only ADMIN reaches this route.
+const CodeMirrorViewer = lazy(async () => {
+  const [{ default: CodeMirror }, { markdown }] = await Promise.all([
+    import('@uiw/react-codemirror'),
+    import('@codemirror/lang-markdown'),
+  ])
+  const mdExtension = markdown()
+  function LazyViewer(props: React.ComponentProps<typeof CodeMirror>) {
+    const extensions = [mdExtension, ...(props.extensions ?? [])]
+    return <CodeMirror {...props} extensions={extensions} />
+  }
+  return { default: LazyViewer }
+})
 
 export const Route = createFileRoute('/crm/admin/templates/tos/')({
   component: TosEditorPage,
@@ -115,23 +127,24 @@ function TosEditorPage() {
                 </span>
               </div>
               <div className="flex-1 overflow-auto opacity-70 pointer-events-none">
-                <CodeMirror
-                  value={displayedVersion.bodyMarkdown}
-                  extensions={[markdown()]}
-                  editable={false}
-                  basicSetup={{
-                    lineNumbers: true,
-                    highlightActiveLineGutter: false,
-                    foldGutter: false,
-                    drawSelection: false,
-                    syntaxHighlighting: true,
-                    bracketMatching: false,
-                    closeBrackets: false,
-                    autocompletion: false,
-                    searchKeymap: false,
-                  }}
-                  style={{ height: '100%', fontSize: '13px' }}
-                />
+                <Suspense fallback={<Skeleton className="h-72 w-full" />}>
+                  <CodeMirrorViewer
+                    value={displayedVersion.bodyMarkdown}
+                    editable={false}
+                    basicSetup={{
+                      lineNumbers: true,
+                      highlightActiveLineGutter: false,
+                      foldGutter: false,
+                      drawSelection: false,
+                      syntaxHighlighting: true,
+                      bracketMatching: false,
+                      closeBrackets: false,
+                      autocompletion: false,
+                      searchKeymap: false,
+                    }}
+                    style={{ height: '100%', fontSize: '13px' }}
+                  />
+                </Suspense>
               </div>
             </div>
 
