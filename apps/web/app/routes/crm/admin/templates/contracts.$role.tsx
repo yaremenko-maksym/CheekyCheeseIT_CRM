@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { api } from '@/lib/axios'
-import { contractTargetRoleSchema, CONTRACT_VARIABLE_DESCRIPTIONS } from '@crm/shared'
+import { contractTargetRoleSchema, CONTRACT_VARIABLE_DESCRIPTIONS_BRACED } from '@crm/shared'
 import type { ContractTargetRole, ContractTemplateRow } from '@crm/shared'
 import ReactMarkdown from 'react-markdown'
 import { Button } from '@/components/ui/button'
@@ -170,14 +170,16 @@ function ContractEditorPage() {
         >
           <p className="mb-2 text-sm font-medium">Доступные переменные</p>
           <div className="grid gap-1 sm:grid-cols-2">
-            {Object.entries(CONTRACT_VARIABLE_DESCRIPTIONS).map(([variable, description]) => (
-              <div key={variable} className="flex items-start gap-2 text-xs">
-                <code className="shrink-0 rounded bg-primary/10 px-1 py-0.5 font-mono text-primary">
-                  {variable}
-                </code>
-                <span className="text-muted-foreground">{description}</span>
-              </div>
-            ))}
+            {Object.entries(CONTRACT_VARIABLE_DESCRIPTIONS_BRACED).map(
+              ([variable, description]) => (
+                <div key={variable} className="flex items-start gap-2 text-xs">
+                  <code className="shrink-0 rounded bg-primary/10 px-1 py-0.5 font-mono text-primary">
+                    {variable}
+                  </code>
+                  <span className="text-muted-foreground">{description}</span>
+                </div>
+              ),
+            )}
           </div>
         </div>
       )}
