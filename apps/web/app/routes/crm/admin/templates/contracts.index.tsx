@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Pencil, FileText } from 'lucide-react'
 import { format } from 'date-fns'
 
-export const Route = createFileRoute('/crm/admin/templates/contracts')({
+export const Route = createFileRoute('/crm/admin/templates/contracts/')({
   component: ContractsListPage,
 })
 

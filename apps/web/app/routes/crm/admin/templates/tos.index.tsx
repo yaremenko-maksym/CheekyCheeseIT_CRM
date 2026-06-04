@@ -12,7 +12,7 @@ import { Separator } from '@/components/ui/separator'
 import { format } from 'date-fns'
 import { Plus, Clock } from 'lucide-react'
 
-export const Route = createFileRoute('/crm/admin/templates/tos')({
+export const Route = createFileRoute('/crm/admin/templates/tos/')({
   component: TosEditorPage,
 })
 
