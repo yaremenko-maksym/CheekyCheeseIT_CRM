@@ -233,11 +233,10 @@ export class SignedContractsService {
    *
    * Reuses `findById` for the RBAC check (owner | ADMIN | ACCOUNTANT) — a
    * non-authorised caller gets the same Forbidden/NotFound as the JSON read.
-   * Only the last IP octet is exposed (privacy: full IP stays in the DB).
+   * Only the trailing IP segment is exposed (privacy: full IP stays in the DB).
    */
   async getPdfData(id: string, requester: SessionUser): Promise<GenerateContractPdfParams> {
     const row = await this.findById(id, requester)
-    const lastOctet = row.signedIp ? (row.signedIp.split('.').pop() ?? null) : null
     const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000'
 
     return {
@@ -245,8 +244,31 @@ export class SignedContractsService {
       bodyMarkdown: row.bodyMarkdownSnapshot,
       signedTypedName: row.signedTypedName,
       signedAt: new Date(row.signedAt),
-      signedIpLastOctet: lastOctet,
+      signedIpLastOctet: row.signedIp ? ipTrailingSegment(row.signedIp) : null,
       verifyUrl: `${frontendUrl}/contract/v/${row.id}`,
     }
   }
+}
+
+/**
+ * Privacy-preserving trailing segment of an IP address for display.
+ *
+ * IPv4 `192.168.1.42` → `42` (last octet). IPv6 `2001:db8::1` → `1`
+ * (last hextet). IPv4-mapped IPv6 `::ffff:192.168.1.42` is unwrapped to its
+ * IPv4 form first. Never returns the full address — `split('.')` alone would
+ * leak a whole pure-IPv6 address (no dots to split on).
+ */
+export function ipTrailingSegment(ip: string): string {
+  const unwrapped = ip.replace(/^::ffff:/i, '')
+  // IPv4 (or unwrapped IPv4-mapped): split on dots.
+  if (unwrapped.includes('.') && !unwrapped.includes(':')) {
+    return unwrapped.split('.').pop() ?? unwrapped
+  }
+  // Pure IPv6: last non-empty hextet.
+  return (
+    unwrapped
+      .split(':')
+      .filter((seg) => seg.length > 0)
+      .pop() ?? unwrapped
+  )
 }
