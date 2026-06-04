@@ -13,19 +13,28 @@
  *     `INVOICE_SIGN_REQUIRED` / `INVOICE_SIGNED` emitter calls.
  *   - AuthModule is forwardRef'd for JwtAuthGuard on the authenticated
  *     controller (verify controller does NOT use the guard).
+ *   - PdfModule (task-polish-7) supplies PdfGenerationService which
+ *     InvoicePdfService injects for shared PDF helpers.
  */
 import { Module, forwardRef } from '@nestjs/common'
 import { AuthModule } from '../auth/auth.module'
 import { DatabaseModule } from '../database/database.module'
 import { DocumentsModule } from '../documents/documents.module'
 import { NotificationsModule } from '../notifications/notifications.module'
+import { PdfModule } from '../common/pdf/pdf.module'
 import { InvoicePdfService } from './invoice-pdf.service'
 import { InvoicesController } from './invoices.controller'
 import { InvoicesService } from './invoices.service'
 import { InvoicesVerifyController } from './invoices-verify.controller'
 
 @Module({
-  imports: [DatabaseModule, forwardRef(() => AuthModule), DocumentsModule, NotificationsModule],
+  imports: [
+    DatabaseModule,
+    forwardRef(() => AuthModule),
+    DocumentsModule,
+    NotificationsModule,
+    PdfModule,
+  ],
   controllers: [InvoicesController, InvoicesVerifyController],
   providers: [InvoicesService, InvoicePdfService],
   exports: [InvoicesService, InvoicePdfService],
