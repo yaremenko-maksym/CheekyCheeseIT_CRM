@@ -171,6 +171,11 @@ export class UsersService {
     bankUahRnokpp?: string | null
     bankUahBankName?: string | null
     /**
+     * Legal full name (Cyrillic, order: Surname First Patronymic).
+     * Used in MSA contract instead of displayName. Optional at creation time.
+     */
+    legalFullName?: string
+    /**
      * Drop role - phase 1: senior-only opt-in. `CREATE_NEW` (default)
      * preserves the legacy auto-team flow. `JOIN_DROP_TEAM` skips auto-team
      * and attaches the new senior to an existing drop-team.
@@ -218,6 +223,7 @@ export class UsersService {
       insertValues.seniorSharePercent = data.seniorSharePercent
     if (data.monthlySalary != null) insertValues.monthlySalary = String(data.monthlySalary)
     if (data.salaryCurrency) insertValues.salaryCurrency = data.salaryCurrency
+    if (data.legalFullName?.trim()) insertValues.legalFullName = data.legalFullName.trim()
 
     // Payment requisites — only persist the fields matching the selected method.
     if (data.paymentMethod) {
@@ -309,6 +315,11 @@ export class UsersService {
       hrIds?: string[] | undefined
       accountantId?: string | null | undefined
       teamTelegramChannel?: string | null | undefined
+      /**
+       * Legal full name (Cyrillic, order: Surname First Patronymic).
+       * Used in MSA contract instead of displayName. Optional in admin update.
+       */
+      legalFullName?: string | undefined
     },
     actorId: string | null = null,
   ): Promise<User> {
@@ -364,6 +375,7 @@ export class UsersService {
       bankUahIban: string | null
       bankUahRnokpp: string | null
       bankUahBankName: string | null
+      legalFullName: string | null
       updatedAt: Date
     }> = { updatedAt: new Date() }
 
@@ -385,6 +397,8 @@ export class UsersService {
     if ('monthlySalary' in data)
       set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
     if (data.salaryCurrency !== undefined) set.salaryCurrency = data.salaryCurrency
+    if (data.legalFullName !== undefined)
+      set.legalFullName = data.legalFullName.trim() || null
 
     // Payment requisites — switching method clears the other branch's fields.
     if (data.paymentMethod !== undefined) {

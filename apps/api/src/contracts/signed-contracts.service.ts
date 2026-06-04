@@ -55,12 +55,13 @@ export class SignedContractsService {
   async sign({
     userId,
     userRole,
-    typedName,
+    typedName: _typedName,
     ip,
     userAgent,
   }: {
     userId: string
     userRole: SessionUser['role']
+    /** @deprecated Ignored — resolved server-side from legalFullName (spec §4.3 Option A). */
     typedName: string
     ip: string | null
     userAgent: string | null
@@ -124,6 +125,11 @@ export class SignedContractsService {
         throw new InternalServerErrorException('Failed to allocate contract_number from sequence')
       }
 
+      // Option A (spec §4.3): resolve signedTypedName server-side from legal name.
+      // The audit trail stores the name that was in the profile at signing time.
+      // typedName from the client body is ignored (kept optional in signContractSchema).
+      const resolvedTypedName = user.legalFullName?.trim() || user.displayName || ''
+
       const [inserted] = await tx
         .insert(signedContracts)
         .values({
@@ -131,7 +137,7 @@ export class SignedContractsService {
           templateId: template.id,
           bodyMarkdownSnapshot: body,
           variablesFilled: variables,
-          signedTypedName: typedName,
+          signedTypedName: resolvedTypedName,
           signedIp: ip,
           signedUserAgent: userAgent,
           signedAt,

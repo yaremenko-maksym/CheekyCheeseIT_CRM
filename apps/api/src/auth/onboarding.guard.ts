@@ -46,6 +46,11 @@ export class OnboardingGuard implements CanActivate {
     '/api/contracts/templates/current/',
     '/api/contracts/templates/preview-rendered/',
     '/api/contracts/sign',
+    // CRITICAL: preview-pdf must be bypass-listed so un-onboarded users can
+    // view the contract before signing it. Without this, OnboardingGuard returns
+    // 403 to anyone who hasn't completed onboarding yet — defeating the purpose
+    // of the preview step. Lesson from memory/feedback_mocked_e2e_guards.md.
+    '/api/contracts/preview-pdf',
   ]
 
   constructor(

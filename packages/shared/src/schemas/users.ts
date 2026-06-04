@@ -38,12 +38,16 @@ export const userProfileSchema = z.object({
    * Default 5. Nullable for non-DROP roles (column is nullable in DB).
    */
   dropSharePercent: z.number().int().min(0).max(100).nullable(),
+  /**
+   * Legal full name (Cyrillic, order: Surname First Patronymic).
+   * Set by ADMIN at user creation / edit. Used in MSA contract interpolation
+   * instead of displayName. Nullable (not set for users created before this field).
+   */
+  legalFullName: z.string().nullable().optional(),
   monthlySalary: z.string().nullable(),
   salaryCurrency: currencyEnumSchema.default('USD'),
   archivedAt: z.coerce.date().nullable(),
   adminNote: z.string().nullable(),
-  /** Юр. ФИО (кириллица). Задаётся ADMIN, используется в контракте. NULL допустим. */
-  legalFullName: z.string().nullable().optional(),
   createdAt: z.coerce.date(),
 })
 
@@ -143,6 +147,12 @@ export const createUserSchema = z
     bankUahIban: bankUahIbanField.optional(),
     bankUahRnokpp: bankUahRnokppField.optional(),
     bankUahBankName: z.string().nullable().optional(),
+    /**
+     * Legal full name (Cyrillic, order: Surname First Patronymic). Optional at
+     * creation time — ADMIN may set it later via adminUpdateUser. When set,
+     * used in MSA contract instead of displayName.
+     */
+    legalFullName: z.string().min(5, 'ФИО минимум 5 символов').max(200).optional(),
     /**
      * Senior-only: select between creating a fresh senior-team (default
      * `CREATE_NEW`) and joining an existing drop-team (`JOIN_DROP_TEAM`).
@@ -290,6 +300,12 @@ export const adminUpdateUserSchema = z
       .regex(/^@?[a-zA-Z0-9_]{5,32}$/, 'Некорректный канал (5–32 латинских символов или _, опц. @)')
       .nullable()
       .optional(),
+    /**
+     * Legal full name (Cyrillic, order: Surname First Patronymic). Optional in
+     * admin update — set when ADMIN knows the legal name. When set, used in MSA
+     * contract interpolation instead of displayName.
+     */
+    legalFullName: z.string().min(5, 'ФИО минимум 5 символов').max(200).optional(),
   })
   .superRefine(refineRequisitePresence)
 

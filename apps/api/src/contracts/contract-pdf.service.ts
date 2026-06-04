@@ -33,6 +33,15 @@ export interface GenerateContractPdfParams {
   signedIpLastOctet: string | null
   /** Public verify URL — encoded into the QR code. */
   verifyUrl: string
+  /**
+   * Preview / unsigned mode (PD-3 decision).
+   * When true:
+   *   - Signature block renders «Требует подписи участника» instead of name/date/IP.
+   *   - QR code and verifyUrl footer are NOT rendered.
+   *   - contractNumber renders as «—» (draft placeholder).
+   * The body content, branding header, and layout are identical to the signed version.
+   */
+  isPreview?: boolean
 }
 
 export interface GenerateContractPdfResult {
@@ -92,7 +101,9 @@ export class ContractPdfService {
       color: textColor,
     })
     cursor.y -= 24
-    this.pdfGen.drawText(cursor.page, `Контракт № ${params.contractNumber}`, {
+    // In preview mode: show draft placeholder for contractNumber.
+    const displayContractNumber = params.isPreview ? '—' : params.contractNumber
+    this.pdfGen.drawText(cursor.page, `Контракт № ${displayContractNumber}`, {
       x: pageMargin,
       y: cursor.y,
       font: regularFont,
@@ -100,13 +111,16 @@ export class ContractPdfService {
       color: mutedColor,
     })
     cursor.y -= 14
-    this.pdfGen.drawText(cursor.page, `Подписан: ${formatDateRu(params.signedAt)}`, {
-      x: pageMargin,
-      y: cursor.y,
-      font: regularFont,
-      size: BODY_SIZE,
-      color: mutedColor,
-    })
+    // In preview mode: omit "Подписан" date line (document is unsigned).
+    if (!params.isPreview) {
+      this.pdfGen.drawText(cursor.page, `Подписан: ${formatDateRu(params.signedAt)}`, {
+        x: pageMargin,
+        y: cursor.y,
+        font: regularFont,
+        size: BODY_SIZE,
+        color: mutedColor,
+      })
+    }
     cursor.y -= 10
     cursor.y = this.pdfGen.drawSeparator(
       cursor.page,
@@ -208,39 +222,56 @@ export class ContractPdfService {
       color: textColor,
     })
     cursor.y -= 16
-    this.pdfGen.drawText(cursor.page, params.signedTypedName, {
-      x: pageMargin,
-      y: cursor.y,
-      font: regularFont,
-      size: BODY_SIZE,
-      color: textColor,
-    })
-    cursor.y -= 14
-    const ipSuffix = params.signedIpLastOctet ? ` · IP …${params.signedIpLastOctet}` : ''
-    this.pdfGen.drawText(cursor.page, `${formatDateRu(params.signedAt)}${ipSuffix}`, {
-      x: pageMargin,
-      y: cursor.y,
-      font: regularFont,
-      size: 9,
-      color: mutedColor,
-    })
 
-    // ---- QR + footer (on the final page) ------------------------------
-    const qrImage = await this.pdfGen.embedQrPng(pdfDoc, params.verifyUrl)
-    const finalPage = cursor.page
-    finalPage.drawImage(qrImage, {
-      x: rightEdge - PDF_LAYOUT.qrSize,
-      y: pageMargin,
-      width: PDF_LAYOUT.qrSize,
-      height: PDF_LAYOUT.qrSize,
-    })
-    this.pdfGen.drawText(finalPage, `Проверка: ${params.verifyUrl}`, {
-      x: pageMargin,
-      y: pageMargin + 8,
-      font: regularFont,
-      size: 8,
-      color: footerColor,
-    })
+    if (params.isPreview) {
+      // PD-3: unsigned preview mode — show placeholder instead of real signer info.
+      // No name, no date, no IP — the document has not been signed yet.
+      this.pdfGen.drawText(cursor.page, 'Требует подписи участника', {
+        x: pageMargin,
+        y: cursor.y,
+        font: regularFont,
+        size: BODY_SIZE,
+        color: mutedColor,
+      })
+    } else {
+      // Signed mode — show resolved name, date, and trailing IP segment.
+      this.pdfGen.drawText(cursor.page, params.signedTypedName, {
+        x: pageMargin,
+        y: cursor.y,
+        font: regularFont,
+        size: BODY_SIZE,
+        color: textColor,
+      })
+      cursor.y -= 14
+      const ipSuffix = params.signedIpLastOctet ? ` · IP …${params.signedIpLastOctet}` : ''
+      this.pdfGen.drawText(cursor.page, `${formatDateRu(params.signedAt)}${ipSuffix}`, {
+        x: pageMargin,
+        y: cursor.y,
+        font: regularFont,
+        size: 9,
+        color: mutedColor,
+      })
+    }
+
+    // ---- QR + footer (on the final page) — only for signed contracts --
+    // In preview mode: omit QR and verifyUrl footer per PD-3 decision.
+    if (!params.isPreview) {
+      const qrImage = await this.pdfGen.embedQrPng(pdfDoc, params.verifyUrl)
+      const finalPage = cursor.page
+      finalPage.drawImage(qrImage, {
+        x: rightEdge - PDF_LAYOUT.qrSize,
+        y: pageMargin,
+        width: PDF_LAYOUT.qrSize,
+        height: PDF_LAYOUT.qrSize,
+      })
+      this.pdfGen.drawText(finalPage, `Проверка: ${params.verifyUrl}`, {
+        x: pageMargin,
+        y: pageMargin + 8,
+        font: regularFont,
+        size: 8,
+        color: footerColor,
+      })
+    }
 
     // ---- Deterministic save -------------------------------------------
     this.pdfGen.applyDeterministicMetadata(pdfDoc, params.signedAt)
