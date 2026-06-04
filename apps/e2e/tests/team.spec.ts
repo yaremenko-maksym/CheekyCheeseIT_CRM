@@ -539,11 +539,11 @@ test.describe('Team page', () => {
     })
 
     test('search filters teams by name', async ({ asAdmin: page }) => {
-      // Fetch first team name dynamically so the test survives seed changes
-      const apiResponse = await page.request.get('/api/teams')
-      const teams = (await apiResponse.json()) as Array<{ name: string }>
-      const firstTeamName = teams[0].name
-      const searchPrefix = firstTeamName.substring(0, 5)
+      // 'Alpha Team' — имя из fixtures.ts (TEAMS[0]), тест работает с моком,
+      // не с реальным seed. Hardcoded т.к. dynamic подход не работает с
+      // playwright fixtures (auth chain не установлена до page.goto).
+      const firstTeamName = 'Alpha Team'
+      const searchPrefix = 'Alpha'
 
       await page.goto('/crm/team')
       await expect(page.getByText(firstTeamName)).toBeVisible()

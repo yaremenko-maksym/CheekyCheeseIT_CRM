@@ -116,6 +116,7 @@ const url = URL.createObjectURL(res.data)
 ```
 
 **Pros:**
+
 - Нативный PDF-рендер браузера — нет доп. зависимостей.
 - Полный контроль скролла, zoom, print (пользователь видит именно документ).
 - URL освобождается через `revokeObjectURL` при unmount.
@@ -123,6 +124,7 @@ const url = URL.createObjectURL(res.data)
 - CSP-безопасно: blob: URL не нарушает политику `frame-src 'self'`.
 
 **Cons:**
+
 - На мобильных (iOS Safari) iframe с PDF иногда не встраивается, показывает download-кнопку.
   Fix: детект iOS → fallback к варианту C.
 - Нет кастомной loading skeleton — iframe показывает пустой прямоугольник пока PDF грузится.
@@ -131,10 +133,12 @@ const url = URL.createObjectURL(res.data)
 #### Вариант B — PDF.js (`pdfjs-dist`)
 
 **Pros:**
+
 - Полный контроль рендера, кастомная UI поверх (page numbers, zoom controls).
 - Стабильный cross-platform (включая iOS).
 
 **Cons:**
+
 - Зависимость: `pdfjs-dist` ≈ 260 KB gzip. Критически нарушает бюджет 300 KB для App pages.
 - Нужен `workerSrc` config — дополнительная настройка Vite (может конфликтовать с Vite 6 pin).
 - Избыточная сложность для wizard step (one-time read).
@@ -145,18 +149,23 @@ const url = URL.createObjectURL(res.data)
 
 ```tsx
 <object data={blobUrl} type="application/pdf" width="100%" height="480">
-  <p>Браузер не поддерживает встроенный просмотр PDF.
-     <a href={blobUrl} download>Скачать контракт</a>
+  <p>
+    Браузер не поддерживает встроенный просмотр PDF.
+    <a href={blobUrl} download>
+      Скачать контракт
+    </a>
   </p>
 </object>
 ```
 
 **Pros:**
+
 - Семантически корректно (embedded object).
 - Fallback content внутри `<object>` для браузеров без PDF support.
 - iOS Safari рендерит `<object type="application/pdf">` лучше чем iframe.
 
 **Cons:**
+
 - Accessibility: screen-reader не читает содержимое PDF через `<object>`.
   Требует aria-label + текстовый fallback.
 - Поведение немного отличается от iframe между браузерами (Chrome / Firefox / Safari).
@@ -204,7 +213,10 @@ const url = URL.createObjectURL(res.data)
 
 ```tsx
 // Skeleton поверх iframe зоны
-<div className="relative w-full rounded-md border border-border bg-muted/20" style={{ height: '480px' }}>
+<div
+  className="relative w-full rounded-md border border-border bg-muted/20"
+  style={{ height: '480px' }}
+>
   {isLoadingPdf && (
     <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-md bg-muted/30">
       <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -229,8 +241,7 @@ const url = URL.createObjectURL(res.data)
 // Если fetch завершился с ошибкой — показать fallback-блок
 <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
   <AlertTriangle className="inline h-4 w-4 mr-2" />
-  Не удалось загрузить предварительный просмотр контракта.
-  Обратитесь к администратору.
+  Не удалось загрузить предварительный просмотр контракта. Обратитесь к администратору.
 </div>
 ```
 
@@ -272,6 +283,7 @@ legalFullName: text('legal_full_name'),
 ```
 
 **Почему одно поле, а не три (firstName/lastName/patronymic):**
+
 - В юридическом тексте ФИО всегда используется целиком.
 - Разбивать на части не нужно для контракта.
 - Admin знает полный порядок (ФИО или ИО Фамилия — вводит как нужно).
@@ -390,9 +402,7 @@ static interpolateVariables(
     <p className="text-sm font-medium leading-none truncate">
       {user.legalFullName || user.displayName}
     </p>
-    <p className="text-xs text-muted-foreground mt-1">
-      Подпись — юридическое ФИО из профиля
-    </p>
+    <p className="text-xs text-muted-foreground mt-1">Подпись — юридическое ФИО из профиля</p>
   </div>
 </div>
 ```
@@ -500,11 +510,11 @@ const [pdfError, setPdfError] = useState(false)
 
 ### 5.2 Target sizes
 
-| Элемент           | Текущий (оценка) | Требование SC 2.5.8 | Fix                        |
-| ----------------- | ---------------- | ------------------- | -------------------------- |
-| Checkbox `h-4 w-4` (16px) | 16×16px | 24×24px             | `min-h-6 min-w-6` (24px)  |
-| Кнопка «Подписать» | full-width, h-10 (40px) | OK           | Без изменений              |
-| Info alert link «к ADMIN» | inline text | 24px height    | Обернуть в `<button>` или сделать `<a>` с `py-1` |
+| Элемент                   | Текущий (оценка)        | Требование SC 2.5.8 | Fix                                              |
+| ------------------------- | ----------------------- | ------------------- | ------------------------------------------------ |
+| Checkbox `h-4 w-4` (16px) | 16×16px                 | 24×24px             | `min-h-6 min-w-6` (24px)                         |
+| Кнопка «Подписать»        | full-width, h-10 (40px) | OK                  | Без изменений                                    |
+| Info alert link «к ADMIN» | inline text             | 24px height         | Обернуть в `<button>` или сделать `<a>` с `py-1` |
 
 ### 5.3 Contrast
 
@@ -533,8 +543,8 @@ const [pdfError, setPdfError] = useState(false)
     aria-label="Предварительный просмотр MSA-контракта"
   />
   <p id="pdf-sr-note" className="sr-only">
-    PDF-документ. При необходимости используйте кнопку «Скачать» ниже для
-    просмотра контракта во внешней программе.
+    PDF-документ. При необходимости используйте кнопку «Скачать» ниже для просмотра контракта во
+    внешней программе.
   </p>
 </div>
 ```
@@ -542,7 +552,11 @@ const [pdfError, setPdfError] = useState(false)
 Добавить кнопку / ссылку «Скачать для просмотра» (только когда `blobUrl` есть):
 
 ```tsx
-<a href={blobUrl} download="contract-preview.pdf" className="text-xs underline text-muted-foreground">
+<a
+  href={blobUrl}
+  download="contract-preview.pdf"
+  className="text-xs underline text-muted-foreground"
+>
   Скачать для просмотра
 </a>
 ```
@@ -557,6 +571,7 @@ Fix для SC 2.5.8: `className="mt-0.5 h-6 w-6 accent-primary"` (24×24px).
 ### 5.6 Modal/wizard a11y
 
 Wizard рендерится в полноэкранном overlay. Проверить:
+
 - `aria-modal="true"` на корневом контейнере wizard.
 - Focus trap при открытии (первый интерактивный элемент — кнопка или checkbox).
 - Escape не закрывает wizard (пользователь ОБЯЗАН завершить onboarding) — убедиться что
@@ -641,10 +656,12 @@ const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent)
 
 **Вариант A (рекомендуется):** Детект iOS → show download-link fallback вместо iframe.
 Пользователь открывает PDF во внешнем приложении (Files/Adobe), возвращается в браузер, подписывает.
+
 - Pros: нулевая зависимость, 100% надёжность.
 - Cons: flow прерывается (пользователь покидает браузер).
 
 **Вариант B:** `<object type="application/pdf">` как fallback внутри `<iframe>`.
+
 ```html
 <iframe src="...">
   <object data="..." type="application/pdf">
@@ -652,6 +669,7 @@ const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent)
   </object>
 </iframe>
 ```
+
 - Pros: Progressive enhancement, без JS detects.
 - Cons: Поведение в iOS непредсказуемо, объект может всё равно не отрендериться.
 
@@ -666,16 +684,19 @@ const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent)
 После изменений в wizard — стоит ли также добавить inline preview там?
 
 **Вариант A:** Оставить только download. Аудит — редкое действие, popup/download достаточно.
+
 - Pros: ноль изменений в audit UI.
 - Cons: Непоследовательно — wizard показывает inline, audit — только download.
 
 **Вариант B:** Добавить кнопку «Открыть» рядом с «Скачать» — открывает PDF в новой вкладке
 (`/api/contracts/:id/pdf` с `Content-Disposition: inline`).
+
 - Pros: Консистентно с wizard UX.
 - Cons: Требует добавления второго Content-Disposition mode на endpoint (query param `?view=1`).
 
 **Вариант C (рекомендуется для audit):** В audit-карточке добавить inline iframe/object
 в expandable accordion (collapsed по умолчанию). Click → expand → PDF загружается.
+
 - Pros: Консистентно, не меняет backend (тот же `/pdf` endpoint, blob в iframe).
 - Cons: Дополнительная работа в audit UI.
 
@@ -688,17 +709,20 @@ Signature block будет выглядеть как будто контракт
 
 **Вариант A (рекомендуется):** Добавить watermark «ПРЕДВАРИТЕЛЬНЫЙ ПРОСМОТР» в PDF (красный диагональный текст поверх страниц).
 Требует изменения `ContractPdfService.generateContractPdf()` — опциональный `isPreview: boolean` param.
+
 - Pros: Явно видно что это preview, не финальный документ.
 - Cons: Усложняет PDF generation service.
 
 **Вариант B:** Не добавлять watermark. В signature block написать имя пользователя,
 дату «сегодня» и tooltip «это предварительный просмотр».
 Badge `[PREVIEW]` в UI wizard над viewer — достаточно.
+
 - Pros: Нет изменений в PDF service.
 - Cons: PDF выглядит как финальный документ с сегодняшней датой.
 
 **Вариант C:** Убрать signature block из preview PDF полностью.
 Preview генерирует PDF без нижнего блока подписи и QR.
+
 - Pros: Принципиально отличается от подписанного PDF.
 - Cons: Более глубокое изменение PDF service — нужен режим «preview mode» без footer.
 
@@ -710,17 +734,20 @@ Preview генерирует PDF без нижнего блока подписи
 
 **Вариант A (рекомендуется):** Блокировать подпись сразу при загрузке wizard step.
 Alert warning + disabled button + tooltip «Обратитесь к администратору».
+
 - Pros: Четкое UX — пользователь знает почему не может подписать.
 - Cons: Фрустрация если admin просто не знает что нужно заполнить новое поле.
 
 **Вариант B:** Разрешить подпись с fallback на `displayName` (как было раньше).
 После перехода — в JSONB `variablesFilled.employeeName` сохранится platform-name.
 Admin может исправить через new admin tool в будущем.
+
 - Pros: Zero friction для пользователя, backward compat.
 - Cons: Контракт с юридически неверным именем (en → kyr).
 
 **Вариант C:** Показать warning (не блокировать), позволить подписать.
 Рядом с signature block: «Юридическое ФИО не задано, будет использован платформенный профиль».
+
 - Pros: Компромисс — пользователь видит проблему, но не заблокирован.
 - Cons: Создаёт юридически неоднозначные документы.
 
@@ -730,17 +757,17 @@ Admin может исправить через new admin tool в будущем.
 
 Все из существующих shadcn/ui `apps/web/app/components/ui/`:
 
-| Компонент          | Зачем                                                |
-| ------------------ | ---------------------------------------------------- |
-| `Avatar`, `AvatarFallback` | Инициалы подписанта в signature block       |
-| `Button`           | «Подписать контракт», «Скачать для просмотра»        |
-| `Skeleton`         | Loading overlay над PDF viewer                       |
-| `Loader2` (lucide) | Spinner в loading state                              |
-| `Alert` (если есть) / `div` с border | Warning о missing legalFullName     |
-| `ScrollArea`       | НЕ нужен — заменяется на iframe PDF                  |
-| `Checkbox` / native `<input type="checkbox">` | Подтверждение ознакомления    |
-| `Tooltip`          | Disabled button hint                                 |
-| `Badge`            | PREVIEW badge над viewer                             |
+| Компонент                                     | Зачем                                         |
+| --------------------------------------------- | --------------------------------------------- |
+| `Avatar`, `AvatarFallback`                    | Инициалы подписанта в signature block         |
+| `Button`                                      | «Подписать контракт», «Скачать для просмотра» |
+| `Skeleton`                                    | Loading overlay над PDF viewer                |
+| `Loader2` (lucide)                            | Spinner в loading state                       |
+| `Alert` (если есть) / `div` с border          | Warning о missing legalFullName               |
+| `ScrollArea`                                  | НЕ нужен — заменяется на iframe PDF           |
+| `Checkbox` / native `<input type="checkbox">` | Подтверждение ознакомления                    |
+| `Tooltip`                                     | Disabled button hint                          |
+| `Badge`                                       | PREVIEW badge над viewer                      |
 
 **Новые компоненты: НЕ нужны.** Всё строится из существующих.
 
@@ -750,14 +777,14 @@ Admin может исправить через new admin tool в будущем.
 
 Все существующие токены — из `globals.css` `@theme inline {}`. Новые не нужны.
 
-| Token                                    | Где используется                            |
-| ---------------------------------------- | ------------------------------------------- |
-| `--color-border`                         | Рамка PDF-viewer, signature block, checkbox label |
-| `--color-muted` / `--color-muted-foreground` | Loading overlay, hint text, error state |
-| `--color-primary`                        | Кнопка «Подписать», checkbox accent         |
-| `--color-destructive`                    | Error state PDF viewer, legalFullName missing alert |
-| `--color-card`, `--color-card-foreground` | Signature block background если не muted   |
-| `--radius-lg` (0.625rem)                 | PDF viewer container, signature block        |
+| Token                                        | Где используется                                    |
+| -------------------------------------------- | --------------------------------------------------- |
+| `--color-border`                             | Рамка PDF-viewer, signature block, checkbox label   |
+| `--color-muted` / `--color-muted-foreground` | Loading overlay, hint text, error state             |
+| `--color-primary`                            | Кнопка «Подписать», checkbox accent                 |
+| `--color-destructive`                        | Error state PDF viewer, legalFullName missing alert |
+| `--color-card`, `--color-card-foreground`    | Signature block background если не muted            |
+| `--radius-lg` (0.625rem)                     | PDF viewer container, signature block               |
 
 ---
 
