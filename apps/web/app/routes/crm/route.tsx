@@ -185,6 +185,7 @@ function CrmLayout() {
             <Button
               variant="ghost"
               size="icon"
+              aria-label="Открыть меню навигации"
               className="md:hidden cursor-pointer"
               onClick={() => setMobileOpen(true)}
             >

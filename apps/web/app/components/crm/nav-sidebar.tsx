@@ -154,6 +154,7 @@ export function NavSidebar({
                   variant="ghost"
                   size="icon"
                   onClick={onToggle}
+                  aria-label={collapsed ? 'Развернуть боковую панель' : 'Свернуть боковую панель'}
                   className="h-8 w-full cursor-pointer"
                 >
                   {collapsed ? (
