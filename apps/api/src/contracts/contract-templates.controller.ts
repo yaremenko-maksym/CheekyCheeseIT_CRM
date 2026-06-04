@@ -28,16 +28,18 @@ import { renderContractTemplate } from './contract-rendering'
 /**
  * RBAC summary (Phase 6A):
  *
- * | Endpoint                                  | Allowed roles                |
- * | ----------------------------------------- | ---------------------------- |
- * | GET    /api/contracts/templates           | ADMIN                        |
- * | GET    /api/contracts/templates/current/:role | ADMIN or self (role match)  |
- * | POST   /api/contracts/templates           | ADMIN                        |
- * | GET    /api/contracts/templates/:id       | ADMIN                        |
+ * | Endpoint                                        | Allowed roles / guard        |
+ * | ----------------------------------------------- | ---------------------------- |
+ * | GET    /api/contracts/templates                 | ADMIN                        |
+ * | GET    /api/contracts/templates/current/:role   | ADMIN or self (role match)   |
+ * | POST   /api/contracts/templates                 | ADMIN                        |
+ * | GET    /api/contracts/templates/preview-rendered/:id | any authenticated user  |
+ * | GET    /api/contracts/templates/:id             | ADMIN                        |
  *
- * `current/:role` is the only endpoint reachable through the OnboardingGuard
- * bypass list — non-ADMIN callers MUST request their OWN role and nothing
- * else.
+ * `current/:role` and `preview-rendered/:id` are both reachable through the
+ * OnboardingGuard bypass list so pre-onboarding users can see the wizard and
+ * the personalised preview before signing. `preview-rendered` resolves user
+ * data from `req.user.id` (JWT) — no IDOR surface.
  */
 // JwtAuthGuard runs globally (AppModule APP_GUARD); RolesGuard stays
 // controller-level because it depends on `req.user.role`.
