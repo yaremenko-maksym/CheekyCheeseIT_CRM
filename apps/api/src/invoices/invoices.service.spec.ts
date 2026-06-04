@@ -91,11 +91,20 @@ interface ProjectRow {
   name: string
 }
 
+interface SignedContractRow {
+  userId: string
+  templateId: string
+  contractNumber: string
+  targetRole: string
+  signedAt: Date
+}
+
 interface HarnessState {
   txs: TxRow[]
   sigs: SigRow[]
   users: UserRow[]
   projects: ProjectRow[]
+  signedContracts?: SignedContractRow[]
 }
 
 function buildHarness(state: HarnessState) {
@@ -150,6 +159,7 @@ function buildHarness(state: HarnessState) {
         const chain = {
           where: (_p: unknown) => chain,
           leftJoin: (_t2: unknown, _on: unknown) => chain,
+          innerJoin: (_t2: unknown, _on: unknown) => chain,
           orderBy: (_o: unknown) => {
             // Make orderBy return a chainable: limit() OR awaited-list.
             const ordered = {
@@ -171,6 +181,18 @@ function buildHarness(state: HarnessState) {
   }
 
   function resolveLimit(lim: number, fields: unknown): unknown[] {
+    // Contract number lookup: select({contractNumber}) + innerJoin + where + orderBy + limit(1)
+    if (
+      fields &&
+      typeof fields === 'object' &&
+      Object.keys(fields as object).length === 1 &&
+      'contractNumber' in (fields as object)
+    ) {
+      // The service looks up by userId + role; we return the first match from
+      // the harness signedContracts list (tests seed it in desired order).
+      const contracts = state.signedContracts ?? []
+      return contracts.slice(0, lim).map((c) => ({ contractNumber: c.contractNumber }))
+    }
     // Admin lookup: select({id}) + orderBy(asc) + limit(1)
     if (
       fields &&
@@ -790,14 +812,28 @@ describe('InvoicesService', () => {
     const REQ_ID = 'req-1'
     const PAYOUT_TX_ID = 'tx-payout-1'
 
+    const SIGNED_CONTRACT_NUMBER = 'CHK-1-2026'
+
     function makePayoutHarness(opts: {
       payoutHasInvoice?: boolean
       incomeRows?: Array<{ id: string; amount: string; projectId: string }>
       projects?: Array<{ id: string; name: string }>
+      noSignedContract?: boolean
     }) {
       const incomeRows = opts.incomeRows ?? [{ id: 'inc-1', amount: '1000', projectId: 'p-1' }]
       const projectRows = opts.projects ?? [{ id: 'p-1', name: 'Acme Corp' }]
       const payoutTotal = incomeRows.reduce((s, r) => s + parseFloat(r.amount), 0).toString()
+      const signedContracts: SignedContractRow[] = opts.noSignedContract
+        ? []
+        : [
+            {
+              userId: SENIOR.id,
+              templateId: 'tmpl-1',
+              contractNumber: SIGNED_CONTRACT_NUMBER,
+              targetRole: 'SENIOR',
+              signedAt: new Date('2026-03-01'),
+            },
+          ]
       const h = buildHarness({
         txs: [
           tx({
@@ -841,6 +877,7 @@ describe('InvoicesService', () => {
           },
         ],
         projects: projectRows,
+        signedContracts,
       })
       return { h, incomeRows, projectRows, payoutTotal }
     }
@@ -892,11 +929,8 @@ describe('InvoicesService', () => {
         }
       }
       expect(pdfArgs.transaction.amount).toBe('1500')
-      // Contract number is the placeholder formula `CHK-<userId-prefix>-<year>`.
-      // In production userIds are UUIDs (hex+dashes), but the fixture uses
-      // `senior-1` for readability, so the prefix slice will include the dash.
-      // We just assert the CHK-<prefix>-<year> shape with a permissive prefix.
-      expect(pdfArgs.transaction.contractNumber).toMatch(/^CHK-[a-z0-9]{1,8}-\d{4}$/)
+      // Contract number now comes from the real signed_contracts DB lookup.
+      expect(pdfArgs.transaction.contractNumber).toBe(SIGNED_CONTRACT_NUMBER)
       expect(pdfArgs.transaction.projectNames).toEqual(['Acme Corp'])
 
       // Doc must be linked to the PAYOUT row, not the income.
@@ -968,6 +1002,31 @@ describe('InvoicesService', () => {
         'Drop Phase 2',
         'Sixth Project',
       ])
+    })
+
+    it('no signed contract → contractNumber is null in PDF args', async () => {
+      const { h, projectRows } = makePayoutHarness({
+        incomeRows: [{ id: 'inc-1', amount: '800', projectId: 'p-1' }],
+        noSignedContract: true,
+      })
+      h.ctrl.findTxId = PAYOUT_TX_ID
+      h.ctrl.linkedPayoutRequestId = REQ_ID
+      h.ctrl.userFindFirstQueue = [SENIOR.id, ADMIN.id]
+      h.ctrl.projectFindQueue = projectRows.map((p) => p.id)
+      h.ctrl.updateTargetTxId = PAYOUT_TX_ID
+
+      await h.svc.autoCreateForPayout(PAYOUT_TX_ID)
+
+      expect(h.pdfService.generateSignableInvoicePdf).toHaveBeenCalledTimes(1)
+      const pdfArgs = (
+        h.pdfService.generateSignableInvoicePdf as unknown as {
+          mock: { calls: unknown[][] }
+        }
+      ).mock.calls[0]?.[0] as {
+        transaction: { contractNumber?: string | null }
+      }
+      // No signed_contracts row → lookupContractNumber returns null.
+      expect(pdfArgs.transaction.contractNumber).toBeNull()
     })
 
     it('does nothing when PAYOUT row not found', async () => {

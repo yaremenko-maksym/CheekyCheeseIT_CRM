@@ -619,6 +619,34 @@ describe('InvoicePdfService', () => {
         expect(reparsed.getPageCount()).toBe(1)
       },
     )
+
+    it(
+      'null contractNumber (no signed contract) — PDF renders em-dash fallback',
+      { timeout: TEST_TIMEOUT_MS },
+      async () => {
+        // When lookupContractNumber returns null (user has no signed contract),
+        // the PDF must render «Услуги исполнителя согласно контракту № —» and
+        // not throw. Hash must differ from a version with a real contract number.
+        const withNull = baseParams()
+        withNull.transaction.contractNumber = null
+        delete withNull.transaction.projectName
+        withNull.signatures = []
+
+        const withReal = baseParams()
+        withReal.transaction.contractNumber = 'CHK-1-2026'
+        delete withReal.transaction.projectName
+        withReal.signatures = []
+
+        const nullRes = await service.generateSignableInvoicePdf(withNull)
+        const realRes = await service.generateSignableInvoicePdf(withReal)
+
+        expect(nullRes.sha256Hash).toMatch(/^[0-9a-f]{64}$/)
+        // The two PDFs differ because the description lines are different.
+        expect(nullRes.sha256Hash).not.toBe(realRes.sha256Hash)
+        const reparsed = await PDFDocument.load(nullRes.pdfBuffer)
+        expect(reparsed.getPageCount()).toBe(1)
+      },
+    )
   })
 })
 

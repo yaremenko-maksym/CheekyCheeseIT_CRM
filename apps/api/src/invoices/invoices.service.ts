@@ -67,8 +67,10 @@ import {
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
+  contractTemplates,
   invoiceSignatures,
   projects,
+  signedContracts,
   transactions,
   users,
   type Transaction,
@@ -257,7 +259,7 @@ export class InvoicesService {
       | 'EUR'
       | 'UAH'
     const txDate = payoutTx.txDate ?? payoutTx.createdAt
-    const contractNumber = this.buildContractNumber(counterpartyRow.id, txDate)
+    const contractNumber = await this.lookupContractNumber(counterpartyRow.id, counterpartyRow.role)
 
     // PDF generation — aggregated invoice uses the new contract-line
     // description, with the project list as a secondary line if any are
@@ -333,16 +335,24 @@ export class InvoicesService {
   }
 
   /**
-   * task-aggregate-invoice-per-payout. Build the placeholder contract number
-   * as `CHK-<first 8 chars of userId>-<UTC year>`. This is Variant B from the
-   * task spec — no DB migration, no per-user override. Replaced by the
-   * dedicated contracts module in a later phase; until then every active
-   * contractor deterministically maps to one «CHK-…» identifier for the
-   * current calendar year.
+   * Lookup the most recent signed contract number for a given user + role.
+   * Joins signed_contracts → contract_templates to filter by targetRole.
+   * Returns null when the user has not signed a contract yet.
    */
-  private buildContractNumber(userId: string, txDate: Date): string {
-    const prefix = userId.replace(/-/g, '').slice(0, 8).toLowerCase()
-    return `CHK-${prefix}-${txDate.getUTCFullYear()}`
+  private async lookupContractNumber(userId: string, userRole: string): Promise<string | null> {
+    const rows = await this.db.db
+      .select({ contractNumber: signedContracts.contractNumber })
+      .from(signedContracts)
+      .innerJoin(contractTemplates, eq(signedContracts.templateId, contractTemplates.id))
+      .where(
+        and(
+          eq(signedContracts.userId, userId),
+          eq(contractTemplates.targetRole, userRole as never),
+        ),
+      )
+      .orderBy(desc(signedContracts.signedAt))
+      .limit(1)
+    return rows[0]?.contractNumber ?? null
   }
 
   /**
@@ -774,7 +784,7 @@ export class InvoicesService {
         if (project) names.push(project.name)
       }
       projectNames = names
-      contractNumber = this.buildContractNumber(counterpartyRow.id, tx.txDate ?? tx.createdAt)
+      contractNumber = await this.lookupContractNumber(counterpartyRow.id, counterpartyRow.role)
     } else if (tx.type === 'SENIOR_INCOME' && tx.projectId) {
       const project = await this.db.db.query.projects.findFirst({
         where: eq(projects.id, tx.projectId),

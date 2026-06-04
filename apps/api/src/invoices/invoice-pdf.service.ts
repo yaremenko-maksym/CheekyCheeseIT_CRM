@@ -907,7 +907,9 @@ export class InvoicePdfService {
         // Legacy single-project per-tx invoices keep their original phrasing.
         lines.push(`Доля по проекту "${tx.projectName}"`)
       } else {
-        lines.push('Доля по проекту')
+        // Aggregated PAYOUT with no signed contract on record — render em-dash
+        // so the PDF has a contract reference line rather than a generic label.
+        lines.push('Услуги исполнителя согласно контракту № —')
       }
       if (tx.salaryMonth) {
         lines.push(`Период: ${this.formatMonth(tx.salaryMonth)}`)
