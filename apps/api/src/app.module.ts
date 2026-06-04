@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config'
 import { APP_GUARD } from '@nestjs/core'
-import { ThrottlerModule } from '@nestjs/throttler'
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
 import { AuthModule } from './auth/auth.module'
 import { JwtAuthGuard } from './auth/jwt.guard'
 import { OnboardingGuard } from './auth/onboarding.guard'
@@ -70,6 +70,10 @@ import { UsersModule } from './users/users.module'
     // Integration test pinning this wiring: `auth/onboarding.guard.integration.spec.ts`.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: OnboardingGuard },
+    // ThrottlerGuard runs after auth guards so req.user is available for
+    // per-user tracking (default tracker = IP). Global default = 100 req/60 s;
+    // sensitive write endpoints override with @Throttle() at controller level.
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
 export class AppModule {}
