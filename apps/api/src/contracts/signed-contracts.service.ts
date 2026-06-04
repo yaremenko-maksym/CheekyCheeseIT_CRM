@@ -90,6 +90,9 @@ export class SignedContractsService {
       ? (methodLabels[user.paymentMethod] ?? user.paymentMethod)
       : 'не указано'
 
+    // Keys here must match CONTRACT_VARIABLE_DESCRIPTIONS in @crm/shared/schemas/contracts.ts
+    // (without `{{}}` delimiters). ContractVariableKey is the authoritative type — update
+    // CONTRACT_VARIABLE_DESCRIPTIONS in shared whenever new variables are added here.
     const variables: Record<string, string> = {
       employeeName: user.displayName ?? 'не указано',
       employeeEmail: user.email ?? 'не указано',

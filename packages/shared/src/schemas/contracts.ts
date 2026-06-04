@@ -78,3 +78,50 @@ export type ContractTemplateDto = z.infer<typeof contractTemplateSchema>
 export type CreateContractTemplateDto = z.infer<typeof createContractTemplateSchema>
 export type SignedContractDto = z.infer<typeof signedContractSchema>
 export type SignContractDto = z.infer<typeof signContractSchema>
+
+/**
+ * Row shape returned by GET /api/contracts/templates and
+ * GET /api/contracts/templates/current/:role.
+ *
+ * Extracted here to serve as the single source of truth shared between
+ * contracts.index.tsx (list page) and contracts.$role.tsx (editor page).
+ * The `createdByUserId` field is optional in UI contexts where the API
+ * may omit it for non-ADMIN callers.
+ */
+export interface ContractTemplateRow {
+  id: string
+  targetRole: ContractTargetRole
+  version: number
+  bodyMarkdown: string
+  isActive: boolean
+  createdByUserId?: string
+  createdAt: string
+}
+
+/**
+ * Canonical map of template variable placeholders → human-readable Russian
+ * descriptions.
+ *
+ * This is the single source of truth for variable names used in:
+ *   - Backend: SignedContractsService.interpolateVariables() — resolves values
+ *   - Frontend: contract-variables.ts — re-exports this map for the admin hint panel
+ *
+ * Key format: `{{camelCaseKey}}` — must match the regex in interpolateVariables
+ * (`/\{\{([a-zA-Z0-9_]+)\}\}/g`).
+ *
+ * `contractNumber` is generated server-side (CHK-N-YYYY) and not resolved via
+ * interpolateVariables — included here for admin documentation purposes only.
+ */
+export const CONTRACT_VARIABLE_DESCRIPTIONS = {
+  '{{employeeName}}': 'Полное имя сотрудника',
+  '{{employeeEmail}}': 'Email сотрудника',
+  '{{role}}': 'Роль (HR / Синьор / Джун / Дроп / Бухгалтер)',
+  '{{onboardingDate}}': 'Дата подписания контракта',
+  '{{companyName}}': 'Название компании (Cheeky Cheese IT)',
+  '{{walletUsdt}}': 'USDT ERC-20 кошелёк (если указан)',
+  '{{bankUahFop}}': 'Банковские реквизиты UAH (ФОП)',
+  '{{preferredMethod}}': 'Предпочтительный метод оплаты (crypto / fop)',
+  '{{contractNumber}}': 'Номер контракта (генерируется автоматически, CHK-N-YYYY)',
+} as const
+
+export type ContractVariableKey = keyof typeof CONTRACT_VARIABLE_DESCRIPTIONS
