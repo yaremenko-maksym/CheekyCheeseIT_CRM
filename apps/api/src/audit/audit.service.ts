@@ -67,7 +67,8 @@ export class AuditService {
         signedAt: r.signedAt.toISOString(),
         signedTypedName: r.signedTypedName,
         signedIp: r.signedIp ?? null,
-        templateRole: r.templateRole as AuditTrailResponse['signedContracts'][number]['templateRole'],
+        templateRole:
+          r.templateRole as AuditTrailResponse['signedContracts'][number]['templateRole'],
         templateVersion: r.templateVersion,
         bodyMarkdownSnapshot: r.bodyMarkdownSnapshot,
       })),

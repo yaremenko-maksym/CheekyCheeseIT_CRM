@@ -100,10 +100,7 @@ function EventRow({ event }: { event: AuditEvent }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-medium truncate">{eventLabel(event)}</span>
-          <Badge
-            variant={isContract ? 'default' : 'secondary'}
-            className="text-xs shrink-0"
-          >
+          <Badge variant={isContract ? 'default' : 'secondary'} className="text-xs shrink-0">
             {isContract ? 'Контракт' : 'ToS'}
           </Badge>
         </div>
@@ -283,8 +280,7 @@ function AuditLogPage() {
               'Загрузка...'
             ) : (
               <span>
-                Всего записей:{' '}
-                <span className="font-semibold text-foreground">{total}</span>
+                Всего записей: <span className="font-semibold text-foreground">{total}</span>
               </span>
             )}
           </CardTitle>

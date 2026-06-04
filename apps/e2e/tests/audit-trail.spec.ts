@@ -17,9 +17,7 @@ import { test, expect, USERS, mockAuthAs } from './fixtures'
 // ---------------------------------------------------------------------------
 
 test.describe('/crm/profile/audit — self-service', () => {
-  test('ADMIN: /crm/profile/audit renders with signed contract and ToS cards', async ({
-    page,
-  }) => {
+  test('ADMIN: /crm/profile/audit renders with signed contract and ToS cards', async ({ page }) => {
     await mockAuthAs(page, USERS.admin)
     await page.goto('/crm/profile/audit')
 

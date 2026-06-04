@@ -59,7 +59,7 @@ export const auditTrailResponseSchema = z.object({
 export const auditAllQuerySchema = z.object({
   userId: z.string().uuid().optional(),
   from: z.string().optional(), // ISO date string
-  to: z.string().optional(),   // ISO date string
+  to: z.string().optional(), // ISO date string
   type: z.enum(['contract', 'tos']).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),

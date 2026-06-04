@@ -49,21 +49,26 @@ function downloadMarkdown(filename: string, content: string) {
 
 function ContractCard({ contract }: { contract: SignedContractItem }) {
   return (
-    <div className="rounded-lg border border-border/60 bg-card p-4 space-y-3" data-testid="audit-contract-card">
+    <div
+      className="rounded-lg border border-border/60 bg-card p-4 space-y-3"
+      data-testid="audit-contract-card"
+    >
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <FileText className="h-4 w-4 text-primary shrink-0" />
             <span className="font-mono text-sm font-medium">{contract.contractNumber}</span>
             <Badge variant="outline" className="text-xs">
-              {ROLE_LABELS[contract.templateRole] ?? contract.templateRole} · v{contract.templateVersion}
+              {ROLE_LABELS[contract.templateRole] ?? contract.templateRole} · v
+              {contract.templateVersion}
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground">
             Подписано: {formatDate(contract.signedAt)}
           </p>
           <p className="text-sm text-muted-foreground">
-            Подписал(а): <span className="font-medium text-foreground">{contract.signedTypedName}</span>
+            Подписал(а):{' '}
+            <span className="font-medium text-foreground">{contract.signedTypedName}</span>
           </p>
           {contract.signedIp && (
             <p className="text-xs text-muted-foreground">IP: {contract.signedIp}</p>
@@ -75,10 +80,7 @@ function ContractCard({ contract }: { contract: SignedContractItem }) {
           className="gap-2 shrink-0"
           data-testid="audit-contract-download"
           onClick={() =>
-            downloadMarkdown(
-              `${contract.contractNumber}.md`,
-              contract.bodyMarkdownSnapshot,
-            )
+            downloadMarkdown(`${contract.contractNumber}.md`, contract.bodyMarkdownSnapshot)
           }
         >
           <Download className="h-3.5 w-3.5" />
@@ -95,17 +97,16 @@ function ContractCard({ contract }: { contract: SignedContractItem }) {
 
 function TosCard({ tos }: { tos: TosAcceptanceItem }) {
   return (
-    <div className="rounded-lg border border-border/60 bg-card p-4 space-y-1.5" data-testid="audit-tos-card">
+    <div
+      className="rounded-lg border border-border/60 bg-card p-4 space-y-1.5"
+      data-testid="audit-tos-card"
+    >
       <div className="flex items-center gap-2">
         <ScrollText className="h-4 w-4 text-primary shrink-0" />
         <span className="text-sm font-medium">Terms of Service · версия {tos.tosVersion}</span>
       </div>
-      <p className="text-sm text-muted-foreground">
-        Принято: {formatDate(tos.acceptedAt)}
-      </p>
-      {tos.acceptedIp && (
-        <p className="text-xs text-muted-foreground">IP: {tos.acceptedIp}</p>
-      )}
+      <p className="text-sm text-muted-foreground">Принято: {formatDate(tos.acceptedAt)}</p>
+      {tos.acceptedIp && <p className="text-xs text-muted-foreground">IP: {tos.acceptedIp}</p>}
     </div>
   )
 }
@@ -181,9 +182,7 @@ function ProfileAuditPage() {
                   Нет подписанных контрактов
                 </p>
               ) : (
-                data.signedContracts.map((c) => (
-                  <ContractCard key={c.id} contract={c} />
-                ))
+                data.signedContracts.map((c) => <ContractCard key={c.id} contract={c} />)
               )}
             </CardContent>
           </Card>
@@ -207,9 +206,7 @@ function ProfileAuditPage() {
                   Нет принятых Terms of Service
                 </p>
               ) : (
-                data.tosAcceptances.map((t) => (
-                  <TosCard key={t.id} tos={t} />
-                ))
+                data.tosAcceptances.map((t) => <TosCard key={t.id} tos={t} />)
               )}
             </CardContent>
           </Card>
