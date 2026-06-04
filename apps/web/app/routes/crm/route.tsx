@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
 import { AuthProvider } from '@/context/auth'
 import { NotificationsProvider } from '@/context/notifications'
+import { useOnboardingGate } from '@/context/onboarding'
 import { LogOut, Menu, Search, UserCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/auth'
@@ -51,6 +52,9 @@ function CrmLayout() {
     return localStorage.getItem('sidebar-collapsed') === 'true'
   })
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  // Onboarding gate completeness — gates post-onboarding queries in header.
+  const { isComplete: onboardingComplete } = useOnboardingGate()
 
   // Onboarding gate: fetch status after user is authenticated
   const { data: onboardingStatus } = useQuery<OnboardingStatusDto>({
@@ -204,7 +208,7 @@ function CrmLayout() {
               <Search className="h-4 w-4" />
             </Button>
 
-            <NotificationsBell />
+            <NotificationsBell enabled={onboardingComplete} />
 
             <DropdownMenu>
               {/* `asChild` forwards the trigger's ref and onClick into the
