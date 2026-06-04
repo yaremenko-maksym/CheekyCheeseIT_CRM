@@ -16,6 +16,8 @@ export * from './tos'
 export * from './onboarding'
 export * from './audit'
 
-// Hardcoded partner user IDs (stable across environments)
-export const MAKSYM_ID = '00000000-0000-0000-0000-000000000001'
-export const KOSTYA_ID = '00000000-0000-0000-0000-000000000002'
+// Hardcoded partner user IDs (stable across environments).
+// Valid RFC 4122 v4 UUIDs — must match migration 0028_admin_uuid_normalize.sql
+// and apps/api/src/database/seed.ts constants.
+export const MAKSYM_ID = 'a8f4d3b1-c2e5-4a1f-9b3d-8c7e6f5a4b21'
+export const KOSTYA_ID = 'b9e5c4d2-d3f6-4b2e-ac4e-9d8f7a6b5c32'

@@ -4,8 +4,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { z } from 'zod'
 import { Loader2, FileText, PenLine } from 'lucide-react'
-import type { ContractTemplateDto, SignedContractDto } from '@crm/shared'
-import { signContractSchema } from '@crm/shared'
+import type {
+  ContractTemplateDto,
+  ContractRenderedPreviewDto,
+  SignedContractDto,
+} from '@crm/shared'
+import { signContractSchema, contractRenderedPreviewSchema } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { Button } from '@/components/ui/button'
@@ -34,6 +38,23 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
     },
     enabled: !!user && user.role !== 'ADMIN',
   })
+
+  // Fetch substituted preview once template id is known.
+  // Falls back to raw template body if preview endpoint fails (graceful degradation).
+  const { data: preview } = useQuery<ContractRenderedPreviewDto>({
+    queryKey: ['contract-preview', template?.id],
+    queryFn: async () => {
+      const res = await api.get<ContractRenderedPreviewDto>(
+        `/contracts/templates/preview-rendered/${template!.id}`,
+      )
+      return contractRenderedPreviewSchema.parse(res.data)
+    },
+    enabled: !!template?.id,
+    staleTime: 60_000,
+  })
+
+  // Rendered body: prefer substituted preview, fallback to raw template
+  const previewBody = preview?.bodyMarkdown ?? template?.bodyMarkdown ?? ''
 
   const signMutation = useMutation<SignedContractDto, Error, z.infer<typeof signContractSchema>>({
     mutationFn: async (body) => {
@@ -93,8 +114,11 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
       {/* Markdown preview */}
       <div className="rounded-lg border border-border bg-muted/30">
         <ScrollArea className="h-72 px-5 py-4">
-          <article className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed">
-            <ReactMarkdown>{template.bodyMarkdown}</ReactMarkdown>
+          <article
+            className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed"
+            data-testid="contract-preview-body"
+          >
+            <ReactMarkdown>{previewBody}</ReactMarkdown>
           </article>
         </ScrollArea>
       </div>
