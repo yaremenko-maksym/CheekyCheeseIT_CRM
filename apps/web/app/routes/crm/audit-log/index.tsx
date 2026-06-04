@@ -122,14 +122,22 @@ function EventRow({ event }: { event: AuditEvent }) {
 // Page
 // ---------------------------------------------------------------------------
 
+function toIsoStartOfDay(yyyyMmDd: string): string {
+  return `${yyyyMmDd}T00:00:00.000Z`
+}
+
+function toIsoEndOfDay(yyyyMmDd: string): string {
+  return `${yyyyMmDd}T23:59:59.999Z`
+}
+
 function AuditLogPage() {
   const [filters, setFilters] = useState<Filters>({})
   const [offset, setOffset] = useState(0)
 
   const queryParams = {
     ...(filters.userId ? { userId: filters.userId } : {}),
-    ...(filters.from ? { from: filters.from } : {}),
-    ...(filters.to ? { to: filters.to } : {}),
+    ...(filters.from ? { from: toIsoStartOfDay(filters.from) } : {}),
+    ...(filters.to ? { to: toIsoEndOfDay(filters.to) } : {}),
     ...(filters.type ? { type: filters.type } : {}),
     limit: PAGE_SIZE,
     offset,
