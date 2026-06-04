@@ -4,8 +4,8 @@ export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
   forbidOnly: !!process.env['CI'],
-  retries: process.env['CI'] ? 2 : 0,
-  workers: process.env['CI'] ? 1 : '75%',
+  retries: process.env['CI'] ? 1 : 0,
+  workers: process.env['CI'] ? 1 : '50%',
   // Under CI we want a *streaming* progress reporter so GHA logs show which
   // test is currently running — `html` alone is silent and makes a hung shard
   // look indistinguishable from a slow one. Locally we keep the HTML report

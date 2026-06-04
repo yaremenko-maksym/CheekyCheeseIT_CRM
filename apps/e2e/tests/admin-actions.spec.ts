@@ -47,7 +47,9 @@ test.describe('Admin actions on user profile', () => {
   // Change-role dialog
   // -------------------------------------------------------------------------
 
-  test('opening "Изменить роль" shows ChangeRoleDialog with current role selected', async ({ asAdmin: page }) => {
+  test('opening "Изменить роль" shows ChangeRoleDialog with current role selected', async ({
+    asAdmin: page,
+  }) => {
     await page.goto(`/crm/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     await page.getByRole('button', { name: /Действия/ }).click()
@@ -63,13 +65,27 @@ test.describe('Admin actions on user profile', () => {
     await expect(combobox).toContainText('Джун')
   })
 
-  test('changing role sends PATCH /users/:id/role with new role and shows toast', async ({ asAdmin: page }) => {
-    // Override role PATCH to confirm call was made
-    const rolePatched = page.waitForRequest(
-      (req) =>
-        req.url().includes(`/users/${USERS.junior.id}/role`) && req.method() === 'PATCH',
-      { timeout: 8000 },
-    )
+  test('changing role sends PATCH /users/:id/role with new role and shows toast', async ({
+    asAdmin: page,
+  }) => {
+    // Use route interception to capture the PATCH payload deterministically.
+    // page.waitForRequest races under parallel load — the fixture already
+    // registers a mock for this route; we override it here to also record the
+    // request body before fulfilling.
+    let capturedBody: Record<string, unknown> = {}
+    await page.route(new RegExp(`/api/users/${USERS.junior.id}/role$`), async (route) => {
+      const req = route.request()
+      if (req.method() === 'PATCH') {
+        capturedBody = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ...USERS.junior, role: capturedBody['role'] }),
+        })
+      } else {
+        await route.continue()
+      }
+    })
 
     await page.goto(`/crm/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
@@ -82,11 +98,9 @@ test.describe('Admin actions on user profile', () => {
     await page.getByRole('option', { name: 'HR' }).click()
     await dialog.getByRole('button', { name: 'Сохранить' }).click()
 
-    const req = await rolePatched
-    const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
-    expect(body.role).toBe('HR')
-
+    // Wait for toast — confirms the mutation completed and mock was called
     await expect(page.getByText('Роль изменена')).toBeVisible()
+    expect(capturedBody['role']).toBe('HR')
   })
 
   test('cancelling ChangeRoleDialog sends no PATCH', async ({ asAdmin: page }) => {
@@ -109,14 +123,18 @@ test.describe('Admin actions on user profile', () => {
   // Audit log tab — visible for ADMIN
   // -------------------------------------------------------------------------
 
-  test('audit tab (История) is visible for ADMIN on any user profile', async ({ asAdmin: page }) => {
+  test('audit tab (История) is visible for ADMIN on any user profile', async ({
+    asAdmin: page,
+  }) => {
     await page.goto(`/crm/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     // AnimatedTabs renders tabs as <button> with the label text.
     await expect(page.getByRole('button', { name: 'История' })).toBeVisible()
   })
 
-  test('audit tab renders role_change entry after navigating to ?tab=audit', async ({ asAdmin: page }) => {
+  test('audit tab renders role_change entry after navigating to ?tab=audit', async ({
+    asAdmin: page,
+  }) => {
     await page.goto(`/crm/profile/${USERS.junior.id}?tab=audit`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     // Audit tab content visible — the role_change entry label

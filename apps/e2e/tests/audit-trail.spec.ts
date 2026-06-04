@@ -80,7 +80,7 @@ test.describe('/crm/profile/audit — self-service', () => {
 
     const downloadBtn = page.getByTestId('audit-contract-download').first()
     await expect(downloadBtn).toBeVisible()
-    await expect(downloadBtn).toContainText('Скачать')
+    await expect(downloadBtn).toContainText('Markdown')
   })
 
   test('Clicking download triggers file download', async ({ page }) => {
@@ -255,8 +255,9 @@ test.describe('Russian UI strings', () => {
     // getByRole scopes to heading — avoids strict-mode conflict with subtitle paragraph
     await expect(page.getByRole('heading', { name: 'Подписанные контракты' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Принятые Terms of Service' })).toBeVisible()
-    // Scope to main to avoid header/sidebar false-positives
-    await expect(page.locator('main').getByText('Скачать').first()).toBeVisible()
+    // Scope to audit-contract-download testid — avoids strict-mode conflict
+    // (button label changed from «Скачать» to «Markdown» in current UI).
+    await expect(page.getByTestId('audit-contract-download').first()).toBeVisible()
   })
 
   test('/crm/audit-log has all required Russian labels', async ({ page }) => {
