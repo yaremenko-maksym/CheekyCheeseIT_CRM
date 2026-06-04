@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
 import { ContractTemplatesService } from './contract-templates.service'
-import { SignedContractsService } from './signed-contracts.service'
+import { SignedContractsService, ipTrailingSegment } from './signed-contracts.service'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -451,5 +451,24 @@ describe('SignedContractsService', () => {
       const result = await service.findMine('senior-1')
       expect(result).toHaveLength(2)
     })
+  })
+})
+
+describe('ipTrailingSegment', () => {
+  it('returns the last octet for IPv4', () => {
+    expect(ipTrailingSegment('192.168.1.42')).toBe('42')
+  })
+
+  it('returns the last hextet for pure IPv6 (no dots to split)', () => {
+    expect(ipTrailingSegment('2001:db8::1')).toBe('1')
+    expect(ipTrailingSegment('fe80::a00:27ff:fe4e:66a1')).toBe('66a1')
+  })
+
+  it('unwraps IPv4-mapped IPv6 to the IPv4 last octet', () => {
+    expect(ipTrailingSegment('::ffff:192.168.1.42')).toBe('42')
+  })
+
+  it('handles IPv6 loopback', () => {
+    expect(ipTrailingSegment('::1')).toBe('1')
   })
 })

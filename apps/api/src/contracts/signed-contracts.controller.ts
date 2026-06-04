@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Req } from '@nestjs/common'
-import type { FastifyRequest } from 'fastify'
+import { Body, Controller, Get, Header, Param, ParseUUIDPipe, Post, Req, Res } from '@nestjs/common'
+import type { FastifyReply, FastifyRequest } from 'fastify'
 import { Throttle } from '@nestjs/throttler'
 
 import { signContractSchema, type SessionUser } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { SignedContractsService } from './signed-contracts.service'
+import { ContractPdfService } from './contract-pdf.service'
 
 /**
  * Sign / read signed-contracts endpoints.
@@ -23,7 +24,10 @@ import { SignedContractsService } from './signed-contracts.service'
  */
 @Controller('contracts')
 export class SignedContractsController {
-  constructor(private readonly service: SignedContractsService) {}
+  constructor(
+    private readonly service: SignedContractsService,
+    private readonly contractPdf: ContractPdfService,
+  ) {}
 
   // Signing a contract is a one-time user action — 10 req/min prevents
   // automated replay without breaking real onboarding retries.
@@ -51,5 +55,29 @@ export class SignedContractsController {
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
     return this.service.findById(id, user)
+  }
+
+  /**
+   * Download a signed contract as a PDF. RBAC is enforced inside
+   * `getPdfData` → `findById` (owner | ADMIN | ACCOUNTANT).
+   *
+   * Uses `@Res()` to stream the binary directly — bypasses the global
+   * serializer interceptor (which would try to JSON-encode the Buffer).
+   */
+  @Get(':id/pdf')
+  @Header('Cache-Control', 'no-store, private')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  async downloadPdf(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: SessionUser,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    const data = await this.service.getPdfData(id, user)
+    const { pdfBuffer } = await this.contractPdf.generateContractPdf(data)
+
+    await reply
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', `attachment; filename="contract-${data.contractNumber}.pdf"`)
+      .send(pdfBuffer)
   }
 }
