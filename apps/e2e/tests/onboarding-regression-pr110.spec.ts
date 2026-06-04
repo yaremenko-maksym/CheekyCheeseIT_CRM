@@ -170,20 +170,17 @@ async function mockPreviewRenderedEndpoint(
   opts: { succeed: boolean },
 ): Promise<{ callCount: () => number }> {
   let calls = 0
-  await page.route(
-    new RegExp(`${API}/contracts/templates/preview-rendered/[^/?]+$`),
-    (r) => {
-      calls++
-      if (!opts.succeed) {
-        return r.fulfill({ status: 500, body: 'Internal Server Error' })
-      }
-      return r.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(RENDERED_PREVIEW),
-      })
-    },
-  )
+  await page.route(new RegExp(`${API}/contracts/templates/preview-rendered/[^/?]+$`), (r) => {
+    calls++
+    if (!opts.succeed) {
+      return r.fulfill({ status: 500, body: 'Internal Server Error' })
+    }
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(RENDERED_PREVIEW),
+    })
+  })
   return { callCount: () => calls }
 }
 
@@ -524,9 +521,7 @@ test.describe('Regression #3 — NotificationsBell не делает 403 на /n
     expect(notifStatuses).not.toContain(403)
   })
 
-  test('JUNIOR: нет 403 на /notifications пока в wizard', async ({
-    asJuniorPage: page,
-  }) => {
+  test('JUNIOR: нет 403 на /notifications пока в wizard', async ({ asJuniorPage: page }) => {
     const forbidden: number[] = []
     page.on('response', (resp) => {
       if (resp.url().includes('/notifications') && resp.status() === 403) {
@@ -589,9 +584,7 @@ test.describe('Regression #4 — wallet addresses valid ETH format', () => {
     }
   })
 
-  test('ADMIN fixture использует валидный v4 UUID (не nil)', async ({
-    asAdminPage: page,
-  }) => {
+  test('ADMIN fixture использует валидный v4 UUID (не nil)', async ({ asAdminPage: page }) => {
     const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
     expect(ADMIN_V4_UUID).toMatch(UUID_V4_RE)
     expect(ADMIN_V4_UUID).not.toBe('00000000-0000-0000-0000-000000000001')
@@ -687,9 +680,7 @@ test.describe('Sign flow — happy path (regression guard for full wizard)', () 
 // ===========================================================================
 
 test.describe('RBAC — onboarding gate', () => {
-  test('ADMIN: bypass — /crm/dashboard без редиректа в wizard', async ({
-    asAdminPage: page,
-  }) => {
+  test('ADMIN: bypass — /crm/dashboard без редиректа в wizard', async ({ asAdminPage: page }) => {
     await page.unroute(`${API}/onboarding/status`)
     await page.route(`${API}/onboarding/status`, (r) =>
       r.fulfill({
