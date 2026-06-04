@@ -13,9 +13,7 @@ describe('auditAllQuerySchema — date validation', () => {
   })
 
   it('accepts ISO 8601 datetime with timezone offset', () => {
-    expect(() =>
-      auditAllQuerySchema.parse({ from: '2026-06-04T09:00:00+02:00' }),
-    ).not.toThrow()
+    expect(() => auditAllQuerySchema.parse({ from: '2026-06-04T09:00:00+02:00' })).not.toThrow()
   })
 
   it('rejects garbage string for from — returns ZodError (400, not 500)', () => {
@@ -32,9 +30,7 @@ describe('auditAllQuerySchema — date validation', () => {
   })
 
   it('rejects SQL injection attempt in from', () => {
-    expect(() =>
-      auditAllQuerySchema.parse({ from: "2026-01-01'; DROP TABLE users; --" }),
-    ).toThrow()
+    expect(() => auditAllQuerySchema.parse({ from: "2026-01-01'; DROP TABLE users; --" })).toThrow()
   })
 
   it('accepts omitted from/to (both optional)', () => {
