@@ -64,12 +64,24 @@ test.describe('Admin actions on user profile', () => {
   })
 
   test('changing role sends PATCH /users/:id/role with new role and shows toast', async ({ asAdmin: page }) => {
-    // Override role PATCH to confirm call was made
-    const rolePatched = page.waitForRequest(
-      (req) =>
-        req.url().includes(`/users/${USERS.junior.id}/role`) && req.method() === 'PATCH',
-      { timeout: 8000 },
-    )
+    // Use route interception to capture the PATCH payload deterministically.
+    // page.waitForRequest races under parallel load — the fixture already
+    // registers a mock for this route; we override it here to also record the
+    // request body before fulfilling.
+    let capturedBody: Record<string, unknown> = {}
+    await page.route(new RegExp(`/api/users/${USERS.junior.id}/role$`), async (route) => {
+      const req = route.request()
+      if (req.method() === 'PATCH') {
+        capturedBody = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ...USERS.junior, role: capturedBody['role'] }),
+        })
+      } else {
+        await route.continue()
+      }
+    })
 
     await page.goto(`/crm/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
@@ -82,11 +94,9 @@ test.describe('Admin actions on user profile', () => {
     await page.getByRole('option', { name: 'HR' }).click()
     await dialog.getByRole('button', { name: 'Сохранить' }).click()
 
-    const req = await rolePatched
-    const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
-    expect(body.role).toBe('HR')
-
+    // Wait for toast — confirms the mutation completed and mock was called
     await expect(page.getByText('Роль изменена')).toBeVisible()
+    expect(capturedBody['role']).toBe('HR')
   })
 
   test('cancelling ChangeRoleDialog sends no PATCH', async ({ asAdmin: page }) => {

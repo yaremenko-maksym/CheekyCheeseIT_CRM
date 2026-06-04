@@ -329,7 +329,22 @@ test.describe('Team page', () => {
 
     test('SENIOR with multiple teams does NOT get redirected', async ({ page }) => {
       await mockAuthAs(page, USERS.senior)
-      // Multiple teams - no redirect
+      // Override /api/teams to return TWO teams so the auto-redirect logic
+      // (which only fires when exactly one team exists) does not trigger.
+      // The default mockAuthAs fixture returns TEAMS (one team) — this
+      // override must be registered AFTER mockAuthAs so it takes precedence.
+      const secondTeam = {
+        ...TEAMS[0],
+        id: 'team-2-id',
+        name: 'Beta Team',
+      }
+      await page.route('**/api/teams', (r) =>
+        r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([TEAMS[0], secondTeam]),
+        }),
+      )
       await page.goto('/crm/team')
       await expect(page).toHaveURL('/crm/team')
       await expect(page.getByText('Alpha Team')).toBeVisible()
@@ -419,8 +434,9 @@ test.describe('Team page', () => {
         r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
       )
       await page.goto('/crm/team')
-      // Page still renders without crashing
-      await expect(page.getByText('Команда')).toBeVisible()
+      // Scope to <main> heading — sidebar also contains a «Команда» nav label
+      // which causes a strict-mode violation if getByText is used without scope.
+      await expect(page.locator('main').getByRole('heading', { name: 'Команда' })).toBeVisible()
     })
 
     test('API error on rename shows no silent failure (page stays open)', async ({ asAdmin: page }) => {

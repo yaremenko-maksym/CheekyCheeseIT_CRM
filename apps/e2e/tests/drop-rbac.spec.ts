@@ -6,7 +6,7 @@
  *     Projects, Interviews, Documents).
  *   - Direct URL hit on /crm/dashboard redirects DROP to /crm/profile
  *     (DashboardPage useEffect guard).
- *   - /crm/users page is admin-only — DROP sees the access-denied notice.
+ *   - /crm/users page is admin-only — DROP is redirected to /crm/profile.
  *   - DROP profile self-view exposes only the DROP-permitted tabs
  *     (overview / team / requisites / finance per spec §4).
  *
@@ -45,9 +45,13 @@ test.describe('Drop RBAC visibility — AC8', () => {
     await expect(page).toHaveURL(/\/crm\/profile/, { timeout: 8_000 })
   })
 
-  test('/crm/users denies DROP access with admin-only notice', async ({ asDrop: page }) => {
+  test('/crm/users denies DROP access — redirects to profile', async ({ asDrop: page }) => {
+    // useRoleGuard(['ADMIN','SENIOR','JUNIOR','HR','ACCOUNTANT']) on /crm/users
+    // does NOT include DROP, so the guard fires navigate({to:'/crm/dashboard'}).
+    // DashboardPage then redirects DROP onward to /crm/profile.
+    // We verify the final resting URL rather than any on-screen text.
     await page.goto('/crm/users')
-    await expect(page.getByText(/доступ только для администратора/i)).toBeVisible({ timeout: 8_000 })
+    await expect(page).toHaveURL(/\/crm\/profile/, { timeout: 8_000 })
   })
 
   test('DROP self-profile renders without Documents / Projects tabs', async ({ asDrop: page }) => {
