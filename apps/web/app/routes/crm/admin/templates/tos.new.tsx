@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { AlertTriangle, ChevronLeft } from 'lucide-react'
+import { MarkdownDiff } from '@/components/admin/MarkdownDiff'
 
 export const Route = createFileRoute('/crm/admin/templates/tos/new')({
   component: TosNewPage,
@@ -185,6 +186,7 @@ function TosNewPage() {
               новой версией Terms of Service.
             </DialogDescription>
           </DialogHeader>
+          <MarkdownDiff oldText={currentTos?.bodyMarkdown ?? ''} newText={currentBody} />
           <DialogFooter>
             <Button
               variant="outline"
