@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config'
 import { APP_GUARD } from '@nestjs/core'
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
+import { AuditModule } from './audit/audit.module'
 import { AuthModule } from './auth/auth.module'
 import { JwtAuthGuard } from './auth/jwt.guard'
 import { OnboardingGuard } from './auth/onboarding.guard'
@@ -49,6 +50,9 @@ import { UsersModule } from './users/users.module'
     ContractsModule,
     TosModule,
     OnboardingModule,
+    // Compliance audit trail (Phase 6 polish PR3) — read-only access to
+    // signed_contracts + tos_acceptances. Self-service + ACCOUNTANT/ADMIN.
+    AuditModule,
     HealthModule,
   ],
   providers: [
