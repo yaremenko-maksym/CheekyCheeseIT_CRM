@@ -105,8 +105,7 @@ const SEED_USERS: schema.NewUser[] = [
     telegram: '@dmytro_march',
     phone: '+380671000004',
     seniorSharePercent: 26,
-    paymentMethod: 'USDT_ERC20',
-    walletUsdtErc20: '0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2',
+    // UN-ONBOARDED: no paymentMethod, no wallet — used for wizard testing (PR A)
     techStack: ['Vue.js', 'TypeScript', 'Python', 'PostgreSQL'],
     createdAt: d(2025, 7, 1),
     updatedAt: d(2025, 7, 1),
