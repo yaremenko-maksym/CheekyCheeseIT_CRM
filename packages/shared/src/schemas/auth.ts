@@ -30,6 +30,13 @@ export const sessionUserSchema = z.object({
    * has no financial meaning.
    */
   seniorSharePercent: z.number().int().min(0).max(100),
+  /**
+   * Legal full name (Cyrillic, Surname First Patronymic). Set by ADMIN.
+   * Used in MSA contract instead of displayName. Null when not yet set.
+   * Surfaced in the session so SignContractStep can display the signature
+   * block and gate the sign button without an extra round-trip.
+   */
+  legalFullName: z.string().nullable().optional(),
 })
 
 export type GoogleCallbackDto = z.infer<typeof googleCallbackSchema>

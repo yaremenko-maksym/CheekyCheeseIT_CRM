@@ -62,7 +62,7 @@ export class SignedContractsService {
     userId: string
     userRole: SessionUser['role']
     /** @deprecated Ignored — resolved server-side from legalFullName (spec §4.3 Option A). */
-    typedName: string
+    typedName: string | undefined
     ip: string | null
     userAgent: string | null
   }) {

@@ -103,6 +103,7 @@ export class AuthController {
       avatarDocumentId: user.avatarDocumentId ?? null,
       role: user.role,
       seniorSharePercent: user.seniorSharePercent,
+      legalFullName: user.legalFullName ?? null,
     })
 
     const token = this.jwtService.sign(payload)
@@ -134,6 +135,7 @@ export class AuthController {
       avatarDocumentId: fresh.avatarDocumentId ?? null,
       role: fresh.role,
       seniorSharePercent: fresh.seniorSharePercent,
+      legalFullName: fresh.legalFullName ?? null,
     })
   }
 
@@ -166,6 +168,7 @@ export class AuthController {
       avatarDocumentId: user.avatarDocumentId ?? null,
       role: user.role,
       seniorSharePercent: user.seniorSharePercent,
+      legalFullName: user.legalFullName ?? null,
     })
 
     const token = this.jwtService.sign(payload)
@@ -206,6 +209,7 @@ export class AuthController {
       avatarDocumentId: user.avatarDocumentId ?? null,
       role: user.role,
       seniorSharePercent: user.seniorSharePercent,
+      legalFullName: user.legalFullName ?? null,
     })
 
     const token = this.jwtService.sign(payload)
