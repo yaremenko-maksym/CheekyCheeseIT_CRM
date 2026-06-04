@@ -429,9 +429,7 @@ function profileExtras(user: (typeof USERS)[keyof typeof USERS]) {
 }
 
 /** Full admin viewing anyone: all tabs + all actions */
-export function buildAdminViewingUser(
-  targetUser: (typeof USERS)[keyof typeof USERS],
-): object {
+export function buildAdminViewingUser(targetUser: (typeof USERS)[keyof typeof USERS]): object {
   return {
     user: { ...targetUser, ...profileExtras(targetUser) },
     permissions: {
@@ -457,9 +455,7 @@ export function buildAdminViewingUser(
 }
 
 /** HR viewing their own senior: overview + projects + team only, no actions */
-export function buildHrViewingSenior(
-  senior: (typeof USERS)[keyof typeof USERS],
-): object {
+export function buildHrViewingSenior(senior: (typeof USERS)[keyof typeof USERS]): object {
   return {
     user: { ...senior, ...profileExtras(senior) },
     permissions: {
@@ -472,9 +468,7 @@ export function buildHrViewingSenior(
 }
 
 /** Junior viewing another junior: header only, no tabs, no actions */
-export function buildJuniorViewingJunior(
-  targetUser: (typeof USERS)[keyof typeof USERS],
-): object {
+export function buildJuniorViewingJunior(targetUser: (typeof USERS)[keyof typeof USERS]): object {
   return {
     user: { ...targetUser, ...profileExtras(targetUser) },
     permissions: {
@@ -487,9 +481,7 @@ export function buildJuniorViewingJunior(
 }
 
 /** Self-view response (used by GET /users/me on profile page) */
-export function buildSelfView(
-  user: (typeof USERS)[keyof typeof USERS],
-): object {
+export function buildSelfView(user: (typeof USERS)[keyof typeof USERS]): object {
   // Mirrors users-access.service.ts isSelf branch.
   // SENIOR: interviews surfaced via header link, not tab.
   // Drop role - phase 1 (AC8): DROP sees Profile / Team / Finance — no
@@ -548,10 +540,7 @@ function noContent(route: Route) {
 // ---------------------------------------------------------------------------
 // Mock all API calls for a given authenticated user
 // ---------------------------------------------------------------------------
-export async function mockAuthAs(
-  page: Page,
-  user: (typeof USERS)[keyof typeof USERS],
-) {
+export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof USERS]) {
   // All routes use the exact API base (localhost:3001/api) to avoid
   // intercepting Vite page navigation requests (localhost:3000).
 
@@ -658,8 +647,20 @@ export async function mockAuthAs(
   // /users/:id/team — used by UserDialog Edit to seed HR/Accountant selections
   await page.route(new RegExp(`${API}/users/([^/?]+)/team$`), (r) =>
     jsonOk(r, [
-      { id: USERS.hr.id, displayName: USERS.hr.displayName, role: 'HR', avatarUrl: null, avatarDocumentId: null },
-      { id: USERS.accountant.id, displayName: USERS.accountant.displayName, role: 'ACCOUNTANT', avatarUrl: null, avatarDocumentId: null },
+      {
+        id: USERS.hr.id,
+        displayName: USERS.hr.displayName,
+        role: 'HR',
+        avatarUrl: null,
+        avatarDocumentId: null,
+      },
+      {
+        id: USERS.accountant.id,
+        displayName: USERS.accountant.displayName,
+        role: 'ACCOUNTANT',
+        avatarUrl: null,
+        avatarDocumentId: null,
+      },
     ]),
   )
 
@@ -710,7 +711,15 @@ export async function mockAuthAs(
   // /users — supports `?archived=true|false` filter
   await page.route(new RegExp(`${API}/users(\\?.*)?$`), (r) => {
     if (r.request().method() === 'POST') {
-      return jsonOk(r, { ...USERS.junior, id: 'new-user-id', ...(JSON.parse(r.request().postData() ?? '{}') as object) }, 201)
+      return jsonOk(
+        r,
+        {
+          ...USERS.junior,
+          id: 'new-user-id',
+          ...(JSON.parse(r.request().postData() ?? '{}') as object),
+        },
+        201,
+      )
     }
     const url = new URL(r.request().url())
     const archived = url.searchParams.get('archived') === 'true'
@@ -741,8 +750,8 @@ export async function mockAuthAs(
     return r.request().method() === 'DELETE'
       ? noContent(r)
       : r.request().method() === 'GET'
-      ? jsonOk(r, team)
-      : jsonOk(r, { ...team, ...(JSON.parse(r.request().postData() ?? '{}') as object) })
+        ? jsonOk(r, team)
+        : jsonOk(r, { ...team, ...(JSON.parse(r.request().postData() ?? '{}') as object) })
   })
   await page.route(`${API}/teams`, (r) =>
     r.request().method() === 'POST'
@@ -769,9 +778,15 @@ export async function mockAuthAs(
     const url = new URL(r.request().url())
     const archivedParam = url.searchParams.get('archived')
     if (archivedParam === 'true') {
-      return jsonOk(r, PROJECTS.filter((p) => p.archivedAt !== null))
+      return jsonOk(
+        r,
+        PROJECTS.filter((p) => p.archivedAt !== null),
+      )
     }
-    return jsonOk(r, PROJECTS.filter((p) => p.archivedAt === null))
+    return jsonOk(
+      r,
+      PROJECTS.filter((p) => p.archivedAt === null),
+    )
   })
 
   // Interviews
@@ -848,9 +863,7 @@ export async function mockAuthAs(
   await page.route(new RegExp(`${API}/finance/expenses/([^/?]+)`), (r) =>
     jsonOk(r, { id: r.request().url().split('/').at(-1) }),
   )
-  await page.route(new RegExp(`${API}/finance/junior-payments(\\?.*)?$`), (r) =>
-    jsonOk(r, []),
-  )
+  await page.route(new RegExp(`${API}/finance/junior-payments(\\?.*)?$`), (r) => jsonOk(r, []))
   await page.route(new RegExp(`${API}/finance/invoices(\\?.*)?$`), (r) =>
     r.request().method() === 'POST'
       ? jsonOk(r, { id: 'inv-new', status: 'DRAFT' }, 201)
@@ -870,9 +883,7 @@ export async function mockAuthAs(
   await page.route(new RegExp(`${API}/finance/exchange-rate(\\?.*)?$`), (r) =>
     jsonOk(r, { usdUah: '41.50', usdtUah: '41.50', eurUah: '44.80', date: '2026-05-10' }),
   )
-  await page.route(new RegExp(`${API}/finance/chart(/.*)?$`), (r) =>
-    jsonOk(r, []),
-  )
+  await page.route(new RegExp(`${API}/finance/chart(/.*)?$`), (r) => jsonOk(r, []))
   await page.route(new RegExp(`${API}/finance/partner-balance(\\?.*)?$`), (r) =>
     jsonOk(r, {
       maksymSpentUsd: '6000.00',
@@ -881,11 +892,23 @@ export async function mockAuthAs(
       debtDirection: 'SETTLED',
     }),
   )
-  await page.route(new RegExp(`${API}/finance/my-salary(\\?.*)?$`), (r) =>
-    jsonOk(r, []),
-  )
+  await page.route(new RegExp(`${API}/finance/my-salary(\\?.*)?$`), (r) => jsonOk(r, []))
   await page.route(new RegExp(`${API}/finance/expenses/hints(\\?.*)?$`), (r) =>
     jsonOk(r, { projects: [], users: [] }),
+  )
+
+  // Onboarding (Phase 6B) — default: fully onboarded, no wizard redirect.
+  // Tests that need unboarded state call mockOnboardingApi() AFTER mockAuthAs();
+  // Playwright's LIFO route-handler stack ensures the later registration wins.
+  await page.route(`${API}/onboarding/status`, (r) =>
+    jsonOk(r, {
+      requiresContract: false,
+      requiresTos: false,
+      contractTemplate: null,
+      tosVersion: null,
+      tosUpdateAvailable: false,
+      latestTosVersion: null,
+    }),
   )
 
   // Documents (PHASE 6) — register specific sub-routes before the generic one.
@@ -899,9 +922,7 @@ export async function mockAuthAs(
       expiresAt: '2099-01-01T00:00:00.000Z',
     }),
   )
-  await page.route(new RegExp(`${API}/documents/([^/?]+)/thumbnail$`), (r) =>
-    jsonOk(r, null),
-  )
+  await page.route(new RegExp(`${API}/documents/([^/?]+)/thumbnail$`), (r) => jsonOk(r, null))
   await page.route(new RegExp(`${API}/documents/([^/?]+)/restore$`), (r) =>
     jsonOk(r, {
       id: r.request().url().split('/').slice(-2, -1)[0],
@@ -920,9 +941,7 @@ export async function mockAuthAs(
       createdAt: '2026-05-01T10:00:00.000Z',
     }),
   )
-  await page.route(new RegExp(`${API}/documents/([^/?]+)/hard$`), (r) =>
-    noContent(r),
-  )
+  await page.route(new RegExp(`${API}/documents/([^/?]+)/hard$`), (r) => noContent(r))
   await page.route(new RegExp(`${API}/documents/([^/?]+)$`), (r) =>
     r.request().method() === 'DELETE'
       ? noContent(r)
@@ -1086,9 +1105,7 @@ export async function loginViaApi(page: Page, email: string): Promise<void> {
     data: { email },
   })
   if (res.status() !== 200 && res.status() !== 201) {
-    throw new Error(
-      `dev-login failed for ${email}: HTTP ${res.status()} — ${await res.text()}`,
-    )
+    throw new Error(`dev-login failed for ${email}: HTTP ${res.status()} — ${await res.text()}`)
   }
 }
 
@@ -1103,7 +1120,12 @@ export async function findUserByEmailViaApi(
 ): Promise<{ id: string; displayName: string; role: string } | null> {
   const res = await page.request.get(`${REAL_API_BASE}/api/users`)
   if (res.status() !== 200) return null
-  const users = (await res.json()) as Array<{ id: string; email: string; displayName: string; role: string }>
+  const users = (await res.json()) as Array<{
+    id: string
+    email: string
+    displayName: string
+    role: string
+  }>
   const found = users.find((u) => u.email === email)
   return found ? { id: found.id, displayName: found.displayName, role: found.role } : null
 }
@@ -1162,7 +1184,11 @@ export async function createDropViaAPI(
       `createDropViaAPI failed for ${opts.email}: HTTP ${res.status()} — ${await res.text()}`,
     )
   }
-  const body = (await res.json()) as { user: { id: string; email: string }; teamId?: string; team?: { id: string } }
+  const body = (await res.json()) as {
+    user: { id: string; email: string }
+    teamId?: string
+    team?: { id: string }
+  }
   // Service returns `{ user, teamId }`; some clients (UserDialog) read
   // `team.id`. Accept both shapes defensively.
   const teamId = body.teamId ?? body.team?.id
@@ -1190,9 +1216,7 @@ export async function addSeniorToDropTeamViaAPI(
     data: { userId: senior.id },
   })
   if (res.status() !== 201 && res.status() !== 200) {
-    throw new Error(
-      `addSeniorToDropTeamViaAPI failed: HTTP ${res.status()} — ${await res.text()}`,
-    )
+    throw new Error(`addSeniorToDropTeamViaAPI failed: HTTP ${res.status()} — ${await res.text()}`)
   }
   return { seniorId: senior.id }
 }
@@ -1216,7 +1240,13 @@ export async function archiveDropTeamViaAPI(page: Page, teamId: string): Promise
 export async function getTeamViaAPI(
   page: Page,
   teamId: string,
-): Promise<{ id: string; name: string; type: string; archivedAt: string | null; members: Array<{ userId: string; role: string; leftAt: string | null }> }> {
+): Promise<{
+  id: string
+  name: string
+  type: string
+  archivedAt: string | null
+  members: Array<{ userId: string; role: string; leftAt: string | null }>
+}> {
   const res = await page.request.get(`${REAL_API_BASE}/api/teams/${teamId}`)
   if (res.status() !== 200) {
     throw new Error(`GET /api/teams/${teamId} failed: HTTP ${res.status()} — ${await res.text()}`)
@@ -1233,7 +1263,9 @@ export async function getUserViaAPI(
   if (res.status() !== 200) {
     throw new Error(`GET /api/users/${userId} failed: HTTP ${res.status()} — ${await res.text()}`)
   }
-  const body = (await res.json()) as { user: { id: string; email: string; role: string; archivedAt: string | null } }
+  const body = (await res.json()) as {
+    user: { id: string; email: string; role: string; archivedAt: string | null }
+  }
   return body.user
 }
 
@@ -1254,12 +1286,22 @@ export async function getDropProjectsViaAPI(
     page.request.get(`${REAL_API_BASE}/api/projects`),
     page.request.get(`${REAL_API_BASE}/api/projects?archived=true`),
   ])
-  const active = activeRes.status() === 200
-    ? ((await activeRes.json()) as Array<{ id: string; dropId: string | null; archivedAt: string | null }>)
-    : []
-  const archived = archivedRes.status() === 200
-    ? ((await archivedRes.json()) as Array<{ id: string; dropId: string | null; archivedAt: string | null }>)
-    : []
+  const active =
+    activeRes.status() === 200
+      ? ((await activeRes.json()) as Array<{
+          id: string
+          dropId: string | null
+          archivedAt: string | null
+        }>)
+      : []
+  const archived =
+    archivedRes.status() === 200
+      ? ((await archivedRes.json()) as Array<{
+          id: string
+          dropId: string | null
+          archivedAt: string | null
+        }>)
+      : []
   return [...active, ...archived].filter((p) => p.dropId === dropId)
 }
 
@@ -1342,9 +1384,7 @@ export async function createDropProjectViaAPI(
 
   const res = await page.request.post(`${REAL_API_BASE}/api/projects`, { data: payload })
   if (res.status() !== 201 && res.status() !== 200) {
-    throw new Error(
-      `createDropProjectViaAPI failed: HTTP ${res.status()} — ${await res.text()}`,
-    )
+    throw new Error(`createDropProjectViaAPI failed: HTTP ${res.status()} — ${await res.text()}`)
   }
   const body = (await res.json()) as { id: string; dropId: string | null; seniorId: string }
   if (!body.dropId) {
@@ -1388,9 +1428,7 @@ export async function createSeniorProjectViaAPI(
 
   const res = await page.request.post(`${REAL_API_BASE}/api/projects`, { data: payload })
   if (res.status() !== 201 && res.status() !== 200) {
-    throw new Error(
-      `createSeniorProjectViaAPI failed: HTTP ${res.status()} — ${await res.text()}`,
-    )
+    throw new Error(`createSeniorProjectViaAPI failed: HTTP ${res.status()} — ${await res.text()}`)
   }
   const body = (await res.json()) as { id: string; seniorId: string }
   return { projectId: body.id, seniorId: body.seniorId }
@@ -1427,7 +1465,10 @@ export async function createDropIncomeViaAPI(
     currency: opts.currency ?? 'USDT',
     ...(opts.receiptDocumentId
       ? { receiptDocumentId: opts.receiptDocumentId }
-      : { receiptExternalUrl: opts.receiptExternalUrl ?? 'https://drive.example.com/drop-receipt.pdf' }),
+      : {
+          receiptExternalUrl:
+            opts.receiptExternalUrl ?? 'https://drive.example.com/drop-receipt.pdf',
+        }),
     ...(opts.notes !== undefined && { notes: opts.notes }),
     ...(opts.txDate !== undefined && { txDate: opts.txDate }),
   }
@@ -1435,9 +1476,7 @@ export async function createDropIncomeViaAPI(
     data: payload,
   })
   if (res.status() !== 201 && res.status() !== 200) {
-    throw new Error(
-      `createDropIncomeViaAPI failed: HTTP ${res.status()} — ${await res.text()}`,
-    )
+    throw new Error(`createDropIncomeViaAPI failed: HTTP ${res.status()} — ${await res.text()}`)
   }
   const body = (await res.json()) as { id: string; status: string; amount: string }
   return { txId: body.id, status: body.status, amount: body.amount }
@@ -1468,7 +1507,10 @@ export async function createSeniorIncomeViaAPI(
     currency: opts.currency ?? 'USDT',
     ...(opts.receiptDocumentId
       ? { receiptDocumentId: opts.receiptDocumentId }
-      : { receiptExternalUrl: opts.receiptExternalUrl ?? 'https://drive.example.com/senior-receipt.pdf' }),
+      : {
+          receiptExternalUrl:
+            opts.receiptExternalUrl ?? 'https://drive.example.com/senior-receipt.pdf',
+        }),
     ...(opts.notes !== undefined && { notes: opts.notes }),
     ...(opts.txDate !== undefined && { txDate: opts.txDate }),
   }
@@ -1476,9 +1518,7 @@ export async function createSeniorIncomeViaAPI(
     data: payload,
   })
   if (res.status() !== 201 && res.status() !== 200) {
-    throw new Error(
-      `createSeniorIncomeViaAPI failed: HTTP ${res.status()} — ${await res.text()}`,
-    )
+    throw new Error(`createSeniorIncomeViaAPI failed: HTTP ${res.status()} — ${await res.text()}`)
   }
   const body = (await res.json()) as { id: string; status: string; amount: string }
   return { txId: body.id, status: body.status, amount: body.amount }
@@ -1500,10 +1540,9 @@ export async function validateTransactionViaAPI(
   page: Page,
   txId: string,
 ): Promise<{ payoutRequestId: string | null }> {
-  const res = await page.request.patch(
-    `${REAL_API_BASE}/api/transactions/${txId}/validate`,
-    { data: { action: 'validate' } },
-  )
+  const res = await page.request.patch(`${REAL_API_BASE}/api/transactions/${txId}/validate`, {
+    data: { action: 'validate' },
+  })
   if (res.status() !== 200) {
     throw new Error(
       `validateTransactionViaAPI failed for ${txId}: HTTP ${res.status()} — ${await res.text()}`,
@@ -1629,9 +1668,7 @@ export async function listTransactionsByProjectViaAPI(
     projectId: string | null
   }>
 > {
-  const res = await page.request.get(
-    `${REAL_API_BASE}/api/transactions?projectId=${projectId}`,
-  )
+  const res = await page.request.get(`${REAL_API_BASE}/api/transactions?projectId=${projectId}`)
   if (res.status() !== 200) {
     throw new Error(
       `listTransactionsByProjectViaAPI failed for ${projectId}: HTTP ${res.status()} — ${await res.text()}`,
@@ -1813,9 +1850,7 @@ export async function findPendingPayoutsForProjectViaAPI(
     payoutRequestId: string | null
   }>
 > {
-  const res = await page.request.get(
-    `${REAL_API_BASE}/api/transactions?projectId=${projectId}`,
-  )
+  const res = await page.request.get(`${REAL_API_BASE}/api/transactions?projectId=${projectId}`)
   if (res.status() !== 200) {
     throw new Error(
       `findPendingPayoutsForProjectViaAPI failed for ${projectId}: HTTP ${res.status()} — ${await res.text()}`,

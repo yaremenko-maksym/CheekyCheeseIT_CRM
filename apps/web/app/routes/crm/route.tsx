@@ -1,5 +1,6 @@
-import { createFileRoute, Link, Outlet, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
+import { useQuery } from '@tanstack/react-query'
 import { AuthProvider } from '@/context/auth'
 import { NotificationsProvider } from '@/context/notifications'
 import { LogOut, Menu, Search, UserCircle } from 'lucide-react'
@@ -10,6 +11,7 @@ import { NavSidebar } from '@/components/crm/nav-sidebar'
 import { BrandMark } from '@/components/brand-mark'
 import { NotificationsBell } from '@/components/layout/notifications-bell'
 import { UserAvatar } from '@/components/users/UserAvatar'
+import { TosUpdateBanner } from '@/components/onboarding/TosUpdateBanner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -22,6 +24,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import type { OnboardingStatusDto } from '@crm/shared'
 
 export const Route = createFileRoute('/crm')({
   component: CrmRoot,
@@ -42,11 +45,32 @@ function CrmRoot() {
 function CrmLayout() {
   const { user, isLoading } = useAuth()
   const navigate = useNavigate()
+  const location = useRouterState({ select: (s) => s.location })
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false
     return localStorage.getItem('sidebar-collapsed') === 'true'
   })
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  // Onboarding gate: fetch status after user is authenticated
+  const { data: onboardingStatus } = useQuery<OnboardingStatusDto>({
+    queryKey: ['onboarding-status'],
+    queryFn: async () => {
+      const res = await api.get<OnboardingStatusDto>('/onboarding/status')
+      return res.data
+    },
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  // Redirect to onboarding if contract or ToS not completed
+  useEffect(() => {
+    if (!onboardingStatus) return
+    const onOnboardingRoute = location.pathname.startsWith('/crm/onboarding')
+    if ((onboardingStatus.requiresContract || onboardingStatus.requiresTos) && !onOnboardingRoute) {
+      void navigate({ to: '/crm/onboarding' })
+    }
+  }, [onboardingStatus, location.pathname, navigate])
 
   // ut-21 follow-up (Reviewer round 4 nit): ambient background blobs should
   // not consume CPU when the tab is hidden. We pause framer-motion by toggling
@@ -262,6 +286,9 @@ function CrmLayout() {
           </div>
         </div>
       </header>
+
+      {/* Soft-notify banner: user accepted an older ToS version, new one available */}
+      {onboardingStatus?.tosUpdateAvailable && !onboardingStatus.requiresTos && <TosUpdateBanner />}
 
       <div className="flex flex-1 overflow-hidden">
         <NavSidebar
