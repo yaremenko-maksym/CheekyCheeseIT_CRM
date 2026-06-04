@@ -1352,6 +1352,10 @@ export class UsersService {
       filteredUser.bankUahRnokpp = null
       filteredUser.bankUahBankName = null
     }
+    // legalFullName is passport PII — visible only to ADMIN and the user themselves.
+    if (!permissions.fields.legalName) {
+      filteredUser.legalFullName = null
+    }
 
     const data: Record<string, unknown> = {}
     if (permissions.tabs.includes('overview')) {
