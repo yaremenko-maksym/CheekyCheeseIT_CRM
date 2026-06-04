@@ -42,8 +42,7 @@ test.describe('Auth flow', () => {
       // This is expected behaviour — exclude this single 401 from the assert
       // (any OTHER 401 or any other status code still counts as a bug).
       const isAuthMeProbe401 =
-        text.includes('401') &&
-        (text.includes('auth/me') || text.includes('Unauthorized'))
+        text.includes('401') && (text.includes('auth/me') || text.includes('Unauthorized'))
       if (isAuthMeProbe401) return
       // When backend is down the browser logs a bare "Failed to load resource:
       // net::ERR_CONNECTION_REFUSED" for the /api/auth/me probe — the only
@@ -134,7 +133,10 @@ test.describe('Auth flow', () => {
     }
     // dev-login sets a HttpOnly cookie; Playwright's request context shares cookies
     // with the browser context, so subsequent navigation sees the cookie.
-    test.skip(res.status() !== 200 && res.status() !== 201, 'dev-login unavailable in this environment')
+    test.skip(
+      res.status() !== 200 && res.status() !== 201,
+      'dev-login unavailable in this environment',
+    )
     await page.goto('/crm/login')
     await page.waitForURL((url) => !url.pathname.endsWith('/login'), { timeout: 10000 })
     expect(page.url()).not.toMatch(/\/crm\/login/)

@@ -164,7 +164,10 @@ test.describe('Team page', () => {
       await page.getByRole('button', { name: 'Добавить' }).click()
       // Click first available user in the list
       await page.getByRole('dialog').getByText('Junior Dev').click()
-      await page.getByRole('dialog').getByRole('button', { name: /^Добавить/ }).click()
+      await page
+        .getByRole('dialog')
+        .getByRole('button', { name: /^Добавить/ })
+        .click()
       await postReq
     })
 
@@ -228,7 +231,7 @@ test.describe('Team page', () => {
       // Members should be in flat list - check presence of team members by name
       await expect(page.getByText('Senior Dev')).toBeVisible()
       await expect(page.getByText('HR Manager')).toBeVisible()
-      
+
       // Flat list verified by member name presence above — no role section headers
     })
 
@@ -253,7 +256,7 @@ test.describe('Team page', () => {
     test('shows error state for non-existent team', async ({ page }) => {
       await mockAuthAs(page, USERS.admin)
       await page.route('**/api/teams/non-existent-id', (r) =>
-        r.fulfill({ status: 404, body: '{"message":"Team not found"}' })
+        r.fulfill({ status: 404, body: '{"message":"Team not found"}' }),
       )
 
       await page.goto('/crm/team/non-existent-id')
@@ -273,8 +276,8 @@ test.describe('Team page', () => {
         r.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify([TEAMS[0]]) // Only one team
-        })
+          body: JSON.stringify([TEAMS[0]]), // Only one team
+        }),
       )
 
       await page.goto('/crm/team')
@@ -288,8 +291,8 @@ test.describe('Team page', () => {
         r.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify([TEAMS[0]]) // Only one team
-        })
+          body: JSON.stringify([TEAMS[0]]), // Only one team
+        }),
       )
 
       await page.goto('/crm/team')
@@ -297,13 +300,15 @@ test.describe('Team page', () => {
       await expect(page).toHaveURL(`/crm/team/${TEAMS[0]!.id}`)
     })
 
-    test('ADMIN with single team does NOT get redirected (can manage)', async ({ asAdmin: page }) => {
+    test('ADMIN with single team does NOT get redirected (can manage)', async ({
+      asAdmin: page,
+    }) => {
       await page.route('**/api/teams', (r) =>
         r.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify([TEAMS[0]]) // Only one team
-        })
+          body: JSON.stringify([TEAMS[0]]), // Only one team
+        }),
       )
 
       await page.goto('/crm/team')
@@ -317,8 +322,8 @@ test.describe('Team page', () => {
         r.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify([TEAMS[0]]) // Only one team
-        })
+          body: JSON.stringify([TEAMS[0]]), // Only one team
+        }),
       )
 
       await page.goto('/crm/team')
@@ -439,7 +444,9 @@ test.describe('Team page', () => {
       await expect(page.locator('main').getByRole('heading', { name: 'Команда' })).toBeVisible()
     })
 
-    test('API error on rename shows no silent failure (page stays open)', async ({ asAdmin: page }) => {
+    test('API error on rename shows no silent failure (page stays open)', async ({
+      asAdmin: page,
+    }) => {
       // ut-39a: rename moved to detail page — exercise the edit button there.
       // Override PATCH to 500 but leave the existing fixture-level GET mock
       // intact (registering a wildcard would also intercept the detail-page
@@ -489,8 +496,8 @@ test.describe('Team page', () => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
 
       // Set up request interception to verify PATCH payload
-      const patchReq = page.waitForRequest((req) =>
-        req.url().includes(`/teams/${TEAMS[0]!.id}`) && req.method() === 'PATCH'
+      const patchReq = page.waitForRequest(
+        (req) => req.url().includes(`/teams/${TEAMS[0]!.id}`) && req.method() === 'PATCH',
       )
 
       // Open edit dialog
@@ -510,7 +517,7 @@ test.describe('Team page', () => {
       expect(payload).toMatchObject({
         name: expect.any(String),
         telegram: 'https://t.me/test_team',
-        notes: 'Test team notes'
+        notes: 'Test team notes',
       })
     })
   })
@@ -631,7 +638,9 @@ test.describe('Team page', () => {
       await expect(mainContent).not.toHaveClass(/grid-cols-3/)
     })
 
-    test('JUNIOR sees filtered member list (no other JUNIORs) and only own projects', async ({ asJunior: page }) => {
+    test('JUNIOR sees filtered member list (no other JUNIORs) and only own projects', async ({
+      asJunior: page,
+    }) => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
 
       // Should see team page
@@ -661,7 +670,7 @@ test.describe('Team page', () => {
             return route.fulfill({
               status: 400,
               contentType: 'application/json',
-              body: JSON.stringify({ message: 'Team already has a senior' })
+              body: JSON.stringify({ message: 'Team already has a senior' }),
             })
           }
         }
@@ -686,7 +695,7 @@ test.describe('Team page', () => {
             return route.fulfill({
               status: 400,
               contentType: 'application/json',
-              body: JSON.stringify({ message: 'Junior already has an active project' })
+              body: JSON.stringify({ message: 'Junior already has an active project' }),
             })
           }
         }
@@ -718,30 +727,34 @@ test.describe('Team page', () => {
   // ---------------------------------------------------------------------------
 
   test.describe('UI Improvements — PR #18', () => {
-    test('displays member contact information: phone, telegram, email', async ({ asAdmin: page }) => {
+    test('displays member contact information: phone, telegram, email', async ({
+      asAdmin: page,
+    }) => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
 
       // Check member card shows contact info with appropriate icons
       const memberCards = page.locator('[class*="border border-border/60"]')
       const firstCard = memberCards.first()
-      
+
       // Email should be visible
-      await expect(firstCard.locator('[class*="flex items-center gap-1"] >> text=/.*@.*/')).toBeVisible()
-      
+      await expect(
+        firstCard.locator('[class*="flex items-center gap-1"] >> text=/.*@.*/'),
+      ).toBeVisible()
+
       // Phone and Telegram are optional but should appear with icons if present
       // (Test will pass regardless of whether data exists in seed)
     })
 
     test('shows Telegram channel link in team header when available', async ({ asAdmin: page }) => {
       // Mock team with telegram field
-      await page.route(`**/api/teams/${TEAMS[0]!.id}`, route => {
+      await page.route(`**/api/teams/${TEAMS[0]!.id}`, (route) => {
         route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
             ...TEAMS[0],
-            telegram: 'https://t.me/test_channel'
-          })
+            telegram: 'https://t.me/test_channel',
+          }),
         })
       })
 
@@ -749,29 +762,35 @@ test.describe('Team page', () => {
 
       // Check Telegram link appears in header
       await expect(page.getByText('Telegram-канал')).toBeVisible()
-      
+
       const telegramLink = page.locator('a[href="https://t.me/test_channel"]')
       await expect(telegramLink).toBeVisible()
       await expect(telegramLink).toHaveAttribute('target', '_blank')
     })
 
-    test('shows Telegram link in team list row when team has telegram channel', async ({ asAdmin: page }) => {
+    test('shows Telegram link in team list row when team has telegram channel', async ({
+      asAdmin: page,
+    }) => {
       // Mock teams list with telegram field
-      await page.route('**/api/teams', route => {
+      await page.route('**/api/teams', (route) => {
         route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify([{
-            ...TEAMS[0],
-            telegram: 'https://t.me/alpha_team'
-          }])
+          body: JSON.stringify([
+            {
+              ...TEAMS[0],
+              telegram: 'https://t.me/alpha_team',
+            },
+          ]),
         })
       })
 
       await page.goto('/crm/team')
 
       // Round5: TG link is a styled pill with text "Telegram" (not "TG") in the Pills block
-      const telegramLink = page.locator('a[href="https://t.me/alpha_team"]').filter({ hasText: 'Telegram' })
+      const telegramLink = page
+        .locator('a[href="https://t.me/alpha_team"]')
+        .filter({ hasText: 'Telegram' })
       await expect(telegramLink).toBeVisible()
 
       // Verify it doesn't trigger card navigation when clicked
@@ -785,7 +804,7 @@ test.describe('Team page', () => {
       // Role filter dropdown should not exist
       await expect(page.getByRole('combobox').filter({ hasText: 'Все роли' })).not.toBeVisible()
       await expect(page.getByRole('combobox').filter({ hasText: 'Всі ролі' })).not.toBeVisible()
-      
+
       // Only search and sort should be present
       await expect(page.getByPlaceholder('Поиск по названию…')).toBeVisible()
       await expect(page.getByRole('combobox').filter({ hasText: 'Название' })).toBeVisible()
@@ -797,31 +816,40 @@ test.describe('Team page', () => {
       // Verify flat list structure by checking member names are visible (not role headers)
       await expect(page.getByText('Senior Dev')).toBeVisible()
       await expect(page.getByText('HR Manager')).toBeVisible()
-      
+
       // Members should be in grid layout
-      const memberGrid = page.locator('[data-testid="team-members-grid"]').or(page.locator('main').getByText('Участники команды').locator('..').locator('..').locator('.grid'))
+      const memberGrid = page
+        .locator('[data-testid="team-members-grid"]')
+        .or(
+          page
+            .locator('main')
+            .getByText('Участники команды')
+            .locator('..')
+            .locator('..')
+            .locator('.grid'),
+        )
       await expect(memberGrid).toBeVisible()
-      
+
       // Role badges should be visible as inline badges, not section headers
       await expect(page.locator('[class*="bg-"]').first()).toBeVisible() // role badge
     })
 
     test('all UI text is in Russian (no Ukrainian)', async ({ asAdmin: page }) => {
       await page.goto('/crm/team')
-      
+
       // List page Russian text
       await expect(page.getByPlaceholder('Поиск по названию…')).toBeVisible()
       await expect(page.getByText('Ничего не найдено')).not.toBeVisible() // Will be visible only if search yields no results
-      
+
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
-      
+
       // Detail page Russian text
       await expect(page.getByText('Участники команды')).toBeVisible()
       await expect(page.getByText('Создана', { exact: false })).toBeVisible()
       await expect(page.getByText('Активные проекты')).toBeVisible()
       await expect(page.getByRole('button', { name: 'Добавить' })).toBeVisible()
       await expect(page.getByRole('button', { name: 'Редактировать' })).toBeVisible()
-      
+
       // Verify NO Ukrainian text is present
       await expect(page.getByText('Учасники команди')).not.toBeVisible()
       await expect(page.getByText('Створена')).not.toBeVisible()
@@ -832,17 +860,17 @@ test.describe('Team page', () => {
 
     test('edit dialog contains updated Russian labels and hints', async ({ asAdmin: page }) => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
-      
+
       await page.getByRole('button', { name: 'Редактировать' }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
-      
+
       // Check Russian field labels and placeholders
       await expect(page.getByPlaceholder('Название команды')).toBeVisible()
       await expect(page.getByText('Ссылка на Telegram-чат команды')).toBeVisible()
       await expect(page.getByPlaceholder('Внутренние заметки…')).toBeVisible()
       await expect(page.getByRole('button', { name: 'Отмена' })).toBeVisible()
       await expect(page.getByRole('button', { name: 'Сохранить' })).toBeVisible()
-      
+
       // Verify NO Ukrainian text
       await expect(page.getByText('Назва команди')).not.toBeVisible()
       await expect(page.getByText('Посилання на Telegram-чат команди')).not.toBeVisible()
@@ -857,23 +885,30 @@ test.describe('Team page', () => {
   // ---------------------------------------------------------------------------
 
   test.describe('Teams UI Polish — PR #22', () => {
-    test('telegram link in team list appears as styled pill with Send icon and blue color', async ({ asAdmin: page }) => {
+    test('telegram link in team list appears as styled pill with Send icon and blue color', async ({
+      asAdmin: page,
+    }) => {
       // Mock teams list with telegram field
-      await page.route('**/api/teams', route => {
+      await page.route('**/api/teams', (route) => {
         route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify([{
-            ...TEAMS[0],
-            telegram: 'https://t.me/alpha_team_polish'
-          }])
+          body: JSON.stringify([
+            {
+              ...TEAMS[0],
+              telegram: 'https://t.me/alpha_team_polish',
+            },
+          ]),
         })
       })
 
       await page.goto('/crm/team')
 
       // Round5: TG link lives in the Pills block as a styled pill with text "Telegram"
-      const telegramLink = page.locator('main').locator('a[href="https://t.me/alpha_team_polish"]').filter({ hasText: 'Telegram' })
+      const telegramLink = page
+        .locator('main')
+        .locator('a[href="https://t.me/alpha_team_polish"]')
+        .filter({ hasText: 'Telegram' })
 
       await expect(telegramLink).toBeVisible()
 
@@ -892,37 +927,37 @@ test.describe('Team page', () => {
 
     test('member contacts are clickable links with proper protocols', async ({ asAdmin: page }) => {
       // Mock team with contact information
-      await page.route(`**/api/teams/${TEAMS[0]!.id}`, route => {
+      await page.route(`**/api/teams/${TEAMS[0]!.id}`, (route) => {
         const teamWithContacts = {
           ...TEAMS[0],
-          members: TEAMS[0]!.members.map(m => ({
+          members: TEAMS[0]!.members.map((m) => ({
             ...m,
             email: `${m.displayName.toLowerCase().replace(' ', '.')}@example.com`,
             phone: '+380123456789',
-            telegram: 'https://t.me/testuser'
-          }))
+            telegram: 'https://t.me/testuser',
+          })),
         }
         route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify(teamWithContacts)
+          body: JSON.stringify(teamWithContacts),
         })
       })
 
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
 
       const memberCard = page.locator('main').locator('[class*="border border-border/60"]').first()
-      
+
       // Check email link with mailto protocol
       const emailLink = memberCard.locator('a[href^="mailto:"]')
       await expect(emailLink).toBeVisible()
       await expect(emailLink).toHaveAttribute('href', /^mailto:/)
-      
+
       // Check phone link with tel protocol
       const phoneLink = memberCard.locator('a[href^="tel:"]')
       await expect(phoneLink).toBeVisible()
       await expect(phoneLink).toHaveAttribute('href', 'tel:+380123456789')
-      
+
       // Check telegram link with target="_blank"
       const telegramLink = memberCard.locator('a[href="https://t.me/testuser"]')
       await expect(telegramLink).toBeVisible()
@@ -932,18 +967,18 @@ test.describe('Team page', () => {
 
     test('telegram in member card displays as @username format', async ({ asAdmin: page }) => {
       // Mock team member with telegram
-      await page.route(`**/api/teams/${TEAMS[0]!.id}`, route => {
+      await page.route(`**/api/teams/${TEAMS[0]!.id}`, (route) => {
         const teamWithTelegram = {
           ...TEAMS[0],
-          members: TEAMS[0]!.members.map(m => ({
+          members: TEAMS[0]!.members.map((m) => ({
             ...m,
-            telegram: 'https://t.me/john_doe'
-          }))
+            telegram: 'https://t.me/john_doe',
+          })),
         }
         route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify(teamWithTelegram)
+          body: JSON.stringify(teamWithTelegram),
         })
       })
 
@@ -952,22 +987,24 @@ test.describe('Team page', () => {
       // Check that telegram displays as @username, not full URL
       const memberCard = page.locator('main').locator('[class*="border border-border/60"]').first()
       const telegramLink = memberCard.locator('a[href="https://t.me/john_doe"]')
-      
+
       await expect(telegramLink).toBeVisible()
       await expect(telegramLink).toContainText('@john_doe')
       await expect(telegramLink).not.toContainText('https://t.me/')
     })
 
-    test('team telegram channel in header appears as styled blue button', async ({ asAdmin: page }) => {
+    test('team telegram channel in header appears as styled blue button', async ({
+      asAdmin: page,
+    }) => {
       // Mock team with telegram channel
-      await page.route(`**/api/teams/${TEAMS[0]!.id}`, route => {
+      await page.route(`**/api/teams/${TEAMS[0]!.id}`, (route) => {
         route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
             ...TEAMS[0],
-            telegram: 'https://t.me/team_channel_polish'
-          })
+            telegram: 'https://t.me/team_channel_polish',
+          }),
         })
       })
 
@@ -994,51 +1031,66 @@ test.describe('Team page', () => {
       await expect(headerTelegramLink).toHaveAttribute('rel', 'noopener noreferrer')
     })
 
-    test('all telegram links use Send icon instead of other message icons', async ({ asAdmin: page }) => {
+    test('all telegram links use Send icon instead of other message icons', async ({
+      asAdmin: page,
+    }) => {
       // Mock complete data with telegram links
-      await page.route('**/api/teams', route => {
+      await page.route('**/api/teams', (route) => {
         route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify([{
-            ...TEAMS[0],
-            telegram: 'https://t.me/list_team'
-          }])
+          body: JSON.stringify([
+            {
+              ...TEAMS[0],
+              telegram: 'https://t.me/list_team',
+            },
+          ]),
         })
       })
 
-      await page.route(`**/api/teams/${TEAMS[0]!.id}`, route => {
+      await page.route(`**/api/teams/${TEAMS[0]!.id}`, (route) => {
         const teamWithTelegram = {
           ...TEAMS[0],
           telegram: 'https://t.me/header_team',
-          members: TEAMS[0]!.members.map(m => ({
+          members: TEAMS[0]!.members.map((m) => ({
             ...m,
-            telegram: 'https://t.me/member_user'
-          }))
+            telegram: 'https://t.me/member_user',
+          })),
         }
         route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify(teamWithTelegram)
+          body: JSON.stringify(teamWithTelegram),
         })
       })
 
       // Check team list page — scope to main to avoid duplicates in sidebar/header
       await page.goto('/crm/team')
-      const listTelegramIcon = page.locator('main').locator('a[href="https://t.me/list_team"]').first().locator('.lucide-send')
+      const listTelegramIcon = page
+        .locator('main')
+        .locator('a[href="https://t.me/list_team"]')
+        .first()
+        .locator('.lucide-send')
       await expect(listTelegramIcon).toBeVisible()
 
       // Check team detail page
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
 
       // Header telegram uses Send icon (single header link)
-      const headerTelegramIcon = page.locator('a[href="https://t.me/header_team"]').locator('.lucide-send')
+      const headerTelegramIcon = page
+        .locator('a[href="https://t.me/header_team"]')
+        .locator('.lucide-send')
       await expect(headerTelegramIcon).toBeVisible()
 
       // Member telegram uses Send icon — scope to first member card to avoid
       // strict mode violation since all members share the same mock TG URL
-      const firstMemberCard = page.locator('main').locator('[class*="border border-border/60"]').first()
-      const memberTelegramIcon = firstMemberCard.locator('a[href="https://t.me/member_user"]').locator('.lucide-send')
+      const firstMemberCard = page
+        .locator('main')
+        .locator('[class*="border border-border/60"]')
+        .first()
+      const memberTelegramIcon = firstMemberCard
+        .locator('a[href="https://t.me/member_user"]')
+        .locator('.lucide-send')
       await expect(memberTelegramIcon).toBeVisible()
 
       // Ensure NO other message-related icons are used (MessageCircle, MessageSquare, etc.)
@@ -1052,10 +1104,12 @@ test.describe('Team page', () => {
   // ---------------------------------------------------------------------------
 
   test.describe('React Hooks Compliance (PR #15 Fix)', () => {
-    test('team detail page renders without React hooks order warnings', async ({ asAdmin: page }) => {
+    test('team detail page renders without React hooks order warnings', async ({
+      asAdmin: page,
+    }) => {
       // Capture console messages to check for React warnings
       const consoleMessages: string[] = []
-      page.on('console', msg => {
+      page.on('console', (msg) => {
         const text = msg.text()
         if (text.includes('Warning') || text.includes('Error')) {
           consoleMessages.push(text)
@@ -1071,16 +1125,19 @@ test.describe('Team page', () => {
       await page.waitForTimeout(1000)
 
       // Filter for React hooks-related warnings
-      const hooksWarnings = consoleMessages.filter(msg =>
-        msg.includes('rendered more hooks than during the previous render') ||
-        msg.includes('React has detected a change in the order of Hooks') ||
-        msg.includes('Hook was called conditionally')
+      const hooksWarnings = consoleMessages.filter(
+        (msg) =>
+          msg.includes('rendered more hooks than during the previous render') ||
+          msg.includes('React has detected a change in the order of Hooks') ||
+          msg.includes('Hook was called conditionally'),
       )
 
       expect(hooksWarnings).toHaveLength(0)
     })
 
-    test('edit form functionality works correctly after hooks repositioning', async ({ asAdmin: page }) => {
+    test('edit form functionality works correctly after hooks repositioning', async ({
+      asAdmin: page,
+    }) => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
 
       // Verify hooks-dependent functionality works
@@ -1100,7 +1157,9 @@ test.describe('Team page', () => {
       await expect(page.getByRole('dialog')).not.toBeVisible()
     })
 
-    test('add member functionality works correctly after hooks repositioning', async ({ asAdmin: page }) => {
+    test('add member functionality works correctly after hooks repositioning', async ({
+      asAdmin: page,
+    }) => {
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
 
       // Test hooks-dependent add member functionality
@@ -1109,7 +1168,10 @@ test.describe('Team page', () => {
 
       // Test selectedUserIds state and addMemberMutation hooks
       await page.getByRole('dialog').getByText('Junior Dev').click()
-      await page.getByRole('dialog').getByRole('button', { name: /^Добавить/ }).click()
+      await page
+        .getByRole('dialog')
+        .getByRole('button', { name: /^Добавить/ })
+        .click()
 
       // Should work without hooks-related errors
       await expect(page.getByRole('dialog')).not.toBeVisible()
@@ -1118,7 +1180,7 @@ test.describe('Team page', () => {
     test('team not found error state renders without hooks warnings', async ({ page }) => {
       // Capture console for React warnings
       const consoleMessages: string[] = []
-      page.on('console', msg => {
+      page.on('console', (msg) => {
         const text = msg.text()
         if (text.includes('Warning') || text.includes('Error')) {
           consoleMessages.push(text)
@@ -1129,8 +1191,8 @@ test.describe('Team page', () => {
       await mockAuthAs(page, USERS.admin)
 
       // Mock 404 response for team
-      await page.route('**/api/teams/non-existent-id', route =>
-        route.fulfill({ status: 404, body: '{"message":"Team not found"}' })
+      await page.route('**/api/teams/non-existent-id', (route) =>
+        route.fulfill({ status: 404, body: '{"message":"Team not found"}' }),
       )
 
       await page.goto('/crm/team/non-existent-id')
@@ -1142,9 +1204,10 @@ test.describe('Team page', () => {
       await page.waitForTimeout(500)
 
       // No hooks-related warnings should appear
-      const hooksWarnings = consoleMessages.filter(msg =>
-        msg.includes('rendered more hooks than during the previous render') ||
-        msg.includes('React has detected a change in the order of Hooks')
+      const hooksWarnings = consoleMessages.filter(
+        (msg) =>
+          msg.includes('rendered more hooks than during the previous render') ||
+          msg.includes('React has detected a change in the order of Hooks'),
       )
 
       expect(hooksWarnings).toHaveLength(0)
@@ -1153,14 +1216,21 @@ test.describe('Team page', () => {
     test('loading state renders without hooks violations', async ({ asAdmin: page }) => {
       // Slow down team API to capture loading state — fulfill with mock data (not continue,
       // which would hit the real API that doesn't know the fixture team-1-id)
-      await page.route(`**/api/teams/${TEAMS[0]!.id}`, async route => {
-        if (route.request().method() !== 'GET') { await route.continue(); return }
-        await new Promise(resolve => setTimeout(resolve, 1000))
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TEAMS[0]) })
+      await page.route(`**/api/teams/${TEAMS[0]!.id}`, async (route) => {
+        if (route.request().method() !== 'GET') {
+          await route.continue()
+          return
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(TEAMS[0]),
+        })
       })
 
       const consoleMessages: string[] = []
-      page.on('console', msg => {
+      page.on('console', (msg) => {
         const text = msg.text()
         if (text.includes('Warning') || text.includes('Error')) {
           consoleMessages.push(text)
@@ -1173,20 +1243,25 @@ test.describe('Team page', () => {
       await expect(page.locator('[class*="animate-pulse"]').first()).toBeVisible()
 
       // Wait for actual content to load
-      await expect(page.getByRole('heading', { level: 1 })).toContainText('Alpha Team', { timeout: 8000 })
+      await expect(page.getByRole('heading', { level: 1 })).toContainText('Alpha Team', {
+        timeout: 8000,
+      })
 
       // No hooks warnings during loading → content transition
-      const hooksWarnings = consoleMessages.filter(msg =>
-        msg.includes('rendered more hooks than during the previous render') ||
-        msg.includes('Hook was called conditionally')
+      const hooksWarnings = consoleMessages.filter(
+        (msg) =>
+          msg.includes('rendered more hooks than during the previous render') ||
+          msg.includes('Hook was called conditionally'),
       )
 
       expect(hooksWarnings).toHaveLength(0)
     })
 
-    test('re-renders during user interactions maintain hooks consistency', async ({ asAdmin: page }) => {
+    test('re-renders during user interactions maintain hooks consistency', async ({
+      asAdmin: page,
+    }) => {
       const consoleMessages: string[] = []
-      page.on('console', msg => {
+      page.on('console', (msg) => {
         const text = msg.text()
         if (text.includes('Warning') || text.includes('Error')) {
           consoleMessages.push(text)
@@ -1220,10 +1295,11 @@ test.describe('Team page', () => {
       await page.waitForTimeout(500)
 
       // All re-renders should maintain consistent hooks order
-      const hooksWarnings = consoleMessages.filter(msg =>
-        msg.includes('rendered more hooks than during the previous render') ||
-        msg.includes('React has detected a change in the order of Hooks') ||
-        msg.includes('Hook was called conditionally')
+      const hooksWarnings = consoleMessages.filter(
+        (msg) =>
+          msg.includes('rendered more hooks than during the previous render') ||
+          msg.includes('React has detected a change in the order of Hooks') ||
+          msg.includes('Hook was called conditionally'),
       )
 
       expect(hooksWarnings).toHaveLength(0)

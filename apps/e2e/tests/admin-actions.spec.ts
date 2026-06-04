@@ -47,7 +47,9 @@ test.describe('Admin actions on user profile', () => {
   // Change-role dialog
   // -------------------------------------------------------------------------
 
-  test('opening "Изменить роль" shows ChangeRoleDialog with current role selected', async ({ asAdmin: page }) => {
+  test('opening "Изменить роль" shows ChangeRoleDialog with current role selected', async ({
+    asAdmin: page,
+  }) => {
     await page.goto(`/crm/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     await page.getByRole('button', { name: /Действия/ }).click()
@@ -63,7 +65,9 @@ test.describe('Admin actions on user profile', () => {
     await expect(combobox).toContainText('Джун')
   })
 
-  test('changing role sends PATCH /users/:id/role with new role and shows toast', async ({ asAdmin: page }) => {
+  test('changing role sends PATCH /users/:id/role with new role and shows toast', async ({
+    asAdmin: page,
+  }) => {
     // Use route interception to capture the PATCH payload deterministically.
     // page.waitForRequest races under parallel load — the fixture already
     // registers a mock for this route; we override it here to also record the
@@ -119,14 +123,18 @@ test.describe('Admin actions on user profile', () => {
   // Audit log tab — visible for ADMIN
   // -------------------------------------------------------------------------
 
-  test('audit tab (История) is visible for ADMIN on any user profile', async ({ asAdmin: page }) => {
+  test('audit tab (История) is visible for ADMIN on any user profile', async ({
+    asAdmin: page,
+  }) => {
     await page.goto(`/crm/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     // AnimatedTabs renders tabs as <button> with the label text.
     await expect(page.getByRole('button', { name: 'История' })).toBeVisible()
   })
 
-  test('audit tab renders role_change entry after navigating to ?tab=audit', async ({ asAdmin: page }) => {
+  test('audit tab renders role_change entry after navigating to ?tab=audit', async ({
+    asAdmin: page,
+  }) => {
     await page.goto(`/crm/profile/${USERS.junior.id}?tab=audit`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     // Audit tab content visible — the role_change entry label
