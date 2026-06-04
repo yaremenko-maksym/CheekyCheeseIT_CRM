@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common'
+import { Controller, Get, Header, Query, UseGuards } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
 import { auditAllQuerySchema } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
@@ -30,6 +30,7 @@ export class AuditController {
    * Capped at last 50 records per type.
    */
   @Get('me/audit-trail')
+  @Header('Cache-Control', 'no-store, private')
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   async getMyAuditTrail(@CurrentUser() user: SessionUser) {
     return this.service.getUserAudit(user.id)
@@ -41,6 +42,7 @@ export class AuditController {
    * Paginated: limit (default 50, max 200) + offset.
    */
   @Get('audit/all')
+  @Header('Cache-Control', 'no-store, private')
   @UseGuards(RolesGuard)
   @Roles('ACCOUNTANT', 'ADMIN')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })

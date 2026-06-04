@@ -5,6 +5,7 @@ import { Download, Filter, ShieldCheck, FileText, ScrollText } from 'lucide-reac
 import { auditAllResponseSchema } from '@crm/shared'
 import type { AuditEvent } from '@crm/shared'
 import { api } from '@/lib/axios'
+import { csvEscape } from '@/lib/csv'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -63,9 +64,10 @@ function downloadCsv(items: AuditEvent[]) {
   const rows = items.map((e) => {
     const date = formatDate(eventDate(e))
     const label = eventLabel(e)
-    // Escape commas and quotes in content
-    const escapedLabel = `"${label.replace(/"/g, '""')}"`
-    return `${e.type === 'contract' ? 'Контракт' : 'ToS'},${date},${escapedLabel}`
+    // csvEscape handles both RFC 4180 quoting and CSV injection mitigation
+    // (single-quote prefix for values starting with =, +, -, @, Tab, CR).
+    const type = e.type === 'contract' ? 'Контракт' : 'ToS'
+    return `${csvEscape(type)},${csvEscape(date)},${csvEscape(label)}`
   })
   const csv = HEADER + rows.join('\n')
   const blob = new Blob(['﻿' + csv], { type: 'text/csv; charset=utf-8' })
@@ -120,14 +122,22 @@ function EventRow({ event }: { event: AuditEvent }) {
 // Page
 // ---------------------------------------------------------------------------
 
+function toIsoStartOfDay(yyyyMmDd: string): string {
+  return `${yyyyMmDd}T00:00:00.000Z`
+}
+
+function toIsoEndOfDay(yyyyMmDd: string): string {
+  return `${yyyyMmDd}T23:59:59.999Z`
+}
+
 function AuditLogPage() {
   const [filters, setFilters] = useState<Filters>({})
   const [offset, setOffset] = useState(0)
 
   const queryParams = {
     ...(filters.userId ? { userId: filters.userId } : {}),
-    ...(filters.from ? { from: filters.from } : {}),
-    ...(filters.to ? { to: filters.to } : {}),
+    ...(filters.from ? { from: toIsoStartOfDay(filters.from) } : {}),
+    ...(filters.to ? { to: toIsoEndOfDay(filters.to) } : {}),
     ...(filters.type ? { type: filters.type } : {}),
     limit: PAGE_SIZE,
     offset,
