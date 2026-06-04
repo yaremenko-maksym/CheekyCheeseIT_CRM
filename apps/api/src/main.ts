@@ -29,12 +29,14 @@ async function bootstrap() {
             defaultSrc: ["'self'"],
             scriptSrc: ["'self'"],
             styleSrc: ["'self'", "'unsafe-inline'"],
-            imgSrc: ["'self'", 'data:'],
-            fontSrc: ["'self'"],
+            imgSrc: ["'self'", 'data:', 'https://api.dicebear.com', 'https:'],
+            fontSrc: ["'self'", 'data:'],
             connectSrc: ["'self'"],
             frameSrc: ["'none'"],
             objectSrc: ["'none'"],
             baseUri: ["'self'"],
+            frameAncestors: ["'none'"], // clickjacking defense (#100 MED-1)
+            formAction: ["'self'"], // restrict form submissions to same origin (#100 LOW-1)
           },
         }
       : false,
