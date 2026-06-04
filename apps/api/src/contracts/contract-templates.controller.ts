@@ -9,6 +9,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common'
+import { Throttle } from '@nestjs/throttler'
 
 import {
   contractTargetRoleSchema,
@@ -64,8 +65,11 @@ export class ContractTemplatesController {
     return this.service.getCurrentForRole(targetRole)
   }
 
+  // Publishing a new template version is a sensitive write — limit to
+  // 5 requests per minute per IP to prevent abuse.
   @Post()
   @Roles('ADMIN')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   publish(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     const { targetRole, bodyMarkdown } = createContractTemplateSchema.parse(body)
     return this.service.publish({ targetRole, bodyMarkdown, createdByUserId: user.id })

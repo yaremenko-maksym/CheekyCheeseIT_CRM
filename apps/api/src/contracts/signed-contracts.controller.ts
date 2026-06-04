@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Req } from '@nestjs/common'
 import type { FastifyRequest } from 'fastify'
+import { Throttle } from '@nestjs/throttler'
 
 import { signContractSchema, type SessionUser } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
@@ -24,7 +25,10 @@ import { SignedContractsService } from './signed-contracts.service'
 export class SignedContractsController {
   constructor(private readonly service: SignedContractsService) {}
 
+  // Signing a contract is a one-time user action — 10 req/min prevents
+  // automated replay without breaking real onboarding retries.
   @Post('sign')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   sign(@Body() body: unknown, @CurrentUser() user: SessionUser, @Req() request: FastifyRequest) {
     const { typedName } = signContractSchema.parse(body)
     const ip = (request.ip as string | undefined) ?? null
