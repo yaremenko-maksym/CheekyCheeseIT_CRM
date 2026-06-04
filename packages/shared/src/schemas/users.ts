@@ -42,6 +42,8 @@ export const userProfileSchema = z.object({
   salaryCurrency: currencyEnumSchema.default('USD'),
   archivedAt: z.coerce.date().nullable(),
   adminNote: z.string().nullable(),
+  /** Юр. ФИО (кириллица). Задаётся ADMIN, используется в контракте. NULL допустим. */
+  legalFullName: z.string().nullable().optional(),
   createdAt: z.coerce.date(),
 })
 

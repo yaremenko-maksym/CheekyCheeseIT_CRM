@@ -196,6 +196,9 @@ export const users = pgTable('users', {
   // For JUNIOR/HR/ACCOUNTANT: fixed monthly salary (currency set separately)
   monthlySalary: numeric('monthly_salary', { precision: 10, scale: 2 }),
   salaryCurrency: currencyEnum('salary_currency').default('USD'),
+  // Юр. ФИО (кириллица, порядок Фамилия Имя Отчество). Задаётся ADMIN.
+  // Используется в контракте вместо displayName. NULL допустим (guard в PR A).
+  legalFullName: text('legal_full_name'),
   // Soft delete (archived users hidden from main UI, restorable)
   archivedAt: timestamp('archived_at'),
   // Admin note (single overwriteable text field)
