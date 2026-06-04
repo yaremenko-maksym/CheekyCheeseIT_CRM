@@ -151,6 +151,19 @@ async function mockOnboardingApi(
     }),
   )
 
+  // GET /contracts/templates/preview-rendered/:templateId
+  // Returns the contract body with {{placeholder}} tokens substituted for the
+  // current user. Since this endpoint is now in the OnboardingGuard bypass
+  // list (Bug #2 fix), it's callable pre-onboarding. The mock returns the
+  // same body as CONTRACT_TEMPLATE (no substitution needed for tests).
+  await page.route(new RegExp(`${API}/contracts/templates/preview-rendered/[^/?]+$`), (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ bodyMarkdown: CONTRACT_TEMPLATE.bodyMarkdown }),
+    }),
+  )
+
   // POST /contracts/sign
   await page.route(`${API}/contracts/sign`, (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
