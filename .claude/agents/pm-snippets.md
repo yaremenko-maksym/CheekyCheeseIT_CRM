@@ -79,6 +79,93 @@ target_branch: <pr_branch>
 )
 ```
 
+### UI/UX Designer — Mode A (pre-feature design direction)
+
+**Trigger:** BA brief описывает UI-heavy фичу (новый экран / поток / dashboard). Diпатчится в начале Mode 1 ДО Coder. Output → `docs/design/<slug>.md` spec.
+
+```
+Agent(
+  subagent_type="ui-ux-designer",
+  isolation="worktree",
+  description="Designer Mode A: <slug>",
+  prompt="""Ты — UI/UX Designer агент. Прочитай .claude/agents/ui-ux-designer.md (golden rules + 4 mode workflow + zone-of-write).
+Прочитай .claude/RULES.md (cross-agent rules).
+Прочитай .claude/agents/project-state.md (RBAC матрица / design system overview §8 / фазы).
+Прочитай .claude/agents/memory/ui-ux-designer/lessons.md.
+Прочитай docs/business/modules/<модуль>.md + docs/business/user-flows.md.
+
+Mode: A — Design Direction (pre-feature)
+Brief: .claude/briefs/pm-brief.md (или task: .claude/tasks/task-design-<slug>.md)
+Output: docs/design/<slug>.md
+
+Invoke skills: frontend-design-direction → design-system (если нужны новые tokens) → accessibility (critical paths).
+Spec должен содержать: Purpose / Audience / Tone / Memorable detail / Constraints / Component list / Token map / Motion spec / A11y critical paths / Edge cases."""
+)
+```
+
+### UI/UX Designer — Mode B (visual audit, post-impl, параллельно с code-reviewer)
+
+**Trigger:** PR трогает `apps/web/**`. Дispatch'ится параллельно с code-reviewer + Manual QA + (опц.) security-reviewer.
+
+```
+Agent(
+  subagent_type="ui-ux-designer",
+  description="Designer Mode B: PR #<N>",
+  prompt="""Ты — UI/UX Designer агент. Прочитай .claude/agents/ui-ux-designer.md.
+Прочитай .claude/RULES.md.
+Прочитай .claude/agents/project-state.md.
+Прочитай .claude/agents/memory/ui-ux-designer/lessons.md.
+
+Mode: B — Visual Audit (post-impl)
+PR: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM
+target_branch: <pr_branch>
+
+Invoke skills: design-system (Mode 2 10-dim audit + Mode 3 AI-slop) → make-interfaces-feel-better → accessibility (spot-check WCAG SC 2.4.11 / 2.5.8 / 1.4.3).
+Pоsтить PR comment через mcp__github__add_issue_comment с первой строкой `Design Review: PASS|POLISH-REQUESTED|BLOCK`.
+Mode D — если нашёл LOW/MED cosmetic в зоне apps/web/** — пофикси сам + re-verify скриншотом + push в ту же ветку.""",
+  run_in_background=True
+)
+```
+
+**Aggregate verdict logic (Mode 2):** Designer Mode B даёт event `designer_review_done` с verdict `PASS|POLISH-REQUESTED|BLOCK`. PM объединяет с code-reviewer / security-reviewer / Manual QA verdict'ами (все 4 PASS → `awaiting-pm-review`; хотя бы один BLOCK → `do-not-merge`).
+
+**Fallback (до cache refresh):** `subagent_type: claude` + inline-системный промпт из `ui-ux-designer.md`.
+
+### Manual QA — pre-merge visual / functional check
+
+**Phase 7 (2026-06-04):** Manual QA добавлен как полноценный subagent type. Диспатчится параллельно с code-reviewer когда PR трогает UI surface (см. `contracts.md` §5.1). Скорее «дополнение» к AutoTest, а не замена: AutoTest пишет `.spec.ts` с mocks; Manual QA интерактивно гоняет РЕАЛЬНЫЙ UI на живом стеке.
+
+```
+Agent(
+  subagent_type="manual-qa",
+  isolation="worktree",
+  description="Manual QA: PR #<N>",
+  prompt="""Ты — Manual QA агент. Прочитай .claude/agents/manual-qa.md (golden rules + workflow + zone-of-write).
+Прочитай .claude/RULES.md (cross-agent rules).
+Прочитай .claude/agents/project-state.md (RBAC матрица / seed users / phases).
+Прочитай .claude/agents/memory/manual-qa/lessons.md.
+
+PR для visual QA: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM
+target_branch: <pr_branch>
+
+Список фич для проверки (golden path + edge cases + RBAC):
+<bullet-list-of-features-from-task-or-PR-description>
+
+Mode: <pr-final-visual | download-verify | rbac-verify | complement-e2e>
+
+Зона фиксов: cosmetic UI в apps/web/** (apply + re-verify скриншотом).
+Backend / функциональные баги — отчёт PM с severity (CRITICAL/HIGH/MED/LOW) + repro + скриншот.""",
+  run_in_background=True
+)
+```
+
+**Aggregate verdict logic (Mode 2):** Manual QA даёт event `manual_qa_done` в `pm-state.json` с verdict `PASS | ISSUES_FOUND`:
+
+- `PASS` → нет багов, либо нашёл и сам пофиксил cosmetic'ы (push) → переходит к `awaiting-pm-review` (если Reviewer тоже APPROVE).
+- `ISSUES_FOUND` (HIGH/CRITICAL) → PM создаёт `task-fix-pr-<N>.md` для Coder ДО merge. MED/LOW можно собрать в follow-up (после merge), но HIGH+ блокируют merge.
+
+**Fallback (до PR #<N> merge):** если harness ещё не подхватил `subagent_type: manual-qa` (frontmatter cache), использовать `subagent_type: claude` + inline-системный промпт из `manual-qa.md` в bullet'е prompt.
+
 ### code-reviewer — default code review (любой PR)
 
 **Phase 3b split:** sonnet, default на каждый PR с product-code changes. Зона: TypeScript strict / ESLint / arch patterns / zone-of-write / write-then-post / Verdict: BLOCK first-line. Использует `mcp__eslint__lint-files` ДО review и Pre-Report Gate (HIGH→body / MED→warnings / LOW→summary-only).

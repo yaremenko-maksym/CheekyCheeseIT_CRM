@@ -12,6 +12,8 @@
 flowchart TD
     USER([USER]) -->|brief / фича| BA[BA]
     BA -->|.claude/briefs/pm-brief.md| PM[PM]
+    PM -->|UI-heavy brief — Designer Mode A| DESIGNER[UI/UX Designer]
+    DESIGNER -->|docs/design/&lt;slug&gt;.md spec| PM
     PM -->|task-*.md + Agent isolation=worktree| CODER[Coder]
     PM -->|task-infra-*.md| DEVOPS[DevOps]
     CODER -->|PR open + wip-push N times + final ac_verified| PR{{PR}}
@@ -19,7 +21,13 @@ flowchart TD
     PR -->|PM Mode 2 — events| DECISION{Dispatch decision}
     DECISION -->|cover gaps| AUTOTEST[AutoTest]
     DECISION -->|always| REVIEWER[Reviewer]
+    DECISION -->|UI surface / pre-merge| MANUALQA[Manual QA]
+    DECISION -->|UI surface — Mode B audit| DESIGNER
     AUTOTEST -->|push specs| PR
+    MANUALQA -->|cosmetic fix push| PR
+    MANUALQA -->|backend bug report| PM
+    DESIGNER -->|Mode D polish push| PR
+    DESIGNER -->|Mode B comment PASS/POLISH/BLOCK| PM
     REVIEWER -->|APPROVE → awaiting-pm-review| PM
     REVIEWER -->|COMMENT + Verdict: BLOCK → do-not-merge| PM
     PM -->|User Testing — Mode 4| USER
@@ -153,6 +161,7 @@ Coder additional:
 | Task pattern              | Agent              | Triggered by                                                |
 | ------------------------- | ------------------ | ----------------------------------------------------------- |
 | `task-<slug>.md`          | Coder              | PM Mode 1 (new feature decomposition)                       |
+| `task-design-<slug>.md`   | UI/UX Designer     | PM Mode 1 (UI-heavy фича — Mode A direction)                |
 | `task-fix-pr-<N>.md`      | Coder              | PM Mode 2.D (after BLOCK) или Mode 4.A (User Testing fixes) |
 | `task-fix-e2e-<slug>.md`  | AutoTest или Coder | PM Mode 2.C (e2e_failed)                                    |
 | `task-fix-test-<slug>.md` | AutoTest           | PM при обнаружении gap в coverage                           |
@@ -180,6 +189,71 @@ gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<N>/files \
 | PR трогает только docs/business/\*\* или CI                            | **Skip AutoTest**                               | `autotest_skipped` с `reason: "no-product-code-changes"`     |
 
 **Skip без записи запрещён.** Skip-решение всегда фиксируется в `events[]`.
+
+---
+
+## 5.1. Manual QA dispatch decision (PM Mode 2 / Mode 4)
+
+Manual QA — это интерактивный субагент, который проходит фичу на ЖИВОМ стеке через Playwright MCP. Дополняет AutoTest (тот пишет `.spec.ts` с mocked данными), Manual QA ловит то, что mocked E2E пропускает: визуальные дефекты, broken/empty states, кириллицу в PDF/CSV, реальное RBAC поведение, console-ошибки.
+
+**Когда дispatch'ить:**
+
+| Состояние                                                                                | Действие                              | Event в pm-state.json                                |
+| ---------------------------------------------------------------------------------------- | ------------------------------------- | ---------------------------------------------------- |
+| PR трогает `apps/web/**` И добавляет новую визуальную фичу / экран / поток               | **MUST dispatch Manual QA** до merge  | `agent_started` (manual-qa, mode=pr-final-visual)    |
+| PR содержит download / export (PDF / CSV / file) для проверки кириллицы / layout         | **MUST dispatch Manual QA**           | `agent_started` (manual-qa, mode=download-verify)    |
+| PR трогает RBAC-gated роуты или меняет видимость по ролям                                | **MUST dispatch Manual QA**           | `agent_started` (manual-qa, mode=rbac-verify)        |
+| PR только backend / refactor / `apps/api/**` без UI surface                              | **Skip Manual QA**                    | `manualqa_skipped` с `reason: "no-ui-surface"`       |
+| PR только docs / CI / `.github/**` / migrations без UI                                   | **Skip Manual QA**                    | `manualqa_skipped` с `reason: "no-ui-surface"`       |
+| AutoTest добавил `.spec.ts` покрывающий golden path, НО фича визуально новая / сложная   | **MUST dispatch Manual QA дополнительно** (mocked E2E ≠ visual UT) | `agent_started` (manual-qa, mode=complement-e2e) |
+
+**Параллельность:** Manual QA диспатчится **параллельно** с code-reviewer (`run_in_background=True`). Reviewer делает статический анализ кода; Manual QA — динамический visual / functional проход. Не дублируют друг друга.
+
+**Skip без записи запрещён** — как и для AutoTest.
+
+**Финал:** Manual QA пишет отчёт PM (severity-табличка + скриншоты в `/tmp/manual-qa-<runid>/`). Cosmetic UI bugs Manual QA фиксит сам в `apps/web/**` и пушит. Backend / функциональные баги → PM решает: `task-fix-pr-N.md` для Coder.
+
+См. `manual-qa.md` для полного workflow + zone-of-write.
+
+---
+
+## 5.2. UI/UX Designer dispatch decision (PM Mode 1 + Mode 2)
+
+Designer работает в 4 режимах. Когда дispatch'ить:
+
+### Mode A — Design Direction (pre-feature, PM Mode 1)
+
+| Trigger                                                                                    | Действие                                  | Event в pm-state.json                          |
+| ------------------------------------------------------------------------------------------ | ----------------------------------------- | ---------------------------------------------- |
+| BA brief описывает новый экран / поток / dashboard / UI-heavy фичу (не table CRUD)         | **MUST dispatch Designer Mode A** ДО Coder | `agent_started` (ui-ux-designer, mode=design-direction) |
+| BA brief — backend-only / API-only / migration / CI                                        | **Skip Designer Mode A**                   | `designer_skipped` с `reason: "no-ui-surface"` |
+| BA brief — minor UI tweak (текст / цвет / inline edit без нового layout)                   | **Skip Designer Mode A**                   | `designer_skipped` с `reason: "minor-tweak"`   |
+
+Designer Mode A output → `docs/design/<slug>.md` spec → PM передаёт ссылку в task-файл Coder'у.
+
+### Mode B / C — Visual Audit + AI-slop check (post-impl, PM Mode 2 — параллельно с code-reviewer)
+
+| Trigger                                                                                  | Действие                                              |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| PR трогает `apps/web/**` (новый экран / новые компоненты / styling changes)             | **MUST dispatch Designer Mode B** (включает Mode C)   |
+| PR только `apps/web/app/components/ui/<existing>.tsx` с minor classNames / token rename | **Optional** — PM решает по PR description           |
+| PR только backend / refactor / migrations / CI                                          | **Skip Designer**                                     |
+
+Параллельно с code-reviewer / security-reviewer / Manual QA — все 4 в одном dispatch message, `run_in_background=True`.
+
+Designer Mode B даёт event `designer_review_done` с verdict:
+
+- `PASS` (avg score ≥ 8/10, нет HIGH) → переход к `awaiting-pm-review`.
+- `POLISH-REQUESTED` (avg 6-8/10, LOW/MED suggestions) → merge allowed, PM создаёт follow-up task (не блокирует).
+- `BLOCK` (avg <6/10 ИЛИ generic AI pattern ИЛИ WCAG fail на critical path) → `do-not-merge` label, `task-fix-pr-N.md` для Coder.
+
+### Mode D — Polish pass (PM Mode 2 или 4)
+
+Trigger: code-reviewer / Manual QA / Designer Mode B пометили LOW-severity cosmetic issue → Designer Mode D Edit'ит сам в `apps/web/**` cosmetic + re-verify скриншотом + push в ту же ветку.
+
+**Aggregate verdict logic (Mode 2):** PM объединяет 4 verdict'a (code-reviewer + security-reviewer если триггернут + Manual QA + Designer Mode B) → если ВСЕ PASS → `awaiting-pm-review`. Если хотя бы один BLOCK → `do-not-merge`.
+
+См. `ui-ux-designer.md` для полного workflow + zone-of-write.
 
 ---
 

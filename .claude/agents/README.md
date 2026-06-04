@@ -29,6 +29,8 @@ Multi-agent инфраструктура для CRM Cheeky Cheese IT. Содер
 | **Architect**         | [`architect.md`](architect.md)                 | Migration architect: ECC migration phases, ADRs, rollback granularity                   |
 | **Legal**             | [`legal.md`](legal.md)                         | UA jurisdictional legal advisor: 4 modes (consult / pr-review / brief-check / strategic) |
 | **AutoTest**          | [`autotest.md`](autotest.md)                   | E2E QA: 3 режима, AC-first, anti-patterns (ECC frontmatter, model: sonnet, Phase 3e)    |
+| **Manual QA**         | [`manual-qa.md`](manual-qa.md)                 | Visual / interactive QA на живом стеке через Playwright MCP: реальные данные, RBAC, скриншоты, дополняет AutoTest (динамика vs `.spec.ts`) |
+| **UI/UX Designer**    | [`ui-ux-designer.md`](ui-ux-designer.md)       | Design direction (Mode A pre-feature) / visual audit (Mode B post-impl) / AI-slop check (Mode C) / polish pass (Mode D cosmetic). ECC skills: accessibility / frontend-design-direction / design-system / make-interfaces-feel-better |
 | **DevOps**            | [`devops.md`](devops.md)                       | CI/CD, workflows, branch protection + ECC build-error-resolver / harness-optimizer delegation (Phase 3e) |
 
 **Reviewer split (Phase 3b ECC migration, 2026-06-03):** монолитный `reviewer.md` → split на `code-reviewer.md` + `security-reviewer.md` per ADR § 2.1.5. `reviewer.md` остался как **deprecated shim** (redirect) во время Phase 3c PM dispatch transition. См. [`docs/architecture/2026-06-03-phase3b-deliverable.md`](../architecture/2026-06-03-phase3b-deliverable.md).
@@ -55,16 +57,20 @@ Multi-agent инфраструктура для CRM Cheeky Cheese IT. Содер
 
 Skills — canonical workflow surface per ECC AGENTS.upstream.md. После Phase 4 в `.claude/skills/` доступны:
 
-| Skill                       | Path                                                                                         | Когда инвоукать                                                          |
-| --------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `pm-dispatching`            | `.claude/skills/pm-dispatching/SKILL.md`                                                     | PM: загрузка `pm-snippets.md` для dispatch / PR / CI / User Testing      |
-| `playwright-patterns`       | `.claude/skills/playwright-patterns/SKILL.md`                                                | AutoTest / Coder: перед написанием / правкой `.spec.ts` (CRM cookbook)   |
-| `code-review-discipline`    | `.claude/skills/code-review-discipline/SKILL.md`                                             | Reviewers: перед post review (BLOCK / write-then-post / zone-violations) |
-| `dev-flow-resilience`       | `.claude/skills/dev-flow-resilience/SKILL.md`                                                | Все: long-running / MCP I/O / cross-session — D1-D4 RCA patterns         |
-| `ua-tax-compliance`         | `.claude/skills/ua-tax-compliance/SKILL.md`                                                  | Legal Mode A / Mode B на UA tax / company structure                      |
-| `ua-crypto-compliance`      | `.claude/skills/ua-crypto-compliance/SKILL.md`                                               | Legal на crypto / wallets / smart contracts                              |
-| `ua-it-contract`            | `.claude/skills/ua-it-contract/SKILL.md`                                                     | Legal на IT-contract structure / templates                               |
-| `legal-escalation-patterns` | `.claude/skills/legal-escalation-patterns/SKILL.md`                                          | Legal / PM на evasion variants / hard refuse zones                       |
+| Skill                       | Path                                                                                         | Когда инвоукать                                                                |
+| --------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `pm-dispatching`            | `.claude/skills/pm-dispatching/SKILL.md`                                                     | PM: загрузка `pm-snippets.md` для dispatch / PR / CI / User Testing            |
+| `playwright-patterns`       | `.claude/skills/playwright-patterns/SKILL.md`                                                | AutoTest / Coder: перед написанием / правкой `.spec.ts` (CRM cookbook)         |
+| `code-review-discipline`    | `.claude/skills/code-review-discipline/SKILL.md`                                             | Reviewers: перед post review (BLOCK / write-then-post / zone-violations)       |
+| `dev-flow-resilience`       | `.claude/skills/dev-flow-resilience/SKILL.md`                                                | Все: long-running / MCP I/O / cross-session — D1-D4 RCA patterns               |
+| `ua-tax-compliance`         | `.claude/skills/ua-tax-compliance/SKILL.md`                                                  | Legal Mode A / Mode B на UA tax / company structure                            |
+| `ua-crypto-compliance`      | `.claude/skills/ua-crypto-compliance/SKILL.md`                                               | Legal на crypto / wallets / smart contracts                                    |
+| `ua-it-contract`            | `.claude/skills/ua-it-contract/SKILL.md`                                                     | Legal на IT-contract structure / templates                                     |
+| `legal-escalation-patterns` | `.claude/skills/legal-escalation-patterns/SKILL.md`                                          | Legal / PM на evasion variants / hard refuse zones                             |
+| `accessibility`             | `.claude/skills/accessibility/SKILL.md`                                                      | UI/UX Designer / Coder: WCAG 2.2 AA — ARIA / focus / contrast / target size (ECC adopt 2026-06-04) |
+| `frontend-design-direction` | `.claude/skills/frontend-design-direction/SKILL.md`                                          | UI/UX Designer Mode A: выбор purpose / audience / tone / memorable detail (ECC adopt) |
+| `design-system`             | `.claude/skills/design-system/SKILL.md`                                                      | UI/UX Designer Mode B / C: 10-dimension visual audit + AI-slop detection (ECC adopt) |
+| `make-interfaces-feel-better` | `.claude/skills/make-interfaces-feel-better/SKILL.md`                                      | UI/UX Designer Mode D / Coder polish: concentric radius / tabular-nums / motion / hit areas (ECC adopt) |
 
 См. `docs/architecture/2026-06-03-phase4-deliverable.md` для full inventory + skipped candidates + cross-skill dependency graph.
 
