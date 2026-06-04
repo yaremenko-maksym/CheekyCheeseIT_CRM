@@ -74,18 +74,30 @@ function ContractCard({ contract }: { contract: SignedContractItem }) {
             <p className="text-xs text-muted-foreground">IP: {contract.signedIp}</p>
           )}
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          className="gap-2 shrink-0"
-          data-testid="audit-contract-download"
-          onClick={() =>
-            downloadMarkdown(`${contract.contractNumber}.md`, contract.bodyMarkdownSnapshot)
-          }
-        >
-          <Download className="h-3.5 w-3.5" />
-          Скачать
-        </Button>
+        <div className="flex flex-col gap-2 shrink-0">
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-2"
+            data-testid="audit-contract-download"
+            onClick={() =>
+              downloadMarkdown(`${contract.contractNumber}.md`, contract.bodyMarkdownSnapshot)
+            }
+          >
+            <Download className="h-3.5 w-3.5" />
+            Markdown
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-2"
+            data-testid="audit-contract-pdf"
+            onClick={() => window.open(`/api/contracts/${contract.id}/pdf`, '_blank')}
+          >
+            <FileText className="h-3.5 w-3.5" />
+            PDF
+          </Button>
+        </div>
       </div>
     </div>
   )
