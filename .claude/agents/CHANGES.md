@@ -4,6 +4,81 @@ Append-only changelog для multi-agent инфраструктуры.
 
 ---
 
+## 2026-06-04 — UI/UX Designer agent + ECC frontend skills adoption
+
+PR: `infra(agents): add ui-ux-designer + 4 ECC frontend skills`
+Branch: `infra/register-manual-qa-and-designer` (объединено в один PR с Manual QA registration)
+
+### Added
+
+- **`ui-ux-designer.md`** — новый агент, model: sonnet. 4 режима:
+  - **Mode A — Design Direction (pre-feature):** brief → `docs/design/<slug>.md` spec (purpose / audience / tone / tokens / components / motion / a11y critical paths) → handoff Coder.
+  - **Mode B — Visual Audit (post-impl):** PR с UI changes → 10-dimension audit (`design-system` Mode 2) + WCAG check → PR comment с verdict `PASS | POLISH-REQUESTED | BLOCK`.
+  - **Mode C — AI-slop check:** generic AI pattern detection (purple gradients / glass morphism без обоснования / oversized hero) → `BLOCK` с fix proposal.
+  - **Mode D — Polish pass:** cosmetic Edit в `apps/web/**` (concentric radius / tabular-nums / transition scope / hit areas) с re-verify скриншотом.
+- **`memory/ui-ux-designer/lessons.md`** + `lessons.archive.md` — placeholder.
+- **`.claude/skills/accessibility/SKILL.md`** — adopt из ECC (WCAG 2.2 Level AA, POUR principles, cross-platform mapping). Origin: ECC.
+- **`.claude/skills/frontend-design-direction/SKILL.md`** — adopt из ECC (5-question direction framework, anti-patterns, review checklist). Origin: community salvage из ECC.
+- **`.claude/skills/design-system/SKILL.md`** — adopt из ECC (Mode 1 Generate / Mode 2 Audit 10-dim / Mode 3 AI-slop detection). Origin: ECC.
+- **`.claude/skills/make-interfaces-feel-better/SKILL.md`** — adopt из ECC (concentric radius / optical alignment / tabular numerals / motion defaults / hit areas). Origin: community salvage из ECC.
+
+### Changed
+
+- **`README.md`** — добавлен row UI/UX Designer в Agent system prompts + 4 новых skills в Skills таблице.
+- **`contracts.md`** — Designer добавлен в:
+  - §1 High-level flow Mermaid (BA brief → PM → Designer Mode A → spec → Coder; PR → Designer Mode B параллельно с Reviewer / Manual QA).
+  - §4 Task file → agent mapping (`task-design-<slug>.md` для Mode A, inline brief для Mode B / C / D).
+  - новая §5.2 UI/UX Designer dispatch decision.
+- **`pm-snippets.md`** — добавлен dispatch snippet для UI/UX Designer (4 режима, fallback через `claude` subagent_type до cache refresh).
+
+### Rationale
+
+Multi-agent flow до этого не имел дизайнерского слоя — UI решения принимались inline в Coder workflow без proper design direction (1+ итерация design rework в каждом UI PR). Также не было systematic visual audit перед merge (только code-reviewer статика + Manual QA реальный flow). Designer закрывает gap между BA brief и Coder implementation для UI-heavy фич + добавляет structured visual audit как параллельный 4-й verdict наряду с code-reviewer / security-reviewer / Manual QA.
+
+ECC skills (`accessibility` / `frontend-design-direction` / `design-system` / `make-interfaces-feel-better`) — battle-tested на ECC user-base, adopt'аются без modifications (origin field сохранён). Skills работают вместе с локальным `playwright-patterns` skill (CRM-specific cookbook).
+
+### Migration notes
+
+- Future PRs: PM для UI-heavy фич dispatch'ит Designer Mode A в начале (до Coder); для любого UI PR — Designer Mode B параллельно с code-reviewer.
+- До harness cache refresh — fallback `subagent_type: claude` + inline system prompt из `ui-ux-designer.md`.
+- `docs/design/` папка создаётся при первом Mode A dispatch'е (не pre-emptively).
+
+---
+
+## 2026-06-04 — Manual QA agent registration
+
+(в том же PR что и UI/UX Designer registration выше — branch `infra/register-manual-qa-and-designer`)
+
+Файл `.claude/agents/manual-qa.md` существовал с 2026-06-04 (PM Mode 4 ad-hoc dispatch через `claude` catch-all с inline-системным промптом), но НЕ был закоммичен → harness не подхватывал `subagent_type: manual-qa`. Этот PR фиксит это и регистрирует Manual QA как полноценную часть multi-agent сетапа.
+
+### Added
+
+- **`manual-qa.md`** (committed) — YAML frontmatter + system prompt:
+  - Role: интерактивный visual / functional QA на живом стеке через Playwright MCP (отличие от AutoTest, который пишет `.spec.ts` с mocks).
+  - Tools: Bash, Read, Edit, Grep, Glob + Playwright MCP (navigate / click / fill_form / take_screenshot / snapshot / console_messages / evaluate) + postgres + eslint + github + ast-grep.
+  - Model: sonnet.
+  - Golden rules: stale stack ban, screenshot proof, no `git add . / -A`, no backend edits (Coder zone), re-verify after fix, console-check, RBAC под разными ролями, edge cases.
+  - Mandatory skills: using-superpowers / systematic-debugging / browser_snapshot перед click / ECC design-quality / verification-before-completion.
+  - Zone-of-write: `apps/web/**` cosmetic only + `/tmp/manual-qa-<runid>/`. Backend / `apps/api/**` / `packages/**` / `apps/e2e/**` / `.github/**` / schema — read-only.
+- **`memory/manual-qa/lessons.md`** + **`lessons.archive.md`** — placeholder под per-agent memory.
+
+### Changed
+
+- **`README.md`** — добавлен row Manual QA в Agent system prompts таблицу.
+- **`contracts.md`** — Manual QA добавлен в:
+  - §1 High-level flow Mermaid (PM → Manual QA параллельно с Reviewer)
+  - §4 Task file → agent mapping (no task pattern — dispatch через PR brief inline)
+  - новая §5.1 Manual QA dispatch decision (trigger zones: PR трогает UI surface / new visible feature / pre-merge final check)
+- **`pm-snippets.md`** — добавлен dispatch snippet для Manual QA (mode: PR-final visual check).
+
+### Migration notes
+
+- Будущие сессии (после PR merge) автоматически подхватят `subagent_type: manual-qa` через harness, который читает `.claude/agents/*.md` с YAML frontmatter.
+- До merge — fallback через `subagent_type: claude` + inline-системный промпт из `manual-qa.md` (как делалось 2026-06-04 manually).
+- `.github/workflows/` пока не запускают Manual QA в CI — это локальный субагент диспатчится только PM (после Coder push, до merge). См. `contracts.md` §5.1.
+
+---
+
 ## 2026-06-02 — Architecture v2 (this refactor)
 
 PR: `refactor(agents): мульти-агент docs v2 — golden rules, no duplication, lessons rotation`
