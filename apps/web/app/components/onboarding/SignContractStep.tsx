@@ -221,6 +221,8 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
       {/* Missing legalFullName guard alert (PD-4=A) */}
       {legalNameMissing && (
         <div
+          role="alert"
+          aria-live="assertive"
           className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
           data-testid="legal-name-missing-alert"
         >

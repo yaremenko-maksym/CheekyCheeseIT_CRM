@@ -61,7 +61,7 @@ function OnboardingRoot() {
       </div>
 
       {/* Wizard card */}
-      <div className="w-full max-w-2xl rounded-2xl border border-border bg-card p-8 shadow-lg">
+      <div className="w-full max-w-2xl rounded-2xl border border-border bg-card p-4 sm:p-8 shadow-lg">
         <Outlet />
       </div>
 
