@@ -61,10 +61,7 @@ export class SignedContractsController {
   @Get('preview-pdf')
   @Header('Cache-Control', 'no-store, private')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  async previewPdf(
-    @CurrentUser() user: SessionUser,
-    @Res() reply: FastifyReply,
-  ): Promise<void> {
+  async previewPdf(@CurrentUser() user: SessionUser, @Res() reply: FastifyReply): Promise<void> {
     // Fetch the active template for this user's role.
     const template = await this.templates.getCurrentForRole(
       user.role as Parameters<typeof this.templates.getCurrentForRole>[0],

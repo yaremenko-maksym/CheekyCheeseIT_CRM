@@ -397,8 +397,7 @@ export class UsersService {
     if ('monthlySalary' in data)
       set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
     if (data.salaryCurrency !== undefined) set.salaryCurrency = data.salaryCurrency
-    if (data.legalFullName !== undefined)
-      set.legalFullName = data.legalFullName.trim() || null
+    if (data.legalFullName !== undefined) set.legalFullName = data.legalFullName.trim() || null
 
     // Payment requisites — switching method clears the other branch's fields.
     if (data.paymentMethod !== undefined) {
