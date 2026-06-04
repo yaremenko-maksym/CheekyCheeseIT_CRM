@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '@/lib/axios'
 import { contractTargetRoleSchema } from '@crm/shared'
 import type { ContractTargetRole } from '@crm/shared'
@@ -52,9 +52,14 @@ function ContractEditorPage() {
   const roleUpper = roleParam.toUpperCase()
   const parsed = contractTargetRoleSchema.safeParse(roleUpper)
 
-  // If invalid role in URL → redirect back
+  // If invalid role in URL → redirect back (effect avoids navigate-during-render warning)
+  useEffect(() => {
+    if (!parsed.success) {
+      void navigate({ to: '/crm/admin/templates/contracts' })
+    }
+  }, [parsed.success, navigate])
+
   if (!parsed.success) {
-    void navigate({ to: '/crm/admin/templates/contracts' })
     return null
   }
 

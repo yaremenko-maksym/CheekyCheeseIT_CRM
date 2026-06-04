@@ -57,6 +57,7 @@ import { ConfigService } from '@nestjs/config'
 import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import type { FastifyRequest } from 'fastify'
 import {
+  type ContractTargetRole,
   type InvoiceDto,
   type InvoiceListFilters,
   type InvoiceListItem,
@@ -259,7 +260,12 @@ export class InvoicesService {
       | 'EUR'
       | 'UAH'
     const txDate = payoutTx.txDate ?? payoutTx.createdAt
-    const contractNumber = await this.lookupContractNumber(counterpartyRow.id, counterpartyRow.role)
+    // ADMIN doesn't sign contracts (see signed_contracts CHECK constraint).
+    // Counterparty is JUNIOR/HR/ACCOUNTANT/SENIOR/DROP in practice; defensive null for ADMIN.
+    const contractNumber =
+      counterpartyRow.role === 'ADMIN'
+        ? null
+        : await this.lookupContractNumber(counterpartyRow.id, counterpartyRow.role)
 
     // PDF generation — aggregated invoice uses the new contract-line
     // description, with the project list as a secondary line if any are
@@ -339,17 +345,15 @@ export class InvoicesService {
    * Joins signed_contracts → contract_templates to filter by targetRole.
    * Returns null when the user has not signed a contract yet.
    */
-  private async lookupContractNumber(userId: string, userRole: string): Promise<string | null> {
+  private async lookupContractNumber(
+    userId: string,
+    userRole: ContractTargetRole,
+  ): Promise<string | null> {
     const rows = await this.db.db
       .select({ contractNumber: signedContracts.contractNumber })
       .from(signedContracts)
       .innerJoin(contractTemplates, eq(signedContracts.templateId, contractTemplates.id))
-      .where(
-        and(
-          eq(signedContracts.userId, userId),
-          eq(contractTemplates.targetRole, userRole as never),
-        ),
-      )
+      .where(and(eq(signedContracts.userId, userId), eq(contractTemplates.targetRole, userRole)))
       .orderBy(desc(signedContracts.signedAt))
       .limit(1)
     return rows[0]?.contractNumber ?? null
@@ -784,7 +788,10 @@ export class InvoicesService {
         if (project) names.push(project.name)
       }
       projectNames = names
-      contractNumber = await this.lookupContractNumber(counterpartyRow.id, counterpartyRow.role)
+      contractNumber =
+        counterpartyRow.role === 'ADMIN'
+          ? null
+          : await this.lookupContractNumber(counterpartyRow.id, counterpartyRow.role)
     } else if (tx.type === 'SENIOR_INCOME' && tx.projectId) {
       const project = await this.db.db.query.projects.findFirst({
         where: eq(projects.id, tx.projectId),

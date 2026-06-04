@@ -20,9 +20,6 @@ const API = 'http://localhost:3001/api'
 function jsonOk(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 }
-function noContent(route: Route) {
-  return route.fulfill({ status: 204, body: '' })
-}
 
 // ---------------------------------------------------------------------------
 // Fixture data
