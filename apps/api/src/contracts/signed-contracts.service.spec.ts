@@ -318,6 +318,40 @@ describe('SignedContractsService', () => {
       ).rejects.toThrow(BadRequestException)
     })
 
+    it('throws LEGAL_NAME_REQUIRED when legalFullName is null', async () => {
+      const userWithoutLegal = makeUser({ legalFullName: null })
+      const mockDb = makeDb({ userRow: userWithoutLegal })
+      const tplSvc = makeTemplatesService(makeTemplate())
+      const service = new SignedContractsService(mockDb as unknown as DatabaseService, tplSvc)
+
+      await expect(
+        service.sign({
+          userId: seniorUser.id,
+          userRole: 'SENIOR',
+          typedName: '',
+          ip: '127.0.0.1',
+          userAgent: 'vt',
+        }),
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('throws LEGAL_NAME_REQUIRED when legalFullName is empty string', async () => {
+      const userWithEmptyLegal = makeUser({ legalFullName: '   ' })
+      const mockDb = makeDb({ userRow: userWithEmptyLegal })
+      const tplSvc = makeTemplatesService(makeTemplate())
+      const service = new SignedContractsService(mockDb as unknown as DatabaseService, tplSvc)
+
+      await expect(
+        service.sign({
+          userId: seniorUser.id,
+          userRole: 'SENIOR',
+          typedName: '',
+          ip: '127.0.0.1',
+          userAgent: 'vt',
+        }),
+      ).rejects.toThrow(BadRequestException)
+    })
+
     it('happy path: creates signed contract with CHK-<seq>-<year>', async () => {
       const inserted = makeSignedContract({ contractNumber: 'CHK-5-2026' })
       const mockDb = makeDb({ insertedRow: inserted, nextSeq: 5 })

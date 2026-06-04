@@ -68,9 +68,13 @@ export const signedContractSchema = z.object({
 /**
  * Body for `POST /api/contracts/sign`. IP / UA captured server-side from
  * `req.ip` + `req.headers['user-agent']` — not part of the request body.
+ *
+ * A2a change: `typedName` is now optional — the backend resolves the signed
+ * name from `users.legalFullName` (spec §4.3 Option A). Clients MAY still
+ * send `typedName` for backward compatibility but the value is ignored.
  */
 export const signContractSchema = z.object({
-  typedName: z.string().min(1, 'Введите ваше имя').max(200),
+  typedName: z.string().max(200).optional(),
 })
 
 export type ContractTargetRole = z.infer<typeof contractTargetRoleSchema>
