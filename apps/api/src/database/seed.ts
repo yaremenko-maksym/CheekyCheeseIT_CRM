@@ -616,7 +616,9 @@ async function main() {
   // ---- 1. Truncate all data (order matters for FK constraints) ----
   console.log('\n[1/8] Truncating existing data...')
   await db.execute(
-    'TRUNCATE TABLE tos_acceptances, signed_contracts, tos_versions, contract_templates, notifications, user_audit_log, team_audit_log, project_audit_log, invoice_signatures, pending_obligations, transactions, payout_requests, project_finance_settings, project_members, projects, interviews, team_members, teams, documents, users RESTART IDENTITY CASCADE' as unknown as Parameters<typeof db.execute>[0],
+    'TRUNCATE TABLE tos_acceptances, signed_contracts, tos_versions, contract_templates, notifications, user_audit_log, team_audit_log, project_audit_log, invoice_signatures, pending_obligations, transactions, payout_requests, project_finance_settings, project_members, projects, interviews, team_members, teams, documents, users RESTART IDENTITY CASCADE' as unknown as Parameters<
+      typeof db.execute
+    >[0],
   )
   console.log('  ✓ Tables truncated')
 
@@ -1103,14 +1105,17 @@ async function main() {
   ]
   // exchange_rate table check
   const hasCurrencyCol = await db.execute(
-    "SELECT column_name FROM information_schema.columns WHERE table_name='exchange_rate' AND column_name='currency' LIMIT 1" as unknown as Parameters<typeof db.execute>[0],
+    "SELECT column_name FROM information_schema.columns WHERE table_name='exchange_rate' AND column_name='currency' LIMIT 1" as unknown as Parameters<
+      typeof db.execute
+    >[0],
   )
   if (hasCurrencyCol.rows.length > 0) {
     for (const rate of exchangeRates) {
-      await db
-        .execute(
-          `INSERT INTO exchange_rate (currency, rate_to_uah, rate_date, source) VALUES ('${rate.currency}', ${rate.rateToUah}, '${rate.rateDate.toISOString()}', '${rate.source}') ON CONFLICT DO NOTHING` as unknown as Parameters<typeof db.execute>[0],
-        )
+      await db.execute(
+        `INSERT INTO exchange_rate (currency, rate_to_uah, rate_date, source) VALUES ('${rate.currency}', ${rate.rateToUah}, '${rate.rateDate.toISOString()}', '${rate.source}') ON CONFLICT DO NOTHING` as unknown as Parameters<
+          typeof db.execute
+        >[0],
+      )
     }
     console.log('  ✓ 24 exchange rates inserted')
   } else {
@@ -1753,7 +1758,9 @@ async function main() {
   // ---- 8. Final verification queries ----
   console.log('\n[8/8] Verification...')
   const userCounts = await db.execute(
-    "SELECT role, count(*) FROM users GROUP BY role ORDER BY role" as unknown as Parameters<typeof db.execute>[0],
+    'SELECT role, count(*) FROM users GROUP BY role ORDER BY role' as unknown as Parameters<
+      typeof db.execute
+    >[0],
   )
   console.log('  Users by role:')
   for (const row of userCounts.rows) {
@@ -1761,9 +1768,13 @@ async function main() {
     console.log(`    ${r.role}: ${r.count}`)
   }
 
-  const nullLfnRows = (await db.execute(
-    "SELECT count(*) FROM users WHERE legal_full_name IS NULL AND role <> 'ADMIN'" as unknown as Parameters<typeof db.execute>[0],
-  )).rows as { count: string }[]
+  const nullLfnRows = (
+    await db.execute(
+      "SELECT count(*) FROM users WHERE legal_full_name IS NULL AND role <> 'ADMIN'" as unknown as Parameters<
+        typeof db.execute
+      >[0],
+    )
+  ).rows as { count: string }[]
   const nullLfn = nullLfnRows[0]?.count ?? '?'
   console.log(`  Users with NULL legal_full_name (non-ADMIN): ${nullLfn} (expected: 0)`)
 
