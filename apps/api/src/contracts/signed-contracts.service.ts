@@ -11,6 +11,7 @@ import { DatabaseService } from '../database/database.service'
 import { signedContracts, type User } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { ContractTemplatesService } from './contract-templates.service'
+import type { GenerateContractPdfParams } from './contract-pdf.service'
 
 /**
  * Onboarding Phase 6A — sign mechanism + immutable audit trail.
@@ -225,5 +226,27 @@ export class SignedContractsService {
       where: eq(signedContracts.userId, userId),
       orderBy: desc(signedContracts.signedAt),
     })
+  }
+
+  /**
+   * Resolve the data needed to render a signed contract PDF.
+   *
+   * Reuses `findById` for the RBAC check (owner | ADMIN | ACCOUNTANT) — a
+   * non-authorised caller gets the same Forbidden/NotFound as the JSON read.
+   * Only the last IP octet is exposed (privacy: full IP stays in the DB).
+   */
+  async getPdfData(id: string, requester: SessionUser): Promise<GenerateContractPdfParams> {
+    const row = await this.findById(id, requester)
+    const lastOctet = row.signedIp ? (row.signedIp.split('.').pop() ?? null) : null
+    const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000'
+
+    return {
+      contractNumber: row.contractNumber,
+      bodyMarkdown: row.bodyMarkdownSnapshot,
+      signedTypedName: row.signedTypedName,
+      signedAt: new Date(row.signedAt),
+      signedIpLastOctet: lastOctet,
+      verifyUrl: `${frontendUrl}/contract/v/${row.id}`,
+    }
   }
 }
