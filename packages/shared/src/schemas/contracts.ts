@@ -61,8 +61,18 @@ export const signedContractSchema = z.object({
   signedIp: z.string().nullable(),
   signedUserAgent: z.string().nullable(),
   signedAt: z.string().or(z.date()),
-  /** `CHK-<seq>-<year>` — server-generated, unique. */
-  contractNumber: z.string().regex(/^CHK-\d+-\d{4}$/, 'Некорректный contract_number'),
+  /**
+   * `CHK-<6 uppercase hex>` — server-generated, unique (e.g. `CHK-7F3A9C`).
+   * Legacy seed rows use the old `CHK-<seq>-<year>` format and are allowed
+   * through on read (the schema is used for API responses, not DB inserts).
+   * Both patterns are accepted so existing seed contracts do not fail validation.
+   */
+  contractNumber: z
+    .string()
+    .regex(
+      /^CHK-([0-9A-F]{6}|\d+-\d{4})$/,
+      'Некорректный contract_number (ожидается CHK-XXXXXX или CHK-N-YYYY для legacy)',
+    ),
 })
 
 /**

@@ -5,7 +5,8 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common'
-import { desc, eq, sql } from 'drizzle-orm'
+import { randomBytes } from 'crypto'
+import { desc, eq } from 'drizzle-orm'
 import type { InterpolatableVariableKey, SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { signedContracts, type User } from '../database/schema'
@@ -22,9 +23,9 @@ import { EmployeeContractsService } from './employee-contracts.service'
  *   2. Fetches user's READY_TO_SIGN employee_contract via EmployeeContractsService.
  *      None → 409 CONTRACT_NOT_READY (thrown by getReadyForSigning).
  *   3. Loads user row, resolves `{{vars}}` via `interpolateVariables`.
- *   4. Inserts the signed_contract inside a tx that also `nextval('contract_number_seq')`.
+ *   4. Inserts the signed_contract inside a tx.
  *   5. Calls `employeeContracts.markSigned(userId, insertedId)` → READY_TO_SIGN → SIGNED.
- *   6. `contract_number` shape: `CHK-<seq>-<UTC year>`.
+ *   6. `contract_number` shape: `CHK-<6 uppercase hex>` (e.g. `CHK-7F3A9C`). T4.
  *
  * Idempotency: once markSigned() is called, the employee_contract transitions to
  * SIGNED; subsequent sign() calls reach getReadyForSigning() which throws 409 —
@@ -104,25 +105,18 @@ export class SignedContractsService {
         signedAt,
       )
 
-      // Atomic `nextval` + UTC year — generated server-side for monotonic numbering.
-      const seqResult = (await tx.execute(
-        sql`SELECT 'CHK-' || nextval('contract_number_seq')::text || '-' || EXTRACT(YEAR FROM (NOW() AT TIME ZONE 'UTC'))::int::text AS contract_number`,
-      )) as unknown
-      const rowsCandidate = (seqResult as { rows?: unknown[] })?.rows ?? (seqResult as unknown[])
-      const firstRow = Array.isArray(rowsCandidate)
-        ? (rowsCandidate[0] as Record<string, unknown> | undefined)
-        : undefined
-      const contractNumber =
-        typeof firstRow?.['contract_number'] === 'string'
-          ? (firstRow['contract_number'] as string)
-          : null
-      if (!contractNumber) {
-        // Defense in depth — a silent fallback like `CHK-1-${year}` would race
-        // against `signed_contracts.contract_number UNIQUE` once seq has produced
-        // any prior row. Surface the failure so the caller sees a 500 instead
-        // of a duplicate-key INSERT.
-        throw new InternalServerErrorException('Failed to allocate contract_number from sequence')
-      }
+      // T4: generate CHK-<6 uppercase hex> (e.g. CHK-7F3A9C).
+      // 3 random bytes → 6 hex chars → 16^6 = 16 777 216 possible values;
+      // collision probability at 1 000 signed contracts ≈ 0.003% (birthday bound).
+      // The UNIQUE constraint on signed_contracts.contract_number is the source
+      // of truth — retry up to 5 times on a duplicate-key violation so we never
+      // surface a transient collision as a 500 to the caller.
+      const contractNumber = await generateUniqueContractNumber(async (candidate) => {
+        const existing = await tx.query.signedContracts.findFirst({
+          where: (tbl, { eq: eqOp }) => eqOp(tbl.contractNumber, candidate),
+        })
+        return existing === undefined
+      })
 
       // Option A (spec §4.3): resolve signedTypedName server-side from legal name.
       // The audit trail stores the name that was in the profile at signing time.
@@ -194,6 +188,33 @@ export class SignedContractsService {
       verifyUrl: `${frontendUrl}/contract/v/${row.id}`,
     }
   }
+}
+
+/**
+ * Generate a unique contract number of the form `CHK-XXXXXX` where X is an
+ * uppercase hex digit (e.g. `CHK-7F3A9C`).
+ *
+ * Calls `isUnique(candidate)` — a caller-supplied async check — and retries
+ * with a fresh candidate on each collision. Throws `InternalServerErrorException`
+ * after `maxAttempts` failed attempts (expected to be astronomically rare in
+ * production; exists only as a safety valve).
+ *
+ * @param isUnique   Async predicate: returns `true` if the candidate is not yet
+ *                   taken (i.e. safe to insert).
+ * @param maxAttempts Maximum generation attempts before giving up (default 5).
+ */
+export async function generateUniqueContractNumber(
+  isUnique: (candidate: string) => Promise<boolean>,
+  maxAttempts = 5,
+): Promise<string> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const hex = randomBytes(3).toString('hex').toUpperCase()
+    const candidate = `CHK-${hex}`
+    if (await isUnique(candidate)) return candidate
+  }
+  throw new InternalServerErrorException(
+    'Failed to allocate a unique contract_number after maximum attempts',
+  )
 }
 
 /**

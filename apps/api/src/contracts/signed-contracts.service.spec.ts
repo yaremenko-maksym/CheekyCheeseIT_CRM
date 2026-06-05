@@ -8,7 +8,11 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
 import type { EmployeeContractsService } from './employee-contracts.service'
-import { SignedContractsService, ipTrailingSegment } from './signed-contracts.service'
+import {
+  SignedContractsService,
+  generateUniqueContractNumber,
+  ipTrailingSegment,
+} from './signed-contracts.service'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -103,7 +107,8 @@ function makeSignedContract(overrides: Record<string, unknown> = {}) {
     signedIp: '127.0.0.1',
     signedUserAgent: 'vitest',
     signedAt: new Date('2026-06-03T00:00:00Z'),
-    contractNumber: 'CHK-1-2026',
+    // T4: new format CHK-<6 uppercase hex>
+    contractNumber: 'CHK-7F3A9C',
     ...overrides,
   }
 }
@@ -153,13 +158,14 @@ interface MockDb {
 
 function makeDb({
   userRow = makeUser(),
-  nextSeq = 1,
   insertedRow,
 }: {
   userRow?: ReturnType<typeof makeUser>
-  nextSeq?: number
+  // nextSeq removed: T4 uses crypto.randomBytes instead of sequence
   insertedRow?: ReturnType<typeof makeSignedContract>
 } = {}): MockDb {
+  // T4: findFirst for uniqueness check must return undefined (= candidate is free)
+  // so generateUniqueContractNumber succeeds on the first attempt.
   const findSignedFirst = vi.fn().mockResolvedValue(undefined)
   const findSignedMany = vi.fn().mockResolvedValue([])
   const findUser = vi.fn().mockResolvedValue(userRow)
@@ -171,18 +177,13 @@ function makeDb({
         users: { findFirst: findUser },
       },
       transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
-        const txInsertReturning = vi
-          .fn()
-          .mockResolvedValue([
-            insertedRow ?? makeSignedContract({ contractNumber: `CHK-${nextSeq}-2026` }),
-          ])
+        const txInsertReturning = vi.fn().mockResolvedValue([insertedRow ?? makeSignedContract()])
         const txInsertValues = vi.fn().mockReturnValue({ returning: txInsertReturning })
-        const txExecute = vi.fn().mockResolvedValue([{ contract_number: `CHK-${nextSeq}-2026` }])
         const tx = {
-          execute: txExecute,
           insert: vi.fn().mockReturnValue({ values: txInsertValues }),
           query: {
-            signedContracts: { findFirst: findSignedFirst },
+            // T4: uniqueness check — always return undefined (free candidate)
+            signedContracts: { findFirst: vi.fn().mockResolvedValue(undefined) },
             users: { findFirst: findUser },
           },
         }
@@ -473,9 +474,9 @@ describe('SignedContractsService', () => {
       ).rejects.toThrow(BadRequestException)
     })
 
-    it('happy path: creates signed contract with CHK-<seq>-<year> and calls markSigned', async () => {
-      const inserted = makeSignedContract({ contractNumber: 'CHK-5-2026' })
-      const mockDb = makeDb({ insertedRow: inserted, nextSeq: 5 })
+    it('happy path: creates signed contract with CHK-<6 hex> format and calls markSigned', async () => {
+      const inserted = makeSignedContract({ contractNumber: 'CHK-AB12CD' })
+      const mockDb = makeDb({ insertedRow: inserted })
       const empSvc = makeEmployeeContractsSvc()
       const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
 
@@ -487,7 +488,8 @@ describe('SignedContractsService', () => {
         userAgent: 'curl/8.0',
       })
 
-      expect(result.contractNumber).toBe('CHK-5-2026')
+      // T4: contract number must match CHK-XXXXXX (6 uppercase hex chars)
+      expect(result.contractNumber).toMatch(/^CHK-[0-9A-F]{6}$/)
       expect(result.userId).toBe('senior-1')
       // A3-1: markSigned must be called to transition employee_contract → SIGNED
       expect(empSvc.markSigned).toHaveBeenCalledWith('senior-1', inserted.id)
@@ -527,11 +529,13 @@ describe('SignedContractsService', () => {
         callOrder.push('tx:open')
         const txInsertReturning = vi.fn().mockResolvedValue([inserted])
         const txInsertValues = vi.fn().mockReturnValue({ returning: txInsertReturning })
-        const txExecute = vi.fn().mockResolvedValue([{ contract_number: 'CHK-1-2026' }])
         const tx = {
-          execute: txExecute,
           insert: vi.fn().mockReturnValue({ values: txInsertValues }),
-          query: { users: { findFirst: vi.fn().mockResolvedValue(makeUser()) } },
+          query: {
+            // T4: uniqueness check returns undefined = candidate is free
+            signedContracts: { findFirst: vi.fn().mockResolvedValue(undefined) },
+            users: { findFirst: vi.fn().mockResolvedValue(makeUser()) },
+          },
         }
         return cb(tx)
       })
@@ -650,7 +654,7 @@ describe('SignedContractsService', () => {
     it('returns array of signed contracts for given user', async () => {
       const rows = [
         makeSignedContract(),
-        makeSignedContract({ id: 'sc-2', contractNumber: 'CHK-2-2026' }),
+        makeSignedContract({ id: 'sc-2', contractNumber: 'CHK-FF0011' }),
       ]
       const mockDb = makeDb()
       mockDb.db.query.signedContracts.findMany.mockResolvedValue(rows)
@@ -681,5 +685,44 @@ describe('ipTrailingSegment', () => {
 
   it('handles IPv6 loopback', () => {
     expect(ipTrailingSegment('::1')).toBe('1')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T4: generateUniqueContractNumber
+// ---------------------------------------------------------------------------
+
+describe('generateUniqueContractNumber', () => {
+  it('returns a string matching CHK-[0-9A-F]{6}', async () => {
+    const result = await generateUniqueContractNumber(async () => true)
+    expect(result).toMatch(/^CHK-[0-9A-F]{6}$/)
+  })
+
+  it('retries on collision and succeeds on second attempt', async () => {
+    let callCount = 0
+    // First call: taken; second call: free
+    const result = await generateUniqueContractNumber(async () => {
+      callCount++
+      return callCount > 1
+    })
+    expect(callCount).toBe(2)
+    expect(result).toMatch(/^CHK-[0-9A-F]{6}$/)
+  })
+
+  it('throws InternalServerErrorException after maxAttempts collisions', async () => {
+    const { InternalServerErrorException } = await import('@nestjs/common')
+    await expect(generateUniqueContractNumber(async () => false, 3)).rejects.toThrow(
+      InternalServerErrorException,
+    )
+  })
+
+  it('produces distinct values on successive calls (statistical)', async () => {
+    // Generate 50 numbers — with 16^6 = 16.7M possibilities, all 50 must differ
+    const results = await Promise.all(
+      Array.from({ length: 50 }, () => generateUniqueContractNumber(async () => true)),
+    )
+    const unique = new Set(results)
+    // Statistical: extremely unlikely to have any collision in 50 draws from 16.7M
+    expect(unique.size).toBe(50)
   })
 })
