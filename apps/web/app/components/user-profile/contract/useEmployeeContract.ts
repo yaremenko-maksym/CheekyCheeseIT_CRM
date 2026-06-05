@@ -177,10 +177,10 @@ export async function fetchContractPdfBlob(
   userId: string,
   signal?: AbortSignal,
 ): Promise<{ blobUrl: string; revoke: () => void }> {
-  const res = await api.get<Blob>(`/users/${userId}/contract/pdf`, {
-    responseType: 'blob',
-    signal,
-  })
+  const config = signal
+    ? { responseType: 'blob' as const, signal }
+    : { responseType: 'blob' as const }
+  const res = await api.get<Blob>(`/users/${userId}/contract/pdf`, config)
   const blobUrl = URL.createObjectURL(res.data as Blob)
   return { blobUrl, revoke: () => URL.revokeObjectURL(blobUrl) }
 }
