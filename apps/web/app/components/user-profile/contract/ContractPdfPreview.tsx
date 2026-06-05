@@ -28,7 +28,15 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
   const [iframeLoading, setIframeLoading] = useState(false)
   const revokeRef = useRef<(() => void) | null>(null)
 
+  // AbortController ref — cancelled on unmount or when a new load supersedes the current one.
+  const abortRef = useRef<AbortController | null>(null)
+
   const loadPdf = useCallback(async () => {
+    // Cancel any in-flight request before starting a new one.
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
     setIsLoading(true)
     setHasError(false)
     setIframeLoading(true)
@@ -36,10 +44,15 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
     revokeRef.current = null
 
     try {
-      const { blobUrl: url, revoke } = await fetchContractPdfBlob(userId)
+      const { blobUrl: url, revoke } = await fetchContractPdfBlob(userId, controller.signal)
+      // Guard: if aborted while awaiting, do not call setState on unmounted component.
+      if (controller.signal.aborted) return
       revokeRef.current = revoke
       setBlobUrl(url)
     } catch (err: unknown) {
+      // Ignore AbortError — triggered by cleanup or superseding load, not a real failure.
+      if (err instanceof Error && err.name === 'AbortError') return
+      if (controller.signal.aborted) return
       setIsLoading(false)
       setIframeLoading(false)
       setHasError(true)
@@ -54,14 +67,17 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
         toast.error('Не удалось загрузить PDF предпросмотра.')
       }
     } finally {
-      setIsLoading(false)
+      if (!controller.signal.aborted) {
+        setIsLoading(false)
+      }
     }
   }, [userId])
 
-  // Load PDF on mount and when userId changes
+  // Load PDF on mount and when userId changes; cancel on unmount.
   useEffect(() => {
     void loadPdf()
     return () => {
+      abortRef.current?.abort()
       revokeRef.current?.()
     }
   }, [userId, loadPdf])

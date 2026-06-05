@@ -2,6 +2,16 @@ import { useCallback, useRef, useState } from 'react'
 import { UsersRound } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { AnimatedTabs } from '@/components/ui/animated-tabs'
 import { useMe, useUser } from '@/hooks/use-user-profile'
 import { useActiveTeam } from '@/hooks/use-active-team'
@@ -46,24 +56,34 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
   const [avatarOpen, setAvatarOpen] = useState(false)
   // Dirty guard: ContractTab registers its isDirty state here via onDirtyChange.
   // When the user tries to switch tabs away from contract with unsaved changes,
-  // we show a native confirm dialog before proceeding.
+  // we show an AlertDialog (consistent with ContractActionBar UX, no event-loop block).
   const contractDirtyRef = useRef(false)
+  const [dirtyGuardOpen, setDirtyGuardOpen] = useState(false)
+  const pendingTabRef = useRef<string | null>(null)
   const handleContractDirtyChange = useCallback((dirty: boolean) => {
     contractDirtyRef.current = dirty
   }, [])
   const handleTabChange = useCallback(
     (nextTab: string) => {
-      if (
-        tab === 'contract' &&
-        contractDirtyRef.current &&
-        !window.confirm('Есть несохранённые изменения контракта. Покинуть вкладку?')
-      ) {
+      if (tab === 'contract' && contractDirtyRef.current) {
+        pendingTabRef.current = nextTab
+        setDirtyGuardOpen(true)
         return
       }
       onTabChange(nextTab)
     },
     [tab, onTabChange],
   )
+  const handleDirtyGuardConfirm = useCallback(() => {
+    const next = pendingTabRef.current
+    pendingTabRef.current = null
+    setDirtyGuardOpen(false)
+    if (next) onTabChange(next)
+  }, [onTabChange])
+  const handleDirtyGuardCancel = useCallback(() => {
+    pendingTabRef.current = null
+    setDirtyGuardOpen(false)
+  }, [])
   // Drop role - phase 1 (AC7): track teamless SENIOR state. Banner is
   // shown only on the self-profile of a teamless SENIOR.
   const { isTeamless: isTeamlessSenior } = useActiveTeam()
@@ -150,6 +170,27 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
       {mode === 'self' && (
         <RejoinTeamDialog open={rejoinOpen} onClose={() => setRejoinOpen(false)} />
       )}
+
+      {/* Dirty guard — replaces window.confirm for consistent non-blocking UX */}
+      <AlertDialog open={dirtyGuardOpen} onOpenChange={setDirtyGuardOpen}>
+        <AlertDialogContent data-testid="contract-dirty-guard-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Покинуть вкладку «Контракт»?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Есть несохранённые изменения. При переходе они будут потеряны.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleDirtyGuardCancel}>Остаться</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDirtyGuardConfirm}
+              data-testid="contract-dirty-guard-confirm"
+            >
+              Покинуть
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {permissions.tabs.length > 0 && (
         <div className="flex flex-col gap-4">
