@@ -36,6 +36,7 @@ import {
   CrmDialogBody,
   CrmDialogFooter,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -824,6 +825,9 @@ function TeamDetailPage() {
         <CrmDialogContent>
           <CrmDialogHeader>
             <DialogTitle>Редактировать команду</DialogTitle>
+            <DialogDescription className="sr-only">
+              Редактирование названия, Telegram-ссылки и заметок команды.
+            </DialogDescription>
           </CrmDialogHeader>
           <form
             onSubmit={(e) => {
@@ -982,6 +986,9 @@ function TeamDetailPage() {
         <CrmDialogContent>
           <CrmDialogHeader>
             <DialogTitle>Добавить участника</DialogTitle>
+            <DialogDescription className="sr-only">
+              Выбор пользователей для добавления в состав команды.
+            </DialogDescription>
           </CrmDialogHeader>
           <CrmDialogBody>
             <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
@@ -1105,6 +1112,9 @@ function TeamDetailPage() {
               <RefreshCw className="h-4 w-4" />
               {activeSenior ? 'Сменить синьора' : 'Назначить синьора'}
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              Смена или назначение синьора в команде. Текущий синьор будет откреплён.
+            </DialogDescription>
             <p className="text-xs text-muted-foreground mt-1">
               {activeSenior
                 ? `Текущий синьор «${activeSenior.displayName}» будет откреплён. Новый синьор должен быть без активной команды.`

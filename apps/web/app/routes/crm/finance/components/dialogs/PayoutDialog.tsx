@@ -11,6 +11,7 @@ import {
   CrmDialogHeader,
   CrmDialogBody,
   CrmDialogFooter,
+  DialogDescription,
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { financeApi } from '../../api'
@@ -118,6 +119,9 @@ export function PayoutDialog({
       <CrmDialogContent maxWidth="sm:max-w-lg">
         <CrmDialogHeader>
           <DialogTitle>Выбрать транзакции для выплаты</DialogTitle>
+          <DialogDescription className="sr-only">
+            Выбор подтверждённых транзакций для формирования запроса на выплату.
+          </DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="pb-4">

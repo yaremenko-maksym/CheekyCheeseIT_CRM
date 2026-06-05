@@ -25,6 +25,7 @@ import {
   CrmDialogBody,
   CrmDialogFooter,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -225,6 +226,9 @@ function HrCreateSeniorDialog({
             <UserPlus className="h-4 w-4" />
             Создать синьора
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            Создание нового аккаунта синьора и формирование команды с HR.
+          </DialogDescription>
           <p className="text-xs text-muted-foreground mt-1">
             Будет создан аккаунт синьора и сформирована команда с вами в роли HR.
           </p>

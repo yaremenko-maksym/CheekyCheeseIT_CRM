@@ -52,6 +52,7 @@ import {
   CrmDialogBody,
   CrmDialogFooter,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -1108,6 +1109,9 @@ function ProjectDetailPage() {
         <CrmDialogContent maxWidth="max-w-lg">
           <CrmDialogHeader>
             <DialogTitle>Редактировать — {project.companyName}</DialogTitle>
+            <DialogDescription className="sr-only">
+              Редактирование параметров проекта: ставка, валюта, домен и настройки доли.
+            </DialogDescription>
           </CrmDialogHeader>
 
           <CrmDialogBody>
@@ -1145,6 +1149,9 @@ function ProjectDetailPage() {
         <CrmDialogContent maxWidth="sm:max-w-sm">
           <CrmDialogHeader>
             <DialogTitle>Убрать участника?</DialogTitle>
+            <DialogDescription className="sr-only">
+              Подтверждение удаления участника из проекта.
+            </DialogDescription>
           </CrmDialogHeader>
           <CrmDialogBody className="pb-2">
             <p className="text-sm text-muted-foreground">
@@ -1179,6 +1186,9 @@ function ProjectDetailPage() {
         <CrmDialogContent maxWidth="max-w-sm">
           <CrmDialogHeader>
             <DialogTitle>Добавить участника</DialogTitle>
+            <DialogDescription className="sr-only">
+              Выбор дропа для добавления в проект.
+            </DialogDescription>
           </CrmDialogHeader>
           <CrmDialogBody>
             <div className="max-h-72 space-y-1.5 overflow-y-auto">

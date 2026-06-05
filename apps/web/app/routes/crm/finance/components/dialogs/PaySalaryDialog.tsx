@@ -2,20 +2,35 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { TransactionDto } from '@crm/shared'
 import { Button } from '@/components/ui/button'
-import { Dialog, CrmDialogContent, CrmDialogHeader, CrmDialogBody, CrmDialogFooter, DialogTitle } from '@/components/ui/crm-dialog'
+import {
+  Dialog,
+  CrmDialogContent,
+  CrmDialogHeader,
+  CrmDialogBody,
+  CrmDialogFooter,
+  DialogDescription,
+  DialogTitle,
+} from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { financeApi } from '../../api'
 import { fmtAmount, fmtDate } from '../../constants'
 
-export function PaySalaryDialog({ tx, onClose }: { tx: TransactionDto | null; onClose: () => void }) {
+export function PaySalaryDialog({
+  tx,
+  onClose,
+}: {
+  tx: TransactionDto | null
+  onClose: () => void
+}) {
   const qc = useQueryClient()
   const [txHash, setTxHash] = useState('')
   const [notes, setNotes] = useState('')
 
   const mutation = useMutation({
-    mutationFn: () => financeApi.paySalary(tx!.id, { txHash: txHash || null, notes: notes || null }),
+    mutationFn: () =>
+      financeApi.paySalary(tx!.id, { txHash: txHash || null, notes: notes || null }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['transactions'] })
       void qc.invalidateQueries({ queryKey: ['finance-summary'] })
@@ -36,10 +51,16 @@ export function PaySalaryDialog({ tx, onClose }: { tx: TransactionDto | null; on
   if (!tx) return null
 
   return (
-    <Dialog open={!!tx} onOpenChange={(v) => { if (!v) handleClose() }}>
+    <Dialog
+      open={!!tx}
+      onOpenChange={(v) => {
+        if (!v) handleClose()
+      }}
+    >
       <CrmDialogContent maxWidth="sm:max-w-md">
         <CrmDialogHeader>
           <DialogTitle>Выплатить зарплату</DialogTitle>
+          <DialogDescription className="sr-only">Выплата зарплаты</DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="space-y-4 pb-4">
@@ -91,7 +112,9 @@ export function PaySalaryDialog({ tx, onClose }: { tx: TransactionDto | null; on
         </CrmDialogBody>
 
         <CrmDialogFooter>
-          <Button variant="outline" onClick={handleClose}>Отмена</Button>
+          <Button variant="outline" onClick={handleClose}>
+            Отмена
+          </Button>
           <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
             {mutation.isPending ? 'Оплата...' : 'Отметить как оплачено'}
           </Button>

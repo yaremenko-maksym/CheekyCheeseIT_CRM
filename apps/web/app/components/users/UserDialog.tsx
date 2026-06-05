@@ -56,6 +56,7 @@ import {
   CrmDialogFooter,
   CrmDialogHeader,
   Dialog,
+  DialogDescription,
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
@@ -899,6 +900,7 @@ export function UserDialog(props: UserDialogProps) {
                 </>
               )}
             </DialogTitle>
+            <DialogDescription className="sr-only">Управление пользователем</DialogDescription>
           </CrmDialogHeader>
 
           <CrmDialogBody>

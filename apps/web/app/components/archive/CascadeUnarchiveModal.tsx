@@ -2,6 +2,7 @@ import { User, Users } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -41,12 +42,14 @@ export function CascadeUnarchiveModal({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Восстановить связанные сущности</DialogTitle>
+          <DialogDescription className="sr-only">
+            Восстановление проекта вместе со связанными сущностями.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 text-sm">
           <p className="text-muted-foreground">
-            Для восстановления проекта{' '}
-            <strong className="text-foreground">{projectName}</strong> требуется также
-            восстановить пару:
+            Для восстановления проекта <strong className="text-foreground">{projectName}</strong>{' '}
+            требуется также восстановить пару:
           </p>
           <div className="space-y-2">
             {entities.map((e) => (
@@ -64,19 +67,14 @@ export function CascadeUnarchiveModal({
             ))}
           </div>
           <p className="text-xs text-muted-foreground">
-            HR/бухгалтеры команды после восстановления остаются отвязанными — добавьте их
-            заново.
+            HR/бухгалтеры команды после восстановления остаются отвязанными — добавьте их заново.
           </p>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onCancel} disabled={isPending}>
             Отмена
           </Button>
-          <Button
-            onClick={onConfirm}
-            disabled={isPending}
-            data-testid="cascade-unarchive-confirm"
-          >
+          <Button onClick={onConfirm} disabled={isPending} data-testid="cascade-unarchive-confirm">
             {isPending ? 'Восстановление…' : 'Восстановить всё'}
           </Button>
         </DialogFooter>

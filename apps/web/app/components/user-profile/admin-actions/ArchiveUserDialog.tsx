@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -25,23 +26,21 @@ export function ArchiveUserDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle className="text-destructive">Архивировать пользователя</DialogTitle>
+          <DialogDescription className="sr-only">
+            Подтверждение архивации пользователя. Введите имя для подтверждения.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 text-sm">
           <p className="text-muted-foreground">
             Пользователь будет перемещён в архив. Связанные проекты, выплаты и история остаются.
           </p>
           <p>
-            Для подтверждения введите имя:{' '}
-            <strong className="text-foreground">{userName}</strong>
+            Для подтверждения введите имя: <strong className="text-foreground">{userName}</strong>
           </p>
-          <Input
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            placeholder={userName}
-          />
+          <Input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={userName} />
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>

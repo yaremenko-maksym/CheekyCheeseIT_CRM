@@ -15,13 +15,13 @@ import {
   CrmDialogHeader,
   CrmDialogBody,
   CrmDialogFooter,
+  DialogDescription,
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ImageUploadField } from '@/components/ui/image-upload-field'
 import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-currency-input'
-
 
 type UserOption = {
   id: string
@@ -33,7 +33,12 @@ type UserOption = {
 }
 
 function getInitials(name: string) {
-  return (name || '?').split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
+  return (name || '?')
+    .split(' ')
+    .map((n) => n[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2)
 }
 
 const _ROLE_LABELS: Record<string, string> = {
@@ -97,7 +102,9 @@ function MemberPicker({
         >
           <option value="">— добавить —</option>
           {available.map((u) => (
-            <option key={u.id} value={u.id}>{u.displayName}</option>
+            <option key={u.id} value={u.id}>
+              {u.displayName}
+            </option>
           ))}
         </select>
       )}
@@ -173,20 +180,27 @@ export function CreateProjectFromHiredDialog({
   const isPending = createMutation.isPending
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) onClose()
+      }}
+    >
       <CrmDialogContent>
         <CrmDialogHeader>
           <DialogTitle>Создать проект — {seniorName}</DialogTitle>
+          <DialogDescription className="sr-only">Создание проекта</DialogDescription>
         </CrmDialogHeader>
         <CrmDialogBody className="pb-2">
           <div className="space-y-3">
-
             <div className="space-y-1.5">
               <Label>Логотип компании</Label>
               <ImageUploadField
                 value={{
-                  documentId: (form.state.values as { logoDocumentId: string | null }).logoDocumentId,
-                  externalUrl: (form.state.values as { logoExternalUrl: string | null }).logoExternalUrl,
+                  documentId: (form.state.values as { logoDocumentId: string | null })
+                    .logoDocumentId,
+                  externalUrl: (form.state.values as { logoExternalUrl: string | null })
+                    .logoExternalUrl,
                 }}
                 onChange={(v) => {
                   form.setFieldValue('logoDocumentId', v.documentId)
@@ -200,7 +214,12 @@ export function CreateProjectFromHiredDialog({
 
             <form.Field
               name="name"
-              validators={{ onBlur: ({ value }) => { const r = createProjectSchema.shape.name.safeParse(value.trim()); return r.success ? undefined : r.error.issues[0]?.message } }}
+              validators={{
+                onBlur: ({ value }) => {
+                  const r = createProjectSchema.shape.name.safeParse(value.trim())
+                  return r.success ? undefined : r.error.issues[0]?.message
+                },
+              }}
             >
               {(field) => {
                 const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
@@ -222,7 +241,12 @@ export function CreateProjectFromHiredDialog({
 
             <form.Field
               name="companyName"
-              validators={{ onBlur: ({ value }) => { const r = createProjectSchema.shape.companyName.safeParse(value.trim()); return r.success ? undefined : r.error.issues[0]?.message } }}
+              validators={{
+                onBlur: ({ value }) => {
+                  const r = createProjectSchema.shape.companyName.safeParse(value.trim())
+                  return r.success ? undefined : r.error.issues[0]?.message
+                },
+              }}
             >
               {(field) => {
                 const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
@@ -251,19 +275,27 @@ export function CreateProjectFromHiredDialog({
                     value={field.state.value}
                     onChange={(e) => field.handleChange(e.target.value as ItDomain)}
                   >
-                    {IT_DOMAINS.map((d) => <option key={d} value={d}>{d}</option>)}
+                    {IT_DOMAINS.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
                   </select>
                 </div>
               )}
             </form.Field>
 
-            <form.Subscribe selector={(s) => ({ rate: s.values.rate, currency: s.values.currency })}>
+            <form.Subscribe
+              selector={(s) => ({ rate: s.values.rate, currency: s.values.currency })}
+            >
               {({ rate, currency }) => (
                 <AmountCurrencyInput
                   amount={String(rate ?? '')}
                   currency={currency as Currency}
                   onAmountChange={(v) => form.setFieldValue('rate', Number(v) as unknown as number)}
-                  onCurrencyChange={(v) => form.setFieldValue('currency', v as 'USDT' | 'USD' | 'EUR' | 'UAH')}
+                  onCurrencyChange={(v) =>
+                    form.setFieldValue('currency', v as 'USDT' | 'USD' | 'EUR' | 'UAH')
+                  }
                   label="Ставка"
                   placeholder="5000"
                 />
@@ -284,7 +316,9 @@ export function CreateProjectFromHiredDialog({
             </form.Field>
 
             <div className="border-t border-border pt-3 space-y-3">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Участники</p>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Участники
+              </p>
 
               <MemberPicker
                 label="HR"
@@ -317,13 +351,16 @@ export function CreateProjectFromHiredDialog({
 
             <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
               <span className="text-xs text-muted-foreground">Синьор:</span>
-              <Badge variant="senior" className="text-xs">{seniorName}</Badge>
+              <Badge variant="senior" className="text-xs">
+                {seniorName}
+              </Badge>
             </div>
-
           </div>
         </CrmDialogBody>
         <CrmDialogFooter>
-          <Button variant="outline" onClick={onClose}>Отмена</Button>
+          <Button variant="outline" onClick={onClose}>
+            Отмена
+          </Button>
           <Button onClick={() => void form.handleSubmit()} disabled={isPending}>
             {isPending ? 'Создание...' : 'Создать проект'}
           </Button>

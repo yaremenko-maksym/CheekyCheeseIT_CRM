@@ -158,6 +158,7 @@ export function InvoiceDetailDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <CrmDialogContent maxWidth="sm:max-w-6xl" data-testid="invoice-detail-dialog">
+        <DialogDescription className="sr-only">Инвойс</DialogDescription>
         {isLoading || !invoice ? (
           <DialogLoadingState error={error} />
         ) : (

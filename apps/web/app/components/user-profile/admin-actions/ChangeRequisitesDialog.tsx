@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -55,9 +56,12 @@ export function ChangeRequisitesDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>Изменить реквизиты</DialogTitle>
+          <DialogDescription className="sr-only">
+            Изменение платёжных реквизитов пользователя.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           {!isUsdtOnlyRole && (
@@ -92,10 +96,7 @@ export function ChangeRequisitesDialog({
             <>
               <div>
                 <Label>Получатель (ФИО)</Label>
-                <Input
-                  value={bankRecipient}
-                  onChange={(e) => setBankRecipient(e.target.value)}
-                />
+                <Input value={bankRecipient} onChange={(e) => setBankRecipient(e.target.value)} />
               </div>
               <div>
                 <Label>IBAN</Label>

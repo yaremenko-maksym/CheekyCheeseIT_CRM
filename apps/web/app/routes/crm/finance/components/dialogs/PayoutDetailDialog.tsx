@@ -10,6 +10,7 @@ import {
   CrmDialogHeader,
   CrmDialogBody,
   CrmDialogFooter,
+  DialogDescription,
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
@@ -166,10 +167,7 @@ export function PayoutDetailDialog({
     >
       <CrmDialogContent maxWidth="sm:max-w-xl" data-testid="payout-detail-dialog">
         <CrmDialogHeader>
-          <DialogTitle
-            className="flex items-center gap-2"
-            data-testid="payout-detail-title"
-          >
+          <DialogTitle className="flex items-center gap-2" data-testid="payout-detail-title">
             {isPaid ? 'Выплата (оплачена)' : 'Подтвердить выплату'}
             {isPaid && (
               <Badge variant="secondary" className="text-[10px]">
@@ -177,6 +175,7 @@ export function PayoutDetailDialog({
               </Badge>
             )}
           </DialogTitle>
+          <DialogDescription className="sr-only">Детали выплаты</DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="pb-4 space-y-4">
@@ -255,34 +254,31 @@ export function PayoutDetailDialog({
                   payout.transactions?.filter((t) => t.type === 'SENIOR_INCOME') ?? []
                 if (seniorIncomeTxs.length === 0) return null
                 return (
-                <div className="space-y-1.5">
-                  <Label
-                    className="text-xs"
-                    data-testid="payout-detail-transactions-count"
-                  >
-                    Транзакции в выплате ({seniorIncomeTxs.length})
-                  </Label>
-                  <div className="rounded-md border border-border divide-y divide-border max-h-40 overflow-y-auto">
-                    {seniorIncomeTxs.map((tx) => (
-                      <div
-                        key={tx.id}
-                        className="flex items-center justify-between px-3 py-2 text-xs"
-                        data-testid={`payout-detail-tx-${tx.id}`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium truncate">{tx.projectName ?? '—'}</p>
-                          <p className="text-muted-foreground">
-                            #{tx.id.slice(0, 6)} от{' '}
-                            {new Date(tx.txDate ?? tx.createdAt).toLocaleDateString('ru-RU')}
-                          </p>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs" data-testid="payout-detail-transactions-count">
+                      Транзакции в выплате ({seniorIncomeTxs.length})
+                    </Label>
+                    <div className="rounded-md border border-border divide-y divide-border max-h-40 overflow-y-auto">
+                      {seniorIncomeTxs.map((tx) => (
+                        <div
+                          key={tx.id}
+                          className="flex items-center justify-between px-3 py-2 text-xs"
+                          data-testid={`payout-detail-tx-${tx.id}`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate">{tx.projectName ?? '—'}</p>
+                            <p className="text-muted-foreground">
+                              #{tx.id.slice(0, 6)} от{' '}
+                              {new Date(tx.txDate ?? tx.createdAt).toLocaleDateString('ru-RU')}
+                            </p>
+                          </div>
+                          <span className="tabular-nums font-medium shrink-0">
+                            {fmtAmount(tx.amount, tx.currency)}
+                          </span>
                         </div>
-                        <span className="tabular-nums font-medium shrink-0">
-                          {fmtAmount(tx.amount, tx.currency)}
-                        </span>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
                 )
               })()}
 
@@ -397,38 +393,37 @@ export function PayoutDetailDialog({
           <Button variant="outline" onClick={handleClose}>
             {isPaid ? 'Закрыть' : 'Отмена'}
           </Button>
-          {!isPaid && payout && (() => {
-            // PR #56 final UT (AC1): submit gate is split into three states.
-            //
-            //   1. payMutation.isPending — always blocks (request in flight).
-            //   2. DEV simulate mode (success/error) — hash is **optional**.
-            //      Backend synthesizes a stub 0xSIM… when absent, so we drop
-            //      the min(10) gate. Previously the button looked enabled
-            //      (no explicit grey-out) but onClick was a no-op because
-            //      txHash.length < 10 → confusing UX.
-            //   3. Real mode (DEV/PROD) — requires hash ≥ 10 chars + in DEV
-            //      the «🔗 Реальная проверка» radio is itself a hard gate
-            //      (no ledger to verify against locally).
-            const isSimulate =
-              SHOW_DEV_SIMULATE && (simulateMode === 'success' || simulateMode === 'error')
-            const realModeBlocked =
-              SHOW_DEV_SIMULATE && simulateMode === 'real' // dev: «реальная» is unavailable
-            const hashTooShort = txHash.trim().length < 10
-            const submitDisabled =
-              payMutation.isPending ||
-              realModeBlocked ||
-              (!isSimulate && hashTooShort)
-            return (
-              <Button
-                data-testid="payout-detail-submit"
-                onClick={() => payMutation.mutate()}
-                disabled={submitDisabled}
-                className={submitDisabled ? 'opacity-50 cursor-not-allowed' : undefined}
-              >
-                {payMutation.isPending ? 'Проверка...' : 'Подтвердить оплату'}
-              </Button>
-            )
-          })()}
+          {!isPaid &&
+            payout &&
+            (() => {
+              // PR #56 final UT (AC1): submit gate is split into three states.
+              //
+              //   1. payMutation.isPending — always blocks (request in flight).
+              //   2. DEV simulate mode (success/error) — hash is **optional**.
+              //      Backend synthesizes a stub 0xSIM… when absent, so we drop
+              //      the min(10) gate. Previously the button looked enabled
+              //      (no explicit grey-out) but onClick was a no-op because
+              //      txHash.length < 10 → confusing UX.
+              //   3. Real mode (DEV/PROD) — requires hash ≥ 10 chars + in DEV
+              //      the «🔗 Реальная проверка» radio is itself a hard gate
+              //      (no ledger to verify against locally).
+              const isSimulate =
+                SHOW_DEV_SIMULATE && (simulateMode === 'success' || simulateMode === 'error')
+              const realModeBlocked = SHOW_DEV_SIMULATE && simulateMode === 'real' // dev: «реальная» is unavailable
+              const hashTooShort = txHash.trim().length < 10
+              const submitDisabled =
+                payMutation.isPending || realModeBlocked || (!isSimulate && hashTooShort)
+              return (
+                <Button
+                  data-testid="payout-detail-submit"
+                  onClick={() => payMutation.mutate()}
+                  disabled={submitDisabled}
+                  className={submitDisabled ? 'opacity-50 cursor-not-allowed' : undefined}
+                >
+                  {payMutation.isPending ? 'Проверка...' : 'Подтвердить оплату'}
+                </Button>
+              )
+            })()}
         </CrmDialogFooter>
       </CrmDialogContent>
     </Dialog>

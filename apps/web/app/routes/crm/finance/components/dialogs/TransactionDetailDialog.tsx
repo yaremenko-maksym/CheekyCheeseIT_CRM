@@ -28,6 +28,7 @@ import {
   CrmDialogHeader,
   CrmDialogBody,
   CrmDialogFooter,
+  DialogDescription,
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -563,6 +564,9 @@ export function TransactionDetailDialog({
             )}
             Детали транзакции
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            Полная информация о финансовой транзакции, статус и прикреплённый чек.
+          </DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="pb-4">

@@ -20,6 +20,7 @@ import {
   CrmDialogHeader,
   CrmDialogBody,
   CrmDialogFooter,
+  DialogDescription,
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
@@ -511,6 +512,7 @@ function ProjectsPage() {
         <CrmDialogContent maxWidth="max-w-md">
           <CrmDialogHeader>
             <DialogTitle>Новый проект</DialogTitle>
+            <DialogDescription className="sr-only">Создание проекта</DialogDescription>
           </CrmDialogHeader>
           <CrmDialogBody>
             <div className="space-y-3">

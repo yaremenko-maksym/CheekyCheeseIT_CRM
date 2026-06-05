@@ -4,7 +4,15 @@ import type { TransactionDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { Button } from '@/components/ui/button'
-import { Dialog, CrmDialogContent, CrmDialogHeader, CrmDialogBody, CrmDialogFooter, DialogTitle } from '@/components/ui/crm-dialog'
+import {
+  Dialog,
+  CrmDialogContent,
+  CrmDialogHeader,
+  CrmDialogBody,
+  CrmDialogFooter,
+  DialogDescription,
+  DialogTitle,
+} from '@/components/ui/crm-dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-currency-input'
@@ -61,7 +69,7 @@ export function EditSeniorIncomeDialog({
       const amt = parseFloat(amount)
       if (isNaN(amt) || amt <= 0) throw new Error('Некорректная сумма')
       const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
-      const receiptExternalUrl = receipt.mode === 'url' ? (receipt.externalUrl || null) : null
+      const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
       return financeApi.updateSeniorIncome(tx!.id, {
         amount: amt,
         currency,
@@ -82,10 +90,16 @@ export function EditSeniorIncomeDialog({
   if (!tx) return null
 
   return (
-    <Dialog open={!!tx} onOpenChange={(v) => { if (!v) onClose() }}>
+    <Dialog
+      open={!!tx}
+      onOpenChange={(v) => {
+        if (!v) onClose()
+      }}
+    >
       <CrmDialogContent maxWidth="sm:max-w-md">
         <CrmDialogHeader>
           <DialogTitle>Исправить транзакцию</DialogTitle>
+          <DialogDescription className="sr-only">Исправление транзакции</DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="space-y-4 pb-4">
@@ -95,10 +109,7 @@ export function EditSeniorIncomeDialog({
               data-testid="edit-senior-income-rejection-panel"
             >
               <p className="text-xs font-medium text-destructive mb-1">Причина отклонения:</p>
-              <p
-                className="text-sm"
-                data-testid="edit-senior-income-rejection-reason"
-              >
+              <p className="text-sm" data-testid="edit-senior-income-rejection-reason">
                 {tx.rejectionReason}
               </p>
             </div>
@@ -135,11 +146,7 @@ export function EditSeniorIncomeDialog({
         </CrmDialogBody>
 
         <CrmDialogFooter>
-          <Button
-            variant="outline"
-            onClick={onClose}
-            data-testid="edit-senior-income-cancel"
-          >
+          <Button variant="outline" onClick={onClose} data-testid="edit-senior-income-cancel">
             Отмена
           </Button>
           <Button

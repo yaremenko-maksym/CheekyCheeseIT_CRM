@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -25,9 +26,12 @@ export function AdminNoteDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>Заметка админа</DialogTitle>
+          <DialogDescription className="sr-only">
+            Внутренняя заметка, видна только администраторам.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
           <Label>Заметка (макс. 2000 символов)</Label>

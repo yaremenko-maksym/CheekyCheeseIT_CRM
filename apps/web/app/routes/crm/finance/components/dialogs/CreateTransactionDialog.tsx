@@ -13,6 +13,7 @@ import {
   CrmDialogHeader,
   CrmDialogBody,
   CrmDialogFooter,
+  DialogDescription,
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
@@ -338,6 +339,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           <DialogTitle className="text-base" data-testid="create-transaction-dialog-title">
             Новая транзакция
           </DialogTitle>
+          <DialogDescription className="sr-only">Создание транзакции</DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="space-y-4 py-1">
