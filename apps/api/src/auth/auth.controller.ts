@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { JwtService } from '@nestjs/jwt'
-import { sessionUserSchema } from '@crm/shared'
+import { jwtPayloadSchema, sessionUserSchema, type JwtPayload } from '@crm/shared'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { randomBytes } from 'node:crypto'
 import type { Env } from '../config/env'
@@ -95,18 +95,10 @@ export class AuthController {
       await this.usersService.updateGoogleId(user.id, googleUser.id)
     }
 
-    const payload = sessionUserSchema.parse({
-      id: user.id,
-      email: user.email,
-      displayName: user.displayName,
-      avatarUrl: user.avatarUrl ?? null,
-      avatarDocumentId: user.avatarDocumentId ?? null,
-      role: user.role,
-      seniorSharePercent: user.seniorSharePercent,
-      legalFullName: user.legalFullName ?? null,
-    })
-
-    const token = this.jwtService.sign(payload)
+    // MED #2: JWT cookie stores only minimal identity (no PII).
+    // Full SessionUser (incl. legalFullName) is re-hydrated via GET /me.
+    const jwtPayload = jwtPayloadSchema.parse({ id: user.id, email: user.email, role: user.role })
+    const token = this.jwtService.sign(jwtPayload)
 
     reply.setCookie(JWT_COOKIE, token, {
       httpOnly: true,
@@ -120,11 +112,12 @@ export class AuthController {
   }
 
   // `/me` requires auth (no @Public) — caller is the global JwtAuthGuard now.
+  // MED #2: The decoded JWT payload only contains {id, email, role} — full
+  // SessionUser (incl. legalFullName, displayName, avatarUrl) is always
+  // re-hydrated from the DB here so the frontend receives fresh PII without
+  // an explicit re-login after profile edits.
   @Get('me')
-  async me(@CurrentUser() user: ReturnType<typeof sessionUserSchema.parse>) {
-    // Re-hydrate latest displayName / avatarUrl / avatarDocumentId from DB so the
-    // global header reflects edits without a re-login. Role is taken from DB too
-    // (audit-friendly).
+  async me(@CurrentUser() user: JwtPayload) {
     const fresh = await this.usersService.findById(user.id)
     if (!fresh) return user
     return sessionUserSchema.parse({
@@ -160,18 +153,9 @@ export class AuthController {
       await this.usersService.updateGoogleId(user.id, googleUser.sub)
     }
 
-    const payload = sessionUserSchema.parse({
-      id: user.id,
-      email: user.email,
-      displayName: user.displayName,
-      avatarUrl: user.avatarUrl ?? null,
-      avatarDocumentId: user.avatarDocumentId ?? null,
-      role: user.role,
-      seniorSharePercent: user.seniorSharePercent,
-      legalFullName: user.legalFullName ?? null,
-    })
-
-    const token = this.jwtService.sign(payload)
+    // MED #2: JWT cookie stores only minimal identity (no PII).
+    const jwtPayload = jwtPayloadSchema.parse({ id: user.id, email: user.email, role: user.role })
+    const token = this.jwtService.sign(jwtPayload)
 
     reply.setCookie(JWT_COOKIE, token, {
       httpOnly: true,
@@ -201,18 +185,9 @@ export class AuthController {
     const user = await this.usersService.findByEmail(body.email)
     if (!user) throw new NotFoundException(`User ${body.email} not found in DB`)
 
-    const payload = sessionUserSchema.parse({
-      id: user.id,
-      email: user.email,
-      displayName: user.displayName,
-      avatarUrl: user.avatarUrl ?? null,
-      avatarDocumentId: user.avatarDocumentId ?? null,
-      role: user.role,
-      seniorSharePercent: user.seniorSharePercent,
-      legalFullName: user.legalFullName ?? null,
-    })
-
-    const token = this.jwtService.sign(payload)
+    // MED #2: JWT cookie stores only minimal identity (no PII).
+    const jwtPayload = jwtPayloadSchema.parse({ id: user.id, email: user.email, role: user.role })
+    const token = this.jwtService.sign(jwtPayload)
     reply.setCookie(JWT_COOKIE, token, {
       httpOnly: true,
       sameSite: 'lax',
@@ -221,6 +196,6 @@ export class AuthController {
       path: '/',
     })
 
-    return { ok: true, user: payload }
+    return { ok: true, user: jwtPayload }
   }
 }
