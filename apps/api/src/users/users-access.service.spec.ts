@@ -110,6 +110,24 @@ describe('UsersAccessService.getViewPermissions', () => {
     )
     expect(p.tabs).not.toContain('interviews')
     expect(p.tabs).not.toContain('audit')
+    // Negative-regression guard: 'contract' tab is ADMIN-only (A3-2).
+    // A SENIOR viewing their OWN profile must never see the contract editor tab —
+    // it is only surfaced when an ADMIN views another user's profile.
+    expect(p.tabs).not.toContain('contract')
+  })
+
+  it('SELF — HR sees own tabs without contract (ADMIN-only tab)', async () => {
+    const hr = makeUser({ id: 'hr-id', role: 'HR' })
+    const p = await service.getViewPermissions(hr, hr)
+    // Negative-regression guard: 'contract' tab must not appear on SELF views
+    // for any non-ADMIN role (A3-2 RBAC: only ADMIN viewing others gets contract tab).
+    expect(p.tabs).not.toContain('contract')
+  })
+
+  it('SELF — JUNIOR sees own tabs without contract (ADMIN-only tab)', async () => {
+    const junior = makeUser({ id: 'jr-id', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(junior, junior)
+    expect(p.tabs).not.toContain('contract')
   })
 
   it('ADMIN SELF includes audit tab', async () => {

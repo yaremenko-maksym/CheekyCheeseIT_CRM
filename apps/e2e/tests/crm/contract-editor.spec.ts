@@ -254,6 +254,81 @@ test.describe('A3-2: Contract editor tab', () => {
     await expect(page.getByText('Нет шаблона контракта для роли SENIOR')).toBeVisible()
   })
 
+  test('AC5: Revert from READY_TO_SIGN returns contract to DRAFT', async ({ page }) => {
+    await setupAdminViewingSenior(page, READY_CONTRACT)
+    await page.goto(`/crm/profile/${TARGET_ID}?tab=contract`)
+
+    await expect(page.getByTestId('contract-tab')).toBeVisible()
+    await expect(page.getByTestId('contract-status-badge')).toHaveText('Готов к подписанию')
+
+    // Revert button is visible in READY_TO_SIGN
+    await expect(page.getByTestId('contract-revert-btn')).toBeVisible()
+    await page.getByTestId('contract-revert-btn').click()
+
+    // Confirm dialog appears (AlertDialog from ContractActionBar)
+    await expect(page.getByTestId('contract-revert-confirm-dialog')).toBeVisible()
+
+    // After confirm: mock refetch returns DRAFT contract
+    await page.route(new RegExp(`${API}/users/([^/?]+)/contract$`), async (r) => {
+      if (r.request().method() === 'GET') {
+        await r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(DRAFT_CONTRACT),
+        })
+      } else {
+        await r.fallback()
+      }
+    })
+
+    await page.getByRole('button', { name: 'Вернуть в черновик' }).click()
+
+    await expect(page.getByTestId('contract-status-badge')).toHaveText('Черновик', {
+      timeout: 5000,
+    })
+  })
+
+  test('AC5: Reset to template restores body in DRAFT state', async ({ page }) => {
+    await setupAdminViewingSenior(page, DRAFT_CONTRACT)
+    await page.goto(`/crm/profile/${TARGET_ID}?tab=contract`)
+
+    await expect(page.getByTestId('contract-tab')).toBeVisible()
+    await expect(page.getByTestId('contract-status-badge')).toHaveText('Черновик')
+
+    // Reset button visible in DRAFT
+    await expect(page.getByTestId('contract-reset-btn')).toBeVisible()
+    await page.getByTestId('contract-reset-btn').click()
+
+    // Confirm dialog appears
+    await expect(page.getByTestId('contract-reset-confirm-dialog')).toBeVisible()
+
+    const RESET_CONTRACT = {
+      ...DRAFT_CONTRACT,
+      bodyMarkdown: '# Contract\n\nReset from template.',
+      updatedAt: '2026-06-03T00:00:00.000Z',
+    }
+
+    // After confirm: mock refetch returns reset contract body
+    await page.route(new RegExp(`${API}/users/([^/?]+)/contract$`), async (r) => {
+      if (r.request().method() === 'GET') {
+        await r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(RESET_CONTRACT),
+        })
+      } else {
+        await r.fallback()
+      }
+    })
+
+    await page.getByRole('button', { name: 'Сбросить' }).click()
+
+    // Contract remains DRAFT, editor shows reset body
+    await expect(page.getByTestId('contract-status-badge')).toHaveText('Черновик', {
+      timeout: 5000,
+    })
+  })
+
   test('AC6: PDF preview refresh button disabled while editor is dirty', async ({ page }) => {
     await setupAdminViewingSenior(page, DRAFT_CONTRACT)
     await page.goto(`/crm/profile/${TARGET_ID}?tab=contract`)

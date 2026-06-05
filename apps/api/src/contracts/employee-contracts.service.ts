@@ -164,8 +164,19 @@ export class EmployeeContractsService {
       if (!updated) throw new Error('Failed to revert employee contract')
 
       if (wasSigned) {
-        // Force re-acceptance of ToS — onboarding status will return
-        // requiresTos=true AND requiresContract=true.
+        // SECURITY INVARIANT (A3-2): Deleting tos_acceptances is the ONLY mechanism
+        // that forces re-onboarding after a SIGNED→DRAFT revert. Without this delete,
+        // OnboardingGuard.getStatus() would return requiresTos=false and the employee
+        // could bypass the sign-ToS wizard entirely on their next login.
+        //
+        // Why tos_acceptances (not just signed_contracts): signed_contracts is an
+        // immutable audit log — we never delete it. tos_acceptances is the live "has
+        // this user currently accepted ToS" table consulted by OnboardingService.
+        // Removing the row sets requiresTos=true AND requiresContract=true on next
+        // status check because the contract status is back to DRAFT (not READY_TO_SIGN).
+        //
+        // The UPDATE + DELETE run inside a single db.transaction (MED#1) so a partial
+        // failure cannot produce status=DRAFT with stale ToS (which would skip re-onboarding).
         await tx.delete(tosAcceptances).where(eq(tosAcceptances.userId, userId))
       }
 
