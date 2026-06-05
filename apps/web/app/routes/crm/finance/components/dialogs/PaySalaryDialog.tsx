@@ -60,9 +60,7 @@ export function PaySalaryDialog({
       <CrmDialogContent maxWidth="sm:max-w-md">
         <CrmDialogHeader>
           <DialogTitle>Выплатить зарплату</DialogTitle>
-          <DialogDescription className="sr-only">
-            Подтверждение выплаты зарплаты сотруднику с указанием хэша транзакции.
-          </DialogDescription>
+          <DialogDescription className="sr-only">Выплата зарплаты</DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="space-y-4 pb-4">

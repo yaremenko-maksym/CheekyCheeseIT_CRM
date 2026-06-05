@@ -99,9 +99,7 @@ export function EditSeniorIncomeDialog({
       <CrmDialogContent maxWidth="sm:max-w-md">
         <CrmDialogHeader>
           <DialogTitle>Исправить транзакцию</DialogTitle>
-          <DialogDescription className="sr-only">
-            Исправление суммы и деталей ранее отклонённой транзакции синьора.
-          </DialogDescription>
+          <DialogDescription className="sr-only">Исправление транзакции</DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="space-y-4 pb-4">

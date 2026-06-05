@@ -84,9 +84,7 @@ export function ValidateDialog({
       <CrmDialogContent maxWidth="sm:max-w-md" data-testid="validate-transaction-dialog">
         <CrmDialogHeader>
           <DialogTitle>Валидация транзакции</DialogTitle>
-          <DialogDescription className="sr-only">
-            Проверка и подтверждение или отклонение транзакции бухгалтером.
-          </DialogDescription>
+          <DialogDescription className="sr-only">Валидация транзакции</DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="space-y-4 pb-4">

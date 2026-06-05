@@ -15,8 +15,8 @@ import {
   CrmDialogHeader,
   CrmDialogBody,
   CrmDialogFooter,
-  DialogTitle,
   DialogDescription,
+  DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -189,9 +189,7 @@ export function CreateProjectFromHiredDialog({
       <CrmDialogContent>
         <CrmDialogHeader>
           <DialogTitle>Создать проект — {seniorName}</DialogTitle>
-          <DialogDescription className="sr-only">
-            Создание нового проекта для нанятого синьора с настройкой участников и ставки.
-          </DialogDescription>
+          <DialogDescription className="sr-only">Создание проекта</DialogDescription>
         </CrmDialogHeader>
         <CrmDialogBody className="pb-2">
           <div className="space-y-3">

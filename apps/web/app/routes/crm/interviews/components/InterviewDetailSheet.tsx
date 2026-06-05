@@ -228,9 +228,7 @@ export function InterviewDetailSheet({
         <SheetContent side="right" className="w-full sm:max-w-lg flex flex-col overflow-hidden">
           <SheetHeader className="mb-4 shrink-0">
             <SheetTitle className="pr-6">{interview.companyName}</SheetTitle>
-            <SheetDescription className="sr-only">
-              Детальная карточка собеседования с историей этапов и заметками синьора.
-            </SheetDescription>
+            <SheetDescription className="sr-only">Детали собеседования</SheetDescription>
             <div className="flex items-center gap-2 flex-wrap">
               <span
                 className={cn(
@@ -429,9 +427,7 @@ export function InterviewDetailSheet({
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Удалить карточку?</DialogTitle>
-                <DialogDescription className="sr-only">
-                  Подтверждение безвозвратного удаления карточки собеседования.
-                </DialogDescription>
+                <DialogDescription className="sr-only">Удаление карточки</DialogDescription>
               </DialogHeader>
               <p className="text-sm text-muted-foreground">
                 Карточка "{interview.companyName}" будет удалена безвозвратно.
@@ -457,9 +453,7 @@ export function InterviewDetailSheet({
         <DialogContent onInteractOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>Несохранённые изменения</DialogTitle>
-            <DialogDescription className="sr-only">
-              Запрос подтверждения сохранения несохранённых изменений перед закрытием.
-            </DialogDescription>
+            <DialogDescription className="sr-only">Несохранённые изменения</DialogDescription>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
             Есть несохранённые изменения. Сохранить перед закрытием?
@@ -492,9 +486,7 @@ export function InterviewDetailSheet({
         <DialogContent onInteractOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>Создать проект?</DialogTitle>
-            <DialogDescription className="sr-only">
-              Предложение создать новый проект на основе нанятого кандидата.
-            </DialogDescription>
+            <DialogDescription className="sr-only">Создание проекта</DialogDescription>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
             Создать новый проект на базе карточки «{hiredInterview?.companyName}»?

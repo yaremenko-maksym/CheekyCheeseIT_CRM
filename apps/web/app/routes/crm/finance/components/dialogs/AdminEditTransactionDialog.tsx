@@ -91,6 +91,7 @@ export function AdminEditTransactionDialog({
     <Dialog open={!!tx} onOpenChange={(o) => !o && onClose()}>
       <CrmDialogContent maxWidth="sm:max-w-md">
         <CrmDialogHeader>
+          <DialogDescription className="sr-only">Редактирование транзакции</DialogDescription>
           <DialogTitle className="text-base">
             Редактировать транзакцию
             {tx && (
@@ -99,9 +100,6 @@ export function AdminEditTransactionDialog({
               </span>
             )}
           </DialogTitle>
-          <DialogDescription className="sr-only">
-            Редактирование суммы, валюты и деталей финансовой транзакции.
-          </DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="pb-4">

@@ -12,8 +12,8 @@ import {
   CrmDialogHeader,
   CrmDialogBody,
   CrmDialogFooter,
-  DialogTitle,
   DialogDescription,
+  DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -77,9 +77,7 @@ export function CreateInterviewDialog({
       <CrmDialogContent>
         <CrmDialogHeader>
           <DialogTitle>Новая карточка</DialogTitle>
-          <DialogDescription className="sr-only">
-            Создание новой карточки собеседования с указанием компании и ссылок.
-          </DialogDescription>
+          <DialogDescription className="sr-only">Новая карточка собеседования</DialogDescription>
         </CrmDialogHeader>
         <CrmDialogBody className="pb-2">
           <div className="flex flex-col gap-4">

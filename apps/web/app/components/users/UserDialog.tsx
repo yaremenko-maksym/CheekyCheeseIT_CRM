@@ -900,11 +900,7 @@ export function UserDialog(props: UserDialogProps) {
                 </>
               )}
             </DialogTitle>
-            <DialogDescription className="sr-only">
-              {isCreate
-                ? 'Форма создания нового пользователя с настройкой роли, реквизитов и команды.'
-                : 'Форма редактирования данных пользователя.'}
-            </DialogDescription>
+            <DialogDescription className="sr-only">Управление пользователем</DialogDescription>
           </CrmDialogHeader>
 
           <CrmDialogBody>

@@ -154,9 +154,7 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
       <CrmDialogContent data-testid="rejoin-team-dialog">
         <CrmDialogHeader>
           <DialogTitle>Создать или выбрать команду</DialogTitle>
-          <DialogDescription className="sr-only">
-            Создание новой команды или присоединение к команде дропа.
-          </DialogDescription>
+          <DialogDescription className="sr-only">Выбор команды</DialogDescription>
           <p className="text-xs text-muted-foreground mt-1">
             У вас нет активной команды. Создайте свою или присоединитесь к команде дропа.
           </p>

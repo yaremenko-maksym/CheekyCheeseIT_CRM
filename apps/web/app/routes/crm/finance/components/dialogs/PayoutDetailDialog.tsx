@@ -175,9 +175,7 @@ export function PayoutDetailDialog({
               </Badge>
             )}
           </DialogTitle>
-          <DialogDescription className="sr-only">
-            Детали выплаты синьору с возможностью подтверждения крипто-транзакции.
-          </DialogDescription>
+          <DialogDescription className="sr-only">Детали выплаты</DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="pb-4 space-y-4">

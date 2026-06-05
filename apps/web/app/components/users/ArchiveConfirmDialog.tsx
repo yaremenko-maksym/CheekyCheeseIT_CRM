@@ -11,6 +11,7 @@ import {
   CrmDialogFooter,
   CrmDialogHeader,
   Dialog,
+  DialogDescription,
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
@@ -53,9 +54,8 @@ export function ArchiveConfirmDialog({
         void queryClient.invalidateQueries({ queryKey: ['teams'] })
         void queryClient.invalidateQueries({ queryKey: ['projects'] })
       }
-      const msg = user?.role === 'SENIOR'
-        ? 'Синьор и команда архивированы'
-        : 'Пользователь архивирован'
+      const msg =
+        user?.role === 'SENIOR' ? 'Синьор и команда архивированы' : 'Пользователь архивирован'
       toast.success(msg)
       handleClose()
     },
@@ -79,6 +79,7 @@ export function ArchiveConfirmDialog({
             <Archive className="h-4 w-4" />
             Архивировать пользователя
           </DialogTitle>
+          <DialogDescription className="sr-only">Архивирование пользователя</DialogDescription>
         </CrmDialogHeader>
         <CrmDialogBody className="pb-2">
           <div className="space-y-3 text-sm">
@@ -151,22 +152,32 @@ function ImpactWarning({
         ? impact.teamName
         : 'команда синьора'
     const projectsCount =
-      impact && impact.type === 'user' && impact.role === 'SENIOR' && impact.projectsCount !== undefined
+      impact &&
+      impact.type === 'user' &&
+      impact.role === 'SENIOR' &&
+      impact.projectsCount !== undefined
         ? impact.projectsCount
         : 0
     const juniorsAffected =
-      impact && impact.type === 'user' && impact.role === 'SENIOR' && impact.juniorsAffected !== undefined
+      impact &&
+      impact.type === 'user' &&
+      impact.role === 'SENIOR' &&
+      impact.juniorsAffected !== undefined
         ? impact.juniorsAffected
         : 0
     const hrAccountantsToBeRemoved =
-      impact && impact.type === 'user' && impact.role === 'SENIOR' && impact.hrAccountantsToBeRemoved !== undefined
+      impact &&
+      impact.type === 'user' &&
+      impact.role === 'SENIOR' &&
+      impact.hrAccountantsToBeRemoved !== undefined
         ? impact.hrAccountantsToBeRemoved
         : 0
 
     return (
       <div className="space-y-2">
         <p data-testid="archive-warning-senior">
-          {name} и его команда <strong className="text-foreground">{teamName}</strong> — связанная пара.
+          {name} и его команда <strong className="text-foreground">{teamName}</strong> — связанная
+          пара.
         </p>
         <p className="text-muted-foreground">
           При архивации будут архивированы: профиль синьора, команда{' '}
@@ -200,7 +211,10 @@ function ImpactWarning({
 
   if (user.role === 'ACCOUNTANT') {
     const teamsCount =
-      impact && impact.type === 'user' && impact.role === 'ACCOUNTANT' && impact.teamsCount !== undefined
+      impact &&
+      impact.type === 'user' &&
+      impact.role === 'ACCOUNTANT' &&
+      impact.teamsCount !== undefined
         ? impact.teamsCount
         : 0
     return (
@@ -214,22 +228,23 @@ function ImpactWarning({
 
   if (user.role === 'JUNIOR') {
     const projectsCount =
-      impact && impact.type === 'user' && impact.role === 'JUNIOR' && impact.projectsCount !== undefined
+      impact &&
+      impact.type === 'user' &&
+      impact.role === 'JUNIOR' &&
+      impact.projectsCount !== undefined
         ? impact.projectsCount
         : 0
     return (
       <p data-testid="archive-warning-junior">
         {name} будет архивирован и убран из{' '}
-        <strong className="text-foreground">{projectsCount} активных проектов</strong>. Сами
-        проекты останутся активны.
+        <strong className="text-foreground">{projectsCount} активных проектов</strong>. Сами проекты
+        останутся активны.
       </p>
     )
   }
 
   // ADMIN
   return (
-    <p data-testid="archive-warning-admin">
-      {name} будет архивирован. Связанных сущностей нет.
-    </p>
+    <p data-testid="archive-warning-admin">{name} будет архивирован. Связанных сущностей нет.</p>
   )
 }
