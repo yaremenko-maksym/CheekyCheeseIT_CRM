@@ -1,5 +1,6 @@
 import type { InterpolatableVariableKey } from '@crm/shared'
 import type { User } from '../database/schema'
+import { CONTRACT_COMPANY } from '../common/pdf/pdf.constants'
 
 /**
  * Onboarding Phase 6A — pure rendering helpers for MSA contract templates.
@@ -70,6 +71,23 @@ export function renderContractTemplate(
     ? (METHOD_LABELS[user.paymentMethod] ?? user.paymentMethod)
     : 'не указано'
 
+  /**
+   * Smart composite requisites: select the relevant value based on paymentMethod
+   * so templates using {{requisites}} never produce "не указаноне указано".
+   *
+   *   USDT_ERC20  → wallet address (or 'не указано' if blank)
+   *   BANK_UAH_FOP → ФОП fields joined (or 'не указано' if all blank)
+   *   null/other  → 'не указано' (single occurrence)
+   */
+  let requisites: string
+  if (user.paymentMethod === 'USDT_ERC20') {
+    requisites = walletUsdt
+  } else if (user.paymentMethod === 'BANK_UAH_FOP') {
+    requisites = bankUahFop
+  } else {
+    requisites = 'не указано'
+  }
+
   const variables: Record<InterpolatableVariableKey, string> = {
     // Fallback chain: legal ФИО → platform displayName → 'не указано' (AC1).
     // legalFullName is set by ADMIN (Cyrillic ФИО for the contract).
@@ -80,9 +98,14 @@ export function renderContractTemplate(
     role: ROLE_LABELS[user.role] ?? user.role,
     onboardingDate: signedAt.toISOString().slice(0, 10),
     companyName: 'Cheeky Cheese IT',
+    // Legal entity data for «Сторони / Компанія» section (T3).
+    companyLegalName: CONTRACT_COMPANY.legalName,
+    companyAddress: CONTRACT_COMPANY.address,
+    companyCountry: CONTRACT_COMPANY.country,
     walletUsdt,
     bankUahFop,
     preferredMethod,
+    requisites,
   }
 
   // SECURITY: single-pass substitution via one regex so user-controlled values

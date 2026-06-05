@@ -249,7 +249,7 @@ export class InvoicePdfService {
     const markSize = PDF_LAYOUT.brandMarkSize
     const markX = layout.margin
     const markY = y - markSize
-    this.drawBrandMark(page, markX, markY, markSize, layout.colors.brand)
+    this.pdfGen.drawBrandMark(page, markX, markY, markSize, layout.colors.brand)
 
     this.pdfGen.drawText(page, COMPANY_BRAND_NAME, {
       x: markX + markSize + 12,
@@ -502,53 +502,6 @@ export class InvoicePdfService {
   // ---------------------------------------------------------------------------
   // Drawing helpers (invoice-specific)
   // ---------------------------------------------------------------------------
-
-  /**
-   * Draw the "Wedge Terminal" brand mark using pdf-lib's `drawSvgPath`.
-   *
-   * AC1 — task-fix-invoice-pdf-polish (round 2). Renders an EXACT byte-faithful
-   * copy of the frontend `<BrandMark variant="flat" />` (see
-   * `apps/web/app/components/brand-mark.tsx`) using the same SVG path data
-   * (`viewBox 0 0 512 512`):
-   *
-   *   - Wedge body  : `M 112 112 L 422 215 A 18 18 0 0 1 432 233 …` (the
-   *                   slanted top edge + rounded corners are reproduced — the
-   *                   previous `drawRectangle` approach lost the slant and read
-   *                   as a generic flat rectangle).
-   *   - Holes (>_)  : three circles + one rounded-rect cursor pill, drawn in
-   *                   the page background colour to read as cut-outs.
-   *
-   * pdf-lib 1.17 `drawSvgPath` supports M/L/A/C/Q/Z commands. It internally
-   * flips the Y axis (`scale(s, -s)`) so SVG y-down draws upward in PDF.
-   * The caller anchors at PDF coords `(x, y + size)` — the icon's top-left.
-   *
-   * IMPORTANT: hole shapes are filled with the page background (white). If
-   * the invoice ever switches to a non-white background, the `bg` constant
-   * must change in lockstep.
-   */
-  private drawBrandMark(page: PDFPage, x: number, y: number, size: number, color: Color): void {
-    const scale = size / 512
-    const anchorY = y + size
-    const bg = rgb(1, 1, 1)
-
-    // ---- 1. Wedge body — exact path copied from BrandMark.tsx (flat var.) ----
-    const WEDGE_PATH =
-      'M 112 112 L 422 215 A 18 18 0 0 1 432 233 L 432 402 A 18 18 0 0 1 414 416 L 110 416 A 18 18 0 0 1 96 398 L 96 124 A 18 18 0 0 1 112 112 Z'
-    page.drawSvgPath(WEDGE_PATH, { x, y: anchorY, scale, color, borderWidth: 0 })
-
-    // ---- 2. Punched-out chevron holes (`>_` terminal prompt) ----
-    const circle = (cx: number, cy: number, r: number): string =>
-      `M ${cx} ${cy - r} A ${r} ${r} 0 1 0 ${cx} ${cy + r} A ${r} ${r} 0 1 0 ${cx} ${cy - r} Z`
-    const HOLES = [circle(190, 216, 25), circle(244, 274, 34), circle(190, 332, 25)]
-    for (const path of HOLES) {
-      page.drawSvgPath(path, { x, y: anchorY, scale, color: bg, borderWidth: 0 })
-    }
-
-    // ---- 3. Cursor pill — rounded rectangle (rx=13 in source SVG) ----
-    const PILL_PATH =
-      'M 315 258 L 373 258 A 13 13 0 0 1 386 271 L 386 277 A 13 13 0 0 1 373 290 L 315 290 A 13 13 0 0 1 302 277 L 302 271 A 13 13 0 0 1 315 258 Z'
-    page.drawSvgPath(PILL_PATH, { x, y: anchorY, scale, color: bg, borderWidth: 0 })
-  }
 
   private drawSectionHeader(
     page: PDFPage,

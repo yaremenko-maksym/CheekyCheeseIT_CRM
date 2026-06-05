@@ -1,7 +1,17 @@
-import { useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { UsersRound } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { AnimatedTabs } from '@/components/ui/animated-tabs'
 import { useMe, useUser } from '@/hooks/use-user-profile'
 import { useActiveTeam } from '@/hooks/use-active-team'
@@ -17,6 +27,7 @@ import { OverviewTab } from './tabs/OverviewTab'
 import { ProjectsTab } from './tabs/ProjectsTab'
 import { RequisitesTab } from './tabs/RequisitesTab'
 import { TeamTab } from './tabs/TeamTab'
+import { ContractTab } from './contract/ContractTab'
 
 const TAB_LABELS: Record<string, string> = {
   overview: 'Обзор',
@@ -27,6 +38,7 @@ const TAB_LABELS: Record<string, string> = {
   requisites: 'Реквизиты',
   documents: 'Документы',
   audit: 'История',
+  contract: 'Контракт',
 }
 
 export interface UserProfileShellProps {
@@ -36,17 +48,42 @@ export interface UserProfileShellProps {
   onTabChange: (tab: string) => void
 }
 
-export function UserProfileShell({
-  mode,
-  userId,
-  tab,
-  onTabChange,
-}: UserProfileShellProps) {
+export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfileShellProps) {
   const meQuery = useMe(mode === 'self')
   const userQuery = useUser(userId, mode === 'view')
   const query = mode === 'self' ? meQuery : userQuery
   const { data, isLoading } = query
   const [avatarOpen, setAvatarOpen] = useState(false)
+  // Dirty guard: ContractTab registers its isDirty state here via onDirtyChange.
+  // When the user tries to switch tabs away from contract with unsaved changes,
+  // we show an AlertDialog (consistent with ContractActionBar UX, no event-loop block).
+  const contractDirtyRef = useRef(false)
+  const [dirtyGuardOpen, setDirtyGuardOpen] = useState(false)
+  const pendingTabRef = useRef<string | null>(null)
+  const handleContractDirtyChange = useCallback((dirty: boolean) => {
+    contractDirtyRef.current = dirty
+  }, [])
+  const handleTabChange = useCallback(
+    (nextTab: string) => {
+      if (tab === 'contract' && contractDirtyRef.current) {
+        pendingTabRef.current = nextTab
+        setDirtyGuardOpen(true)
+        return
+      }
+      onTabChange(nextTab)
+    },
+    [tab, onTabChange],
+  )
+  const handleDirtyGuardConfirm = useCallback(() => {
+    const next = pendingTabRef.current
+    pendingTabRef.current = null
+    setDirtyGuardOpen(false)
+    if (next) onTabChange(next)
+  }, [onTabChange])
+  const handleDirtyGuardCancel = useCallback(() => {
+    pendingTabRef.current = null
+    setDirtyGuardOpen(false)
+  }, [])
   // Drop role - phase 1 (AC7): track teamless SENIOR state. Banner is
   // shown only on the self-profile of a teamless SENIOR.
   const { isTeamless: isTeamlessSenior } = useActiveTeam()
@@ -63,8 +100,9 @@ export function UserProfileShell({
   }
 
   const { user, permissions, data: viewData } = data
-  const activeTab =
-    permissions.tabs.includes(tab as never) ? tab : (permissions.tabs[0] ?? 'overview')
+  const activeTab = permissions.tabs.includes(tab as never)
+    ? tab
+    : (permissions.tabs[0] ?? 'overview')
 
   // ADMIN looking at own profile: hide "registration date" line (matches hidden KPI cards)
   const showCreatedAt =
@@ -119,8 +157,8 @@ export function UserProfileShell({
             <div className="space-y-0.5">
               <p className="text-sm font-medium">У вас нет активной команды</p>
               <p className="text-xs text-muted-foreground">
-                Создайте свою команду или присоединитесь к команде дропа, чтобы вернуть доступ
-                к проектам и собеседованиям.
+                Создайте свою команду или присоединитесь к команде дропа, чтобы вернуть доступ к
+                проектам и собеседованиям.
               </p>
             </div>
           </div>
@@ -133,6 +171,27 @@ export function UserProfileShell({
         <RejoinTeamDialog open={rejoinOpen} onClose={() => setRejoinOpen(false)} />
       )}
 
+      {/* Dirty guard — replaces window.confirm for consistent non-blocking UX */}
+      <AlertDialog open={dirtyGuardOpen} onOpenChange={setDirtyGuardOpen}>
+        <AlertDialogContent data-testid="contract-dirty-guard-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Покинуть вкладку «Контракт»?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Есть несохранённые изменения. При переходе они будут потеряны.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleDirtyGuardCancel}>Остаться</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDirtyGuardConfirm}
+              data-testid="contract-dirty-guard-confirm"
+            >
+              Покинуть
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {permissions.tabs.length > 0 && (
         <div className="flex flex-col gap-4">
           {/* Tab bar: horizontal scroll for many tabs on narrow viewports; pb-1
@@ -141,7 +200,7 @@ export function UserProfileShell({
             <AnimatedTabs
               tabs={permissions.tabs.map((t) => ({ value: t, label: tabLabel(t) }))}
               value={activeTab}
-              onChange={onTabChange}
+              onChange={handleTabChange}
             />
           </div>
 
@@ -176,6 +235,13 @@ export function UserProfileShell({
             )}
             {activeTab === 'audit' && permissions.tabs.includes('audit') && (
               <AuditLogTab userId={user.id} />
+            )}
+            {activeTab === 'contract' && permissions.tabs.includes('contract') && (
+              <ContractTab
+                userId={user.id}
+                targetRole={user.role}
+                onDirtyChange={handleContractDirtyChange}
+              />
             )}
           </div>
         </div>

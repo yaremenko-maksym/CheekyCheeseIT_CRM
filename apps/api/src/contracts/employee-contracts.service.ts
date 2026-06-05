@@ -83,14 +83,15 @@ export class EmployeeContractsService {
 
   /**
    * Update the body markdown of the contract.
-   * Only allowed when status is DRAFT or READY_TO_SIGN.
-   * 409 if status is SIGNED or CANCELLED.
+   * Only allowed when status is DRAFT (MED#2 — editing READY_TO_SIGN requires
+   * an explicit revert → DRAFT first; this makes the freeze a real server-side invariant).
+   * 409 CONTRACT_NOT_EDITABLE if status is READY_TO_SIGN, SIGNED or CANCELLED.
    */
   async updateBody(userId: string, body: string, _viewer: SessionUser): Promise<EmployeeContract> {
     const contract = await this.getActiveOrThrow(userId)
 
-    if (contract.status === 'SIGNED' || contract.status === 'CANCELLED') {
-      throw new ConflictException(`Cannot update body: contract is ${contract.status}`)
+    if (contract.status !== 'DRAFT') {
+      throw new ConflictException('CONTRACT_NOT_EDITABLE')
     }
 
     const [updated] = await this.db.db
@@ -135,6 +136,10 @@ export class EmployeeContractsService {
    *   - Clears signedContractId (employee_contract link, not the audit row itself)
    *   - Deletes tos_acceptances for the user → requiresTos=true on next status check
    *   - signed_contracts row is immutable audit — NOT deleted
+   *
+   * MED#1: UPDATE employee_contracts + DELETE tos_acceptances run inside a
+   * single db.transaction so a partial failure cannot leave status=DRAFT with
+   * stale ToS (which would incorrectly skip re-onboarding).
    */
   async revert(userId: string, _viewer: SessionUser): Promise<EmployeeContract> {
     const contract = await this.getActiveOrThrow(userId)
@@ -145,25 +150,38 @@ export class EmployeeContractsService {
 
     const wasSigned = contract.status === 'SIGNED'
 
-    const [updated] = await this.db.db
-      .update(employeeContracts)
-      .set({
-        status: 'DRAFT',
-        signedContractId: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(employeeContracts.id, contract.id))
-      .returning()
+    return this.db.db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(employeeContracts)
+        .set({
+          status: 'DRAFT',
+          signedContractId: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(employeeContracts.id, contract.id))
+        .returning()
 
-    if (!updated) throw new Error('Failed to revert employee contract')
+      if (!updated) throw new Error('Failed to revert employee contract')
 
-    if (wasSigned) {
-      // Force re-acceptance of ToS — onboarding status will return
-      // requiresTos=true AND requiresContract=true.
-      await this.db.db.delete(tosAcceptances).where(eq(tosAcceptances.userId, userId))
-    }
+      if (wasSigned) {
+        // SECURITY INVARIANT (A3-2): Deleting tos_acceptances is the ONLY mechanism
+        // that forces re-onboarding after a SIGNED→DRAFT revert. Without this delete,
+        // OnboardingGuard.getStatus() would return requiresTos=false and the employee
+        // could bypass the sign-ToS wizard entirely on their next login.
+        //
+        // Why tos_acceptances (not just signed_contracts): signed_contracts is an
+        // immutable audit log — we never delete it. tos_acceptances is the live "has
+        // this user currently accepted ToS" table consulted by OnboardingService.
+        // Removing the row sets requiresTos=true AND requiresContract=true on next
+        // status check because the contract status is back to DRAFT (not READY_TO_SIGN).
+        //
+        // The UPDATE + DELETE run inside a single db.transaction (MED#1) so a partial
+        // failure cannot produce status=DRAFT with stale ToS (which would skip re-onboarding).
+        await tx.delete(tosAcceptances).where(eq(tosAcceptances.userId, userId))
+      }
 
-    return updated
+      return updated
+    })
   }
 
   /**

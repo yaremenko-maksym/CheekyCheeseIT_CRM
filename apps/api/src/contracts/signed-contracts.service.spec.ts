@@ -8,7 +8,11 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
 import type { EmployeeContractsService } from './employee-contracts.service'
-import { SignedContractsService, ipTrailingSegment } from './signed-contracts.service'
+import {
+  SignedContractsService,
+  generateUniqueContractNumber,
+  ipTrailingSegment,
+} from './signed-contracts.service'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -83,7 +87,8 @@ function makeTemplate(overrides: Record<string, unknown> = {}) {
       'Компания: {{companyName}}\n' +
       'USDT: {{walletUsdt}}\n' +
       'ФОП: {{bankUahFop}}\n' +
-      'Метод: {{preferredMethod}}\n',
+      'Метод: {{preferredMethod}}\n' +
+      'Реквізити: {{requisites}}\n',
     isActive: true,
     createdByUserId: 'admin-1',
     createdAt: new Date('2026-01-01T00:00:00Z'),
@@ -102,7 +107,8 @@ function makeSignedContract(overrides: Record<string, unknown> = {}) {
     signedIp: '127.0.0.1',
     signedUserAgent: 'vitest',
     signedAt: new Date('2026-06-03T00:00:00Z'),
-    contractNumber: 'CHK-1-2026',
+    // T4: new format CHK-<6 uppercase hex>
+    contractNumber: 'CHK-7F3A9C',
     ...overrides,
   }
 }
@@ -125,7 +131,8 @@ function makeEmployeeContract(overrides: Record<string, unknown> = {}) {
       'Компания: {{companyName}}\n' +
       'USDT: {{walletUsdt}}\n' +
       'ФОП: {{bankUahFop}}\n' +
-      'Метод: {{preferredMethod}}\n',
+      'Метод: {{preferredMethod}}\n' +
+      'Реквізити: {{requisites}}\n',
     status: 'READY_TO_SIGN' as const,
     signedContractId: null,
     createdByUserId: 'admin-1',
@@ -151,13 +158,14 @@ interface MockDb {
 
 function makeDb({
   userRow = makeUser(),
-  nextSeq = 1,
   insertedRow,
 }: {
   userRow?: ReturnType<typeof makeUser>
-  nextSeq?: number
+  // nextSeq removed: T4 uses crypto.randomBytes instead of sequence
   insertedRow?: ReturnType<typeof makeSignedContract>
 } = {}): MockDb {
+  // T4: findFirst for uniqueness check must return undefined (= candidate is free)
+  // so generateUniqueContractNumber succeeds on the first attempt.
   const findSignedFirst = vi.fn().mockResolvedValue(undefined)
   const findSignedMany = vi.fn().mockResolvedValue([])
   const findUser = vi.fn().mockResolvedValue(userRow)
@@ -169,18 +177,13 @@ function makeDb({
         users: { findFirst: findUser },
       },
       transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
-        const txInsertReturning = vi
-          .fn()
-          .mockResolvedValue([
-            insertedRow ?? makeSignedContract({ contractNumber: `CHK-${nextSeq}-2026` }),
-          ])
+        const txInsertReturning = vi.fn().mockResolvedValue([insertedRow ?? makeSignedContract()])
         const txInsertValues = vi.fn().mockReturnValue({ returning: txInsertReturning })
-        const txExecute = vi.fn().mockResolvedValue([{ contract_number: `CHK-${nextSeq}-2026` }])
         const tx = {
-          execute: txExecute,
           insert: vi.fn().mockReturnValue({ values: txInsertValues }),
           query: {
-            signedContracts: { findFirst: findSignedFirst },
+            // T4: uniqueness check — always return undefined (free candidate)
+            signedContracts: { findFirst: vi.fn().mockResolvedValue(undefined) },
             users: { findFirst: findUser },
           },
         }
@@ -263,6 +266,67 @@ describe('SignedContractsService', () => {
       expect(result.body).toContain('USDT: не указано')
       expect(result.body).toContain('ФОП: не указано')
       expect(result.body).toContain('Метод: не указано')
+    })
+
+    it('requisites: no "не указаноне указано" duplication when both wallet and bank are empty', () => {
+      // Regression: templates using {{requisites}} must produce a single
+      // "не указано" when both walletUsdtErc20 and all bankUah* fields are null.
+      const tmplWithRequisites = makeTemplate({
+        bodyMarkdown: '- Реквізити: {{requisites}}\n- Метод: {{preferredMethod}}\n',
+      })
+      const user = makeUser({
+        walletUsdtErc20: null,
+        bankUahRecipient: null,
+        bankUahIban: null,
+        bankUahRnokpp: null,
+        bankUahBankName: null,
+        paymentMethod: null,
+      })
+      const result = SignedContractsService.interpolateVariables(
+        tmplWithRequisites.bodyMarkdown,
+        user as never,
+        new Date(),
+      )
+      // Must contain exactly one "не указано", not "не указаноне указано"
+      expect(result.body).toContain('- Реквізити: не указано')
+      expect(result.body).not.toContain('не указаноне указано')
+      expect(result.variables['requisites']).toBe('не указано')
+    })
+
+    it('requisites: shows wallet address for USDT_ERC20 method', () => {
+      const tmpl = makeTemplate({ bodyMarkdown: 'Реквізити: {{requisites}}' })
+      const user = makeUser({
+        walletUsdtErc20: '0xABC123',
+        paymentMethod: 'USDT_ERC20',
+      })
+      const result = SignedContractsService.interpolateVariables(
+        tmpl.bodyMarkdown,
+        user as never,
+        new Date(),
+      )
+      expect(result.body).toBe('Реквізити: 0xABC123')
+      expect(result.variables['requisites']).toBe('0xABC123')
+    })
+
+    it('requisites: shows ФОП fields for BANK_UAH_FOP method', () => {
+      const tmpl = makeTemplate({ bodyMarkdown: 'Реквізити: {{requisites}}' })
+      const user = makeUser({
+        walletUsdtErc20: null,
+        bankUahRecipient: 'Ivan Test',
+        bankUahIban: 'UA111',
+        bankUahRnokpp: null,
+        bankUahBankName: 'PrivatBank',
+        paymentMethod: 'BANK_UAH_FOP',
+      })
+      const result = SignedContractsService.interpolateVariables(
+        tmpl.bodyMarkdown,
+        user as never,
+        new Date(),
+      )
+      expect(result.body).toContain('Ivan Test')
+      expect(result.body).toContain('UA111')
+      expect(result.body).toContain('PrivatBank')
+      expect(result.variables['requisites']).toContain('Ivan Test')
     })
 
     it('builds ФОП string from all 4 bank fields when present', () => {
@@ -410,9 +474,9 @@ describe('SignedContractsService', () => {
       ).rejects.toThrow(BadRequestException)
     })
 
-    it('happy path: creates signed contract with CHK-<seq>-<year> and calls markSigned', async () => {
-      const inserted = makeSignedContract({ contractNumber: 'CHK-5-2026' })
-      const mockDb = makeDb({ insertedRow: inserted, nextSeq: 5 })
+    it('happy path: creates signed contract with CHK-<6 hex> format and calls markSigned', async () => {
+      const inserted = makeSignedContract({ contractNumber: 'CHK-AB12CD' })
+      const mockDb = makeDb({ insertedRow: inserted })
       const empSvc = makeEmployeeContractsSvc()
       const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
 
@@ -424,7 +488,8 @@ describe('SignedContractsService', () => {
         userAgent: 'curl/8.0',
       })
 
-      expect(result.contractNumber).toBe('CHK-5-2026')
+      // T4: contract number must match CHK-XXXXXX (6 uppercase hex chars)
+      expect(result.contractNumber).toMatch(/^CHK-[0-9A-F]{6}$/)
       expect(result.userId).toBe('senior-1')
       // A3-1: markSigned must be called to transition employee_contract → SIGNED
       expect(empSvc.markSigned).toHaveBeenCalledWith('senior-1', inserted.id)
@@ -454,16 +519,61 @@ describe('SignedContractsService', () => {
       expect(empSvc.getReadyForSigning).toHaveBeenCalledWith('senior-1')
     })
 
-    it('double-sign: CONTRACT_NOT_READY after first sign (employee_contract is SIGNED)', async () => {
-      // Simulate the state after a successful first sign:
-      // employee_contract.status = 'SIGNED' → getReadyForSigning throws 409
-      const signedEc = makeEmployeeContract({ status: 'SIGNED' })
+    it('MED#3: getReadyForSigning is called INSIDE the transaction (snapshot read inside tx)', async () => {
+      const ec = makeEmployeeContract()
+      const inserted = makeSignedContract()
+      const callOrder: string[] = []
+
+      // Track when transaction opens vs when getReadyForSigning is called
+      const txFn = vi.fn().mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
+        callOrder.push('tx:open')
+        const txInsertReturning = vi.fn().mockResolvedValue([inserted])
+        const txInsertValues = vi.fn().mockReturnValue({ returning: txInsertReturning })
+        const tx = {
+          insert: vi.fn().mockReturnValue({ values: txInsertValues }),
+          query: {
+            // T4: uniqueness check returns undefined = candidate is free
+            signedContracts: { findFirst: vi.fn().mockResolvedValue(undefined) },
+            users: { findFirst: vi.fn().mockResolvedValue(makeUser()) },
+          },
+        }
+        return cb(tx)
+      })
+
+      const mockDb = makeDb({ insertedRow: inserted })
+      ;(mockDb.db as Record<string, unknown>).transaction = txFn
+
+      const getReadySpy = vi.fn().mockImplementation(async () => {
+        callOrder.push('getReadyForSigning:called')
+        return ec
+      })
+      const empSvc = {
+        getReadyForSigning: getReadySpy,
+        markSigned: vi.fn().mockResolvedValue({ ...ec, status: 'SIGNED' }),
+      } as unknown as import('./employee-contracts.service').EmployeeContractsService
+
+      const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
+
+      await service.sign({
+        userId: seniorUser.id,
+        userRole: 'SENIOR',
+        typedName: '',
+        ip: null,
+        userAgent: null,
+      })
+
+      // MED#3: snapshot read must happen AFTER the transaction opens
+      expect(callOrder.indexOf('tx:open')).toBeLessThan(
+        callOrder.indexOf('getReadyForSigning:called'),
+      )
+    })
+
+    it('double-sign: CONTRACT_NOT_READY after first sign throws 409 (inside tx)', async () => {
+      // MED#3: getReadyForSigning now runs inside tx — error propagates out of transaction
       const mockDb = makeDb()
-      // Second call: no READY_TO_SIGN contract
       const empSvc = makeEmployeeContractsSvc({ readyContract: null })
       const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
 
-      // In real flow, once markSigned ran, next getReadyForSigning returns 409
       await expect(
         service.sign({
           userId: seniorUser.id,
@@ -473,10 +583,6 @@ describe('SignedContractsService', () => {
           userAgent: null,
         }),
       ).rejects.toThrow(ConflictException)
-      // Verify it threw before opening a tx
-      expect(mockDb.db.transaction).not.toHaveBeenCalled()
-      // Use signedEc to avoid unused variable lint error
-      void signedEc
     })
   })
 
@@ -548,7 +654,7 @@ describe('SignedContractsService', () => {
     it('returns array of signed contracts for given user', async () => {
       const rows = [
         makeSignedContract(),
-        makeSignedContract({ id: 'sc-2', contractNumber: 'CHK-2-2026' }),
+        makeSignedContract({ id: 'sc-2', contractNumber: 'CHK-FF0011' }),
       ]
       const mockDb = makeDb()
       mockDb.db.query.signedContracts.findMany.mockResolvedValue(rows)
@@ -579,5 +685,44 @@ describe('ipTrailingSegment', () => {
 
   it('handles IPv6 loopback', () => {
     expect(ipTrailingSegment('::1')).toBe('1')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T4: generateUniqueContractNumber
+// ---------------------------------------------------------------------------
+
+describe('generateUniqueContractNumber', () => {
+  it('returns a string matching CHK-[0-9A-F]{6}', async () => {
+    const result = await generateUniqueContractNumber(async () => true)
+    expect(result).toMatch(/^CHK-[0-9A-F]{6}$/)
+  })
+
+  it('retries on collision and succeeds on second attempt', async () => {
+    let callCount = 0
+    // First call: taken; second call: free
+    const result = await generateUniqueContractNumber(async () => {
+      callCount++
+      return callCount > 1
+    })
+    expect(callCount).toBe(2)
+    expect(result).toMatch(/^CHK-[0-9A-F]{6}$/)
+  })
+
+  it('throws InternalServerErrorException after maxAttempts collisions', async () => {
+    const { InternalServerErrorException } = await import('@nestjs/common')
+    await expect(generateUniqueContractNumber(async () => false, 3)).rejects.toThrow(
+      InternalServerErrorException,
+    )
+  })
+
+  it('produces distinct values on successive calls (statistical)', async () => {
+    // Generate 50 numbers — with 16^6 = 16.7M possibilities, all 50 must differ
+    const results = await Promise.all(
+      Array.from({ length: 50 }, () => generateUniqueContractNumber(async () => true)),
+    )
+    const unique = new Set(results)
+    // Statistical: extremely unlikely to have any collision in 50 draws from 16.7M
+    expect(unique.size).toBe(50)
   })
 })

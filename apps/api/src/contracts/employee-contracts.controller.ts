@@ -21,6 +21,7 @@ import { RolesGuard } from '../common/guards/roles.guard'
 import { DatabaseService } from '../database/database.service'
 import type { User } from '../database/schema'
 import { ContractPdfService } from './contract-pdf.service'
+import { safeContractFilename } from './contract-filename.util'
 import { EmployeeContractsService } from './employee-contracts.service'
 import { SignedContractsService } from './signed-contracts.service'
 
@@ -28,7 +29,7 @@ import { SignedContractsService } from './signed-contracts.service'
  * A3-1 — ADMIN management of per-employee contracts.
  *
  * All endpoints require ADMIN role (enforced by @Roles + RolesGuard).
- * Controller prefix `api/users` — endpoints are scoped to a user:
+ * Controller prefix `users` (global prefix `api` set in main.ts) — real paths:
  *
  *   GET    /api/users/:id/contract       — lazy-create or get active contract
  *   PATCH  /api/users/:id/contract       — update body markdown (DRAFT | READY_TO_SIGN)
@@ -37,7 +38,7 @@ import { SignedContractsService } from './signed-contracts.service'
  *   POST   /api/users/:id/contract/reset  — re-derive body from active template (DRAFT only)
  *   GET    /api/users/:id/contract/pdf   — render PDF from employee_contract
  */
-@Controller('api/users')
+@Controller('users')
 @UseGuards(RolesGuard)
 @Roles('ADMIN')
 export class EmployeeContractsController {
@@ -58,7 +59,8 @@ export class EmployeeContractsController {
 
   /**
    * PATCH /api/users/:id/contract
-   * Update the body markdown. Only allowed in DRAFT or READY_TO_SIGN.
+   * Update the body markdown. Only allowed in DRAFT (MED#2).
+   * To edit in READY_TO_SIGN: first POST /revert, then PATCH.
    */
   @Patch(':id/contract')
   async update(
@@ -162,14 +164,11 @@ export class EmployeeContractsController {
 
     const { pdfBuffer } = await this.contractPdf.generateContractPdf(pdfParams)
 
-    const filename =
-      contract.status === 'SIGNED'
-        ? `contract-${userRow.displayName.replace(/\s+/g, '-')}.pdf`
-        : `contract-preview-${userRow.displayName.replace(/\s+/g, '-')}.pdf`
+    const { contentDisposition } = safeContractFilename(userRow.displayName, contract.status)
 
     await reply
       .header('Content-Type', 'application/pdf')
-      .header('Content-Disposition', `inline; filename="${filename}"`)
+      .header('Content-Disposition', contentDisposition)
       .send(pdfBuffer)
   }
 }

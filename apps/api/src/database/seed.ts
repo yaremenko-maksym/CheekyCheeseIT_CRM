@@ -442,7 +442,7 @@ const CONTRACT_BODY: Record<string, string> = {
 ## 2. Умови оплати
 
 - Форма оплати: {{preferredMethod}}
-- Реквізити: {{walletUsdt}}{{bankUahFop}}
+- Реквізити: {{requisites}}
 - Частка доходу: 26% від суми проекту
 
 ## 3. Термін дії
@@ -473,7 +473,7 @@ const CONTRACT_BODY: Record<string, string> = {
 ## 2. Умови оплати
 
 - Форма оплати: {{preferredMethod}}
-- Реквізити: {{walletUsdt}}{{bankUahFop}}
+- Реквізити: {{requisites}}
 - Фіксована щомісячна ставка погоджується індивідуально
 
 ## 3. Термін дії
@@ -554,7 +554,7 @@ HR менеджер забезпечує рекрутинг та комунік�
 ## 2. Умови оплати
 
 - Форма оплати: {{preferredMethod}}
-- Реквізити: {{walletUsdt}}{{bankUahFop}}
+- Реквізити: {{requisites}}
 - Частка від доходу проекту: визначається індивідуально
 
 ## 3. Термін дії
@@ -1723,10 +1723,13 @@ async function main() {
   for (const u of onboardedUsers) {
     const tmplId = templateMap[u.role]
     if (!tmplId) continue
+    const requisiteValue = u.payRequisite || 'не указано'
     const snapshot = (CONTRACT_BODY[u.role] ?? '')
       .replace(/\{\{employeeName\}\}/g, u.legalName)
       .replace(/\{\{onboardingDate\}\}/g, u.signedAt.toISOString().slice(0, 10))
       .replace(/\{\{preferredMethod\}\}/g, u.method)
+      .replace(/\{\{requisites\}\}/g, requisiteValue)
+      // Legacy fallback: templates that still contain old placeholders
       .replace(/\{\{walletUsdt\}\}/g, u.method === 'USDT ERC-20' ? u.payRequisite : '')
       .replace(/\{\{bankUahFop\}\}/g, u.method === 'Bank UAH FOP' ? u.payRequisite : '')
 
@@ -1740,6 +1743,7 @@ async function main() {
           employeeName: u.legalName,
           onboardingDate: u.signedAt.toISOString().slice(0, 10),
           preferredMethod: u.method,
+          requisites: requisiteValue,
           walletUsdt: u.method === 'USDT ERC-20' ? u.payRequisite : '',
           bankUahFop: u.method === 'Bank UAH FOP' ? u.payRequisite : '',
         },
@@ -1769,10 +1773,13 @@ async function main() {
     const tmplId = templateMap[u.role]
     const scId = signedContractIdByUser[u.userId]
     if (!tmplId || !scId) continue
+    const requisiteValueEc = u.payRequisite || 'не указано'
     const snapshot = (CONTRACT_BODY[u.role] ?? '')
       .replace(/\{\{employeeName\}\}/g, u.legalName)
       .replace(/\{\{onboardingDate\}\}/g, u.signedAt.toISOString().slice(0, 10))
       .replace(/\{\{preferredMethod\}\}/g, u.method)
+      .replace(/\{\{requisites\}\}/g, requisiteValueEc)
+      // Legacy fallback: templates that still contain old placeholders
       .replace(/\{\{walletUsdt\}\}/g, u.method === 'USDT ERC-20' ? u.payRequisite : '')
       .replace(/\{\{bankUahFop\}\}/g, u.method === 'Bank UAH FOP' ? u.payRequisite : '')
 
@@ -1795,6 +1802,8 @@ async function main() {
       .replace(/\{\{employeeName\}\}/g, 'Марченко Дмитро Олексійович')
       .replace(/\{\{onboardingDate\}\}/g, d(2025, 7, 1).toISOString().slice(0, 10))
       .replace(/\{\{preferredMethod\}\}/g, 'не вказано')
+      .replace(/\{\{requisites\}\}/g, 'не указано')
+      // Legacy fallback: templates that still contain old placeholders
       .replace(/\{\{walletUsdt\}\}/g, '')
       .replace(/\{\{bankUahFop\}\}/g, '')
 

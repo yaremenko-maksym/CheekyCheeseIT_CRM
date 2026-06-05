@@ -2,31 +2,32 @@ import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { UsersAccessService } from './users-access.service'
 import type { User } from '../database/schema'
 
-const makeUser = (overrides: Partial<User>): User => ({
-  id: overrides.id ?? '00000000-0000-0000-0000-000000000000',
-  email: 'a@b.c',
-  displayName: 'X',
-  avatar: null,
-  role: 'JUNIOR',
-  googleId: null,
-  telegram: null,
-  phone: null,
-  techStack: null,
-  paymentMethod: null,
-  walletUsdtErc20: null,
-  walletUsdtLabel: null,
-  bankUahRecipient: null,
-  bankUahIban: null,
-  bankUahRnokpp: null,
-  bankUahBankName: null,
-  seniorSharePercent: 26,
-  monthlySalary: null,
-  archivedAt: null,
-  adminNote: null,
-  createdAt: new Date(),
-  updatedAt: new Date(),
-  ...overrides,
-} as User)
+const makeUser = (overrides: Partial<User>): User =>
+  ({
+    id: overrides.id ?? '00000000-0000-0000-0000-000000000000',
+    email: 'a@b.c',
+    displayName: 'X',
+    avatar: null,
+    role: 'JUNIOR',
+    googleId: null,
+    telegram: null,
+    phone: null,
+    techStack: null,
+    paymentMethod: null,
+    walletUsdtErc20: null,
+    walletUsdtLabel: null,
+    bankUahRecipient: null,
+    bankUahIban: null,
+    bankUahRnokpp: null,
+    bankUahBankName: null,
+    seniorSharePercent: 26,
+    monthlySalary: null,
+    archivedAt: null,
+    adminNote: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  }) as User
 
 describe('UsersAccessService.getViewPermissions', () => {
   let service: UsersAccessService
@@ -34,31 +35,49 @@ describe('UsersAccessService.getViewPermissions', () => {
   beforeEach(() => {
     service = new UsersAccessService({ db: {} } as never)
     // Mock the private DB-helper methods so tests don't hit a real DB
-    ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi.fn().mockResolvedValue(false)
-    ;(service as unknown as Record<string, unknown>).isSharedProject = vi.fn().mockResolvedValue(false)
+    ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
+      .fn()
+      .mockResolvedValue(false)
+    ;(service as unknown as Record<string, unknown>).isSharedProject = vi
+      .fn()
+      .mockResolvedValue(false)
   })
 
-  it('ADMIN viewing JUNIOR sees 7 tabs including documents (no Собеседования)', async () => {
+  it('ADMIN viewing JUNIOR sees 8 tabs including contract (no Собеседования)', async () => {
     const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
     const target = makeUser({ id: 'jr-id', role: 'JUNIOR' })
     const p = await service.getViewPermissions(viewer, target)
-    expect(p.tabs).toEqual(expect.arrayContaining(['overview', 'finance', 'projects', 'team', 'requisites', 'documents', 'audit']))
+    expect(p.tabs).toEqual(
+      expect.arrayContaining([
+        'overview',
+        'finance',
+        'projects',
+        'team',
+        'requisites',
+        'documents',
+        'audit',
+        'contract',
+      ]),
+    )
     expect(p.tabs).not.toContain('interviews')
-    expect(p.tabs).toHaveLength(7)
+    expect(p.tabs).toHaveLength(8)
   })
 
-  it('ADMIN viewing SENIOR has 7 tabs — interviews moved to header link', async () => {
+  it('ADMIN viewing SENIOR has 8 tabs — contract tab added, interviews moved to header link', async () => {
     const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
     const target = makeUser({ id: 'sr-id', role: 'SENIOR' })
     const p = await service.getViewPermissions(viewer, target)
     expect(p.tabs).not.toContain('interviews')
     expect(p.tabs).toContain('documents')
     expect(p.tabs).toContain('audit')
-    expect(p.tabs).toHaveLength(7)
+    expect(p.tabs).toContain('contract')
+    expect(p.tabs).toHaveLength(8)
   })
 
   it('HR viewing SENIOR in own team — no finance, no requisites, no audit', async () => {
-    ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi.fn().mockResolvedValue(true)
+    ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
+      .fn()
+      .mockResolvedValue(true)
     const viewer = makeUser({ id: 'hr-id', role: 'HR' })
     const target = makeUser({ id: 'sr-id', role: 'SENIOR' })
     const p = await service.getViewPermissions(viewer, target)
@@ -79,9 +98,36 @@ describe('UsersAccessService.getViewPermissions', () => {
   it('SELF — SENIOR sees own tabs (interviews moved to header link, no audit)', async () => {
     const senior = makeUser({ id: 'sr-id', role: 'SENIOR' })
     const p = await service.getViewPermissions(senior, senior)
-    expect(p.tabs).toEqual(expect.arrayContaining(['overview', 'finance', 'projects', 'team', 'requisites', 'documents']))
+    expect(p.tabs).toEqual(
+      expect.arrayContaining([
+        'overview',
+        'finance',
+        'projects',
+        'team',
+        'requisites',
+        'documents',
+      ]),
+    )
     expect(p.tabs).not.toContain('interviews')
     expect(p.tabs).not.toContain('audit')
+    // Negative-regression guard: 'contract' tab is ADMIN-only (A3-2).
+    // A SENIOR viewing their OWN profile must never see the contract editor tab —
+    // it is only surfaced when an ADMIN views another user's profile.
+    expect(p.tabs).not.toContain('contract')
+  })
+
+  it('SELF — HR sees own tabs without contract (ADMIN-only tab)', async () => {
+    const hr = makeUser({ id: 'hr-id', role: 'HR' })
+    const p = await service.getViewPermissions(hr, hr)
+    // Negative-regression guard: 'contract' tab must not appear on SELF views
+    // for any non-ADMIN role (A3-2 RBAC: only ADMIN viewing others gets contract tab).
+    expect(p.tabs).not.toContain('contract')
+  })
+
+  it('SELF — JUNIOR sees own tabs without contract (ADMIN-only tab)', async () => {
+    const junior = makeUser({ id: 'jr-id', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(junior, junior)
+    expect(p.tabs).not.toContain('contract')
   })
 
   it('ADMIN SELF includes audit tab', async () => {
@@ -94,10 +140,16 @@ describe('UsersAccessService.getViewPermissions', () => {
     const admin = makeUser({ id: 'admin-id', role: 'ADMIN' })
     const target = makeUser({ id: 'jr-id', role: 'JUNIOR' })
     const p = await service.getViewPermissions(admin, target)
-    expect(p.actions).toEqual(expect.arrayContaining([
-      'edit-profile', 'change-role', 'change-salary', 'change-requisites',
-      'set-note', 'archive',
-    ]))
+    expect(p.actions).toEqual(
+      expect.arrayContaining([
+        'edit-profile',
+        'change-role',
+        'change-salary',
+        'change-requisites',
+        'set-note',
+        'archive',
+      ]),
+    )
     expect(p.actions).not.toContain('manage-team')
     expect(p.actions).not.toContain('reassign-project')
     expect(p.actions).toHaveLength(6)
@@ -117,7 +169,9 @@ describe('UsersAccessService.getViewPermissions', () => {
   })
 
   it('SENIOR viewing colleague in shared project — sees overview/projects/team', async () => {
-    ;(service as unknown as Record<string, unknown>).isSharedProject = vi.fn().mockResolvedValue(true)
+    ;(service as unknown as Record<string, unknown>).isSharedProject = vi
+      .fn()
+      .mockResolvedValue(true)
     const viewer = makeUser({ id: 'sr1', role: 'SENIOR' })
     const target = makeUser({ id: 'jr1', role: 'JUNIOR' })
     const p = await service.getViewPermissions(viewer, target)

@@ -9,6 +9,7 @@ export const tabKeySchema = z.enum([
   'requisites',
   'documents',
   'audit',
+  'contract',
 ])
 
 export const actionKeySchema = z.enum([

@@ -430,10 +430,22 @@ function profileExtras(user: (typeof USERS)[keyof typeof USERS]) {
 
 /** Full admin viewing anyone: all tabs + all actions */
 export function buildAdminViewingUser(targetUser: (typeof USERS)[keyof typeof USERS]): object {
+  // ADMIN viewing non-ADMIN: includes 'contract' tab (A3-2).
+  // ADMIN viewing another ADMIN (self or peer): no 'contract' tab (ADMINs have no contracts).
+  const contractTab = targetUser.role !== 'ADMIN' ? ['contract'] : []
   return {
     user: { ...targetUser, ...profileExtras(targetUser) },
     permissions: {
-      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'audit'],
+      tabs: [
+        'overview',
+        'finance',
+        'projects',
+        'team',
+        'requisites',
+        'documents',
+        'audit',
+        ...contractTab,
+      ],
       actions: [
         'edit-profile',
         'change-role',

@@ -61,8 +61,18 @@ export const signedContractSchema = z.object({
   signedIp: z.string().nullable(),
   signedUserAgent: z.string().nullable(),
   signedAt: z.string().or(z.date()),
-  /** `CHK-<seq>-<year>` — server-generated, unique. */
-  contractNumber: z.string().regex(/^CHK-\d+-\d{4}$/, 'Некорректный contract_number'),
+  /**
+   * `CHK-<6 uppercase hex>` — server-generated, unique (e.g. `CHK-7F3A9C`).
+   * Legacy seed rows use the old `CHK-<seq>-<year>` format and are allowed
+   * through on read (the schema is used for API responses, not DB inserts).
+   * Both patterns are accepted so existing seed contracts do not fail validation.
+   */
+  contractNumber: z
+    .string()
+    .regex(
+      /^CHK-([0-9A-F]{6}|\d+-\d{4})$/,
+      'Некорректный contract_number (ожидается CHK-XXXXXX или CHK-N-YYYY для legacy)',
+    ),
 })
 
 /**
@@ -123,9 +133,22 @@ export const CONTRACT_VARIABLE_DESCRIPTIONS = {
   role: 'Роль (HR / Синьор / Джун / Дроп / Бухгалтер)',
   onboardingDate: 'Дата подписания контракта',
   companyName: 'Название компании (Cheeky Cheese IT)',
+  /** Legal name of the contracting legal entity (VolkerWessels Nederland IE B.V.) */
+  companyLegalName: 'Юридическое название компании-контрагента',
+  /** Registered address of the contracting legal entity */
+  companyAddress: 'Адрес компании-контрагента',
+  /** Country of incorporation of the contracting legal entity */
+  companyCountry: 'Страна регистрации компании-контрагента',
   walletUsdt: 'USDT ERC-20 кошелёк (если указан)',
   bankUahFop: 'Банковские реквизиты UAH (ФОП)',
   preferredMethod: 'Предпочтительный метод оплаты (crypto / fop)',
+  /**
+   * Smart composite: shows the relevant payment requisites based on paymentMethod.
+   * USDT_ERC20 → wallet address; BANK_UAH_FOP → ФОП fields; empty → 'не указано' (once).
+   * Replaces the `{{walletUsdt}}{{bankUahFop}}` pair that produced "не указаноне указано"
+   * when both fields were empty.
+   */
+  requisites: 'Реквизиты оплаты (определяются по методу оплаты автоматически)',
   contractNumber: 'Номер контракта (генерируется автоматически, CHK-N-YYYY)',
 } as const
 
