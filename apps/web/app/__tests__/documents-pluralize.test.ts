@@ -6,7 +6,7 @@
  * everything else → genitive plural).
  */
 import { describe, expect, it } from 'vitest'
-import { pluralizeInvoicesPending } from '../documents'
+import { pluralizeInvoicesPending } from '../routes/crm/documents'
 
 describe('pluralizeInvoicesPending', () => {
   it('uses nominative singular for n=1', () => {
