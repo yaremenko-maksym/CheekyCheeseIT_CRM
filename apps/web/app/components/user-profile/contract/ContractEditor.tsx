@@ -53,7 +53,10 @@ export function ContractEditor({
         </div>
       )}
 
-      <div className="rounded-lg border border-border/60 overflow-hidden">
+      <div
+        className="flex flex-col rounded-lg border border-border/60 overflow-hidden"
+        style={{ maxHeight: '480px' }}
+      >
         <div className="flex items-center justify-between border-b border-border/60 bg-muted/30 px-3 py-1.5">
           <span className="text-xs font-medium text-muted-foreground">Markdown редактор</span>
           {onToggleHint && (
@@ -69,7 +72,7 @@ export function ContractEditor({
           )}
         </div>
 
-        <div className="overflow-auto" style={{ maxHeight: '480px' }}>
+        <div className="flex-1 overflow-auto">
           <Suspense fallback={<Skeleton className="h-72 w-full" />}>
             <CodeMirrorEditor
               value={value}
@@ -95,7 +98,7 @@ export function ContractEditor({
                 closeBracketsKeymap: false,
                 searchKeymap: false,
               }}
-              className="min-h-[320px]"
+              style={{ minHeight: '320px' }}
             />
           </Suspense>
         </div>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, FileText, Loader2, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Download, FileText, Loader2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -26,10 +26,38 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
   const [isLoading, setIsLoading] = useState(false)
   const [hasError, setHasError] = useState(false)
   const [iframeLoading, setIframeLoading] = useState(false)
+  const [isDownloading, setIsDownloading] = useState(false)
   const revokeRef = useRef<(() => void) | null>(null)
 
   // AbortController ref — cancelled on unmount or when a new load supersedes the current one.
   const abortRef = useRef<AbortController | null>(null)
+
+  const downloadPdf = useCallback(async () => {
+    setIsDownloading(true)
+    try {
+      const { blobUrl: url, revoke } = await fetchContractPdfBlob(userId)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `contract-${userId}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      // Revoke after a short delay to allow browser to start download
+      setTimeout(revoke, 1000)
+    } catch (err: unknown) {
+      const status =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { status?: number } }).response?.status
+          : undefined
+      if (status === 429) {
+        toast.error('Слишком часто. Подождите минуту.')
+      } else {
+        toast.error('Не удалось скачать PDF.')
+      }
+    } finally {
+      setIsDownloading(false)
+    }
+  }, [userId])
 
   const loadPdf = useCallback(async () => {
     // Cancel any in-flight request before starting a new one.
@@ -88,25 +116,39 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
     <div className={cn('flex flex-col gap-2', className)}>
       <div className="flex items-center justify-between rounded-t-lg border-x border-t border-border/60 bg-muted/30 px-3 py-1.5">
         <span className="text-xs font-medium text-muted-foreground">PDF предпросмотр</span>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-7 gap-1 px-2 text-xs"
-                disabled={!canRefresh || isLoading}
-                onClick={() => void loadPdf()}
-                data-testid="contract-pdf-refresh-btn"
-              >
-                <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
-                Обновить превью
-              </Button>
-            </span>
-          </TooltipTrigger>
-          {isDirty && <TooltipContent>Сначала сохраните, чтобы обновить превью</TooltipContent>}
-        </Tooltip>
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 gap-1 px-2 text-xs"
+            disabled={isDownloading}
+            onClick={() => void downloadPdf()}
+            data-testid="contract-pdf-download-btn"
+          >
+            <Download className={cn('h-3.5 w-3.5', isDownloading && 'animate-pulse')} />
+            Скачать PDF
+          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 gap-1 px-2 text-xs"
+                  disabled={!canRefresh || isLoading}
+                  onClick={() => void loadPdf()}
+                  data-testid="contract-pdf-refresh-btn"
+                >
+                  <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
+                  Обновить превью
+                </Button>
+              </span>
+            </TooltipTrigger>
+            {isDirty && <TooltipContent>Сначала сохраните, чтобы обновить превью</TooltipContent>}
+          </Tooltip>
+        </div>
       </div>
 
       <div
@@ -172,19 +214,6 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
           </div>
         )}
       </div>
-
-      {/* Download link */}
-      {blobUrl && !hasError && (
-        <div className="flex justify-end">
-          <a
-            href={blobUrl}
-            download="contract-preview.pdf"
-            className="text-xs text-muted-foreground underline hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
-          >
-            Скачать для просмотра
-          </a>
-        </div>
-      )}
     </div>
   )
 }

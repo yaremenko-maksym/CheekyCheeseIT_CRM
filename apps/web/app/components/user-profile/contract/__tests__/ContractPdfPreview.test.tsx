@@ -216,4 +216,91 @@ describe('ContractPdfPreview', () => {
 
     expect(firstSignal?.aborted).toBe(true)
   })
+
+  // ─── Download button tests ─────────────────────────────────────────────────
+
+  it('renders the download button', () => {
+    mockFetch.mockResolvedValue({ blobUrl: FAKE_BLOB_URL, revoke: mockRevoke })
+    renderPreview()
+    expect(screen.getByTestId('contract-pdf-download-btn')).toBeInTheDocument()
+  })
+
+  it('download button is enabled by default (not disabled by isDirty)', async () => {
+    mockFetch.mockResolvedValue({ blobUrl: FAKE_BLOB_URL, revoke: mockRevoke })
+    // Even with isDirty=true, download button should be enabled
+    renderPreview(true /* isDirty */)
+    await waitFor(() => {
+      expect(screen.getByTestId('contract-pdf-download-btn')).toBeEnabled()
+    })
+  })
+
+  it('clicking download button triggers fetchContractPdfBlob and creates anchor click', async () => {
+    mockFetch.mockResolvedValue({ blobUrl: FAKE_BLOB_URL, revoke: mockRevoke })
+    const user = userEvent.setup()
+
+    // Stub anchor click to avoid JSDOM navigation issues
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    renderPreview(false)
+
+    // Wait for initial load fetch
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
+
+    // Verify button is in DOM
+    const downloadBtn = await screen.findByTestId('contract-pdf-download-btn')
+    expect(downloadBtn).toBeInTheDocument()
+
+    // Click download button — triggers a new (non-signal) fetchContractPdfBlob call
+    await user.click(downloadBtn)
+
+    // fetchContractPdfBlob should be called a 2nd time (no AbortSignal arg)
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2))
+    // Anchor was clicked
+    expect(clickSpy).toHaveBeenCalledTimes(1)
+
+    clickSpy.mockRestore()
+  })
+
+  it('download button shows toast.error on non-429 fetch failure', async () => {
+    // loadPdf (on mount) always resolves; downloadPdf rejects on second call
+    mockFetch.mockResolvedValue({ blobUrl: FAKE_BLOB_URL, revoke: mockRevoke })
+    const user = userEvent.setup()
+
+    renderPreview(false)
+
+    // Wait for initial load
+    const downloadBtn = await screen.findByTestId('contract-pdf-download-btn')
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
+
+    // Now make subsequent calls (download) reject
+    mockFetch.mockRejectedValue(new Error('Download failed'))
+
+    await user.click(downloadBtn)
+
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith('Не удалось скачать PDF.')
+    })
+  })
+
+  it('download button shows 429 toast on throttle error', async () => {
+    mockFetch.mockResolvedValue({ blobUrl: FAKE_BLOB_URL, revoke: mockRevoke })
+    const user = userEvent.setup()
+
+    renderPreview(false)
+
+    const downloadBtn = await screen.findByTestId('contract-pdf-download-btn')
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
+
+    // Make download call return 429
+    const throttleError = Object.assign(new Error('Too Many Requests'), {
+      response: { status: 429 },
+    })
+    mockFetch.mockRejectedValue(throttleError)
+
+    await user.click(downloadBtn)
+
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith('Слишком часто. Подождите минуту.')
+    })
+  })
 })

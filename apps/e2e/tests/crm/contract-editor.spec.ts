@@ -349,9 +349,7 @@ test.describe('A3-2: Contract editor tab', () => {
     // Destructive confirm dialog appears
     await expect(page.getByTestId('contract-revert-confirm-dialog')).toBeVisible()
     // Destructive text mentions signature reset
-    await expect(
-      page.getByText('Вернуть подписанный контракт в черновик?'),
-    ).toBeVisible()
+    await expect(page.getByText('Вернуть подписанный контракт в черновик?')).toBeVisible()
 
     // After confirm: mock refetch returns DRAFT contract
     await page.route(new RegExp(`${API}/users/([^/?]+)/contract$`), async (r) => {
