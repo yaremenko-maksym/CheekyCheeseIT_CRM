@@ -74,11 +74,13 @@ export class SignedContractsService {
       throw new BadRequestException('ADMIN_DOES_NOT_SIGN_CONTRACTS')
     }
 
-    // A3-1: fetch the user's READY_TO_SIGN employee_contract.
-    // Throws 409 CONTRACT_NOT_READY if none exists (replaces old template lookup).
-    const employeeContract = await this.employeeContracts.getReadyForSigning(userId)
-
     return this.db.db.transaction(async (tx: DrizzleTx) => {
+      // MED#3: read the READY_TO_SIGN snapshot INSIDE the transaction so that
+      // the body snapshot, INSERT into signed_contracts, and markSigned all
+      // share one consistent DB snapshot. Throws 409 CONTRACT_NOT_READY if
+      // no READY_TO_SIGN contract exists at this point in time.
+      const employeeContract = await this.employeeContracts.getReadyForSigning(userId)
+
       // Resolve user row inside tx for fresh legalFullName + requisites.
       const user = (await tx.query.users.findFirst({
         where: (tbl, { eq }) => eq(tbl.id, userId),

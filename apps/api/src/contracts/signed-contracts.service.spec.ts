@@ -454,16 +454,59 @@ describe('SignedContractsService', () => {
       expect(empSvc.getReadyForSigning).toHaveBeenCalledWith('senior-1')
     })
 
-    it('double-sign: CONTRACT_NOT_READY after first sign (employee_contract is SIGNED)', async () => {
-      // Simulate the state after a successful first sign:
-      // employee_contract.status = 'SIGNED' → getReadyForSigning throws 409
-      const signedEc = makeEmployeeContract({ status: 'SIGNED' })
+    it('MED#3: getReadyForSigning is called INSIDE the transaction (snapshot read inside tx)', async () => {
+      const ec = makeEmployeeContract()
+      const inserted = makeSignedContract()
+      const callOrder: string[] = []
+
+      // Track when transaction opens vs when getReadyForSigning is called
+      const txFn = vi.fn().mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
+        callOrder.push('tx:open')
+        const txInsertReturning = vi.fn().mockResolvedValue([inserted])
+        const txInsertValues = vi.fn().mockReturnValue({ returning: txInsertReturning })
+        const txExecute = vi.fn().mockResolvedValue([{ contract_number: 'CHK-1-2026' }])
+        const tx = {
+          execute: txExecute,
+          insert: vi.fn().mockReturnValue({ values: txInsertValues }),
+          query: { users: { findFirst: vi.fn().mockResolvedValue(makeUser()) } },
+        }
+        return cb(tx)
+      })
+
+      const mockDb = makeDb({ insertedRow: inserted })
+      ;(mockDb.db as Record<string, unknown>).transaction = txFn
+
+      const getReadySpy = vi.fn().mockImplementation(async () => {
+        callOrder.push('getReadyForSigning:called')
+        return ec
+      })
+      const empSvc = {
+        getReadyForSigning: getReadySpy,
+        markSigned: vi.fn().mockResolvedValue({ ...ec, status: 'SIGNED' }),
+      } as unknown as import('./employee-contracts.service').EmployeeContractsService
+
+      const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
+
+      await service.sign({
+        userId: seniorUser.id,
+        userRole: 'SENIOR',
+        typedName: '',
+        ip: null,
+        userAgent: null,
+      })
+
+      // MED#3: snapshot read must happen AFTER the transaction opens
+      expect(callOrder.indexOf('tx:open')).toBeLessThan(
+        callOrder.indexOf('getReadyForSigning:called'),
+      )
+    })
+
+    it('double-sign: CONTRACT_NOT_READY after first sign throws 409 (inside tx)', async () => {
+      // MED#3: getReadyForSigning now runs inside tx — error propagates out of transaction
       const mockDb = makeDb()
-      // Second call: no READY_TO_SIGN contract
       const empSvc = makeEmployeeContractsSvc({ readyContract: null })
       const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
 
-      // In real flow, once markSigned ran, next getReadyForSigning returns 409
       await expect(
         service.sign({
           userId: seniorUser.id,
@@ -473,10 +516,6 @@ describe('SignedContractsService', () => {
           userAgent: null,
         }),
       ).rejects.toThrow(ConflictException)
-      // Verify it threw before opening a tx
-      expect(mockDb.db.transaction).not.toHaveBeenCalled()
-      // Use signedEc to avoid unused variable lint error
-      void signedEc
     })
   })
 
