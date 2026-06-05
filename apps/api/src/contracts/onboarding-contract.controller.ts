@@ -6,6 +6,7 @@ import { CurrentUser } from '../auth/current-user.decorator'
 import { DatabaseService } from '../database/database.service'
 import type { User } from '../database/schema'
 import { ContractPdfService } from './contract-pdf.service'
+import { safeContractFilename } from './contract-filename.util'
 import { EmployeeContractsService } from './employee-contracts.service'
 import { SignedContractsService } from './signed-contracts.service'
 
@@ -74,9 +75,11 @@ export class OnboardingContractController {
       verifyUrl: '',
     })
 
+    const { contentDisposition } = safeContractFilename(userRow.displayName, 'READY_TO_SIGN')
+
     await reply
       .header('Content-Type', 'application/pdf')
-      .header('Content-Disposition', 'inline; filename="contract-preview.pdf"')
+      .header('Content-Disposition', contentDisposition)
       .send(pdfBuffer)
   }
 }

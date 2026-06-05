@@ -21,6 +21,7 @@ import { RolesGuard } from '../common/guards/roles.guard'
 import { DatabaseService } from '../database/database.service'
 import type { User } from '../database/schema'
 import { ContractPdfService } from './contract-pdf.service'
+import { safeContractFilename } from './contract-filename.util'
 import { EmployeeContractsService } from './employee-contracts.service'
 import { SignedContractsService } from './signed-contracts.service'
 
@@ -163,14 +164,11 @@ export class EmployeeContractsController {
 
     const { pdfBuffer } = await this.contractPdf.generateContractPdf(pdfParams)
 
-    const filename =
-      contract.status === 'SIGNED'
-        ? `contract-${userRow.displayName.replace(/\s+/g, '-')}.pdf`
-        : `contract-preview-${userRow.displayName.replace(/\s+/g, '-')}.pdf`
+    const { contentDisposition } = safeContractFilename(userRow.displayName, contract.status)
 
     await reply
       .header('Content-Type', 'application/pdf')
-      .header('Content-Disposition', `inline; filename="${filename}"`)
+      .header('Content-Disposition', contentDisposition)
       .send(pdfBuffer)
   }
 }
