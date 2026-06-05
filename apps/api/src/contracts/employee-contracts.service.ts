@@ -259,6 +259,20 @@ export class EmployeeContractsService {
   }
 
   /**
+   * Boolean existence check — used by OnboardingService.requiresContract (A3-4).
+   * Returns true if user has a SIGNED employee_contract.
+   */
+  async hasSignedContract(userId: string): Promise<boolean> {
+    const result = await this.db.db
+      .select({ exists: sql<boolean>`true` })
+      .from(employeeContracts)
+      .where(and(eq(employeeContracts.userId, userId), eq(employeeContracts.status, 'SIGNED')))
+      .limit(1)
+
+    return result.length > 0
+  }
+
+  /**
    * Boolean existence check — used by OnboardingStatusService.
    * Returns true if user has a READY_TO_SIGN employee_contract.
    */

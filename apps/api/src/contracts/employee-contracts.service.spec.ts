@@ -474,6 +474,36 @@ describe('EmployeeContractsService', () => {
     })
   })
 
+  describe('hasSignedContract', () => {
+    it('returns true when SIGNED row exists (A3-4)', async () => {
+      const { service, db } = makeService()
+      db.db.select.mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue([{ exists: true }]),
+          }),
+        }),
+      })
+
+      const result = await service.hasSignedContract('user-uuid')
+      expect(result).toBe(true)
+    })
+
+    it('returns false when no SIGNED row (DRAFT/READY_TO_SIGN/none) (A3-4)', async () => {
+      const { service, db } = makeService()
+      db.db.select.mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue([]),
+          }),
+        }),
+      })
+
+      const result = await service.hasSignedContract('user-uuid')
+      expect(result).toBe(false)
+    })
+  })
+
   describe('hasReadyContract', () => {
     it('returns true when READY_TO_SIGN row exists', async () => {
       const { service, db } = makeService()
