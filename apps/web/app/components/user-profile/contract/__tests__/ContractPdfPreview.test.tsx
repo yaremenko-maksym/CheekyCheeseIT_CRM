@@ -9,6 +9,7 @@
 import { render, screen, act, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { ContractPdfPreview } from '../ContractPdfPreview'
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
@@ -56,7 +57,11 @@ afterEach(() => {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function renderPreview(isDirty = false, userId = 'user-uuid') {
-  return render(<ContractPdfPreview userId={userId} isDirty={isDirty} />)
+  return render(
+    <TooltipProvider>
+      <ContractPdfPreview userId={userId} isDirty={isDirty} />
+    </TooltipProvider>,
+  )
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -186,7 +191,11 @@ describe('ContractPdfPreview', () => {
       return Promise.resolve({ blobUrl: FAKE_BLOB_URL, revoke: mockRevoke })
     })
 
-    const { rerender } = render(<ContractPdfPreview userId="user-1" isDirty={false} />)
+    const { rerender } = render(
+      <TooltipProvider>
+        <ContractPdfPreview userId="user-1" isDirty={false} />
+      </TooltipProvider>,
+    )
 
     await act(async () => {
       await new Promise((r) => setTimeout(r, 0))
@@ -195,7 +204,11 @@ describe('ContractPdfPreview', () => {
     expect(firstSignal?.aborted).toBe(false)
 
     // Change userId — triggers new fetch, old controller should be aborted
-    rerender(<ContractPdfPreview userId="user-2" isDirty={false} />)
+    rerender(
+      <TooltipProvider>
+        <ContractPdfPreview userId="user-2" isDirty={false} />
+      </TooltipProvider>,
+    )
 
     await act(async () => {
       await new Promise((r) => setTimeout(r, 0))
