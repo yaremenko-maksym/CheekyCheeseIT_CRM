@@ -329,7 +329,7 @@ describe('UserDialog — step 3 confirm (Task 5)', () => {
       data: defaultContractData,
       isLoading: false,
       error: null,
-    } as ReturnType<typeof useEmployeeContract>)
+    } as unknown as ReturnType<typeof useEmployeeContract>)
   })
 
   async function advanceToStep3(user: ReturnType<typeof userEvent.setup>) {
@@ -390,7 +390,7 @@ describe('UserDialog — step 3 confirm (Task 5)', () => {
       data: undefined,
       isLoading: false,
       error: Object.assign(new Error('No template'), { response: { status: 404 } }),
-    } as ReturnType<typeof useEmployeeContract>)
+    } as unknown as ReturnType<typeof useEmployeeContract>)
 
     const user = userEvent.setup()
     await advanceToStep3(user)

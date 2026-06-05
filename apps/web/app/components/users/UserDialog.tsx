@@ -2042,11 +2042,9 @@ function WizardStep2({
             value={body || contract.bodyMarkdown}
             onChange={onBodyChange}
             readOnly={contract.status !== 'DRAFT'}
-            frozenBanner={
-              contract.status === 'READY_TO_SIGN'
-                ? 'Контракт передан на подпись — редактирование заблокировано.'
-                : undefined
-            }
+            {...(contract.status === 'READY_TO_SIGN'
+              ? { frozenBanner: 'Контракт передан на подпись — редактирование заблокировано.' }
+              : {})}
             showHint={showHint}
             onToggleHint={onToggleHint}
           />
