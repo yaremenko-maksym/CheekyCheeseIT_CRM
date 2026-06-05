@@ -31,6 +31,19 @@ const makeContract = (overrides: Partial<EmployeeContract> = {}): EmployeeContra
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
 function makeDb(overrides: Record<string, unknown> = {}) {
+  const dbMethods = {
+    update: vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([makeContract()]),
+        }),
+      }),
+    }),
+    delete: vi.fn().mockReturnValue({
+      where: vi.fn().mockResolvedValue(undefined),
+    }),
+  }
+
   return {
     db: {
       query: {
@@ -42,22 +55,17 @@ function makeDb(overrides: Record<string, unknown> = {}) {
           returning: vi.fn().mockResolvedValue([makeContract()]),
         }),
       }),
-      update: vi.fn().mockReturnValue({
-        set: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            returning: vi.fn().mockResolvedValue([makeContract()]),
-          }),
-        }),
-      }),
-      delete: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue(undefined),
-      }),
+      ...dbMethods,
       select: vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
             limit: vi.fn().mockResolvedValue([]),
           }),
         }),
+      }),
+      // Default transaction: runs the callback with the same db methods (no real rollback in unit tests)
+      transaction: vi.fn().mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
+        return cb(dbMethods)
       }),
       ...overrides,
     },
@@ -274,6 +282,63 @@ describe('EmployeeContractsService', () => {
       expect(result.status).toBe('DRAFT')
       expect(db.db.delete).toHaveBeenCalled()
       expect(deleteWhere).toHaveBeenCalled()
+    })
+
+    it('runs UPDATE + DELETE in a single db.transaction for SIGNED revert (MED#1)', async () => {
+      const contract = makeContract({ status: 'SIGNED', signedContractId: 'sc-uuid' })
+      const reverted = makeContract({ status: 'DRAFT', signedContractId: null })
+
+      // Spy on transaction to verify it is called
+      const txUpdate = vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([reverted]),
+          }),
+        }),
+      })
+      const txDelete = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      })
+      const txFn = vi.fn().mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
+        const tx = { update: txUpdate, delete: txDelete }
+        return cb(tx)
+      })
+
+      const { service, db } = makeService({ transaction: txFn })
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+
+      const result = await service.revert('user-uuid', mockViewer)
+      expect(result.status).toBe('DRAFT')
+      // Both writes must go through the transaction
+      expect(txFn).toHaveBeenCalledOnce()
+      expect(txUpdate).toHaveBeenCalled()
+      expect(txDelete).toHaveBeenCalled()
+    })
+
+    it('rolls back if tos_acceptances DELETE throws (MED#1 atomicity)', async () => {
+      const contract = makeContract({ status: 'SIGNED', signedContractId: 'sc-uuid' })
+      const reverted = makeContract({ status: 'DRAFT', signedContractId: null })
+
+      const txUpdate = vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([reverted]),
+          }),
+        }),
+      })
+      // DELETE fails — transaction must propagate the error (rollback simulated by rejection)
+      const txDelete = vi.fn().mockReturnValue({
+        where: vi.fn().mockRejectedValue(new Error('DB constraint failure')),
+      })
+      const txFn = vi.fn().mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
+        const tx = { update: txUpdate, delete: txDelete }
+        return cb(tx) // real Drizzle would rollback; here we just propagate the throw
+      })
+
+      const { service, db } = makeService({ transaction: txFn })
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+
+      await expect(service.revert('user-uuid', mockViewer)).rejects.toThrow('DB constraint failure')
     })
 
     it('throws 409 when already DRAFT', async () => {

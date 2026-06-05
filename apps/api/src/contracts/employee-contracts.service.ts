@@ -136,6 +136,10 @@ export class EmployeeContractsService {
    *   - Clears signedContractId (employee_contract link, not the audit row itself)
    *   - Deletes tos_acceptances for the user → requiresTos=true on next status check
    *   - signed_contracts row is immutable audit — NOT deleted
+   *
+   * MED#1: UPDATE employee_contracts + DELETE tos_acceptances run inside a
+   * single db.transaction so a partial failure cannot leave status=DRAFT with
+   * stale ToS (which would incorrectly skip re-onboarding).
    */
   async revert(userId: string, _viewer: SessionUser): Promise<EmployeeContract> {
     const contract = await this.getActiveOrThrow(userId)
@@ -146,25 +150,27 @@ export class EmployeeContractsService {
 
     const wasSigned = contract.status === 'SIGNED'
 
-    const [updated] = await this.db.db
-      .update(employeeContracts)
-      .set({
-        status: 'DRAFT',
-        signedContractId: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(employeeContracts.id, contract.id))
-      .returning()
+    return this.db.db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(employeeContracts)
+        .set({
+          status: 'DRAFT',
+          signedContractId: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(employeeContracts.id, contract.id))
+        .returning()
 
-    if (!updated) throw new Error('Failed to revert employee contract')
+      if (!updated) throw new Error('Failed to revert employee contract')
 
-    if (wasSigned) {
-      // Force re-acceptance of ToS — onboarding status will return
-      // requiresTos=true AND requiresContract=true.
-      await this.db.db.delete(tosAcceptances).where(eq(tosAcceptances.userId, userId))
-    }
+      if (wasSigned) {
+        // Force re-acceptance of ToS — onboarding status will return
+        // requiresTos=true AND requiresContract=true.
+        await tx.delete(tosAcceptances).where(eq(tosAcceptances.userId, userId))
+      }
 
-    return updated
+      return updated
+    })
   }
 
   /**
