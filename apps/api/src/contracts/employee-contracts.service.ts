@@ -9,6 +9,7 @@ import type { ContractTargetRole, SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { employeeContracts, tosAcceptances } from '../database/schema'
 import type { EmployeeContract } from '../database/schema'
+import type { DrizzleTx } from '../database/types'
 import { ContractTemplatesService } from './contract-templates.service'
 
 /**
@@ -245,9 +246,13 @@ export class EmployeeContractsService {
    * Return the READY_TO_SIGN contract for a user.
    * Called by SignedContractsService.sign() to get the contract body.
    * 409 CONTRACT_NOT_READY if no READY_TO_SIGN contract exists.
+   *
+   * The optional `tx` parameter allows the caller to run this SELECT inside an
+   * existing Drizzle transaction (same connection as subsequent INSERT/UPDATE).
    */
-  async getReadyForSigning(userId: string): Promise<EmployeeContract> {
-    const contract = await this.db.db.query.employeeContracts.findFirst({
+  async getReadyForSigning(userId: string, tx?: DrizzleTx): Promise<EmployeeContract> {
+    const db = tx ?? this.db.db
+    const contract = await db.query.employeeContracts.findFirst({
       where: (tbl, { eq, and }) => and(eq(tbl.userId, userId), eq(tbl.status, 'READY_TO_SIGN')),
     })
 
@@ -292,11 +297,22 @@ export class EmployeeContractsService {
    * Mark a contract as SIGNED and set the signedContractId.
    * Called by SignedContractsService after successful INSERT into signed_contracts.
    * Only transitions from READY_TO_SIGN → SIGNED.
+   *
+   * The optional `tx` parameter allows the caller to run this UPDATE inside an
+   * existing Drizzle transaction. SignedContractsService.sign() passes its `tx`
+   * so that the INSERT into signed_contracts and this UPDATE share the same
+   * connection — required for the FK constraint on signed_contract_id to resolve
+   * against the uncommitted INSERT within the same transaction.
    */
-  async markSigned(userId: string, signedContractId: string): Promise<EmployeeContract> {
-    const contract = await this.getReadyForSigning(userId)
+  async markSigned(
+    userId: string,
+    signedContractId: string,
+    tx?: DrizzleTx,
+  ): Promise<EmployeeContract> {
+    const db = tx ?? this.db.db
+    const contract = await this.getReadyForSigning(userId, tx)
 
-    const [updated] = await this.db.db
+    const [updated] = await db
       .update(employeeContracts)
       .set({
         status: 'SIGNED',

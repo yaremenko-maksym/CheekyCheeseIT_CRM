@@ -142,9 +142,10 @@ export class SignedContractsService {
       if (!inserted) throw new Error('Failed to insert signed contract')
 
       // A3-1: transition employee_contract READY_TO_SIGN → SIGNED.
-      // This also prevents double-signing — subsequent sign() calls will hit
-      // getReadyForSigning() which throws 409 because status is now SIGNED.
-      await this.employeeContracts.markSigned(userId, inserted.id)
+      // Pass `tx` so the UPDATE shares the same connection as the INSERT above —
+      // required for the FK constraint on signed_contract_id to resolve the
+      // uncommitted signed_contracts row within the same transaction (MED#3).
+      await this.employeeContracts.markSigned(userId, inserted.id, tx)
 
       return inserted
     })
