@@ -284,8 +284,9 @@ export class ContractPdfService {
     }
 
     // ---- Deterministic save -------------------------------------------
-    // A3-1: signedAt is null for unsigned previews — use current date for metadata.
-    this.pdfGen.applyDeterministicMetadata(pdfDoc, params.signedAt ?? new Date())
+    // A3-1: unsigned preview has no signedAt — pin metadata to a fixed epoch so the
+    // preview is byte-deterministic (re-rendering the same draft → same sha256).
+    this.pdfGen.applyDeterministicMetadata(pdfDoc, params.signedAt ?? new Date(0))
     const bytes = await pdfDoc.save({ useObjectStreams: false })
     const buffer = Buffer.from(bytes)
 
