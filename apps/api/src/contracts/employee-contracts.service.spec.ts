@@ -1,0 +1,429 @@
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common'
+import { describe, expect, it, vi } from 'vitest'
+import type { SessionUser } from '@crm/shared'
+import type { EmployeeContract } from '../database/schema'
+import { EmployeeContractsService } from './employee-contracts.service'
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const mockViewer: SessionUser = {
+  id: 'admin-uuid',
+  email: 'admin@test.com',
+  role: 'ADMIN',
+  displayName: 'Admin User',
+  legalFullName: null,
+  avatarUrl: null,
+}
+
+const makeContract = (overrides: Partial<EmployeeContract> = {}): EmployeeContract => ({
+  id: 'contract-uuid',
+  userId: 'user-uuid',
+  sourceTemplateId: 'template-uuid',
+  bodyMarkdown: '# Contract body',
+  status: 'DRAFT',
+  signedContractId: null,
+  createdByUserId: 'admin-uuid',
+  createdAt: new Date('2024-01-01'),
+  updatedAt: new Date('2024-01-01'),
+  ...overrides,
+})
+
+// ─── Mocks ────────────────────────────────────────────────────────────────────
+
+function makeDb(overrides: Record<string, unknown> = {}) {
+  return {
+    db: {
+      query: {
+        users: { findFirst: vi.fn() },
+        employeeContracts: { findFirst: vi.fn() },
+      },
+      insert: vi.fn().mockReturnValue({
+        values: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([makeContract()]),
+        }),
+      }),
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([makeContract()]),
+          }),
+        }),
+      }),
+      delete: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      }),
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue([]),
+          }),
+        }),
+      }),
+      ...overrides,
+    },
+  }
+}
+
+function makeTemplates(template: unknown = null) {
+  return {
+    getCurrentForRole: vi.fn().mockResolvedValue(template),
+  }
+}
+
+function makeService(
+  dbOverrides: Record<string, unknown> = {},
+  template: unknown = { id: 'template-uuid', bodyMarkdown: '# Template' },
+) {
+  const db = makeDb(dbOverrides)
+  const templates = makeTemplates(template)
+  const service = new EmployeeContractsService(
+    db as unknown as Parameters<typeof EmployeeContractsService.prototype.constructor>[0],
+    templates as unknown as Parameters<typeof EmployeeContractsService.prototype.constructor>[1],
+  )
+  return { service, db, templates }
+}
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
+
+describe('EmployeeContractsService', () => {
+  describe('getOrCreateForUser', () => {
+    it('returns existing non-CANCELLED contract', async () => {
+      const existing = makeContract({ status: 'READY_TO_SIGN' })
+      const { service, db } = makeService()
+      db.db.query.users.findFirst.mockResolvedValue({ id: 'user-uuid', role: 'SENIOR' })
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(existing)
+
+      const result = await service.getOrCreateForUser('user-uuid', mockViewer)
+
+      expect(result).toBe(existing)
+      expect(db.db.insert).not.toHaveBeenCalled()
+    })
+
+    it('creates DRAFT contract when no active contract exists', async () => {
+      const { service, db } = makeService()
+      db.db.query.users.findFirst.mockResolvedValue({ id: 'user-uuid', role: 'JUNIOR' })
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(null)
+
+      const created = makeContract()
+      db.db.insert.mockReturnValue({
+        values: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([created]),
+        }),
+      })
+
+      const result = await service.getOrCreateForUser('user-uuid', mockViewer)
+
+      expect(result).toBe(created)
+      expect(db.db.insert).toHaveBeenCalled()
+    })
+
+    it('throws 400 for ADMIN user', async () => {
+      const { service, db } = makeService()
+      db.db.query.users.findFirst.mockResolvedValue({ id: 'admin-uuid', role: 'ADMIN' })
+
+      await expect(service.getOrCreateForUser('admin-uuid', mockViewer)).rejects.toThrow(
+        BadRequestException,
+      )
+    })
+
+    it('throws 404 when user not found', async () => {
+      const { service, db } = makeService()
+      db.db.query.users.findFirst.mockResolvedValue(null)
+
+      await expect(service.getOrCreateForUser('nonexistent', mockViewer)).rejects.toThrow(
+        NotFoundException,
+      )
+    })
+
+    it('throws 404 when no active template for role', async () => {
+      const { service, db } = makeService({}, null)
+      db.db.query.users.findFirst.mockResolvedValue({ id: 'user-uuid', role: 'JUNIOR' })
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(null)
+
+      await expect(service.getOrCreateForUser('user-uuid', mockViewer)).rejects.toThrow(
+        NotFoundException,
+      )
+    })
+  })
+
+  describe('updateBody', () => {
+    it('updates body when contract is DRAFT', async () => {
+      const contract = makeContract({ status: 'DRAFT' })
+      const updated = makeContract({ status: 'DRAFT', bodyMarkdown: '# Updated' })
+
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      db.db.update.mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([updated]),
+          }),
+        }),
+      })
+
+      const result = await service.updateBody('user-uuid', '# Updated', mockViewer)
+
+      expect(result.bodyMarkdown).toBe('# Updated')
+    })
+
+    it('updates body when contract is READY_TO_SIGN', async () => {
+      const contract = makeContract({ status: 'READY_TO_SIGN' })
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+
+      await expect(service.updateBody('user-uuid', '# New', mockViewer)).resolves.toBeDefined()
+    })
+
+    it('throws 409 when contract is SIGNED', async () => {
+      const contract = makeContract({ status: 'SIGNED' })
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+
+      await expect(service.updateBody('user-uuid', '# New', mockViewer)).rejects.toThrow(
+        ConflictException,
+      )
+    })
+
+    it('throws 404 when no active contract', async () => {
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(null)
+
+      await expect(service.updateBody('user-uuid', '# New', mockViewer)).rejects.toThrow(
+        NotFoundException,
+      )
+    })
+  })
+
+  describe('markReady', () => {
+    it('transitions DRAFT → READY_TO_SIGN', async () => {
+      const contract = makeContract({ status: 'DRAFT' })
+      const ready = makeContract({ status: 'READY_TO_SIGN' })
+
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      db.db.update.mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([ready]),
+          }),
+        }),
+      })
+
+      const result = await service.markReady('user-uuid', mockViewer)
+      expect(result.status).toBe('READY_TO_SIGN')
+    })
+
+    it('throws 409 when already READY_TO_SIGN', async () => {
+      const contract = makeContract({ status: 'READY_TO_SIGN' })
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+
+      await expect(service.markReady('user-uuid', mockViewer)).rejects.toThrow(ConflictException)
+    })
+
+    it('throws 409 when SIGNED', async () => {
+      const contract = makeContract({ status: 'SIGNED' })
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+
+      await expect(service.markReady('user-uuid', mockViewer)).rejects.toThrow(ConflictException)
+    })
+  })
+
+  describe('revert', () => {
+    it('reverts READY_TO_SIGN → DRAFT', async () => {
+      const contract = makeContract({ status: 'READY_TO_SIGN' })
+      const reverted = makeContract({ status: 'DRAFT' })
+
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      db.db.update.mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([reverted]),
+          }),
+        }),
+      })
+
+      const result = await service.revert('user-uuid', mockViewer)
+      expect(result.status).toBe('DRAFT')
+      // No ToS deletion for READY_TO_SIGN
+      expect(db.db.delete).not.toHaveBeenCalled()
+    })
+
+    it('reverts SIGNED → DRAFT and deletes tos_acceptances', async () => {
+      const contract = makeContract({ status: 'SIGNED', signedContractId: 'sc-uuid' })
+      const reverted = makeContract({ status: 'DRAFT', signedContractId: null })
+      const deleteWhere = vi.fn().mockResolvedValue(undefined)
+
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      db.db.update.mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([reverted]),
+          }),
+        }),
+      })
+      db.db.delete.mockReturnValue({ where: deleteWhere })
+
+      const result = await service.revert('user-uuid', mockViewer)
+
+      expect(result.status).toBe('DRAFT')
+      expect(db.db.delete).toHaveBeenCalled()
+      expect(deleteWhere).toHaveBeenCalled()
+    })
+
+    it('throws 409 when already DRAFT', async () => {
+      const contract = makeContract({ status: 'DRAFT' })
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+
+      await expect(service.revert('user-uuid', mockViewer)).rejects.toThrow(ConflictException)
+    })
+
+    it('throws 409 when CANCELLED', async () => {
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(null) // CANCELLED → no active contract
+
+      await expect(service.revert('user-uuid', mockViewer)).rejects.toThrow(NotFoundException)
+    })
+  })
+
+  describe('resetToTemplate', () => {
+    it('resets body from active template when DRAFT', async () => {
+      const contract = makeContract({ status: 'DRAFT', bodyMarkdown: '# Old' })
+      const newBody = '# Fresh template'
+      const reset = makeContract({ bodyMarkdown: newBody })
+
+      const { service, db } = makeService({}, { id: 'new-template-uuid', bodyMarkdown: newBody })
+      db.db.query.users.findFirst.mockResolvedValue({ id: 'user-uuid', role: 'JUNIOR' })
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      db.db.update.mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([reset]),
+          }),
+        }),
+      })
+
+      const result = await service.resetToTemplate('user-uuid', mockViewer)
+      expect(result.bodyMarkdown).toBe(newBody)
+    })
+
+    it('throws 409 when not DRAFT', async () => {
+      const contract = makeContract({ status: 'READY_TO_SIGN' })
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+
+      await expect(service.resetToTemplate('user-uuid', mockViewer)).rejects.toThrow(
+        ConflictException,
+      )
+    })
+  })
+
+  describe('cancel', () => {
+    it('sets status to CANCELLED', async () => {
+      const contract = makeContract({ status: 'READY_TO_SIGN' })
+      const cancelled = makeContract({ status: 'CANCELLED' })
+
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      db.db.update.mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([cancelled]),
+          }),
+        }),
+      })
+
+      const result = await service.cancel('user-uuid', mockViewer)
+      expect(result.status).toBe('CANCELLED')
+    })
+
+    it('throws 404 if no active contract', async () => {
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(null)
+
+      await expect(service.cancel('user-uuid', mockViewer)).rejects.toThrow(NotFoundException)
+    })
+  })
+
+  describe('getReadyForSigning', () => {
+    it('returns READY_TO_SIGN contract', async () => {
+      const contract = makeContract({ status: 'READY_TO_SIGN' })
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+
+      const result = await service.getReadyForSigning('user-uuid')
+      expect(result.status).toBe('READY_TO_SIGN')
+    })
+
+    it('throws 409 CONTRACT_NOT_READY when no READY_TO_SIGN contract', async () => {
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(null)
+
+      const error = await service.getReadyForSigning('user-uuid').catch((e) => e)
+      expect(error).toBeInstanceOf(ConflictException)
+      expect((error as ConflictException).message).toBe('CONTRACT_NOT_READY')
+    })
+  })
+
+  describe('hasReadyContract', () => {
+    it('returns true when READY_TO_SIGN row exists', async () => {
+      const { service, db } = makeService()
+      db.db.select.mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue([{ exists: true }]),
+          }),
+        }),
+      })
+
+      const result = await service.hasReadyContract('user-uuid')
+      expect(result).toBe(true)
+    })
+
+    it('returns false when no READY_TO_SIGN row', async () => {
+      const { service, db } = makeService()
+      db.db.select.mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue([]),
+          }),
+        }),
+      })
+
+      const result = await service.hasReadyContract('user-uuid')
+      expect(result).toBe(false)
+    })
+  })
+
+  describe('markSigned', () => {
+    it('transitions READY_TO_SIGN → SIGNED with signedContractId', async () => {
+      const contract = makeContract({ status: 'READY_TO_SIGN' })
+      const signed = makeContract({ status: 'SIGNED', signedContractId: 'sc-uuid' })
+
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      db.db.update.mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([signed]),
+          }),
+        }),
+      })
+
+      const result = await service.markSigned('user-uuid', 'sc-uuid')
+      expect(result.status).toBe('SIGNED')
+      expect(result.signedContractId).toBe('sc-uuid')
+    })
+
+    it('throws 409 CONTRACT_NOT_READY if no READY_TO_SIGN contract', async () => {
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(null)
+
+      await expect(service.markSigned('user-uuid', 'sc-uuid')).rejects.toThrow(ConflictException)
+    })
+  })
+})
