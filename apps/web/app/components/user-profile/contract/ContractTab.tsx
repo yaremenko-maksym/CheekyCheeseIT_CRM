@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AlertCircle, ExternalLink, FileText, Info } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
 import { Badge } from '@/components/ui/badge'
@@ -49,11 +49,13 @@ const FROZEN_BANNERS: Partial<Record<EmployeeContractStatus, string>> = {
 export interface ContractTabProps {
   userId: string
   targetRole: string
+  /** Called whenever the editor dirty state changes — used by parent for tab-change guard. */
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export function ContractTab({ userId, targetRole }: ContractTabProps) {
+export function ContractTab({ userId, targetRole, onDirtyChange }: ContractTabProps) {
   const { data: contract, isLoading, error } = useEmployeeContract(userId)
 
   // Local editor state — tracks unsaved body changes.
@@ -77,6 +79,11 @@ export function ContractTab({ userId, targetRole }: ContractTabProps) {
     markReadyMutation.isPending ||
     revertMutation.isPending ||
     resetMutation.isPending
+
+  // Notify parent when dirty state changes (tab-change guard in UserProfileShell).
+  useEffect(() => {
+    onDirtyChange?.(isDirty)
+  }, [isDirty, onDirtyChange])
 
   // ── Loading ────────────────────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { UsersRound } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
@@ -44,6 +44,26 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
   const query = mode === 'self' ? meQuery : userQuery
   const { data, isLoading } = query
   const [avatarOpen, setAvatarOpen] = useState(false)
+  // Dirty guard: ContractTab registers its isDirty state here via onDirtyChange.
+  // When the user tries to switch tabs away from contract with unsaved changes,
+  // we show a native confirm dialog before proceeding.
+  const contractDirtyRef = useRef(false)
+  const handleContractDirtyChange = useCallback((dirty: boolean) => {
+    contractDirtyRef.current = dirty
+  }, [])
+  const handleTabChange = useCallback(
+    (nextTab: string) => {
+      if (
+        tab === 'contract' &&
+        contractDirtyRef.current &&
+        !window.confirm('Есть несохранённые изменения контракта. Покинуть вкладку?')
+      ) {
+        return
+      }
+      onTabChange(nextTab)
+    },
+    [tab, onTabChange],
+  )
   // Drop role - phase 1 (AC7): track teamless SENIOR state. Banner is
   // shown only on the self-profile of a teamless SENIOR.
   const { isTeamless: isTeamlessSenior } = useActiveTeam()
@@ -139,7 +159,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
             <AnimatedTabs
               tabs={permissions.tabs.map((t) => ({ value: t, label: tabLabel(t) }))}
               value={activeTab}
-              onChange={onTabChange}
+              onChange={handleTabChange}
             />
           </div>
 
@@ -176,7 +196,11 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
               <AuditLogTab userId={user.id} />
             )}
             {activeTab === 'contract' && permissions.tabs.includes('contract') && (
-              <ContractTab userId={user.id} targetRole={user.role} />
+              <ContractTab
+                userId={user.id}
+                targetRole={user.role}
+                onDirtyChange={handleContractDirtyChange}
+              />
             )}
           </div>
         </div>
