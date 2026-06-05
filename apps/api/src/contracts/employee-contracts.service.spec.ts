@@ -357,6 +357,44 @@ describe('EmployeeContractsService', () => {
     })
   })
 
+  describe('resetToTemplate — edge cases (GAP 5)', () => {
+    it('throws 404 when no active template exists for the role', async () => {
+      // makeService with null template = no active template
+      const { service, db } = makeService({}, null)
+      db.db.query.users.findFirst.mockResolvedValue({ id: 'user-uuid', role: 'SENIOR' })
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(makeContract({ status: 'DRAFT' }))
+
+      const err = await service.resetToTemplate('user-uuid', mockViewer).catch((e) => e)
+
+      expect(err).toBeInstanceOf(NotFoundException)
+      expect((err as NotFoundException).message).toContain('No active contract template for role')
+    })
+  })
+
+  describe('getOrCreateForUser — CANCELLED row edge case (GAP 5)', () => {
+    it('creates new DRAFT when existing row is CANCELLED (partial-unique allows it)', async () => {
+      // The query uses ne(status, 'CANCELLED') so a CANCELLED row is invisible to findFirst.
+      // Simulating: findFirst returns null (CANCELLED row filtered out) → creates new DRAFT.
+      const { service, db } = makeService()
+      db.db.query.users.findFirst.mockResolvedValue({ id: 'user-uuid', role: 'JUNIOR' })
+      // findFirst returns null → behaves as if no active contract (CANCELLED is skipped by query)
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(null)
+
+      const newDraft = makeContract({ status: 'DRAFT' })
+      db.db.insert.mockReturnValue({
+        values: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([newDraft]),
+        }),
+      })
+
+      const result = await service.getOrCreateForUser('user-uuid', mockViewer)
+
+      // A new DRAFT must be created — not the CANCELLED row
+      expect(result.status).toBe('DRAFT')
+      expect(db.db.insert).toHaveBeenCalled()
+    })
+  })
+
   describe('resetToTemplate', () => {
     it('resets body from active template when DRAFT', async () => {
       const contract = makeContract({ status: 'DRAFT', bodyMarkdown: '# Old' })

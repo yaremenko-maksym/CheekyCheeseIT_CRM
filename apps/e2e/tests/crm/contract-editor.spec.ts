@@ -373,6 +373,42 @@ test.describe('A3-2: Contract editor tab', () => {
     })
   })
 
+  test('GAP3: dirty-guard dialog appears on tab switch with unsaved changes', async ({ page }) => {
+    await setupAdminViewingSenior(page, DRAFT_CONTRACT)
+    await page.goto(`/crm/profile/${TARGET_ID}?tab=contract`)
+
+    await expect(page.getByTestId('contract-tab')).toBeVisible()
+
+    // Make the editor dirty by typing in it
+    const editorArea = page.locator('.cm-content').first()
+    await editorArea.click()
+    await page.keyboard.press('End')
+    await page.keyboard.type(' unsaved')
+
+    // Confirm editor is dirty
+    await expect(page.getByTestId('contract-save-btn')).toBeEnabled()
+
+    // Click a different tab (e.g. Overview) — dirty guard should intercept
+    await page.getByRole('button', { name: 'Обзор' }).click()
+
+    // Dirty guard dialog should appear
+    await expect(page.getByTestId('contract-dirty-guard-dialog')).toBeVisible()
+
+    // "Остаться" cancels — remains on contract tab
+    await page.getByRole('button', { name: 'Остаться' }).click()
+    await expect(page.getByTestId('contract-dirty-guard-dialog')).not.toBeVisible()
+    await expect(page.getByTestId('contract-tab')).toBeVisible()
+
+    // Try switching again — this time confirm "Покинуть"
+    await page.getByRole('button', { name: 'Обзор' }).click()
+    await expect(page.getByTestId('contract-dirty-guard-dialog')).toBeVisible()
+    await page.getByTestId('contract-dirty-guard-confirm').click()
+
+    // Dialog closes and we are no longer on the contract tab
+    await expect(page.getByTestId('contract-dirty-guard-dialog')).not.toBeVisible()
+    await expect(page.getByTestId('contract-tab')).not.toBeVisible()
+  })
+
   test('AC6: PDF preview refresh button disabled while editor is dirty', async ({ page }) => {
     await setupAdminViewingSenior(page, DRAFT_CONTRACT)
     await page.goto(`/crm/profile/${TARGET_ID}?tab=contract`)
