@@ -146,13 +146,11 @@ function Fixture({ onFetchPdf }: { onFetchPdf: (id: string) => Promise<string | 
 // ---------------------------------------------------------------------------
 
 describe('Audit accordion — ContractCard (AC1, AC2, AC4)', () => {
-  let revokeObjectURLSpy: ReturnType<typeof vi.spyOn>
-  let createObjectURLSpy: ReturnType<typeof vi.spyOn>
-
   beforeEach(() => {
-    // Spy on URL methods without replacing the URL constructor
-    revokeObjectURLSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-    createObjectURLSpy = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:mock-url')
+    // Spy on URL methods without replacing the URL constructor.
+    // happy-dom uses URL as a constructor internally — stubGlobal breaks it.
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:mock-url')
   })
 
   afterEach(() => {
@@ -237,7 +235,7 @@ describe('Audit accordion — ContractCard (AC1, AC2, AC4)', () => {
 
     await user.click(screen.getByTestId('audit-contract-expand'))
 
-    expect(revokeObjectURLSpy).toHaveBeenCalledWith('blob:mock-url')
+    expect(vi.mocked(URL.revokeObjectURL)).toHaveBeenCalledWith('blob:mock-url')
     expect(screen.queryByTestId('audit-contract-pdf-panel')).not.toBeInTheDocument()
   })
 
@@ -268,11 +266,5 @@ describe('Audit accordion — ContractCard (AC1, AC2, AC4)', () => {
     expect(btn.tagName).toBe('BUTTON')
     btn.focus()
     expect(document.activeElement).toBe(btn)
-  })
-
-  // Verify that createObjectURLSpy was set up (used in expand tests above)
-  it('URL spies are properly initialised', () => {
-    expect(createObjectURLSpy).toBeDefined()
-    expect(revokeObjectURLSpy).toBeDefined()
   })
 })
