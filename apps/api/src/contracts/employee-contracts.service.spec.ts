@@ -166,22 +166,24 @@ describe('EmployeeContractsService', () => {
       expect(result.bodyMarkdown).toBe('# Updated')
     })
 
-    it('updates body when contract is READY_TO_SIGN', async () => {
+    it('throws 409 CONTRACT_NOT_EDITABLE when contract is READY_TO_SIGN (MED#2)', async () => {
       const contract = makeContract({ status: 'READY_TO_SIGN' })
       const { service, db } = makeService()
       db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
 
-      await expect(service.updateBody('user-uuid', '# New', mockViewer)).resolves.toBeDefined()
+      const err = await service.updateBody('user-uuid', '# New', mockViewer).catch((e) => e)
+      expect(err).toBeInstanceOf(ConflictException)
+      expect((err as ConflictException).message).toBe('CONTRACT_NOT_EDITABLE')
     })
 
-    it('throws 409 when contract is SIGNED', async () => {
+    it('throws 409 CONTRACT_NOT_EDITABLE when contract is SIGNED (MED#2)', async () => {
       const contract = makeContract({ status: 'SIGNED' })
       const { service, db } = makeService()
       db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
 
-      await expect(service.updateBody('user-uuid', '# New', mockViewer)).rejects.toThrow(
-        ConflictException,
-      )
+      const err = await service.updateBody('user-uuid', '# New', mockViewer).catch((e) => e)
+      expect(err).toBeInstanceOf(ConflictException)
+      expect((err as ConflictException).message).toBe('CONTRACT_NOT_EDITABLE')
     })
 
     it('throws 404 when no active contract', async () => {

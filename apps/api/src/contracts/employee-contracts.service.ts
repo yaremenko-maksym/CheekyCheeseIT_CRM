@@ -83,14 +83,15 @@ export class EmployeeContractsService {
 
   /**
    * Update the body markdown of the contract.
-   * Only allowed when status is DRAFT or READY_TO_SIGN.
-   * 409 if status is SIGNED or CANCELLED.
+   * Only allowed when status is DRAFT (MED#2 — editing READY_TO_SIGN requires
+   * an explicit revert → DRAFT first; this makes the freeze a real server-side invariant).
+   * 409 CONTRACT_NOT_EDITABLE if status is READY_TO_SIGN, SIGNED or CANCELLED.
    */
   async updateBody(userId: string, body: string, _viewer: SessionUser): Promise<EmployeeContract> {
     const contract = await this.getActiveOrThrow(userId)
 
-    if (contract.status === 'SIGNED' || contract.status === 'CANCELLED') {
-      throw new ConflictException(`Cannot update body: contract is ${contract.status}`)
+    if (contract.status !== 'DRAFT') {
+      throw new ConflictException('CONTRACT_NOT_EDITABLE')
     }
 
     const [updated] = await this.db.db

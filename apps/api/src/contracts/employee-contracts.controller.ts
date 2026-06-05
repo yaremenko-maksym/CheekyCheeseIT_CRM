@@ -58,7 +58,8 @@ export class EmployeeContractsController {
 
   /**
    * PATCH /api/users/:id/contract
-   * Update the body markdown. Only allowed in DRAFT or READY_TO_SIGN.
+   * Update the body markdown. Only allowed in DRAFT (MED#2).
+   * To edit in READY_TO_SIGN: first POST /revert, then PATCH.
    */
   @Patch(':id/contract')
   async update(
