@@ -329,6 +329,50 @@ test.describe('A3-2: Contract editor tab', () => {
     })
   })
 
+  test('AC5: Revert from SIGNED shows destructive confirm dialog', async ({ page }) => {
+    const SIGNED_CONTRACT = {
+      ...DRAFT_CONTRACT,
+      status: 'SIGNED',
+      updatedAt: '2026-06-03T00:00:00.000Z',
+    }
+
+    await setupAdminViewingSenior(page, SIGNED_CONTRACT)
+    await page.goto(`/crm/profile/${TARGET_ID}?tab=contract`)
+
+    await expect(page.getByTestId('contract-tab')).toBeVisible()
+    await expect(page.getByTestId('contract-status-badge')).toHaveText('Подписан')
+
+    // Revert button is visible in SIGNED
+    await expect(page.getByTestId('contract-revert-btn')).toBeVisible()
+    await page.getByTestId('contract-revert-btn').click()
+
+    // Destructive confirm dialog appears
+    await expect(page.getByTestId('contract-revert-confirm-dialog')).toBeVisible()
+    // Destructive text mentions signature reset
+    await expect(
+      page.getByText('Вернуть подписанный контракт в черновик?'),
+    ).toBeVisible()
+
+    // After confirm: mock refetch returns DRAFT contract
+    await page.route(new RegExp(`${API}/users/([^/?]+)/contract$`), async (r) => {
+      if (r.request().method() === 'GET') {
+        await r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(DRAFT_CONTRACT),
+        })
+      } else {
+        await r.fallback()
+      }
+    })
+
+    await page.getByTestId('contract-revert-confirm-ok').click()
+
+    await expect(page.getByTestId('contract-status-badge')).toHaveText('Черновик', {
+      timeout: 5000,
+    })
+  })
+
   test('AC6: PDF preview refresh button disabled while editor is dirty', async ({ page }) => {
     await setupAdminViewingSenior(page, DRAFT_CONTRACT)
     await page.goto(`/crm/profile/${TARGET_ID}?tab=contract`)

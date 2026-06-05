@@ -62,12 +62,12 @@ Mockup (DRAFT state):
 Contract statuses (from A3-1, `@crm/shared` employee-contracts schema):
 `DRAFT | READY_TO_SIGN | SIGNED | CANCELLED`.
 
-| Status            | Editor                                                                        | Visible actions                                                                             | Notes                                                                                          |
-| ----------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| **DRAFT**         | editable                                                                      | `Сохранить` (PATCH) · `Отметить готовым` (POST /ready) · `Сбросить к шаблону` (POST /reset) | Reset re-derives body from the current active template for the user's role.                    |
-| **READY_TO_SIGN** | **read-only** + banner «Готов к подписи. Чтобы править — верните в черновик.» | `Вернуть в черновик` (POST /revert)                                                         | Freeze is enforced **both** in UI and backend (MED#2).                                         |
-| **SIGNED**        | read-only                                                                     | `Вернуть в черновик` (POST /revert) — **destructive**                                       | Confirm dialog: «Сбросит подписанный контракт и онбординг участника (удалит ToS). Продолжить?» |
-| **CANCELLED**     | n/a                                                                           | (lazy-create makes a fresh DRAFT)                                                           | A cancelled row is superseded; GET lazy-creates a new active DRAFT.                            |
+| Status            | Editor                                                                        | Visible actions                                                                             | Notes                                                                                                                                                                                |
+| ----------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **DRAFT**         | editable                                                                      | `Сохранить` (PATCH) · `Отметить готовым` (POST /ready) · `Сбросить к шаблону` (POST /reset) | Reset re-derives body from the current active template for the user's role.                                                                                                          |
+| **READY_TO_SIGN** | **read-only** + banner «Готов к подписи. Чтобы править — верните в черновик.» | `Вернуть в черновик` (POST /revert)                                                         | Confirm dialog (мягкое предупреждение): «Участник не сможет подписать, пока вы снова не отметите контракт готовым к подписанию.» Freeze enforced **both** in UI and backend (MED#2). |
+| **SIGNED**        | read-only                                                                     | `Вернуть в черновик` (POST /revert) — **destructive**                                       | Confirm dialog (destructive): «Это сбросит подпись и онбординг участника (удалит ToS). Действие необратимо.»                                                                         |
+| **CANCELLED**     | n/a                                                                           | (lazy-create makes a fresh DRAFT)                                                           | A cancelled row is superseded; GET lazy-creates a new active DRAFT.                                                                                                                  |
 
 PDF preview is available in every state (renders signed PDF for SIGNED, unsigned preview otherwise).
 
@@ -75,14 +75,14 @@ PDF preview is available in every state (renders signed PDF for SIGNED, unsigned
 
 TanStack Query against the A3-1 endpoints (all ADMIN-only, prefix `api/users`):
 
-| Action            | Call                                                                                | On success                                         |
-| ----------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------- |
-| Open tab          | `GET /api/users/:id/contract` (lazy-creates DRAFT)                                  | load `bodyMarkdown` into editor; set status        |
-| Save              | `PATCH /api/users/:id/contract` `{ bodyMarkdown }` (`updateEmployeeContractSchema`) | invalidate contract query; clear dirty flag        |
-| Mark ready        | `POST /api/users/:id/contract/ready`                                                | status → READY_TO_SIGN; editor locks               |
-| Revert            | `POST /api/users/:id/contract/revert`                                               | status → DRAFT; editor unlocks (confirm if SIGNED) |
-| Reset to template | `POST /api/users/:id/contract/reset` (DRAFT only)                                   | reload body (confirm before overwrite)             |
-| Refresh preview   | `GET /api/users/:id/contract/pdf` (blob)                                            | render in PDF viewer                               |
+| Action            | Call                                                                                | On success                                                                                                  |
+| ----------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Open tab          | `GET /api/users/:id/contract` (lazy-creates DRAFT)                                  | load `bodyMarkdown` into editor; set status                                                                 |
+| Save              | `PATCH /api/users/:id/contract` `{ bodyMarkdown }` (`updateEmployeeContractSchema`) | invalidate contract query; clear dirty flag                                                                 |
+| Mark ready        | `POST /api/users/:id/contract/ready`                                                | status → READY_TO_SIGN; editor locks                                                                        |
+| Revert            | `POST /api/users/:id/contract/revert`                                               | status → DRAFT; editor unlocks (confirm if SIGNED)                                                          |
+| Reset to template | `POST /api/users/:id/contract/reset` (DRAFT only)                                   | reload body — confirm dialog before overwrite: «Текущие изменения тела будут заменены актуальным шаблоном.» |
+| Refresh preview   | `GET /api/users/:id/contract/pdf` (blob)                                            | render in PDF viewer                                                                                        |
 
 **Preview reflects the saved contract**, not the editor buffer (the PDF endpoint renders
 `employee_contract.bodyMarkdown`). Therefore **«Обновить превью» is enabled only when there are

@@ -35,18 +35,25 @@ export function ContractActionBar({
 }: ContractActionBarProps) {
   const actions = contractActionState(status)
   const [revertConfirmOpen, setRevertConfirmOpen] = useState(false)
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
 
+  // Always show confirm dialog before any revert (both READY_TO_SIGN and SIGNED)
   const handleRevertClick = () => {
-    if (actions.revertDestructive) {
-      setRevertConfirmOpen(true)
-    } else {
-      onRevert()
-    }
+    setRevertConfirmOpen(true)
   }
 
   const handleRevertConfirm = () => {
     setRevertConfirmOpen(false)
     onRevert()
+  }
+
+  const handleResetClick = () => {
+    setResetConfirmOpen(true)
+  }
+
+  const handleResetConfirm = () => {
+    setResetConfirmOpen(false)
+    onReset()
   }
 
   return (
@@ -81,7 +88,12 @@ export function ContractActionBar({
         )}
 
         {actions.showReset && (
-          <Button data-testid="contract-reset-btn" size="sm" variant="ghost" onClick={onReset}>
+          <Button
+            data-testid="contract-reset-btn"
+            size="sm"
+            variant="ghost"
+            onClick={handleResetClick}
+          >
             <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
             Сбросить к шаблону
           </Button>
@@ -100,14 +112,19 @@ export function ContractActionBar({
         )}
       </div>
 
-      {/* Confirm dialog for SIGNED revert — destructive action */}
+      {/* Confirm dialog for revert — text depends on destructiveness (SIGNED vs READY_TO_SIGN) */}
       <AlertDialog open={revertConfirmOpen} onOpenChange={setRevertConfirmOpen}>
         <AlertDialogContent data-testid="contract-revert-confirm-dialog">
           <AlertDialogHeader>
-            <AlertDialogTitle>Вернуть контракт в черновик?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {actions.revertDestructive
+                ? 'Вернуть подписанный контракт в черновик?'
+                : 'Вернуть контракт в черновик?'}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Сбросит подписанный контракт и онбординг участника (удалит ToS). Участнику потребуется
-              заново пройти онбординг. Продолжить?
+              {actions.revertDestructive
+                ? 'Это сбросит подпись и онбординг участника (удалит ToS). Действие необратимо.'
+                : 'Участник не сможет подписать, пока вы снова не отметите контракт готовым к подписанию.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -115,9 +132,31 @@ export function ContractActionBar({
             <AlertDialogAction
               data-testid="contract-revert-confirm-ok"
               onClick={handleRevertConfirm}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className={
+                actions.revertDestructive
+                  ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                  : undefined
+              }
             >
               Вернуть в черновик
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirm dialog for reset to template */}
+      <AlertDialog open={resetConfirmOpen} onOpenChange={setResetConfirmOpen}>
+        <AlertDialogContent data-testid="contract-reset-confirm-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Сбросить контракт к шаблону?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Текущие изменения тела будут заменены актуальным шаблоном.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction data-testid="contract-reset-confirm-ok" onClick={handleResetConfirm}>
+              Сбросить
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
