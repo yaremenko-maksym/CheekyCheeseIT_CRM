@@ -12,7 +12,6 @@ const searchSchema = z.object({
       'interviews',
       'requisites',
       'documents',
-      'audit',
       'contract',
     ])
     .default('overview'),
