@@ -70,6 +70,23 @@ export function renderContractTemplate(
     ? (METHOD_LABELS[user.paymentMethod] ?? user.paymentMethod)
     : 'не указано'
 
+  /**
+   * Smart composite requisites: select the relevant value based on paymentMethod
+   * so templates using {{requisites}} never produce "не указаноне указано".
+   *
+   *   USDT_ERC20  → wallet address (or 'не указано' if blank)
+   *   BANK_UAH_FOP → ФОП fields joined (or 'не указано' if all blank)
+   *   null/other  → 'не указано' (single occurrence)
+   */
+  let requisites: string
+  if (user.paymentMethod === 'USDT_ERC20') {
+    requisites = walletUsdt
+  } else if (user.paymentMethod === 'BANK_UAH_FOP') {
+    requisites = bankUahFop
+  } else {
+    requisites = 'не указано'
+  }
+
   const variables: Record<InterpolatableVariableKey, string> = {
     // Fallback chain: legal ФИО → platform displayName → 'не указано' (AC1).
     // legalFullName is set by ADMIN (Cyrillic ФИО for the contract).
@@ -83,6 +100,7 @@ export function renderContractTemplate(
     walletUsdt,
     bankUahFop,
     preferredMethod,
+    requisites,
   }
 
   // SECURITY: single-pass substitution via one regex so user-controlled values

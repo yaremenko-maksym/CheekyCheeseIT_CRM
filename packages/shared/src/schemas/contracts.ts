@@ -126,6 +126,13 @@ export const CONTRACT_VARIABLE_DESCRIPTIONS = {
   walletUsdt: 'USDT ERC-20 кошелёк (если указан)',
   bankUahFop: 'Банковские реквизиты UAH (ФОП)',
   preferredMethod: 'Предпочтительный метод оплаты (crypto / fop)',
+  /**
+   * Smart composite: shows the relevant payment requisites based on paymentMethod.
+   * USDT_ERC20 → wallet address; BANK_UAH_FOP → ФОП fields; empty → 'не указано' (once).
+   * Replaces the `{{walletUsdt}}{{bankUahFop}}` pair that produced "не указаноне указано"
+   * when both fields were empty.
+   */
+  requisites: 'Реквизиты оплаты (определяются по методу оплаты автоматически)',
   contractNumber: 'Номер контракта (генерируется автоматически, CHK-N-YYYY)',
 } as const
 

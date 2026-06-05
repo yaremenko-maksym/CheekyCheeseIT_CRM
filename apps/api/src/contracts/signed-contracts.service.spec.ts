@@ -83,7 +83,8 @@ function makeTemplate(overrides: Record<string, unknown> = {}) {
       'Компания: {{companyName}}\n' +
       'USDT: {{walletUsdt}}\n' +
       'ФОП: {{bankUahFop}}\n' +
-      'Метод: {{preferredMethod}}\n',
+      'Метод: {{preferredMethod}}\n' +
+      'Реквізити: {{requisites}}\n',
     isActive: true,
     createdByUserId: 'admin-1',
     createdAt: new Date('2026-01-01T00:00:00Z'),
@@ -125,7 +126,8 @@ function makeEmployeeContract(overrides: Record<string, unknown> = {}) {
       'Компания: {{companyName}}\n' +
       'USDT: {{walletUsdt}}\n' +
       'ФОП: {{bankUahFop}}\n' +
-      'Метод: {{preferredMethod}}\n',
+      'Метод: {{preferredMethod}}\n' +
+      'Реквізити: {{requisites}}\n',
     status: 'READY_TO_SIGN' as const,
     signedContractId: null,
     createdByUserId: 'admin-1',
@@ -263,6 +265,67 @@ describe('SignedContractsService', () => {
       expect(result.body).toContain('USDT: не указано')
       expect(result.body).toContain('ФОП: не указано')
       expect(result.body).toContain('Метод: не указано')
+    })
+
+    it('requisites: no "не указаноне указано" duplication when both wallet and bank are empty', () => {
+      // Regression: templates using {{requisites}} must produce a single
+      // "не указано" when both walletUsdtErc20 and all bankUah* fields are null.
+      const tmplWithRequisites = makeTemplate({
+        bodyMarkdown: '- Реквізити: {{requisites}}\n- Метод: {{preferredMethod}}\n',
+      })
+      const user = makeUser({
+        walletUsdtErc20: null,
+        bankUahRecipient: null,
+        bankUahIban: null,
+        bankUahRnokpp: null,
+        bankUahBankName: null,
+        paymentMethod: null,
+      })
+      const result = SignedContractsService.interpolateVariables(
+        tmplWithRequisites.bodyMarkdown,
+        user as never,
+        new Date(),
+      )
+      // Must contain exactly one "не указано", not "не указаноне указано"
+      expect(result.body).toContain('- Реквізити: не указано')
+      expect(result.body).not.toContain('не указаноне указано')
+      expect(result.variables['requisites']).toBe('не указано')
+    })
+
+    it('requisites: shows wallet address for USDT_ERC20 method', () => {
+      const tmpl = makeTemplate({ bodyMarkdown: 'Реквізити: {{requisites}}' })
+      const user = makeUser({
+        walletUsdtErc20: '0xABC123',
+        paymentMethod: 'USDT_ERC20',
+      })
+      const result = SignedContractsService.interpolateVariables(
+        tmpl.bodyMarkdown,
+        user as never,
+        new Date(),
+      )
+      expect(result.body).toBe('Реквізити: 0xABC123')
+      expect(result.variables['requisites']).toBe('0xABC123')
+    })
+
+    it('requisites: shows ФОП fields for BANK_UAH_FOP method', () => {
+      const tmpl = makeTemplate({ bodyMarkdown: 'Реквізити: {{requisites}}' })
+      const user = makeUser({
+        walletUsdtErc20: null,
+        bankUahRecipient: 'Ivan Test',
+        bankUahIban: 'UA111',
+        bankUahRnokpp: null,
+        bankUahBankName: 'PrivatBank',
+        paymentMethod: 'BANK_UAH_FOP',
+      })
+      const result = SignedContractsService.interpolateVariables(
+        tmpl.bodyMarkdown,
+        user as never,
+        new Date(),
+      )
+      expect(result.body).toContain('Ivan Test')
+      expect(result.body).toContain('UA111')
+      expect(result.body).toContain('PrivatBank')
+      expect(result.variables['requisites']).toContain('Ivan Test')
     })
 
     it('builds ФОП string from all 4 bank fields when present', () => {
