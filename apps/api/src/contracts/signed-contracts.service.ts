@@ -12,7 +12,7 @@ import { signedContracts, type User } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import type { GenerateContractPdfParams } from './contract-pdf.service'
 import { renderContractTemplate, type ContractRenderUserContext } from './contract-rendering'
-import type { EmployeeContractsService } from './employee-contracts.service'
+import { EmployeeContractsService } from './employee-contracts.service'
 
 /**
  * A3-1 — sign mechanism + immutable audit trail.
