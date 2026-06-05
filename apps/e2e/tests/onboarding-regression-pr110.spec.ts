@@ -93,6 +93,8 @@ const SIGNED_CONTRACT = {
 const STATUS_UNBOARDED = {
   requiresContract: true,
   requiresTos: true,
+  // A3-4: contractReady=true means READY_TO_SIGN → shows SignContractStep
+  contractReady: true,
   contractTemplate: CONTRACT_TEMPLATE,
   tosVersion: TOS_VERSION,
   tosUpdateAvailable: false,
@@ -165,6 +167,27 @@ async function mockContractTemplate(page: Page, templateOverride?: object): Prom
   )
 }
 
+/** A3-4: Mock GET /onboarding/contract/pdf — personal contract PDF blob. */
+async function mockContractPdf(
+  page: Page,
+  opts: { succeed: boolean } = { succeed: true },
+): Promise<{ callCount: () => number }> {
+  let calls = 0
+  await page.route(`${API}/onboarding/contract/pdf`, (r) => {
+    calls++
+    if (!opts.succeed) {
+      return r.fulfill({ status: 500, body: 'Internal Server Error' })
+    }
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/pdf',
+      body: Buffer.from('%PDF-1.4 mock'),
+    })
+  })
+  return { callCount: () => calls }
+}
+
+/** Legacy — kept for tests that don't navigate into sign form (harmless no-op there). */
 async function mockPreviewRenderedEndpoint(
   page: Page,
   opts: { succeed: boolean },
@@ -235,11 +258,12 @@ async function mockTosEndpoints(
 /**
  * Full onboarding mock suite: dynamic status + all wizard endpoints.
  * Mirrors the pattern from onboarding-flow.spec.ts mockOnboardingApi.
+ * A3-4: removed preview-rendered mock, added /onboarding/contract/pdf mock.
  */
 async function mockFullOnboardingApi(
   page: Page,
   opts: { role: string; userId: string },
-): Promise<{ previewCallCount: () => number }> {
+): Promise<void> {
   let signDone = false
   let tosAcceptDone = false
 
@@ -265,7 +289,14 @@ async function mockFullOnboardingApi(
     }),
   )
 
-  const { callCount: previewCallCount } = await mockPreviewRenderedEndpoint(page, { succeed: true })
+  // A3-4: PDF endpoint for personal contract (replaces old preview-rendered)
+  await page.route(`${API}/onboarding/contract/pdf`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/pdf',
+      body: Buffer.from('%PDF-1.4 mock'),
+    }),
+  )
 
   await page.route(`${API}/contracts/sign`, (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
@@ -297,8 +328,6 @@ async function mockFullOnboardingApi(
       }),
     })
   })
-
-  return { previewCallCount }
 }
 
 // ---------------------------------------------------------------------------
@@ -345,7 +374,7 @@ test.describe('Regression #1 — onboarding/status 200 (admin UUID fix)', () => 
 
     await mockUnboardedStatus(page)
     await mockContractTemplate(page)
-    await mockPreviewRenderedEndpoint(page, { succeed: true })
+    await mockContractPdf(page)
     await mockSignContract(page)
     await mockTosEndpoints(page)
 
@@ -370,7 +399,7 @@ test.describe('Regression #1 — onboarding/status 200 (admin UUID fix)', () => 
 
     await mockUnboardedStatus(page)
     await mockContractTemplate(page)
-    await mockPreviewRenderedEndpoint(page, { succeed: true })
+    await mockContractPdf(page)
     await mockSignContract(page)
     await mockTosEndpoints(page)
 
@@ -402,71 +431,59 @@ test.describe('Regression #1 — onboarding/status 200 (admin UUID fix)', () => 
 })
 
 // ===========================================================================
-// REGRESSION #2 — preview substitution (Bug #2 MED)
+// REGRESSION #2 — A3-4: personal contract PDF preview (replaces old
+// preview-rendered markdown approach from PR #110).
 //
-// Strategy: verify that the preview-rendered endpoint is CALLED by the UI
-// (network assertion) and that the wizard form renders without crashing.
-// DOM text assertions for substituted content are not used here because the
-// dev server may run MAIN branch code which never calls preview-rendered —
-// in that case the article shows raw template text, which is expected MAIN
-// behavior and not a test failure.
+// Strategy: verify that GET /onboarding/contract/pdf is called by the UI
+// and that the wizard form renders without crashing.
 // ===========================================================================
 
-test.describe('Regression #2 — contract preview substitution endpoint wired up', () => {
-  test('SignContractStep вызывает preview-rendered endpoint после загрузки template', async ({
+test.describe('Regression #2 — A3-4 personal contract PDF wired up', () => {
+  test('SignContractStep вызывает /onboarding/contract/pdf после загрузки', async ({
     asSeniorPage: page,
   }) => {
     await mockUnboardedStatus(page)
     await mockContractTemplate(page)
-    const { callCount } = await mockPreviewRenderedEndpoint(page, { succeed: true })
+    const { callCount } = await mockContractPdf(page)
     await mockSignContract(page)
     await mockTosEndpoints(page)
 
     await page.goto('/crm/onboarding')
     await expect(page.getByTestId('sign-contract-form')).toBeVisible({ timeout: 8000 })
 
-    // sign-contract-form виден — wizard не сломался независимо от branch
+    // sign-contract-form visible — wizard not crashed
     await expect(page.getByTestId('sign-button')).toBeVisible()
 
-    // На PR #110: preview-rendered должен быть вызван хотя бы 1 раз.
-    // На MAIN: endpoint не вызывается (feature не реализована) — callCount = 0.
-    // Тест не делает assertion на callCount чтобы быть стабильным на обоих branches.
-    // Регрессионная защита: если callCount > 0 — substitution пытается работать,
-    // если = 0 — endpoint не вызван (MAIN behavior). Тест проходит в обоих случаях
-    // но создаёт покрытие для дальнейшего CI на PR branch.
-    expect(typeof callCount()).toBe('number')
+    // PDF endpoint should have been called once (personal contract fetch)
+    expect(callCount()).toBeGreaterThanOrEqual(1)
   })
 
-  test('preview-rendered mock возвращает substituted markdown (fixture integrity)', async () => {
+  test('RENDERED_PREVIEW fixture integrity (data test)', async () => {
     // Pure data test — проверяет что RENDERED_PREVIEW fixture корректен.
-    // Не требует page navigation.
+    // Retained for historical reference.
     expect(RENDERED_PREVIEW.bodyMarkdown).toContain('Cheeky Cheese IT')
     expect(RENDERED_PREVIEW.bodyMarkdown).toContain('Oleksiy Kovalenko')
     expect(RENDERED_PREVIEW.bodyMarkdown).not.toContain('{{companyName}}')
     expect(RENDERED_PREVIEW.bodyMarkdown).not.toContain('{{employeeName}}')
-    expect(RENDERED_PREVIEW.bodyMarkdown).not.toContain('{{employeeEmail}}')
-    expect(RENDERED_PREVIEW.bodyMarkdown).not.toContain('{{onboardingDate}}')
-    expect(RENDERED_PREVIEW.bodyMarkdown).not.toContain('{{walletUsdt}}')
-    expect(RENDERED_PREVIEW.bodyMarkdown).not.toContain('{{preferredMethod}}')
   })
 
-  test('Graceful fallback: wizard не ломается если preview-rendered endpoint недоступен', async ({
+  test('Graceful fallback: wizard не ломается если PDF endpoint недоступен', async ({
     asSeniorPage: page,
   }) => {
     await mockUnboardedStatus(page)
     await mockContractTemplate(page)
-    // preview-rendered вернёт 500 — ожидаем graceful fallback на raw template
-    await mockPreviewRenderedEndpoint(page, { succeed: false })
+    // PDF endpoint returns 500 — expect pdf-error state to show (graceful fallback)
+    await mockContractPdf(page, { succeed: false })
     await mockSignContract(page)
     await mockTosEndpoints(page)
 
     await page.goto('/crm/onboarding')
     await expect(page.getByTestId('sign-contract-form')).toBeVisible({ timeout: 8000 })
 
-    // Wizard не crashed — form и sign button присутствуют
+    // Wizard not crashed — error state shows (pdf-error testid)
+    await expect(page.getByTestId('pdf-error')).toBeVisible({ timeout: 6000 })
+    // Sign button still present (disabled due to pdfError state)
     await expect(page.getByTestId('sign-button')).toBeVisible()
-    // article с контентом рендерится (raw или rendered — оба OK)
-    await expect(getPreviewArticle(page)).toBeVisible({ timeout: 6000 })
   })
 })
 
@@ -487,7 +504,7 @@ test.describe('Regression #3 — NotificationsBell не делает 403 на /n
 
     await mockUnboardedStatus(page)
     await mockContractTemplate(page)
-    await mockPreviewRenderedEndpoint(page, { succeed: true })
+    await mockContractPdf(page)
     await mockSignContract(page)
     await mockTosEndpoints(page)
 
@@ -511,7 +528,7 @@ test.describe('Regression #3 — NotificationsBell не делает 403 на /n
 
     await mockUnboardedStatus(page)
     await mockContractTemplate(page)
-    await mockPreviewRenderedEndpoint(page, { succeed: true })
+    await mockContractPdf(page)
     await mockSignContract(page)
     await mockTosEndpoints(page)
 
@@ -534,7 +551,7 @@ test.describe('Regression #3 — NotificationsBell не делает 403 на /n
       contractTemplate: { ...CONTRACT_TEMPLATE, targetRole: 'JUNIOR' },
     })
     await mockContractTemplate(page, { ...CONTRACT_TEMPLATE, targetRole: 'JUNIOR' })
-    await mockPreviewRenderedEndpoint(page, { succeed: true })
+    await mockContractPdf(page)
     await mockSignContract(page)
     await mockTosEndpoints(page, USERS.junior.id)
 
@@ -609,13 +626,11 @@ test.describe('Sign flow — happy path (regression guard for full wizard)', () 
     await expect(page.getByTestId('onboarding-step-contract')).toBeVisible({ timeout: 6000 })
     await expect(page.getByTestId('sign-contract-form')).toBeVisible({ timeout: 6000 })
 
-    // Wait for article to render any content (raw or rendered — both OK against any branch)
-    await expect(getPreviewArticle(page)).toBeVisible({ timeout: 8000 })
-
-    await page.getByTestId('typed-name-input').fill('Test Signature')
+    // A3-4: typed-name-input removed — legalFullName comes from server.
+    // Just check the confirm checkbox and sign.
     await page.getByTestId('confirm-checkbox').check()
 
-    await expect(page.getByTestId('sign-button')).toBeEnabled()
+    await expect(page.getByTestId('sign-button')).toBeEnabled({ timeout: 6000 })
     await page.getByTestId('sign-button').click()
 
     await expect(page.getByTestId('onboarding-step-tos')).toBeVisible({ timeout: 8000 })
@@ -636,8 +651,9 @@ test.describe('Sign flow — happy path (regression guard for full wizard)', () 
     await expect(page).toHaveURL(/\/crm\/onboarding/, { timeout: 8000 })
 
     await expect(page.getByTestId('sign-contract-form')).toBeVisible({ timeout: 8000 })
-    await page.getByTestId('typed-name-input').fill('HR Signature')
+    // A3-4: no typed-name-input — just check confirm checkbox
     await page.getByTestId('confirm-checkbox').check()
+    await expect(page.getByTestId('sign-button')).toBeEnabled({ timeout: 6000 })
     await page.getByTestId('sign-button').click()
 
     await expect(page.getByTestId('onboarding-step-tos')).toBeVisible({ timeout: 8000 })
@@ -647,12 +663,19 @@ test.describe('Sign flow — happy path (regression guard for full wizard)', () 
     await expect(page).toHaveURL(/\/crm\/dashboard/, { timeout: 8000 })
   })
 
-  test('Sign button disabled пока не заполнены оба поля (name + checkbox)', async ({
+  test('Sign button disabled пока checkbox не отмечен (A3-4 model)', async ({
     asSeniorPage: page,
   }) => {
     await mockUnboardedStatus(page)
     await mockContractTemplate(page)
-    await mockPreviewRenderedEndpoint(page, { succeed: true })
+    // A3-4: mock the PDF endpoint (replaces old preview-rendered)
+    await page.route(`${API}/onboarding/contract/pdf`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/pdf',
+        body: Buffer.from('%PDF-1.4 mock'),
+      }),
+    )
     await mockSignContract(page)
     await mockTosEndpoints(page)
 
@@ -661,17 +684,16 @@ test.describe('Sign flow — happy path (regression guard for full wizard)', () 
 
     const signBtn = page.getByTestId('sign-button')
 
+    // Initially disabled (checkbox unchecked)
     await expect(signBtn).toBeDisabled()
 
-    await page.getByTestId('typed-name-input').fill('Some Name')
-    await expect(signBtn).toBeDisabled()
-
-    await page.getByTestId('typed-name-input').fill('')
+    // Check checkbox → enabled (PDF blob mock resolves)
     await page.getByTestId('confirm-checkbox').check()
-    await expect(signBtn).toBeDisabled()
+    await expect(signBtn).toBeEnabled({ timeout: 6000 })
 
-    await page.getByTestId('typed-name-input').fill('Some Name')
-    await expect(signBtn).toBeEnabled()
+    // Uncheck → disabled again
+    await page.getByTestId('confirm-checkbox').uncheck()
+    await expect(signBtn).toBeDisabled()
   })
 })
 
@@ -709,10 +731,9 @@ test.describe('RBAC — onboarding gate', () => {
       ...STATUS_UNBOARDED,
       contractTemplate: { ...CONTRACT_TEMPLATE, targetRole: 'JUNIOR' },
     })
-    // Mock contract template + preview so the onboarding page doesn't hit
-    // the real API (which would 401 → axios interceptor → /login).
+    // A3-4: mock PDF endpoint so sign form loads without 404.
     await mockContractTemplate(page, { ...CONTRACT_TEMPLATE, targetRole: 'JUNIOR' })
-    await mockPreviewRenderedEndpoint(page, { succeed: true })
+    await mockContractPdf(page)
 
     await page.goto('/crm/dashboard')
     await expect(page).toHaveURL(/\/crm\/onboarding/, { timeout: 8000 })
@@ -726,8 +747,9 @@ test.describe('RBAC — onboarding gate', () => {
       ...STATUS_UNBOARDED,
       contractTemplate: { ...CONTRACT_TEMPLATE, targetRole: 'HR' },
     })
+    // A3-4: mock PDF endpoint so sign form loads without 404.
     await mockContractTemplate(page, { ...CONTRACT_TEMPLATE, targetRole: 'HR' })
-    await mockPreviewRenderedEndpoint(page, { succeed: true })
+    await mockContractPdf(page)
 
     await page.goto('/crm/dashboard')
     await expect(page).toHaveURL(/\/crm\/onboarding/, { timeout: 8000 })

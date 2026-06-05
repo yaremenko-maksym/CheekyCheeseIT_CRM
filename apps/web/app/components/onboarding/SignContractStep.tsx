@@ -47,7 +47,7 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
     setBlobUrl(null)
 
     void api
-      .get('/contracts/preview-pdf', { responseType: 'blob' })
+      .get('/onboarding/contract/pdf', { responseType: 'blob' })
       .then((res) => {
         if (cancelled) return
         objectUrl = URL.createObjectURL(res.data as Blob)
@@ -128,8 +128,8 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
           {blobUrl && !pdfError && (
             <iframe
               src={blobUrl}
-              title="Предварительный просмотр MSA-контракта"
-              aria-label="Предварительный просмотр MSA-контракта"
+              title="Предварительный просмотр персонального контракта"
+              aria-label="Предварительный просмотр персонального контракта"
               aria-describedby="pdf-sr-note"
               tabIndex={0}
               className={cn('w-full h-full rounded-md border-0', isLoadingPdf && 'invisible')}
@@ -214,7 +214,7 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
           aria-describedby="contract-checkbox-hint"
         />
         <span id="contract-checkbox-hint" className="text-sm leading-snug">
-          Я ознакомился и подтверждаю условия MSA-контракта
+          Я ознакомился и подтверждаю условия персонального контракта
         </span>
       </label>
 

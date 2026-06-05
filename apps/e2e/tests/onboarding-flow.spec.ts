@@ -61,6 +61,9 @@ function statusUnboarded(role: string) {
   return {
     requiresContract: true,
     requiresTos: true,
+    // A3-4: contractReady=true means the personal contract is READY_TO_SIGN
+    // so the UI shows SignContractStep (not ContractWaitScreen).
+    contractReady: true,
     contractTemplate: { ...CONTRACT_TEMPLATE, targetRole: role },
     tosVersion: TOS_VERSION,
     tosUpdateAvailable: false,
@@ -142,25 +145,14 @@ async function mockOnboardingApi(
     })
   })
 
-  // GET /contracts/templates/current/:role
-  await page.route(new RegExp(`${API}/contracts/templates/current/[A-Z]+$`), (r) =>
+  // GET /onboarding/contract/pdf — A3-4: personal contract PDF blob.
+  // Return a minimal PDF so the iframe loads without error and the
+  // isLoadingPdf state clears (enabling the sign button once checkbox checked).
+  await page.route(`${API}/onboarding/contract/pdf`, (r) =>
     r.fulfill({
       status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(CONTRACT_TEMPLATE),
-    }),
-  )
-
-  // GET /contracts/templates/preview-rendered/:templateId
-  // Returns the contract body with {{placeholder}} tokens substituted for the
-  // current user. Since this endpoint is now in the OnboardingGuard bypass
-  // list (Bug #2 fix), it's callable pre-onboarding. The mock returns the
-  // same body as CONTRACT_TEMPLATE (no substitution needed for tests).
-  await page.route(new RegExp(`${API}/contracts/templates/preview-rendered/[^/?]+$`), (r) =>
-    r.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ bodyMarkdown: CONTRACT_TEMPLATE.bodyMarkdown }),
+      contentType: 'application/pdf',
+      body: Buffer.from('%PDF-1.4 mock'),
     }),
   )
 
@@ -223,18 +215,16 @@ async function completeOnboarding(page: Page) {
   // --- Step 1: Sign Contract ---
   await expect(page.getByTestId('onboarding-step-contract')).toBeVisible()
 
-  // Wait for markdown to render (contract template loaded)
+  // A3-4: SignContractStep shows PDF iframe (personal contract).
+  // Wait for the form to appear — PDF fetch may take a moment in mocked env.
   await expect(page.getByTestId('sign-contract-form')).toBeVisible({ timeout: 6000 })
 
-  // Type name
-  await page.getByTestId('typed-name-input').fill('Test User Signature')
-
-  // Check confirm checkbox
+  // Check confirm checkbox (no typed-name-input in A3-4 — legalFullName comes from server)
   await page.getByTestId('confirm-checkbox').check()
 
-  // Sign button should now be enabled
+  // Sign button should now be enabled (blobUrl from PDF mock + checkbox checked)
   const signBtn = page.getByTestId('sign-button')
-  await expect(signBtn).toBeEnabled()
+  await expect(signBtn).toBeEnabled({ timeout: 6000 })
   await signBtn.click()
 
   // --- Step 2: Accept ToS ---
@@ -418,10 +408,39 @@ test.describe('Onboarding flow', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Wizard: sign button disabled until both name + checkbox filled
+  // A3-4 wait-path: contractReady=false → ContractWaitScreen shown
   // -------------------------------------------------------------------------
 
-  test('Sign button disabled until typed name AND checkbox both filled', async ({ page }) => {
+  test('A3-4 wait-path: contractReady=false shows ContractWaitScreen', async ({ page }) => {
+    await mockAuthAs(page, USERS.senior)
+
+    const waitStatus = {
+      requiresContract: true,
+      requiresTos: true,
+      contractReady: false, // contract still in DRAFT — user must wait
+      contractTemplate: null,
+      tosVersion: TOS_VERSION,
+      tosUpdateAvailable: false,
+      latestTosVersion: TOS_VERSION,
+    }
+
+    await mockOnboardingApi(page, { initialStatus: waitStatus })
+
+    await page.goto('/crm/onboarding')
+    await expect(page.getByTestId('onboarding-step-contract')).toBeVisible({ timeout: 8000 })
+
+    // ContractWaitScreen should be shown, NOT SignContractStep form
+    await expect(page.getByTestId('contract-wait-screen')).toBeVisible({ timeout: 6000 })
+    await expect(page.getByTestId('sign-contract-form')).not.toBeVisible()
+  })
+
+  // -------------------------------------------------------------------------
+  // Wizard: sign button disabled until checkbox checked (A3-4 model)
+  // A3-4: typed-name-input removed — legalFullName comes from server.
+  // Sign button is enabled once: blobUrl loaded (PDF mock) + checkbox checked.
+  // -------------------------------------------------------------------------
+
+  test('Sign button disabled until confirm checkbox checked', async ({ page }) => {
     await mockAuthAs(page, USERS.senior)
     await mockOnboardingApi(page, { initialStatus: statusUnboarded('SENIOR') })
 
@@ -430,20 +449,15 @@ test.describe('Onboarding flow', () => {
 
     const signBtn = page.getByTestId('sign-button')
 
-    // Initially disabled
+    // Initially disabled (checkbox unchecked)
     await expect(signBtn).toBeDisabled()
 
-    // Name filled but no checkbox → still disabled
-    await page.getByTestId('typed-name-input').fill('Test Name')
-    await expect(signBtn).toBeDisabled()
-
-    // Checkbox only (clear name) → disabled
-    await page.getByTestId('typed-name-input').fill('')
+    // After checking confirm checkbox → enabled (PDF blob mock resolves immediately)
     await page.getByTestId('confirm-checkbox').check()
-    await expect(signBtn).toBeDisabled()
+    await expect(signBtn).toBeEnabled({ timeout: 6000 })
 
-    // Both filled → enabled
-    await page.getByTestId('typed-name-input').fill('Test Name')
-    await expect(signBtn).toBeEnabled()
+    // Uncheck → disabled again
+    await page.getByTestId('confirm-checkbox').uncheck()
+    await expect(signBtn).toBeDisabled()
   })
 })

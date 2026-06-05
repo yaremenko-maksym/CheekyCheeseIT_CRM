@@ -72,9 +72,10 @@ function makeTosSvc({ active = makeTos() }: { active?: TosVersionDto | null } = 
   } as never
 }
 
-function makeEmployeeContractsSvc(contractReady = false) {
+function makeEmployeeContractsSvc(contractReady = false, hasSigned = false) {
   return {
     hasReadyContract: vi.fn().mockResolvedValue(contractReady),
+    hasSignedContract: vi.fn().mockResolvedValue(hasSigned),
   } as never
 }
 
@@ -144,6 +145,66 @@ describe('OnboardingService.getStatus', () => {
     })
   })
 
+  // ── A3-4: requiresContract from personal contract SIGNED state ──────────────
+
+  it('A3-4 SENIOR fresh (no SIGNED contract, no READY): requiresContract=true, contractReady=false', async () => {
+    const tmpl = makeTemplate('SENIOR')
+    const tos = makeTos()
+    const mockDb = makeDb()
+    const service = new OnboardingService(
+      mockDb as unknown as DatabaseService,
+      makeContractsSvc(tmpl),
+      makeTosSvc({ active: tos }),
+      // hasSigned=false, contractReady=false
+      makeEmployeeContractsSvc(false, false),
+    )
+
+    const result = await service.getStatus('senior-1', 'SENIOR')
+
+    expect(result.requiresContract).toBe(true)
+    expect(result.contractReady).toBe(false)
+    expect(result.requiresTos).toBe(true)
+  })
+
+  it('A3-4 SENIOR READY_TO_SIGN (no SIGNED): requiresContract=true, contractReady=true', async () => {
+    const tmpl = makeTemplate('SENIOR')
+    const tos = makeTos()
+    const mockDb = makeDb()
+    const service = new OnboardingService(
+      mockDb as unknown as DatabaseService,
+      makeContractsSvc(tmpl),
+      makeTosSvc({ active: tos }),
+      // hasSigned=false, contractReady=true
+      makeEmployeeContractsSvc(true, false),
+    )
+
+    const result = await service.getStatus('senior-1', 'SENIOR')
+
+    expect(result.requiresContract).toBe(true)
+    expect(result.contractReady).toBe(true)
+  })
+
+  it('A3-4 SENIOR with SIGNED personal contract: requiresContract=false', async () => {
+    const tmpl = makeTemplate('SENIOR')
+    const tos = makeTos()
+    const mockDb = makeDb()
+    const service = new OnboardingService(
+      mockDb as unknown as DatabaseService,
+      makeContractsSvc(tmpl),
+      makeTosSvc({ active: tos }),
+      // hasSigned=true
+      makeEmployeeContractsSvc(false, true),
+    )
+
+    const result = await service.getStatus('senior-1', 'SENIOR')
+
+    expect(result.requiresContract).toBe(false)
+    expect(result.contractTemplate).toBeNull()
+    expect(result.requiresTos).toBe(true)
+  })
+
+  // Legacy tests adapted for A3-4 semantics ───────────────────────────────────
+
   it('SENIOR fresh: requires both contract AND tos; template + tos populated', async () => {
     const tmpl = makeTemplate('SENIOR')
     const tos = makeTos()
@@ -152,7 +213,8 @@ describe('OnboardingService.getStatus', () => {
       mockDb as unknown as DatabaseService,
       makeContractsSvc(tmpl),
       makeTosSvc({ active: tos }),
-      makeEmployeeContractsSvc(),
+      // hasSigned=false, contractReady=false → requiresContract=true
+      makeEmployeeContractsSvc(false, false),
     )
 
     const result = await service.getStatus('senior-1', 'SENIOR')
@@ -165,15 +227,16 @@ describe('OnboardingService.getStatus', () => {
     expect(result.latestTosVersion?.id).toBe(tos.id)
   })
 
-  it('SENIOR with signed contract: requiresContract=false, contractTemplate=null', async () => {
+  it('SENIOR with signed personal contract: requiresContract=false, contractTemplate=null', async () => {
     const tmpl = makeTemplate('SENIOR')
     const tos = makeTos()
-    const mockDb = makeDb({ signedContract: { id: 'sc-1', templateId: tmpl.id } })
+    const mockDb = makeDb()
     const service = new OnboardingService(
       mockDb as unknown as DatabaseService,
       makeContractsSvc(tmpl),
       makeTosSvc({ active: tos }),
-      makeEmployeeContractsSvc(),
+      // hasSigned=true → requiresContract=false
+      makeEmployeeContractsSvc(false, true),
     )
 
     const result = await service.getStatus('senior-1', 'SENIOR')
@@ -260,20 +323,23 @@ describe('OnboardingService.getStatus', () => {
     }
   })
 
-  it('returns no contractTemplate when there is no active template for role', async () => {
+  it('A3-4: requiresContract driven by personal contract SIGNED state (not template existence)', async () => {
+    // In A3-4, even when there is no active template, requiresContract depends on
+    // whether user has a SIGNED employee_contract (not on template existence).
+    // No SIGNED contract → requiresContract=true.
     const mockDb = makeDb()
     const service = new OnboardingService(
       mockDb as unknown as DatabaseService,
       makeContractsSvc(null),
       makeTosSvc(),
-      makeEmployeeContractsSvc(),
+      // hasSigned=false → requiresContract=true even with no template
+      makeEmployeeContractsSvc(false, false),
     )
 
     const result = await service.getStatus('user-1', 'SENIOR')
-    // Without active template there is nothing for user to sign — defensive
-    // behavior: requiresContract=false, contractTemplate=null. Onboarding
-    // pipeline simply waits for ADMIN to publish.
-    expect(result.requiresContract).toBe(false)
+    // A3-4: requiresContract is driven by personal contract SIGNED state,
+    // not by template existence. contractTemplate is always null (unused for personal contract step).
+    expect(result.requiresContract).toBe(true)
     expect(result.contractTemplate).toBeNull()
   })
 
