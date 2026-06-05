@@ -85,6 +85,7 @@ export class ContractPdfService {
 
     const textColor = rgb(PDF_COLORS.text.r, PDF_COLORS.text.g, PDF_COLORS.text.b)
     const mutedColor = rgb(PDF_COLORS.muted.r, PDF_COLORS.muted.g, PDF_COLORS.muted.b)
+    const brandColor = rgb(PDF_COLORS.brand.r, PDF_COLORS.brand.g, PDF_COLORS.brand.b)
     const separatorColor = rgb(
       PDF_COLORS.separator.r,
       PDF_COLORS.separator.g,
@@ -100,15 +101,22 @@ export class ContractPdfService {
       y: pageHeight - pageMargin,
     }
 
-    // ---- Header --------------------------------------------------------
+    // ---- Letterhead: brand mark + company name + contract № -----------
+    const markSize = PDF_LAYOUT.brandMarkSize
+    const markX = pageMargin
+    const markY = cursor.y - markSize
+    this.pdfGen.drawBrandMark(cursor.page, markX, markY, markSize, brandColor)
+
+    const wordmarkX = markX + markSize + 10
     this.pdfGen.drawText(cursor.page, PDF_BRAND.companyName, {
-      x: pageMargin,
-      y: cursor.y,
+      x: wordmarkX,
+      y: markY + markSize * 0.55,
       font: boldFont,
-      size: 18,
+      size: 16,
       color: textColor,
     })
-    cursor.y -= 24
+    cursor.y -= markSize + 10
+
     // A3-1: show '—' when contractNumber is empty (unsigned preview).
     const isSigned = Boolean(params.signedTypedName?.trim())
     const displayContractNumber = params.contractNumber || '—'
