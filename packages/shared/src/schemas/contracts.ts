@@ -123,6 +123,12 @@ export const CONTRACT_VARIABLE_DESCRIPTIONS = {
   role: 'Роль (HR / Синьор / Джун / Дроп / Бухгалтер)',
   onboardingDate: 'Дата подписания контракта',
   companyName: 'Название компании (Cheeky Cheese IT)',
+  /** Legal name of the contracting legal entity (VolkerWessels Nederland IE B.V.) */
+  companyLegalName: 'Юридическое название компании-контрагента',
+  /** Registered address of the contracting legal entity */
+  companyAddress: 'Адрес компании-контрагента',
+  /** Country of incorporation of the contracting legal entity */
+  companyCountry: 'Страна регистрации компании-контрагента',
   walletUsdt: 'USDT ERC-20 кошелёк (если указан)',
   bankUahFop: 'Банковские реквизиты UAH (ФОП)',
   preferredMethod: 'Предпочтительный метод оплаты (crypto / fop)',

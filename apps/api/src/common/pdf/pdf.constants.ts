@@ -57,3 +57,21 @@ export const PDF_BRAND = {
   /** pdf-lib document Producer/Creator string. */
   producerString: 'CheekyCheeseIT CRM',
 } as const
+
+/**
+ * Legal entity data for the Company side of MSA contracts.
+ *
+ * These are the registered legal details of the contracting entity and appear
+ * in the «Сторони / Компанія» section of every signed contract PDF.
+ * Kept as a single constant (not env-based) because changing the legal entity
+ * requires a new contract template version + ADMIN approval — not a deployment
+ * toggle.
+ */
+export const CONTRACT_COMPANY = {
+  /** Registered legal name of the company. */
+  legalName: 'VolkerWessels Nederland IE B.V.',
+  /** Registered office address. */
+  address: 'Reggesingel 4, NL-7461 BA Rijssen',
+  /** Country of incorporation. */
+  country: 'Netherlands',
+} as const

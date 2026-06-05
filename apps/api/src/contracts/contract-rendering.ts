@@ -1,5 +1,6 @@
 import type { InterpolatableVariableKey } from '@crm/shared'
 import type { User } from '../database/schema'
+import { CONTRACT_COMPANY } from '../common/pdf/pdf.constants'
 
 /**
  * Onboarding Phase 6A — pure rendering helpers for MSA contract templates.
@@ -97,6 +98,10 @@ export function renderContractTemplate(
     role: ROLE_LABELS[user.role] ?? user.role,
     onboardingDate: signedAt.toISOString().slice(0, 10),
     companyName: 'Cheeky Cheese IT',
+    // Legal entity data for «Сторони / Компанія» section (T3).
+    companyLegalName: CONTRACT_COMPANY.legalName,
+    companyAddress: CONTRACT_COMPANY.address,
+    companyCountry: CONTRACT_COMPANY.country,
     walletUsdt,
     bankUahFop,
     preferredMethod,

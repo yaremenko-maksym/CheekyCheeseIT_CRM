@@ -20,7 +20,7 @@ import { Injectable } from '@nestjs/common'
 import { rgb, type PDFDocument, type PDFFont, type PDFPage, type Color } from 'pdf-lib'
 
 import { PdfGenerationService } from '../common/pdf/pdf-generation.service'
-import { PDF_COLORS, PDF_LAYOUT, PDF_BRAND } from '../common/pdf/pdf.constants'
+import { PDF_COLORS, PDF_LAYOUT, PDF_BRAND, CONTRACT_COMPANY } from '../common/pdf/pdf.constants'
 import { sha256Hex } from '../common/pdf/pdf.utils'
 
 export interface GenerateContractPdfParams {
@@ -101,12 +101,13 @@ export class ContractPdfService {
       y: pageHeight - pageMargin,
     }
 
-    // ---- Letterhead: brand mark + company name + contract № -----------
+    // ---- Letterhead: brand mark + company name (left) + legal entity (right) ---
     const markSize = PDF_LAYOUT.brandMarkSize
     const markX = pageMargin
     const markY = cursor.y - markSize
     this.pdfGen.drawBrandMark(cursor.page, markX, markY, markSize, brandColor)
 
+    // Brand wordmark to the right of the logo.
     const wordmarkX = markX + markSize + 10
     this.pdfGen.drawText(cursor.page, PDF_BRAND.companyName, {
       x: wordmarkX,
@@ -115,6 +116,29 @@ export class ContractPdfService {
       size: 16,
       color: textColor,
     })
+
+    // Legal entity block — right-aligned in the letterhead (T3).
+    // Shows VolkerWessels legal name, address, and country.
+    const legalLines = [
+      CONTRACT_COMPANY.legalName,
+      CONTRACT_COMPANY.address,
+      CONTRACT_COMPANY.country,
+    ]
+    const legalFontSize = 8
+    const legalLineHeight = 10
+    let legalY = markY + markSize - legalFontSize
+    for (const line of legalLines) {
+      const lineWidth = regularFont.widthOfTextAtSize(line, legalFontSize)
+      this.pdfGen.drawText(cursor.page, line, {
+        x: rightEdge - lineWidth,
+        y: legalY,
+        font: regularFont,
+        size: legalFontSize,
+        color: mutedColor,
+      })
+      legalY -= legalLineHeight
+    }
+
     cursor.y -= markSize + 10
 
     // A3-1: show '—' when contractNumber is empty (unsigned preview).
