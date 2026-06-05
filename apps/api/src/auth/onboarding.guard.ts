@@ -22,6 +22,7 @@ import { OnboardingService } from '../onboarding/onboarding.service'
  *   - `/api/auth/*` (login flow, /me, logout, dev-login — JwtAuthGuard
  *      already handles auth for /me, dev-login is dev-only)
  *   - `/api/onboarding/status` (fetched by the redirect gate)
+ *   - `/api/onboarding/contract` (A3-1: READY_TO_SIGN view + PDF preview self-service)
  *   - `/api/tos/current` (rendered in the wizard)
  *   - `/api/tos/accept` (the exit door for ToS)
  *   - `/api/contracts/templates/current/<role>` (rendered in the wizard)
@@ -30,6 +31,7 @@ import { OnboardingService } from '../onboarding/onboarding.service'
  *      the user's data from `req.user.id` (JWT), not from the URL path, so
  *      there is no IDOR surface)
  *   - `/api/contracts/sign` (the exit door for MSA)
+ *   - NOTE: `/api/contracts/preview-pdf` removed in A3-1 (endpoint deleted).
  *
  * ADMIN: bypass entirely.
  * Non-admin: `OnboardingService.getStatus` decides; missing → `ForbiddenException`
@@ -41,16 +43,18 @@ export class OnboardingGuard implements CanActivate {
   private readonly bypassPrefixes = [
     '/api/auth/',
     '/api/onboarding/status',
+    // A3-1: self-service contract endpoints (READY_TO_SIGN view + PDF preview).
+    // Un-onboarded users must be able to view their personalised contract before
+    // signing it. Without this bypass, OnboardingGuard would 403 anyone who
+    // hasn't completed onboarding yet — defeating the purpose of the review step.
+    // Lesson from memory/feedback_mocked_e2e_guards.md.
+    '/api/onboarding/contract',
     '/api/tos/current',
     '/api/tos/accept',
     '/api/contracts/templates/current/',
     '/api/contracts/templates/preview-rendered/',
     '/api/contracts/sign',
-    // CRITICAL: preview-pdf must be bypass-listed so un-onboarded users can
-    // view the contract before signing it. Without this, OnboardingGuard returns
-    // 403 to anyone who hasn't completed onboarding yet — defeating the purpose
-    // of the preview step. Lesson from memory/feedback_mocked_e2e_guards.md.
-    '/api/contracts/preview-pdf',
+    // NOTE: /api/contracts/preview-pdf removed in A3-1 (endpoint deleted).
   ]
 
   constructor(
