@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -25,7 +26,9 @@ export function ChangeSalaryDialog({
   const mutation = useAdminChangeSalary(userId)
   const isShareRole = user.role === 'SENIOR' || user.role === 'ADMIN'
   const [salary, setSalary] = useState(String(user.monthlySalary ?? ''))
-  const [salaryCurrency, setSalaryCurrency] = useState<Currency>((user.salaryCurrency as Currency | undefined) ?? 'USD')
+  const [salaryCurrency, setSalaryCurrency] = useState<Currency>(
+    (user.salaryCurrency as Currency | undefined) ?? 'USD',
+  )
   const [share, setShare] = useState<number>(user.seniorSharePercent ?? 26)
 
   // For SENIOR/ADMIN the dialog edits a "share %" — visible label, title and
@@ -37,6 +40,11 @@ export function ChangeSalaryDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {isShareRole
+              ? 'Настройка доли компании от транзакций синьора.'
+              : 'Изменение месячной зарплаты сотрудника.'}
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           {isShareRole ? (
