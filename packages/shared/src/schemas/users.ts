@@ -338,6 +338,15 @@ export const listArchivedQuerySchema = z.object({
 
 export type ListArchivedQuery = z.infer<typeof listArchivedQuerySchema>
 
+export const profileOverviewDataSchema = z.object({
+  techStack: z.array(z.string()).nullable(),
+  adminNote: z.string().nullable(),
+  tosAcceptedAt: z.string().nullable(),
+  tosVersion: z.number().nullable(),
+})
+
+export type ProfileOverviewData = z.infer<typeof profileOverviewDataSchema>
+
 export const userWithPermissionsResponseSchema = z.object({
   user: userProfileSchema,
   permissions: z.object({

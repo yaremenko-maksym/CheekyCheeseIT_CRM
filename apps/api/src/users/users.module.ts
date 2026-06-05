@@ -4,6 +4,7 @@ import { DatabaseModule } from '../database/database.module'
 import { FinanceModule } from '../finance/finance.module'
 import { TeamsModule } from '../teams/teams.module'
 import { ProjectsModule } from '../projects/projects.module'
+import { TosModule } from '../tos/tos.module'
 import { AuditInterceptor } from '../common/interceptors/audit.interceptor'
 import { UsersController } from './users.controller'
 import { UsersAccessService } from './users-access.service'
@@ -17,6 +18,7 @@ import { UsersService } from './users.service'
     forwardRef(() => FinanceModule),
     forwardRef(() => TeamsModule),
     forwardRef(() => ProjectsModule),
+    TosModule,
   ],
   controllers: [UsersController],
   providers: [UsersService, UsersAccessService, AuditLogService, AuditInterceptor],
