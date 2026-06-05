@@ -17,6 +17,7 @@ import { OverviewTab } from './tabs/OverviewTab'
 import { ProjectsTab } from './tabs/ProjectsTab'
 import { RequisitesTab } from './tabs/RequisitesTab'
 import { TeamTab } from './tabs/TeamTab'
+import { ContractTab } from './contract/ContractTab'
 
 const TAB_LABELS: Record<string, string> = {
   overview: 'Обзор',
@@ -27,6 +28,7 @@ const TAB_LABELS: Record<string, string> = {
   requisites: 'Реквизиты',
   documents: 'Документы',
   audit: 'История',
+  contract: 'Контракт',
 }
 
 export interface UserProfileShellProps {
@@ -36,12 +38,7 @@ export interface UserProfileShellProps {
   onTabChange: (tab: string) => void
 }
 
-export function UserProfileShell({
-  mode,
-  userId,
-  tab,
-  onTabChange,
-}: UserProfileShellProps) {
+export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfileShellProps) {
   const meQuery = useMe(mode === 'self')
   const userQuery = useUser(userId, mode === 'view')
   const query = mode === 'self' ? meQuery : userQuery
@@ -63,8 +60,9 @@ export function UserProfileShell({
   }
 
   const { user, permissions, data: viewData } = data
-  const activeTab =
-    permissions.tabs.includes(tab as never) ? tab : (permissions.tabs[0] ?? 'overview')
+  const activeTab = permissions.tabs.includes(tab as never)
+    ? tab
+    : (permissions.tabs[0] ?? 'overview')
 
   // ADMIN looking at own profile: hide "registration date" line (matches hidden KPI cards)
   const showCreatedAt =
@@ -119,8 +117,8 @@ export function UserProfileShell({
             <div className="space-y-0.5">
               <p className="text-sm font-medium">У вас нет активной команды</p>
               <p className="text-xs text-muted-foreground">
-                Создайте свою команду или присоединитесь к команде дропа, чтобы вернуть доступ
-                к проектам и собеседованиям.
+                Создайте свою команду или присоединитесь к команде дропа, чтобы вернуть доступ к
+                проектам и собеседованиям.
               </p>
             </div>
           </div>
@@ -176,6 +174,9 @@ export function UserProfileShell({
             )}
             {activeTab === 'audit' && permissions.tabs.includes('audit') && (
               <AuditLogTab userId={user.id} />
+            )}
+            {activeTab === 'contract' && permissions.tabs.includes('contract') && (
+              <ContractTab userId={user.id} targetRole={user.role} />
             )}
           </div>
         </div>
