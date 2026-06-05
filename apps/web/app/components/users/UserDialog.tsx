@@ -77,7 +77,6 @@ import { CreateWizardStepper } from './CreateWizardStepper'
 import {
   useEmployeeContract,
   useSaveContractBody,
-  useMarkContractReady,
 } from '@/components/user-profile/contract/useEmployeeContract'
 import { ContractEditor } from '@/components/user-profile/contract/ContractEditor'
 import { ContractActionBar } from '@/components/user-profile/contract/ContractActionBar'
@@ -425,12 +424,15 @@ export function UserDialog(props: UserDialogProps) {
     },
   })
 
-  // A3-3: wizard step-1 back-navigation uses PATCH on the already-created user.
+  // A3-3: wizard step-1 «Далее» uses PATCH when createdUserId is already set
+  // (i.e. admin went Back from step 2 and edited fields). This avoids a
+  // duplicate POST /users → 409 conflict.
   const wizardUpdateMutation = useMutation({
     mutationFn: (data: AdminUpdateUserDto) =>
       api.patch<UserProfileDto>(`/users/${createdUserId}`, data),
     onSuccess: () => {
-      // silently update — user stays in wizard
+      // Advance to contract step — same outcome as initial POST success.
+      setCurrentStep(2)
     },
     onError: (err: AxiosError<{ message?: string }>) => {
       toast.error(explainUserMutationError(err, 'Ошибка при обновлении'))
@@ -596,6 +598,51 @@ export function UserDialog(props: UserDialogProps) {
       }
 
       if (isCreate) {
+        // A3-3 AC6: if user was already created (createdUserId set after first
+        // successful POST), «Далее» from step 1 must PATCH — not POST again.
+        // This handles the «Назад» → edit → «Далее» flow without 409 duplicate.
+        if (createdUserId !== null) {
+          const paymentMethodUpdate: PaymentMethod =
+            isSenior || value.role === 'ADMIN' ? 'USDT_ERC20' : value.paymentMethod
+          const updatePayload: AdminUpdateUserDto = {
+            displayName: value.displayName.trim(),
+            telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : null,
+            phone: (value.phone as string) || null,
+            techStack: value.techStack.length > 0 ? value.techStack : null,
+            paymentMethod: paymentMethodUpdate,
+            ...(paymentMethodUpdate === 'USDT_ERC20' && {
+              walletUsdtErc20: value.walletUsdtErc20.trim() || null,
+              walletUsdtLabel: value.walletUsdtLabel.trim() || null,
+            }),
+            ...(paymentMethodUpdate === 'BANK_UAH_FOP' && {
+              bankUahRecipient: value.bankUahRecipient.trim() || null,
+              bankUahIban: value.bankUahIban.trim() || null,
+              bankUahRnokpp: value.bankUahRnokpp.trim() || null,
+              bankUahBankName: value.bankUahBankName.trim() || null,
+            }),
+            ...(isSenior && {
+              seniorSharePercent: value.seniorSharePercent,
+              hrIds,
+              accountantId: accountantId || null,
+            }),
+            ...(!isSenior && {
+              monthlySalary: value.monthlySalary ? computeMonthlySalaryUsd() : null,
+              salaryCurrency: 'USD',
+            }),
+            ...(value.legalFullName.trim() && {
+              legalFullName: value.legalFullName.trim(),
+            }),
+          }
+          const updateResult = adminUpdateUserSchema.safeParse(updatePayload)
+          if (!updateResult.success) {
+            const first = updateResult.error.issues[0]
+            toast.error(first?.message ?? 'Ошибка валидации данных')
+            return
+          }
+          wizardUpdateMutation.mutate(updateResult.data)
+          return
+        }
+
         // Drop role - phase 1 (AC3): when JOIN_DROP_TEAM, HR/accountant are
         // sourced from the existing drop-team — local pickers stay hidden
         // and we skip the «HR required» guard. CREATE_NEW retains the
@@ -1048,15 +1095,39 @@ export function UserDialog(props: UserDialogProps) {
                               .safeParse(value.trim())
                             return r.success ? undefined : r.error.issues[0]?.message
                           },
+                          // A3-3 AC6 / bug #2: surface superRefine error on submit attempt
+                          // for contract-eligible roles (SENIOR/HR/JUNIOR/ACCOUNTANT/DROP).
+                          // This fires when form.handleSubmit() is called and makes the
+                          // red border + error text visible without requiring blur first.
+                          onSubmit: ({ value }) => {
+                            const CONTRACT_ROLES = new Set([
+                              'SENIOR',
+                              'HR',
+                              'JUNIOR',
+                              'ACCOUNTANT',
+                              'DROP',
+                            ])
+                            if (isCreate && CONTRACT_ROLES.has(role) && !value.trim()) {
+                              return 'Юридическое ФИО обязательно для этой роли'
+                            }
+                            return undefined
+                          },
                         }}
                       >
                         {(field) => {
-                          const showError = field.state.meta.isTouched && field.state.meta.isDirty
-                          const err = showError ? field.state.meta.errors[0] : undefined
+                          // Show error on blur/dirty OR immediately after a failed submit
+                          // attempt (errors populated by onSubmit validator above).
+                          const err = field.state.meta.errors[0]
+                          const showError =
+                            (field.state.meta.isTouched && field.state.meta.isDirty && !!err) ||
+                            (field.state.meta.isSubmitted !== undefined &&
+                              !field.state.meta.isValid &&
+                              !!err) ||
+                            (!!err && field.state.meta.isTouched)
                           return (
                             <Field
                               label="Юридическое ФИО"
-                              error={err}
+                              error={showError ? err : undefined}
                               hint="Используется в MSA-контракте вместо display name. Формат: Фамилия Имя Отчество."
                             >
                               <Input
@@ -1064,8 +1135,10 @@ export function UserDialog(props: UserDialogProps) {
                                 value={field.state.value}
                                 onChange={(e) => field.handleChange(e.target.value)}
                                 onBlur={field.handleBlur}
+                                aria-invalid={showError ? true : undefined}
                                 className={cn(
-                                  err && 'border-destructive focus-visible:ring-destructive/30',
+                                  showError &&
+                                    'border-destructive focus-visible:ring-destructive/30',
                                 )}
                                 data-testid="user-dialog-legal-full-name"
                               />
@@ -1992,7 +2065,12 @@ function WizardStep2({
   const { data: contract, isLoading, error } = useEmployeeContract(userId)
   const saveBody = useSaveContractBody(userId)
 
-  // Sync contract body into local state on first load
+  // Sync contract body into local state on first load.
+  // deps intentionally limited to contract?.id — we only want to seed the
+  // local body once per contract identity (not on every render where body
+  // or the stable callbacks change). Adding body/onBodyChange/onHasContract
+  // would re-seed on every keystroke and clobber in-progress edits.
+  // (react-hooks/exhaustive-deps is not configured in this project's eslint)
   useEffect(() => {
     if (contract && body === '') {
       onBodyChange(contract.bodyMarkdown ?? '')
