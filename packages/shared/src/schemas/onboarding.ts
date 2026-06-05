@@ -15,11 +15,18 @@ import { tosVersionSchema } from './tos'
  * entirely and never sign MSA / accept ToS.
  *
  * For non-ADMIN:
- *   - `requiresContract = !exists signed_contracts for active template`
+ *   - `requiresContract = !hasSigned(personal employee_contract)` (A3-4: keyed off
+ *     personal SIGNED state, not the role-template signed_contracts row)
+ *   - `contractReady = hasReadyContract(personal employee_contract)` — true when READY_TO_SIGN
  *   - `requiresTos      = !exists tos_acceptances for active ToS version`
  *   - `tosUpdateAvailable = (user accepted an older version AND current active is newer)`
  *   - `contractTemplate / tosVersion` populated only when corresponding require flag is true
  *   - `latestTosVersion` always set when there is an active ToS (used by banner)
+ *
+ * Three-state contract matrix (A3-4):
+ *   requiresContract=true,  contractReady=false → Wait screen «Контракт готовится»
+ *   requiresContract=true,  contractReady=true  → Sign step (personal PDF + sign)
+ *   requiresContract=false  (any contractReady) → Contract step done → ToS
  */
 
 export const onboardingStatusSchema = z.object({

@@ -56,15 +56,23 @@ export class OnboardingService {
       this.tos.getCurrent(),
     ])
 
-    // --- contract status -----------------------------------------------------
-    const requiresContract = Boolean(
-      activeTemplate &&
-      !(await this.db.db.query.signedContracts.findFirst({
-        where: (tbl, { eq, and }) =>
-          and(eq(tbl.userId, userId), eq(tbl.templateId, activeTemplate.id)),
-      })),
-    )
+    // --- contract status (A3-4) -----------------------------------------------
+    // requiresContract is now driven by the personal employee_contract's SIGNED
+    // state, not by the role template. The user must complete the contract step
+    // until their personal contract is SIGNED. contractReady (READY_TO_SIGN)
+    // distinguishes "ready to sign" from "still being prepared by ADMIN" (wait
+    // screen). This replaces the legacy signed_contracts template-row check.
+    const [hasSigned, contractReady] = await Promise.all([
+      this.employeeContracts.hasSignedContract(userId),
+      this.employeeContracts.hasReadyContract(userId),
+    ])
+    const requiresContract = !hasSigned
 
+    // contractTemplate is kept in the DTO for backward compatibility with ToS /
+    // template admin surfaces. It is no longer used by the personal contract
+    // sign step (which previews via /onboarding/contract/pdf instead).
+    // Follow-up: remove contractTemplate from OnboardingStatusDto when all
+    // callers have been updated.
     const contractTemplate =
       requiresContract && activeTemplate
         ? (this.serializeTemplate(activeTemplate) satisfies ContractTemplateDto)
@@ -96,9 +104,6 @@ export class OnboardingService {
         tosUpdateAvailable = Boolean(anyAcceptance)
       }
     }
-
-    // A3-1: check if user has a READY_TO_SIGN employee_contract.
-    const contractReady = await this.employeeContracts.hasReadyContract(userId)
 
     return {
       requiresContract,
