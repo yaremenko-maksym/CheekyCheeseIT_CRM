@@ -7,6 +7,7 @@ import type {
   TosVersionDto,
 } from '@crm/shared'
 import { ContractTemplatesService } from '../contracts/contract-templates.service'
+import { EmployeeContractsService } from '../contracts/employee-contracts.service'
 import { DatabaseService } from '../database/database.service'
 import { TosService } from '../tos/tos.service'
 
@@ -33,6 +34,7 @@ export class OnboardingService {
     private readonly db: DatabaseService,
     private readonly templates: ContractTemplatesService,
     private readonly tos: TosService,
+    private readonly employeeContracts: EmployeeContractsService,
   ) {}
 
   async getStatus(userId: string, userRole: SessionUser['role']): Promise<OnboardingStatusDto> {
@@ -40,6 +42,7 @@ export class OnboardingService {
       return {
         requiresContract: false,
         requiresTos: false,
+        contractReady: false,
         contractTemplate: null,
         tosVersion: null,
         tosUpdateAvailable: false,
@@ -94,9 +97,13 @@ export class OnboardingService {
       }
     }
 
+    // A3-1: check if user has a READY_TO_SIGN employee_contract.
+    const contractReady = await this.employeeContracts.hasReadyContract(userId)
+
     return {
       requiresContract,
       requiresTos,
+      contractReady,
       contractTemplate,
       tosVersion: tosVersionPayload,
       tosUpdateAvailable,
