@@ -100,14 +100,23 @@ export function ContractTab({ userId, targetRole, onDirtyChange }: ContractTabPr
   // Backend returns 404 with message "No active contract template for role X"
   // when the ADMIN hasn't created a template for this role yet.
 
-  const errorMessage =
-    error && typeof error === 'object' && 'message' in error
-      ? String((error as { message: unknown }).message)
-      : null
+  // Axios wraps HTTP errors: error.message = "Request failed with status code 404".
+  // The actual backend message is in error.response.data.message.
+  // We check both so the component works with real AxiosErrors AND plain Errors.
+  const errorMessage = (() => {
+    if (!error || typeof error !== 'object') return null
+    // AxiosError: response body message takes priority over the generic status message
+    const axiosMsg = (error as { response?: { data?: { message?: unknown } } }).response?.data
+      ?.message
+    if (axiosMsg) return String(axiosMsg)
+    // Fallback: plain Error.message (Zod errors, network errors, etc.)
+    if ('message' in error) return String((error as { message: unknown }).message)
+    return null
+  })()
 
-  const isNoTemplate =
-    errorMessage?.toLowerCase().includes('no active contract template') ||
-    errorMessage?.toLowerCase().includes('template')
+  // The backend returns 404 with "No active contract template for role X".
+  // Use exact phrase match — avoids false positives from field names like sourceTemplateId.
+  const isNoTemplate = errorMessage?.toLowerCase().includes('no active contract template') === true
 
   if (isNoTemplate) {
     return (
