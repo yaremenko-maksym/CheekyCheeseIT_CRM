@@ -6,25 +6,29 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { desc, eq, sql } from 'drizzle-orm'
-import type { ContractTargetRole, InterpolatableVariableKey, SessionUser } from '@crm/shared'
+import type { InterpolatableVariableKey, SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { signedContracts, type User } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
-import { ContractTemplatesService } from './contract-templates.service'
 import type { GenerateContractPdfParams } from './contract-pdf.service'
 import { renderContractTemplate, type ContractRenderUserContext } from './contract-rendering'
+import type { EmployeeContractsService } from './employee-contracts.service'
 
 /**
- * Onboarding Phase 6A — sign mechanism + immutable audit trail.
+ * A3-1 — sign mechanism + immutable audit trail.
  *
  * `sign` is the only write path. It:
  *   1. Refuses for ADMIN (DB CHECK + service guard).
- *   2. Fetches the active MSA template for `userRole`. None → 404.
- *   3. Checks for an existing signed_contract for (userId, templateId).
- *      Found → idempotent return (re-signing same template is a no-op).
- *   4. Loads user row, resolves `{{vars}}` via `interpolateVariables`.
- *   5. Inserts the row inside a tx that also `nextval('contract_number_seq')`.
+ *   2. Fetches user's READY_TO_SIGN employee_contract via EmployeeContractsService.
+ *      None → 409 CONTRACT_NOT_READY (thrown by getReadyForSigning).
+ *   3. Loads user row, resolves `{{vars}}` via `interpolateVariables`.
+ *   4. Inserts the signed_contract inside a tx that also `nextval('contract_number_seq')`.
+ *   5. Calls `employeeContracts.markSigned(userId, insertedId)` → READY_TO_SIGN → SIGNED.
  *   6. `contract_number` shape: `CHK-<seq>-<UTC year>`.
+ *
+ * Idempotency: once markSigned() is called, the employee_contract transitions to
+ * SIGNED; subsequent sign() calls reach getReadyForSigning() which throws 409 —
+ * preventing double-signing of the same contract.
  *
  * `findById` enforces RBAC: ADMIN, ACCOUNTANT, or the owner of the row.
  * `findMine` returns the caller's own signed contracts.
@@ -33,7 +37,7 @@ import { renderContractTemplate, type ContractRenderUserContext } from './contra
 export class SignedContractsService {
   constructor(
     private readonly db: DatabaseService,
-    private readonly templates: ContractTemplatesService,
+    private readonly employeeContracts: EmployeeContractsService,
   ) {}
 
   /**
@@ -70,29 +74,12 @@ export class SignedContractsService {
       throw new BadRequestException('ADMIN_DOES_NOT_SIGN_CONTRACTS')
     }
 
-    const template = await this.templates.getCurrentForRole(userRole as ContractTargetRole)
-    if (!template) {
-      throw new NotFoundException('No active contract template for role')
-    }
-
-    // Idempotency: if user already signed THIS template version, return existing.
-    const existing = await this.db.db.query.signedContracts.findFirst({
-      where: (tbl, { eq, and }) => and(eq(tbl.userId, userId), eq(tbl.templateId, template.id)),
-    })
-    if (existing) return existing
+    // A3-1: fetch the user's READY_TO_SIGN employee_contract.
+    // Throws 409 CONTRACT_NOT_READY if none exists (replaces old template lookup).
+    const employeeContract = await this.employeeContracts.getReadyForSigning(userId)
 
     return this.db.db.transaction(async (tx: DrizzleTx) => {
-      // SECURITY: re-check existing inside the tx to close the race window
-      // between the read-only pre-check and the INSERT. Two concurrent sign
-      // requests from the same user would both observe `existing=null`
-      // outside the tx; the second one re-reads here and bails out with the
-      // first row instead of producing a duplicate signed_contract.
-      const reCheck = await tx.query.signedContracts.findFirst({
-        where: (tbl, { eq, and }) => and(eq(tbl.userId, userId), eq(tbl.templateId, template.id)),
-      })
-      if (reCheck) return reCheck
-
-      // Resolve user row inside tx for fresh requisites.
+      // Resolve user row inside tx for fresh legalFullName + requisites.
       const user = (await tx.query.users.findFirst({
         where: (tbl, { eq }) => eq(tbl.id, userId),
       })) as User | undefined
@@ -107,8 +94,10 @@ export class SignedContractsService {
       }
 
       const signedAt = new Date()
+      // A3-1: use employee_contract.bodyMarkdown (ADMIN-authored, already
+      // customised per-employee) as the snapshot source — not the raw template.
       const { body, variables } = SignedContractsService.interpolateVariables(
-        template.bodyMarkdown,
+        employeeContract.bodyMarkdown,
         user,
         signedAt,
       )
@@ -142,7 +131,8 @@ export class SignedContractsService {
         .insert(signedContracts)
         .values({
           userId,
-          templateId: template.id,
+          // A3-1: templateId traces back to the source template for audit.
+          templateId: employeeContract.sourceTemplateId,
           bodyMarkdownSnapshot: body,
           variablesFilled: variables,
           signedTypedName: resolvedTypedName,
@@ -154,6 +144,12 @@ export class SignedContractsService {
         .returning()
 
       if (!inserted) throw new Error('Failed to insert signed contract')
+
+      // A3-1: transition employee_contract READY_TO_SIGN → SIGNED.
+      // This also prevents double-signing — subsequent sign() calls will hit
+      // getReadyForSigning() which throws 409 because status is now SIGNED.
+      await this.employeeContracts.markSigned(userId, inserted.id)
+
       return inserted
     })
   }

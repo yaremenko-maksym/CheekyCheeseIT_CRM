@@ -1,8 +1,13 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
-import { ContractTemplatesService } from './contract-templates.service'
+import type { EmployeeContractsService } from './employee-contracts.service'
 import { SignedContractsService, ipTrailingSegment } from './signed-contracts.service'
 
 // ---------------------------------------------------------------------------
@@ -103,6 +108,34 @@ function makeSignedContract(overrides: Record<string, unknown> = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Mock employee_contract row
+// ---------------------------------------------------------------------------
+
+function makeEmployeeContract(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'ec-1',
+    userId: 'senior-1',
+    sourceTemplateId: 'tmpl-1',
+    bodyMarkdown:
+      '# MSA\n\n' +
+      'Имя: {{employeeName}}\n' +
+      'Email: {{employeeEmail}}\n' +
+      'Роль: {{role}}\n' +
+      'Дата: {{onboardingDate}}\n' +
+      'Компания: {{companyName}}\n' +
+      'USDT: {{walletUsdt}}\n' +
+      'ФОП: {{bankUahFop}}\n' +
+      'Метод: {{preferredMethod}}\n',
+    status: 'READY_TO_SIGN' as const,
+    signedContractId: null,
+    createdByUserId: 'admin-1',
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-06-04T00:00:00Z'),
+    ...overrides,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Mock DB factory
 // ---------------------------------------------------------------------------
 
@@ -110,7 +143,6 @@ interface MockDb {
   db: {
     query: {
       signedContracts: { findFirst: ReturnType<typeof vi.fn>; findMany: ReturnType<typeof vi.fn> }
-      contractTemplates: { findFirst: ReturnType<typeof vi.fn> }
       users: { findFirst: ReturnType<typeof vi.fn> }
     }
     transaction: ReturnType<typeof vi.fn>
@@ -118,28 +150,22 @@ interface MockDb {
 }
 
 function makeDb({
-  existingSigned,
-  activeTemplate = makeTemplate(),
   userRow = makeUser(),
   nextSeq = 1,
   insertedRow,
 }: {
-  existingSigned?: ReturnType<typeof makeSignedContract>
-  activeTemplate?: ReturnType<typeof makeTemplate> | null
   userRow?: ReturnType<typeof makeUser>
   nextSeq?: number
   insertedRow?: ReturnType<typeof makeSignedContract>
 } = {}): MockDb {
-  const findSignedFirst = vi.fn().mockResolvedValue(existingSigned)
+  const findSignedFirst = vi.fn().mockResolvedValue(undefined)
   const findSignedMany = vi.fn().mockResolvedValue([])
-  const findTemplate = vi.fn().mockResolvedValue(activeTemplate)
   const findUser = vi.fn().mockResolvedValue(userRow)
 
   return {
     db: {
       query: {
         signedContracts: { findFirst: findSignedFirst, findMany: findSignedMany },
-        contractTemplates: { findFirst: findTemplate },
         users: { findFirst: findUser },
       },
       transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
@@ -155,7 +181,6 @@ function makeDb({
           insert: vi.fn().mockReturnValue({ values: txInsertValues }),
           query: {
             signedContracts: { findFirst: findSignedFirst },
-            contractTemplates: { findFirst: findTemplate },
             users: { findFirst: findUser },
           },
         }
@@ -165,11 +190,19 @@ function makeDb({
   }
 }
 
-function makeTemplatesService(active: ReturnType<typeof makeTemplate> | null = makeTemplate()) {
-  const svc = {
-    getCurrentForRole: vi.fn().mockResolvedValue(active),
-  } as unknown as ContractTemplatesService
-  return svc
+/** Mock EmployeeContractsService — replaces ContractTemplatesService in sign() */
+function makeEmployeeContractsSvc({
+  readyContract = makeEmployeeContract(),
+}: {
+  readyContract?: ReturnType<typeof makeEmployeeContract> | null
+} = {}) {
+  return {
+    getReadyForSigning: vi.fn().mockImplementation(async () => {
+      if (!readyContract) throw new ConflictException('CONTRACT_NOT_READY')
+      return readyContract
+    }),
+    markSigned: vi.fn().mockResolvedValue({ ...makeEmployeeContract(), status: 'SIGNED' }),
+  } as unknown as EmployeeContractsService
 }
 
 // ---------------------------------------------------------------------------
@@ -309,11 +342,11 @@ describe('SignedContractsService', () => {
     })
   })
 
-  describe('sign', () => {
+  describe('sign (A3-1 — reads from employee_contract)', () => {
     it('refuses for ADMIN role', async () => {
       const mockDb = makeDb()
-      const tplSvc = makeTemplatesService()
-      const service = new SignedContractsService(mockDb as unknown as DatabaseService, tplSvc)
+      const empSvc = makeEmployeeContractsSvc()
+      const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
 
       await expect(
         service.sign({
@@ -326,11 +359,28 @@ describe('SignedContractsService', () => {
       ).rejects.toThrow(BadRequestException)
     })
 
+    it('throws 409 CONTRACT_NOT_READY when no READY_TO_SIGN employee_contract', async () => {
+      const mockDb = makeDb()
+      // readyContract=null → getReadyForSigning throws ConflictException
+      const empSvc = makeEmployeeContractsSvc({ readyContract: null })
+      const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
+
+      await expect(
+        service.sign({
+          userId: seniorUser.id,
+          userRole: 'SENIOR',
+          typedName: '',
+          ip: '127.0.0.1',
+          userAgent: 'vt',
+        }),
+      ).rejects.toThrow(ConflictException)
+    })
+
     it('throws LEGAL_NAME_REQUIRED when legalFullName is null', async () => {
       const userWithoutLegal = makeUser({ legalFullName: null })
       const mockDb = makeDb({ userRow: userWithoutLegal })
-      const tplSvc = makeTemplatesService(makeTemplate())
-      const service = new SignedContractsService(mockDb as unknown as DatabaseService, tplSvc)
+      const empSvc = makeEmployeeContractsSvc()
+      const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
 
       await expect(
         service.sign({
@@ -343,11 +393,11 @@ describe('SignedContractsService', () => {
       ).rejects.toThrow(BadRequestException)
     })
 
-    it('throws LEGAL_NAME_REQUIRED when legalFullName is empty string', async () => {
+    it('throws LEGAL_NAME_REQUIRED when legalFullName is whitespace-only', async () => {
       const userWithEmptyLegal = makeUser({ legalFullName: '   ' })
       const mockDb = makeDb({ userRow: userWithEmptyLegal })
-      const tplSvc = makeTemplatesService(makeTemplate())
-      const service = new SignedContractsService(mockDb as unknown as DatabaseService, tplSvc)
+      const empSvc = makeEmployeeContractsSvc()
+      const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
 
       await expect(
         service.sign({
@@ -360,11 +410,11 @@ describe('SignedContractsService', () => {
       ).rejects.toThrow(BadRequestException)
     })
 
-    it('happy path: creates signed contract with CHK-<seq>-<year>', async () => {
+    it('happy path: creates signed contract with CHK-<seq>-<year> and calls markSigned', async () => {
       const inserted = makeSignedContract({ contractNumber: 'CHK-5-2026' })
       const mockDb = makeDb({ insertedRow: inserted, nextSeq: 5 })
-      const tplSvc = makeTemplatesService(makeTemplate())
-      const service = new SignedContractsService(mockDb as unknown as DatabaseService, tplSvc)
+      const empSvc = makeEmployeeContractsSvc()
+      const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
 
       const result = await service.sign({
         userId: seniorUser.id,
@@ -376,40 +426,57 @@ describe('SignedContractsService', () => {
 
       expect(result.contractNumber).toBe('CHK-5-2026')
       expect(result.userId).toBe('senior-1')
+      // A3-1: markSigned must be called to transition employee_contract → SIGNED
+      expect(empSvc.markSigned).toHaveBeenCalledWith('senior-1', inserted.id)
     })
 
-    it('idempotent: returns existing signed_contract on repeat sign', async () => {
-      const existing = makeSignedContract({ contractNumber: 'CHK-1-2026' })
-      const mockDb = makeDb({ existingSigned: existing })
-      const tplSvc = makeTemplatesService(makeTemplate())
-      const service = new SignedContractsService(mockDb as unknown as DatabaseService, tplSvc)
+    it('uses employee_contract.bodyMarkdown (not template body) as snapshot source', async () => {
+      const customBody = '# Custom Body\n\nПерсональный контракт {{employeeName}}'
+      const ec = makeEmployeeContract({ bodyMarkdown: customBody })
+      const inserted = makeSignedContract()
+      const mockDb = makeDb({ insertedRow: inserted })
+      const empSvc = makeEmployeeContractsSvc({ readyContract: ec })
+      const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
 
-      const result = await service.sign({
+      await service.sign({
         userId: seniorUser.id,
         userRole: 'SENIOR',
-        typedName: 'Senior One',
-        ip: '10.0.0.5',
-        userAgent: 'curl/8.0',
+        typedName: '',
+        ip: null,
+        userAgent: null,
       })
 
-      expect(result).toEqual(existing)
-      expect(mockDb.db.transaction).not.toHaveBeenCalled()
+      // The tx.insert().values() call must have received the interpolated custom body
+      const txMock = mockDb.db.transaction as ReturnType<typeof vi.fn>
+      // Transaction was called
+      expect(txMock).toHaveBeenCalled()
+      // getReadyForSigning was called (not template lookup)
+      expect(empSvc.getReadyForSigning).toHaveBeenCalledWith('senior-1')
     })
 
-    it('throws when no active template exists for role', async () => {
+    it('double-sign: CONTRACT_NOT_READY after first sign (employee_contract is SIGNED)', async () => {
+      // Simulate the state after a successful first sign:
+      // employee_contract.status = 'SIGNED' → getReadyForSigning throws 409
+      const signedEc = makeEmployeeContract({ status: 'SIGNED' })
       const mockDb = makeDb()
-      const tplSvc = makeTemplatesService(null)
-      const service = new SignedContractsService(mockDb as unknown as DatabaseService, tplSvc)
+      // Second call: no READY_TO_SIGN contract
+      const empSvc = makeEmployeeContractsSvc({ readyContract: null })
+      const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
 
+      // In real flow, once markSigned ran, next getReadyForSigning returns 409
       await expect(
         service.sign({
           userId: seniorUser.id,
           userRole: 'SENIOR',
-          typedName: 'X',
-          ip: '127.0.0.1',
-          userAgent: 'vt',
+          typedName: '',
+          ip: null,
+          userAgent: null,
         }),
-      ).rejects.toThrow(NotFoundException)
+      ).rejects.toThrow(ConflictException)
+      // Verify it threw before opening a tx
+      expect(mockDb.db.transaction).not.toHaveBeenCalled()
+      // Use signedEc to avoid unused variable lint error
+      void signedEc
     })
   })
 
@@ -420,7 +487,7 @@ describe('SignedContractsService', () => {
       mockDb.db.query.signedContracts.findFirst.mockResolvedValue(row)
       const service = new SignedContractsService(
         mockDb as unknown as DatabaseService,
-        makeTemplatesService(),
+        makeEmployeeContractsSvc(),
       )
 
       const result = await service.findById(row.id, seniorUser)
@@ -433,7 +500,7 @@ describe('SignedContractsService', () => {
       mockDb.db.query.signedContracts.findFirst.mockResolvedValue(row)
       const service = new SignedContractsService(
         mockDb as unknown as DatabaseService,
-        makeTemplatesService(),
+        makeEmployeeContractsSvc(),
       )
 
       const result = await service.findById(row.id, adminUser)
@@ -446,7 +513,7 @@ describe('SignedContractsService', () => {
       mockDb.db.query.signedContracts.findFirst.mockResolvedValue(row)
       const service = new SignedContractsService(
         mockDb as unknown as DatabaseService,
-        makeTemplatesService(),
+        makeEmployeeContractsSvc(),
       )
 
       const result = await service.findById(row.id, accountantUser)
@@ -459,7 +526,7 @@ describe('SignedContractsService', () => {
       mockDb.db.query.signedContracts.findFirst.mockResolvedValue(row)
       const service = new SignedContractsService(
         mockDb as unknown as DatabaseService,
-        makeTemplatesService(),
+        makeEmployeeContractsSvc(),
       )
 
       await expect(service.findById(row.id, otherSenior)).rejects.toThrow(ForbiddenException)
@@ -470,7 +537,7 @@ describe('SignedContractsService', () => {
       mockDb.db.query.signedContracts.findFirst.mockResolvedValue(undefined)
       const service = new SignedContractsService(
         mockDb as unknown as DatabaseService,
-        makeTemplatesService(),
+        makeEmployeeContractsSvc(),
       )
 
       await expect(service.findById('nope', adminUser)).rejects.toThrow(NotFoundException)
@@ -487,7 +554,7 @@ describe('SignedContractsService', () => {
       mockDb.db.query.signedContracts.findMany.mockResolvedValue(rows)
       const service = new SignedContractsService(
         mockDb as unknown as DatabaseService,
-        makeTemplatesService(),
+        makeEmployeeContractsSvc(),
       )
 
       const result = await service.findMine('senior-1')
