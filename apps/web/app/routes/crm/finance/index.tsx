@@ -25,6 +25,7 @@ import {
   CrmDialogBody,
   CrmDialogFooter,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/crm-dialog'
 
 import { api } from '@/lib/axios'
@@ -698,6 +699,9 @@ function FinancePage() {
         <CrmDialogContent maxWidth="sm:max-w-sm">
           <CrmDialogHeader>
             <DialogTitle className="text-base text-destructive">Удалить транзакцию?</DialogTitle>
+            <DialogDescription className="sr-only">
+              Подтверждение безвозвратного удаления финансовой транзакции.
+            </DialogDescription>
           </CrmDialogHeader>
           <CrmDialogBody className="pb-2">
             <div className="text-sm text-muted-foreground space-y-1">
