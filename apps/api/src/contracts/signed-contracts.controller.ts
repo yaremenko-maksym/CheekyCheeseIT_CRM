@@ -1,15 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Header,
-  NotFoundException,
-  Param,
-  ParseUUIDPipe,
-  Post,
-  Req,
-  Res,
-} from '@nestjs/common'
+import { Body, Controller, Get, Header, Param, ParseUUIDPipe, Post, Req, Res } from '@nestjs/common'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { Throttle } from '@nestjs/throttler'
 
@@ -17,9 +6,6 @@ import { signContractSchema, type SessionUser } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { SignedContractsService } from './signed-contracts.service'
 import { ContractPdfService } from './contract-pdf.service'
-import { ContractTemplatesService } from './contract-templates.service'
-import { DatabaseService } from '../database/database.service'
-import type { User } from '../database/schema'
 
 /**
  * Sign / read signed-contracts endpoints.
@@ -28,6 +14,12 @@ import type { User } from '../database/schema'
  *   POST /api/contracts/sign       — any authenticated non-ADMIN
  *   GET  /api/contracts/me         — caller's own signed contracts
  *   GET  /api/contracts/:id        — ADMIN | ACCOUNTANT | owner
+ *   GET  /api/contracts/:id/pdf    — owner | ADMIN | ACCOUNTANT
+ *
+ * A3-1: GET /api/contracts/preview-pdf REMOVED — replaced by per-employee
+ * contract PDF endpoints:
+ *   - GET /api/users/:id/contract/pdf   (ADMIN)
+ *   - GET /api/onboarding/contract/pdf  (self, bypass-listed)
  *
  * Auth enforced by global JwtAuthGuard (AppModule APP_GUARD). `/sign` lives
  * in the OnboardingGuard bypass list so users mid-onboarding can submit it
@@ -41,67 +33,7 @@ export class SignedContractsController {
   constructor(
     private readonly service: SignedContractsService,
     private readonly contractPdf: ContractPdfService,
-    private readonly templates: ContractTemplatesService,
-    private readonly db: DatabaseService,
   ) {}
-
-  /**
-   * Render the active MSA template for the caller's role as an UNSIGNED preview PDF.
-   *
-   * Critical: this endpoint is in OnboardingGuard.bypassPrefixes so un-onboarded
-   * users can see their contract before signing it. Without the bypass, the guard
-   * would return 403 to anyone who hasn't completed onboarding yet.
-   *
-   * PD-3 decision: preview renders "Требует подписи участника" in the signature
-   * block (no name/date/QR) — clearly distinct from a signed document.
-   *
-   * Throttle: 5 req/min (PDF generation is more expensive than JSON).
-   * Returns: application/pdf stream.
-   */
-  @Get('preview-pdf')
-  @Header('Cache-Control', 'no-store, private')
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  async previewPdf(@CurrentUser() user: SessionUser, @Res() reply: FastifyReply): Promise<void> {
-    // Fetch the active template for this user's role.
-    const template = await this.templates.getCurrentForRole(
-      user.role as Parameters<typeof this.templates.getCurrentForRole>[0],
-    )
-    if (!template) {
-      throw new NotFoundException('Шаблон контракта для вашей роли не найден')
-    }
-
-    // Load the user row to interpolate their real data (legal name, requisites, etc).
-    const userRow = (await this.db.db.query.users.findFirst({
-      where: (tbl, { eq }) => eq(tbl.id, user.id),
-    })) as User | undefined
-    if (!userRow) {
-      throw new NotFoundException('Пользователь не найден')
-    }
-
-    // Interpolate variables with real user data and current date as preview date.
-    const previewDate = new Date()
-    const { body } = SignedContractsService.interpolateVariables(
-      template.bodyMarkdown,
-      userRow,
-      previewDate,
-    )
-
-    // Generate PDF in preview/unsigned mode (PD-3).
-    const { pdfBuffer } = await this.contractPdf.generateContractPdf({
-      contractNumber: '—',
-      bodyMarkdown: body,
-      signedTypedName: '',
-      signedAt: previewDate,
-      signedIpLastOctet: null,
-      verifyUrl: '',
-      isPreview: true,
-    })
-
-    await reply
-      .header('Content-Type', 'application/pdf')
-      .header('Content-Disposition', 'inline; filename="contract-preview.pdf"')
-      .send(pdfBuffer)
-  }
 
   // Signing a contract is a one-time user action — 10 req/min prevents
   // automated replay without breaking real onboarding retries.

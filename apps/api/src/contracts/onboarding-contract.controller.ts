@@ -69,11 +69,9 @@ export class OnboardingContractController {
       contractNumber: '',
       bodyMarkdown: body,
       signedTypedName: '',
-      signedAt: new Date(),
+      signedAt: null,
       signedIpLastOctet: null,
       verifyUrl: '',
-      // isPreview is removed in M5 — for now use preview mode for unsigned PDF
-      isPreview: true,
     })
 
     await reply

@@ -24,24 +24,32 @@ import { PDF_COLORS, PDF_LAYOUT, PDF_BRAND } from '../common/pdf/pdf.constants'
 import { sha256Hex } from '../common/pdf/pdf.utils'
 
 export interface GenerateContractPdfParams {
+  /**
+   * A3-1: Rendered as '—' when empty/null (unsigned preview).
+   * Real value when signed (CHK-N-YYYY).
+   */
   contractNumber: string
   /** bodyMarkdownSnapshot — already variable-interpolated at sign time. */
   bodyMarkdown: string
+  /**
+   * A3-1: signature block logic driven by this field.
+   *   - Non-empty → render real signature (name + date + IP + QR).
+   *   - Empty string '' → render «Требуется подпись участника» (unsigned preview mode).
+   * isPreview removed — this field is the single conditional.
+   */
   signedTypedName: string
-  signedAt: Date
+  /**
+   * A3-1: optional — defaults to `new Date()` when null (unsigned preview).
+   * Used for deterministic PDF metadata and signed-date rendering.
+   */
+  signedAt: Date | null
   /** Last octet only (privacy) — rendered in the signature block. NULL if unknown. */
   signedIpLastOctet: string | null
-  /** Public verify URL — encoded into the QR code. */
-  verifyUrl: string
   /**
-   * Preview / unsigned mode (PD-3 decision).
-   * When true:
-   *   - Signature block renders «Требует подписи участника» instead of name/date/IP.
-   *   - QR code and verifyUrl footer are NOT rendered.
-   *   - contractNumber renders as «—» (draft placeholder).
-   * The body content, branding header, and layout are identical to the signed version.
+   * Public verify URL — encoded into the QR code.
+   * Empty string '' → QR and verifyUrl footer NOT rendered (unsigned preview).
    */
-  isPreview?: boolean
+  verifyUrl: string
 }
 
 export interface GenerateContractPdfResult {
@@ -101,8 +109,9 @@ export class ContractPdfService {
       color: textColor,
     })
     cursor.y -= 24
-    // In preview mode: show draft placeholder for contractNumber.
-    const displayContractNumber = params.isPreview ? '—' : params.contractNumber
+    // A3-1: show '—' when contractNumber is empty (unsigned preview).
+    const isSigned = Boolean(params.signedTypedName?.trim())
+    const displayContractNumber = params.contractNumber || '—'
     this.pdfGen.drawText(cursor.page, `Контракт № ${displayContractNumber}`, {
       x: pageMargin,
       y: cursor.y,
@@ -111,8 +120,8 @@ export class ContractPdfService {
       color: mutedColor,
     })
     cursor.y -= 14
-    // In preview mode: omit "Подписан" date line (document is unsigned).
-    if (!params.isPreview) {
+    // Show signed date only when the contract is actually signed.
+    if (isSigned && params.signedAt) {
       this.pdfGen.drawText(cursor.page, `Подписан: ${formatDateRu(params.signedAt)}`, {
         x: pageMargin,
         y: cursor.y,
@@ -223,17 +232,7 @@ export class ContractPdfService {
     })
     cursor.y -= 16
 
-    if (params.isPreview) {
-      // PD-3: unsigned preview mode — show placeholder instead of real signer info.
-      // No name, no date, no IP — the document has not been signed yet.
-      this.pdfGen.drawText(cursor.page, 'Требует подписи участника', {
-        x: pageMargin,
-        y: cursor.y,
-        font: regularFont,
-        size: BODY_SIZE,
-        color: mutedColor,
-      })
-    } else {
+    if (isSigned) {
       // Signed mode — show resolved name, date, and trailing IP segment.
       this.pdfGen.drawText(cursor.page, params.signedTypedName, {
         x: pageMargin,
@@ -244,18 +243,29 @@ export class ContractPdfService {
       })
       cursor.y -= 14
       const ipSuffix = params.signedIpLastOctet ? ` · IP …${params.signedIpLastOctet}` : ''
-      this.pdfGen.drawText(cursor.page, `${formatDateRu(params.signedAt)}${ipSuffix}`, {
+      const signedAtDisplay = params.signedAt ? formatDateRu(params.signedAt) : ''
+      this.pdfGen.drawText(cursor.page, `${signedAtDisplay}${ipSuffix}`, {
         x: pageMargin,
         y: cursor.y,
         font: regularFont,
         size: 9,
         color: mutedColor,
       })
+    } else {
+      // A3-1: unsigned preview — show placeholder text instead of signer info.
+      // No name, no date, no IP — the document has not been signed yet.
+      this.pdfGen.drawText(cursor.page, 'Требуется подпись участника', {
+        x: pageMargin,
+        y: cursor.y,
+        font: regularFont,
+        size: BODY_SIZE,
+        color: mutedColor,
+      })
     }
 
-    // ---- QR + footer (on the final page) — only for signed contracts --
-    // In preview mode: omit QR and verifyUrl footer per PD-3 decision.
-    if (!params.isPreview) {
+    // ---- QR + footer — only when verifyUrl is provided (signed contracts) --
+    // A3-1: empty verifyUrl = unsigned preview → omit QR and footer.
+    if (isSigned && params.verifyUrl) {
       const qrImage = await this.pdfGen.embedQrPng(pdfDoc, params.verifyUrl)
       const finalPage = cursor.page
       finalPage.drawImage(qrImage, {
@@ -274,7 +284,8 @@ export class ContractPdfService {
     }
 
     // ---- Deterministic save -------------------------------------------
-    this.pdfGen.applyDeterministicMetadata(pdfDoc, params.signedAt)
+    // A3-1: signedAt is null for unsigned previews — use current date for metadata.
+    this.pdfGen.applyDeterministicMetadata(pdfDoc, params.signedAt ?? new Date())
     const bytes = await pdfDoc.save({ useObjectStreams: false })
     const buffer = Buffer.from(bytes)
 

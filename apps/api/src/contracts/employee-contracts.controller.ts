@@ -154,11 +154,9 @@ export class EmployeeContractsController {
         contractNumber: '',
         bodyMarkdown: body,
         signedTypedName: '',
-        signedAt: new Date(),
+        signedAt: null,
         signedIpLastOctet: null,
         verifyUrl: '',
-        // isPreview is removed in M5 — for now pass flag to suppress signature block
-        isPreview: true,
       }
     }
 
