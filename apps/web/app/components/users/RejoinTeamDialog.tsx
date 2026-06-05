@@ -13,6 +13,7 @@ import {
   CrmDialogFooter,
   CrmDialogHeader,
   Dialog,
+  DialogDescription,
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
@@ -38,13 +39,7 @@ import { cn } from '@/lib/utils'
  *
  * Only SENIORs can land here — the backend rejects other roles with 403.
  */
-export function RejoinTeamDialog({
-  open,
-  onClose,
-}: {
-  open: boolean
-  onClose: () => void
-}) {
+export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const queryClient = useQueryClient()
 
   const { data: allUsers } = useQuery({
@@ -90,8 +85,12 @@ export function RejoinTeamDialog({
   }, [open, hrUsers.length, accountantUsers.length])
 
   const mutation = useMutation({
-    mutationFn: (data: { teamMode: TeamMode; dropTeamId?: string; hrIds?: string[]; accountantId?: string | null }) =>
-      api.post('/users/me/rejoin-team', data),
+    mutationFn: (data: {
+      teamMode: TeamMode
+      dropTeamId?: string
+      hrIds?: string[]
+      accountantId?: string | null
+    }) => api.post('/users/me/rejoin-team', data),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['teams'] })
       void queryClient.invalidateQueries({ queryKey: ['team'] })
@@ -155,6 +154,9 @@ export function RejoinTeamDialog({
       <CrmDialogContent data-testid="rejoin-team-dialog">
         <CrmDialogHeader>
           <DialogTitle>Создать или выбрать команду</DialogTitle>
+          <DialogDescription className="sr-only">
+            Создание новой команды или присоединение к команде дропа.
+          </DialogDescription>
           <p className="text-xs text-muted-foreground mt-1">
             У вас нет активной команды. Создайте свою или присоединитесь к команде дропа.
           </p>
@@ -248,9 +250,7 @@ export function RejoinTeamDialog({
                           </SelectTrigger>
                           <SelectContent>
                             {vacantDropTeams.map((t) => {
-                              const drop = t.members.find(
-                                (m) => m.role === 'DROP' && !m.leftAt,
-                              )
+                              const drop = t.members.find((m) => m.role === 'DROP' && !m.leftAt)
                               return (
                                 <SelectItem key={t.id} value={t.id}>
                                   <div className="flex flex-col items-start">

@@ -56,6 +56,7 @@ import {
   CrmDialogFooter,
   CrmDialogHeader,
   Dialog,
+  DialogDescription,
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
@@ -899,6 +900,11 @@ export function UserDialog(props: UserDialogProps) {
                 </>
               )}
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              {isCreate
+                ? 'Форма создания нового пользователя с настройкой роли, реквизитов и команды.'
+                : 'Форма редактирования данных пользователя.'}
+            </DialogDescription>
           </CrmDialogHeader>
 
           <CrmDialogBody>
