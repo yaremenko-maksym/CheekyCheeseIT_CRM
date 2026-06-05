@@ -8,6 +8,7 @@ import type { OnboardingStatusDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { SignContractStep } from '@/components/onboarding/SignContractStep'
+import { ContractWaitScreen } from '@/components/onboarding/ContractWaitScreen'
 import { AcceptTosStep } from '@/components/onboarding/AcceptTosStep'
 
 // Search params schema — ?step=contract|tos
@@ -35,6 +36,10 @@ function OnboardingPage() {
     },
     enabled: !!user,
     staleTime: 0,
+    // A3-4: poll every 15s during onboarding so that when ADMIN marks the
+    // contract READY_TO_SIGN (contractReady flips true), the page transitions
+    // from ContractWaitScreen → SignContractStep without a manual refresh.
+    refetchInterval: 15_000,
   })
 
   // Determine initial step from status or URL param
@@ -151,8 +156,13 @@ function OnboardingPage() {
             transition={{ duration: 0.2 }}
             data-testid="onboarding-step-contract"
           >
-            <h2 className="mb-4 text-lg font-semibold">Подписание MSA-контракта</h2>
-            <SignContractStep onSuccess={handleContractSuccess} />
+            <h2 className="mb-4 text-lg font-semibold">Подписание контракта</h2>
+            {/* A3-4 three-state: wait if DRAFT, sign if READY_TO_SIGN */}
+            {status?.contractReady ? (
+              <SignContractStep onSuccess={handleContractSuccess} />
+            ) : (
+              <ContractWaitScreen />
+            )}
           </motion.div>
         )}
 
