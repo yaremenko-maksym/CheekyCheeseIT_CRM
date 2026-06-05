@@ -12,7 +12,7 @@
  */
 
 import { test, expect } from '@playwright/test'
-import { USERS, mockAuthAs, buildAdminViewingUser, buildSelfView } from './fixtures'
+import { USERS, mockAuthAs, buildAdminViewingUser, buildSelfView } from '../fixtures'
 
 const API = 'http://localhost:3001/api'
 
@@ -92,7 +92,10 @@ async function setupAdminViewingSenior(
       await r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ ...DRAFT_CONTRACT, bodyMarkdown: body.bodyMarkdown ?? DRAFT_CONTRACT.bodyMarkdown }),
+        body: JSON.stringify({
+          ...DRAFT_CONTRACT,
+          bodyMarkdown: body.bodyMarkdown ?? DRAFT_CONTRACT.bodyMarkdown,
+        }),
       })
     } else if (r.request().method() === 'GET') {
       if (contractStatus !== 200) {
@@ -141,7 +144,9 @@ test.describe('A3-2: Contract editor tab', () => {
     await expect(page.getByTestId('contract-status-badge')).toHaveText('Черновик')
   })
 
-  test('AC1: SENIOR (non-ADMIN) does NOT see "Контракт" tab on another profile', async ({ page }) => {
+  test('AC1: SENIOR (non-ADMIN) does NOT see "Контракт" tab on another profile', async ({
+    page,
+  }) => {
     await mockAuthAs(page, USERS.senior)
 
     // Senior viewing junior — no contract tab in permissions
@@ -169,7 +174,9 @@ test.describe('A3-2: Contract editor tab', () => {
     await expect(page.getByRole('button', { name: 'Контракт' })).not.toBeVisible()
   })
 
-  test('AC2: DRAFT contract loads; Save button disabled when clean, enabled when dirty', async ({ page }) => {
+  test('AC2: DRAFT contract loads; Save button disabled when clean, enabled when dirty', async ({
+    page,
+  }) => {
     await setupAdminViewingSenior(page, DRAFT_CONTRACT)
     await page.goto(`/crm/profile/${TARGET_ID}?tab=contract`)
 
