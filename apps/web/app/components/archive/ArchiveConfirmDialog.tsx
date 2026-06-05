@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -189,6 +190,9 @@ export function ArchiveConfirmDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="text-destructive">{title}</DialogTitle>
+          <DialogDescription className="sr-only">
+            Подтверждение архивации. Введите имя для подтверждения действия.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 text-sm">
           {isLoading ? (

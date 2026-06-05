@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -29,6 +30,9 @@ export function ChangeRoleDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Изменить роль</DialogTitle>
+          <DialogDescription className="sr-only">
+            Изменение роли пользователя в системе.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-1.5">
           <Label>Роль</Label>
