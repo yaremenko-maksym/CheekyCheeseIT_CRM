@@ -143,6 +143,11 @@ function CrmLayout() {
 
   if (!user) return null
 
+  // AC6: onboarding route renders only the <Outlet /> — no sidebar, no header.
+  // Computed here (not inside useEffect) so it is available at render time.
+  const onOnboardingRoute = location.pathname.startsWith('/crm/onboarding')
+  if (onOnboardingRoute) return <Outlet />
+
   return (
     <div className="relative flex h-screen flex-col bg-background text-foreground">
       {/* ut-21: ambient animated background — три цветных blob'а медленно

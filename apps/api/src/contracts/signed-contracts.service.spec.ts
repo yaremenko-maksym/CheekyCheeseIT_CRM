@@ -51,6 +51,8 @@ function makeUser(overrides: Record<string, unknown> = {}) {
     email: 'senior@cc.com',
     displayName: 'Senior One',
     role: 'SENIOR' as const,
+    // legalFullName required by PD-4 guard (AC1) — set by ADMIN before signing.
+    legalFullName: 'Сеньйор Один Тестович',
     walletUsdtErc20: '0x1234567890123456789012345678901234567890',
     walletUsdtLabel: 'Main wallet',
     bankUahRecipient: null,
@@ -180,6 +182,10 @@ describe('SignedContractsService', () => {
       const tmpl = makeTemplate()
       const user = makeUser({
         displayName: 'Test User',
+        // legalFullName: null so employeeName falls back to displayName (tests
+        // the interpolation fallback chain; signed contracts always require a
+        // legalFullName but interpolateVariables itself does not enforce it).
+        legalFullName: null,
         email: 'test@cc.com',
         role: 'SENIOR',
         walletUsdtErc20: '0xabc',
@@ -277,6 +283,8 @@ describe('SignedContractsService', () => {
       })
       const user = makeUser({
         displayName: '{{walletUsdt}}',
+        // legalFullName: null so the injection test goes through displayName path.
+        legalFullName: null,
         walletUsdtErc20: '0xSECRET',
       })
       const result = SignedContractsService.interpolateVariables(
@@ -312,6 +320,40 @@ describe('SignedContractsService', () => {
           userId: adminUser.id,
           userRole: 'ADMIN',
           typedName: 'X',
+          ip: '127.0.0.1',
+          userAgent: 'vt',
+        }),
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('throws LEGAL_NAME_REQUIRED when legalFullName is null', async () => {
+      const userWithoutLegal = makeUser({ legalFullName: null })
+      const mockDb = makeDb({ userRow: userWithoutLegal })
+      const tplSvc = makeTemplatesService(makeTemplate())
+      const service = new SignedContractsService(mockDb as unknown as DatabaseService, tplSvc)
+
+      await expect(
+        service.sign({
+          userId: seniorUser.id,
+          userRole: 'SENIOR',
+          typedName: '',
+          ip: '127.0.0.1',
+          userAgent: 'vt',
+        }),
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('throws LEGAL_NAME_REQUIRED when legalFullName is empty string', async () => {
+      const userWithEmptyLegal = makeUser({ legalFullName: '   ' })
+      const mockDb = makeDb({ userRow: userWithEmptyLegal })
+      const tplSvc = makeTemplatesService(makeTemplate())
+      const service = new SignedContractsService(mockDb as unknown as DatabaseService, tplSvc)
+
+      await expect(
+        service.sign({
+          userId: seniorUser.id,
+          userRole: 'SENIOR',
+          typedName: '',
           ip: '127.0.0.1',
           userAgent: 'vt',
         }),

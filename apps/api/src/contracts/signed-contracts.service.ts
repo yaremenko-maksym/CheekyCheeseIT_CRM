@@ -62,7 +62,7 @@ export class SignedContractsService {
     userId: string
     userRole: SessionUser['role']
     /** @deprecated Ignored — resolved server-side from legalFullName (spec §4.3 Option A). */
-    typedName: string
+    typedName: string | undefined
     ip: string | null
     userAgent: string | null
   }) {
@@ -97,6 +97,14 @@ export class SignedContractsService {
         where: (tbl, { eq }) => eq(tbl.id, userId),
       })) as User | undefined
       if (!user) throw new NotFoundException('User not found')
+
+      // PD-4 guard (spec §6.1): legalFullName MUST be set by ADMIN before
+      // signing. Signing with a platform displayName would produce a
+      // legally-invalid contract (non-Cyrillic name). Frontend disables the
+      // button on the same condition, but we guard on the server as well.
+      if (!user.legalFullName?.trim()) {
+        throw new BadRequestException('LEGAL_NAME_REQUIRED')
+      }
 
       const signedAt = new Date()
       const { body, variables } = SignedContractsService.interpolateVariables(

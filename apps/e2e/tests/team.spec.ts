@@ -539,16 +539,22 @@ test.describe('Team page', () => {
     })
 
     test('search filters teams by name', async ({ asAdmin: page }) => {
+      // 'Alpha Team' — имя из fixtures.ts (TEAMS[0]), тест работает с моком,
+      // не с реальным seed. Hardcoded т.к. dynamic подход не работает с
+      // playwright fixtures (auth chain не установлена до page.goto).
+      const firstTeamName = 'Alpha Team'
+      const searchPrefix = 'Alpha'
+
       await page.goto('/crm/team')
-      await expect(page.getByText('Alpha Team')).toBeVisible()
+      await expect(page.getByText(firstTeamName)).toBeVisible()
 
       // Search for non-existent team
       await page.getByPlaceholder('Поиск по названию…').fill('NonExistent')
       await expect(page.getByText('Ничего не найдено')).toBeVisible()
 
-      // Search for existing team
-      await page.getByPlaceholder('Поиск по названию…').fill('Alpha')
-      await expect(page.getByText('Alpha Team')).toBeVisible()
+      // Search for existing team by prefix
+      await page.getByPlaceholder('Поиск по названию…').fill(searchPrefix)
+      await expect(page.getByText(firstTeamName)).toBeVisible()
     })
 
     test.skip('role filter was removed from toolbar (PR #18)', async ({ asAdmin: page }) => {
