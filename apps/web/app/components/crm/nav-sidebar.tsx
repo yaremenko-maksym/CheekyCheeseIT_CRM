@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils'
 import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Sheet, SheetContent } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useActiveTeam } from '@/hooks/use-active-team'
 
@@ -172,6 +172,10 @@ export function NavSidebar({
       {/* Mobile Sheet */}
       <Sheet open={mobileOpen} onOpenChange={(open) => !open && onMobileClose()}>
         <SheetContent side="left" className="w-60 p-0 gap-0">
+          <SheetTitle className="sr-only">Навигация</SheetTitle>
+          <SheetDescription className="sr-only">
+            Боковая навигация CRM — переход между разделами системы.
+          </SheetDescription>
           <div className="border-b border-border/60 px-4 py-3">
             <div className="flex items-center gap-2">
               <BrandMark variant="flat" className="h-6 w-6 text-primary" />
