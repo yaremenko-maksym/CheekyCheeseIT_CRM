@@ -616,7 +616,7 @@ async function main() {
   // ---- 1. Truncate all data (order matters for FK constraints) ----
   console.log('\n[1/8] Truncating existing data...')
   await db.execute(
-    'TRUNCATE TABLE tos_acceptances, signed_contracts, tos_versions, contract_templates, notifications, user_audit_log, team_audit_log, project_audit_log, invoice_signatures, pending_obligations, transactions, payout_requests, project_finance_settings, project_members, projects, interviews, team_members, teams, documents, users RESTART IDENTITY CASCADE' as unknown as Parameters<
+    'TRUNCATE TABLE tos_acceptances, employee_contracts, signed_contracts, tos_versions, contract_templates, notifications, user_audit_log, team_audit_log, project_audit_log, invoice_signatures, pending_obligations, transactions, payout_requests, project_finance_settings, project_members, projects, interviews, team_members, teams, documents, users RESTART IDENTITY CASCADE' as unknown as Parameters<
       typeof db.execute
     >[0],
   )
@@ -1717,6 +1717,9 @@ async function main() {
     },
   ]
 
+  // Map userId → signed_contract.id for employee_contracts backfill (AC9)
+  const signedContractIdByUser: Record<string, string> = {}
+
   for (const u of onboardedUsers) {
     const tmplId = templateMap[u.role]
     if (!tmplId) continue
@@ -1727,22 +1730,26 @@ async function main() {
       .replace(/\{\{walletUsdt\}\}/g, u.method === 'USDT ERC-20' ? u.payRequisite : '')
       .replace(/\{\{bankUahFop\}\}/g, u.method === 'Bank UAH FOP' ? u.payRequisite : '')
 
-    await db.insert(schema.signedContracts).values({
-      userId: u.userId,
-      templateId: tmplId,
-      bodyMarkdownSnapshot: snapshot,
-      variablesFilled: {
-        employeeName: u.legalName,
-        onboardingDate: u.signedAt.toISOString().slice(0, 10),
-        preferredMethod: u.method,
-        walletUsdt: u.method === 'USDT ERC-20' ? u.payRequisite : '',
-        bankUahFop: u.method === 'Bank UAH FOP' ? u.payRequisite : '',
-      },
-      signedTypedName: u.legalName,
-      signedIp: '127.0.0.1',
-      signedAt: u.signedAt,
-      contractNumber: `CHK-${u.contractNum}-2025`,
-    })
+    const [sc] = await db
+      .insert(schema.signedContracts)
+      .values({
+        userId: u.userId,
+        templateId: tmplId,
+        bodyMarkdownSnapshot: snapshot,
+        variablesFilled: {
+          employeeName: u.legalName,
+          onboardingDate: u.signedAt.toISOString().slice(0, 10),
+          preferredMethod: u.method,
+          walletUsdt: u.method === 'USDT ERC-20' ? u.payRequisite : '',
+          bankUahFop: u.method === 'Bank UAH FOP' ? u.payRequisite : '',
+        },
+        signedTypedName: u.legalName,
+        signedIp: '127.0.0.1',
+        signedAt: u.signedAt,
+        contractNumber: `CHK-${u.contractNum}-2025`,
+      })
+      .returning()
+    if (sc) signedContractIdByUser[u.userId] = sc.id
 
     // ToS acceptance for onboarded users
     await db.insert(schema.tosAcceptances).values({
@@ -1753,7 +1760,61 @@ async function main() {
     })
   }
   console.log(`  ✓ ${onboardedUsers.length} signed contracts + ToS acceptances inserted`)
-  console.log('  ✓ dmytro.marchenko + ivan.petrenko remain UN-ONBOARDED (for wizard testing)')
+
+  // AC9 — employee_contracts backfill (A3-1):
+  //   • SIGNED for every onboarded user (linked to their signed_contract)
+  //   • READY_TO_SIGN for Dmytro (awaiting signing — wizard test scenario)
+  //   • No record for Ivan (completely un-onboarded — blocked fallback scenario)
+  for (const u of onboardedUsers) {
+    const tmplId = templateMap[u.role]
+    const scId = signedContractIdByUser[u.userId]
+    if (!tmplId || !scId) continue
+    const snapshot = (CONTRACT_BODY[u.role] ?? '')
+      .replace(/\{\{employeeName\}\}/g, u.legalName)
+      .replace(/\{\{onboardingDate\}\}/g, u.signedAt.toISOString().slice(0, 10))
+      .replace(/\{\{preferredMethod\}\}/g, u.method)
+      .replace(/\{\{walletUsdt\}\}/g, u.method === 'USDT ERC-20' ? u.payRequisite : '')
+      .replace(/\{\{bankUahFop\}\}/g, u.method === 'Bank UAH FOP' ? u.payRequisite : '')
+
+    await db.insert(schema.employeeContracts).values({
+      userId: u.userId,
+      sourceTemplateId: tmplId,
+      bodyMarkdown: snapshot,
+      status: 'SIGNED',
+      signedContractId: scId,
+      createdByUserId: MAKSYM_ID,
+      createdAt: u.signedAt,
+      updatedAt: u.signedAt,
+    })
+  }
+
+  // Dmytro: READY_TO_SIGN — contract prepared by ADMIN, awaiting user signing
+  const dmytroTmplId = templateMap['SENIOR']
+  if (dmytroTmplId) {
+    const dmytroSnapshot = (CONTRACT_BODY['SENIOR'] ?? '')
+      .replace(/\{\{employeeName\}\}/g, 'Марченко Дмитро Олексійович')
+      .replace(/\{\{onboardingDate\}\}/g, d(2025, 7, 1).toISOString().slice(0, 10))
+      .replace(/\{\{preferredMethod\}\}/g, 'не вказано')
+      .replace(/\{\{walletUsdt\}\}/g, '')
+      .replace(/\{\{bankUahFop\}\}/g, '')
+
+    await db.insert(schema.employeeContracts).values({
+      userId: DMYTRO_ID,
+      sourceTemplateId: dmytroTmplId,
+      bodyMarkdown: dmytroSnapshot,
+      status: 'READY_TO_SIGN',
+      signedContractId: null,
+      createdByUserId: MAKSYM_ID,
+      createdAt: d(2025, 7, 1),
+      updatedAt: d(2025, 7, 1),
+    })
+  }
+  // Ivan: no employee_contract at all (completely blocked — frontend fallback scenario)
+
+  console.log(
+    `  ✓ ${onboardedUsers.length} employee_contracts (SIGNED) + 1 READY_TO_SIGN (Dmytro) inserted`,
+  )
+  console.log('  ✓ dmytro.marchenko — READY_TO_SIGN (wizard test); ivan.petrenko — no contract')
 
   // ---- 8. Final verification queries ----
   console.log('\n[8/8] Verification...')
