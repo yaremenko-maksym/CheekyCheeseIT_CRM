@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { useEffect } from 'react'
-import { Download, FileText, ScrollText, ShieldCheck } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ChevronDown, Download, FileText, Loader2, ScrollText, ShieldCheck } from 'lucide-react'
 import { auditTrailResponseSchema } from '@crm/shared'
 import type { SignedContractItem, TosAcceptanceItem } from '@crm/shared'
 import { api } from '@/lib/axios'
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/crm/profile/audit')({
   component: ProfileAuditPage,
@@ -44,61 +45,165 @@ function downloadMarkdown(filename: string, content: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Contract card
+// Contract card with PDF accordion (PD-2 = Вариант C)
 // ---------------------------------------------------------------------------
 
-function ContractCard({ contract }: { contract: SignedContractItem }) {
+interface ContractCardProps {
+  contract: SignedContractItem
+  expanded: boolean
+  blobUrl: string | null
+  isLoadingPdf: boolean
+  onToggle: () => void
+}
+
+function ContractCard({ contract, expanded, blobUrl, isLoadingPdf, onToggle }: ContractCardProps) {
+  const panelId = `pdf-panel-${contract.id}`
+  const toggleId = `pdf-toggle-${contract.id}`
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      onToggle()
+    }
+  }
+
   return (
-    <div
-      className="rounded-lg border border-border/60 bg-card p-4 space-y-3"
-      data-testid="audit-contract-card"
-    >
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <FileText className="h-4 w-4 text-primary shrink-0" />
-            <span className="font-mono text-sm font-medium">{contract.contractNumber}</span>
-            <Badge variant="outline" className="text-xs">
-              {ROLE_LABELS[contract.templateRole] ?? contract.templateRole} · v
-              {contract.templateVersion}
-            </Badge>
+    <div className="rounded-lg border border-border/60 bg-card" data-testid="audit-contract-card">
+      {/* Header row */}
+      <div className="p-4 space-y-3">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-primary shrink-0" />
+              <span className="font-mono text-sm font-medium">{contract.contractNumber}</span>
+              <Badge variant="outline" className="text-xs">
+                {ROLE_LABELS[contract.templateRole] ?? contract.templateRole} · v
+                {contract.templateVersion}
+              </Badge>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Подписано: {formatDate(contract.signedAt)}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Подписал(а):{' '}
+              <span className="font-medium text-foreground">{contract.signedTypedName}</span>
+            </p>
+            {contract.signedIp && (
+              <p className="text-xs text-muted-foreground">IP: {contract.signedIp}</p>
+            )}
           </div>
-          <p className="text-sm text-muted-foreground">
-            Подписано: {formatDate(contract.signedAt)}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Подписал(а):{' '}
-            <span className="font-medium text-foreground">{contract.signedTypedName}</span>
-          </p>
-          {contract.signedIp && (
-            <p className="text-xs text-muted-foreground">IP: {contract.signedIp}</p>
-          )}
-        </div>
-        <div className="flex flex-col gap-2 shrink-0">
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-2"
-            data-testid="audit-contract-download"
-            onClick={() =>
-              downloadMarkdown(`${contract.contractNumber}.md`, contract.bodyMarkdownSnapshot)
-            }
-          >
-            <Download className="h-3.5 w-3.5" />
-            Markdown
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-2"
-            data-testid="audit-contract-pdf"
-            onClick={() => window.open(`/api/contracts/${contract.id}/pdf`, '_blank')}
-          >
-            <FileText className="h-3.5 w-3.5" />
-            PDF
-          </Button>
+
+          {/* Actions */}
+          <div className="flex flex-col gap-2 shrink-0">
+            {/* Accordion toggle */}
+            <button
+              id={toggleId}
+              type="button"
+              aria-expanded={expanded}
+              aria-controls={panelId}
+              data-testid="audit-contract-expand"
+              onClick={onToggle}
+              onKeyDown={handleKeyDown}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md border border-border/60 px-3 py-1.5 text-xs font-medium transition-colors',
+                'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                expanded && 'bg-accent',
+              )}
+            >
+              <FileText className="h-3.5 w-3.5" />
+              PDF
+              <ChevronDown
+                className={cn(
+                  'h-3 w-3 transition-transform duration-200',
+                  expanded && 'rotate-180',
+                )}
+                aria-hidden="true"
+              />
+            </button>
+
+            {/* Markdown download */}
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-2"
+              data-testid="audit-contract-download"
+              onClick={() =>
+                downloadMarkdown(`${contract.contractNumber}.md`, contract.bodyMarkdownSnapshot)
+              }
+            >
+              <Download className="h-3.5 w-3.5" />
+              Markdown
+            </Button>
+          </div>
         </div>
       </div>
+
+      {/* Accordion panel */}
+      {expanded && (
+        <div
+          id={panelId}
+          role="region"
+          aria-labelledby={toggleId}
+          data-testid="audit-contract-pdf-panel"
+          className="border-t border-border/60 p-4"
+        >
+          <div
+            className="relative w-full rounded-md border border-border bg-muted/20"
+            style={{ height: '480px' }}
+          >
+            {/* Loading overlay */}
+            {isLoadingPdf && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-md bg-muted/30">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">Загрузка PDF…</p>
+              </div>
+            )}
+
+            {/* PDF iframe (nested object — iOS progressive enhancement, from SignContractStep) */}
+            {blobUrl && (
+              <iframe
+                src={blobUrl}
+                title={`Контракт ${contract.contractNumber}`}
+                aria-label={`Просмотр контракта ${contract.contractNumber}`}
+                tabIndex={0}
+                data-testid="audit-contract-iframe"
+                className={cn('w-full h-full rounded-md border-0', isLoadingPdf && 'invisible')}
+                style={{
+                  // Mobile: reduce height
+                  height: '100%',
+                }}
+              >
+                {/* iOS Safari fallback */}
+                <object data={blobUrl} type="application/pdf" className="w-full h-full">
+                  <p className="p-4 text-sm text-muted-foreground">
+                    Встроенный просмотр PDF недоступен.{' '}
+                    <a
+                      href={blobUrl}
+                      download={`${contract.contractNumber}.pdf`}
+                      className="underline hover:text-foreground"
+                    >
+                      Скачать PDF
+                    </a>
+                  </p>
+                </object>
+              </iframe>
+            )}
+
+            {/* No blob yet (shouldn't normally show — loading covers it) */}
+            {!blobUrl && !isLoadingPdf && (
+              <div className="flex h-full items-center justify-center">
+                <FileText className="h-10 w-10 text-muted-foreground" />
+              </div>
+            )}
+          </div>
+
+          {/* SR-only note */}
+          <p className="sr-only">
+            PDF-документ контракта {contract.contractNumber}. Используйте кнопку Markdown для
+            скачивания текстовой версии.
+          </p>
+        </div>
+      )}
     </div>
   )
 }
@@ -131,6 +236,25 @@ function ProfileAuditPage() {
   const { user, isLoading: authLoading } = useAuth()
   const navigate = useNavigate()
 
+  // Accordion state: which contract ids are expanded
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  // Blob URLs per contractId — fetched on first expand
+  const [blobs, setBlobs] = useState<Record<string, string>>({})
+  // Loading state per contractId
+  const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set())
+
+  // Ref to track all blob URLs for cleanup
+  const blobsRef = useRef(blobs)
+  blobsRef.current = blobs
+
+  // Cleanup: revoke all blob URLs on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      const current = blobsRef.current
+      Object.values(current).forEach((url) => URL.revokeObjectURL(url))
+    }
+  }, [])
+
   useEffect(() => {
     if (authLoading) return
     if (!user) void navigate({ to: '/crm/login' })
@@ -145,6 +269,45 @@ function ProfileAuditPage() {
     enabled: !!user,
     staleTime: 60_000,
   })
+
+  function handleToggle(contractId: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(contractId)) {
+        // Collapse: revoke blob URL
+        next.delete(contractId)
+        const url = blobsRef.current[contractId]
+        if (url) {
+          URL.revokeObjectURL(url)
+          setBlobs((b) => {
+            const nb = { ...b }
+            delete nb[contractId]
+            return nb
+          })
+        }
+      } else {
+        // Expand: start loading PDF if not already loaded
+        next.add(contractId)
+        if (!blobsRef.current[contractId]) {
+          setLoadingIds((l) => new Set(l).add(contractId))
+          void api
+            .get(`/contracts/${contractId}/pdf`, { responseType: 'blob' })
+            .then((res) => {
+              const url = URL.createObjectURL(res.data as Blob)
+              setBlobs((b) => ({ ...b, [contractId]: url }))
+            })
+            .finally(() => {
+              setLoadingIds((l) => {
+                const nl = new Set(l)
+                nl.delete(contractId)
+                return nl
+              })
+            })
+        }
+      }
+      return next
+    })
+  }
 
   if (authLoading || !user) {
     return (
@@ -194,7 +357,16 @@ function ProfileAuditPage() {
                   Нет подписанных контрактов
                 </p>
               ) : (
-                data.signedContracts.map((c) => <ContractCard key={c.id} contract={c} />)
+                data.signedContracts.map((c) => (
+                  <ContractCard
+                    key={c.id}
+                    contract={c}
+                    expanded={expandedIds.has(c.id)}
+                    blobUrl={blobs[c.id] ?? null}
+                    isLoadingPdf={loadingIds.has(c.id)}
+                    onToggle={() => handleToggle(c.id)}
+                  />
+                ))
               )}
             </CardContent>
           </Card>
