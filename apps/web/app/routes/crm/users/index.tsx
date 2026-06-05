@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { Archive, ArrowDown, ArrowUp, Plus, Search } from 'lucide-react'
 import { useMemo, useRef, useState, useTransition } from 'react'
 import { z } from 'zod'
@@ -363,37 +363,34 @@ function UsersPageContent({
               </div>
             ) : (
               <motion.div className="space-y-1" data-testid="users-list">
-                <AnimatePresence mode="popLayout" initial={false}>
-                  {filtered.map((u) => (
-                    <motion.div
-                      key={u.id}
-                      layout="position"
-                      initial={{ opacity: 0, y: -6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.08, ease: 'easeOut' }}
-                    >
-                      {u.archivedAt ? (
-                        <UnarchiveButton
-                          user={u}
-                          isSelf={u.id === meId}
-                          onEdit={() => setEditUser(u)}
-                          onArchive={() => setArchiveUser(u)}
-                        />
-                      ) : (
-                        <UserRow
-                          user={u}
-                          isSelf={u.id === meId}
-                          onEdit={() => setEditUser(u)}
-                          onArchive={() => setArchiveUser(u)}
-                          onUnarchive={() => {
-                            // not used for active rows; only archived rows render UnarchiveButton
-                          }}
-                        />
-                      )}
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
+                {filtered.map((u) => (
+                  <motion.div
+                    key={u.id}
+                    layout="position"
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.08, ease: 'easeOut' }}
+                  >
+                    {u.archivedAt ? (
+                      <UnarchiveButton
+                        user={u}
+                        isSelf={u.id === meId}
+                        onEdit={() => setEditUser(u)}
+                        onArchive={() => setArchiveUser(u)}
+                      />
+                    ) : (
+                      <UserRow
+                        user={u}
+                        isSelf={u.id === meId}
+                        onEdit={() => setEditUser(u)}
+                        onArchive={() => setArchiveUser(u)}
+                        onUnarchive={() => {
+                          // not used for active rows; only archived rows render UnarchiveButton
+                        }}
+                      />
+                    )}
+                  </motion.div>
+                ))}
               </motion.div>
             )}
           </CardContent>
