@@ -56,7 +56,7 @@ export function ChangeRequisitesDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>Изменить реквизиты</DialogTitle>
           <DialogDescription className="sr-only">

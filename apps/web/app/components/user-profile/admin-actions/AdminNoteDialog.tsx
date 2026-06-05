@@ -26,7 +26,7 @@ export function AdminNoteDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>Заметка админа</DialogTitle>
           <DialogDescription className="sr-only">

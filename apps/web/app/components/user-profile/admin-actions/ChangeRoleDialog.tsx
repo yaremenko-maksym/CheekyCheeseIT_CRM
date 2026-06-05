@@ -27,7 +27,7 @@ export function ChangeRoleDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>Изменить роль</DialogTitle>
           <DialogDescription className="sr-only">

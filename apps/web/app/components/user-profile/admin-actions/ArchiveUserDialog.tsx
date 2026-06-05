@@ -26,7 +26,7 @@ export function ArchiveUserDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle className="text-destructive">Архивировать пользователя</DialogTitle>
           <DialogDescription className="sr-only">
