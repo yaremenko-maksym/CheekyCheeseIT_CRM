@@ -491,8 +491,11 @@ describe('SignedContractsService', () => {
       // T4: contract number must match CHK-XXXXXX (6 uppercase hex chars)
       expect(result.contractNumber).toMatch(/^CHK-[0-9A-F]{6}$/)
       expect(result.userId).toBe('senior-1')
-      // A3-1: markSigned must be called to transition employee_contract → SIGNED
-      expect(empSvc.markSigned).toHaveBeenCalledWith('senior-1', inserted.id)
+      // A3-1: markSigned must be called to transition employee_contract → SIGNED.
+      // Third arg is the Drizzle transaction handle (passed through for FK safety — see
+      // employee-contracts.service.ts markSigned JSDoc). Use expect.anything() since the
+      // tx object is opaque in unit tests (it's the mock db.transaction callback param).
+      expect(empSvc.markSigned).toHaveBeenCalledWith('senior-1', inserted.id, expect.anything())
     })
 
     it('uses employee_contract.bodyMarkdown (not template body) as snapshot source', async () => {
