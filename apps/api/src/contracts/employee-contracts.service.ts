@@ -247,12 +247,37 @@ export class EmployeeContractsService {
    * Called by SignedContractsService.sign() to get the contract body.
    * 409 CONTRACT_NOT_READY if no READY_TO_SIGN contract exists.
    *
-   * The optional `tx` parameter allows the caller to run this SELECT inside an
-   * existing Drizzle transaction (same connection as subsequent INSERT/UPDATE).
+   * When `tx` is supplied the SELECT runs inside that transaction with a
+   * `FOR UPDATE` row-level lock (blocking concurrent signers on the same row
+   * until the transaction commits). This prevents double-signing: the second
+   * concurrent call blocks here, then re-reads status=SIGNED → no READY_TO_SIGN
+   * row found → throws 409 CONTRACT_NOT_READY (security MED#1 / MED#2).
+   *
+   * Without `tx` (e.g. OnboardingService reads) — plain SELECT, no lock.
    */
   async getReadyForSigning(userId: string, tx?: DrizzleTx): Promise<EmployeeContract> {
-    const db = tx ?? this.db.db
-    const contract = await db.query.employeeContracts.findFirst({
+    if (tx) {
+      // Locking read: SELECT ... FOR UPDATE — blocks concurrent sign() calls on
+      // the same user's READY_TO_SIGN row until this transaction commits.
+      // Must use select-builder (not query.findFirst) because relational API
+      // does not expose .for() / locking-mode options.
+      const rows = await tx
+        .select()
+        .from(employeeContracts)
+        .where(
+          and(eq(employeeContracts.userId, userId), eq(employeeContracts.status, 'READY_TO_SIGN')),
+        )
+        .for('update')
+        .limit(1)
+
+      if (!rows[0]) {
+        throw new ConflictException('CONTRACT_NOT_READY')
+      }
+      return rows[0]
+    }
+
+    // No transaction — plain read (no lock needed, no side effects).
+    const contract = await this.db.db.query.employeeContracts.findFirst({
       where: (tbl, { eq, and }) => and(eq(tbl.userId, userId), eq(tbl.status, 'READY_TO_SIGN')),
     })
 

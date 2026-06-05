@@ -518,8 +518,37 @@ describe('SignedContractsService', () => {
       const txMock = mockDb.db.transaction as ReturnType<typeof vi.fn>
       // Transaction was called
       expect(txMock).toHaveBeenCalled()
-      // getReadyForSigning was called (not template lookup)
-      expect(empSvc.getReadyForSigning).toHaveBeenCalledWith('senior-1')
+      // Security (MED#1/MED#2): getReadyForSigning must be called WITH the tx handle
+      // so the SELECT runs with FOR UPDATE inside the transaction (locking read).
+      expect(empSvc.getReadyForSigning).toHaveBeenCalledWith('senior-1', expect.anything())
+    })
+
+    it('MED#1/MED#2: getReadyForSigning is called with tx (locking read path)', async () => {
+      // Verifies that sign() passes the transaction handle to getReadyForSigning
+      // so that EmployeeContractsService executes SELECT...FOR UPDATE inside the
+      // transaction — serialising concurrent sign() calls on the same user.
+      const ec = makeEmployeeContract()
+      const inserted = makeSignedContract()
+      const mockDb = makeDb({ insertedRow: inserted })
+      const getReadySpy = vi.fn().mockResolvedValue(ec)
+      const empSvc = {
+        getReadyForSigning: getReadySpy,
+        markSigned: vi.fn().mockResolvedValue({ ...ec, status: 'SIGNED' }),
+      } as unknown as EmployeeContractsService
+
+      const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
+
+      await service.sign({
+        userId: seniorUser.id,
+        userRole: 'SENIOR',
+        typedName: '',
+        ip: null,
+        userAgent: null,
+      })
+
+      // Must be called with (userId, tx) — second arg is the Drizzle tx handle.
+      expect(getReadySpy).toHaveBeenCalledTimes(1)
+      expect(getReadySpy).toHaveBeenCalledWith(seniorUser.id, expect.anything())
     })
 
     it('MED#3: getReadyForSigning is called INSIDE the transaction (snapshot read inside tx)', async () => {

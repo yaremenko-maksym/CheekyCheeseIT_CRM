@@ -76,11 +76,14 @@ export class SignedContractsService {
     }
 
     return this.db.db.transaction(async (tx: DrizzleTx) => {
-      // MED#3: read the READY_TO_SIGN snapshot INSIDE the transaction so that
-      // the body snapshot, INSERT into signed_contracts, and markSigned all
-      // share one consistent DB snapshot. Throws 409 CONTRACT_NOT_READY if
-      // no READY_TO_SIGN contract exists at this point in time.
-      const employeeContract = await this.employeeContracts.getReadyForSigning(userId)
+      // Security (MED#1 / MED#2 + MED#3): getReadyForSigning runs INSIDE the
+      // transaction with a FOR UPDATE row-level lock so concurrent sign() calls
+      // on the same user are serialised. The second caller blocks here until
+      // the first transaction commits, then re-reads status=SIGNED and finds no
+      // READY_TO_SIGN row → throws 409 CONTRACT_NOT_READY. Without the lock,
+      // both callers could snapshot the row before either UPDATE commits and
+      // produce two signed_contracts rows for the same contract.
+      const employeeContract = await this.employeeContracts.getReadyForSigning(userId, tx)
 
       // Resolve user row inside tx for fresh legalFullName + requisites.
       const user = (await tx.query.users.findFirst({
