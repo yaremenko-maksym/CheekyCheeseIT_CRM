@@ -29,7 +29,7 @@ import { SignedContractsService } from './signed-contracts.service'
  * A3-1 — ADMIN management of per-employee contracts.
  *
  * All endpoints require ADMIN role (enforced by @Roles + RolesGuard).
- * Controller prefix `api/users` — endpoints are scoped to a user:
+ * Controller prefix `users` (global prefix `api` set in main.ts) — real paths:
  *
  *   GET    /api/users/:id/contract       — lazy-create or get active contract
  *   PATCH  /api/users/:id/contract       — update body markdown (DRAFT | READY_TO_SIGN)
@@ -38,7 +38,7 @@ import { SignedContractsService } from './signed-contracts.service'
  *   POST   /api/users/:id/contract/reset  — re-derive body from active template (DRAFT only)
  *   GET    /api/users/:id/contract/pdf   — render PDF from employee_contract
  */
-@Controller('api/users')
+@Controller('users')
 @UseGuards(RolesGuard)
 @Roles('ADMIN')
 export class EmployeeContractsController {

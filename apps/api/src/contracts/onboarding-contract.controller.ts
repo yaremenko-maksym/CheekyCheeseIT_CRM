@@ -18,12 +18,13 @@ import { SignedContractsService } from './signed-contracts.service'
  *
  * RBAC: any authenticated non-ADMIN user (self-access only).
  *
+ * Controller prefix `onboarding` (global prefix `api` set in main.ts) — real paths:
  *   GET /api/onboarding/contract       — return own READY_TO_SIGN contract
  *   GET /api/onboarding/contract/pdf   — render READY_TO_SIGN contract as PDF
  *
  * Note: signing itself remains at POST /api/contracts/sign (unchanged, A1).
  */
-@Controller('api/onboarding')
+@Controller('onboarding')
 export class OnboardingContractController {
   constructor(
     private readonly service: EmployeeContractsService,
