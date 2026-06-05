@@ -24,6 +24,7 @@ import {
   CrmDialogHeader,
   CrmDialogBody,
   CrmDialogFooter,
+  DialogDescription,
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { Label } from '@/components/ui/label'
@@ -103,6 +104,9 @@ export function LogCashPaymentDialog({ tx, onClose }: LogCashPaymentDialogProps)
       <CrmDialogContent maxWidth="sm:max-w-md" data-testid="log-cash-payment-dialog">
         <CrmDialogHeader>
           <DialogTitle>Cash передан</DialogTitle>
+          <DialogDescription className="sr-only">
+            Регистрация наличной выплаты дропу с указанием получившего партнёра.
+          </DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="space-y-4 pb-4">

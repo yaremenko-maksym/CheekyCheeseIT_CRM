@@ -4,7 +4,15 @@ import { AlertCircle } from 'lucide-react'
 import type { TransactionDto } from '@crm/shared'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Dialog, CrmDialogContent, CrmDialogHeader, CrmDialogBody, CrmDialogFooter, DialogTitle } from '@/components/ui/crm-dialog'
+import {
+  Dialog,
+  CrmDialogContent,
+  CrmDialogHeader,
+  CrmDialogBody,
+  CrmDialogFooter,
+  DialogDescription,
+  DialogTitle,
+} from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -57,7 +65,7 @@ export function AdminEditTransactionDialog({
       const amt = parseFloat(amount)
       if (isNaN(amt) || amt <= 0) throw new Error('Некорректная сумма')
       const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
-      const receiptExternalUrl = receipt.mode === 'url' ? (receipt.externalUrl || null) : null
+      const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
       return financeApi.adminUpdateTransaction(tx!.id, {
         amount: amt,
         currency,
@@ -91,6 +99,9 @@ export function AdminEditTransactionDialog({
               </span>
             )}
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            Редактирование суммы, валюты и деталей финансовой транзакции.
+          </DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="pb-4">
@@ -147,9 +158,9 @@ export function AdminEditTransactionDialog({
               )}
 
               {/* Receipt */}
-              {(tx?.type === 'ADMIN_INCOME' || tx?.type === 'SENIOR_INCOME' || tx?.type === 'EXPENSE') && (
-                <ReceiptInput state={receipt} onChange={setReceipt} />
-              )}
+              {(tx?.type === 'ADMIN_INCOME' ||
+                tx?.type === 'SENIOR_INCOME' ||
+                tx?.type === 'EXPENSE') && <ReceiptInput state={receipt} onChange={setReceipt} />}
 
               {/* Notes */}
               <div className="space-y-1.5">
@@ -174,7 +185,9 @@ export function AdminEditTransactionDialog({
         </CrmDialogBody>
 
         <CrmDialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose}>Отмена</Button>
+          <Button variant="outline" size="sm" onClick={onClose}>
+            Отмена
+          </Button>
           {isEditable && (
             <Button size="sm" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
               {mutation.isPending ? 'Сохранение...' : 'Сохранить'}

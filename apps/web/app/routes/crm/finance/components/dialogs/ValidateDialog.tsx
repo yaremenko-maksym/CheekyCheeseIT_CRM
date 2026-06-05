@@ -3,14 +3,35 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TransactionDto } from '@crm/shared'
 import { api } from '@/lib/axios'
 import { Button } from '@/components/ui/button'
-import { Dialog, CrmDialogContent, CrmDialogHeader, CrmDialogBody, CrmDialogFooter, DialogTitle } from '@/components/ui/crm-dialog'
+import {
+  Dialog,
+  CrmDialogContent,
+  CrmDialogHeader,
+  CrmDialogBody,
+  CrmDialogFooter,
+  DialogDescription,
+  DialogTitle,
+} from '@/components/ui/crm-dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useDocumentDownloadUrl } from '@/hooks/use-documents'
 import { financeApi } from '../../api'
-import { fmtAmount, fmtDate, fmtRate, fmtUsd, TYPE_LABELS, type ExchangeRates } from '../../constants'
+import {
+  fmtAmount,
+  fmtDate,
+  fmtRate,
+  fmtUsd,
+  TYPE_LABELS,
+  type ExchangeRates,
+} from '../../constants'
 
-export function ValidateDialog({ tx, onClose }: { tx: TransactionDto | null; onClose: () => void }) {
+export function ValidateDialog({
+  tx,
+  onClose,
+}: {
+  tx: TransactionDto | null
+  onClose: () => void
+}) {
   const qc = useQueryClient()
   const [reason, setReason] = useState('')
 
@@ -28,13 +49,12 @@ export function ValidateDialog({ tx, onClose }: { tx: TransactionDto | null; onC
 
   // Fetch presigned URL for uploaded receipts (only when documentId set).
   // External URL receipts skip this query and use tx.receiptExternalUrl directly.
-  const receiptDocQuery = useDocumentDownloadUrl(
-    tx?.receiptDocumentId ?? undefined,
-    { enabled: !!tx?.receiptDocumentId },
-  )
+  const receiptDocQuery = useDocumentDownloadUrl(tx?.receiptDocumentId ?? undefined, {
+    enabled: !!tx?.receiptDocumentId,
+  })
   const receiptUrl = tx?.receiptDocumentId
-    ? receiptDocQuery.data?.url ?? null
-    : tx?.receiptExternalUrl ?? null
+    ? (receiptDocQuery.data?.url ?? null)
+    : (tx?.receiptExternalUrl ?? null)
 
   const mutation = useMutation({
     mutationFn: ({ action }: { action: 'validate' | 'reject' }) =>
@@ -52,10 +72,21 @@ export function ValidateDialog({ tx, onClose }: { tx: TransactionDto | null; onC
   if (!tx) return null
 
   return (
-    <Dialog open={!!tx} onOpenChange={(v) => { if (!v) { onClose(); setReason('') } }}>
+    <Dialog
+      open={!!tx}
+      onOpenChange={(v) => {
+        if (!v) {
+          onClose()
+          setReason('')
+        }
+      }}
+    >
       <CrmDialogContent maxWidth="sm:max-w-md" data-testid="validate-transaction-dialog">
         <CrmDialogHeader>
           <DialogTitle>Валидация транзакции</DialogTitle>
+          <DialogDescription className="sr-only">
+            Проверка и подтверждение или отклонение транзакции бухгалтером.
+          </DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="space-y-4 pb-4">
@@ -79,7 +110,9 @@ export function ValidateDialog({ tx, onClose }: { tx: TransactionDto | null; onC
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">В USD</span>
-                  <span className="font-medium tabular-nums">{fmtUsd(tx.amount, tx.currency, rates)}</span>
+                  <span className="font-medium tabular-nums">
+                    {fmtUsd(tx.amount, tx.currency, rates)}
+                  </span>
                 </div>
               </>
             )}
@@ -102,7 +135,12 @@ export function ValidateDialog({ tx, onClose }: { tx: TransactionDto | null; onC
             {receiptUrl && (
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Чек</span>
-                <a href={receiptUrl} target="_blank" rel="noopener noreferrer" className="text-primary text-xs underline">
+                <a
+                  href={receiptUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary text-xs underline"
+                >
                   Открыть
                 </a>
               </div>
@@ -132,7 +170,10 @@ export function ValidateDialog({ tx, onClose }: { tx: TransactionDto | null; onC
         <CrmDialogFooter>
           <Button
             variant="outline"
-            onClick={() => { onClose(); setReason('') }}
+            onClick={() => {
+              onClose()
+              setReason('')
+            }}
             data-testid="validate-transaction-cancel"
           >
             Отмена
