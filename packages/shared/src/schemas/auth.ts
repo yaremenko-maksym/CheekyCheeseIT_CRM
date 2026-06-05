@@ -38,5 +38,29 @@ export const sessionUserSchema = z.object({
   legalFullName: z.string().nullable().optional(),
 })
 
+/**
+ * MED #2 (security review #114) — minimal JWT cookie payload.
+ *
+ * The JWT cookie stores only identity + role for stateless auth.
+ * PII fields (legalFullName, displayName, avatarUrl, etc.) are NOT
+ * embedded in the cookie — they are re-hydrated from the DB on every
+ * request to GET /api/auth/me.
+ *
+ * This eliminates the log-leak surface where access logs / JWT decode
+ * middleware would expose legalFullName (Cyrillic legal name) in plaintext.
+ *
+ * `SessionUser` (full DTO returned by /me) retains legalFullName —
+ * the frontend consumes it from the /me response, never from the cookie.
+ */
+export const jwtPayloadSchema = z.object({
+  id: z
+    .string()
+    .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, 'Invalid UUID'),
+  email: z.string().email(),
+  role: z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']),
+})
+
+export type JwtPayload = z.infer<typeof jwtPayloadSchema>
+
 export type GoogleCallbackDto = z.infer<typeof googleCallbackSchema>
 export type SessionUser = z.infer<typeof sessionUserSchema>

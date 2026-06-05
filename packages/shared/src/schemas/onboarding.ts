@@ -25,6 +25,8 @@ import { tosVersionSchema } from './tos'
 export const onboardingStatusSchema = z.object({
   requiresContract: z.boolean(),
   requiresTos: z.boolean(),
+  /** A3-1: true when user has a READY_TO_SIGN employee_contract (ready to sign). */
+  contractReady: z.boolean(),
   contractTemplate: contractTemplateSchema.nullable(),
   tosVersion: tosVersionSchema.nullable(),
   tosUpdateAvailable: z.boolean(),

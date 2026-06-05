@@ -88,9 +88,15 @@ class TestController {
     return { ok: true, scope: 'preview-rendered' }
   }
 
-  @Get('contracts/preview-pdf')
-  previewPdf() {
-    return { ok: true, scope: 'preview-pdf' }
+  // A3-1: /api/contracts/preview-pdf REMOVED; /api/onboarding/contract added instead.
+  @Get('onboarding/contract')
+  onboardingContract() {
+    return { ok: true, scope: 'onboarding-contract' }
+  }
+
+  @Get('onboarding/contract/pdf')
+  onboardingContractPdf() {
+    return { ok: true, scope: 'onboarding-contract-pdf' }
   }
 
   @Get('health')
@@ -311,15 +317,14 @@ describe('OnboardingGuard + JwtAuthGuard (integration / real request lifecycle)'
     expect(onboardingServiceMock.getStatus).not.toHaveBeenCalled()
   })
 
-  it('case 9 (AC6): pre-onboarding SENIOR → GET /api/contracts/preview-pdf → 200 (bypass)', async () => {
-    // AC6: Un-onboarded user (requiresContract=true) MUST be able to reach
-    // preview-pdf so the onboarding wizard can embed the personalised PDF.
-    // If OnboardingGuard were not bypassed here, it would return 403 → the
-    // frontend cannot render the preview → the user cannot see/read the
-    // contract → they cannot sign it → infinite onboarding loop (critical).
+  it('case 9 (AC6 A3-1): pre-onboarding SENIOR → GET /api/onboarding/contract → 200 (bypass)', async () => {
+    // A3-1: /api/contracts/preview-pdf REMOVED and replaced with per-employee
+    // contract endpoints. Un-onboarded users MUST reach /api/onboarding/contract
+    // (and /api/onboarding/contract/pdf) before signing — these are bypass-listed.
     //
-    // /api/contracts/preview-pdf is in bypassPrefixes so OnboardingGuard
-    // never calls getStatus for this path — the request passes straight through.
+    // Without this bypass OnboardingGuard would 403 anyone who hasn't completed
+    // onboarding yet → infinite onboarding loop. Lesson from
+    // memory/feedback_mocked_e2e_guards.md.
     onboardingServiceMock.getStatus.mockResolvedValue({
       requiresContract: true,
       requiresTos: false,
@@ -331,14 +336,35 @@ describe('OnboardingGuard + JwtAuthGuard (integration / real request lifecycle)'
 
     const res = await app.inject({
       method: 'GET',
-      url: '/api/contracts/preview-pdf',
+      url: '/api/onboarding/contract',
       cookies: { jwt: signFor(seniorPayload) },
     })
 
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toEqual({ ok: true, scope: 'preview-pdf' })
+    expect(res.json()).toEqual({ ok: true, scope: 'onboarding-contract' })
     // CRITICAL: getStatus must NOT be called — bypass must fire before any
-    // OnboardingService work. Verifies the real guard chain, not a mock.
+    // OnboardingService work.
+    expect(onboardingServiceMock.getStatus).not.toHaveBeenCalled()
+  })
+
+  it('case 9b (A3-1): pre-onboarding SENIOR → GET /api/onboarding/contract/pdf → 200 (bypass)', async () => {
+    onboardingServiceMock.getStatus.mockResolvedValue({
+      requiresContract: true,
+      requiresTos: false,
+      contractTemplate: null,
+      tosVersion: null,
+      tosUpdateAvailable: false,
+      latestTosVersion: null,
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/onboarding/contract/pdf',
+      cookies: { jwt: signFor(seniorPayload) },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ ok: true, scope: 'onboarding-contract-pdf' })
     expect(onboardingServiceMock.getStatus).not.toHaveBeenCalled()
   })
 })

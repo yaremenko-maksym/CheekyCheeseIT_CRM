@@ -72,6 +72,12 @@ function makeTosSvc({ active = makeTos() }: { active?: TosVersionDto | null } = 
   } as never
 }
 
+function makeEmployeeContractsSvc(contractReady = false) {
+  return {
+    hasReadyContract: vi.fn().mockResolvedValue(contractReady),
+  } as never
+}
+
 // ---------------------------------------------------------------------------
 // Mock DB
 // ---------------------------------------------------------------------------
@@ -123,12 +129,14 @@ describe('OnboardingService.getStatus', () => {
       mockDb as unknown as DatabaseService,
       makeContractsSvc(),
       makeTosSvc(),
+      makeEmployeeContractsSvc(),
     )
     const result = await service.getStatus(adminUser.id, 'ADMIN')
 
     expect(result).toEqual({
       requiresContract: false,
       requiresTos: false,
+      contractReady: false,
       contractTemplate: null,
       tosVersion: null,
       tosUpdateAvailable: false,
@@ -144,6 +152,7 @@ describe('OnboardingService.getStatus', () => {
       mockDb as unknown as DatabaseService,
       makeContractsSvc(tmpl),
       makeTosSvc({ active: tos }),
+      makeEmployeeContractsSvc(),
     )
 
     const result = await service.getStatus('senior-1', 'SENIOR')
@@ -164,6 +173,7 @@ describe('OnboardingService.getStatus', () => {
       mockDb as unknown as DatabaseService,
       makeContractsSvc(tmpl),
       makeTosSvc({ active: tos }),
+      makeEmployeeContractsSvc(),
     )
 
     const result = await service.getStatus('senior-1', 'SENIOR')
@@ -183,6 +193,7 @@ describe('OnboardingService.getStatus', () => {
       mockDb as unknown as DatabaseService,
       makeContractsSvc(makeTemplate('SENIOR')),
       makeTosSvc({ active: tos }),
+      makeEmployeeContractsSvc(),
     )
 
     const result = await service.getStatus('senior-1', 'SENIOR')
@@ -204,6 +215,7 @@ describe('OnboardingService.getStatus', () => {
       mockDb as unknown as DatabaseService,
       makeContractsSvc(makeTemplate('SENIOR')),
       makeTosSvc({ active: newTos }),
+      makeEmployeeContractsSvc(),
     )
 
     const result = await service.getStatus('senior-1', 'SENIOR')
@@ -237,6 +249,7 @@ describe('OnboardingService.getStatus', () => {
         mockDb as unknown as DatabaseService,
         contractsSvc,
         makeTosSvc(),
+        makeEmployeeContractsSvc(),
       )
       const u = userOfRole(role)
       await service.getStatus(u.id, role)
@@ -253,6 +266,7 @@ describe('OnboardingService.getStatus', () => {
       mockDb as unknown as DatabaseService,
       makeContractsSvc(null),
       makeTosSvc(),
+      makeEmployeeContractsSvc(),
     )
 
     const result = await service.getStatus('user-1', 'SENIOR')
@@ -269,6 +283,7 @@ describe('OnboardingService.getStatus', () => {
       mockDb as unknown as DatabaseService,
       makeContractsSvc(),
       makeTosSvc({ active: null }),
+      makeEmployeeContractsSvc(),
     )
     const result = await service.getStatus('user-1', 'SENIOR')
     expect(result.requiresTos).toBe(false)

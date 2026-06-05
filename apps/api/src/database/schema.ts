@@ -709,6 +709,53 @@ export const tosAcceptances = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// Employee Contracts (A3-1 — per-employee editable contracts)
+// ---------------------------------------------------------------------------
+//
+// Per-employee contract layer on top of `contract_templates` (role-level defaults)
+// and `signed_contracts` (immutable audit snapshots).
+//
+// One cyclic row per non-ADMIN user:
+//   DRAFT → READY_TO_SIGN → SIGNED  (admin can revert SIGNED → DRAFT)
+//   CANCELLED — terminal (archived / fired employee).
+//
+// Constraints in migration 0001_employee_contracts.sql (not in Drizzle builder):
+//   - Partial unique index `employee_contracts_one_per_user` WHERE status != 'CANCELLED'
+//   - Trigger `employee_contracts_check_user_not_admin` — no ADMIN in user_id
+
+export const employeeContractStatusEnum = pgEnum('employee_contract_status', [
+  'DRAFT',
+  'READY_TO_SIGN',
+  'SIGNED',
+  'CANCELLED',
+])
+
+export const employeeContracts = pgTable(
+  'employee_contracts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    sourceTemplateId: uuid('source_template_id')
+      .notNull()
+      .references(() => contractTemplates.id, { onDelete: 'restrict' }),
+    bodyMarkdown: text('body_markdown').notNull(),
+    status: employeeContractStatusEnum('status').notNull().default('DRAFT'),
+    // Set to null when admin reverts SIGNED → DRAFT (old snapshot preserved in signed_contracts)
+    signedContractId: uuid('signed_contract_id').references(() => signedContracts.id, {
+      onDelete: 'set null',
+    }),
+    createdByUserId: uuid('created_by_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => [index('employee_contracts_user_status_idx').on(t.userId, t.status)],
+)
+
+// ---------------------------------------------------------------------------
 // Notifications (Invoice Signing Epic — also reusable for future events)
 // ---------------------------------------------------------------------------
 //
@@ -808,6 +855,22 @@ export const projectAuditLog = pgTable(
 // ---------------------------------------------------------------------------
 // Relations
 // ---------------------------------------------------------------------------
+
+export const employeeContractsRelations = relations(employeeContracts, ({ one }) => ({
+  user: one(users, { fields: [employeeContracts.userId], references: [users.id] }),
+  sourceTemplate: one(contractTemplates, {
+    fields: [employeeContracts.sourceTemplateId],
+    references: [contractTemplates.id],
+  }),
+  signedContract: one(signedContracts, {
+    fields: [employeeContracts.signedContractId],
+    references: [signedContracts.id],
+  }),
+  createdByUser: one(users, {
+    fields: [employeeContracts.createdByUserId],
+    references: [users.id],
+  }),
+}))
 
 export const usersRelations = relations(users, ({ many }) => ({
   teamMemberships: many(teamMembers),
@@ -1083,3 +1146,5 @@ export type TosVersion = typeof tosVersions.$inferSelect
 export type NewTosVersion = typeof tosVersions.$inferInsert
 export type TosAcceptance = typeof tosAcceptances.$inferSelect
 export type NewTosAcceptance = typeof tosAcceptances.$inferInsert
+export type EmployeeContract = typeof employeeContracts.$inferSelect
+export type NewEmployeeContract = typeof employeeContracts.$inferInsert
