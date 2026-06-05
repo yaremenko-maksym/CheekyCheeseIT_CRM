@@ -49,10 +49,12 @@ function makeService(opts: { existingEmail?: boolean } = {}) {
     archiveDropTeam: vi.fn(),
     addSeniorToDropTeam: vi.fn(),
   } as never
+  const tosService = { getLatestAcceptanceForUser: vi.fn().mockResolvedValue(null) } as never
   return new UsersService(
     { db } as never,
     {} as never,
     makeAuditLogService(),
+    tosService,
     makeAuditLogService(),
     makeAuditLogService(),
     teamsService,
