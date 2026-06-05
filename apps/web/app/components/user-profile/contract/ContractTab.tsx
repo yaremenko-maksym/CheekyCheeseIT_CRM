@@ -96,9 +96,7 @@ export function ContractTab({ userId, targetRole }: ContractTabProps) {
   const errorMessage =
     error && typeof error === 'object' && 'message' in error
       ? String((error as { message: unknown }).message)
-      : error instanceof Error
-        ? error.message
-        : null
+      : null
 
   const isNoTemplate =
     errorMessage?.toLowerCase().includes('no active contract template') ||
@@ -200,7 +198,7 @@ export function ContractTab({ userId, targetRole }: ContractTabProps) {
           value={editorBody}
           onChange={(val) => setLocalBody(val)}
           readOnly={readOnly}
-          frozenBanner={frozenBanner}
+          {...(frozenBanner !== undefined ? { frozenBanner } : {})}
           showHint={showHint}
           onToggleHint={() => setShowHint((v) => !v)}
         />
