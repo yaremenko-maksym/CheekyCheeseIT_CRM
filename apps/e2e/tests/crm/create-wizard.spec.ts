@@ -51,7 +51,10 @@ async function mockContractRoutes(page: import('@playwright/test').Page) {
       return r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ ...DRAFT_CONTRACT, bodyMarkdown: body.bodyMarkdown ?? DRAFT_CONTRACT.bodyMarkdown }),
+        body: JSON.stringify({
+          ...DRAFT_CONTRACT,
+          bodyMarkdown: body.bodyMarkdown ?? DRAFT_CONTRACT.bodyMarkdown,
+        }),
       })
     }
     return r.fallback()
@@ -122,7 +125,9 @@ test.describe('A3-3: Create-user wizard', () => {
 
   // ── AC1: legalFullName required ───────────────────────────────────────────
 
-  test('AC1: cannot advance from step 1 without legalFullName (toast shown, stays on step 1)', async ({ page }) => {
+  test('AC1: cannot advance from step 1 without legalFullName (toast shown, stays on step 1)', async ({
+    page,
+  }) => {
     await openCreateDialog(page)
 
     // Fill everything except legalFullName
@@ -160,7 +165,9 @@ test.describe('A3-3: Create-user wizard', () => {
     await page.getByTestId('wizard-next-btn').click()
 
     // Wait for step 2 to become active
-    await expect(page.getByTestId('wizard-step-2')).toHaveAttribute('data-state', 'active', { timeout: 5000 })
+    await expect(page.getByTestId('wizard-step-2')).toHaveAttribute('data-state', 'active', {
+      timeout: 5000,
+    })
     await expect(page.getByTestId('wizard-step-1')).toHaveAttribute('data-state', 'done')
 
     expect(postUsersCalled).toBe(true)
@@ -168,7 +175,9 @@ test.describe('A3-3: Create-user wizard', () => {
 
   // ── AC4: Step 2 ContractEditor ────────────────────────────────────────────
 
-  test('AC4: step 2 shows contract section with editor, «Назад» returns to step 1', async ({ page }) => {
+  test('AC4: step 2 shows contract section with editor, «Назад» returns to step 1', async ({
+    page,
+  }) => {
     await page.route(new RegExp(`${API}/users(\\?.*)?$`), async (r) => {
       if (r.request().method() === 'POST') {
         return r.fulfill({
@@ -184,19 +193,25 @@ test.describe('A3-3: Create-user wizard', () => {
     await fillStep1(page)
     await page.getByTestId('wizard-next-btn').click()
 
-    await expect(page.getByTestId('wizard-step-2')).toHaveAttribute('data-state', 'active', { timeout: 5000 })
+    await expect(page.getByTestId('wizard-step-2')).toHaveAttribute('data-state', 'active', {
+      timeout: 5000,
+    })
 
     // Contract step wrapper is visible
     await expect(page.getByTestId('wizard-contract-step')).toBeVisible()
 
     // «Назад» returns to step 1
     await page.getByTestId('wizard-back-btn').click()
-    await expect(page.getByTestId('wizard-step-1')).toHaveAttribute('data-state', 'active', { timeout: 3000 })
+    await expect(page.getByTestId('wizard-step-1')).toHaveAttribute('data-state', 'active', {
+      timeout: 3000,
+    })
   })
 
   // ── AC5 + AC6: Step 3 + «Отметить готовым» ────────────────────────────────
 
-  test('AC5+AC6: step 3 shows confirm buttons; «Отметить готовым» calls POST /ready', async ({ page }) => {
+  test('AC5+AC6: step 3 shows confirm buttons; «Отметить готовым» calls POST /ready', async ({
+    page,
+  }) => {
     let readyCalled = false
 
     await page.route(new RegExp(`${API}/users(\\?.*)?$`), async (r) => {
@@ -227,14 +242,18 @@ test.describe('A3-3: Create-user wizard', () => {
     await fillStep1(page)
     await page.getByTestId('wizard-next-btn').click()
 
-    await expect(page.getByTestId('wizard-step-2')).toHaveAttribute('data-state', 'active', { timeout: 5000 })
+    await expect(page.getByTestId('wizard-step-2')).toHaveAttribute('data-state', 'active', {
+      timeout: 5000,
+    })
 
     // Wait for contract to load — ContractActionBar appears when query resolves (hasContract = true)
     await expect(page.getByTestId('contract-save-btn')).toBeVisible({ timeout: 8000 })
 
     // Advance to step 3
     await page.getByTestId('wizard-step2-next-btn').click()
-    await expect(page.getByTestId('wizard-step-3')).toHaveAttribute('data-state', 'active', { timeout: 3000 })
+    await expect(page.getByTestId('wizard-step-3')).toHaveAttribute('data-state', 'active', {
+      timeout: 3000,
+    })
 
     // Step 3 confirm section is visible (AC5)
     await expect(page.getByTestId('wizard-confirm-step')).toBeVisible()
@@ -275,13 +294,17 @@ test.describe('A3-3: Create-user wizard', () => {
     await openCreateDialog(page)
     await fillStep1(page)
     await page.getByTestId('wizard-next-btn').click()
-    await expect(page.getByTestId('wizard-step-2')).toHaveAttribute('data-state', 'active', { timeout: 5000 })
+    await expect(page.getByTestId('wizard-step-2')).toHaveAttribute('data-state', 'active', {
+      timeout: 5000,
+    })
 
     // Wait for contract to load before advancing (hasContract set via useEffect)
     await expect(page.getByTestId('contract-save-btn')).toBeVisible({ timeout: 8000 })
 
     await page.getByTestId('wizard-step2-next-btn').click()
-    await expect(page.getByTestId('wizard-step-3')).toHaveAttribute('data-state', 'active', { timeout: 3000 })
+    await expect(page.getByTestId('wizard-step-3')).toHaveAttribute('data-state', 'active', {
+      timeout: 3000,
+    })
 
     await page.getByTestId('wizard-save-draft-btn').click()
 

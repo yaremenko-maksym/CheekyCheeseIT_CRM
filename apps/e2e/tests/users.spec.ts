@@ -23,7 +23,7 @@ async function createSeniorViaDialog(page: Page): Promise<Record<string, unknown
 
   // For ADMIN: change role selector to SENIOR. For HR: role is locked (no combobox, just a div).
   const roleCombo = page.getByTestId('user-dialog-role-trigger')
-  const hasRoleCombo = await roleCombo.count() > 0
+  const hasRoleCombo = (await roleCombo.count()) > 0
   if (hasRoleCombo) {
     await roleCombo.click()
     await page.getByRole('option', { name: 'Синьор' }).click()
@@ -32,12 +32,20 @@ async function createSeniorViaDialog(page: Page): Promise<Record<string, unknown
   // Wait for the "Команда" team section to appear inside the dialog
   await expect(page.getByRole('dialog').getByText('Команда', { exact: true })).toBeVisible()
 
+  // A3-3: legalFullName is required for all contract-eligible roles (SENIOR,
+  // JUNIOR, HR, ACCOUNTANT). Without it the superRefine check in
+  // createUserSchema fails client-side and the wizard blocks advance.
+  await page.getByTestId('user-dialog-legal-full-name').fill('Сеніор Тестовий Іванович')
+
   // ut-14: SENIOR/ADMIN are USDT-only; `walletUsdtErc20` is required by the
   // shared `refineRequisitePresence` rule. Without it the safeParse fails
   // client-side and the POST never fires.
   await page.getByTestId('user-dialog-wallet').fill(VALID_USDT_WALLET)
 
-  await page.getByTestId('user-dialog-submit').click()
+  // A3-3: create mode uses a 3-step wizard; step 1 «Далее» (wizard-next-btn)
+  // submits POST /api/users. The old single-submit button (user-dialog-submit)
+  // is only rendered in edit mode.
+  await page.getByTestId('wizard-next-btn').click()
 
   const req = await postReq
   return JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
@@ -114,7 +122,9 @@ test.describe('Users management page', () => {
       await expect(page.getByTestId('users-create-button')).toBeVisible()
     })
 
-    test(`shows total count "${ALL_USERS.length} из ${ALL_USERS.length}" in header`, async ({ asAdmin: page }) => {
+    test(`shows total count "${ALL_USERS.length} из ${ALL_USERS.length}" in header`, async ({
+      asAdmin: page,
+    }) => {
       await page.goto('/crm/users')
       await expect(page.getByText(new RegExp(`из ${ALL_USERS.length}`))).toBeVisible()
     })
@@ -193,6 +203,9 @@ test.describe('Users management page', () => {
       await page.getByPlaceholder('user@cheekycheese.dev').fill('newuser@cheekycheese.dev')
       await page.getByTestId('user-dialog-name').fill('New User')
 
+      // A3-3: legalFullName required for contract-eligible roles (JUNIOR included).
+      await page.getByTestId('user-dialog-legal-full-name').fill('Новий Користувач Іванович')
+
       // Role is already default (JUNIOR). JUNIOR defaults to BANK_UAH_FOP
       // requisites; switch to USDT_ERC20 (smaller surface to fill) and
       // provide the wallet so `refineRequisitePresence` passes. ut-15: the
@@ -201,7 +214,9 @@ test.describe('Users management page', () => {
       await dialog.getByTestId('user-dialog-payment-method-USDT_ERC20').click()
       await page.getByTestId('user-dialog-wallet').fill(VALID_USDT_WALLET)
 
-      await page.getByTestId('user-dialog-submit').click()
+      // A3-3: create mode uses wizard — step 1 «Далее» (wizard-next-btn) fires
+      // POST /api/users. The old user-dialog-submit is edit-mode only.
+      await page.getByTestId('wizard-next-btn').click()
 
       const req = await postReq
       const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
@@ -255,11 +270,18 @@ test.describe('Users management page', () => {
       await page.getByTestId('user-dialog-role-trigger').click()
       await page.getByRole('option', { name: 'Синьор' }).click()
 
+      // Wait for team section — signals role switch has settled in the form.
+      await expect(page.getByRole('dialog').getByText('Команда', { exact: true })).toBeVisible()
+
+      // A3-3: legalFullName required for SENIOR (contract-eligible role).
+      await page.getByTestId('user-dialog-legal-full-name').fill('Сеніор Другий Іванович')
+
       // ut-14: SENIOR/ADMIN are USDT-only; without `walletUsdtErc20` the
       // shared `refineRequisitePresence` blocks safeParse and no POST fires.
       await page.getByTestId('user-dialog-wallet').fill(VALID_USDT_WALLET)
 
-      await page.getByTestId('user-dialog-submit').click()
+      // A3-3: create mode uses wizard — step 1 «Далее» (wizard-next-btn) fires POST.
+      await page.getByTestId('wizard-next-btn').click()
 
       const req = await postReq
       expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ role: 'SENIOR' })
@@ -311,7 +333,9 @@ test.describe('Users management page', () => {
       await page.getByTestId('user-dialog-submit').click()
 
       const req = await patchReq
-      expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ displayName: 'Senior Developer Updated' })
+      expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({
+        displayName: 'Senior Developer Updated',
+      })
     })
 
     test('edit cancel closes dialog without PATCH', async ({ asAdmin: page }) => {
@@ -327,7 +351,9 @@ test.describe('Users management page', () => {
       expect(patchCalled).toBe(false)
     })
 
-    test('cannot archive self from list (archive button disabled for current user)', async ({ asAdmin: page }) => {
+    test('cannot archive self from list (archive button disabled for current user)', async ({
+      asAdmin: page,
+    }) => {
       await page.goto('/crm/users')
       const archiveBtn = page.getByTestId(`user-row-archive-${USERS.admin.id}`)
       await expect(archiveBtn).toBeVisible()
@@ -371,7 +397,10 @@ test.describe('Users management page', () => {
 
       await page.goto('/crm/users')
       await page.getByTestId(`user-row-archive-${USERS.senior.id}`).click()
-      await page.getByTestId('archive-confirm-dialog').getByRole('button', { name: 'Отмена' }).click()
+      await page
+        .getByTestId('archive-confirm-dialog')
+        .getByRole('button', { name: 'Отмена' })
+        .click()
       await expect(page.getByTestId('archive-confirm-dialog')).not.toBeVisible()
       expect(deleteCalled).toBe(false)
     })
@@ -421,16 +450,31 @@ test.describe('Users management page', () => {
     test('API error on create shows no crash', async ({ asAdmin: page }) => {
       await page.route(/\/api\/users(\?.*)?$/, (r) => {
         if (r.request().method() === 'POST') {
-          return r.fulfill({ status: 400, contentType: 'application/json', body: '{"message":"Email already exists"}' })
+          return r.fulfill({
+            status: 400,
+            contentType: 'application/json',
+            body: '{"message":"Email already exists"}',
+          })
         }
-        return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ALL_USERS) })
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(ALL_USERS),
+        })
       })
 
       await page.goto('/crm/users')
       await page.getByTestId('users-create-button').click()
       await page.getByPlaceholder('user@cheekycheese.dev').fill('existing@cheekycheese.dev')
       await page.getByTestId('user-dialog-name').fill('Existing User')
-      await page.getByTestId('user-dialog-submit').click()
+      // A3-3: legalFullName required for JUNIOR (contract-eligible).
+      await page.getByTestId('user-dialog-legal-full-name').fill('Існуючий Користувач Іванович')
+      // JUNIOR defaults to BANK_UAH_FOP — switch to USDT to skip bank fields.
+      const dialog = page.getByTestId('user-dialog')
+      await dialog.getByTestId('user-dialog-payment-method-USDT_ERC20').click()
+      await page.getByTestId('user-dialog-wallet').fill(VALID_USDT_WALLET)
+      // A3-3: wizard step 1 «Далее» (wizard-next-btn) fires POST.
+      await page.getByTestId('wizard-next-btn').click()
 
       await expect(page.getByText(/пользователи/i).first()).toBeVisible()
     })
@@ -461,7 +505,9 @@ test.describe('Users management page', () => {
       expect((body.hrIds as string[]).length).toBeGreaterThan(0)
     })
 
-    test('ADMIN: POST includes accountantId when accountant auto-selected', async ({ asAdmin: page }) => {
+    test('ADMIN: POST includes accountantId when accountant auto-selected', async ({
+      asAdmin: page,
+    }) => {
       await page.goto('/crm/users')
       const body = await createSeniorViaDialog(page)
       expect(body.accountantId).toBeTruthy()
@@ -471,7 +517,7 @@ test.describe('Users management page', () => {
     test('ADMIN: POST contains correct hrId from fixtures', async ({ asAdmin: page }) => {
       await page.goto('/crm/users')
       const body = await createSeniorViaDialog(page)
-      expect((body.hrIds as string[])).toContain(USERS.hr.id)
+      expect(body.hrIds as string[]).toContain(USERS.hr.id)
     })
 
     test('ADMIN: POST contains correct accountantId from fixtures', async ({ asAdmin: page }) => {
@@ -480,7 +526,9 @@ test.describe('Users management page', () => {
       expect(body.accountantId).toBe(USERS.accountant.id)
     })
 
-    test('ADMIN: Финансы and Команда sections visible for SENIOR role', async ({ asAdmin: page }) => {
+    test('ADMIN: Финансы and Команда sections visible for SENIOR role', async ({
+      asAdmin: page,
+    }) => {
       await page.goto('/crm/users')
       await page.getByTestId('users-create-button').click()
 
@@ -494,7 +542,9 @@ test.describe('Users management page', () => {
       await expect(dialog.getByText('Бухгалтер')).toBeVisible()
     })
 
-    test('ADMIN: HR chip pre-selected when only one HR exists (ut-16)', async ({ asAdmin: page }) => {
+    test('ADMIN: HR chip pre-selected when only one HR exists (ut-16)', async ({
+      asAdmin: page,
+    }) => {
       await page.goto('/crm/users')
       await page.getByTestId('users-create-button').click()
       await page.getByTestId('user-dialog-role-trigger').click()
@@ -529,7 +579,9 @@ test.describe('Users management page', () => {
       await expect(page.getByText(/выберите хотя бы одного HR/i)).toBeVisible()
     })
 
-    test('HR: sees access-denied notice on /crm/users (admin-only page)', async ({ asHr: page }) => {
+    test('HR: sees access-denied notice on /crm/users (admin-only page)', async ({
+      asHr: page,
+    }) => {
       await page.goto('/crm/users')
       await expect(page.getByText(/доступ только для администратора/i)).toBeVisible()
       await expect(page.getByTestId('users-create-button')).toHaveCount(0)
