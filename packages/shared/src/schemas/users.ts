@@ -125,6 +125,14 @@ function refineRequisitePresence(
 export const teamModeSchema = z.enum(['CREATE_NEW', 'JOIN_DROP_TEAM'])
 export type TeamMode = z.infer<typeof teamModeSchema>
 
+/**
+ * Roles that require a legal full name at user creation time.
+ * These are the roles that get an MSA contract via the wizard (A3-3).
+ * ADMIN is excluded — ADMIN cannot be created via the wizard at all
+ * (blocked by CREATE_ALLOWED_ROLES on the frontend + backend guard).
+ */
+const CONTRACT_ROLES = new Set<string>(['SENIOR', 'HR', 'JUNIOR', 'ACCOUNTANT', 'DROP'])
+
 export const createUserSchema = z
   .object({
     email: z.string().email('Некорректный email'),
@@ -148,9 +156,10 @@ export const createUserSchema = z
     bankUahRnokpp: bankUahRnokppField.optional(),
     bankUahBankName: z.string().nullable().optional(),
     /**
-     * Legal full name (Cyrillic, order: Surname First Patronymic). Optional at
-     * creation time — ADMIN may set it later via adminUpdateUser. When set,
-     * used in MSA contract instead of displayName.
+     * Legal full name (Cyrillic, order: Surname First Patronymic).
+     * REQUIRED at creation for contract-eligible roles (SENIOR/HR/JUNIOR/ACCOUNTANT/DROP)
+     * via superRefine below (A3-3 / A2c). When set, used in MSA contract
+     * interpolation instead of displayName.
      */
     legalFullName: z.string().min(5, 'ФИО минимум 5 символов').max(200).optional(),
     /**
@@ -168,6 +177,16 @@ export const createUserSchema = z
   })
   .superRefine((data, ctx) => {
     refineRequisitePresence(data, ctx)
+
+    // A3-3 / A2c: legalFullName required for contract-eligible roles.
+    if (CONTRACT_ROLES.has(data.role) && !data.legalFullName?.trim()) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'ФИО обязательно для контракта',
+        path: ['legalFullName'],
+      })
+    }
+
     if (data.teamMode === 'JOIN_DROP_TEAM') {
       if (data.role !== 'SENIOR') {
         ctx.addIssue({

@@ -36,7 +36,9 @@ test.describe('Users page refactor (PR 2)', () => {
       await expect(row.getByText('Синьор')).toBeVisible()
     })
 
-    test('tech column renders array as individual pills (fix for stringified array bug)', async ({ asAdmin: page }) => {
+    test('tech column renders array as individual pills (fix for stringified array bug)', async ({
+      asAdmin: page,
+    }) => {
       await page.goto('/crm/users')
       const row = page.getByTestId(`user-row-${USERS.senior.id}`)
       // techStack = ['TypeScript', 'React'] should render as 2 pills, not a single
@@ -51,7 +53,9 @@ test.describe('Users page refactor (PR 2)', () => {
       await expect(row.getByText('Вы', { exact: true })).toBeVisible()
     })
 
-    test('archive button is disabled on own row (cannot archive self)', async ({ asAdmin: page }) => {
+    test('archive button is disabled on own row (cannot archive self)', async ({
+      asAdmin: page,
+    }) => {
       await page.goto('/crm/users')
       const button = page.getByTestId(`user-row-archive-${USERS.admin.id}`)
       await expect(button).toBeDisabled()
@@ -139,7 +143,9 @@ test.describe('Users page refactor (PR 2)', () => {
       await expect(page.getByTestId('email-change-warning')).toBeVisible()
     })
 
-    test('Create SENIOR shows HR multiselect + Accountant chip (ut-16)', async ({ asAdmin: page }) => {
+    test('Create SENIOR shows HR multiselect + Accountant chip (ut-16)', async ({
+      asAdmin: page,
+    }) => {
       await page.goto('/crm/users')
       await page.getByTestId('users-create-button').click()
       // Switch role to SENIOR
@@ -169,8 +175,7 @@ test.describe('Users page refactor (PR 2)', () => {
       await expect(page.getByTestId('user-dialog-hr-multiselect')).toBeVisible()
 
       const patchReq = page.waitForRequest(
-        (req) =>
-          req.url().includes(`/api/users/${USERS.senior.id}`) && req.method() === 'PATCH',
+        (req) => req.url().includes(`/api/users/${USERS.senior.id}`) && req.method() === 'PATCH',
       )
       await page.getByTestId('user-dialog-submit').click()
       const req = await patchReq
@@ -190,12 +195,16 @@ test.describe('Users page refactor (PR 2)', () => {
         await expect(projects).toBeVisible()
       }
       // Link to /crm/projects always present
-      await expect(page.getByRole('dialog').getByRole('link', { name: /Управлять в Проектах/ })).toBeVisible()
+      await expect(
+        page.getByRole('dialog').getByRole('link', { name: /Управлять в Проектах/ }),
+      ).toBeVisible()
     })
   })
 
   test.describe('Archive flow', () => {
-    test('Archive JUNIOR shows warning with projectsCount + name confirmation', async ({ asAdmin: page }) => {
+    test('Archive JUNIOR shows warning with projectsCount + name confirmation', async ({
+      asAdmin: page,
+    }) => {
       await page.goto('/crm/users')
       await page.getByTestId(`user-row-archive-${USERS.junior.id}`).click()
       const dlg = page.getByTestId('archive-confirm-dialog')
@@ -231,8 +240,7 @@ test.describe('Users page refactor (PR 2)', () => {
       await page.getByTestId('archive-confirm-name-input').fill('Junior Dev')
 
       const deleteReq = page.waitForRequest(
-        (req) =>
-          req.url().includes(`/api/users/${USERS.junior.id}`) && req.method() === 'DELETE',
+        (req) => req.url().includes(`/api/users/${USERS.junior.id}`) && req.method() === 'DELETE',
       )
       await page.getByTestId('archive-confirm-submit').click()
       await deleteReq
@@ -244,8 +252,7 @@ test.describe('Users page refactor (PR 2)', () => {
       const input = page.getByTestId('archive-confirm-name-input')
       await input.fill('Junior Dev')
       const deleteReq = page.waitForRequest(
-        (req) =>
-          req.url().includes(`/api/users/${USERS.junior.id}`) && req.method() === 'DELETE',
+        (req) => req.url().includes(`/api/users/${USERS.junior.id}`) && req.method() === 'DELETE',
       )
       await input.press('Enter')
       await deleteReq
@@ -274,14 +281,24 @@ test.describe('Users page refactor (PR 2)', () => {
   })
 
   test.describe('Archived row UI', () => {
-    test('archived row shows badge and Unarchive button instead of edit/archive', async ({ page }) => {
+    test('archived row shows badge and Unarchive button instead of edit/archive', async ({
+      page,
+    }) => {
       await mockAuthAs(page, USERS.admin)
       const archivedSenior = { ...USERS.senior, archivedAt: '2026-01-01T00:00:00.000Z' }
       await page.route('http://localhost:3001/api/users?archived=true', (r) =>
-        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([archivedSenior]) }),
+        r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([archivedSenior]),
+        }),
       )
       await page.route(/\/api\/users\?archived=true.*/, (r) =>
-        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([archivedSenior]) }),
+        r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([archivedSenior]),
+        }),
       )
       await page.goto('/crm/users?archived=true')
       const row = page.getByTestId(`user-row-${USERS.senior.id}`)
@@ -297,7 +314,11 @@ test.describe('Users page refactor (PR 2)', () => {
       await mockAuthAs(page, USERS.admin)
       const archivedJunior = { ...USERS.junior, archivedAt: '2026-01-01T00:00:00.000Z' }
       await page.route(/\/api\/users\?archived=true.*/, (r) =>
-        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([archivedJunior]) }),
+        r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([archivedJunior]),
+        }),
       )
       await page.goto('/crm/users?archived=true')
       const unarchiveReq = page.waitForRequest(
@@ -313,7 +334,13 @@ test.describe('Users page refactor (PR 2)', () => {
   // Interaction tests (keyboard / a11y) — task-fix-pr33-polish.md #11–#16
   // ─────────────────────────────────────────────────────────────────────────
   test.describe('Interaction tests', () => {
-    test('Modal Escape closes dialog and returns focus to trigger button', async ({ asAdmin: page }) => {
+    // Serial mode: keyboard/focus tests share browser state (listbox open/close
+    // animation) and are sensitive to concurrent tests in other workers racing
+    // on the same DOM events. Running sequentially eliminates the flake.
+    test.describe.configure({ mode: 'serial' })
+    test('Modal Escape closes dialog and returns focus to trigger button', async ({
+      asAdmin: page,
+    }) => {
       await page.goto('/crm/users')
       const triggerBtn = page.getByTestId('users-create-button')
       // Use keyboard activation so Radix knows the trigger and can later
@@ -331,13 +358,13 @@ test.describe('Users page refactor (PR 2)', () => {
       // the trigger via JS to avoid Playwright's stricter `toBeFocused` check
       // which is racy in headless mode.
       await expect
-        .poll(async () =>
-          page.evaluate(() => document.activeElement?.getAttribute('data-testid')),
-        )
+        .poll(async () => page.evaluate(() => document.activeElement?.getAttribute('data-testid')))
         .toBe('users-create-button')
     })
 
-    test('Tab order traverses sections sequentially in create dialog', async ({ asAdmin: page }) => {
+    test('Tab order traverses sections sequentially in create dialog', async ({
+      asAdmin: page,
+    }) => {
       await page.goto('/crm/users')
       await page.getByTestId('users-create-button').click()
       await expect(page.getByRole('dialog')).toBeVisible()
@@ -355,22 +382,28 @@ test.describe('Users page refactor (PR 2)', () => {
       await page.keyboard.press('Tab')
       await expect(page.getByTestId('user-dialog-role-trigger')).toBeFocused()
 
-      // From here Tab should remain inside the dialog (focus trap).
-      // Ensure we eventually land on the Submit button by walking forward.
-      const submit = page.getByTestId('user-dialog-submit')
+      // A3-3: create mode renders wizard-next-btn («Далее») instead of
+      // user-dialog-submit. Walk Tab until we land on it (focus trap stays
+      // inside the dialog so this terminates within 30 presses).
+      const nextBtn = page.getByTestId('wizard-next-btn')
       for (let i = 0; i < 30; i++) {
         await page.keyboard.press('Tab')
-        if (await submit.evaluate((el) => el === document.activeElement)) break
+        if (await nextBtn.evaluate((el) => el === document.activeElement)) break
       }
-      await expect(submit).toBeFocused()
+      await expect(nextBtn).toBeFocused()
     })
 
-    test('TechAutocomplete: ArrowDown navigates, Enter adds, Esc clears, Tab commits', async ({ asAdmin: page }) => {
+    test('TechAutocomplete: ArrowDown navigates, Enter adds, Esc clears, Tab commits', async ({
+      asAdmin: page,
+    }) => {
       await page.goto('/crm/users')
       await page.getByTestId('users-create-button').click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
-      const techSection = page.getByRole('dialog').locator('input[placeholder*="технологи"]').first()
+      const techSection = page
+        .getByRole('dialog')
+        .locator('input[placeholder*="технологи"]')
+        .first()
       await techSection.focus()
       await techSection.fill('Re')
 
@@ -394,6 +427,10 @@ test.describe('Users page refactor (PR 2)', () => {
       await expect(page.getByRole('listbox')).toBeVisible()
       await page.keyboard.press('Escape')
       await expect(techSection).toHaveValue('')
+      // Wait for listbox to fully close before next focus/fill sequence —
+      // prevents the subsequent fill from racing against Escape's async
+      // close animation when other tests run in parallel.
+      await expect(page.getByRole('listbox')).toHaveCount(0)
 
       // Type and Tab — Tab commits highlighted suggestion (when present).
       await techSection.focus()
@@ -469,31 +506,42 @@ test.describe('Users page refactor (PR 2)', () => {
       await mockAuthAs(page, USERS.admin)
       const archivedJunior = { ...USERS.junior, archivedAt: '2026-01-01T00:00:00.000Z' }
       // Override /users/:id to return archived profile (UserWithPermissionsResponse shape)
-      await page.route(
-        new RegExp(`http://localhost:3001/api/users/${USERS.junior.id}$`),
-        (r) =>
-          r.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({
-              user: {
-                ...archivedJunior,
-                walletUsdtErc20: null,
-                walletUsdtLabel: null,
-                bankUahRecipient: 'Junior Dev',
-                bankUahIban: 'UA213223130000026007233566001',
-                bankUahRnokpp: '1234567890',
-                bankUahBankName: null,
-                adminNote: null,
+      await page.route(new RegExp(`http://localhost:3001/api/users/${USERS.junior.id}$`), (r) =>
+        r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            user: {
+              ...archivedJunior,
+              walletUsdtErc20: null,
+              walletUsdtLabel: null,
+              bankUahRecipient: 'Junior Dev',
+              bankUahIban: 'UA213223130000026007233566001',
+              bankUahRnokpp: '1234567890',
+              bankUahBankName: null,
+              adminNote: null,
+            },
+            permissions: {
+              tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'audit'],
+              actions: [
+                'edit-profile',
+                'change-role',
+                'change-salary',
+                'change-requisites',
+                'set-note',
+                'archive',
+              ],
+              fields: {
+                salary: true,
+                share: false,
+                paymentMethodKpi: true,
+                techStack: true,
+                registrationDate: true,
               },
-              permissions: {
-                tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'audit'],
-                actions: ['edit-profile', 'change-role', 'change-salary', 'change-requisites', 'set-note', 'archive'],
-                fields: { salary: true, share: false, paymentMethodKpi: true, techStack: true, registrationDate: true },
-              },
-              data: {},
-            }),
+            },
+            data: {},
           }),
+        }),
       )
       await page.goto(`/crm/profile/${USERS.junior.id}`)
       // Open the actions menu

@@ -545,7 +545,13 @@ test.describe('Team page', () => {
       const firstTeamName = 'Alpha Team'
       const searchPrefix = 'Alpha'
 
+      // waitForResponse зарегистрирован ДО goto — гарантирует что мок
+      // /api/teams отработал и данные отрисованы ДО первого ассерта.
+      // Исправляет race под параллелизмом CI: без этого goto+expect может
+      // опередить React hydration списка команд.
+      const teamsLoaded = page.waitForResponse((r) => /\/api\/teams(\?|$)/.test(r.url()) && r.ok())
       await page.goto('/crm/team')
+      await teamsLoaded
       await expect(page.getByText(firstTeamName)).toBeVisible()
 
       // Search for non-existent team

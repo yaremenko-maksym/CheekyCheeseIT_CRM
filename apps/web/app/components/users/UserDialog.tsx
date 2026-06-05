@@ -1,8 +1,21 @@
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Coins, Landmark, Pencil, Percent, Send, UserPlus, Users, Sparkles } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Coins,
+  Landmark,
+  Pencil,
+  Percent,
+  Send,
+  UserPlus,
+  Users,
+  Sparkles,
+  ArrowLeft,
+  ArrowRight,
+  FileText,
+  CheckCircle2,
+} from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
 import type { Value as PhoneValue } from 'react-phone-number-input'
 import { z } from 'zod'
@@ -60,6 +73,13 @@ import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-curre
 import { SegmentedToggle } from '@/components/ui/segmented-toggle'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
+import { CreateWizardStepper } from './CreateWizardStepper'
+import {
+  useEmployeeContract,
+  useSaveContractBody,
+} from '@/components/user-profile/contract/useEmployeeContract'
+import { ContractEditor } from '@/components/user-profile/contract/ContractEditor'
+import { ContractActionBar } from '@/components/user-profile/contract/ContractActionBar'
 import {
   CREATE_ALLOWED_ROLES,
   ROLE_LABELS,
@@ -149,6 +169,29 @@ export function UserDialog(props: UserDialogProps) {
   const editingUser = isEdit ? props.user : null
 
   const hrOnly = isCreate ? !!props.hrOnly : false
+
+  // ── Wizard state (create-mode only) ─────────────────────────────────────
+  // currentStep: 1=Data, 2=Contract, 3=Confirm
+  // createdUserId: set after successful POST /api/users in step 1
+  // hasContract: set true when step 2 successfully loads a contract
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1)
+  const [createdUserId, setCreatedUserId] = useState<string | null>(null)
+  const [hasContract, setHasContract] = useState<boolean>(false)
+  const [wizardContractBody, setWizardContractBody] = useState<string>('')
+  const [wizardContractDirty, setWizardContractDirty] = useState<boolean>(false)
+  const [wizardShowHint, setWizardShowHint] = useState<boolean>(false)
+
+  // Reset wizard state when dialog opens/closes
+  useEffect(() => {
+    if (isCreate && !open) {
+      setCurrentStep(1)
+      setCreatedUserId(null)
+      setHasContract(false)
+      setWizardContractBody('')
+      setWizardContractDirty(false)
+      setWizardShowHint(false)
+    }
+  }, [isCreate, open])
 
   // ut-11: SENIOR/ADMIN locked for self-ADMIN edit. We compute it once and
   // reuse in the Role select + footer hint.
@@ -332,20 +375,19 @@ export function UserDialog(props: UserDialogProps) {
 
   const createMutation = useMutation({
     mutationFn: (data: CreateUserDto) => api.post<UserProfileDto>('/users', data),
-    onSuccess: (_res, variables) => {
-      void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
-      void queryClient.invalidateQueries({ queryKey: ['users'] })
-      void queryClient.invalidateQueries({ queryKey: ['teams'] })
-      void queryClient.invalidateQueries({ queryKey: ['projects'] })
+    onSuccess: (res, variables) => {
+      const newUserId = (res.data as UserProfileDto).id
+      // A3-3 wizard: store created user id and advance to step 2.
+      // Do NOT close dialog — user continues to contract step.
+      setCreatedUserId(newUserId)
+      setCurrentStep(2)
       // Drop role - phase 1 fix (AC8): SENIOR with JOIN_DROP_TEAM gets a
-      // tailored toast «Синьор добавлен в команду дропа» so the operator
-      // sees that the action also added them to an existing team — instead
-      // of the generic «Пользователь создан». 4500ms (default sonner = 4s,
-      // bumped to 4.5s to match the spec «4-5 sec»).
+      // tailored toast — show it after all 3 steps at wizard close instead.
+      // For non-senior creates keep silent here (success shown at wizard end).
       const isJoinDrop = variables.role === 'SENIOR' && variables.teamMode === 'JOIN_DROP_TEAM'
-      const msg = isJoinDrop ? 'Синьор добавлен в команду дропа' : 'Пользователь создан'
-      toast.success(msg, { duration: 4500 })
-      props.onClose()
+      if (isJoinDrop) {
+        toast.success('Синьор добавлен в команду дропа', { duration: 4500 })
+      }
     },
     onError: (err: AxiosError<{ message?: string }>) => {
       // 409 → duplicate email toast, dialog stays open. See `explainUserMutationError`.
@@ -379,6 +421,38 @@ export function UserDialog(props: UserDialogProps) {
     },
     onError: (err: AxiosError<{ message?: string }>) => {
       toast.error(explainUserMutationError(err, 'Ошибка при создании дропа'))
+    },
+  })
+
+  // A3-3: wizard step-1 «Далее» uses PATCH when createdUserId is already set
+  // (i.e. admin went Back from step 2 and edited fields). This avoids a
+  // duplicate POST /users → 409 conflict.
+  const wizardUpdateMutation = useMutation({
+    mutationFn: (data: AdminUpdateUserDto) =>
+      api.patch<UserProfileDto>(`/users/${createdUserId}`, data),
+    onSuccess: () => {
+      // Advance to contract step — same outcome as initial POST success.
+      setCurrentStep(2)
+    },
+    onError: (err: AxiosError<{ message?: string }>) => {
+      toast.error(explainUserMutationError(err, 'Ошибка при обновлении'))
+    },
+  })
+
+  // A3-3: POST /api/users/:id/contract/ready — DRAFT → READY_TO_SIGN at wizard end.
+  const markReadyMutation = useMutation({
+    mutationFn: () => api.post(`/users/${createdUserId}/contract/ready`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
+      void queryClient.invalidateQueries({ queryKey: ['users'] })
+      toast.success('Пользователь создан, контракт готов к подписанию', { duration: 4500 })
+      setCurrentStep(1)
+      setCreatedUserId(null)
+      setHasContract(false)
+      props.onClose()
+    },
+    onError: (err: AxiosError<{ message?: string }>) => {
+      toast.error(explainUserMutationError(err, 'Ошибка при переводе контракта'))
     },
   })
 
@@ -524,6 +598,51 @@ export function UserDialog(props: UserDialogProps) {
       }
 
       if (isCreate) {
+        // A3-3 AC6: if user was already created (createdUserId set after first
+        // successful POST), «Далее» from step 1 must PATCH — not POST again.
+        // This handles the «Назад» → edit → «Далее» flow without 409 duplicate.
+        if (createdUserId !== null) {
+          const paymentMethodUpdate: PaymentMethod =
+            isSenior || value.role === 'ADMIN' ? 'USDT_ERC20' : value.paymentMethod
+          const updatePayload: AdminUpdateUserDto = {
+            displayName: value.displayName.trim(),
+            telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : null,
+            phone: (value.phone as string) || null,
+            techStack: value.techStack.length > 0 ? value.techStack : null,
+            paymentMethod: paymentMethodUpdate,
+            ...(paymentMethodUpdate === 'USDT_ERC20' && {
+              walletUsdtErc20: value.walletUsdtErc20.trim() || null,
+              walletUsdtLabel: value.walletUsdtLabel.trim() || null,
+            }),
+            ...(paymentMethodUpdate === 'BANK_UAH_FOP' && {
+              bankUahRecipient: value.bankUahRecipient.trim() || null,
+              bankUahIban: value.bankUahIban.trim() || null,
+              bankUahRnokpp: value.bankUahRnokpp.trim() || null,
+              bankUahBankName: value.bankUahBankName.trim() || null,
+            }),
+            ...(isSenior && {
+              seniorSharePercent: value.seniorSharePercent,
+              hrIds,
+              accountantId: accountantId || null,
+            }),
+            ...(!isSenior && {
+              monthlySalary: value.monthlySalary ? computeMonthlySalaryUsd() : null,
+              salaryCurrency: 'USD',
+            }),
+            ...(value.legalFullName.trim() && {
+              legalFullName: value.legalFullName.trim(),
+            }),
+          }
+          const updateResult = adminUpdateUserSchema.safeParse(updatePayload)
+          if (!updateResult.success) {
+            const first = updateResult.error.issues[0]
+            toast.error(first?.message ?? 'Ошибка валидации данных')
+            return
+          }
+          wizardUpdateMutation.mutate(updateResult.data)
+          return
+        }
+
         // Drop role - phase 1 (AC3): when JOIN_DROP_TEAM, HR/accountant are
         // sourced from the existing drop-team — local pickers stay hidden
         // and we skip the «HR required» guard. CREATE_NEW retains the
@@ -727,12 +846,32 @@ export function UserDialog(props: UserDialogProps) {
   }, [editingUser?.id, isEdit])
 
   const handleClose = () => {
-    if (isCreate) form.reset()
+    if (isCreate) {
+      form.reset()
+      setCurrentStep(1)
+      setCreatedUserId(null)
+      setHasContract(false)
+    }
     props.onClose()
   }
 
+  // A3-3: wizard finalize — «Сохранить как черновик»
+  const handleWizardSaveDraft = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
+    void queryClient.invalidateQueries({ queryKey: ['users'] })
+    toast.success('Пользователь создан, контракт сохранён как черновик', { duration: 4500 })
+    setCurrentStep(1)
+    setCreatedUserId(null)
+    setHasContract(false)
+    props.onClose()
+  }, [queryClient, props])
+
   const isPending =
-    createMutation.isPending || updateMutation.isPending || createDropMutation.isPending
+    createMutation.isPending ||
+    updateMutation.isPending ||
+    createDropMutation.isPending ||
+    wizardUpdateMutation.isPending ||
+    markReadyMutation.isPending
   const submitLabel = isCreate
     ? createMutation.isPending || createDropMutation.isPending
       ? 'Создание...'
@@ -763,7 +902,42 @@ export function UserDialog(props: UserDialogProps) {
           </CrmDialogHeader>
 
           <CrmDialogBody>
-            <div className="grid gap-3 py-2">
+            {/* ── Wizard Stepper (create-mode only) ─────────────────────── */}
+            {isCreate && (
+              <div className="px-1 pt-2">
+                <CreateWizardStepper current={currentStep} />
+              </div>
+            )}
+
+            {/* ── Step 2: Contract editor (create wizard) ────────────────── */}
+            {isCreate && currentStep === 2 && createdUserId && (
+              <WizardStep2
+                userId={createdUserId}
+                onHasContract={setHasContract}
+                body={wizardContractBody}
+                onBodyChange={(v) => {
+                  setWizardContractBody(v)
+                  setWizardContractDirty(true)
+                }}
+                isDirty={wizardContractDirty}
+                showHint={wizardShowHint}
+                onToggleHint={() => setWizardShowHint((p) => !p)}
+              />
+            )}
+
+            {/* ── Step 3: Confirm (create wizard) ───────────────────────── */}
+            {isCreate && currentStep === 3 && (
+              <WizardStep3
+                hasContract={hasContract}
+                onSaveDraft={handleWizardSaveDraft}
+                onMarkReady={() => markReadyMutation.mutate()}
+                isMarkingReady={markReadyMutation.isPending}
+                onBack={() => setCurrentStep(2)}
+              />
+            )}
+
+            {/* ── Step 1 form (or edit form) — hidden at wizard steps 2/3 ─ */}
+            <div className={cn('grid gap-3 py-2', isCreate && currentStep !== 1 && 'hidden')}>
               {/* ── Section 1: Identity ─────────────────────────────────── */}
               <Section title="Идентичность">
                 <form.Field
@@ -921,15 +1095,42 @@ export function UserDialog(props: UserDialogProps) {
                               .safeParse(value.trim())
                             return r.success ? undefined : r.error.issues[0]?.message
                           },
+                          // A3-3 AC6 / bug #2: surface superRefine error on submit attempt
+                          // for contract-eligible roles (SENIOR/HR/JUNIOR/ACCOUNTANT/DROP).
+                          // This fires when form.handleSubmit() is called and makes the
+                          // red border + error text visible without requiring blur first.
+                          onSubmit: ({ value }) => {
+                            const CONTRACT_ROLES = new Set([
+                              'SENIOR',
+                              'HR',
+                              'JUNIOR',
+                              'ACCOUNTANT',
+                              'DROP',
+                            ])
+                            if (isCreate && CONTRACT_ROLES.has(role) && !value.trim()) {
+                              return 'Юридическое ФИО обязательно для этой роли'
+                            }
+                            return undefined
+                          },
                         }}
                       >
                         {(field) => {
-                          const showError = field.state.meta.isTouched && field.state.meta.isDirty
-                          const err = showError ? field.state.meta.errors[0] : undefined
+                          // Show inline error in two cases:
+                          // 1. onBlur validator fired (field was touched + dirty)
+                          // 2. onSubmit validator fired (user clicked «Далее» without
+                          //    filling legalFullName for a contract-eligible role).
+                          //    TanStack Form populates errorMap.onSubmit after handleSubmit.
+                          const blurErr =
+                            field.state.meta.isTouched && field.state.meta.isDirty
+                              ? (field.state.meta.errorMap.onBlur as string | undefined)
+                              : undefined
+                          const submitErr = field.state.meta.errorMap.onSubmit as string | undefined
+                          const err = submitErr ?? blurErr
+                          const showError = !!err
                           return (
                             <Field
                               label="Юридическое ФИО"
-                              error={err}
+                              error={showError ? err : undefined}
                               hint="Используется в MSA-контракте вместо display name. Формат: Фамилия Имя Отчество."
                             >
                               <Input
@@ -937,8 +1138,10 @@ export function UserDialog(props: UserDialogProps) {
                                 value={field.state.value}
                                 onChange={(e) => field.handleChange(e.target.value)}
                                 onBlur={field.handleBlur}
+                                aria-invalid={showError ? true : undefined}
                                 className={cn(
-                                  err && 'border-destructive focus-visible:ring-destructive/30',
+                                  showError &&
+                                    'border-destructive focus-visible:ring-destructive/30',
                                 )}
                                 data-testid="user-dialog-legal-full-name"
                               />
@@ -1247,6 +1450,7 @@ export function UserDialog(props: UserDialogProps) {
                                         value={field.state.value}
                                         onChange={(e) => field.handleChange(e.target.value)}
                                         onBlur={field.handleBlur}
+                                        data-testid="user-dialog-bank-recipient"
                                         className={cn(
                                           err &&
                                             'border-destructive focus-visible:ring-destructive/30',
@@ -1278,6 +1482,7 @@ export function UserDialog(props: UserDialogProps) {
                                         value={field.state.value}
                                         onChange={(e) => field.handleChange(e.target.value)}
                                         onBlur={field.handleBlur}
+                                        data-testid="user-dialog-bank-iban"
                                         className={cn(
                                           err &&
                                             'border-destructive focus-visible:ring-destructive/30',
@@ -1309,6 +1514,7 @@ export function UserDialog(props: UserDialogProps) {
                                         value={field.state.value}
                                         onChange={(e) => field.handleChange(e.target.value)}
                                         onBlur={field.handleBlur}
+                                        data-testid="user-dialog-bank-rnokpp"
                                         className={cn(
                                           err &&
                                             'border-destructive focus-visible:ring-destructive/30',
@@ -1728,6 +1934,7 @@ export function UserDialog(props: UserDialogProps) {
                 }}
               </form.Subscribe>
             </div>
+            {/* end step-1 form grid */}
           </CrmDialogBody>
 
           <CrmDialogFooter className="items-center justify-between">
@@ -1742,13 +1949,48 @@ export function UserDialog(props: UserDialogProps) {
               <Button variant="ghost" onClick={handleClose}>
                 Отмена
               </Button>
-              <Button
-                onClick={() => void form.handleSubmit()}
-                disabled={isPending}
-                data-testid="user-dialog-submit"
-              >
-                {submitLabel}
-              </Button>
+              {/* Wizard step 1: «Далее» instead of «Создать» in create mode */}
+              {isCreate && currentStep === 1 ? (
+                <Button
+                  onClick={() => void form.handleSubmit()}
+                  disabled={isPending}
+                  data-testid="wizard-next-btn"
+                >
+                  {createMutation.isPending ? (
+                    'Создание...'
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5">
+                      Далее
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </span>
+                  )}
+                </Button>
+              ) : isCreate && currentStep === 2 ? (
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setCurrentStep(1)}
+                    data-testid="wizard-back-btn"
+                  >
+                    <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
+                    Назад
+                  </Button>
+                  <Button onClick={() => setCurrentStep(3)} data-testid="wizard-step2-next-btn">
+                    <span className="inline-flex items-center gap-1.5">
+                      Далее
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </span>
+                  </Button>
+                </div>
+              ) : !isCreate ? (
+                <Button
+                  onClick={() => void form.handleSubmit()}
+                  disabled={isPending}
+                  data-testid="user-dialog-submit"
+                >
+                  {submitLabel}
+                </Button>
+              ) : null}
             </div>
           </CrmDialogFooter>
         </CrmDialogContent>
@@ -1794,5 +2036,176 @@ export function UserDialog(props: UserDialogProps) {
         </AlertDialogContent>
       </AlertDialog>
     </>
+  )
+}
+
+// ── Wizard sub-components (create-mode only) ────────────────────────────────
+
+interface WizardStep2Props {
+  userId: string
+  onHasContract: (has: boolean) => void
+  body: string
+  onBodyChange: (v: string) => void
+  isDirty: boolean
+  showHint: boolean
+  onToggleHint: () => void
+}
+
+/**
+ * Step 2 of the create wizard: contract editor on the freshly-created user.
+ * Lazy-loads the A3-2 ContractEditor + uses useEmployeeContract for DRAFT lazy-create.
+ * Renders a skippable empty-state when no active template (404).
+ */
+function WizardStep2({
+  userId,
+  onHasContract,
+  body,
+  onBodyChange,
+  isDirty,
+  showHint,
+  onToggleHint,
+}: WizardStep2Props) {
+  const { data: contract, isLoading, error } = useEmployeeContract(userId)
+  const saveBody = useSaveContractBody(userId)
+
+  // Sync contract body into local state on first load.
+  // deps intentionally limited to contract?.id — we only want to seed the
+  // local body once per contract identity (not on every render where body
+  // or the stable callbacks change). Adding body/onBodyChange/onHasContract
+  // would re-seed on every keystroke and clobber in-progress edits.
+  // (react-hooks/exhaustive-deps is not configured in this project's eslint)
+  useEffect(() => {
+    if (contract && body === '') {
+      onBodyChange(contract.bodyMarkdown ?? '')
+      onHasContract(true)
+    }
+  }, [contract?.id])
+
+  // Notify parent whether we have a contract
+  useEffect(() => {
+    if (contract) onHasContract(true)
+    else if (error) onHasContract(false)
+  }, [contract, error])
+
+  const handleSave = () => {
+    saveBody.mutate(body)
+  }
+
+  // No active template → 404 empty state (step is skippable)
+  const isNoTemplate =
+    error &&
+    ((error as { response?: { status?: number } })?.response?.status === 404 ||
+      String((error as Error).message).includes('template'))
+
+  return (
+    <div className="py-2 flex flex-col gap-4" data-testid="wizard-contract-step">
+      {isLoading && (
+        <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
+          Загружаем контракт...
+        </div>
+      )}
+
+      {isNoTemplate && !isLoading && (
+        <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-6 text-center">
+          <FileText className="mx-auto mb-2 h-8 w-8 text-muted-foreground/50" />
+          <p className="text-sm font-medium text-muted-foreground">Нет активного шаблона</p>
+          <p className="mt-1 text-xs text-muted-foreground/70">
+            Контракт можно создать позже из профиля пользователя.
+            <br />
+            Нажмите «Далее» чтобы продолжить без контракта.
+          </p>
+        </div>
+      )}
+
+      {contract && !isLoading && (
+        <>
+          <ContractEditor
+            value={body || contract.bodyMarkdown}
+            onChange={onBodyChange}
+            readOnly={contract.status !== 'DRAFT'}
+            {...(contract.status === 'READY_TO_SIGN'
+              ? { frozenBanner: 'Контракт передан на подпись — редактирование заблокировано.' }
+              : {})}
+            showHint={showHint}
+            onToggleHint={onToggleHint}
+          />
+          <ContractActionBar
+            status={contract.status}
+            isDirty={isDirty}
+            isSaving={saveBody.isPending}
+            onSave={handleSave}
+            onMarkReady={() => {
+              /* handled in step 3 */
+            }}
+            onReset={() => {
+              /* handled via profile tab */
+            }}
+            onRevert={() => {
+              /* handled via profile tab */
+            }}
+          />
+        </>
+      )}
+    </div>
+  )
+}
+
+interface WizardStep3Props {
+  hasContract: boolean
+  onSaveDraft: () => void
+  onMarkReady: () => void
+  isMarkingReady: boolean
+  onBack: () => void
+}
+
+/**
+ * Step 3 of the create wizard: confirmation summary + finalize buttons.
+ * «Сохранить как черновик» → close (contract stays DRAFT, already saved).
+ * «Сохранить и отметить готовым» → POST /ready → close.
+ * Ready button disabled when no contract (no-template path).
+ */
+function WizardStep3({
+  hasContract,
+  onSaveDraft,
+  onMarkReady,
+  isMarkingReady,
+  onBack,
+}: WizardStep3Props) {
+  return (
+    <div className="py-4 flex flex-col gap-6" data-testid="wizard-confirm-step">
+      {/* Summary */}
+      <div className="rounded-lg border border-border/60 bg-muted/30 p-4 flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />
+          <p className="text-sm font-medium">Пользователь создан</p>
+        </div>
+        <p className="text-xs text-muted-foreground pl-7">
+          {hasContract
+            ? 'Контракт сохранён как черновик. Вы можете отметить его готовым к подписанию.'
+            : 'Контракт не создан (нет активного шаблона для роли). Его можно добавить позже через профиль пользователя.'}
+        </p>
+      </div>
+
+      {/* Navigation */}
+      <div className="flex items-center justify-between gap-2">
+        <Button variant="outline" onClick={onBack} data-testid="wizard-step3-back-btn">
+          <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
+          Назад
+        </Button>
+
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={onSaveDraft} data-testid="wizard-save-draft-btn">
+            Сохранить как черновик
+          </Button>
+          <Button
+            onClick={onMarkReady}
+            disabled={!hasContract || isMarkingReady}
+            data-testid="wizard-mark-ready-btn"
+          >
+            {isMarkingReady ? 'Отправка...' : 'Сохранить и отметить готовым к подписи'}
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }
