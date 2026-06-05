@@ -1115,15 +1115,18 @@ export function UserDialog(props: UserDialogProps) {
                         }}
                       >
                         {(field) => {
-                          // Show error on blur/dirty OR immediately after a failed submit
-                          // attempt (errors populated by onSubmit validator above).
-                          const err = field.state.meta.errors[0]
-                          const showError =
-                            (field.state.meta.isTouched && field.state.meta.isDirty && !!err) ||
-                            (field.state.meta.isSubmitted !== undefined &&
-                              !field.state.meta.isValid &&
-                              !!err) ||
-                            (!!err && field.state.meta.isTouched)
+                          // Show inline error in two cases:
+                          // 1. onBlur validator fired (field was touched + dirty)
+                          // 2. onSubmit validator fired (user clicked «Далее» without
+                          //    filling legalFullName for a contract-eligible role).
+                          //    TanStack Form populates errorMap.onSubmit after handleSubmit.
+                          const blurErr =
+                            field.state.meta.isTouched && field.state.meta.isDirty
+                              ? (field.state.meta.errorMap.onBlur as string | undefined)
+                              : undefined
+                          const submitErr = field.state.meta.errorMap.onSubmit as string | undefined
+                          const err = submitErr ?? blurErr
+                          const showError = !!err
                           return (
                             <Field
                               label="Юридическое ФИО"

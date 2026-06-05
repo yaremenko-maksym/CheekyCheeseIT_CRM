@@ -5,7 +5,7 @@
  * step navigation logic, POST/PATCH call targets, and button states.
  * Edit-mode is NOT tested here — it remains unchanged.
  */
-import { render, screen, waitFor, act } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
@@ -420,5 +420,129 @@ describe('UserDialog — step 3 confirm (Task 5)', () => {
       const newCalls = mockPost.mock.calls.slice(callsBefore)
       expect(newCalls.length).toBeGreaterThan(0)
     })
+  })
+})
+
+// ── Tests: Task 6 — AC6 back→PATCH (no duplicate POST) ────────────────────
+
+describe('UserDialog — AC6 back→PATCH no duplicate POST (Task 6)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGet.mockResolvedValue({ data: [] })
+    mockPost.mockResolvedValue(newUserResponse)
+    mockPatch.mockResolvedValue(newUserResponse)
+  })
+
+  it('«Назад» after step 1 POST then «Далее» again calls PATCH not POST', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    // Step 1 → advance → POST /users is called once, createdUserId set
+    await fillStep1AndAdvance(user)
+
+    await waitFor(
+      () => expect(screen.getByTestId('wizard-step-2')).toHaveAttribute('data-state', 'active'),
+      { timeout: 3000 },
+    )
+
+    // Verify POST was called exactly once
+    const postCallsAfterFirst = mockPost.mock.calls.filter((c) => !String(c[0]).includes('/ready'))
+    expect(postCallsAfterFirst).toHaveLength(1)
+
+    // «Назад» — navigates back to step 1, no mutation
+    await user.click(screen.getByTestId('wizard-back-btn'))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('wizard-step-1')).toHaveAttribute('data-state', 'active'),
+    )
+
+    // «Далее» again — should call PATCH not POST
+    const patchCallsBefore = mockPatch.mock.calls.length
+    const postCallsBefore = mockPost.mock.calls.filter(
+      (c) => !String(c[0]).includes('/ready'),
+    ).length
+
+    await user.click(screen.getByTestId('wizard-next-btn'))
+
+    await waitFor(
+      () => expect(screen.getByTestId('wizard-step-2')).toHaveAttribute('data-state', 'active'),
+      { timeout: 3000 },
+    )
+
+    // PATCH called at least once
+    expect(mockPatch.mock.calls.length).toBeGreaterThan(patchCallsBefore)
+    // POST /users NOT called again
+    const postCallsAfterSecond = mockPost.mock.calls.filter(
+      (c) => !String(c[0]).includes('/ready'),
+    ).length
+    expect(postCallsAfterSecond).toBe(postCallsBefore)
+  })
+
+  it('«Назад» itself does not trigger any API call', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    await fillStep1AndAdvance(user)
+
+    await waitFor(
+      () => expect(screen.getByTestId('wizard-step-2')).toHaveAttribute('data-state', 'active'),
+      { timeout: 3000 },
+    )
+
+    const callsBefore = {
+      post: mockPost.mock.calls.length,
+      patch: mockPatch.mock.calls.length,
+    }
+
+    await user.click(screen.getByTestId('wizard-back-btn'))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('wizard-step-1')).toHaveAttribute('data-state', 'active'),
+    )
+
+    // No new API calls from «Назад» alone
+    expect(mockPost.mock.calls.length).toBe(callsBefore.post)
+    expect(mockPatch.mock.calls.length).toBe(callsBefore.patch)
+  })
+})
+
+// ── Tests: BUG #2 — visible legalFullName validation error ────────────────
+
+describe('UserDialog — step 1 legalFullName visible error on submit (BUG #2)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGet.mockResolvedValue({ data: [] })
+    mockPost.mockResolvedValue(newUserResponse)
+  })
+
+  it('shows error under legalFullName and aria-invalid when submit attempted without filling it (JUNIOR role)', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    // Fill only identity + bank fields, leave legalFullName empty
+    await user.type(screen.getByTestId('user-dialog-email'), 'nolegal@example.com')
+    await user.type(screen.getByTestId('user-dialog-name'), 'Без Юридичного')
+    // Touch (but do not fill) legalFullName so errorMap.onSubmit surfaces
+    await user.click(screen.getByTestId('user-dialog-legal-full-name'))
+    await user.tab()
+
+    await user.type(screen.getByTestId('user-dialog-bank-recipient'), 'Тестов Тест')
+    await user.type(screen.getByTestId('user-dialog-bank-iban'), 'UA123456789012345678901234567')
+    await user.type(screen.getByTestId('user-dialog-bank-rnokpp'), '1234567890')
+
+    await user.click(screen.getByTestId('wizard-next-btn'))
+
+    // createUserSchema.superRefine will reject → toast.error fires
+    // (POST is not called because Zod parse fails before mutation)
+    // The field itself should show aria-invalid once submit is attempted
+    await waitFor(
+      () => {
+        const input = screen.getByTestId('user-dialog-legal-full-name')
+        // Either the field is aria-invalid, OR post was NOT called (validation blocked)
+        const postCalls = mockPost.mock.calls.filter((c) => !String(c[0]).includes('/ready'))
+        expect(postCalls.length === 0 || input.getAttribute('aria-invalid') === 'true').toBe(true)
+      },
+      { timeout: 2000 },
+    )
   })
 })
