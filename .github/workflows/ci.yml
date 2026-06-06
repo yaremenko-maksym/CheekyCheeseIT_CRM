@@ -129,6 +129,8 @@ jobs:
     # Runs DB-backed *.integration.spec.ts against a real Postgres instance.
     # Separated from the unit-test `quality` job so unit tests stay fast and
     # DB-free, while integration specs get migrate + seed + fixture data.
+    permissions:
+      pull-requests: write
     services:
       postgres:
         image: postgres:16-alpine
@@ -282,15 +284,18 @@ jobs:
           SQL
 
       # Run only *.integration.spec.ts — unit specs are covered by the `quality` job.
-      # In Vitest 3.x the file filter is a positional glob argument (not --testPathPattern
-      # which is a Jest flag). --reporter=verbose shows each test name so CI logs confirm
-      # real execution (not silent skip via dbAvailable guard).
+      # Vitest 3.x positional arg is a PATH SUBSTRING filter, not a shell glob.
+      # "**/*.integration.spec.ts" contains no real path chars → 0 matches.
+      # "integration.spec" is a substring present in every integration spec path
+      # and absent from all unit specs (verified against 7 files in apps/api/src/).
+      # --reporter=verbose shows each test name so CI logs confirm real execution
+      # (not silent skip via dbAvailable guard).
       - name: Run integration tests
         if: steps.filter.outputs.code == 'true'
         run: |
           pnpm --filter @crm/api exec vitest run \
             --reporter=verbose \
-            "**/*.integration.spec.ts"
+            integration.spec
 
       - name: Docs-only short-circuit
         if: steps.filter.outputs.code != 'true'
