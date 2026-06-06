@@ -1266,3 +1266,107 @@ describe('DocumentsService.list — DRAFT contract visibility per role', () => {
     expect(virtuals[0]?.id).toBe('ready-3')
   })
 })
+
+// =============================================================================
+// Task 1 — DocumentsService.hardDeleteInternal (PR-3)
+// =============================================================================
+
+describe('DocumentsService.hardDeleteInternal', () => {
+  it('deletes S3 object then removes DB row — no RBAC check', async () => {
+    const h = makeHarness({
+      docs: [
+        {
+          id: 'd1',
+          ownerId: SENIOR.id,
+          category: 'RECEIPT',
+          s3Key: 'documents/RECEIPT/senior-1/d1-receipt.pdf',
+        },
+      ],
+    })
+    await h.service.hardDeleteInternal('d1')
+    // S3 delete called with the row's s3Key
+    expect(h.s3.delete).toHaveBeenCalledWith('documents/RECEIPT/senior-1/d1-receipt.pdf')
+    // DB row removed
+    expect(h.docsRows).toHaveLength(0)
+  })
+
+  it('also deletes thumbnailS3Key when present', async () => {
+    const h = makeHarness({
+      docs: [
+        {
+          id: 'd2',
+          ownerId: SENIOR.id,
+          category: 'RECEIPT',
+          s3Key: 'documents/RECEIPT/senior-1/d2-receipt.pdf',
+          thumbnailS3Key: 'documents/RECEIPT/senior-1/d2-receipt_thumb.jpg',
+        },
+      ],
+    })
+    await h.service.hardDeleteInternal('d2')
+    expect(h.s3.delete).toHaveBeenCalledWith('documents/RECEIPT/senior-1/d2-receipt.pdf')
+    expect(h.s3.delete).toHaveBeenCalledWith('documents/RECEIPT/senior-1/d2-receipt_thumb.jpg')
+    expect(h.docsRows).toHaveLength(0)
+  })
+
+  it('throws NotFoundException when doc row does not exist', async () => {
+    const h = makeHarness({ pretendDocMissing: true })
+    await expect(h.service.hardDeleteInternal('no-such-doc')).rejects.toBeInstanceOf(
+      NotFoundException,
+    )
+  })
+
+  it('no RBAC — any caller identity is irrelevant (internal use)', async () => {
+    // hardDeleteInternal takes no actor — calling it should work regardless
+    // of who triggered it upstream. Test with a doc owned by JUNIOR to show
+    // ownership is not checked.
+    const h = makeHarness({
+      docs: [
+        {
+          id: 'd3',
+          ownerId: JUNIOR.id,
+          category: 'RECEIPT',
+          s3Key: 'docs/RECEIPT/junior-1/d3.pdf',
+        },
+      ],
+    })
+    await expect(h.service.hardDeleteInternal('d3')).resolves.toBeUndefined()
+    expect(h.docsRows).toHaveLength(0)
+  })
+})
+
+// =============================================================================
+// Task 3 — 1:1 receipt invariant + RECEIPT soft-delete rule (PR-3)
+// =============================================================================
+
+describe('DocumentsService — RECEIPT soft-delete rule (Task 3)', () => {
+  // The RECEIPT user-soft-delete rule: an owner CAN soft-delete their receipt
+  // via the regular softDelete() path — the 1:1 invariant is maintained by the
+  // replace-with-delete path in TransactionsService, not by blocking softDelete.
+  // This test documents current behaviour and ensures it stays unchanged.
+  it('owner can soft-delete a RECEIPT document (softDelete is NOT blocked for RECEIPT)', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RECEIPT' }],
+    })
+    await expect(h.service.softDelete(SENIOR, 'd1')).resolves.toBeUndefined()
+    expect(h.docsRows[0]?.deletedAt).not.toBeNull()
+  })
+
+  // hardDeleteInternal IS permitted on RECEIPT (internal, no RBAC) — this is
+  // the controlled replace-delete path called by TransactionsService.
+  it('hardDeleteInternal succeeds on RECEIPT doc (internal replace-delete allowed)', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RECEIPT', s3Key: 'docs/r/d1.pdf' }],
+    })
+    await expect(h.service.hardDeleteInternal('d1')).resolves.toBeUndefined()
+    expect(h.docsRows).toHaveLength(0)
+  })
+
+  // The public hardDelete (ADMIN two-stage) still requires prior soft-delete
+  // regardless of category — RECEIPT is no exception.
+  it('hardDelete (ADMIN public) still requires prior soft-delete even for RECEIPT', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RECEIPT', deletedAt: null }],
+    })
+    await expect(h.service.hardDelete(ADMIN, 'd1')).rejects.toBeInstanceOf(BadRequestException)
+  })
+})

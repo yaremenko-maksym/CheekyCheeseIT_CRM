@@ -13,6 +13,7 @@ import type { SessionUser } from '@crm/shared'
 import { MAKSYM_ID, KOSTYA_ID } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
+  documents,
   projectFinanceSettings,
   projectMembers,
   payoutRequests,
@@ -23,6 +24,7 @@ import {
   type Transaction,
 } from '../database/schema'
 import { InvoicesService } from '../invoices/invoices.service'
+import { DocumentsService } from '../documents/documents.service'
 import { resolveSeniorShare } from './senior-share-resolver'
 
 type TxWithRelations = Transaction & {
@@ -48,6 +50,8 @@ export class TransactionsService {
     private db: DatabaseService,
     @Inject(forwardRef(() => InvoicesService))
     private readonly invoicesService: InvoicesService,
+    @Inject(forwardRef(() => DocumentsService))
+    private readonly documentsService: DocumentsService,
   ) {}
 
   /**
@@ -92,6 +96,53 @@ export class TransactionsService {
         now.getUTCMilliseconds(),
       ),
     )
+  }
+
+  /**
+   * HIGH-1 (IDOR / OWASP A01) guard — must be called BEFORE writing
+   * `receiptDocumentId` to any transaction FK.
+   *
+   * Validates that the document identified by `docId`:
+   *   1. Exists (not deleted / never inserted) — NotFoundException.
+   *   2. Has category === 'RECEIPT' — BadRequestException.
+   *   3. Is owned by the expected owner:
+   *      - For non-ADMIN paths the owner must be the calling user (`currentUser.id`).
+   *      - For ADMIN paths pass `opts.expectedOwnerId` = the transaction receiver/senior;
+   *        ADMIN may bind any RECEIPT owned by that person (mirrors the upload
+   *        RBAC matrix in DocumentsService.assertCanUpload for RECEIPT category).
+   *
+   * Throws before any DB write so the FK is never set to a foreign document.
+   *
+   * Rationale (PR-3 security review HIGH-1):
+   *   Without this check a SENIOR-A can supply `receiptDocumentId = <docId of B>`
+   *   in updateSeniorIncome.  After a subsequent reject+resubmit the replace-with-
+   *   delete path (`oldDocId → dbtx.delete + S3.delete`) would permanently destroy
+   *   victim B's document.  The partial unique index only catches already-bound
+   *   docs; orphan RECEIPTs are free to be stolen.
+   */
+  private async assertReceiptDocumentBindable(
+    docId: string,
+    currentUser: SessionUser,
+    opts: { expectedOwnerId?: string } = {},
+  ): Promise<void> {
+    const doc = await this.db.db.query.documents.findFirst({
+      where: eq(documents.id, docId),
+    })
+
+    if (!doc) throw new NotFoundException('Receipt document not found')
+    if (doc.category !== 'RECEIPT') {
+      throw new BadRequestException('Document must be a RECEIPT to be attached to a transaction')
+    }
+
+    // Ownership check:
+    //  - Non-ADMIN callers must own the document themselves.
+    //  - ADMIN callers may bind a RECEIPT owned by a specific other user
+    //    (the transaction receiver).  If expectedOwnerId is not provided for an
+    //    ADMIN call we fall back to self-ownership.
+    const expectedOwner = opts.expectedOwnerId ?? currentUser.id
+    if (doc.ownerId !== expectedOwner) {
+      throw new ForbiddenException('You do not have permission to attach this receipt document')
+    }
   }
 
   /**
@@ -476,6 +527,11 @@ export class TransactionsService {
       throw new ForbiddenException('You can only add income for your own projects')
     }
 
+    // HIGH-1: validate receipt ownership + category before writing FK
+    if (data.receiptDocumentId) {
+      await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
+    }
+
     const [tx] = await this.db.db
       .insert(transactions)
       .values({
@@ -546,6 +602,11 @@ export class TransactionsService {
       applicableTeams,
     )
 
+    // HIGH-1: validate receipt ownership + category before writing FK
+    if (data.receiptDocumentId) {
+      await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
+    }
+
     const [tx] = await this.db.db
       .insert(transactions)
       .values({
@@ -600,6 +661,11 @@ export class TransactionsService {
       throw new ForbiddenException('Это не drop-проект под вами')
     }
 
+    // HIGH-1: validate receipt ownership + category before writing FK
+    if (data.receiptDocumentId) {
+      await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
+    }
+
     const [tx] = await this.db.db
       .insert(transactions)
       .values({
@@ -646,8 +712,12 @@ export class TransactionsService {
       throw new BadRequestException('Can only edit REJECTED transactions')
     if (tx.receiverId !== currentUser.id) throw new ForbiddenException()
 
-    // Resolve XOR: if exactly one is provided as defined, the other becomes
-    // null to satisfy the DB CHECK. If both are undefined, leave row unchanged.
+    // ── XOR receipt resolution ──────────────────────────────────────────────
+    // Exactly one of receiptDocumentId / receiptExternalUrl may be set at a
+    // time (DB CHECK enforces this). Rules:
+    //   - If receiptDocumentId is provided → it wins; receiptExternalUrl → null
+    //   - If receiptExternalUrl is provided → it wins; receiptDocumentId → null
+    //   - If neither is provided → leave both columns unchanged
     const receiptDocChanged = data.receiptDocumentId !== undefined
     const receiptUrlChanged = data.receiptExternalUrl !== undefined
     const nextDocId = receiptDocChanged
@@ -661,21 +731,101 @@ export class TransactionsService {
         ? null
         : tx.receiptExternalUrl
 
-    await this.db.db
-      .update(transactions)
-      .set({
-        amount: data.amount !== undefined ? String(data.amount) : tx.amount,
-        currency: (data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined) ?? tx.currency,
-        receiptDocumentId: nextDocId,
-        receiptExternalUrl: nextExtUrl,
-        notes: data.notes !== undefined ? data.notes : tx.notes,
-        status: 'PENDING',
-        rejectionReason: null,
-        validatedBy: null,
-        validatedAt: null,
-        updatedAt: new Date(),
+    // HIGH-1: validate the incoming receipt doc before writing FK.
+    // Only check when nextDocId is set AND it is a new (different) document —
+    // keeping the same docId is always safe (ownership already established).
+    if (nextDocId && nextDocId !== tx.receiptDocumentId) {
+      await this.assertReceiptDocumentBindable(nextDocId, currentUser)
+    }
+
+    // ── 1:1 receipt replace-with-delete (PR-3) ──────────────────────────────
+    //
+    // Invariant: one SENIOR_INCOME ↔ exactly one RECEIPT document.
+    //
+    // When a SENIOR resubmits after rejection, the old receipt document must
+    // be hard-deleted (S3 + DB row) atomically with the transaction update.
+    //
+    // ORDERING — chosen so S3 failure never corrupts DB state:
+    //   STEP A (inside db.transaction): UPDATE transactions (FK → nextDocId,
+    //          status PENDING, clear validation). Then DELETE old documents row
+    //          (safe: FK no longer points at it).
+    //   STEP B (after db.transaction commits): best-effort s3.delete(oldS3Key).
+    //          On failure → warn-log only. A dangling S3 object is acceptable
+    //          (costs pennies, ADMIN can clean up); a dangling orphan FK or a
+    //          lost new-receipt pointer would be data corruption.
+    //
+    // Why DB-delete inside the transaction:
+    //   If we deleted the documents row BEFORE the tx UPDATE committed, a crash
+    //   between the two would leave the FK pointing at a ghost. Doing it after
+    //   the UPDATE (but within the same tx) means the FK is already re-pointed
+    //   to nextDocId — the old row is safely orphaned from the FK perspective
+    //   and can be removed.
+    //
+    // hardDeleteInternal is called on documents row only (no RBAC). S3 cleanup
+    // is split out below (post-commit, best-effort) so a MinIO hiccup never
+    // rolls back the financial state update.
+    const oldDocId = tx.receiptDocumentId
+
+    // Fetch the old document's S3 key now (before the transaction) so we can
+    // run S3 cleanup post-commit without another DB read.
+    let oldS3Key: string | null = null
+    let oldThumbKey: string | null = null
+    if (oldDocId && oldDocId !== nextDocId) {
+      const oldDoc = await this.db.db.query.documents.findFirst({
+        where: eq(documents.id, oldDocId),
       })
-      .where(eq(transactions.id, id))
+      if (oldDoc) {
+        oldS3Key = oldDoc.s3Key
+        oldThumbKey = oldDoc.thumbnailS3Key ?? null
+      }
+    }
+
+    // STEP A: atomic DB transaction — update tx row + delete old documents row.
+    //
+    // WHY we use dbtx.delete() directly instead of hardDeleteInternal():
+    //   hardDeleteInternal() uses `this.db.db` (the connection pool) for both
+    //   its SELECT and DELETE. Calling it from inside a Drizzle db.transaction()
+    //   callback would attempt to acquire a second pool connection while the outer
+    //   transaction already holds one → PostgreSQL deadlock / pool exhaustion.
+    //   Solution: perform the DB-delete inline via `dbtx` (same connection);
+    //   move the S3 cleanup to STEP B (post-commit, best-effort).
+    await this.db.db.transaction(async (dbtx) => {
+      // A1. Update the transaction row: re-point FK, reset status, clear validation.
+      await dbtx
+        .update(transactions)
+        .set({
+          amount: data.amount !== undefined ? String(data.amount) : tx.amount,
+          currency: (data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined) ?? tx.currency,
+          receiptDocumentId: nextDocId,
+          receiptExternalUrl: nextExtUrl,
+          notes: data.notes !== undefined ? data.notes : tx.notes,
+          status: 'PENDING',
+          rejectionReason: null,
+          validatedBy: null,
+          validatedAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(transactions.id, id))
+
+      // A2. Delete old documents DB row inside the same tx (FK already re-pointed
+      //     to nextDocId above — safe to remove the old row now).
+      //     S3 cleanup is deferred to STEP B (post-commit) to keep this tx fast
+      //     and to ensure an S3 hiccup cannot roll back the financial state.
+      if (oldDocId && oldDocId !== nextDocId) {
+        await dbtx.delete(documents).where(eq(documents.id, oldDocId))
+      }
+    })
+
+    // STEP B: best-effort S3 cleanup post-commit.
+    // The DB is fully consistent at this point (new receipt linked, old row
+    // gone). A failure here leaves at most a dangling S3 object — never an
+    // orphan FK or a missing new receipt pointer.
+    if (oldS3Key) {
+      await this.documentsService.deleteS3Keys(oldS3Key, oldThumbKey)
+      this.logger.debug(
+        `receipt replace: old S3 key="${oldS3Key}" scheduled for cleanup (post-commit)`,
+      )
+    }
 
     return this.findOne(id, currentUser)
   }
@@ -729,6 +879,16 @@ export class TransactionsService {
         : receiptDocChanged && data.receiptDocumentId
           ? null
           : tx.receiptExternalUrl
+    }
+
+    // HIGH-1: validate receipt ownership + category before writing FK.
+    // For ADMIN edits the receipt must belong to the transaction's receiver
+    // (for income types) or the ADMIN themselves (for EXPENSE where receiverId
+    // is null). Falls back to currentUser.id when no receiver is set.
+    const nextReceiptDocId = receiptPatch.receiptDocumentId
+    if (nextReceiptDocId && nextReceiptDocId !== tx.receiptDocumentId) {
+      const expectedOwnerId = tx.receiverId ?? currentUser.id
+      await this.assertReceiptDocumentBindable(nextReceiptDocId, currentUser, { expectedOwnerId })
     }
 
     await this.db.db
@@ -1064,6 +1224,11 @@ export class TransactionsService {
     currentUser: SessionUser,
   ) {
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
+
+    // HIGH-1: validate receipt ownership + category before writing FK
+    if (data.receiptDocumentId) {
+      await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
+    }
 
     const [tx] = await this.db.db
       .insert(transactions)

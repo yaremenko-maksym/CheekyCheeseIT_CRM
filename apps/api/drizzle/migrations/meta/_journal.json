@@ -15,6 +15,13 @@
       "when": 1749081600000,
       "tag": "0001_employee_contracts",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780727592035,
+      "tag": "0002_noisy_tomorrow_man",
+      "breakpoints": true
     }
   ]
 }

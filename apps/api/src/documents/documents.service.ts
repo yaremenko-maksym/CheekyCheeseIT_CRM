@@ -592,6 +592,88 @@ export class DocumentsService {
   }
 
   // -------------------------------------------------------------------------
+  // Hard delete — internal (no RBAC, trusted server code)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Internal hard-delete bypass — permanently removes the S3 object(s) and
+   * the DB row **without** any RBAC check. Intended for trusted server code
+   * that owns the lifecycle of the document (e.g. TransactionsService
+   * replacing a SENIOR_INCOME receipt after a REJECTED resubmit).
+   *
+   * Mirrors `hardDelete()` (ADMIN public path) except:
+   *  - No actor / role check (mirrors the `uploadInternal` / `softDeleteInternal`
+   *    internal-bypass pattern).
+   *  - Does NOT require the document to be soft-deleted first — the caller
+   *    controls deletion as part of a higher-level atomic operation.
+   *
+   * Order chosen for safety:
+   *  1. S3 delete first (idempotent in S3Service — missing key swallowed).
+   *  2. DB row delete second — after S3, so a crash between the two leaves at
+   *     most a dangling S3 object (cheap) rather than a missing S3 object with
+   *     a DB row pointing at it (broken download).
+   *
+   * Throws NotFoundException when the row does not exist (defensive — callers
+   * should hold a valid ID from a prior FK read). Idempotent only in the sense
+   * that a second call on the same ID will throw NotFoundException (row gone).
+   */
+  async hardDeleteInternal(docId: string): Promise<void> {
+    const doc = await this.db.db.query.documents.findFirst({
+      where: eq(documents.id, docId),
+    })
+    if (!doc) throw new NotFoundException('Документ не найден')
+
+    // S3 deletes are idempotent in S3Service (missing key → 204, errors
+    // logged + swallowed). Delete main object first, then thumbnail if present.
+    await this.s3.delete(doc.s3Key)
+    if (doc.thumbnailS3Key) {
+      await this.s3.delete(doc.thumbnailS3Key)
+    }
+
+    // Remove DB row. FK on transactions.receipt_document_id is ON DELETE SET NULL
+    // so a half-deleted state (row gone but FK still pointing) is prevented by
+    // the schema — callers must re-point the FK before calling this.
+    await this.db.db.delete(documents).where(eq(documents.id, docId))
+  }
+
+  /**
+   * Best-effort S3-only cleanup — deletes the given S3 keys without touching
+   * the DB row. Intended for post-commit cleanup in `TransactionsService.updateSeniorIncome`
+   * where the DB row has already been deleted inside a Drizzle transaction
+   * (using `dbtx.delete`) and only the S3 objects remain to be cleaned up.
+   *
+   * Why separate from hardDeleteInternal:
+   *   `hardDeleteInternal` uses `this.db.db` (the connection pool) for both
+   *   the SELECT and the DELETE. If called from inside a Drizzle `db.transaction(dbtx)`
+   *   callback it would try to acquire a second pool connection while one is
+   *   already held by the outer transaction → PostgreSQL deadlock / pool exhaustion.
+   *   Splitting S3 cleanup into this method lets `updateSeniorIncome` do:
+   *     - DB-delete inside dbtx using `dbtx.delete(documents).where(...)`
+   *     - S3-delete post-commit using `deleteS3Keys(oldS3Key, oldThumbKey)`
+   *
+   * Errors are swallowed — a dangling S3 object costs pennies and an ADMIN can
+   * clean it up; rolling back the DB for an S3 hiccup would be worse.
+   */
+  async deleteS3Keys(mainKey: string, thumbKey: string | null | undefined): Promise<void> {
+    try {
+      await this.s3.delete(mainKey)
+    } catch (err) {
+      this.logger['warn'](
+        `deleteS3Keys: failed to delete main key="${mainKey}": ${(err as Error).message}`,
+      )
+    }
+    if (thumbKey) {
+      try {
+        await this.s3.delete(thumbKey)
+      } catch (err) {
+        this.logger['warn'](
+          `deleteS3Keys: failed to delete thumb key="${thumbKey}": ${(err as Error).message}`,
+        )
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Hard delete (ADMIN-only, requires prior soft delete)
   // -------------------------------------------------------------------------
 

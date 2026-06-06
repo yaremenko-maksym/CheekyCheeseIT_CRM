@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common'
 import { ScheduleModule } from '@nestjs/schedule'
 import { AuthModule } from '../auth/auth.module'
 import { DatabaseModule } from '../database/database.module'
+import { DocumentsModule } from '../documents/documents.module'
 import { InvoicesModule } from '../invoices/invoices.module'
 import { BalanceController, PendingObligationsController } from './balance.controller'
 import { BalanceService } from './balance.service'
@@ -31,6 +32,11 @@ import { TransactionsService } from './transactions.service'
     // includes FinanceModule via Documents tests — keeping the ref lazy
     // means Nest resolves the providers in the correct order at runtime.
     forwardRef(() => InvoicesModule),
+    // DocumentsModule is needed for DocumentsService.hardDeleteInternal —
+    // used by TransactionsService.updateSeniorIncome (receipt replace-with-delete).
+    // forwardRef guards against potential circular import chains through
+    // InvoicesModule → DocumentsModule → … paths.
+    forwardRef(() => DocumentsModule),
   ],
   providers: [
     TransactionsService,
