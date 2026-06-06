@@ -133,12 +133,17 @@ test.describe('Team detail page — admin actions', () => {
     await expect(page.getByTestId('team-archive-button')).not.toBeVisible()
   })
 
-  test('ADMIN sees Состав tab on team detail', async ({ asAdmin: page }) => {
+  test('ADMIN sees members list and add-member button on team detail', async ({
+    asAdmin: page,
+  }) => {
     await page.route(`${API}/teams/${activeTeam.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(activeTeam) }),
     )
     await page.goto(`/crm/team/${activeTeam.id}`)
-    await expect(page.getByTestId('tab-members')).toBeVisible()
+    await expect(page.getByRole('heading', { name: activeTeam.name })).toBeVisible()
+    // Team detail has no tabbed layout — members are shown inline.
+    // The "Добавить участника" button is the primary ADMIN affordance on this page.
+    await expect(page.getByTestId('team-add-member-button')).toBeVisible()
   })
 
   test('opening "Архивировать" shows ArchiveConfirmDialog with senior-name input', async ({
