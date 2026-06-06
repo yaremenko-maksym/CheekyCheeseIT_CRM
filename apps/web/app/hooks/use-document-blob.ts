@@ -107,12 +107,15 @@ export function useDocumentBlob(
     if (!open || !presignedUrl || !docId) {
       return
     }
-    // Уже загружено для этого docId — не перезапускаем
-    if (loadedForRef.current === docId && blobUrl !== null) {
+    // Уже загружено для этого docId — не перезапускаем. loadedForRef
+    // выставляется только после успешной загрузки и сбрасывается в reset-эффекте
+    // вместе с blobUrl, поэтому проверять blobUrl !== null избыточно — и его
+    // отсутствие в deps убирает лишний прогон эффекта после setBlobUrl (code-MED).
+    if (loadedForRef.current === docId) {
       return
     }
     void fetchBlob(presignedUrl, docId)
-  }, [open, presignedUrl, docId, blobUrl, fetchBlob])
+  }, [open, presignedUrl, docId, fetchBlob])
 
   // Сброс при смене документа или закрытии
   useEffect(() => {
@@ -126,8 +129,10 @@ export function useDocumentBlob(
     }
   }, [open, docId, revokeCurrent])
 
-  // Cleanup при размонтировании — используем ref-значения напрямую,
-  // чтобы не пересоздавать эффект при каждом рендере.
+  // Cleanup при размонтировании. abortRef/revokeRef стабильны между рендерами;
+  // алиасим их в локальные const и кладём в deps, чтобы удовлетворить
+  // react-hooks/exhaustive-deps БЕЗ пересоздания эффекта на каждый рендер —
+  // teardown должен выполниться ровно один раз, при unmount (code-MED: readability).
   const abortRefStable = abortRef
   const revokeRefStable = revokeRef
   useEffect(() => {

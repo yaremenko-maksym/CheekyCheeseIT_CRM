@@ -248,6 +248,14 @@ export default defineConfig({
                     // Срезаем presigned query-параметры S3 (X-Amz-*, Expires, …)
                     return u.origin + u.pathname
                   },
+                  // security MED-1: privacy-инвариант держится на КОДЕ, не на топологии
+                  // деплоя. Catch-all ветка (destination === '') при будущем split-origin
+                  // API (api.domain.com) может поймать контракт/инвойс-blob с no-store.
+                  // Уважаем Cache-Control: no-store → не кешируем приватные документы.
+                  cacheWillUpdate: async ({ response }: { response: Response }) => {
+                    const cc = response.headers.get('cache-control') ?? ''
+                    return cc.includes('no-store') ? null : response
+                  },
                 },
               ],
               expiration: { maxEntries: 200, maxAgeSeconds: 2592000 },
