@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import { TanStackRouterVite } from '@tanstack/router-plugin/vite'
 import tailwindcss from '@tailwindcss/vite'
 import tsConfigPaths from 'vite-tsconfig-paths'
+import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 
 export default defineConfig({
@@ -55,5 +56,56 @@ export default defineConfig({
     react(),
     tailwindcss(),
     tsConfigPaths(),
+    VitePWA({
+      // autoUpdate: SW обновляется автоматически в фоне без промпта
+      registerType: 'autoUpdate',
+
+      // script: плагин генерирует отдельный registerSW.js и подключает его
+      // через <script src="/registerSW.js"> в index.html.
+      // Проходит prod-CSP `script-src 'self'` без inline — no nonce required.
+      // Не использует virtual:pwa-register — избегает проблем с Rollup resolver
+      // в pnpm workspace (zod не hoisted в root node_modules).
+      injectRegister: 'script',
+
+      // SW отключён в dev — избегаем stale-кеша при разработке
+      devOptions: { enabled: false },
+
+      // Существующий webmanifest в public/ уже содержит все нужные поля.
+      // manifest: false — плагин НЕ генерирует дубль манифеста.
+      manifest: false,
+
+      workbox: {
+        // Крупнейший чанк ~2.53 MB (index-*.js, весь vendor bundle).
+        // Дефолтный лимит workbox = 2 MiB → build падает с exit 1.
+        // Ставим 5 MiB чтобы покрыть текущий размер с запасом.
+        // TODO: code-split vendor bundle (dnd-kit / framer-motion / pdf-lib)
+        //   чтобы вернуться к дефолту или ~3 MiB — follow-up task.
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+
+        // Precache только статические ассеты фронта (хешированные имена — immutable)
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webmanifest}'],
+
+        // SPA fallback: все навигационные запросы → index.html,
+        // TanStack Router разруливает маршруты на клиенте
+        navigateFallback: '/index.html',
+
+        // НЕ перехватывать /api/* — auth/данные нельзя кешировать
+        navigateFallbackDenylist: [/^\/api\//],
+
+        // Удалять устаревшие кеши при обновлении SW
+        cleanupOutdatedCaches: true,
+
+        // SW немедленно берёт управление над всеми клиентами
+        clientsClaim: true,
+
+        // Новый SW активируется без ожидания закрытия вкладок
+        skipWaiting: true,
+
+        // НЕ добавляем runtimeCaching для /api/* или S3 presigned-URL:
+        // - /api/* содержит приватные auth/данные — кешировать опасно
+        // - S3 presigned-URL меняется каждый запрос — кеш бесполезен
+        // - PDF (контракты/инвойсы) — no-store, private — не трогать
+      },
+    }),
   ],
 })
