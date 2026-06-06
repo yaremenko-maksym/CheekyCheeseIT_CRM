@@ -66,8 +66,14 @@ function OnboardingRoot() {
         >
           {user.email}
         </span>
-        <Button variant="ghost" size="sm" onClick={logout} data-testid="onboarding-logout">
-          <LogOut className="mr-2 h-4 w-4" />
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={logout}
+          data-testid="onboarding-logout"
+        >
+          <LogOut className="mr-2 h-4 w-4" aria-hidden="true" />
           Выйти
         </Button>
       </div>

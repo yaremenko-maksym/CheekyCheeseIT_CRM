@@ -89,20 +89,19 @@ test.describe('Onboarding logout', () => {
   // AC3: clicking logout redirects to /login and clears the session
   // -------------------------------------------------------------------------
   test('AC3: clicking logout redirects to /login and session is cleared', async ({ page }) => {
-    // After logout the auth/me endpoint should return 401 so /crm re-redirects
+    // Set up the post-logout session state BEFORE clicking: /auth/me returns
+    // 401 so any re-fetch (and the /crm guard below) deterministically sees a
+    // cleared session — independent of CRM Layout init ordering.
     await page.unroute(`${API}/auth/me`)
-    // The click itself triggers window.location.href='/login' inside the hook
-    // before we can intercept anything; wait for the navigation instead.
-
-    await page.getByTestId('onboarding-logout').click()
-
-    // Hard redirect to /login
-    await expect(page).toHaveURL(/\/login/, { timeout: 8000 })
-
-    // Now simulate that the session is gone: /auth/me returns 401
     await page.route(`${API}/auth/me`, (r) => r.fulfill({ status: 401, body: '' }))
 
-    // Navigating to /crm should redirect back to login (session gone)
+    // The click triggers window.location.href='/login' inside useLogout.
+    await page.getByTestId('onboarding-logout').click()
+
+    // Hard redirect to the public login page.
+    await expect(page).toHaveURL(/\/login/, { timeout: 8000 })
+
+    // Guard holds: navigating back to /crm re-redirects to login (no bypass).
     await page.goto('/crm/dashboard')
     await expect(page).toHaveURL(/\/login/, { timeout: 8000 })
   })
