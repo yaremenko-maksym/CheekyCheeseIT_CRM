@@ -17,7 +17,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^15.2.10",
     "prettier": "^3.4.0",
-    "turbo": "^2.9.0",
+    "turbo": "^2.9.14",
     "typescript": "^5.8.0"
   },
   "lint-staged": {
@@ -29,14 +29,25 @@
       "pnpm --filter @crm/api exec eslint --fix",
       "prettier --write"
     ],
-    "packages/shared/**/*.ts": ["prettier --write"],
-    "*.{json,md,yml,yaml}": ["prettier --write"],
-    "apps/**/*.{json,md,yml,yaml}": ["prettier --write"],
-    "packages/**/*.{json,md,yml,yaml}": ["prettier --write"]
+    "packages/shared/**/*.ts": [
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ],
+    "apps/**/*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ],
+    "packages/**/*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
   },
   "pnpm": {
     "overrides": {
-      "fastify": "^5.8.5"
+      "fastify": "^5.8.5",
+      "fast-uri": ">=3.1.2",
+      "ws": ">=8.20.1",
+      "brace-expansion": ">=5.0.6"
     }
   }
 }
