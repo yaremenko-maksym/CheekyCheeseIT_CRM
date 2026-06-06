@@ -196,7 +196,7 @@ export default defineConfig({
         // TanStack Router разруливает маршруты на клиенте
         navigateFallback: '/index.html',
 
-        // НЕ перехватывать /api/* — auth/данные нельзя кешировать
+        // НЕ перехватывать /api/* — auth/данные нельзя кешировать навигационно
         navigateFallbackDenylist: [/^\/api\//],
 
         // Удалять устаревшие кеши при обновлении SW
@@ -208,10 +208,46 @@ export default defineConfig({
         // Новый SW активируется без ожидания закрытия вкладок
         skipWaiting: true,
 
-        // НЕ добавляем runtimeCaching для /api/* или S3 presigned-URL:
-        // - /api/* содержит приватные auth/данные — кешировать опасно
-        // - S3 presigned-URL меняется каждый запрос — кеш бесполезен
-        // - PDF (контракты/инвойсы) — no-store, private — не трогать
+        runtimeCaching: [
+          {
+            // S3-медиа: CacheFirst + нормализация ключа (срез presigned-query).
+            // S3-объекты иммутабельны — presigned URL меняется при каждом запросе,
+            // но контент по одному и тому же origin+pathname всегда одинаков.
+            // Кешируем по origin+pathname, игнорируя query-параметры подписи.
+            urlPattern: ({ url, request }: { url: URL; request: Request }) =>
+              request.destination === 'image' && url.origin !== self.location.origin,
+            handler: 'CacheFirst' as const,
+            options: {
+              cacheName: 'media-cache',
+              plugins: [
+                {
+                  cacheKeyWillBeUsed: async ({ request }: { request: Request }) => {
+                    const u = new URL(request.url)
+                    // Срезаем presigned query-параметры S3 (X-Amz-*, Expires, …)
+                    return u.origin + u.pathname
+                  },
+                },
+              ],
+              expiration: { maxEntries: 200, maxAgeSeconds: 2592000 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            // API GET: NetworkFirst — свежее онлайн, кеш как офлайн-фолбэк (АНТИ-STALE).
+            // baseURL аксиоса = http://localhost:3001/api (dev) или VITE_API_URL (prod).
+            // Матчим по pathname /api/ + порт 3001 для dev; в prod API на том же origin
+            // через прокси (/api/*) — pathname-match покрывает оба сценария.
+            urlPattern: ({ url, request }: { url: URL; request: Request }) =>
+              url.pathname.startsWith('/api/') && request.method === 'GET',
+            handler: 'NetworkFirst' as const,
+            options: {
+              cacheName: 'api-cache',
+              networkTimeoutSeconds: 4,
+              expiration: { maxEntries: 200, maxAgeSeconds: 86400 },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+        ],
       },
     }),
   ],
