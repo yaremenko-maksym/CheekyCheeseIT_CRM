@@ -204,68 +204,79 @@ jobs:
         if: steps.filter.outputs.code == 'true'
         run: pnpm --filter @crm/api db:seed
 
-      # Insert QA fixture required by documents-unified.integration.spec.ts test #11:
-      #   ADMIN must see DRAFT contracts. Seed creates SIGNED + READY_TO_SIGN only.
-      #   This step adds one QA SENIOR user + a DRAFT employee_contract so the
-      #   assertion `draftEntries.length > 0` passes.
+      # Insert QA fixtures required by two integration specs:
       #
-      # source_template_id is resolved at runtime (seed generates UUIDs dynamically),
-      # so we SELECT the active SENIOR template inserted by db:seed above.
+      # 1) documents-unified.integration.spec.ts test #11:
+      #      ADMIN must see DRAFT contracts. Seed creates SIGNED + READY_TO_SIGN only.
+      #      Adds QA SENIOR (27b9524e-...) + DRAFT employee_contract.
       #
-      # Constraint: employee_contracts has a partial unique index
-      #   `employee_contracts_one_per_user` WHERE status != 'CANCELLED'.
-      # ON CONFLICT DO NOTHING is safe because CI always starts with a fresh DB.
-      - name: Insert integration test fixtures (QA SENIOR + DRAFT contract)
+      # 2) onboarding-contract.integration.spec.ts tests 1b + 3:
+      #      DRAFT-only user (QA_FIX3, 354d26e9-...) must exist with DRAFT contract.
+      #
+      # source_template_id is resolved at runtime (seed assigns random UUIDs via
+      # .returning()), so we SELECT the active SENIOR template inserted by db:seed.
+      #
+      # employee_contracts has partial unique index WHERE status != 'CANCELLED' —
+      # ON CONFLICT DO NOTHING is safe on a fresh CI DB.
+      - name: Insert integration test fixtures (QA SENIORs + DRAFT contracts)
         if: steps.filter.outputs.code == 'true'
         env:
           PGPASSWORD: password
         run: |
           psql -h localhost -U crm_user -d crm_db <<'SQL'
-            -- QA SENIOR user referenced by documents-unified.integration.spec.ts
+            -- ── Fixture 1: qa-ac6-7x9k2m (documents-unified test #11) ──────────
             INSERT INTO users (
-              id,
-              email,
-              display_name,
-              legal_full_name,
-              role,
-              senior_share_percent,
-              created_at,
-              updated_at
+              id, email, display_name, legal_full_name,
+              role, senior_share_percent, created_at, updated_at
             ) VALUES (
               '27b9524e-0b48-4226-8f90-65b4662c1250',
               'qa-ac6-7x9k2m@cheekycheese.dev',
               'QA Senior Draft',
               'QA Тестовий Сеньйор',
-              'SENIOR',
-              26,
-              NOW(),
-              NOW()
+              'SENIOR', 26, NOW(), NOW()
             ) ON CONFLICT (id) DO NOTHING;
 
-            -- DRAFT employee_contract for QA SENIOR.
-            -- Resolves source_template_id dynamically (seed assigns random UUIDs).
             INSERT INTO employee_contracts (
-              user_id,
-              source_template_id,
-              body_markdown,
-              status,
-              signed_contract_id,
-              created_by_user_id,
-              created_at,
-              updated_at
+              user_id, source_template_id, body_markdown,
+              status, signed_contract_id, created_by_user_id, created_at, updated_at
             )
             SELECT
               '27b9524e-0b48-4226-8f90-65b4662c1250',
               id,
-              'QA DRAFT contract fixture — integration test only',
-              'DRAFT',
-              NULL,
+              'QA DRAFT contract fixture — documents-unified integration test',
+              'DRAFT', NULL,
               'a8f4d3b1-c2e5-4a1f-9b3d-8c7e6f5a4b21',
-              NOW(),
-              NOW()
+              NOW(), NOW()
             FROM contract_templates
-            WHERE target_role = 'SENIOR'
-              AND is_active = true
+            WHERE target_role = 'SENIOR' AND is_active = true
+            LIMIT 1
+            ON CONFLICT DO NOTHING;
+
+            -- ── Fixture 2: qa-fix3-uuid (onboarding-contract tests 1b + 3) ─────
+            INSERT INTO users (
+              id, email, display_name, legal_full_name,
+              role, senior_share_percent, created_at, updated_at
+            ) VALUES (
+              '354d26e9-0234-4e09-bcc9-dea5770cbdf4',
+              'qa-fix3-uuid@cheekycheese.dev',
+              'QA Fix3',
+              'QA Fix3 Seed UUID Testovyi',
+              'SENIOR', 26, NOW(), NOW()
+            ) ON CONFLICT (id) DO NOTHING;
+
+            INSERT INTO employee_contracts (
+              user_id, source_template_id, body_markdown,
+              status, signed_contract_id, created_by_user_id, created_at, updated_at
+            )
+            SELECT
+              '354d26e9-0234-4e09-bcc9-dea5770cbdf4',
+              id,
+              'QA DRAFT contract fixture — onboarding-contract integration test',
+              'DRAFT', NULL,
+              'a8f4d3b1-c2e5-4a1f-9b3d-8c7e6f5a4b21',
+              NOW(), NOW()
+            FROM contract_templates
+            WHERE target_role = 'SENIOR' AND is_active = true
             LIMIT 1
             ON CONFLICT DO NOTHING;
           SQL
