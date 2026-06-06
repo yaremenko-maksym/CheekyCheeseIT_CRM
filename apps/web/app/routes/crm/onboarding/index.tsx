@@ -85,7 +85,7 @@ function OnboardingPage() {
   // Progress indicator data
   const steps: Array<{ id: OnboardingStep; label: string; icon: React.ReactNode }> = [
     { id: 'contract', label: 'Подписать контракт', icon: <FileText className="h-4 w-4" /> },
-    { id: 'tos', label: 'Terms of Service', icon: <ScrollText className="h-4 w-4" /> },
+    { id: 'tos', label: 'Условия использования', icon: <ScrollText className="h-4 w-4" /> },
   ]
 
   const currentStepIndex = steps.findIndex((s) => s.id === step)
@@ -180,7 +180,7 @@ function OnboardingPage() {
             transition={{ duration: 0.2 }}
             data-testid="onboarding-step-tos"
           >
-            <h2 className="mb-4 text-lg font-semibold">Terms of Service</h2>
+            <h2 className="mb-4 text-lg font-semibold">Условия использования</h2>
             <AcceptTosStep onSuccess={handleTosSuccess} />
           </motion.div>
         )}
