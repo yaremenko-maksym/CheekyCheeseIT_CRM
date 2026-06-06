@@ -195,6 +195,11 @@ export class S3Service {
    * Used by DocumentsReconciliationService to enumerate the full bucket and
    * find orphan objects (keys that exist in S3 but have no matching row in
    * the `documents` table).
+   *
+   * Security: scoped to `Prefix: 'documents/'` so the reconciler can ONLY
+   * see and potentially delete managed document objects. Backup directories,
+   * CI artifacts, or anything uploaded outside the managed prefix are
+   * invisible to this method — even when running on a shared bucket.
    */
   async listObjects(continuationToken?: string): Promise<{
     objects: Array<{ key: string; sizeBytes: number; lastModified: Date }>
@@ -203,14 +208,15 @@ export class S3Service {
     const res = await this.client.send(
       new ListObjectsV2Command({
         Bucket: this.bucket,
+        Prefix: 'documents/',
         ...(continuationToken ? { ContinuationToken: continuationToken } : {}),
       }),
     )
 
     const objects = (res.Contents ?? [])
-      .filter((item) => item.Key !== undefined)
+      .filter((item): item is typeof item & { Key: string } => item.Key !== undefined)
       .map((item) => ({
-        key: item.Key as string,
+        key: item.Key,
         sizeBytes: item.Size ?? 0,
         lastModified: item.LastModified ?? new Date(0),
       }))

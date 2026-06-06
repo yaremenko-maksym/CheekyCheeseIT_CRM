@@ -9,10 +9,7 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { ConfigService } from '@nestjs/config'
-import {
-  DeleteObjectCommand,
-  PutObjectCommand,
-} from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, ListObjectsV2Command, PutObjectCommand } from '@aws-sdk/client-s3'
 import { DEFAULT_PRESIGN_TTL_SEC, S3Service } from './s3.service'
 
 // Hoisted mocks
@@ -91,11 +88,9 @@ describe('S3Service.getPresignedDownloadUrl', () => {
     const after = Date.now()
 
     expect(result.url).toContain('signed.example')
-    expect(getSignedUrlSpy).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.anything(),
-      { expiresIn: DEFAULT_PRESIGN_TTL_SEC },
-    )
+    expect(getSignedUrlSpy).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
+      expiresIn: DEFAULT_PRESIGN_TTL_SEC,
+    })
     expect(DEFAULT_PRESIGN_TTL_SEC).toBe(24 * 60 * 60) // 86400 s
 
     const expiresMs = new Date(result.expiresAt).getTime()
@@ -107,11 +102,9 @@ describe('S3Service.getPresignedDownloadUrl', () => {
     const service = new S3Service(makeConfig())
     getSignedUrlSpy.mockResolvedValue('url')
     await service.getPresignedDownloadUrl('k', 300)
-    expect(getSignedUrlSpy).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.anything(),
-      { expiresIn: 300 },
-    )
+    expect(getSignedUrlSpy).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
+      expiresIn: 300,
+    })
   })
 
   it('downloadAs defaults to inline Content-Disposition (so receipt previews render in-browser instead of auto-downloading)', async () => {
@@ -175,5 +168,71 @@ describe('S3Service.delete', () => {
     const service = new S3Service(makeConfig())
     sendSpy.mockRejectedValue(new Error('NoSuchKey'))
     await expect(service.delete('k')).resolves.toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// MED-A security hardening: listObjects must be scoped to 'documents/' prefix
+// ---------------------------------------------------------------------------
+
+describe('S3Service.listObjects — Prefix-scoped listing (MED-A)', () => {
+  it('always sends ListObjectsV2Command with Prefix="documents/" regardless of continuation token', async () => {
+    const service = new S3Service(makeConfig())
+    sendSpy.mockResolvedValue({ Contents: [], NextContinuationToken: undefined })
+
+    await service.listObjects()
+
+    expect(sendSpy).toHaveBeenCalledTimes(1)
+    const cmd = sendSpy.mock.calls[0]![0] as ListObjectsV2Command
+    expect(cmd).toBeInstanceOf(ListObjectsV2Command)
+    expect(cmd.input.Prefix).toBe('documents/')
+    expect(cmd.input.Bucket).toBe('crm-documents')
+  })
+
+  it('includes ContinuationToken when provided AND still scopes Prefix', async () => {
+    const service = new S3Service(makeConfig())
+    sendSpy.mockResolvedValue({ Contents: [], NextContinuationToken: undefined })
+
+    await service.listObjects('token-page-2')
+
+    const cmd = sendSpy.mock.calls[0]![0] as ListObjectsV2Command
+    expect(cmd.input.Prefix).toBe('documents/')
+    expect(cmd.input.ContinuationToken).toBe('token-page-2')
+  })
+
+  it('maps returned Contents to { key, sizeBytes, lastModified } and omits items with no Key', async () => {
+    const service = new S3Service(makeConfig())
+    const now = new Date('2026-01-01T00:00:00Z')
+    sendSpy.mockResolvedValue({
+      Contents: [
+        { Key: 'documents/RESUME/a.pdf', Size: 1024, LastModified: now },
+        { Key: undefined, Size: 99 }, // must be filtered out
+        { Key: 'documents/RECEIPT/b.jpg', Size: 2048, LastModified: now },
+      ],
+      NextContinuationToken: 'next-token',
+    })
+
+    const result = await service.listObjects()
+
+    expect(result.objects).toHaveLength(2)
+    expect(result.objects[0]).toEqual({
+      key: 'documents/RESUME/a.pdf',
+      sizeBytes: 1024,
+      lastModified: now,
+    })
+    expect(result.objects[1]).toEqual({
+      key: 'documents/RECEIPT/b.jpg',
+      sizeBytes: 2048,
+      lastModified: now,
+    })
+    expect(result.nextContinuationToken).toBe('next-token')
+  })
+
+  it('returns nextContinuationToken=undefined on the last page', async () => {
+    const service = new S3Service(makeConfig())
+    sendSpy.mockResolvedValue({ Contents: [], NextContinuationToken: undefined })
+
+    const result = await service.listObjects()
+    expect(result.nextContinuationToken).toBeUndefined()
   })
 })

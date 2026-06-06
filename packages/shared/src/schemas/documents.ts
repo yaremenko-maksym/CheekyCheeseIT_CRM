@@ -253,9 +253,12 @@ export const reconcileOrphansOptionsSchema = z.object({
   dryRun: z.boolean().optional().default(true),
   /**
    * Objects modified within this many hours are skipped (in-flight uploads).
-   * Default: 48 hours.
+   * Default: 48 hours. Minimum 1 hour — graceHours=0 would allow the
+   * reconciler to delete objects whose DB row hasn't committed yet (race
+   * condition between S3 upload and Postgres commit). Enforced here so the
+   * controller can never pass 0 to the destructive deletion path.
    */
-  graceHours: z.number().int().nonnegative().optional().default(48),
+  graceHours: z.number().int().min(1).optional().default(48),
 })
 export type ReconcileOrphansOptions = z.infer<typeof reconcileOrphansOptionsSchema>
 
