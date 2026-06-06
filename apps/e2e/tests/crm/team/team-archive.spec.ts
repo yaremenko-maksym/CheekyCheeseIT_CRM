@@ -104,7 +104,7 @@ test.describe('Team archive — list page tab', () => {
   })
 })
 
-test.describe('Team detail page — admin actions + audit log', () => {
+test.describe('Team detail page — admin actions', () => {
   // ut-39b: «Действия» dropdown replaced with explicit «Архивировать» /
   // «Восстановить» buttons. Add / Edit remain as primary actions.
   test('ADMIN sees explicit Archive button on active team detail', async ({ asAdmin: page }) => {
@@ -125,44 +125,12 @@ test.describe('Team detail page — admin actions + audit log', () => {
     await expect(page.getByTestId('team-archive-button')).not.toBeVisible()
   })
 
-  test('ADMIN sees both tabs (Состав + История изменений)', async ({ asAdmin: page }) => {
+  test('ADMIN sees Состав tab on team detail', async ({ asAdmin: page }) => {
     await page.route(`${API}/teams/${activeTeam.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(activeTeam) }),
     )
     await page.goto(`/crm/team/${activeTeam.id}`)
     await expect(page.getByTestId('tab-members')).toBeVisible()
-    await expect(page.getByTestId('tab-audit')).toBeVisible()
-  })
-
-  test('clicking "История изменений" loads audit-log entries', async ({ asAdmin: page }) => {
-    await page.route(`${API}/teams/${activeTeam.id}`, (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(activeTeam) }),
-    )
-    await page.route(new RegExp(`${API}/teams/${activeTeam.id}/audit-log`), (r) =>
-      r.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          entries: [
-            {
-              id: 'audit-1',
-              actorId: USERS.admin.id,
-              targetId: activeTeam.id,
-              action: 'team_renamed',
-              changes: { name: { before: 'Old Name', after: 'Alpha Team' } },
-              createdAt: '2026-05-01T10:00:00.000Z',
-            },
-          ],
-          total: 1,
-          page: 1,
-          limit: 20,
-        }),
-      }),
-    )
-
-    await page.goto(`/crm/team/${activeTeam.id}`)
-    await page.getByTestId('tab-audit').click()
-    await expect(page.getByText('Команда переименована')).toBeVisible({ timeout: 3000 })
   })
 
   test('opening "Архивировать" shows ArchiveConfirmDialog with senior-name input', async ({ asAdmin: page }) => {
