@@ -64,8 +64,9 @@ export default defineConfig({
       //
       // CI note: a dedicated 'cache-e2e' shard in ci.yml needs a pre-built
       // dist/ — see docs/superpowers/plans/2026-06-06-cache-e2e-plan.md.
-      // The full e2e.yml suite picks up this project automatically without
-      // any workflow changes (Playwright runs all projects by default).
+      // NOTE: requires externally-started servers (see the webServer note
+      // below); not auto-run by ci.yml yet (no cache shard) — run locally or
+      // via the deferred dedicated shard.
       name: 'cache',
       testMatch: '**/cache/**/*.spec.ts',
       use: {
@@ -77,20 +78,15 @@ export default defineConfig({
         // round-trips for SW script fetch + install + activate lifecycle).
         actionTimeout: 20_000,
       },
-      // Start a production preview server for SW tests.
-      // SW is disabled in `vite dev`, so we must serve the production build.
-      // `pnpm --filter @crm/web start` runs `vite preview` on port 3000.
-      // reuseExistingServer: true locally (developer may have preview running),
-      // false in CI (we always want a fresh build).
-      webServer: {
-        command: 'pnpm --filter @crm/web start',
-        url: 'http://localhost:3000',
-        reuseExistingServer: !process.env['CI'],
-        timeout: 120_000,
-        // Pipe stdout/stderr so CI logs show if the preview fails to start.
-        stdout: 'pipe',
-        stderr: 'pipe',
-      },
+      // NOTE: `webServer` is a TOP-LEVEL Playwright option — it cannot be
+      // nested inside a project (that is a type error and is silently ignored
+      // at runtime). The cache project needs BOTH a real backend (:3001) and a
+      // production web preview (:3000, since the SW is disabled in `vite dev`).
+      // Those are started externally by the runner — see the deferred ci.yml
+      // `cache` shard in docs/superpowers/plans/2026-06-06-cache-e2e-plan.md.
+      // A top-level webServer is intentionally NOT added: it would also
+      // force-start servers for the mock `chromium` shards (which run in ci.yml
+      // without a build) and break them.
     },
   ],
 })

@@ -76,6 +76,11 @@ async function deleteProjectViaApi(
 // ─── Suite ───────────────────────────────────────────────────────────────────
 
 test.describe('Anti-stale: UI mutation → fresh data with SW active (NetworkFirst)', () => {
+  // Serial: tests share mutable cleanup state (createdTransactionId /
+  // createdProjectId) and each mutates seeded data, so they must not overlap
+  // even if the global config enables fullyParallel.
+  test.describe.configure({ mode: 'serial' })
+
   // Track IDs created during each test for cleanup.
   let createdTransactionId: string | null = null
   let createdProjectId: string | null = null
