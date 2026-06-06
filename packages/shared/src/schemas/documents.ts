@@ -48,6 +48,55 @@ export const documentCategorySchema = z.enum([
 export type DocumentCategory = z.infer<typeof documentCategorySchema>
 
 // ---------------------------------------------------------------------------
+// Status badge (PR-2 — unified list + badges)
+// ---------------------------------------------------------------------------
+
+/**
+ * Semantic status badge attached by the backend to each document entry.
+ *
+ * `kind` — the type of source document:
+ *   'contract' — from `employee_contracts` (virtual entry)
+ *   'invoice'  — from `documents` (INVOICE category) + `invoice_signatures`
+ *   'receipt'  — from `documents` (RECEIPT category) + linked `transactions.status`
+ *
+ * `state` — derived from the source's data:
+ *   contract: 'draft' | 'ready' | 'signed'
+ *   invoice:  'ready' (missing sig) | 'signed' (both sigs present)
+ *   receipt:  'pending' (PENDING/REJECTED) | 'validated' (VALIDATED)
+ *
+ * Backend sends semantics only; Russian labels live in the frontend
+ * (DocumentStatusBadge component). RESUME/SCAN/uploaded CONTRACT files
+ * get `statusBadge: null` — no badge rendered.
+ */
+export const statusBadgeSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('contract'),
+    state: z.enum(['draft', 'ready', 'signed']),
+  }),
+  z.object({
+    kind: z.literal('invoice'),
+    state: z.enum(['ready', 'signed']),
+  }),
+  z.object({
+    kind: z.literal('receipt'),
+    state: z.enum(['pending', 'validated']),
+  }),
+])
+export type StatusBadge = z.infer<typeof statusBadgeSchema>
+
+/**
+ * Discriminator that tells the frontend what kind of entry this is.
+ *   'file'              — a row from the `documents` table (uploaded file)
+ *   'employee_contract' — a virtual entry synthesised from `employee_contracts`
+ *
+ * The discriminator is used to avoid double-counting: an uploaded CONTRACT
+ * file (category='CONTRACT') and the canonical employee_contract are two
+ * distinct entries and affordances (edit contract body vs. download PDF).
+ */
+export const documentSourceSchema = z.enum(['file', 'employee_contract'])
+export type DocumentSource = z.infer<typeof documentSourceSchema>
+
+// ---------------------------------------------------------------------------
 // Document DTO (full row as returned from API)
 // ---------------------------------------------------------------------------
 
@@ -110,8 +159,27 @@ export const documentSchema = z.object({
    *     invoices wait for the viewer's signature
    * Optional (back-compat with older clients) + default false on the wire
    * for non-INVOICE rows.
+   *
+   * @deprecated Superseded by `statusBadge` for INVOICE rows (PR-2).
+   * Kept for backward compatibility — existing clients relying on this field
+   * continue to work. New code should read `statusBadge` instead.
    */
   invoicePendingSignature: z.boolean().optional(),
+  /**
+   * Semantic status badge from the backend (PR-2 — unified list + badges).
+   * Null for RESUME / SCAN / plain CONTRACT uploads (no badge shown).
+   * Present for INVOICE rows (derived from invoice_signatures),
+   * RECEIPT rows (derived from linked transactions.status), and
+   * employee_contract virtual entries (from employee_contracts.status).
+   * Optional for backward compat with pre-PR-2 API responses.
+   */
+  statusBadge: statusBadgeSchema.nullable().optional(),
+  /**
+   * Discriminator: 'file' for rows from the `documents` table,
+   * 'employee_contract' for virtual entries from `employee_contracts`.
+   * Optional for backward compat.
+   */
+  source: documentSourceSchema.optional(),
 })
 export type Document = z.infer<typeof documentSchema>
 

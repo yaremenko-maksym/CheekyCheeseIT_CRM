@@ -8,6 +8,7 @@ import {
   documentListFiltersSchema,
   documentSchema,
   presignedDownloadSchema,
+  statusBadgeSchema,
 } from './documents'
 
 const uuid = '123e4567-e89b-12d3-a456-426614174000'
@@ -168,6 +169,118 @@ describe('presignedDownloadSchema', () => {
 
   it('rejects non-url values', () => {
     expect(() => presignedDownloadSchema.parse({ url: 'not-a-url', expiresAt: datetime })).toThrow()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// statusBadgeSchema (Task 1 — PR-2)
+// ---------------------------------------------------------------------------
+
+describe('statusBadgeSchema', () => {
+  it('accepts contract/draft', () => {
+    expect(() => statusBadgeSchema.parse({ kind: 'contract', state: 'draft' })).not.toThrow()
+  })
+
+  it('accepts contract/ready', () => {
+    expect(() => statusBadgeSchema.parse({ kind: 'contract', state: 'ready' })).not.toThrow()
+  })
+
+  it('accepts contract/signed', () => {
+    expect(() => statusBadgeSchema.parse({ kind: 'contract', state: 'signed' })).not.toThrow()
+  })
+
+  it('accepts invoice/ready', () => {
+    expect(() => statusBadgeSchema.parse({ kind: 'invoice', state: 'ready' })).not.toThrow()
+  })
+
+  it('accepts invoice/signed', () => {
+    expect(() => statusBadgeSchema.parse({ kind: 'invoice', state: 'signed' })).not.toThrow()
+  })
+
+  it('accepts receipt/pending', () => {
+    expect(() => statusBadgeSchema.parse({ kind: 'receipt', state: 'pending' })).not.toThrow()
+  })
+
+  it('accepts receipt/validated', () => {
+    expect(() => statusBadgeSchema.parse({ kind: 'receipt', state: 'validated' })).not.toThrow()
+  })
+
+  it('rejects unknown kind', () => {
+    expect(() => statusBadgeSchema.parse({ kind: 'other', state: 'draft' })).toThrow()
+  })
+
+  it('rejects unknown state', () => {
+    expect(() => statusBadgeSchema.parse({ kind: 'contract', state: 'rejected' })).toThrow()
+  })
+})
+
+describe('documentSchema — statusBadge + source (Task 1 — PR-2)', () => {
+  const uuid = '123e4567-e89b-12d3-a456-426614174000'
+  const datetime = '2026-01-01T00:00:00.000Z'
+  const baseDoc = {
+    id: uuid,
+    ownerId: uuid,
+    projectId: null,
+    category: 'RESUME' as const,
+    name: 'cv.pdf',
+    originalName: null,
+    s3Key: 'documents/RESUME/owner/doc-cv.pdf',
+    thumbnailS3Key: null,
+    sizeBytes: 1024,
+    mimeType: 'application/pdf',
+    uploadedBy: uuid,
+    uploadedByDisplayName: null,
+    deletedAt: null,
+    deletedBy: null,
+    createdAt: datetime,
+  }
+
+  it('accepts a file entry without statusBadge (RESUME/SCAN — no badge)', () => {
+    expect(() => documentSchema.parse({ ...baseDoc, source: 'file' })).not.toThrow()
+  })
+
+  it('accepts a file entry without source (backward compat)', () => {
+    expect(() => documentSchema.parse(baseDoc)).not.toThrow()
+  })
+
+  it('accepts an employee_contract virtual entry with contract badge', () => {
+    expect(() =>
+      documentSchema.parse({
+        ...baseDoc,
+        source: 'employee_contract',
+        statusBadge: { kind: 'contract', state: 'draft' },
+      }),
+    ).not.toThrow()
+  })
+
+  it('accepts an invoice file entry with statusBadge', () => {
+    expect(() =>
+      documentSchema.parse({
+        ...baseDoc,
+        category: 'INVOICE',
+        source: 'file',
+        statusBadge: { kind: 'invoice', state: 'signed' },
+      }),
+    ).not.toThrow()
+  })
+
+  it('accepts a receipt file entry with statusBadge', () => {
+    expect(() =>
+      documentSchema.parse({
+        ...baseDoc,
+        category: 'RECEIPT',
+        source: 'file',
+        statusBadge: { kind: 'receipt', state: 'pending' },
+      }),
+    ).not.toThrow()
+  })
+
+  it('accepts null statusBadge (plain uploaded file)', () => {
+    expect(() => documentSchema.parse({ ...baseDoc, statusBadge: null })).not.toThrow()
+  })
+
+  it('rejects invalid source value', () => {
+    expect(() => documentSchema.parse({ ...baseDoc, source: 'unknown_type' })).toThrow()
   })
 })
 
