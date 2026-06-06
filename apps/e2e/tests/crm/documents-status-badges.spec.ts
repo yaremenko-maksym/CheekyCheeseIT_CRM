@@ -128,10 +128,7 @@ const ALL_DOCS = [
 // ---------------------------------------------------------------------------
 // Helper: override the generic /documents mock from fixtures.ts
 // ---------------------------------------------------------------------------
-async function mockDocumentsList(
-  page: import('@playwright/test').Page,
-  docs: typeof ALL_DOCS,
-) {
+async function mockDocumentsList(page: import('@playwright/test').Page, docs: typeof ALL_DOCS) {
   // Override the generic mock set by mockAuthAs (which returns []).
   // Specific sub-routes (download, hard, restore) registered first by
   // mockAuthAs remain intact; this only overrides the list endpoint.
