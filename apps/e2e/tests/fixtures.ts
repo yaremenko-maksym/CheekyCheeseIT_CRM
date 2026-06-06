@@ -442,15 +442,7 @@ export function buildAdminViewingUser(targetUser: (typeof USERS)[keyof typeof US
   return {
     user: { ...targetUser, ...profileExtras(targetUser) },
     permissions: {
-      tabs: [
-        'overview',
-        'finance',
-        'projects',
-        'team',
-        'requisites',
-        'documents',
-        ...contractTab,
-      ],
+      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents', ...contractTab],
       actions: [
         'edit-profile',
         'change-role',

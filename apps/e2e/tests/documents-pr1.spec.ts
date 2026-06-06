@@ -104,8 +104,23 @@ test.describe('ToS acceptance marker on profile overview', () => {
             createdAt: '2026-01-01T00:00:00.000Z',
           },
           permissions: {
-            tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents', 'contract'],
-            actions: ['edit-profile', 'change-role', 'change-salary', 'change-requisites', 'set-note', 'archive'],
+            tabs: [
+              'overview',
+              'finance',
+              'projects',
+              'team',
+              'requisites',
+              'documents',
+              'contract',
+            ],
+            actions: [
+              'edit-profile',
+              'change-role',
+              'change-salary',
+              'change-requisites',
+              'set-note',
+              'archive',
+            ],
             fields: { salary: true, share: false, techStack: true, registrationDate: true },
           },
           data: {
@@ -160,8 +175,23 @@ test.describe('ToS acceptance marker on profile overview', () => {
             createdAt: '2026-01-01T00:00:00.000Z',
           },
           permissions: {
-            tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents', 'contract'],
-            actions: ['edit-profile', 'change-role', 'change-salary', 'change-requisites', 'set-note', 'archive'],
+            tabs: [
+              'overview',
+              'finance',
+              'projects',
+              'team',
+              'requisites',
+              'documents',
+              'contract',
+            ],
+            actions: [
+              'edit-profile',
+              'change-role',
+              'change-salary',
+              'change-requisites',
+              'set-note',
+              'archive',
+            ],
             fields: { salary: true, share: false, techStack: true, registrationDate: true },
           },
           data: {
