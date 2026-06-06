@@ -245,6 +245,23 @@ export default defineConfig({
               networkTimeoutSeconds: 4,
               expiration: { maxEntries: 200, maxAgeSeconds: 86400 },
               cacheableResponse: { statuses: [200] },
+              plugins: [
+                {
+                  // security-MED-1: уважаем Cache-Control: no-store от бэкенда.
+                  // Workbox по умолчанию игнорирует no-store и кеширует ответ.
+                  // Это критично для PDF-эндпоинтов (employee-contracts,
+                  // signed-contracts, onboarding-contract) — приватные трудовые
+                  // договоры не должны попадать в api-cache даже временно.
+                  // Возвращаем null → Workbox пропускает запись в кеш для этого ответа.
+                  cacheWillUpdate: async ({ response }: { response: Response }) => {
+                    const cc = response.headers.get('cache-control') ?? ''
+                    if (cc.includes('no-store')) {
+                      return null
+                    }
+                    return response
+                  },
+                },
+              ],
             },
           },
         ],

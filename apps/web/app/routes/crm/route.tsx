@@ -1,7 +1,7 @@
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { clear as idbClear } from 'idb-keyval'
+import { del as idbDel } from 'idb-keyval'
 import { AuthProvider } from '@/context/auth'
 import { NotificationsProvider } from '@/context/notifications'
 import { useOnboardingGate } from '@/context/onboarding'
@@ -120,8 +120,10 @@ function CrmLayout() {
         // 1. Сбросить TanStack Query in-memory кеш
         queryClient.clear()
 
-        // 2. Удалить persist-стор из IndexedDB
-        await idbClear()
+        // 2. Удалить persist-ключ TanStack Query из IndexedDB.
+        //    Точечное удаление по ключу из persister.ts ('crm-query-cache') —
+        //    не трогаем другие IDB-данные (future-proof, code-MED-2 fix).
+        await idbDel('crm-query-cache')
 
         // 3. Удалить SW runtime кеши (api-cache + media-cache)
         //    Precache-стор ('workbox-precache-*') не трогаем

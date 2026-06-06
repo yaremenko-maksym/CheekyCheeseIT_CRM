@@ -33,6 +33,15 @@ export default defineConfig({
     baseURL: process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:3000',
     trace: 'on-first-retry',
     actionTimeout: 10_000,
+    // Block Service Worker registration in all E2E contexts.
+    // This PR (feat/api-media-caching) added a Workbox NetworkFirst rule for
+    // GET /api/* in the SW. When E2E runs against the production build
+    // (`vite preview`) the SW intercepts /api/* before page.route() mocks
+    // can handle them → requests hang → test timeouts (10-12 s per test).
+    // E2E specs do NOT test SW behaviour — they test application logic via
+    // mocked API responses. A dedicated SW-integration project can be added
+    // in a future task with serviceWorkers: 'allow'.
+    serviceWorkers: 'block' as const,
   },
   projects: [
     {
