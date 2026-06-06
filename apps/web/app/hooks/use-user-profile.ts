@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type {
   AdminUpdateUserDto,
-  AuditLogList,
   ChangeRequisitesDto,
   ChangeRoleDto,
   ChangeSalaryDto,
@@ -29,23 +28,6 @@ export function useMe(enabled = true) {
     queryFn: () =>
       api.get<UserWithPermissionsResponse>('/users/me').then((r) => r.data),
     enabled,
-    staleTime: 30_000,
-  })
-}
-
-export function useUserAuditLog(
-  userId: string | undefined,
-  page: number,
-  limit: number,
-  enabled: boolean,
-) {
-  return useQuery({
-    queryKey: ['user-audit-log', userId, page, limit],
-    queryFn: () =>
-      api
-        .get<AuditLogList>(`/users/${userId}/audit-log?page=${page}&limit=${limit}`)
-        .then((r) => r.data),
-    enabled: enabled && !!userId,
     staleTime: 30_000,
   })
 }
@@ -87,7 +69,6 @@ export function useAdminUpdateUser(userId: string) {
       api.patch(`/users/${userId}`, data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
-      qc.invalidateQueries({ queryKey: ['user-audit-log', userId] })
       toast.success('Профиль обновлён')
     },
   })
@@ -100,7 +81,6 @@ export function useAdminChangeRole(userId: string) {
       api.patch(`/users/${userId}/role`, data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
-      qc.invalidateQueries({ queryKey: ['user-audit-log', userId] })
       toast.success('Роль изменена')
     },
   })
@@ -113,7 +93,6 @@ export function useAdminChangeSalary(userId: string) {
       api.patch(`/users/${userId}/salary`, data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
-      qc.invalidateQueries({ queryKey: ['user-audit-log', userId] })
       toast.success('Зарплата обновлена')
     },
   })
@@ -126,7 +105,6 @@ export function useAdminChangeRequisites(userId: string) {
       api.patch(`/users/${userId}/requisites`, data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
-      qc.invalidateQueries({ queryKey: ['user-audit-log', userId] })
       toast.success('Реквизиты обновлены')
     },
   })
@@ -139,7 +117,6 @@ export function useAdminSetNote(userId: string) {
       api.patch(`/users/${userId}/note`, data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
-      qc.invalidateQueries({ queryKey: ['user-audit-log', userId] })
       toast.success('Заметка сохранена')
     },
   })
@@ -164,7 +141,6 @@ export function useUnarchiveUser(userId: string, opts?: { isSenior?: boolean }) 
     mutationFn: () => api.post(`/users/${userId}/unarchive`).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
-      qc.invalidateQueries({ queryKey: ['user-audit-log', userId] })
       qc.invalidateQueries({ queryKey: ['users'] })
       qc.invalidateQueries({ queryKey: ['users-admin'] })
       if (opts?.isSenior) {

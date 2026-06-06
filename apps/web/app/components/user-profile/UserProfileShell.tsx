@@ -19,7 +19,6 @@ import { RejoinTeamDialog } from '@/components/users/RejoinTeamDialog'
 import { AdminActionsMenu } from './admin-actions/AdminActionsMenu'
 import { AvatarUploadDialog } from './AvatarUploadDialog'
 import { UserProfileHeader } from './UserProfileHeader'
-import { AuditLogTab } from './tabs/AuditLogTab'
 import { DocumentsTab } from './tabs/DocumentsTab'
 import { FinanceTab } from './tabs/FinanceTab'
 import { InterviewsTab } from './tabs/InterviewsTab'
@@ -37,7 +36,6 @@ const TAB_LABELS: Record<string, string> = {
   interviews: 'Собеседования',
   requisites: 'Реквизиты',
   documents: 'Документы',
-  audit: 'История',
   contract: 'Контракт',
 }
 
@@ -205,7 +203,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
           </div>
 
           {/* Content area scrolls naturally via the parent `<main>` (overflow-y-auto in /crm route).
-              No overflow-hidden here — that was blocking the scroll for long tabs (e.g. Audit). */}
+              No overflow-hidden here — that was blocking the scroll for long tabs. */}
           <div className="min-w-0 flex-1">
             {activeTab === 'overview' && permissions.tabs.includes('overview') && (
               <OverviewTab
@@ -232,9 +230,6 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
             )}
             {activeTab === 'documents' && permissions.tabs.includes('documents') && (
               <DocumentsTab />
-            )}
-            {activeTab === 'audit' && permissions.tabs.includes('audit') && (
-              <AuditLogTab userId={user.id} />
             )}
             {activeTab === 'contract' && permissions.tabs.includes('contract') && (
               <ContractTab

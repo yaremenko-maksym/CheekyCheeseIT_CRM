@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Pencil, Plus, StickyNote } from 'lucide-react'
+import { Pencil, Plus, ShieldCheck, StickyNote } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -21,7 +21,10 @@ const CURRENCY_LABEL: Record<string, string> = {
   USDT: 'USDT',
 }
 
-function formatSalary(amount: string | number | null | undefined, currency: string | null | undefined): string {
+function formatSalary(
+  amount: string | number | null | undefined,
+  currency: string | null | undefined,
+): string {
   if (amount === null || amount === undefined || amount === '') return '—'
   const cur = currency ?? 'USD'
   const sign = CURRENCY_LABEL[cur] ?? ''
@@ -32,6 +35,8 @@ function formatSalary(amount: string | number | null | undefined, currency: stri
 interface OverviewData {
   techStack?: string[] | null
   adminNote?: string | null
+  tosAcceptedAt?: string | null
+  tosVersion?: number | null
 }
 
 export function OverviewTab({ user, mode, data, permissions }: OverviewTabProps) {
@@ -50,16 +55,18 @@ export function OverviewTab({ user, mode, data, permissions }: OverviewTabProps)
   const [noteOpen, setNoteOpen] = useState(false)
   const adminNote = overview.adminNote ?? null
 
+  // ToS acceptance marker — present when backend includes tosAcceptedAt in
+  // data.overview (ADMIN viewer or self). Undefined means no permission to see.
+  const tosAcceptedAt = overview.tosAcceptedAt
+  const tosVersion = overview.tosVersion
+  const canSeeTos = tosAcceptedAt !== undefined
+
   return (
     <div className="space-y-6">
       {kpiCards > 0 && (
         <div
           className={`grid grid-cols-1 gap-4 ${
-            kpiCards === 1
-              ? 'md:grid-cols-1'
-              : kpiCards === 2
-                ? 'md:grid-cols-2'
-                : 'md:grid-cols-3'
+            kpiCards === 1 ? 'md:grid-cols-1' : kpiCards === 2 ? 'md:grid-cols-2' : 'md:grid-cols-3'
           }`}
         >
           {showSalary && (
@@ -87,7 +94,9 @@ export function OverviewTab({ user, mode, data, permissions }: OverviewTabProps)
           {showPaymentMethod && (
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-xs uppercase text-muted-foreground">Способ выплат</CardTitle>
+                <CardTitle className="text-xs uppercase text-muted-foreground">
+                  Способ выплат
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
@@ -172,6 +181,34 @@ export function OverviewTab({ user, mode, data, permissions }: OverviewTabProps)
           </CardHeader>
           <CardContent>
             <ProfileEditFields user={user} />
+          </CardContent>
+        </Card>
+      )}
+
+      {canSeeTos && (
+        <Card data-testid="tos-acceptance-card">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldCheck className="h-4 w-4 text-green-500" />
+              Пользовательское соглашение
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {tosAcceptedAt ? (
+              <p className="text-sm text-foreground" data-testid="tos-accepted-text">
+                Принято:{' '}
+                {new Date(tosAcceptedAt).toLocaleDateString('ru-RU', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric',
+                })}
+                {tosVersion != null ? `, v${tosVersion}` : ''}
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground" data-testid="tos-not-accepted-text">
+                Не принято
+              </p>
+            )}
           </CardContent>
         </Card>
       )}

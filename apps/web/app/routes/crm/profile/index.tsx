@@ -4,7 +4,18 @@ import { useAuth } from '@/context/auth'
 import { UserProfileShell } from '@/components/user-profile/UserProfileShell'
 
 const searchSchema = z.object({
-  tab: z.enum(['overview', 'finance', 'projects', 'team', 'interviews', 'requisites', 'documents', 'audit']).default('overview'),
+  tab: z
+    .enum([
+      'overview',
+      'finance',
+      'projects',
+      'team',
+      'interviews',
+      'requisites',
+      'documents',
+      'contract',
+    ])
+    .default('overview'),
 })
 
 export const Route = createFileRoute('/crm/profile/')({

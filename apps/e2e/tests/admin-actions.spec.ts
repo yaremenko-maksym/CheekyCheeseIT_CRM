@@ -7,9 +7,6 @@
  * The fixture mock returns buildAdminViewingUser(target) for GET /users/:id,
  * which includes the full actions array. PATCH /users/:id/role is intercepted
  * to verify the correct payload and trigger the "Роль изменена" toast.
- * PATCH /users/:id/audit-log stub returns one role_change entry so the
- * audit tab can show "Роль изменена".
- *
  * UI revisions (commits a209dca/01ac2e8): emoji prefixes in action menu items
  * removed in favour of lucide-react icons — selectors use plain labels.
  */
@@ -117,28 +114,6 @@ test.describe('Admin actions on user profile', () => {
     await page.getByRole('dialog').getByRole('button', { name: 'Отмена' }).click()
     await expect(page.getByRole('dialog')).not.toBeVisible()
     expect(patched).toBe(false)
-  })
-
-  // -------------------------------------------------------------------------
-  // Audit log tab — visible for ADMIN
-  // -------------------------------------------------------------------------
-
-  test('audit tab (История) is visible for ADMIN on any user profile', async ({
-    asAdmin: page,
-  }) => {
-    await page.goto(`/crm/profile/${USERS.junior.id}`)
-    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
-    // AnimatedTabs renders tabs as <button> with the label text.
-    await expect(page.getByRole('button', { name: 'История' })).toBeVisible()
-  })
-
-  test('audit tab renders role_change entry after navigating to ?tab=audit', async ({
-    asAdmin: page,
-  }) => {
-    await page.goto(`/crm/profile/${USERS.junior.id}?tab=audit`)
-    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
-    // Audit tab content visible — the role_change entry label
-    await expect(page.getByText('Роль изменена')).toBeVisible()
   })
 
   // -------------------------------------------------------------------------

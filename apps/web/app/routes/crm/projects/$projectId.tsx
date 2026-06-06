@@ -61,7 +61,6 @@ import { ShareSlider } from '@/components/ui/share-slider'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
-import { AuditLogTab } from '@/components/audit-log/AuditLogTab'
 import {
   useUnarchiveEntity,
   type UnarchiveCascadeEntity,
@@ -487,9 +486,7 @@ function ProjectDetailPage() {
   const [addedMemberIds, setAddedMemberIds] = useState<Set<string>>(new Set())
   const [pendingMemberIds, setPendingMemberIds] = useState<Set<string>>(new Set())
   const [removeMemberTarget, setRemoveMemberTarget] = useState<ProjectMemberDto | null>(null)
-  const [activeTab, setActiveTab] = useState<'overview' | 'members' | 'audit' | 'finance'>(
-    'overview',
-  )
+  const [activeTab, setActiveTab] = useState<'overview' | 'members' | 'finance'>('overview')
   // ut-28: explicit Archive button in header replaces «Действия» dropdown + «Завершить» button.
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false)
   const [cascadeEntities, setCascadeEntities] = useState<UnarchiveCascadeEntity[] | null>(null)
@@ -848,13 +845,10 @@ function ProjectDetailPage() {
           ut-fix-round2: «Финансы» табу видят только не-HR (ADMIN/ACCOUNTANT/
           SENIOR). HR на ?tab=finance — fallback на «Обзор». */}
       {(() => {
-        type ProjectTab = 'overview' | 'members' | 'audit' | 'finance'
+        type ProjectTab = 'overview' | 'members' | 'finance'
         const tabOptions: ReadonlyArray<SegmentedToggleOption<ProjectTab>> = [
           { value: 'overview', label: 'Обзор', testId: 'tab-overview' },
           { value: 'members', label: 'Состав', testId: 'tab-members' },
-          ...(isAdmin
-            ? ([{ value: 'audit', label: 'История изменений', testId: 'tab-audit' }] as const)
-            : []),
           ...(canSeeProjectFinance
             ? ([{ value: 'finance', label: 'Финансы', testId: 'tab-finance' }] as const)
             : []),
@@ -878,12 +872,6 @@ function ProjectDetailPage() {
       })()}
 
       {activeTab === 'members' && <ProjectEffectiveTeamCard project={project} />}
-
-      {activeTab === 'audit' && isAdmin && (
-        <AuditLogTab entityType="project" entityId={project.id} />
-      )}
-
-      {activeTab !== 'overview' && activeTab !== 'finance' && null}
 
       {activeTab === 'overview' && (
         <motion.div

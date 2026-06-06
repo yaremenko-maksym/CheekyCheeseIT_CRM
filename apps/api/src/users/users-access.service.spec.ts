@@ -43,7 +43,7 @@ describe('UsersAccessService.getViewPermissions', () => {
       .mockResolvedValue(false)
   })
 
-  it('ADMIN viewing JUNIOR sees 8 tabs including contract (no Собеседования)', async () => {
+  it('ADMIN viewing JUNIOR sees 7 tabs including contract (no Собеседования, no audit)', async () => {
     const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
     const target = makeUser({ id: 'jr-id', role: 'JUNIOR' })
     const p = await service.getViewPermissions(viewer, target)
@@ -55,23 +55,23 @@ describe('UsersAccessService.getViewPermissions', () => {
         'team',
         'requisites',
         'documents',
-        'audit',
         'contract',
       ]),
     )
     expect(p.tabs).not.toContain('interviews')
-    expect(p.tabs).toHaveLength(8)
+    expect(p.tabs).not.toContain('audit')
+    expect(p.tabs).toHaveLength(7)
   })
 
-  it('ADMIN viewing SENIOR has 8 tabs — contract tab added, interviews moved to header link', async () => {
+  it('ADMIN viewing SENIOR has 7 tabs — contract tab added, interviews moved to header link, no audit', async () => {
     const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
     const target = makeUser({ id: 'sr-id', role: 'SENIOR' })
     const p = await service.getViewPermissions(viewer, target)
     expect(p.tabs).not.toContain('interviews')
+    expect(p.tabs).not.toContain('audit')
     expect(p.tabs).toContain('documents')
-    expect(p.tabs).toContain('audit')
     expect(p.tabs).toContain('contract')
-    expect(p.tabs).toHaveLength(8)
+    expect(p.tabs).toHaveLength(7)
   })
 
   it('HR viewing SENIOR in own team — no finance, no requisites, no audit', async () => {
@@ -130,10 +130,10 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.tabs).not.toContain('contract')
   })
 
-  it('ADMIN SELF includes audit tab', async () => {
+  it('ADMIN SELF does NOT include audit tab (audit tab removed from all roles)', async () => {
     const admin = makeUser({ id: 'admin-id', role: 'ADMIN' })
     const p = await service.getViewPermissions(admin, admin)
-    expect(p.tabs).toContain('audit')
+    expect(p.tabs).not.toContain('audit')
   })
 
   it('ADMIN has all 6 actions on others (manage-team / reassign-project removed)', async () => {

@@ -26,7 +26,9 @@ const archivedTeam = {
 }
 
 test.describe('Team archive — list page tab', () => {
-  test('ADMIN sees «Архив» tab and clicking switches to archived list', async ({ asAdmin: page }) => {
+  test('ADMIN sees «Архив» tab and clicking switches to archived list', async ({
+    asAdmin: page,
+  }) => {
     // Active teams response — default
     await page.route(`${API}/teams`, (r) =>
       r.fulfill({
@@ -60,7 +62,9 @@ test.describe('Team archive — list page tab', () => {
     await expect(page.getByTestId('toggle-archived-teams')).not.toBeVisible()
   })
 
-  test('archived team card has opacity-60 and no inline action buttons (ADMIN)', async ({ asAdmin: page }) => {
+  test('archived team card has opacity-60 and no inline action buttons (ADMIN)', async ({
+    asAdmin: page,
+  }) => {
     await page.route(new RegExp(`${API}/teams(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
@@ -86,7 +90,11 @@ test.describe('Team archive — list page tab', () => {
   test('detail-page restore button calls POST /teams/:id/unarchive', async ({ asAdmin: page }) => {
     // ut-39b: the unarchive action moved from the list to the detail header.
     await page.route(`${API}/teams/${archivedTeam.id}`, (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(archivedTeam) }),
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(archivedTeam),
+      }),
     )
     const unarchived = page.waitForRequest(
       (req) => req.url().endsWith(`/teams/${archivedTeam.id}/unarchive`) && req.method() === 'POST',
@@ -104,7 +112,7 @@ test.describe('Team archive — list page tab', () => {
   })
 })
 
-test.describe('Team detail page — admin actions + audit log', () => {
+test.describe('Team detail page — admin actions', () => {
   // ut-39b: «Действия» dropdown replaced with explicit «Архивировать» /
   // «Восстановить» buttons. Add / Edit remain as primary actions.
   test('ADMIN sees explicit Archive button on active team detail', async ({ asAdmin: page }) => {
@@ -125,47 +133,22 @@ test.describe('Team detail page — admin actions + audit log', () => {
     await expect(page.getByTestId('team-archive-button')).not.toBeVisible()
   })
 
-  test('ADMIN sees both tabs (Состав + История изменений)', async ({ asAdmin: page }) => {
+  test('ADMIN sees members list and add-member button on team detail', async ({
+    asAdmin: page,
+  }) => {
     await page.route(`${API}/teams/${activeTeam.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(activeTeam) }),
     )
     await page.goto(`/crm/team/${activeTeam.id}`)
-    await expect(page.getByTestId('tab-members')).toBeVisible()
-    await expect(page.getByTestId('tab-audit')).toBeVisible()
+    await expect(page.getByRole('heading', { name: activeTeam.name })).toBeVisible()
+    // Team detail has no tabbed layout — members are shown inline.
+    // The "Добавить участника" button is the primary ADMIN affordance on this page.
+    await expect(page.getByTestId('team-add-member-button')).toBeVisible()
   })
 
-  test('clicking "История изменений" loads audit-log entries', async ({ asAdmin: page }) => {
-    await page.route(`${API}/teams/${activeTeam.id}`, (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(activeTeam) }),
-    )
-    await page.route(new RegExp(`${API}/teams/${activeTeam.id}/audit-log`), (r) =>
-      r.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          entries: [
-            {
-              id: 'audit-1',
-              actorId: USERS.admin.id,
-              targetId: activeTeam.id,
-              action: 'team_renamed',
-              changes: { name: { before: 'Old Name', after: 'Alpha Team' } },
-              createdAt: '2026-05-01T10:00:00.000Z',
-            },
-          ],
-          total: 1,
-          page: 1,
-          limit: 20,
-        }),
-      }),
-    )
-
-    await page.goto(`/crm/team/${activeTeam.id}`)
-    await page.getByTestId('tab-audit').click()
-    await expect(page.getByText('Команда переименована')).toBeVisible({ timeout: 3000 })
-  })
-
-  test('opening "Архивировать" shows ArchiveConfirmDialog with senior-name input', async ({ asAdmin: page }) => {
+  test('opening "Архивировать" shows ArchiveConfirmDialog with senior-name input', async ({
+    asAdmin: page,
+  }) => {
     await page.route(`${API}/teams/${activeTeam.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(activeTeam) }),
     )
@@ -195,7 +178,9 @@ test.describe('Team detail page — admin actions + audit log', () => {
     await expect(submit).toBeDisabled()
   })
 
-  test('typing senior name enables submit and DELETE /teams/:id is called', async ({ asAdmin: page }) => {
+  test('typing senior name enables submit and DELETE /teams/:id is called', async ({
+    asAdmin: page,
+  }) => {
     await page.route(`${API}/teams/${activeTeam.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(activeTeam) }),
     )
@@ -229,9 +214,15 @@ test.describe('Team detail page — admin actions + audit log', () => {
     await archived
   })
 
-  test('archived team shows "В архиве" badge and Unarchive button only', async ({ asAdmin: page }) => {
+  test('archived team shows "В архиве" badge and Unarchive button only', async ({
+    asAdmin: page,
+  }) => {
     await page.route(`${API}/teams/${archivedTeam.id}`, (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(archivedTeam) }),
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(archivedTeam),
+      }),
     )
 
     await page.goto(`/crm/team/${archivedTeam.id}`)

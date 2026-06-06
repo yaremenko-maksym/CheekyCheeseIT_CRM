@@ -23,6 +23,7 @@ import type { DrizzleTx } from '../database/types'
 import { TeamAuditLogService } from '../teams/team-audit-log.service'
 import { TeamsService } from '../teams/teams.service'
 import { ProjectAuditLogService } from '../projects/project-audit-log.service'
+import { TosService } from '../tos/tos.service'
 import { AuditLogService } from './audit-log.service'
 import { UsersAccessService } from './users-access.service'
 
@@ -84,6 +85,7 @@ export class UsersService {
     private db: DatabaseService,
     private accessService: UsersAccessService,
     private auditLogService: AuditLogService,
+    private tosService: TosService,
     @Inject(forwardRef(() => TeamAuditLogService))
     private teamAuditLogService: TeamAuditLogService,
     @Inject(forwardRef(() => ProjectAuditLogService))
@@ -1401,12 +1403,20 @@ export class UsersService {
 
     const data: Record<string, unknown> = {}
     if (permissions.tabs.includes('overview')) {
+      // ToS acceptance — visible to ADMIN or the user viewing their own profile
+      const canSeeTos = viewer.role === 'ADMIN' || viewer.id === target.id
+      const tosAcceptance = canSeeTos
+        ? await this.tosService.getLatestAcceptanceForUser(target.id)
+        : null
+
       data.overview = {
         techStack: permissions.fields.techStack ? (target.techStack ?? []) : null,
         adminNote: viewer.role === 'ADMIN' ? target.adminNote : null,
+        tosAcceptedAt: tosAcceptance?.acceptedAt.toISOString() ?? null,
+        tosVersion: tosAcceptance?.tosVersion ?? null,
       }
     }
-    // Other tabs (finance, projects, team, interviews, requisites, audit) — wired in later tasks
+    // Other tabs (finance, projects, team, interviews, requisites) — wired in later tasks
 
     return { user: filteredUser, permissions, data }
   }

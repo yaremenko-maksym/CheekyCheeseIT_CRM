@@ -13,9 +13,9 @@ type DrizzleDb = { db: NodePgDatabase<typeof schema> }
 // ---------------------------------------------------------------------------
 
 /**
- * UsersService takes three constructor args: DatabaseService, UsersAccessService,
- * AuditLogService. None of the methods exercised by these unit tests need real
- * implementations of the latter two — but `createUser` calls
+ * UsersService takes constructor args: DatabaseService, UsersAccessService,
+ * AuditLogService, TosService, ... None of the methods exercised by these unit
+ * tests need real implementations — but `createUser` calls
  * `auditLogService.record()` to seed a `profile_created` event, so we must
  * supply a stub (otherwise `TypeError: Cannot read properties of undefined`).
  */
@@ -24,8 +24,17 @@ const makeAccessService = (): UsersAccessService => ({}) as unknown as UsersAcce
 const makeAuditLogService = (): AuditLogService =>
   ({ record: vi.fn().mockResolvedValue(undefined) }) as unknown as AuditLogService
 
+// TosService stub — getLatestAcceptanceForUser returns null (no acceptance)
+const makeTosService = () =>
+  ({ getLatestAcceptanceForUser: vi.fn().mockResolvedValue(null) }) as never
+
 const makeUsersService = (db: DrizzleDb): UsersService =>
-  new UsersService(db as never, makeAccessService() as never, makeAuditLogService() as never)
+  new UsersService(
+    db as never,
+    makeAccessService() as never,
+    makeAuditLogService() as never,
+    makeTosService(),
+  )
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -744,8 +753,9 @@ describe('UsersService.buildProfileView — legalFullName masking', () => {
     } as unknown as import('./users-access.service').UsersAccessService
 
     const auditService = makeAuditLogService()
+    const tosService = makeTosService()
 
-    return new UsersService(db as never, accessService as never, auditService as never)
+    return new UsersService(db as never, accessService as never, auditService as never, tosService)
   }
 
   const targetWithLegalName = makeUser({
@@ -757,7 +767,7 @@ describe('UsersService.buildProfileView — legalFullName masking', () => {
   it('ADMIN viewer — legalFullName is visible (fields.legalName = true)', async () => {
     const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
     const permissions = {
-      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents', 'audit'],
+      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
       actions: [],
       fields: { requisites: true, legalName: true, techStack: true },
     }

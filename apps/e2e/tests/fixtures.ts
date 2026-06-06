@@ -442,16 +442,7 @@ export function buildAdminViewingUser(targetUser: (typeof USERS)[keyof typeof US
   return {
     user: { ...targetUser, ...profileExtras(targetUser) },
     permissions: {
-      tabs: [
-        'overview',
-        'finance',
-        'projects',
-        'team',
-        'requisites',
-        'documents',
-        'audit',
-        ...contractTab,
-      ],
+      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents', ...contractTab],
       actions: [
         'edit-profile',
         'change-role',
@@ -607,24 +598,6 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   // /users/:id/role — PATCH for admin role change
   await page.route(new RegExp(`${API}/users/([^/?]+)/role$`), (r) =>
     jsonOk(r, { ...user, ...(JSON.parse(r.request().postData() ?? '{}') as object) }),
-  )
-  // /users/:id/audit-log
-  await page.route(new RegExp(`${API}/users/([^/?]+)/audit-log`), (r) =>
-    jsonOk(r, {
-      entries: [
-        {
-          id: 'audit-1',
-          userId: user.id,
-          action: 'role_change',
-          performedBy: user.id,
-          changes: { role: { from: 'JUNIOR', to: 'HR' } },
-          createdAt: '2026-05-01T10:00:00.000Z',
-        },
-      ],
-      total: 1,
-      page: 1,
-      limit: 20,
-    }),
   )
   // /users/:id/archive-impact — used by ArchiveConfirmDialog to populate warning text
   await page.route(new RegExp(`${API}/users/([^/?]+)/archive-impact$`), (r) => {
@@ -1006,63 +979,6 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   )
 
   // Compliance audit trail (Phase 6 polish PR3)
-  // GET /me/audit-trail — self-service data portability endpoint
-  // NOTE: ids must be valid UUIDs — auditTrailResponseSchema uses z.string().uuid()
-  await page.route(`${API}/me/audit-trail`, (r) =>
-    jsonOk(r, {
-      signedContracts: [
-        {
-          type: 'contract',
-          id: 'a0000000-0000-4000-8000-000000000101',
-          contractNumber: 'CHK-1-2026',
-          signedAt: '2026-01-15T10:00:00.000Z',
-          signedTypedName: user.displayName,
-          signedIp: '192.168.1.1',
-          templateRole: user.role === 'ADMIN' ? 'SENIOR' : user.role,
-          templateVersion: 1,
-          bodyMarkdownSnapshot: `# MSA Contract\n\nПодписал: ${user.displayName}`,
-        },
-      ],
-      tosAcceptances: [
-        {
-          type: 'tos',
-          id: 'a0000000-0000-4000-8000-000000000102',
-          acceptedAt: '2026-01-10T08:00:00.000Z',
-          acceptedIp: '10.0.0.1',
-          tosVersion: 1,
-          tosBodyMarkdown: '# Terms of Service v1\n\nAll rights reserved.',
-        },
-      ],
-    }),
-  )
-  // GET /audit/all — ACCOUNTANT + ADMIN compliance view
-  // NOTE: ids must be valid UUIDs — auditAllResponseSchema uses z.string().uuid()
-  await page.route(new RegExp(`${API}/audit/all(\\?.*)?$`), (r) =>
-    jsonOk(r, {
-      items: [
-        {
-          type: 'contract',
-          id: 'a0000000-0000-4000-8000-000000000101',
-          contractNumber: 'CHK-1-2026',
-          signedAt: '2026-01-15T10:00:00.000Z',
-          signedTypedName: 'Senior Dev',
-          signedIp: '192.168.1.1',
-          templateRole: 'SENIOR',
-          templateVersion: 1,
-          bodyMarkdownSnapshot: '# MSA Contract\n\nПодписал: Senior Dev',
-        },
-        {
-          type: 'tos',
-          id: 'a0000000-0000-4000-8000-000000000102',
-          acceptedAt: '2026-01-10T08:00:00.000Z',
-          acceptedIp: '10.0.0.1',
-          tosVersion: 1,
-          tosBodyMarkdown: '# Terms of Service v1\n\nAll rights reserved.',
-        },
-      ],
-      total: 2,
-    }),
-  )
 }
 
 // ---------------------------------------------------------------------------

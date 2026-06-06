@@ -171,7 +171,11 @@ function makeDb(store: FakeStore) {
         const key = lastInsertTable
         if (key) {
           for (const v of arr) {
-            store[key].push({ id: `gen-${Math.random().toString(36).slice(2, 9)}`, createdAt: new Date(), ...v })
+            store[key].push({
+              id: `gen-${Math.random().toString(36).slice(2, 9)}`,
+              createdAt: new Date(),
+              ...v,
+            })
           }
         }
         return {
@@ -209,19 +213,26 @@ function makeDb(store: FakeStore) {
         const pred = toPredicate(opts?.where)
         return Promise.resolve(store.teams.find(pred))
       },
-      findMany: (opts?: { where?: unknown }) => Promise.resolve(store.teams.filter(toPredicate(opts?.where))),
+      findMany: (opts?: { where?: unknown }) =>
+        Promise.resolve(store.teams.filter(toPredicate(opts?.where))),
     },
     teamMembers: {
-      findFirst: (opts: { where?: unknown }) => Promise.resolve(store.teamMembers.find(toPredicate(opts?.where))),
-      findMany: (opts?: { where?: unknown }) => Promise.resolve(store.teamMembers.filter(toPredicate(opts?.where))),
+      findFirst: (opts: { where?: unknown }) =>
+        Promise.resolve(store.teamMembers.find(toPredicate(opts?.where))),
+      findMany: (opts?: { where?: unknown }) =>
+        Promise.resolve(store.teamMembers.filter(toPredicate(opts?.where))),
     },
     projects: {
-      findFirst: (opts: { where?: unknown }) => Promise.resolve(store.projects.find(toPredicate(opts?.where))),
-      findMany: (opts?: { where?: unknown }) => Promise.resolve(store.projects.filter(toPredicate(opts?.where))),
+      findFirst: (opts: { where?: unknown }) =>
+        Promise.resolve(store.projects.find(toPredicate(opts?.where))),
+      findMany: (opts?: { where?: unknown }) =>
+        Promise.resolve(store.projects.filter(toPredicate(opts?.where))),
     },
     projectMembers: {
-      findFirst: (opts: { where?: unknown }) => Promise.resolve(store.projectMembers.find(toPredicate(opts?.where))),
-      findMany: (opts?: { where?: unknown }) => Promise.resolve(store.projectMembers.filter(toPredicate(opts?.where))),
+      findFirst: (opts: { where?: unknown }) =>
+        Promise.resolve(store.projectMembers.find(toPredicate(opts?.where))),
+      findMany: (opts?: { where?: unknown }) =>
+        Promise.resolve(store.projectMembers.filter(toPredicate(opts?.where))),
     },
   }
 
@@ -250,9 +261,15 @@ function makeDb(store: FakeStore) {
   // that audit log rows are rolled back together with entity changes.
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const wrapMutation = <F extends (...args: any[]) => any>(fn: F, kind: 'insert' | 'update' | 'delete', target: 'db' | 'tx'): F => {
+  const wrapMutation = <F extends (...args: any[]) => any>(
+    fn: F,
+    kind: 'insert' | 'update' | 'delete',
+    target: 'db' | 'tx',
+  ): F => {
     return ((...args: Parameters<F>) => {
-      counters[`${target}${kind.charAt(0).toUpperCase() + kind.slice(1)}` as keyof typeof counters]++
+      counters[
+        `${target}${kind.charAt(0).toUpperCase() + kind.slice(1)}` as keyof typeof counters
+      ]++
       return fn(...args)
     }) as F
   }
@@ -270,7 +287,7 @@ function makeDb(store: FakeStore) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db: any = {
     ...makeHandle('db'),
-    transaction: async <T,>(fn: (tx: unknown) => Promise<T>): Promise<T> => {
+    transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => {
       // Capture a snapshot of every row's current shape (shallow clone keeps
       // Date instances intact). On rollback we restore the array contents
       // back to this snapshot, mutating row objects in place where they
@@ -291,9 +308,9 @@ function makeDb(store: FakeStore) {
         return await fn(tx)
       } catch (err) {
         for (const key of Object.keys(store) as Array<keyof FakeStore>) {
-          (store[key] as Array<unknown>).length = 0
+          ;(store[key] as Array<unknown>).length = 0
           for (const row of snapshot[key]) {
-            (store[key] as Array<unknown>).push(row)
+            ;(store[key] as Array<unknown>).push(row)
           }
         }
         throw err
@@ -352,31 +369,37 @@ function buildService(store: FakeStore) {
   // service forgot to thread `tx` and the audit row would leak past rollback.
   const usedTxFor: Record<string, Array<unknown>> = { user: [], team: [], project: [] }
   const auditLogService = {
-    record: vi.fn(async (
-      params: { actorId: string | null; targetId: string; action: string; changes: unknown },
-      tx?: unknown,
-    ) => {
-      usedTxFor.user!.push(tx)
-      store.userAuditLog.push({ ...params })
-    }),
+    record: vi.fn(
+      async (
+        params: { actorId: string | null; targetId: string; action: string; changes: unknown },
+        tx?: unknown,
+      ) => {
+        usedTxFor.user!.push(tx)
+        store.userAuditLog.push({ ...params })
+      },
+    ),
   }
   const teamAuditLogService = {
-    record: vi.fn(async (
-      params: { actorId: string | null; targetId: string; action: string; changes: unknown },
-      tx?: unknown,
-    ) => {
-      usedTxFor.team!.push(tx)
-      store.teamAuditLog.push({ ...params })
-    }),
+    record: vi.fn(
+      async (
+        params: { actorId: string | null; targetId: string; action: string; changes: unknown },
+        tx?: unknown,
+      ) => {
+        usedTxFor.team!.push(tx)
+        store.teamAuditLog.push({ ...params })
+      },
+    ),
   }
   const projectAuditLogService = {
-    record: vi.fn(async (
-      params: { actorId: string | null; targetId: string; action: string; changes: unknown },
-      tx?: unknown,
-    ) => {
-      usedTxFor.project!.push(tx)
-      store.projectAuditLog.push({ ...params })
-    }),
+    record: vi.fn(
+      async (
+        params: { actorId: string | null; targetId: string; action: string; changes: unknown },
+        tx?: unknown,
+      ) => {
+        usedTxFor.project!.push(tx)
+        store.projectAuditLog.push({ ...params })
+      },
+    ),
   }
   const accessService = {} as never
   const { db, counters } = makeDb(store)
@@ -384,14 +407,25 @@ function buildService(store: FakeStore) {
   // `.db` field whose value is the actual Drizzle handle. Our `db` from
   // makeDb IS the handle, so we wrap it in { db } to match the service's
   // `this.db.db.*` access pattern.
+  const tosService = { getLatestAcceptanceForUser: vi.fn().mockResolvedValue(null) } as never
   const service = new UsersService(
     { db } as never,
     accessService,
     auditLogService as never,
+    tosService,
     teamAuditLogService as never,
     projectAuditLogService as never,
   )
-  return { service, auditLogService, teamAuditLogService, projectAuditLogService, store, counters, usedTxFor, db }
+  return {
+    service,
+    auditLogService,
+    teamAuditLogService,
+    projectAuditLogService,
+    store,
+    counters,
+    usedTxFor,
+    db,
+  }
 }
 
 // The fake's select/update predicates are opaque so we have to substitute
@@ -577,9 +611,7 @@ describe('UsersService.archive — SENIOR (pair cascade)', () => {
 describe('UsersService.archive — HR / ACCOUNTANT / JUNIOR / ADMIN', () => {
   it('HR: archives user + sets leftAt on team_members; no project_members touched', async () => {
     const store = emptyStore()
-    store.users.push(
-      { id: 'hr-1', role: 'HR', displayName: 'HR1', archivedAt: null },
-    )
+    store.users.push({ id: 'hr-1', role: 'HR', displayName: 'HR1', archivedAt: null })
     store.teamMembers.push(
       { id: 'tm-1', teamId: 'team-A', userId: 'hr-1', leftAt: null, joinedAt: new Date() },
       { id: 'tm-2', teamId: 'team-B', userId: 'hr-1', leftAt: null, joinedAt: new Date() },
@@ -595,12 +627,14 @@ describe('UsersService.archive — HR / ACCOUNTANT / JUNIOR / ADMIN', () => {
 
   it('JUNIOR: archives user + sets leftAt on project_members', async () => {
     const store = emptyStore()
-    store.users.push(
-      { id: 'junior-1', role: 'JUNIOR', displayName: 'J', archivedAt: null },
-    )
-    store.projectMembers.push(
-      { id: 'pm-1', projectId: 'proj-1', userId: 'junior-1', leftAt: null, joinedAt: new Date() },
-    )
+    store.users.push({ id: 'junior-1', role: 'JUNIOR', displayName: 'J', archivedAt: null })
+    store.projectMembers.push({
+      id: 'pm-1',
+      projectId: 'proj-1',
+      userId: 'junior-1',
+      leftAt: null,
+      joinedAt: new Date(),
+    })
     const { service, projectAuditLogService } = buildService(store)
     await service.archive('junior-1', 'admin-x')
 
@@ -613,9 +647,7 @@ describe('UsersService.archive — HR / ACCOUNTANT / JUNIOR / ADMIN', () => {
     // separately blocks self-archive for safety, but the service must not
     // reject it — otherwise re-entrant flows like account deletion break).
     const store = emptyStore()
-    store.users.push(
-      { id: 'admin-1', role: 'ADMIN', displayName: 'Adm', archivedAt: null },
-    )
+    store.users.push({ id: 'admin-1', role: 'ADMIN', displayName: 'Adm', archivedAt: null })
     const { service, teamAuditLogService, projectAuditLogService } = buildService(store)
     await service.archive('admin-1', 'admin-1')
 
@@ -629,9 +661,12 @@ describe('UsersService.archive — HR / ACCOUNTANT / JUNIOR / ADMIN', () => {
     // controller-level self-check is bypassed (e.g. a different actor id),
     // the service must refuse to archive a target whose role is ADMIN.
     const store = emptyStore()
-    store.users.push(
-      { id: 'admin-target', role: 'ADMIN', displayName: 'Target Admin', archivedAt: null },
-    )
+    store.users.push({
+      id: 'admin-target',
+      role: 'ADMIN',
+      displayName: 'Target Admin',
+      archivedAt: null,
+    })
     const { service } = buildService(store)
 
     await expect(service.archive('admin-target', 'admin-actor')).rejects.toThrow(ForbiddenException)
@@ -645,9 +680,7 @@ describe('UsersService.archive — HR / ACCOUNTANT / JUNIOR / ADMIN', () => {
     // A null actor represents a system-initiated archive (e.g. a future
     // cleanup job) — we don't want to lock those out.
     const store = emptyStore()
-    store.users.push(
-      { id: 'admin-1', role: 'ADMIN', displayName: 'Adm', archivedAt: null },
-    )
+    store.users.push({ id: 'admin-1', role: 'ADMIN', displayName: 'Adm', archivedAt: null })
     const { service } = buildService(store)
     await service.archive('admin-1', null)
 
@@ -711,7 +744,13 @@ describe('UsersService.unarchive — HR / JUNIOR / ADMIN', () => {
   it('HR: restores user only; team_members stay closed', async () => {
     const store = emptyStore()
     store.users.push({ id: 'hr-1', role: 'HR', archivedAt: new Date() })
-    store.teamMembers.push({ id: 'tm-1', teamId: 't', userId: 'hr-1', leftAt: new Date(), joinedAt: new Date() })
+    store.teamMembers.push({
+      id: 'tm-1',
+      teamId: 't',
+      userId: 'hr-1',
+      leftAt: new Date(),
+      joinedAt: new Date(),
+    })
     const { service } = buildService(store)
     await service.unarchive('hr-1', 'admin-x')
 
@@ -757,9 +796,7 @@ describe('UsersService.getArchiveImpact', () => {
   it('JUNIOR: returns projectsCount', async () => {
     const store = emptyStore()
     store.users.push({ id: 'j-1', role: 'JUNIOR', archivedAt: null })
-    store.projectMembers.push(
-      { id: 'pm-1', projectId: 'proj-1', userId: 'j-1', leftAt: null },
-    )
+    store.projectMembers.push({ id: 'pm-1', projectId: 'proj-1', userId: 'j-1', leftAt: null })
     const { service } = buildService(store)
     const impact = await service.getArchiveImpact('j-1')
     expect(impact).toMatchObject({ type: 'user', role: 'JUNIOR', projectsCount: 1 })

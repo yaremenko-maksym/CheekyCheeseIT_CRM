@@ -1,12 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { AxiosError } from 'axios'
-import type {
-  ArchiveImpact,
-  AuditLogList,
-  TeamAuditLogList,
-  ProjectAuditLogList,
-} from '@crm/shared'
+import type { ArchiveImpact } from '@crm/shared'
 import { api } from '@/lib/axios'
 
 export type EntityType = 'user' | 'team' | 'project'
@@ -110,26 +105,3 @@ export function useUnarchiveEntity(entityType: EntityType, entityId: string) {
   })
 }
 
-// ── Audit log queries ─────────────────────────────────────────────────────────
-
-type AuditLogResponse = AuditLogList | TeamAuditLogList | ProjectAuditLogList
-
-export function useEntityAuditLog(
-  entityType: EntityType,
-  entityId: string | undefined,
-  page: number,
-  limit: number,
-  enabled: boolean,
-) {
-  return useQuery({
-    queryKey: [`${entityType}-audit-log`, entityId, page, limit],
-    queryFn: () =>
-      api
-        .get<AuditLogResponse>(
-          `/${ENDPOINTS[entityType]}/${entityId}/audit-log?page=${page}&limit=${limit}`,
-        )
-        .then((r) => r.data),
-    enabled: enabled && !!entityId,
-    staleTime: 30_000,
-  })
-}

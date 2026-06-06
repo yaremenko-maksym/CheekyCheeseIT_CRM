@@ -6,7 +6,7 @@
  *
  * Routes under test:
  * - GET /crm/projects?archived=true
- * - GET /crm/projects/:projectId (detail with admin actions + tabs + audit log)
+ * - GET /crm/projects/:projectId (detail with admin actions + tabs)
  *
  * The effective team dynamism test verifies that HR/Accountant come from the
  * senior's CURRENT team_members snapshot — not frozen at archive time.
@@ -71,7 +71,9 @@ test.describe('Projects archive — list page tab', () => {
     await expect(page.getByTestId('toggle-archived-projects')).not.toBeVisible()
   })
 
-  test('archived project card has data-archived=true and no inline restore button (ut-38)', async ({ asAdmin: page }) => {
+  test('archived project card has data-archived=true and no inline restore button (ut-38)', async ({
+    asAdmin: page,
+  }) => {
     await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
@@ -103,7 +105,8 @@ test.describe('Projects archive — list page tab', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(archived) }),
     )
     const unarchived = page.waitForRequest(
-      (req) => req.url().endsWith(`/projects/${archivedProject.id}/unarchive`) && req.method() === 'POST',
+      (req) =>
+        req.url().endsWith(`/projects/${archivedProject.id}/unarchive`) && req.method() === 'POST',
       { timeout: 5000 },
     )
     await page.route(`${API}/projects/${archivedProject.id}/unarchive`, (r) =>
@@ -117,7 +120,9 @@ test.describe('Projects archive — list page tab', () => {
     await expect(page.getByTestId('cascade-unarchive-confirm')).not.toBeVisible()
   })
 
-  test('unarchive with 409 cascade — shows modal with paired entities', async ({ asAdmin: page }) => {
+  test('unarchive with 409 cascade — shows modal with paired entities', async ({
+    asAdmin: page,
+  }) => {
     // ut-38: same redirect — exercise the detail-page Unarchive button.
     const archived = {
       ...projectWithEffectiveTeam,
@@ -167,7 +172,11 @@ test.describe('Project detail page — header actions + tabs', () => {
   // (replaces former «Действия» dropdown / AdminActionsMenu).
   test('ADMIN sees explicit Archive button on project detail', async ({ asAdmin: page }) => {
     await page.route(`${API}/projects/${activeProject.id}`, (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(projectWithEffectiveTeam) }),
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(projectWithEffectiveTeam),
+      }),
     )
     await page.goto(`/crm/projects/${activeProject.id}`)
     await expect(page.getByTestId('project-archive-button')).toBeVisible()
@@ -175,26 +184,41 @@ test.describe('Project detail page — header actions + tabs', () => {
 
   test('non-ADMIN does not see Archive button on project detail', async ({ asHr: page }) => {
     await page.route(`${API}/projects/${activeProject.id}`, (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(projectWithEffectiveTeam) }),
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(projectWithEffectiveTeam),
+      }),
     )
     await page.goto(`/crm/projects/${activeProject.id}`)
     await expect(page.getByTestId('project-archive-button')).not.toBeVisible()
   })
 
-  test('project detail shows 4 tabs (Обзор, Состав, История, Финансы) for ADMIN', async ({ asAdmin: page }) => {
+  test('project detail shows tabs (Обзор, Состав, Финансы) for ADMIN', async ({
+    asAdmin: page,
+  }) => {
     await page.route(`${API}/projects/${activeProject.id}`, (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(projectWithEffectiveTeam) }),
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(projectWithEffectiveTeam),
+      }),
     )
     await page.goto(`/crm/projects/${activeProject.id}`)
     await expect(page.getByTestId('tab-overview')).toBeVisible()
     await expect(page.getByTestId('tab-members')).toBeVisible()
-    await expect(page.getByTestId('tab-audit')).toBeVisible()
     await expect(page.getByTestId('tab-finance')).toBeVisible()
   })
 
-  test('Состав tab renders effective team from project.effectiveTeam', async ({ asAdmin: page }) => {
+  test('Состав tab renders effective team from project.effectiveTeam', async ({
+    asAdmin: page,
+  }) => {
     await page.route(`${API}/projects/${activeProject.id}`, (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(projectWithEffectiveTeam) }),
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(projectWithEffectiveTeam),
+      }),
     )
 
     await page.goto(`/crm/projects/${activeProject.id}`)
@@ -208,7 +232,9 @@ test.describe('Project detail page — header actions + tabs', () => {
     await expect(card.getByText(USERS.accountant.displayName)).toBeVisible()
   })
 
-  test('effective team dynamism — HR shown matches current team_members (not snapshot)', async ({ asAdmin: page }) => {
+  test('effective team dynamism — HR shown matches current team_members (not snapshot)', async ({
+    asAdmin: page,
+  }) => {
     // Simulate scenario: project was archived with HR0, while archived HR changed to HR1.
     // After unarchive, effective team should show HR1 (current), not HR0 (snapshot).
     const newHrName = 'Brand New HR'
@@ -238,7 +264,11 @@ test.describe('Project detail page — header actions + tabs', () => {
       },
     }
     await page.route(`${API}/projects/${activeProject.id}`, (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(dynamicProject) }),
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(dynamicProject),
+      }),
     )
 
     await page.goto(`/crm/projects/${activeProject.id}`)
@@ -250,39 +280,14 @@ test.describe('Project detail page — header actions + tabs', () => {
     await expect(card.getByText(USERS.hr.displayName)).not.toBeVisible()
   })
 
-  test('История изменений tab loads project audit log', async ({ asAdmin: page }) => {
-    await page.route(`${API}/projects/${activeProject.id}`, (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(projectWithEffectiveTeam) }),
-    )
-    await page.route(new RegExp(`${API}/projects/${activeProject.id}/audit-log`), (r) =>
-      r.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          entries: [
-            {
-              id: 'audit-p-1',
-              actorId: USERS.admin.id,
-              targetId: activeProject.id,
-              action: 'project_archived',
-              changes: { archivedAt: { before: null, after: '2026-05-19T00:00:00.000Z' } },
-              createdAt: '2026-05-19T00:00:00.000Z',
-            },
-          ],
-          total: 1,
-          page: 1,
-          limit: 20,
-        }),
-      }),
-    )
-
-    await page.goto(`/crm/projects/${activeProject.id}`)
-    await page.getByTestId('tab-audit').click()
-    await expect(page.getByText('Проект архивирован')).toBeVisible({ timeout: 3000 })
-  })
-
-  test('archived project shows "В архиве" badge and unarchive button only', async ({ asAdmin: page }) => {
-    const archived = { ...projectWithEffectiveTeam, ...archivedProject, effectiveTeam: projectWithEffectiveTeam.effectiveTeam }
+  test('archived project shows "В архиве" badge and unarchive button only', async ({
+    asAdmin: page,
+  }) => {
+    const archived = {
+      ...projectWithEffectiveTeam,
+      ...archivedProject,
+      effectiveTeam: projectWithEffectiveTeam.effectiveTeam,
+    }
     await page.route(`${API}/projects/${archivedProject.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(archived) }),
     )

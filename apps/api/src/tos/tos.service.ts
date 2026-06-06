@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { eq, sql } from 'drizzle-orm'
+import { desc, eq, sql } from 'drizzle-orm'
 import { DatabaseService } from '../database/database.service'
 import { tosAcceptances, tosVersions } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
@@ -60,6 +60,31 @@ export class TosService {
       if (!inserted) throw new Error('Failed to insert ToS version')
       return inserted
     })
+  }
+
+  /**
+   * Returns the latest ToS acceptance for a given user, joined with the
+   * version number. Returns null if the user has never accepted any ToS.
+   *
+   * Used by the profile endpoint to surface tosAcceptedAt / tosVersion
+   * to ADMIN viewers (PR-1 Documents redesign).
+   */
+  async getLatestAcceptanceForUser(
+    userId: string,
+  ): Promise<{ acceptedAt: Date; tosVersion: number } | null> {
+    const rows = await this.db.db
+      .select({
+        acceptedAt: tosAcceptances.acceptedAt,
+        tosVersion: tosVersions.version,
+      })
+      .from(tosAcceptances)
+      .innerJoin(tosVersions, eq(tosAcceptances.tosVersionId, tosVersions.id))
+      .where(eq(tosAcceptances.userId, userId))
+      .orderBy(desc(tosAcceptances.acceptedAt))
+      .limit(1)
+    const row = rows[0]
+    if (!row) return null
+    return { acceptedAt: row.acceptedAt, tosVersion: row.tosVersion }
   }
 
   async accept({

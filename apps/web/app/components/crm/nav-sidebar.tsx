@@ -8,7 +8,6 @@ import {
   KanbanSquare,
   LayoutDashboard,
   BarChart3,
-  ShieldCheck,
   UserCircle,
   Users,
   UsersRound,
@@ -90,12 +89,6 @@ const NAV_ITEMS: NavItem[] = [
     icon: FileText,
     to: '/crm/documents',
     roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'],
-  },
-  {
-    label: 'Аудит-журнал',
-    icon: ShieldCheck,
-    to: '/crm/audit-log',
-    roles: ['ADMIN', 'ACCOUNTANT'],
   },
 ]
 

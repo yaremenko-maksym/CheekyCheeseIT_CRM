@@ -48,13 +48,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
 import { useUnarchiveEntity } from '@/hooks/use-archive'
-import { AuditLogTab } from '@/components/audit-log/AuditLogTab'
-
 export const Route = createFileRoute('/crm/team/$teamId')({
   component: TeamDetailPage,
 })
@@ -122,7 +119,7 @@ function TeamDetailPage() {
 
   const [showEdit, setShowEdit] = useState(false)
   const [showAddMember, setShowAddMember] = useState(false)
-  const [activeTab, setActiveTab] = useState<'members' | 'audit'>('members')
+  // audit tab removed (PR-1 documents redesign)
   // ut-39b: explicit Archive button triggers ArchiveConfirmDialog (same flow
   // the AdminActionsMenu dropdown used to provide).
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false)
@@ -552,273 +549,247 @@ function TeamDetailPage() {
         </div>
       </motion.div>
 
-      {user?.role === 'ADMIN' &&
-        (() => {
-          type TeamDetailTab = 'members' | 'audit'
-          const detailTabs: ReadonlyArray<SegmentedToggleOption<TeamDetailTab>> = [
-            { value: 'members', label: 'Состав', testId: 'tab-members' },
-            { value: 'audit', label: 'История изменений', testId: 'tab-audit' },
-          ]
-          return (
-            <SegmentedToggle<TeamDetailTab>
-              value={activeTab}
-              onChange={(v) => setActiveTab(v)}
-              options={detailTabs}
-              ariaLabel="Разделы команды"
-              variant="tabs"
-              size="sm"
-              layoutId={`team-detail-tabs-${team.id}`}
-              className="w-fit"
-              testId={`team-detail-tabs-${team.id}`}
-            />
-          )
-        })()}
+      <div className="space-y-6">
+        {/* Members */}
+        <motion.div variants={item}>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                Участники команды
+                <Badge variant="outline" className="ml-auto">
+                  {team.members.length}
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                // Filter out other JUNIORs if current user is JUNIOR
+                const visibleMembers =
+                  user?.role === 'JUNIOR'
+                    ? team.members.filter((m) => m.role !== 'JUNIOR')
+                    : team.members
 
-      {user?.role === 'ADMIN' && activeTab === 'audit' ? (
-        <AuditLogTab entityType="team" entityId={team.id} />
-      ) : (
-        <div className="space-y-6">
-          {/* Members */}
-          <motion.div variants={item}>
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  Участники команды
-                  <Badge variant="outline" className="ml-auto">
-                    {team.members.length}
-                  </Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {(() => {
-                  // Filter out other JUNIORs if current user is JUNIOR
-                  const visibleMembers =
-                    user?.role === 'JUNIOR'
-                      ? team.members.filter((m) => m.role !== 'JUNIOR')
-                      : team.members
-
-                  return (
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {visibleMembers.map((member) => (
-                        <motion.div
-                          key={member.id}
-                          className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-card/50 p-3"
-                          whileHover={{ scale: 1.01 }}
-                          transition={{ duration: 0.15 }}
-                        >
-                          {/* round-2 AC1: avatar + name is the only profile <Link>;
+                return (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {visibleMembers.map((member) => (
+                      <motion.div
+                        key={member.id}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-card/50 p-3"
+                        whileHover={{ scale: 1.01 }}
+                        transition={{ duration: 0.15 }}
+                      >
+                        {/* round-2 AC1: avatar + name is the only profile <Link>;
                             email/telegram/phone are sibling <a> tags (NOT nested
                             inside another anchor) — fixes validateDOMNesting. */}
-                          <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <Link
-                              to="/crm/profile/$userId"
-                              params={{ userId: member.userId }}
-                              className="shrink-0 transition-opacity hover:opacity-80"
-                            >
-                              <Avatar className="h-9 w-9 shrink-0">
-                                {member.avatarUrl && (
-                                  <AvatarImage src={member.avatarUrl} alt={member.displayName} />
-                                )}
-                                <AvatarFallback className="bg-muted text-xs">
-                                  {getInitials(member.displayName)}
-                                </AvatarFallback>
-                              </Avatar>
-                            </Link>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2">
-                                <Link
-                                  to="/crm/profile/$userId"
-                                  params={{ userId: member.userId }}
-                                  className="min-w-0 transition-opacity hover:opacity-80"
-                                >
-                                  <p className="truncate text-sm font-medium leading-tight hover:text-primary transition-colors">
-                                    {member.displayName}
-                                  </p>
-                                </Link>
-                                <Badge
-                                  variant={ROLE_VARIANT[member.role] ?? 'junior'}
-                                  className="text-[9px] shrink-0"
-                                >
-                                  {ROLE_LABELS[member.role] ?? member.role}
-                                </Badge>
-                              </div>
-                              {Array.isArray(member.techStack) && member.techStack.length > 0 && (
-                                <div className="mt-1 flex flex-wrap gap-1">
-                                  {(member.techStack as string[]).map((t) => (
-                                    <Badge
-                                      key={t}
-                                      variant="outline"
-                                      className="text-[9px] px-1.5 py-0 font-mono"
-                                    >
-                                      {t}
-                                    </Badge>
-                                  ))}
-                                </div>
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                          <Link
+                            to="/crm/profile/$userId"
+                            params={{ userId: member.userId }}
+                            className="shrink-0 transition-opacity hover:opacity-80"
+                          >
+                            <Avatar className="h-9 w-9 shrink-0">
+                              {member.avatarUrl && (
+                                <AvatarImage src={member.avatarUrl} alt={member.displayName} />
                               )}
-                              <div className="mt-1 flex flex-col gap-0.5 min-w-0">
+                              <AvatarFallback className="bg-muted text-xs">
+                                {getInitials(member.displayName)}
+                              </AvatarFallback>
+                            </Avatar>
+                          </Link>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <Link
+                                to="/crm/profile/$userId"
+                                params={{ userId: member.userId }}
+                                className="min-w-0 transition-opacity hover:opacity-80"
+                              >
+                                <p className="truncate text-sm font-medium leading-tight hover:text-primary transition-colors">
+                                  {member.displayName}
+                                </p>
+                              </Link>
+                              <Badge
+                                variant={ROLE_VARIANT[member.role] ?? 'junior'}
+                                className="text-[9px] shrink-0"
+                              >
+                                {ROLE_LABELS[member.role] ?? member.role}
+                              </Badge>
+                            </div>
+                            {Array.isArray(member.techStack) && member.techStack.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {(member.techStack as string[]).map((t) => (
+                                  <Badge
+                                    key={t}
+                                    variant="outline"
+                                    className="text-[9px] px-1.5 py-0 font-mono"
+                                  >
+                                    {t}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
+                            <div className="mt-1 flex flex-col gap-0.5 min-w-0">
+                              <a
+                                href={`mailto:${member.email}`}
+                                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0"
+                              >
+                                <Mail className="h-3 w-3 shrink-0" />
+                                <span className="truncate">{member.email}</span>
+                              </a>
+                              {member.telegram && (
                                 <a
-                                  href={`mailto:${member.email}`}
+                                  href={tgHref(member.telegram)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
                                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0"
                                 >
-                                  <Mail className="h-3 w-3 shrink-0" />
-                                  <span className="truncate">{member.email}</span>
+                                  <Send className="h-3 w-3 shrink-0" />
+                                  <span className="truncate">{tgDisplay(member.telegram)}</span>
                                 </a>
-                                {member.telegram && (
-                                  <a
-                                    href={tgHref(member.telegram)}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0"
-                                  >
-                                    <Send className="h-3 w-3 shrink-0" />
-                                    <span className="truncate">{tgDisplay(member.telegram)}</span>
-                                  </a>
-                                )}
-                                {hasRealPhone(member.phone) && (
-                                  <a
-                                    href={`tel:${member.phone}`}
-                                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0"
-                                  >
-                                    <Phone className="h-3 w-3 shrink-0" />
-                                    <span className="truncate">{member.phone}</span>
-                                  </a>
-                                )}
-                              </div>
+                              )}
+                              {hasRealPhone(member.phone) && (
+                                <a
+                                  href={`tel:${member.phone}`}
+                                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0"
+                                >
+                                  <Phone className="h-3 w-3 shrink-0" />
+                                  <span className="truncate">{member.phone}</span>
+                                </a>
+                              )}
                             </div>
                           </div>
-                          {canManage &&
-                            (() => {
-                              const membersByRole = team.members.reduce(
-                                (acc, m) => {
-                                  if (!acc[m.role]) acc[m.role] = []
-                                  acc[m.role]!.push(m)
-                                  return acc
-                                },
-                                {} as Record<string, typeof team.members>,
-                              )
-
-                              const isSenior = member.role === 'SENIOR'
-                              const isJunior = member.role === 'JUNIOR'
-                              const isLastHr =
-                                member.role === 'HR' &&
-                                membersByRole.HR &&
-                                membersByRole.HR.length <= 1
-                              const isLastAccountant =
-                                member.role === 'ACCOUNTANT' &&
-                                membersByRole.ACCOUNTANT &&
-                                membersByRole.ACCOUNTANT.length <= 1
-                              const isSelf = member.userId === user?.id
-                              const canRemove =
-                                !isSenior &&
-                                !isJunior &&
-                                !isLastHr &&
-                                !isLastAccountant &&
-                                (user?.role === 'ADMIN' ? true : isSelf)
-                              return canRemove ? (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                                  title="Исключить"
-                                  onClick={() => removeMemberMutation.mutate(member.userId)}
-                                >
-                                  <UserMinus className="h-3.5 w-3.5" />
-                                </Button>
-                              ) : null
-                            })()}
-                        </motion.div>
-                      ))}
-                      {visibleMembers.length === 0 && (
-                        <div className="flex flex-col items-center justify-center py-12 text-center col-span-2">
-                          <p className="mt-3 text-sm font-medium">Нет участников</p>
                         </div>
-                      )}
-                    </div>
-                  )
-                })()}
-              </CardContent>
-            </Card>
-          </motion.div>
+                        {canManage &&
+                          (() => {
+                            const membersByRole = team.members.reduce(
+                              (acc, m) => {
+                                if (!acc[m.role]) acc[m.role] = []
+                                acc[m.role]!.push(m)
+                                return acc
+                              },
+                              {} as Record<string, typeof team.members>,
+                            )
 
-          {/* Active Projects */}
-          <motion.div variants={item}>
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Briefcase className="h-5 w-5" />
-                  Активные проекты
-                  {visibleProjects.length > 0 && (
-                    <Badge className="ml-auto bg-emerald-500/15 text-emerald-400 border-emerald-500/25 hover:bg-emerald-500/20">
-                      {visibleProjects.length}
-                    </Badge>
-                  )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {visibleProjects.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-4 text-center">
-                    Нет активных проектов
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {visibleProjects.map((project) => {
-                      const juniorMember = project.members?.find(
-                        (m: { role: string; leftAt: string | null }) =>
-                          m.role === 'JUNIOR' && m.leftAt === null,
-                      )
-                      const junior = juniorMember
-                        ? team.members.find((m) => m.userId === juniorMember.userId)
-                        : null
-                      return (
-                        <Link
-                          key={project.id}
-                          to="/crm/projects/$projectId"
-                          params={{ projectId: project.id }}
-                          className="flex items-center gap-3 rounded-lg border border-border/60 bg-card/50 p-3 transition-all hover:border-primary/30 hover:bg-card"
-                        >
-                          <ProjectLogo
-                            documentId={project.logoDocumentId}
-                            externalUrl={project.logoExternalUrl}
-                            companyName={project.companyName}
-                            fallback={project.companyName.slice(0, 2).toUpperCase()}
-                            avatarClassName="h-8 w-8 rounded-md shrink-0 [&_[data-slot=avatar-fallback]]:rounded-md [&_[data-slot=avatar-fallback]]:text-xs"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium">{project.name}</p>
-                            <p className="truncate text-xs text-muted-foreground">
-                              {project.companyName}
-                            </p>
-                            {junior ? (
-                              <div className="flex items-center gap-1.5 mt-1">
-                                <Avatar className="h-4 w-4">
-                                  {junior.avatarUrl && (
-                                    <AvatarImage src={junior.avatarUrl} alt={junior.displayName} />
-                                  )}
-                                  <AvatarFallback className="bg-muted text-[8px]">
-                                    {getInitials(junior.displayName)}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <span className="text-xs text-muted-foreground truncate">
-                                  {junior.displayName}
-                                </span>
-                              </div>
-                            ) : (
-                              <p className="text-xs text-destructive mt-1">Джун не прикреплён</p>
-                            )}
-                          </div>
-                          <Badge className="shrink-0 bg-emerald-500/15 text-emerald-400 border-emerald-500/25 text-[10px]">
-                            Активный
-                          </Badge>
-                        </Link>
-                      )
-                    })}
+                            const isSenior = member.role === 'SENIOR'
+                            const isJunior = member.role === 'JUNIOR'
+                            const isLastHr =
+                              member.role === 'HR' &&
+                              membersByRole.HR &&
+                              membersByRole.HR.length <= 1
+                            const isLastAccountant =
+                              member.role === 'ACCOUNTANT' &&
+                              membersByRole.ACCOUNTANT &&
+                              membersByRole.ACCOUNTANT.length <= 1
+                            const isSelf = member.userId === user?.id
+                            const canRemove =
+                              !isSenior &&
+                              !isJunior &&
+                              !isLastHr &&
+                              !isLastAccountant &&
+                              (user?.role === 'ADMIN' ? true : isSelf)
+                            return canRemove ? (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                                title="Исключить"
+                                onClick={() => removeMemberMutation.mutate(member.userId)}
+                              >
+                                <UserMinus className="h-3.5 w-3.5" />
+                              </Button>
+                            ) : null
+                          })()}
+                      </motion.div>
+                    ))}
+                    {visibleMembers.length === 0 && (
+                      <div className="flex flex-col items-center justify-center py-12 text-center col-span-2">
+                        <p className="mt-3 text-sm font-medium">Нет участников</p>
+                      </div>
+                    )}
                   </div>
+                )
+              })()}
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Active Projects */}
+        <motion.div variants={item}>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Briefcase className="h-5 w-5" />
+                Активные проекты
+                {visibleProjects.length > 0 && (
+                  <Badge className="ml-auto bg-emerald-500/15 text-emerald-400 border-emerald-500/25 hover:bg-emerald-500/20">
+                    {visibleProjects.length}
+                  </Badge>
                 )}
-              </CardContent>
-            </Card>
-          </motion.div>
-        </div>
-      )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {visibleProjects.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  Нет активных проектов
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {visibleProjects.map((project) => {
+                    const juniorMember = project.members?.find(
+                      (m: { role: string; leftAt: string | null }) =>
+                        m.role === 'JUNIOR' && m.leftAt === null,
+                    )
+                    const junior = juniorMember
+                      ? team.members.find((m) => m.userId === juniorMember.userId)
+                      : null
+                    return (
+                      <Link
+                        key={project.id}
+                        to="/crm/projects/$projectId"
+                        params={{ projectId: project.id }}
+                        className="flex items-center gap-3 rounded-lg border border-border/60 bg-card/50 p-3 transition-all hover:border-primary/30 hover:bg-card"
+                      >
+                        <ProjectLogo
+                          documentId={project.logoDocumentId}
+                          externalUrl={project.logoExternalUrl}
+                          companyName={project.companyName}
+                          fallback={project.companyName.slice(0, 2).toUpperCase()}
+                          avatarClassName="h-8 w-8 rounded-md shrink-0 [&_[data-slot=avatar-fallback]]:rounded-md [&_[data-slot=avatar-fallback]]:text-xs"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{project.name}</p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {project.companyName}
+                          </p>
+                          {junior ? (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <Avatar className="h-4 w-4">
+                                {junior.avatarUrl && (
+                                  <AvatarImage src={junior.avatarUrl} alt={junior.displayName} />
+                                )}
+                                <AvatarFallback className="bg-muted text-[8px]">
+                                  {getInitials(junior.displayName)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <span className="text-xs text-muted-foreground truncate">
+                                {junior.displayName}
+                              </span>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-destructive mt-1">Джун не прикреплён</p>
+                          )}
+                        </div>
+                        <Badge className="shrink-0 bg-emerald-500/15 text-emerald-400 border-emerald-500/25 text-[10px]">
+                          Активный
+                        </Badge>
+                      </Link>
+                    )
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
 
       {/* Edit Team Dialog */}
       <Dialog open={showEdit} onOpenChange={setShowEdit}>
