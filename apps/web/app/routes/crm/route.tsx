@@ -1,7 +1,6 @@
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { del as idbDel } from 'idb-keyval'
+import { useQuery } from '@tanstack/react-query'
 import { AuthProvider } from '@/context/auth'
 import { NotificationsProvider } from '@/context/notifications'
 import { useOnboardingGate } from '@/context/onboarding'
@@ -9,6 +8,7 @@ import { LogOut, Menu, Search, UserCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
+import { useLogout } from '@/lib/use-logout'
 import { NavSidebar } from '@/components/crm/nav-sidebar'
 import { BrandMark } from '@/components/brand-mark'
 import { NotificationsBell } from '@/components/layout/notifications-bell'
@@ -47,7 +47,7 @@ function CrmRoot() {
 function CrmLayout() {
   const { user, isLoading } = useAuth()
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
+  const handleLogout = useLogout()
   const location = useRouterState({ select: (s) => s.location })
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false
@@ -105,39 +105,6 @@ function CrmLayout() {
       localStorage.setItem('sidebar-collapsed', String(next))
       return next
     })
-  }
-
-  // Полная очистка при выходе: TanStack Query кеш + IndexedDB persist-стор +
-  // SW runtime кеши (api-cache, media-cache). Precache-статику не трогаем —
-  // она не содержит данных пользователя.
-  const handleLogout = () => {
-    void api
-      .get('/auth/logout')
-      .catch(() => {
-        // Логаут выполняется даже при сетевой ошибке — чистим кеши локально
-      })
-      .finally(async () => {
-        // 1. Сбросить TanStack Query in-memory кеш
-        queryClient.clear()
-
-        // 2. Удалить persist-ключ TanStack Query из IndexedDB.
-        //    Точечное удаление по ключу из persister.ts ('crm-query-cache') —
-        //    не трогаем другие IDB-данные (future-proof, code-MED-2 fix).
-        await idbDel('crm-query-cache')
-
-        // 3. Удалить SW runtime кеши (api-cache + media-cache)
-        //    Precache-стор ('workbox-precache-*') не трогаем
-        if ('caches' in window) {
-          const keys = await caches.keys()
-          await Promise.all(
-            keys
-              .filter((k) => k.includes('api-cache') || k.includes('media-cache'))
-              .map((k) => caches.delete(k)),
-          )
-        }
-
-        window.location.href = '/login'
-      })
   }
 
   if (isLoading) {
