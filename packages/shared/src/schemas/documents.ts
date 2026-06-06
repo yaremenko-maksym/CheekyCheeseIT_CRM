@@ -238,3 +238,59 @@ export const presignedDownloadSchema = z.object({
   expiresAt: z.string().datetime(),
 })
 export type PresignedDownload = z.infer<typeof presignedDownloadSchema>
+
+// ---------------------------------------------------------------------------
+// Orphan reconciliation (POST /api/documents/reconcile-orphans, ADMIN only)
+// ---------------------------------------------------------------------------
+
+/**
+ * Query / body params for the reconcile-orphans endpoint.
+ * Both fields are optional — defaults are applied server-side:
+ *   dryRun=true, graceHours=48.
+ */
+export const reconcileOrphansOptionsSchema = z.object({
+  /** When true (default), nothing is deleted — only a report is returned. */
+  dryRun: z.boolean().default(true),
+  /**
+   * Objects modified within this many hours are skipped (in-flight uploads).
+   * Default: 48 hours. Minimum 1 hour — graceHours=0 would allow the
+   * reconciler to delete objects whose DB row hasn't committed yet (race
+   * condition between S3 upload and Postgres commit). Enforced here so the
+   * controller can never pass 0 to the destructive deletion path.
+   */
+  graceHours: z.number().int().min(1).default(48),
+})
+export type ReconcileOrphansOptions = z.infer<typeof reconcileOrphansOptionsSchema>
+
+/**
+ * A single orphan S3 object entry in the reconciliation report.
+ */
+export const orphanEntrySchema = z.object({
+  /** S3 object key. */
+  key: z.string().min(1),
+  /** Object size in bytes. */
+  sizeBytes: z.number().int().nonnegative(),
+  /** ISO timestamp of LastModified from S3. */
+  lastModified: z.string().datetime(),
+})
+export type OrphanEntry = z.infer<typeof orphanEntrySchema>
+
+/**
+ * Report returned by POST /api/documents/reconcile-orphans.
+ * When dryRun=true, deleted is always 0.
+ */
+export const reconcileReportSchema = z.object({
+  /** Total number of S3 objects scanned (across all paginated pages). */
+  scannedObjects: z.number().int().nonnegative(),
+  /** Total number of DB keys loaded (s3Key + thumbnailS3Key). */
+  dbKeys: z.number().int().nonnegative(),
+  /** Orphan objects: in S3 but not in DB AND older than graceHours. */
+  orphans: z.array(orphanEntrySchema),
+  /** Sum of orphan object sizes in bytes. */
+  orphanBytes: z.number().int().nonnegative(),
+  /** Number of objects actually deleted (always 0 when dryRun=true). */
+  deleted: z.number().int().nonnegative(),
+  /** Whether this was a dry run. */
+  dryRun: z.boolean(),
+})
+export type ReconcileReport = z.infer<typeof reconcileReportSchema>

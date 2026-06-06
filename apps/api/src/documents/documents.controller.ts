@@ -16,6 +16,7 @@
  */
 import {
   BadRequestException,
+  Body,
   Controller,
   Delete,
   Get,
@@ -26,16 +27,22 @@ import {
   Post,
   Query,
   Req,
+  UseGuards,
 } from '@nestjs/common'
 import type { FastifyRequest } from 'fastify'
 import {
   createDocumentMetadataSchema,
   documentListFiltersSchema,
+  reconcileOrphansOptionsSchema,
+  reconcileReportSchema,
   type CreateDocumentMetadata,
   type SessionUser,
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
+import { Roles } from '../common/decorators/roles.decorator'
+import { RolesGuard } from '../common/guards/roles.guard'
 import { DocumentsService } from './documents.service'
+import { DocumentsReconciliationService } from './documents-reconciliation.service'
 
 /** Minimal shape of a multipart field as returned by @fastify/multipart. */
 interface MultipartField {
@@ -50,7 +57,10 @@ interface MultipartField {
 // Auth enforced by global JwtAuthGuard (see AppModule APP_GUARD).
 @Controller('documents')
 export class DocumentsController {
-  constructor(private readonly documentsService: DocumentsService) {}
+  constructor(
+    private readonly documentsService: DocumentsService,
+    private readonly reconciliationService: DocumentsReconciliationService,
+  ) {}
 
   // ---------------------------------------------------------------------------
   // POST /api/documents — upload (multipart)
@@ -182,5 +192,34 @@ export class DocumentsController {
     @CurrentUser() user: SessionUser,
   ): Promise<void> {
     await this.documentsService.hardDelete(user, id)
+  }
+
+  // ---------------------------------------------------------------------------
+  // POST /api/documents/reconcile-orphans — S3 orphan reconciliation (ADMIN)
+  //
+  // Finds S3 objects with no matching `documents` row and optionally deletes
+  // them. Safe defaults: dryRun=true, graceHours=48.
+  //
+  // Security: ADMIN-only. The destructive path (dryRun=false) is gated by an
+  // explicit caller choice — no cron / auto-run is configured in this PR.
+  // ---------------------------------------------------------------------------
+
+  @Post('reconcile-orphans')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  async reconcileOrphans(@Body() body: unknown) {
+    const opts = reconcileOrphansOptionsSchema.parse(body ?? {})
+    const report = await this.reconciliationService.reconcileOrphans(opts)
+    // Serialize Date fields to ISO strings before schema validation —
+    // the service works with Date objects internally, but the HTTP response
+    // (and reconcileReportSchema) uses z.string().datetime() for JSON wire format.
+    const serialized = {
+      ...report,
+      orphans: report.orphans.map((o) => ({
+        ...o,
+        lastModified: o.lastModified.toISOString(),
+      })),
+    }
+    return reconcileReportSchema.parse(serialized)
   }
 }

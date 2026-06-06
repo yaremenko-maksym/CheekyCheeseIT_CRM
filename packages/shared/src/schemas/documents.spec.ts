@@ -8,6 +8,7 @@ import {
   documentListFiltersSchema,
   documentSchema,
   presignedDownloadSchema,
+  reconcileOrphansOptionsSchema,
   statusBadgeSchema,
 } from './documents'
 
@@ -299,5 +300,43 @@ describe('constants', () => {
 
   it('INTERNAL_CATEGORIES contains AVATAR, LOGO, and INVOICE', () => {
     expect(INTERNAL_CATEGORIES).toEqual(['AVATAR', 'LOGO', 'INVOICE'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// MED-B security hardening: graceHours must be >= 1 to prevent race condition
+// ---------------------------------------------------------------------------
+
+describe('reconcileOrphansOptionsSchema — graceHours min(1) (MED-B)', () => {
+  it('rejects graceHours=0 (race condition: in-flight upload may be deleted)', () => {
+    expect(() => reconcileOrphansOptionsSchema.parse({ graceHours: 0 })).toThrow()
+  })
+
+  it('accepts graceHours=1 (minimum safe value)', () => {
+    const result = reconcileOrphansOptionsSchema.parse({ graceHours: 1 })
+    expect(result.graceHours).toBe(1)
+  })
+
+  it('accepts graceHours=48 (typical production value)', () => {
+    const result = reconcileOrphansOptionsSchema.parse({ graceHours: 48 })
+    expect(result.graceHours).toBe(48)
+  })
+
+  it('defaults graceHours to 48 when omitted', () => {
+    const result = reconcileOrphansOptionsSchema.parse({})
+    expect(result.graceHours).toBe(48)
+  })
+
+  it('defaults dryRun to true when omitted (safe-by-default)', () => {
+    const result = reconcileOrphansOptionsSchema.parse({})
+    expect(result.dryRun).toBe(true)
+  })
+
+  it('rejects negative graceHours', () => {
+    expect(() => reconcileOrphansOptionsSchema.parse({ graceHours: -1 })).toThrow()
+  })
+
+  it('rejects non-integer graceHours (e.g. 1.5)', () => {
+    expect(() => reconcileOrphansOptionsSchema.parse({ graceHours: 1.5 })).toThrow()
   })
 })

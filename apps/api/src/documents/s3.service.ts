@@ -24,6 +24,7 @@ import { ConfigService } from '@nestjs/config'
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3'
@@ -181,6 +182,48 @@ export class S3Service {
       // still proceeds. ADMIN can re-run hard-delete which will exit early
       // (row already gone) without retrying S3.
       this.logger.warn(`S3 delete failed for key="${key}": ${(err as Error).message}`)
+    }
+  }
+
+  /**
+   * List objects in the bucket with S3 ListObjectsV2 pagination.
+   *
+   * Returns one page of results per call. Pass `continuationToken` (from the
+   * previous page's `nextContinuationToken`) to fetch subsequent pages. When
+   * `nextContinuationToken` is undefined the caller has exhausted all objects.
+   *
+   * Used by DocumentsReconciliationService to enumerate the full bucket and
+   * find orphan objects (keys that exist in S3 but have no matching row in
+   * the `documents` table).
+   *
+   * Security: scoped to `Prefix: 'documents/'` so the reconciler can ONLY
+   * see and potentially delete managed document objects. Backup directories,
+   * CI artifacts, or anything uploaded outside the managed prefix are
+   * invisible to this method — even when running on a shared bucket.
+   */
+  async listObjects(continuationToken?: string): Promise<{
+    objects: Array<{ key: string; sizeBytes: number; lastModified: Date }>
+    nextContinuationToken: string | undefined
+  }> {
+    const res = await this.client.send(
+      new ListObjectsV2Command({
+        Bucket: this.bucket,
+        Prefix: 'documents/',
+        ...(continuationToken ? { ContinuationToken: continuationToken } : {}),
+      }),
+    )
+
+    const objects = (res.Contents ?? [])
+      .filter((item): item is typeof item & { Key: string } => item.Key !== undefined)
+      .map((item) => ({
+        key: item.Key,
+        sizeBytes: item.Size ?? 0,
+        lastModified: item.LastModified ?? new Date(0),
+      }))
+
+    return {
+      objects,
+      nextContinuationToken: res.NextContinuationToken,
     }
   }
 
