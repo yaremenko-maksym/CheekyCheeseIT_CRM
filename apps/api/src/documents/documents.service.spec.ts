@@ -1266,3 +1266,70 @@ describe('DocumentsService.list — DRAFT contract visibility per role', () => {
     expect(virtuals[0]?.id).toBe('ready-3')
   })
 })
+
+// =============================================================================
+// Task 1 — DocumentsService.hardDeleteInternal (PR-3)
+// =============================================================================
+
+describe('DocumentsService.hardDeleteInternal', () => {
+  it('deletes S3 object then removes DB row — no RBAC check', async () => {
+    const h = makeHarness({
+      docs: [
+        {
+          id: 'd1',
+          ownerId: SENIOR.id,
+          category: 'RECEIPT',
+          s3Key: 'documents/RECEIPT/senior-1/d1-receipt.pdf',
+        },
+      ],
+    })
+    await h.service.hardDeleteInternal('d1')
+    // S3 delete called with the row's s3Key
+    expect(h.s3.delete).toHaveBeenCalledWith('documents/RECEIPT/senior-1/d1-receipt.pdf')
+    // DB row removed
+    expect(h.docsRows).toHaveLength(0)
+  })
+
+  it('also deletes thumbnailS3Key when present', async () => {
+    const h = makeHarness({
+      docs: [
+        {
+          id: 'd2',
+          ownerId: SENIOR.id,
+          category: 'RECEIPT',
+          s3Key: 'documents/RECEIPT/senior-1/d2-receipt.pdf',
+          thumbnailS3Key: 'documents/RECEIPT/senior-1/d2-receipt_thumb.jpg',
+        },
+      ],
+    })
+    await h.service.hardDeleteInternal('d2')
+    expect(h.s3.delete).toHaveBeenCalledWith('documents/RECEIPT/senior-1/d2-receipt.pdf')
+    expect(h.s3.delete).toHaveBeenCalledWith('documents/RECEIPT/senior-1/d2-receipt_thumb.jpg')
+    expect(h.docsRows).toHaveLength(0)
+  })
+
+  it('throws NotFoundException when doc row does not exist', async () => {
+    const h = makeHarness({ pretendDocMissing: true })
+    await expect(h.service.hardDeleteInternal('no-such-doc')).rejects.toBeInstanceOf(
+      NotFoundException,
+    )
+  })
+
+  it('no RBAC — any caller identity is irrelevant (internal use)', async () => {
+    // hardDeleteInternal takes no actor — calling it should work regardless
+    // of who triggered it upstream. Test with a doc owned by JUNIOR to show
+    // ownership is not checked.
+    const h = makeHarness({
+      docs: [
+        {
+          id: 'd3',
+          ownerId: JUNIOR.id,
+          category: 'RECEIPT',
+          s3Key: 'docs/RECEIPT/junior-1/d3.pdf',
+        },
+      ],
+    })
+    await expect(h.service.hardDeleteInternal('d3')).resolves.toBeUndefined()
+    expect(h.docsRows).toHaveLength(0)
+  })
+})
