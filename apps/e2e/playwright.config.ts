@@ -46,7 +46,51 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      // Exclude cache specs from the default project — they require a
+      // production build with SW enabled (serviceWorkers: 'allow').
+      testIgnore: '**/cache/**',
       use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      // ── SW / Cache integration project ────────────────────────────────────
+      // Requires a production build (vite build + vite preview) because the
+      // Service Worker is disabled in dev mode (devOptions: { enabled: false }
+      // in vite.config.ts VitePWA). The webServer config below starts the
+      // preview server automatically.
+      //
+      // Isolation: serviceWorkers: 'allow' is scoped to this project only.
+      // The default 'chromium' project above keeps serviceWorkers: 'block' so
+      // existing mock-based specs are not affected.
+      //
+      // CI note: a dedicated 'cache-e2e' shard in ci.yml needs a pre-built
+      // dist/ — see docs/superpowers/plans/2026-06-06-cache-e2e-plan.md.
+      // The full e2e.yml suite picks up this project automatically without
+      // any workflow changes (Playwright runs all projects by default).
+      name: 'cache',
+      testMatch: '**/cache/**/*.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        // Enable SW registration — this is what we are testing.
+        serviceWorkers: 'allow' as const,
+        baseURL: 'http://localhost:3000',
+        // Longer timeout for SW activation (activation requires ~1–3 network
+        // round-trips for SW script fetch + install + activate lifecycle).
+        actionTimeout: 20_000,
+      },
+      // Start a production preview server for SW tests.
+      // SW is disabled in `vite dev`, so we must serve the production build.
+      // `pnpm --filter @crm/web start` runs `vite preview` on port 3000.
+      // reuseExistingServer: true locally (developer may have preview running),
+      // false in CI (we always want a fresh build).
+      webServer: {
+        command: 'pnpm --filter @crm/web start',
+        url: 'http://localhost:3000',
+        reuseExistingServer: !process.env['CI'],
+        timeout: 120_000,
+        // Pipe stdout/stderr so CI logs show if the preview fails to start.
+        stdout: 'pipe',
+        stderr: 'pipe',
+      },
     },
   ],
 })
