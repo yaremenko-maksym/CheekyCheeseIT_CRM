@@ -84,14 +84,12 @@ test.describe('API Cache (NetworkFirst) — AC6, AC7, AC8', () => {
 
     // Cached URL is http://localhost:3001/api/auth/me (axios baseURL = :3001).
     await expect
-      .poll(
-        () => isCached(page, '/api/auth/me', CACHE_NAMES.api),
-        {
-          message: 'Expected /api/auth/me to be cached in api-cache (URL: http://localhost:3001/api/auth/me)',
-          timeout: 25_000,
-          intervals: [500, 500, 1000, 2000, 3000],
-        },
-      )
+      .poll(() => isCached(page, '/api/auth/me', CACHE_NAMES.api), {
+        message:
+          'Expected /api/auth/me to be cached in api-cache (URL: http://localhost:3001/api/auth/me)',
+        timeout: 25_000,
+        intervals: [500, 500, 1000, 2000, 3000],
+      })
       .toBeTruthy()
   })
 
@@ -140,14 +138,11 @@ test.describe('API Cache (NetworkFirst) — AC6, AC7, AC8', () => {
 
     // Wait for at least one API response.
     await expect
-      .poll(
-        () => apiResponses.length > 0,
-        {
-          message: 'Expected to capture at least one /api/* response event',
-          timeout: 15_000,
-          intervals: [300, 500, 1000],
-        },
-      )
+      .poll(() => apiResponses.length > 0, {
+        message: 'Expected to capture at least one /api/* response event',
+        timeout: 15_000,
+        intervals: [300, 500, 1000],
+      })
       .toBeTruthy()
 
     // All online API responses must be HTTP 200 — NetworkFirst fetches from
@@ -203,14 +198,11 @@ test.describe('API Cache (NetworkFirst) — AC6, AC7, AC8', () => {
 
     // Wait for at least one SW-served API response.
     await expect
-      .poll(
-        () => cacheHit,
-        {
-          message: 'Expected at least one /api/* response to be served from SW cache offline',
-          timeout: 15_000,
-          intervals: [500, 1000, 2000],
-        },
-      )
+      .poll(() => cacheHit, {
+        message: 'Expected at least one /api/* response to be served from SW cache offline',
+        timeout: 15_000,
+        intervals: [500, 1000, 2000],
+      })
       .toBeTruthy()
   })
 })

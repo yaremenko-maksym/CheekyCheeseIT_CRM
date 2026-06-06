@@ -67,7 +67,15 @@ const PNG_1x1 = Buffer.from(
  */
 async function seedMediaCache(page: import('@playwright/test').Page): Promise<void> {
   await page.evaluate(
-    async ({ cacheName, cacheKey, body }: { cacheName: string; cacheKey: string; body: number[] }) => {
+    async ({
+      cacheName,
+      cacheKey,
+      body,
+    }: {
+      cacheName: string
+      cacheKey: string
+      body: number[]
+    }) => {
       const cache = await caches.open(cacheName)
       const response = new Response(new Uint8Array(body), {
         status: 200,
@@ -191,14 +199,11 @@ test.describe('Media Cache (CacheFirst) — AC4, AC5', () => {
 
     // Wait for the response event.
     await expect
-      .poll(
-        () => servedFromSW !== null,
-        {
-          message: 'Expected response event for cross-origin image',
-          timeout: 10_000,
-          intervals: [300, 500, 1000],
-        },
-      )
+      .poll(() => servedFromSW !== null, {
+        message: 'Expected response event for cross-origin image',
+        timeout: 10_000,
+        intervals: [300, 500, 1000],
+      })
       .toBeTruthy()
 
     expect(
@@ -252,14 +257,11 @@ test.describe('Media Cache (CacheFirst) — AC4, AC5', () => {
 
     // Wait for the response event.
     await expect
-      .poll(
-        () => servedFromSWOffline !== null,
-        {
-          message: 'Expected SW to serve cached image offline',
-          timeout: 10_000,
-          intervals: [300, 500, 1000],
-        },
-      )
+      .poll(() => servedFromSWOffline !== null, {
+        message: 'Expected SW to serve cached image offline',
+        timeout: 10_000,
+        intervals: [300, 500, 1000],
+      })
       .toBeTruthy()
 
     expect(

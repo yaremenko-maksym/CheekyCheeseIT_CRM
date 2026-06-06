@@ -206,10 +206,9 @@ test.describe('No-Store exclusion from api-cache — AC12', () => {
       .toBeTruthy()
 
     const cached = await isCached(page, EMPLOYEE_PDF_PATH, CACHE_NAMES.api)
-    expect(
-      cached,
-      `AC12: Employee contract PDF with no-store should NOT be in api-cache.`,
-    ).toBe(false)
+    expect(cached, `AC12: Employee contract PDF with no-store should NOT be in api-cache.`).toBe(
+      false,
+    )
   })
 
   // ── AC12: Verify normal JSON endpoint IS cached (contrast test) ──────────
@@ -221,14 +220,12 @@ test.describe('No-Store exclusion from api-cache — AC12', () => {
 
     // /api/users returns 200 without no-store — should be cached.
     await expect
-      .poll(
-        () => isCached(page, '/api/', CACHE_NAMES.api),
-        {
-          message: 'Expected at least one /api/ endpoint in api-cache (contrast: cacheWillUpdate allows normal responses)',
-          timeout: 20_000,
-          intervals: [500, 1000, 2000],
-        },
-      )
+      .poll(() => isCached(page, '/api/', CACHE_NAMES.api), {
+        message:
+          'Expected at least one /api/ endpoint in api-cache (contrast: cacheWillUpdate allows normal responses)',
+        timeout: 20_000,
+        intervals: [500, 1000, 2000],
+      })
       .toBeTruthy()
   })
 })
