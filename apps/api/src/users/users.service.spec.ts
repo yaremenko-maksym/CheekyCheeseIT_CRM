@@ -767,7 +767,7 @@ describe('UsersService.buildProfileView — legalFullName masking', () => {
   it('ADMIN viewer — legalFullName is visible (fields.legalName = true)', async () => {
     const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
     const permissions = {
-      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents', 'audit'],
+      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
       actions: [],
       fields: { requisites: true, legalName: true, techStack: true },
     }

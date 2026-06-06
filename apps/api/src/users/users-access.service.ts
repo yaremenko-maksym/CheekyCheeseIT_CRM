@@ -34,7 +34,7 @@ export class UsersAccessService {
     if (isAdmin) {
       // 'interviews' is no longer a profile tab — replaced by a header link
       // (showInterviewsLink) rendered in UserProfileShell for any SENIOR target.
-      tabs.push('overview', 'finance', 'projects', 'team', 'requisites', 'documents', 'audit')
+      tabs.push('overview', 'finance', 'projects', 'team', 'requisites', 'documents')
       // 'contract' tab: ADMIN viewing a non-ADMIN employee (not self — admins have no contracts).
       if (!isSelf && target.role !== 'ADMIN') tabs.push('contract')
       if (!isSelf) {

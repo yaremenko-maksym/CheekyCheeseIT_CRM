@@ -13,31 +13,32 @@ import type { User } from '../database/schema'
  * roster via direct API call, bypassing UI hiding.
  */
 
-const makeUser = (overrides: Partial<User>): User => ({
-  id: overrides.id ?? '00000000-0000-0000-0000-000000000000',
-  email: 'a@b.c',
-  displayName: 'X',
-  avatar: null,
-  role: 'JUNIOR',
-  googleId: null,
-  telegram: null,
-  phone: null,
-  techStack: null,
-  paymentMethod: null,
-  walletUsdtErc20: null,
-  walletUsdtLabel: null,
-  bankUahRecipient: null,
-  bankUahIban: null,
-  bankUahRnokpp: null,
-  bankUahBankName: null,
-  seniorSharePercent: 26,
-  monthlySalary: null,
-  archivedAt: null,
-  adminNote: null,
-  createdAt: new Date(),
-  updatedAt: new Date(),
-  ...overrides,
-} as User)
+const makeUser = (overrides: Partial<User>): User =>
+  ({
+    id: overrides.id ?? '00000000-0000-0000-0000-000000000000',
+    email: 'a@b.c',
+    displayName: 'X',
+    avatar: null,
+    role: 'JUNIOR',
+    googleId: null,
+    telegram: null,
+    phone: null,
+    techStack: null,
+    paymentMethod: null,
+    walletUsdtErc20: null,
+    walletUsdtLabel: null,
+    bankUahRecipient: null,
+    bankUahIban: null,
+    bankUahRnokpp: null,
+    bankUahBankName: null,
+    seniorSharePercent: 26,
+    monthlySalary: null,
+    archivedAt: null,
+    adminNote: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  }) as User
 
 const session = (u: User): SessionUser => ({
   id: u.id,
@@ -49,7 +50,10 @@ const session = (u: User): SessionUser => ({
 
 describe('UsersController.getUserTeam — RBAC guard', () => {
   let controller: UsersController
-  let usersService: { findById: ReturnType<typeof vi.fn>; getTeamMembersForUser: ReturnType<typeof vi.fn> }
+  let usersService: {
+    findById: ReturnType<typeof vi.fn>
+    getTeamMembersForUser: ReturnType<typeof vi.fn>
+  }
   let accessService: { getViewPermissions: ReturnType<typeof vi.fn> }
 
   beforeEach(() => {
@@ -74,7 +78,9 @@ describe('UsersController.getUserTeam — RBAC guard', () => {
     )
     accessService.getViewPermissions.mockResolvedValue({ tabs: [], actions: [], fields: {} })
 
-    await expect(controller.getUserTeam(target.id, session(viewer))).rejects.toThrow(ForbiddenException)
+    await expect(controller.getUserTeam(target.id, session(viewer))).rejects.toThrow(
+      ForbiddenException,
+    )
     expect(usersService.getTeamMembersForUser).not.toHaveBeenCalled()
   })
 
@@ -98,7 +104,7 @@ describe('UsersController.getUserTeam — RBAC guard', () => {
     expect(usersService.getTeamMembersForUser).toHaveBeenCalledWith(target.id)
   })
 
-  it('HR viewing JUNIOR from own senior\'s team → 200', async () => {
+  it("HR viewing JUNIOR from own senior's team → 200", async () => {
     const viewer = makeUser({ id: 'hr-1', role: 'HR' })
     const target = makeUser({ id: 'jr-1', role: 'JUNIOR' })
     usersService.findById.mockImplementation((id: string) =>
@@ -122,7 +128,9 @@ describe('UsersController.getUserTeam — RBAC guard', () => {
     )
     accessService.getViewPermissions.mockResolvedValue({ tabs: [], actions: [], fields: {} })
 
-    await expect(controller.getUserTeam(target.id, session(viewer))).rejects.toThrow(ForbiddenException)
+    await expect(controller.getUserTeam(target.id, session(viewer))).rejects.toThrow(
+      ForbiddenException,
+    )
     expect(usersService.getTeamMembersForUser).not.toHaveBeenCalled()
   })
 
@@ -133,7 +141,7 @@ describe('UsersController.getUserTeam — RBAC guard', () => {
       Promise.resolve(id === viewer.id ? viewer : target),
     )
     accessService.getViewPermissions.mockResolvedValue({
-      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents', 'audit'],
+      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
       actions: [],
       fields: {},
     })
@@ -148,7 +156,9 @@ describe('UsersController.getUserTeam — RBAC guard', () => {
     usersService.findById.mockImplementation((id: string) =>
       Promise.resolve(id === viewer.id ? viewer : undefined),
     )
-    await expect(controller.getUserTeam('ghost-id', session(viewer))).rejects.toThrow(ForbiddenException)
+    await expect(controller.getUserTeam('ghost-id', session(viewer))).rejects.toThrow(
+      ForbiddenException,
+    )
     expect(accessService.getViewPermissions).not.toHaveBeenCalled()
   })
 })
