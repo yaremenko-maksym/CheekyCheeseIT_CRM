@@ -60,10 +60,12 @@ export default defineConfig({
       // autoUpdate: SW обновляется автоматически в фоне без промпта
       registerType: 'autoUpdate',
 
-      // inline: плагин инжектирует скрипт регистрации SW прямо в index.html.
+      // script: плагин генерирует отдельный registerSW.js и подключает его
+      // через <script src="/registerSW.js"> в index.html.
+      // Проходит prod-CSP `script-src 'self'` без inline — no nonce required.
       // Не использует virtual:pwa-register — избегает проблем с Rollup resolver
       // в pnpm workspace (zod не hoisted в root node_modules).
-      injectRegister: 'inline',
+      injectRegister: 'script',
 
       // SW отключён в dev — избегаем stale-кеша при разработке
       devOptions: { enabled: false },
