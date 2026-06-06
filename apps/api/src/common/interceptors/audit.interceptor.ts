@@ -33,6 +33,20 @@ export class AuditInterceptor implements NestInterceptor {
           before as unknown as Record<string, unknown>,
           after as unknown as Record<string, unknown>,
         )
+
+        // п.2: if legalFullName changed, emit an additional dedicated action
+        // BEFORE the generic one so the audit trail reads chronologically as
+        // "legal name changed" → "profile edited".
+        if ('legalFullName' in changes) {
+          const legalNameChanges = { legalFullName: changes['legalFullName']! }
+          await this.auditLogService.record({
+            actorId: actor?.id ?? null,
+            targetId,
+            action: 'legal_name_change',
+            changes: legalNameChanges,
+          })
+        }
+
         await this.auditLogService.record({
           actorId: actor?.id ?? null,
           targetId,
