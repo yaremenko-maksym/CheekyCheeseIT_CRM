@@ -30,7 +30,29 @@ jobs:
   quality:
     name: Typecheck · Lint · Unit Tests
     runs-on: ubuntu-latest
+    # PostgreSQL service is required for DB-backed integration specs
+    # (e.g. fk-integrity.spec.ts) that use describe.skipIf(!DATABASE_URL).
+    # With DATABASE_URL set, the skip-guard is lifted and those specs execute
+    # for real instead of being silently skipped.
+    # Redis is NOT needed in the quality job (no NestJS app server is started).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: crm_db
+          POSTGRES_USER: crm_user
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
+      # PostgreSQL connection for integration specs (fk-integrity.spec.ts et al.)
+      # Mirrors the DATABASE_URL used in e2e job so credentials are consistent.
+      DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_db
       # S3 / MinIO (PHASE 6) — dummy creds so env schema validation passes in unit tests.
       # No MinIO service needed: quality job не делает реальных S3 calls.
       S3_ENDPOINT: http://localhost:9000
@@ -91,6 +113,14 @@ jobs:
 
       - if: steps.filter.outputs.code == 'true'
         run: pnpm lint
+
+      # Run Drizzle migrations against the CI Postgres instance so that
+      # DB-backed integration specs (fk-integrity.spec.ts) execute against
+      # a schema-complete database. drizzle-kit migrate reads DATABASE_URL
+      # from the environment set above.
+      - name: Run DB migrations (for integration specs)
+        if: steps.filter.outputs.code == 'true'
+        run: pnpm --filter @crm/api db:migrate
 
       - if: steps.filter.outputs.code == 'true'
         run: pnpm --filter @crm/shared --filter @crm/api --filter @crm/web test
