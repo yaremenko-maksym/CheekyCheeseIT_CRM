@@ -810,15 +810,19 @@ function DocumentsListSection({
           viewer={viewer}
           emptyState={emptyState}
           onOpen={onOpen}
+          view="grid"
         />
       ) : // List view — compact rows
       isLoading ? (
+        // PR-1 MED fix: pass view='list' so the skeleton renders row-shaped
+        // placeholders instead of card-shaped grid skeletons.
         <DocumentList
           documents={[]}
           loading
           viewer={viewer}
           emptyState={emptyState}
           onOpen={onOpen}
+          view="list"
         />
       ) : filtered.length === 0 ? (
         <>{emptyState}</>
