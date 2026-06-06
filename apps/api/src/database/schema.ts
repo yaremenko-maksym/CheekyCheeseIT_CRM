@@ -202,11 +202,11 @@ export const users = pgTable('users', {
   // NULL = not set → interpolateVariables falls back to displayName.
   legalFullName: text('legal_full_name'),
   // Soft delete (archived users hidden from main UI, restorable)
-  archivedAt: timestamp('archived_at'),
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
   // Admin note (single overwriteable text field)
   adminNote: text('admin_note'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
 // ---------------------------------------------------------------------------
@@ -234,9 +234,9 @@ export const teams = pgTable('teams', {
   // their value after edits.
   seniorSharePercentOverride: integer('senior_share_percent_override'),
   // Soft delete (archived teams hidden from main UI, restorable)
-  archivedAt: timestamp('archived_at'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
 export const teamMembers = pgTable('team_members', {
@@ -247,9 +247,9 @@ export const teamMembers = pgTable('team_members', {
   userId: uuid('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
-  joinedAt: timestamp('joined_at').defaultNow().notNull(),
+  joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow().notNull(),
   // Soft delete of membership (NULL = active, timestamp = left)
-  leftAt: timestamp('left_at'),
+  leftAt: timestamp('left_at', { withTimezone: true }),
 })
 
 // ---------------------------------------------------------------------------
@@ -261,7 +261,7 @@ export const projects = pgTable('projects', {
   name: varchar('name', { length: 255 }).notNull(),
   companyName: varchar('company_name', { length: 255 }).notNull(),
   domain: varchar('domain', { length: 100 }).notNull(),
-  startDate: timestamp('start_date').notNull(),
+  startDate: timestamp('start_date', { withTimezone: true }).notNull(),
   // seniorId can be SENIOR or ADMIN (admin-owned projects)
   seniorId: uuid('senior_id')
     .notNull()
@@ -301,9 +301,9 @@ export const projects = pgTable('projects', {
   // Soft delete (archived projects hidden from main UI, restorable). The
   // project lifecycle is binary: ACTIVE (archivedAt = null) vs ARCHIVED
   // (archivedAt = timestamp of when the project ended).
-  archivedAt: timestamp('archived_at'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
 // Per-project finance overrides (ADMIN/ACCOUNTANT only)
@@ -318,7 +318,7 @@ export const projectFinanceSettings = pgTable('project_finance_settings', {
   // Override junior monthly salary for this project; null = use users.monthlySalary
   juniorSalaryOverride: numeric('junior_salary_override', { precision: 10, scale: 2 }),
   updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
 export const projectMembers = pgTable('project_members', {
@@ -329,8 +329,8 @@ export const projectMembers = pgTable('project_members', {
   userId: uuid('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
-  joinedAt: timestamp('joined_at').defaultNow().notNull(),
-  leftAt: timestamp('left_at'),
+  joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow().notNull(),
+  leftAt: timestamp('left_at', { withTimezone: true }),
 })
 
 // ---------------------------------------------------------------------------
@@ -356,8 +356,8 @@ export const interviews = pgTable('interviews', {
   notesCorpTech: varchar('notes_corp_tech', { length: 255 }),
   notesGeneral: varchar('notes_general', { length: 1000 }),
   position: integer('position').notNull().default(0),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
 // ---------------------------------------------------------------------------
@@ -382,8 +382,8 @@ export const payoutRequests = pgTable('payout_requests', {
   contractAddress: varchar('contract_address', { length: 255 }).notNull(),
   txHash: varchar('tx_hash', { length: 255 }),
   status: payoutRequestStatusEnum().notNull().default('PENDING'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
 export const transactions = pgTable(
@@ -445,18 +445,18 @@ export const transactions = pgTable(
     txHash: varchar('tx_hash', { length: 255 }),
     // Accountant/admin validation fields (for SENIOR_INCOME)
     validatedBy: uuid('validated_by').references(() => users.id, { onDelete: 'set null' }),
-    validatedAt: timestamp('validated_at'),
+    validatedAt: timestamp('validated_at', { withTimezone: true }),
     rejectionReason: varchar('rejection_reason', { length: 500 }),
     notes: varchar('notes', { length: 1000 }),
     // Calendar month this transaction belongs to (for SALARY/LOCKED logic): YYYY-MM
     salaryMonth: varchar('salary_month', { length: 7 }),
     // User-specified transaction date (defaults to creation time if not provided)
-    txDate: timestamp('tx_date'),
+    txDate: timestamp('tx_date', { withTimezone: true }),
     createdBy: uuid('created_by')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
-    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
     // PR-3: 1:1 receipt ↔ income invariant — one receipt document can be linked
@@ -509,8 +509,8 @@ export const pendingObligations = pgTable(
     amount: numeric('amount', { precision: 20, scale: 6 }).notNull(),
     currency: currencyEnum().notNull().default('USDT'),
     status: pendingObligationStatusEnum('status').notNull().default('PENDING'),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
-    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
     index('idx_pending_obligations_creditor').on(t.creditorUserId),
@@ -567,9 +567,9 @@ export const documents = pgTable(
       .notNull()
       .references(() => users.id),
     // Soft delete (Stage 1: owner or ADMIN).
-    deletedAt: timestamp('deleted_at'),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     deletedBy: uuid('deleted_by').references(() => users.id, { onDelete: 'set null' }),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
     // Partial indexes — hot path is "list active documents for owner/project".
@@ -607,7 +607,7 @@ export const invoiceSignatures = pgTable(
     signerId: uuid('signer_id')
       .notNull()
       .references(() => users.id),
-    signedAt: timestamp('signed_at').defaultNow().notNull(),
+    signedAt: timestamp('signed_at', { withTimezone: true }).defaultNow().notNull(),
     // SHA-256 of the signed PDF bytes, hex-encoded (64 chars).
     pdfHash: char('pdf_hash', { length: 64 }).notNull(),
     // PostgreSQL INET; never surfaced by the public verify endpoint.
@@ -657,7 +657,7 @@ export const contractTemplates = pgTable(
     createdByUserId: uuid('created_by_user_id')
       .notNull()
       .references(() => users.id),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [unique('contract_templates_target_role_version_unique').on(t.targetRole, t.version)],
 )
@@ -681,7 +681,7 @@ export const signedContracts = pgTable(
     signedTypedName: text('signed_typed_name').notNull(),
     signedIp: text('signed_ip'),
     signedUserAgent: text('signed_user_agent'),
-    signedAt: timestamp('signed_at').defaultNow().notNull(),
+    signedAt: timestamp('signed_at', { withTimezone: true }).defaultNow().notNull(),
     contractNumber: text('contract_number').notNull().unique(),
   },
   (t) => [index('signed_contracts_user_id_idx').on(t.userId)],
@@ -697,7 +697,7 @@ export const tosVersions = pgTable('tos_versions', {
   createdByUserId: uuid('created_by_user_id')
     .notNull()
     .references(() => users.id),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
 export const tosAcceptances = pgTable(
@@ -710,7 +710,7 @@ export const tosAcceptances = pgTable(
     tosVersionId: uuid('tos_version_id')
       .notNull()
       .references(() => tosVersions.id),
-    acceptedAt: timestamp('accepted_at').defaultNow().notNull(),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }).defaultNow().notNull(),
     acceptedIp: text('accepted_ip'),
     acceptedUserAgent: text('accepted_user_agent'),
   },
@@ -761,8 +761,8 @@ export const employeeContracts = pgTable(
     createdByUserId: uuid('created_by_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
-    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [index('employee_contracts_user_status_idx').on(t.userId, t.status)],
 )
@@ -788,8 +788,8 @@ export const notifications = pgTable(
     title: varchar('title', { length: 255 }).notNull(),
     body: text('body'),
     link: varchar('link', { length: 500 }),
-    readAt: timestamp('read_at'),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
     // Drives unread-count query + "unread only" filter in /api/notifications.
@@ -815,7 +815,7 @@ export const userAuditLog = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     action: text('action').notNull(),
     changes: jsonb('changes').notNull(),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [index('user_audit_log_target_id_idx').on(t.targetId)],
 )
@@ -834,7 +834,7 @@ export const teamAuditLog = pgTable(
       .references(() => teams.id, { onDelete: 'cascade' }),
     action: text('action').notNull(),
     changes: jsonb('changes').notNull(),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
     index('team_audit_log_target_id_idx').on(t.targetId),
@@ -856,7 +856,7 @@ export const projectAuditLog = pgTable(
       .references(() => projects.id, { onDelete: 'cascade' }),
     action: text('action').notNull(),
     changes: jsonb('changes').notNull(),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
     index('project_audit_log_target_id_idx').on(t.targetId),
