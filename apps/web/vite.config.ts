@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import { TanStackRouterVite } from '@tanstack/router-plugin/vite'
 import tailwindcss from '@tailwindcss/vite'
 import tsConfigPaths from 'vite-tsconfig-paths'
+import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 
 export default defineConfig({
@@ -55,5 +56,42 @@ export default defineConfig({
     react(),
     tailwindcss(),
     tsConfigPaths(),
+    VitePWA({
+      // autoUpdate: SW обновляется автоматически в фоне без промпта
+      registerType: 'autoUpdate',
+
+      // SW отключён в dev — избегаем stale-кеша при разработке
+      devOptions: { enabled: false },
+
+      // Существующий webmanifest в public/ уже содержит все нужные поля.
+      // manifest: false — плагин НЕ генерирует дубль манифеста.
+      manifest: false,
+
+      workbox: {
+        // Precache только статические ассеты фронта (хешированные имена — immutable)
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webmanifest}'],
+
+        // SPA fallback: все навигационные запросы → index.html,
+        // TanStack Router разруливает маршруты на клиенте
+        navigateFallback: '/index.html',
+
+        // НЕ перехватывать /api/* — auth/данные нельзя кешировать
+        navigateFallbackDenylist: [/^\/api\//],
+
+        // Удалять устаревшие кеши при обновлении SW
+        cleanupOutdatedCaches: true,
+
+        // SW немедленно берёт управление над всеми клиентами
+        clientsClaim: true,
+
+        // Новый SW активируется без ожидания закрытия вкладок
+        skipWaiting: true,
+
+        // НЕ добавляем runtimeCaching для /api/* или S3 presigned-URL:
+        // - /api/* содержит приватные auth/данные — кешировать опасно
+        // - S3 presigned-URL меняется каждый запрос — кеш бесполезен
+        // - PDF (контракты/инвойсы) — no-store, private — не трогать
+      },
+    }),
   ],
 })
