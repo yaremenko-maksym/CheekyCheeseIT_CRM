@@ -256,8 +256,8 @@ test.describe('PR-2: RESUME has no status badge', () => {
 
     await page.goto('/crm/documents')
 
-    // Wait for the document card to appear
-    await expect(page.getByTestId('document-card').first()).toBeVisible()
+    // Default view is list — wait for document-row to appear
+    await expect(page.getByTestId('document-row').first()).toBeVisible()
     // No status badge present
     await expect(page.getByTestId('document-status-badge')).not.toBeVisible()
   })
@@ -311,20 +311,32 @@ test.describe('PR-2: list view badges', () => {
 test.describe('PR-2: category filter', () => {
   test('AC8: selecting CONTRACT filter shows only CONTRACT rows', async ({ page }) => {
     await mockAuthAs(page, USERS.admin)
-    await mockDocumentsList(page, ALL_DOCS)
+
+    // Mock that respects the ?category= query param — filters server-side like the real API
+    await page.route(new RegExp(`${API}/documents(\\?.*)?$`), (r) => {
+      if (r.request().method() !== 'GET') return r.fallback()
+      const url = new URL(r.request().url())
+      const category = url.searchParams.get('category')
+      const docs = category ? ALL_DOCS.filter((d) => d.category === category) : ALL_DOCS
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(docs),
+      })
+    })
 
     await page.goto('/crm/documents')
 
-    // Wait for the full list (7 docs) to render
-    await expect(page.getByTestId('document-card').first()).toBeVisible()
+    // Default view is list — wait for document-row to appear (7 docs total)
+    await expect(page.getByTestId('document-row').first()).toBeVisible()
 
     // Open category filter
     const filterTrigger = page.getByTestId('documents-category-filter')
     await filterTrigger.click()
 
     // Pick CONTRACT option from the dropdown
-    // shadcn Select renders options in a listbox role
-    await page.getByRole('option', { name: 'Контракт' }).click()
+    // shadcn Select renders options in a listbox role; CONTRACT category label is "Договоры"
+    await page.getByRole('option', { name: 'Договоры' }).click()
 
     // After filtering: only CONTRACT badges visible
     const badges = page.getByTestId('document-status-badge')
