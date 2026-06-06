@@ -172,6 +172,9 @@ function CryptoChannelCard({
       setDone(true)
       void queryClient.invalidateQueries({ queryKey: ['transaction', incomeId] })
       void queryClient.invalidateQueries({ queryKey: ['profile-transactions'] })
+      // Таблица транзакций и сводка финансов должны обновиться после crypto-оплаты
+      void queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      void queryClient.invalidateQueries({ queryKey: ['finance-summary'] })
     },
     onError: (err) => toast.error(extractErrorMessage(err)),
   })

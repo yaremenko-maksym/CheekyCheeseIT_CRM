@@ -131,7 +131,9 @@ function TeamDetailPage() {
   const removeMemberMutation = useMutation({
     mutationFn: (userId: string) => api.delete(`/teams/${teamId}/members/${userId}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['team', teamId] })
+      void queryClient.invalidateQueries({ queryKey: ['team', teamId] })
+      // Список команд в sidebar/карточках тоже показывает состав
+      void queryClient.invalidateQueries({ queryKey: ['teams'] })
     },
   })
 
