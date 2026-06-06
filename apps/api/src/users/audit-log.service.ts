@@ -11,6 +11,40 @@ import type { DrizzleTx } from '../database/types'
 const IGNORE_FIELDS = new Set(['updatedAt', 'createdAt', 'id', 'avatarUrl', 'avatarDocumentId'])
 
 /**
+ * PII/sensitive fields that must never be stored as plaintext in the audit log.
+ *
+ * Key names match the camelCase shape returned by Drizzle `select() from users`
+ * (i.e. what `UsersService.findById()` returns and what `diff()` receives).
+ *
+ * Coverage:
+ *   - Direct identifiers: email, googleId
+ *   - Contact details: phone, telegram
+ *   - Legal identity: legalFullName (passport name used in MSA contracts)
+ *   - Payment requisites (USDT ERC-20):  walletUsdtErc20, walletUsdtLabel
+ *   - Payment requisites (Bank UAH FOP): bankUahRecipient, bankUahIban,
+ *                                        bankUahRnokpp, bankUahBankName
+ *
+ * For sensitive fields the audit log records *that* the field changed (the key
+ * is present in `changes`) but replaces actual before/after values with the
+ * redaction token so no PII is persisted at-rest in `user_audit_log.changes`.
+ */
+export const SENSITIVE_FIELDS = new Set([
+  'email',
+  'googleId',
+  'phone',
+  'telegram',
+  'legalFullName',
+  'walletUsdtErc20',
+  'walletUsdtLabel',
+  'bankUahRecipient',
+  'bankUahIban',
+  'bankUahRnokpp',
+  'bankUahBankName',
+])
+
+export const REDACTED_TOKEN = '[redacted]' as const
+
+/**
  * Drizzle transaction handle passed by `db.transaction(async (tx) => …)`.
  * Resolves to the same `PgTransaction<…>` generic used by Drizzle's
  * `db.transaction()` callback — see `apps/api/src/database/types.ts`.
@@ -29,7 +63,13 @@ export class AuditLogService {
       const b = before[key]
       const a = after[key]
       if (!this.deepEqual(b, a)) {
-        result[key] = { before: b ?? null, after: a ?? null }
+        if (SENSITIVE_FIELDS.has(key)) {
+          // Record that the field changed but redact the actual values so no
+          // PII is persisted at-rest in user_audit_log.changes (JSON column).
+          result[key] = { before: REDACTED_TOKEN, after: REDACTED_TOKEN }
+        } else {
+          result[key] = { before: b ?? null, after: a ?? null }
+        }
       }
     }
     return result
