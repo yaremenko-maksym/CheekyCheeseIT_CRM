@@ -51,19 +51,28 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        // Разбиваем 2.53 MB vendor bundle на тематические чанки:
-        // 1. Ни один чанк не превышает ~1.5 MB → workbox лимит снижен до 2 MiB
-        // 2. Браузер кеширует стабильные вендоры отдельно от app-кода
-        // 3. Параллельная загрузка нескольких чанков быстрее одного 2.5 MB
-        manualChunks(id) {
-          // ── React ядро ──────────────────────────────────────────────────
-          // react + react-dom изменяются редко → долгий TTL в браузерном кеше
-          if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) {
+        // Стратегия: дробим 2.53 MB vendor bundle на тематические чанки.
+        // Порядок if-веток критичен — от специфичного к общему.
+        // scheduler/react-is/prop-types — peer-deps react-dom, включены в
+        // vendor-react чтобы устранить "Circular chunk" предупреждение Rollup.
+        // VitePWA читает этот output объект через configResolved, но manualChunks
+        // как функция применяется корректно (проверено debug-build).
+        manualChunks: (id: string): string | undefined => {
+          // ── React ядро + peer-зависимости ──────────────────────────────
+          // scheduler, react-is, prop-types неотделимы от react-dom — без них
+          // возникает "Circular chunk: vendor-misc -> vendor-react -> vendor-misc"
+          if (
+            id.includes('node_modules/react/') ||
+            id.includes('node_modules/react-dom/') ||
+            id.includes('node_modules/scheduler/') ||
+            id.includes('node_modules/react-is/') ||
+            id.includes('node_modules/prop-types/')
+          ) {
             return 'vendor-react'
           }
 
           // ── TanStack экосистема ─────────────────────────────────────────
-          // router / query / form / virtual обновляются вместе → один чанк логичен
+          // router / query / form / virtual обновляются вместе → один чанк
           if (id.includes('node_modules/@tanstack/')) {
             return 'vendor-tanstack'
           }
@@ -141,6 +150,9 @@ export default defineConfig({
           if (id.includes('node_modules/')) {
             return 'vendor-misc'
           }
+
+          // App-код — Rollup разобьёт по точкам входа (TanStack route chunks)
+          return undefined
         },
       },
     },
@@ -173,8 +185,8 @@ export default defineConfig({
 
       workbox: {
         // После code-split крупнейший чанк < 2 MiB.
-        // Снижаем с 5 MiB до 2 MiB (2 * 1024 * 1024) — чуть выше нового максимума.
-        // Дефолт workbox = 2 MiB, явно указываем для ясности намерения.
+        // Снижаем с 5 MiB до 2 MiB — соответствует новому максимуму.
+        // Дефолт workbox = 2 MiB; явно указываем для документирования намерения.
         maximumFileSizeToCacheInBytes: 2 * 1024 * 1024,
 
         // Precache только статические ассеты фронта (хешированные имена — immutable)
