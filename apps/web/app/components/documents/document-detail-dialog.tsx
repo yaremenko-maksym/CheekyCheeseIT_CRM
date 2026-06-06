@@ -1,23 +1,25 @@
 /**
  * DocumentDetailDialog — modal viewer for a single document.
  *
- * Shows a larger preview (image / PDF first-page icon), full metadata
+ * Shows a larger preview (image or PDF inline), full metadata
  * (original filename, size, MIME, uploaded by, date, project link when
  * applicable), and a row of actions (Скачать, Удалить, Восстановить /
  * Удалить навсегда for ADMIN, Закрыть). Triggered by clicking the
  * preview area or filename on a DocumentCard.
  *
- * The dialog uses the full-resolution presigned URL via
- * `useDocumentDownloadUrl` so the preview is sharper than the
- * thumbnail. PDFs still render the category icon (no PDF→image library
- * is wired up); the user can click Скачать to open the file in-browser.
+ * PDF rendering (Task: documents-pdf-preview):
+ *   - Загружает presigned URL один раз через useDocumentBlob.
+ *   - Превью = <iframe src={blobUrl}> через PdfPreview.
+ *   - «Скачать» = <a href={blobUrl} download> — 0 повторных запросов к S3.
+ *   - Для виртуальных контрактов (source='employee_contract'):
+ *     использует fetchContractPdfBlob (same-origin /api/users/:id/contract/pdf).
  *
  * Variant 3 hybrid filenames: shows `doc.originalName` (cyrillic /
  * unicode preserved) prominently, with the sanitized `doc.name`
  * displayed in a smaller secondary line so power users can see what
  * actually lives in S3 / on disk after download.
  */
-import { useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, useMemo, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import { formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
@@ -63,7 +65,10 @@ import {
   useHardDeleteDocument,
   useRestoreDocument,
 } from '@/hooks/use-documents'
+import { useDocumentBlob } from '@/hooks/use-document-blob'
+import { fetchContractPdfBlob } from '@/components/user-profile/contract/useEmployeeContract'
 import { DocumentImage } from './document-image'
+import { PdfPreview } from './pdf-preview'
 
 interface DocumentDetailDialogProps {
   open: boolean
@@ -76,6 +81,90 @@ function shortId(id: string): string {
   return id.length > 8 ? id.slice(-8) : id
 }
 
+// ---------------------------------------------------------------------------
+// Contract blob hook (for employee_contract virtual docs)
+// ---------------------------------------------------------------------------
+
+interface ContractBlobState {
+  blobUrl: string | null
+  isLoading: boolean
+  hasError: boolean
+}
+
+/**
+ * Загружает PDF контракта через same-origin API (/api/users/:id/contract/pdf).
+ * Не кешируется в SW (no-store). Revoke при закрытии.
+ */
+function useContractBlob(userId: string | undefined, open: boolean): ContractBlobState {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [hasError, setHasError] = useState(false)
+  const revokeRef = useRef<(() => void) | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+  const loadedForRef = useRef<string | null>(null)
+
+  const loadContract = useCallback(async (uid: string) => {
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    setIsLoading(true)
+    setHasError(false)
+    revokeRef.current?.()
+    revokeRef.current = null
+
+    try {
+      const { blobUrl: url, revoke } = await fetchContractPdfBlob(uid, controller.signal)
+      if (controller.signal.aborted) return
+      revokeRef.current = revoke
+      loadedForRef.current = uid
+      setBlobUrl(url)
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') return
+      if (controller.signal.aborted) return
+      setHasError(true)
+    } finally {
+      if (!controller.signal.aborted) setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!open || !userId) return
+    if (loadedForRef.current === userId && blobUrl !== null) return
+    void loadContract(userId)
+  }, [open, userId, blobUrl, loadContract])
+
+  // Сброс при закрытии
+  useEffect(() => {
+    if (!open || !userId) {
+      abortRef.current?.abort()
+      revokeRef.current?.()
+      revokeRef.current = null
+      setBlobUrl(null)
+      setIsLoading(false)
+      setHasError(false)
+      loadedForRef.current = null
+    }
+  }, [open, userId])
+
+  // Cleanup при размонтировании
+  const abortRefStable = abortRef
+  const revokeRefStable = revokeRef
+  useEffect(() => {
+    return () => {
+      abortRefStable.current?.abort()
+      revokeRefStable.current?.()
+      revokeRefStable.current = null
+    }
+  }, [abortRefStable, revokeRefStable])
+
+  return { blobUrl, isLoading, hasError }
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
 export function DocumentDetailDialog({
   open,
   onOpenChange,
@@ -85,17 +174,11 @@ export function DocumentDetailDialog({
   const [confirmSoftDelete, setConfirmSoftDelete] = useState(false)
   const [confirmHardDelete, setConfirmHardDelete] = useState(false)
 
-  // We always enable the full-size URL query — the dialog only renders
-  // when `doc !== null && open`, so the enable flag below is sufficient.
-  const downloadQuery = useDocumentDownloadUrl(doc?.id, { enabled: open && Boolean(doc) })
-  const softDelete = useDeleteDocument()
-  const restore = useRestoreDocument()
-  const hardDelete = useHardDeleteDocument()
-
   const isDeleted = doc?.deletedAt != null
   const isReceipt = doc?.category === 'RECEIPT'
   const isImage = doc?.mimeType.startsWith('image/') ?? false
   const isPdf = doc?.mimeType === 'application/pdf'
+  const isContractVirtual = doc?.source === 'employee_contract'
 
   const isOwner = doc != null && viewer.id === doc.ownerId
   const isAdmin = viewer.role === 'ADMIN'
@@ -124,12 +207,72 @@ export function DocumentDetailDialog({
   // Display name: original (cyrillic preserved) when available, else sanitized.
   const displayName = doc?.originalName ?? doc?.name ?? ''
 
-  async function handleDownload() {
-    const result = await downloadQuery.refetch()
-    const url = result.data?.url
-    if (!url) return
-    window.open(url, '_blank', 'noopener,noreferrer')
+  // -------------------------------------------------------------------------
+  // Blob loading — единый fetch для превью + скачивание
+  // -------------------------------------------------------------------------
+
+  // Для загруженных PDF/файлов — presigned S3 URL → blob (кешируется SW)
+  const docBlob = useDocumentBlob(
+    isContractVirtual ? null : doc?.id,
+    open && !isContractVirtual && Boolean(doc),
+    displayName,
+  )
+
+  // Для виртуальных контрактов — same-origin contract PDF (no-store, не кешируется)
+  const contractBlob = useContractBlob(
+    isContractVirtual ? doc?.ownerId : undefined,
+    open && isContractVirtual && Boolean(doc),
+  )
+
+  // Активный blob (в зависимости от типа документа)
+  const activeBlobUrl = isContractVirtual ? contractBlob.blobUrl : docBlob.blobUrl
+  const activeBlobLoading = isContractVirtual ? contractBlob.isLoading : docBlob.isLoading
+  const activeBlobError = isContractVirtual ? contractBlob.hasError : docBlob.hasError
+
+  // -------------------------------------------------------------------------
+  // Presigned URL query — остаётся для кнопки «Скачать» когда blob ещё не готов
+  // (также нужен для DocumentImage — картинки не blob-загружаются)
+  // -------------------------------------------------------------------------
+  const downloadQuery = useDocumentDownloadUrl(
+    isContractVirtual ? undefined : doc?.id,
+    { enabled: open && !isContractVirtual && Boolean(doc) },
+  )
+
+  const softDelete = useDeleteDocument()
+  const restore = useRestoreDocument()
+  const hardDelete = useHardDeleteDocument()
+
+  // -------------------------------------------------------------------------
+  // Download handler
+  // -------------------------------------------------------------------------
+
+  // PDF/контракт: используем blob (0 новых запросов)
+  // Картинки: открываем presigned URL (SW media-cache уже держит их)
+  function handleDownload() {
+    if (isPdf || isContractVirtual) {
+      // Blob уже загружен — используем его напрямую
+      if (activeBlobUrl) {
+        const a = document.createElement('a')
+        a.href = activeBlobUrl
+        a.download = displayName || 'document.pdf'
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        return
+      }
+      // Blob ещё грузится — ждём (кнопка задизейблена через isDownloadDisabled)
+      return
+    }
+    // Картинки — открываем presigned URL (уже в SW кеше)
+    void downloadQuery.refetch().then((result) => {
+      const url = result.data?.url
+      if (url) window.open(url, '_blank', 'noopener,noreferrer')
+    })
   }
+
+  // Кнопка «Скачать» заблокирована если blob ещё грузится
+  const isDownloadDisabled =
+    (isPdf || isContractVirtual) ? (activeBlobLoading && !activeBlobUrl) : downloadQuery.isFetching
 
   if (!doc) return null
 
@@ -154,6 +297,11 @@ export function DocumentDetailDialog({
               {isPdf ? (
                 <Badge variant="secondary" className="bg-red-500/15 text-red-600">
                   PDF
+                </Badge>
+              ) : null}
+              {isContractVirtual ? (
+                <Badge variant="secondary" className="bg-blue-500/15 text-blue-600">
+                  Контракт
                 </Badge>
               ) : null}
               <span className="text-muted-foreground">{doc.category}</span>
@@ -207,8 +355,7 @@ export function DocumentDetailDialog({
                 ) : null}
               </div>
 
-              {/* Preview column — large frame so even tall portrait scans
-                  remain visible end-to-end via object-contain. */}
+              {/* Preview column */}
               <div
                 data-testid="document-detail-preview"
                 className="relative h-[60vh] max-h-[560px] min-h-[360px] w-full overflow-hidden rounded-xl border border-border bg-muted"
@@ -220,17 +367,20 @@ export function DocumentDetailDialog({
                     variant="full"
                     className="h-full w-full"
                   />
+                ) : (isPdf || isContractVirtual) ? (
+                  /* PDF inline preview через blob */
+                  <PdfPreview
+                    blobUrl={activeBlobUrl}
+                    isLoading={activeBlobLoading}
+                    hasError={activeBlobError}
+                    filename={displayName}
+                    testId="document-pdf-preview"
+                    className="h-full w-full"
+                  />
                 ) : (
+                  /* Не-PDF, не-image */
                   <div className="flex h-full w-full flex-col items-center justify-center gap-3 text-muted-foreground">
                     <FileText className="h-20 w-20" />
-                    {isPdf ? (
-                      <Badge
-                        variant="secondary"
-                        className="bg-red-500/15 text-red-600"
-                      >
-                        PDF
-                      </Badge>
-                    ) : null}
                     <p className="text-xs text-muted-foreground">
                       Превью недоступно — нажмите «Скачать» чтобы открыть файл
                     </p>
@@ -251,7 +401,7 @@ export function DocumentDetailDialog({
 
             <Button
               onClick={handleDownload}
-              disabled={downloadQuery.isFetching}
+              disabled={isDownloadDisabled}
               data-testid="document-detail-download"
             >
               <Download className="mr-1.5 h-4 w-4" />
