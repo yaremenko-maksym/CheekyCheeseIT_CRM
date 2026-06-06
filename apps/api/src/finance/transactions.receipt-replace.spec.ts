@@ -278,3 +278,196 @@ describe('TransactionsService.updateSeniorIncome — receipt replace-with-delete
     expect(h.wasDbTxStarted()).toBe(true)
   })
 })
+
+// ---------------------------------------------------------------------------
+// HIGH-1 IDOR guard — unit tests for assertReceiptDocumentBindable
+// ---------------------------------------------------------------------------
+//
+// These tests verify the ownership + category guard that runs BEFORE
+// the FK write in updateSeniorIncome (and other create/update methods).
+// They use a harness where documents.findFirst is keyed by docId.
+
+// Harness that resolves documents by looking up the docId
+// argument passed to db.query.documents.findFirst.
+function makeIdorHarnessV2(opts: {
+  txReceiptDocumentId?: string | null
+  docsById: Record<
+    string,
+    | {
+        id: string
+        ownerId: string
+        category: string
+        s3Key: string
+        thumbnailS3Key: string | null
+      }
+    | undefined
+  >
+}) {
+  const txRow = {
+    id: 'tx-idor',
+    type: 'SENIOR_INCOME',
+    status: 'REJECTED',
+    receiverId: SENIOR.id,
+    receiptDocumentId: opts.txReceiptDocumentId ?? null,
+    receiptExternalUrl: null,
+    amount: '1000',
+    currency: 'USD',
+    notes: null,
+    rejectionReason: 'test',
+    validatedBy: 'acc-1',
+    validatedAt: new Date('2026-01-01'),
+    updatedAt: new Date('2026-01-01'),
+  }
+
+  const dbtxDelete = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) })
+  const deleteS3Keys = vi.fn().mockResolvedValue(undefined)
+
+  // Track which docId was last queried so we can resolve from the map.
+  let lastQueriedDocId: string | null = null
+
+  const db = {
+    db: {
+      query: {
+        transactions: {
+          findFirst: vi.fn().mockImplementation(async () => ({ ...txRow })),
+        },
+        documents: {
+          // The service calls: db.db.query.documents.findFirst({ where: eq(documents.id, docId) })
+          // We capture the docId by inspecting the call arguments to the mock.
+          // Since Drizzle eq() returns an opaque SQL object, we intercept via
+          // a tracking mechanism: the mock captures the last docId via closure.
+          findFirst: vi.fn().mockImplementation(async () => {
+            if (lastQueriedDocId === null) return undefined
+            return opts.docsById[lastQueriedDocId] ?? undefined
+          }),
+        },
+      },
+      transaction: vi.fn().mockImplementation(async (cb: (dbtx: unknown) => Promise<void>) => {
+        const dbtx = {
+          update: (_table: unknown) => ({
+            set: (_values: unknown) => ({ where: async () => undefined }),
+          }),
+          delete: dbtxDelete,
+        }
+        await cb(dbtx)
+      }),
+    },
+  }
+
+  const service = new TransactionsService(db as never, {} as never, { deleteS3Keys } as never)
+  vi.spyOn(service, 'findOne' as never).mockResolvedValue({
+    id: 'tx-idor',
+    status: 'PENDING',
+  } as never)
+
+  // Expose setter so caller can prime docId before calling service method
+  return {
+    service,
+    db,
+    dbtxDelete,
+    setNextDocId: (id: string | null) => {
+      lastQueriedDocId = id
+    },
+  }
+}
+
+describe('HIGH-1 IDOR guard — assertReceiptDocumentBindable (unit)', () => {
+  it('blocks: SENIOR cannot bind a RECEIPT owned by another user (ForbiddenException)', async () => {
+    const h = makeIdorHarnessV2({
+      txReceiptDocumentId: null,
+      docsById: {
+        'victim-doc-id': {
+          id: 'victim-doc-id',
+          ownerId: SENIOR2.id, // belongs to a different senior
+          category: 'RECEIPT',
+          s3Key: 'documents/RECEIPT/senior-2/victim.pdf',
+          thumbnailS3Key: null,
+        },
+      },
+    })
+
+    // Prime the doc resolver — the service will call documents.findFirst for 'victim-doc-id'
+    h.setNextDocId('victim-doc-id')
+
+    await expect(
+      h.service.updateSeniorIncome('tx-idor', { receiptDocumentId: 'victim-doc-id' }, SENIOR),
+    ).rejects.toBeInstanceOf(ForbiddenException)
+
+    // FK write must not have happened (dbtx.delete = proxy for whether transaction ran)
+    expect(h.dbtxDelete).not.toHaveBeenCalled()
+  })
+
+  it('blocks: cannot bind a non-RECEIPT document (BadRequestException)', async () => {
+    const h = makeIdorHarnessV2({
+      txReceiptDocumentId: null,
+      docsById: {
+        'scan-doc-id': {
+          id: 'scan-doc-id',
+          ownerId: SENIOR.id, // owned by SENIOR — but wrong category
+          category: 'SCAN',
+          s3Key: 'documents/SCAN/senior-1/scan.pdf',
+          thumbnailS3Key: null,
+        },
+      },
+    })
+    h.setNextDocId('scan-doc-id')
+
+    await expect(
+      h.service.updateSeniorIncome('tx-idor', { receiptDocumentId: 'scan-doc-id' }, SENIOR),
+    ).rejects.toBeInstanceOf(BadRequestException)
+  })
+
+  it('blocks: cannot bind a nonexistent document (NotFoundException)', async () => {
+    const h = makeIdorHarnessV2({
+      txReceiptDocumentId: null,
+      docsById: {}, // empty — doc not found
+    })
+    h.setNextDocId('ghost-doc-id')
+
+    await expect(
+      h.service.updateSeniorIncome('tx-idor', { receiptDocumentId: 'ghost-doc-id' }, SENIOR),
+    ).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  it('allows: SENIOR can bind their own RECEIPT (no exception)', async () => {
+    const h = makeIdorHarnessV2({
+      txReceiptDocumentId: null,
+      docsById: {
+        'own-doc-id': {
+          id: 'own-doc-id',
+          ownerId: SENIOR.id, // owned by the caller
+          category: 'RECEIPT',
+          s3Key: 'documents/RECEIPT/senior-1/own.pdf',
+          thumbnailS3Key: null,
+        },
+      },
+    })
+    h.setNextDocId('own-doc-id')
+
+    await expect(
+      h.service.updateSeniorIncome('tx-idor', { receiptDocumentId: 'own-doc-id' }, SENIOR),
+    ).resolves.toBeDefined()
+  })
+
+  it('skips guard when receiptDocumentId is null (clearing the receipt)', async () => {
+    // Clearing receipt to null must not trigger the guard (no ownership check needed)
+    const h = makeIdorHarnessV2({
+      txReceiptDocumentId: 'old-own-doc',
+      docsById: {
+        'old-own-doc': {
+          id: 'old-own-doc',
+          ownerId: SENIOR.id,
+          category: 'RECEIPT',
+          s3Key: 'documents/RECEIPT/senior-1/old.pdf',
+          thumbnailS3Key: null,
+        },
+      },
+    })
+    h.setNextDocId('old-own-doc')
+
+    // Passing null clears the receipt — guard should not fire on null
+    await expect(
+      h.service.updateSeniorIncome('tx-idor', { receiptDocumentId: null }, SENIOR),
+    ).resolves.toBeDefined()
+  })
+})

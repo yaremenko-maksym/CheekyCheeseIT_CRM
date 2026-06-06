@@ -99,6 +99,53 @@ export class TransactionsService {
   }
 
   /**
+   * HIGH-1 (IDOR / OWASP A01) guard — must be called BEFORE writing
+   * `receiptDocumentId` to any transaction FK.
+   *
+   * Validates that the document identified by `docId`:
+   *   1. Exists (not deleted / never inserted) — NotFoundException.
+   *   2. Has category === 'RECEIPT' — BadRequestException.
+   *   3. Is owned by the expected owner:
+   *      - For non-ADMIN paths the owner must be the calling user (`currentUser.id`).
+   *      - For ADMIN paths pass `opts.expectedOwnerId` = the transaction receiver/senior;
+   *        ADMIN may bind any RECEIPT owned by that person (mirrors the upload
+   *        RBAC matrix in DocumentsService.assertCanUpload for RECEIPT category).
+   *
+   * Throws before any DB write so the FK is never set to a foreign document.
+   *
+   * Rationale (PR-3 security review HIGH-1):
+   *   Without this check a SENIOR-A can supply `receiptDocumentId = <docId of B>`
+   *   in updateSeniorIncome.  After a subsequent reject+resubmit the replace-with-
+   *   delete path (`oldDocId → dbtx.delete + S3.delete`) would permanently destroy
+   *   victim B's document.  The partial unique index only catches already-bound
+   *   docs; orphan RECEIPTs are free to be stolen.
+   */
+  private async assertReceiptDocumentBindable(
+    docId: string,
+    currentUser: SessionUser,
+    opts: { expectedOwnerId?: string } = {},
+  ): Promise<void> {
+    const doc = await this.db.db.query.documents.findFirst({
+      where: eq(documents.id, docId),
+    })
+
+    if (!doc) throw new NotFoundException('Receipt document not found')
+    if (doc.category !== 'RECEIPT') {
+      throw new BadRequestException('Document must be a RECEIPT to be attached to a transaction')
+    }
+
+    // Ownership check:
+    //  - Non-ADMIN callers must own the document themselves.
+    //  - ADMIN callers may bind a RECEIPT owned by a specific other user
+    //    (the transaction receiver).  If expectedOwnerId is not provided for an
+    //    ADMIN call we fall back to self-ownership.
+    const expectedOwner = opts.expectedOwnerId ?? currentUser.id
+    if (doc.ownerId !== expectedOwner) {
+      throw new ForbiddenException('You do not have permission to attach this receipt document')
+    }
+  }
+
+  /**
    * Fire-and-forget wrapper so a failing invoice generation (e.g. S3 outage)
    * does NOT roll back the underlying transaction state change. The PAID
    * status flip is the source of truth; the invoice is a derived artefact
@@ -480,6 +527,11 @@ export class TransactionsService {
       throw new ForbiddenException('You can only add income for your own projects')
     }
 
+    // HIGH-1: validate receipt ownership + category before writing FK
+    if (data.receiptDocumentId) {
+      await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
+    }
+
     const [tx] = await this.db.db
       .insert(transactions)
       .values({
@@ -550,6 +602,11 @@ export class TransactionsService {
       applicableTeams,
     )
 
+    // HIGH-1: validate receipt ownership + category before writing FK
+    if (data.receiptDocumentId) {
+      await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
+    }
+
     const [tx] = await this.db.db
       .insert(transactions)
       .values({
@@ -602,6 +659,11 @@ export class TransactionsService {
     // The drop can only declare income on a drop-project routed through them.
     if (project.dropId !== currentUser.id) {
       throw new ForbiddenException('Это не drop-проект под вами')
+    }
+
+    // HIGH-1: validate receipt ownership + category before writing FK
+    if (data.receiptDocumentId) {
+      await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
     }
 
     const [tx] = await this.db.db
@@ -668,6 +730,13 @@ export class TransactionsService {
       : receiptDocChanged && data.receiptDocumentId
         ? null
         : tx.receiptExternalUrl
+
+    // HIGH-1: validate the incoming receipt doc before writing FK.
+    // Only check when nextDocId is set AND it is a new (different) document —
+    // keeping the same docId is always safe (ownership already established).
+    if (nextDocId && nextDocId !== tx.receiptDocumentId) {
+      await this.assertReceiptDocumentBindable(nextDocId, currentUser)
+    }
 
     // ── 1:1 receipt replace-with-delete (PR-3) ──────────────────────────────
     //
@@ -810,6 +879,16 @@ export class TransactionsService {
         : receiptDocChanged && data.receiptDocumentId
           ? null
           : tx.receiptExternalUrl
+    }
+
+    // HIGH-1: validate receipt ownership + category before writing FK.
+    // For ADMIN edits the receipt must belong to the transaction's receiver
+    // (for income types) or the ADMIN themselves (for EXPENSE where receiverId
+    // is null). Falls back to currentUser.id when no receiver is set.
+    const nextReceiptDocId = receiptPatch.receiptDocumentId
+    if (nextReceiptDocId && nextReceiptDocId !== tx.receiptDocumentId) {
+      const expectedOwnerId = tx.receiverId ?? currentUser.id
+      await this.assertReceiptDocumentBindable(nextReceiptDocId, currentUser, { expectedOwnerId })
     }
 
     await this.db.db
@@ -1145,6 +1224,11 @@ export class TransactionsService {
     currentUser: SessionUser,
   ) {
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
+
+    // HIGH-1: validate receipt ownership + category before writing FK
+    if (data.receiptDocumentId) {
+      await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
+    }
 
     const [tx] = await this.db.db
       .insert(transactions)
