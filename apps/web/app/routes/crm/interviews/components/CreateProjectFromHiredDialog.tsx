@@ -141,6 +141,10 @@ export function CreateProjectFromHiredDialog({
   const createMutation = useMutation({
     mutationFn: (data: CreateProjectDto) =>
       api.post<ProjectDto>('/projects', data).then((r) => r.data),
+    onSuccess: () => {
+      // Инвалидируем список проектов — новый проект должен появиться сразу
+      void queryClient.invalidateQueries({ queryKey: ['projects'] })
+    },
   })
 
   const form = useForm({
