@@ -48,6 +48,115 @@ export default defineConfig({
       '@crm/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Стратегия: дробим 2.53 MB vendor bundle на тематические чанки.
+        // Порядок if-веток критичен — от специфичного к общему.
+        // scheduler/react-is/prop-types — peer-deps react-dom, включены в
+        // vendor-react чтобы устранить "Circular chunk" предупреждение Rollup.
+        // VitePWA читает этот output объект через configResolved, но manualChunks
+        // как функция применяется корректно (проверено debug-build).
+        manualChunks: (id: string): string | undefined => {
+          // ── React ядро + peer-зависимости ──────────────────────────────
+          // scheduler, react-is, prop-types неотделимы от react-dom — без них
+          // возникает "Circular chunk: vendor-misc -> vendor-react -> vendor-misc"
+          if (
+            id.includes('node_modules/react/') ||
+            id.includes('node_modules/react-dom/') ||
+            id.includes('node_modules/scheduler/') ||
+            id.includes('node_modules/react-is/') ||
+            id.includes('node_modules/prop-types/')
+          ) {
+            return 'vendor-react'
+          }
+
+          // ── TanStack экосистема ─────────────────────────────────────────
+          // router / query / form / virtual обновляются вместе → один чанк
+          if (id.includes('node_modules/@tanstack/')) {
+            return 'vendor-tanstack'
+          }
+
+          // ── Drag-and-drop ───────────────────────────────────────────────
+          if (id.includes('node_modules/@dnd-kit/')) {
+            return 'vendor-dnd'
+          }
+
+          // ── Анимации ────────────────────────────────────────────────────
+          if (id.includes('node_modules/framer-motion/')) {
+            return 'vendor-motion'
+          }
+
+          // ── Графики (recharts + d3-* субзависимости) ────────────────────
+          if (
+            id.includes('node_modules/recharts/') ||
+            id.includes('node_modules/d3-') ||
+            id.includes('node_modules/victory-vendor/')
+          ) {
+            return 'vendor-charts'
+          }
+
+          // ── CodeMirror редактор ─────────────────────────────────────────
+          // Используется только в documents/onboarding — хорошо изолируется
+          if (
+            id.includes('node_modules/@codemirror/') ||
+            id.includes('node_modules/@uiw/react-codemirror') ||
+            id.includes('node_modules/@uiw/codemirror') ||
+            id.includes('node_modules/codemirror/')
+          ) {
+            return 'vendor-codemirror'
+          }
+
+          // ── Тяжёлые утилиты ─────────────────────────────────────────────
+          // libphonenumber-js ~600 KB, react-signature-canvas, react-easy-crop
+          if (
+            id.includes('node_modules/libphonenumber-js/') ||
+            id.includes('node_modules/react-phone-number-input/') ||
+            id.includes('node_modules/react-signature-canvas/') ||
+            id.includes('node_modules/react-easy-crop/')
+          ) {
+            return 'vendor-heavy-utils'
+          }
+
+          // ── Radix UI примитивы ──────────────────────────────────────────
+          if (id.includes('node_modules/@radix-ui/')) {
+            return 'vendor-radix'
+          }
+
+          // ── Иконки (lucide) ─────────────────────────────────────────────
+          if (id.includes('node_modules/lucide-react/')) {
+            return 'vendor-icons'
+          }
+
+          // ── Markdown / diff / unified-экосистема ────────────────────────
+          if (
+            id.includes('node_modules/react-markdown/') ||
+            id.includes('node_modules/diff/') ||
+            id.includes('node_modules/remark') ||
+            id.includes('node_modules/rehype') ||
+            id.includes('node_modules/unified/') ||
+            id.includes('node_modules/micromark') ||
+            id.includes('node_modules/mdast') ||
+            id.includes('node_modules/hast') ||
+            id.includes('node_modules/vfile') ||
+            id.includes('node_modules/unist')
+          ) {
+            return 'vendor-markdown'
+          }
+
+          // ── Прочие node_modules → общий vendor ──────────────────────────
+          // axios, zod, date-fns, sonner, clsx, tailwind-merge, cmdk,
+          // react-day-picker, class-variance-authority, tw-animate-css и т. п.
+          if (id.includes('node_modules/')) {
+            return 'vendor-misc'
+          }
+
+          // App-код — Rollup разобьёт по точкам входа (TanStack route chunks)
+          return undefined
+        },
+      },
+    },
+  },
   plugins: [
     TanStackRouterVite({
       routesDirectory: './app/routes',
@@ -75,12 +184,10 @@ export default defineConfig({
       manifest: false,
 
       workbox: {
-        // Крупнейший чанк ~2.53 MB (index-*.js, весь vendor bundle).
-        // Дефолтный лимит workbox = 2 MiB → build падает с exit 1.
-        // Ставим 5 MiB чтобы покрыть текущий размер с запасом.
-        // TODO: code-split vendor bundle (dnd-kit / framer-motion / pdf-lib)
-        //   чтобы вернуться к дефолту или ~3 MiB — follow-up task.
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        // После code-split крупнейший чанк < 2 MiB.
+        // Снижаем с 5 MiB до 2 MiB — соответствует новому максимуму.
+        // Дефолт workbox = 2 MiB; явно указываем для документирования намерения.
+        maximumFileSizeToCacheInBytes: 2 * 1024 * 1024,
 
         // Precache только статические ассеты фронта (хешированные имена — immutable)
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webmanifest}'],
