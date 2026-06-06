@@ -73,6 +73,13 @@ export default defineConfig({
       manifest: false,
 
       workbox: {
+        // Крупнейший чанк ~2.53 MB (index-*.js, весь vendor bundle).
+        // Дефолтный лимит workbox = 2 MiB → build падает с exit 1.
+        // Ставим 5 MiB чтобы покрыть текущий размер с запасом.
+        // TODO: code-split vendor bundle (dnd-kit / framer-motion / pdf-lib)
+        //   чтобы вернуться к дефолту или ~3 MiB — follow-up task.
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+
         // Precache только статические ассеты фронта (хешированные имена — immutable)
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webmanifest}'],
 
