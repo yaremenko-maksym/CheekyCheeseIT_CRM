@@ -271,14 +271,15 @@ jobs:
           SQL
 
       # Run only *.integration.spec.ts — unit specs are covered by the `quality` job.
-      # reporter=verbose shows each test name in CI logs for confirmation that
-      # integration specs actually executed (not silently skipped).
+      # In Vitest 3.x the file filter is a positional glob argument (not --testPathPattern
+      # which is a Jest flag). --reporter=verbose shows each test name so CI logs confirm
+      # real execution (not silent skip via dbAvailable guard).
       - name: Run integration tests
         if: steps.filter.outputs.code == 'true'
         run: |
           pnpm --filter @crm/api exec vitest run \
             --reporter=verbose \
-            --testPathPattern='\.integration\.spec\.ts$'
+            "**/*.integration.spec.ts"
 
       - name: Docs-only short-circuit
         if: steps.filter.outputs.code != 'true'
