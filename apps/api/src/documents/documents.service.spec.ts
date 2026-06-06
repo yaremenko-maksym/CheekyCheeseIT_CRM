@@ -1101,14 +1101,22 @@ describe('DocumentsService.list — PR-2 employee_contract virtual entries (Task
     expect(virtual?.statusBadge).toEqual({ kind: 'contract', state: 'ready' })
   })
 
-  it('DRAFT contract → statusBadge {kind:contract, state:draft}', async () => {
+  it('DRAFT contract → statusBadge {kind:contract, state:draft} — visible to ADMIN only', async () => {
+    // Non-ADMIN (SENIOR) must NOT see DRAFT contracts (A3-4 onboarding rule).
+    // The badge derivation is still correct — we verify it via ADMIN actor.
     const h = makeExtendedHarness({
       docs: [],
       contractRows: [{ id: 'c1', userId: SENIOR.id, status: 'DRAFT' }],
     })
-    const result = await h.service.list(SENIOR, {})
-    const virtual = result.find((r) => r.source === 'employee_contract')
-    expect(virtual?.statusBadge).toEqual({ kind: 'contract', state: 'draft' })
+    const resultAdmin = await h.service.list(ADMIN, {})
+    const virtualAdmin = resultAdmin.find((r) => r.source === 'employee_contract')
+    // ADMIN sees DRAFT with correct badge
+    expect(virtualAdmin?.statusBadge).toEqual({ kind: 'contract', state: 'draft' })
+
+    // SENIOR (non-ADMIN) does NOT see DRAFT contract at all
+    const resultSenior = await h.service.list(SENIOR, {})
+    const virtualSenior = resultSenior.find((r) => r.source === 'employee_contract')
+    expect(virtualSenior).toBeUndefined()
   })
 
   it('SIGNED contract → statusBadge {kind:contract, state:signed}', async () => {
