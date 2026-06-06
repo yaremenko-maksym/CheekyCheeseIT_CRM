@@ -29,6 +29,7 @@ import type { Document, SessionUser } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { DocumentStatusBadge } from './document-status-badge'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -159,7 +160,13 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
             Удалён
           </Badge>
         ) : null}
-        {doc.invoicePendingSignature ? (
+        {/* PR-2: unified status badge (supersedes invoicePendingSignature). */}
+        {doc.statusBadge ? (
+          <DocumentStatusBadge badge={doc.statusBadge} data-testid="document-row-status-badge" />
+        ) : null}
+        {/* Back-compat: render amber badge for pre-PR-2 rows that still carry
+            invoicePendingSignature but no statusBadge. */}
+        {!doc.statusBadge && doc.invoicePendingSignature ? (
           <Badge
             className="border-amber-500/30 bg-amber-500/20 text-amber-300"
             data-testid="document-row-pending-signature"

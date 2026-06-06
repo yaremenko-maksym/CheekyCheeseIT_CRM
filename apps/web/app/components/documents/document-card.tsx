@@ -56,6 +56,7 @@ import {
   useRestoreDocument,
 } from '@/hooks/use-documents'
 import { DocumentImage } from './document-image'
+import { DocumentStatusBadge } from './document-status-badge'
 
 interface DocumentCardProps {
   doc: Document
@@ -250,12 +251,11 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
           </span>
         ) : null}
 
-        {doc.invoicePendingSignature ? (
-          // Amber badge — backend computes this only when the *current
-          // viewer* is the expected counterparty AND has not yet signed
-          // (see DocumentsService.list SQL CASE). The badge is the primary
-          // affordance pulling the user into the invoice signing flow
-          // (clicking the card opens InvoiceDetailDialog → «Подписать»).
+        {/* PR-2: unified status badge (supersedes invoicePendingSignature). */}
+        {doc.statusBadge ? <DocumentStatusBadge badge={doc.statusBadge} className="w-fit" /> : null}
+        {/* Back-compat: render amber badge for pre-PR-2 rows that still carry
+            invoicePendingSignature but no statusBadge. */}
+        {!doc.statusBadge && doc.invoicePendingSignature ? (
           <Badge
             className="w-fit border-amber-500/30 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
             data-testid="document-card-pending-signature"

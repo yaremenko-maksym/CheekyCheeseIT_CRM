@@ -38,9 +38,11 @@ import {
   type Document as DocumentDto,
   type DocumentCategory,
   type DocumentListFilters,
+  type DocumentSource,
   type PresignedDownload,
   type Role,
   type SessionUser,
+  type StatusBadge,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { documents, invoiceSignatures, teamMembers, transactions, users } from '../database/schema'
@@ -336,26 +338,193 @@ export class DocumentsService {
         ELSE FALSE
       END
     )`
+
+    // PR-2: invoice completeness badge — both COMPANY + COUNTERPARTY present → signed
+    // Computed via SQL EXISTS sub-queries so no N+1 per row.
+    const invoiceSigned = sql<boolean>`(
+      CASE
+        WHEN ${documents.category} = 'INVOICE'
+          AND ${transactions.id} IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM ${invoiceSignatures}
+            WHERE ${invoiceSignatures.transactionId} = ${transactions.id}
+              AND ${invoiceSignatures.signerRole} = 'COMPANY'
+          )
+          AND EXISTS (
+            SELECT 1 FROM ${invoiceSignatures}
+            WHERE ${invoiceSignatures.transactionId} = ${transactions.id}
+              AND ${invoiceSignatures.signerRole} = 'COUNTERPARTY'
+          )
+        THEN TRUE
+        ELSE FALSE
+      END
+    )`
+
+    // PR-2: receipt badge — derived from the linked transaction's status.
+    // LEFT JOIN transactions on receipt_document_id = documents.id for RECEIPT rows.
+    const receiptTxStatus = sql<string | null>`(
+      CASE
+        WHEN ${documents.category} = 'RECEIPT'
+        THEN (
+          SELECT t.status FROM ${transactions} t
+          WHERE t.receipt_document_id = ${documents.id}
+          LIMIT 1
+        )
+        ELSE NULL
+      END
+    )`
+
     const rows = await this.db.db
       .select({
         doc: documents,
         uploaderName: users.displayName,
         invoiceTxId: transactions.id,
         invoicePendingSignature: pendingSig,
+        invoiceSigned,
+        receiptTxStatus,
       })
       .from(documents)
       .leftJoin(users, eq(users.id, documents.uploadedBy))
       .leftJoin(transactions, eq(transactions.invoiceDocumentId, documents.id))
       .where(where)
       .orderBy(desc(documents.createdAt))
-    return rows.map((row) =>
-      this.mapDocument(
+
+    const fileEntries = rows.map((row) => {
+      // Derive statusBadge from backend state (PR-2).
+      const badge = this.deriveStatusBadge(
+        row.doc.category as DocumentCategory,
+        Boolean(row.invoiceSigned),
+        row.receiptTxStatus,
+      )
+      return this.mapDocument(
         row.doc,
         row.uploaderName ?? null,
         row.invoiceTxId ?? null,
         Boolean(row.invoicePendingSignature),
-      ),
-    )
+        'file',
+        badge,
+      )
+    })
+
+    // PR-2: append employee_contracts as virtual entries.
+    // RBAC: ADMIN sees all users' contracts; non-ADMIN sees only own.
+    // CANCELLED contracts are hidden per spec.
+    const contractEntries = await this.buildContractVirtualEntries(actor, filters)
+
+    return [...fileEntries, ...contractEntries]
+  }
+
+  /**
+   * Derive the semantic statusBadge for a document row.
+   * Returns null for categories that carry no badge (RESUME, SCAN, CONTRACT uploads, AVATAR, LOGO).
+   */
+  private deriveStatusBadge(
+    category: DocumentCategory,
+    invoiceSigned: boolean,
+    receiptTxStatus: string | null,
+  ): StatusBadge | null {
+    if (category === 'INVOICE') {
+      return { kind: 'invoice', state: invoiceSigned ? 'signed' : 'ready' }
+    }
+    if (category === 'RECEIPT') {
+      if (!receiptTxStatus) return null
+      return {
+        kind: 'receipt',
+        state: receiptTxStatus === 'VALIDATED' ? 'validated' : 'pending',
+      }
+    }
+    // RESUME, SCAN, CONTRACT (uploaded file), AVATAR, LOGO — no badge
+    return null
+  }
+
+  /**
+   * Build virtual DocumentDto entries from employee_contracts (PR-2).
+   *
+   * These are NOT rows from the `documents` table — they represent the
+   * canonical per-employee contract (from the A3 onboarding flow) as
+   * a first-class entry in the unified list. The `source` discriminator
+   * ('employee_contract') lets the frontend render a different affordance
+   * (open contract editor / PDF viewer) vs. a plain uploaded file.
+   *
+   * RBAC mirrors A3 rules (ADMIN + owner):
+   *   - ADMIN: sees all non-CANCELLED contracts (including DRAFT — ADMIN prepares them)
+   *   - All other roles: own non-CANCELLED, non-DRAFT contract only
+   *     (employee sees contract only once READY_TO_SIGN or later)
+   * CANCELLED contracts are hidden from all viewers per spec.
+   * DRAFT contracts are hidden from non-ADMIN per spec (A3-4 onboarding rule).
+   *
+   * No double-counting: uploaded CONTRACT files (category='CONTRACT' in
+   * the `documents` table) are separate entries from these virtual ones.
+   */
+  private async buildContractVirtualEntries(
+    actor: SessionUser,
+    filters: DocumentListFilters,
+  ): Promise<DocumentDto[]> {
+    // If the caller asked for a specific category that is not 'CONTRACT' (or
+    // if filtering by ownerId that would exclude contracts), honour that.
+    // Contracts always appear in the 'CONTRACT' category slot or when no
+    // category filter is active.
+    const categoryFilter = filters.category
+    if (categoryFilter && categoryFilter !== 'CONTRACT') {
+      return []
+    }
+
+    const isAdmin = actor.role === 'ADMIN'
+
+    // Fetch employee_contracts scoped by RBAC:
+    //   ADMIN — all non-CANCELLED (DRAFT + READY_TO_SIGN + SIGNED)
+    //   non-ADMIN — own non-CANCELLED AND non-DRAFT (READY_TO_SIGN + SIGNED only)
+    const contractRows = await this.db.db.query.employeeContracts.findMany({
+      where: (tbl, { ne, eq: deq, and: dand }) => {
+        const notCancelled = ne(tbl.status, 'CANCELLED')
+        if (isAdmin) return notCancelled
+        // Non-ADMIN: own contract + must be past DRAFT stage
+        const notDraft = ne(tbl.status, 'DRAFT')
+        return dand(notCancelled, notDraft, deq(tbl.userId, actor.id))
+      },
+    })
+
+    return contractRows.map((c) => this.mapContractVirtualEntry(c, actor.id))
+  }
+
+  /**
+   * Map an employee_contracts row to a DocumentDto virtual entry.
+   * The entry gets a synthetic id = the contract's id, ownerId = userId,
+   * category = 'CONTRACT' (for consistent filter/grouping), and
+   * source = 'employee_contract' (discriminator).
+   */
+  private mapContractVirtualEntry(
+    contract: { id: string; userId: string; status: string; createdAt: Date },
+    _actorId: string,
+  ): DocumentDto {
+    const state: StatusBadge['state'] =
+      contract.status === 'SIGNED'
+        ? 'signed'
+        : contract.status === 'READY_TO_SIGN'
+          ? 'ready'
+          : 'draft'
+
+    return {
+      id: contract.id,
+      ownerId: contract.userId,
+      projectId: null,
+      category: 'CONTRACT',
+      name: `contract-${contract.id}`,
+      originalName: null,
+      s3Key: '',
+      thumbnailS3Key: null,
+      sizeBytes: 0,
+      mimeType: 'application/pdf',
+      uploadedBy: contract.userId,
+      uploadedByDisplayName: null,
+      deletedAt: null,
+      deletedBy: null,
+      createdAt: (contract.createdAt ?? new Date()).toISOString(),
+      invoiceTransactionId: null,
+      invoicePendingSignature: false,
+      source: 'employee_contract' as DocumentSource,
+      statusBadge: { kind: 'contract', state },
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -821,6 +990,8 @@ export class DocumentsService {
     uploaderName: string | null = null,
     invoiceTransactionId: string | null = null,
     invoicePendingSignature: boolean = false,
+    source: DocumentSource = 'file',
+    statusBadge: StatusBadge | null = null,
   ): DocumentDto {
     return {
       id: row.id,
@@ -840,6 +1011,8 @@ export class DocumentsService {
       createdAt: row.createdAt.toISOString(),
       invoiceTransactionId,
       invoicePendingSignature,
+      source,
+      statusBadge,
     }
   }
 

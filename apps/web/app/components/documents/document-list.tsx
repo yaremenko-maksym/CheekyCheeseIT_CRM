@@ -26,6 +26,12 @@ interface DocumentListProps {
    * cards render without a click handler (used in tests).
    */
   onOpen?: ((doc: Document) => void) | undefined
+  /**
+   * PR-1 MED fix: controls the skeleton shape shown during loading.
+   * 'grid' (default) — card-shaped 4/3 aspect ratio skeletons.
+   * 'list' — compact row-shaped skeletons matching DocumentRow height.
+   */
+  view?: 'grid' | 'list'
 }
 
 export function DocumentList({
@@ -34,8 +40,19 @@ export function DocumentList({
   viewer,
   emptyState,
   onOpen,
+  view = 'grid',
 }: DocumentListProps) {
   if (loading) {
+    if (view === 'list') {
+      // PR-1 MED fix: row-shaped skeleton for list view loading state.
+      return (
+        <div className="flex flex-col gap-1" data-testid="documents-list-skeleton">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-[60px] w-full rounded-lg" />
+          ))}
+        </div>
+      )
+    }
     return (
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
@@ -64,12 +81,7 @@ export function DocumentList({
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {documents.map((doc) => (
-        <DocumentCard
-          key={doc.id}
-          doc={doc}
-          viewer={viewer}
-          onOpen={onOpen}
-        />
+        <DocumentCard key={doc.id} doc={doc} viewer={viewer} onOpen={onOpen} />
       ))}
     </div>
   )

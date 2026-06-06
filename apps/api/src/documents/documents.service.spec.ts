@@ -92,8 +92,7 @@ function makeHarness(opts: HarnessOptions = {}) {
     name: d.name ?? 'file.pdf',
     originalName: d.originalName ?? d.name ?? 'file.pdf',
     s3Key:
-      d.s3Key ??
-      `documents/${d.category ?? 'RESUME'}/${d.ownerId ?? 'x'}/${d.id ?? idx}-file.pdf`,
+      d.s3Key ?? `documents/${d.category ?? 'RESUME'}/${d.ownerId ?? 'x'}/${d.id ?? idx}-file.pdf`,
     thumbnailS3Key: d.thumbnailS3Key ?? null,
     sizeBytes: d.sizeBytes ?? 1024,
     mimeType: d.mimeType ?? 'application/pdf',
@@ -148,8 +147,7 @@ function makeHarness(opts: HarnessOptions = {}) {
             where: async (_p: unknown) =>
               (opts.hrSeniorIds ?? []).map((id) => ({ teamId: 't1', userId: id })),
             innerJoin: (_t: unknown, _on: unknown) => ({
-              where: async (_p: unknown) =>
-                (opts.hrSeniorIds ?? []).map((id) => ({ userId: id })),
+              where: async (_p: unknown) => (opts.hrSeniorIds ?? []).map((id) => ({ userId: id })),
             }),
           }
           // Detect which path by inspecting the table identity — we use a
@@ -397,9 +395,9 @@ describe('DocumentsService.upload — RBAC by category', () => {
   describe('RECEIPT', () => {
     it('HR upload RECEIPT → 403', async () => {
       const h = makeHarness()
-      await expect(
-        h.service.upload(HR, pdfFile, { category: 'RECEIPT' }),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      await expect(h.service.upload(HR, pdfFile, { category: 'RECEIPT' })).rejects.toBeInstanceOf(
+        ForbiddenException,
+      )
     })
     it('JUNIOR upload RECEIPT → 403', async () => {
       const h = makeHarness()
@@ -462,9 +460,9 @@ describe('DocumentsService.upload — RBAC by category', () => {
     })
     it('JUNIOR → 403', async () => {
       const h = makeHarness()
-      await expect(
-        h.service.upload(JUNIOR, pdfFile, { category: 'LOGO' }),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      await expect(h.service.upload(JUNIOR, pdfFile, { category: 'LOGO' })).rejects.toBeInstanceOf(
+        ForbiddenException,
+      )
     })
     it('ACCOUNTANT → 403', async () => {
       const h = makeHarness()
@@ -598,7 +596,9 @@ describe('DocumentsService.softDelete', () => {
 
   it('idempotent: already-deleted is a no-op (no error)', async () => {
     const h = makeHarness({
-      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME', deletedAt: new Date('2026-01-01') }],
+      docs: [
+        { id: 'd1', ownerId: SENIOR.id, category: 'RESUME', deletedAt: new Date('2026-01-01') },
+      ],
     })
     await expect(h.service.softDelete(SENIOR, 'd1')).resolves.toBeUndefined()
   })
@@ -671,7 +671,7 @@ describe('DocumentsService.getDownloadUrl', () => {
     expect(result.url).toBeTruthy()
   })
 
-  it('JUNIOR cannot download someone else\'s RESUME → 404 (not 403, no leak)', async () => {
+  it("JUNIOR cannot download someone else's RESUME → 404 (not 403, no leak)", async () => {
     const h = makeHarness({
       docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME' }],
       honorSoftDeleteFilter: true,
@@ -718,4 +718,551 @@ describe('DocumentsService.getDownloadUrl', () => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+})
+
+// =============================================================================
+// PR-2 — status badges + employee_contracts virtual entries
+// =============================================================================
+//
+// These tests extend the mock harness with:
+//  - `invoiceSigs`: simulated invoice_signatures rows for a given tx id
+//  - `txRows`: simulated transactions rows (for receipt badge derivation)
+//  - `contractRows`: simulated employee_contracts rows (for virtual entries)
+//
+// The service is extended (Task 2 implementation) to:
+//  (a) attach statusBadge to INVOICE rows (from invoice_signatures completeness)
+//  (b) attach statusBadge to RECEIPT rows (from linked transaction.status)
+//  (c) append employee_contracts (non-CANCELLED) as virtual source:'employee_contract' entries
+//  (d) leave RESUME/SCAN with statusBadge: null
+
+interface ExtendedHarnessOptions extends HarnessOptions {
+  /** invoice_signatures rows for lookup by transactionId */
+  invoiceSigs?: Array<{ transactionId: string; signerRole: 'COMPANY' | 'COUNTERPARTY' }>
+  /** transactions rows for receipt badge derivation */
+  txRows?: Array<{
+    id: string
+    status: 'PENDING' | 'VALIDATED' | 'REJECTED'
+    receiptDocumentId?: string | null
+    invoiceDocumentId?: string | null
+    type?: string
+    senderId?: string | null
+    receiverId?: string | null
+  }>
+  /** employee_contracts rows for virtual entries */
+  contractRows?: Array<{
+    id: string
+    userId: string
+    status: 'DRAFT' | 'READY_TO_SIGN' | 'SIGNED' | 'CANCELLED'
+    createdAt?: Date
+  }>
+}
+
+function makeExtendedHarness(opts: ExtendedHarnessOptions = {}) {
+  const { invoiceSigs = [], txRows = [], contractRows = [], ...baseOpts } = opts
+
+  const docsRows: DocRow[] = (baseOpts.docs ?? []).map((d, idx) => ({
+    id: d.id ?? `doc-${idx}`,
+    ownerId: d.ownerId ?? 'owner-x',
+    projectId: d.projectId ?? null,
+    category: d.category ?? 'RESUME',
+    name: d.name ?? 'file.pdf',
+    originalName: d.originalName ?? d.name ?? 'file.pdf',
+    s3Key:
+      d.s3Key ?? `documents/${d.category ?? 'RESUME'}/${d.ownerId ?? 'x'}/${d.id ?? idx}-file.pdf`,
+    thumbnailS3Key: d.thumbnailS3Key ?? null,
+    sizeBytes: d.sizeBytes ?? 1024,
+    mimeType: d.mimeType ?? 'application/pdf',
+    uploadedBy: d.uploadedBy ?? d.ownerId ?? 'owner-x',
+    deletedAt: d.deletedAt ?? null,
+    deletedBy: d.deletedBy ?? null,
+    createdAt: d.createdAt ?? new Date('2026-05-24'),
+  }))
+
+  // Build a mock db that the extended service can query. The service's list()
+  // method uses db.select().from().leftJoin().where().orderBy() for the main
+  // query, then separate db.select().from().where() calls for badge sub-queries
+  // and db.query.employeeContracts.findMany() for virtual entries.
+  const db = {
+    db: {
+      query: {
+        documents: {
+          findFirst: async (_args: unknown) => {
+            if (baseOpts.pretendDocMissing) return undefined
+            const row = docsRows[0]
+            if (!row) return undefined
+            if (baseOpts.honorSoftDeleteFilter && row.deletedAt) return undefined
+            return row
+          },
+        },
+        users: {
+          findFirst: async (_args: unknown) => undefined,
+        },
+        employeeContracts: {
+          // Simulate Drizzle's findMany with a where callback.
+          // The service passes `where: (tbl, { ne, eq, and }) => ...`.
+          // We interpret it by building minimal Drizzle-like operator mocks
+          // that return plain boolean predicates, then apply them to each row.
+          findMany: async (args?: {
+            where?: (
+              tbl: { userId: string; status: string },
+              ops: {
+                ne: (a: string, b: string) => boolean
+                eq: (a: string, b: string) => boolean
+                and: (...bools: boolean[]) => boolean
+              },
+            ) => boolean
+          }) => {
+            if (!args?.where) return contractRows.filter((c) => c.status !== 'CANCELLED')
+            return contractRows.filter((c) =>
+              args.where!(
+                { userId: c.userId, status: c.status },
+                {
+                  ne: (a, b) => a !== b,
+                  eq: (a, b) => a === b,
+                  and: (...bools) => bools.every(Boolean),
+                },
+              ),
+            )
+          },
+        },
+      },
+
+      select: (_arg?: unknown) => ({
+        from: (_table: unknown) => {
+          // Return builder that chains where/leftJoin/orderBy
+          const rows = docsRows
+          const builder = {
+            where: (_pred: unknown) => builder,
+            leftJoin: (_t: unknown, _on: unknown) => builder,
+            orderBy: async (_o: unknown) =>
+              rows.map((r) => ({
+                doc: r,
+                uploaderName: null,
+                invoiceTxId: txRows.find((tx) => tx.invoiceDocumentId === r.id)?.id ?? null,
+                invoicePendingSignature: false,
+                // new fields populated by extended service
+                receiptTxStatus: txRows.find((tx) => tx.receiptDocumentId === r.id)?.status ?? null,
+                invoiceSigned:
+                  invoiceSigs.filter(
+                    (s) =>
+                      s.transactionId === txRows.find((tx) => tx.invoiceDocumentId === r.id)?.id,
+                  ).length >= 2,
+              })),
+          }
+          // For team_members queries (HR scope)
+          const teamMembersBuilder = {
+            where: async (_p: unknown) =>
+              (baseOpts.hrSeniorIds ?? []).map((id) => ({ teamId: 't1', userId: id })),
+            innerJoin: (_t: unknown, _on: unknown) => ({
+              where: async (_p: unknown) =>
+                (baseOpts.hrSeniorIds ?? []).map((id) => ({ userId: id })),
+            }),
+          }
+          return new Proxy(builder, {
+            get(target, prop: string | symbol) {
+              return (
+                (teamMembersBuilder as Record<string, unknown>)[prop as string] ??
+                (target as unknown as Record<string, unknown>)[prop as string]
+              )
+            },
+          })
+        },
+      }),
+
+      insert: (_table: unknown) => ({
+        values: (values: Record<string, unknown>) => ({
+          returning: async () => {
+            const row: DocRow = {
+              id: (values['id'] as string) ?? `new-${docsRows.length}`,
+              ownerId: values['ownerId'] as string,
+              projectId: (values['projectId'] as string) ?? null,
+              category: values['category'] as string,
+              name: values['name'] as string,
+              originalName: (values['originalName'] as string) ?? null,
+              s3Key: values['s3Key'] as string,
+              thumbnailS3Key: (values['thumbnailS3Key'] as string) ?? null,
+              sizeBytes: values['sizeBytes'] as number,
+              mimeType: values['mimeType'] as string,
+              uploadedBy: values['uploadedBy'] as string,
+              deletedAt: null,
+              deletedBy: null,
+              createdAt: new Date(),
+            }
+            docsRows.push(row)
+            return [row]
+          },
+        }),
+      }),
+
+      update: (_table: unknown) => ({
+        set: (values: Record<string, unknown>) => ({
+          where: (_pred: unknown) => {
+            const apply = () => {
+              docsRows.forEach((r) => {
+                if ('deletedAt' in values) {
+                  r.deletedAt = (values['deletedAt'] as Date | null) ?? null
+                  r.deletedBy = (values['deletedBy'] as string | null) ?? null
+                }
+              })
+            }
+            return {
+              then: (resolve: (v: unknown) => void) => {
+                apply()
+                resolve(undefined)
+              },
+              returning: async () => {
+                apply()
+                return docsRows.map((r) => ({ ...r }))
+              },
+            }
+          },
+        }),
+      }),
+
+      delete: (_table: unknown) => ({
+        where: async (_pred: unknown) => {
+          docsRows.length = 0
+        },
+      }),
+    },
+  }
+
+  const s3 = {
+    upload: vi.fn().mockResolvedValue(undefined),
+    getPresignedDownloadUrl: vi.fn().mockResolvedValue({
+      url: 'https://signed.example/abc',
+      expiresAt: new Date(Date.now() + 86_400 * 1000).toISOString(),
+    }),
+    delete: vi.fn().mockResolvedValue(undefined),
+  }
+
+  const compression = {
+    compress: vi.fn(async (buffer: Buffer, mime: string) => ({
+      buffer,
+      finalMimeType: mime === 'image/png' ? 'image/jpeg' : mime,
+      sizeBytes: buffer.length,
+    })),
+    makeThumbnail: vi.fn().mockResolvedValue(null),
+  }
+
+  const service = new DocumentsService(db as never, s3 as never, compression as never)
+  return { service, docsRows, db, s3 }
+}
+
+describe('DocumentsService.list — PR-2 statusBadge (Task 2)', () => {
+  it('RESUME rows have statusBadge: null (no badge for plain uploads)', async () => {
+    const h = makeExtendedHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME' }],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const row = result.find((r) => r.id === 'd1')
+    expect(row).toBeDefined()
+    expect(row?.statusBadge ?? null).toBeNull()
+  })
+
+  it('SCAN rows have statusBadge: null', async () => {
+    const h = makeExtendedHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'SCAN' }],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const row = result.find((r) => r.id === 'd1')
+    expect(row?.statusBadge ?? null).toBeNull()
+  })
+
+  it('INVOICE with both COMPANY + COUNTERPARTY sigs → statusBadge {kind:invoice, state:signed}', async () => {
+    const TX_ID = 'tx-001'
+    const DOC_ID = 'inv-doc-001'
+    const h = makeExtendedHarness({
+      docs: [{ id: DOC_ID, ownerId: SENIOR.id, category: 'INVOICE' }],
+      txRows: [
+        {
+          id: TX_ID,
+          status: 'VALIDATED',
+          invoiceDocumentId: DOC_ID,
+          type: 'SENIOR_INCOME',
+          senderId: SENIOR.id,
+          receiverId: null,
+        },
+      ],
+      invoiceSigs: [
+        { transactionId: TX_ID, signerRole: 'COMPANY' },
+        { transactionId: TX_ID, signerRole: 'COUNTERPARTY' },
+      ],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const row = result.find((r) => r.id === DOC_ID)
+    expect(row?.statusBadge).toEqual({ kind: 'invoice', state: 'signed' })
+  })
+
+  it('INVOICE missing COUNTERPARTY sig → statusBadge {kind:invoice, state:ready}', async () => {
+    const TX_ID = 'tx-002'
+    const DOC_ID = 'inv-doc-002'
+    const h = makeExtendedHarness({
+      docs: [{ id: DOC_ID, ownerId: SENIOR.id, category: 'INVOICE' }],
+      txRows: [
+        {
+          id: TX_ID,
+          status: 'PENDING',
+          invoiceDocumentId: DOC_ID,
+          type: 'SENIOR_INCOME',
+          senderId: SENIOR.id,
+          receiverId: null,
+        },
+      ],
+      invoiceSigs: [{ transactionId: TX_ID, signerRole: 'COMPANY' }],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const row = result.find((r) => r.id === DOC_ID)
+    expect(row?.statusBadge).toEqual({ kind: 'invoice', state: 'ready' })
+  })
+
+  it('RECEIPT with VALIDATED tx → statusBadge {kind:receipt, state:validated}', async () => {
+    const TX_ID = 'tx-003'
+    const DOC_ID = 'rcpt-doc-001'
+    const h = makeExtendedHarness({
+      docs: [{ id: DOC_ID, ownerId: SENIOR.id, category: 'RECEIPT' }],
+      txRows: [
+        {
+          id: TX_ID,
+          status: 'VALIDATED',
+          receiptDocumentId: DOC_ID,
+          type: 'SENIOR_INCOME',
+          senderId: SENIOR.id,
+          receiverId: null,
+        },
+      ],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const row = result.find((r) => r.id === DOC_ID)
+    expect(row?.statusBadge).toEqual({ kind: 'receipt', state: 'validated' })
+  })
+
+  it('RECEIPT with PENDING tx → statusBadge {kind:receipt, state:pending}', async () => {
+    const TX_ID = 'tx-004'
+    const DOC_ID = 'rcpt-doc-002'
+    const h = makeExtendedHarness({
+      docs: [{ id: DOC_ID, ownerId: SENIOR.id, category: 'RECEIPT' }],
+      txRows: [
+        {
+          id: TX_ID,
+          status: 'PENDING',
+          receiptDocumentId: DOC_ID,
+          type: 'SENIOR_INCOME',
+          senderId: SENIOR.id,
+          receiverId: null,
+        },
+      ],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const row = result.find((r) => r.id === DOC_ID)
+    expect(row?.statusBadge).toEqual({ kind: 'receipt', state: 'pending' })
+  })
+
+  it('RECEIPT with REJECTED tx → statusBadge {kind:receipt, state:pending} (rejection = re-confirm needed)', async () => {
+    const TX_ID = 'tx-005'
+    const DOC_ID = 'rcpt-doc-003'
+    const h = makeExtendedHarness({
+      docs: [{ id: DOC_ID, ownerId: SENIOR.id, category: 'RECEIPT' }],
+      txRows: [
+        {
+          id: TX_ID,
+          status: 'REJECTED',
+          receiptDocumentId: DOC_ID,
+          type: 'SENIOR_INCOME',
+          senderId: SENIOR.id,
+          receiverId: null,
+        },
+      ],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const row = result.find((r) => r.id === DOC_ID)
+    expect(row?.statusBadge).toEqual({ kind: 'receipt', state: 'pending' })
+  })
+})
+
+describe('DocumentsService.list — PR-2 employee_contract virtual entries (Task 2)', () => {
+  it('SENIOR gets their non-CANCELLED employee_contract as virtual entry', async () => {
+    const CONTRACT_ID = 'contract-001'
+    const h = makeExtendedHarness({
+      docs: [],
+      contractRows: [
+        {
+          id: CONTRACT_ID,
+          userId: SENIOR.id,
+          status: 'READY_TO_SIGN',
+          createdAt: new Date('2026-01-01'),
+        },
+      ],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const virtual = result.find((r) => r.source === 'employee_contract')
+    expect(virtual).toBeDefined()
+    expect(virtual?.id).toBe(CONTRACT_ID)
+    expect(virtual?.statusBadge).toEqual({ kind: 'contract', state: 'ready' })
+  })
+
+  it('DRAFT contract → statusBadge {kind:contract, state:draft} — visible to ADMIN only', async () => {
+    // Non-ADMIN (SENIOR) must NOT see DRAFT contracts (A3-4 onboarding rule).
+    // The badge derivation is still correct — we verify it via ADMIN actor.
+    const h = makeExtendedHarness({
+      docs: [],
+      contractRows: [{ id: 'c1', userId: SENIOR.id, status: 'DRAFT' }],
+    })
+    const resultAdmin = await h.service.list(ADMIN, {})
+    const virtualAdmin = resultAdmin.find((r) => r.source === 'employee_contract')
+    // ADMIN sees DRAFT with correct badge
+    expect(virtualAdmin?.statusBadge).toEqual({ kind: 'contract', state: 'draft' })
+
+    // SENIOR (non-ADMIN) does NOT see DRAFT contract at all
+    const resultSenior = await h.service.list(SENIOR, {})
+    const virtualSenior = resultSenior.find((r) => r.source === 'employee_contract')
+    expect(virtualSenior).toBeUndefined()
+  })
+
+  it('SIGNED contract → statusBadge {kind:contract, state:signed}', async () => {
+    const h = makeExtendedHarness({
+      docs: [],
+      contractRows: [{ id: 'c1', userId: SENIOR.id, status: 'SIGNED' }],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const virtual = result.find((r) => r.source === 'employee_contract')
+    expect(virtual?.statusBadge).toEqual({ kind: 'contract', state: 'signed' })
+  })
+
+  it('CANCELLED contract is hidden (not in results)', async () => {
+    const h = makeExtendedHarness({
+      docs: [],
+      contractRows: [{ id: 'c1', userId: SENIOR.id, status: 'CANCELLED' }],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const virtual = result.filter((r) => r.source === 'employee_contract')
+    expect(virtual).toHaveLength(0)
+  })
+
+  it('virtual employee_contract entry has source: employee_contract (no double-count with uploaded CONTRACT files)', async () => {
+    // Both an uploaded CONTRACT file AND a virtual entry should coexist
+    const CONTRACT_FILE_ID = 'uploaded-contract-doc'
+    const CONTRACT_ROW_ID = 'employee-contract-row'
+    const h = makeExtendedHarness({
+      docs: [{ id: CONTRACT_FILE_ID, ownerId: SENIOR.id, category: 'CONTRACT' }],
+      contractRows: [{ id: CONTRACT_ROW_ID, userId: SENIOR.id, status: 'SIGNED' }],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const fileEntry = result.find((r) => r.id === CONTRACT_FILE_ID)
+    const virtualEntry = result.find((r) => r.source === 'employee_contract')
+    // Both present — no merging or deduplication
+    expect(fileEntry).toBeDefined()
+    expect(virtualEntry).toBeDefined()
+    expect(fileEntry?.source).not.toBe('employee_contract')
+    expect(virtualEntry?.id).toBe(CONTRACT_ROW_ID)
+  })
+
+  it('ADMIN sees employee_contracts of all users (not filtered by own id)', async () => {
+    const h = makeExtendedHarness({
+      docs: [],
+      contractRows: [
+        { id: 'c1', userId: SENIOR.id, status: 'SIGNED' },
+        { id: 'c2', userId: JUNIOR.id, status: 'DRAFT' },
+      ],
+    })
+    const result = await h.service.list(ADMIN, {})
+    const virtuals = result.filter((r) => r.source === 'employee_contract')
+    expect(virtuals).toHaveLength(2)
+  })
+
+  it('SENIOR only sees own employee_contract (not others)', async () => {
+    const h = makeExtendedHarness({
+      docs: [],
+      contractRows: [
+        { id: 'c1', userId: SENIOR.id, status: 'SIGNED' },
+        { id: 'c2', userId: SENIOR2.id, status: 'DRAFT' },
+      ],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const virtuals = result.filter((r) => r.source === 'employee_contract')
+    expect(virtuals).toHaveLength(1)
+    expect(virtuals[0]?.id).toBe('c1')
+  })
+})
+
+// =============================================================================
+// PR-2 — Role-based DRAFT visibility for employee_contracts
+// =============================================================================
+
+describe('DocumentsService.list — DRAFT contract visibility per role', () => {
+  it('ADMIN sees own-user DRAFT contract (DRAFT is admin-only stage)', async () => {
+    const h = makeExtendedHarness({
+      docs: [],
+      contractRows: [{ id: 'draft-1', userId: SENIOR.id, status: 'DRAFT' }],
+    })
+    const result = await h.service.list(ADMIN, {})
+    const virtuals = result.filter((r) => r.source === 'employee_contract')
+    expect(virtuals).toHaveLength(1)
+    expect(virtuals[0]?.id).toBe('draft-1')
+    expect(virtuals[0]?.statusBadge).toEqual({ kind: 'contract', state: 'draft' })
+  })
+
+  it('SENIOR does NOT see own DRAFT contract (visible only from READY_TO_SIGN)', async () => {
+    const h = makeExtendedHarness({
+      docs: [],
+      contractRows: [{ id: 'draft-1', userId: SENIOR.id, status: 'DRAFT' }],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const virtuals = result.filter((r) => r.source === 'employee_contract')
+    expect(virtuals).toHaveLength(0)
+  })
+
+  it('SENIOR sees own READY_TO_SIGN contract (visible to non-ADMIN)', async () => {
+    const h = makeExtendedHarness({
+      docs: [],
+      contractRows: [{ id: 'ready-1', userId: SENIOR.id, status: 'READY_TO_SIGN' }],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const virtuals = result.filter((r) => r.source === 'employee_contract')
+    expect(virtuals).toHaveLength(1)
+    expect(virtuals[0]?.statusBadge).toEqual({ kind: 'contract', state: 'ready' })
+  })
+
+  it('SENIOR sees own SIGNED contract (visible to non-ADMIN)', async () => {
+    const h = makeExtendedHarness({
+      docs: [],
+      contractRows: [{ id: 'signed-1', userId: SENIOR.id, status: 'SIGNED' }],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const virtuals = result.filter((r) => r.source === 'employee_contract')
+    expect(virtuals).toHaveLength(1)
+    expect(virtuals[0]?.statusBadge).toEqual({ kind: 'contract', state: 'signed' })
+  })
+
+  it('ADMIN sees all contract statuses (DRAFT + READY_TO_SIGN + SIGNED) across users', async () => {
+    const h = makeExtendedHarness({
+      docs: [],
+      contractRows: [
+        { id: 'draft-2', userId: SENIOR.id, status: 'DRAFT' },
+        { id: 'ready-2', userId: SENIOR2.id, status: 'READY_TO_SIGN' },
+        { id: 'signed-2', userId: JUNIOR.id, status: 'SIGNED' },
+      ],
+    })
+    const result = await h.service.list(ADMIN, {})
+    const virtuals = result.filter((r) => r.source === 'employee_contract')
+    expect(virtuals).toHaveLength(3)
+    const states = virtuals.map((v) => v.statusBadge?.state).sort()
+    expect(states).toEqual(['draft', 'ready', 'signed'])
+  })
+
+  it('SENIOR with both DRAFT and READY_TO_SIGN contracts: only READY_TO_SIGN visible', async () => {
+    // Unusual but defensive: user has two contracts — draft + ready
+    const h = makeExtendedHarness({
+      docs: [],
+      contractRows: [
+        { id: 'draft-3', userId: SENIOR.id, status: 'DRAFT' },
+        { id: 'ready-3', userId: SENIOR.id, status: 'READY_TO_SIGN' },
+      ],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const virtuals = result.filter((r) => r.source === 'employee_contract')
+    // Only READY_TO_SIGN is visible; DRAFT is hidden from non-ADMIN
+    expect(virtuals).toHaveLength(1)
+    expect(virtuals[0]?.id).toBe('ready-3')
+  })
 })
