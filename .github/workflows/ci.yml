@@ -115,12 +115,19 @@ jobs:
         run: pnpm lint
 
       # Run Drizzle migrations against the CI Postgres instance so that
-      # DB-backed integration specs (fk-integrity.spec.ts) execute against
-      # a schema-complete database. drizzle-kit migrate reads DATABASE_URL
-      # from the environment set above.
+      # DB-backed integration specs execute against a schema-complete database.
+      # drizzle-kit migrate reads DATABASE_URL from the environment set above.
       - name: Run DB migrations (for integration specs)
         if: steps.filter.outputs.code == 'true'
         run: pnpm --filter @crm/api db:migrate
+
+      # Seed canonical users so integration specs that reference stable UUIDs
+      # (e.g. documents-unified.integration.spec.ts → ARTEM d8f9e0b1-...)
+      # can satisfy FK constraints. Seed only inserts rows into an empty DB —
+      # safe because CI always starts with a fresh Postgres service container.
+      - name: Seed DB (for integration specs)
+        if: steps.filter.outputs.code == 'true'
+        run: pnpm --filter @crm/api db:seed
 
       - if: steps.filter.outputs.code == 'true'
         run: pnpm --filter @crm/shared --filter @crm/api --filter @crm/web test
