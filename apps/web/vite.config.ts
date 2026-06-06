@@ -210,12 +210,34 @@ export default defineConfig({
 
         runtimeCaching: [
           {
-            // S3-медиа: CacheFirst + нормализация ключа (срез presigned-query).
+            // S3-медиа (изображения + PDF): CacheFirst + нормализация ключа.
             // S3-объекты иммутабельны — presigned URL меняется при каждом запросе,
             // но контент по одному и тому же origin+pathname всегда одинаков.
-            // Кешируем по origin+pathname, игнорируя query-параметры подписи.
-            urlPattern: ({ url, request }: { url: URL; request: Request }) =>
-              request.destination === 'image' && url.origin !== self.location.origin,
+            // Кешируем по origin+pathname, игнорируя presigned query-параметры (X-Amz-*, Expires…).
+            //
+            // PDF fetch (documents-pdf-preview task):
+            //   Добавлен матч для кросс-origin GET-запросов с .pdf в pathname ИЛИ
+            //   любого кросс-origin-запроса без /api/ в pathname (presigned S3 blob fetch).
+            //   Контракты/инвойсы (same-origin /api/*) не матчатся — они уходят
+            //   в api-cache где cacheWillUpdate убивает no-store ответы.
+            //
+            // Prod NOTE: AWS S3 bucket CORS должен разрешать GET с web-origin
+            //   (AllowedOrigins: https://yourdomain.com, AllowedMethods: GET).
+            //   В dev MinIO уже сконфигурирован (OPTIONS → Access-Control-Allow-Origin).
+            urlPattern: ({ url, request }: { url: URL; request: Request }) => {
+              // Кросс-origin (не наш frontend)
+              if (url.origin === self.location.origin) return false
+              // Исключаем /api/ пути (same-origin proxy — не попадут сюда, но на всякий)
+              if (url.pathname.startsWith('/api/')) return false
+              // Изображения (по destination)
+              if (request.destination === 'image') return true
+              // PDF fetch — по расширению или Content-Type (presigned S3 blob)
+              if (url.pathname.toLowerCase().endsWith('.pdf')) return true
+              // Любой кросс-origin GET без расширения — может быть presigned blob
+              // (S3 keys не имеют расширения у PDF если загружен без него)
+              if (request.method === 'GET' && request.destination === '') return true
+              return false
+            },
             handler: 'CacheFirst' as const,
             options: {
               cacheName: 'media-cache',
