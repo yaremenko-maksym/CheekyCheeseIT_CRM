@@ -141,8 +141,10 @@ importers:
       '@radix-ui/react-tabs': ^1.1.13
       '@radix-ui/react-tooltip': ^1.2.8
       '@tailwindcss/vite': ^4.0.0
+      '@tanstack/query-async-storage-persister': ^5.101.0
       '@tanstack/react-form': ^1.29.1
-      '@tanstack/react-query': ^5.100.0
+      '@tanstack/react-query': ^5.101.0
+      '@tanstack/react-query-persist-client': ^5.101.0
       '@tanstack/react-router': ^1.168.26
       '@tanstack/router-plugin': 1.131.50
       '@testing-library/dom': ^10.0.0
@@ -167,6 +169,7 @@ importers:
       eslint: ^10.3.0
       framer-motion: ^12.0.0
       happy-dom: ^20.9.0
+      idb-keyval: ^6.2.5
       jsdom: ^29.1.1
       libphonenumber-js: ^1.12.42
       lucide-react: ^1.14.0
@@ -208,8 +211,10 @@ importers:
       '@radix-ui/react-slot': 1.2.4_kejy6fftrwj3obyl7hsv7kfnsu
       '@radix-ui/react-tabs': 1.1.13_vgjtmu5g52dd7aolrd4gasxklm
       '@radix-ui/react-tooltip': 1.2.8_vgjtmu5g52dd7aolrd4gasxklm
+      '@tanstack/query-async-storage-persister': 5.101.0
       '@tanstack/react-form': 1.29.1_nnrd3gsncyragczmpvfhocinkq
-      '@tanstack/react-query': 5.100.6_react@18.3.1
+      '@tanstack/react-query': 5.101.0_react@18.3.1
+      '@tanstack/react-query-persist-client': 5.101.0_rxexa7rc6olc6mxmmay2tr3zri
       '@tanstack/react-router': 1.168.26_nnrd3gsncyragczmpvfhocinkq
       '@uiw/react-codemirror': 4.25.10_7o72zaz75442omyn3fajdtis3m
       axios: 1.17.0
@@ -219,6 +224,7 @@ importers:
       date-fns: 4.1.0
       diff: 7.0.0
       framer-motion: 12.38.0_nnrd3gsncyragczmpvfhocinkq
+      idb-keyval: 6.2.5
       libphonenumber-js: 1.12.42
       lucide-react: 1.14.0_react@18.3.1
       react: 18.3.1
@@ -5755,8 +5761,21 @@ packages:
     engines: {node: '>=18'}
     dev: false
 
-  /@tanstack/query-core/5.100.6:
-    resolution: {integrity: sha512-Os2CPUr98to98RYm+D4qGqGkiffn7MGSyl2547a4MljVkHE30AMJRqTiyCqBfMwzAx/I91vCkAxp5tHSla6Twg==}
+  /@tanstack/query-async-storage-persister/5.101.0:
+    resolution: {integrity: sha512-8Y8pwMVPh4kqU9m+MhbDYBuub+i5T2M9P/0+Ae3KccX1BwMIp6AdFAx3zDgLoZcEVI830mbJYf0sjAgsawCWVw==}
+    dependencies:
+      '@tanstack/query-core': 5.101.0
+      '@tanstack/query-persist-client-core': 5.101.0
+    dev: false
+
+  /@tanstack/query-core/5.101.0:
+    resolution: {integrity: sha512-cQetA74EB+seWySv1TTKr828TnP0u39m6LykwDXIo84SNortpDkp30TMEjkqtYCNP9c40uT/iwl6MLiufEt0Ow==}
+    dev: false
+
+  /@tanstack/query-persist-client-core/5.101.0:
+    resolution: {integrity: sha512-LH99WepGVLwlLfuOcQcPK7f3Xg/Gf+xlMMIj9xWu/8oQ3egnDzjr+a4HvEmi6PGob5SmGXvmDKZaH5+In9dzjw==}
+    dependencies:
+      '@tanstack/query-core': 5.101.0
     dev: false
 
   /@tanstack/react-form/1.29.1_nnrd3gsncyragczmpvfhocinkq:
@@ -5775,12 +5794,23 @@ packages:
       - react-dom
     dev: false
 
-  /@tanstack/react-query/5.100.6_react@18.3.1:
-    resolution: {integrity: sha512-uVSrps0PV16Cxmcn2rvL+dUhwTpTUtiRW347AEeYxMZXO2pZe9ja7E24PAMGoQ5u2g89DD8u4QhOviBk+RN8RA==}
+  /@tanstack/react-query-persist-client/5.101.0_rxexa7rc6olc6mxmmay2tr3zri:
+    resolution: {integrity: sha512-AUcdBgz8V6sM9axzdqkVmWjYSOETkhr6yAZSBnEFyZT2jo6vkFq3UrpRuxGs6fmhKMWv8FA+ZJGcbaKPaoAElQ==}
+    peerDependencies:
+      '@tanstack/react-query': ^5.101.0
+      react: ^18 || ^19
+    dependencies:
+      '@tanstack/query-persist-client-core': 5.101.0
+      '@tanstack/react-query': 5.101.0_react@18.3.1
+      react: 18.3.1
+    dev: false
+
+  /@tanstack/react-query/5.101.0_react@18.3.1:
+    resolution: {integrity: sha512-rLlJXSpkqfizLWgkR5+eLeIk0MvTx/meEIR7LRjxic+qxiQP8zVjq7BqQkiCMNLQBlLfuOLqqr6KO5GtrDlmSg==}
     peerDependencies:
       react: ^18 || ^19
     dependencies:
-      '@tanstack/query-core': 5.100.6
+      '@tanstack/query-core': 5.101.0
       react: 18.3.1
     dev: false
 
@@ -9000,6 +9030,10 @@ packages:
     dependencies:
       safer-buffer: 2.1.2
     dev: true
+
+  /idb-keyval/6.2.5:
+    resolution: {integrity: sha512-eKQkTnS0relYsSOYomx8ozIbmdsQCKUdhyuIaQ2DZgKuaxtyQQMkyD/wlnQN32pO3yutN1b1L8uqwcDKaJd7/Q==}
+    dev: false
 
   /idb/7.1.1:
     resolution: {integrity: sha512-gchesWBzyvGHRO9W8tzUWFDycow5gwjvFKfyV9FF32Y7F50yZMp7mP+T2mJIWFx49zicqyC4uefHM17o6xKIVQ==}
