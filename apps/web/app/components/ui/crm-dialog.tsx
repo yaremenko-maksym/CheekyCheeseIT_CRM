@@ -11,9 +11,17 @@ import {
   DialogTrigger,
 } from './dialog'
 
-// CrmDialogContent — always max-h-[90dvh], flex-col, scrollable body
-// Usage:
-//   <CrmDialogContent title="Title">
+// CrmDialogContent — always max-h-[90dvh], flex-col, scrollable body.
+// A11y contract: the CALLER must place <DialogTitle> and <DialogDescription>
+// (visible or sr-only) inside children. CrmDialogContent does NOT inject them.
+// The `title` HTML attribute is NOT a substitute — it produces no accessible name.
+//
+// Correct usage:
+//   <CrmDialogContent>
+//     <CrmDialogHeader>
+//       <DialogTitle>Заголовок</DialogTitle>
+//       <DialogDescription className="sr-only">Краткое описание</DialogDescription>
+//     </CrmDialogHeader>
 //     <CrmDialogBody>...form fields...</CrmDialogBody>
 //     <CrmDialogFooter>...buttons...</CrmDialogFooter>
 //   </CrmDialogContent>
@@ -44,7 +52,20 @@ const CrmDialogContent = React.forwardRef<
     >
       {children}
       <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
         <span className="sr-only">Close</span>
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
