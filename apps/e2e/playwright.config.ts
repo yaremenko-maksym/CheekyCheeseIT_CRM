@@ -46,7 +46,47 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      // Exclude cache specs from the default project — they require a
+      // production build with SW enabled (serviceWorkers: 'allow').
+      testIgnore: '**/cache/**',
       use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      // ── SW / Cache integration project ────────────────────────────────────
+      // Requires a production build (vite build + vite preview) because the
+      // Service Worker is disabled in dev mode (devOptions: { enabled: false }
+      // in vite.config.ts VitePWA). The webServer config below starts the
+      // preview server automatically.
+      //
+      // Isolation: serviceWorkers: 'allow' is scoped to this project only.
+      // The default 'chromium' project above keeps serviceWorkers: 'block' so
+      // existing mock-based specs are not affected.
+      //
+      // CI note: a dedicated 'cache-e2e' shard in ci.yml needs a pre-built
+      // dist/ — see docs/superpowers/plans/2026-06-06-cache-e2e-plan.md.
+      // NOTE: requires externally-started servers (see the webServer note
+      // below); not auto-run by ci.yml yet (no cache shard) — run locally or
+      // via the deferred dedicated shard.
+      name: 'cache',
+      testMatch: '**/cache/**/*.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        // Enable SW registration — this is what we are testing.
+        serviceWorkers: 'allow' as const,
+        baseURL: 'http://localhost:3000',
+        // Longer timeout for SW activation (activation requires ~1–3 network
+        // round-trips for SW script fetch + install + activate lifecycle).
+        actionTimeout: 20_000,
+      },
+      // NOTE: `webServer` is a TOP-LEVEL Playwright option — it cannot be
+      // nested inside a project (that is a type error and is silently ignored
+      // at runtime). The cache project needs BOTH a real backend (:3001) and a
+      // production web preview (:3000, since the SW is disabled in `vite dev`).
+      // Those are started externally by the runner — see the deferred ci.yml
+      // `cache` shard in docs/superpowers/plans/2026-06-06-cache-e2e-plan.md.
+      // A top-level webServer is intentionally NOT added: it would also
+      // force-start servers for the mock `chromium` shards (which run in ci.yml
+      // without a build) and break them.
     },
   ],
 })
