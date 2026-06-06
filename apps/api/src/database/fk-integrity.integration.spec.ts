@@ -15,7 +15,14 @@
  * any future migration that might introduce orphans via DISABLE TRIGGER ALL,
  * pg_dump/restore without FK checks, or manual edits.
  *
- * Test is skipped automatically when DATABASE_URL is absent (CI without DB).
+ * File was renamed fk-integrity.spec.ts → fk-integrity.integration.spec.ts
+ * so that the CI integration job (vitest run "integration.spec") picks it up
+ * and executes it against a real Postgres instance. Previously the file never
+ * ran in any CI job: the quality job had no DATABASE_URL (guard skipped it)
+ * and the integration job filtered by "integration.spec" substring which the
+ * old filename did not contain.
+ *
+ * Test is skipped automatically when DATABASE_URL is absent (CI unit job).
  * Run locally: pnpm --filter @crm/api test -- fk-integrity
  */
 
@@ -23,12 +30,15 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Pool } from 'pg'
 
 // All FK columns referencing users.id, derived from information_schema query
-// executed on 2026-06-04. Must be updated when new FK columns are added.
+// executed on 2026-06-06 (verified against live crm_db via postgres MCP).
+// Must be updated when new FK columns are added.
 const FK_COLUMNS: Array<{ table: string; column: string }> = [
   { table: 'contract_templates', column: 'created_by_user_id' },
   { table: 'documents', column: 'uploaded_by' },
   { table: 'documents', column: 'deleted_by' },
   { table: 'documents', column: 'owner_id' },
+  { table: 'employee_contracts', column: 'created_by_user_id' },
+  { table: 'employee_contracts', column: 'user_id' },
   { table: 'interviews', column: 'senior_id' },
   { table: 'interviews', column: 'hr_id' },
   { table: 'invoice_signatures', column: 'signer_id' },
