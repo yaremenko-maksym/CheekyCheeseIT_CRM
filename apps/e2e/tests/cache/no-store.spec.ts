@@ -32,7 +32,7 @@
 import { test, expect } from '@playwright/test'
 import {
   clearSWAndCaches,
-  waitForSWActive,
+  navigateWithSWReady,
   isCached,
   getCacheEntries,
   loginViaApi,
@@ -52,11 +52,10 @@ test.describe('No-Store exclusion from api-cache — AC12', () => {
   // ── AC12: Primary test via fetch() + cache inspection ────────────────────
   test('AC12: PDF endpoint with no-store is NOT cached in api-cache', async ({ page }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
-    await page.goto('/crm/dashboard')
-    await waitForSWActive(page)
-    await page.waitForLoadState('domcontentloaded')
+    // Double goto: SW must be active controller to intercept the PDF fetch.
+    await navigateWithSWReady(page, '/crm/dashboard')
 
-    // Wait for api-cache to have regular endpoints (proves SW is caching).
+    // Verify api-cache is populated (proves SW is caching normal endpoints).
     await expect
       .poll(
         async () => {
@@ -65,7 +64,7 @@ test.describe('No-Store exclusion from api-cache — AC12', () => {
         },
         {
           message: 'Expected api-cache to be populated with regular endpoints first',
-          timeout: 20_000,
+          timeout: 15_000,
           intervals: [500, 1000, 2000],
         },
       )
@@ -157,9 +156,7 @@ test.describe('No-Store exclusion from api-cache — AC12', () => {
   // ── AC12: Verify employee-contracts PDF path also excluded ───────────────
   test('AC12: employee contracts PDF (no-store) not cached in api-cache', async ({ page }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
-    await page.goto('/crm/dashboard')
-    await waitForSWActive(page)
-    await page.waitForLoadState('domcontentloaded')
+    await navigateWithSWReady(page, '/crm/dashboard')
 
     // Wait for api-cache to be populated with regular entries.
     await expect
@@ -220,9 +217,7 @@ test.describe('No-Store exclusion from api-cache — AC12', () => {
     page,
   }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
-    await page.goto('/crm/team')
-    await waitForSWActive(page)
-    await page.waitForLoadState('domcontentloaded')
+    await navigateWithSWReady(page, '/crm/team')
 
     // /api/users returns 200 without no-store — should be cached.
     await expect

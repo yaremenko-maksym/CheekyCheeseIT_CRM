@@ -21,7 +21,7 @@
 import { test, expect } from '@playwright/test'
 import {
   clearSWAndCaches,
-  waitForSWActive,
+  navigateWithSWReady,
   getAllCacheNames,
   isCached,
   loginViaApi,
@@ -45,9 +45,8 @@ test.describe('Logout cache clear — AC9, AC10, AC11', () => {
    */
   async function populateCaches(page: import('@playwright/test').Page): Promise<void> {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
-    await page.goto('/crm/dashboard')
-    await waitForSWActive(page)
-    await page.waitForLoadState('domcontentloaded')
+    // Double goto: SW must be active controller so requests are intercepted.
+    await navigateWithSWReady(page, '/crm/dashboard')
 
     // Wait until api-cache has at least one entry.
     await expect
@@ -64,8 +63,8 @@ test.describe('Logout cache clear — AC9, AC10, AC11', () => {
         },
         {
           message: 'Expected api-cache to be populated before logout test',
-          timeout: 20_000,
-          intervals: [500, 1000, 2000],
+          timeout: 25_000,
+          intervals: [500, 1000, 2000, 3000],
         },
       )
       .toBeTruthy()

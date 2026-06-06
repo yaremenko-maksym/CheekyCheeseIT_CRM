@@ -169,6 +169,38 @@ export async function loginViaApi(page: Page, email: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// SW warm-up helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Navigate to a CRM page and ensure the SW is actively controlling before
+ * making assertions about cache state.
+ *
+ * Problem: after clearSWAndCaches(), the SW is unregistered. On the FIRST
+ * page.goto(), the SW registers and starts the install → activate lifecycle.
+ * However, the initial API requests fire before the SW becomes the active
+ * controller, so they are NOT intercepted and NOT cached.
+ *
+ * Solution: double goto. The first goto registers the SW; waitForSWActive
+ * waits until clientsClaim completes (controller !== null). The second goto
+ * fires all requests while the SW is already controlling → requests are
+ * intercepted and Workbox caches them.
+ *
+ * This is the standard Workbox integration test pattern when starting from
+ * a clean (no SW) state.
+ */
+export async function navigateWithSWReady(page: Page, url: string): Promise<void> {
+  // First navigation: register and activate the SW.
+  await page.goto(url)
+  await waitForSWActive(page)
+
+  // Second navigation: requests are now intercepted by the active controller.
+  await page.goto(url)
+  await waitForSWActive(page)
+  await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {})
+}
+
+// ---------------------------------------------------------------------------
 // Network offline toggle
 // ---------------------------------------------------------------------------
 

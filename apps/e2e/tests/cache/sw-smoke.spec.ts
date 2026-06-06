@@ -17,6 +17,7 @@ import { test, expect } from '@playwright/test'
 import {
   clearSWAndCaches,
   waitForSWActive,
+  navigateWithSWReady,
   getAllCacheNames,
   loginViaApi,
   SEED_ADMIN_EMAIL,
@@ -57,12 +58,12 @@ test.describe('SW Smoke — registration and cache creation', () => {
   // ── AC2 ─────────────────────────────────────────────────────────────────
   test('AC2: api-cache store exists after CRM navigation', async ({ page }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
-    await page.goto('/crm/dashboard')
-    await waitForSWActive(page)
 
-    // After the page loads, Workbox NetworkFirst should have cached the API
-    // GET requests. Poll until api-cache appears in caches.keys().
-    // We use expect.poll so Playwright retries the check up to expect.timeout.
+    // navigateWithSWReady: double goto ensures SW is active controller before
+    // requests fire (see helpers.ts for full explanation).
+    await navigateWithSWReady(page, '/crm/dashboard')
+
+    // Poll until api-cache appears in caches.keys().
     await expect
       .poll(
         async () => {
@@ -71,7 +72,7 @@ test.describe('SW Smoke — registration and cache creation', () => {
         },
         {
           message: `Expected '${CACHE_NAMES.api}' to appear in caches.keys()`,
-          timeout: 15_000,
+          timeout: 20_000,
           intervals: [500, 500, 1000, 1000, 2000],
         },
       )
@@ -81,15 +82,12 @@ test.describe('SW Smoke — registration and cache creation', () => {
   // ── AC3 ─────────────────────────────────────────────────────────────────
   test('AC3: media-cache store is registered by the SW (exists in caches)', async ({ page }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
-    await page.goto('/crm/dashboard')
-    await waitForSWActive(page)
+    // Double goto for SW controller warm-up.
+    await navigateWithSWReady(page, '/crm/dashboard')
 
     // media-cache is created lazily — only when the SW intercepts a
     // cross-origin image request (request.destination === 'image' && external
     // origin). Navigate to a page that has user avatars or document thumbnails.
-    // If no image loads, the media-cache may not be created yet — that's OK for
-    // this smoke test: we verify the SW is ready to create it, not that it
-    // already exists. So we navigate to team or profile page where avatars load.
     await page.goto('/crm/team')
 
     // Wait a moment for any image requests to be processed.
@@ -130,6 +128,7 @@ test.describe('SW Smoke — registration and cache creation', () => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     await page.goto('/crm/dashboard')
     await waitForSWActive(page)
+    // Single goto is sufficient for this test (only checks registration, not cache).
 
     const swInfo = await page.evaluate(async () => {
       const regs = await navigator.serviceWorker.getRegistrations()
