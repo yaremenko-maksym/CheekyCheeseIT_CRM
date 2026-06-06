@@ -41,11 +41,11 @@ The Playwright `serviceWorkers: 'block'` setting (default for existing specs) pr
 
 ### 2.3 Cache names
 
-| Cache | Name | Strategy |
-|---|---|---|
-| API GET responses | `api-cache` | NetworkFirst, timeout 4s |
-| Cross-origin images (S3 media) | `media-cache` | CacheFirst, key = `origin+pathname` |
-| Static assets (precache) | `workbox-precache-v2-*` | InstallAndRoute |
+| Cache                          | Name                    | Strategy                            |
+| ------------------------------ | ----------------------- | ----------------------------------- |
+| API GET responses              | `api-cache`             | NetworkFirst, timeout 4s            |
+| Cross-origin images (S3 media) | `media-cache`           | CacheFirst, key = `origin+pathname` |
+| Static assets (precache)       | `workbox-precache-v2-*` | InstallAndRoute                     |
 
 ### 2.4 no-store exclusion
 
@@ -90,30 +90,30 @@ Anti-stale scenarios (mutation → UI refresh) require real API responses becaus
 
 ## 5. Flaky risk matrix
 
-| Risk | Mitigation |
-|---|---|
-| SW not yet `activated` when cache assert runs | `waitForSWActive(page)` using `controllerchange` or polling `navigator.serviceWorker.controller` |
-| `networkidle` doesn't imply SW fully controlling | Use `expect.poll()` on cache state instead |
-| Cache entries not yet written (async Workbox) | `expect.poll(() => isCached(...)).toBeTruthy()` with retry |
-| Cross-test cache pollution | `clearSWAndCaches` in `beforeEach` + `afterEach` |
-| Preview server not started | `webServer.reuseExistingServer: !process.env.CI` |
+| Risk                                             | Mitigation                                                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| SW not yet `activated` when cache assert runs    | `waitForSWActive(page)` using `controllerchange` or polling `navigator.serviceWorker.controller` |
+| `networkidle` doesn't imply SW fully controlling | Use `expect.poll()` on cache state instead                                                       |
+| Cache entries not yet written (async Workbox)    | `expect.poll(() => isCached(...)).toBeTruthy()` with retry                                       |
+| Cross-test cache pollution                       | `clearSWAndCaches` in `beforeEach` + `afterEach`                                                 |
+| Preview server not started                       | `webServer.reuseExistingServer: !process.env.CI`                                                 |
 
 ---
 
 ## 6. Acceptance criteria
 
-| # | Criterion |
-|---|---|
-| AC1 | SW activates on page load (`navigator.serviceWorker.controller !== null`) |
-| AC2 | `api-cache` cache store exists after navigating to a CRM page |
-| AC3 | `media-cache` cache store exists after loading a page with cross-origin images |
-| AC4 | Cross-origin images are served `fromServiceWorker()` on repeat visit |
-| AC5 | Cross-origin images are available offline (served from `media-cache`) |
-| AC6 | GET `/api/*` responses are added to `api-cache` |
-| AC7 | Online GET `/api/*` returns fresh data (not from cache) — NetworkFirst behavior |
-| AC8 | Offline GET `/api/*` returns stale data from `api-cache` |
-| AC9 | After logout, `api-cache` is deleted from `caches.keys()` |
-| AC10 | After logout, `media-cache` is deleted from `caches.keys()` |
-| AC11 | Precache store (`workbox-precache*`) survives logout |
-| AC12 | PDF endpoint URL (no-store) is NOT stored in `api-cache` |
-| AC13 | Offline: app shell (HTML) loads without browser network error (SPA fallback) |
+| #    | Criterion                                                                       |
+| ---- | ------------------------------------------------------------------------------- |
+| AC1  | SW activates on page load (`navigator.serviceWorker.controller !== null`)       |
+| AC2  | `api-cache` cache store exists after navigating to a CRM page                   |
+| AC3  | `media-cache` cache store exists after loading a page with cross-origin images  |
+| AC4  | Cross-origin images are served `fromServiceWorker()` on repeat visit            |
+| AC5  | Cross-origin images are available offline (served from `media-cache`)           |
+| AC6  | GET `/api/*` responses are added to `api-cache`                                 |
+| AC7  | Online GET `/api/*` returns fresh data (not from cache) — NetworkFirst behavior |
+| AC8  | Offline GET `/api/*` returns stale data from `api-cache`                        |
+| AC9  | After logout, `api-cache` is deleted from `caches.keys()`                       |
+| AC10 | After logout, `media-cache` is deleted from `caches.keys()`                     |
+| AC11 | Precache store (`workbox-precache*`) survives logout                            |
+| AC12 | PDF endpoint URL (no-store) is NOT stored in `api-cache`                        |
+| AC13 | Offline: app shell (HTML) loads without browser network error (SPA fallback)    |

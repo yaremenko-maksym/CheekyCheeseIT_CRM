@@ -8,16 +8,16 @@
 
 ## Commit order (incremental — resilient to interruption)
 
-| Commit | Files | Content |
-|---|---|---|
-| C1 (infra) | `playwright.config.ts` | Add `cache` project: `serviceWorkers: 'allow'`, `testMatch: tests/cache/**`, `webServer` |
-| C2 (helpers) | `tests/cache/helpers.ts` | `waitForSWActive`, `getCacheEntries`, `isCached`, `isFromServiceWorker`, `clearSWAndCaches` |
-| C3 (smoke) | `tests/cache/sw-smoke.spec.ts` | SW activates + cache stores exist |
-| C4 (media) | `tests/cache/media-cache.spec.ts` | CacheFirst, fromServiceWorker, offline |
-| C5 (api) | `tests/cache/api-cache.spec.ts` | NetworkFirst: populates cache, online fresh, offline stale |
-| C6 (logout) | `tests/cache/logout-clear.spec.ts` | api+media deleted, precache survives |
-| C7 (no-store) | `tests/cache/no-store.spec.ts` | PDF URL not in api-cache |
-| C8 (docs) | `docs/superpowers/**` | Spec + plan (this file) |
+| Commit        | Files                              | Content                                                                                     |
+| ------------- | ---------------------------------- | ------------------------------------------------------------------------------------------- |
+| C1 (infra)    | `playwright.config.ts`             | Add `cache` project: `serviceWorkers: 'allow'`, `testMatch: tests/cache/**`, `webServer`    |
+| C2 (helpers)  | `tests/cache/helpers.ts`           | `waitForSWActive`, `getCacheEntries`, `isCached`, `isFromServiceWorker`, `clearSWAndCaches` |
+| C3 (smoke)    | `tests/cache/sw-smoke.spec.ts`     | SW activates + cache stores exist                                                           |
+| C4 (media)    | `tests/cache/media-cache.spec.ts`  | CacheFirst, fromServiceWorker, offline                                                      |
+| C5 (api)      | `tests/cache/api-cache.spec.ts`    | NetworkFirst: populates cache, online fresh, offline stale                                  |
+| C6 (logout)   | `tests/cache/logout-clear.spec.ts` | api+media deleted, precache survives                                                        |
+| C7 (no-store) | `tests/cache/no-store.spec.ts`     | PDF URL not in api-cache                                                                    |
+| C8 (docs)     | `docs/superpowers/**`              | Spec + plan (this file)                                                                     |
 
 ---
 
@@ -51,10 +51,7 @@ Note: SW only works in production build. For CI: build must happen before `pnpm 
 
 ```typescript
 // Wait until SW is controlling the page
-await page.waitForFunction(
-  () => navigator.serviceWorker?.controller !== null,
-  { timeout: 15_000 }
-)
+await page.waitForFunction(() => navigator.serviceWorker?.controller !== null, { timeout: 15_000 })
 ```
 
 #### `getCacheEntries(page, cacheName)`
@@ -63,7 +60,7 @@ await page.waitForFunction(
 const entries = await page.evaluate(async (name: string) => {
   const cache = await caches.open(name)
   const keys = await cache.keys()
-  return keys.map(r => r.url)
+  return keys.map((r) => r.url)
 }, cacheName)
 ```
 
@@ -72,7 +69,7 @@ const entries = await page.evaluate(async (name: string) => {
 ```typescript
 // Checks if any cache entry URL contains the substring
 const keys = await getCacheEntries(page, cacheName ?? 'api-cache')
-return keys.some(url => url.includes(urlSubstring))
+return keys.some((url) => url.includes(urlSubstring))
 ```
 
 #### `clearSWAndCaches(page)`
@@ -81,10 +78,10 @@ return keys.some(url => url.includes(urlSubstring))
 await page.evaluate(async () => {
   // Unregister all SW
   const regs = await navigator.serviceWorker.getRegistrations()
-  await Promise.all(regs.map(r => r.unregister()))
+  await Promise.all(regs.map((r) => r.unregister()))
   // Delete all runtime caches
   const keys = await caches.keys()
-  await Promise.all(keys.map(k => caches.delete(k)))
+  await Promise.all(keys.map((k) => caches.delete(k)))
 })
 ```
 
@@ -94,42 +91,42 @@ await page.evaluate(async () => {
 
 ### `sw-smoke.spec.ts` (AC1, AC2, AC3)
 
-| Test | AC |
-|---|---|
-| SW activates after navigating to /crm | AC1 |
+| Test                                    | AC  |
+| --------------------------------------- | --- |
+| SW activates after navigating to /crm   | AC1 |
 | `api-cache` exists after CRM navigation | AC2 |
-| `media-cache` is registered by SW | AC3 |
+| `media-cache` is registered by SW       | AC3 |
 
 ### `media-cache.spec.ts` (AC3, AC4, AC5)
 
-| Test | AC |
-|---|---|
-| Cross-origin image added to media-cache | AC3 |
-| Repeat visit serves image fromServiceWorker | AC4 |
+| Test                                                      | AC  |
+| --------------------------------------------------------- | --- |
+| Cross-origin image added to media-cache                   | AC3 |
+| Repeat visit serves image fromServiceWorker               | AC4 |
 | Offline: image loaded from media-cache (no network error) | AC5 |
 
 Note: Media cache tests use a stub cross-origin image served by the test (via `page.route` or real S3 presigned URL from seed). Since real S3 may not be available in all environments, the test intercepts a synthetic cross-origin request.
 
 ### `api-cache.spec.ts` (AC6, AC7, AC8)
 
-| Test | AC |
-|---|---|
-| GET /api/users is added to api-cache | AC6 |
+| Test                                       | AC  |
+| ------------------------------------------ | --- |
+| GET /api/users is added to api-cache       | AC6 |
 | Online: fresh response (not from SW cache) | AC7 |
-| Offline: stale data served from api-cache | AC8 |
+| Offline: stale data served from api-cache  | AC8 |
 
 ### `logout-clear.spec.ts` (AC9, AC10, AC11)
 
-| Test | AC |
-|---|---|
-| After logout: api-cache removed from caches.keys() | AC9 |
+| Test                                                 | AC   |
+| ---------------------------------------------------- | ---- |
+| After logout: api-cache removed from caches.keys()   | AC9  |
 | After logout: media-cache removed from caches.keys() | AC10 |
-| After logout: workbox-precache-* survives | AC11 |
+| After logout: workbox-precache-\* survives           | AC11 |
 
 ### `no-store.spec.ts` (AC12)
 
-| Test | AC |
-|---|---|
+| Test                                         | AC   |
+| -------------------------------------------- | ---- |
 | PDF endpoint URL (no-store) not in api-cache | AC12 |
 
 ---
