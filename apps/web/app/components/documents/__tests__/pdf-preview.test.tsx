@@ -27,9 +27,7 @@ import { PdfPreview } from '../pdf-preview'
 
 describe('PdfPreview', () => {
   it('AC1: показывает лоадер когда isLoading=true и blobUrl=null', () => {
-    render(
-      <PdfPreview blobUrl={null} isLoading={true} hasError={false} filename="test.pdf" />,
-    )
+    render(<PdfPreview blobUrl={null} isLoading={true} hasError={false} filename="test.pdf" />)
     expect(screen.getByText('Загрузка PDF…')).toBeInTheDocument()
   })
 
@@ -52,9 +50,7 @@ describe('PdfPreview', () => {
   })
 
   it('AC3: показывает состояние ошибки когда hasError=true', () => {
-    render(
-      <PdfPreview blobUrl={null} isLoading={false} hasError={true} filename="test.pdf" />,
-    )
+    render(<PdfPreview blobUrl={null} isLoading={false} hasError={true} filename="test.pdf" />)
     expect(screen.getByText('Не удалось загрузить PDF.')).toBeInTheDocument()
   })
 
@@ -69,14 +65,7 @@ describe('PdfPreview', () => {
   })
 
   it('AC5: data-testid корректно проставляется', () => {
-    render(
-      <PdfPreview
-        blobUrl={null}
-        isLoading={false}
-        hasError={false}
-        testId="custom-testid"
-      />,
-    )
+    render(<PdfPreview blobUrl={null} isLoading={false} hasError={false} testId="custom-testid" />)
     expect(document.querySelector('[data-testid="custom-testid"]')).not.toBeNull()
   })
 })

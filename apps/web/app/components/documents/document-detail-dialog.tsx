@@ -233,10 +233,9 @@ export function DocumentDetailDialog({
   // Presigned URL query — остаётся для кнопки «Скачать» когда blob ещё не готов
   // (также нужен для DocumentImage — картинки не blob-загружаются)
   // -------------------------------------------------------------------------
-  const downloadQuery = useDocumentDownloadUrl(
-    isContractVirtual ? undefined : doc?.id,
-    { enabled: open && !isContractVirtual && Boolean(doc) },
-  )
+  const downloadQuery = useDocumentDownloadUrl(isContractVirtual ? undefined : doc?.id, {
+    enabled: open && !isContractVirtual && Boolean(doc),
+  })
 
   const softDelete = useDeleteDocument()
   const restore = useRestoreDocument()
@@ -272,7 +271,7 @@ export function DocumentDetailDialog({
 
   // Кнопка «Скачать» заблокирована если blob ещё грузится
   const isDownloadDisabled =
-    (isPdf || isContractVirtual) ? (activeBlobLoading && !activeBlobUrl) : downloadQuery.isFetching
+    isPdf || isContractVirtual ? activeBlobLoading && !activeBlobUrl : downloadQuery.isFetching
 
   if (!doc) return null
 
@@ -337,11 +336,7 @@ export function DocumentDetailDialog({
                   value={relativeDate}
                   title={doc.createdAt}
                 />
-                <DetailRow
-                  icon={HardDrive}
-                  label="Размер"
-                  value={formatBytes(doc.sizeBytes)}
-                />
+                <DetailRow icon={HardDrive} label="Размер" value={formatBytes(doc.sizeBytes)} />
                 <DetailRow icon={FileType} label="Формат" value={doc.mimeType} />
                 {/* AC5: «Имя файла» row deliberately removed — the title
                     already shows displayName (original cyrillic-preserved
@@ -367,7 +362,7 @@ export function DocumentDetailDialog({
                     variant="full"
                     className="h-full w-full"
                   />
-                ) : (isPdf || isContractVirtual) ? (
+                ) : isPdf || isContractVirtual ? (
                   /* PDF inline preview через blob */
                   <PdfPreview
                     blobUrl={activeBlobUrl}
@@ -477,8 +472,8 @@ export function DocumentDetailDialog({
           <AlertDialogHeader>
             <AlertDialogTitle>Удалить навсегда?</AlertDialogTitle>
             <AlertDialogDescription>
-              Файл «{displayName}» будет удалён навсегда из S3 и базы. Действие
-              необратимо. Продолжить?
+              Файл «{displayName}» будет удалён навсегда из S3 и базы. Действие необратимо.
+              Продолжить?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -519,10 +514,7 @@ interface DetailRowProps {
 function DetailRow({ icon: Icon, label, value, title, className }: DetailRowProps) {
   const isString = typeof value === 'string'
   return (
-    <div
-      className={`flex items-start gap-2 text-xs ${className ?? ''}`}
-      title={title}
-    >
+    <div className={`flex items-start gap-2 text-xs ${className ?? ''}`} title={title}>
       <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <p className="text-muted-foreground">{label}</p>

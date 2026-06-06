@@ -100,10 +100,7 @@ export function PdfPreview({
           title={`Предпросмотр: ${filename}`}
           aria-label={`Предпросмотр: ${filename}`}
           tabIndex={0}
-          className={cn(
-            'h-full w-full rounded-xl border-0',
-            !iframeReady && 'invisible',
-          )}
+          className={cn('h-full w-full rounded-xl border-0', !iframeReady && 'invisible')}
           onLoad={() => {
             if (timeoutRef.current) clearTimeout(timeoutRef.current)
             setIframeReady(true)
@@ -117,11 +114,7 @@ export function PdfPreview({
           <object data={blobUrl} type="application/pdf" className="h-full w-full">
             <p className="p-4 text-sm text-muted-foreground">
               Встроенный просмотр PDF недоступен.{' '}
-              <a
-                href={blobUrl}
-                download={filename}
-                className="underline hover:text-foreground"
-              >
+              <a href={blobUrl} download={filename} className="underline hover:text-foreground">
                 Скачать PDF
               </a>
             </p>
@@ -133,14 +126,8 @@ export function PdfPreview({
       {iframeFallback && blobUrl && !hasError && (
         <div className="flex flex-col items-center gap-3 p-6 text-center">
           <FileText className="h-12 w-12 text-muted-foreground/60" />
-          <p className="text-sm text-muted-foreground">
-            Браузер заблокировал встроенный просмотр.
-          </p>
-          <Button
-            size="sm"
-            variant="outline"
-            asChild
-          >
+          <p className="text-sm text-muted-foreground">Браузер заблокировал встроенный просмотр.</p>
+          <Button size="sm" variant="outline" asChild>
             <a href={blobUrl} download={filename} target="_blank" rel="noopener noreferrer">
               <ExternalLink className="mr-1.5 h-4 w-4" />
               Открыть PDF

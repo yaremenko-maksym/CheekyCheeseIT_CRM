@@ -111,7 +111,10 @@ async function setupDocumentsMocks(
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ url: presignedUrlSuffix, expiresAt: new Date(Date.now() + 3600000).toISOString() }),
+      body: JSON.stringify({
+        url: presignedUrlSuffix,
+        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      }),
     })
   })
 
@@ -195,7 +198,10 @@ test.describe('AC2: кнопка «Скачать» использует blob �
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ url: S3_PDF_URL, expiresAt: new Date(Date.now() + 3600000).toISOString() }),
+        body: JSON.stringify({
+          url: S3_PDF_URL,
+          expiresAt: new Date(Date.now() + 3600000).toISOString(),
+        }),
       })
     })
 
@@ -228,7 +234,10 @@ test.describe('AC2: кнопка «Скачать» использует blob �
         if (tag === 'a') {
           el.click = () => {
             // Помечаем в localStorage факт вызова download
-            window.localStorage.setItem('__download_clicked__', el.getAttribute('href') ?? 'no-href')
+            window.localStorage.setItem(
+              '__download_clicked__',
+              el.getAttribute('href') ?? 'no-href',
+            )
           }
         }
         return el
