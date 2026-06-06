@@ -521,12 +521,18 @@ export class DocumentsService {
 
     // Human-readable name (п.4). For SIGNED contracts use the stable contract
     // number so the entry is identifiable without exposing the raw uuid.
+    // LOW: SIGNED contracts without a signedContract relation (e.g. legacy data
+    // or relation not eagerly loaded) fall back to the neutral «Трудовой договор»
+    // rather than «(черновик)» which would be semantically incorrect for a
+    // signed document.
     const readableName =
       contract.status === 'SIGNED' && contract.signedContract?.contractNumber
         ? `Трудовой договор ${contract.signedContract.contractNumber}`
-        : contract.status === 'READY_TO_SIGN'
-          ? 'Трудовой договор (к подписанию)'
-          : 'Трудовой договор (черновик)'
+        : contract.status === 'SIGNED'
+          ? 'Трудовой договор'
+          : contract.status === 'READY_TO_SIGN'
+            ? 'Трудовой договор (к подписанию)'
+            : 'Трудовой договор (черновик)'
 
     return {
       id: contract.id,

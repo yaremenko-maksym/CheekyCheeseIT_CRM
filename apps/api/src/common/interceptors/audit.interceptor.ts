@@ -1,4 +1,4 @@
-import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common'
+import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import { from, Observable, switchMap } from 'rxjs'
 import type { AuditAction, SessionUser } from '@crm/shared'
@@ -8,6 +8,8 @@ import { AUDIT_LOG_KEY } from '../decorators/audit-log.decorator'
 
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
+  private readonly logger = new Logger(AuditInterceptor.name)
+
   constructor(
     private reflector: Reflector,
     private auditLogService: AuditLogService,
@@ -44,25 +46,38 @@ export class AuditInterceptor implements NestInterceptor {
             // is bypassed by the spy.
             if (Object.keys(changes).length === 0) return response
 
+            // MED-3: audit record() is best-effort — a DB failure while writing
+            // the audit row must NOT propagate to the client as a 500, because
+            // the primary mutation has already been committed. We log loudly so
+            // ops teams are alerted, but the HTTP response is still returned.
+            //
             // п.2: if legalFullName changed, emit an additional dedicated action
             // BEFORE the generic one so the audit trail reads chronologically as
             // "legal name changed" → "profile edited".
-            if ('legalFullName' in changes) {
-              const legalNameChanges = { legalFullName: changes['legalFullName']! }
+            try {
+              if ('legalFullName' in changes) {
+                const legalNameChanges = { legalFullName: changes['legalFullName']! }
+                await this.auditLogService.record({
+                  actorId: actor?.id ?? null,
+                  targetId,
+                  action: 'legal_name_change',
+                  changes: legalNameChanges,
+                })
+              }
+
               await this.auditLogService.record({
                 actorId: actor?.id ?? null,
                 targetId,
-                action: 'legal_name_change',
-                changes: legalNameChanges,
+                action,
+                changes,
               })
+            } catch (auditErr) {
+              // Audit is best-effort: log loudly but don't break the response.
+              this.logger.error(
+                `[AuditInterceptor] Failed to persist audit record for target=${targetId} action=${action}: ${(auditErr as Error).message}`,
+                (auditErr as Error).stack,
+              )
             }
-
-            await this.auditLogService.record({
-              actorId: actor?.id ?? null,
-              targetId,
-              action,
-              changes,
-            })
 
             return response
           })(),

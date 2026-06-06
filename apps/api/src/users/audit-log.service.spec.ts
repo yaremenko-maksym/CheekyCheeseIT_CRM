@@ -113,6 +113,25 @@ describe('AuditLogService.diff', () => {
       expect(d['bankUahBankName']!.after).toBe(REDACTED_TOKEN)
     })
 
+    // HIGH-1: adminNote — PII free-text note, must be redacted
+    it('redacts adminNote (HIGH-1) — key present, values redacted', () => {
+      const d = svc.diff(
+        { adminNote: 'Проблемный сотрудник, склонен к опозданиям' },
+        { adminNote: 'Исправился, показатели улучшились' },
+      )
+      expect(d).toHaveProperty('adminNote')
+      expect(d['adminNote']!.before).toBe(REDACTED_TOKEN)
+      expect(d['adminNote']!.after).toBe(REDACTED_TOKEN)
+    })
+
+    // MED-2: monthlySalary — financially-sensitive, must be redacted
+    it('redacts monthlySalary (MED-2) — key present, values redacted', () => {
+      const d = svc.diff({ monthlySalary: 3000 }, { monthlySalary: 3500 })
+      expect(d).toHaveProperty('monthlySalary')
+      expect(d['monthlySalary']!.before).toBe(REDACTED_TOKEN)
+      expect(d['monthlySalary']!.after).toBe(REDACTED_TOKEN)
+    })
+
     it('mixed diff — sensitive fields redacted, non-sensitive pass through', () => {
       const d = svc.diff(
         {
@@ -146,7 +165,7 @@ describe('AuditLogService.diff', () => {
       expect(d).toEqual({})
     })
 
-    it('SENSITIVE_FIELDS set covers all 11 expected fields', () => {
+    it('SENSITIVE_FIELDS set covers all 13 expected fields', () => {
       const expected = [
         'email',
         'googleId',
@@ -159,11 +178,14 @@ describe('AuditLogService.diff', () => {
         'bankUahIban',
         'bankUahRnokpp',
         'bankUahBankName',
+        // HIGH-1 + MED-2 additions
+        'adminNote',
+        'monthlySalary',
       ]
       for (const field of expected) {
         expect(SENSITIVE_FIELDS.has(field), `Expected "${field}" in SENSITIVE_FIELDS`).toBe(true)
       }
-      expect(SENSITIVE_FIELDS.size).toBe(11)
+      expect(SENSITIVE_FIELDS.size).toBe(13)
     })
   })
 })

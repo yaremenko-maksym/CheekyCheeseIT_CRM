@@ -170,4 +170,30 @@ describe('AuditInterceptor — legal_name_change (п.2)', () => {
     expect(firstCall.action).toBe('legal_name_change')
     expect(Object.keys(firstCall.changes)).toEqual(['legalFullName'])
   })
+
+  // ── MED-3: best-effort audit — record() failure must not propagate ────────
+
+  it('MED-3: returns response even when record() throws (best-effort audit)', async () => {
+    // Simulate DB outage: record() always rejects
+    recordSpy.mockRejectedValue(new Error('DB connection lost'))
+
+    const before = makeUser({ displayName: 'Old Name' })
+    const after = makeUser({ displayName: 'New Name' })
+
+    usersService.findById.mockResolvedValueOnce(before).mockResolvedValueOnce(after)
+
+    // Spy on logger.error to verify the error is logged (not silently swallowed)
+    const loggerErrorSpy = vi.spyOn(interceptor['logger'], 'error').mockImplementation(() => {})
+
+    const ctx = makeExecutionContext('actor-uuid', 'user-uuid')
+    const observable = await interceptor.intercept(ctx, makeCallHandler())
+
+    // Must resolve without throwing even though record() failed
+    const result = await lastValueFrom(observable)
+    expect(result).toBe('response')
+
+    // Error must be logged loudly
+    expect(loggerErrorSpy).toHaveBeenCalledOnce()
+    expect(loggerErrorSpy.mock.calls[0]![0]).toContain('Failed to persist audit record')
+  })
 })

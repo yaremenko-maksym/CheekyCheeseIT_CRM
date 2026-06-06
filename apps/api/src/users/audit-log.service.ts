@@ -23,6 +23,8 @@ const IGNORE_FIELDS = new Set(['updatedAt', 'createdAt', 'id', 'avatarUrl', 'ava
  *   - Payment requisites (USDT ERC-20):  walletUsdtErc20, walletUsdtLabel
  *   - Payment requisites (Bank UAH FOP): bankUahRecipient, bankUahIban,
  *                                        bankUahRnokpp, bankUahBankName
+ *   - Internal notes (admin-only free text about a person): adminNote
+ *   - Financial terms (salary amount, financially sensitive): monthlySalary
  *
  * For sensitive fields the audit log records *that* the field changed (the key
  * is present in `changes`) but replaces actual before/after values with the
@@ -40,6 +42,10 @@ export const SENSITIVE_FIELDS = new Set([
   'bankUahIban',
   'bankUahRnokpp',
   'bankUahBankName',
+  // HIGH-1: adminNote — free-text PII written by admin about a person
+  'adminNote',
+  // MED-2: monthlySalary — financially-sensitive compensation data
+  'monthlySalary',
 ])
 
 export const REDACTED_TOKEN = '[redacted]' as const
