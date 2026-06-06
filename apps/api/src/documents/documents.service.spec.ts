@@ -1333,3 +1333,40 @@ describe('DocumentsService.hardDeleteInternal', () => {
     expect(h.docsRows).toHaveLength(0)
   })
 })
+
+// =============================================================================
+// Task 3 — 1:1 receipt invariant + RECEIPT soft-delete rule (PR-3)
+// =============================================================================
+
+describe('DocumentsService — RECEIPT soft-delete rule (Task 3)', () => {
+  // The RECEIPT user-soft-delete rule: an owner CAN soft-delete their receipt
+  // via the regular softDelete() path — the 1:1 invariant is maintained by the
+  // replace-with-delete path in TransactionsService, not by blocking softDelete.
+  // This test documents current behaviour and ensures it stays unchanged.
+  it('owner can soft-delete a RECEIPT document (softDelete is NOT blocked for RECEIPT)', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RECEIPT' }],
+    })
+    await expect(h.service.softDelete(SENIOR, 'd1')).resolves.toBeUndefined()
+    expect(h.docsRows[0]?.deletedAt).not.toBeNull()
+  })
+
+  // hardDeleteInternal IS permitted on RECEIPT (internal, no RBAC) — this is
+  // the controlled replace-delete path called by TransactionsService.
+  it('hardDeleteInternal succeeds on RECEIPT doc (internal replace-delete allowed)', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RECEIPT', s3Key: 'docs/r/d1.pdf' }],
+    })
+    await expect(h.service.hardDeleteInternal('d1')).resolves.toBeUndefined()
+    expect(h.docsRows).toHaveLength(0)
+  })
+
+  // The public hardDelete (ADMIN two-stage) still requires prior soft-delete
+  // regardless of category — RECEIPT is no exception.
+  it('hardDelete (ADMIN public) still requires prior soft-delete even for RECEIPT', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RECEIPT', deletedAt: null }],
+    })
+    await expect(h.service.hardDelete(ADMIN, 'd1')).rejects.toBeInstanceOf(BadRequestException)
+  })
+})
