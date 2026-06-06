@@ -474,6 +474,8 @@ export class DocumentsService {
     // Fetch employee_contracts scoped by RBAC:
     //   ADMIN — all non-CANCELLED (DRAFT + READY_TO_SIGN + SIGNED)
     //   non-ADMIN — own non-CANCELLED AND non-DRAFT (READY_TO_SIGN + SIGNED only)
+    // Include signedContract relation so we can surface the human-readable
+    // contract_number (e.g. CHK-7F3A9C) in the list instead of the raw uuid.
     const contractRows = await this.db.db.query.employeeContracts.findMany({
       where: (tbl, { ne, eq: deq, and: dand }) => {
         const notCancelled = ne(tbl.status, 'CANCELLED')
@@ -482,6 +484,7 @@ export class DocumentsService {
         const notDraft = ne(tbl.status, 'DRAFT')
         return dand(notCancelled, notDraft, deq(tbl.userId, actor.id))
       },
+      with: { signedContract: true },
     })
 
     return contractRows.map((c) => this.mapContractVirtualEntry(c, actor.id))
@@ -492,9 +495,21 @@ export class DocumentsService {
    * The entry gets a synthetic id = the contract's id, ownerId = userId,
    * category = 'CONTRACT' (for consistent filter/grouping), and
    * source = 'employee_contract' (discriminator).
+   *
+   * п.4: `name` is a human-readable Russian label instead of the raw uuid key.
+   *   - SIGNED: «Трудовой договор CHK-XXXXXX» (contract_number from signed_contracts)
+   *   - READY_TO_SIGN: «Трудовой договор (к подписанию)»
+   *   - DRAFT: «Трудовой договор (черновик)»
+   * s3Key / download paths are not touched.
    */
   private mapContractVirtualEntry(
-    contract: { id: string; userId: string; status: string; createdAt: Date },
+    contract: {
+      id: string
+      userId: string
+      status: string
+      createdAt: Date
+      signedContract?: { contractNumber: string } | null
+    },
     _actorId: string,
   ): DocumentDto {
     const state: StatusBadge['state'] =
@@ -504,12 +519,21 @@ export class DocumentsService {
           ? 'ready'
           : 'draft'
 
+    // Human-readable name (п.4). For SIGNED contracts use the stable contract
+    // number so the entry is identifiable without exposing the raw uuid.
+    const readableName =
+      contract.status === 'SIGNED' && contract.signedContract?.contractNumber
+        ? `Трудовой договор ${contract.signedContract.contractNumber}`
+        : contract.status === 'READY_TO_SIGN'
+          ? 'Трудовой договор (к подписанию)'
+          : 'Трудовой договор (черновик)'
+
     return {
       id: contract.id,
       ownerId: contract.userId,
       projectId: null,
       category: 'CONTRACT',
-      name: `contract-${contract.id}`,
+      name: readableName,
       originalName: null,
       s3Key: '',
       thumbnailS3Key: null,
