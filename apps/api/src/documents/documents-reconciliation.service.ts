@@ -81,9 +81,7 @@ export class DocumentsReconciliationService {
     const graceMs = graceHours * 60 * 60 * 1000
     const cutoff = new Date(Date.now() - graceMs)
 
-    this.logger.log(
-      `[reconcile-orphans] Starting scan: dryRun=${dryRun}, graceHours=${graceHours}`,
-    )
+    this.logger.log(`[reconcile-orphans] Starting scan: dryRun=${dryRun}, graceHours=${graceHours}`)
 
     // -----------------------------------------------------------------------
     // Step 1: Load all known S3 keys from DB (s3Key + thumbnailS3Key)
@@ -150,9 +148,7 @@ export class DocumentsReconciliationService {
       this.logger.log(`[reconcile-orphans] Deleted ${deleted} orphan(s)`)
     } else {
       if (orphans.length > 0) {
-        this.logger.log(
-          `[reconcile-orphans] Dry run — would delete ${orphans.length} orphan(s):`,
-        )
+        this.logger.log(`[reconcile-orphans] Dry run — would delete ${orphans.length} orphan(s):`)
         for (const orphan of orphans) {
           this.logger.log(`  • ${orphan.key} (${orphan.sizeBytes} bytes)`)
         }

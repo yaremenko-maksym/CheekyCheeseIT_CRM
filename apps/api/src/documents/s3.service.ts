@@ -198,7 +198,7 @@ export class S3Service {
    */
   async listObjects(continuationToken?: string): Promise<{
     objects: Array<{ key: string; sizeBytes: number; lastModified: Date }>
-    nextContinuationToken?: string
+    nextContinuationToken: string | undefined
   }> {
     const res = await this.client.send(
       new ListObjectsV2Command({
