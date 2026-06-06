@@ -30,9 +30,11 @@ jobs:
   quality:
     name: Typecheck · Lint · Unit Tests
     runs-on: ubuntu-latest
+    # DB-free: unit tests use dbAvailable-guard and skip integration specs when
+    # DATABASE_URL is absent. Integration specs run in the dedicated `integration`
+    # job below, which has a Postgres service and full seed+fixture setup.
+    # S3 dummy creds are still needed so env-schema validation passes at import time.
     env:
-      # S3 / MinIO (PHASE 6) — dummy creds so env schema validation passes in unit tests.
-      # No MinIO service needed: quality job не делает реальных S3 calls.
       S3_ENDPOINT: http://localhost:9000
       S3_FORCE_PATH_STYLE: 'true'
       S3_REGION: us-east-1
@@ -92,7 +94,10 @@ jobs:
       - if: steps.filter.outputs.code == 'true'
         run: pnpm lint
 
-      - if: steps.filter.outputs.code == 'true'
+      # Run unit tests only — no DATABASE_URL means dbAvailable=false and
+      # integration specs skip themselves via their guard. No DB service needed.
+      - name: Run unit tests (no DB)
+        if: steps.filter.outputs.code == 'true'
         run: pnpm --filter @crm/shared --filter @crm/api --filter @crm/web test
 
       - name: Docs-only short-circuit
@@ -118,16 +123,206 @@ jobs:
             --color "d73a4a" --description "CI checks failed" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --add-label "ci-failed"
 
+  integration:
+    name: Integration Tests (Postgres)
+    runs-on: ubuntu-latest
+    # Runs DB-backed *.integration.spec.ts against a real Postgres instance.
+    # Separated from the unit-test `quality` job so unit tests stay fast and
+    # DB-free, while integration specs get migrate + seed + fixture data.
+    permissions:
+      pull-requests: write
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: crm_db
+          POSTGRES_USER: crm_user
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_db
+      S3_ENDPOINT: http://localhost:9000
+      S3_FORCE_PATH_STYLE: 'true'
+      S3_REGION: us-east-1
+      S3_BUCKET: crm-documents
+      S3_USE_SSE: 'false'
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 2
+
+      - name: Detect non-docs changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - '!docs/**'
+              - '!**.md'
+              - '!.github/CODEOWNERS'
+
+      - uses: pnpm/action-setup@v4
+        if: steps.filter.outputs.code == 'true'
+        with:
+          version: 7.32.4
+
+      - uses: actions/setup-node@v4
+        if: steps.filter.outputs.code == 'true'
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - uses: actions/cache@v4
+        if: steps.filter.outputs.code == 'true'
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+
+      - if: steps.filter.outputs.code == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - if: steps.filter.outputs.code == 'true'
+        run: pnpm build
+
+      # Apply all Drizzle migrations (0000→latest) against the fresh CI Postgres.
+      # Migration 0002 was fixed (commit a195fbf) — no duplicate DDL, runs clean.
+      - name: Run DB migrations
+        if: steps.filter.outputs.code == 'true'
+        run: pnpm --filter @crm/api db:migrate
+
+      # Seed canonical users (stable UUIDs) so integration specs can satisfy FK
+      # constraints without per-test inserts of baseline data.
+      - name: Seed DB
+        if: steps.filter.outputs.code == 'true'
+        run: pnpm --filter @crm/api db:seed
+
+      # Insert QA fixtures required by two integration specs:
+      #
+      # 1) documents-unified.integration.spec.ts test #11:
+      #      ADMIN must see DRAFT contracts. Seed creates SIGNED + READY_TO_SIGN only.
+      #      Adds QA SENIOR (27b9524e-...) + DRAFT employee_contract.
+      #
+      # 2) onboarding-contract.integration.spec.ts tests 1b + 3:
+      #      DRAFT-only user (QA_FIX3, 354d26e9-...) must exist with DRAFT contract.
+      #
+      # source_template_id is resolved at runtime (seed assigns random UUIDs via
+      # .returning()), so we SELECT the active SENIOR template inserted by db:seed.
+      #
+      # employee_contracts has partial unique index WHERE status != 'CANCELLED' —
+      # ON CONFLICT DO NOTHING is safe on a fresh CI DB.
+      - name: Insert integration test fixtures (QA SENIORs + DRAFT contracts)
+        if: steps.filter.outputs.code == 'true'
+        env:
+          PGPASSWORD: password
+        run: |
+          psql -h localhost -U crm_user -d crm_db <<'SQL'
+            -- ── Fixture 1: qa-ac6-7x9k2m (documents-unified test #11) ──────────
+            INSERT INTO users (
+              id, email, display_name, legal_full_name,
+              role, senior_share_percent, created_at, updated_at
+            ) VALUES (
+              '27b9524e-0b48-4226-8f90-65b4662c1250',
+              'qa-ac6-7x9k2m@cheekycheese.dev',
+              'QA Senior Draft',
+              'QA Тестовий Сеньйор',
+              'SENIOR', 26, NOW(), NOW()
+            ) ON CONFLICT (id) DO NOTHING;
+
+            INSERT INTO employee_contracts (
+              user_id, source_template_id, body_markdown,
+              status, signed_contract_id, created_by_user_id, created_at, updated_at
+            )
+            SELECT
+              '27b9524e-0b48-4226-8f90-65b4662c1250',
+              id,
+              'QA DRAFT contract fixture — documents-unified integration test',
+              'DRAFT', NULL,
+              'a8f4d3b1-c2e5-4a1f-9b3d-8c7e6f5a4b21',
+              NOW(), NOW()
+            FROM contract_templates
+            WHERE target_role = 'SENIOR' AND is_active = true
+            LIMIT 1
+            ON CONFLICT DO NOTHING;
+
+            -- ── Fixture 2: qa-fix3-uuid (onboarding-contract tests 1b + 3) ─────
+            INSERT INTO users (
+              id, email, display_name, legal_full_name,
+              role, senior_share_percent, created_at, updated_at
+            ) VALUES (
+              '354d26e9-0234-4e09-bcc9-dea5770cbdf4',
+              'qa-fix3-uuid@cheekycheese.dev',
+              'QA Fix3',
+              'QA Fix3 Seed UUID Testovyi',
+              'SENIOR', 26, NOW(), NOW()
+            ) ON CONFLICT (id) DO NOTHING;
+
+            INSERT INTO employee_contracts (
+              user_id, source_template_id, body_markdown,
+              status, signed_contract_id, created_by_user_id, created_at, updated_at
+            )
+            SELECT
+              '354d26e9-0234-4e09-bcc9-dea5770cbdf4',
+              id,
+              'QA DRAFT contract fixture — onboarding-contract integration test',
+              'DRAFT', NULL,
+              'a8f4d3b1-c2e5-4a1f-9b3d-8c7e6f5a4b21',
+              NOW(), NOW()
+            FROM contract_templates
+            WHERE target_role = 'SENIOR' AND is_active = true
+            LIMIT 1
+            ON CONFLICT DO NOTHING;
+          SQL
+
+      # Run only *.integration.spec.ts — unit specs are covered by the `quality` job.
+      # Vitest 3.x positional arg is a PATH SUBSTRING filter, not a shell glob.
+      # "**/*.integration.spec.ts" contains no real path chars → 0 matches.
+      # "integration.spec" is a substring present in every integration spec path
+      # and absent from all unit specs (verified against 7 files in apps/api/src/).
+      # --reporter=verbose shows each test name so CI logs confirm real execution
+      # (not silent skip via dbAvailable guard).
+      - name: Run integration tests
+        if: steps.filter.outputs.code == 'true'
+        run: |
+          pnpm --filter @crm/api exec vitest run \
+            --reporter=verbose \
+            integration.spec
+
+      - name: Docs-only short-circuit
+        if: steps.filter.outputs.code != 'true'
+        run: echo "Docs-only PR — skipping integration tests, satisfying required status."
+
+      - name: Label PR on integration failure
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh label create "ci-failed" --repo "$REPO" \
+            --color "d73a4a" --description "CI checks failed" 2>/dev/null || true
+          gh pr edit "$PR_NUMBER" --add-label "ci-failed"
+
   auto_merge:
     name: Auto-Merge PR
     runs-on: ubuntu-latest
-    needs: [quality, e2e_summary]
+    needs: [quality, integration, e2e_summary]
     # PM must explicitly add `merge-approved` label after user-testing approval.
-    # `awaiting-pm-review` blocks merge until PM reviews. Both jobs must be `success`
-    # (not just non-failure — `skipped` no longer counts as pass).
+    # `awaiting-pm-review` blocks merge until PM reviews. All three jobs must be
+    # `success` (not just non-failure — `skipped` no longer counts as pass).
     if: |
       github.event_name == 'pull_request' &&
       needs.quality.result == 'success' &&
+      needs.integration.result == 'success' &&
       needs.e2e_summary.result == 'success' &&
       contains(github.event.pull_request.labels.*.name, 'merge-approved') &&
       !contains(github.event.pull_request.labels.*.name, 'awaiting-pm-review') &&
