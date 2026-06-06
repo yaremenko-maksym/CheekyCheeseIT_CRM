@@ -34,7 +34,7 @@
  *   vitest uses esbuild which strips TS decorator metadata — explicit useFactory
  *   resolves DI correctly (mirrors PR-2 integration spec pattern).
  */
-import { ForbiddenException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { eq } from 'drizzle-orm'
@@ -112,6 +112,12 @@ const DOC_B_S3_KEY = `${TAG}/receipt-b.pdf`
 // IDOR test: doc C belongs to DMYTRO (victim), used to test the exploit
 const DOC_C_ID = 'f0000001-0000-4000-a000-000000000003'
 const DOC_C_S3_KEY = `${TAG}/receipt-c-victim.pdf`
+
+// IDOR happy-path test: doc D belongs to ARTEM, dedicated to the happy-path test
+// (DOC_B is consumed by AC1 and its unique index slot reused by TX_ID — so we
+// need a fresh doc that is not bound to any other tx to avoid unique-index conflict)
+const DOC_D_ID = 'f0000001-0000-4000-a000-000000000004'
+const DOC_D_S3_KEY = `${TAG}/receipt-d-artem-happy.pdf`
 
 // Transaction (REJECTED, links doc A as receipt)
 const TX_ID = 'f1000001-0000-4000-b000-000000000001'
@@ -252,6 +258,25 @@ describe('PR-3 receipt replace-with-delete — real backend integration', () => 
       })
       .onConflictDoNothing()
 
+    // Doc D — belongs to ARTEM; used in IDOR happy-path test exclusively
+    // (separate from DOC_B which is consumed/rebound by AC1 test)
+    await db
+      .insert(documents)
+      .values({
+        id: DOC_D_ID,
+        ownerId: ARTEM.id,
+        projectId: null,
+        category: 'RECEIPT',
+        name: `${TAG}-receipt-d-artem-happy.pdf`,
+        originalName: `${TAG}-receipt-d-artem-happy.pdf`,
+        s3Key: DOC_D_S3_KEY,
+        thumbnailS3Key: null,
+        sizeBytes: 512,
+        mimeType: 'application/pdf',
+        uploadedBy: ARTEM.id,
+      })
+      .onConflictDoNothing()
+
     // IDOR test tx — REJECTED, owned by ARTEM; no receipt initially
     await db
       .insert(transactions)
@@ -330,6 +355,10 @@ describe('PR-3 receipt replace-with-delete — real backend integration', () => 
     await db
       .delete(documents)
       .where(eq(documents.id, DOC_C_ID))
+      .catch(() => undefined)
+    await db
+      .delete(documents)
+      .where(eq(documents.id, DOC_D_ID))
       .catch(() => undefined)
     await _pool?.end()
   })
@@ -505,8 +534,9 @@ describe('PR-3 receipt replace-with-delete — real backend integration', () => 
 
   it('HIGH-1 — non-RECEIPT doc is rejected (BadRequestException)', async () => {
     if (!dbAvailable) return
-    // Insert a SCAN doc owned by ARTEM — trying to bind it as receipt must fail
-    const SCAN_DOC_ID = 'f0000001-0000-4000-a000-000000000004'
+    // Insert a SCAN doc owned by ARTEM — trying to bind it as receipt must fail.
+    // Uses ...000000000005 to avoid UUID collision with DOC_D_ID (...000000000004).
+    const SCAN_DOC_ID = 'f0000001-0000-4000-a000-000000000005'
     await db
       .insert(documents)
       .values({
@@ -531,7 +561,7 @@ describe('PR-3 receipt replace-with-delete — real backend integration', () => 
           { receiptDocumentId: SCAN_DOC_ID },
           ARTEM,
         ),
-      ).rejects.toThrow(/RECEIPT/)
+      ).rejects.toBeInstanceOf(BadRequestException)
     } finally {
       await db
         .delete(documents)
@@ -550,38 +580,24 @@ describe('PR-3 receipt replace-with-delete — real backend integration', () => 
 
   it('HIGH-1 — ARTEM can bind their own RECEIPT doc (happy path)', async () => {
     if (!dbAvailable) return
-    // Reset IDOR tx to REJECTED + no receipt before this test
+    // Reset IDOR tx to REJECTED + no receipt before this test.
+    // We use DOC_D (seeded in beforeAll, owned by ARTEM, never bound to another tx)
+    // rather than DOC_B which: (a) was physically deleted by AC1, and (b) is now
+    // bound to TX_ID — trying to rebind it would violate the unique index.
     await db
       .update(transactions)
       .set({ status: 'REJECTED', receiptDocumentId: null, rejectionReason: 'test reset' })
       .where(eq(transactions.id, TX_IDOR_ID))
-    // Re-insert DOC_B in case it was consumed by AC1
-    await db
-      .insert(documents)
-      .values({
-        id: DOC_B_ID,
-        ownerId: ARTEM.id,
-        projectId: null,
-        category: 'RECEIPT',
-        name: `${TAG}-receipt-b.pdf`,
-        originalName: `${TAG}-receipt-b.pdf`,
-        s3Key: DOC_B_S3_KEY,
-        thumbnailS3Key: null,
-        sizeBytes: 512,
-        mimeType: 'application/pdf',
-        uploadedBy: ARTEM.id,
-      })
-      .onConflictDoUpdate({ target: documents.id, set: { deletedAt: null } })
 
-    // Must succeed — DOC_B is owned by ARTEM
+    // DOC_D is owned by ARTEM and not bound to any tx — guard must allow this
     await expect(
-      transactionsService.updateSeniorIncome(TX_IDOR_ID, { receiptDocumentId: DOC_B_ID }, ARTEM),
+      transactionsService.updateSeniorIncome(TX_IDOR_ID, { receiptDocumentId: DOC_D_ID }, ARTEM),
     ).resolves.toBeDefined()
 
     const txRow = await db.query.transactions.findFirst({
       where: eq(transactions.id, TX_IDOR_ID),
     })
-    expect(txRow?.receiptDocumentId).toBe(DOC_B_ID)
+    expect(txRow?.receiptDocumentId).toBe(DOC_D_ID)
     expect(txRow?.status).toBe('PENDING')
   })
 })

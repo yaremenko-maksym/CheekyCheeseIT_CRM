@@ -59,6 +59,8 @@ interface TxRow {
 
 interface DocRow {
   id: string
+  ownerId: string
+  category: string
   s3Key: string
   thumbnailS3Key: string | null
 }
@@ -94,11 +96,16 @@ function makeHarness(opts: HarnessOpts = {}) {
   const dbtxDeleteWhere = vi.fn().mockResolvedValue(undefined)
   const dbtxDelete = vi.fn().mockReturnValue({ where: dbtxDeleteWhere })
 
+  // docRow defaults include category=RECEIPT and ownerId=SENIOR.id so the
+  // assertReceiptDocumentBindable guard passes for the existing replace-with-delete
+  // unit tests (they test the replace mechanic, not the ownership guard).
   const docRow: DocRow | null =
     opts.doc === null
       ? null
       : {
           id: opts.doc?.id ?? 'old-doc-id',
+          ownerId: opts.doc?.ownerId ?? SENIOR.id,
+          category: opts.doc?.category ?? 'RECEIPT',
           s3Key: opts.doc?.s3Key ?? 'documents/RECEIPT/senior-1/old-doc.pdf',
           thumbnailS3Key: opts.doc?.thumbnailS3Key ?? null,
         }
