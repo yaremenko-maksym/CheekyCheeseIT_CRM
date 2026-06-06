@@ -75,11 +75,7 @@ describe('AuditInterceptor — legal_name_change (п.2)', () => {
       get: vi.fn().mockReturnValue('profile_edit'),
     } as unknown as Reflector
 
-    interceptor = new AuditInterceptor(
-      reflector,
-      auditLogService,
-      usersService as never,
-    )
+    interceptor = new AuditInterceptor(reflector, auditLogService, usersService as never)
   })
 
   it('writes two records when legalFullName changes: legal_name_change then generic', async () => {
@@ -87,8 +83,8 @@ describe('AuditInterceptor — legal_name_change (п.2)', () => {
     const after = makeUser({ legalFullName: 'Петренко Петро' })
 
     usersService.findById
-      .mockResolvedValueOnce(before)  // snapshot before
-      .mockResolvedValueOnce(after)   // snapshot after
+      .mockResolvedValueOnce(before) // snapshot before
+      .mockResolvedValueOnce(after) // snapshot after
 
     const ctx = makeExecutionContext('actor-uuid', 'user-uuid')
     const observable = await interceptor.intercept(ctx, makeCallHandler())
@@ -122,9 +118,7 @@ describe('AuditInterceptor — legal_name_change (п.2)', () => {
     const before = makeUser({ displayName: 'Old Name', legalFullName: 'Іваненко Іван' })
     const after = makeUser({ displayName: 'New Name', legalFullName: 'Іваненко Іван' })
 
-    usersService.findById
-      .mockResolvedValueOnce(before)
-      .mockResolvedValueOnce(after)
+    usersService.findById.mockResolvedValueOnce(before).mockResolvedValueOnce(after)
 
     const ctx = makeExecutionContext('actor-uuid', 'user-uuid')
     const observable = await interceptor.intercept(ctx, makeCallHandler())
@@ -137,9 +131,7 @@ describe('AuditInterceptor — legal_name_change (п.2)', () => {
 
   it('writes zero records when nothing changed', async () => {
     const user = makeUser()
-    usersService.findById
-      .mockResolvedValueOnce(user)
-      .mockResolvedValueOnce(user)
+    usersService.findById.mockResolvedValueOnce(user).mockResolvedValueOnce(user)
 
     const ctx = makeExecutionContext('actor-uuid', 'user-uuid')
     const observable = await interceptor.intercept(ctx, makeCallHandler())
@@ -165,9 +157,7 @@ describe('AuditInterceptor — legal_name_change (п.2)', () => {
     const before = makeUser({ legalFullName: 'Іваненко Іван', displayName: 'Same' })
     const after = makeUser({ legalFullName: 'Петренко Петро', displayName: 'Same' })
 
-    usersService.findById
-      .mockResolvedValueOnce(before)
-      .mockResolvedValueOnce(after)
+    usersService.findById.mockResolvedValueOnce(before).mockResolvedValueOnce(after)
 
     const ctx = makeExecutionContext('actor-uuid', 'user-uuid')
     const observable = await interceptor.intercept(ctx, makeCallHandler())

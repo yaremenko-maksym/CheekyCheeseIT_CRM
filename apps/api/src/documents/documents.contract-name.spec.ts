@@ -67,6 +67,11 @@ function makeService(contractRows: ReturnType<typeof makeContractRow>[]) {
       select: vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
           leftJoin: vi.fn().mockReturnValue({
+            leftJoin: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({
+                orderBy: vi.fn().mockResolvedValue([]),
+              }),
+            }),
             where: vi.fn().mockReturnValue({
               orderBy: vi.fn().mockResolvedValue([]),
             }),
@@ -87,7 +92,9 @@ function makeService(contractRows: ReturnType<typeof makeContractRow>[]) {
 
 describe('DocumentsService — contract virtual entry readable name (п.4)', () => {
   it('SIGNED contract with contractNumber → «Трудовой договор CHK-XXXXXX»', async () => {
-    const rows = [makeContractRow({ status: 'SIGNED', contractNumber: 'CHK-7F3A9C', userId: SENIOR.id })]
+    const rows = [
+      makeContractRow({ status: 'SIGNED', contractNumber: 'CHK-7F3A9C', userId: SENIOR.id }),
+    ]
     const svc = makeService(rows)
 
     const result = await svc.list(SENIOR, { category: 'CONTRACT' })
@@ -137,7 +144,9 @@ describe('DocumentsService — contract virtual entry readable name (п.4)', () 
   })
 
   it('s3Key remains empty string — download path not affected', async () => {
-    const rows = [makeContractRow({ status: 'SIGNED', contractNumber: 'CHK-AABBCC', userId: SENIOR.id })]
+    const rows = [
+      makeContractRow({ status: 'SIGNED', contractNumber: 'CHK-AABBCC', userId: SENIOR.id }),
+    ]
     const svc = makeService(rows)
 
     const result = await svc.list(SENIOR, { category: 'CONTRACT' })

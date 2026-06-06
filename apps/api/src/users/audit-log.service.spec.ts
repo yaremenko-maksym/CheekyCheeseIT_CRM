@@ -25,7 +25,9 @@ describe('AuditLogService.diff', () => {
 
   it('handles arrays via deep equality', () => {
     expect(svc.diff({ t: ['a', 'b'] }, { t: ['a', 'b'] })).toEqual({})
-    expect(svc.diff({ t: ['a'] }, { t: ['a', 'b'] })).toEqual({ t: { before: ['a'], after: ['a', 'b'] } })
+    expect(svc.diff({ t: ['a'] }, { t: ['a', 'b'] })).toEqual({
+      t: { before: ['a'], after: ['a', 'b'] },
+    })
   })
 
   // ── PII redaction (п.1) ──────────────────────────────────────────────────
@@ -70,10 +72,7 @@ describe('AuditLogService.diff', () => {
     })
 
     it('redacts walletUsdtErc20 (USDT ERC-20 address) — key present, values redacted', () => {
-      const d = svc.diff(
-        { walletUsdtErc20: '0xAAAA' },
-        { walletUsdtErc20: '0xBBBB' },
-      )
+      const d = svc.diff({ walletUsdtErc20: '0xAAAA' }, { walletUsdtErc20: '0xBBBB' })
       expect(d).toHaveProperty('walletUsdtErc20')
       expect(d['walletUsdtErc20']!.before).toBe(REDACTED_TOKEN)
       expect(d['walletUsdtErc20']!.after).toBe(REDACTED_TOKEN)
@@ -116,8 +115,18 @@ describe('AuditLogService.diff', () => {
 
     it('mixed diff — sensitive fields redacted, non-sensitive pass through', () => {
       const d = svc.diff(
-        { displayName: 'Old Name', legalFullName: 'Іваненко Іван', phone: '+380501111111', role: 'JUNIOR' },
-        { displayName: 'New Name', legalFullName: 'Петренко Петро', phone: '+380672222222', role: 'SENIOR' },
+        {
+          displayName: 'Old Name',
+          legalFullName: 'Іваненко Іван',
+          phone: '+380501111111',
+          role: 'JUNIOR',
+        },
+        {
+          displayName: 'New Name',
+          legalFullName: 'Петренко Петро',
+          phone: '+380672222222',
+          role: 'SENIOR',
+        },
       )
       // Non-sensitive: real values
       expect(d['displayName']).toEqual({ before: 'Old Name', after: 'New Name' })
@@ -139,9 +148,17 @@ describe('AuditLogService.diff', () => {
 
     it('SENSITIVE_FIELDS set covers all 11 expected fields', () => {
       const expected = [
-        'email', 'googleId', 'phone', 'telegram', 'legalFullName',
-        'walletUsdtErc20', 'walletUsdtLabel',
-        'bankUahRecipient', 'bankUahIban', 'bankUahRnokpp', 'bankUahBankName',
+        'email',
+        'googleId',
+        'phone',
+        'telegram',
+        'legalFullName',
+        'walletUsdtErc20',
+        'walletUsdtLabel',
+        'bankUahRecipient',
+        'bankUahIban',
+        'bankUahRnokpp',
+        'bankUahBankName',
       ]
       for (const field of expected) {
         expect(SENSITIVE_FIELDS.has(field), `Expected "${field}" in SENSITIVE_FIELDS`).toBe(true)

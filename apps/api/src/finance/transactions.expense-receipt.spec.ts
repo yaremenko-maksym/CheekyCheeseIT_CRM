@@ -41,12 +41,14 @@ const RECEIPT_DOC_ID = 'dddddddd-0000-0000-0000-000000000001'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function makeDoc(overrides: Partial<{
-  id: string
-  ownerId: string
-  category: string
-  deletedAt: Date | null
-}> = {}) {
+function makeDoc(
+  overrides: Partial<{
+    id: string
+    ownerId: string
+    category: string
+    deletedAt: Date | null
+  }> = {},
+) {
   return {
     id: RECEIPT_DOC_ID,
     ownerId: ADMIN.id,
@@ -69,7 +71,11 @@ function makeDbMock(docRow: ReturnType<typeof makeDoc> | null) {
         transactions: { findFirst: vi.fn() },
         payoutRequests: { findFirst: vi.fn() },
       },
-      insert: vi.fn().mockReturnValue({ values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'tx-id' }]) }) }),
+      insert: vi.fn().mockReturnValue({
+        values: vi
+          .fn()
+          .mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'tx-id' }]) }),
+      }),
       select: vi.fn(),
       update: vi.fn(),
       transaction: vi.fn(),

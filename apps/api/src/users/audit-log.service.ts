@@ -55,7 +55,10 @@ export type AuditLogTransaction = DrizzleTx
 export class AuditLogService {
   constructor(private db: DatabaseService) {}
 
-  diff(before: Record<string, unknown>, after: Record<string, unknown>): Record<string, AuditChange> {
+  diff(
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+  ): Record<string, AuditChange> {
     const result: Record<string, AuditChange> = {}
     const keys = new Set([...Object.keys(before), ...Object.keys(after)])
     for (const key of keys) {
