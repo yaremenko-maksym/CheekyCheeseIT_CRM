@@ -33,6 +33,8 @@ import {
   Archive,
   FileSignature,
   FileText,
+  LayoutGrid,
+  List,
   Plus,
   Receipt as ReceiptIcon,
   Shield,
@@ -60,6 +62,7 @@ import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/seg
 import { useDocuments } from '@/hooks/use-documents'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { DocumentList } from '@/components/documents/document-list'
+import { DocumentRow } from '@/components/documents/document-row'
 import { DocumentDetailDialog } from '@/components/documents/document-detail-dialog'
 import { UploadDocumentDialog } from '@/components/documents/upload-document-dialog'
 import { InvoiceDetailDialog } from '@/components/invoices/invoice-detail-dialog'
@@ -75,12 +78,34 @@ type CategoryFilter = DocumentCategory | 'ALL'
 //     transaction id (used by notifications «инвойс подписан» / «ожидает
 //     подписи»). Also auto-narrows the category filter to INVOICE so the
 //     surrounding list reflects the deep-link target.
+const VIEW_STORAGE_KEY = 'crm.documents.view'
+
+type DocumentView = 'list' | 'grid'
+
+function getStoredView(): DocumentView {
+  try {
+    const v = typeof window !== 'undefined' ? localStorage.getItem(VIEW_STORAGE_KEY) : null
+    return v === 'grid' ? 'grid' : 'list'
+  } catch {
+    return 'list'
+  }
+}
+
+function setStoredView(v: DocumentView): void {
+  try {
+    localStorage.setItem(VIEW_STORAGE_KEY, v)
+  } catch {
+    // ignore — storage may be blocked
+  }
+}
+
 const searchSchema = z.object({
   openDocId: z.string().uuid().optional(),
   category: z
     .enum(['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'AVATAR', 'LOGO', 'INVOICE'])
     .optional(),
   openTx: z.string().uuid().optional(),
+  view: z.enum(['list', 'grid']).optional(),
 })
 
 export const Route = createFileRoute('/crm/documents')({
@@ -159,6 +184,22 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   const isAdmin = viewer.role === 'ADMIN'
   const search = Route.useSearch()
   const navigate = useNavigate({ from: '/crm/documents' })
+
+  // View mode — list (compact rows, default) or grid (cards).
+  // URL param `?view=` takes precedence on first load; falls back to
+  // localStorage so the preference persists between navigation.
+  const [view, setView] = useState<DocumentView>(() => {
+    return (search.view as DocumentView | undefined) ?? getStoredView()
+  })
+
+  function handleViewChange(next: DocumentView) {
+    setView(next)
+    setStoredView(next)
+    void navigate({
+      search: (prev) => ({ ...prev, view: next }),
+      replace: true,
+    })
+  }
 
   // ADMIN-only switches. The "showDeleted" flag is now derived from the
   // status tab (ARCHIVED ⇒ true) rather than a separate checkbox so the
@@ -354,6 +395,7 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.28, delay: 0.05 }}
+        className="flex items-center gap-3"
       >
         <SegmentedToggle<StatusTab>
           value={statusTab}
@@ -366,6 +408,41 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
           className="w-fit"
           testId="documents-status-tabs"
         />
+
+        {/* View toggle — list / grid */}
+        <div
+          className="ml-auto flex items-center gap-1 rounded-md border border-border p-0.5"
+          data-testid="documents-view-toggle"
+        >
+          <button
+            type="button"
+            aria-label="Список"
+            aria-pressed={view === 'list'}
+            data-testid="documents-view-list"
+            onClick={() => handleViewChange('list')}
+            className={`flex h-7 w-7 items-center justify-center rounded transition ${
+              view === 'list'
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <List className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            aria-label="Сетка"
+            aria-pressed={view === 'grid'}
+            data-testid="documents-view-grid"
+            onClick={() => handleViewChange('grid')}
+            className={`flex h-7 w-7 items-center justify-center rounded transition ${
+              view === 'grid'
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <LayoutGrid className="h-4 w-4" />
+          </button>
+        </div>
       </motion.div>
 
       <DocumentsListSection
@@ -376,6 +453,7 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
         statusTab={statusTab}
         onOpen={openDetail}
         openDocId={search.openDocId}
+        view={view}
       />
 
       <DocumentDetailDialog
@@ -587,6 +665,7 @@ interface ListSectionProps {
   statusTab: StatusTab
   onOpen: (doc: Document) => void
   openDocId?: string | undefined
+  view: DocumentView
 }
 
 function DocumentsListSection({
@@ -597,6 +676,7 @@ function DocumentsListSection({
   statusTab,
   onOpen,
   openDocId,
+  view,
 }: ListSectionProps) {
   // Only forward `category` to the API when a specific one is picked.
   // 'ALL' ⇒ backend returns everything the role can see.
@@ -723,13 +803,32 @@ function DocumentsListSection({
             }${counterScope}`}
       </div>
 
-      <DocumentList
-        documents={filtered}
-        loading={isLoading}
-        viewer={viewer}
-        emptyState={emptyState}
-        onOpen={onOpen}
-      />
+      {view === 'grid' ? (
+        <DocumentList
+          documents={filtered}
+          loading={isLoading}
+          viewer={viewer}
+          emptyState={emptyState}
+          onOpen={onOpen}
+        />
+      ) : // List view — compact rows
+      isLoading ? (
+        <DocumentList
+          documents={[]}
+          loading
+          viewer={viewer}
+          emptyState={emptyState}
+          onOpen={onOpen}
+        />
+      ) : filtered.length === 0 ? (
+        <>{emptyState}</>
+      ) : (
+        <div className="flex flex-col gap-1" data-testid="documents-list-view">
+          {filtered.map((doc) => (
+            <DocumentRow key={doc.id} doc={doc} viewer={viewer} onOpen={onOpen} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
