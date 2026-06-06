@@ -240,9 +240,7 @@ test.describe('PR-3 receipt replace — AC4: причина отклонения
 // ---------------------------------------------------------------------------
 
 test.describe('PR-3 receipt replace — AC5: кнопка Отмена закрывает диалог', () => {
-  test('Кнопка Отмена закрывает диалог редактирования без отправки', async ({
-    asSenior: page,
-  }) => {
+  test('Кнопка Отмена закрывает диалог редактирования без отправки', async ({ asSenior: page }) => {
     const rejectedTx = makeRejectedTx()
     await setupFinanceMocks(page, [rejectedTx], rejectedTx)
     await page.goto('/crm/finance')
