@@ -46,7 +46,6 @@ import {
   CrmDialogBody,
   CrmDialogFooter,
   DialogTitle,
-  DialogDescription,
 } from '@/components/ui/crm-dialog'
 import {
   AlertDialog,
@@ -287,7 +286,11 @@ export function DocumentDetailDialog({
             <DialogTitle data-testid="document-detail-title" className="line-clamp-1 pr-8">
               {displayName}
             </DialogTitle>
-            <DialogDescription className="mt-1 flex items-center gap-2 text-xs">
+            {/* Use div instead of DialogDescription to avoid <div>-in-<p> nesting warning (Badge renders <div>). */}
+            <div
+              id="document-detail-description"
+              className="mt-1 flex items-center gap-2 text-xs text-muted-foreground"
+            >
               {isDeleted ? (
                 <Badge variant="secondary" className="bg-muted-foreground/15">
                   В корзине
@@ -303,8 +306,8 @@ export function DocumentDetailDialog({
                   Контракт
                 </Badge>
               ) : null}
-              <span className="text-muted-foreground">{doc.category}</span>
-            </DialogDescription>
+              <span>{doc.category}</span>
+            </div>
           </CrmDialogHeader>
 
           <CrmDialogBody className="pb-4">
