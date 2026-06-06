@@ -447,9 +447,11 @@ export class DocumentsService {
    * (open contract editor / PDF viewer) vs. a plain uploaded file.
    *
    * RBAC mirrors A3 rules (ADMIN + owner):
-   *   - ADMIN: sees all non-CANCELLED contracts
-   *   - All other roles: own non-CANCELLED contract only
-   * CANCELLED contracts are hidden per spec.
+   *   - ADMIN: sees all non-CANCELLED contracts (including DRAFT — ADMIN prepares them)
+   *   - All other roles: own non-CANCELLED, non-DRAFT contract only
+   *     (employee sees contract only once READY_TO_SIGN or later)
+   * CANCELLED contracts are hidden from all viewers per spec.
+   * DRAFT contracts are hidden from non-ADMIN per spec (A3-4 onboarding rule).
    *
    * No double-counting: uploaded CONTRACT files (category='CONTRACT' in
    * the `documents` table) are separate entries from these virtual ones.
@@ -467,13 +469,18 @@ export class DocumentsService {
       return []
     }
 
-    // Fetch non-CANCELLED employee_contracts scoped by RBAC.
+    const isAdmin = actor.role === 'ADMIN'
+
+    // Fetch employee_contracts scoped by RBAC:
+    //   ADMIN — all non-CANCELLED (DRAFT + READY_TO_SIGN + SIGNED)
+    //   non-ADMIN — own non-CANCELLED AND non-DRAFT (READY_TO_SIGN + SIGNED only)
     const contractRows = await this.db.db.query.employeeContracts.findMany({
       where: (tbl, { ne, eq: deq, and: dand }) => {
         const notCancelled = ne(tbl.status, 'CANCELLED')
-        if (actor.role === 'ADMIN') return notCancelled
-        // Non-ADMIN: own contract only
-        return dand(notCancelled, deq(tbl.userId, actor.id))
+        if (isAdmin) return notCancelled
+        // Non-ADMIN: own contract + must be past DRAFT stage
+        const notDraft = ne(tbl.status, 'DRAFT')
+        return dand(notCancelled, notDraft, deq(tbl.userId, actor.id))
       },
     })
 

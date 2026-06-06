@@ -247,6 +247,18 @@ const TX_INVOICE_ID = '20000001-0000-4000-b000-000000000001'
 const TX_RECEIPT_ID = '20000001-0000-4000-b000-000000000002'
 const SIG_COMPANY_ID = '30000001-0000-4000-c000-000000000001'
 
+// SENIOR users with DRAFT contracts (from seed data — qa test users created in prior QA sessions).
+// These exist in the real DB and are used to verify role-based DRAFT visibility.
+const QA_SENIOR_WITH_DRAFT: SessionUser = {
+  id: '27b9524e-0b48-4226-8f90-65b4662c1250',
+  email: 'qa-ac6-7x9k2m@cheekycheese.dev',
+  displayName: 'QA Senior Draft',
+  avatarUrl: null,
+  role: 'SENIOR',
+  seniorSharePercent: 26,
+  legalFullName: null,
+}
+
 // ---------------------------------------------------------------------------
 // Suite
 // ---------------------------------------------------------------------------
@@ -627,5 +639,49 @@ describe('PR-2 documents unified list — real backend integration', () => {
     expect(res.statusCode).toBe(200)
     const body = res.json() as DocumentDto[]
     expect(Array.isArray(body)).toBe(true)
+  })
+
+  // ── 11–12. DRAFT contract visibility: ADMIN sees DRAFT, non-ADMIN does not ─
+
+  it('11. ADMIN: GET /api/documents — DRAFT contracts are visible (ADMIN prepares them)', async () => {
+    if (!dbAvailable) return
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/documents',
+      cookies: { jwt: tokenFor(ADMIN) },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as DocumentDto[]
+    const contractEntries = body.filter((d) => d.source === 'employee_contract')
+
+    // Seed DB contains at least 2 SENIOR users with DRAFT contracts (qa-ac6-7x9k2m, qa-fix3-uuid).
+    // ADMIN must see all including DRAFT state.
+    const draftEntries = contractEntries.filter((d) => d.statusBadge?.state === 'draft')
+    expect(draftEntries.length).toBeGreaterThan(0)
+  })
+
+  it('12. SENIOR with DRAFT contract: does NOT see own DRAFT contract in list (A3-4 rule)', async () => {
+    if (!dbAvailable) return
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/documents',
+      cookies: { jwt: tokenFor(QA_SENIOR_WITH_DRAFT) },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as DocumentDto[]
+    const contractEntries = body.filter((d) => d.source === 'employee_contract')
+
+    // QA_SENIOR_WITH_DRAFT has a DRAFT contract only (no READY_TO_SIGN or SIGNED).
+    // Non-ADMIN must not see DRAFT → should get zero contract virtual entries for own user.
+    const draftEntries = contractEntries.filter((d) => d.statusBadge?.state === 'draft')
+    expect(draftEntries).toHaveLength(0)
+
+    // They should see no contract entries at all (only READY_TO_SIGN/SIGNED would be shown)
+    const ownContracts = contractEntries.filter((d) => d.ownerId === QA_SENIOR_WITH_DRAFT.id)
+    expect(ownContracts).toHaveLength(0)
   })
 })

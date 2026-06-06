@@ -1176,3 +1176,85 @@ describe('DocumentsService.list — PR-2 employee_contract virtual entries (Task
     expect(virtuals[0]?.id).toBe('c1')
   })
 })
+
+// =============================================================================
+// PR-2 — Role-based DRAFT visibility for employee_contracts
+// =============================================================================
+
+describe('DocumentsService.list — DRAFT contract visibility per role', () => {
+  it('ADMIN sees own-user DRAFT contract (DRAFT is admin-only stage)', async () => {
+    const h = makeExtendedHarness({
+      docs: [],
+      contractRows: [{ id: 'draft-1', userId: SENIOR.id, status: 'DRAFT' }],
+    })
+    const result = await h.service.list(ADMIN, {})
+    const virtuals = result.filter((r) => r.source === 'employee_contract')
+    expect(virtuals).toHaveLength(1)
+    expect(virtuals[0]?.id).toBe('draft-1')
+    expect(virtuals[0]?.statusBadge).toEqual({ kind: 'contract', state: 'draft' })
+  })
+
+  it('SENIOR does NOT see own DRAFT contract (visible only from READY_TO_SIGN)', async () => {
+    const h = makeExtendedHarness({
+      docs: [],
+      contractRows: [{ id: 'draft-1', userId: SENIOR.id, status: 'DRAFT' }],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const virtuals = result.filter((r) => r.source === 'employee_contract')
+    expect(virtuals).toHaveLength(0)
+  })
+
+  it('SENIOR sees own READY_TO_SIGN contract (visible to non-ADMIN)', async () => {
+    const h = makeExtendedHarness({
+      docs: [],
+      contractRows: [{ id: 'ready-1', userId: SENIOR.id, status: 'READY_TO_SIGN' }],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const virtuals = result.filter((r) => r.source === 'employee_contract')
+    expect(virtuals).toHaveLength(1)
+    expect(virtuals[0]?.statusBadge).toEqual({ kind: 'contract', state: 'ready' })
+  })
+
+  it('SENIOR sees own SIGNED contract (visible to non-ADMIN)', async () => {
+    const h = makeExtendedHarness({
+      docs: [],
+      contractRows: [{ id: 'signed-1', userId: SENIOR.id, status: 'SIGNED' }],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const virtuals = result.filter((r) => r.source === 'employee_contract')
+    expect(virtuals).toHaveLength(1)
+    expect(virtuals[0]?.statusBadge).toEqual({ kind: 'contract', state: 'signed' })
+  })
+
+  it('ADMIN sees all contract statuses (DRAFT + READY_TO_SIGN + SIGNED) across users', async () => {
+    const h = makeExtendedHarness({
+      docs: [],
+      contractRows: [
+        { id: 'draft-2', userId: SENIOR.id, status: 'DRAFT' },
+        { id: 'ready-2', userId: SENIOR2.id, status: 'READY_TO_SIGN' },
+        { id: 'signed-2', userId: JUNIOR.id, status: 'SIGNED' },
+      ],
+    })
+    const result = await h.service.list(ADMIN, {})
+    const virtuals = result.filter((r) => r.source === 'employee_contract')
+    expect(virtuals).toHaveLength(3)
+    const states = virtuals.map((v) => v.statusBadge?.state).sort()
+    expect(states).toEqual(['draft', 'ready', 'signed'])
+  })
+
+  it('SENIOR with both DRAFT and READY_TO_SIGN contracts: only READY_TO_SIGN visible', async () => {
+    // Unusual but defensive: user has two contracts — draft + ready
+    const h = makeExtendedHarness({
+      docs: [],
+      contractRows: [
+        { id: 'draft-3', userId: SENIOR.id, status: 'DRAFT' },
+        { id: 'ready-3', userId: SENIOR.id, status: 'READY_TO_SIGN' },
+      ],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const virtuals = result.filter((r) => r.source === 'employee_contract')
+    // Only READY_TO_SIGN is visible; DRAFT is hidden from non-ADMIN
+    expect(virtuals).toHaveLength(1)
+    expect(virtuals[0]?.id).toBe('ready-3')
+  })
+})

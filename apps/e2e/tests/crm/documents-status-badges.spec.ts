@@ -305,6 +305,49 @@ test.describe('PR-2: list view badges', () => {
 })
 
 // ---------------------------------------------------------------------------
+// AC5c — DRAFT contract visibility (role-based)
+//   AC5a already verified ADMIN sees DRAFT badge → that remains intact.
+//   AC5c: non-ADMIN (SENIOR) does NOT see DRAFT contract in the list.
+// ---------------------------------------------------------------------------
+
+test.describe('PR-2: DRAFT contract hidden from non-ADMIN', () => {
+  test('AC5c: SENIOR does not see DRAFT contract in document list', async ({ page }) => {
+    // Mock as SENIOR user (non-ADMIN)
+    await mockAuthAs(page, USERS.senior)
+
+    // API returns only READY_TO_SIGN contract for SENIOR (DRAFT is filtered server-side).
+    // This test verifies the frontend correctly renders what the server returns — no DRAFT badge.
+    await mockDocumentsList(page, [DOC_CONTRACT_READY])
+
+    await page.goto('/crm/documents')
+
+    // READY_TO_SIGN contract should be visible
+    const badge = page.getByTestId('document-status-badge').first()
+    await expect(badge).toBeVisible()
+    await expect(badge).toHaveAttribute('data-badge-state', 'ready')
+
+    // No DRAFT badge should be visible anywhere in the list
+    const draftBadges = page.locator('[data-badge-state="draft"]')
+    await expect(draftBadges).not.toBeVisible()
+  })
+
+  test('AC5d: SENIOR with no contract visible (server returns empty for DRAFT-only user)', async ({
+    page,
+  }) => {
+    // Mock as SENIOR user — simulate API returning no contracts (all are DRAFT, hidden server-side)
+    await mockAuthAs(page, USERS.senior)
+
+    // Server returns empty list (all contracts are DRAFT, filtered by backend)
+    await mockDocumentsList(page, [])
+
+    await page.goto('/crm/documents')
+
+    // With no documents, the empty-state should appear (no status badges)
+    await expect(page.getByTestId('document-status-badge')).not.toBeVisible()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // AC8 — category filter narrows the list
 // ---------------------------------------------------------------------------
 
