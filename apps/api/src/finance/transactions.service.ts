@@ -711,7 +711,15 @@ export class TransactionsService {
       }
     }
 
-    // STEP A: atomic DB transaction — update tx row + delete old documents row
+    // STEP A: atomic DB transaction — update tx row + delete old documents row.
+    //
+    // WHY we use dbtx.delete() directly instead of hardDeleteInternal():
+    //   hardDeleteInternal() uses `this.db.db` (the connection pool) for both
+    //   its SELECT and DELETE. Calling it from inside a Drizzle db.transaction()
+    //   callback would attempt to acquire a second pool connection while the outer
+    //   transaction already holds one → PostgreSQL deadlock / pool exhaustion.
+    //   Solution: perform the DB-delete inline via `dbtx` (same connection);
+    //   move the S3 cleanup to STEP B (post-commit, best-effort).
     await this.db.db.transaction(async (dbtx) => {
       // A1. Update the transaction row: re-point FK, reset status, clear validation.
       await dbtx
@@ -730,42 +738,24 @@ export class TransactionsService {
         })
         .where(eq(transactions.id, id))
 
-      // A2. Delete old documents row inside the same tx (FK already re-pointed
+      // A2. Delete old documents DB row inside the same tx (FK already re-pointed
       //     to nextDocId above — safe to remove the old row now).
+      //     S3 cleanup is deferred to STEP B (post-commit) to keep this tx fast
+      //     and to ensure an S3 hiccup cannot roll back the financial state.
       if (oldDocId && oldDocId !== nextDocId) {
-        await this.documentsService.hardDeleteInternal(oldDocId)
+        await dbtx.delete(documents).where(eq(documents.id, oldDocId))
       }
     })
 
     // STEP B: best-effort S3 cleanup post-commit.
     // The DB is fully consistent at this point (new receipt linked, old row
     // gone). A failure here leaves at most a dangling S3 object — never an
-    // orphan FK or a missing new receipt.
+    // orphan FK or a missing new receipt pointer.
     if (oldS3Key) {
-      try {
-        // Note: hardDeleteInternal already calls s3.delete internally for
-        // the DB-delete path above. However since we split the S3 delete to
-        // post-commit (best-effort), we rely on hardDeleteInternal having
-        // already handled S3 in STEP A. If hardDeleteInternal is refactored
-        // to NOT call S3 (e.g. a future in-tx-only variant), add explicit
-        // S3 calls here. Current contract: hardDeleteInternal = S3 + DB.
-        //
-        // Therefore no additional S3 call is needed here — the S3 delete
-        // already fired inside hardDeleteInternal in STEP A. This block is
-        // kept as a documented extension point and for the log line below.
-        this.logger.debug(
-          `receipt replace: old S3 key="${oldS3Key}" cleaned up via hardDeleteInternal`,
-        )
-        if (oldThumbKey) {
-          this.logger.debug(`receipt replace: old thumbnail key="${oldThumbKey}" also cleaned`)
-        }
-      } catch (err) {
-        // Defensive: if anything in this post-commit block throws, warn and
-        // continue. The DB is already consistent.
-        this.logger.warn(
-          `receipt replace: post-commit cleanup warning for key="${oldS3Key}": ${(err as Error).message}`,
-        )
-      }
+      await this.documentsService.deleteS3Keys(oldS3Key, oldThumbKey)
+      this.logger.debug(
+        `receipt replace: old S3 key="${oldS3Key}" scheduled for cleanup (post-commit)`,
+      )
     }
 
     return this.findOne(id, currentUser)

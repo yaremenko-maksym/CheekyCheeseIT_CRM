@@ -636,6 +636,43 @@ export class DocumentsService {
     await this.db.db.delete(documents).where(eq(documents.id, docId))
   }
 
+  /**
+   * Best-effort S3-only cleanup — deletes the given S3 keys without touching
+   * the DB row. Intended for post-commit cleanup in `TransactionsService.updateSeniorIncome`
+   * where the DB row has already been deleted inside a Drizzle transaction
+   * (using `dbtx.delete`) and only the S3 objects remain to be cleaned up.
+   *
+   * Why separate from hardDeleteInternal:
+   *   `hardDeleteInternal` uses `this.db.db` (the connection pool) for both
+   *   the SELECT and the DELETE. If called from inside a Drizzle `db.transaction(dbtx)`
+   *   callback it would try to acquire a second pool connection while one is
+   *   already held by the outer transaction → PostgreSQL deadlock / pool exhaustion.
+   *   Splitting S3 cleanup into this method lets `updateSeniorIncome` do:
+   *     - DB-delete inside dbtx using `dbtx.delete(documents).where(...)`
+   *     - S3-delete post-commit using `deleteS3Keys(oldS3Key, oldThumbKey)`
+   *
+   * Errors are swallowed — a dangling S3 object costs pennies and an ADMIN can
+   * clean it up; rolling back the DB for an S3 hiccup would be worse.
+   */
+  async deleteS3Keys(mainKey: string, thumbKey: string | null | undefined): Promise<void> {
+    try {
+      await this.s3.delete(mainKey)
+    } catch (err) {
+      this.logger['warn'](
+        `deleteS3Keys: failed to delete main key="${mainKey}": ${(err as Error).message}`,
+      )
+    }
+    if (thumbKey) {
+      try {
+        await this.s3.delete(thumbKey)
+      } catch (err) {
+        this.logger['warn'](
+          `deleteS3Keys: failed to delete thumb key="${thumbKey}": ${(err as Error).message}`,
+        )
+      }
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Hard delete (ADMIN-only, requires prior soft delete)
   // -------------------------------------------------------------------------

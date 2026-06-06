@@ -3,22 +3,21 @@
  *
  * Tests `updateSeniorIncome` — specifically the path where a REJECTED transaction
  * is resubmitted with a new receiptDocumentId. The old receipt document must be
- * hard-deleted (DB row) inside the DB transaction, and S3 cleaned up post-commit.
+ * hard-deleted (DB row inside the Drizzle dbtx, S3 post-commit via deleteS3Keys).
  *
  * Harness: pure unit — DB and DocumentsService are fully stubbed. We verify:
- *   1. Old receipt doc is hard-deleted when receipt changes (new docId provided).
- *   2. Old receipt doc is NOT deleted when receipt is unchanged (same docId).
- *   3. Old receipt doc is NOT deleted when there was no prior receipt (oldId null).
+ *   1. dbtx.delete(documents) called when receipt doc changes (new docId provided).
+ *   2. dbtx.delete NOT called when receipt is unchanged (same docId).
+ *   3. dbtx.delete NOT called when there was no prior receipt (oldId null).
  *   4. Status resets to PENDING; validatedBy/At/rejectionReason cleared.
  *   5. RBAC: only receiver SENIOR can resubmit (ForbiddenException otherwise).
  *   6. Can only edit REJECTED transactions (BadRequestException otherwise).
- *   7. S3 delete (inside hardDeleteInternal) is called for the OLD doc key.
- *   8. When DocumentsService.hardDeleteInternal throws (S3 error), the DB
- *      transaction is still consistent (test: method rejects, but DB update
- *      did not commit — verified by checking the tx row was not flipped).
+ *   7. deleteS3Keys called with the OLD doc's S3 key post-commit.
+ *   8. deleteS3Keys NOT called when there is no old doc to replace.
+ *   9. Uses a DB transaction (atomic) for the receipt replace.
  */
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { TransactionsService } from './transactions.service'
 
@@ -37,7 +36,6 @@ const s = (id: string, role: SessionUser['role'] = 'SENIOR'): SessionUser => ({
 
 const SENIOR = s('senior-1')
 const SENIOR2 = s('senior-2')
-const ACCOUNTANT = s('acc-1', 'ACCOUNTANT')
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -68,8 +66,6 @@ interface DocRow {
 interface HarnessOpts {
   tx?: Partial<TxRow>
   doc?: Partial<DocRow> | null
-  /** If true, findOne (the final read after update) returns the updated tx */
-  findOneReturnsUpdated?: boolean
 }
 
 function makeHarness(opts: HarnessOpts = {}) {
@@ -94,6 +90,9 @@ function makeHarness(opts: HarnessOpts = {}) {
   let lastSetValues: Record<string, unknown> = {}
   // Track whether DB transaction was started
   let dbTxStarted = false
+  // Track dbtx.delete calls (document row deletion inside the tx)
+  const dbtxDeleteWhere = vi.fn().mockResolvedValue(undefined)
+  const dbtxDelete = vi.fn().mockReturnValue({ where: dbtxDeleteWhere })
 
   const docRow: DocRow | null =
     opts.doc === null
@@ -104,9 +103,9 @@ function makeHarness(opts: HarnessOpts = {}) {
           thumbnailS3Key: opts.doc?.thumbnailS3Key ?? null,
         }
 
-  // Stub DocumentsService — tracks hardDeleteInternal calls
-  const hardDeleteInternal = vi.fn().mockResolvedValue(undefined)
-  const documentsService = { hardDeleteInternal }
+  // Stub DocumentsService — tracks deleteS3Keys calls (post-commit S3 cleanup)
+  const deleteS3Keys = vi.fn().mockResolvedValue(undefined)
+  const documentsService = { deleteS3Keys }
 
   // Minimal DB stub that supports db.transaction() + update/query
   const db = {
@@ -114,10 +113,8 @@ function makeHarness(opts: HarnessOpts = {}) {
       query: {
         transactions: {
           findFirst: vi.fn().mockImplementation(async () => {
-            // Return the current tx row (simulates real SELECT)
             return { ...txRow }
           }),
-          // findOne (used by findOne at end of updateSeniorIncome)
         },
         documents: {
           findFirst: vi.fn().mockImplementation(async () => {
@@ -127,7 +124,7 @@ function makeHarness(opts: HarnessOpts = {}) {
       },
       transaction: vi.fn().mockImplementation(async (cb: (dbtx: unknown) => Promise<void>) => {
         dbTxStarted = true
-        // dbtx stub — supports update().set().where()
+        // dbtx stub — supports update().set().where() and delete().where()
         const dbtx = {
           update: (_table: unknown) => ({
             set: (values: Record<string, unknown>) => {
@@ -137,41 +134,13 @@ function makeHarness(opts: HarnessOpts = {}) {
               }
             },
           }),
-          delete: (_table: unknown) => ({
-            where: async (_pred: unknown) => undefined,
-          }),
-          query: {
-            transactions: {
-              findFirst: vi.fn().mockResolvedValue({ ...txRow }),
-            },
-            documents: {
-              findFirst: vi.fn().mockResolvedValue(docRow ? { ...docRow } : undefined),
-            },
-          },
+          delete: dbtxDelete,
         }
         await cb(dbtx)
-      }),
-      // Top-level select — used by findOne path after the update
-      select: (_fields: unknown) => ({
-        from: (_table: unknown) => ({
-          leftJoin: (_t: unknown, _on: unknown) => ({
-            leftJoin: (_t2: unknown, _on2: unknown) => ({
-              leftJoin: (_t3: unknown, _on3: unknown) => ({
-                where: (_pred: unknown) => ({
-                  then: (resolve: (v: unknown[]) => void) => resolve([]),
-                }),
-              }),
-            }),
-          }),
-        }),
       }),
     },
   }
 
-  // We need findOne to work — it calls this.findOne() which does a complex
-  // query. For unit tests we don't test the return value in depth —
-  // just that it doesn't throw. Stub the whole findOne chain to return a
-  // minimal valid tx shape.
   const service = new TransactionsService(db as never, {} as never, documentsService as never)
 
   // Stub findOne so updateSeniorIncome can complete
@@ -183,9 +152,11 @@ function makeHarness(opts: HarnessOpts = {}) {
 
   return {
     service,
-    hardDeleteInternal,
+    deleteS3Keys,
     documentsService,
     db,
+    dbtxDelete,
+    dbtxDeleteWhere,
     getLastSetValues: () => lastSetValues,
     wasDbTxStarted: () => dbTxStarted,
   }
@@ -196,28 +167,29 @@ function makeHarness(opts: HarnessOpts = {}) {
 // ---------------------------------------------------------------------------
 
 describe('TransactionsService.updateSeniorIncome — receipt replace-with-delete (Task 2)', () => {
-  it('calls hardDeleteInternal for old doc when receiptDocumentId changes', async () => {
+  it('calls dbtx.delete for old doc (DB row) when receiptDocumentId changes', async () => {
     const h = makeHarness({
       tx: { receiptDocumentId: 'old-doc-id', status: 'REJECTED' },
     })
     await h.service.updateSeniorIncome('tx-1', { receiptDocumentId: 'new-doc-id' }, SENIOR)
-    expect(h.hardDeleteInternal).toHaveBeenCalledWith('old-doc-id')
+    // The delete call must happen inside the Drizzle transaction (dbtx), not via pool
+    expect(h.dbtxDelete).toHaveBeenCalled()
   })
 
-  it('does NOT call hardDeleteInternal when receiptDocumentId is unchanged', async () => {
+  it('does NOT call dbtx.delete when receiptDocumentId is unchanged', async () => {
     const h = makeHarness({
       tx: { receiptDocumentId: 'same-doc-id', status: 'REJECTED' },
     })
     await h.service.updateSeniorIncome('tx-1', { receiptDocumentId: 'same-doc-id' }, SENIOR)
-    expect(h.hardDeleteInternal).not.toHaveBeenCalled()
+    expect(h.dbtxDelete).not.toHaveBeenCalled()
   })
 
-  it('does NOT call hardDeleteInternal when old receipt was null', async () => {
+  it('does NOT call dbtx.delete when old receipt was null', async () => {
     const h = makeHarness({
       tx: { receiptDocumentId: null, status: 'REJECTED' },
     })
     await h.service.updateSeniorIncome('tx-1', { receiptDocumentId: 'new-doc-id' }, SENIOR)
-    expect(h.hardDeleteInternal).not.toHaveBeenCalled()
+    expect(h.dbtxDelete).not.toHaveBeenCalled()
   })
 
   it('resets status to PENDING and clears validation fields', async () => {
@@ -260,19 +232,42 @@ describe('TransactionsService.updateSeniorIncome — receipt replace-with-delete
     ).rejects.toBeInstanceOf(NotFoundException)
   })
 
-  it('does NOT call hardDeleteInternal when switching to external URL (no new docId)', async () => {
+  it('calls deleteS3Keys post-commit when switching to external URL (old doc gets removed)', async () => {
     const h = makeHarness({
       tx: { receiptDocumentId: 'old-doc-id', receiptExternalUrl: null, status: 'REJECTED' },
+      doc: { id: 'old-doc-id', s3Key: 'documents/RECEIPT/senior-1/old-doc.pdf' },
     })
-    // Providing receiptExternalUrl (XOR) — old doc receipt is replaced with URL, so old doc deleted
+    // Providing receiptExternalUrl (XOR) — old doc receipt is replaced with URL
     await h.service.updateSeniorIncome(
       'tx-1',
       { receiptExternalUrl: 'https://etherscan.io/tx/0xabc' },
       SENIOR,
     )
-    // receiptDocumentId becomes null via XOR — so nextDocId=null !== oldDocId='old-doc-id'
-    // → hardDeleteInternal MUST be called to clean up the old doc
-    expect(h.hardDeleteInternal).toHaveBeenCalledWith('old-doc-id')
+    // DB delete inside dbtx
+    expect(h.dbtxDelete).toHaveBeenCalled()
+    // S3 cleanup post-commit via deleteS3Keys
+    expect(h.deleteS3Keys).toHaveBeenCalledWith('documents/RECEIPT/senior-1/old-doc.pdf', null)
+  })
+
+  it('calls deleteS3Keys with correct old S3 key post-commit when doc changes', async () => {
+    const h = makeHarness({
+      tx: { receiptDocumentId: 'old-doc-id', status: 'REJECTED' },
+      doc: {
+        id: 'old-doc-id',
+        s3Key: 'documents/RECEIPT/senior-1/old-doc.pdf',
+        thumbnailS3Key: null,
+      },
+    })
+    await h.service.updateSeniorIncome('tx-1', { receiptDocumentId: 'new-doc-id' }, SENIOR)
+    expect(h.deleteS3Keys).toHaveBeenCalledWith('documents/RECEIPT/senior-1/old-doc.pdf', null)
+  })
+
+  it('does NOT call deleteS3Keys when there is no old doc to replace', async () => {
+    const h = makeHarness({
+      tx: { receiptDocumentId: null, status: 'REJECTED' },
+    })
+    await h.service.updateSeniorIncome('tx-1', { receiptDocumentId: 'new-doc-id' }, SENIOR)
+    expect(h.deleteS3Keys).not.toHaveBeenCalled()
   })
 
   it('uses a DB transaction (atomic) for the receipt replace', async () => {
