@@ -1,16 +1,27 @@
 import { createRootRoute, Outlet } from '@tanstack/react-router'
-import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { createQueryClient } from '../lib/query-client'
-import { queryPersister } from '../lib/persister'
 import { Toaster } from '../components/ui/sonner'
 import '../styles/globals.css'
 
 const queryClient = createQueryClient()
 
-// VITE_APP_VERSION инжектируется при сборке (env var или CI commit hash).
-// При каждом деплое buster меняется → старый IndexedDB-кеш сбрасывается.
-// Фолбэк на '1' для локальной разработки.
-const CACHE_BUSTER = import.meta.env['VITE_APP_VERSION'] ?? '1'
+// NOTE: PersistQueryClientProvider was removed from this PR because it causes
+// a race condition with the auth guard in routes/crm/route.tsx.
+//
+// Mechanism: PersistQueryClientProvider suspends all useQuery calls while
+// restoring the IndexedDB cache (isRestoring = true). During this window the
+// ['auth','me'] query has status:'pending' / fetchStatus:'idle'. When the
+// restore completes with an empty cache (E2E: serviceWorkers:'block' + fresh
+// browser context) there is a render cycle where isLoading=false and
+// user=null — the CrmLayout guard fires navigate({ to:'/crm/login' })
+// before the real /auth/me response arrives, causing a redirect to /crm
+// instead of staying on /crm/interviews.
+//
+// SW-based caching (Workbox NetworkFirst for /api/*, CacheFirst for media)
+// is preserved — it provides the core offline/caching benefit without the
+// auth-guard race. persistQueryClient can be reintroduced in a follow-up
+// task once the guard is made isRestoring-aware (useIsRestoring hook).
 
 export const Route = createRootRoute({
   component: RootDocument,
@@ -18,18 +29,9 @@ export const Route = createRootRoute({
 
 function RootDocument() {
   return (
-    <PersistQueryClientProvider
-      client={queryClient}
-      persistOptions={{
-        persister: queryPersister,
-        // 12 часов — данные считаются свежими после перезагрузки страницы
-        maxAge: 12 * 60 * 60 * 1000,
-        // При смене версии деплоя старый кеш автоматически инвалидируется
-        buster: CACHE_BUSTER,
-      }}
-    >
+    <QueryClientProvider client={queryClient}>
       <Outlet />
       <Toaster />
-    </PersistQueryClientProvider>
+    </QueryClientProvider>
   )
 }
