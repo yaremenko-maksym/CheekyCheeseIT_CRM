@@ -250,7 +250,7 @@ export type PresignedDownload = z.infer<typeof presignedDownloadSchema>
  */
 export const reconcileOrphansOptionsSchema = z.object({
   /** When true (default), nothing is deleted — only a report is returned. */
-  dryRun: z.boolean().optional().default(true),
+  dryRun: z.boolean().default(true),
   /**
    * Objects modified within this many hours are skipped (in-flight uploads).
    * Default: 48 hours. Minimum 1 hour — graceHours=0 would allow the
@@ -258,7 +258,7 @@ export const reconcileOrphansOptionsSchema = z.object({
    * condition between S3 upload and Postgres commit). Enforced here so the
    * controller can never pass 0 to the destructive deletion path.
    */
-  graceHours: z.number().int().min(1).optional().default(48),
+  graceHours: z.number().int().min(1).default(48),
 })
 export type ReconcileOrphansOptions = z.infer<typeof reconcileOrphansOptionsSchema>
 

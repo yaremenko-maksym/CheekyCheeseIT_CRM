@@ -34,6 +34,7 @@ import {
   createDocumentMetadataSchema,
   documentListFiltersSchema,
   reconcileOrphansOptionsSchema,
+  reconcileReportSchema,
   type CreateDocumentMetadata,
   type SessionUser,
 } from '@crm/shared'
@@ -206,8 +207,19 @@ export class DocumentsController {
   @Post('reconcile-orphans')
   @UseGuards(RolesGuard)
   @Roles('ADMIN')
-  reconcileOrphans(@Body() body: unknown) {
+  async reconcileOrphans(@Body() body: unknown) {
     const opts = reconcileOrphansOptionsSchema.parse(body ?? {})
-    return this.reconciliationService.reconcileOrphans(opts)
+    const report = await this.reconciliationService.reconcileOrphans(opts)
+    // Serialize Date fields to ISO strings before schema validation —
+    // the service works with Date objects internally, but the HTTP response
+    // (and reconcileReportSchema) uses z.string().datetime() for JSON wire format.
+    const serialized = {
+      ...report,
+      orphans: report.orphans.map((o) => ({
+        ...o,
+        lastModified: o.lastModified.toISOString(),
+      })),
+    }
+    return reconcileReportSchema.parse(serialized)
   }
 }
