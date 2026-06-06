@@ -123,8 +123,10 @@ describe('DocumentsService — contract virtual entry readable name (п.4)', () 
     expect(result[0]!.name).toBe('Трудовой договор (черновик)')
   })
 
-  it('SIGNED without signedContract row → falls back to «Трудовой договор (черновик)»', async () => {
-    // Edge case: signedContractId set but relation missing (orphan state)
+  it('SIGNED without signedContract row → нейтральное «Трудовой договор»', async () => {
+    // Edge case: signedContractId set but relation missing (orphan state).
+    // LOW-fix: SIGNED без relation → нейтральное «Трудовой договор», а не
+    // «(черновик)» (которое семантически некорректно для подписанного договора).
     const rows = [
       {
         id: 'orphan-id',
@@ -138,8 +140,8 @@ describe('DocumentsService — contract virtual entry readable name (п.4)', () 
 
     const result = await svc.list(ADMIN, { category: 'CONTRACT' })
 
-    // Falls back to draft label — the name does NOT expose the raw uuid
-    expect(result[0]!.name).toBe('Трудовой договор (черновик)')
+    // Falls back to neutral label — the name does NOT expose the raw uuid
+    expect(result[0]!.name).toBe('Трудовой договор')
     expect(result[0]!.name).not.toContain(rows[0]!.id)
   })
 
