@@ -258,10 +258,16 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
     setDetailDoc(doc)
     setDetailOpen(true)
     // Mirror the open into the URL so users can copy the link.
-    void navigate({
-      search: (prev) => ({ ...prev, openDocId: doc.id }),
-      replace: true,
-    })
+    // Skip for virtual documents whose id is not a valid UUID4
+    // (e.g. employee_contract: "contract-<userId>") — validateSearch
+    // z.string().uuid() would throw a ZodError causing a route error boundary.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    if (UUID_RE.test(doc.id)) {
+      void navigate({
+        search: (prev) => ({ ...prev, openDocId: doc.id }),
+        replace: true,
+      })
+    }
   }
 
   function openInvoice(txId: string) {
