@@ -103,7 +103,7 @@ export class EmployeeContractsController {
   /**
    * GET /api/users/:id/contract/pdf
    * Render the employee_contract as a PDF.
-   * - If status=SIGNED: fetches signed_contract for real signedTypedName/date/IP/QR.
+   * - If status=SIGNED: fetches signed_contract for real signedTypedName/date/QR.
    * - Otherwise: renders unsigned preview (signedTypedName='').
    *
    * Throttle: 5 req/min (PDF generation is expensive).
@@ -141,7 +141,6 @@ export class EmployeeContractsController {
         bodyMarkdown: body,
         signedTypedName: signed.signedTypedName ?? '',
         signedAt: new Date(signed.signedAt),
-        signedIpLastOctet: signed.signedIp ? (signed.signedIp.split('.').pop() ?? null) : null,
         verifyUrl: `${frontendUrl}/contract/v/${signed.id}`,
       }
     } else {
@@ -157,7 +156,6 @@ export class EmployeeContractsController {
         bodyMarkdown: body,
         signedTypedName: '',
         signedAt: null,
-        signedIpLastOctet: null,
         verifyUrl: '',
       }
     }

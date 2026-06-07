@@ -429,8 +429,6 @@ const SEED_USERS: schema.NewUser[] = [
 const CONTRACT_BODY: Record<string, string> = {
   SENIOR: `# Договір з Cheeky Cheese IT — Senior розробник
 
-Версія 1 — 2025-06-05
-
 **Сторони:**
 - Компанія: Cheeky Cheese IT (надалі — Компанія)
 - Виконавець: {{employeeName}} (надалі — Старший розробник)
@@ -460,8 +458,6 @@ const CONTRACT_BODY: Record<string, string> = {
 
   JUNIOR: `# Договір з Cheeky Cheese IT — Junior розробник
 
-Версія 1 — 2025-06-05
-
 **Сторони:**
 - Компанія: Cheeky Cheese IT
 - Виконавець: {{employeeName}}
@@ -486,8 +482,6 @@ const CONTRACT_BODY: Record<string, string> = {
 Дата: {{onboardingDate}}`,
 
   HR: `# Договір з Cheeky Cheese IT — HR менеджер
-
-Версія 1 — 2025-06-05
 
 **Сторони:**
 - Компанія: Cheeky Cheese IT
@@ -514,8 +508,6 @@ HR менеджер забезпечує рекрутинг та комунік�
 
   ACCOUNTANT: `# Договір з Cheeky Cheese IT — Бухгалтер
 
-Версія 1 — 2025-06-05
-
 **Сторони:**
 - Компанія: Cheeky Cheese IT
 - Виконавець: {{employeeName}}
@@ -540,8 +532,6 @@ HR менеджер забезпечує рекрутинг та комунік�
 Дата: {{onboardingDate}}`,
 
   DROP: `# Договір з Cheeky Cheese IT — Дроп партнер
-
-Версія 1 — 2025-06-05
 
 **Сторони:**
 - Компанія: Cheeky Cheese IT
@@ -571,8 +561,6 @@ HR менеджер забезпечує рекрутинг та комунік�
 // ToS body
 // ---------------------------------------------------------------------------
 const TOS_BODY = `# Умови використання (Terms of Service) — Cheeky Cheese IT
-
-Версія 1 — 2025-06-05
 
 ## 1. Загальні положення
 

@@ -177,7 +177,7 @@ export class SignedContractsService {
    *
    * Reuses `findById` for the RBAC check (owner | ADMIN | ACCOUNTANT) — a
    * non-authorised caller gets the same Forbidden/NotFound as the JSON read.
-   * Only the trailing IP segment is exposed (privacy: full IP stays in the DB).
+   * No IP is exposed in the PDF (AC7); the full IP stays in the DB for audit.
    */
   async getPdfData(id: string, requester: SessionUser): Promise<GenerateContractPdfParams> {
     const row = await this.findById(id, requester)
@@ -188,7 +188,6 @@ export class SignedContractsService {
       bodyMarkdown: row.bodyMarkdownSnapshot,
       signedTypedName: row.signedTypedName,
       signedAt: new Date(row.signedAt),
-      signedIpLastOctet: row.signedIp ? ipTrailingSegment(row.signedIp) : null,
       verifyUrl: `${frontendUrl}/contract/v/${row.id}`,
     }
   }

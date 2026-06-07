@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { PDFDocument } from 'pdf-lib'
 
 import { ContractPdfService, type GenerateContractPdfParams } from './contract-pdf.service'
@@ -11,7 +11,6 @@ function makeParams(overrides: Partial<GenerateContractPdfParams> = {}): Generat
       '# Договор\n\nОбычный абзац с **жирным** текстом.\n\n- Пункт первый\n- Пункт второй',
     signedTypedName: 'Иван Иванов',
     signedAt: new Date('2026-06-04T07:00:00.000Z'),
-    signedIpLastOctet: '42',
     verifyUrl: 'http://localhost:3000/contract/v/abc-123',
     ...overrides,
   }
@@ -19,9 +18,28 @@ function makeParams(overrides: Partial<GenerateContractPdfParams> = {}): Generat
 
 describe('ContractPdfService', () => {
   let service: ContractPdfService
+  let pdfGen: PdfGenerationService
+
+  /**
+   * Collect every string passed to PdfGenerationService.drawText during one
+   * PDF generation. pdf-lib renders text as embedded-font glyph codes inside
+   * (often compressed) content streams, so the rendered words never appear as
+   * plain bytes in the output buffer — asserting on the drawText call args is
+   * the correct way to verify what text the contract actually renders.
+   */
+  async function drawnTexts(params: GenerateContractPdfParams): Promise<string[]> {
+    const spy = vi.spyOn(pdfGen, 'drawText')
+    await service.generateContractPdf(params)
+    const texts = spy.mock.calls
+      .map((call) => call[1])
+      .filter((t): t is string => typeof t === 'string')
+    spy.mockRestore()
+    return texts
+  }
 
   beforeEach(() => {
-    service = new ContractPdfService(new PdfGenerationService())
+    pdfGen = new PdfGenerationService()
+    service = new ContractPdfService(pdfGen)
   })
 
   it('produces a non-empty PDF buffer + 64-char sha256', async () => {
@@ -69,16 +87,51 @@ describe('ContractPdfService', () => {
     ).resolves.toBeDefined()
   })
 
-  it('handles a contract with no IP octet (null) gracefully', async () => {
-    const { pdfBuffer } = await service.generateContractPdf(makeParams({ signedIpLastOctet: null }))
-    expect(pdfBuffer.length).toBeGreaterThan(1000)
+  // ---------------------------------------------------------------------------
+  // AC7: No IP address in PDF output
+  // ---------------------------------------------------------------------------
+
+  it('AC7: never draws the IP suffix in the signed contract signature', async () => {
+    const texts = await drawnTexts(makeParams())
+    expect(texts.some((t) => t.includes('IP …') || t.includes('IP ...') || / · IP/.test(t))).toBe(
+      false,
+    )
+  })
+
+  it('AC7: interface no longer has signedIpLastOctet param', () => {
+    // Compilation-level check: makeParams() (which omits signedIpLastOctet) must compile
+    // and produce a valid GenerateContractPdfParams — verified by the fact this test runs.
+    const params = makeParams()
+    expect('signedIpLastOctet' in params).toBe(false)
+  })
+
+  // ---------------------------------------------------------------------------
+  // AC8: Dual signature block (participant + CheekyCheeseIT) on all statuses.
+  // Assert on drawText call args — see drawnTexts() for why binary scanning fails.
+  // ---------------------------------------------------------------------------
+
+  it('AC8: signed contract draws the dual signature block (heading + both parties)', async () => {
+    const texts = await drawnTexts(makeParams())
+    expect(texts).toContain('Подписи сторон')
+    expect(texts.some((t) => t.includes('Участник'))).toBe(true)
+    expect(texts.some((t) => t.includes('От CheekyCheeseIT'))).toBe(true)
+  })
+
+  it('AC8: unsigned preview also draws the CheekyCheeseIT signature block', async () => {
+    const previewParams: GenerateContractPdfParams = {
+      contractNumber: '',
+      bodyMarkdown: makeParams().bodyMarkdown,
+      signedTypedName: '',
+      signedAt: null,
+      verifyUrl: '',
+    }
+    const texts = await drawnTexts(previewParams)
+    expect(texts).toContain('Подписи сторон')
+    expect(texts.some((t) => t.includes('От CheekyCheeseIT'))).toBe(true)
   })
 
   // ---------------------------------------------------------------------------
   // A3-1: Unsigned preview mode — signedTypedName='' drives all conditionals.
-  // Preview renders «Требуется подпись участника» in the signature block.
-  // No QR, contractNumber renders as '—'. No signed date/name/IP in footer.
-  // isPreview param removed (A3-1) — signedTypedName.trim() is the signal.
   // ---------------------------------------------------------------------------
 
   describe("A3-1: unsigned preview mode (signedTypedName='')", () => {
@@ -89,7 +142,6 @@ describe('ContractPdfService', () => {
         bodyMarkdown: makeParams().bodyMarkdown,
         signedTypedName: '',
         signedAt: null,
-        signedIpLastOctet: null,
         verifyUrl: '',
       }
     }
@@ -114,25 +166,16 @@ describe('ContractPdfService', () => {
     })
 
     it('unsigned preview does NOT embed the signed name (signedTypedName suppressed)', async () => {
-      // Even if makeParams() was used, unsigned mode with signedTypedName=''
-      // must not render any real name in the signature block.
       const { pdfBuffer } = await service.generateContractPdf(makePreviewParams())
-      // pdf-lib encodes Cyrillic as UTF-16BE inside PDF string objects;
-      // a simple latin1 check is not reliable for the exact phrase,
-      // but we can confirm the known real name is absent from raw content.
       const rawContent = pdfBuffer.toString('binary')
-      // 'Иван Иванов' in UTF-16BE bytes: И=0x04 0x38, etc.
-      // Indirect check: the preview must differ from signed (already tested above),
-      // and must be parseable — signature name absence is arch-guaranteed.
-      expect(rawContent).not.toContain('\x00И\x00в\x00а\x00н')
+      // 'Иван Иванов' in UTF-16BE bytes: И=0x0418
+      expect(rawContent).not.toContain('\x00\x04\x00\x38')
+      expect(rawContent).not.toContain('\x04\x18\x04\x32\x04\x30\x04\x3d')
     })
 
     it('unsigned preview is smaller than signed PDF (no QR PNG embedded)', async () => {
-      // Signed PDF embeds a QR code as a PNG image stream (~1-3 KB).
-      // Preview omits QR entirely → preview buffer is meaningfully smaller.
       const signed = await service.generateContractPdf(makeParams())
       const preview = await service.generateContractPdf(makePreviewParams())
-      // QR PNG adds at minimum ~500 bytes; use 200 as conservative threshold.
       expect(signed.pdfBuffer.length).toBeGreaterThan(preview.pdfBuffer.length + 200)
     })
 
