@@ -77,6 +77,12 @@ export default defineConfig({
           allow: [worktreeRoot, mainRepoRoot!, mainApiNodeModules, mainRootNodeModules],
         },
       },
+      // In a worktree the node_modules resolution chain is longer and heavy
+      // tests (JPEG compression, PDF generation) compete for CPU with the
+      // shared main-repo process pool.  Limit forks to 2 so resource-intensive
+      // integration tests get enough CPU time instead of hitting 5 s timeouts.
+      pool: 'forks',
+      poolOptions: { forks: { maxForks: 2 } },
     }),
     coverage: {
       provider: 'v8',
