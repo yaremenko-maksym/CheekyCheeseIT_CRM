@@ -4,9 +4,9 @@
  * Layout (matches the look/feel of /crm/users and /crm/projects):
  *
  *   ┌───────────────────────────────────────────────────────────────────┐
- *   │  Header  (title + counter + Загрузить button)                     │
+ *   │  Header  (title + Загрузить button)                               │
  *   │  Tri-state SegmentedToggle (Все / Активные / Архив, ADMIN-only)   │
- *   │  Filter row: Owner (ADMIN/HR) + Category dropdown + internal tgl  │
+ *   │  Card toolbar: Search │ Owner │ Category │ ─── │ Sort │ View      │
  *   ├───────────────────────────────────────────────────────────────────┤
  *   │  <DocumentList /> for the active category filter (grid of cards)  │
  *   └───────────────────────────────────────────────────────────────────┘
@@ -25,7 +25,7 @@
  * document automatically once the list query resolves. Used by external
  * links (Finance → receipts, audit log → archived doc, etc.).
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
@@ -37,7 +37,9 @@ import {
   List,
   Plus,
   Receipt as ReceiptIcon,
+  Search,
   Shield,
+  X,
 } from 'lucide-react'
 import { z } from 'zod'
 import type {
@@ -50,6 +52,8 @@ import type {
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -57,7 +61,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Label } from '@/components/ui/label'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import { useDocuments } from '@/hooks/use-documents'
 import { useRoleGuard } from '@/hooks/use-role-guard'
@@ -66,10 +69,30 @@ import { DocumentRow } from '@/components/documents/document-row'
 import { DocumentDetailDialog } from '@/components/documents/document-detail-dialog'
 import { UploadDocumentDialog } from '@/components/documents/upload-document-dialog'
 import { InvoiceDetailDialog } from '@/components/invoices/invoice-detail-dialog'
+import {
+  filterDocuments,
+  sortDocuments,
+  SORT_OPTIONS,
+  DEFAULT_SORT,
+  type SortKey,
+} from '@/lib/documents-filter-sort'
 
 type Role = SessionUser['role']
 type StatusTab = 'ALL' | 'ACTIVE' | 'ARCHIVED'
 type CategoryFilter = DocumentCategory | 'ALL'
+
+// ---------------------------------------------------------------------------
+// useDebounce — generic debounce hook (~250ms for search field AC1)
+// ---------------------------------------------------------------------------
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState<T>(value)
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(id)
+  }, [value, delay])
+  return debounced
+}
 
 // Deep-link params:
 //   - `openDocId` — open DocumentDetailDialog for the matching document
@@ -132,14 +155,15 @@ const CATEGORY_LABELS_RU: Record<DocumentCategory, string> = {
 /**
  * RBAC visibility per spec table «Видимость табов по ролям».
  * Maps Role → set of categories that role may see in the dropdown.
- * INVOICE is exposed to all roles — the backend further scopes the list
- * to "own invoices" for non-ADMIN/ACCOUNTANT (where ownerId == viewer.id).
+ * INVOICE is exposed to all roles except HR — the backend scopes the list
+ * to "own invoices" for non-ADMIN/ACCOUNTANT (where ownerId == viewer.id),
+ * and HR is never an invoice owner, so the tab would always be empty for HR.
  */
 const TAB_VISIBILITY: Record<Role, DocumentCategory[]> = {
   ADMIN: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE'],
   SENIOR: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE'],
   JUNIOR: ['RESUME', 'SCAN', 'INVOICE'],
-  HR: ['RESUME', 'SCAN', 'CONTRACT', 'INVOICE'],
+  HR: ['RESUME', 'SCAN', 'CONTRACT'],
   ACCOUNTANT: ['SCAN', 'RECEIPT', 'INVOICE'],
   // Drop role - phase 1 (backend): documents UX for DROP ships in a later
   // phase. Mirror the SENIOR set so the page renders without runtime crash.
@@ -214,6 +238,26 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>(
     (search.category as CategoryFilter | undefined) ?? 'ALL',
   )
+
+  // AC1 — search input state + debounce 250ms
+  const [searchInput, setSearchInput] = useState('')
+  const debouncedSearch = useDebounce(searchInput, 250)
+  const handleClearSearch = useCallback(() => setSearchInput(''), [])
+
+  // AC2 — sort state (persists across grid/list toggle)
+  const [sortKey, setSortKey] = useState<SortKey>(DEFAULT_SORT)
+
+  // Users for the owner filter — ADMIN/HR only.
+  const showOwnerFilter = canSeeOwnerFilter(viewer.role)
+  const { data: users } = useQuery<UserProfileDto[]>({
+    queryKey: ['users', { archived: false }],
+    queryFn: async () => {
+      const res = await api.get<UserProfileDto[]>('/users')
+      return res.data
+    },
+    enabled: showOwnerFilter,
+    staleTime: 5 * 60 * 1000,
+  })
 
   // Categories this viewer is allowed to see in the dropdown.
   // ADMIN additionally gets AVATAR/LOGO (internal categories, kept compact
@@ -385,23 +429,17 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
         </div>
       ) : null}
 
-      <DocumentsHeader
-        viewer={viewer}
-        categoryFilter={categoryFilter}
-        ownerFilter={ownerFilter}
-        onChangeOwnerFilter={setOwnerFilter}
-        availableCategories={availableCategories}
-        onChangeCategoryFilter={setCategoryFilter}
-      />
+      <DocumentsHeader viewer={viewer} categoryFilter={categoryFilter} users={users} />
 
       {/* Tri-state status filter — matches /crm/users (Все / Активные / Архив).
           ARCHIVED is ADMIN-only — the option renders but is disabled for
-          non-admins so the page layout doesn't shift between roles. */}
+          non-admins so the page layout doesn't shift between roles.
+          Kept in its own row above the toolbar Card, same pattern as /crm/projects. */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.28, delay: 0.05 }}
-        className="flex items-center gap-3"
+        className="flex items-center"
       >
         <SegmentedToggle<StatusTab>
           value={statusTab}
@@ -414,42 +452,120 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
           className="w-fit"
           testId="documents-status-tabs"
         />
-
-        {/* View toggle — list / grid */}
-        <div
-          className="ml-auto flex items-center gap-1 rounded-md border border-border p-0.5"
-          data-testid="documents-view-toggle"
-        >
-          <button
-            type="button"
-            aria-label="Список"
-            aria-pressed={view === 'list'}
-            data-testid="documents-view-list"
-            onClick={() => handleViewChange('list')}
-            className={`flex h-7 w-7 items-center justify-center rounded transition ${
-              view === 'list'
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <List className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            aria-label="Сетка"
-            aria-pressed={view === 'grid'}
-            data-testid="documents-view-grid"
-            onClick={() => handleViewChange('grid')}
-            className={`flex h-7 w-7 items-center justify-center rounded transition ${
-              view === 'grid'
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <LayoutGrid className="h-4 w-4" />
-          </button>
-        </div>
       </motion.div>
+
+      {/* Unified toolbar — canonical Card pattern matching /crm/projects */}
+      <Card>
+        <CardContent className="flex flex-wrap items-center gap-3 pt-4 pb-4">
+          {/* Search */}
+          <div className="relative flex-1 min-w-50">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Поиск по имени…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className={searchInput ? 'pl-8 pr-8' : 'pl-8'}
+              data-testid="documents-search"
+            />
+            {searchInput ? (
+              <button
+                type="button"
+                onClick={handleClearSearch}
+                aria-label="Очистить поиск"
+                className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
+
+          {/* Owner filter — ADMIN/HR only */}
+          {showOwnerFilter ? (
+            <Select value={ownerFilter} onValueChange={setOwnerFilter}>
+              <SelectTrigger className="w-44" data-testid="documents-owner-filter">
+                <SelectValue placeholder="Все владельцы" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">Все владельцы</SelectItem>
+                {(users ?? []).map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.displayName} ({u.email})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+
+          {/* Category filter */}
+          <Select
+            value={categoryFilter}
+            onValueChange={(v) => setCategoryFilter(v as CategoryFilter)}
+          >
+            <SelectTrigger className="w-44" data-testid="documents-category-filter">
+              <SelectValue placeholder="Все категории" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">Все категории</SelectItem>
+              {availableCategories.map((cat) => (
+                <SelectItem key={cat} value={cat}>
+                  {CATEGORY_LABELS_RU[cat]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <div className="hidden h-6 w-px bg-border sm:block" aria-hidden />
+
+          {/* Sort */}
+          <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+            <SelectTrigger className="w-52" data-testid="documents-sort">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SORT_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* View toggle — list / grid */}
+          <div
+            className="ml-auto flex items-center gap-1 rounded-md border border-border p-0.5"
+            data-testid="documents-view-toggle"
+          >
+            <button
+              type="button"
+              aria-label="Список"
+              aria-pressed={view === 'list'}
+              data-testid="documents-view-list"
+              onClick={() => handleViewChange('list')}
+              className={`flex h-7 w-7 items-center justify-center rounded transition ${
+                view === 'list'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <List className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              aria-label="Сетка"
+              aria-pressed={view === 'grid'}
+              data-testid="documents-view-grid"
+              onClick={() => handleViewChange('grid')}
+              className={`flex h-7 w-7 items-center justify-center rounded transition ${
+                view === 'grid'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+          </div>
+        </CardContent>
+      </Card>
 
       <DocumentsListSection
         viewer={viewer}
@@ -460,6 +576,8 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
         onOpen={openDetail}
         openDocId={search.openDocId}
         view={view}
+        searchQuery={debouncedSearch}
+        sortKey={sortKey}
       />
 
       <DocumentDetailDialog
@@ -484,26 +602,16 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
 }
 
 // ---------------------------------------------------------------------------
-// Header sub-component (title + counter + upload button + filters)
+// Header sub-component (title + upload button only — toolbar lives in Card below)
 // ---------------------------------------------------------------------------
 
 interface HeaderProps {
   viewer: SessionUser
   categoryFilter: CategoryFilter
-  ownerFilter: string
-  onChangeOwnerFilter: (v: string) => void
-  availableCategories: DocumentCategory[]
-  onChangeCategoryFilter: (v: CategoryFilter) => void
+  users: UserProfileDto[] | undefined
 }
 
-function DocumentsHeader({
-  viewer,
-  categoryFilter,
-  ownerFilter,
-  onChangeOwnerFilter,
-  availableCategories,
-  onChangeCategoryFilter,
-}: HeaderProps) {
+function DocumentsHeader({ viewer, categoryFilter, users }: HeaderProps) {
   const showOwnerFilter = canSeeOwnerFilter(viewer.role)
   // Hide the upload button when viewing read-only category filters
   // (RECEIPT / INVOICE) — both are produced by Finance, not by uploads.
@@ -511,17 +619,6 @@ function DocumentsHeader({
   const isInvoicesFilter = categoryFilter === 'INVOICE'
 
   const [uploadOpen, setUploadOpen] = useState(false)
-
-  // Users for the owner filter — ADMIN/HR only.
-  const { data: users } = useQuery<UserProfileDto[]>({
-    queryKey: ['users', { archived: false }],
-    queryFn: async () => {
-      const res = await api.get<UserProfileDto[]>('/users')
-      return res.data
-    },
-    enabled: showOwnerFilter,
-    staleTime: 5 * 60 * 1000,
-  })
 
   // Projects — only needed for CONTRACT uploads.
   const { data: projects } = useQuery<ProjectDto[]>({
@@ -556,9 +653,9 @@ function DocumentsHeader({
       : (uploadableCats[0] ?? 'RESUME')
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* Page header — mirrors /crm/users: motion entrance, title + counter
-          on the left, primary action on the right. */}
+    <>
+      {/* Page header — mirrors /crm/users: motion entrance, title on the left,
+          primary action on the right. */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -576,61 +673,6 @@ function DocumentsHeader({
             Загрузить
           </Button>
         ) : null}
-      </motion.div>
-
-      {/* Filter row — owner (ADMIN/HR), category dropdown (everyone). */}
-      <motion.div
-        initial={{ opacity: 0, y: 4 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.2, delay: 0.05 }}
-        className="flex flex-wrap items-end gap-3"
-      >
-        {showOwnerFilter ? (
-          <div className="w-full max-w-xs space-y-1.5">
-            <Label htmlFor="documents-owner-filter" className="text-xs">
-              Владелец
-            </Label>
-            <Select value={ownerFilter} onValueChange={onChangeOwnerFilter}>
-              <SelectTrigger id="documents-owner-filter" data-testid="documents-owner-filter">
-                <SelectValue placeholder="Все" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">Все</SelectItem>
-                {(users ?? []).map((u) => (
-                  <SelectItem key={u.id} value={u.id}>
-                    {u.displayName} ({u.email})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        ) : null}
-
-        <div className="w-full max-w-xs space-y-1.5">
-          <Label htmlFor="documents-category-filter" className="text-xs">
-            Категория
-          </Label>
-          <Select
-            value={categoryFilter}
-            onValueChange={(v) => onChangeCategoryFilter(v as CategoryFilter)}
-          >
-            <SelectTrigger
-              id="documents-category-filter"
-              data-testid="documents-category-filter"
-              className="w-44"
-            >
-              <SelectValue placeholder="Все категории" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">Все категории</SelectItem>
-              {availableCategories.map((cat) => (
-                <SelectItem key={cat} value={cat}>
-                  {CATEGORY_LABELS_RU[cat]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
       </motion.div>
 
       {canShowUploadButton ? (
@@ -654,7 +696,7 @@ function DocumentsHeader({
           defaultOwnerId={viewer.id}
         />
       ) : null}
-    </div>
+    </>
   )
 }
 
@@ -672,6 +714,10 @@ interface ListSectionProps {
   onOpen: (doc: Document) => void
   openDocId?: string | undefined
   view: DocumentView
+  /** AC1 — debounced search query (client-side, over already loaded list) */
+  searchQuery: string
+  /** AC2 — sort key (client-side) */
+  sortKey: SortKey
 }
 
 function DocumentsListSection({
@@ -683,6 +729,8 @@ function DocumentsListSection({
   onOpen,
   openDocId,
   view,
+  searchQuery,
+  sortKey,
 }: ListSectionProps) {
   // Only forward `category` to the API when a specific one is picked.
   // 'ALL' ⇒ backend returns everything the role can see.
@@ -696,11 +744,14 @@ function DocumentsListSection({
   // (the backend treats includeDeleted as "no soft-delete filter"). For
   // 'ARCHIVED' we want only archived rows; for 'ACTIVE' the backend already
   // excludes them; for 'ALL' we leave everything in.
+  // AC1+AC2: then apply search filter and sort client-side.
   const filtered = useMemo<Document[]>(() => {
     if (!data) return []
-    if (statusTab === 'ARCHIVED') return data.filter((d) => d.deletedAt !== null)
-    return data
-  }, [data, statusTab])
+    let result = statusTab === 'ARCHIVED' ? data.filter((d) => d.deletedAt !== null) : data
+    result = filterDocuments(result, searchQuery)
+    result = sortDocuments(result, sortKey)
+    return result
+  }, [data, statusTab, searchQuery, sortKey])
 
   // Deep-link: pop the dialog open once the matching doc appears. We only
   // run this when the URL param or the resolved list changes — `onOpen` is

@@ -161,25 +161,24 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
         aria-label={`Открыть документ «${displayName}»`}
         data-testid="document-card-open"
       >
+        {/* Fallback icon — always rendered behind; hidden when thumbnail
+            covers the area (DocumentImage renders as block over it). */}
+        <div className="absolute inset-0 flex h-full w-full flex-col items-center justify-center gap-2 text-muted-foreground transition group-hover:text-foreground">
+          <FileText className="h-12 w-12" />
+          {isPdf ? (
+            <Badge variant="secondary" className="bg-red-500/15 text-red-600">
+              PDF
+            </Badge>
+          ) : null}
+        </div>
         {isImage ? (
           <DocumentImage
             docId={doc.id}
             alt={displayName}
             variant="thumbnail"
             fallbackToParent
-            className="h-full w-full"
+            className="absolute inset-0 h-full w-full"
           />
-        ) : null}
-        {/* Overlay icon for PDFs / when thumbnail is missing */}
-        {!isImage ? (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-muted-foreground transition group-hover:text-foreground">
-            <FileText className="h-12 w-12" />
-            {isPdf ? (
-              <Badge variant="secondary" className="bg-red-500/15 text-red-600">
-                PDF
-              </Badge>
-            ) : null}
-          </div>
         ) : null}
 
         {isDeleted ? (

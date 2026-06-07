@@ -348,7 +348,16 @@ export function DocumentDetailDialog({
                   <DetailRow
                     icon={FolderOpen}
                     label="Проект"
-                    value={`#${shortId(doc.projectId)}`}
+                    value={
+                      <Link
+                        to="/crm/projects/$projectId"
+                        params={{ projectId: doc.projectId }}
+                        className="text-primary hover:underline focus:outline-none focus-visible:underline"
+                        data-testid="document-detail-project-link"
+                      >
+                        #{shortId(doc.projectId)}
+                      </Link>
+                    }
                   />
                 ) : null}
               </div>
