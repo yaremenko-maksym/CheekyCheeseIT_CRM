@@ -25,7 +25,7 @@
  * document automatically once the list query resolves. Used by external
  * links (Finance → receipts, audit log → archived doc, etc.).
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
@@ -37,7 +37,9 @@ import {
   List,
   Plus,
   Receipt as ReceiptIcon,
+  Search,
   Shield,
+  X,
 } from 'lucide-react'
 import { z } from 'zod'
 import type {
@@ -50,6 +52,7 @@ import type {
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -66,10 +69,30 @@ import { DocumentRow } from '@/components/documents/document-row'
 import { DocumentDetailDialog } from '@/components/documents/document-detail-dialog'
 import { UploadDocumentDialog } from '@/components/documents/upload-document-dialog'
 import { InvoiceDetailDialog } from '@/components/invoices/invoice-detail-dialog'
+import {
+  filterDocuments,
+  sortDocuments,
+  SORT_OPTIONS,
+  DEFAULT_SORT,
+  type SortKey,
+} from '@/lib/documents-filter-sort'
 
 type Role = SessionUser['role']
 type StatusTab = 'ALL' | 'ACTIVE' | 'ARCHIVED'
 type CategoryFilter = DocumentCategory | 'ALL'
+
+// ---------------------------------------------------------------------------
+// useDebounce — generic debounce hook (~250ms for search field AC1)
+// ---------------------------------------------------------------------------
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState<T>(value)
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(id)
+  }, [value, delay])
+  return debounced
+}
 
 // Deep-link params:
 //   - `openDocId` — open DocumentDetailDialog for the matching document
@@ -214,6 +237,14 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>(
     (search.category as CategoryFilter | undefined) ?? 'ALL',
   )
+
+  // AC1 — search input state + debounce 250ms
+  const [searchInput, setSearchInput] = useState('')
+  const debouncedSearch = useDebounce(searchInput, 250)
+  const handleClearSearch = useCallback(() => setSearchInput(''), [])
+
+  // AC2 — sort state (persists across grid/list toggle)
+  const [sortKey, setSortKey] = useState<SortKey>(DEFAULT_SORT)
 
   // Categories this viewer is allowed to see in the dropdown.
   // ADMIN additionally gets AVATAR/LOGO (internal categories, kept compact
@@ -401,7 +432,7 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.28, delay: 0.05 }}
-        className="flex items-center gap-3"
+        className="flex flex-wrap items-center gap-3"
       >
         <SegmentedToggle<StatusTab>
           value={statusTab}
@@ -415,7 +446,48 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
           testId="documents-status-tabs"
         />
 
-        {/* View toggle — list / grid */}
+        {/* AC1 — Search field */}
+        <div className="relative min-w-0 flex-1 sm:max-w-xs">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            placeholder="Поиск по имени…"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            className="h-8 pl-8 pr-8 text-sm"
+            data-testid="documents-search"
+          />
+          {searchInput ? (
+            <button
+              type="button"
+              onClick={handleClearSearch}
+              aria-label="Очистить поиск"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+        </div>
+
+        {/* AC2 — Sort select */}
+        <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+          <SelectTrigger
+            className="h-8 w-auto min-w-[10rem] text-sm"
+            data-testid="documents-sort"
+            aria-label="Сортировка"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SORT_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* View toggle — list / grid (AC5: aria-label + aria-pressed) */}
         <div
           className="ml-auto flex items-center gap-1 rounded-md border border-border p-0.5"
           data-testid="documents-view-toggle"
@@ -460,6 +532,8 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
         onOpen={openDetail}
         openDocId={search.openDocId}
         view={view}
+        searchQuery={debouncedSearch}
+        sortKey={sortKey}
       />
 
       <DocumentDetailDialog
@@ -672,6 +746,10 @@ interface ListSectionProps {
   onOpen: (doc: Document) => void
   openDocId?: string | undefined
   view: DocumentView
+  /** AC1 — debounced search query (client-side, over already loaded list) */
+  searchQuery: string
+  /** AC2 — sort key (client-side) */
+  sortKey: SortKey
 }
 
 function DocumentsListSection({
@@ -683,6 +761,8 @@ function DocumentsListSection({
   onOpen,
   openDocId,
   view,
+  searchQuery,
+  sortKey,
 }: ListSectionProps) {
   // Only forward `category` to the API when a specific one is picked.
   // 'ALL' ⇒ backend returns everything the role can see.
@@ -696,11 +776,14 @@ function DocumentsListSection({
   // (the backend treats includeDeleted as "no soft-delete filter"). For
   // 'ARCHIVED' we want only archived rows; for 'ACTIVE' the backend already
   // excludes them; for 'ALL' we leave everything in.
+  // AC1+AC2: then apply search filter and sort client-side.
   const filtered = useMemo<Document[]>(() => {
     if (!data) return []
-    if (statusTab === 'ARCHIVED') return data.filter((d) => d.deletedAt !== null)
-    return data
-  }, [data, statusTab])
+    let result = statusTab === 'ARCHIVED' ? data.filter((d) => d.deletedAt !== null) : data
+    result = filterDocuments(result, searchQuery)
+    result = sortDocuments(result, sortKey)
+    return result
+  }, [data, statusTab, searchQuery, sortKey])
 
   // Deep-link: pop the dialog open once the matching doc appears. We only
   // run this when the URL param or the resolved list changes — `onOpen` is
