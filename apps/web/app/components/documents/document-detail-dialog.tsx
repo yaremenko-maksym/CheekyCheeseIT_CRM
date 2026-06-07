@@ -27,6 +27,7 @@ import {
   Calendar,
   Download,
   FileText,
+  PenLine,
   RotateCcw,
   Trash,
   Trash2,
@@ -78,6 +79,16 @@ interface DocumentDetailDialogProps {
 
 function shortId(id: string): string {
   return id.length > 8 ? id.slice(-8) : id
+}
+
+const CATEGORY_LABELS_RU: Record<string, string> = {
+  RESUME: 'Резюме',
+  SCAN: 'Скан',
+  CONTRACT: 'Контракт',
+  RECEIPT: 'Чек',
+  AVATAR: 'Аватар',
+  LOGO: 'Логотип',
+  INVOICE: 'Инвойс',
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +214,15 @@ export function DocumentDetailDialog({
     }
   }, [doc])
 
+  const signedAtRelative = useMemo(() => {
+    if (!doc?.signedAt) return null
+    try {
+      return formatDistanceToNow(new Date(doc.signedAt), { addSuffix: true, locale: ru })
+    } catch {
+      return doc.signedAt
+    }
+  }, [doc?.signedAt])
+
   // Display name: original (cyrillic preserved) when available, else sanitized.
   const displayName = doc?.originalName ?? doc?.name ?? ''
 
@@ -306,11 +326,13 @@ export function DocumentDetailDialog({
                   Контракт
                 </Badge>
               ) : null}
-              <span>{doc.category}</span>
+              {!isContractVirtual ? (
+                <span>{CATEGORY_LABELS_RU[doc.category] ?? doc.category}</span>
+              ) : null}
             </div>
           </CrmDialogHeader>
 
-          <CrmDialogBody className="pb-4">
+          <CrmDialogBody className="overflow-y-hidden pb-4">
             {/* PR #56 final UT (AC5): 2-column split — metadata on the left
                 (~40%), large preview on the right (~60%). Mirrors the layout
                 used in TransactionDetailDialog for receipt previews so the
@@ -318,7 +340,7 @@ export function DocumentDetailDialog({
                 to a single column on mobile. */}
             <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
               {/* Metadata column */}
-              <div className="flex flex-col gap-3 text-sm">
+              <div className="flex flex-col gap-3 overflow-y-auto text-sm">
                 <DetailRow
                   icon={UserCircle2}
                   label="Загрузил"
@@ -360,12 +382,23 @@ export function DocumentDetailDialog({
                     }
                   />
                 ) : null}
+                {isContractVirtual && doc.signedByName ? (
+                  <DetailRow icon={PenLine} label="Подписал" value={doc.signedByName} />
+                ) : null}
+                {isContractVirtual && doc.signedAt && signedAtRelative ? (
+                  <DetailRow
+                    icon={Calendar}
+                    label="Дата подписания"
+                    value={signedAtRelative}
+                    title={doc.signedAt}
+                  />
+                ) : null}
               </div>
 
               {/* Preview column */}
               <div
                 data-testid="document-detail-preview"
-                className="relative h-[60vh] max-h-[560px] min-h-[360px] w-full overflow-hidden rounded-xl border border-border bg-muted"
+                className="relative h-[60vh] max-h-[560px] min-h-[360px] w-full overflow-y-auto rounded-xl border border-border bg-muted"
               >
                 {isImage ? (
                   <DocumentImage
