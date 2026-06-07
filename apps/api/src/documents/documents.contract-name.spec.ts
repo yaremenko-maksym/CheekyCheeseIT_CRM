@@ -63,6 +63,12 @@ function makeService(contractRows: ReturnType<typeof makeContractRow>[]) {
         documents: {
           findMany: vi.fn().mockResolvedValue([]),
         },
+        // AC6: buildContractVirtualEntries resolves owner display names via
+        // users.findMany. These name-focused tests don't assert on the owner
+        // label, so an empty result (→ uploadedByDisplayName null) is enough.
+        users: {
+          findMany: vi.fn().mockResolvedValue([]),
+        },
       },
       select: vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
