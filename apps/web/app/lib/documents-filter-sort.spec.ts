@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { Document } from '@crm/shared'
-import { filterDocuments, sortDocuments, type SortKey } from './documents-filter-sort'
+import { filterDocuments, sortDocuments } from './documents-filter-sort'
 
 // ---------------------------------------------------------------------------
 // Minimal Document fixture factory

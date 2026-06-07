@@ -155,14 +155,15 @@ const CATEGORY_LABELS_RU: Record<DocumentCategory, string> = {
 /**
  * RBAC visibility per spec table «Видимость табов по ролям».
  * Maps Role → set of categories that role may see in the dropdown.
- * INVOICE is exposed to all roles — the backend further scopes the list
- * to "own invoices" for non-ADMIN/ACCOUNTANT (where ownerId == viewer.id).
+ * INVOICE is exposed to all roles except HR — the backend scopes the list
+ * to "own invoices" for non-ADMIN/ACCOUNTANT (where ownerId == viewer.id),
+ * and HR is never an invoice owner, so the tab would always be empty for HR.
  */
 const TAB_VISIBILITY: Record<Role, DocumentCategory[]> = {
   ADMIN: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE'],
   SENIOR: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE'],
   JUNIOR: ['RESUME', 'SCAN', 'INVOICE'],
-  HR: ['RESUME', 'SCAN', 'CONTRACT', 'INVOICE'],
+  HR: ['RESUME', 'SCAN', 'CONTRACT'],
   ACCOUNTANT: ['SCAN', 'RECEIPT', 'INVOICE'],
   // Drop role - phase 1 (backend): documents UX for DROP ships in a later
   // phase. Mirror the SENIOR set so the page renders without runtime crash.
