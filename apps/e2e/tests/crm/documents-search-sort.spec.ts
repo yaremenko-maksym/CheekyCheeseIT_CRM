@@ -243,4 +243,3 @@ test.describe('AC5: grid/list toggle aria-label + aria-pressed', () => {
     await expect(page.getByTestId('documents-view-list')).toHaveAttribute('aria-pressed', 'false')
   })
 })
-
