@@ -487,7 +487,19 @@ export class DocumentsService {
       with: { signedContract: true },
     })
 
-    return contractRows.map((c) => this.mapContractVirtualEntry(c, actor.id))
+    // AC6: batch-fetch displayNames for all contract owners (no N+1).
+    const ownerIds = [...new Set(contractRows.map((c) => c.userId))]
+    const ownerRows = ownerIds.length
+      ? await this.db.db.query.users.findMany({
+          where: (tbl, { inArray }) => inArray(tbl.id, ownerIds),
+          columns: { id: true, displayName: true },
+        })
+      : []
+    const displayNameMap: Record<string, string> = Object.fromEntries(
+      ownerRows.map((u) => [u.id, u.displayName]),
+    )
+
+    return contractRows.map((c) => this.mapContractVirtualEntry(c, displayNameMap))
   }
 
   /**
@@ -508,9 +520,13 @@ export class DocumentsService {
       userId: string
       status: string
       createdAt: Date
-      signedContract?: { contractNumber: string } | null
+      signedContract?: {
+        contractNumber: string
+        signedTypedName: string | null
+        signedAt: Date | string | null
+      } | null
     },
-    _actorId: string,
+    actorUserDisplayNames: Record<string, string>,
   ): DocumentDto {
     const state: StatusBadge['state'] =
       contract.status === 'SIGNED'
@@ -534,6 +550,16 @@ export class DocumentsService {
             ? 'Трудовой договор (к подписанию)'
             : 'Трудовой договор (черновик)'
 
+    const uploadedByDisplayName = actorUserDisplayNames[contract.userId] ?? null
+
+    // AC6: for SIGNED contracts, surface who signed and when.
+    const signedByName =
+      contract.status === 'SIGNED' ? (contract.signedContract?.signedTypedName ?? null) : null
+    const signedAtIso =
+      contract.status === 'SIGNED' && contract.signedContract?.signedAt
+        ? new Date(contract.signedContract.signedAt).toISOString()
+        : null
+
     return {
       id: contract.id,
       ownerId: contract.userId,
@@ -546,7 +572,7 @@ export class DocumentsService {
       sizeBytes: 0,
       mimeType: 'application/pdf',
       uploadedBy: contract.userId,
-      uploadedByDisplayName: null,
+      uploadedByDisplayName,
       deletedAt: null,
       deletedBy: null,
       createdAt: (contract.createdAt ?? new Date()).toISOString(),
@@ -554,6 +580,8 @@ export class DocumentsService {
       invoicePendingSignature: false,
       source: 'employee_contract' as DocumentSource,
       statusBadge: { kind: 'contract', state },
+      signedByName,
+      signedAt: signedAtIso,
     }
   }
 

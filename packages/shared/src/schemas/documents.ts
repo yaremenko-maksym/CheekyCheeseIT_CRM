@@ -180,6 +180,19 @@ export const documentSchema = z.object({
    * Optional for backward compat.
    */
   source: documentSourceSchema.optional(),
+  /**
+   * For employee_contract virtual entries only: the typed name from the
+   * signed_contracts record (i.e. what the employee typed when signing).
+   * Null for unsigned contracts and all non-contract documents.
+   * AC6 polish — shown in DocumentDetailDialog «Подписал» row.
+   */
+  signedByName: z.string().nullable().optional(),
+  /**
+   * For employee_contract virtual entries only: ISO timestamp of when the
+   * employee signed the contract. Null for unsigned contracts and all
+   * non-contract documents. AC6 polish — shown in DocumentDetailDialog.
+   */
+  signedAt: z.string().datetime().nullable().optional(),
 })
 export type Document = z.infer<typeof documentSchema>
 
