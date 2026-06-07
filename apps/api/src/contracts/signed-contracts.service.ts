@@ -188,7 +188,6 @@ export class SignedContractsService {
       bodyMarkdown: row.bodyMarkdownSnapshot,
       signedTypedName: row.signedTypedName,
       signedAt: new Date(row.signedAt),
-      signedIpLastOctet: row.signedIp ? ipTrailingSegment(row.signedIp) : null,
       verifyUrl: `${frontendUrl}/contract/v/${row.id}`,
     }
   }
