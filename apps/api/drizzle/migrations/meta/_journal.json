@@ -29,6 +29,13 @@
       "when": 1780774897003,
       "tag": "0003_overjoyed_kang",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780846965680,
+      "tag": "0004_contract_templates_remove_version",
+      "breakpoints": true
     }
   ]
 }
