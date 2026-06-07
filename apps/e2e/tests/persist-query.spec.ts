@@ -168,53 +168,50 @@ const test = base.extend<{ freshPage: Page }>({
 // ---------------------------------------------------------------------------
 
 test.describe('PersistQueryClient — isRestoring race regression (AC1)', () => {
-  test(
-    'authenticated navigation to /crm/interviews stays on target page (no redirect to /crm/login)',
-    async ({ freshPage: page }) => {
-      await setupMocks(page)
+  test('authenticated navigation to /crm/interviews stays on target page (no redirect to /crm/login)', async ({
+    freshPage: page,
+  }) => {
+    await setupMocks(page)
 
-      // Navigate directly to a deep CRM route.
-      // Before the fix: PersistQueryClientProvider restores empty IDB →
-      //   isRestoring=false → isPending=true, isFetching=false →
-      //   isLoading=false → user=null → guard redirects to /crm/login.
-      // After the fix: isRestoring=true during restore window → isLoading=true
-      //   → guard skips → auth/me resolves → user=ADMIN → stays on /crm/interviews.
-      await page.goto('/crm/interviews')
+    // Navigate directly to a deep CRM route.
+    // Before the fix: PersistQueryClientProvider restores empty IDB →
+    //   isRestoring=false → isPending=true, isFetching=false →
+    //   isLoading=false → user=null → guard redirects to /crm/login.
+    // After the fix: isRestoring=true during restore window → isLoading=true
+    //   → guard skips → auth/me resolves → user=ADMIN → stays on /crm/interviews.
+    await page.goto('/crm/interviews')
 
-      // Must NOT redirect to login — wait for the page to settle.
-      // Give auth/me time to resolve (mocked, so it is instant, but we need
-      // the React render cycle to complete).
-      await page.waitForLoadState('domcontentloaded')
+    // Must NOT redirect to login — wait for the page to settle.
+    // Give auth/me time to resolve (mocked, so it is instant, but we need
+    // the React render cycle to complete).
+    await page.waitForLoadState('domcontentloaded')
 
-      // Assert we are NOT on login.
-      const url = page.url()
-      expect(
-        url,
-        `Expected to stay on /crm/interviews (isRestoring fix). Got: ${url}`,
-      ).not.toMatch(/\/crm\/login/)
+    // Assert we are NOT on login.
+    const url = page.url()
+    expect(url, `Expected to stay on /crm/interviews (isRestoring fix). Got: ${url}`).not.toMatch(
+      /\/crm\/login/,
+    )
 
-      // Assert the CRM layout rendered (heading or sidebar visible).
-      // The interviews page has "Собеседования" heading when correctly loaded.
-      await expect(
-        page.getByRole('heading', { name: /собеседования/i }).or(
-          page.locator('[data-testid="header-user-menu-trigger"]'),
-        ),
-      ).toBeVisible({ timeout: 10_000 })
-    },
-  )
+    // Assert the CRM layout rendered (heading or sidebar visible).
+    // The interviews page has "Собеседования" heading when correctly loaded.
+    await expect(
+      page
+        .getByRole('heading', { name: /собеседования/i })
+        .or(page.locator('[data-testid="header-user-menu-trigger"]')),
+    ).toBeVisible({ timeout: 10_000 })
+  })
 
-  test(
-    'unauthenticated request (auth/me → 401) still redirects to /crm/login',
-    async ({ freshPage: page }) => {
-      // Override auth/me to return 401 — real redirect must still happen.
-      await page.route(`${API}/auth/me`, (r) =>
-        r.fulfill({ status: 401, body: '{"message":"Unauthorized"}' }),
-      )
+  test('unauthenticated request (auth/me → 401) still redirects to /crm/login', async ({
+    freshPage: page,
+  }) => {
+    // Override auth/me to return 401 — real redirect must still happen.
+    await page.route(`${API}/auth/me`, (r) =>
+      r.fulfill({ status: 401, body: '{"message":"Unauthorized"}' }),
+    )
 
-      await page.goto('/crm/interviews')
-      await expect(page).toHaveURL(/\/crm\/login/, { timeout: 10_000 })
-    },
-  )
+    await page.goto('/crm/interviews')
+    await expect(page).toHaveURL(/\/crm\/login/, { timeout: 10_000 })
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -222,29 +219,28 @@ test.describe('PersistQueryClient — isRestoring race regression (AC1)', () => 
 // ---------------------------------------------------------------------------
 
 test.describe('PersistQueryClient — IDB persistence (AC2)', () => {
-  test(
-    'cache key crm-query-cache is written to IndexedDB after auth resolves',
-    async ({ freshPage: page }) => {
-      await setupMocks(page)
+  test('cache key crm-query-cache is written to IndexedDB after auth resolves', async ({
+    freshPage: page,
+  }) => {
+    await setupMocks(page)
 
-      await page.goto('/crm/dashboard')
-      await page.waitForLoadState('domcontentloaded')
+    await page.goto('/crm/dashboard')
+    await page.waitForLoadState('domcontentloaded')
 
-      // Wait until user menu is visible — auth/me resolved + cache dehydrated.
-      await expect(page.locator('[data-testid="header-user-menu-trigger"]')).toBeVisible({
-        timeout: 10_000,
-      })
+    // Wait until user menu is visible — auth/me resolved + cache dehydrated.
+    await expect(page.locator('[data-testid="header-user-menu-trigger"]')).toBeVisible({
+      timeout: 10_000,
+    })
 
-      // Give persister time to write (throttleTime: 1000 ms in persister.ts).
-      await page.waitForTimeout(1500)
+    // Give persister time to write (throttleTime: 1000 ms in persister.ts).
+    await page.waitForTimeout(1500)
 
-      const keyExists = await idbKeyExists(page, IDB_KEY)
-      expect(
-        keyExists,
-        `Expected IDB key '${IDB_KEY}' to be written by persister after auth resolves`,
-      ).toBe(true)
-    },
-  )
+    const keyExists = await idbKeyExists(page, IDB_KEY)
+    expect(
+      keyExists,
+      `Expected IDB key '${IDB_KEY}' to be written by persister after auth resolves`,
+    ).toBe(true)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -252,43 +248,39 @@ test.describe('PersistQueryClient — IDB persistence (AC2)', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('PersistQueryClient — logout clears IDB (AC3)', () => {
-  test(
-    'idbDel(crm-query-cache) is called on logout — key absent from IDB after logout',
-    async ({ freshPage: page }) => {
-      await setupMocks(page)
+  test('idbDel(crm-query-cache) is called on logout — key absent from IDB after logout', async ({
+    freshPage: page,
+  }) => {
+    await setupMocks(page)
 
-      // Load CRM so the persister writes the cache.
-      await page.goto('/crm/dashboard')
-      await expect(page.locator('[data-testid="header-user-menu-trigger"]')).toBeVisible({
-        timeout: 10_000,
+    // Load CRM so the persister writes the cache.
+    await page.goto('/crm/dashboard')
+    await expect(page.locator('[data-testid="header-user-menu-trigger"]')).toBeVisible({
+      timeout: 10_000,
+    })
+
+    // Wait for the persister throttle to flush (1 s throttle + buffer).
+    await page.waitForTimeout(1500)
+
+    // Confirm key is present before logout.
+    const keyBefore = await idbKeyExists(page, IDB_KEY)
+    expect(keyBefore, `Expected IDB key '${IDB_KEY}' to exist before logout`).toBe(true)
+
+    // Trigger logout via the UI (mirrors logout-clear.spec.ts pattern).
+    await page.locator('[data-testid="header-user-menu-trigger"]').click()
+    await page.locator('[data-testid="header-user-menu-logout"]').click()
+
+    // Wait for redirect to /login.
+    await page.waitForURL('**/login**', { timeout: 15_000 })
+
+    // After logout idbDel('crm-query-cache') runs in use-logout.ts.
+    // Poll until the key is gone (deletion is async).
+    await expect
+      .poll(() => idbKeyExists(page, IDB_KEY), {
+        message: `Expected IDB key '${IDB_KEY}' to be deleted after logout`,
+        timeout: 5_000,
+        intervals: [300, 500, 1000],
       })
-
-      // Wait for the persister throttle to flush (1 s throttle + buffer).
-      await page.waitForTimeout(1500)
-
-      // Confirm key is present before logout.
-      const keyBefore = await idbKeyExists(page, IDB_KEY)
-      expect(keyBefore, `Expected IDB key '${IDB_KEY}' to exist before logout`).toBe(true)
-
-      // Trigger logout via the UI (mirrors logout-clear.spec.ts pattern).
-      await page.locator('[data-testid="header-user-menu-trigger"]').click()
-      await page.locator('[data-testid="header-user-menu-logout"]').click()
-
-      // Wait for redirect to /login.
-      await page.waitForURL('**/login**', { timeout: 15_000 })
-
-      // After logout idbDel('crm-query-cache') runs in use-logout.ts.
-      // Poll until the key is gone (deletion is async).
-      await expect
-        .poll(
-          () => idbKeyExists(page, IDB_KEY),
-          {
-            message: `Expected IDB key '${IDB_KEY}' to be deleted after logout`,
-            timeout: 5_000,
-            intervals: [300, 500, 1000],
-          },
-        )
-        .toBe(false)
-    },
-  )
+      .toBe(false)
+  })
 })
