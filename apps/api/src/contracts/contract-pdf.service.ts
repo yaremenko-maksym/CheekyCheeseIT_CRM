@@ -33,9 +33,10 @@ export interface GenerateContractPdfParams {
   bodyMarkdown: string
   /**
    * A3-1: signature block logic driven by this field.
-   *   - Non-empty → render real signature (name + date + IP + QR).
+   *   - Non-empty → render real signature (name + date + QR).
    *   - Empty string '' → render «Требуется подпись участника» (unsigned preview mode).
    * isPreview removed — this field is the single conditional.
+   * IP address removed from output (AC7) — stored in DB for audit only.
    */
   signedTypedName: string
   /**
@@ -43,8 +44,6 @@ export interface GenerateContractPdfParams {
    * Used for deterministic PDF metadata and signed-date rendering.
    */
   signedAt: Date | null
-  /** Last octet only (privacy) — rendered in the signature block. NULL if unknown. */
-  signedIpLastOctet: string | null
   /**
    * Public verify URL — encoded into the QR code.
    * Empty string '' → QR and verifyUrl footer NOT rendered (unsigned preview).
@@ -75,6 +74,8 @@ const H2_SIZE = 13
 const BULLET_INDENT = 14
 /** Y below which we break to a new page (leaves room for the footer + QR). */
 const BOTTOM_LIMIT = PDF_LAYOUT.pageMargin + 70
+/** Line height for signature block text */
+const SIG_LINE_HEIGHT = 14
 
 @Injectable()
 export class ContractPdfService {
@@ -107,13 +108,16 @@ export class ContractPdfService {
     const markY = cursor.y - markSize
     this.pdfGen.drawBrandMark(cursor.page, markX, markY, markSize, brandColor)
 
-    // Brand wordmark to the right of the logo.
+    // AC5: vertically center the wordmark within the brand mark height.
+    // pdf-lib draws text from baseline; adding (markSize - fontSize)/2 + fontSize*0.25
+    // approximates visual center for the Roboto Bold glyphs at 16pt.
+    const wordmarkFontSize = 16
     const wordmarkX = markX + markSize + 10
     this.pdfGen.drawText(cursor.page, PDF_BRAND.companyName, {
       x: wordmarkX,
-      y: markY + markSize * 0.55,
+      y: markY + (markSize - wordmarkFontSize) / 2 + wordmarkFontSize * 0.25,
       font: boldFont,
-      size: 16,
+      size: wordmarkFontSize,
       color: textColor,
     })
 
@@ -244,8 +248,9 @@ export class ContractPdfService {
       })
     }
 
-    // ---- Signature block ----------------------------------------------
-    this.ensureSpace(pdfDoc, cursor, 70)
+    // ---- Dual signature block (AC8) ----------------------------------------
+    // Needs ~160pt: separator + heading + participant rows + company rows + QR gap.
+    this.ensureSpace(pdfDoc, cursor, 160)
     cursor.y -= 12
     cursor.y = this.pdfGen.drawSeparator(
       cursor.page,
@@ -255,17 +260,32 @@ export class ContractPdfService {
       separatorColor,
     )
     cursor.y -= 4
-    this.pdfGen.drawText(cursor.page, 'Подпись', {
+
+    this.pdfGen.drawText(cursor.page, 'Подписи сторон', {
       x: pageMargin,
       y: cursor.y,
       font: boldFont,
       size: 12,
       color: textColor,
     })
-    cursor.y -= 16
+    cursor.y -= SIG_LINE_HEIGHT + 4
+
+    // Right column starts at mid-page.
+    const midX = pageMargin + contentWidth / 2 - 10
+
+    // ------ 1. Participant (left column) ----------------------------------------
+    this.pdfGen.drawText(cursor.page, '1. Участник', {
+      x: pageMargin,
+      y: cursor.y,
+      font: boldFont,
+      size: BODY_SIZE,
+      color: textColor,
+    })
+    // Record the Y so the company column starts at the same level.
+    const dualSigStartY = cursor.y
 
     if (isSigned) {
-      // Signed mode — show resolved name, date, and trailing IP segment.
+      cursor.y -= SIG_LINE_HEIGHT
       this.pdfGen.drawText(cursor.page, params.signedTypedName, {
         x: pageMargin,
         y: cursor.y,
@@ -273,19 +293,19 @@ export class ContractPdfService {
         size: BODY_SIZE,
         color: textColor,
       })
-      cursor.y -= 14
-      const ipSuffix = params.signedIpLastOctet ? ` · IP …${params.signedIpLastOctet}` : ''
+      cursor.y -= SIG_LINE_HEIGHT
       const signedAtDisplay = params.signedAt ? formatDateRu(params.signedAt) : ''
-      this.pdfGen.drawText(cursor.page, `${signedAtDisplay}${ipSuffix}`, {
+      this.pdfGen.drawText(cursor.page, signedAtDisplay, {
         x: pageMargin,
         y: cursor.y,
         font: regularFont,
         size: 9,
         color: mutedColor,
       })
+      cursor.y -= SIG_LINE_HEIGHT
     } else {
-      // A3-1: unsigned preview — show placeholder text instead of signer info.
-      // No name, no date, no IP — the document has not been signed yet.
+      // Unsigned preview — placeholder
+      cursor.y -= SIG_LINE_HEIGHT
       this.pdfGen.drawText(cursor.page, 'Требуется подпись участника', {
         x: pageMargin,
         y: cursor.y,
@@ -293,6 +313,42 @@ export class ContractPdfService {
         size: BODY_SIZE,
         color: mutedColor,
       })
+      cursor.y -= SIG_LINE_HEIGHT
+    }
+
+    // ------ 2. CheekyCheeseIT (right column) — AC8 ---------------------------
+    // Mirrors invoice-pdf.service.ts drawCompanySignature pattern.
+    let companyY = dualSigStartY
+    this.pdfGen.drawText(cursor.page, '2. От CheekyCheeseIT', {
+      x: midX,
+      y: companyY,
+      font: boldFont,
+      size: BODY_SIZE,
+      color: textColor,
+    })
+    companyY -= SIG_LINE_HEIGHT
+    this.pdfGen.drawText(cursor.page, PDF_BRAND.companyName, {
+      x: midX,
+      y: companyY,
+      font: regularFont,
+      size: BODY_SIZE,
+      color: textColor,
+    })
+    companyY -= SIG_LINE_HEIGHT
+    // Company date mirrors participant date when signed; placeholder otherwise.
+    const companyDateStr = params.signedAt ? formatDateRu(params.signedAt) : '(ожидает подписи)'
+    this.pdfGen.drawText(cursor.page, companyDateStr, {
+      x: midX,
+      y: companyY,
+      font: regularFont,
+      size: 9,
+      color: mutedColor,
+    })
+    companyY -= SIG_LINE_HEIGHT
+
+    // Advance cursor to the lower of the two columns (company typically ends lower).
+    if (companyY < cursor.y) {
+      cursor.y = companyY
     }
 
     // ---- QR + footer — only when verifyUrl is provided (signed contracts) --
