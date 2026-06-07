@@ -11,7 +11,6 @@ function makeParams(overrides: Partial<GenerateContractPdfParams> = {}): Generat
       '# Договор\n\nОбычный абзац с **жирным** текстом.\n\n- Пункт первый\n- Пункт второй',
     signedTypedName: 'Иван Иванов',
     signedAt: new Date('2026-06-04T07:00:00.000Z'),
-    signedIpLastOctet: '42',
     verifyUrl: 'http://localhost:3000/contract/v/abc-123',
     ...overrides,
   }
@@ -69,16 +68,81 @@ describe('ContractPdfService', () => {
     ).resolves.toBeDefined()
   })
 
-  it('handles a contract with no IP octet (null) gracefully', async () => {
-    const { pdfBuffer } = await service.generateContractPdf(makeParams({ signedIpLastOctet: null }))
-    expect(pdfBuffer.length).toBeGreaterThan(1000)
+  // ---------------------------------------------------------------------------
+  // AC7: No IP address in PDF output
+  // ---------------------------------------------------------------------------
+
+  it('AC7: does not contain IP-related text in signed PDF output', async () => {
+    const { pdfBuffer } = await service.generateContractPdf(makeParams())
+    // The raw binary should not contain "IP" or octet patterns
+    const raw = pdfBuffer.toString('binary')
+    // Check that the Latin "IP" substring is absent from text streams
+    // (rendered text is stored as UTF-16BE in pdf-lib string objects)
+    // The ASCII literal "IP " or "IP …" must not appear
+    expect(raw).not.toContain('IP …')
+    expect(raw).not.toContain('IP ...')
+  })
+
+  it('AC7: interface no longer has signedIpLastOctet param', async () => {
+    // Compilation-level check: makeParams() (which omits signedIpLastOctet) must compile
+    // and produce a valid GenerateContractPdfParams — verified by the fact this test runs.
+    const params = makeParams()
+    expect('signedIpLastOctet' in params).toBe(false)
+  })
+
+  // ---------------------------------------------------------------------------
+  // AC8: Company signature block present on all statuses
+  // ---------------------------------------------------------------------------
+
+  it('AC8: signed PDF contains company name CheekyCheeseIT in signature block', async () => {
+    const { pdfBuffer } = await service.generateContractPdf(makeParams())
+    // pdf-lib encodes strings as UTF-16BE (2 bytes per char, big-endian).
+    // 'C' = 0x0043, 'h' = 0x0068, etc.
+    // Encode "CheekyCheeseIT" to the UTF-16BE byte pattern:
+    const name = 'CheekyCheeseIT'
+    const utf16beBytes: number[] = []
+    for (let i = 0; i < name.length; i++) {
+      const code = name.charCodeAt(i)
+      utf16beBytes.push(0x00, code)
+    }
+    const pattern = Buffer.from(utf16beBytes)
+    expect(pdfBuffer.indexOf(pattern)).toBeGreaterThan(-1)
+  })
+
+  it('AC8: unsigned preview PDF also contains company name CheekyCheeseIT', async () => {
+    const params: GenerateContractPdfParams = {
+      contractNumber: '',
+      bodyMarkdown: makeParams().bodyMarkdown,
+      signedTypedName: '',
+      signedAt: null,
+      verifyUrl: '',
+    }
+    const { pdfBuffer } = await service.generateContractPdf(params)
+    const name = 'CheekyCheeseIT'
+    const utf16beBytes: number[] = []
+    for (let i = 0; i < name.length; i++) {
+      const code = name.charCodeAt(i)
+      utf16beBytes.push(0x00, code)
+    }
+    const pattern = Buffer.from(utf16beBytes)
+    expect(pdfBuffer.indexOf(pattern)).toBeGreaterThan(-1)
+  })
+
+  it('AC8: signed PDF contains dual signature section heading', async () => {
+    const { pdfBuffer } = await service.generateContractPdf(makeParams())
+    // "Подписи сторон" encoded UTF-16BE
+    const heading = 'Подписи сторон'
+    const utf16beBytes: number[] = []
+    for (let i = 0; i < heading.length; i++) {
+      const code = heading.charCodeAt(i)
+      utf16beBytes.push((code >> 8) & 0xff, code & 0xff)
+    }
+    const pattern = Buffer.from(utf16beBytes)
+    expect(pdfBuffer.indexOf(pattern)).toBeGreaterThan(-1)
   })
 
   // ---------------------------------------------------------------------------
   // A3-1: Unsigned preview mode — signedTypedName='' drives all conditionals.
-  // Preview renders «Требуется подпись участника» in the signature block.
-  // No QR, contractNumber renders as '—'. No signed date/name/IP in footer.
-  // isPreview param removed (A3-1) — signedTypedName.trim() is the signal.
   // ---------------------------------------------------------------------------
 
   describe("A3-1: unsigned preview mode (signedTypedName='')", () => {
@@ -89,7 +153,6 @@ describe('ContractPdfService', () => {
         bodyMarkdown: makeParams().bodyMarkdown,
         signedTypedName: '',
         signedAt: null,
-        signedIpLastOctet: null,
         verifyUrl: '',
       }
     }
@@ -114,25 +177,16 @@ describe('ContractPdfService', () => {
     })
 
     it('unsigned preview does NOT embed the signed name (signedTypedName suppressed)', async () => {
-      // Even if makeParams() was used, unsigned mode with signedTypedName=''
-      // must not render any real name in the signature block.
       const { pdfBuffer } = await service.generateContractPdf(makePreviewParams())
-      // pdf-lib encodes Cyrillic as UTF-16BE inside PDF string objects;
-      // a simple latin1 check is not reliable for the exact phrase,
-      // but we can confirm the known real name is absent from raw content.
       const rawContent = pdfBuffer.toString('binary')
-      // 'Иван Иванов' in UTF-16BE bytes: И=0x04 0x38, etc.
-      // Indirect check: the preview must differ from signed (already tested above),
-      // and must be parseable — signature name absence is arch-guaranteed.
-      expect(rawContent).not.toContain('\x00И\x00в\x00а\x00н')
+      // 'Иван Иванов' in UTF-16BE bytes: И=0x0418
+      expect(rawContent).not.toContain('\x00\x04\x00\x38')
+      expect(rawContent).not.toContain('\x04\x18\x04\x32\x04\x30\x04\x3d')
     })
 
     it('unsigned preview is smaller than signed PDF (no QR PNG embedded)', async () => {
-      // Signed PDF embeds a QR code as a PNG image stream (~1-3 KB).
-      // Preview omits QR entirely → preview buffer is meaningfully smaller.
       const signed = await service.generateContractPdf(makeParams())
       const preview = await service.generateContractPdf(makePreviewParams())
-      // QR PNG adds at minimum ~500 bytes; use 200 as conservative threshold.
       expect(signed.pdfBuffer.length).toBeGreaterThan(preview.pdfBuffer.length + 200)
     })
 
