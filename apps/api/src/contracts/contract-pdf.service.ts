@@ -335,8 +335,11 @@ export class ContractPdfService {
       color: textColor,
     })
     companyY -= SIG_LINE_HEIGHT
-    // Company date mirrors participant date when signed; placeholder otherwise.
-    const companyDateStr = params.signedAt ? formatDateRu(params.signedAt) : '(ожидает подписи)'
+    // Company counter-signature is always present — contracts are issued
+    // pre-signed by CheekyCheeseIT. Show the resolved date once the contract is
+    // fully signed; otherwise mark the company side as already signed (never an
+    // "awaiting" placeholder — the company has signed before the employee gets it).
+    const companyDateStr = params.signedAt ? formatDateRu(params.signedAt) : 'Подписано'
     this.pdfGen.drawText(cursor.page, companyDateStr, {
       x: midX,
       y: companyY,

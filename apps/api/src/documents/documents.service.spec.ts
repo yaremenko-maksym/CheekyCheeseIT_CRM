@@ -796,6 +796,27 @@ function makeExtendedHarness(opts: ExtendedHarnessOptions = {}) {
         },
         users: {
           findFirst: async (_args: unknown) => undefined,
+          findMany: async (args?: {
+            where?: (
+              tbl: { id: string },
+              ops: { inArray: (col: string, ids: string[]) => boolean },
+            ) => boolean
+            columns?: Record<string, boolean>
+          }) => {
+            // Return id+displayName for all contract row owners
+            const ownerMap: Record<string, string> = {}
+            for (const c of contractRows) {
+              ownerMap[c.userId] = `User-${c.userId.slice(-4)}`
+            }
+            const all = Object.entries(ownerMap).map(([id, displayName]) => ({ id, displayName }))
+            if (!args?.where) return all
+            return all.filter((u) =>
+              args.where!(
+                { id: u.id },
+                { inArray: (col, ids) => ids.includes(col === 'id' ? u.id : u.id) },
+              ),
+            )
+          },
         },
         employeeContracts: {
           // Simulate Drizzle's findMany with a where callback.

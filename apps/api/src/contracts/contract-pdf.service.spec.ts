@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { PDFDocument } from 'pdf-lib'
 
 import { ContractPdfService, type GenerateContractPdfParams } from './contract-pdf.service'
@@ -18,9 +18,28 @@ function makeParams(overrides: Partial<GenerateContractPdfParams> = {}): Generat
 
 describe('ContractPdfService', () => {
   let service: ContractPdfService
+  let pdfGen: PdfGenerationService
+
+  /**
+   * Collect every string passed to PdfGenerationService.drawText during one
+   * PDF generation. pdf-lib renders text as embedded-font glyph codes inside
+   * (often compressed) content streams, so the rendered words never appear as
+   * plain bytes in the output buffer — asserting on the drawText call args is
+   * the correct way to verify what text the contract actually renders.
+   */
+  async function drawnTexts(params: GenerateContractPdfParams): Promise<string[]> {
+    const spy = vi.spyOn(pdfGen, 'drawText')
+    await service.generateContractPdf(params)
+    const texts = spy.mock.calls
+      .map((call) => call[1])
+      .filter((t): t is string => typeof t === 'string')
+    spy.mockRestore()
+    return texts
+  }
 
   beforeEach(() => {
-    service = new ContractPdfService(new PdfGenerationService())
+    pdfGen = new PdfGenerationService()
+    service = new ContractPdfService(pdfGen)
   })
 
   it('produces a non-empty PDF buffer + 64-char sha256', async () => {
@@ -72,18 +91,14 @@ describe('ContractPdfService', () => {
   // AC7: No IP address in PDF output
   // ---------------------------------------------------------------------------
 
-  it('AC7: does not contain IP-related text in signed PDF output', async () => {
-    const { pdfBuffer } = await service.generateContractPdf(makeParams())
-    // The raw binary should not contain "IP" or octet patterns
-    const raw = pdfBuffer.toString('binary')
-    // Check that the Latin "IP" substring is absent from text streams
-    // (rendered text is stored as UTF-16BE in pdf-lib string objects)
-    // The ASCII literal "IP " or "IP …" must not appear
-    expect(raw).not.toContain('IP …')
-    expect(raw).not.toContain('IP ...')
+  it('AC7: never draws the IP suffix in the signed contract signature', async () => {
+    const texts = await drawnTexts(makeParams())
+    expect(texts.some((t) => t.includes('IP …') || t.includes('IP ...') || / · IP/.test(t))).toBe(
+      false,
+    )
   })
 
-  it('AC7: interface no longer has signedIpLastOctet param', async () => {
+  it('AC7: interface no longer has signedIpLastOctet param', () => {
     // Compilation-level check: makeParams() (which omits signedIpLastOctet) must compile
     // and produce a valid GenerateContractPdfParams — verified by the fact this test runs.
     const params = makeParams()
@@ -91,54 +106,28 @@ describe('ContractPdfService', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // AC8: Company signature block present on all statuses
+  // AC8: Dual signature block (participant + CheekyCheeseIT) on all statuses.
+  // Assert on drawText call args — see drawnTexts() for why binary scanning fails.
   // ---------------------------------------------------------------------------
 
-  it('AC8: signed PDF contains company name CheekyCheeseIT in signature block', async () => {
-    const { pdfBuffer } = await service.generateContractPdf(makeParams())
-    // pdf-lib encodes strings as UTF-16BE (2 bytes per char, big-endian).
-    // 'C' = 0x0043, 'h' = 0x0068, etc.
-    // Encode "CheekyCheeseIT" to the UTF-16BE byte pattern:
-    const name = 'CheekyCheeseIT'
-    const utf16beBytes: number[] = []
-    for (let i = 0; i < name.length; i++) {
-      const code = name.charCodeAt(i)
-      utf16beBytes.push(0x00, code)
-    }
-    const pattern = Buffer.from(utf16beBytes)
-    expect(pdfBuffer.indexOf(pattern)).toBeGreaterThan(-1)
+  it('AC8: signed contract draws the dual signature block (heading + both parties)', async () => {
+    const texts = await drawnTexts(makeParams())
+    expect(texts).toContain('Подписи сторон')
+    expect(texts.some((t) => t.includes('Участник'))).toBe(true)
+    expect(texts.some((t) => t.includes('От CheekyCheeseIT'))).toBe(true)
   })
 
-  it('AC8: unsigned preview PDF also contains company name CheekyCheeseIT', async () => {
-    const params: GenerateContractPdfParams = {
+  it('AC8: unsigned preview also draws the CheekyCheeseIT signature block', async () => {
+    const previewParams: GenerateContractPdfParams = {
       contractNumber: '',
       bodyMarkdown: makeParams().bodyMarkdown,
       signedTypedName: '',
       signedAt: null,
       verifyUrl: '',
     }
-    const { pdfBuffer } = await service.generateContractPdf(params)
-    const name = 'CheekyCheeseIT'
-    const utf16beBytes: number[] = []
-    for (let i = 0; i < name.length; i++) {
-      const code = name.charCodeAt(i)
-      utf16beBytes.push(0x00, code)
-    }
-    const pattern = Buffer.from(utf16beBytes)
-    expect(pdfBuffer.indexOf(pattern)).toBeGreaterThan(-1)
-  })
-
-  it('AC8: signed PDF contains dual signature section heading', async () => {
-    const { pdfBuffer } = await service.generateContractPdf(makeParams())
-    // "Подписи сторон" encoded UTF-16BE
-    const heading = 'Подписи сторон'
-    const utf16beBytes: number[] = []
-    for (let i = 0; i < heading.length; i++) {
-      const code = heading.charCodeAt(i)
-      utf16beBytes.push((code >> 8) & 0xff, code & 0xff)
-    }
-    const pattern = Buffer.from(utf16beBytes)
-    expect(pdfBuffer.indexOf(pattern)).toBeGreaterThan(-1)
+    const texts = await drawnTexts(previewParams)
+    expect(texts).toContain('Подписи сторон')
+    expect(texts.some((t) => t.includes('От CheekyCheeseIT'))).toBe(true)
   })
 
   // ---------------------------------------------------------------------------
