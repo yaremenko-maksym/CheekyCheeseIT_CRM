@@ -13,25 +13,23 @@ const queryClient = createQueryClient()
 // MODE under vitest (define absent there).
 const CACHE_BUSTER = import.meta.env.VITE_BUILD_VERSION ?? import.meta.env.MODE
 
-// Query-key prefixes that must NEVER be persisted to IndexedDB (security review
-// PR #140): 'auth' carries role/PII → stale persisted role would drift the
-// client-side RBAC; the finance family + volatile gating/counter queries must
-// always be fetched fresh, never served stale from a restored cache.
-const NON_PERSISTED_KEY_PREFIXES = new Set<string>([
-  'auth',
-  'transactions',
-  'transaction',
-  'profile-transactions',
-  'finance-summary',
-  'pending-settlements-senior',
-  'pending-settlements-company',
-  'invoices',
-  'payout-requests',
-  'payout-request',
-  'balance',
-  'exchange-rate',
-  'onboarding-status',
-  'notifications',
+// Allow-list of query-key prefixes that MAY be persisted to IndexedDB (security
+// review PR #140). Opt-in / safe-by-default: only non-PII, non-finance,
+// relatively-stable business & reference data is persisted. Everything else —
+// auth (role/PII), user PII (user-profile, users*), the finance family, payment
+// channels, volatile gating/counters — is NEVER written to disk, so a new
+// sensitive queryKey can't leak by default.
+const PERSISTED_KEY_PREFIXES = new Set<string>([
+  'teams',
+  'team',
+  'projects',
+  'user-projects',
+  'user-team',
+  'interviews',
+  'contract-templates-all',
+  'contract-template',
+  'tos-current',
+  'tos-versions-all',
 ])
 
 export const Route = createRootRoute({
@@ -47,12 +45,12 @@ function RootDocument() {
         maxAge: 24 * 60 * 60 * 1000, // 24 hours — matches persister TTL
         buster: CACHE_BUSTER,
         dehydrateOptions: {
-          // Persist only successfully resolved queries, excluding auth / finance
-          // / volatile keys (see NON_PERSISTED_KEY_PREFIXES). Pending / error
-          // states are transient and never rehydrated into a fresh session.
+          // Persist only successfully resolved queries whose key prefix is in the
+          // allow-list (see PERSISTED_KEY_PREFIXES). Pending / error states are
+          // transient and never rehydrated into a fresh session.
           shouldDehydrateQuery: (query) =>
             query.state.status === 'success' &&
-            !NON_PERSISTED_KEY_PREFIXES.has(String(query.queryKey[0])),
+            PERSISTED_KEY_PREFIXES.has(String(query.queryKey[0])),
         },
       }}
     >

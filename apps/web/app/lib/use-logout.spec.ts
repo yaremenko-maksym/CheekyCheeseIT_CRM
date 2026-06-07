@@ -11,13 +11,14 @@ import { renderHook } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createElement, type ReactNode } from 'react'
 
-// idb-keyval del — capture calls
-const delMock = vi.fn(() => Promise.resolve())
-vi.mock('idb-keyval', () => ({ del: (...args: unknown[]) => delMock(...args) }))
-
-// axios api — logout endpoint resolves
-const getMock = vi.fn(() => Promise.resolve({ data: {} }))
-vi.mock('@/lib/axios', () => ({ api: { get: (...args: unknown[]) => getMock(...args) } }))
+// Mocks via vi.hoisted so the factories can reference them under vitest 4's
+// hoisting, and the captured fns carry a param signature (no spread → no TS2556).
+const { delMock, getMock } = vi.hoisted(() => ({
+  delMock: vi.fn((_key?: string) => Promise.resolve()),
+  getMock: vi.fn((_url?: string) => Promise.resolve({ data: {} })),
+}))
+vi.mock('idb-keyval', () => ({ del: delMock }))
+vi.mock('@/lib/axios', () => ({ api: { get: getMock } }))
 
 import { useLogout } from './use-logout'
 import { PERSIST_KEY } from './persister'
