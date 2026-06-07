@@ -72,7 +72,6 @@ export class OnboardingContractController {
       bodyMarkdown: body,
       signedTypedName: '',
       signedAt: null,
-      signedIpLastOctet: null,
       verifyUrl: '',
     })
 
