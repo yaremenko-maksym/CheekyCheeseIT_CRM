@@ -7,6 +7,15 @@ import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 
 export default defineConfig({
+  // Per-build cache buster for persistQueryClient (see __root.tsx CACHE_BUSTER):
+  // each build gets a unique value so the IndexedDB persist cache invalidates on
+  // deploy (prevents stale serialised query shapes). A deploy pipeline may set
+  // VITE_BUILD_VERSION (e.g. the git sha) to override the timestamp default.
+  define: {
+    'import.meta.env.VITE_BUILD_VERSION': JSON.stringify(
+      process.env.VITE_BUILD_VERSION ?? `b-${Date.now().toString(36)}`,
+    ),
+  },
   server: {
     port: 3000,
     // host: true слушает на 0.0.0.0 — нужно чтобы внешний tunnel мог проксировать.

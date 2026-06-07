@@ -1,7 +1,9 @@
 import { createContext, useContext, type ReactNode } from 'react'
 import { useQuery, useQueryClient, useIsRestoring } from '@tanstack/react-query'
+import { del as idbDel } from 'idb-keyval'
 import type { SessionUser } from '@crm/shared'
 import { api } from '../lib/axios'
+import { PERSIST_KEY } from '../lib/persister'
 
 interface AuthContextValue {
   user: SessionUser | null
@@ -19,7 +21,13 @@ async function fetchMe(): Promise<SessionUser | null> {
   const res = await api.get<SessionUser>('/auth/me', {
     validateStatus: (status) => status === 200 || status === 401,
   })
-  if (res.status !== 200) return null
+  if (res.status !== 200) {
+    // Session expired / unauthenticated — purge any persisted query cache so a
+    // stale user's data can't linger in IndexedDB after a 401 (security review
+    // PR #140: clear on session-expiry, not only on explicit logout). Best-effort.
+    void idbDel(PERSIST_KEY).catch(() => {})
+    return null
+  }
   // API already validates shape via JWT — trust the response and cast directly
   return res.data
 }
