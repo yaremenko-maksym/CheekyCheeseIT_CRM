@@ -272,7 +272,7 @@ export default defineConfig({
             handler: 'NetworkFirst' as const,
             options: {
               cacheName: 'api-cache',
-              networkTimeoutSeconds: 4,
+              networkTimeoutSeconds: 3,
               expiration: { maxEntries: 200, maxAgeSeconds: 86400 },
               cacheableResponse: { statuses: [200] },
               plugins: [

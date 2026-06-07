@@ -1,27 +1,16 @@
 import { createRootRoute, Outlet } from '@tanstack/react-router'
-import { QueryClientProvider } from '@tanstack/react-query'
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import { createQueryClient } from '../lib/query-client'
+import { persister } from '../lib/persister'
 import { Toaster } from '../components/ui/sonner'
 import '../styles/globals.css'
 
 const queryClient = createQueryClient()
 
-// NOTE: PersistQueryClientProvider was removed from this PR because it causes
-// a race condition with the auth guard in routes/crm/route.tsx.
-//
-// Mechanism: PersistQueryClientProvider suspends all useQuery calls while
-// restoring the IndexedDB cache (isRestoring = true). During this window the
-// ['auth','me'] query has status:'pending' / fetchStatus:'idle'. When the
-// restore completes with an empty cache (E2E: serviceWorkers:'block' + fresh
-// browser context) there is a render cycle where isLoading=false and
-// user=null — the CrmLayout guard fires navigate({ to:'/crm/login' })
-// before the real /auth/me response arrives, causing a redirect to /crm
-// instead of staying on /crm/interviews.
-//
-// SW-based caching (Workbox NetworkFirst for /api/*, CacheFirst for media)
-// is preserved — it provides the core offline/caching benefit without the
-// auth-guard race. persistQueryClient can be reintroduced in a follow-up
-// task once the guard is made isRestoring-aware (useIsRestoring hook).
+// Build version buster — invalidates the persisted cache on code changes so
+// stale serialised query shapes don't cause runtime errors after a deploy.
+// In development Vite injects the timestamp; in production use the package version.
+const CACHE_BUSTER = import.meta.env.VITE_BUILD_VERSION ?? import.meta.env.MODE
 
 export const Route = createRootRoute({
   component: RootDocument,
@@ -29,9 +18,21 @@ export const Route = createRootRoute({
 
 function RootDocument() {
   return (
-    <QueryClientProvider client={queryClient}>
+    <PersistQueryClientProvider
+      client={queryClient}
+      persistOptions={{
+        persister,
+        maxAge: 24 * 60 * 60 * 1000, // 24 hours — matches persister TTL
+        buster: CACHE_BUSTER,
+        dehydrateOptions: {
+          // Only persist successfully resolved queries.  Pending / error states
+          // are transient and should never be rehydrated into a fresh session.
+          shouldDehydrateQuery: (query) => query.state.status === 'success',
+        },
+      }}
+    >
       <Outlet />
       <Toaster />
-    </QueryClientProvider>
+    </PersistQueryClientProvider>
   )
 }

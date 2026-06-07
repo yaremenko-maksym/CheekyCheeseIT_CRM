@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useIsRestoring } from '@tanstack/react-query'
 import type { SessionUser } from '@crm/shared'
 import { api } from '../lib/axios'
 
@@ -27,7 +27,18 @@ async function fetchMe(): Promise<SessionUser | null> {
 export function AuthProvider({ children, skip }: { children: ReactNode; skip?: boolean }) {
   const queryClient = useQueryClient()
 
-  const { data, isLoading } = useQuery({
+  // isRestoring is true while PersistQueryClientProvider is rehydrating the
+  // IndexedDB cache.  During this window the ['auth','me'] query has
+  // status:'pending'/fetchStatus:'idle' (not yet fetched) — if we treated
+  // isLoading=false + data=undefined as "no user", CrmLayout would redirect
+  // to /crm/login before the real /api/auth/me response arrives.
+  //
+  // Fix (Option A — centralised): expose isRestoring via isLoading so every
+  // consumer (CrmLayout guard, etc.) automatically waits for the restore to
+  // complete without any changes at the call-site.
+  const isRestoring = useIsRestoring()
+
+  const { data, isPending, isFetching } = useQuery({
     queryKey: ['auth', 'me'],
     queryFn: fetchMe,
     enabled: typeof window !== 'undefined' && !skip,
@@ -35,6 +46,11 @@ export function AuthProvider({ children, skip }: { children: ReactNode; skip?: b
     staleTime: 5 * 60 * 1000,
     ...(skip ? { initialData: null } : {}),
   })
+
+  // isLoading = true while IndexedDB is being restored OR while the auth
+  // query is in-flight.  This prevents the guard from seeing user=null
+  // prematurely during the restore window.
+  const isLoading = isRestoring || (isPending && isFetching)
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
 
