@@ -18,7 +18,7 @@ Single source of truth для версий. **Не дублировать в age
 ### Frontend
 
 - **Vite:** `^6.4` (НЕ 7.x).
-- **TanStack Router** + **`@tanstack/router-plugin`** — версии **ОБЯЗАНЫ совпадать** (`^1.168.x`). Любая рассинхронизация = peer-конфликт в pnpm + ломаный build.
+- **TanStack Router** `1.170.15` + **`@tanstack/router-plugin`** `1.168.18` — **peer-matched pair, EXACT-pinned**. Plugin `peerDependencies` = react-router `^1.170.15`, т.е. номер плагина намеренно ОТСТАЁТ от lib — они НЕ совпадают по номеру. НЕ бампить раздельно и НЕ переводить в caret-диапазон; при апгрейде выводи пару заново из `npm view @tanstack/router-plugin peerDependencies`. Рассинхрон = peer-конфликт в pnpm + ломаные route-типы (route `from`-пути).
 - **Tailwind:** v4 (CSS-first config, `@import "tailwindcss"` + `@theme inline`).
 - **tw-animate-css:** v2 (нужен для shadcn анимаций после миграции на Tailwind v4).
 

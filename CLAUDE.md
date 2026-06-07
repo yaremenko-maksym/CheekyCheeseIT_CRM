@@ -115,7 +115,7 @@ PM (User Testing) → e2e.yml → squash merge
 ## Ключевые ограничения версий
 
 - **Vite:** `^6.4`
-- **TanStack Router:** `^1.168` + `@tanstack/router-plugin ^1.168` (должны совпадать!)
+- **TanStack Router:** `1.170.15` + `@tanstack/router-plugin 1.168.18` (peer-matched, EXACT-pinned — НЕ совпадают по номеру; см. version-pins.md)
 - **Node:** 20 LTS
 - **pnpm:** 7.32.4
 
@@ -153,7 +153,7 @@ pnpm --filter @crm/shared typecheck
 - **Vite SPA**: `app/client.tsx` — точка входа (`createRoot` + `RouterProvider`). `index.html` в корне `apps/web/`.
 - **Fastify**: принудительно через `pnpm.overrides` на `^5.8.5` (конфликт с `@fastify/helmet`).
 - **pnpm.overrides**: НЕ добавлять overrides для `@tanstack/router-*` пакетов — это сломало предыдущую сборку.
-- **TanStack Router + Plugin**: версии ОБЯЗАНЫ совпадать (`^1.168.x`). Иначе peer-конфликт в pnpm.
+- **TanStack Router + Plugin**: peer-matched пара react-router `1.170.15` ↔ plugin `1.168.18` (plugin peer = rr `^1.170.15`; номера НЕ равны). EXACT-pinned, НЕ бампить раздельно/в caret. Иначе peer-конфликт + ломаные route-типы.
 - **Tailwind v4 dark mode**: `@custom-variant dark (&:is(.dark *))` + `class="dark"` на `<html>` в `index.html`.
 - **shadcn/ui tokens**: `@theme inline {}` маппит CSS vars → Tailwind utilities. `:root` = light, `.dark` = dark.
 - **`exactOptionalPropertyTypes`**: Radix CheckboxItem `checked` — деструктурировать нельзя, передавать через `...props`.
