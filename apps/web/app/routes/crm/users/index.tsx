@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Archive, ArrowDown, ArrowUp, Plus, Search } from 'lucide-react'
@@ -58,7 +58,7 @@ function UsersPage() {
   useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'])
   const { user: me } = useAuth()
   const search = Route.useSearch()
-  const navigate = useNavigate({ from: '/crm/users' })
+  const navigate = Route.useNavigate()
 
   const showArchived = search.archived === true
 
