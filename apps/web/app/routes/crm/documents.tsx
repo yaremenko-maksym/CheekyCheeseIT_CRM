@@ -4,9 +4,9 @@
  * Layout (matches the look/feel of /crm/users and /crm/projects):
  *
  *   ┌───────────────────────────────────────────────────────────────────┐
- *   │  Header  (title + counter + Загрузить button)                     │
+ *   │  Header  (title + Загрузить button)                               │
  *   │  Tri-state SegmentedToggle (Все / Активные / Архив, ADMIN-only)   │
- *   │  Filter row: Owner (ADMIN/HR) + Category dropdown + internal tgl  │
+ *   │  Card toolbar: Search │ Owner │ Category │ ─── │ Sort │ View      │
  *   ├───────────────────────────────────────────────────────────────────┤
  *   │  <DocumentList /> for the active category filter (grid of cards)  │
  *   └───────────────────────────────────────────────────────────────────┘
