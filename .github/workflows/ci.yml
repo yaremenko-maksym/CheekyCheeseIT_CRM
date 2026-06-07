@@ -357,7 +357,7 @@ jobs:
           - name: finance
             files: tests/finance.spec.ts tests/finance-senior-flow.spec.ts
           - name: misc
-            files: tests/interviews.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/onboarding-logout.spec.ts tests/documents-pdf-preview.spec.ts tests/crm
+            files: tests/interviews.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/onboarding-logout.spec.ts tests/documents-pdf-preview.spec.ts tests/persist-query.spec.ts tests/crm
     services:
       postgres:
         image: postgres:16-alpine
