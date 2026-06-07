@@ -14,11 +14,13 @@ const queryClient = createQueryClient()
 const CACHE_BUSTER = import.meta.env.VITE_BUILD_VERSION ?? import.meta.env.MODE
 
 // Allow-list of query-key prefixes that MAY be persisted to IndexedDB (security
-// review PR #140). Opt-in / safe-by-default: only non-PII, non-finance,
-// relatively-stable business & reference data is persisted. Everything else —
-// auth (role/PII), user PII (user-profile, users*), the finance family, payment
-// channels, volatile gating/counters — is NEVER written to disk, so a new
-// sensitive queryKey can't leak by default.
+// review PR #140). Opt-in / safe-by-default: only relatively-stable business &
+// reference data is persisted, and NEVER payment credentials (wallet / IBAN /
+// RNOKPP / salary), transaction / balance data, or the auth role. Listed keys
+// (teams, projects, …) may carry incidental contact fields such as email, but no
+// payment requisites. Everything NOT listed — auth, user-profile, payment
+// channels, the finance family, users* PII lists, volatile gating/counters — is
+// never written to disk, so a new sensitive queryKey can't leak by default.
 const PERSISTED_KEY_PREFIXES = new Set<string>([
   'teams',
   'team',
