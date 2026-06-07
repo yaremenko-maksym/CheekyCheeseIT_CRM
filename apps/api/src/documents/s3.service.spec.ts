@@ -16,13 +16,13 @@ import { DEFAULT_PRESIGN_TTL_SEC, S3Service } from './s3.service'
 const sendSpy = vi.fn()
 const getSignedUrlSpy = vi.fn()
 
-vi.mock('@aws-sdk/client-s3', async (orig) => {
-  const real = await orig<typeof import('@aws-sdk/client-s3')>()
+vi.mock('@aws-sdk/client-s3', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@aws-sdk/client-s3')>()
   return {
     ...real,
-    S3Client: vi.fn().mockImplementation(() => ({
-      send: sendSpy,
-    })),
+    S3Client: vi.fn(function () {
+      return { send: sendSpy }
+    }),
   }
 })
 
