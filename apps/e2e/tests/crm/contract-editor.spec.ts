@@ -204,8 +204,9 @@ test.describe('A3-2: Contract editor tab', () => {
     // Save button starts disabled (no unsaved changes)
     await expect(page.getByTestId('contract-save-btn')).toBeDisabled()
 
-    // Type in the CodeMirror editor to make it dirty
+    // Wait for CodeMirror to finish lazy-loading (Suspense resolves → cm-content mounts)
     const editorArea = page.locator('.cm-content').first()
+    await expect(editorArea).toBeVisible()
     await editorArea.click()
     await page.keyboard.press('End')
     await page.keyboard.type(' edited')
@@ -395,8 +396,9 @@ test.describe('A3-2: Contract editor tab', () => {
 
     await expect(page.getByTestId('contract-tab')).toBeVisible()
 
-    // Make the editor dirty by typing in it
+    // Wait for CodeMirror lazy-load, then make the editor dirty
     const editorArea = page.locator('.cm-content').first()
+    await expect(editorArea).toBeVisible()
     await editorArea.click()
     await page.keyboard.press('End')
     await page.keyboard.type(' unsaved')
@@ -434,8 +436,9 @@ test.describe('A3-2: Contract editor tab', () => {
     // Initially refresh is enabled (clean state)
     await expect(page.getByTestId('contract-pdf-refresh-btn')).toBeEnabled()
 
-    // Make editor dirty
+    // Wait for CodeMirror lazy-load, then make editor dirty
     const editorArea = page.locator('.cm-content').first()
+    await expect(editorArea).toBeVisible()
     await editorArea.click()
     await page.keyboard.press('End')
     await page.keyboard.type(' dirty')
