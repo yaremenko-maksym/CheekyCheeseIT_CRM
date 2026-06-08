@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Header,
   NotFoundException,
@@ -106,12 +107,24 @@ export class EmployeeContractsController {
    * - If status=SIGNED: fetches signed_contract for real signedTypedName/date/QR.
    * - Otherwise: renders unsigned preview (signedTypedName='').
    *
+   * Access: ADMIN (any user) OR the contract owner themselves.
+   * @Roles() — override class ADMIN-only — owner-or-ADMIN enforced in handler below.
+   *
    * Throttle: 5 req/min (PDF generation is expensive).
    */
   @Get(':id/contract/pdf')
+  @Roles() // override class ADMIN-only — owner-or-ADMIN enforced in handler below
   @Header('Cache-Control', 'no-store, private')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  async getPdf(@Param('id', ParseUUIDPipe) id: string, @Res() reply: FastifyReply): Promise<void> {
+  async getPdf(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: SessionUser,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    if (requester.role !== 'ADMIN' && requester.id !== id) {
+      throw new ForbiddenException('Можно открыть только свой контракт')
+    }
+
     const contract = await this.service.getActiveForUser(id)
 
     const userRow = (await this.db.db.query.users.findFirst({
