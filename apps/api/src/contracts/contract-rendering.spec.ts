@@ -30,6 +30,11 @@ function makeUser(overrides: Partial<ContractRenderUserContext> = {}): ContractR
     paymentMethod: 'USDT_ERC20',
     monthlySalary: null,
     salaryCurrency: 'USD',
+    seniorSharePercent: 26,
+    dropSharePercent: null,
+    phone: null,
+    registrationAddress: null,
+    usrRecord: null,
     ...overrides,
   }
 }
@@ -429,6 +434,294 @@ describe('renderContractTemplate', () => {
         FIXED_DATE,
       )
       expect(body).toBe('Email: {{companyName}}\nCompany: Cheeky Cheese IT')
+    })
+
+    it('customValues containing "{{employeeName}}" are NOT re-substituted (single-pass)', () => {
+      const user = makeUser({ displayName: 'Alice' })
+      const customValues = { contractSubject: '{{employeeName}} contract' }
+      const { body } = renderContractTemplate(
+        'Name: {{employeeName}}\nSubject: {{contractSubject}}',
+        user,
+        FIXED_DATE,
+        customValues,
+      )
+      // contractSubject is substituted as literal string — NOT re-interpolated
+      expect(body).toBe('Name: Alice\nSubject: {{employeeName}} contract')
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // {{sharePercent}} and {{companySharePercent}} — role-dependent split
+  // ---------------------------------------------------------------------------
+
+  describe('{{sharePercent}} and {{companySharePercent}}', () => {
+    it('SENIOR: sharePercent = seniorSharePercent, companySharePercent = 100 − seniorSharePercent', () => {
+      const user = makeUser({ role: 'SENIOR', seniorSharePercent: 26 })
+      const { body } = renderContractTemplate(
+        '{{sharePercent}} / {{companySharePercent}}',
+        user,
+        FIXED_DATE,
+      )
+      expect(body).toBe('26 / 74')
+    })
+
+    it('SENIOR with custom seniorSharePercent=30: sharePercent=30, companySharePercent=70', () => {
+      const user = makeUser({ role: 'SENIOR', seniorSharePercent: 30 })
+      const { body } = renderContractTemplate(
+        '{{sharePercent}} / {{companySharePercent}}',
+        user,
+        FIXED_DATE,
+      )
+      expect(body).toBe('30 / 70')
+    })
+
+    it('DROP: sharePercent = dropSharePercent, companySharePercent = 100 − dropSharePercent', () => {
+      const user = makeUser({ role: 'DROP', dropSharePercent: 5, seniorSharePercent: 26 })
+      const { body } = renderContractTemplate(
+        '{{sharePercent}} / {{companySharePercent}}',
+        user,
+        FIXED_DATE,
+      )
+      expect(body).toBe('5 / 95')
+    })
+
+    it('DROP with custom dropSharePercent=10: sharePercent=10, companySharePercent=90', () => {
+      const user = makeUser({ role: 'DROP', dropSharePercent: 10, seniorSharePercent: 26 })
+      const { body } = renderContractTemplate(
+        '{{sharePercent}} / {{companySharePercent}}',
+        user,
+        FIXED_DATE,
+      )
+      expect(body).toBe('10 / 90')
+    })
+
+    it('DROP with null dropSharePercent: sharePercent="" and companySharePercent="" (empty fallback)', () => {
+      const user = makeUser({ role: 'DROP', dropSharePercent: null, seniorSharePercent: 26 })
+      const { body } = renderContractTemplate(
+        '{{sharePercent}} / {{companySharePercent}}',
+        user,
+        FIXED_DATE,
+      )
+      // null dropSharePercent → treated as not applicable → '' empty string
+      expect(body).toBe(' / ')
+    })
+
+    it('HR: sharePercent="" (empty string — not applicable)', () => {
+      const user = makeUser({ role: 'HR', seniorSharePercent: 26, dropSharePercent: null })
+      const { body } = renderContractTemplate('{{sharePercent}}', user, FIXED_DATE)
+      expect(body).toBe('')
+    })
+
+    it('JUNIOR: sharePercent="" (empty string)', () => {
+      const user = makeUser({ role: 'JUNIOR', seniorSharePercent: 26, dropSharePercent: null })
+      const { body } = renderContractTemplate('{{sharePercent}}', user, FIXED_DATE)
+      expect(body).toBe('')
+    })
+
+    it('ACCOUNTANT: companySharePercent="" (empty string)', () => {
+      const user = makeUser({ role: 'ACCOUNTANT', seniorSharePercent: 26, dropSharePercent: null })
+      const { body } = renderContractTemplate('{{companySharePercent}}', user, FIXED_DATE)
+      expect(body).toBe('')
+    })
+
+    it('sharePercent and companySharePercent sum to 100 for SENIOR', () => {
+      const user = makeUser({ role: 'SENIOR', seniorSharePercent: 26 })
+      const { variables } = renderContractTemplate('', user, FIXED_DATE)
+      const share = Number(variables.sharePercent)
+      const company = Number(variables.companySharePercent)
+      expect(share + company).toBe(100)
+    })
+
+    it('sharePercent and companySharePercent sum to 100 for DROP', () => {
+      const user = makeUser({ role: 'DROP', dropSharePercent: 7, seniorSharePercent: 26 })
+      const { variables } = renderContractTemplate('', user, FIXED_DATE)
+      const share = Number(variables.sharePercent)
+      const company = Number(variables.companySharePercent)
+      expect(share + company).toBe(100)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // New simple field variables: rnokpp, phone, salaryCurrency,
+  // registrationAddress, usrRecord
+  // ---------------------------------------------------------------------------
+
+  describe('new simple field variables', () => {
+    it('{{rnokpp}} resolves from bankUahRnokpp', () => {
+      const { body } = renderContractTemplate(
+        '{{rnokpp}}',
+        makeUser({ bankUahRnokpp: '1234567890' }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('1234567890')
+    })
+
+    it('{{rnokpp}} resolves to "" when bankUahRnokpp is null', () => {
+      const { body } = renderContractTemplate(
+        '{{rnokpp}}',
+        makeUser({ bankUahRnokpp: null }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('')
+    })
+
+    it('{{phone}} resolves from phone', () => {
+      const { body } = renderContractTemplate(
+        '{{phone}}',
+        makeUser({ phone: '+380501234567' }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('+380501234567')
+    })
+
+    it('{{phone}} resolves to "" when phone is null', () => {
+      const { body } = renderContractTemplate('{{phone}}', makeUser({ phone: null }), FIXED_DATE)
+      expect(body).toBe('')
+    })
+
+    it('{{salaryCurrency}} resolves from salaryCurrency', () => {
+      const { body } = renderContractTemplate(
+        '{{salaryCurrency}}',
+        makeUser({ salaryCurrency: 'EUR' }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('EUR')
+    })
+
+    it('{{salaryCurrency}} resolves to "" when salaryCurrency is null', () => {
+      const { body } = renderContractTemplate(
+        '{{salaryCurrency}}',
+        makeUser({ salaryCurrency: null }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('')
+    })
+
+    it('{{registrationAddress}} resolves from registrationAddress', () => {
+      const { body } = renderContractTemplate(
+        '{{registrationAddress}}',
+        makeUser({ registrationAddress: 'м. Київ, вул. Хрещатик, 1' }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('м. Київ, вул. Хрещатик, 1')
+    })
+
+    it('{{registrationAddress}} resolves to "" when null', () => {
+      const { body } = renderContractTemplate(
+        '{{registrationAddress}}',
+        makeUser({ registrationAddress: null }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('')
+    })
+
+    it('{{usrRecord}} resolves from usrRecord', () => {
+      const { body } = renderContractTemplate(
+        '{{usrRecord}}',
+        makeUser({ usrRecord: '12.05.2024 №2070020000000123456' }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('12.05.2024 №2070020000000123456')
+    })
+
+    it('{{usrRecord}} resolves to "" when null', () => {
+      const { body } = renderContractTemplate(
+        '{{usrRecord}}',
+        makeUser({ usrRecord: null }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('')
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Company constants: companyRegNumber, companyVat, companyBank,
+  // companyAuthorityBasis — resolved from CONTRACT_COMPANY
+  // ---------------------------------------------------------------------------
+
+  describe('company constant variables', () => {
+    it('{{companyRegNumber}} resolves (empty string from CONTRACT_COMPANY.regNumber)', () => {
+      const { variables } = renderContractTemplate('{{companyRegNumber}}', makeUser(), FIXED_DATE)
+      // Currently '' — placeholder until owner provides real value.
+      expect(typeof variables.companyRegNumber).toBe('string')
+    })
+
+    it('{{companyVat}} resolves as string', () => {
+      const { variables } = renderContractTemplate('{{companyVat}}', makeUser(), FIXED_DATE)
+      expect(typeof variables.companyVat).toBe('string')
+    })
+
+    it('{{companyBank}} resolves as string', () => {
+      const { variables } = renderContractTemplate('{{companyBank}}', makeUser(), FIXED_DATE)
+      expect(typeof variables.companyBank).toBe('string')
+    })
+
+    it('{{companyAuthorityBasis}} resolves as string', () => {
+      const { variables } = renderContractTemplate(
+        '{{companyAuthorityBasis}}',
+        makeUser(),
+        FIXED_DATE,
+      )
+      expect(typeof variables.companyAuthorityBasis).toBe('string')
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // customValues — 4th parameter substitution
+  // ---------------------------------------------------------------------------
+
+  describe('customValues parameter', () => {
+    it('substitutes a custom variable from customValues', () => {
+      const { body } = renderContractTemplate('Project: {{projectName}}', makeUser(), FIXED_DATE, {
+        projectName: 'ACME Corp',
+      })
+      expect(body).toBe('Project: ACME Corp')
+    })
+
+    it('standard variables take priority over customValues with the same key', () => {
+      // If someone passes a customValue with a key that matches a standard variable,
+      // the standard variable always wins (order: standard → custom).
+      const { body } = renderContractTemplate(
+        '{{employeeName}}',
+        makeUser({ displayName: 'Alice' }),
+        FIXED_DATE,
+        { employeeName: 'INJECTED' },
+      )
+      // Standard variable takes priority
+      expect(body).toBe('Alice')
+    })
+
+    it('unknown token remains as-is when not in standard vars and not in customValues', () => {
+      const { body } = renderContractTemplate('{{unknownVar}}', makeUser(), FIXED_DATE, {
+        someOtherKey: 'value',
+      })
+      expect(body).toBe('{{unknownVar}}')
+    })
+
+    it('unknown token is replaced when provided in customValues', () => {
+      const { body } = renderContractTemplate('{{projectDuration}}', makeUser(), FIXED_DATE, {
+        projectDuration: '6 месяцев',
+      })
+      expect(body).toBe('6 месяцев')
+    })
+
+    it('omitting customValues (undefined) works like before — backward compat', () => {
+      const { body } = renderContractTemplate(
+        '{{employeeName}}',
+        makeUser({ displayName: 'Bob' }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('Bob')
+    })
+
+    it('multiple custom variables substituted in single pass', () => {
+      const { body } = renderContractTemplate(
+        '{{a}} / {{b}} / {{employeeName}}',
+        makeUser({ displayName: 'Charlie' }),
+        FIXED_DATE,
+        { a: 'first', b: 'second' },
+      )
+      expect(body).toBe('first / second / Charlie')
     })
   })
 })

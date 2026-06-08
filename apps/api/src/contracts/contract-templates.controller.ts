@@ -79,8 +79,13 @@ export class ContractTemplatesController {
   @Roles('ADMIN')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   publish(@Body() body: unknown, @CurrentUser() user: SessionUser) {
-    const { targetRole, bodyMarkdown } = createContractTemplateSchema.parse(body)
-    return this.service.publish({ targetRole, bodyMarkdown, createdByUserId: user.id })
+    const { targetRole, bodyMarkdown, customVariables } = createContractTemplateSchema.parse(body)
+    return this.service.publish({
+      targetRole,
+      bodyMarkdown,
+      customVariables,
+      createdByUserId: user.id,
+    })
   }
 
   /**

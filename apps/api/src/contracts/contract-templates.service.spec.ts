@@ -15,6 +15,7 @@ function makeTemplate(overrides: Record<string, unknown> = {}) {
     bodyMarkdown: '# MSA SENIOR\n\n{{employeeName}}',
     isActive: true,
     createdByUserId: 'admin-1',
+    customVariables: [] as Array<{ key: string; label: string; defaultValue?: string }>,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     ...overrides,
   }
@@ -256,6 +257,90 @@ describe('ContractTemplatesService', () => {
       expect(txInsertValues).toHaveBeenCalledWith(
         expect.objectContaining({ targetRole: 'HR', version: 1, isActive: true }),
       )
+    })
+
+    it('passes customVariables to the insert values', async () => {
+      const mockDb = makeDb({ maxVersion: 1 })
+      const customVars = [
+        { key: 'projectName', label: 'Название проекта' },
+        { key: 'endDate', label: 'Дата окончания', defaultValue: '31.12.2026' },
+      ]
+      const inserted = makeTemplate({
+        id: 'tmpl-cv',
+        version: 2,
+        isActive: true,
+        customVariables: customVars,
+      })
+      const txInsertReturning = vi.fn().mockResolvedValue([inserted])
+      const txInsertValues = vi.fn().mockReturnValue({ returning: txInsertReturning })
+      const txUpdateWhere = vi.fn().mockResolvedValue([])
+      const txUpdateSet = vi.fn().mockReturnValue({ where: txUpdateWhere })
+
+      mockDb.db.transaction.mockImplementation(async (fn) => {
+        const tx = {
+          select: vi.fn().mockReturnValue({
+            from: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({
+                execute: vi.fn().mockResolvedValue([{ max: 1 }]),
+              }),
+            }),
+          }),
+          update: vi.fn().mockReturnValue({ set: txUpdateSet }),
+          insert: vi.fn().mockReturnValue({ values: txInsertValues }),
+        }
+        return fn(tx as never)
+      })
+
+      const service = new ContractTemplatesService(mockDb as unknown as DatabaseService)
+      const result = await service.publish({
+        targetRole: 'SENIOR',
+        bodyMarkdown: '# body with {{projectName}}',
+        createdByUserId: 'admin-1',
+        customVariables: customVars,
+      })
+
+      // Result carries the custom variables through
+      expect(result.customVariables).toEqual(customVars)
+      // Insert was called with customVariables in the values
+      expect(txInsertValues).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customVariables: customVars,
+        }),
+      )
+    })
+
+    it('defaults customVariables to [] when not provided', async () => {
+      const mockDb = makeDb({ maxVersion: 0 })
+      const inserted = makeTemplate({ id: 'tmpl-no-cv', version: 1, isActive: true })
+      const txInsertReturning = vi.fn().mockResolvedValue([inserted])
+      const txInsertValues = vi.fn().mockReturnValue({ returning: txInsertReturning })
+
+      mockDb.db.transaction.mockImplementation(async (fn) => {
+        const tx = {
+          select: vi.fn().mockReturnValue({
+            from: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({
+                execute: vi.fn().mockResolvedValue([{ max: 0 }]),
+              }),
+            }),
+          }),
+          update: vi.fn().mockReturnValue({
+            set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
+          }),
+          insert: vi.fn().mockReturnValue({ values: txInsertValues }),
+        }
+        return fn(tx as never)
+      })
+
+      const service = new ContractTemplatesService(mockDb as unknown as DatabaseService)
+      await service.publish({
+        targetRole: 'JUNIOR',
+        bodyMarkdown: '# body',
+        createdByUserId: 'admin-1',
+        // customVariables omitted
+      })
+
+      expect(txInsertValues).toHaveBeenCalledWith(expect.objectContaining({ customVariables: [] }))
     })
   })
 })
