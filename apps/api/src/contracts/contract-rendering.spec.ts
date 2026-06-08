@@ -28,6 +28,8 @@ function makeUser(overrides: Partial<ContractRenderUserContext> = {}): ContractR
     bankUahRnokpp: null,
     bankUahBankName: null,
     paymentMethod: 'USDT_ERC20',
+    monthlySalary: null,
+    salaryCurrency: 'USD',
     ...overrides,
   }
 }
@@ -40,7 +42,8 @@ const ALL_PLACEHOLDERS =
   '{{companyName}}\n' +
   '{{walletUsdt}}\n' +
   '{{bankUahFop}}\n' +
-  '{{preferredMethod}}'
+  '{{preferredMethod}}\n' +
+  '{{salary}}'
 
 const FIXED_DATE = new Date('2026-06-04T00:00:00Z')
 
@@ -271,11 +274,81 @@ describe('renderContractTemplate', () => {
   })
 
   // ---------------------------------------------------------------------------
+  // {{salary}} placeholder (monthlySalary + salaryCurrency)
+  // ---------------------------------------------------------------------------
+
+  describe('{{salary}} placeholder', () => {
+    it('renders "<amount> <currency>" from monthlySalary + salaryCurrency', () => {
+      const { body } = renderContractTemplate(
+        '{{salary}}',
+        makeUser({ monthlySalary: '800.00', salaryCurrency: 'USD' }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('800 USD')
+    })
+
+    it('strips trailing .00 from integer amounts', () => {
+      const { body } = renderContractTemplate(
+        '{{salary}}',
+        makeUser({ monthlySalary: '1200.00', salaryCurrency: 'EUR' }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('1200 EUR')
+    })
+
+    it('keeps decimal part when it is non-zero (e.g. 1234.50)', () => {
+      const { body } = renderContractTemplate(
+        '{{salary}}',
+        makeUser({ monthlySalary: '1234.50', salaryCurrency: 'USD' }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('1234.50 USD')
+    })
+
+    it('uses fallback "не указано" when monthlySalary is null', () => {
+      const { body } = renderContractTemplate(
+        '{{salary}}',
+        makeUser({ monthlySalary: null, salaryCurrency: 'USD' }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('не указано')
+    })
+
+    it('uses fallback "не указано" when monthlySalary is empty string', () => {
+      const { body } = renderContractTemplate(
+        '{{salary}}',
+        // Drizzle numeric can return empty string for null in some paths
+        makeUser({ monthlySalary: '' as unknown as null, salaryCurrency: 'USD' }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('не указано')
+    })
+
+    it('defaults to USD currency when salaryCurrency is null', () => {
+      const { body } = renderContractTemplate(
+        '{{salary}}',
+        makeUser({ monthlySalary: '500.00', salaryCurrency: null }),
+        FIXED_DATE,
+      )
+      expect(body).toBe('500 USD')
+    })
+
+    it('salary key is present in variables snapshot', () => {
+      const { variables } = renderContractTemplate(
+        '{{salary}}',
+        makeUser({ monthlySalary: '800.00', salaryCurrency: 'USD' }),
+        FIXED_DATE,
+      )
+      expect(variables.salary).toBe('800 USD')
+    })
+  })
+
+  // ---------------------------------------------------------------------------
   // Variables snapshot returned
   // ---------------------------------------------------------------------------
 
   describe('variables snapshot', () => {
-    it('returns all 8 interpolatable keys in the variables map', () => {
+    it('returns all interpolatable keys in the variables map (including salary)', () => {
       const { variables } = renderContractTemplate(ALL_PLACEHOLDERS, makeUser(), FIXED_DATE)
       const keys = Object.keys(variables)
       expect(keys).toContain('employeeName')
@@ -286,6 +359,7 @@ describe('renderContractTemplate', () => {
       expect(keys).toContain('walletUsdt')
       expect(keys).toContain('bankUahFop')
       expect(keys).toContain('preferredMethod')
+      expect(keys).toContain('salary')
       // contractNumber is generated server-side, NOT part of interpolatable variables
       expect(keys).not.toContain('contractNumber')
     })

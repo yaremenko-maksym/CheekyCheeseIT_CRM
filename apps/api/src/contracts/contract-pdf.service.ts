@@ -12,9 +12,18 @@
  *
  * The markdown renderer is intentionally minimal — `bodyMarkdownSnapshot` is
  * produced from an ADMIN-authored template (trusted), so we support only the
- * subset templates actually use: `#`/`##` headings, `- ` bullets, `**bold**`
- * inline runs, blank-line paragraph breaks, and word-wrapping. No third-party
- * markdown engine is pulled in.
+ * subset templates actually use:
+ *   - `#`/`##` headings
+ *   - `- ` / `* ` bullets
+ *   - `**bold**` inline runs
+ *   - `> ` blockquotes (disclaimer paragraphs — rendered muted, no literal `>`)
+ *   - blank-line paragraph breaks
+ *   - word-wrapping
+ *   - markdown pipe-tables `| UA | EN |` → two-column layout (ADDITIVE path)
+ *
+ * Two-column path is purely additive: non-table lines follow the original
+ * renderParagraph/bullet/heading path byte-for-byte, ensuring existing
+ * signed PDFs remain byte-identical on re-render.
  */
 import { Injectable } from '@nestjs/common'
 import { rgb, type PDFDocument, type PDFFont, type PDFPage, type Color } from 'pdf-lib'
@@ -77,6 +86,53 @@ const BOTTOM_LIMIT = PDF_LAYOUT.pageMargin + 70
 /** Line height for signature block text */
 const SIG_LINE_HEIGHT = 14
 
+// ---------------------------------------------------------------------------
+// Two-column table geometry
+// ---------------------------------------------------------------------------
+/** Gutter between the two table columns in points. */
+const TABLE_GUTTER = 16
+/** Width of each column = (contentWidth - gutter) / 2 */
+const COL_WIDTH = (PDF_LAYOUT.contentWidth - TABLE_GUTTER) / 2
+/** X of the left table column — starts at page margin, no indent. */
+const LEFT_COL_X = PDF_LAYOUT.pageMargin
+/** X of the right table column. */
+const RIGHT_COL_X = PDF_LAYOUT.pageMargin + COL_WIDTH + TABLE_GUTTER
+
+/**
+ * Returns true when a line looks like a markdown pipe-table row.
+ * Pattern: optional leading whitespace, pipe, anything, pipe, optional trailing WS.
+ */
+function isTableRow(line: string): boolean {
+  return /^\s*\|.*\|\s*$/.test(line)
+}
+
+/**
+ * Returns true when every non-empty cell in a pipe-table row is a separator
+ * (`---`, `:---`, `---:`, `:---:`).
+ */
+function isSeparatorRow(cells: string[]): boolean {
+  return cells.length > 0 && cells.every((c) => /^:?-{3,}:?$/.test(c.trim()))
+}
+
+/**
+ * Split a pipe-table row into trimmed cell strings.
+ * Handles escaped pipes `\|` by treating them as a literal `|` in cell text.
+ * Outer empty strings from leading/trailing `|` are discarded.
+ */
+function parseCells(line: string): string[] {
+  // Replace escaped pipes with a placeholder, split, restore.
+  const PIPE_PLACEHOLDER = '\x00PIPE\x00'
+  const escaped = line.replace(/\\\|/g, PIPE_PLACEHOLDER)
+  return escaped
+    .split('|')
+    .map((cell) => cell.replace(new RegExp(PIPE_PLACEHOLDER, 'g'), '|').trim())
+    .filter((cell, idx, arr) => {
+      // Discard empty strings that come from leading/trailing `|`
+      if (idx === 0 || idx === arr.length - 1) return cell.length > 0
+      return true
+    })
+}
+
 @Injectable()
 export class ContractPdfService {
   constructor(private readonly pdfGen: PdfGenerationService) {}
@@ -109,8 +165,6 @@ export class ContractPdfService {
     this.pdfGen.drawBrandMark(cursor.page, markX, markY, markSize, brandColor)
 
     // AC5: vertically center the wordmark within the brand mark height.
-    // pdf-lib draws text from baseline; adding (markSize - fontSize)/2 + fontSize*0.25
-    // approximates visual center for the Roboto Bold glyphs at 16pt.
     const wordmarkFontSize = 16
     const wordmarkX = markX + markSize + 10
     this.pdfGen.drawText(cursor.page, PDF_BRAND.companyName, {
@@ -122,7 +176,6 @@ export class ContractPdfService {
     })
 
     // Legal entity block — right-aligned in the letterhead (T3).
-    // Shows VolkerWessels legal name, address, and country.
     const legalLines = [
       CONTRACT_COMPANY.legalName,
       CONTRACT_COMPANY.address,
@@ -156,7 +209,6 @@ export class ContractPdfService {
       color: mutedColor,
     })
     cursor.y -= 14
-    // Show signed date only when the contract is actually signed.
     if (isSigned && params.signedAt) {
       this.pdfGen.drawText(cursor.page, `Подписан: ${formatDateRu(params.signedAt)}`, {
         x: pageMargin,
@@ -176,14 +228,64 @@ export class ContractPdfService {
     )
     cursor.y -= 6
 
-    // ---- Body (markdown) ----------------------------------------------
-    const lines = params.bodyMarkdown.split('\n')
-    for (const rawLine of lines) {
+    // ---- Body (markdown) -----------------------------------------------
+    // Pre-process: group consecutive table rows into blocks so we can hand
+    // them off to the two-column renderer as a unit while leaving all other
+    // lines on the original single-column path.
+    const rawLines = params.bodyMarkdown.split('\n')
+
+    type LineChunk = { kind: 'line'; value: string } | { kind: 'table'; rows: string[] }
+
+    const chunks: LineChunk[] = []
+    let tableAcc: string[] = []
+
+    for (const rawLine of rawLines) {
       const line = rawLine.replace(/\s+$/, '')
+      if (isTableRow(line)) {
+        tableAcc.push(line)
+      } else {
+        if (tableAcc.length > 0) {
+          chunks.push({ kind: 'table', rows: tableAcc })
+          tableAcc = []
+        }
+        chunks.push({ kind: 'line', value: line })
+      }
+    }
+    if (tableAcc.length > 0) {
+      chunks.push({ kind: 'table', rows: tableAcc })
+    }
+
+    for (const chunk of chunks) {
+      if (chunk.kind === 'table') {
+        this.renderTableBlock(pdfDoc, cursor, chunk.rows, {
+          regularFont,
+          boldFont,
+          textColor,
+          mutedColor,
+        })
+        continue
+      }
+
+      const line = chunk.value
 
       // Blank line → paragraph gap.
       if (line.trim() === '') {
         cursor.y -= BODY_SIZE * 0.6
+        continue
+      }
+
+      // Blockquote: `> text` — render as muted paragraph without the `>` prefix.
+      if (line.startsWith('> ')) {
+        this.renderParagraph(pdfDoc, cursor, parseInlineBold(line.slice(2)), {
+          size: BODY_SIZE,
+          forceBold: false,
+          indent: 0,
+          regularFont,
+          boldFont,
+          color: mutedColor,
+          leftX: pageMargin,
+          rightEdge,
+        })
         continue
       }
 
@@ -214,7 +316,6 @@ export class ContractPdfService {
         continue
       }
       if (line.startsWith('- ') || line.startsWith('* ')) {
-        // Bullet glyph, then the wrapped item text indented.
         this.ensureSpace(pdfDoc, cursor, PDF_LAYOUT.lineHeight)
         this.pdfGen.drawText(cursor.page, '•', {
           x: pageMargin,
@@ -249,7 +350,6 @@ export class ContractPdfService {
     }
 
     // ---- Dual signature block (AC8) ----------------------------------------
-    // Needs ~160pt: separator + heading + participant rows + company rows + QR gap.
     this.ensureSpace(pdfDoc, cursor, 160)
     cursor.y -= 12
     cursor.y = this.pdfGen.drawSeparator(
@@ -270,10 +370,8 @@ export class ContractPdfService {
     })
     cursor.y -= SIG_LINE_HEIGHT + 4
 
-    // Right column starts at mid-page.
     const midX = pageMargin + contentWidth / 2 - 10
 
-    // ------ 1. Participant (left column) ----------------------------------------
     this.pdfGen.drawText(cursor.page, '1. Участник', {
       x: pageMargin,
       y: cursor.y,
@@ -281,7 +379,6 @@ export class ContractPdfService {
       size: BODY_SIZE,
       color: textColor,
     })
-    // Record the Y so the company column starts at the same level.
     const dualSigStartY = cursor.y
 
     if (isSigned) {
@@ -304,7 +401,6 @@ export class ContractPdfService {
       })
       cursor.y -= SIG_LINE_HEIGHT
     } else {
-      // Unsigned preview — placeholder
       cursor.y -= SIG_LINE_HEIGHT
       this.pdfGen.drawText(cursor.page, 'Требуется подпись участника', {
         x: pageMargin,
@@ -316,8 +412,6 @@ export class ContractPdfService {
       cursor.y -= SIG_LINE_HEIGHT
     }
 
-    // ------ 2. CheekyCheeseIT (right column) — AC8 ---------------------------
-    // Mirrors invoice-pdf.service.ts drawCompanySignature pattern.
     let companyY = dualSigStartY
     this.pdfGen.drawText(cursor.page, '2. От CheekyCheeseIT', {
       x: midX,
@@ -335,10 +429,6 @@ export class ContractPdfService {
       color: textColor,
     })
     companyY -= SIG_LINE_HEIGHT
-    // Company counter-signature is always present — contracts are issued
-    // pre-signed by CheekyCheeseIT. Show the resolved date once the contract is
-    // fully signed; otherwise mark the company side as already signed (never an
-    // "awaiting" placeholder — the company has signed before the employee gets it).
     const companyDateStr = params.signedAt ? formatDateRu(params.signedAt) : 'Подписано'
     this.pdfGen.drawText(cursor.page, companyDateStr, {
       x: midX,
@@ -349,13 +439,11 @@ export class ContractPdfService {
     })
     companyY -= SIG_LINE_HEIGHT
 
-    // Advance cursor to the lower of the two columns (company typically ends lower).
     if (companyY < cursor.y) {
       cursor.y = companyY
     }
 
-    // ---- QR + footer — only when verifyUrl is provided (signed contracts) --
-    // A3-1: empty verifyUrl = unsigned preview → omit QR and footer.
+    // ---- QR + footer ---------------------------------------------------
     if (isSigned && params.verifyUrl) {
       const qrImage = await this.pdfGen.embedQrPng(pdfDoc, params.verifyUrl)
       const finalPage = cursor.page
@@ -374,15 +462,285 @@ export class ContractPdfService {
       })
     }
 
-    // ---- Deterministic save -------------------------------------------
-    // A3-1: unsigned preview has no signedAt — pin metadata to a fixed epoch so the
-    // preview is byte-deterministic (re-rendering the same draft → same sha256).
+    // ---- Deterministic save --------------------------------------------
     this.pdfGen.applyDeterministicMetadata(pdfDoc, params.signedAt ?? new Date(0))
     const bytes = await pdfDoc.save({ useObjectStreams: false })
     const buffer = Buffer.from(bytes)
 
     return { pdfBuffer: buffer, sha256Hash: sha256Hex(buffer) }
   }
+
+  // ---------------------------------------------------------------------------
+  // Two-column table renderer (ADDITIVE — only called for pipe-table blocks)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Render a block of consecutive pipe-table rows in two-column layout.
+   *
+   * Geometry:
+   *   gutter = TABLE_GUTTER (16pt)
+   *   colWidth = (contentWidth - gutter) / 2
+   *   left col x  = pageMargin
+   *   right col x = pageMargin + colWidth + gutter
+   *
+   * Each data row: compute the wrap-height of both cells, rowHeight = max of
+   * the two, draw both cells top-aligned from the same Y, advance cursor by
+   * rowHeight. Handles pagination: if row doesn't fit → new page first.
+   * If a single row is taller than the full page, splits line-by-line across
+   * pages.
+   *
+   * Header row (first row, typically "| Українська | English |"): bold.
+   * Separator rows (all cells matching /^:?-{3,}:?$/): skipped entirely.
+   * Non-2-column rows: graceful fallback — rendered as single-column text.
+   *
+   * Token-level hard-break: tokens wider than the column are split
+   * character-by-character so long IBAN/wallet/URL strings never overflow.
+   *
+   * Determinism: all metrics are derived from PDFFont.widthOfTextAtSize
+   * (synchronous, font-dependent, no Date.now/random). Same input → same
+   * character positions → same output bytes.
+   */
+  private renderTableBlock(
+    pdfDoc: PDFDocument,
+    cursor: Cursor,
+    rows: string[],
+    opts: {
+      regularFont: PDFFont
+      boldFont: PDFFont
+      textColor: Color
+      mutedColor: Color
+    },
+  ): void {
+    const { regularFont, boldFont, textColor } = opts
+    const lineHeight = BODY_SIZE * 1.3
+
+    // Track which row is the header (first non-separator row).
+    let headerDone = false
+
+    for (const rawRow of rows) {
+      const cells = parseCells(rawRow)
+
+      // Skip separator rows.
+      if (isSeparatorRow(cells)) continue
+
+      // Non-2-column fallback: render as plain paragraph.
+      if (cells.length !== 2) {
+        const text = cells.join(' | ')
+        this.renderParagraph(pdfDoc, cursor, parseInlineBold(text), {
+          size: BODY_SIZE,
+          forceBold: !headerDone,
+          indent: 0,
+          regularFont,
+          boldFont,
+          color: textColor,
+          leftX: PDF_LAYOUT.pageMargin,
+          rightEdge: PDF_LAYOUT.pageMargin + PDF_LAYOUT.contentWidth,
+        })
+        headerDone = true
+        continue
+      }
+
+      const isHeader = !headerDone
+      headerDone = true
+
+      // Compute the wrapped lines for each cell to determine row height.
+      const leftLines = this.wrapCellLines(cells[0], isHeader, COL_WIDTH, regularFont, boldFont)
+      const rightLines = this.wrapCellLines(cells[1], isHeader, COL_WIDTH, regularFont, boldFont)
+
+      const totalRowLines = Math.max(leftLines.length, rightLines.length)
+      const rowHeight = totalRowLines * lineHeight
+
+      // Available space on the current page.
+      const availableSpace = cursor.y - BOTTOM_LIMIT
+
+      if (rowHeight <= availableSpace) {
+        // Entire row fits on the current page.
+        this.drawTwoColRow(pdfDoc, cursor, leftLines, rightLines, isHeader, opts)
+      } else if (rowHeight > PDF_LAYOUT.pageHeight - PDF_LAYOUT.pageMargin * 2 - 70) {
+        // Row is taller than a full page — draw line-by-line, paginating as needed.
+        const maxIdx = Math.max(leftLines.length, rightLines.length)
+        for (let i = 0; i < maxIdx; i++) {
+          this.ensureSpace(pdfDoc, cursor, lineHeight)
+          const lLine = leftLines[i] ?? null
+          const rLine = rightLines[i] ?? null
+          if (lLine) {
+            this.drawCellLine(cursor, lLine, LEFT_COL_X, isHeader, opts)
+          }
+          if (rLine) {
+            this.drawCellLine(cursor, rLine, RIGHT_COL_X, isHeader, opts)
+          }
+          cursor.y -= lineHeight
+        }
+      } else {
+        // Row doesn't fit — start a new page, then draw.
+        cursor.page = pdfDoc.addPage([PDF_LAYOUT.pageWidth, PDF_LAYOUT.pageHeight])
+        cursor.y = PDF_LAYOUT.pageHeight - PDF_LAYOUT.pageMargin
+        this.drawTwoColRow(pdfDoc, cursor, leftLines, rightLines, isHeader, opts)
+      }
+    }
+  }
+
+  /**
+   * Draw a two-column row that is known to fit on the current page.
+   * Both columns start at `cursor.y`; cursor advances by rowHeight afterwards.
+   */
+  private drawTwoColRow(
+    pdfDoc: PDFDocument,
+    cursor: Cursor,
+    leftLines: Array<{ text: string; bold: boolean }[]>,
+    rightLines: Array<{ text: string; bold: boolean }[]>,
+    isHeader: boolean,
+    opts: {
+      regularFont: PDFFont
+      boldFont: PDFFont
+      textColor: Color
+      mutedColor: Color
+    },
+  ): void {
+    const lineHeight = BODY_SIZE * 1.3
+    const totalLines = Math.max(leftLines.length, rightLines.length)
+    const rowHeight = totalLines * lineHeight
+
+    // Ensure the row fits; if not, move to a new page.
+    this.ensureSpace(pdfDoc, cursor, rowHeight)
+
+    const topY = cursor.y
+
+    // Draw left column lines.
+    for (let i = 0; i < leftLines.length; i++) {
+      const lineY = topY - i * lineHeight
+      this.drawCellLine({ page: cursor.page, y: lineY }, leftLines[i], LEFT_COL_X, isHeader, opts)
+    }
+
+    // Draw right column lines.
+    for (let i = 0; i < rightLines.length; i++) {
+      const lineY = topY - i * lineHeight
+      this.drawCellLine({ page: cursor.page, y: lineY }, rightLines[i], RIGHT_COL_X, isHeader, opts)
+    }
+
+    cursor.y -= rowHeight
+  }
+
+  /**
+   * Draw a single rendered line (array of runs) at the given column x and y.
+   */
+  private drawCellLine(
+    at: { page: PDFPage; y: number },
+    runs: { text: string; bold: boolean }[],
+    colX: number,
+    isHeader: boolean,
+    opts: {
+      regularFont: PDFFont
+      boldFont: PDFFont
+      textColor: Color
+      mutedColor: Color
+    },
+  ): void {
+    const { regularFont, boldFont, textColor } = opts
+    let x = colX
+    for (const run of runs) {
+      if (run.text.length === 0) continue
+      const font = isHeader || run.bold ? boldFont : regularFont
+      this.pdfGen.drawText(at.page, run.text, {
+        x,
+        y: at.y,
+        font,
+        size: BODY_SIZE,
+        color: textColor,
+      })
+      x += font.widthOfTextAtSize(run.text, BODY_SIZE)
+    }
+  }
+
+  /**
+   * Wrap the text of a single table cell into lines that fit within `colWidth`.
+   *
+   * Returns an array of lines, each line being an array of styled runs.
+   *
+   * Word-level wrap: tries to fit whole tokens. When a single token is wider
+   * than `colWidth`, it is broken character-by-character so long wallet
+   * addresses, IBANs, and URLs never overflow the column.
+   */
+  private wrapCellLines(
+    cellText: string,
+    isHeader: boolean,
+    colWidth: number,
+    regularFont: PDFFont,
+    boldFont: PDFFont,
+  ): Array<{ text: string; bold: boolean }[]> {
+    const parsedRuns = parseInlineBold(cellText)
+    const lines: Array<{ text: string; bold: boolean }[]> = []
+    let currentLine: { text: string; bold: boolean }[] = []
+    let lineWidth = 0
+
+    const pushCurrentLine = () => {
+      if (currentLine.length > 0) {
+        lines.push(currentLine)
+        currentLine = []
+        lineWidth = 0
+      }
+    }
+
+    for (const run of parsedRuns) {
+      const font = isHeader || run.bold ? boldFont : regularFont
+      // Split on whitespace, preserving the whitespace tokens for width calc.
+      const tokens = run.text.split(/(\s+)/).filter((t) => t.length > 0)
+
+      for (const token of tokens) {
+        const tokenWidth = font.widthOfTextAtSize(token, BODY_SIZE)
+
+        // Skip leading whitespace when at the start of a new line.
+        if (lineWidth === 0 && /^\s+$/.test(token)) continue
+
+        if (tokenWidth <= colWidth) {
+          // Token fits as-is — check if it fits on the current line.
+          if (lineWidth + tokenWidth > colWidth && lineWidth > 0) {
+            pushCurrentLine()
+            if (/^\s+$/.test(token)) continue
+          }
+          currentLine.push({ text: token, bold: run.bold })
+          lineWidth += tokenWidth
+        } else {
+          // Token is wider than the column — break it character by character.
+          // This handles long Ethereum addresses, IBANs, URLs.
+          if (lineWidth > 0) pushCurrentLine()
+
+          let charBuf = ''
+          let charBufWidth = 0
+
+          for (const ch of token) {
+            const chWidth = font.widthOfTextAtSize(ch, BODY_SIZE)
+            if (charBufWidth + chWidth > colWidth && charBuf.length > 0) {
+              lines.push([{ text: charBuf, bold: run.bold }])
+              charBuf = ''
+              charBufWidth = 0
+            }
+            charBuf += ch
+            charBufWidth += chWidth
+          }
+
+          if (charBuf.length > 0) {
+            currentLine.push({ text: charBuf, bold: run.bold })
+            lineWidth = charBufWidth
+          }
+        }
+      }
+    }
+
+    pushCurrentLine()
+
+    // An empty cell produces no lines — represent it as one empty line so
+    // the row still participates in height calculation.
+    if (lines.length === 0) {
+      lines.push([{ text: '', bold: false }])
+    }
+
+    return lines
+  }
+
+  // ---------------------------------------------------------------------------
+  // Single-column helpers (unchanged from original — preserves byte identity)
+  // ---------------------------------------------------------------------------
 
   /**
    * Render a paragraph of styled runs with word-wrapping and page breaks.
@@ -411,7 +769,6 @@ export class ContractPdfService {
 
     for (const run of runs) {
       const font = opts.forceBold || run.bold ? opts.boldFont : opts.regularFont
-      // Split keeping whitespace so we can wrap on word boundaries.
       const tokens = run.text.split(/(\s+)/).filter((t) => t.length > 0)
       for (const token of tokens) {
         const tokenWidth = font.widthOfTextAtSize(token, opts.size)
@@ -419,7 +776,6 @@ export class ContractPdfService {
           cursor.y -= lineHeight
           this.ensureSpace(pdfDoc, cursor, lineHeight)
           x = startX
-          // Skip leading whitespace token at the start of a wrapped line.
           if (/^\s+$/.test(token)) continue
         }
         this.pdfGen.drawText(cursor.page, token, {
