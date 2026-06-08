@@ -149,6 +149,12 @@ export const CONTRACT_VARIABLE_DESCRIPTIONS = {
    * when both fields were empty.
    */
   requisites: 'Реквизиты оплаты (определяются по методу оплаты автоматически)',
+  /**
+   * Monthly salary amount + currency. Resolved from users.monthlySalary +
+   * users.salaryCurrency. Trailing ".00" stripped (e.g. "800.00" → "800").
+   * Falls back to 'не указано' when monthlySalary is null.
+   */
+  salary: 'Ежемесячное вознаграждение (сумма + валюта, напр. "1200 USD")',
   contractNumber: 'Номер контракта (генерируется автоматически, CHK-N-YYYY)',
 } as const
 
