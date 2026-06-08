@@ -60,7 +60,7 @@ export type CustomVariable = z.infer<typeof customVariableSchema>
 export const createContractTemplateSchema = z.object({
   targetRole: contractTargetRoleSchema,
   bodyMarkdown: z.string().min(1, 'Тело контракта не может быть пустым'),
-  customVariables: z.array(customVariableSchema).optional(),
+  customVariables: z.array(customVariableSchema).default([]),
 })
 
 export const signedContractSchema = z.object({
