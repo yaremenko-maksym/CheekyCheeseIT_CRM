@@ -2245,22 +2245,22 @@ function WizardStep3({
       </div>
 
       {/* Navigation */}
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <Button variant="outline" onClick={onBack} data-testid="wizard-step3-back-btn">
           <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
           Назад
         </Button>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 justify-end">
           <Button variant="secondary" onClick={onSaveDraft} data-testid="wizard-save-draft-btn">
-            Сохранить как черновик
+            Черновик
           </Button>
           <Button
             onClick={onMarkReady}
             disabled={!hasContract || isMarkingReady}
             data-testid="wizard-mark-ready-btn"
           >
-            {isMarkingReady ? 'Отправка...' : 'Сохранить и отметить готовым к подписи'}
+            {isMarkingReady ? 'Отправка...' : 'Отметить готовым к подписи'}
           </Button>
         </div>
       </div>
