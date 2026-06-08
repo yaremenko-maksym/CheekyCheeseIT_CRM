@@ -23,6 +23,7 @@ const makeContract = (overrides: Partial<EmployeeContract> = {}): EmployeeContra
   status: 'DRAFT',
   signedContractId: null,
   createdByUserId: 'admin-uuid',
+  customValues: {},
   createdAt: new Date('2024-01-01'),
   updatedAt: new Date('2024-01-01'),
   ...overrides,
@@ -559,6 +560,62 @@ describe('EmployeeContractsService', () => {
       db.db.query.employeeContracts.findFirst.mockResolvedValue(null)
 
       await expect(service.markSigned('user-uuid', 'sc-uuid')).rejects.toThrow(ConflictException)
+    })
+  })
+
+  // ─── Screen 2: updateCustomValues ─────────────────────────────────────────
+
+  describe('updateCustomValues', () => {
+    it('saves custom values when contract is DRAFT', async () => {
+      const contract = makeContract({ status: 'DRAFT' })
+      const updated = makeContract({ customValues: { projectName: 'ACME' } })
+      const { service, db } = makeService()
+
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      db.db.update.mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([updated]),
+          }),
+        }),
+      })
+
+      const result = await service.updateCustomValues(
+        'user-uuid',
+        { projectName: 'ACME' },
+        mockViewer,
+      )
+
+      expect(result.customValues).toEqual({ projectName: 'ACME' })
+    })
+
+    it('throws 409 CONTRACT_NOT_EDITABLE when status is READY_TO_SIGN', async () => {
+      const contract = makeContract({ status: 'READY_TO_SIGN' })
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+
+      await expect(
+        service.updateCustomValues('user-uuid', { key: 'val' }, mockViewer),
+      ).rejects.toThrow(ConflictException)
+    })
+
+    it('throws 409 CONTRACT_NOT_EDITABLE when status is SIGNED', async () => {
+      const contract = makeContract({ status: 'SIGNED' })
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+
+      await expect(
+        service.updateCustomValues('user-uuid', { key: 'val' }, mockViewer),
+      ).rejects.toThrow(ConflictException)
+    })
+
+    it('throws 404 when no active contract found', async () => {
+      const { service, db } = makeService()
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(null)
+
+      await expect(
+        service.updateCustomValues('user-uuid', { key: 'val' }, mockViewer),
+      ).rejects.toThrow(NotFoundException)
     })
   })
 })
