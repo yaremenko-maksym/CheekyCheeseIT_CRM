@@ -661,6 +661,73 @@ describe('UsersService.adminUpdateUser', () => {
     const result = await service.adminUpdateUser('admin-1', { telegram: '@newhandle' }, 'admin-1')
     expect(result.telegram).toBe('@newhandle')
   })
+
+  // ─── fix(bug-2): registrationAddress / usrRecord persist via adminUpdateUser ──
+
+  it('persists registrationAddress when provided', async () => {
+    const existing = makeUser({ registrationAddress: null })
+    const updated = makeUser({ registrationAddress: 'м. Київ, вул. Хрещатик, 1' })
+    const db = makeDb({ existingUser: existing, updatedUser: updated })
+    const service = makeUsersService(db)
+
+    const result = await service.adminUpdateUser('user-1', {
+      registrationAddress: 'м. Київ, вул. Хрещатик, 1',
+    })
+    expect(result.registrationAddress).toBe('м. Київ, вул. Хрещатик, 1')
+
+    // Verify .set() received the field
+    const updateMock = (db.db as unknown as { update: ReturnType<typeof vi.fn> }).update
+    const setCalls = updateMock.mock.results[0]?.value?.set?.mock?.calls
+    if (setCalls?.length) {
+      const setArg = setCalls[0][0] as Record<string, unknown>
+      expect(setArg).toHaveProperty('registrationAddress', 'м. Київ, вул. Хрещатик, 1')
+    }
+  })
+
+  it('persists usrRecord when provided', async () => {
+    const existing = makeUser({ usrRecord: null })
+    const updated = makeUser({ usrRecord: '12.05.2024 №2070020000000123456' })
+    const db = makeDb({ existingUser: existing, updatedUser: updated })
+    const service = makeUsersService(db)
+
+    const result = await service.adminUpdateUser('user-1', {
+      usrRecord: '12.05.2024 №2070020000000123456',
+    })
+    expect(result.usrRecord).toBe('12.05.2024 №2070020000000123456')
+
+    const updateMock = (db.db as unknown as { update: ReturnType<typeof vi.fn> }).update
+    const setCalls = updateMock.mock.results[0]?.value?.set?.mock?.calls
+    if (setCalls?.length) {
+      const setArg = setCalls[0][0] as Record<string, unknown>
+      expect(setArg).toHaveProperty('usrRecord', '12.05.2024 №2070020000000123456')
+    }
+  })
+
+  it('clears registrationAddress when set to null', async () => {
+    const existing = makeUser({ registrationAddress: 'старый адрес' })
+    const updated = makeUser({ registrationAddress: null })
+    const db = makeDb({ existingUser: existing, updatedUser: updated })
+    const service = makeUsersService(db)
+
+    const result = await service.adminUpdateUser('user-1', { registrationAddress: null })
+    expect(result.registrationAddress).toBeNull()
+  })
+
+  it('does NOT include registrationAddress in set when key absent from payload', async () => {
+    const existing = makeUser({ registrationAddress: 'should stay' })
+    const updated = makeUser({ registrationAddress: 'should stay' })
+    const db = makeDb({ existingUser: existing, updatedUser: updated })
+    const service = makeUsersService(db)
+
+    await service.adminUpdateUser('user-1', { displayName: 'Only Name' })
+
+    const updateMock = (db.db as unknown as { update: ReturnType<typeof vi.fn> }).update
+    const setCalls = updateMock.mock.results[0]?.value?.set?.mock?.calls
+    if (setCalls?.length) {
+      const setArg = setCalls[0][0] as Record<string, unknown>
+      expect(setArg).not.toHaveProperty('registrationAddress')
+    }
+  })
 })
 
 // ---------------------------------------------------------------------------

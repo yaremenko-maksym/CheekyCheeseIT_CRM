@@ -498,9 +498,14 @@ export class EmployeeContractsService {
         case 'salaryCurrency':
           return !user.salaryCurrency
         case 'sharePercent':
-          return user.role !== 'SENIOR' && (user.role !== 'DROP' || user.dropSharePercent == null)
         case 'companySharePercent':
-          return user.role !== 'SENIOR' && (user.role !== 'DROP' || user.dropSharePercent == null)
+          // For SENIOR/DROP: empty only when the share value is missing.
+          // For other roles (HR, JUNIOR, ACCOUNTANT): sharePercent is not
+          // applicable — it should never block the "mark ready" gate even if
+          // the token was accidentally inserted in a template for that role.
+          if (user.role === 'SENIOR') return false
+          if (user.role === 'DROP') return user.dropSharePercent == null
+          return false
         case 'rnokpp':
           return !user.bankUahRnokpp?.trim()
         case 'phone':

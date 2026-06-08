@@ -141,10 +141,25 @@ export function ContractFillForm({ userId, savedCustomValues, onReady }: Contrac
   const handleSubmit = useCallback(async () => {
     if (isBlocked || isBusy) return
 
-    // Build final custom values map (merge defaults).
+    // Build final custom values map.
+    // Include ALL variable keys the user filled in:
+    //   1. Known custom variables (registered in template customVariables).
+    //   2. Unknown variables (tokens found in body but not registered) — the
+    //      user may have typed values for them; discard them silently would
+    //      lose data (bug #3 / review finding MED).
     const finalValues: Record<string, string> = {}
+
+    // Pass 1: registered custom variables (with defaultValue support).
     for (const cv of data?.customVariables ?? []) {
       finalValues[cv.key] = resolveCustomValue(cv.key)
+    }
+
+    // Pass 2: unknown variables that the user explicitly filled in.
+    for (const v of data?.variables ?? []) {
+      if (v.source === 'unknown') {
+        const val = resolveCustomValue(v.key).trim()
+        if (val) finalValues[v.key] = val
+      }
     }
 
     await saveCustomMutation.mutateAsync(finalValues)

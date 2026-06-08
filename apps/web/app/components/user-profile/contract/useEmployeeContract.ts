@@ -139,7 +139,10 @@ export function useRevertContract(userId: string) {
       return employeeContractSchema.parse(res.data)
     },
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: contractKeys.detail(userId) })
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: contractKeys.detail(userId) }),
+        qc.invalidateQueries({ queryKey: contractVariablesKeys.detail(userId) }),
+      ])
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err)
@@ -157,7 +160,10 @@ export function useResetContractToTemplate(userId: string) {
       return employeeContractSchema.parse(res.data)
     },
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: contractKeys.detail(userId) })
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: contractKeys.detail(userId) }),
+        qc.invalidateQueries({ queryKey: contractVariablesKeys.detail(userId) }),
+      ])
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err)
