@@ -72,6 +72,8 @@ const USER_LIST_PROJECTION = {
   dropSharePercent: users.dropSharePercent,
   monthlySalary: users.monthlySalary,
   salaryCurrency: users.salaryCurrency,
+  registrationAddress: users.registrationAddress,
+  usrRecord: users.usrRecord,
   archivedAt: users.archivedAt,
   adminNote: users.adminNote,
   createdAt: users.createdAt,

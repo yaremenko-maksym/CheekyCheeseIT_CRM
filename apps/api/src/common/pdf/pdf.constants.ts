@@ -66,6 +66,10 @@ export const PDF_BRAND = {
  * Kept as a single constant (not env-based) because changing the legal entity
  * requires a new contract template version + ADMIN approval — not a deployment
  * toggle.
+ *
+ * Fields below that are currently `''` (empty string) are placeholders until
+ * the owner provides the real values. Empty string causes the frontend to
+ * show "не заполнено" via the standard contract variable hint panel.
  */
 export const CONTRACT_COMPANY = {
   /** Registered legal name of the company. */
@@ -74,4 +78,25 @@ export const CONTRACT_COMPANY = {
   address: 'Reggesingel 4, NL-7461 BA Rijssen',
   /** Country of incorporation. */
   country: 'Netherlands',
+  /**
+   * Company registration number (KvK / ЄДРПОу / etc.).
+   * Empty until owner provides real value — frontend will show "не заполнено".
+   */
+  regNumber: '',
+  /**
+   * Company VAT / BTW / PDV number.
+   * Empty until owner provides real value.
+   */
+  vat: '',
+  /**
+   * Company bank account / IBAN details.
+   * Empty until owner provides real value.
+   */
+  bank: '',
+  /**
+   * Basis on which the signatory acts on behalf of the company
+   * (e.g. "Статуту" / "Довіреності №…").
+   * Empty until owner provides real value.
+   */
+  authorityBasis: '',
 } as const

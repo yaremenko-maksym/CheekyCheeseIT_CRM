@@ -201,6 +201,12 @@ export const users = pgTable('users', {
   // Set by ADMIN at user creation / edit. Used in MSA contract instead of displayName.
   // NULL = not set → interpolateVariables falls back to displayName.
   legalFullName: text('legal_full_name'),
+  // ФОП registration address (адреса реєстрації ФОП).
+  // Used in contract templates via {{registrationAddress}}. Nullable.
+  registrationAddress: text('registration_address'),
+  // ЄДР record — date + record number as single string (e.g. "12.05.2024 №2070...").
+  // Used in contract templates via {{usrRecord}}. Nullable.
+  usrRecord: text('usr_record'),
   // Soft delete (archived users hidden from main UI, restorable)
   archivedAt: timestamp('archived_at', { withTimezone: true }),
   // Admin note (single overwriteable text field)
@@ -657,6 +663,13 @@ export const contractTemplates = pgTable(
     createdByUserId: uuid('created_by_user_id')
       .notNull()
       .references(() => users.id),
+    // Array of admin-authored custom variable definitions for this template version.
+    // Each entry: { key: string, label: string, defaultValue?: string }.
+    // Stored as JSONB; defaults to [] for backward compat.
+    // Migration adds `custom_variables jsonb NOT NULL DEFAULT '[]'`.
+    customVariables: jsonb('custom_variables')
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [unique('contract_templates_target_role_version_unique').on(t.targetRole, t.version)],
