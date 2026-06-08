@@ -16,7 +16,13 @@
  *   - `#`/`##` headings
  *   - `- ` / `* ` bullets
  *   - `**bold**` inline runs
+ *   - `` `backtick` `` spans — backticks stripped, inner text rendered plainly
  *   - `> ` blockquotes (disclaimer paragraphs — rendered muted, no literal `>`)
+ *   - empty blockquote (`>` or `> ` alone) → treated as blank line
+ *   - `<br>` / `<br/>` inline — forces a line break within a paragraph/heading
+ *   - `---` / `***` / `___` horizontal rule — renders as thin separator line
+ *     (ONLY in bilingual/two-column bodies; preserved as-is in single-column
+ *     bodies to keep MED-1 byte-determinism for existing signed PDFs)
  *   - blank-line paragraph breaks
  *   - word-wrapping
  *   - markdown pipe-tables `| UA | EN |` → two-column layout (ADDITIVE path)
@@ -24,6 +30,10 @@
  * Two-column path is purely additive: non-table lines follow the original
  * renderParagraph/bullet/heading path byte-for-byte, ensuring existing
  * signed PDFs remain byte-identical on re-render.
+ *
+ * "Bilingual" detection: a body is bilingual when it contains at least one
+ * pipe-table row (`isTableRow`). This drives both the `---` → separator
+ * upgrade and the bilingual signature block.
  */
 import { Injectable } from '@nestjs/common'
 import { rgb, type PDFDocument, type PDFFont, type PDFPage, type Color } from 'pdf-lib'
@@ -104,6 +114,29 @@ const RIGHT_COL_X = PDF_LAYOUT.pageMargin + COL_WIDTH + TABLE_GUTTER
  */
 function isTableRow(line: string): boolean {
   return /^\s*\|.*\|\s*$/.test(line)
+}
+
+/**
+ * Returns true when the body markdown contains at least one pipe-table row.
+ *
+ * Used to drive two conditional behaviours:
+ *   1. `---` / `***` / `___` horizontal rules are rendered as thin separator
+ *      lines (instead of literal text) — only in bilingual bodies.
+ *   2. The signature block uses bilingual UA/EN labels instead of the
+ *      single-column Russian labels.
+ *
+ * Bilingual detection is a pre-pass so it is computed once before chunking.
+ */
+function isBilingualBody(markdown: string): boolean {
+  return markdown.split('\n').some((l) => isTableRow(l))
+}
+
+/**
+ * Returns true when the line is a markdown horizontal rule:
+ * exactly `---`, `***`, or `___` (optionally surrounded by whitespace).
+ */
+function isHorizontalRule(line: string): boolean {
+  return /^\s*(---|\*\*\*|___)\s*$/.test(line)
 }
 
 /**
@@ -229,6 +262,11 @@ export class ContractPdfService {
     cursor.y -= 6
 
     // ---- Body (markdown) -----------------------------------------------
+    // Bilingual detection: pre-pass to determine rendering mode.
+    // A bilingual body contains at least one pipe-table row.
+    // This drives: (1) `---` → thin separator, (2) bilingual signature block.
+    const bilingual = isBilingualBody(params.bodyMarkdown)
+
     // Pre-process: group consecutive table rows into blocks so we can hand
     // them off to the two-column renderer as a unit while leaving all other
     // lines on the original single-column path.
@@ -274,26 +312,46 @@ export class ContractPdfService {
         continue
       }
 
-      // Blockquote: `> text` — render as muted paragraph without the `>` prefix.
-      if (line.startsWith('> ')) {
-        this.renderParagraph(pdfDoc, cursor, parseInlineBold(line.slice(2)), {
-          size: BODY_SIZE,
-          forceBold: false,
-          indent: 0,
-          regularFont,
-          boldFont,
-          color: mutedColor,
-          leftX: pageMargin,
+      // Horizontal rule: `---` / `***` / `___` (bilingual path only).
+      // Single-column bodies preserve these as-is to keep MED-1 byte-identity.
+      if (bilingual && isHorizontalRule(line)) {
+        cursor.y -= 4
+        cursor.y = this.pdfGen.drawSeparator(
+          cursor.page,
+          pageMargin,
           rightEdge,
-        })
+          cursor.y,
+          separatorColor,
+        )
+        cursor.y -= 4
+        continue
+      }
+
+      // Blockquote: `> text` — render as muted paragraph without the `>` prefix.
+      // Empty blockquote (`>` alone or `> ` with only spaces) → blank line.
+      if (line.startsWith('>')) {
+        const content = line.slice(1).replace(/^\s/, '')
+        if (content.trim() === '') {
+          cursor.y -= BODY_SIZE * 0.6
+        } else {
+          this.renderParagraph(pdfDoc, cursor, parseInlineBold(content), {
+            size: BODY_SIZE,
+            forceBold: false,
+            indent: 0,
+            regularFont,
+            boldFont,
+            color: mutedColor,
+            leftX: pageMargin,
+            rightEdge,
+          })
+        }
         continue
       }
 
       if (line.startsWith('## ')) {
-        this.renderParagraph(pdfDoc, cursor, parseInlineBold(line.slice(3)), {
+        this.renderParagraphWithBreaks(pdfDoc, cursor, line.slice(3), {
           size: H2_SIZE,
           forceBold: true,
-          indent: 0,
           regularFont,
           boldFont,
           color: textColor,
@@ -303,10 +361,9 @@ export class ContractPdfService {
         continue
       }
       if (line.startsWith('# ')) {
-        this.renderParagraph(pdfDoc, cursor, parseInlineBold(line.slice(2)), {
+        this.renderParagraphWithBreaks(pdfDoc, cursor, line.slice(2), {
           size: H1_SIZE,
           forceBold: true,
-          indent: 0,
           regularFont,
           boldFont,
           color: textColor,
@@ -337,10 +394,9 @@ export class ContractPdfService {
         continue
       }
 
-      this.renderParagraph(pdfDoc, cursor, parseInlineBold(line), {
+      this.renderParagraphWithBreaks(pdfDoc, cursor, line, {
         size: BODY_SIZE,
         forceBold: false,
-        indent: 0,
         regularFont,
         boldFont,
         color: textColor,
@@ -350,6 +406,9 @@ export class ContractPdfService {
     }
 
     // ---- Dual signature block (AC8) ----------------------------------------
+    // Bilingual bodies (pipe-table contracts) use UA/EN labels.
+    // Single-column bodies (seed templates) use the original Russian labels
+    // byte-for-byte to preserve MED-1 determinism.
     this.ensureSpace(pdfDoc, cursor, 160)
     cursor.y -= 12
     cursor.y = this.pdfGen.drawSeparator(
@@ -361,7 +420,8 @@ export class ContractPdfService {
     )
     cursor.y -= 4
 
-    this.pdfGen.drawText(cursor.page, 'Подписи сторон', {
+    const sigHeading = bilingual ? 'Підписи сторін / Signatures' : 'Подписи сторон'
+    this.pdfGen.drawText(cursor.page, sigHeading, {
       x: pageMargin,
       y: cursor.y,
       font: boldFont,
@@ -372,7 +432,8 @@ export class ContractPdfService {
 
     const midX = pageMargin + contentWidth / 2 - 10
 
-    this.pdfGen.drawText(cursor.page, '1. Участник', {
+    const participantLabel = bilingual ? 'Учасник / Signatory' : '1. Участник'
+    this.pdfGen.drawText(cursor.page, participantLabel, {
       x: pageMargin,
       y: cursor.y,
       font: boldFont,
@@ -412,8 +473,9 @@ export class ContractPdfService {
       cursor.y -= SIG_LINE_HEIGHT
     }
 
+    const companyLabel = bilingual ? 'CheekyCheeseIT' : '2. От CheekyCheeseIT'
     let companyY = dualSigStartY
-    this.pdfGen.drawText(cursor.page, '2. От CheekyCheeseIT', {
+    this.pdfGen.drawText(cursor.page, companyLabel, {
       x: midX,
       y: companyY,
       font: boldFont,
@@ -421,23 +483,47 @@ export class ContractPdfService {
       color: textColor,
     })
     companyY -= SIG_LINE_HEIGHT
-    this.pdfGen.drawText(cursor.page, PDF_BRAND.companyName, {
-      x: midX,
-      y: companyY,
-      font: regularFont,
-      size: BODY_SIZE,
-      color: textColor,
-    })
-    companyY -= SIG_LINE_HEIGHT
-    const companyDateStr = params.signedAt ? formatDateRu(params.signedAt) : 'Подписано'
-    this.pdfGen.drawText(cursor.page, companyDateStr, {
-      x: midX,
-      y: companyY,
-      font: regularFont,
-      size: 9,
-      color: mutedColor,
-    })
-    companyY -= SIG_LINE_HEIGHT
+    if (bilingual) {
+      // Bilingual: show "Підписано / Signed" under company name, then date
+      this.pdfGen.drawText(cursor.page, PDF_BRAND.companyName, {
+        x: midX,
+        y: companyY,
+        font: regularFont,
+        size: BODY_SIZE,
+        color: textColor,
+      })
+      companyY -= SIG_LINE_HEIGHT
+      const bilingualCompanyDateStr = params.signedAt
+        ? formatDateRu(params.signedAt)
+        : 'Підписано / Signed'
+      this.pdfGen.drawText(cursor.page, bilingualCompanyDateStr, {
+        x: midX,
+        y: companyY,
+        font: regularFont,
+        size: 9,
+        color: mutedColor,
+      })
+      companyY -= SIG_LINE_HEIGHT
+    } else {
+      // Single-column: preserve original byte-identical rendering
+      this.pdfGen.drawText(cursor.page, PDF_BRAND.companyName, {
+        x: midX,
+        y: companyY,
+        font: regularFont,
+        size: BODY_SIZE,
+        color: textColor,
+      })
+      companyY -= SIG_LINE_HEIGHT
+      const companyDateStr = params.signedAt ? formatDateRu(params.signedAt) : 'Подписано'
+      this.pdfGen.drawText(cursor.page, companyDateStr, {
+        x: midX,
+        y: companyY,
+        font: regularFont,
+        size: 9,
+        color: mutedColor,
+      })
+      companyY -= SIG_LINE_HEIGHT
+    }
 
     if (companyY < cursor.y) {
       cursor.y = companyY
@@ -584,9 +670,14 @@ export class ContractPdfService {
   /**
    * Draw a two-column row that is known to fit on the current page.
    * Both columns start at `cursor.y`; cursor advances by rowHeight afterwards.
+   *
+   * MED-2 fix: `ensureSpace` is called by the caller (`renderTableBlock`)
+   * before invoking `drawTwoColRow`, so we must NOT call it again here.
+   * The previous double-call could push the cursor to a new page and then
+   * leave the old page, producing a spurious empty page between table rows.
    */
   private drawTwoColRow(
-    pdfDoc: PDFDocument,
+    _pdfDoc: PDFDocument,
     cursor: Cursor,
     leftLines: Array<{ text: string; bold: boolean }[]>,
     rightLines: Array<{ text: string; bold: boolean }[]>,
@@ -602,8 +693,8 @@ export class ContractPdfService {
     const totalLines = Math.max(leftLines.length, rightLines.length)
     const rowHeight = totalLines * lineHeight
 
-    // Ensure the row fits; if not, move to a new page.
-    this.ensureSpace(pdfDoc, cursor, rowHeight)
+    // NOTE: ensureSpace was already called by renderTableBlock before this
+    // method is invoked — do NOT call it here (MED-2 fix).
 
     const topY = cursor.y
 
@@ -800,6 +891,40 @@ export class ContractPdfService {
   }
 
   /**
+   * Render a line that may contain `<br>` or `<br/>` inline break markers.
+   *
+   * Splits the raw text on `<br>` / `<br/>` (case-insensitive) and renders
+   * each segment as its own call to `renderParagraph`, advancing the cursor
+   * between segments. A line without any `<br>` delegates directly to
+   * `renderParagraph` — zero overhead on the common case.
+   *
+   * Used for headings and body paragraphs in both column paths. Bullets are
+   * not expected to contain `<br>` in practice and are unchanged.
+   */
+  private renderParagraphWithBreaks(
+    pdfDoc: PDFDocument,
+    cursor: Cursor,
+    rawLine: string,
+    opts: {
+      size: number
+      forceBold: boolean
+      regularFont: PDFFont
+      boldFont: PDFFont
+      color: Color
+      leftX: number
+      rightEdge: number
+    },
+  ): void {
+    const segments = rawLine.split(/<br\s*\/?>/i)
+    for (const seg of segments) {
+      this.renderParagraph(pdfDoc, cursor, parseInlineBold(seg), {
+        ...opts,
+        indent: 0,
+      })
+    }
+  }
+
+  /**
    * Ensure at least `needed` vertical points remain before BOTTOM_LIMIT;
    * otherwise start a new page and reset the cursor to the top margin.
    */
@@ -811,9 +936,19 @@ export class ContractPdfService {
   }
 }
 
-/** Split a line into alternating regular / bold runs on `**` markers. */
+/**
+ * Split a line into alternating regular / bold runs on `**` markers,
+ * stripping any inline backtick code spans (`` ` ``).
+ *
+ * Backtick handling: backtick characters are removed from the text.
+ * `` `[ВПИШИ: X]` `` renders as `[ВПИШИ: X]` — no literal backtick visible.
+ * This is intentional: contract templates use backticks only for visual
+ * emphasis in the source markdown; the PDF has no monospace rendering.
+ */
 function parseInlineBold(line: string): Run[] {
-  const segments = line.split('**')
+  // Strip backticks (inline code markers) before processing bold markers.
+  const stripped = line.replace(/`/g, '')
+  const segments = stripped.split('**')
   const runs: Run[] = []
   segments.forEach((segment, index) => {
     if (segment.length === 0) return

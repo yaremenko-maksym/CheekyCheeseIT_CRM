@@ -643,7 +643,15 @@ describe('PR-2 documents unified list — real backend integration', () => {
 
   // ── 11–12. DRAFT contract visibility: ADMIN sees DRAFT, non-ADMIN does not ─
 
-  it('11. ADMIN: GET /api/documents — DRAFT contracts are visible (ADMIN prepares them)', async () => {
+  it.skip('11. ADMIN: DRAFT contract visibility — requires QA seed data (qa-ac6-7x9k2m@cheekycheese.dev)', async () => {
+    // SKIP REASON: This assertion requires the shared QA/production DB to have
+    // qa-ac6-7x9k2m@cheekycheese.dev with DRAFT contracts seeded. That seed
+    // data is NOT present in a local dev DB or in the CI unit job (which has
+    // no Postgres service). Enabling this without the seed would give 0 DRAFT
+    // entries and the assertion would trivially pass as a false positive.
+    //
+    // To run this test: ensure QA seed is present, then remove `.skip`.
+    // Tracked: run manually in the QA/staging environment.
     if (!dbAvailable) return
 
     const res = await app.inject({
@@ -655,15 +663,7 @@ describe('PR-2 documents unified list — real backend integration', () => {
     expect(res.statusCode).toBe(200)
     const body = res.json() as DocumentDto[]
     const contractEntries = body.filter((d) => d.source === 'employee_contract')
-
     const draftEntries = contractEntries.filter((d) => d.statusBadge?.state === 'draft')
-
-    // QA seed data (qa-ac6-7x9k2m@cheekycheese.dev with DRAFT contracts) is only present
-    // in the shared QA/production DB — not in every developer's local DB.
-    // Skip the DRAFT-count assertion when that seed data is absent so local runs stay green.
-    // When the QA seed IS present, ADMIN must see those DRAFT entries.
-    if (draftEntries.length === 0) return
-
     expect(draftEntries.length).toBeGreaterThan(0)
   })
 
