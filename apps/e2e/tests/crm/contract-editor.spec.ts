@@ -85,6 +85,24 @@ async function setupAdminViewingSenior(
       body: JSON.stringify(DRAFT_CONTRACT),
     })
   })
+  // GET /api/users/:id/contract/variables — consumed by ContractFillForm (Screen 2).
+  // Without this mock the request hits the real backend → 401 → axios interceptor
+  // redirects to /login, which kills all subsequent assertions with timeout.
+  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/variables$`), async (r) => {
+    await r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ variables: [], customVariables: [] }),
+    })
+  })
+  // PATCH /api/users/:id/contract/custom-values — used by ContractFillForm submit.
+  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/custom-values$`), async (r) => {
+    await r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(DRAFT_CONTRACT),
+    })
+  })
   await page.route(new RegExp(`${API}/users/([^/?]+)/contract$`), async (r) => {
     if (r.request().method() === 'PATCH') {
       // Merge body into contract
