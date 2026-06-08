@@ -544,8 +544,9 @@ export class ContractPdfService {
       headerDone = true
 
       // Compute the wrapped lines for each cell to determine row height.
-      const leftLines = this.wrapCellLines(cells[0], isHeader, COL_WIDTH, regularFont, boldFont)
-      const rightLines = this.wrapCellLines(cells[1], isHeader, COL_WIDTH, regularFont, boldFont)
+      // cells.length === 2 is guaranteed by the guard above — non-null asserts are safe.
+      const leftLines = this.wrapCellLines(cells[0]!, isHeader, COL_WIDTH, regularFont, boldFont)
+      const rightLines = this.wrapCellLines(cells[1]!, isHeader, COL_WIDTH, regularFont, boldFont)
 
       const totalRowLines = Math.max(leftLines.length, rightLines.length)
       const rowHeight = totalRowLines * lineHeight
@@ -609,13 +610,20 @@ export class ContractPdfService {
     // Draw left column lines.
     for (let i = 0; i < leftLines.length; i++) {
       const lineY = topY - i * lineHeight
-      this.drawCellLine({ page: cursor.page, y: lineY }, leftLines[i], LEFT_COL_X, isHeader, opts)
+      // i < leftLines.length guarantees element exists — non-null assert is safe.
+      this.drawCellLine({ page: cursor.page, y: lineY }, leftLines[i]!, LEFT_COL_X, isHeader, opts)
     }
 
     // Draw right column lines.
     for (let i = 0; i < rightLines.length; i++) {
       const lineY = topY - i * lineHeight
-      this.drawCellLine({ page: cursor.page, y: lineY }, rightLines[i], RIGHT_COL_X, isHeader, opts)
+      this.drawCellLine(
+        { page: cursor.page, y: lineY },
+        rightLines[i]!,
+        RIGHT_COL_X,
+        isHeader,
+        opts,
+      )
     }
 
     cursor.y -= rowHeight
