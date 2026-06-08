@@ -10,16 +10,17 @@ import { Separator } from '@/components/ui/separator'
 import { format } from 'date-fns'
 import { Plus, Clock } from 'lucide-react'
 
-// Lazy-load CodeMirror + markdown extension — only ADMIN reaches this route.
+// Lazy-load CodeMirror + markdown extension + dark theme — only ADMIN reaches this route.
 const CodeMirrorViewer = lazy(async () => {
-  const [{ default: CodeMirror }, { markdown }] = await Promise.all([
+  const [{ default: CodeMirror }, { markdown }, { oneDark }] = await Promise.all([
     import('@uiw/react-codemirror'),
     import('@codemirror/lang-markdown'),
+    import('@codemirror/theme-one-dark'),
   ])
   const mdExtension = markdown()
   function LazyViewer(props: React.ComponentProps<typeof CodeMirror>) {
     const extensions = [mdExtension, ...(props.extensions ?? [])]
-    return <CodeMirror {...props} extensions={extensions} />
+    return <CodeMirror theme={oneDark} {...props} extensions={extensions} />
   }
   return { default: LazyViewer }
 })

@@ -27,13 +27,14 @@ export const Route = createFileRoute('/crm/admin/templates/contracts/$role')({
   component: ContractEditorPage,
 })
 
-// Lazy-load CodeMirror + markdown extension — heavy deps (~500 KB gzip) loaded
+// Lazy-load CodeMirror + markdown extension + dark theme — heavy deps (~500 KB gzip) loaded
 // only when ADMIN navigates to the editor route. React.lazy requires a module
 // with a `.default` export, so we wrap the dynamic import in a thin adapter.
 const CodeMirrorEditor = lazy(async () => {
-  const [{ default: CodeMirror }, { markdown }] = await Promise.all([
+  const [{ default: CodeMirror }, { markdown }, { oneDark }] = await Promise.all([
     import('@uiw/react-codemirror'),
     import('@codemirror/lang-markdown'),
+    import('@codemirror/theme-one-dark'),
   ])
   const mdExtension = markdown()
   function LazyEditor(
@@ -45,6 +46,7 @@ const CodeMirrorEditor = lazy(async () => {
     const extensions = [mdExtension, ...(rest.extensions ?? [])]
     return (
       <CodeMirror
+        theme={oneDark}
         {...rest}
         extensions={extensions}
         onCreateEditor={(view, state) => {

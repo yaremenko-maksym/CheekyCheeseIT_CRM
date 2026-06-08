@@ -4,17 +4,18 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { CONTRACT_VARIABLE_DESCRIPTIONS_BRACED } from '@crm/shared'
 import { cn } from '@/lib/utils'
 
-// Lazy-load CodeMirror + markdown extension — heavy deps (~500 KB gzip).
+// Lazy-load CodeMirror + markdown extension + dark theme — heavy deps (~500 KB gzip).
 // Reuses the same loader pattern as apps/web/app/routes/crm/admin/templates/contracts.$role.tsx
 const CodeMirrorEditor = lazy(async () => {
-  const [{ default: CodeMirror }, { markdown }] = await Promise.all([
+  const [{ default: CodeMirror }, { markdown }, { oneDark }] = await Promise.all([
     import('@uiw/react-codemirror'),
     import('@codemirror/lang-markdown'),
+    import('@codemirror/theme-one-dark'),
   ])
   const mdExtension = markdown()
   function LazyEditor(props: React.ComponentProps<typeof CodeMirror>) {
     const extensions = [mdExtension, ...(props.extensions ?? [])]
-    return <CodeMirror {...props} extensions={extensions} />
+    return <CodeMirror theme={oneDark} {...props} extensions={extensions} />
   }
   return { default: LazyEditor }
 })
