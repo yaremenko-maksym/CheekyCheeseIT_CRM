@@ -3,6 +3,9 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 
 import { Pool } from 'pg'
 import * as schema from './schema'
+import { JUNIOR_CONTRACT } from './seed-templates/contract-junior'
+import { HR_CONTRACT } from './seed-templates/contract-hr'
+import { ACCOUNTANT_CONTRACT } from './seed-templates/contract-accountant'
 
 // ---------------------------------------------------------------------------
 // Canonical UUIDs — must stay stable across reseeds (e2e fixtures + dev-login)
@@ -456,80 +459,11 @@ const CONTRACT_BODY: Record<string, string> = {
 Підписано: {{employeeName}}
 Дата підписання: {{onboardingDate}}`,
 
-  JUNIOR: `# Договір з Cheeky Cheese IT — Junior розробник
+  JUNIOR: JUNIOR_CONTRACT.bodyMarkdown,
 
-**Сторони:**
-- Компанія: Cheeky Cheese IT
-- Виконавець: {{employeeName}}
+  HR: HR_CONTRACT.bodyMarkdown,
 
-## 1. Предмет договору
-
-Молодший розробник надає послуги відповідно до завдань проекту під керівництвом Senior розробника.
-
-## 2. Умови оплати
-
-- Форма оплати: {{preferredMethod}}
-- Реквізити: {{requisites}}
-- Фіксована щомісячна ставка погоджується індивідуально
-
-## 3. Термін дії
-
-З {{onboardingDate}} безстроково.
-
----
-
-Підписано: {{employeeName}}
-Дата: {{onboardingDate}}`,
-
-  HR: `# Договір з Cheeky Cheese IT — HR менеджер
-
-**Сторони:**
-- Компанія: Cheeky Cheese IT
-- Виконавець: {{employeeName}}
-
-## 1. Предмет договору
-
-HR менеджер забезпечує рекрутинг та комунікацію з клієнтами від імені розробників.
-
-## 2. Умови оплати
-
-- Форма оплати: {{preferredMethod}}
-- Реквізити: {{bankUahFop}}
-- Фіксована щомісячна ставка
-
-## 3. Термін дії
-
-З {{onboardingDate}} безстроково.
-
----
-
-Підписано: {{employeeName}}
-Дата: {{onboardingDate}}`,
-
-  ACCOUNTANT: `# Договір з Cheeky Cheese IT — Бухгалтер
-
-**Сторони:**
-- Компанія: Cheeky Cheese IT
-- Виконавець: {{employeeName}}
-
-## 1. Предмет договору
-
-Бухгалтер здійснює фінансовий контроль, валідацію транзакцій та підготовку звітності.
-
-## 2. Умови оплати
-
-- Форма оплати: {{preferredMethod}}
-- Реквізити: {{bankUahFop}}
-- Фіксована щомісячна ставка
-
-## 3. Термін дії
-
-З {{onboardingDate}} безстроково.
-
----
-
-Підписано: {{employeeName}}
-Дата: {{onboardingDate}}`,
+  ACCOUNTANT: ACCOUNTANT_CONTRACT.bodyMarkdown,
 
   DROP: `# Договір з Cheeky Cheese IT — Дроп партнер
 
@@ -1523,6 +1457,14 @@ async function main() {
 
   // Contract templates — 5 roles (not ADMIN)
   const templateMap: Record<string, string> = {}
+  const CONTRACT_CUSTOM_VARIABLES: Partial<
+    Record<string, { key: string; label: string; defaultValue: string }[]>
+  > = {
+    JUNIOR: JUNIOR_CONTRACT.customVariables,
+    HR: HR_CONTRACT.customVariables,
+    ACCOUNTANT: ACCOUNTANT_CONTRACT.customVariables,
+  }
+
   for (const role of ['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] as const) {
     const tmplRows = await db
       .insert(schema.contractTemplates)
@@ -1532,6 +1474,7 @@ async function main() {
         bodyMarkdown: CONTRACT_BODY[role] ?? '',
         isActive: true,
         createdByUserId: MAKSYM_ID,
+        customVariables: CONTRACT_CUSTOM_VARIABLES[role] ?? [],
       })
       .returning()
     const tmpl = tmplRows[0]!

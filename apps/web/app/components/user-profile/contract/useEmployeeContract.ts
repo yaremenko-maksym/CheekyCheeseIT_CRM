@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { EmployeeContractDto, EmployeeContractStatus } from '@crm/shared'
-import { employeeContractSchema } from '@crm/shared'
+import { contractVariablesResponseSchema, employeeContractSchema } from '@crm/shared'
 import { api } from '@/lib/axios'
 
 // ─── Action state ─────────────────────────────────────────────────────────────
@@ -139,7 +139,10 @@ export function useRevertContract(userId: string) {
       return employeeContractSchema.parse(res.data)
     },
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: contractKeys.detail(userId) })
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: contractKeys.detail(userId) }),
+        qc.invalidateQueries({ queryKey: contractVariablesKeys.detail(userId) }),
+      ])
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err)
@@ -157,7 +160,10 @@ export function useResetContractToTemplate(userId: string) {
       return employeeContractSchema.parse(res.data)
     },
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: contractKeys.detail(userId) })
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: contractKeys.detail(userId) }),
+        qc.invalidateQueries({ queryKey: contractVariablesKeys.detail(userId) }),
+      ])
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err)
@@ -183,6 +189,57 @@ export async function fetchContractPdfBlob(
   const res = await api.get<Blob>(`/users/${userId}/contract/pdf`, config)
   const blobUrl = URL.createObjectURL(res.data as Blob)
   return { blobUrl, revoke: () => URL.revokeObjectURL(blobUrl) }
+}
+
+// ─── Screen 2: contract variables ────────────────────────────────────────────
+
+export const contractVariablesKeys = {
+  detail: (userId: string) => ['contract-variables', userId] as const,
+}
+
+/**
+ * GET /api/users/:id/contract/variables
+ * Resolves all {{token}} occurrences in the contract body with per-token metadata.
+ * Used by the Screen 2 "fill variables" form.
+ */
+export function useContractVariables(userId: string) {
+  return useQuery({
+    queryKey: contractVariablesKeys.detail(userId),
+    queryFn: async () => {
+      const res = await api.get<unknown>(`/users/${userId}/contract/variables`)
+      return contractVariablesResponseSchema.parse(res.data)
+    },
+    enabled: !!userId,
+    staleTime: 30_000,
+    retry: false,
+  })
+}
+
+/**
+ * PATCH /api/users/:id/contract/custom-values
+ * Save admin-supplied values for custom template variables. DRAFT only.
+ * On success: invalidates both the contract query and variables query.
+ */
+export function useSaveContractCustomValues(userId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (customValues: Record<string, string>) => {
+      const res = await api.patch<unknown>(`/users/${userId}/contract/custom-values`, {
+        customValues,
+      })
+      return employeeContractSchema.parse(res.data)
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: contractKeys.detail(userId) }),
+        qc.invalidateQueries({ queryKey: contractVariablesKeys.detail(userId) }),
+      ])
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`Не удалось сохранить значения переменных: ${msg}`)
+    },
+  })
 }
 
 // ─── Re-export shared type for convenience ────────────────────────────────────

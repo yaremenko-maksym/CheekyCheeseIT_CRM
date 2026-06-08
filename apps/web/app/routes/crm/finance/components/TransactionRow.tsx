@@ -314,9 +314,23 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
         transition={{ duration: 0.08, ease: 'easeOut' }}
         className={cn(
           'border-b border-border/50 transition-colors text-sm',
-          onClick ? 'cursor-pointer hover:bg-muted/40' : 'hover:bg-muted/30',
+          onClick
+            ? 'cursor-pointer hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring'
+            : 'hover:bg-muted/30',
         )}
         onClick={() => onClick?.(tx)}
+        onKeyDown={
+          onClick
+            ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onClick(tx)
+                }
+              }
+            : undefined
+        }
+        tabIndex={onClick ? 0 : undefined}
+        aria-label={onClick ? `Открыть транзакцию ${tx.type}` : undefined}
         data-testid={`tx-row-${tx.id}`}
         data-tx-type={tx.type}
       >

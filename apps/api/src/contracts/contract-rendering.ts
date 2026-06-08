@@ -27,6 +27,13 @@ export type ContractRenderUserContext = Pick<
   | 'bankUahRnokpp'
   | 'bankUahBankName'
   | 'paymentMethod'
+  | 'monthlySalary'
+  | 'salaryCurrency'
+  | 'seniorSharePercent'
+  | 'dropSharePercent'
+  | 'phone'
+  | 'registrationAddress'
+  | 'usrRecord'
 >
 
 const ROLE_LABELS: Record<string, string> = {
@@ -46,16 +53,24 @@ const METHOD_LABELS: Record<string, string> = {
 /**
  * Resolve all `{{placeholder}}` tokens in a contract template body.
  *
- * @param bodyMarkdown  Raw template body from `contract_templates.body_markdown`.
- * @param user          User row (or pick of relevant fields).
- * @param signedAt      Timestamp used for `{{onboardingDate}}`.
- * @returns             `body` — rendered markdown; `variables` — frozen
- *                      key→value map for audit trail storage.
+ * @param bodyMarkdown   Raw template body from `contract_templates.body_markdown`.
+ * @param user           User row (or pick of relevant fields).
+ * @param signedAt       Timestamp used for `{{onboardingDate}}`.
+ * @param customValues   Optional map of custom variable key → value supplied by the
+ *                       client (e.g. from the "fill variables" form before signing).
+ *                       Resolution order: standard variables → customValues → leave
+ *                       `{{key}}` as-is (unknown token, visible to admin).
+ *                       Single-pass substitution is preserved — customValues are
+ *                       inserted in the same regex pass, so values containing
+ *                       `{{...}}` tokens are NOT re-interpolated.
+ * @returns              `body` — rendered markdown; `variables` — frozen
+ *                       key→value map for audit trail storage.
  */
 export function renderContractTemplate(
   bodyMarkdown: string,
   user: ContractRenderUserContext,
   signedAt: Date,
+  customValues?: Record<string, string>,
 ): { body: string; variables: Record<InterpolatableVariableKey, string> } {
   const walletUsdt = user.walletUsdtErc20?.trim() || 'не указано'
 
@@ -72,6 +87,22 @@ export function renderContractTemplate(
     : 'не указано'
 
   /**
+   * Salary: "<amount> <currency>" where amount has trailing ".00" stripped.
+   * Examples: "800.00" → "800 USD"; "1234.50" → "1234.50 USD".
+   * Falls back to 'не указано' when monthlySalary is null/empty.
+   */
+  let salary: string
+  if (user.monthlySalary != null && String(user.monthlySalary).trim() !== '') {
+    const raw = String(user.monthlySalary)
+    // Strip trailing ".00" but keep e.g. "1234.50" intact.
+    const amount = raw.replace(/\.00$/, '')
+    const currency = user.salaryCurrency ?? 'USD'
+    salary = `${amount} ${currency}`
+  } else {
+    salary = 'не указано'
+  }
+
+  /**
    * Smart composite requisites: select the relevant value based on paymentMethod
    * so templates using {{requisites}} never produce "не указаноне указано".
    *
@@ -86,6 +117,28 @@ export function renderContractTemplate(
     requisites = bankUahFop
   } else {
     requisites = 'не указано'
+  }
+
+  /**
+   * sharePercent / companySharePercent — role-dependent split percentages.
+   *
+   * SENIOR → uses seniorSharePercent (int 0-100, default 26).
+   * DROP   → uses dropSharePercent (int 0-100, default 5; nullable for other roles).
+   * Other  → '' (empty string so frontend can detect "not applicable").
+   *
+   * companySharePercent = 100 − sharePercent (computed, no direct DB field).
+   */
+  let sharePercent: string
+  let companySharePercent: string
+  if (user.role === 'SENIOR') {
+    sharePercent = String(user.seniorSharePercent)
+    companySharePercent = String(100 - user.seniorSharePercent)
+  } else if (user.role === 'DROP' && user.dropSharePercent != null) {
+    sharePercent = String(user.dropSharePercent)
+    companySharePercent = String(100 - user.dropSharePercent)
+  } else {
+    sharePercent = ''
+    companySharePercent = ''
   }
 
   const variables: Record<InterpolatableVariableKey, string> = {
@@ -106,15 +159,36 @@ export function renderContractTemplate(
     bankUahFop,
     preferredMethod,
     requisites,
+    salary,
+    // New in contract-variables v2 (PR #147 backend extension).
+    // Empty string '' = not set → frontend shows "не заполнено" indicator.
+    rnokpp: user.bankUahRnokpp?.trim() ?? '',
+    phone: user.phone?.trim() ?? '',
+    salaryCurrency: user.salaryCurrency ?? '',
+    registrationAddress: user.registrationAddress?.trim() ?? '',
+    usrRecord: user.usrRecord?.trim() ?? '',
+    sharePercent,
+    companySharePercent,
+    companyRegNumber: CONTRACT_COMPANY.regNumber,
+    companyVat: CONTRACT_COMPANY.vat,
+    companyBank: CONTRACT_COMPANY.bank,
+    companyAuthorityBasis: CONTRACT_COMPANY.authorityBasis,
   }
 
   // SECURITY: single-pass substitution via one regex so user-controlled values
   // (e.g. `displayName = '{{walletUsdt}}'`) CANNOT trigger a second round.
-  // Unknown tokens are left as-is for ADMIN auditing of template authoring mistakes.
+  // Resolution order within the replacer:
+  //   1. Standard variables (from `variables` map above).
+  //   2. Custom values (from `customValues` param — admin-defined template vars).
+  //   3. Unknown token → left as-is for ADMIN auditing of template authoring mistakes.
   const body = bodyMarkdown.replace(/\{\{([a-zA-Z0-9_]+)\}\}/g, (match, key: string) => {
-    return Object.prototype.hasOwnProperty.call(variables, key)
-      ? variables[key as InterpolatableVariableKey]!
-      : match
+    if (Object.prototype.hasOwnProperty.call(variables, key)) {
+      return variables[key as InterpolatableVariableKey]!
+    }
+    if (customValues && Object.prototype.hasOwnProperty.call(customValues, key)) {
+      return customValues[key]!
+    }
+    return match
   })
 
   return { body, variables }

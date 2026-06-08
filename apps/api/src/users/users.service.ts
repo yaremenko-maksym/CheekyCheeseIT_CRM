@@ -72,6 +72,8 @@ const USER_LIST_PROJECTION = {
   dropSharePercent: users.dropSharePercent,
   monthlySalary: users.monthlySalary,
   salaryCurrency: users.salaryCurrency,
+  registrationAddress: users.registrationAddress,
+  usrRecord: users.usrRecord,
   archivedAt: users.archivedAt,
   adminNote: users.adminNote,
   createdAt: users.createdAt,
@@ -364,6 +366,16 @@ export class UsersService {
        * Used in MSA contract instead of displayName. Optional in admin update.
        */
       legalFullName?: string | undefined
+      /**
+       * Ukrainian registration address (ФОП).
+       * Used in contract template as {{registrationAddress}}.
+       */
+      registrationAddress?: string | null | undefined
+      /**
+       * Unified State Register (ЄДР) entry record.
+       * Used in contract template as {{usrRecord}}.
+       */
+      usrRecord?: string | null | undefined
     },
     actorId: string | null = null,
   ): Promise<User> {
@@ -420,6 +432,8 @@ export class UsersService {
       bankUahRnokpp: string | null
       bankUahBankName: string | null
       legalFullName: string | null
+      registrationAddress: string | null
+      usrRecord: string | null
       updatedAt: Date
     }> = { updatedAt: new Date() }
 
@@ -442,6 +456,9 @@ export class UsersService {
       set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
     if (data.salaryCurrency !== undefined) set.salaryCurrency = data.salaryCurrency
     if (data.legalFullName !== undefined) set.legalFullName = data.legalFullName.trim() || null
+    if ('registrationAddress' in data)
+      set.registrationAddress = data.registrationAddress?.trim() || null
+    if ('usrRecord' in data) set.usrRecord = data.usrRecord?.trim() || null
 
     // Payment requisites — switching method clears the other branch's fields.
     if (data.paymentMethod !== undefined) {

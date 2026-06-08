@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { AlertCircle, ExternalLink, FileText, Info } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
 import { Badge } from '@/components/ui/badge'
@@ -13,6 +13,7 @@ import {
 } from './useEmployeeContract'
 import { ContractActionBar } from './ContractActionBar'
 import { ContractEditor } from './ContractEditor'
+import { ContractFillForm } from './ContractFillForm'
 import { ContractPdfPreview } from './ContractPdfPreview'
 import type { EmployeeContractStatus } from '@crm/shared'
 
@@ -84,6 +85,12 @@ export function ContractTab({ userId, targetRole, onDirtyChange }: ContractTabPr
   useEffect(() => {
     onDirtyChange?.(isDirty)
   }, [isDirty, onDirtyChange])
+
+  // Screen 2: called by ContractFillForm after successful save + markReady.
+  // Must be declared before early returns (Rules of Hooks).
+  const handleFillFormReady = useCallback(() => {
+    setLocalBody(null)
+  }, [])
 
   // ── Loading ────────────────────────────────────────────────────────────────
 
@@ -233,6 +240,18 @@ export function ContractTab({ userId, targetRole, onDirtyChange }: ContractTabPr
         onReset={handleReset}
         onRevert={handleRevert}
       />
+
+      {/* Screen 2: variable fill form — shown only in DRAFT when body is saved */}
+      {contract.status === 'DRAFT' && !isDirty && (
+        <div className="border-t border-border pt-5">
+          <h4 className="mb-3 text-sm font-semibold">Подготовить к подписанию</h4>
+          <ContractFillForm
+            userId={userId}
+            savedCustomValues={(contract.customValues ?? {}) as Record<string, string>}
+            onReady={handleFillFormReady}
+          />
+        </div>
+      )}
     </div>
   )
 }

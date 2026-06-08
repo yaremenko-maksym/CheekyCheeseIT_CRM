@@ -129,6 +129,16 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Cursor: pointer for all interactive elements (Tailwind v4 preflight resets button to default) */
+button:not(:disabled):not([aria-disabled="true"]),
+[role="button"]:not([aria-disabled="true"]),
+a[href],
+label[for],
+summary,
+select:not(:disabled) {
+  cursor: pointer;
+}
+
 input[type=number]::-webkit-inner-spin-button,
 input[type=number]::-webkit-outer-spin-button {
   -webkit-appearance: none;

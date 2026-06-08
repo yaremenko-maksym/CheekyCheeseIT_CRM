@@ -1,13 +1,14 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/axios'
-import { contractTargetRoleSchema, CONTRACT_VARIABLE_DESCRIPTIONS_BRACED } from '@crm/shared'
-import type { ContractTargetRole, ContractTemplateRow } from '@crm/shared'
+import { contractTargetRoleSchema } from '@crm/shared'
+import type { ContractTargetRole, ContractTemplateRow, CustomVariable } from '@crm/shared'
 import ReactMarkdown from 'react-markdown'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
   DialogContent,
@@ -17,25 +18,45 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { AlertTriangle, ChevronLeft, Info } from 'lucide-react'
+import { AlertTriangle, ChevronLeft } from 'lucide-react'
 import { MarkdownDiff } from '@/components/admin/MarkdownDiff'
+import { VariablesPanel } from '@/components/contracts/VariablesPanel'
+import type { EditorView } from '@uiw/react-codemirror'
 
 export const Route = createFileRoute('/crm/admin/templates/contracts/$role')({
   component: ContractEditorPage,
 })
 
-// Lazy-load CodeMirror + markdown extension — heavy deps (~500 KB gzip) loaded
+// Lazy-load CodeMirror + markdown extension + dark theme — heavy deps (~500 KB gzip) loaded
 // only when ADMIN navigates to the editor route. React.lazy requires a module
 // with a `.default` export, so we wrap the dynamic import in a thin adapter.
 const CodeMirrorEditor = lazy(async () => {
-  const [{ default: CodeMirror }, { markdown }] = await Promise.all([
+  const [{ default: CodeMirror }, { markdown }, { oneDark }] = await Promise.all([
     import('@uiw/react-codemirror'),
     import('@codemirror/lang-markdown'),
+    import('@codemirror/theme-one-dark'),
   ])
   const mdExtension = markdown()
-  function LazyEditor(props: React.ComponentProps<typeof CodeMirror>) {
-    const extensions = [mdExtension, ...(props.extensions ?? [])]
-    return <CodeMirror {...props} extensions={extensions} />
+  function LazyEditor(
+    props: React.ComponentProps<typeof CodeMirror> & {
+      editorViewRef?: React.Ref<EditorView | null>
+    },
+  ) {
+    const { editorViewRef, ...rest } = props
+    const extensions = [mdExtension, ...(rest.extensions ?? [])]
+    return (
+      <CodeMirror
+        theme={oneDark}
+        {...rest}
+        extensions={extensions}
+        onCreateEditor={(view, state) => {
+          if (editorViewRef && typeof editorViewRef === 'object') {
+            ;(editorViewRef as React.MutableRefObject<EditorView | null>).current = view
+          }
+          rest.onCreateEditor?.(view, state)
+        }}
+      />
+    )
   }
   return { default: LazyEditor }
 })
@@ -53,11 +74,9 @@ function ContractEditorPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
 
-  // Parse role from URL param (lowercase) → enum value (uppercase)
   const roleUpper = roleParam.toUpperCase()
   const parsed = contractTargetRoleSchema.safeParse(roleUpper)
 
-  // If invalid role in URL → redirect back (effect avoids navigate-during-render warning)
   useEffect(() => {
     if (!parsed.success) {
       void navigate({ to: '/crm/admin/templates/contracts' })
@@ -81,21 +100,34 @@ function ContractEditorPage() {
 
   const [body, setBody] = useState<string | null>(null)
   const [showConfirm, setShowConfirm] = useState(false)
-  const [showHint, setShowHint] = useState(false)
+  const [customVariables, setCustomVariables] = useState<CustomVariable[]>([])
+  const [rightTab, setRightTab] = useState<'variables' | 'preview'>('variables')
+
+  // Ref to CodeMirror EditorView for cursor-aware token insertion
+  const editorViewRef = useRef<EditorView | null>(null)
 
   // On first load, init editor from template
   const currentBody = body ?? template?.bodyMarkdown ?? ''
+
+  // Seed customVariables from template on load (once)
+  const seededRef = useRef(false)
+  useEffect(() => {
+    if (template && !seededRef.current) {
+      seededRef.current = true
+      setCustomVariables(template.customVariables ?? [])
+    }
+  }, [template])
 
   const publishMutation = useMutation({
     mutationFn: async () => {
       return api.post('/contracts/templates', {
         targetRole: role,
         bodyMarkdown: currentBody,
+        customVariables,
       })
     },
     onSuccess: () => {
       toast.success(`Шаблон для роли ${ROLE_LABELS[role]} опубликован`)
-      // Invalidate so lists and onboarding page see the new version
       void qc.invalidateQueries({ queryKey: ['contract-templates-all'] })
       void qc.invalidateQueries({ queryKey: ['contract-template', role] })
       setShowConfirm(false)
@@ -105,6 +137,30 @@ function ContractEditorPage() {
       setShowConfirm(false)
     },
   })
+
+  /**
+   * Insert token at current cursor position in CodeMirror.
+   * Falls back to append if editor not focused / not mounted yet.
+   */
+  const handleInsertToken = useCallback(
+    (token: string) => {
+      const view = editorViewRef.current
+      if (view) {
+        const { from } = view.state.selection.main
+        view.dispatch({
+          changes: { from, insert: token },
+          selection: { anchor: from + token.length },
+        })
+        view.focus()
+        // Sync React state from updated editor content
+        setBody(view.state.doc.toString())
+      } else {
+        // Fallback: append to body
+        setBody((prev) => (prev ?? currentBody) + token)
+      }
+    },
+    [currentBody],
+  )
 
   if (isLoading) {
     return (
@@ -145,15 +201,6 @@ function ContractEditorPage() {
 
         <div className="flex items-center gap-2">
           <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setShowHint(!showHint)}
-            aria-label="Подсказка переменных"
-            data-testid="variables-hint-toggle"
-          >
-            <Info className="h-4 w-4" />
-          </Button>
-          <Button
             onClick={() => setShowConfirm(true)}
             disabled={publishMutation.isPending || currentBody.trim() === ''}
             data-testid="publish-template-button"
@@ -163,30 +210,8 @@ function ContractEditorPage() {
         </div>
       </div>
 
-      {/* Variables hint panel */}
-      {showHint && (
-        <div
-          className="rounded-lg border border-border/60 bg-muted/40 p-4"
-          data-testid="variables-hint-panel"
-        >
-          <p className="mb-2 text-sm font-medium">Доступные переменные</p>
-          <div className="grid gap-1 sm:grid-cols-2">
-            {Object.entries(CONTRACT_VARIABLE_DESCRIPTIONS_BRACED).map(
-              ([variable, description]) => (
-                <div key={variable} className="flex items-start gap-2 text-xs">
-                  <code className="shrink-0 rounded bg-primary/10 px-1 py-0.5 font-mono text-primary">
-                    {variable}
-                  </code>
-                  <span className="text-muted-foreground">{description}</span>
-                </div>
-              ),
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Split-view editor */}
-      <div className="grid grid-cols-2 gap-4" style={{ minHeight: '480px' }}>
+      <div className="grid grid-cols-2 gap-4" style={{ minHeight: '520px' }}>
         {/* Left: CodeMirror editor */}
         <div className="flex flex-col rounded-lg border border-border/60 overflow-hidden">
           <div className="border-b border-border/60 bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
@@ -197,6 +222,7 @@ function ContractEditorPage() {
               <CodeMirrorEditor
                 value={currentBody}
                 onChange={(val) => setBody(val)}
+                editorViewRef={editorViewRef}
                 basicSetup={{
                   lineNumbers: true,
                   highlightActiveLineGutter: true,
@@ -224,21 +250,55 @@ function ContractEditorPage() {
           </div>
         </div>
 
-        {/* Right: live Markdown preview */}
+        {/* Right: Tabs — Variables | Preview */}
         <div className="flex flex-col rounded-lg border border-border/60 overflow-hidden">
-          <div className="border-b border-border/60 bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
-            Предпросмотр
-          </div>
-          <div
-            className="flex-1 overflow-auto p-4 prose prose-sm dark:prose-invert max-w-none"
-            data-testid="contract-editor-preview"
+          <Tabs
+            value={rightTab}
+            onValueChange={(v) => setRightTab(v as 'variables' | 'preview')}
+            className="flex flex-col flex-1 h-full"
           >
-            {currentBody.trim() ? (
-              <ReactMarkdown>{currentBody}</ReactMarkdown>
-            ) : (
-              <p className="text-muted-foreground italic">Начните вводить текст в редакторе…</p>
-            )}
-          </div>
+            <TabsList className="h-auto rounded-none border-b border-border/60 bg-muted/30 px-2 py-0 justify-start gap-0">
+              <TabsTrigger
+                value="variables"
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-3 py-2 text-xs font-medium"
+                data-testid="tab-variables"
+              >
+                Переменные
+              </TabsTrigger>
+              <TabsTrigger
+                value="preview"
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-3 py-2 text-xs font-medium"
+                data-testid="tab-preview"
+              >
+                Предпросмотр
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent
+              value="variables"
+              className="flex-1 overflow-auto p-3 mt-0"
+              data-testid="variables-tab-content"
+            >
+              <VariablesPanel
+                body={currentBody}
+                customVariables={customVariables}
+                onCustomVariablesChange={setCustomVariables}
+                onInsertToken={handleInsertToken}
+              />
+            </TabsContent>
+
+            <TabsContent
+              value="preview"
+              className="flex-1 overflow-auto p-4 prose prose-sm dark:prose-invert max-w-none mt-0"
+              data-testid="contract-editor-preview"
+            >
+              {currentBody.trim() ? (
+                <ReactMarkdown>{currentBody}</ReactMarkdown>
+              ) : (
+                <p className="text-muted-foreground italic">Начните вводить текст в редакторе…</p>
+              )}
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
 

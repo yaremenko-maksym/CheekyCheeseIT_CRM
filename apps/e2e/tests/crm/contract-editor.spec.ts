@@ -85,6 +85,24 @@ async function setupAdminViewingSenior(
       body: JSON.stringify(DRAFT_CONTRACT),
     })
   })
+  // GET /api/users/:id/contract/variables — consumed by ContractFillForm (Screen 2).
+  // Without this mock the request hits the real backend → 401 → axios interceptor
+  // redirects to /login, which kills all subsequent assertions with timeout.
+  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/variables$`), async (r) => {
+    await r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ variables: [], customVariables: [] }),
+    })
+  })
+  // PATCH /api/users/:id/contract/custom-values — used by ContractFillForm submit.
+  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/custom-values$`), async (r) => {
+    await r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(DRAFT_CONTRACT),
+    })
+  })
   await page.route(new RegExp(`${API}/users/([^/?]+)/contract$`), async (r) => {
     if (r.request().method() === 'PATCH') {
       // Merge body into contract
@@ -186,8 +204,9 @@ test.describe('A3-2: Contract editor tab', () => {
     // Save button starts disabled (no unsaved changes)
     await expect(page.getByTestId('contract-save-btn')).toBeDisabled()
 
-    // Type in the CodeMirror editor to make it dirty
+    // Wait for CodeMirror to finish lazy-loading (Suspense resolves → cm-content mounts)
     const editorArea = page.locator('.cm-content').first()
+    await expect(editorArea).toBeVisible()
     await editorArea.click()
     await page.keyboard.press('End')
     await page.keyboard.type(' edited')
@@ -377,8 +396,9 @@ test.describe('A3-2: Contract editor tab', () => {
 
     await expect(page.getByTestId('contract-tab')).toBeVisible()
 
-    // Make the editor dirty by typing in it
+    // Wait for CodeMirror lazy-load, then make the editor dirty
     const editorArea = page.locator('.cm-content').first()
+    await expect(editorArea).toBeVisible()
     await editorArea.click()
     await page.keyboard.press('End')
     await page.keyboard.type(' unsaved')
@@ -416,8 +436,9 @@ test.describe('A3-2: Contract editor tab', () => {
     // Initially refresh is enabled (clean state)
     await expect(page.getByTestId('contract-pdf-refresh-btn')).toBeEnabled()
 
-    // Make editor dirty
+    // Wait for CodeMirror lazy-load, then make editor dirty
     const editorArea = page.locator('.cm-content').first()
+    await expect(editorArea).toBeVisible()
     await editorArea.click()
     await page.keyboard.press('End')
     await page.keyboard.type(' dirty')

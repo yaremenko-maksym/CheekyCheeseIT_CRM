@@ -95,9 +95,18 @@ export function InvoiceCard({
     >
       <Card
         data-testid={`invoice-card-${invoice.transactionId}`}
+        role="button"
+        tabIndex={0}
+        aria-label={`Открыть инвойс ${invoice.type} на ${formatAmount(invoice.amount, invoice.currency)}`}
         onClick={() => onOpen(invoice.transactionId)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onOpen(invoice.transactionId)
+          }
+        }}
         className={cn(
-          'group cursor-pointer border-border/70 hover:border-primary/40 transition-colors',
+          'group cursor-pointer border-border/70 hover:border-primary/40 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
           awaitingViewerSignature && 'border-amber-500/50 ring-1 ring-amber-500/20',
         )}
       >

@@ -978,6 +978,38 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
       : jsonOk(r, []),
   )
 
+  // Employee contracts (A3-2) — guard against ContractFillForm firing
+  // GET /contract/variables which hits the real backend → 401 → axios
+  // interceptor → window.location = '/login' on any test that opens a
+  // profile page with the contract tab mounted.
+  // Sub-routes must be registered BEFORE the generic /contract$ pattern so
+  // they match first (Playwright uses LIFO within a registration sequence;
+  // later-registered routes take priority over earlier ones).
+  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/variables$`), (r) =>
+    jsonOk(r, { variables: [], customVariables: [] }),
+  )
+  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/custom-values$`), (r) =>
+    r.request().method() === 'PATCH' ? jsonOk(r, {}) : r.fallback(),
+  )
+  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/pdf$`), (r) =>
+    r.fulfill({ status: 200, contentType: 'application/pdf', body: Buffer.from('%PDF-1.4') }),
+  )
+  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/(ready|revert|reset)$`), (r) =>
+    r.fallback(),
+  )
+  await page.route(new RegExp(`${API}/users/([^/?]+)/contract$`), (r) => {
+    if (r.request().method() === 'GET') {
+      // Default: 404 "no template" — tests that need a real contract
+      // register their own handler AFTER mockAuthAs so it takes priority (LIFO).
+      return r.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'No active contract template for role UNKNOWN' }),
+      })
+    }
+    return r.fallback()
+  })
+
   // Compliance audit trail (Phase 6 polish PR3)
 }
 

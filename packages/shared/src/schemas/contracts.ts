@@ -36,6 +36,23 @@ export const contractTemplateSchema = z.object({
 })
 
 /**
+ * A custom (non-system) variable that can be added to a contract template.
+ * At signing time the employee fills in the value via the onboarding form.
+ */
+export const customVariableSchema = z.object({
+  key: z
+    .string()
+    .regex(
+      /^[a-zA-Z][a-zA-Z0-9_]{0,49}$/,
+      'Ключ: только латиница, начинается с буквы, макс 50 символов',
+    ),
+  label: z.string().min(1, 'Метка обязательна').max(200),
+  defaultValue: z.string().max(500).optional(),
+})
+
+export type CustomVariable = z.infer<typeof customVariableSchema>
+
+/**
  * ADMIN publishes a new version. Service layer atomically deactivates the
  * previous active row (per role) and inserts a new one with
  * `version = max + 1`, `isActive = true`.
@@ -43,6 +60,7 @@ export const contractTemplateSchema = z.object({
 export const createContractTemplateSchema = z.object({
   targetRole: contractTargetRoleSchema,
   bodyMarkdown: z.string().min(1, 'Тело контракта не может быть пустым'),
+  customVariables: z.array(customVariableSchema).default([]),
 })
 
 export const signedContractSchema = z.object({
@@ -110,6 +128,8 @@ export interface ContractTemplateRow {
   isActive: boolean
   createdByUserId?: string
   createdAt: string
+  /** Custom (non-system) template variables. Empty array when none defined. */
+  customVariables: CustomVariable[]
 }
 
 /**
@@ -132,13 +152,25 @@ export const CONTRACT_VARIABLE_DESCRIPTIONS = {
   employeeEmail: 'Email сотрудника',
   role: 'Роль (HR / Синьор / Джун / Дроп / Бухгалтер)',
   onboardingDate: 'Дата подписания контракта',
+  salary: 'Ежемесячная ставка (из профиля)',
+  salaryCurrency: 'Валюта ставки (USD / EUR / UAH)',
+  sharePercent: 'Доля сотрудника, % (синьор/дроп)',
+  companySharePercent: 'Доля компании, % (100 − sharePercent)',
+  rnokpp: 'РНОКПП (ИНН ФОП) сотрудника',
+  phone: 'Телефон сотрудника',
+  registrationAddress: 'Адреса реєстрації (ФОП)',
+  usrRecord: 'Запис в ЄДР (дата, номер)',
   companyName: 'Название компании (Cheeky Cheese IT)',
-  /** Legal name of the contracting legal entity (VolkerWessels Nederland IE B.V.) */
+  /** Legal name of the contracting legal entity */
   companyLegalName: 'Юридическое название компании-контрагента',
   /** Registered address of the contracting legal entity */
   companyAddress: 'Адрес компании-контрагента',
   /** Country of incorporation of the contracting legal entity */
   companyCountry: 'Страна регистрации компании-контрагента',
+  companyRegNumber: 'Реєстраційний номер компанії-контрагента',
+  companyVat: 'VAT-номер компанії-контрагента',
+  companyBank: 'Банківські реквізити компанії-контрагента',
+  companyAuthorityBasis: 'На підставі чого діє представник компанії',
   walletUsdt: 'USDT ERC-20 кошелёк (если указан)',
   bankUahFop: 'Банковские реквизиты UAH (ФОП)',
   preferredMethod: 'Предпочтительный метод оплаты (crypto / fop)',

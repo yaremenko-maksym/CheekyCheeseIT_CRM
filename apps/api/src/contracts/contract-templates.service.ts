@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { and, eq, sql } from 'drizzle-orm'
-import type { ContractTargetRole } from '@crm/shared'
+import type { ContractTargetRole, CustomVariable } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { contractTemplates } from '../database/schema'
 
@@ -48,10 +48,13 @@ export class ContractTemplatesService {
     targetRole,
     bodyMarkdown,
     createdByUserId,
+    customVariables = [],
   }: {
     targetRole: ContractTargetRole
     bodyMarkdown: string
     createdByUserId: string
+    /** Admin-authored custom variable definitions for this template version. */
+    customVariables?: CustomVariable[]
   }) {
     if ((targetRole as string) === 'ADMIN') {
       throw new ForbiddenException('CANNOT_PUBLISH_ADMIN_CONTRACT_TEMPLATE')
@@ -82,6 +85,7 @@ export class ContractTemplatesService {
           bodyMarkdown,
           isActive: true,
           createdByUserId,
+          customVariables,
         })
         .returning()
 
