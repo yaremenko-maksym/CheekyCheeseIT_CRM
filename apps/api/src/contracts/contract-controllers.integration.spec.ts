@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Header, Module, Param, Patch, Post, Res } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Header,
+  Module,
+  Param,
+  Patch,
+  Post,
+  Res,
+} from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
 import { JwtModule, JwtService } from '@nestjs/jwt'
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify'
@@ -101,8 +112,16 @@ class SentinelEmployeeContractsController {
   }
 
   @Get(':id/contract/pdf')
+  @Roles() // override class ADMIN-only — owner-or-ADMIN enforced in handler below
   @Header('Cache-Control', 'no-store, private')
-  getPdf(@Param('id') id: string, @Res() reply: import('fastify').FastifyReply): void {
+  getPdf(
+    @Param('id') id: string,
+    @CurrentUser() requester: SessionUser,
+    @Res() reply: import('fastify').FastifyReply,
+  ): void {
+    if (requester.role !== 'ADMIN' && requester.id !== id) {
+      throw new ForbiddenException('Можно открыть только свой контракт')
+    }
     void reply.header('Content-Type', 'application/pdf').send(Buffer.from('%PDF-1.4 stub'))
   }
 }
@@ -336,7 +355,19 @@ describe('Contract controllers — real-route integration (double-prefix regress
     expect(res.statusCode).toBe(403)
   })
 
-  it('GET /api/users/:id/contract/pdf → 403 for SENIOR', async () => {
+  it('GET /api/users/:id/contract/pdf → 200 for SENIOR owner (requester.id === :id)', async () => {
+    // seniorUser requests their own contract PDF — :id matches requester.id
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/users/${seniorUser.id}/contract/pdf`,
+      cookies: { jwt: signFor(seniorUser) },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toContain('application/pdf')
+  })
+
+  it('GET /api/users/:id/contract/pdf → 403 for non-owner SENIOR (requester.id !== :id)', async () => {
+    // seniorUser requests a DIFFERENT user's contract PDF — should be forbidden
     const res = await app.inject({
       method: 'GET',
       url: `/api/users/${targetUserId}/contract/pdf`,
