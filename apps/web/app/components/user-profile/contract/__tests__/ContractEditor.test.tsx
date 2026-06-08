@@ -44,6 +44,10 @@ vi.mock('@codemirror/lang-markdown', () => ({
   markdown: () => ({}),
 }))
 
+vi.mock('@codemirror/theme-one-dark', () => ({
+  oneDark: {},
+}))
+
 import { ContractEditor } from '../ContractEditor'
 import type { ContractEditorProps } from '../ContractEditor'
 
