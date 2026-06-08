@@ -513,8 +513,16 @@ function FinancePage() {
                     {mySalaries.map((t) => (
                       <tr
                         key={t.id}
-                        className="border-b border-border/50 hover:bg-muted/30 transition-colors cursor-pointer"
+                        className="border-b border-border/50 hover:bg-muted/30 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                        tabIndex={0}
+                        aria-label={`Открыть транзакцию за ${t.salaryMonth ?? t.createdAt}`}
                         onClick={() => setDetailTx(t)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            setDetailTx(t)
+                          }
+                        }}
                       >
                         <td className="py-3 px-4 text-sm tabular-nums font-medium text-green-500">
                           {fmtAmount(t.amount, t.currency)}
