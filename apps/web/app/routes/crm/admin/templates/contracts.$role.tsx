@@ -21,7 +21,7 @@ import { toast } from 'sonner'
 import { AlertTriangle, ChevronLeft } from 'lucide-react'
 import { MarkdownDiff } from '@/components/admin/MarkdownDiff'
 import { VariablesPanel } from '@/components/contracts/VariablesPanel'
-import type { EditorView } from '@codemirror/view'
+import type { EditorView } from '@uiw/react-codemirror'
 
 export const Route = createFileRoute('/crm/admin/templates/contracts/$role')({
   component: ContractEditorPage,
@@ -47,11 +47,11 @@ const CodeMirrorEditor = lazy(async () => {
       <CodeMirror
         {...rest}
         extensions={extensions}
-        onCreateEditor={(view) => {
+        onCreateEditor={(view, state) => {
           if (editorViewRef && typeof editorViewRef === 'object') {
             ;(editorViewRef as React.MutableRefObject<EditorView | null>).current = view
           }
-          rest.onCreateEditor?.(view)
+          rest.onCreateEditor?.(view, state)
         }}
       />
     )
