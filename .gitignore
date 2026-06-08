@@ -66,6 +66,12 @@ apps/e2e/scratch-*
 /*.jpg
 /*.jpeg
 .claude/tasks/*.png
+
+# QA / manual-qa screenshots and local test configs (agent artifacts)
+qa-screenshots/
+manual-qa-screenshots/
+apps/web/.env.qa
+apps/web/vite.qa.config.ts
 .claude/tasks/*.jpg
 .claude/tasks/*.jpeg
 # Whitelist legitimate assets under apps/web/public/ (favicon, og-image, etc.)
