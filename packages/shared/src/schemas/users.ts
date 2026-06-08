@@ -46,6 +46,19 @@ export const userProfileSchema = z.object({
   legalFullName: z.string().nullable().optional(),
   monthlySalary: z.string().nullable(),
   salaryCurrency: currencyEnumSchema.default('USD'),
+  /**
+   * ФОП registration address (адреса реєстрації).
+   * Used in contract templates via `{{registrationAddress}}`.
+   * Nullable — not all users have ФОП.
+   */
+  registrationAddress: z.string().nullable().optional(),
+  /**
+   * ЄДР record — date + number as a single string.
+   * Example: "12.05.2024 №2070020000000123456".
+   * Used in contract templates via `{{usrRecord}}`.
+   * Nullable — set by ADMIN or by the user.
+   */
+  usrRecord: z.string().nullable().optional(),
   archivedAt: z.coerce.date().nullable(),
   adminNote: z.string().nullable(),
   createdAt: z.coerce.date(),
@@ -162,6 +175,16 @@ export const createUserSchema = z
      * interpolation instead of displayName.
      */
     legalFullName: z.string().min(5, 'ФИО минимум 5 символов').max(200).optional(),
+    /**
+     * ФОП registration address. Used in `{{registrationAddress}}` contract token.
+     * Optional at creation — can be added later by ADMIN.
+     */
+    registrationAddress: z.string().nullable().optional(),
+    /**
+     * ЄДР record (date + number, e.g. "12.05.2024 №2070...").
+     * Used in `{{usrRecord}}` contract token. Optional at creation.
+     */
+    usrRecord: z.string().nullable().optional(),
     /**
      * Senior-only: select between creating a fresh senior-team (default
      * `CREATE_NEW`) and joining an existing drop-team (`JOIN_DROP_TEAM`).
@@ -325,6 +348,16 @@ export const adminUpdateUserSchema = z
      * contract interpolation instead of displayName.
      */
     legalFullName: z.string().min(5, 'ФИО минимум 5 символов').max(200).optional(),
+    /**
+     * ФОП registration address. Used in `{{registrationAddress}}` contract token.
+     * Nullable optional — ADMIN sets when known.
+     */
+    registrationAddress: z.string().nullable().optional(),
+    /**
+     * ЄДР record (date + number as one string, e.g. "12.05.2024 №2070...").
+     * Used in `{{usrRecord}}` contract token. Nullable optional.
+     */
+    usrRecord: z.string().nullable().optional(),
   })
   .superRefine(refineRequisitePresence)
 
