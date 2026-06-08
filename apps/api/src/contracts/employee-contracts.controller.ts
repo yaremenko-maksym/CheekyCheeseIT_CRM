@@ -14,7 +14,7 @@ import {
 import type { FastifyReply } from 'fastify'
 import { Throttle } from '@nestjs/throttler'
 import type { SessionUser } from '@crm/shared'
-import { updateEmployeeContractSchema } from '@crm/shared'
+import { updateCustomValuesSchema, updateEmployeeContractSchema } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
@@ -22,6 +22,7 @@ import { DatabaseService } from '../database/database.service'
 import type { User } from '../database/schema'
 import { ContractPdfService } from './contract-pdf.service'
 import { safeContractFilename } from './contract-filename.util'
+import { renderContractTemplate } from './contract-rendering'
 import { EmployeeContractsService } from './employee-contracts.service'
 import { SignedContractsService } from './signed-contracts.service'
 
@@ -101,6 +102,31 @@ export class EmployeeContractsController {
   }
 
   /**
+   * PATCH /api/users/:id/contract/custom-values
+   * Save admin-supplied values for custom template variables (Screen 2).
+   * DRAFT only — 409 CONTRACT_NOT_EDITABLE otherwise.
+   */
+  @Patch(':id/contract/custom-values')
+  async updateCustomValues(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+    @CurrentUser() viewer: SessionUser,
+  ) {
+    const { customValues } = updateCustomValuesSchema.parse(body)
+    return this.service.updateCustomValues(id, customValues, viewer)
+  }
+
+  /**
+   * GET /api/users/:id/contract/variables
+   * Resolve all {{token}} occurrences in the contract body with metadata.
+   * Used by the Screen 2 "fill variables" form before marking ready-to-sign.
+   */
+  @Get(':id/contract/variables')
+  async getVariables(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.getContractVariables(id)
+  }
+
+  /**
    * GET /api/users/:id/contract/pdf
    * Render the employee_contract as a PDF.
    * - If status=SIGNED: fetches signed_contract for real signedTypedName/date/QR.
@@ -144,11 +170,14 @@ export class EmployeeContractsController {
         verifyUrl: `${frontendUrl}/contract/v/${signed.id}`,
       }
     } else {
-      // DRAFT or READY_TO_SIGN — unsigned preview
-      const { body } = SignedContractsService.interpolateVariables(
+      // DRAFT or READY_TO_SIGN — unsigned preview.
+      // Pass customValues so the PDF preview reflects admin-filled variables.
+      const customValues = (contract.customValues as Record<string, string> | null) ?? {}
+      const { body } = renderContractTemplate(
         contract.bodyMarkdown,
         userRow,
         new Date(),
+        customValues,
       )
 
       pdfParams = {

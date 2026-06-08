@@ -5,9 +5,17 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { and, eq, sql } from 'drizzle-orm'
-import type { ContractTargetRole, SessionUser } from '@crm/shared'
+import type {
+  ContractTargetRole,
+  ContractVariableInfo,
+  ContractVariableSource,
+  ContractVariablesResponse,
+  CustomVariable,
+  SessionUser,
+} from '@crm/shared'
+import { CONTRACT_VARIABLE_DESCRIPTIONS } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { employeeContracts, tosAcceptances } from '../database/schema'
+import { contractTemplates, employeeContracts, tosAcceptances } from '../database/schema'
 import type { EmployeeContract } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { ContractTemplatesService } from './contract-templates.service'
@@ -358,6 +366,204 @@ export class EmployeeContractsService {
    */
   async getActiveForUser(userId: string): Promise<EmployeeContract> {
     return this.getActiveOrThrow(userId)
+  }
+
+  // ─── Screen 2: custom variable values ────────────────────────────────────
+
+  /**
+   * PATCH /api/users/:id/contract/custom-values
+   * Save admin-supplied custom variable values.
+   * Only allowed in DRAFT status (same gate as updateBody).
+   * 409 CONTRACT_NOT_EDITABLE if status is not DRAFT.
+   */
+  async updateCustomValues(
+    userId: string,
+    customValues: Record<string, string>,
+    _viewer: SessionUser,
+  ): Promise<EmployeeContract> {
+    const contract = await this.getActiveOrThrow(userId)
+
+    if (contract.status !== 'DRAFT') {
+      throw new ConflictException('CONTRACT_NOT_EDITABLE')
+    }
+
+    const [updated] = await this.db.db
+      .update(employeeContracts)
+      .set({ customValues, updatedAt: new Date() })
+      .where(eq(employeeContracts.id, contract.id))
+      .returning()
+
+    if (!updated) throw new Error('Failed to update contract custom values')
+    return updated
+  }
+
+  /**
+   * GET /api/users/:id/contract/variables
+   * Resolve all {{token}} occurrences in the contract body and classify each:
+   *   user      — from user profile fields
+   *   company   — from CONTRACT_COMPANY constants
+   *   auto      — computed server-side (onboardingDate)
+   *   custom    — in template's customVariables list
+   *   unknown   — found in body but not in any known source
+   *
+   * Returns:
+   *   variables         — per-token metadata including resolved value + isEmpty flag
+   *   customVariables   — raw template customVariable definitions (for input rendering)
+   */
+  async getContractVariables(userId: string): Promise<ContractVariablesResponse> {
+    const contract = await this.getActiveOrThrow(userId)
+
+    // Load user row for value resolution
+    const user = await this.db.db.query.users.findFirst({
+      where: (tbl, { eq: eqOp }) => eqOp(tbl.id, userId),
+    })
+    if (!user) throw new NotFoundException('User not found')
+
+    // Load template for customVariables definition
+    const [templateRow] = await this.db.db
+      .select({ customVariables: contractTemplates.customVariables })
+      .from(contractTemplates)
+      .where(eq(contractTemplates.id, contract.sourceTemplateId))
+      .limit(1)
+
+    const templateCustomVars: CustomVariable[] =
+      (templateRow?.customVariables as CustomVariable[] | null) ?? []
+
+    // Build a set of known custom keys from the template
+    const customKeySet = new Set(templateCustomVars.map((cv) => cv.key))
+
+    // Classify each known system variable's source
+    const USER_KEYS = new Set<string>([
+      'employeeName',
+      'employeeEmail',
+      'role',
+      'walletUsdt',
+      'bankUahFop',
+      'preferredMethod',
+      'requisites',
+      'salary',
+      'salaryCurrency',
+      'sharePercent',
+      'companySharePercent',
+      'rnokpp',
+      'phone',
+      'registrationAddress',
+      'usrRecord',
+    ])
+    const COMPANY_KEYS = new Set<string>([
+      'companyName',
+      'companyLegalName',
+      'companyAddress',
+      'companyCountry',
+      'companyRegNumber',
+      'companyVat',
+      'companyBank',
+      'companyAuthorityBasis',
+    ])
+    const AUTO_KEYS = new Set<string>(['onboardingDate'])
+
+    // Helper: determine whether a user-sourced variable value is empty
+    const resolveUserFieldEmpty = (key: string): boolean => {
+      switch (key) {
+        case 'employeeName':
+          return !(user.legalFullName?.trim() || user.displayName)
+        case 'employeeEmail':
+          return !user.email
+        case 'role':
+          return !user.role
+        case 'walletUsdt':
+          return !user.walletUsdtErc20?.trim()
+        case 'bankUahFop':
+          return !(
+            user.bankUahRecipient?.trim() ||
+            user.bankUahIban?.trim() ||
+            user.bankUahRnokpp?.trim() ||
+            user.bankUahBankName?.trim()
+          )
+        case 'preferredMethod':
+          return !user.paymentMethod
+        case 'requisites': {
+          if (user.paymentMethod === 'USDT_ERC20') return !user.walletUsdtErc20?.trim()
+          if (user.paymentMethod === 'BANK_UAH_FOP')
+            return !(
+              user.bankUahRecipient?.trim() ||
+              user.bankUahIban?.trim() ||
+              user.bankUahRnokpp?.trim() ||
+              user.bankUahBankName?.trim()
+            )
+          return true
+        }
+        case 'salary':
+          return user.monthlySalary == null || String(user.monthlySalary).trim() === ''
+        case 'salaryCurrency':
+          return !user.salaryCurrency
+        case 'sharePercent':
+          return user.role !== 'SENIOR' && (user.role !== 'DROP' || user.dropSharePercent == null)
+        case 'companySharePercent':
+          return user.role !== 'SENIOR' && (user.role !== 'DROP' || user.dropSharePercent == null)
+        case 'rnokpp':
+          return !user.bankUahRnokpp?.trim()
+        case 'phone':
+          return !user.phone?.trim()
+        case 'registrationAddress':
+          return !user.registrationAddress?.trim()
+        case 'usrRecord':
+          return !user.usrRecord?.trim()
+        default:
+          return false
+      }
+    }
+
+    // Extract all {{token}} keys from the contract body (deduplicated, order of first appearance)
+    const tokenRegex = /\{\{([a-zA-Z0-9_]+)\}\}/g
+    const seenKeys = new Set<string>()
+    const orderedKeys: string[] = []
+    let match: RegExpExecArray | null
+    while ((match = tokenRegex.exec(contract.bodyMarkdown)) !== null) {
+      const k = match[1]
+      if (k && !seenKeys.has(k)) {
+        seenKeys.add(k)
+        orderedKeys.push(k)
+      }
+    }
+
+    const savedCustomValues = (contract.customValues as Record<string, string> | null) ?? {}
+
+    const variables: ContractVariableInfo[] = orderedKeys.map((key) => {
+      let source: ContractVariableSource
+      if (USER_KEYS.has(key)) source = 'user'
+      else if (COMPANY_KEYS.has(key)) source = 'company'
+      else if (AUTO_KEYS.has(key)) source = 'auto'
+      else if (customKeySet.has(key)) source = 'custom'
+      else source = 'unknown'
+
+      const label =
+        key in CONTRACT_VARIABLE_DESCRIPTIONS
+          ? CONTRACT_VARIABLE_DESCRIPTIONS[key as keyof typeof CONTRACT_VARIABLE_DESCRIPTIONS]
+          : (templateCustomVars.find((cv) => cv.key === key)?.label ?? key)
+
+      let value = ''
+      let isEmpty = false
+
+      if (source === 'user') {
+        isEmpty = resolveUserFieldEmpty(key)
+        value = isEmpty ? '' : key
+      } else if (source === 'company') {
+        value = key
+        isEmpty = false
+      } else if (source === 'auto') {
+        value = new Date().toISOString().slice(0, 10)
+        isEmpty = false
+      } else if (source === 'custom' || source === 'unknown') {
+        const saved = savedCustomValues[key] ?? ''
+        value = saved
+        isEmpty = !saved.trim()
+      }
+
+      return { key, label, source, value, isEmpty }
+    })
+
+    return { variables, customVariables: templateCustomVars }
   }
 
   // ─── Internal helpers ──────────────────────────────────────────────────────

@@ -774,6 +774,10 @@ export const employeeContracts = pgTable(
     createdByUserId: uuid('created_by_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
+    // Admin-supplied custom variable values for this contract (Screen 2).
+    // Keys match custom_variables[].key from the source template.
+    // Stored as JSONB; defaults to {} for backward compat.
+    customValues: jsonb('custom_values').$type<Record<string, string>>().notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },

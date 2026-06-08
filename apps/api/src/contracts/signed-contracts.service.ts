@@ -102,10 +102,14 @@ export class SignedContractsService {
       const signedAt = new Date()
       // A3-1: use employee_contract.bodyMarkdown (ADMIN-authored, already
       // customised per-employee) as the snapshot source — not the raw template.
-      const { body, variables } = SignedContractsService.interpolateVariables(
+      // Pass customValues so admin-filled custom variables are baked into the
+      // signed snapshot (Screen 2).
+      const customValues = (employeeContract.customValues as Record<string, string> | null) ?? {}
+      const { body, variables } = renderContractTemplate(
         employeeContract.bodyMarkdown,
         user,
         signedAt,
+        customValues,
       )
 
       // T4: generate CHK-<6 uppercase hex> (e.g. CHK-7F3A9C).
