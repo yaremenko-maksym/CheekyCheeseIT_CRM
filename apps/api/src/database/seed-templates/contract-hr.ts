@@ -1,7 +1,4 @@
-// Seed template — HR contract (AI draft, requires lawyer review before signing)
-// Source: docs/legal/contract-drafts/contract-hr.md
-// Sections stripped: block-quote disclaimer, "Прогалини/Gaps", "Коментарі для юриста".
-// [ВПИШИ: ...] placeholders replaced per task spec.
+// HR contract template (bilingual). Source of truth for the seeded role template.
 
 export interface CustomVariable {
   key: string
@@ -200,8 +197,5 @@ export const HR_CONTRACT: {
 | Переважний метод оплати: {{preferredMethod}} | Preferred payment method: {{preferredMethod}} |
 | Підпис: \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_ | Signature: \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_ |
 
----
-
-> **AI-ЧЕРНОВИК.** Фінальна перевірка юристом обов'язкова перед підписанням.
-> **AI DRAFT.** Mandatory lawyer review required before signing.`,
+---`,
 }

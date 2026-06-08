@@ -1,11 +1,4 @@
-// Seed template — JUNIOR contract (AI draft, requires lawyer review before signing)
-// Source: docs/legal/contract-drafts/contract-junior.md
-// Sections stripped: block-quote disclaimer, "Прогалини/Gaps", "Коментарі для юриста".
-// [ВПИШИ: ...] placeholders replaced per task spec:
-//   - standard reqs  → mustache tokens (rnokpp, phone, etc.)
-//   - "посада та ПІБ підписанта" компанії → removed (entity signs without signatory name)
-//   - "№ [ВПИШИ: номер]" in heading → removed (CHK number printed in PDF header)
-//   - remaining numeric/term gaps → customVariables with sensible defaults
+// JUNIOR contract template (bilingual). Source of truth for the seeded role template.
 
 export interface CustomVariable {
   key: string
@@ -204,8 +197,5 @@ export const JUNIOR_CONTRACT: {
 | Переважний метод оплати: {{preferredMethod}} | Preferred payment method: {{preferredMethod}} |
 | Підпис: \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_ | Signature: \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_ |
 
----
-
-> **AI-ЧЕРНОВИК.** Фінальна перевірка юристом обов'язкова перед підписанням.
-> **AI DRAFT.** Mandatory lawyer review required before signing.`,
+---`,
 }
