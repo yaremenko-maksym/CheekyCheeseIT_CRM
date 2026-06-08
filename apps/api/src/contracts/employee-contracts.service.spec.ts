@@ -618,4 +618,121 @@ describe('EmployeeContractsService', () => {
       ).rejects.toThrow(NotFoundException)
     })
   })
+
+  // ─── fix(bug-4): sharePercent must NOT block gate for non-SENIOR/DROP roles ──
+
+  describe('getContractVariables — sharePercent isEmpty for non-SENIOR/DROP', () => {
+    /**
+     * Helper: sets up service + mocks so getContractVariables resolves.
+     * `role` controls the user row; `body` is the contract markdown (may
+     * contain {{sharePercent}} to trigger the classification branch).
+     */
+    function makeServiceForVariables(role: string, body: string) {
+      const contract = makeContract({ bodyMarkdown: body, customValues: {} })
+      const { service, db } = makeService(
+        {},
+        { id: 'template-uuid', bodyMarkdown: body, customVariables: [] },
+      )
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      db.db.query.users.findFirst.mockResolvedValue({
+        id: 'user-uuid',
+        role,
+        seniorSharePercent: 26,
+        dropSharePercent: null,
+        email: 'test@example.com',
+        displayName: 'Test',
+        legalFullName: null,
+        walletUsdtErc20: null,
+        walletUsdtLabel: null,
+        bankUahRecipient: null,
+        bankUahIban: null,
+        bankUahRnokpp: null,
+        bankUahBankName: null,
+        paymentMethod: null,
+        monthlySalary: null,
+        salaryCurrency: null,
+        phone: null,
+        registrationAddress: null,
+        usrRecord: null,
+      })
+      // select for template customVariables
+      db.db.select.mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue([{ customVariables: [] }]),
+          }),
+        }),
+      })
+      return service
+    }
+
+    it('HR: sharePercent isEmpty=false (not applicable — must not block gate)', async () => {
+      const service = makeServiceForVariables('HR', '{{sharePercent}}')
+      const result = await service.getContractVariables('user-uuid')
+      const v = result.variables.find((x) => x.key === 'sharePercent')
+      expect(v).toBeDefined()
+      expect(v?.isEmpty).toBe(false)
+    })
+
+    it('JUNIOR: sharePercent isEmpty=false (not applicable)', async () => {
+      const service = makeServiceForVariables('JUNIOR', '{{sharePercent}}')
+      const result = await service.getContractVariables('user-uuid')
+      const v = result.variables.find((x) => x.key === 'sharePercent')
+      expect(v?.isEmpty).toBe(false)
+    })
+
+    it('ACCOUNTANT: companySharePercent isEmpty=false (not applicable)', async () => {
+      const service = makeServiceForVariables('ACCOUNTANT', '{{companySharePercent}}')
+      const result = await service.getContractVariables('user-uuid')
+      const v = result.variables.find((x) => x.key === 'companySharePercent')
+      expect(v?.isEmpty).toBe(false)
+    })
+
+    it('SENIOR: sharePercent isEmpty=false (has seniorSharePercent=26)', async () => {
+      const service = makeServiceForVariables('SENIOR', '{{sharePercent}}')
+      const result = await service.getContractVariables('user-uuid')
+      const v = result.variables.find((x) => x.key === 'sharePercent')
+      expect(v?.isEmpty).toBe(false)
+    })
+
+    it('DROP with null dropSharePercent: sharePercent isEmpty=true', async () => {
+      const contract = makeContract({ bodyMarkdown: '{{sharePercent}}', customValues: {} })
+      const { service, db } = makeService(
+        {},
+        { id: 'template-uuid', bodyMarkdown: '{{sharePercent}}', customVariables: [] },
+      )
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      db.db.query.users.findFirst.mockResolvedValue({
+        id: 'user-uuid',
+        role: 'DROP',
+        dropSharePercent: null,
+        seniorSharePercent: 26,
+        email: 't@t.com',
+        displayName: 'D',
+        legalFullName: null,
+        walletUsdtErc20: null,
+        walletUsdtLabel: null,
+        bankUahRecipient: null,
+        bankUahIban: null,
+        bankUahRnokpp: null,
+        bankUahBankName: null,
+        paymentMethod: null,
+        monthlySalary: null,
+        salaryCurrency: null,
+        phone: null,
+        registrationAddress: null,
+        usrRecord: null,
+      })
+      db.db.select.mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue([{ customVariables: [] }]),
+          }),
+        }),
+      })
+      const result = await service.getContractVariables('user-uuid')
+      const v = result.variables.find((x) => x.key === 'sharePercent')
+      expect(v?.isEmpty).toBe(true)
+    })
+  })
 })
