@@ -27,6 +27,8 @@ export type ContractRenderUserContext = Pick<
   | 'bankUahRnokpp'
   | 'bankUahBankName'
   | 'paymentMethod'
+  | 'monthlySalary'
+  | 'salaryCurrency'
 >
 
 const ROLE_LABELS: Record<string, string> = {
@@ -72,6 +74,22 @@ export function renderContractTemplate(
     : 'не указано'
 
   /**
+   * Salary: "<amount> <currency>" where amount has trailing ".00" stripped.
+   * Examples: "800.00" → "800 USD"; "1234.50" → "1234.50 USD".
+   * Falls back to 'не указано' when monthlySalary is null/empty.
+   */
+  let salary: string
+  if (user.monthlySalary != null && String(user.monthlySalary).trim() !== '') {
+    const raw = String(user.monthlySalary)
+    // Strip trailing ".00" but keep e.g. "1234.50" intact.
+    const amount = raw.replace(/\.00$/, '')
+    const currency = user.salaryCurrency ?? 'USD'
+    salary = `${amount} ${currency}`
+  } else {
+    salary = 'не указано'
+  }
+
+  /**
    * Smart composite requisites: select the relevant value based on paymentMethod
    * so templates using {{requisites}} never produce "не указаноне указано".
    *
@@ -106,6 +124,7 @@ export function renderContractTemplate(
     bankUahFop,
     preferredMethod,
     requisites,
+    salary,
   }
 
   // SECURITY: single-pass substitution via one regex so user-controlled values
