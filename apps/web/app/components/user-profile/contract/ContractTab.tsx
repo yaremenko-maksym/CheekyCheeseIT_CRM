@@ -86,6 +86,12 @@ export function ContractTab({ userId, targetRole, onDirtyChange }: ContractTabPr
     onDirtyChange?.(isDirty)
   }, [isDirty, onDirtyChange])
 
+  // Screen 2: called by ContractFillForm after successful save + markReady.
+  // Must be declared before early returns (Rules of Hooks).
+  const handleFillFormReady = useCallback(() => {
+    setLocalBody(null)
+  }, [])
+
   // ── Loading ────────────────────────────────────────────────────────────────
 
   if (isLoading) {
@@ -174,11 +180,6 @@ export function ContractTab({ userId, targetRole, onDirtyChange }: ContractTabPr
       onSuccess: () => setLocalBody(null),
     })
   }
-
-  // Screen 2: called by ContractFillForm after successful save + markReady.
-  const handleFillFormReady = useCallback(() => {
-    setLocalBody(null)
-  }, [])
 
   const handleRevert = () => {
     revertMutation.mutate(undefined, {
