@@ -25,30 +25,6 @@ import { z } from 'zod'
  */
 export const contractTargetRoleSchema = z.enum(['HR', 'SENIOR', 'JUNIOR', 'DROP', 'ACCOUNTANT'])
 
-/**
- * Definition of a custom (admin-authored) template variable.
- *
- * `key`          — identifier used in `{{key}}` placeholders; start with a
- *                  letter, then alphanumerics/underscores, max 50 chars total.
- * `label`        — human-readable Russian label shown in the admin hint panel
- *                  and the client-side "fill variables" form.
- * `defaultValue` — optional pre-filled suggestion; client UX decides whether
- *                  to show it. Backend never validates absence — obligation is
- *                  a client-side UX concern only.
- */
-export const customVariableSchema = z.object({
-  key: z
-    .string()
-    .regex(
-      /^[a-zA-Z][a-zA-Z0-9_]{0,49}$/,
-      'Ключ: начинается с буквы, только [a-zA-Z0-9_], макс 50 символов',
-    ),
-  label: z.string().min(1, 'Метка переменной не может быть пустой'),
-  defaultValue: z.string().optional(),
-})
-
-export type CustomVariable = z.infer<typeof customVariableSchema>
-
 export const contractTemplateSchema = z.object({
   id: z.string().uuid(),
   targetRole: contractTargetRoleSchema,
@@ -60,22 +36,31 @@ export const contractTemplateSchema = z.object({
 })
 
 /**
+ * A custom (non-system) variable that can be added to a contract template.
+ * At signing time the employee fills in the value via the onboarding form.
+ */
+export const customVariableSchema = z.object({
+  key: z
+    .string()
+    .regex(
+      /^[a-zA-Z][a-zA-Z0-9_]{0,49}$/,
+      'Ключ: только латиница, начинается с буквы, макс 50 символов',
+    ),
+  label: z.string().min(1, 'Метка обязательна').max(200),
+  defaultValue: z.string().max(500).optional(),
+})
+
+export type CustomVariable = z.infer<typeof customVariableSchema>
+
+/**
  * ADMIN publishes a new version. Service layer atomically deactivates the
  * previous active row (per role) and inserts a new one with
  * `version = max + 1`, `isActive = true`.
- *
- * `customVariables` — list of template-specific variables authored by ADMIN.
- * Backend stores them as JSONB in `contract_templates.custom_variables`.
- * The backend does NOT validate that the referenced `{{key}}` tokens are
- * present in `bodyMarkdown` — that is a client-side UX concern (linting the
- * template body). Absence of custom variable values at sign time is also a
- * client-side concern only; the backend renders what it has and leaves
- * unresolved tokens as `{{key}}` (visible to the signer).
  */
 export const createContractTemplateSchema = z.object({
   targetRole: contractTargetRoleSchema,
   bodyMarkdown: z.string().min(1, 'Тело контракта не может быть пустым'),
-  customVariables: z.array(customVariableSchema).default([]),
+  customVariables: z.array(customVariableSchema).optional(),
 })
 
 export const signedContractSchema = z.object({
@@ -134,10 +119,6 @@ export type SignContractDto = z.infer<typeof signContractSchema>
  * contracts.index.tsx (list page) and contracts.$role.tsx (editor page).
  * The `createdByUserId` field is optional in UI contexts where the API
  * may omit it for non-ADMIN callers.
- *
- * `customVariables` — list of custom variable definitions authored by ADMIN
- * when this template version was published. Defaults to `[]` for templates
- * published before this feature was introduced (migration adds DEFAULT '[]').
  */
 export interface ContractTemplateRow {
   id: string
@@ -147,6 +128,7 @@ export interface ContractTemplateRow {
   isActive: boolean
   createdByUserId?: string
   createdAt: string
+  /** Custom (non-system) template variables. Empty array when none defined. */
   customVariables: CustomVariable[]
 }
 
@@ -170,13 +152,25 @@ export const CONTRACT_VARIABLE_DESCRIPTIONS = {
   employeeEmail: 'Email сотрудника',
   role: 'Роль (HR / Синьор / Джун / Дроп / Бухгалтер)',
   onboardingDate: 'Дата подписания контракта',
+  salary: 'Ежемесячная ставка (из профиля)',
+  salaryCurrency: 'Валюта ставки (USD / EUR / UAH)',
+  sharePercent: 'Доля сотрудника, % (синьор/дроп)',
+  companySharePercent: 'Доля компании, % (100 − sharePercent)',
+  rnokpp: 'РНОКПП (ИНН ФОП) сотрудника',
+  phone: 'Телефон сотрудника',
+  registrationAddress: 'Адреса реєстрації (ФОП)',
+  usrRecord: 'Запис в ЄДР (дата, номер)',
   companyName: 'Название компании (Cheeky Cheese IT)',
-  /** Legal name of the contracting legal entity (VolkerWessels Nederland IE B.V.) */
+  /** Legal name of the contracting legal entity */
   companyLegalName: 'Юридическое название компании-контрагента',
   /** Registered address of the contracting legal entity */
   companyAddress: 'Адрес компании-контрагента',
   /** Country of incorporation of the contracting legal entity */
   companyCountry: 'Страна регистрации компании-контрагента',
+  companyRegNumber: 'Реєстраційний номер компанії-контрагента',
+  companyVat: 'VAT-номер компанії-контрагента',
+  companyBank: 'Банківські реквізити компанії-контрагента',
+  companyAuthorityBasis: 'На підставі чого діє представник компанії',
   walletUsdt: 'USDT ERC-20 кошелёк (если указан)',
   bankUahFop: 'Банковские реквизиты UAH (ФОП)',
   preferredMethod: 'Предпочтительный метод оплаты (crypto / fop)',
@@ -187,69 +181,7 @@ export const CONTRACT_VARIABLE_DESCRIPTIONS = {
    * when both fields were empty.
    */
   requisites: 'Реквизиты оплаты (определяются по методу оплаты автоматически)',
-  /**
-   * Monthly salary amount + currency. Resolved from users.monthlySalary +
-   * users.salaryCurrency. Trailing ".00" stripped (e.g. "800.00" → "800").
-   * Falls back to 'не указано' when monthlySalary is null.
-   */
-  salary: 'Ежемесячное вознаграждение (сумма + валюта, напр. "1200 USD")',
   contractNumber: 'Номер контракта (генерируется автоматически, CHK-N-YYYY)',
-  /**
-   * RNOKPP / IPN (tax number). Resolved from users.bankUahRnokpp.
-   * Falls back to '' when not set (frontend shows "не заполнено").
-   */
-  rnokpp: 'РНОКПП / ИНН (из реквизитов ФОП)',
-  /**
-   * Phone number. Resolved from users.phone.
-   * Falls back to '' when not set.
-   */
-  phone: 'Номер телефона сотрудника',
-  /**
-   * Salary currency only (e.g. "USD"). Resolved from users.salaryCurrency.
-   * Falls back to '' when not set.
-   */
-  salaryCurrency: 'Валюта оклада (напр. "USD")',
-  /**
-   * ФОП registration address. Resolved from users.registrationAddress.
-   * Falls back to '' when not set.
-   */
-  registrationAddress: 'Адрес регистрации ФОП',
-  /**
-   * ЄДР record string (date + number). Resolved from users.usrRecord.
-   * Falls back to '' when not set.
-   */
-  usrRecord: 'Запись ЄДР (дата + номер, напр. "12.05.2024 №2070...")',
-  /**
-   * Percentage of income the employee keeps (SENIOR → seniorSharePercent,
-   * DROP → dropSharePercent). Falls back to '' for other roles.
-   */
-  sharePercent: 'Доля сотрудника от дохода (%, для SENIOR и DROP)',
-  /**
-   * Percentage the employee pays to the company = 100 − sharePercent.
-   * Resolved only for SENIOR / DROP. Falls back to '' for other roles.
-   */
-  companySharePercent: 'Доля компании от дохода (% = 100 − sharePercent, для SENIOR и DROP)',
-  /**
-   * Company registration number (ЄДРПОу / KvK / …).
-   * Kept in CONTRACT_COMPANY constant; empty string until admin fills it.
-   */
-  companyRegNumber: 'Регистрационный номер компании',
-  /**
-   * Company VAT / PDV number.
-   * Kept in CONTRACT_COMPANY constant; empty string until admin fills it.
-   */
-  companyVat: 'НДС / VAT номер компании',
-  /**
-   * Company bank details (IBAN or account number).
-   * Kept in CONTRACT_COMPANY constant; empty string until admin fills it.
-   */
-  companyBank: 'Банковские реквизиты компании',
-  /**
-   * Basis on which the signatory acts on behalf of the company
-   * (e.g. "Статуту" / "Довіреності №…").
-   * Kept in CONTRACT_COMPANY constant; empty string until admin fills it.
-   */
-  companyAuthorityBasis: 'Основание полномочий подписанта компании',
 } as const
 
 export type ContractVariableKey = keyof typeof CONTRACT_VARIABLE_DESCRIPTIONS

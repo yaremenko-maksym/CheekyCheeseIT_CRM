@@ -517,6 +517,9 @@ export function UserDialog(props: UserDialogProps) {
       teamTelegramChannelDrop: '' as string,
       // Данные для контракта — юридическое ФИО (задаётся ADMIN, используется в MSA)
       legalFullName: editingUser?.legalFullName ?? '',
+      // ФОП юридические данные для контракта
+      registrationAddress: editingUser?.registrationAddress ?? '',
+      usrRecord: editingUser?.usrRecord ?? '',
     },
     onSubmit: async ({ value }) => {
       const isSenior = value.role === 'SENIOR'
@@ -633,6 +636,12 @@ export function UserDialog(props: UserDialogProps) {
             ...(value.legalFullName.trim() && {
               legalFullName: value.legalFullName.trim(),
             }),
+            ...(value.registrationAddress.trim() && {
+              registrationAddress: value.registrationAddress.trim(),
+            }),
+            ...(value.usrRecord.trim() && {
+              usrRecord: value.usrRecord.trim(),
+            }),
           }
           const updateResult = adminUpdateUserSchema.safeParse(updatePayload)
           if (!updateResult.success) {
@@ -712,6 +721,12 @@ export function UserDialog(props: UserDialogProps) {
           ...(value.legalFullName.trim() && {
             legalFullName: value.legalFullName.trim(),
           }),
+          ...(value.registrationAddress.trim() && {
+            registrationAddress: value.registrationAddress.trim(),
+          }),
+          ...(value.usrRecord.trim() && {
+            usrRecord: value.usrRecord.trim(),
+          }),
         }
         const result = createUserSchema.safeParse(payload)
         if (!result.success) {
@@ -773,6 +788,9 @@ export function UserDialog(props: UserDialogProps) {
           ...(value.legalFullName.trim() && {
             legalFullName: value.legalFullName.trim(),
           }),
+          // ФОП юридические данные — передаём null при очистке поля.
+          registrationAddress: value.registrationAddress.trim() || null,
+          usrRecord: value.usrRecord.trim() || null,
           // Payment requisites — only include when admin actually changed them.
           // Sending paymentMethod without matching requisite fields would trip
           // `refineRequisitePresence` on the shared schema and block submit.
@@ -842,6 +860,8 @@ export function UserDialog(props: UserDialogProps) {
         dropSharePercent: editingUser.dropSharePercent ?? 5,
         teamTelegramChannelDrop: '',
         legalFullName: editingUser.legalFullName ?? '',
+        registrationAddress: editingUser.registrationAddress ?? '',
+        usrRecord: editingUser.usrRecord ?? '',
       })
     }
   }, [editingUser?.id, isEdit])
@@ -1150,6 +1170,42 @@ export function UserDialog(props: UserDialogProps) {
                             </Field>
                           )
                         }}
+                      </form.Field>
+
+                      {/* ── Адреса реєстрації (ФОП) ──────────────────────── */}
+                      <form.Field name="registrationAddress">
+                        {(field) => (
+                          <Field
+                            label="Адреса реєстрації (ФОП)"
+                            hint="Використовується в контракті як {{registrationAddress}}"
+                          >
+                            <Input
+                              placeholder="м. Київ, вул. Хрещатик, 1"
+                              value={field.state.value}
+                              onChange={(e) => field.handleChange(e.target.value)}
+                              onBlur={field.handleBlur}
+                              data-testid="user-dialog-registration-address"
+                            />
+                          </Field>
+                        )}
+                      </form.Field>
+
+                      {/* ── Запис в ЄДР ──────────────────────────────────── */}
+                      <form.Field name="usrRecord">
+                        {(field) => (
+                          <Field
+                            label="Запис в ЄДР (дата, номер)"
+                            hint="Використовується в контракті як {{usrRecord}}"
+                          >
+                            <Input
+                              placeholder="12.05.2024 №2070..."
+                              value={field.state.value}
+                              onChange={(e) => field.handleChange(e.target.value)}
+                              onBlur={field.handleBlur}
+                              data-testid="user-dialog-usr-record"
+                            />
+                          </Field>
+                        )}
                       </form.Field>
                     </Section>
                   ) : null
