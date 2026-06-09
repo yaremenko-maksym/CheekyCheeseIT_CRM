@@ -49,7 +49,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { ShareSlider } from '@/components/ui/share-slider'
 import { toast } from 'sonner'
+import { tgUrl, tgDisplay } from '@/lib/tg-url'
 import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
 import { useUnarchiveEntity } from '@/hooks/use-archive'
 export const Route = createFileRoute('/crm/team/$teamId')({
@@ -378,13 +380,7 @@ function TeamDetailPage() {
     toast.success('Участники добавлены')
   }
 
-  function tgHref(tg: string) {
-    return tg.startsWith('https://') ? tg : `https://t.me/${tg.replace('@', '')}`
-  }
-  function tgDisplay(tg: string) {
-    if (tg.startsWith('https://t.me/')) return `@${tg.slice('https://t.me/'.length)}`
-    return tg.startsWith('@') ? tg : `@${tg}`
-  }
+  // tgUrl / tgDisplay imported from @/lib/tg-url
 
   return (
     <motion.div className="space-y-6" variants={container} initial="hidden" animate="show">
@@ -467,7 +463,7 @@ function TeamDetailPage() {
               </div>
               {team.telegram && (
                 <a
-                  href={team.telegram}
+                  href={tgUrl(team.telegram)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 rounded-lg border border-blue-500/50 px-4 py-2 text-sm font-medium text-blue-400 hover:bg-blue-500/10 hover:border-blue-400 transition-colors"
@@ -639,7 +635,7 @@ function TeamDetailPage() {
                               </a>
                               {member.telegram && (
                                 <a
-                                  href={tgHref(member.telegram)}
+                                  href={tgUrl(member.telegram)}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0"
@@ -872,68 +868,50 @@ function TeamDetailPage() {
               </editForm.Field>
               {/*
                 task-team-senior-share-override. Team-level override for the
-                SENIOR's share percent. Integer 0-100, empty input = "no
-                override → fall through to project / user default". A
-                "Сбросить" button clears the field in one click.
+                SENIOR's share percent. Empty string = "no override → fall
+                through to project / user default". ShareSlider replaces the
+                plain number input (UT #9). Default shown when no override is
+                set. «Сбросить» clears back to empty (no override).
               */}
-              <editForm.Field
-                name="seniorSharePercentOverride"
-                validators={{
-                  onChange: ({ value }) => {
-                    const trimmed = value.trim()
-                    if (trimmed === '') return undefined
-                    const n = Number(trimmed)
-                    if (!Number.isFinite(n) || !Number.isInteger(n)) {
-                      return 'Должно быть целое число'
-                    }
-                    if (n < 0 || n > 100) return 'Диапазон 0–100'
-                    return undefined
-                  },
-                }}
-              >
-                {(field) => (
-                  <div className="grid gap-1.5">
-                    <Label htmlFor="edit-senior-share-override">
-                      Доля синьора (override для команды)
-                    </Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        id="edit-senior-share-override"
-                        type="number"
+              <editForm.Field name="seniorSharePercentOverride">
+                {(field) => {
+                  const raw = field.state.value
+                  const hasOverride = raw.trim() !== ''
+                  // Slider value: override if set, else 26 (global default).
+                  const sliderValue = hasOverride ? Math.min(100, Math.max(0, Number(raw))) : 26
+                  return (
+                    <div className="grid gap-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label>Доля синьора (override для команды)</Label>
+                        {hasOverride && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-muted-foreground"
+                            onClick={() => field.handleChange('')}
+                            data-testid="team-edit-senior-share-override-reset"
+                          >
+                            Сбросить
+                          </Button>
+                        )}
+                      </div>
+                      <ShareSlider
+                        value={sliderValue}
                         min={0}
                         max={100}
-                        step={1}
-                        inputMode="numeric"
-                        value={field.state.value}
-                        onChange={(e) => field.handleChange(e.target.value)}
-                        placeholder="Не задано"
-                        className="max-w-32"
-                        data-testid="team-edit-senior-share-override-input"
+                        onChange={(v) => field.handleChange(String(v))}
+                        onBlur={field.handleBlur}
+                        inputTestId="team-edit-senior-share-override-input"
                       />
-                      <span className="text-sm text-muted-foreground">%</span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-3 text-xs"
-                        onClick={() => field.handleChange('')}
-                        disabled={field.state.value.trim() === ''}
-                        data-testid="team-edit-senior-share-override-reset"
-                      >
-                        Сбросить
-                      </Button>
-                    </div>
-                    {field.state.meta.errors[0] && (
-                      <p className="text-xs text-destructive">
-                        {String(field.state.meta.errors[0])}
+                      <p className="text-xs text-muted-foreground">
+                        {hasOverride
+                          ? 'Override задан. Применяется ко всем проектам команды (приоритет ниже project override, выше user default).'
+                          : 'Не задано — используется значение синьора (26% по умолчанию). Передвиньте слайдер чтобы задать override.'}
                       </p>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      Если задано — применяется ко всем проектам команды (приоритет ниже project
-                      override, выше user default).
-                    </p>
-                  </div>
-                )}
+                    </div>
+                  )
+                }}
               </editForm.Field>
             </CrmDialogBody>
             <CrmDialogFooter>
