@@ -43,7 +43,9 @@ test.describe('Interviews (Kanban) page', () => {
   // -------------------------------------------------------------------------
 
   test.describe('Board rendering', () => {
-    test('renders all active stage columns including CLIENT_INTERVIEW', async ({ asSenior: page }) => {
+    test('renders all active stage columns including CLIENT_INTERVIEW', async ({
+      asSenior: page,
+    }) => {
       await page.goto('/crm/interviews')
       for (const label of ['HR Screen', 'English', 'Tech', 'Final', 'Client', 'Offer']) {
         await expect(page.getByText(label, { exact: false }).first()).toBeVisible()
@@ -112,7 +114,9 @@ test.describe('Interviews (Kanban) page', () => {
   // -------------------------------------------------------------------------
 
   test.describe('CLIENT_INTERVIEW stage', () => {
-    test('CLIENT_INTERVIEW stage is positioned between FINAL_INTERVIEW and terminal stages', async ({ asSenior: page }) => {
+    test('CLIENT_INTERVIEW stage is positioned between FINAL_INTERVIEW and terminal stages', async ({
+      asSenior: page,
+    }) => {
       await page.goto('/crm/interviews')
       // CLIENT_INTERVIEW ("Client") should be the last active stage before terminal stages
       for (const label of ['HR Screen', 'English', 'Tech', 'Final', 'Client']) {
@@ -127,7 +131,7 @@ test.describe('Interviews (Kanban) page', () => {
     test('move interview through CLIENT_INTERVIEW stage', async ({ asSenior: page }) => {
       await page.goto('/crm/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
-      
+
       // Simulate moving from HR_SCREEN → ... → FINAL_INTERVIEW → CLIENT_INTERVIEW
       const moveReq = page.waitForRequest(
         (req) => req.url().includes('/move') && req.method() === 'PATCH',
@@ -135,9 +139,12 @@ test.describe('Interviews (Kanban) page', () => {
 
       // Click next stage button repeatedly to reach CLIENT_INTERVIEW
       // The exact button text depends on current stage, but we're testing the CLIENT_INTERVIEW stage functionality
-      await page.getByRole('button', { name: /english|tech|final|client/i }).first().click()
+      await page
+        .getByRole('button', { name: /english|tech|final|client/i })
+        .first()
+        .click()
       const req = await moveReq
-      
+
       // Verify the request uses PATCH method and contains stage data
       expect(req.method()).toBe('PATCH')
       const body = JSON.parse(req.postData() ?? '{}')
@@ -147,7 +154,7 @@ test.describe('Interviews (Kanban) page', () => {
     test('move to next stage sends PATCH /move request', async ({ asSenior: page }) => {
       await page.goto('/crm/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
-      
+
       const moveReq = page.waitForRequest(
         (req) => req.url().includes('/move') && req.method() === 'PATCH',
       )
@@ -155,7 +162,7 @@ test.describe('Interviews (Kanban) page', () => {
       // Move to next stage (from HR_SCREEN to ENGLISH_CHECK)
       await page.getByRole('button', { name: /english/i }).click()
       const req = await moveReq
-      
+
       expect(req.method()).toBe('PATCH')
       expect(req.url()).toContain('/move')
     })
@@ -170,10 +177,14 @@ test.describe('Interviews (Kanban) page', () => {
       await page.goto('/crm/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
       // Sheet/dialog should appear with company name in heading area
-      await expect(page.getByRole('dialog').or(page.locator('[role="complementary"]'))).toBeVisible()
+      await expect(
+        page.getByRole('dialog').or(page.locator('[role="complementary"]')),
+      ).toBeVisible()
     })
 
-    test('shows next-stage move button (English →) for HR_SCREEN card', async ({ asSenior: page }) => {
+    test('shows next-stage move button (English →) for HR_SCREEN card', async ({
+      asSenior: page,
+    }) => {
       await page.goto('/crm/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
       // From HR_SCREEN next is ENGLISH_CHECK → button label "English →"
@@ -192,7 +203,9 @@ test.describe('Interviews (Kanban) page', () => {
       await moveReq
     })
 
-    test('CLIENT_INTERVIEW stage is positioned between FINAL_INTERVIEW and terminal stages', async ({ asSenior: page }) => {
+    test('CLIENT_INTERVIEW stage is positioned between FINAL_INTERVIEW and terminal stages', async ({
+      asSenior: page,
+    }) => {
       await page.goto('/crm/interviews')
       await expect(page.getByText('Final', { exact: false }).first()).toBeVisible()
       await expect(page.getByText('Client', { exact: false }).first()).toBeVisible()
@@ -213,7 +226,9 @@ test.describe('Interviews (Kanban) page', () => {
       }
     })
 
-    test('terminal stage buttons (Нанят / Отказ / Архив) visible for SENIOR own board', async ({ asSenior: page }) => {
+    test('terminal stage buttons (Нанят / Отказ / Архив) visible for SENIOR own board', async ({
+      asSenior: page,
+    }) => {
       await page.goto('/crm/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
 
@@ -269,7 +284,9 @@ test.describe('Interviews (Kanban) page', () => {
       expect(body.notesTechStack).toBe('TypeScript, GraphQL')
     })
 
-    test('ADMIN sees "Удалить карточку" delete button in detail sheet', async ({ asAdmin: page }) => {
+    test('ADMIN sees "Удалить карточку" delete button in detail sheet', async ({
+      asAdmin: page,
+    }) => {
       await page.goto('/crm/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
       await expect(page.getByTitle('Удалить карточку')).toBeVisible()
@@ -299,7 +316,8 @@ test.describe('Interviews (Kanban) page', () => {
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
 
       const deleteReq = page.waitForRequest(
-        (req) => req.url().includes(`/interviews/${INTERVIEWS[0]!.id}`) && req.method() === 'DELETE',
+        (req) =>
+          req.url().includes(`/interviews/${INTERVIEWS[0]!.id}`) && req.method() === 'DELETE',
       )
 
       await page.getByTitle('Удалить карточку').click()
@@ -318,9 +336,15 @@ test.describe('Interviews (Kanban) page', () => {
       await expect(page.getByText('Client', { exact: false }).first()).toBeVisible()
     })
 
-    test('clicking "Client →" sends move request with CLIENT_INTERVIEW stage', async ({ asSenior: page }) => {
+    test('clicking "Client →" sends move request with CLIENT_INTERVIEW stage', async ({
+      asSenior: page,
+    }) => {
       await page.goto('/crm/interviews')
-      await page.getByRole('button').filter({ hasText: 'Final Stage Corp' }).first().click({ force: true })
+      await page
+        .getByRole('button')
+        .filter({ hasText: 'Final Stage Corp' })
+        .first()
+        .click({ force: true })
 
       const moveReq = page.waitForRequest(
         (req) => req.url().includes('/move') && req.method() === 'PATCH',
@@ -405,7 +429,9 @@ test.describe('Interviews (Kanban) page', () => {
       await expect(page.getByTestId('interview-detail-sheet')).not.toBeVisible()
     })
 
-    test('BUG1: dirty form triggers unsaved-changes dialog, discard closes sheet', async ({ asSenior: page }) => {
+    test('BUG1: dirty form triggers unsaved-changes dialog, discard closes sheet', async ({
+      asSenior: page,
+    }) => {
       await page.goto('/crm/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
       await expect(page.getByTestId('interview-detail-sheet')).toBeVisible()
@@ -440,7 +466,9 @@ test.describe('Interviews (Kanban) page', () => {
     // Bug 2: DnD to HIRED column triggers CreateProject prompt for ADMIN/HR
     // -----------------------------------------------------------------------
 
-    test('BUG2: move to HIRED via sheet button opens create-project prompt for ADMIN', async ({ asAdmin: page }) => {
+    test('BUG2: move to HIRED via sheet button opens create-project prompt for ADMIN', async ({
+      asAdmin: page,
+    }) => {
       // Override move mock to return HIRED stage
       await page.route(/\/interviews\/.*\/move/, (r) =>
         r.fulfill({
@@ -466,7 +494,9 @@ test.describe('Interviews (Kanban) page', () => {
       await expect(page.getByTestId('confirm-create-project-dialog')).toBeVisible()
     })
 
-    test('BUG2: SENIOR moving to HIRED via sheet button does NOT open create-project prompt', async ({ asSenior: page }) => {
+    test('BUG2: SENIOR moving to HIRED via sheet button does NOT open create-project prompt', async ({
+      asSenior: page,
+    }) => {
       // SENIOR cannot create projects, so no prompt should appear
       await page.route(/\/interviews\/.*\/move/, (r) =>
         r.fulfill({
@@ -514,7 +544,9 @@ test.describe('Interviews (Kanban) page', () => {
       await expect(page.getByTestId('confirm-create-project-dialog')).not.toBeVisible()
     })
 
-    test('BUG3: CreateProjectFromHiredDialog cancel button closes the full-form dialog', async ({ asAdmin: page }) => {
+    test('BUG3: CreateProjectFromHiredDialog cancel button closes the full-form dialog', async ({
+      asAdmin: page,
+    }) => {
       // This test exercises the full CreateProjectFromHiredDialog triggered
       // from the DnD path (index.tsx hiredDndState). We simulate it via the
       // page-level state by overriding the move mock and triggering via sheet.
