@@ -28,6 +28,7 @@ import { ACTIVE_STAGES, ALL_STAGES, TERMINAL_STAGES } from './constants'
 import { InterviewCardStatic, KanbanColumn } from './components/KanbanColumn'
 import { InterviewDetailSheet } from './components/InterviewDetailSheet'
 import { CreateInterviewDialog } from './components/CreateInterviewDialog'
+import { CreateProjectFromHiredDialog } from './components/CreateProjectFromHiredDialog'
 
 type UserDto = {
   id: string
@@ -50,6 +51,13 @@ export const Route = createFileRoute('/crm/interviews/')({
   component: InterviewsPage,
 })
 
+// State for the "hired via DnD" create-project prompt
+type HiredDndState = {
+  interview: InterviewDto
+  seniorId: string
+  seniorName: string
+} | null
+
 function InterviewsPage() {
   // Drop role - phase 1 fix (AC4): DROP must not access /crm/interviews —
   // sidebar already hides the link, but a direct URL navigation should also
@@ -63,12 +71,17 @@ function InterviewsPage() {
   const isSenior = user?.role === 'SENIOR'
   const canCreate = isAdmin || isHR || isSenior
   const isJunior = user?.role === 'JUNIOR'
+  // ADMIN and HR can create projects from hired candidates
+  const canCreateProject = isAdmin || isHR
 
   const search = useSearch({ from: '/crm/interviews/' })
   const navigate = useNavigate()
   const [createOpen, setCreateOpen] = useState(false)
   const [selectedCard, setSelectedCard] = useState<InterviewDto | null>(null)
   const [activeCardId, setActiveCardId] = useState<string | null>(null)
+
+  // Bug fix 2: state for "hired via DnD → create project" prompt
+  const [hiredDndState, setHiredDndState] = useState<HiredDndState>(null)
 
   function setSelectedSeniorId(id: string) {
     void navigate({ to: '/crm/interviews', search: { seniorId: id }, replace: true })
@@ -128,7 +141,20 @@ function InterviewsPage() {
     mutationFn: ({ id, stage, position }: { id: string; stage: InterviewStage; position: number }) =>
       api.patch<InterviewDto>(`/interviews/${id}/move`, { stage, position }).then((r) => r.data),
     onError: () => { queryClient.invalidateQueries({ queryKey: ['interviews', effectiveSeniorId] }) },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['interviews', effectiveSeniorId] }) }, // sync final server positions
+    onSuccess: (updated, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['interviews', effectiveSeniorId] })
+      // Bug fix 2: after DnD move to HIRED, open CreateProjectFromHiredDialog
+      // if the current user has project-creation rights.
+      if (variables.stage === 'HIRED' && canCreateProject) {
+        const movedCard = interviewsList.find((i) => i.id === updated.id) ?? updated
+        const seniorUser = allUsers.find((u) => u.id === (movedCard.seniorId ?? effectiveSeniorId))
+        setHiredDndState({
+          interview: updated,
+          seniorId: movedCard.seniorId ?? effectiveSeniorId,
+          seniorName: updated.seniorName ?? seniorUser?.displayName ?? '',
+        })
+      }
+    },
   })
 
   function handleDragStart(event: DragStartEvent) {
@@ -332,7 +358,6 @@ function InterviewsPage() {
         )}
       </div>
 
-
       {selectedCard && (
         <InterviewDetailSheet
           interview={selectedCard}
@@ -343,7 +368,7 @@ function InterviewsPage() {
           canDelete={isAdmin || isHR}
           canMove={isAdmin || isHR || isSenior}
           canMoveTerminal={isAdmin || isHR || isSenior}
-          canCreateProject={isAdmin || isHR}
+          canCreateProject={canCreateProject}
         />
       )}
 
@@ -354,6 +379,20 @@ function InterviewsPage() {
           seniors={seniors}
           defaultSeniorId={isSenior ? (user?.id ?? '') : effectiveSeniorId}
           isSenior={isSenior}
+        />
+      )}
+
+      {/* Bug fix 2+3: CreateProjectFromHiredDialog triggered by DnD drop into
+          HIRED column. Rendered at page level (not inside Sheet) so its portal
+          and focus-trap work independently. Bug fix 3: onClose properly wired
+          so the Cancel button closes the dialog. */}
+      {hiredDndState && (
+        <CreateProjectFromHiredDialog
+          open={!!hiredDndState}
+          onClose={() => setHiredDndState(null)}
+          seniorId={hiredDndState.seniorId}
+          seniorName={hiredDndState.seniorName}
+          companyName={hiredDndState.interview.companyName}
         />
       )}
     </div>
