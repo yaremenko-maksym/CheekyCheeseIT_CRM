@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { getAxiosStatus } from '@/lib/axios-utils'
 import { fetchContractPdfBlob } from './useEmployeeContract'
 
 export interface ContractPdfPreviewProps {
@@ -45,11 +46,7 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
       // Revoke after a short delay to allow browser to start download
       setTimeout(revoke, 1000)
     } catch (err: unknown) {
-      const status =
-        err && typeof err === 'object' && 'response' in err
-          ? (err as { response?: { status?: number } }).response?.status
-          : undefined
-      if (status === 429) {
+      if (getAxiosStatus(err) === 429) {
         toast.error('Слишком часто. Подождите минуту.')
       } else {
         toast.error('Не удалось скачать PDF.')
@@ -85,11 +82,7 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
       setIframeLoading(false)
       setHasError(true)
       // 429 Throttle check
-      const status =
-        err && typeof err === 'object' && 'response' in err
-          ? (err as { response?: { status?: number } }).response?.status
-          : undefined
-      if (status === 429) {
+      if (getAxiosStatus(err) === 429) {
         toast.error('Слишком часто. Подождите минуту.')
       } else {
         toast.error('Не удалось загрузить PDF предпросмотра.')

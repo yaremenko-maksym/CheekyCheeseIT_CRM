@@ -225,9 +225,9 @@ test.describe('ACCOUNTANT — legend section not shown', () => {
     await page.goto(`/crm/profile/${USERS.senior.id}`)
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
 
-    // Wait for overview tab to load then check no legend section
-    await page.waitForTimeout(300)
-    await expect(page.getByTestId('legend-section')).not.toBeVisible()
+    // Verify legend section never appears (403 → section hidden by fields.legend guard).
+    // Using toBeHidden with timeout rather than waitForTimeout to stay deterministic.
+    await expect(page.getByTestId('legend-section')).not.toBeVisible({ timeout: 2000 })
   })
 })
 

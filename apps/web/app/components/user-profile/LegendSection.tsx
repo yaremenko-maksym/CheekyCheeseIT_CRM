@@ -19,15 +19,18 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import { getAxiosStatus } from '@/lib/axios-utils'
 import { useLegend, useUpsertLegend } from '@/hooks/use-legend'
 
 interface LegendSectionProps {
   userId: string
   canEdit: boolean
+  /** When false the legend query is skipped (viewer lacks fields.legend permission). */
+  enabled?: boolean
 }
 
-export function LegendSection({ userId, canEdit }: LegendSectionProps) {
-  const { data: legend, isLoading, error } = useLegend(userId)
+export function LegendSection({ userId, canEdit, enabled = true }: LegendSectionProps) {
+  const { data: legend, isLoading, error } = useLegend(userId, enabled)
   const upsert = useUpsertLegend(userId)
   const [editing, setEditing] = useState(false)
 
@@ -53,14 +56,8 @@ export function LegendSection({ userId, canEdit }: LegendSectionProps) {
   })
 
   // 403/400 — не показываем секцию вообще (ACCOUNTANT, DROP, etc.)
-  const isForbidden =
-    error &&
-    typeof error === 'object' &&
-    'response' in error &&
-    ((error as { response?: { status?: number } }).response?.status === 403 ||
-      (error as { response?: { status?: number } }).response?.status === 400)
-
-  if (isForbidden) return null
+  const errorStatus = getAxiosStatus(error)
+  if (errorStatus === 403 || errorStatus === 400) return null
 
   if (isLoading) {
     return (

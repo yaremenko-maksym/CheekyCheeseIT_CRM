@@ -188,10 +188,10 @@ export function OverviewTab({ user, mode, data, permissions }: OverviewTabProps)
 
       {/* Легенда SENIOR — персона для клиентской компании.
           - В режиме self: только SENIOR видит и редактирует свою легенду.
-          - В режиме view: все разрешённые роли (ADMIN, HR, JUNIOR) видят легенду read-only;
+          - В режиме view: роли с permissions.fields.legend=true (ADMIN, HR, JUNIOR).
             ADMIN дополнительно может редактировать.
-          - ACCOUNTANT/DROP/другой SENIOR → 403 → LegendSection сама скрывается. */}
-      {user.role === 'SENIOR' && (
+          - ACCOUNTANT/DROP/другой SENIOR — fields.legend=false → запрос не делается. */}
+      {user.role === 'SENIOR' && (permissions.fields.legend === true || mode === 'self') && (
         <LegendSection
           userId={user.id}
           canEdit={
@@ -199,6 +199,7 @@ export function OverviewTab({ user, mode, data, permissions }: OverviewTabProps)
               ? true // self-view доступен только SENIOR-у
               : permissions.actions.includes('edit-profile') // ADMIN в режиме view
           }
+          enabled={permissions.fields.legend === true || mode === 'self'}
         />
       )}
 

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { legendSchema, upsertLegendSchema, type Legend, type UpsertLegendDto } from '@crm/shared'
 import { api } from '@/lib/axios'
+import { getAxiosStatus } from '@/lib/axios-utils'
 
 export function useLegend(userId: string | undefined, enabled = true) {
   return useQuery<Legend | null>({
@@ -12,14 +13,7 @@ export function useLegend(userId: string | undefined, enabled = true) {
         return legendSchema.parse(res.data)
       } catch (err: unknown) {
         // 404 = no legend yet — not an error, just empty state
-        if (
-          err &&
-          typeof err === 'object' &&
-          'response' in err &&
-          (err as { response?: { status?: number } }).response?.status === 404
-        ) {
-          return null
-        }
+        if (getAxiosStatus(err) === 404) return null
         throw err
       }
     },
@@ -27,12 +21,7 @@ export function useLegend(userId: string | undefined, enabled = true) {
     staleTime: 30_000,
     // 403 = no permission (e.g. ACCOUNTANT) — treat as empty, not error
     retry: (failureCount, error: unknown) => {
-      const status =
-        error &&
-        typeof error === 'object' &&
-        'response' in error
-          ? (error as { response?: { status?: number } }).response?.status
-          : undefined
+      const status = getAxiosStatus(error)
       if (status === 403 || status === 400) return false
       return failureCount < 2
     },
