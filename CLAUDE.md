@@ -210,10 +210,12 @@ pnpm --filter @crm/shared typecheck
 - [x] **PHASE 4:** Собеседования (Interviews Kanban) — interviews таблица, NestJS InterviewsModule, Kanban DnD (dnd-kit) + button move, search params `?seniorId=`, HR переключение досок
 - [x] **PHASE 7 (partial):** Профили — `/crm/profile` (редактирование своего), `/crm/users/:id` (просмотр), telegram+phone в БД, ссылки на профили из team/projects/interviews
 - [x] **PHASE 5:** Финансы — мониторинг (Finance tracking) — transactions, expenses, invoices, payouts, juniorPayments, NBU rates, PDF invoice, etherscan
-- [ ] **PHASE 6:** Документы
-- [ ] **PHASE 7:** Профиль (полный)
-- [ ] **PHASE 8:** Финансы — смарт-контракты (USDT ERC-20)
-- [ ] **PHASE 9:** Дашборд (после определения контента)
+- [x] **PHASE 6:** Документи — S3/MinIO, `documents` table, PDF inline preview, search/sort, receipt lifecycle
+- [x] **Контракты + Онбординг** (вне 9-фазного плана) — `contract_templates`/`employee_contracts`/`signed_contracts`, ToS, система переменных, двухколоночный UA|EN PDF, `/crm/onboarding`
+- [x] **DROP роль** — payment-routing (`dropSharePercent`, `payout_requests`, `pending_obligations`)
+- [ ] **PHASE 7 (остаток):** легенда SENIOR (не реализована — решить scope)
+- [ ] **PHASE 8:** Финансы — смарт-контракты (USDT ERC-20) ← следующая; DB-фундамент готов
+- [ ] **PHASE 9:** Дашборд (placeholder в `/crm/index.tsx`)
 
 ## Лендинг (/)
 
