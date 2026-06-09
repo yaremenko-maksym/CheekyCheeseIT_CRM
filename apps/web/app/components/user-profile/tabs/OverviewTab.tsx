@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import type { UserProfileDto, ViewPermissions } from '@crm/shared'
 import { ProfileEditFields } from '../self-edit/ProfileEditFields'
 import { AdminNoteDialog } from '../admin-actions/AdminNoteDialog'
+import { LegendSection } from '../LegendSection'
 
 export interface OverviewTabProps {
   user: UserProfileDto
@@ -183,6 +184,22 @@ export function OverviewTab({ user, mode, data, permissions }: OverviewTabProps)
             <ProfileEditFields user={user} />
           </CardContent>
         </Card>
+      )}
+
+      {/* Легенда SENIOR — персона для клиентской компании.
+          - В режиме self: только SENIOR видит и редактирует свою легенду.
+          - В режиме view: все разрешённые роли (ADMIN, HR, JUNIOR) видят легенду read-only;
+            ADMIN дополнительно может редактировать.
+          - ACCOUNTANT/DROP/другой SENIOR → 403 → LegendSection сама скрывается. */}
+      {user.role === 'SENIOR' && (
+        <LegendSection
+          userId={user.id}
+          canEdit={
+            mode === 'self'
+              ? true // self-view доступен только SENIOR-у
+              : permissions.actions.includes('edit-profile') // ADMIN в режиме view
+          }
+        />
       )}
 
       {canSeeTos && (
