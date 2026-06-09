@@ -439,6 +439,9 @@ export function buildAdminViewingUser(targetUser: (typeof USERS)[keyof typeof US
   // ADMIN viewing non-ADMIN: includes 'contract' tab (A3-2).
   // ADMIN viewing another ADMIN (self or peer): no 'contract' tab (ADMINs have no contracts).
   const contractTab = targetUser.role !== 'ADMIN' ? ['contract'] : []
+  // RBAC 2026-06-09: ADMIN can view+edit legend of SENIOR/DROP targets (subject excluded)
+  const legendField =
+    targetUser.role === 'SENIOR' || targetUser.role === 'DROP' ? { legend: true as const } : {}
   return {
     user: { ...targetUser, ...profileExtras(targetUser) },
     permissions: {
@@ -457,20 +460,46 @@ export function buildAdminViewingUser(targetUser: (typeof USERS)[keyof typeof US
         paymentMethodKpi: true,
         techStack: true,
         registrationDate: true,
+        ...legendField,
       },
     },
     data: {},
   }
 }
 
-/** HR viewing their own senior: overview + projects + team only, no actions */
+/** HR viewing their own senior: overview + projects + team only, no actions.
+ *  RBAC 2026-06-09: HR can view+edit legend of SENIOR/DROP in their team. */
 export function buildHrViewingSenior(senior: (typeof USERS)[keyof typeof USERS]): object {
+  const isLegendTarget = senior.role === 'SENIOR' || senior.role === 'DROP'
   return {
     user: { ...senior, ...profileExtras(senior) },
     permissions: {
       tabs: ['overview', 'projects', 'team'],
       actions: [],
-      fields: { techStack: true, registrationDate: true },
+      fields: {
+        techStack: true,
+        registrationDate: true,
+        ...(isLegendTarget ? { legend: true as const } : {}),
+      },
+    },
+    data: {},
+  }
+}
+
+/** JUNIOR viewing their senior: overview only, no actions.
+ *  RBAC 2026-06-09: JUNIOR can view+edit legend of their SENIOR/DROP. */
+export function buildJuniorViewingSenior(senior: (typeof USERS)[keyof typeof USERS]): object {
+  const isLegendTarget = senior.role === 'SENIOR' || senior.role === 'DROP'
+  return {
+    user: { ...senior, ...profileExtras(senior) },
+    permissions: {
+      tabs: ['overview', 'projects', 'team'],
+      actions: [],
+      fields: {
+        techStack: true,
+        registrationDate: true,
+        ...(isLegendTarget ? { legend: true as const } : {}),
+      },
     },
     data: {},
   }

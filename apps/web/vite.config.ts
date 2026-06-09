@@ -31,7 +31,7 @@ export default defineConfig({
     // на SPA fallback (Vite отдаёт index.html на неизвестные пути).
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: process.env['VITE_PROXY_API_TARGET'] ?? 'http://localhost:3001',
         changeOrigin: true,
       },
     },
@@ -47,7 +47,7 @@ export default defineConfig({
     // переадресует их на локальный API. Без прокси через tunnel API недостижим.
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: process.env['VITE_PROXY_API_TARGET'] ?? 'http://localhost:3001',
         changeOrigin: true,
       },
     },

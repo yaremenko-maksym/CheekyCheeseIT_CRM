@@ -17,6 +17,9 @@ export class UsersAccessService {
     const isJunior = viewer.role === 'JUNIOR'
     const isDrop = viewer.role === 'DROP'
     const targetIsSenior = target.role === 'SENIOR'
+    const targetIsDrop = target.role === 'DROP'
+    // Legend subjects: SENIOR or DROP. Subject themselves cannot view/edit own legend.
+    const targetIsLegendSubject = targetIsSenior || targetIsDrop
 
     const tabs: TabKey[] = []
     const actions: ActionKey[] = []
@@ -57,6 +60,8 @@ export class UsersAccessService {
       fields.requisites = true
       // legalFullName (passport PII) — ADMIN always sees it (including self)
       fields.legalName = true
+      // ADMIN can view/edit any SENIOR's or DROP's legend (subject excluded by isSelf check)
+      fields.legend = targetIsLegendSubject && !isSelf
     } else if (isSelf) {
       tabs.push('overview', 'projects', 'team', 'requisites', 'documents')
       // Drop role - phase 1: DROP has finance access (read), same as senior/etc.
@@ -70,6 +75,8 @@ export class UsersAccessService {
       fields.requisites = true
       // legalFullName (passport PII) — owner always sees own legal name
       fields.legalName = true
+      // Subject cannot view/edit their own legend (new model: self-access removed)
+      fields.legend = false
     } else if (isAccountant) {
       tabs.push('overview', 'finance', 'projects', 'team', 'requisites', 'documents')
       fields.salary = targetIsSalaryRole
@@ -84,15 +91,28 @@ export class UsersAccessService {
         if (targetIsSenior) tabs.push('interviews')
         fields.techStack = targetHasTechStack
         fields.registrationDate = true
+        // HR can view/edit their SENIOR's or DROP's legend
+        fields.legend = targetIsLegendSubject
       }
     } else if (isSenior) {
-      if (await this.isSharedProject(viewer.id, target.id)) {
+      // SENIOR can view profiles of JUNIOR members active on their projects
+      if (await this.isSeniorViewingOwnProjectMember(viewer.id, target.id)) {
         tabs.push('overview', 'projects', 'team')
         fields.techStack = targetHasTechStack
         fields.registrationDate = true
       }
+    } else if (isJunior && targetIsLegendSubject) {
+      // JUNIOR can view the legend of the SENIOR or DROP associated with their active project.
+      // For SENIOR: projects.seniorId = target. For DROP: projects.dropId = target.
+      // surfaces overview/projects/team tabs so the profile is reachable.
+      if (await this.isJuniorUnderLegendSubject(viewer.id, target.id)) {
+        tabs.push('overview', 'projects', 'team')
+        fields.techStack = targetHasTechStack
+        fields.registrationDate = true
+        fields.legend = true
+      }
     }
-    // JUNIOR viewing other: no tabs
+    // Other JUNIOR viewing non-SENIOR/non-DROP, ACCOUNTANT, DROP viewing others: no tabs
 
     return { tabs, actions, fields }
   }
@@ -154,15 +174,26 @@ export class UsersAccessService {
     return false
   }
 
-  private async isSharedProject(viewerId: string, targetId: string): Promise<boolean> {
-    const viewerProjects = await this.db.db
-      .select({ projectId: projectMembers.projectId })
-      .from(projectMembers)
-      .where(and(eq(projectMembers.userId, viewerId), isNull(projectMembers.leftAt)))
-    if (viewerProjects.length === 0) return false
-    const projectIds = viewerProjects.map((p) => p.projectId)
-    const targetInProjects = await this.db.db
-      .select()
+  /**
+   * SENIOR viewing a JUNIOR: true if the JUNIOR is an active project_member
+   * on any project where projects.seniorId = seniorId.
+   * (SENIOR lives in projects.seniorId, not in project_members.)
+   */
+  private async isSeniorViewingOwnProjectMember(
+    seniorId: string,
+    targetId: string,
+  ): Promise<boolean> {
+    // Find active projects owned by this SENIOR
+    const seniorProjects = await this.db.db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.seniorId, seniorId))
+    if (seniorProjects.length === 0) return false
+    const projectIds = seniorProjects.map((p) => p.id)
+
+    // Check if target is an active member of any of those projects
+    const targetActive = await this.db.db
+      .select({ id: projectMembers.id })
       .from(projectMembers)
       .where(
         and(
@@ -171,6 +202,40 @@ export class UsersAccessService {
           isNull(projectMembers.leftAt),
         ),
       )
-    return targetInProjects.length > 0
+      .limit(1)
+    return targetActive.length > 0
+  }
+
+  /**
+   * JUNIOR viewing a SENIOR or DROP: true if the JUNIOR is an active project_member
+   * on a non-archived project where projects.seniorId = targetId OR projects.dropId = targetId.
+   * Mirrors LegendsService.juniorCanViewLegend.
+   */
+  private async isJuniorUnderLegendSubject(juniorId: string, targetId: string): Promise<boolean> {
+    // Step 1: collect active project IDs for this JUNIOR
+    const membership = await this.db.db
+      .select({ projectId: projectMembers.projectId })
+      .from(projectMembers)
+      .innerJoin(projects, eq(projectMembers.projectId, projects.id))
+      .where(
+        and(
+          eq(projectMembers.userId, juniorId),
+          isNull(projectMembers.leftAt),
+          isNull(projects.archivedAt),
+        ),
+      )
+      .limit(50)
+
+    if (membership.length === 0) return false
+
+    const projectIds = membership.map((m) => m.projectId)
+
+    // Step 2: check if targetId is senior OR drop on any of those projects
+    const matched = await this.db.db
+      .select({ id: projects.id, seniorId: projects.seniorId, dropId: projects.dropId })
+      .from(projects)
+      .where(inArray(projects.id, projectIds))
+
+    return matched.some((p) => p.seniorId === targetId || p.dropId === targetId)
   }
 }

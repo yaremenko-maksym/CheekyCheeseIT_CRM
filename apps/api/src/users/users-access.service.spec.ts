@@ -38,7 +38,10 @@ describe('UsersAccessService.getViewPermissions', () => {
     ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
       .fn()
       .mockResolvedValue(false)
-    ;(service as unknown as Record<string, unknown>).isSharedProject = vi
+    ;(service as unknown as Record<string, unknown>).isSeniorViewingOwnProjectMember = vi
+      .fn()
+      .mockResolvedValue(false)
+    ;(service as unknown as Record<string, unknown>).isJuniorUnderSenior = vi
       .fn()
       .mockResolvedValue(false)
   })
@@ -168,13 +171,99 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.actions).toEqual([])
   })
 
-  it('SENIOR viewing colleague in shared project — sees overview/projects/team', async () => {
-    ;(service as unknown as Record<string, unknown>).isSharedProject = vi
+  it('SENIOR viewing JUNIOR member of their project — sees overview/projects/team', async () => {
+    ;(service as unknown as Record<string, unknown>).isSeniorViewingOwnProjectMember = vi
       .fn()
       .mockResolvedValue(true)
     const viewer = makeUser({ id: 'sr1', role: 'SENIOR' })
     const target = makeUser({ id: 'jr1', role: 'JUNIOR' })
     const p = await service.getViewPermissions(viewer, target)
     expect(p.tabs).toEqual(['overview', 'projects', 'team'])
+  })
+
+  it('SENIOR viewing unrelated JUNIOR — no tabs', async () => {
+    // isSeniorViewingOwnProjectMember returns false (default mock)
+    const viewer = makeUser({ id: 'sr1', role: 'SENIOR' })
+    const target = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.tabs).toEqual([])
+  })
+
+  it('JUNIOR viewing their project SENIOR — gets overview/projects/team + fields.legend=true', async () => {
+    // Method was renamed: isJuniorUnderSenior → isJuniorUnderLegendSubject (covers SENIOR + DROP)
+    ;(service as unknown as Record<string, unknown>).isJuniorUnderLegendSubject = vi
+      .fn()
+      .mockResolvedValue(true)
+    const viewer = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const target = makeUser({ id: 'sr1', role: 'SENIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.tabs).toEqual(['overview', 'projects', 'team'])
+    expect(p.fields.legend).toBe(true)
+  })
+
+  it('JUNIOR viewing unrelated SENIOR — no tabs', async () => {
+    // isJuniorUnderLegendSubject returns false (default mock)
+    ;(service as unknown as Record<string, unknown>).isJuniorUnderLegendSubject = vi
+      .fn()
+      .mockResolvedValue(false)
+    const viewer = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const target = makeUser({ id: 'sr1', role: 'SENIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.tabs).toEqual([])
+  })
+
+  it('JUNIOR viewing another JUNIOR — no tabs (unchanged)', async () => {
+    const viewer = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const target = makeUser({ id: 'jr2', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.tabs).toEqual([])
+  })
+
+  it('ADMIN viewing SENIOR — fields.legend=true', async () => {
+    const admin = makeUser({ id: 'admin-id', role: 'ADMIN' })
+    const senior = makeUser({ id: 'sr-id', role: 'SENIOR' })
+    const p = await service.getViewPermissions(admin, senior)
+    expect(p.fields.legend).toBe(true)
+  })
+
+  it('ADMIN viewing JUNIOR — fields.legend is falsy', async () => {
+    const admin = makeUser({ id: 'admin-id', role: 'ADMIN' })
+    const junior = makeUser({ id: 'jr-id', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(admin, junior)
+    expect(p.fields.legend).toBeFalsy()
+  })
+
+  it('HR viewing SENIOR in own team — fields.legend=true', async () => {
+    ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
+      .fn()
+      .mockResolvedValue(true)
+    const hr = makeUser({ id: 'hr-id', role: 'HR' })
+    const senior = makeUser({ id: 'sr-id', role: 'SENIOR' })
+    const p = await service.getViewPermissions(hr, senior)
+    expect(p.fields.legend).toBe(true)
+  })
+
+  it('SENIOR viewing self — fields.legend=false (subject excluded from own legend)', async () => {
+    // New model: subject cannot view their own legend
+    const senior = makeUser({ id: 'sr-id', role: 'SENIOR' })
+    const p = await service.getViewPermissions(senior, senior)
+    expect(p.fields.legend).toBe(false)
+  })
+
+  it('ADMIN viewing DROP — fields.legend=true', async () => {
+    const adminUser = makeUser({ id: 'admin-id', role: 'ADMIN' })
+    const dropUser = makeUser({ id: 'drop-id', role: 'DROP' })
+    const p = await service.getViewPermissions(adminUser, dropUser)
+    expect(p.fields.legend).toBe(true)
+  })
+
+  it('HR viewing DROP in own team — fields.legend=true', async () => {
+    ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
+      .fn()
+      .mockResolvedValue(true)
+    const hrUser = makeUser({ id: 'hr-id', role: 'HR' })
+    const dropUser = makeUser({ id: 'drop-id', role: 'DROP' })
+    const p = await service.getViewPermissions(hrUser, dropUser)
+    expect(p.fields.legend).toBe(true)
   })
 })

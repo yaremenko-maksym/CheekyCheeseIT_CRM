@@ -63,6 +63,12 @@ export default defineConfig({
         // Point bare-module imports to the main repo's installed packages.
         // pnpm uses a flat node_modules structure via symlinks, so resolving
         // to the api-level node_modules covers NestJS, Drizzle, pdf-lib etc.
+        //
+        // @crm/shared: point vitest to the TypeScript source so it always
+        // reflects the latest schema without requiring a `pnpm build` step.
+        // Using dist/index.js masked schema drift between source and compiled
+        // output; pointing to src/index.ts eliminates that risk entirely.
+        '@crm/shared': path.resolve(worktreeRoot, 'packages/shared/src/index.ts'),
       },
     },
   }),

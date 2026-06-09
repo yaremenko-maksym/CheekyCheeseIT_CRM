@@ -819,6 +819,30 @@ export const notifications = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// Legends — client-facing SENIOR persona profiles
+//
+// 1:1 with a SENIOR user. Intentionally separate from users.legalFullName
+// (passport name used in contracts). The legend is the persona the SENIOR
+// presents to client companies.
+// ---------------------------------------------------------------------------
+
+export const legends = pgTable('legends', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  /** Client-facing persona full name (Cyrillic). NOT the same as legalFullName. */
+  fullName: text('full_name').notNull(),
+  dateOfBirth: text('date_of_birth'),
+  address: text('address'),
+  hobbies: text('hobbies'),
+  notes: text('notes'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
+// ---------------------------------------------------------------------------
 // User Audit Log
 // ---------------------------------------------------------------------------
 
@@ -901,7 +925,8 @@ export const employeeContractsRelations = relations(employeeContracts, ({ one })
   }),
 }))
 
-export const usersRelations = relations(users, ({ many }) => ({
+export const usersRelations = relations(users, ({ one, many }) => ({
+  legend: one(legends, { fields: [users.id], references: [legends.userId] }),
   teamMemberships: many(teamMembers),
   projects: many(projects, { relationName: 'projectSenior' }),
   dropProjects: many(projects, { relationName: 'projectDrop' }),
@@ -1041,6 +1066,10 @@ export const invoiceSignaturesRelations = relations(invoiceSignatures, ({ one })
 
 export const notificationsRelations = relations(notifications, ({ one }) => ({
   user: one(users, { fields: [notifications.userId], references: [users.id] }),
+}))
+
+export const legendsRelations = relations(legends, ({ one }) => ({
+  user: one(users, { fields: [legends.userId], references: [users.id] }),
 }))
 
 export const userAuditLogRelations = relations(userAuditLog, ({ one }) => ({

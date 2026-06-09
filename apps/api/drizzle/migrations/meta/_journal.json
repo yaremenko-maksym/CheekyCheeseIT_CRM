@@ -57,6 +57,13 @@
       "when": 1749475200000,
       "tag": "0007_cleanup_orphan_senior_payout_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1781022717714,
+      "tag": "0008_quick_mac_gargan",
+      "breakpoints": true
     }
   ]
 }

@@ -19,6 +19,7 @@ import { ProjectsModule } from './projects/projects.module'
 import { TeamsModule } from './teams/teams.module'
 import { TosModule } from './tos/tos.module'
 import { UsersModule } from './users/users.module'
+import { LegendsModule } from './legends/legends.module'
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { UsersModule } from './users/users.module'
     TosModule,
     OnboardingModule,
     HealthModule,
+    LegendsModule,
   ],
   providers: [
     // ORDER MATTERS — NestJS executes APP_GUARD providers in registration order
