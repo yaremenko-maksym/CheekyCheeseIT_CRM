@@ -190,6 +190,15 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
         </AlertDialogContent>
       </AlertDialog>
 
+      {permissions.tabs.length === 0 && mode === 'view' && (
+        <div
+          className="rounded-lg border border-border bg-muted/40 px-6 py-10 text-center"
+          data-testid="profile-no-access"
+        >
+          <p className="text-sm text-muted-foreground">Нет доступа к этому профилю</p>
+        </div>
+      )}
+
       {permissions.tabs.length > 0 && (
         <div className="flex flex-col gap-4">
           {/* Tab bar: horizontal scroll for many tabs on narrow viewports; pb-1

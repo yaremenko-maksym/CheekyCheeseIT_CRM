@@ -25,6 +25,7 @@ const makeDbStub = () => {
     limit: vi.fn().mockReturnThis(),
     insert: vi.fn().mockReturnThis(),
     values: vi.fn().mockReturnThis(),
+    onConflictDoUpdate: vi.fn().mockReturnThis(),
     returning: vi.fn().mockResolvedValue([]),
     update: vi.fn().mockReturnThis(),
     set: vi.fn().mockReturnThis(),

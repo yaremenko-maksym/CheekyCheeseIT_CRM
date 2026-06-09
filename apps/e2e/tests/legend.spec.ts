@@ -42,15 +42,27 @@ async function mockLegendGet(
   const pattern = new RegExp(`${API}/users/${userId}/legend$`)
   if (response === 'found') {
     await page.route(pattern, (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MOCK_LEGEND) }),
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(MOCK_LEGEND),
+      }),
     )
   } else if (response === 'not-found') {
     await page.route(pattern, (r) =>
-      r.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ message: 'Not found' }) }),
+      r.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Not found' }),
+      }),
     )
   } else {
     await page.route(pattern, (r) =>
-      r.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ message: 'Forbidden' }) }),
+      r.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Forbidden' }),
+      }),
     )
   }
 }
@@ -246,9 +258,30 @@ test.describe('JUNIOR target — no legend section', () => {
           body: JSON.stringify({
             user: { ...USERS.junior },
             permissions: {
-              tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents', 'contract'],
-              actions: ['edit-profile', 'change-role', 'change-salary', 'change-requisites', 'set-note', 'archive'],
-              fields: { salary: true, share: false, paymentMethodKpi: true, techStack: true, registrationDate: true },
+              tabs: [
+                'overview',
+                'finance',
+                'projects',
+                'team',
+                'requisites',
+                'documents',
+                'contract',
+              ],
+              actions: [
+                'edit-profile',
+                'change-role',
+                'change-salary',
+                'change-requisites',
+                'set-note',
+                'archive',
+              ],
+              fields: {
+                salary: true,
+                share: false,
+                paymentMethodKpi: true,
+                techStack: true,
+                registrationDate: true,
+              },
             },
             data: {},
           }),

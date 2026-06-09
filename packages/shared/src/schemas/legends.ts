@@ -24,10 +24,18 @@ export const legendSchema = z.object({
 
 export type Legend = z.infer<typeof legendSchema>
 
+/**
+ * ISO date string — YYYY-MM-DD (10 chars, numbers + dashes).
+ * We store as text in the DB so the format is enforced here at the boundary.
+ */
+const isoDateString = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата должна быть в формате ГГГГ-ММ-ДД (например, 1990-01-15)')
+
 export const upsertLegendSchema = z.object({
   /** Client-facing persona full name (required). */
   fullName: z.string().min(1, 'ФИО обязательно'),
-  dateOfBirth: z.string().nullable().optional(),
+  dateOfBirth: isoDateString.nullable().optional(),
   address: z.string().nullable().optional(),
   hobbies: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),

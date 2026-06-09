@@ -148,46 +148,36 @@ export class LegendsService {
 
     const now = new Date()
 
-    const existing = await this.db.db
-      .select({ id: legends.id })
-      .from(legends)
-      .where(eq(legends.userId, targetId))
-      .limit(1)
-
-    let row: typeof legends.$inferSelect
-
-    if (existing.length === 0) {
-      const inserted = await this.db.db
-        .insert(legends)
-        .values({
-          userId: targetId,
-          fullName: dto.fullName,
-          dateOfBirth: dto.dateOfBirth ?? null,
-          address: dto.address ?? null,
-          hobbies: dto.hobbies ?? null,
-          notes: dto.notes ?? null,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning()
-      if (!inserted[0]) throw new NotFoundException('Insert failed — legend not returned')
-      row = inserted[0]
-    } else {
-      const updated = await this.db.db
-        .update(legends)
-        .set({
+    // Single atomic upsert on the UNIQUE(user_id) constraint — eliminates the
+    // race condition where two concurrent PUTs could both read "no row" and then
+    // both try INSERT, causing one to crash with a UNIQUE violation.
+    const rows = await this.db.db
+      .insert(legends)
+      .values({
+        userId: targetId,
+        fullName: dto.fullName,
+        dateOfBirth: dto.dateOfBirth ?? null,
+        address: dto.address ?? null,
+        hobbies: dto.hobbies ?? null,
+        notes: dto.notes ?? null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: legends.userId,
+        set: {
           fullName: dto.fullName,
           dateOfBirth: dto.dateOfBirth ?? null,
           address: dto.address ?? null,
           hobbies: dto.hobbies ?? null,
           notes: dto.notes ?? null,
           updatedAt: now,
-        })
-        .where(eq(legends.userId, targetId))
-        .returning()
-      if (!updated[0]) throw new NotFoundException('Update failed — legend not returned')
-      row = updated[0]
-    }
+        },
+      })
+      .returning()
+
+    const row = rows[0]
+    if (!row) throw new NotFoundException('Upsert failed — legend not returned')
 
     return legendSchema.parse({
       ...row,
