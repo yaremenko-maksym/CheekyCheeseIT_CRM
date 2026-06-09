@@ -871,7 +871,9 @@ function ProjectDetailPage() {
         )
       })()}
 
-      {activeTab === 'members' && <ProjectEffectiveTeamCard project={project} />}
+      {activeTab === 'members' && (
+        <ProjectEffectiveTeamCard project={project} viewerRole={user?.role} />
+      )}
 
       {activeTab === 'overview' && (
         <motion.div
@@ -1541,7 +1543,13 @@ function MemberRow({
  * falls back to the snapshot embedded in `project.members`.
  * See spec §5.2 and §8.
  */
-function ProjectEffectiveTeamCard({ project }: { project: ProjectDetailDto }) {
+function ProjectEffectiveTeamCard({
+  project,
+  viewerRole,
+}: {
+  project: ProjectDetailDto
+  viewerRole?: string
+}) {
   const effective = project.effectiveTeam
   const senior = effective?.senior ?? null
   // Drop role - phase 2. Optional drop row in the «Эффективный состав»
@@ -1550,8 +1558,11 @@ function ProjectEffectiveTeamCard({ project }: { project: ProjectDetailDto }) {
   const drop = effective?.drop ?? null
   const hrs = effective?.hrs ?? []
   const accountants = effective?.accountants ?? []
-  const juniors =
+  // RBAC rule #1: SENIOR viewers must not see JUNIOR identity.
+  // Backend already filters juniors[] to [] for SENIOR; UI double-guard for safety.
+  const rawJuniors =
     effective?.juniors ?? project.members.filter((m) => m.role === 'JUNIOR' && m.leftAt === null)
+  const juniors = viewerRole === 'SENIOR' ? [] : rawJuniors
 
   // ut-30: flat list — single «Эффективный состав» heading; role-specific
   // section headings («СИНЬОР», «HR (N)», «БУХГАЛТЕРЫ (N)», «ДЖУНЫ (N)») removed.
