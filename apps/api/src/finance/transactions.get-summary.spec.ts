@@ -58,6 +58,12 @@ type UserStub = {
 }
 
 function makeStub(txs: TxStub[], dropUsers: UserStub[] = [], adminUsers: UserStub[] = []) {
+  // getSummary calls users.findMany twice, in this order:
+  //   1st call: eq(users.role, 'ADMIN')  → adminUsers
+  //   2nd call: eq(users.role, 'DROP')   → dropUsers
+  // We use a call counter to return the correct dataset per invocation
+  // instead of trying to inspect the opaque drizzle predicate object.
+  let callCount = 0
   const dbStub = {
     db: {
       query: {
@@ -73,21 +79,10 @@ function makeStub(txs: TxStub[], dropUsers: UserStub[] = [], adminUsers: UserStu
             ),
         },
         users: {
-          findMany: ({ where }: { where: unknown }) => {
-            // Distinguish ADMIN vs DROP queries by examining the where clause.
-            // The drizzle eq(users.role, 'ADMIN') / eq(users.role, 'DROP') call
-            // produces an object we cannot easily inspect in a unit stub, so we
-            // use a simpler trick: capture which call is which by the order they
-            // are made (adminUsers first, then dropUsers in the service).
-            // We expose a counter to alternate responses.
-            const w = where as { value?: string; right?: { value?: string } }
-            const roleValue =
-              // drizzle eq produces {left, right: {value}} in different versions
-              w?.right?.value ?? (w as { value?: string })?.value
-            if (roleValue === 'ADMIN') return Promise.resolve(adminUsers)
-            if (roleValue === 'DROP') return Promise.resolve(dropUsers)
-            // Fallback — return empty (safe default).
-            return Promise.resolve([])
+          findMany: (_args: unknown) => {
+            callCount += 1
+            if (callCount === 1) return Promise.resolve(adminUsers) // ADMIN query
+            return Promise.resolve(dropUsers) // DROP query
           },
         },
       },
