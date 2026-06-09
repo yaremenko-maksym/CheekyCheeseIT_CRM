@@ -546,10 +546,13 @@ test.describe('Interviews (Kanban) page', () => {
 
     // BUG3 DnD path via keyboard — KeyboardSensor is now configured in
     // apps/web/app/routes/crm/interviews/index.tsx alongside PointerSensor.
-    // Keyboard drag: Space (pick) → ArrowRight × N to HIRED column → Space (drop).
-    // Arrow key count: HR_SCREEN(0) → HIRED(6) = 6 steps right.
-    // After drop, move mock returns HIRED → CreateProjectFromHiredDialog opens.
-    // Clicking "Отмена" must close the dialog and leave the page intact.
+    //
+    // Technique: Space (pick) → ArrowRight × 6 → Space (drop).
+    //
+    // kanbanKeyboardCoordinateGetter navigates exactly one column per ArrowRight
+    // by jumping to the center of the adjacent droppable area (column). This is
+    // deterministic regardless of scroll position or how many cards are in each
+    // column. 6 steps = HR_SCREEN → ENGLISH → TECH → FINAL → CLIENT → OFFER → HIRED.
     test('BUG3: CreateProjectFromHiredDialog cancel button closes the full-form dialog', async ({
       asAdmin: page,
     }) => {
@@ -567,6 +570,8 @@ test.describe('Interviews (Kanban) page', () => {
       )
 
       await page.goto('/crm/interviews')
+      // Wait for board to be fully rendered before interacting.
+      await expect(page.getByText('HR Screen').first()).toBeVisible()
 
       // Locate the Acme Corp card (HR_SCREEN column, position 0) and focus it.
       // useSortable spreads {attributes, listeners} onto the div which includes
@@ -574,16 +579,33 @@ test.describe('Interviews (Kanban) page', () => {
       const card = page.getByRole('button').filter({ hasText: 'Acme Corp' }).first()
       await card.focus()
 
-      // Space — activate KeyboardSensor drag
+      // Space — activate KeyboardSensor drag.
+      // KeyboardSensor attaches its keydown listener via setTimeout(), so a brief
+      // wait after focus ensures the sensor is ready before the first keypress.
       await page.keyboard.press('Space')
+      // Wait for the ARIA live region to confirm drag started.
+      await expect(page.locator('[aria-live]').first()).toContainText('interview-1-id', {
+        timeout: 5000,
+      })
 
-      // ArrowRight × 6: HR_SCREEN → ENGLISH_CHECK → TECH_INTERVIEW →
-      //   FINAL_INTERVIEW → CLIENT_INTERVIEW → OFFER_RECEIVED → HIRED
-      for (let i = 0; i < 6; i++) {
+      // ArrowRight × 6: column-by-column via kanbanKeyboardCoordinateGetter.
+      // Wait for each ARIA change before the next press — dnd-kit updates React
+      // state asynchronously, so the next coordinate getter call must see the
+      // updated currentCoordinates. Without the wait, rapid presses can stall.
+      const targetStages = [
+        'ENGLISH_CHECK',
+        'TECH_INTERVIEW',
+        'FINAL_INTERVIEW',
+        'CLIENT_INTERVIEW',
+        'OFFER_RECEIVED',
+        'HIRED',
+      ]
+      for (const stage of targetStages) {
         await page.keyboard.press('ArrowRight')
+        await expect(page.locator('[aria-live]').first()).toContainText(stage, { timeout: 5000 })
       }
 
-      // Space — drop into HIRED column; move mock fires and returns HIRED stage
+      // Space — drop into HIRED; move mock fires and returns HIRED stage
       await page.keyboard.press('Space')
 
       // CreateProjectFromHiredDialog must appear (canCreateProject=true for ADMIN)
