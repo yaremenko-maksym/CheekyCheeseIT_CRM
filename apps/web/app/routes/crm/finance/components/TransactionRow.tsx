@@ -64,7 +64,7 @@ function Party({
         <Link
           to="/crm/profile/$userId"
           params={{ userId: id }}
-          className="text-primary hover:underline underline-offset-2 font-medium truncate max-w-44 block"
+          className="text-primary hover:underline underline-offset-2 font-medium break-words max-w-44 block"
           title={display}
           onClick={(e) => e.stopPropagation()}
         >
@@ -76,7 +76,7 @@ function Party({
       <Link
         to="/crm/projects/$projectId"
         params={{ projectId: id }}
-        className="text-primary hover:underline underline-offset-2 font-medium truncate max-w-44 block"
+        className="text-primary hover:underline underline-offset-2 font-medium break-words max-w-44 block"
         title={display}
         onClick={(e) => e.stopPropagation()}
       >
@@ -87,7 +87,7 @@ function Party({
 
   // Non-clickable alias (e.g. CheekyCheeseIT, company name)
   return (
-    <span className="text-muted-foreground truncate max-w-44 block" title={display}>
+    <span className="text-muted-foreground break-words max-w-44 block" title={display}>
       {display}
     </span>
   )
@@ -394,14 +394,14 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                 data-testid={`tx-row-senior-share-${tx.id}`}
                 title={
                   tx.seniorSharePercentSource
-                    ? `Источник: ${
+                    ? `Источник процента доли: ${
                         tx.seniorSharePercentSource === 'PROJECT'
-                          ? 'проект'
+                          ? 'переопределён на уровне проекта'
                           : tx.seniorSharePercentSource === 'TEAM'
-                            ? 'команда'
-                            : 'по умолчанию'
+                            ? 'переопределён на уровне команды'
+                            : 'глобальное значение по умолчанию'
                       }`
-                    : undefined
+                    : 'Процент доли синьора от этой транзакции'
                 }
               >
                 Доля: {tx.seniorSharePercent}%
@@ -416,7 +416,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                       ? 'проект'
                       : tx.seniorSharePercentSource === 'TEAM'
                         ? 'команда'
-                        : 'default'}
+                        : 'по умолчанию'}
                   </span>
                 ) : null}
               </p>

@@ -208,7 +208,7 @@ export function PayoutDialog({
                                   ? 'проект'
                                   : tx.seniorSharePercentSource === 'TEAM'
                                     ? 'команда'
-                                    : 'default'}
+                                    : 'по умолчанию'}
                               </span>
                             ) : null}
                             {isApproximate && (

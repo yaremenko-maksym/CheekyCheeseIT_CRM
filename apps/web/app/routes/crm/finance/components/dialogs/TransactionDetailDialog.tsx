@@ -320,7 +320,7 @@ function PayoutContent({ tx }: { tx: TransactionDto }) {
                     ? 'проект'
                     : pr.seniorSharePercentSource === 'TEAM'
                       ? 'команда'
-                      : 'default'}
+                      : 'по умолчанию'}
                 </span>
               ) : null}
               <span className="text-xs text-muted-foreground ml-2">
