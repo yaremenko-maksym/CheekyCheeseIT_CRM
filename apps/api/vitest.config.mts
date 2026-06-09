@@ -70,6 +70,10 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['src/**/*.{spec,test}.ts'],
+    // retry: 1 stabilises resource-contention timeouts (e.g. pdf-lib parallel
+    // workers hitting CPU-bound PDFDocument serialization simultaneously).
+    // Mirrors Playwright CI retries policy — mask flakes, not hide real bugs.
+    retry: 1,
     ...(isWorktree && {
       // Extend vitest's server module resolution to include main repo's packages.
       server: {
