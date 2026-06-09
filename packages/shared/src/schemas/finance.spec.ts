@@ -29,7 +29,7 @@ describe('financeSummarySchema.dropBalances — new fields', () => {
         },
       ],
     })
-    const entry = result.dropBalances[0]
+    const entry = result.dropBalances[0]!
     expect(entry.dropSharePercent).toBe(7)
     expect(entry.pendingCount).toBe(2)
     expect(entry.balance).toBe(1250.5)
@@ -48,7 +48,7 @@ describe('financeSummarySchema.dropBalances — new fields', () => {
         },
       ],
     })
-    expect(result.dropBalances[0].dropSharePercent).toBeNull()
+    expect(result.dropBalances[0]!.dropSharePercent).toBeNull()
   })
 
   it('accepts zero balance with pendingCount=0', () => {
@@ -64,8 +64,8 @@ describe('financeSummarySchema.dropBalances — new fields', () => {
         },
       ],
     })
-    expect(result.dropBalances[0].balance).toBe(0)
-    expect(result.dropBalances[0].pendingCount).toBe(0)
+    expect(result.dropBalances[0]!.balance).toBe(0)
+    expect(result.dropBalances[0]!.pendingCount).toBe(0)
   })
 
   it('rejects dropSharePercent > 100', () => {
@@ -128,7 +128,7 @@ describe('financeSummarySchema.dropBalances — new fields', () => {
       ],
     })
     expect(result.dropBalances).toHaveLength(2)
-    expect(result.dropBalances[1].dropSharePercent).toBe(10)
-    expect(result.dropBalances[1].pendingCount).toBe(3)
+    expect(result.dropBalances[1]!.dropSharePercent).toBe(10)
+    expect(result.dropBalances[1]!.pendingCount).toBe(3)
   })
 })
