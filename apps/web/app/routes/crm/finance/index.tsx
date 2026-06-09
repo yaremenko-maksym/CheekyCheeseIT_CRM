@@ -378,7 +378,7 @@ function TransactionsTable({
                     onDelete={onDelete}
                     onPaySalary={onPaySalary}
                     onOpenPayoutDetail={onOpenPayoutDetail}
-                    onInitiatePayout={onInitiatePayout}
+                    {...(onInitiatePayout ? { onInitiatePayout } : {})}
                     onConfirmPayout={onConfirmPayout}
                     onLogCash={onLogCash}
                     onClick={onDetail}
@@ -715,7 +715,7 @@ function FinancePage() {
             onDelete={setDeleteTx}
             onPaySalary={setPaySalaryTx}
             onOpenPayoutDetail={openPayoutDetail}
-            onInitiatePayout={isSenior ? openPayoutDialogForTx : undefined}
+            {...(isSenior ? { onInitiatePayout: openPayoutDialogForTx } : {})}
             onConfirmPayout={setConfirmPayoutTx}
             onLogCash={setLogCashTx}
             onDetail={setDetailTx}
@@ -738,7 +738,7 @@ function FinancePage() {
           setPreselectedPayoutTxId(undefined)
         }}
         validatedTxs={validatedSeniorIncomes}
-        preselectedTxIds={preselectedPayoutTxId ? [preselectedPayoutTxId] : undefined}
+        {...(preselectedPayoutTxId ? { preselectedTxIds: [preselectedPayoutTxId] } : {})}
       />
       <PayoutDetailDialog
         open={!!payoutDetailId}
