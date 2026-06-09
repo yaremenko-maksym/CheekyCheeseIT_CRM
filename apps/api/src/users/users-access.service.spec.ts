@@ -190,7 +190,8 @@ describe('UsersAccessService.getViewPermissions', () => {
   })
 
   it('JUNIOR viewing their project SENIOR — gets overview/projects/team + fields.legend=true', async () => {
-    ;(service as unknown as Record<string, unknown>).isJuniorUnderSenior = vi
+    // Method was renamed: isJuniorUnderSenior → isJuniorUnderLegendSubject (covers SENIOR + DROP)
+    ;(service as unknown as Record<string, unknown>).isJuniorUnderLegendSubject = vi
       .fn()
       .mockResolvedValue(true)
     const viewer = makeUser({ id: 'jr1', role: 'JUNIOR' })
@@ -201,7 +202,10 @@ describe('UsersAccessService.getViewPermissions', () => {
   })
 
   it('JUNIOR viewing unrelated SENIOR — no tabs', async () => {
-    // isJuniorUnderSenior returns false (default mock)
+    // isJuniorUnderLegendSubject returns false (default mock)
+    ;(service as unknown as Record<string, unknown>).isJuniorUnderLegendSubject = vi
+      .fn()
+      .mockResolvedValue(false)
     const viewer = makeUser({ id: 'jr1', role: 'JUNIOR' })
     const target = makeUser({ id: 'sr1', role: 'SENIOR' })
     const p = await service.getViewPermissions(viewer, target)
@@ -239,9 +243,27 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.legend).toBe(true)
   })
 
-  it('SENIOR viewing self — fields.legend=true', async () => {
+  it('SENIOR viewing self — fields.legend=false (subject excluded from own legend)', async () => {
+    // New model: subject cannot view their own legend
     const senior = makeUser({ id: 'sr-id', role: 'SENIOR' })
     const p = await service.getViewPermissions(senior, senior)
+    expect(p.fields.legend).toBe(false)
+  })
+
+  it('ADMIN viewing DROP — fields.legend=true', async () => {
+    const adminUser = makeUser({ id: 'admin-id', role: 'ADMIN' })
+    const dropUser = makeUser({ id: 'drop-id', role: 'DROP' })
+    const p = await service.getViewPermissions(adminUser, dropUser)
+    expect(p.fields.legend).toBe(true)
+  })
+
+  it('HR viewing DROP in own team — fields.legend=true', async () => {
+    ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
+      .fn()
+      .mockResolvedValue(true)
+    const hrUser = makeUser({ id: 'hr-id', role: 'HR' })
+    const dropUser = makeUser({ id: 'drop-id', role: 'DROP' })
+    const p = await service.getViewPermissions(hrUser, dropUser)
     expect(p.fields.legend).toBe(true)
   })
 })

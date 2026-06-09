@@ -1,10 +1,15 @@
 /**
  * Unit tests for LegendsService — RBAC visibility + edit logic
  *
- * Covers:
- *   - canViewLegend: all 5+1 roles × own/foreign legend combinations
- *   - getLegend: 400 if not SENIOR, 403 if not allowed, 404 if no legend
- *   - upsertLegend: 403 for non-ADMIN/non-self, creates then updates (unique userId)
+ * NEW MODEL (2026-06-09 reversal):
+ *   - Subject (SENIOR/DROP themselves) → EXCLUDED from view AND edit
+ *   - ADMIN       → can view/edit any SENIOR or DROP legend
+ *   - HR          → can view/edit if target is in HR's team
+ *   - JUNIOR      → can view/edit if active project_member under target
+ *   - ACCOUNTANT  → no access
+ *   - view-access == edit-access (canViewLegend used for both)
+ *   - getLegend: 400 if target is not SENIOR or DROP
+ *   - upsertLegend: 403 for subject, 200 for ADMIN/HR/JUNIOR with access
  */
 import { describe, it, expect, vi } from 'vitest'
 import { ForbiddenException, BadRequestException, NotFoundException } from '@nestjs/common'
@@ -16,7 +21,6 @@ import { LegendsService } from './legends.service'
 // ---------------------------------------------------------------------------
 
 const makeDbStub = () => {
-  // We intercept the chained query builder calls on db.db
   const chainable = {
     select: vi.fn().mockReturnThis(),
     from: vi.fn().mockReturnThis(),
@@ -45,6 +49,7 @@ const makeDbStub = () => {
 // ---------------------------------------------------------------------------
 
 const SENIOR_ID = 'a0000000-0000-4000-8000-000000000002'
+const DROP_ID = 'a0000000-0000-4000-8000-000000000007'
 const ADMIN_ID = 'a0000000-0000-4000-8000-000000000001'
 const HR_ID = 'a0000000-0000-4000-8000-000000000004'
 const JUNIOR_ID = 'a0000000-0000-4000-8000-000000000003'
@@ -52,6 +57,7 @@ const ACCOUNTANT_ID = 'a0000000-0000-4000-8000-000000000005'
 const OTHER_SENIOR_ID = 'a0000000-0000-4000-8000-000000000006'
 
 const senior: SessionUser = { id: SENIOR_ID, role: 'SENIOR', email: 's@test.com', displayName: 'S' }
+const drop: SessionUser = { id: DROP_ID, role: 'DROP', email: 'd@test.com', displayName: 'D' }
 const admin: SessionUser = { id: ADMIN_ID, role: 'ADMIN', email: 'a@test.com', displayName: 'A' }
 const hr: SessionUser = { id: HR_ID, role: 'HR', email: 'h@test.com', displayName: 'H' }
 const junior: SessionUser = { id: JUNIOR_ID, role: 'JUNIOR', email: 'j@test.com', displayName: 'J' }
@@ -81,7 +87,9 @@ const mockLegendRow = {
 }
 
 const mockUserSeniorRow = [{ id: SENIOR_ID, role: 'SENIOR' as const }]
+const mockUserDropRow = [{ id: DROP_ID, role: 'DROP' as const }]
 const mockUserJuniorRow = [{ id: JUNIOR_ID, role: 'JUNIOR' as const }]
+const mockUserAccountantRow = [{ id: ACCOUNTANT_ID, role: 'ACCOUNTANT' as const }]
 
 // ---------------------------------------------------------------------------
 // Helper: build service with controlled DB responses
@@ -94,62 +102,85 @@ function buildService(dbOverride?: ReturnType<typeof makeDbStub>) {
 }
 
 // ---------------------------------------------------------------------------
-// canViewLegend
+// canViewLegend — new model
 // ---------------------------------------------------------------------------
 
-describe('LegendsService.canViewLegend', () => {
-  it('ADMIN can always view any legend', async () => {
+describe('LegendsService.canViewLegend — new model (subject excluded, view==edit)', () => {
+  // Subject excluded
+  it('SENIOR cannot view their OWN legend (subject excluded)', async () => {
+    const { service } = buildService()
+    const result = await service.canViewLegend(senior, SENIOR_ID)
+    expect(result).toBe(false)
+  })
+
+  it('DROP cannot view their OWN legend (subject excluded)', async () => {
+    const { service } = buildService()
+    const result = await service.canViewLegend(drop, DROP_ID)
+    expect(result).toBe(false)
+  })
+
+  // ADMIN
+  it('ADMIN can view any SENIOR legend', async () => {
     const { service } = buildService()
     const result = await service.canViewLegend(admin, SENIOR_ID)
     expect(result).toBe(true)
   })
 
-  it('SENIOR can view their own legend', async () => {
+  it('ADMIN can view any DROP legend', async () => {
     const { service } = buildService()
-    const result = await service.canViewLegend(senior, SENIOR_ID)
+    const result = await service.canViewLegend(admin, DROP_ID)
     expect(result).toBe(true)
   })
 
-  it("SENIOR cannot view another SENIOR's legend", async () => {
-    const { service } = buildService()
-    // hrCanViewSeniorLegend will be skipped (not HR), juniorCanView skipped (not JUNIOR)
-    // other-senior hits the final `return false`
-    const result = await service.canViewLegend(otherSenior, SENIOR_ID)
-    expect(result).toBe(false)
-  })
-
+  // ACCOUNTANT
   it('ACCOUNTANT cannot view any legend', async () => {
     const { service } = buildService()
     const result = await service.canViewLegend(accountant, SENIOR_ID)
     expect(result).toBe(false)
   })
 
-  it('HR CAN view legend when they share a team with the SENIOR', async () => {
+  // Other SENIOR
+  it('Other SENIOR cannot view SENIOR legend', async () => {
+    const { service } = buildService()
+    const result = await service.canViewLegend(otherSenior, SENIOR_ID)
+    expect(result).toBe(false)
+  })
+
+  // HR with team relationship
+  it('HR CAN view SENIOR legend when they share a team', async () => {
     const { service, db } = buildService()
-    // hrCanViewSeniorLegend: first query returns HR's team, second finds SENIOR in it
     const chainable = db.db._chainable
     let callIdx = 0
     chainable.limit.mockImplementation(() => {
       callIdx++
-      if (callIdx === 1) {
-        // HR teams query
-        return Promise.resolve([{ teamId: 'team-1' }])
-      }
-      // SENIOR in team query
-      return Promise.resolve([{ id: 'tm-1' }])
+      if (callIdx === 1) return Promise.resolve([{ teamId: 'team-1' }]) // HR teams
+      return Promise.resolve([{ id: 'tm-1' }]) // SENIOR in team
     })
     const result = await service.canViewLegend(hr, SENIOR_ID)
     expect(result).toBe(true)
   })
 
-  it('HR CANNOT view legend when they share NO team with the SENIOR', async () => {
+  it('HR CAN view DROP legend when they share a team', async () => {
+    const { service, db } = buildService()
+    const chainable = db.db._chainable
+    let callIdx = 0
+    chainable.limit.mockImplementation(() => {
+      callIdx++
+      if (callIdx === 1) return Promise.resolve([{ teamId: 'drop-team-1' }])
+      return Promise.resolve([{ id: 'tm-drop-1' }])
+    })
+    const result = await service.canViewLegend(hr, DROP_ID)
+    expect(result).toBe(true)
+  })
+
+  it('HR CANNOT view legend when they share NO team with the target', async () => {
     const { service, db } = buildService()
     const chainable = db.db._chainable
     let callIdx = 0
     chainable.limit.mockImplementation(() => {
       callIdx++
       if (callIdx === 1) return Promise.resolve([{ teamId: 'team-1' }])
-      return Promise.resolve([]) // SENIOR not found in team
+      return Promise.resolve([]) // target not in team
     })
     const result = await service.canViewLegend(hr, SENIOR_ID)
     expect(result).toBe(false)
@@ -163,34 +194,66 @@ describe('LegendsService.canViewLegend', () => {
     expect(result).toBe(false)
   })
 
-  it('JUNIOR CAN view legend when they are active member of senior project', async () => {
-    const { service, db } = buildService()
-    const chainable = db.db._chainable
-    chainable.limit.mockResolvedValueOnce([{ id: 'pm-1' }])
+  // JUNIOR with project relationship — spy on private method to avoid complex chainable mock
+  it('JUNIOR CAN view SENIOR legend when active on a project with that senior', async () => {
+    const { service } = buildService()
+    // Spy on private method directly — avoids chained-query mock complexity
+    const spy = vi
+      .spyOn(service as unknown as Record<string, unknown>, 'juniorCanViewLegend' as never)
+      .mockResolvedValue(true as never)
     const result = await service.canViewLegend(junior, SENIOR_ID)
     expect(result).toBe(true)
+    expect(spy).toHaveBeenCalledWith(JUNIOR_ID, SENIOR_ID)
   })
 
-  it('JUNIOR CANNOT view legend when they have no project with the SENIOR', async () => {
-    const { service, db } = buildService()
-    const chainable = db.db._chainable
-    chainable.limit.mockResolvedValueOnce([])
+  it('JUNIOR CAN view DROP legend when active on a project with that drop', async () => {
+    const { service } = buildService()
+    const spy = vi
+      .spyOn(service as unknown as Record<string, unknown>, 'juniorCanViewLegend' as never)
+      .mockResolvedValue(true as never)
+    const result = await service.canViewLegend(junior, DROP_ID)
+    expect(result).toBe(true)
+    expect(spy).toHaveBeenCalledWith(JUNIOR_ID, DROP_ID)
+  })
+
+  it('JUNIOR CANNOT view legend when they have no active project memberships', async () => {
+    const { service } = buildService()
+    vi.spyOn(
+      service as unknown as Record<string, unknown>,
+      'juniorCanViewLegend' as never,
+    ).mockResolvedValue(false as never)
+    const result = await service.canViewLegend(junior, SENIOR_ID)
+    expect(result).toBe(false)
+  })
+
+  it('JUNIOR CANNOT view legend when their projects have unrelated senior/drop', async () => {
+    const { service } = buildService()
+    vi.spyOn(
+      service as unknown as Record<string, unknown>,
+      'juniorCanViewLegend' as never,
+    ).mockResolvedValue(false as never)
     const result = await service.canViewLegend(junior, SENIOR_ID)
     expect(result).toBe(false)
   })
 })
 
 // ---------------------------------------------------------------------------
-// getLegend
+// getLegend — new model
 // ---------------------------------------------------------------------------
 
-describe('LegendsService.getLegend', () => {
-  it('throws BadRequestException if target is not SENIOR', async () => {
+describe('LegendsService.getLegend — new model', () => {
+  it('throws BadRequestException if target is not SENIOR or DROP (e.g. JUNIOR)', async () => {
     const { service, db } = buildService()
     const chainable = db.db._chainable
-    // First query: target user — returns JUNIOR
     chainable.limit.mockResolvedValueOnce(mockUserJuniorRow)
     await expect(service.getLegend(admin, JUNIOR_ID)).rejects.toThrow(BadRequestException)
+  })
+
+  it('throws BadRequestException if target is ACCOUNTANT', async () => {
+    const { service, db } = buildService()
+    const chainable = db.db._chainable
+    chainable.limit.mockResolvedValueOnce(mockUserAccountantRow)
+    await expect(service.getLegend(admin, ACCOUNTANT_ID)).rejects.toThrow(BadRequestException)
   })
 
   it('throws NotFoundException if target user not found', async () => {
@@ -200,13 +263,25 @@ describe('LegendsService.getLegend', () => {
     await expect(service.getLegend(admin, 'nonexistent')).rejects.toThrow(NotFoundException)
   })
 
-  it('throws ForbiddenException if ACCOUNTANT tries to read legend', async () => {
+  it('throws ForbiddenException if ACCOUNTANT tries to read SENIOR legend', async () => {
     const { service, db } = buildService()
     const chainable = db.db._chainable
-    chainable.limit
-      .mockResolvedValueOnce(mockUserSeniorRow) // target is SENIOR
-      .mockResolvedValueOnce([]) // legend row — does not matter, forbidden first
+    chainable.limit.mockResolvedValueOnce(mockUserSeniorRow) // target is SENIOR
     await expect(service.getLegend(accountant, SENIOR_ID)).rejects.toThrow(ForbiddenException)
+  })
+
+  it('throws ForbiddenException if SENIOR reads their OWN legend (subject excluded)', async () => {
+    const { service, db } = buildService()
+    const chainable = db.db._chainable
+    chainable.limit.mockResolvedValueOnce(mockUserSeniorRow) // target is SENIOR
+    await expect(service.getLegend(senior, SENIOR_ID)).rejects.toThrow(ForbiddenException)
+  })
+
+  it('throws ForbiddenException if DROP reads their OWN legend (subject excluded)', async () => {
+    const { service, db } = buildService()
+    const chainable = db.db._chainable
+    chainable.limit.mockResolvedValueOnce(mockUserDropRow) // target is DROP
+    await expect(service.getLegend(drop, DROP_ID)).rejects.toThrow(ForbiddenException)
   })
 
   it('throws NotFoundException if legend does not exist yet', async () => {
@@ -218,7 +293,7 @@ describe('LegendsService.getLegend', () => {
     await expect(service.getLegend(admin, SENIOR_ID)).rejects.toThrow(NotFoundException)
   })
 
-  it('returns parsed legend for ADMIN', async () => {
+  it('returns parsed legend for ADMIN viewing SENIOR', async () => {
     const { service, db } = buildService()
     const chainable = db.db._chainable
     chainable.limit
@@ -229,34 +304,37 @@ describe('LegendsService.getLegend', () => {
     expect(result.fullName).toBe('Іванов Іван Іванович')
   })
 
-  it('returns legend when SENIOR reads own', async () => {
+  it('returns parsed legend for ADMIN viewing DROP', async () => {
     const { service, db } = buildService()
     const chainable = db.db._chainable
-    chainable.limit.mockResolvedValueOnce(mockUserSeniorRow).mockResolvedValueOnce([mockLegendRow])
-    const result = await service.getLegend(senior, SENIOR_ID)
-    expect(result.userId).toBe(SENIOR_ID)
+    const dropLegendRow = { ...mockLegendRow, userId: DROP_ID }
+    chainable.limit
+      .mockResolvedValueOnce(mockUserDropRow) // target is DROP
+      .mockResolvedValueOnce([dropLegendRow]) // legend found
+    const result = await service.getLegend(admin, DROP_ID)
+    expect(result.userId).toBe(DROP_ID)
   })
 })
 
 // ---------------------------------------------------------------------------
-// upsertLegend — edit permissions
+// upsertLegend — new model (view == edit, subject excluded)
 // ---------------------------------------------------------------------------
 
-describe('LegendsService.upsertLegend — edit permissions', () => {
+describe('LegendsService.upsertLegend — new model (view==edit, subject excluded)', () => {
   const dto = { fullName: 'Новий Іван Петрович' }
 
-  it('throws ForbiddenException when HR tries to upsert', async () => {
-    const { service, db } = buildService()
-    const chainable = db.db._chainable
-    chainable.limit.mockResolvedValueOnce(mockUserSeniorRow) // target is SENIOR
-    await expect(service.upsertLegend(hr, SENIOR_ID, dto)).rejects.toThrow(ForbiddenException)
-  })
-
-  it('throws ForbiddenException when JUNIOR tries to upsert', async () => {
+  it('throws ForbiddenException when SENIOR tries to upsert their OWN legend', async () => {
     const { service, db } = buildService()
     const chainable = db.db._chainable
     chainable.limit.mockResolvedValueOnce(mockUserSeniorRow)
-    await expect(service.upsertLegend(junior, SENIOR_ID, dto)).rejects.toThrow(ForbiddenException)
+    await expect(service.upsertLegend(senior, SENIOR_ID, dto)).rejects.toThrow(ForbiddenException)
+  })
+
+  it('throws ForbiddenException when DROP tries to upsert their OWN legend', async () => {
+    const { service, db } = buildService()
+    const chainable = db.db._chainable
+    chainable.limit.mockResolvedValueOnce(mockUserDropRow)
+    await expect(service.upsertLegend(drop, DROP_ID, dto)).rejects.toThrow(ForbiddenException)
   })
 
   it('throws ForbiddenException when ACCOUNTANT tries to upsert', async () => {
@@ -277,33 +355,67 @@ describe('LegendsService.upsertLegend — edit permissions', () => {
     )
   })
 
-  it('throws BadRequestException when target is not SENIOR', async () => {
+  it('throws BadRequestException when target is not SENIOR or DROP', async () => {
     const { service, db } = buildService()
     const chainable = db.db._chainable
-    chainable.limit.mockResolvedValueOnce(mockUserJuniorRow) // target is JUNIOR
+    chainable.limit.mockResolvedValueOnce(mockUserJuniorRow)
     await expect(service.upsertLegend(admin, JUNIOR_ID, dto)).rejects.toThrow(BadRequestException)
   })
 
-  it('ADMIN can upsert legend — creates new row', async () => {
+  it('ADMIN can upsert SENIOR legend', async () => {
     const { service, db } = buildService()
     const chainable = db.db._chainable
-    chainable.limit
-      .mockResolvedValueOnce(mockUserSeniorRow) // target is SENIOR
-      .mockResolvedValueOnce([]) // no existing legend
-    chainable.returning.mockResolvedValueOnce([mockLegendRow]) // insert result
+    chainable.limit.mockResolvedValueOnce(mockUserSeniorRow)
+    chainable.returning.mockResolvedValueOnce([mockLegendRow])
     const result = await service.upsertLegend(admin, SENIOR_ID, dto)
     expect(result.userId).toBe(SENIOR_ID)
   })
 
-  it('SENIOR can upsert own legend — updates existing row', async () => {
+  it('ADMIN can upsert DROP legend', async () => {
     const { service, db } = buildService()
     const chainable = db.db._chainable
-    chainable.limit
-      .mockResolvedValueOnce(mockUserSeniorRow) // target is SENIOR
-      .mockResolvedValueOnce([{ id: 'b0000000-0000-4000-8000-000000000001' }]) // existing legend
-    const updatedRow = { ...mockLegendRow, fullName: 'Новий Іван Петрович', updatedAt: new Date() }
-    chainable.returning.mockResolvedValueOnce([updatedRow])
-    const result = await service.upsertLegend(senior, SENIOR_ID, dto)
-    expect(result.fullName).toBe('Новий Іван Петрович')
+    const dropLegendRow = { ...mockLegendRow, userId: DROP_ID }
+    chainable.limit.mockResolvedValueOnce(mockUserDropRow)
+    chainable.returning.mockResolvedValueOnce([dropLegendRow])
+    const result = await service.upsertLegend(admin, DROP_ID, dto)
+    expect(result.userId).toBe(DROP_ID)
+  })
+
+  it('HR with team access CAN upsert SENIOR legend (view==edit)', async () => {
+    const { service, db } = buildService()
+    const chainable = db.db._chainable
+    // 1. target user check
+    chainable.limit.mockResolvedValueOnce(mockUserSeniorRow)
+    // 2. canViewLegend → hrCanViewLegend: HR teams
+    chainable.limit.mockResolvedValueOnce([{ teamId: 'team-1' }])
+    // 3. target in team
+    chainable.limit.mockResolvedValueOnce([{ id: 'tm-1' }])
+    chainable.returning.mockResolvedValueOnce([mockLegendRow])
+    const result = await service.upsertLegend(hr, SENIOR_ID, dto)
+    expect(result.userId).toBe(SENIOR_ID)
+  })
+
+  it('HR without team access CANNOT upsert SENIOR legend', async () => {
+    const { service, db } = buildService()
+    const chainable = db.db._chainable
+    chainable.limit.mockResolvedValueOnce(mockUserSeniorRow)
+    // HR has no teams
+    chainable.limit.mockResolvedValueOnce([])
+    await expect(service.upsertLegend(hr, SENIOR_ID, dto)).rejects.toThrow(ForbiddenException)
+  })
+
+  it('JUNIOR with project access CAN upsert SENIOR legend (view==edit)', async () => {
+    const { service, db } = buildService()
+    const chainable = db.db._chainable
+    // 1. target user check
+    chainable.limit.mockResolvedValueOnce(mockUserSeniorRow)
+    // 2. canViewLegend → spy on juniorCanViewLegend to return true
+    vi.spyOn(
+      service as unknown as Record<string, unknown>,
+      'juniorCanViewLegend' as never,
+    ).mockResolvedValue(true as never)
+    chainable.returning.mockResolvedValueOnce([mockLegendRow])
+    const result = await service.upsertLegend(junior, SENIOR_ID, dto)
+    expect(result.userId).toBe(SENIOR_ID)
   })
 })
