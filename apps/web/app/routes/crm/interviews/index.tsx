@@ -28,6 +28,7 @@ import { ACTIVE_STAGES, ALL_STAGES, TERMINAL_STAGES } from './constants'
 import { InterviewCardStatic, KanbanColumn } from './components/KanbanColumn'
 import { InterviewDetailSheet } from './components/InterviewDetailSheet'
 import { CreateInterviewDialog } from './components/CreateInterviewDialog'
+import { CreateProjectFromHiredDialog } from './components/CreateProjectFromHiredDialog'
 
 type UserDto = {
   id: string
@@ -50,6 +51,13 @@ export const Route = createFileRoute('/crm/interviews/')({
   component: InterviewsPage,
 })
 
+// State for the "hired via DnD" create-project prompt
+type HiredDndState = {
+  interview: InterviewDto
+  seniorId: string
+  seniorName: string
+} | null
+
 function InterviewsPage() {
   // Drop role - phase 1 fix (AC4): DROP must not access /crm/interviews —
   // sidebar already hides the link, but a direct URL navigation should also
@@ -63,12 +71,17 @@ function InterviewsPage() {
   const isSenior = user?.role === 'SENIOR'
   const canCreate = isAdmin || isHR || isSenior
   const isJunior = user?.role === 'JUNIOR'
+  // ADMIN and HR can create projects from hired candidates
+  const canCreateProject = isAdmin || isHR
 
   const search = useSearch({ from: '/crm/interviews/' })
   const navigate = useNavigate()
   const [createOpen, setCreateOpen] = useState(false)
   const [selectedCard, setSelectedCard] = useState<InterviewDto | null>(null)
   const [activeCardId, setActiveCardId] = useState<string | null>(null)
+
+  // Bug fix 2: state for "hired via DnD → create project" prompt
+  const [hiredDndState, setHiredDndState] = useState<HiredDndState>(null)
 
   function setSelectedSeniorId(id: string) {
     void navigate({ to: '/crm/interviews', search: { seniorId: id }, replace: true })
@@ -84,7 +97,9 @@ function InterviewsPage() {
     staleTime: 5 * 60_000,
   })
 
-  const { data: teams = [] } = useQuery<{ id: string; members: { userId: string; role: string }[] }[]>({
+  const { data: teams = [] } = useQuery<
+    { id: string; members: { userId: string; role: string }[] }[]
+  >({
     queryKey: ['teams'],
     queryFn: () => api.get('/teams').then((r) => r.data),
     enabled: isHR,
@@ -102,9 +117,7 @@ function InterviewsPage() {
       )
     : allSeniors
 
-  const effectiveSeniorId = isSenior
-    ? (user?.id ?? '')
-    : (search.seniorId ?? seniors[0]?.id ?? '')
+  const effectiveSeniorId = isSenior ? (user?.id ?? '') : (search.seniorId ?? seniors[0]?.id ?? '')
 
   const { data: interviewsList = [], isLoading } = useQuery<InterviewDto[]>({
     queryKey: ['interviews', effectiveSeniorId],
@@ -122,13 +135,38 @@ function InterviewsPage() {
   }, [interviewsList])
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
-  const activeCard = activeCardId ? interviewsList.find((i) => i.id === activeCardId) ?? null : null
+  const activeCard = activeCardId
+    ? (interviewsList.find((i) => i.id === activeCardId) ?? null)
+    : null
 
   const moveMutation = useMutation({
-    mutationFn: ({ id, stage, position }: { id: string; stage: InterviewStage; position: number }) =>
+    mutationFn: ({
+      id,
+      stage,
+      position,
+    }: {
+      id: string
+      stage: InterviewStage
+      position: number
+    }) =>
       api.patch<InterviewDto>(`/interviews/${id}/move`, { stage, position }).then((r) => r.data),
-    onError: () => { queryClient.invalidateQueries({ queryKey: ['interviews', effectiveSeniorId] }) },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['interviews', effectiveSeniorId] }) }, // sync final server positions
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ['interviews', effectiveSeniorId] })
+    },
+    onSuccess: (updated, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['interviews', effectiveSeniorId] })
+      // Bug fix 2: after DnD move to HIRED, open CreateProjectFromHiredDialog
+      // if the current user has project-creation rights.
+      if (variables.stage === 'HIRED' && canCreateProject) {
+        const movedCard = interviewsList.find((i) => i.id === updated.id) ?? updated
+        const seniorUser = allUsers.find((u) => u.id === (movedCard.seniorId ?? effectiveSeniorId))
+        setHiredDndState({
+          interview: updated,
+          seniorId: movedCard.seniorId ?? effectiveSeniorId,
+          seniorName: updated.seniorName ?? seniorUser?.displayName ?? '',
+        })
+      }
+    },
   })
 
   function handleDragStart(event: DragStartEvent) {
@@ -156,7 +194,7 @@ function InterviewsPage() {
 
     if (overIsStage) {
       targetStage = overId as InterviewStage
-      targetIndex = (byStage[targetStage]?.length ?? 0)
+      targetIndex = byStage[targetStage]?.length ?? 0
     } else {
       const overCard = interviewsList.find((i) => i.id === overId)
       if (!overCard) return
@@ -184,7 +222,9 @@ function InterviewsPage() {
         targetColumn.splice(targetIndex, 0, { ...draggedCard, stage: targetStage })
         const updatedTarget = new Map(targetColumn.map((c, idx) => [c.id, { ...c, position: idx }]))
         const updatedSource = new Map(
-          sourceColumn.filter((i) => i.id !== draggedId).map((c, idx) => [c.id, { ...c, position: idx }])
+          sourceColumn
+            .filter((i) => i.id !== draggedId)
+            .map((c, idx) => [c.id, { ...c, position: idx }]),
         )
         return old.map((i) => updatedTarget.get(i.id) ?? updatedSource.get(i.id) ?? i)
       }
@@ -231,10 +271,7 @@ function InterviewsPage() {
             Создать или выбрать команду
           </Button>
         </div>
-        <RejoinTeamDialog
-          open={rejoinDialogOpen}
-          onClose={() => setRejoinDialogOpen(false)}
-        />
+        <RejoinTeamDialog open={rejoinDialogOpen} onClose={() => setRejoinDialogOpen(false)} />
       </div>
     )
   }
@@ -249,7 +286,7 @@ function InterviewsPage() {
       >
         <h1 className="text-2xl font-bold tracking-tight">Собеседования</h1>
         <div className="flex items-center gap-3 flex-wrap">
-          {(isAdmin && seniors.length > 0 || isHR) && (
+          {((isAdmin && seniors.length > 0) || isHR) && (
             <div className="flex items-center gap-2">
               <select
                 className="h-9 rounded-md border border-border bg-input px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -257,7 +294,9 @@ function InterviewsPage() {
                 onChange={(e) => setSelectedSeniorId(e.target.value)}
               >
                 {seniors.map((s) => (
-                  <option key={s.id} value={s.id}>{s.displayName}</option>
+                  <option key={s.id} value={s.id}>
+                    {s.displayName}
+                  </option>
                 ))}
               </select>
               {effectiveSeniorId && (
@@ -287,12 +326,19 @@ function InterviewsPage() {
             {ACTIVE_STAGES.map((s) => (
               <div key={s} className="flex flex-col min-w-44 w-44 shrink-0 gap-2">
                 <Skeleton className="h-7 w-full" />
-                {[1, 2].map((i) => <Skeleton key={i} className="h-20 w-full" />)}
+                {[1, 2].map((i) => (
+                  <Skeleton key={i} className="h-20 w-full" />
+                ))}
               </div>
             ))}
           </div>
         ) : (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
             <motion.div
               className="flex gap-3 items-stretch h-full"
               initial={{ opacity: 0 }}
@@ -307,7 +353,12 @@ function InterviewsPage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.3, delay: idx * 0.05 }}
                 >
-                  <KanbanColumn stage={stage} interviews={byStage[stage] ?? []} onCardClick={setSelectedCard} canDrag={isAdmin || isHR} />
+                  <KanbanColumn
+                    stage={stage}
+                    interviews={byStage[stage] ?? []}
+                    onCardClick={setSelectedCard}
+                    canDrag={isAdmin || isHR}
+                  />
                 </motion.div>
               ))}
 
@@ -321,7 +372,12 @@ function InterviewsPage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.3, delay: (ACTIVE_STAGES.length + idx) * 0.05 }}
                 >
-                  <KanbanColumn stage={stage} interviews={byStage[stage] ?? []} onCardClick={setSelectedCard} canDrag={isAdmin || isHR} />
+                  <KanbanColumn
+                    stage={stage}
+                    interviews={byStage[stage] ?? []}
+                    onCardClick={setSelectedCard}
+                    canDrag={isAdmin || isHR}
+                  />
                 </motion.div>
               ))}
             </motion.div>
@@ -331,7 +387,6 @@ function InterviewsPage() {
           </DndContext>
         )}
       </div>
-
 
       {selectedCard && (
         <InterviewDetailSheet
@@ -343,7 +398,7 @@ function InterviewsPage() {
           canDelete={isAdmin || isHR}
           canMove={isAdmin || isHR || isSenior}
           canMoveTerminal={isAdmin || isHR || isSenior}
-          canCreateProject={isAdmin || isHR}
+          canCreateProject={canCreateProject}
         />
       )}
 
@@ -354,6 +409,20 @@ function InterviewsPage() {
           seniors={seniors}
           defaultSeniorId={isSenior ? (user?.id ?? '') : effectiveSeniorId}
           isSenior={isSenior}
+        />
+      )}
+
+      {/* Bug fix 2+3: CreateProjectFromHiredDialog triggered by DnD drop into
+          HIRED column. Rendered at page level (not inside Sheet) so its portal
+          and focus-trap work independently. Bug fix 3: onClose properly wired
+          so the Cancel button closes the dialog. */}
+      {hiredDndState && (
+        <CreateProjectFromHiredDialog
+          open={!!hiredDndState}
+          onClose={() => setHiredDndState(null)}
+          seniorId={hiredDndState.seniorId}
+          seniorName={hiredDndState.seniorName}
+          companyName={hiredDndState.interview.companyName}
         />
       )}
     </div>

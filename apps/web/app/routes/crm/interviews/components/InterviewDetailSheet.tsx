@@ -211,21 +211,30 @@ export function InterviewDetailSheet({
     )
   }
 
+  // Bug fix 1: handle Sheet close — when confirmUnsaved is open, ignore the
+  // Sheet onOpenChange(false) event so the Sheet stays visible while the user
+  // resolves the unsaved-changes dialog.
+  function handleSheetOpenChange(v: boolean) {
+    if (!v) {
+      // A nested Dialog may trigger a bubbled close event on the Sheet; ignore
+      // it when any modal dialog is already open.
+      if (confirmDelete || confirmUnsaved || confirmCreateProject) return
+      if (form.state.isDirty) {
+        setConfirmUnsaved(true)
+      } else {
+        onClose()
+      }
+    }
+  }
+
   return (
     <>
-      <Sheet
-        open={open}
-        onOpenChange={(v) => {
-          if (!v) {
-            if (form.state.isDirty) {
-              setConfirmUnsaved(true)
-            } else {
-              onClose()
-            }
-          }
-        }}
-      >
-        <SheetContent side="right" className="w-full sm:max-w-lg flex flex-col overflow-hidden">
+      <Sheet open={open} onOpenChange={handleSheetOpenChange}>
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-lg flex flex-col overflow-hidden"
+          data-testid="interview-detail-sheet"
+        >
           <SheetHeader className="mb-4 shrink-0">
             <SheetTitle className="pr-6">{interview.companyName}</SheetTitle>
             <SheetDescription className="sr-only">Детали собеседования</SheetDescription>
@@ -422,35 +431,54 @@ export function InterviewDetailSheet({
               )}
             </div>
           </div>
-
-          <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Удалить карточку?</DialogTitle>
-                <DialogDescription className="sr-only">Удаление карточки</DialogDescription>
-              </DialogHeader>
-              <p className="text-sm text-muted-foreground">
-                Карточка "{interview.companyName}" будет удалена безвозвратно.
-              </p>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setConfirmDelete(false)}>
-                  Отмена
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => deleteMutation.mutate()}
-                  disabled={deleteMutation.isPending}
-                >
-                  Удалить
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
         </SheetContent>
       </Sheet>
 
-      <Dialog open={confirmUnsaved} onOpenChange={() => {}}>
-        <DialogContent onInteractOutside={(e) => e.preventDefault()}>
+      {/* Bug fix 1: all modal dialogs are OUTSIDE <Sheet> to avoid Radix
+          focus-trap conflicts. Sheet.onOpenChange is guarded to ignore close
+          events while any dialog is open. */}
+
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <DialogContent data-testid="confirm-delete-dialog">
+          <DialogHeader>
+            <DialogTitle>Удалить карточку?</DialogTitle>
+            <DialogDescription className="sr-only">Удаление карточки</DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Карточка &quot;{interview.companyName}&quot; будет удалена безвозвратно.
+          </p>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              data-testid="cancel-button"
+              onClick={() => setConfirmDelete(false)}
+            >
+              Отмена
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteMutation.mutate()}
+              disabled={deleteMutation.isPending}
+            >
+              Удалить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={confirmUnsaved}
+        onOpenChange={(v) => {
+          // Only allow programmatic close (buttons) — block Esc / overlay click
+          // so the user must explicitly choose Save or Discard.
+          if (!v) return
+        }}
+      >
+        <DialogContent
+          onInteractOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+          data-testid="confirm-unsaved-dialog"
+        >
           <DialogHeader>
             <DialogTitle>Несохранённые изменения</DialogTitle>
             <DialogDescription className="sr-only">Несохранённые изменения</DialogDescription>
@@ -461,6 +489,7 @@ export function InterviewDetailSheet({
           <DialogFooter>
             <Button
               variant="outline"
+              data-testid="discard-button"
               onClick={() => {
                 setConfirmUnsaved(false)
                 onClose()
@@ -482,8 +511,13 @@ export function InterviewDetailSheet({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={confirmCreateProject} onOpenChange={() => {}}>
-        <DialogContent onInteractOutside={(e) => e.preventDefault()}>
+      <Dialog
+        open={confirmCreateProject}
+        onOpenChange={(v) => {
+          if (!v) setConfirmCreateProject(false)
+        }}
+      >
+        <DialogContent data-testid="confirm-create-project-dialog">
           <DialogHeader>
             <DialogTitle>Создать проект?</DialogTitle>
             <DialogDescription className="sr-only">Создание проекта</DialogDescription>
@@ -492,7 +526,11 @@ export function InterviewDetailSheet({
             Создать новый проект на базе карточки «{hiredInterview?.companyName}»?
           </p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmCreateProject(false)}>
+            <Button
+              variant="outline"
+              data-testid="cancel-button"
+              onClick={() => setConfirmCreateProject(false)}
+            >
               Нет
             </Button>
             <Button
