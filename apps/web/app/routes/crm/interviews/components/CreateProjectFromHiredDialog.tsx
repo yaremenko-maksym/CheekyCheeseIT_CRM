@@ -190,7 +190,7 @@ export function CreateProjectFromHiredDialog({
         if (!v) onClose()
       }}
     >
-      <CrmDialogContent>
+      <CrmDialogContent data-testid="create-project-from-hired-dialog">
         <CrmDialogHeader>
           <DialogTitle>Создать проект — {seniorName}</DialogTitle>
           <DialogDescription className="sr-only">Создание проекта</DialogDescription>

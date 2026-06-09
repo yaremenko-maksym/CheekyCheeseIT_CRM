@@ -2,12 +2,15 @@ import { createFileRoute, Link, useNavigate, useSearch } from '@tanstack/react-r
 import {
   DndContext,
   DragOverlay,
+  KeyboardCode,
+  KeyboardSensor,
   PointerSensor,
   closestCenter,
   useSensor,
   useSensors,
   type DragEndEvent,
   type DragStartEvent,
+  type KeyboardCoordinateGetter,
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -29,6 +32,69 @@ import { InterviewCardStatic, KanbanColumn } from './components/KanbanColumn'
 import { InterviewDetailSheet } from './components/InterviewDetailSheet'
 import { CreateInterviewDialog } from './components/CreateInterviewDialog'
 import { CreateProjectFromHiredDialog } from './components/CreateProjectFromHiredDialog'
+
+// coordinateGetter for KeyboardSensor on the Kanban board.
+//
+// ArrowLeft / ArrowRight navigate column-by-column using droppable rect centers.
+// This is deterministic regardless of scroll position or how many cards are in
+// each column — it does NOT rely on 25-px increments or sortable-item iteration.
+// The approach makes E2E keyboard-drag tests reliable in headless Playwright.
+const kanbanKeyboardCoordinateGetter: KeyboardCoordinateGetter = (
+  event,
+  { currentCoordinates, context: { droppableRects } },
+) => {
+  if (event.code !== KeyboardCode.Right && event.code !== KeyboardCode.Left) return undefined
+
+  event.preventDefault()
+
+  // Collect column droppable ids — stage ids are UPPER_SNAKE_CASE strings.
+  const stageIds: string[] = []
+  droppableRects.forEach((_rect, id) => {
+    if (typeof id === 'string' && /^[A-Z][A-Z_]*$/.test(id)) stageIds.push(id)
+  })
+
+  if (stageIds.length === 0) return undefined
+
+  // Sort columns left-to-right by rect center x.
+  const sorted = stageIds.sort((a, b) => {
+    const ra = droppableRects.get(a)
+    const rb = droppableRects.get(b)
+    return (ra?.left ?? 0) + (ra?.width ?? 0) / 2 - ((rb?.left ?? 0) + (rb?.width ?? 0) / 2)
+  })
+
+  // Find which column contains the current coordinates.
+  const curX = currentCoordinates.x
+  let currentIdx = sorted.findIndex((id) => {
+    const r = droppableRects.get(id)
+    return r && curX >= r.left && curX <= r.right
+  })
+  if (currentIdx === -1) {
+    // Fallback: find nearest column center
+    currentIdx = sorted.reduce((best, id, idx) => {
+      const r = droppableRects.get(id)
+      if (!r) return best
+      const dist = Math.abs(curX - (r.left + r.width / 2))
+      const bestR = droppableRects.get(sorted[best] ?? '')
+      const bestDist = bestR ? Math.abs(curX - (bestR.left + bestR.width / 2)) : Infinity
+      return dist < bestDist ? idx : best
+    }, 0)
+  }
+
+  const nextIdx =
+    event.code === KeyboardCode.Right
+      ? Math.min(currentIdx + 1, sorted.length - 1)
+      : Math.max(currentIdx - 1, 0)
+
+  const targetId = sorted[nextIdx]
+  if (!targetId) return undefined
+  const rect = droppableRects.get(targetId)
+  if (!rect) return undefined
+
+  // Return a point in the lower portion of the target column (80% down).
+  // This avoids card droppables that cluster near the top and ensures
+  // closestCenter resolves to the column area, not a nearby card.
+  return { x: rect.left + rect.width / 2, y: rect.top + rect.height * 0.8 }
+}
 
 type UserDto = {
   id: string
@@ -134,7 +200,13 @@ function InterviewsPage() {
     return map
   }, [interviewsList])
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    // KeyboardSensor enables a11y keyboard drag-and-drop.
+    // kanbanKeyboardCoordinateGetter navigates column-by-column using droppable
+    // rect centers — deterministic regardless of scroll position or column fill.
+    useSensor(KeyboardSensor, { coordinateGetter: kanbanKeyboardCoordinateGetter }),
+  )
   const activeCard = activeCardId
     ? (interviewsList.find((i) => i.id === activeCardId) ?? null)
     : null
