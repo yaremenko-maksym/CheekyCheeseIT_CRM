@@ -872,7 +872,10 @@ function ProjectDetailPage() {
       })()}
 
       {activeTab === 'members' && (
-        <ProjectEffectiveTeamCard project={project} viewerRole={user?.role} />
+        <ProjectEffectiveTeamCard
+          project={project}
+          {...(user?.role !== undefined ? { viewerRole: user.role } : {})}
+        />
       )}
 
       {activeTab === 'overview' && (
@@ -1548,7 +1551,7 @@ function ProjectEffectiveTeamCard({
   viewerRole,
 }: {
   project: ProjectDetailDto
-  viewerRole?: string
+  viewerRole?: string | undefined
 }) {
   const effective = project.effectiveTeam
   const senior = effective?.senior ?? null
