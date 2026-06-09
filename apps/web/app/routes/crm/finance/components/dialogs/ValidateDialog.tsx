@@ -14,8 +14,8 @@ import {
 } from '@/components/ui/crm-dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { useDocumentDownloadUrl } from '@/hooks/use-documents'
 import { financeApi } from '../../api'
+import { ReceiptPanel } from './receipt-panel'
 import {
   fmtAmount,
   fmtDate,
@@ -47,15 +47,6 @@ export function ValidateDialog({
     staleTime: 1000 * 60 * 60,
   })
 
-  // Fetch presigned URL for uploaded receipts (only when documentId set).
-  // External URL receipts skip this query and use tx.receiptExternalUrl directly.
-  const receiptDocQuery = useDocumentDownloadUrl(tx?.receiptDocumentId ?? undefined, {
-    enabled: !!tx?.receiptDocumentId,
-  })
-  const receiptUrl = tx?.receiptDocumentId
-    ? (receiptDocQuery.data?.url ?? null)
-    : (tx?.receiptExternalUrl ?? null)
-
   const mutation = useMutation({
     mutationFn: ({ action }: { action: 'validate' | 'reject' }) =>
       financeApi.validateTransaction(tx!.id, { action, rejectionReason: reason || null }),
@@ -81,7 +72,7 @@ export function ValidateDialog({
         }
       }}
     >
-      <CrmDialogContent maxWidth="sm:max-w-md" data-testid="validate-transaction-dialog">
+      <CrmDialogContent maxWidth="sm:max-w-xl" data-testid="validate-transaction-dialog">
         <CrmDialogHeader>
           <DialogTitle>Валидация транзакции</DialogTitle>
           <DialogDescription className="sr-only">Валидация транзакции</DialogDescription>
@@ -130,19 +121,6 @@ export function ValidateDialog({
               <span className="text-muted-foreground">Дата</span>
               <span className="font-medium">{fmtDate(tx.createdAt)}</span>
             </div>
-            {receiptUrl && (
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Чек</span>
-                <a
-                  href={receiptUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary text-xs underline"
-                >
-                  Открыть
-                </a>
-              </div>
-            )}
             {tx.notes && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Заметки</span>
@@ -150,6 +128,9 @@ export function ValidateDialog({
               </div>
             )}
           </div>
+
+          {/* AC6: inline receipt preview — shown when a receipt is attached */}
+          {(tx.receiptDocumentId || tx.receiptExternalUrl) && <ReceiptPanel tx={tx} compact />}
 
           <div className="space-y-1">
             <Label className="text-xs">Причина отклонения (при отклонении)</Label>

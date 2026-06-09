@@ -196,51 +196,60 @@ export function PayoutDetailDialog({
 
           {payout && (
             <>
-              {/* Payable amount banner — first thing user sees */}
-              <div className="rounded-lg border border-border bg-muted/30 p-3 flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">К оплате</span>
-                <span
-                  className="text-lg font-bold tabular-nums text-primary"
-                  data-testid="payout-detail-payable"
-                >
-                  {fmtAmount(payout.payableAmount, 'USDT')}
-                </span>
-              </div>
-
-              {/* Contract address — copy-able. PR #56 final UT (AC4):
-                  label shortened from «Адрес смарт-контракта (USDT ERC-20)»
-                  to «Адрес кошелька» — too long for the dialog header in the
-                  main view, and the ERC-20 distinction lives in the helper
-                  text below where there's room. */}
-              <div className="space-y-1.5">
-                <Label className="text-xs" data-testid="payout-detail-contract-address-label">
-                  Адрес кошелька
-                </Label>
-                <div className="flex items-center gap-2 rounded-md border border-border bg-background p-2">
-                  <code
-                    className="flex-1 text-xs font-mono break-all"
-                    data-testid="payout-detail-contract-address"
+              {/* Payable amount + wallet address — combined card so the
+                  SENIOR sees «сколько» and «куда» as one unit before acting.
+                  AC8 layout fix: amount moves into its own row above the
+                  address so the two don't fight for horizontal space when the
+                  wallet address wraps (0x… strings are ~42 chars). */}
+              <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-3">
+                {/* Amount row */}
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm text-muted-foreground shrink-0">К оплате</span>
+                  <span
+                    className="text-lg font-bold tabular-nums text-primary"
+                    data-testid="payout-detail-payable"
                   >
-                    {payout.contractAddress}
-                  </code>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 shrink-0"
-                    onClick={() => copyAddress(payout.contractAddress)}
-                    aria-label="Скопировать адрес"
-                  >
-                    {copied ? (
-                      <Check className="h-3.5 w-3.5 text-emerald-500" />
-                    ) : (
-                      <Copy className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
+                    {fmtAmount(payout.payableAmount, 'USDT')}
+                  </span>
                 </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Отправьте USDT (ERC-20) на указанный адрес, затем вставьте хеш транзакции ниже.
-                </p>
+
+                {/* Divider */}
+                <div className="border-t border-border/50" />
+
+                {/* Address row */}
+                <div className="space-y-1.5">
+                  <Label
+                    className="text-xs text-muted-foreground"
+                    data-testid="payout-detail-contract-address-label"
+                  >
+                    Адрес кошелька (USDT ERC-20)
+                  </Label>
+                  <div className="flex items-center gap-2 rounded-md border border-border bg-background p-2">
+                    <code
+                      className="flex-1 text-xs font-mono break-all min-w-0"
+                      data-testid="payout-detail-contract-address"
+                    >
+                      {payout.contractAddress}
+                    </code>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 shrink-0"
+                      onClick={() => copyAddress(payout.contractAddress)}
+                      aria-label="Скопировать адрес"
+                    >
+                      {copied ? (
+                        <Check className="h-3.5 w-3.5 text-emerald-500" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Отправьте USDT на указанный адрес, затем вставьте хеш транзакции ниже.
+                  </p>
+                </div>
               </div>
 
               {/* Transactions in this payout. PR #56 final UT (AC4): count
