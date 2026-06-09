@@ -43,12 +43,12 @@ const makeDbStub = () => {
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const SENIOR_ID = 'senior-uuid-0001'
-const ADMIN_ID = 'admin-uuid-0001'
-const HR_ID = 'hr-uuid-0001'
-const JUNIOR_ID = 'junior-uuid-0001'
-const ACCOUNTANT_ID = 'accountant-uuid-0001'
-const OTHER_SENIOR_ID = 'senior-uuid-0002'
+const SENIOR_ID = 'a0000000-0000-4000-8000-000000000002'
+const ADMIN_ID = 'a0000000-0000-4000-8000-000000000001'
+const HR_ID = 'a0000000-0000-4000-8000-000000000004'
+const JUNIOR_ID = 'a0000000-0000-4000-8000-000000000003'
+const ACCOUNTANT_ID = 'a0000000-0000-4000-8000-000000000005'
+const OTHER_SENIOR_ID = 'a0000000-0000-4000-8000-000000000006'
 
 const senior: SessionUser = { id: SENIOR_ID, role: 'SENIOR', email: 's@test.com', displayName: 'S' }
 const admin: SessionUser = { id: ADMIN_ID, role: 'ADMIN', email: 'a@test.com', displayName: 'A' }
@@ -68,7 +68,7 @@ const otherSenior: SessionUser = {
 }
 
 const mockLegendRow = {
-  id: 'legend-uuid-0001',
+  id: 'b0000000-0000-4000-8000-000000000001',
   userId: SENIOR_ID,
   fullName: 'Іванов Іван Іванович',
   dateOfBirth: '1990-01-15',
@@ -110,7 +110,7 @@ describe('LegendsService.canViewLegend', () => {
   })
 
   it("SENIOR cannot view another SENIOR's legend", async () => {
-    const { service, db } = buildService()
+    const { service } = buildService()
     // hrCanViewSeniorLegend will be skipped (not HR), juniorCanView skipped (not JUNIOR)
     // other-senior hits the final `return false`
     const result = await service.canViewLegend(otherSenior, SENIOR_ID)
@@ -299,7 +299,7 @@ describe('LegendsService.upsertLegend — edit permissions', () => {
     const chainable = db.db._chainable
     chainable.limit
       .mockResolvedValueOnce(mockUserSeniorRow) // target is SENIOR
-      .mockResolvedValueOnce([{ id: 'legend-uuid-0001' }]) // existing legend
+      .mockResolvedValueOnce([{ id: 'b0000000-0000-4000-8000-000000000001' }]) // existing legend
     const updatedRow = { ...mockLegendRow, fullName: 'Новий Іван Петрович', updatedAt: new Date() }
     chainable.returning.mockResolvedValueOnce([updatedRow])
     const result = await service.upsertLegend(senior, SENIOR_ID, dto)

@@ -170,6 +170,7 @@ export class LegendsService {
           updatedAt: now,
         })
         .returning()
+      if (!inserted[0]) throw new NotFoundException('Insert failed — legend not returned')
       row = inserted[0]
     } else {
       const updated = await this.db.db
@@ -184,6 +185,7 @@ export class LegendsService {
         })
         .where(eq(legends.userId, targetId))
         .returning()
+      if (!updated[0]) throw new NotFoundException('Update failed — legend not returned')
       row = updated[0]
     }
 

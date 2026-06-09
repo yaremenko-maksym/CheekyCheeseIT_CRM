@@ -63,6 +63,11 @@ export default defineConfig({
         // Point bare-module imports to the main repo's installed packages.
         // pnpm uses a flat node_modules structure via symlinks, so resolving
         // to the api-level node_modules covers NestJS, Drizzle, pdf-lib etc.
+        //
+        // @crm/shared: point vitest to the compiled dist/ output so it can
+        // resolve the package without needing to follow pnpm workspace links.
+        // Run `pnpm --filter @crm/shared build` if the dist/ is missing.
+        '@crm/shared': path.resolve(worktreeRoot, 'packages/shared/dist/index.js'),
       },
     },
   }),
