@@ -4,7 +4,7 @@ import type { CustomVariable } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Pencil, Trash2, Plus, Check, AlertTriangle } from 'lucide-react'
+import { Pencil, Trash2, Plus, Check, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import { useContractTokens } from '@/hooks/use-contract-tokens'
 import { AddCustomVariableDialog, DeleteCustomVariableDialog } from './AddCustomVariableDialog'
@@ -279,6 +279,7 @@ export function VariablesPanel({
 }: VariablesPanelProps) {
   const [addOpen, setAddOpen] = useState(false)
   const [prefillKey, setPrefillKey] = useState('')
+  const [systemCollapsed, setSystemCollapsed] = useState(true)
 
   const { tokensInText, systemUsed, orphanedCustom, unknownInText } = useContractTokens(
     body,
@@ -324,28 +325,7 @@ export function VariablesPanel({
         onRegisterUnknown={handleRegisterUnknown}
       />
 
-      {/* ── System variables ──────────────────────────────────────────────── */}
-      <div>
-        <div className="flex items-center gap-2 mb-1.5 px-1">
-          <span className="text-xs font-semibold text-foreground">Системные переменные</span>
-          <Badge variant="secondary" className="text-[10px] h-4 px-1.5">
-            {systemEntries.length}
-          </Badge>
-        </div>
-        <div className="space-y-0.5">
-          {systemEntries.map(([key, description]) => (
-            <SystemVariableRow
-              key={key}
-              varKey={key}
-              description={description}
-              isUsed={systemUsed.has(key)}
-              onInsert={onInsertToken}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* ── Custom variables ──────────────────────────────────────────────── */}
+      {/* ── Custom variables — первые, чтобы кнопка «Добавить» сразу видна ── */}
       <div>
         <div className="flex items-center justify-between gap-2 mb-1.5 px-1">
           <div className="flex items-center gap-2">
@@ -380,6 +360,45 @@ export function VariablesPanel({
                 onInsert={onInsertToken}
                 onUpdateLabel={handleUpdateLabel}
                 onDelete={handleDeleteVariable}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── System variables — collapsible, по умолчанию свёрнуты ─────────── */}
+      <div>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 mb-1.5 px-1 hover:opacity-80 transition-opacity"
+          onClick={() => setSystemCollapsed((v) => !v)}
+          aria-expanded={!systemCollapsed}
+          data-testid="system-vars-toggle"
+        >
+          {systemCollapsed ? (
+            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          )}
+          <span className="text-xs font-semibold text-foreground">Системные переменные</span>
+          <Badge variant="secondary" className="text-[10px] h-4 px-1.5">
+            {systemEntries.length}
+          </Badge>
+          {systemUsed.size > 0 && (
+            <span className="ml-auto text-[10px] text-muted-foreground">
+              используется {systemUsed.size}
+            </span>
+          )}
+        </button>
+        {!systemCollapsed && (
+          <div className="space-y-0.5">
+            {systemEntries.map(([key, description]) => (
+              <SystemVariableRow
+                key={key}
+                varKey={key}
+                description={description}
+                isUsed={systemUsed.has(key)}
+                onInsert={onInsertToken}
               />
             ))}
           </div>
