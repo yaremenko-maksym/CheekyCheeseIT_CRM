@@ -198,6 +198,11 @@ type TransactionRowProps = {
   onDelete?: (tx: TransactionDto) => void
   onPaySalary?: (tx: TransactionDto) => void
   /**
+   * feat/finance-payout-flow (#7). SENIOR clicks «Выплатить» on a VALIDATED
+   * SENIOR_INCOME row — opens PayoutDialog pre-selecting this tx.
+   */
+  onInitiatePayout?: (txId: string) => void
+  /**
    * Opens the PayoutDetailDialog for an already-created payout. Triggered by
    * the inline «Оплатить» pill on PENDING_PAYMENT rows (where the SENIOR has
    * already created the request and now needs to send USDT to the contract
@@ -239,6 +244,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
       onAdminEdit,
       onDelete,
       onPaySalary,
+      onInitiatePayout,
       onOpenPayoutDetail,
       onConfirmPayout,
       onLogCash,
@@ -252,6 +258,16 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
 
     const canValidate =
       (isAdmin || isAccountant) && tx.type === 'SENIOR_INCOME' && tx.status === 'PENDING'
+    // feat/finance-payout-flow (#7): SENIOR sees «Выплатить» on their own
+    // VALIDATED SENIOR_INCOME rows that haven't been included in a payout yet
+    // (payoutRequestId is null). Clicking opens PayoutDialog pre-selecting
+    // this row; they can then add more VALIDATED rows before submitting.
+    const showInitiatePayout =
+      isSenior &&
+      tx.type === 'SENIOR_INCOME' &&
+      tx.status === 'VALIDATED' &&
+      !tx.payoutRequestId &&
+      tx.receiverId === currentUserId
     const canEdit = isSenior && tx.type === 'SENIOR_INCOME' && tx.status === 'REJECTED'
     const canPaySalary = isAdmin && tx.type === 'SALARY' && tx.status === 'PENDING'
     const canAdminEdit =
@@ -435,6 +451,18 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
               >
                 <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
                 Проверить
+              </Button>
+            )}
+            {showInitiatePayout && onInitiatePayout && (
+              <Button
+                variant="default"
+                size="sm"
+                className="h-7 px-2 text-xs bg-primary/90 text-primary-foreground hover:bg-primary"
+                onClick={() => onInitiatePayout(tx.id)}
+                data-testid={`tx-row-initiate-payout-${tx.id}`}
+              >
+                <Wallet className="h-3.5 w-3.5 mr-1" />
+                Выплатить
               </Button>
             )}
             {showPayPayout && onOpenPayoutDetail && tx.payoutRequestId && (

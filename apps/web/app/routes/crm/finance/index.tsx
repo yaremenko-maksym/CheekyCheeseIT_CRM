@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Search, ArrowUpDown, ChevronDown, X } from 'lucide-react'
+import { Plus, Search, ArrowUpDown, ChevronDown, X, Wallet } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import type { TransactionDto } from '@crm/shared'
@@ -47,10 +47,11 @@ import { CreateTransactionDialog } from './components/dialogs/CreateTransactionD
 import { ValidateDialog } from './components/dialogs/ValidateDialog'
 import { EditSeniorIncomeDialog } from './components/dialogs/EditSeniorIncomeDialog'
 import { PaySalaryDialog } from './components/dialogs/PaySalaryDialog'
-// PayoutDialog (batch payout dialog) is no longer mounted as of
-// task-payout-auto-on-validate. Backend auto-creates the PAYOUT row on
-// ACCOUNTANT validate, so the SENIOR no longer needs to launch a batch.
-// The file is kept on disk for possible future batch-payout flow.
+// PayoutDialog (batch payout) — re-activated by feat/finance-payout-flow (#7).
+// SENIOR manually creates a payout request by selecting one or more VALIDATED
+// SENIOR_INCOME rows. The old auto-create path on ACCOUNTANT validate has been
+// removed to eliminate duplicate payouts.
+import { PayoutDialog } from './components/dialogs/PayoutDialog'
 import { PayoutDetailDialog } from './components/dialogs/PayoutDetailDialog'
 import { TransactionDetailDialog } from './components/dialogs/TransactionDetailDialog'
 import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransactionDialog'
@@ -200,6 +201,7 @@ function TransactionsTable({
   onDelete,
   onPaySalary,
   onOpenPayoutDetail,
+  onInitiatePayout,
   onConfirmPayout,
   onLogCash,
   onDetail,
@@ -220,6 +222,11 @@ function TransactionsTable({
    * row from tx.payoutRequestId).
    */
   onOpenPayoutDetail: (payoutRequestId: string) => void
+  /**
+   * feat/finance-payout-flow (#7). SENIOR clicks «Выплатить» on a VALIDATED
+   * SENIOR_INCOME row — opens PayoutDialog pre-selecting that tx.
+   */
+  onInitiatePayout?: (txId: string) => void
   /**
    * Drop role - phase 3 (spec §8.4). Opens ConfirmPayoutDialog for an
    * ADMIN/ACCOUNTANT on PAYOUT rows in PENDING_PAYMENT.
@@ -371,6 +378,7 @@ function TransactionsTable({
                     onDelete={onDelete}
                     onPaySalary={onPaySalary}
                     onOpenPayoutDetail={onOpenPayoutDetail}
+                    onInitiatePayout={onInitiatePayout}
                     onConfirmPayout={onConfirmPayout}
                     onLogCash={onLogCash}
                     onClick={onDetail}
@@ -416,10 +424,16 @@ function FinancePage() {
   const [adminEditTx, setAdminEditTx] = useState<TransactionDto | null>(null)
   const [deleteTx, setDeleteTx] = useState<TransactionDto | null>(null)
   const [paySalaryTx, setPaySalaryTx] = useState<TransactionDto | null>(null)
+  // PayoutDialog state — feat/finance-payout-flow (#7). SENIOR selects one or
+  // more VALIDATED SENIOR_INCOME rows → POST /api/payout-requests creates a
+  // single payout_request + PAYOUT row (PENDING_PAYMENT).
+  const [payoutDialogOpen, setPayoutDialogOpen] = useState(false)
+  // preselectedPayoutTxId is set when SENIOR clicks the inline «Выплатить»
+  // pill on a single VALIDATED row (quick single-tx path). Cleared on close.
+  const [preselectedPayoutTxId, setPreselectedPayoutTxId] = useState<string | undefined>()
+
   // Payout detail dialog — opened from the inline «Оплатить» pill on the
-  // «Выплата» (PAYOUT) row (PENDING_PAYMENT). null = closed. The PAYOUT row
-  // itself is auto-created by the backend at validate time
-  // (task-payout-auto-on-validate); SENIOR no longer launches a batch.
+  // «Выплата» (PAYOUT) row (PENDING_PAYMENT). null = closed.
   const [payoutDetailId, setPayoutDetailId] = useState<string | null>(null)
   // Drop role - phase 3 (spec §8.4). PAYOUT row whose manual confirmation
   // dialog is currently open. Visible only to ADMIN/ACCOUNTANT (the row
@@ -438,6 +452,13 @@ function FinancePage() {
 
   const closePayoutDetail = useCallback(() => {
     setPayoutDetailId(null)
+  }, [])
+
+  // feat/finance-payout-flow (#7): inline row «Выплатить» on a VALIDATED
+  // SENIOR_INCOME opens PayoutDialog with that tx pre-selected.
+  const openPayoutDialogForTx = useCallback((txId: string) => {
+    setPreselectedPayoutTxId(txId)
+    setPayoutDialogOpen(true)
   }, [])
 
   const qc = useQueryClient()
@@ -473,11 +494,15 @@ function FinancePage() {
     staleTime: 30_000,
   })
 
-  // Payout-requests query was only used to compute the SENIOR's
-  // «Выплатить (N)» header counter for the batch flow. With auto-create at
-  // validate time (task-payout-auto-on-validate) the batch button is gone and
-  // PAYOUT rows are surfaced directly in the main transactions table — no
-  // separate fetch needed here.
+  // Payout-requests query is not needed here — the SENIOR initiates a payout
+  // by clicking «Выплатить» on a VALIDATED row, which opens PayoutDialog.
+  // PAYOUT rows (after creation) are surfaced in the main transactions table.
+
+  // VALIDATED SENIOR_INCOME rows available for batching into a new payout.
+  // Used by PayoutDialog to populate the multi-select list.
+  const validatedSeniorIncomes = transactions.filter(
+    (t) => t.type === 'SENIOR_INCOME' && t.status === 'VALIDATED' && !t.payoutRequestId,
+  )
 
   // HR view
   if (isHr) {
@@ -636,9 +661,21 @@ function FinancePage() {
           <p className="text-sm text-muted-foreground">Все транзакции</p>
         </div>
         <div className="flex gap-2">
-          {/* Header «Выплатить (N)» batch button removed in
-              task-payout-auto-on-validate — PAYOUT rows now auto-created on
-              ACCOUNTANT validate and pay-out happens from the row itself. */}
+          {/* feat/finance-payout-flow (#7): SENIOR can batch multiple VALIDATED
+              incomes into one payout via the header button. Badge shows count. */}
+          {isSenior && validatedSeniorIncomes.length > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPreselectedPayoutTxId(undefined)
+                setPayoutDialogOpen(true)
+              }}
+              data-testid="finance-initiate-payout-button"
+            >
+              <Wallet className="h-4 w-4 mr-1" />
+              Выплатить ({validatedSeniorIncomes.length})
+            </Button>
+          )}
           {canCreate && (
             <Button
               onClick={() => setShowCreate(true)}
@@ -678,6 +715,7 @@ function FinancePage() {
             onDelete={setDeleteTx}
             onPaySalary={setPaySalaryTx}
             onOpenPayoutDetail={openPayoutDetail}
+            onInitiatePayout={isSenior ? openPayoutDialogForTx : undefined}
             onConfirmPayout={setConfirmPayoutTx}
             onLogCash={setLogCashTx}
             onDetail={setDetailTx}
@@ -691,8 +729,17 @@ function FinancePage() {
       <EditSeniorIncomeDialog tx={editTx} onClose={() => setEditTx(null)} />
       <AdminEditTransactionDialog tx={adminEditTx} onClose={() => setAdminEditTx(null)} />
       <PaySalaryDialog tx={paySalaryTx} onClose={() => setPaySalaryTx(null)} />
-      {/* PayoutDialog (batch payout) intentionally not mounted — see
-          task-payout-auto-on-validate. */}
+      {/* feat/finance-payout-flow (#7): PayoutDialog re-activated. SENIOR
+          selects one or more VALIDATED SENIOR_INCOME rows → single payout. */}
+      <PayoutDialog
+        open={payoutDialogOpen}
+        onClose={() => {
+          setPayoutDialogOpen(false)
+          setPreselectedPayoutTxId(undefined)
+        }}
+        validatedTxs={validatedSeniorIncomes}
+        preselectedTxIds={preselectedPayoutTxId ? [preselectedPayoutTxId] : undefined}
+      />
       <PayoutDetailDialog
         open={!!payoutDetailId}
         onClose={closePayoutDetail}
