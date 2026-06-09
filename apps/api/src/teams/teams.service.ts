@@ -81,10 +81,14 @@ export class TeamsService {
       }
     }
 
-    // Filter out other JUNIORs if the current user is a JUNIOR
+    // RBAC: filter junior list based on the viewer's role.
+    // JUNIOR viewer: sees only themselves (their own entry), not other JUNIORs.
+    // SENIOR viewer: sees NO juniors (junior identity hidden from SENIOR per rule #1).
     let filteredJuniorMembers = juniorMembers
     if (currentUser?.role === 'JUNIOR') {
       filteredJuniorMembers = juniorMembers.filter((j) => j.userId === currentUser.id)
+    } else if (currentUser?.role === 'SENIOR') {
+      filteredJuniorMembers = []
     }
 
     return {

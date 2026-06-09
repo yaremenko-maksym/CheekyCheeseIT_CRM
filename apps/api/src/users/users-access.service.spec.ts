@@ -171,14 +171,17 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.actions).toEqual([])
   })
 
-  it('SENIOR viewing JUNIOR member of their project — sees overview/projects/team', async () => {
-    ;(service as unknown as Record<string, unknown>).isSeniorViewingOwnProjectMember = vi
-      .fn()
-      .mockResolvedValue(true)
+  // RBAC rule #1: SENIOR must never see JUNIOR profile regardless of project membership.
+  // isSeniorViewingOwnProjectMember is never called when target.role === 'JUNIOR'.
+  it('SENIOR viewing JUNIOR from their own project — zero tabs (profile blocked per RBAC #1)', async () => {
+    const spy = vi.fn().mockResolvedValue(true)
+    ;(service as unknown as Record<string, unknown>).isSeniorViewingOwnProjectMember = spy
     const viewer = makeUser({ id: 'sr1', role: 'SENIOR' })
     const target = makeUser({ id: 'jr1', role: 'JUNIOR' })
     const p = await service.getViewPermissions(viewer, target)
-    expect(p.tabs).toEqual(['overview', 'projects', 'team'])
+    expect(p.tabs).toEqual([])
+    // The DB helper should NOT be called — short-circuit before the check
+    expect(spy).not.toHaveBeenCalled()
   })
 
   it('SENIOR viewing unrelated JUNIOR — no tabs', async () => {
@@ -187,6 +190,34 @@ describe('UsersAccessService.getViewPermissions', () => {
     const target = makeUser({ id: 'jr1', role: 'JUNIOR' })
     const p = await service.getViewPermissions(viewer, target)
     expect(p.tabs).toEqual([])
+  })
+
+  // Regression: ADMIN/HR visibility of JUNIOR must NOT be broken by RBAC #1.
+  it('ADMIN viewing JUNIOR — keeps full tabs (regression)', async () => {
+    const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
+    const target = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.tabs).toContain('overview')
+    expect(p.tabs).toContain('finance')
+    expect(p.tabs).toContain('contract')
+  })
+
+  it('HR viewing JUNIOR in their team — keeps tabs (regression)', async () => {
+    ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
+      .fn()
+      .mockResolvedValue(true)
+    const viewer = makeUser({ id: 'hr1', role: 'HR' })
+    const target = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.tabs).toContain('overview')
+  })
+
+  it('JUNIOR viewing themselves — keeps own tabs (regression)', async () => {
+    const junior = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(junior, junior)
+    expect(p.tabs).toContain('overview')
+    expect(p.tabs).toContain('projects')
+    expect(p.tabs).toContain('team')
   })
 
   it('JUNIOR viewing their project SENIOR — gets overview/projects/team + fields.legend=true', async () => {

@@ -461,12 +461,14 @@ function TeamDetailPage() {
                   year: 'numeric',
                 })}
               </div>
-              {team.telegram && (
+              {/* TG-канал hidden from JUNIOR viewer per task #11 */}
+              {team.telegram && user?.role !== 'JUNIOR' && (
                 <a
                   href={tgUrl(team.telegram)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 rounded-lg border border-blue-500/50 px-4 py-2 text-sm font-medium text-blue-400 hover:bg-blue-500/10 hover:border-blue-400 transition-colors"
+                  data-testid="team-telegram-link"
                 >
                   <Send className="h-3 w-3" />
                   Telegram-канал
@@ -561,9 +563,12 @@ function TeamDetailPage() {
             </CardHeader>
             <CardContent>
               {(() => {
-                // Filter out other JUNIORs if current user is JUNIOR
+                // RBAC member visibility:
+                // JUNIOR viewer → hide all JUNIORs (sees non-junior roster only).
+                // SENIOR viewer → hide all JUNIORs (identity hidden per RBAC rule #1).
+                // Other roles → full member list.
                 const visibleMembers =
-                  user?.role === 'JUNIOR'
+                  user?.role === 'JUNIOR' || user?.role === 'SENIOR'
                     ? team.members.filter((m) => m.role !== 'JUNIOR')
                     : team.members
 
@@ -710,83 +715,95 @@ function TeamDetailPage() {
           </Card>
         </motion.div>
 
-        {/* Active Projects */}
-        <motion.div variants={item}>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Briefcase className="h-5 w-5" />
-                Активные проекты
-                {visibleProjects.length > 0 && (
-                  <Badge className="ml-auto bg-emerald-500/15 text-emerald-400 border-emerald-500/25 hover:bg-emerald-500/20">
-                    {visibleProjects.length}
-                  </Badge>
+        {/* Active Projects — hidden from JUNIOR viewers per task #11 */}
+        {user?.role !== 'JUNIOR' && (
+          <motion.div variants={item}>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Briefcase className="h-5 w-5" />
+                  Активные проекты
+                  {visibleProjects.length > 0 && (
+                    <Badge className="ml-auto bg-emerald-500/15 text-emerald-400 border-emerald-500/25 hover:bg-emerald-500/20">
+                      {visibleProjects.length}
+                    </Badge>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {visibleProjects.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">
+                    Нет активных проектов
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {visibleProjects.map((project) => {
+                      const juniorMember = project.members?.find(
+                        (m: { role: string; leftAt: string | null }) =>
+                          m.role === 'JUNIOR' && m.leftAt === null,
+                      )
+                      // RBAC rule #1: SENIOR viewer must not see junior identity.
+                      // junior slot still visible (project has a junior), but name/avatar hidden.
+                      const showJuniorIdentity = user?.role !== 'SENIOR'
+                      const junior =
+                        showJuniorIdentity && juniorMember
+                          ? team.members.find((m) => m.userId === juniorMember.userId)
+                          : null
+                      return (
+                        <Link
+                          key={project.id}
+                          to="/crm/projects/$projectId"
+                          params={{ projectId: project.id }}
+                          className="flex items-center gap-3 rounded-lg border border-border/60 bg-card/50 p-3 transition-all hover:border-primary/30 hover:bg-card"
+                        >
+                          <ProjectLogo
+                            documentId={project.logoDocumentId}
+                            externalUrl={project.logoExternalUrl}
+                            companyName={project.companyName}
+                            fallback={project.companyName.slice(0, 2).toUpperCase()}
+                            avatarClassName="h-8 w-8 rounded-md shrink-0 [&_[data-slot=avatar-fallback]]:rounded-md [&_[data-slot=avatar-fallback]]:text-xs"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">{project.name}</p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {project.companyName}
+                            </p>
+                            {junior ? (
+                              <div
+                                className="flex items-center gap-1.5 mt-1"
+                                data-testid="project-junior-slot"
+                              >
+                                <Avatar className="h-4 w-4">
+                                  {junior.avatarUrl && (
+                                    <AvatarImage src={junior.avatarUrl} alt={junior.displayName} />
+                                  )}
+                                  <AvatarFallback className="bg-muted text-[8px]">
+                                    {getInitials(junior.displayName)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <span className="text-xs text-muted-foreground truncate">
+                                  {junior.displayName}
+                                </span>
+                              </div>
+                            ) : juniorMember && !showJuniorIdentity ? (
+                              // SENIOR viewer: slot occupied but identity hidden
+                              <p className="text-xs text-muted-foreground/60 mt-1">Джун назначен</p>
+                            ) : (
+                              <p className="text-xs text-destructive mt-1">Джун не прикреплён</p>
+                            )}
+                          </div>
+                          <Badge className="shrink-0 bg-emerald-500/15 text-emerald-400 border-emerald-500/25 text-[10px]">
+                            Активный
+                          </Badge>
+                        </Link>
+                      )
+                    })}
+                  </div>
                 )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {visibleProjects.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">
-                  Нет активных проектов
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {visibleProjects.map((project) => {
-                    const juniorMember = project.members?.find(
-                      (m: { role: string; leftAt: string | null }) =>
-                        m.role === 'JUNIOR' && m.leftAt === null,
-                    )
-                    const junior = juniorMember
-                      ? team.members.find((m) => m.userId === juniorMember.userId)
-                      : null
-                    return (
-                      <Link
-                        key={project.id}
-                        to="/crm/projects/$projectId"
-                        params={{ projectId: project.id }}
-                        className="flex items-center gap-3 rounded-lg border border-border/60 bg-card/50 p-3 transition-all hover:border-primary/30 hover:bg-card"
-                      >
-                        <ProjectLogo
-                          documentId={project.logoDocumentId}
-                          externalUrl={project.logoExternalUrl}
-                          companyName={project.companyName}
-                          fallback={project.companyName.slice(0, 2).toUpperCase()}
-                          avatarClassName="h-8 w-8 rounded-md shrink-0 [&_[data-slot=avatar-fallback]]:rounded-md [&_[data-slot=avatar-fallback]]:text-xs"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">{project.name}</p>
-                          <p className="truncate text-xs text-muted-foreground">
-                            {project.companyName}
-                          </p>
-                          {junior ? (
-                            <div className="flex items-center gap-1.5 mt-1">
-                              <Avatar className="h-4 w-4">
-                                {junior.avatarUrl && (
-                                  <AvatarImage src={junior.avatarUrl} alt={junior.displayName} />
-                                )}
-                                <AvatarFallback className="bg-muted text-[8px]">
-                                  {getInitials(junior.displayName)}
-                                </AvatarFallback>
-                              </Avatar>
-                              <span className="text-xs text-muted-foreground truncate">
-                                {junior.displayName}
-                              </span>
-                            </div>
-                          ) : (
-                            <p className="text-xs text-destructive mt-1">Джун не прикреплён</p>
-                          )}
-                        </div>
-                        <Badge className="shrink-0 bg-emerald-500/15 text-emerald-400 border-emerald-500/25 text-[10px]">
-                          Активный
-                        </Badge>
-                      </Link>
-                    )
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
       </div>
 
       {/* Edit Team Dialog */}

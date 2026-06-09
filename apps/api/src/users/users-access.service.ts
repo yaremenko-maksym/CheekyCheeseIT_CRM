@@ -95,12 +95,19 @@ export class UsersAccessService {
         fields.legend = targetIsLegendSubject
       }
     } else if (isSenior) {
-      // SENIOR can view profiles of JUNIOR members active on their projects
-      if (await this.isSeniorViewingOwnProjectMember(viewer.id, target.id)) {
-        tabs.push('overview', 'projects', 'team')
-        fields.techStack = targetHasTechStack
-        fields.registrationDate = true
+      // SENIOR cannot view JUNIOR profiles (identity hidden per RBAC rule #1).
+      // SENIOR can view profiles of other non-JUNIOR members (e.g. their own
+      // HR or accountant) if there is a shared team relation — but that path
+      // was never implemented and is left for a future task. For now: SENIOR
+      // viewing a JUNIOR always gets zero tabs (profile unreachable).
+      if (target.role !== 'JUNIOR') {
+        if (await this.isSeniorViewingOwnProjectMember(viewer.id, target.id)) {
+          tabs.push('overview', 'projects', 'team')
+          fields.techStack = targetHasTechStack
+          fields.registrationDate = true
+        }
       }
+      // target.role === 'JUNIOR': intentionally fall through with no tabs (403 at route level).
     } else if (isJunior && targetIsLegendSubject) {
       // JUNIOR can view the legend of the SENIOR or DROP associated with their active project.
       // For SENIOR: projects.seniorId = target. For DROP: projects.dropId = target.
