@@ -2,6 +2,10 @@
  * finance.spec.ts — unit tests for financeSummarySchema.dropBalances
  * covering the new dropSharePercent + pendingCount fields added in
  * feat/drop-balances-panel.
+ *
+ * MED-3 note: dropSharePercent is now z.number() (non-nullable). The backend
+ * applies DEFAULT_DROP_SHARE_PERCENT before responding, so null never reaches
+ * the client. The «accepts null» test has been replaced with a rejection test.
  */
 import { describe, expect, it } from 'vitest'
 import { financeSummarySchema } from './finance'
@@ -35,20 +39,23 @@ describe('financeSummarySchema.dropBalances — new fields', () => {
     expect(entry.balance).toBe(1250.5)
   })
 
-  it('accepts null dropSharePercent (legacy rows)', () => {
-    const result = financeSummarySchema.parse({
-      ...baseSummary,
-      dropBalances: [
-        {
-          userId: 'a0000000-0000-4000-8000-000000000007',
-          displayName: 'Drop User',
-          balance: 0,
-          dropSharePercent: null,
-          pendingCount: 0,
-        },
-      ],
-    })
-    expect(result.dropBalances[0]!.dropSharePercent).toBeNull()
+  it('rejects null dropSharePercent (MED-3: backend always sends a number)', () => {
+    // Backend applies DEFAULT_DROP_SHARE_PERCENT fallback before responding,
+    // so the client schema should reject null to keep the contract honest.
+    expect(() =>
+      financeSummarySchema.parse({
+        ...baseSummary,
+        dropBalances: [
+          {
+            userId: 'a0000000-0000-4000-8000-000000000007',
+            displayName: 'Drop User',
+            balance: 0,
+            dropSharePercent: null,
+            pendingCount: 0,
+          },
+        ],
+      }),
+    ).toThrow()
   })
 
   it('accepts zero balance with pendingCount=0', () => {
