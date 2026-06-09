@@ -658,9 +658,8 @@ export const financeSummarySchema = z.object({
   // field stay unaffected.
   //
   // Redesign (feat/drop-balances-panel):
-  //   dropSharePercent — snapshot of the drop's share % at summary time
-  //                      (users.dropSharePercent ?? 5). Nullable for legacy
-  //                      rows produced before the field was added.
+  //   dropSharePercent — always a number; backend applies ?? DEFAULT_DROP_SHARE_PERCENT
+  //                      before returning, so null never reaches the client.
   //   pendingCount     — number of DROP_INCOME rows in PENDING|VALIDATED
   //                      status for this drop. Used by the «N ожидают» badge.
   dropBalances: z
@@ -669,7 +668,7 @@ export const financeSummarySchema = z.object({
         userId: z.string().uuid(),
         displayName: z.string(),
         balance: z.number(),
-        dropSharePercent: z.number().int().min(0).max(100).nullable(),
+        dropSharePercent: z.number().int().min(0).max(100),
         pendingCount: z.number().int().min(0),
       }),
     )

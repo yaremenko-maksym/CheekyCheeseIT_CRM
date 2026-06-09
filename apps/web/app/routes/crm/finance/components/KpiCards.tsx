@@ -4,6 +4,22 @@ import { cn } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 
+/**
+ * ru-RU plural helper for «N дроп / N дропа / N дропов».
+ * Follows standard Russian declension rules:
+ *   1, 21, 31… → «дроп»
+ *   2-4, 22-24… → «дропа»
+ *   5-20, 25-30… → «дропов»
+ */
+function pluralizeDrops(n: number): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod100 >= 11 && mod100 <= 14) return 'дропов'
+  if (mod10 === 1) return 'дроп'
+  if (mod10 >= 2 && mod10 <= 4) return 'дропа'
+  return 'дропов'
+}
+
 export function KpiCard({
   title,
   value,
@@ -88,7 +104,7 @@ export function DropBalanceCard({ summary }: { summary: FinanceSummaryDto }) {
             className="text-[10px] font-mono text-muted-foreground"
             data-testid="drop-balances-count"
           >
-            {summary.dropBalances.length} {summary.dropBalances.length === 1 ? 'дроп' : 'дропов'}
+            {summary.dropBalances.length} {pluralizeDrops(summary.dropBalances.length)}
           </span>
         </div>
 
@@ -132,15 +148,14 @@ export function DropBalanceCard({ summary }: { summary: FinanceSummaryDto }) {
 
                 {/* Right: badges + amount */}
                 <div className="flex items-center gap-2 shrink-0">
-                  {/* Share % badge */}
-                  {db.dropSharePercent !== null && (
-                    <span
-                      className="rounded bg-yellow-500/10 px-1.5 py-0.5 text-[10px] font-mono text-primary"
-                      data-testid={`drop-balance-share-${db.userId}`}
-                    >
-                      {db.dropSharePercent}%
-                    </span>
-                  )}
+                  {/* Share % badge — dropSharePercent is always a number (backend
+                      applies DEFAULT_DROP_SHARE_PERCENT fallback, schema non-nullable). */}
+                  <span
+                    className="rounded bg-yellow-500/10 px-1.5 py-0.5 text-[10px] font-mono text-primary"
+                    data-testid={`drop-balance-share-${db.userId}`}
+                  >
+                    {db.dropSharePercent}%
+                  </span>
 
                   {/* Pending count badge */}
                   {db.pendingCount > 0 && (
