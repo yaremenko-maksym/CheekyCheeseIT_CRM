@@ -188,7 +188,7 @@ function SeniorIncomeContent({ tx }: { tx: TransactionDto }) {
                 ? 'проект'
                 : tx.seniorSharePercentSource === 'TEAM'
                   ? 'команда'
-                  : 'default'}
+                  : 'по умолчанию'}
             </span>
           ) : null}
           <span className="text-xs text-muted-foreground ml-2">
