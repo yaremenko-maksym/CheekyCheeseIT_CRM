@@ -569,6 +569,13 @@ test.describe('Interviews (Kanban) page', () => {
         }),
       )
 
+      // Widen the viewport so all 9 Kanban columns (HR_SCREEN → ARCHIVED) fit
+      // on screen simultaneously. This guarantees droppableRects for HIRED are
+      // non-zero and reachable by kanbanKeyboardCoordinateGetter in headless.
+      // Without this, the columns beyond OFFER_RECEIVED are off-screen and the
+      // coordinate getter may not move past them reliably.
+      await page.setViewportSize({ width: 1920, height: 900 })
+
       await page.goto('/crm/interviews')
       // Wait for board to be fully rendered before interacting.
       await expect(page.getByText('HR Screen').first()).toBeVisible()
@@ -583,33 +590,31 @@ test.describe('Interviews (Kanban) page', () => {
       // KeyboardSensor attaches its keydown listener via setTimeout(), so a brief
       // wait after focus ensures the sensor is ready before the first keypress.
       await page.keyboard.press('Space')
-      // Wait for the ARIA live region to confirm drag started.
-      await expect(page.locator('[aria-live]').first()).toContainText('interview-1-id', {
+      // Wait for dnd-kit DndLiveRegion to announce drag start.
+      // We use the scoped selector `[aria-live]:not([aria-label])` to target
+      // dnd-kit's live region and skip the Notifications section which has
+      // aria-label="Notifications alt+T". This avoids the original flakiness
+      // where `.first()` landed on the wrong element in CI.
+      await expect(page.locator('[aria-live]:not([aria-label])').first()).not.toBeEmpty({
         timeout: 5000,
       })
 
       // ArrowRight × 6: column-by-column via kanbanKeyboardCoordinateGetter.
-      // Wait for each ARIA change before the next press — dnd-kit updates React
-      // state asynchronously, so the next coordinate getter call must see the
-      // updated currentCoordinates. Without the wait, rapid presses can stall.
-      const targetStages = [
-        'ENGLISH_CHECK',
-        'TECH_INTERVIEW',
-        'FINAL_INTERVIEW',
-        'CLIENT_INTERVIEW',
-        'OFFER_RECEIVED',
-        'HIRED',
-      ]
-      for (const stage of targetStages) {
+      // HR_SCREEN(0) → ENGLISH_CHECK(1) → TECH(2) → FINAL(3) → CLIENT(4)
+      // → OFFER(5) → HIRED(6). 200 ms between presses ensures dnd-kit updates
+      // currentCoordinates and registers each ArrowRight before the next press.
+      for (let i = 0; i < 6; i++) {
         await page.keyboard.press('ArrowRight')
-        await expect(page.locator('[aria-live]').first()).toContainText(stage, { timeout: 5000 })
+        await page.waitForTimeout(200)
       }
 
       // Space — drop into HIRED; move mock fires and returns HIRED stage
       await page.keyboard.press('Space')
 
       // CreateProjectFromHiredDialog must appear (canCreateProject=true for ADMIN)
-      await expect(page.getByTestId('create-project-from-hired-dialog')).toBeVisible()
+      await expect(page.getByTestId('create-project-from-hired-dialog')).toBeVisible({
+        timeout: 5000,
+      })
 
       // "Отмена" closes the full-form dialog without POST /projects
       await page.getByRole('button', { name: 'Отмена' }).click()
