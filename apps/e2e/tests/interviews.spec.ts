@@ -544,22 +544,13 @@ test.describe('Interviews (Kanban) page', () => {
       await expect(page.getByTestId('confirm-create-project-dialog')).not.toBeVisible()
     })
 
-    // SKIP: BUG3 DnD path — dnd-kit PointerSensor does not respond to Playwright
-    // synthetic pointer events (requires real pointer capture). KeyboardSensor is
-    // NOT configured in apps/web/app/routes/crm/interviews/index.tsx — only
-    // PointerSensor with activationConstraint: { distance: 8 } is used.
-    // The test fell back to the sheet-button path but the Sheet overlay stays
-    // open after the confirm-dialog closes, so 'Собеседования' heading is hidden
-    // → CI assert on `heading 'Собеседования'` fails.
-    // The cancel-button fix is verified by manual QA + code-review, and the
-    // sheet-button path is already covered by 'BUG3: cancel button in
-    // create-project dialog closes it' above.
-    //
-    // TO RE-ENABLE: Coder must add KeyboardSensor to DndContext in index.tsx:
-    //   useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-    // Then replace test.skip with a keyboard-drag: Space (pick) → ArrowRight
-    // to HIRED column → Space (drop) — keyboard events are reliable in Playwright.
-    test.skip('BUG3: CreateProjectFromHiredDialog cancel button closes the full-form dialog', async ({
+    // BUG3 DnD path via keyboard — KeyboardSensor is now configured in
+    // apps/web/app/routes/crm/interviews/index.tsx alongside PointerSensor.
+    // Keyboard drag: Space (pick) → ArrowRight × N to HIRED column → Space (drop).
+    // Arrow key count: HR_SCREEN(0) → HIRED(6) = 6 steps right.
+    // After drop, move mock returns HIRED → CreateProjectFromHiredDialog opens.
+    // Clicking "Отмена" must close the dialog and leave the page intact.
+    test('BUG3: CreateProjectFromHiredDialog cancel button closes the full-form dialog', async ({
       asAdmin: page,
     }) => {
       await page.route(/\/interviews\/.*\/move/, (r) =>
@@ -576,13 +567,33 @@ test.describe('Interviews (Kanban) page', () => {
       )
 
       await page.goto('/crm/interviews')
-      await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
-      await page.getByRole('button', { name: 'Нанят' }).click()
 
-      await expect(page.getByTestId('confirm-create-project-dialog')).toBeVisible()
-      await page.getByRole('button', { name: 'Нет' }).click()
-      await expect(page.getByTestId('confirm-create-project-dialog')).not.toBeVisible()
+      // Locate the Acme Corp card (HR_SCREEN column, position 0) and focus it.
+      // useSortable spreads {attributes, listeners} onto the div which includes
+      // tabIndex=0 and role="button" so the card is keyboard-focusable.
+      const card = page.getByRole('button').filter({ hasText: 'Acme Corp' }).first()
+      await card.focus()
 
+      // Space — activate KeyboardSensor drag
+      await page.keyboard.press('Space')
+
+      // ArrowRight × 6: HR_SCREEN → ENGLISH_CHECK → TECH_INTERVIEW →
+      //   FINAL_INTERVIEW → CLIENT_INTERVIEW → OFFER_RECEIVED → HIRED
+      for (let i = 0; i < 6; i++) {
+        await page.keyboard.press('ArrowRight')
+      }
+
+      // Space — drop into HIRED column; move mock fires and returns HIRED stage
+      await page.keyboard.press('Space')
+
+      // CreateProjectFromHiredDialog must appear (canCreateProject=true for ADMIN)
+      await expect(page.getByTestId('create-project-from-hired-dialog')).toBeVisible()
+
+      // "Отмена" closes the full-form dialog without POST /projects
+      await page.getByRole('button', { name: 'Отмена' }).click()
+      await expect(page.getByTestId('create-project-from-hired-dialog')).not.toBeVisible()
+
+      // Page heading still visible — no crash, sheet not blocking
       await expect(page.getByRole('heading', { name: 'Собеседования' })).toBeVisible()
     })
   })
