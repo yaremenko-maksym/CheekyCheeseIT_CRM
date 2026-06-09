@@ -57,6 +57,13 @@
       "when": 1749475200000,
       "tag": "0007_cleanup_orphan_senior_payout_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1781002956300,
+      "tag": "0008_lucky_moonstone",
+      "breakpoints": true
     }
   ]
 }
