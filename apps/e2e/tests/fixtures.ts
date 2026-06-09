@@ -1578,6 +1578,35 @@ export async function validateTransactionViaAPI(
 }
 
 /**
+ * Create a payout_request for a set of VALIDATED SENIOR_INCOME transactions
+ * via POST /api/payout-requests.
+ *
+ * feat/finance-payout-flow (#7): validateTransaction for SENIOR_INCOME no
+ * longer auto-creates a payout_request. The SENIOR must call this endpoint
+ * manually (or via the UI PayoutDialog) to batch one or more VALIDATED incomes
+ * into a single payout. This helper replaces the implicit assumption that
+ * validateTransactionViaAPI returns a non-null payoutRequestId for
+ * SENIOR_INCOME flows.
+ *
+ * Caller must be SENIOR. Returns the new payout_request id.
+ */
+export async function createPayoutRequestViaAPI(
+  page: Page,
+  transactionIds: string[],
+): Promise<{ payoutRequestId: string }> {
+  const res = await page.request.post(`${REAL_API_BASE}/api/payout-requests`, {
+    data: { transactionIds },
+  })
+  if (res.status() !== 201) {
+    throw new Error(
+      `createPayoutRequestViaAPI failed: HTTP ${res.status()} — ${await res.text()}`,
+    )
+  }
+  const body = (await res.json()) as { id: string }
+  return { payoutRequestId: body.id }
+}
+
+/**
  * Mark a PENDING payout_request as PAID via PATCH /api/payout-requests/:id/pay.
  *
  * Caller must be SENIOR or DROP (the seniorId/dropId on the payout_request

@@ -42,6 +42,7 @@ import {
   createDropProjectViaAPI,
   createDropIncomeViaAPI,
   validateTransactionViaAPI,
+  createPayoutRequestViaAPI,
   payPayoutRequestViaAPI,
   listTransactionsByProjectViaAPI,
 } from './fixtures'
@@ -70,12 +71,15 @@ test.describe('PAYOUT_ADMIN.projectId regression — both cascade branches', () 
         currency: 'USDT',
       })
 
+      // feat/finance-payout-flow (#7): validate only flips to VALIDATED.
       await loginViaApi(page, SEED_EMAILS.accountant)
-      const { payoutRequestId } = await validateTransactionViaAPI(page, txId)
-      expect(payoutRequestId).toBeTruthy()
+      await validateTransactionViaAPI(page, txId)
 
       await loginViaApi(page, SEED_EMAILS.seniorA)
-      const paid = await payPayoutRequestViaAPI(page, payoutRequestId!)
+      const { payoutRequestId } = await createPayoutRequestViaAPI(page, [txId])
+      expect(payoutRequestId).toBeTruthy()
+
+      const paid = await payPayoutRequestViaAPI(page, payoutRequestId)
       expect(paid.status).toBe('PAID')
 
       // Fetch via the ?projectId= filter — backlog AC5 fix means

@@ -35,6 +35,7 @@ import {
   createSeniorProjectViaAPI,
   createSeniorIncomeViaAPI,
   validateTransactionViaAPI,
+  createPayoutRequestViaAPI,
   findPendingPayoutsForProjectViaAPI,
   listTransactionsByProjectViaAPI,
   getTransactionViaAPI,
@@ -69,14 +70,20 @@ test.describe('Senior confirm-payout — manual confirmation (AC3)', () => {
         currency: 'USDT',
       })
 
-      // ACCOUNTANT validates → payout_request + PAYOUT placeholder
-      // (PENDING_PAYMENT). Phase 3 manual confirmation operates on this
-      // placeholder. We deliberately SKIP `payPayoutRequest` because that
-      // would flip the placeholder to PAID and the idempotency guard would
-      // 400 the confirmation.
+      // ACCOUNTANT validates → SENIOR_INCOME becomes VALIDATED (no auto-payout).
+      // feat/finance-payout-flow (#7): SENIOR must manually create the payout.
       await loginViaApi(page, SEED_EMAILS.accountant)
-      const { payoutRequestId } = await validateTransactionViaAPI(page, incomeTxId)
+      await validateTransactionViaAPI(page, incomeTxId)
+
+      // SENIOR creates the payout_request. We deliberately SKIP payPayoutRequest
+      // because Phase 3 manual confirmation needs PAYOUT in PENDING_PAYMENT
+      // (the idempotency guard would 400 a second confirm).
+      await loginViaApi(page, SEED_EMAILS.seniorA)
+      const { payoutRequestId } = await createPayoutRequestViaAPI(page, [incomeTxId])
       expect(payoutRequestId).toBeTruthy()
+
+      // Switch back to ACCOUNTANT for the UI confirmation flow.
+      await loginViaApi(page, SEED_EMAILS.accountant)
 
       // ── Pre-confirmation invariant ───────────────────────────────────
       const pendingPayouts = await findPendingPayoutsForProjectViaAPI(page, projectId)

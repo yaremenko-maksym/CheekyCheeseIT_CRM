@@ -42,6 +42,7 @@ import {
   createSeniorProjectViaAPI,
   createSeniorIncomeViaAPI,
   validateTransactionViaAPI,
+  createPayoutRequestViaAPI,
   payPayoutRequestViaAPI,
   listPayoutRequestTransactionsViaAPI,
 } from './fixtures'
@@ -74,14 +75,18 @@ test.describe('Senior-project distribution regression — real API (AC7)', () =>
         currency: 'USDT',
       })
 
-      // 3) ACCOUNTANT validates → placeholder PAYOUT (PENDING_PAYMENT).
+      // 3) ACCOUNTANT validates → SENIOR_INCOME becomes VALIDATED (no auto-payout).
+      // feat/finance-payout-flow (#7): validate no longer auto-creates payout_request.
       await loginViaApi(page, SEED_EMAILS.accountant)
-      const { payoutRequestId } = await validateTransactionViaAPI(page, txId)
+      await validateTransactionViaAPI(page, txId)
+
+      // 4) SENIOR manually creates payout_request (single income).
+      await loginViaApi(page, SEED_EMAILS.seniorA)
+      const { payoutRequestId } = await createPayoutRequestViaAPI(page, [txId])
       expect(payoutRequestId).toBeTruthy()
 
-      // 4) SENIOR pays → legacy 50/50 partner split (no drop branch).
-      await loginViaApi(page, SEED_EMAILS.seniorA)
-      const paid = await payPayoutRequestViaAPI(page, payoutRequestId!)
+      // 5) SENIOR pays → legacy 50/50 partner split (no drop branch).
+      const paid = await payPayoutRequestViaAPI(page, payoutRequestId)
       expect(paid.status).toBe('PAID')
 
       // 5) Full ledger via ADMIN read — fetch ALL transactions linked to

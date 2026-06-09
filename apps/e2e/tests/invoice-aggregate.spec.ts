@@ -29,6 +29,7 @@ import {
   createSeniorProjectViaAPI,
   createSeniorIncomeViaAPI,
   validateTransactionViaAPI,
+  createPayoutRequestViaAPI,
   payPayoutRequestViaAPI,
   listTransactionsByProjectViaAPI,
 } from './fixtures'
@@ -71,13 +72,17 @@ test.describe('Aggregate invoice — 1 per PAYOUT', () => {
         amount: 1000,
       })
 
+      // feat/finance-payout-flow (#7): validate only flips to VALIDATED.
       await loginViaApi(page, SEED_EMAILS.accountant)
-      const { payoutRequestId } = await validateTransactionViaAPI(page, txId)
+      await validateTransactionViaAPI(page, txId)
+
+      // SENIOR manually creates and pays the payout_request.
+      await loginViaApi(page, SEED_EMAILS.seniorA)
+      const { payoutRequestId } = await createPayoutRequestViaAPI(page, [txId])
       expect(payoutRequestId).toBeTruthy()
 
       // SENIOR pays — triggers cascade and the auto-invoice creation.
-      await loginViaApi(page, SEED_EMAILS.seniorA)
-      const paid = await payPayoutRequestViaAPI(page, payoutRequestId!)
+      const paid = await payPayoutRequestViaAPI(page, payoutRequestId)
       expect(paid.status).toBe('PAID')
 
       // Pull project transactions, find the PAYOUT row, and confirm 1 invoice references it.
@@ -127,17 +132,23 @@ test.describe('Aggregate invoice — 1 per PAYOUT', () => {
         amount: 2500,
       })
 
+      // feat/finance-payout-flow (#7): validate only flips to VALIDATED.
       await loginViaApi(page, SEED_EMAILS.accountant)
-      const validA = await validateTransactionViaAPI(page, txA)
-      const validB = await validateTransactionViaAPI(page, txB)
-      expect(validA.payoutRequestId).toBeTruthy()
-      expect(validB.payoutRequestId).toBeTruthy()
-      // Two separate payout requests — distinct ids.
-      expect(validA.payoutRequestId).not.toBe(validB.payoutRequestId)
+      await validateTransactionViaAPI(page, txA)
+      await validateTransactionViaAPI(page, txB)
 
+      // SENIOR manually creates two separate payout_requests (one per income).
+      // PR #80 aggregation is per PAYOUT — two distinct requests → 2 invoices.
       await loginViaApi(page, SEED_EMAILS.seniorA)
-      await payPayoutRequestViaAPI(page, validA.payoutRequestId!)
-      await payPayoutRequestViaAPI(page, validB.payoutRequestId!)
+      const { payoutRequestId: prA } = await createPayoutRequestViaAPI(page, [txA])
+      const { payoutRequestId: prB } = await createPayoutRequestViaAPI(page, [txB])
+      expect(prA).toBeTruthy()
+      expect(prB).toBeTruthy()
+      // Two separate payout requests — distinct ids.
+      expect(prA).not.toBe(prB)
+
+      await payPayoutRequestViaAPI(page, prA)
+      await payPayoutRequestViaAPI(page, prB)
 
       // Pull invoices and count those tied to either PAYOUT row.
       await loginViaApi(page, SEED_ADMIN_EMAIL)
