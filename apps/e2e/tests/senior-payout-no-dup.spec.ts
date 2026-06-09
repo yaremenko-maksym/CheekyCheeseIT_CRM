@@ -124,10 +124,9 @@ test.describe('Senior payout — no duplicate payout_request regression (#7)', (
       const res = await page.request.post(`${REAL_API}/payout-requests`, {
         data: { transactionIds: [txId] },
       })
-      expect(
-        res.status(),
-        'Dup guard: second createPayoutRequest on same tx must return 400',
-      ).toBe(400)
+      expect(res.status(), 'Dup guard: second createPayoutRequest on same tx must return 400').toBe(
+        400,
+      )
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
       await page.request.delete(`${REAL_API}/projects/${projectId}`).catch(() => undefined)

@@ -111,9 +111,7 @@ test.describe('PAYOUT_ADMIN.projectId regression — both cascade branches', () 
     }
   })
 
-  test('drop-project: PAYOUT_ADMIN rows carry projectId after pay (canary)', async ({
-    page,
-  }) => {
+  test('drop-project: PAYOUT_ADMIN rows carry projectId after pay (canary)', async ({ page }) => {
     // Mirror of the senior path. PR #65 wired projectId on the drop branch
     // too — without this canary, a future refactor could regress one
     // branch without the other.
@@ -149,10 +147,9 @@ test.describe('PAYOUT_ADMIN.projectId regression — both cascade branches', () 
       // Drop cascade always produces 2 PAYOUT_ADMIN rows.
       expect(payoutAdmins).toHaveLength(2)
       for (const row of payoutAdmins) {
-        expect(
-          row.projectId,
-          `Drop-cascade PAYOUT_ADMIN row ${row.id} missing projectId`,
-        ).toBe(projectId)
+        expect(row.projectId, `Drop-cascade PAYOUT_ADMIN row ${row.id} missing projectId`).toBe(
+          projectId,
+        )
       }
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)

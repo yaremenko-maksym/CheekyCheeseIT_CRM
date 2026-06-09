@@ -1598,9 +1598,7 @@ export async function createPayoutRequestViaAPI(
     data: { transactionIds },
   })
   if (res.status() !== 201) {
-    throw new Error(
-      `createPayoutRequestViaAPI failed: HTTP ${res.status()} — ${await res.text()}`,
-    )
+    throw new Error(`createPayoutRequestViaAPI failed: HTTP ${res.status()} — ${await res.text()}`)
   }
   const body = (await res.json()) as { id: string }
   return { payoutRequestId: body.id }

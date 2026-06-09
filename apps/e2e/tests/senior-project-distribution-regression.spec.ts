@@ -127,8 +127,7 @@ test.describe('Senior-project distribution regression — real API (AC7)', () =>
       expect(dropIncomes, 'Senior-project must NEVER produce DROP_INCOME').toHaveLength(0)
 
       // Conservation: partner buckets sum to payable.
-      const partnersTotal =
-        parseFloat(maksym!.amount) + parseFloat(kostya!.amount)
+      const partnersTotal = parseFloat(maksym!.amount) + parseFloat(kostya!.amount)
       expect(partnersTotal).toBeCloseTo(740, 2)
     } finally {
       // Archive the project — no drop to cascade-archive.
