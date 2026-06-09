@@ -110,6 +110,7 @@ export class ProjectsService {
       string,
       { id: string; seniorSharePercentOverride: number | null }[]
     >,
+    viewerRole?: string,
   ) {
     // task-team-senior-share-override. Compute effective share + source for
     // the UI. The resolver mirrors the snapshot logic in
@@ -169,17 +170,24 @@ export class ProjectsService {
       archivedAt: project.archivedAt ? project.archivedAt.toISOString() : null,
       createdAt: project.createdAt.toISOString(),
       updatedAt: project.updatedAt.toISOString(),
-      members: project.members.map((m) => ({
-        id: m.id,
-        userId: m.userId,
-        displayName: m.user?.displayName ?? '',
-        email: m.user?.email ?? '',
-        avatarUrl: m.user?.avatarUrl ?? null,
-        avatarDocumentId: m.user?.avatarDocumentId ?? null,
-        role: m.user?.role ?? 'JUNIOR',
-        joinedAt: m.joinedAt.toISOString(),
-        leftAt: m.leftAt ? m.leftAt.toISOString() : null,
-      })),
+      // RBAC rule #1: SENIOR viewers must not see JUNIOR member identity.
+      // The fact that a junior slot exists is still communicated (leftAt/role
+      // remain), but name/email/avatar are redacted.
+      members: project.members.map((m) => {
+        const isJuniorMember = (m.user?.role ?? 'JUNIOR') === 'JUNIOR'
+        const redact = viewerRole === 'SENIOR' && isJuniorMember
+        return {
+          id: m.id,
+          userId: redact ? '' : m.userId,
+          displayName: redact ? '' : (m.user?.displayName ?? ''),
+          email: redact ? '' : (m.user?.email ?? ''),
+          avatarUrl: redact ? null : (m.user?.avatarUrl ?? null),
+          avatarDocumentId: redact ? null : (m.user?.avatarDocumentId ?? null),
+          role: m.user?.role ?? 'JUNIOR',
+          joinedAt: m.joinedAt.toISOString(),
+          leftAt: m.leftAt ? m.leftAt.toISOString() : null,
+        }
+      }),
     }
   }
 
@@ -291,7 +299,7 @@ export class ProjectsService {
     // senior referenced by the filtered set so `mapProject` resolves the
     // effective share + source without N+1 queries.
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior(filtered)
-    return filtered.map((p) => this.mapProject(p, teamOverridesBySeniorId))
+    return filtered.map((p) => this.mapProject(p, teamOverridesBySeniorId, currentUser.role))
   }
 
   async findOne(id: string, currentUser: SessionUser) {
@@ -304,8 +312,8 @@ export class ProjectsService {
     await this.assertAccess(project, currentUser)
 
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([project])
-    const effectiveTeam = await this.computeEffectiveTeam(project)
-    return { ...this.mapProject(project, teamOverridesBySeniorId), effectiveTeam }
+    const effectiveTeam = await this.computeEffectiveTeam(project, currentUser.role)
+    return { ...this.mapProject(project, teamOverridesBySeniorId, currentUser.role), effectiveTeam }
   }
 
   /**
@@ -317,7 +325,10 @@ export class ProjectsService {
    * After unarchive, this naturally reflects the current senior's team — if HR changed
    * while archived, the new HR appears here without restoring leftAt rows.
    */
-  private async computeEffectiveTeam(project: ProjectWithRelations): Promise<EffectiveTeam> {
+  private async computeEffectiveTeam(
+    project: ProjectWithRelations,
+    viewerRole?: string,
+  ): Promise<EffectiveTeam> {
     const senior = project.senior
       ? {
           id: project.senior.id,
@@ -376,19 +387,25 @@ export class ProjectsService {
       }
     }
 
-    const juniors = project.members
-      .filter((m) => m.leftAt === null && m.user?.role === 'JUNIOR')
-      .map((m) => ({
-        id: m.id,
-        userId: m.userId,
-        displayName: m.user?.displayName ?? '',
-        email: m.user?.email ?? '',
-        avatarUrl: m.user?.avatarUrl ?? null,
-        avatarDocumentId: m.user?.avatarDocumentId ?? null,
-        role: m.user?.role ?? 'JUNIOR',
-        joinedAt: m.joinedAt.toISOString(),
-        leftAt: null,
-      }))
+    // RBAC rule #1: SENIOR viewers must not see JUNIOR identity in effective team.
+    // When viewerRole === 'SENIOR', return empty array — the slot count is still
+    // visible via mapProject.members (redacted), but no personal data is leaked.
+    const juniors =
+      viewerRole === 'SENIOR'
+        ? []
+        : project.members
+            .filter((m) => m.leftAt === null && m.user?.role === 'JUNIOR')
+            .map((m) => ({
+              id: m.id,
+              userId: m.userId,
+              displayName: m.user?.displayName ?? '',
+              email: m.user?.email ?? '',
+              avatarUrl: m.user?.avatarUrl ?? null,
+              avatarDocumentId: m.user?.avatarDocumentId ?? null,
+              role: m.user?.role ?? 'JUNIOR',
+              joinedAt: m.joinedAt.toISOString(),
+              leftAt: null as null,
+            }))
 
     // Drop role - phase 2. Surface the drop user (when project.dropId set)
     // so FE can render «Дроп» row in the effective-team section without an
