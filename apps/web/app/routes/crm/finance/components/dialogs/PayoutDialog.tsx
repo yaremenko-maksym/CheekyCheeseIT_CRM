@@ -64,6 +64,16 @@ export function PayoutDialog({
   // back to the senior's current default and get an "approx" badge.
   const seniorDefault = user?.seniorSharePercent ?? 26
   const selectedTxs = validatedTxs.filter((t) => selected.has(t.id))
+
+  // Mixed-currency guard: mirror the backend rejection so the SENIOR sees
+  // an inline error before even hitting submit.
+  const selectedCurrencies = new Set(selectedTxs.map((t) => t.currency))
+  const hasMixedCurrencies = selectedCurrencies.size > 1
+  // Display currency for totals — only meaningful when all txs share the same
+  // currency (hasMixedCurrencies === false). Falls back to 'USDT' for empty
+  // selection or pre-guard display.
+  const batchCurrency =
+    selectedCurrencies.size === 1 ? ([...selectedCurrencies][0]! as string) : 'USDT'
   const totalIncome = selectedTxs.reduce((sum, t) => sum + parseFloat(t.amount), 0)
   const previewRows = selectedTxs.map((tx) => {
     const snapshot = tx.seniorSharePercent
@@ -207,11 +217,11 @@ export function PayoutDialog({
                               </Badge>
                             )}
                           </span>
-                          <span className="tabular-nums">{fmtAmount(senior, 'USDT')}</span>
+                          <span className="tabular-nums">{fmtAmount(senior, tx.currency)}</span>
                         </div>
                         <div className="flex items-center justify-between text-muted-foreground">
                           <span>К оплате {100 - sharePercent}%</span>
-                          <span className="tabular-nums">{fmtAmount(rowPay, 'USDT')}</span>
+                          <span className="tabular-nums">{fmtAmount(rowPay, tx.currency)}</span>
                         </div>
                       </div>
                     ),
@@ -226,13 +236,13 @@ export function PayoutDialog({
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Общая сумма</span>
                     <span className="font-medium tabular-nums">
-                      {fmtAmount(totalIncome, 'USDT')}
+                      {fmtAmount(totalIncome, batchCurrency)}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Остаётся вам</span>
                     <span className="font-medium tabular-nums">
-                      {fmtAmount(totalSenior, 'USDT')}
+                      {fmtAmount(totalSenior, batchCurrency)}
                     </span>
                   </div>
                   <div
@@ -240,10 +250,18 @@ export function PayoutDialog({
                     data-testid="payout-preview-total"
                   >
                     <span>Всего к оплате</span>
-                    <span className="font-bold tabular-nums">{fmtAmount(payable, 'USDT')}</span>
+                    <span className="font-bold tabular-nums">
+                      {fmtAmount(payable, batchCurrency)}
+                    </span>
                   </div>
                 </div>
               </div>
+            )}
+
+            {hasMixedCurrencies && (
+              <p className="text-xs text-destructive" data-testid="payout-mixed-currency-error">
+                Нельзя смешивать валюты в одной выплате. Выберите транзакции только одной валюты.
+              </p>
             )}
 
             {createError && <p className="text-xs text-destructive">{createError}</p>}
@@ -256,7 +274,7 @@ export function PayoutDialog({
           </Button>
           <Button
             onClick={() => createMutation.mutate()}
-            disabled={selected.size === 0 || createMutation.isPending}
+            disabled={selected.size === 0 || hasMixedCurrencies || createMutation.isPending}
           >
             {createMutation.isPending ? 'Создание...' : 'Создать выплату'}
           </Button>

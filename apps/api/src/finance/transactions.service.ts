@@ -964,94 +964,87 @@ export class TransactionsService {
       throw new BadRequestException('Transaction is not in PENDING status')
 
     if (action === 'validate') {
-      // PR #56 final UT fix (AC2): validate atomically flips SENIOR_INCOME to
-      // **VALIDATED** (terminal state for the income) and creates the 1-to-1
-      // «Выплата» row in PENDING_PAYMENT. Rationale per user: «давай статус
-      // будет "Подтверждено" типу как финальный статус для прихода синьера,
-      // а дальше уже идет флоу Выплаты». SENIOR_INCOME no longer carries the
-      // «Оплатить» button — only the PAYOUT row does. SENIOR_INCOME flips to
-      // PAID later in payPayoutRequest once the on-chain payment lands.
-      //
-      // db.transaction() guarantees both the UPDATE and the INSERT happen
-      // together — if the PAYOUT insert fails, the SENIOR_INCOME stays
-      // PENDING and the ACCOUNTANT can retry.
-      if (!tx.receiverId) {
-        throw new BadRequestException(`${tx.type} has no receiverId — cannot create payout`)
-      }
-      const walletOwner = await this.db.db.query.users.findFirst({
-        where: eq(users.id, tx.receiverId),
-      })
-      if (!walletOwner) throw new NotFoundException('Receiver not found')
-
-      // Resolve the share kept by the wallet owner:
-      //   SENIOR_INCOME → tx.seniorSharePercent ?? users.seniorSharePercent ?? 26
-      //   DROP_INCOME   → users.dropSharePercent ?? 5
-      // Pays `100 - share`% off-platform (placeholder PAYOUT amount).
-      const sharePercent =
-        tx.type === 'DROP_INCOME'
-          ? (walletOwner.dropSharePercent ?? 5)
-          : (tx.seniorSharePercent ?? walletOwner.seniorSharePercent ?? 26)
-      const incomeAmount = parseFloat(tx.amount)
-      const payableAmount = incomeAmount * (1 - sharePercent / 100)
-
-      // Stub Ethereum-shape contract address (0x + 40 hex). Each PAYOUT gets
-      // a fresh one — when PHASE 8 ships these will be replaced by the real
-      // PaymentSplitter contract address. See createPayoutRequest for the
-      // batch counterpart that does the same thing.
-      const contractAddress = '0x' + randomBytes(20).toString('hex')
-
-      const now = new Date()
-
-      await this.db.db.transaction(async (dbtx) => {
-        // 1) Create the payout_request row first (FK target for both tx
-        //    updates below).
-        const [req] = await dbtx
-          .insert(payoutRequests)
-          .values({
-            seniorId: tx.receiverId!,
-            incomeAmount: String(incomeAmount),
-            payableAmount: String(payableAmount),
-            contractAddress,
-            status: 'PENDING',
-          })
-          .returning()
-
-        // 2) Flip SENIOR_INCOME status to VALIDATED (terminal for income —
-        //    «Подтверждено» badge) + link it to the payout_request so the UI
-        //    can group them. The «Оплатить» button moves to the PAYOUT row
-        //    inserted below.
-        await dbtx
+      if (tx.type === 'SENIOR_INCOME') {
+        // feat/finance-payout-flow (#7): SENIOR_INCOME validate ONLY flips
+        // status to VALIDATED. No payout_request and no PAYOUT row are created
+        // here. The SENIOR manually creates a payout via POST /api/payout-requests
+        // (createPayoutRequest) which lets them batch multiple VALIDATED incomes
+        // into a single payout. This removes the auto-duplicate-payout bug where
+        // validate created a payout_request and then createPayoutRequest created
+        // a second one on the already-VALIDATED row.
+        const now = new Date()
+        await this.db.db
           .update(transactions)
           .set({
             status: 'VALIDATED',
-            payoutRequestId: req!.id,
             validatedBy: currentUser.id,
             validatedAt: now,
             updatedAt: now,
           })
           .where(eq(transactions.id, id))
 
-        // 3) Insert the placeholder «Выплата» row (PAYOUT, PENDING_PAYMENT).
-        //    senderId = the senior (who pays out); receiverLabel = company.
-        //    1-to-1 with the SENIOR_INCOME row (task explicitly out-of-scope:
-        //    batch payouts where N incomes → 1 payout).
-        await dbtx.insert(transactions).values({
-          type: 'PAYOUT',
-          status: 'PENDING_PAYMENT',
-          amount: String(payableAmount),
-          currency: tx.currency,
-          senderId: tx.receiverId!,
-          receiverLabel: 'CheekyCheeseIT',
-          projectId: tx.projectId,
-          payoutRequestId: req!.id,
-          createdBy: currentUser.id,
+        // Unlock junior salary for this project's current month if locked.
+        // Best-effort — if it fails the validate still succeeded.
+        await this.unlockJuniorSalaryForProject(tx.projectId, tx)
+      } else {
+        // DROP_INCOME: retain the original behaviour — atomically flip to
+        // VALIDATED + create payout_request + insert placeholder PAYOUT row.
+        // The drop-specific distribution math lives in payPayoutRequest.
+        if (!tx.receiverId) {
+          throw new BadRequestException(`${tx.type} has no receiverId — cannot create payout`)
+        }
+        const walletOwner = await this.db.db.query.users.findFirst({
+          where: eq(users.id, tx.receiverId),
         })
-      })
+        if (!walletOwner) throw new NotFoundException('Receiver not found')
 
-      // Unlock junior salary for this project's current month if locked.
-      // Outside the transaction is fine — it's a best-effort secondary
-      // effect; if it fails the validate still succeeded.
-      await this.unlockJuniorSalaryForProject(tx.projectId, tx)
+        // DROP_INCOME: share kept = users.dropSharePercent ?? 5
+        const sharePercent = walletOwner.dropSharePercent ?? 5
+        const incomeAmount = parseFloat(tx.amount)
+        const payableAmount = incomeAmount * (1 - sharePercent / 100)
+
+        const contractAddress = '0x' + randomBytes(20).toString('hex')
+        const now = new Date()
+
+        await this.db.db.transaction(async (dbtx) => {
+          const [req] = await dbtx
+            .insert(payoutRequests)
+            .values({
+              seniorId: tx.receiverId!,
+              incomeAmount: String(incomeAmount),
+              payableAmount: String(payableAmount),
+              contractAddress,
+              status: 'PENDING',
+            })
+            .returning()
+
+          await dbtx
+            .update(transactions)
+            .set({
+              status: 'VALIDATED',
+              payoutRequestId: req!.id,
+              validatedBy: currentUser.id,
+              validatedAt: now,
+              updatedAt: now,
+            })
+            .where(eq(transactions.id, id))
+
+          await dbtx.insert(transactions).values({
+            type: 'PAYOUT',
+            status: 'PENDING_PAYMENT',
+            amount: String(payableAmount),
+            currency: tx.currency,
+            senderId: tx.receiverId!,
+            receiverLabel: 'CheekyCheeseIT',
+            projectId: tx.projectId,
+            payoutRequestId: req!.id,
+            createdBy: currentUser.id,
+          })
+        })
+
+        // Unlock junior salary for this project's current month if locked.
+        await this.unlockJuniorSalaryForProject(tx.projectId, tx)
+      }
     } else {
       if (!rejectionReason) throw new BadRequestException('Rejection reason is required')
       await this.db.db
@@ -1352,68 +1345,121 @@ export class TransactionsService {
   async createPayoutRequest(transactionIds: string[], currentUser: SessionUser) {
     if (currentUser.role !== 'SENIOR') throw new ForbiddenException()
 
-    // Fetch and validate all selected transactions
-    const txs = await this.db.db.query.transactions.findMany({
-      where: and(
-        inArray(transactions.id, transactionIds),
-        eq(transactions.type, 'SENIOR_INCOME'),
-        eq(transactions.status, 'VALIDATED'),
-        eq(transactions.receiverId, currentUser.id),
-      ),
-    })
+    // ── SECURITY (HIGH): atomic SELECT-FOR-UPDATE + full mutation inside one
+    // DB transaction to prevent TOCTOU race. Two concurrent POST requests on
+    // the same SENIOR_INCOME rows would otherwise both pass the isNull() guard
+    // (reading stale snapshots) and each create a separate payout_request,
+    // doubling the payout. The FOR UPDATE lock on the income rows blocks the
+    // second concurrent read until the first transaction commits; at that point
+    // the second re-read finds payoutRequestId IS NOT NULL and the outer
+    // count-mismatch guard throws 400.
+    return this.db.db.transaction(async (dbtx) => {
+      // Step 1: lock the income rows. Must use the select-builder (not
+      // query.findMany) because Drizzle's relational API does not expose
+      // .for('update'). Conditions mirror the findMany filter below so that
+      // both use the same predicate and the lock covers exactly the candidate
+      // rows.
+      const lockedRows = await dbtx
+        .select()
+        .from(transactions)
+        .where(
+          and(
+            inArray(transactions.id, transactionIds),
+            eq(transactions.type, 'SENIOR_INCOME'),
+            eq(transactions.status, 'VALIDATED'),
+            eq(transactions.receiverId, currentUser.id),
+            isNull(transactions.payoutRequestId),
+          ),
+        )
+        .for('update')
 
-    if (txs.length !== transactionIds.length) {
-      throw new BadRequestException(
-        'Some transactions are not valid VALIDATED SENIOR_INCOME for this senior',
-      )
-    }
+      // Step 2: count-mismatch guard — any already-linked or disqualified tx
+      // makes the batch invalid. Also applied after the lock so the decision
+      // is based on the locked, consistent view of the rows.
+      if (lockedRows.length !== transactionIds.length) {
+        throw new BadRequestException('Часть транзакций уже включена в выплату или недоступна')
+      }
 
-    const incomeAmount = txs.reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
-    const sharePercent = txs[0]!.seniorSharePercent ?? 26
-    // payable = income * (1 - seniorKeepsPercent/100)
-    // senior keeps sharePercent, pays (100-sharePercent)%
-    const payableAmount = incomeAmount * (1 - sharePercent / 100)
+      // ── SECURITY (HIGH): mixed-currency guard.
+      // Aggregating amounts across different currencies produces a meaningless
+      // sum (e.g. 1000 USD + 500 EUR ≠ 1500 of anything). Reject the batch
+      // if the selected transactions span more than one currency. The PAYOUT
+      // row inherits the currency from the batch — hardcoding 'USDT' was the
+      // original bug that silently coerced USD/EUR incomes into USDT payouts.
+      const currencies = new Set(lockedRows.map((tx) => tx.currency))
+      if (currencies.size > 1) {
+        throw new BadRequestException('Выберите транзакции одной валюты для одной выплаты')
+      }
+      // Safe: lockedRows.length > 0 guaranteed by the count check above.
+      const batchCurrency = lockedRows[0]!.currency
 
-    // Stub contract address — Ethereum-shape (0x + 40 hex). Per-payout fresh
-    // address, swapped for the real PaymentSplitter when PHASE 8 ships. See
-    // migration 0019 for the column rationale.
-    const contractAddress = '0x' + randomBytes(20).toString('hex')
+      // ── MED: decimal-safe aggregation.
+      // Postgres numeric(18,6) stores exact decimals; parseFloat() would
+      // introduce IEEE-754 rounding errors on the accumulated sum. We keep
+      // each per-tx payable as a scaled integer (minor units × 1_000_000),
+      // sum those, then divide once at the end — one division ≈ one rounding
+      // event vs. N rounding events for N loop iterations.
+      const SCALE = 1_000_000
+      let incomeMinor = 0
+      let payableMinor = 0
+      for (const tx of lockedRows) {
+        // amount is stored as numeric string from Postgres.
+        const amountMinor = Math.round(parseFloat(tx.amount) * SCALE)
+        const sharePercent = tx.seniorSharePercent ?? 26
+        // company's share = 1 - seniorShare/100; use integer arithmetic
+        // on the scaled amount to avoid floating-point drift per iteration.
+        const companyShareMinor = Math.round((amountMinor * (100 - sharePercent)) / 100)
+        incomeMinor += amountMinor
+        payableMinor += companyShareMinor
+      }
+      const incomeAmount = (incomeMinor / SCALE).toFixed(6)
+      const payableAmount = (payableMinor / SCALE).toFixed(6)
 
-    const [req] = await this.db.db
-      .insert(payoutRequests)
-      .values({
-        seniorId: currentUser.id,
-        incomeAmount: String(incomeAmount),
-        payableAmount: String(payableAmount),
-        contractAddress,
-        status: 'PENDING',
+      // Stub contract address — Ethereum-shape (0x + 40 hex). Per-payout fresh
+      // address, swapped for the real PaymentSplitter when PHASE 8 ships.
+      const contractAddress = '0x' + randomBytes(20).toString('hex')
+
+      // Step 3: insert payout_request. All writes are inside the transaction.
+      const [req] = await dbtx
+        .insert(payoutRequests)
+        .values({
+          seniorId: currentUser.id,
+          incomeAmount,
+          payableAmount,
+          contractAddress,
+          status: 'PENDING',
+        })
+        .returning()
+
+      // Step 4: link income transactions to this payout_request and flip
+      // their status to PENDING_PAYMENT. The WHERE uses the locked row ids
+      // (not the caller-supplied list) so the update is constrained to the
+      // exact rows we validated above.
+      const lockedIds = lockedRows.map((tx) => tx.id)
+      await dbtx
+        .update(transactions)
+        .set({ payoutRequestId: req!.id, status: 'PENDING_PAYMENT', updatedAt: new Date() })
+        .where(inArray(transactions.id, lockedIds))
+
+      // Step 5: create the placeholder PAYOUT row (PENDING_PAYMENT). Currency
+      // comes from the batch, not hardcoded. This row is visible in the
+      // transactions table immediately so the SENIOR can click «Оплатить»
+      // without waiting for the payout_request detail page. The same row
+      // is mutated to PAID in payPayoutRequest (txHash + status flip) — no
+      // fresh PAYOUT is inserted there.
+      await dbtx.insert(transactions).values({
+        type: 'PAYOUT',
+        status: 'PENDING_PAYMENT',
+        amount: payableAmount,
+        currency: batchCurrency,
+        senderId: currentUser.id,
+        receiverLabel: 'CheekyCheeseIT',
+        payoutRequestId: req!.id,
+        createdBy: currentUser.id,
       })
-      .returning()
 
-    // Link transactions to this payout request and set status to PENDING_PAYMENT
-    await this.db.db
-      .update(transactions)
-      .set({ payoutRequestId: req!.id, status: 'PENDING_PAYMENT', updatedAt: new Date() })
-      .where(inArray(transactions.id, transactionIds))
-
-    // Create the placeholder «Выплата» transaction (PAYOUT, PENDING_PAYMENT).
-    // It's visible in the transactions table immediately so the SENIOR has a
-    // single row to click «Оплатить» on — the linked SENIOR_INCOME rows just
-    // flip status, they no longer carry the inline pay button. The same row
-    // is mutated to PAID in payPayoutRequest (txHash + status) — we don't
-    // INSERT a fresh PAYOUT there anymore.
-    await this.db.db.insert(transactions).values({
-      type: 'PAYOUT',
-      status: 'PENDING_PAYMENT',
-      amount: String(payableAmount),
-      currency: 'USDT',
-      senderId: currentUser.id,
-      receiverLabel: 'CheekyCheeseIT',
-      payoutRequestId: req!.id,
-      createdBy: currentUser.id,
+      return this.findPayoutRequest(req!.id, currentUser)
     })
-
-    return this.findPayoutRequest(req!.id, currentUser)
   }
 
   // ── Pay Payout Request ────────────────────────────────────────────────────

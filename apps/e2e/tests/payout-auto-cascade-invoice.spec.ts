@@ -25,6 +25,7 @@ import {
   createSeniorProjectViaAPI,
   createSeniorIncomeViaAPI,
   validateTransactionViaAPI,
+  createPayoutRequestViaAPI,
   payPayoutRequestViaAPI,
   listTransactionsByProjectViaAPI,
 } from './fixtures'
@@ -51,12 +52,16 @@ test.describe('Phase 2 PAYOUT cascade → aggregate invoice integration', () => 
       await loginViaApi(page, SEED_EMAILS.seniorA)
       const { txId } = await createSeniorIncomeViaAPI(page, { projectId, amount: 1000 })
 
+      // feat/finance-payout-flow (#7): validate only flips to VALIDATED.
       await loginViaApi(page, SEED_EMAILS.accountant)
-      const { payoutRequestId } = await validateTransactionViaAPI(page, txId)
+      await validateTransactionViaAPI(page, txId)
+
+      // SENIOR manually creates the payout_request.
+      await loginViaApi(page, SEED_EMAILS.seniorA)
+      const { payoutRequestId } = await createPayoutRequestViaAPI(page, [txId])
       expect(payoutRequestId).toBeTruthy()
 
-      await loginViaApi(page, SEED_EMAILS.seniorA)
-      const paid = await payPayoutRequestViaAPI(page, payoutRequestId!)
+      const paid = await payPayoutRequestViaAPI(page, payoutRequestId)
       expect(paid.status).toBe('PAID')
 
       // PAYOUT row exists on the project.

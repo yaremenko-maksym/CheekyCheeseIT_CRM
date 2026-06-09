@@ -27,6 +27,7 @@ import {
   createSeniorProjectViaAPI,
   createSeniorIncomeViaAPI,
   validateTransactionViaAPI,
+  createPayoutRequestViaAPI,
   payPayoutRequestViaAPI,
   listTransactionsByProjectViaAPI,
 } from './fixtures'
@@ -52,11 +53,13 @@ async function plantSignedReadyPayout(
   await loginViaApi(page, SEED_EMAILS.seniorA)
   const { txId } = await createSeniorIncomeViaAPI(page, { projectId, amount: 1000 })
 
+  // feat/finance-payout-flow (#7): validate only flips to VALIDATED.
   await loginViaApi(page, SEED_EMAILS.accountant)
-  const { payoutRequestId } = await validateTransactionViaAPI(page, txId)
-  if (!payoutRequestId) throw new Error('validate did not return payoutRequestId')
+  await validateTransactionViaAPI(page, txId)
 
+  // SENIOR manually creates and pays the payout_request.
   await loginViaApi(page, SEED_EMAILS.seniorA)
+  const { payoutRequestId } = await createPayoutRequestViaAPI(page, [txId])
   await payPayoutRequestViaAPI(page, payoutRequestId)
 
   // Find the PAYOUT row id — that's the invoice's transactionId.

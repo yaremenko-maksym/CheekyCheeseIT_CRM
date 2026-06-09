@@ -50,6 +50,13 @@
       "when": 1749388800000,
       "tag": "0006_employee_contracts_custom_values",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1749475200000,
+      "tag": "0007_cleanup_orphan_senior_payout_requests",
+      "breakpoints": true
     }
   ]
 }
