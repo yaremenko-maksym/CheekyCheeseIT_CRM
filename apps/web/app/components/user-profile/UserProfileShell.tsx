@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { UsersRound } from 'lucide-react'
+import { ShieldOff, UsersRound } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import {
@@ -50,7 +50,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
   const meQuery = useMe(mode === 'self')
   const userQuery = useUser(userId, mode === 'view')
   const query = mode === 'self' ? meQuery : userQuery
-  const { data, isLoading } = query
+  const { data, isLoading, isError, error } = query
   const [avatarOpen, setAvatarOpen] = useState(false)
   // Dirty guard: ContractTab registers its isDirty state here via onDirtyChange.
   // When the user tries to switch tabs away from contract with unsaved changes,
@@ -87,12 +87,31 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
   const { isTeamless: isTeamlessSenior } = useActiveTeam()
   const [rejoinOpen, setRejoinOpen] = useState(false)
 
-  if (isLoading || !data) {
+  if (isLoading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-32 w-full" />
         <Skeleton className="h-10 w-full" />
         <Skeleton className="h-64 w-full" />
+      </div>
+    )
+  }
+
+  if (isError || !data) {
+    const is403 =
+      error != null &&
+      typeof error === 'object' &&
+      'response' in error &&
+      (error as { response?: { status?: number } }).response?.status === 403
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
+        <ShieldOff className="h-12 w-12 text-muted-foreground" />
+        <h2 className="text-xl font-semibold">{is403 ? 'Нет доступа' : 'Профиль не найден'}</h2>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          {is403
+            ? 'У вас нет прав для просмотра этого профиля.'
+            : 'Пользователь не найден или был удалён.'}
+        </p>
       </div>
     )
   }
