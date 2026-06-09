@@ -1,13 +1,15 @@
 /**
- * LegendSection — Легенда SENIOR
+ * LegendSection — Легенда SENIOR/DROP
  *
- * Editable: SENIOR (self) + ADMIN
- * Read-only: HR (own senior), JUNIOR (project senior)
- * Hidden: ACCOUNTANT, DROP, other SENIOR (403 on GET)
+ * RBAC (2026-06-09 reversal — subject excluded, view==edit):
+ *   Editable: ADMIN, linked HR, linked JUNIOR (all viewers with access)
+ *   Hidden on self-profile: subject (SENIOR/DROP) cannot see own legend
+ *   Hidden via enabled=false: ACCOUNTANT, other SENIOR, unlinked HR/JUNIOR
  *
  * Props:
  *  userId  — target user's UUID
- *  canEdit — true only for self-SENIOR or ADMIN
+ *  canEdit — true for all permitted viewers (view==edit)
+ *  enabled — when false, query is skipped (viewer lacks fields.legend permission)
  */
 import { useState } from 'react'
 import { Loader2, Pencil, Save, X } from 'lucide-react'

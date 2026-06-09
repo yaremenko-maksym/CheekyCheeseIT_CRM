@@ -186,22 +186,18 @@ export function OverviewTab({ user, mode, data, permissions }: OverviewTabProps)
         </Card>
       )}
 
-      {/* Легенда SENIOR — персона для клиентской компании.
-          - В режиме self: только SENIOR видит и редактирует свою легенду.
-          - В режиме view: роли с permissions.fields.legend=true (ADMIN, HR, JUNIOR).
-            ADMIN дополнительно может редактировать.
-          - ACCOUNTANT/DROP/другой SENIOR — fields.legend=false → запрос не делается. */}
-      {user.role === 'SENIOR' && (permissions.fields.legend === true || mode === 'self') && (
-        <LegendSection
-          userId={user.id}
-          canEdit={
-            mode === 'self'
-              ? true // self-view доступен только SENIOR-у
-              : permissions.actions.includes('edit-profile') // ADMIN в режиме view
-          }
-          enabled={permissions.fields.legend === true || mode === 'self'}
-        />
-      )}
+      {/* Легенда SENIOR/DROP — персона для клиентской компании.
+          RBAC (2026-06-09 reversal — subject excluded, view==edit):
+          - mode === 'self': субъект свою легенду НЕ видит (subject excluded).
+          - mode === 'view': показывать если target — SENIOR/DROP
+            AND permissions.fields.legend === true (зритель допущен).
+            canEdit = true для всех допущенных (view==edit: ADMIN, HR, JUNIOR).
+          - ACCOUNTANT / другой SENIOR / несвязанные → fields.legend отсутствует → скрыто. */}
+      {mode === 'view' &&
+        (user.role === 'SENIOR' || user.role === 'DROP') &&
+        permissions.fields.legend === true && (
+          <LegendSection userId={user.id} canEdit={true} enabled={true} />
+        )}
 
       {canSeeTos && (
         <Card data-testid="tos-acceptance-card">
