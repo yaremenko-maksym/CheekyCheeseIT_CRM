@@ -4,13 +4,13 @@
  *
  * Covers:
  *   - empty-state («—» amount + «нет выплат» sub-label when balance=0)
- *   - share % badge rendering
+ *   - share % badge rendering (always shown — dropSharePercent is non-nullable
+ *     after MED-3 fix; backend applies DEFAULT_DROP_SHARE_PERCENT fallback)
  *   - pending badge visibility (pendingCount > 0 / = 0)
  *   - balance colour: green (>0), red (<0), muted (=0 / «—»)
  *   - USDT label shows only when hasBalance
- *   - header counter «N дропов»
+ *   - header counter uses correct ru-RU plural (MED-4): 1 дроп / 2 дропа / 5 дропов
  *   - multiple drop rows with Separator
- *   - null dropSharePercent hides share badge
  */
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
@@ -109,7 +109,10 @@ describe('DropBalanceCard', () => {
       expect(screen.getByTestId(`drop-balance-share-${DROP_ID}`)).toHaveTextContent('7%')
     })
 
-    it('hides share badge when dropSharePercent is null', () => {
+    it('always shows share badge (dropSharePercent is non-nullable — backend applies default)', () => {
+      // MED-3: dropSharePercent is always a number after the schema fix.
+      // The backend applies DEFAULT_DROP_SHARE_PERCENT (5) before responding,
+      // so the badge is always rendered.
       render(
         <DropBalanceCard
           summary={makeSummary([
@@ -117,13 +120,14 @@ describe('DropBalanceCard', () => {
               userId: DROP_ID,
               displayName: 'Drop User',
               balance: 0,
-              dropSharePercent: null,
+              dropSharePercent: 5,
               pendingCount: 0,
             },
           ])}
         />,
       )
-      expect(screen.queryByTestId(`drop-balance-share-${DROP_ID}`)).not.toBeInTheDocument()
+      expect(screen.getByTestId(`drop-balance-share-${DROP_ID}`)).toBeInTheDocument()
+      expect(screen.getByTestId(`drop-balance-share-${DROP_ID}`)).toHaveTextContent('5%')
     })
   })
 
@@ -273,7 +277,7 @@ describe('DropBalanceCard', () => {
       expect(screen.getByTestId('drop-balances-count')).toHaveTextContent('1 дроп')
     })
 
-    it('shows «2 дропов» for two drops', () => {
+    it('shows «2 дропа» for two drops (correct ru-RU plural, MED-4)', () => {
       render(
         <DropBalanceCard
           summary={makeSummary([
@@ -294,7 +298,31 @@ describe('DropBalanceCard', () => {
           ])}
         />,
       )
-      expect(screen.getByTestId('drop-balances-count')).toHaveTextContent('2 дропов')
+      expect(screen.getByTestId('drop-balances-count')).toHaveTextContent('2 дропа')
+    })
+
+    it('shows «5 дропов» for five drops (ru-RU plural, MED-4)', () => {
+      const drops = Array.from({ length: 5 }, (_, i) => ({
+        userId: `a0000000-0000-4000-8000-00000000000${i}`,
+        displayName: `Drop ${i}`,
+        balance: 0,
+        dropSharePercent: 5,
+        pendingCount: 0,
+      }))
+      render(<DropBalanceCard summary={makeSummary(drops)} />)
+      expect(screen.getByTestId('drop-balances-count')).toHaveTextContent('5 дропов')
+    })
+
+    it('shows «21 дроп» for twenty-one drops (edge case ru-RU plural, MED-4)', () => {
+      const drops = Array.from({ length: 21 }, (_, i) => ({
+        userId: `a0000000-0000-4000-8000-0000000000${String(i).padStart(2, '0')}`,
+        displayName: `Drop ${i}`,
+        balance: 0,
+        dropSharePercent: 5,
+        pendingCount: 0,
+      }))
+      render(<DropBalanceCard summary={makeSummary(drops)} />)
+      expect(screen.getByTestId('drop-balances-count')).toHaveTextContent('21 дроп')
     })
   })
 
