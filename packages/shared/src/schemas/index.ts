@@ -1,4 +1,5 @@
 export * from './auth'
+export * from './legends'
 export * from './teams'
 export * from './projects'
 export * from './interviews'
