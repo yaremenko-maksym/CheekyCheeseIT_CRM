@@ -1872,7 +1872,23 @@ export class TransactionsService {
       const sent = paid
         .filter((tx) => tx.senderId === drop.id && tx.type === 'PAYOUT_DROP')
         .reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
-      return { userId: drop.id, displayName: drop.displayName, balance: received - sent }
+      // pendingCount: DROP_INCOME rows for this drop that are still awaiting
+      // validation (PENDING or VALIDATED status). Derived from allTxs without
+      // an extra DB round-trip. DROP_INCOME rows carry the drop as sender
+      // (createDropIncome sets senderId = drop.id per the drop-income path).
+      const pendingCount = allTxs.filter(
+        (tx) =>
+          tx.type === 'DROP_INCOME' &&
+          tx.senderId === drop.id &&
+          (tx.status === 'PENDING' || tx.status === 'VALIDATED'),
+      ).length
+      return {
+        userId: drop.id,
+        displayName: drop.displayName,
+        balance: received - sent,
+        dropSharePercent: drop.dropSharePercent ?? 5,
+        pendingCount,
+      }
     })
 
     // Monthly breakdown

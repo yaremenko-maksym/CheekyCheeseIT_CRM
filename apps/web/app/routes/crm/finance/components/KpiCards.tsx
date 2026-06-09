@@ -2,6 +2,7 @@ import type React from 'react'
 import type { FinanceSummaryDto } from '@crm/shared'
 import { cn } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
+import { Separator } from '@/components/ui/separator'
 
 export function KpiCard({
   title,
@@ -71,36 +72,108 @@ export function AdminBalanceCard({ summary }: { summary: FinanceSummaryDto }) {
 }
 
 /**
- * Drop role - phase 2. Standalone «Балансы дропов» panel — shows the
- * aggregated PAYOUT_DROP credit-minus-debit balance per DROP user. Hidden
- * entirely when the backend hasn't surfaced any DROP balances (empty array
- * = no drop-projects in the system or no validated drop payouts yet).
+ * Drop role - phase 2. Standalone «Балансы дропов» panel — redesigned in
+ * feat/drop-balances-panel: avatar-initial + full name + share% badge +
+ * pending badge + balance with status colour + «нет выплат» empty-state.
  */
 export function DropBalanceCard({ summary }: { summary: FinanceSummaryDto }) {
   if (!summary.dropBalances?.length) return null
   return (
     <Card className="border-blue-500/20 bg-blue-500/[0.03]" data-testid="drop-balances-card">
-      <CardContent className="pt-5 space-y-3">
-        <p className="text-xs font-semibold text-blue-400">Балансы дропов</p>
-        {summary.dropBalances.map((db) => (
-          <div key={db.userId} className="space-y-1">
-            <div className="flex justify-between items-baseline">
-              <span className="text-sm font-medium">{db.displayName}</span>
-              <span
-                className={cn(
-                  'text-sm font-bold tabular-nums',
-                  db.balance >= 0 ? 'text-green-500' : 'text-red-500',
-                )}
-              >
-                $
-                {db.balance.toLocaleString('en-US', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </span>
+      <CardContent className="pt-5 space-y-0">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-semibold text-blue-400">Балансы дропов</p>
+          <span
+            className="text-[10px] font-mono text-muted-foreground"
+            data-testid="drop-balances-count"
+          >
+            {summary.dropBalances.length} {summary.dropBalances.length === 1 ? 'дроп' : 'дропов'}
+          </span>
+        </div>
+
+        {/* Rows */}
+        {summary.dropBalances.map((db, idx) => {
+          const initial = db.displayName.charAt(0).toUpperCase()
+          const hasBalance = db.balance !== 0
+          const balanceColor =
+            db.balance > 0
+              ? 'text-green-500'
+              : db.balance < 0
+                ? 'text-red-500'
+                : 'text-muted-foreground'
+
+          return (
+            <div key={db.userId} data-testid={`drop-balance-row-${db.userId}`}>
+              {idx > 0 && <Separator className="my-2.5" />}
+              <div className="flex items-center justify-between gap-2">
+                {/* Left: avatar + name block */}
+                <div className="flex items-center gap-2 min-w-0">
+                  {/* Avatar-initial */}
+                  <div
+                    aria-hidden="true"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
+                  >
+                    {initial}
+                  </div>
+                  {/* Name + sub-label */}
+                  <div className="min-w-0">
+                    <p
+                      className="text-sm font-medium leading-tight"
+                      data-testid={`drop-balance-name-${db.userId}`}
+                    >
+                      {db.displayName}
+                    </p>
+                    {!hasBalance && (
+                      <p className="text-[10px] text-muted-foreground leading-tight">нет выплат</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right: badges + amount */}
+                <div className="flex items-center gap-2 shrink-0">
+                  {/* Share % badge */}
+                  {db.dropSharePercent !== null && (
+                    <span
+                      className="rounded bg-yellow-500/10 px-1.5 py-0.5 text-[10px] font-mono text-primary"
+                      data-testid={`drop-balance-share-${db.userId}`}
+                    >
+                      {db.dropSharePercent}%
+                    </span>
+                  )}
+
+                  {/* Pending count badge */}
+                  {db.pendingCount > 0 && (
+                    <span
+                      className="rounded border border-amber-500/20 bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-mono text-amber-400"
+                      data-testid={`drop-balance-pending-${db.userId}`}
+                    >
+                      {db.pendingCount} ожидают
+                    </span>
+                  )}
+
+                  {/* Balance amount */}
+                  <div className="text-right">
+                    <span
+                      className={cn('text-sm font-bold tabular-nums', balanceColor)}
+                      data-testid={`drop-balance-amount-${db.userId}`}
+                    >
+                      {hasBalance
+                        ? db.balance.toLocaleString('en-US', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })
+                        : '—'}
+                    </span>
+                    {hasBalance && (
+                      <p className="text-[10px] text-muted-foreground leading-tight">USDT</p>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </CardContent>
     </Card>
   )
