@@ -1390,6 +1390,17 @@ export class UsersService {
     if (!target) throw new NotFoundException('User not found')
     const permissions = await this.accessService.getViewPermissions(viewer, target)
 
+    // Empty tabs means the viewer has no access to this profile at all.
+    // Mirror the guard pattern used in GET /:id/team — throw 403 before
+    // leaking any user fields (displayName, email, phone, telegram, avatarUrl).
+    // Rationale: isSelf always produces non-empty tabs; ADMIN always has tabs;
+    // HR has tabs for users in their team; ACCOUNTANT has tabs for all.
+    // The only case of empty tabs is e.g. SENIOR viewing a JUNIOR — Broken
+    // Access Control (OWASP A01) if we return 200 + personal data here.
+    if (permissions.tabs.length === 0) {
+      throw new ForbiddenException()
+    }
+
     // Filter user fields based on permissions
     const filteredUser: User = { ...target }
     if (!permissions.fields.salary) {

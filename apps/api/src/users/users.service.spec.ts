@@ -1,4 +1,4 @@
-import { ConflictException, NotFoundException } from '@nestjs/common'
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type * as schema from '../database/schema'
@@ -891,5 +891,120 @@ describe('UsersService.buildProfileView — legalFullName masking', () => {
     const service = makeServiceForProfileView(targetWithLegalName, permissions)
     const result = await service.buildProfileView(viewer as never, 'target-id')
     expect((result.user as Record<string, unknown>).legalFullName).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// buildProfileView — 403 guard when tabs.length === 0 (OWASP A01 fix)
+// ---------------------------------------------------------------------------
+
+describe('UsersService.buildProfileView — ForbiddenException on empty tabs', () => {
+  /**
+   * makeServiceForProfileView is defined in the previous describe block above.
+   * We duplicate the minimal factory here to keep this block self-contained.
+   */
+  function makeServiceForForbiddenCheck(
+    target: ReturnType<typeof makeUser>,
+    permissions: { tabs: string[]; actions: string[]; fields: Record<string, boolean> },
+  ): UsersService {
+    const db = {
+      db: {
+        select: vi.fn().mockReturnThis(),
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockResolvedValue([target]),
+        insert: vi.fn(),
+        update: vi.fn(),
+        delete: vi.fn(),
+      },
+    } as unknown as DrizzleDb
+
+    const accessService = {
+      getViewPermissions: vi.fn().mockResolvedValue(permissions),
+    } as unknown as import('./users-access.service').UsersAccessService
+
+    const auditService = makeAuditLogService()
+    const tosService = makeTosService()
+
+    return new UsersService(db as never, accessService as never, auditService as never, tosService)
+  }
+
+  const juniorTarget = makeJunior({ id: 'junior-target-id' })
+
+  // ── SENIOR → JUNIOR: must throw 403 ─────────────────────────────────────
+
+  it('SENIOR viewing JUNIOR profile → throws ForbiddenException (no tabs)', async () => {
+    // accessService returns empty tabs — this is what getViewPermissions produces
+    // for SENIOR→JUNIOR per users-access.service.ts isSenior branch.
+    const viewer = makeSenior({ id: 'sr-viewer' })
+    const permissions = { tabs: [], actions: [], fields: {} }
+    const service = makeServiceForForbiddenCheck(juniorTarget, permissions)
+    await expect(service.buildProfileView(viewer as never, 'junior-target-id')).rejects.toThrow(
+      ForbiddenException,
+    )
+  })
+
+  it('SENIOR viewing JUNIOR from own project → still throws ForbiddenException (rule #1 absolute)', async () => {
+    // Even if SENIOR and JUNIOR share a project, SENIOR must not see JUNIOR identity.
+    // The access service already returns [] tabs for any SENIOR→JUNIOR combination.
+    const viewer = makeSenior({ id: 'sr-with-project' })
+    const permissions = { tabs: [], actions: [], fields: {} }
+    const service = makeServiceForForbiddenCheck(juniorTarget, permissions)
+    await expect(service.buildProfileView(viewer as never, 'junior-target-id')).rejects.toThrow(
+      ForbiddenException,
+    )
+  })
+
+  // ── Regression: legitimate viewers must NOT be broken ───────────────────
+
+  it('ADMIN viewing JUNIOR → succeeds (ADMIN has full tabs)', async () => {
+    const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
+    const permissions = {
+      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
+      actions: ['edit-profile'],
+      fields: { salary: true, requisites: true, legalName: true, techStack: true },
+    }
+    const service = makeServiceForForbiddenCheck(juniorTarget, permissions)
+    await expect(
+      service.buildProfileView(viewer as never, 'junior-target-id'),
+    ).resolves.toBeDefined()
+  })
+
+  it('HR viewing JUNIOR in own team → succeeds (HR has tabs via isHrInTargetTeam)', async () => {
+    const viewer = makeHr({ id: 'hr-viewer' })
+    const permissions = {
+      tabs: ['overview', 'projects', 'team'],
+      actions: [],
+      fields: { techStack: true, registrationDate: true },
+    }
+    const service = makeServiceForForbiddenCheck(juniorTarget, permissions)
+    await expect(
+      service.buildProfileView(viewer as never, 'junior-target-id'),
+    ).resolves.toBeDefined()
+  })
+
+  it('JUNIOR viewing self → succeeds (isSelf produces non-empty tabs)', async () => {
+    // viewer.id === target.id → isSelf path in access service → tabs populated
+    const viewer = makeJunior({ id: 'junior-target-id' })
+    const permissions = {
+      tabs: ['overview', 'projects', 'team', 'requisites', 'documents', 'finance'],
+      actions: [],
+      fields: { salary: true, requisites: true, legalName: true, techStack: true },
+    }
+    const service = makeServiceForForbiddenCheck(juniorTarget, permissions)
+    await expect(
+      service.buildProfileView(viewer as never, 'junior-target-id'),
+    ).resolves.toBeDefined()
+  })
+
+  it('SENIOR viewing self → succeeds (isSelf produces non-empty tabs)', async () => {
+    const seniorSelf = makeSenior({ id: 'sr-self-id' })
+    const viewer = makeSenior({ id: 'sr-self-id' })
+    const permissions = {
+      tabs: ['overview', 'projects', 'team', 'requisites', 'documents', 'finance'],
+      actions: [],
+      fields: { share: true, requisites: true, legalName: true, techStack: true },
+    }
+    const service = makeServiceForForbiddenCheck(seniorSelf, permissions)
+    await expect(service.buildProfileView(viewer as never, 'sr-self-id')).resolves.toBeDefined()
   })
 })

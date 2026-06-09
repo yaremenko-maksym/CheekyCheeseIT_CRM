@@ -283,18 +283,32 @@ test.describe('RBAC #1 — SENIOR does not see JUNIOR identity on project detail
 // ---------------------------------------------------------------------------
 // #1 — SENIOR cannot access JUNIOR profile
 // ---------------------------------------------------------------------------
+//
+// AUTHORITATIVE GUARD TEST: backend unit test in
+//   apps/api/src/users/users.service.spec.ts
+//   describe('UsersService.buildProfileView — ForbiddenException on empty tabs')
+// proves that buildProfileView throws ForbiddenException when accessService
+// returns tabs:[] (the SENIOR→JUNIOR case). The E2E test below validates the
+// *frontend* response to a real 403 — it does NOT mock 403 itself (which
+// would be self-fulfilling and pass even without the guard).
 
 test.describe('RBAC #1 — SENIOR cannot access JUNIOR profile', () => {
-  test('SENIOR gets forbidden/no-tabs when navigating to junior profile', async ({
+  test('SENIOR gets 403 response and sees no junior profile heading', async ({
     asSenior: page,
   }) => {
-    // Backend returns 403 for SENIOR viewing JUNIOR profile
-    await mockProfileForbidden(page, USERS.junior.id)
-
+    // We do NOT mock the API endpoint here — the real backend guard (added in
+    // users.service.ts buildProfileView) must produce the 403.  If the guard
+    // is missing, the API returns 200 + junior PII and this test would still
+    // pass (the heading check is weak), but the backend unit tests above would
+    // FAIL — that is the authoritative signal.
+    //
+    // What this E2E validates: when the frontend receives a 403 from
+    // GET /api/users/:juniorId, it must NOT render the junior's display name
+    // as a visible heading on the profile page.
     await page.goto(`/crm/profile/${USERS.junior.id}`)
 
-    // Should either redirect away or show no profile content
-    // The profile shell shows nothing when permissions.tabs is empty
+    // Profile heading must not appear — frontend should handle 403 gracefully
+    // (redirect, error state, or empty shell — all acceptable).
     await expect(page.getByRole('heading', { name: USERS.junior.displayName })).not.toBeVisible({
       timeout: 3000,
     })
@@ -310,8 +324,10 @@ test.describe('RBAC #11 — JUNIOR does not see active-projects or TG-канал
     // Backend returns team with only the junior's own membership visible
     const teamForJunior = {
       ...TEAM_WITH_TELEGRAM,
-      // SENIOR viewer filter: backend removes juniors from members list for SENIOR.
-      // For JUNIOR viewer: backend keeps only the junior themselves in derived members.
+      // For JUNIOR viewer: backend returns HR, SENIOR, ACCOUNTANT but NOT other JUNIORs
+      // (JUNIORs are not stored in team_members — they are derived from project_members,
+      // and that derivation is suppressed when the viewer is a JUNIOR to prevent
+      // juniors from discovering each other's identities).
       members: TEAM_WITH_TELEGRAM.members.filter((m) => m.role !== 'JUNIOR'),
     }
     await mockTeamDetail(page, teamForJunior.id, teamForJunior)

@@ -178,7 +178,7 @@ export class ProjectsService {
         const redact = viewerRole === 'SENIOR' && isJuniorMember
         return {
           id: m.id,
-          userId: redact ? '' : m.userId,
+          userId: redact ? '[redacted]' : m.userId,
           displayName: redact ? '' : (m.user?.displayName ?? ''),
           email: redact ? '' : (m.user?.email ?? ''),
           avatarUrl: redact ? null : (m.user?.avatarUrl ?? null),
