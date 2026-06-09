@@ -17,10 +17,18 @@
  *   5. createPayoutRequest — multi-tx aggregation with different sharePercent
  *      per tx: payableAmount = Σ (amount_i × (1 - share_i/100)).
  *
+ *   6. createPayoutRequest — mixed-currency guard: batch with transactions of
+ *      different currencies throws BadRequestException.
+ *
+ *   7. createPayoutRequest — same-currency batch: PAYOUT row inherits currency
+ *      from the transactions (not hardcoded 'USDT').
+ *
+ *   8. createPayoutRequest — atomicity: full path runs inside db.transaction().
+ *
  * DB calls are stubbed with vitest vi.fn() — no real Postgres connection.
  */
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { BadRequestException, ForbiddenException } from '@nestjs/common'
+import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { TransactionsService } from './transactions.service'
 
@@ -41,16 +49,6 @@ const ACCOUNTANT_USER: SessionUser = {
   role: 'ACCOUNTANT',
   displayName: 'Accountant',
   email: 'acc@test.com',
-  avatarUrl: null,
-  avatarDocumentId: null,
-  seniorSharePercent: 26,
-}
-
-const DROP_USER: SessionUser = {
-  id: 'drop-1',
-  role: 'DROP',
-  displayName: 'Drop',
-  email: 'd@test.com',
   avatarUrl: null,
   avatarDocumentId: null,
   seniorSharePercent: 26,
@@ -84,6 +82,59 @@ function makePayoutRequestRow(id = 'pr-1') {
     status: 'PENDING' as const,
     createdAt: new Date(),
     updatedAt: new Date(),
+  }
+}
+
+// ── dbtx stub factory ─────────────────────────────────────────────────────
+//
+// createPayoutRequest now runs entirely inside db.transaction(async dbtx => {}).
+// The service calls:
+//   1. dbtx.select().from(transactions).where(...).for('update')
+//      → returns lockedRows array
+//   2. dbtx.insert(payoutRequests).values(...).returning()
+//      → returns [prRow]
+//   3. dbtx.update(transactions).set(...).where(...)
+//      → resolves (no return used)
+//   4. dbtx.insert(transactions).values(...)
+//      → resolves (no return used)
+//
+// The builder chains are fully fluent so every stub method must return `this`
+// (i.e. the same mock object) until the terminal awaitable is reached.
+// We use a real object with shared mocks so assertions can inspect call args.
+
+function makeDbtxStub(lockedRows: unknown[], prRow: ReturnType<typeof makePayoutRequestRow>) {
+  // Terminal resolvers
+  const forMock = vi.fn().mockResolvedValue(lockedRows) // select chain terminal
+  const returningMock = vi.fn().mockResolvedValue([prRow]) // insert PR chain terminal
+  const updateWhereMock = vi.fn().mockResolvedValue([]) // update chain terminal
+  const insertValuesResolveMock = vi.fn().mockResolvedValue([]) // insert PAYOUT terminal
+
+  // select() chain: .select().from().where().for()
+  const selectWhereMock = vi.fn().mockReturnValue({ for: forMock })
+  const selectFromMock = vi.fn().mockReturnValue({ where: selectWhereMock })
+  const selectMock = vi.fn().mockReturnValue({ from: selectFromMock })
+
+  // insert(payoutRequests) chain: .insert().values().returning()
+  // insert(transactions)   chain: .insert().values() [resolves directly]
+  let insertCallIdx = 0
+  const insertMock = vi.fn().mockImplementation(() => {
+    insertCallIdx++
+    if (insertCallIdx === 1) {
+      // First insert: payoutRequests → chain ends with .returning()
+      return { values: vi.fn().mockReturnValue({ returning: returningMock }) }
+    }
+    // Second insert: transactions PAYOUT row → chain ends with .values() resolve
+    return { values: insertValuesResolveMock }
+  })
+
+  // update(transactions) chain: .update().set().where()
+  const updateMock = vi.fn().mockReturnValue({
+    set: vi.fn().mockReturnValue({ where: updateWhereMock }),
+  })
+
+  return {
+    dbtx: { select: selectMock, insert: insertMock, update: updateMock },
+    mocks: { selectMock, forMock, insertMock, returningMock, updateMock, insertValuesResolveMock },
   }
 }
 
@@ -122,6 +173,55 @@ function makeService(dbOverrides: Record<string, unknown> = {}) {
   } as never
 
   return new TransactionsService(dbStub, invoicesStub, documentsStub)
+}
+
+// Helper: build a service whose db.transaction() executes the callback with a
+// fully-wired dbtx stub, and whose query.payoutRequests.findFirst returns a
+// stubbed payout-request row (for the findPayoutRequest tail call).
+function makeServiceWithTransaction(
+  lockedRows: unknown[],
+  prRow: ReturnType<typeof makePayoutRequestRow>,
+) {
+  const { dbtx, mocks } = makeDbtxStub(lockedRows, prRow)
+
+  const dbStub = {
+    db: {
+      query: {
+        transactions: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          findMany: vi.fn().mockResolvedValue([]),
+        },
+        users: { findFirst: vi.fn() },
+        payoutRequests: {
+          findFirst: vi.fn().mockResolvedValue({
+            ...prRow,
+            senior: { displayName: 'Senior' },
+            transactions: lockedRows,
+          }),
+        },
+        projects: { findFirst: vi.fn() },
+        teamMembers: { findMany: vi.fn().mockResolvedValue([]) },
+      },
+      // db.transaction(fn) — execute the callback with our dbtx stub
+      transaction: vi.fn().mockImplementation((fn: (tx: unknown) => Promise<unknown>) => fn(dbtx)),
+      // Top-level select/insert/update stubs (not called by createPayoutRequest
+      // but present so TransactionsService constructor + other helpers don't fail)
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
+      }),
+      insert: vi.fn().mockReturnValue({
+        values: vi.fn().mockResolvedValue([]),
+      }),
+    },
+  } as never
+
+  const invoicesStub = {
+    autoCreateForPayout: vi.fn().mockResolvedValue(undefined),
+    autoCreateForIncome: vi.fn().mockResolvedValue(undefined),
+  } as never
+
+  const svc = new TransactionsService(dbStub, invoicesStub, {} as never)
+  return { svc, dbStub, mocks }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -221,9 +321,6 @@ describe('validateTransaction — DROP_INCOME still creates payout_request (#7 r
     const insertValuesMock = vi.fn().mockReturnValue({ returning: insertReturningMock })
     const insertIntoMock = vi.fn().mockReturnValue({ values: insertValuesMock })
 
-    // Simulated PAYOUT insert (no returning needed)
-    const insertPayoutMock = vi.fn().mockResolvedValue([])
-
     // insert is called twice: payoutRequests, then transactions (PAYOUT)
     let insertCallCount = 0
     const insertDispatch = vi.fn().mockImplementation(() => {
@@ -283,6 +380,7 @@ describe('validateTransaction — DROP_INCOME still creates payout_request (#7 r
 
 describe('createPayoutRequest (#7)', () => {
   it('throws ForbiddenException for non-SENIOR roles', async () => {
+    // db.transaction is not reached — role check fires first
     const svc = makeService()
     await expect(svc.createPayoutRequest(['tx-1'], ACCOUNTANT_USER)).rejects.toThrow(
       ForbiddenException,
@@ -290,14 +388,28 @@ describe('createPayoutRequest (#7)', () => {
   })
 
   it('throws BadRequestException when tx count mismatch (dup guard or wrong owner)', async () => {
-    // findMany returns fewer txs than requested (isNull guard filtered one out)
+    // FOR UPDATE lock returns fewer rows than requested →
+    // lockedRows.length !== transactionIds.length → BadRequestException.
+    // lockedRows = 1 row for 2 requested ids (isNull guard filtered one out).
+    const lockedRow = makeTx({ id: 'tx-1', currency: 'USDT' as const })
+    const prRow = makePayoutRequestRow()
+
+    // Build a dbtx stub whose select chain returns only 1 row
+    const { dbtx } = makeDbtxStub([lockedRow], prRow)
+
     const db = {
       db: {
         query: {
-          transactions: {
-            findMany: vi.fn().mockResolvedValue([makeTx()]), // only 1 returned for 2 requested
-          },
+          transactions: { findFirst: vi.fn(), findMany: vi.fn() },
+          payoutRequests: { findFirst: vi.fn() },
         },
+        transaction: vi
+          .fn()
+          .mockImplementation((fn: (tx: unknown) => Promise<unknown>) => fn(dbtx)),
+        update: vi.fn().mockReturnValue({
+          set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
+        }),
+        insert: vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue([]) }),
       },
     } as never
     const svc = new TransactionsService(db, {} as never, {} as never)
@@ -308,70 +420,46 @@ describe('createPayoutRequest (#7)', () => {
   })
 
   it('creates single payout_request for multiple VALIDATED txs', async () => {
-    // Two VALIDATED txs owned by SENIOR_USER, no payoutRequestId
+    // Two VALIDATED USDT txs owned by SENIOR_USER, no payoutRequestId.
+    // Verifies: insert called 2x, correct aggregate payable, update called 1x.
     const tx1 = makeTx({
       id: 'tx-1',
       amount: '1000',
       seniorSharePercent: 26,
+      currency: 'USDT' as const,
       payoutRequestId: null,
     })
-    const tx2 = makeTx({ id: 'tx-2', amount: '500', seniorSharePercent: 30, payoutRequestId: null })
-
+    const tx2 = makeTx({
+      id: 'tx-2',
+      amount: '500',
+      seniorSharePercent: 30,
+      currency: 'USDT' as const,
+      payoutRequestId: null,
+    })
+    const lockedRows = [tx1, tx2]
     const prRow = makePayoutRequestRow('pr-new-1')
-    const insertReturnMock = vi.fn().mockResolvedValue([prRow])
-    const insertValuesMock = vi.fn().mockReturnValue({ returning: insertReturnMock })
-    const insertIntoMock = vi.fn().mockReturnValue({ values: insertValuesMock })
 
-    const updateWhereMock = vi.fn().mockResolvedValue([])
-    const updateSetMock = vi.fn().mockReturnValue({ where: updateWhereMock })
-    const updateMock = vi.fn().mockReturnValue({ set: updateSetMock })
-
-    const payoutInsertValuesMock = vi.fn().mockResolvedValue([])
-    // Second insert call (PAYOUT row) returns empty
-    let callIdx = 0
-    const insertDispatch = vi.fn().mockImplementation(() => {
-      callIdx++
-      if (callIdx === 1) return { values: insertValuesMock } // payoutRequests
-      return { values: payoutInsertValuesMock } // PAYOUT transaction
-    })
-
-    const findPayoutRequestMock = vi.fn().mockResolvedValue({
-      ...prRow,
-      transactions: [tx1, tx2],
-    })
-
-    const db = {
-      db: {
-        query: {
-          transactions: {
-            findMany: vi.fn().mockResolvedValue([tx1, tx2]),
-            findFirst: vi.fn().mockResolvedValue(null),
-          },
-          payoutRequests: { findFirst: findPayoutRequestMock },
-          users: { findFirst: vi.fn() },
-          projects: { findFirst: vi.fn() },
-          teamMembers: { findMany: vi.fn().mockResolvedValue([]) },
-        },
-        insert: insertDispatch,
-        update: updateMock,
-      },
-    } as never
-
-    const invoicesStub = { autoCreateForPayout: vi.fn(), autoCreateForIncome: vi.fn() } as never
-    const svc = new TransactionsService(db, invoicesStub, {} as never)
+    const { svc, mocks } = makeServiceWithTransaction(lockedRows, prRow)
 
     await svc.createPayoutRequest(['tx-1', 'tx-2'], SENIOR_USER)
 
     // insert called twice: once for payoutRequests, once for PAYOUT row
-    expect(insertDispatch).toHaveBeenCalledTimes(2)
+    expect(mocks.insertMock).toHaveBeenCalledTimes(2)
 
-    // Correct aggregate payable: 1000*(1-0.26) + 500*(1-0.30) = 740 + 350 = 1090
-    const insertedValues = insertValuesMock.mock.calls[0]?.[0] as Record<string, unknown>
-    expect(parseFloat(insertedValues['payableAmount'] as string)).toBeCloseTo(1090, 2)
-    expect(parseFloat(insertedValues['incomeAmount'] as string)).toBeCloseTo(1500, 2)
+    // Correct aggregate payable (decimal-safe integer arithmetic):
+    //   tx1: 1000 * (1 - 26/100) = 740
+    //   tx2:  500 * (1 - 30/100) = 350
+    //   total payable = 1090, income = 1500
+    // returningMock is called with no args — values were passed via .values() before.
+    // We check the values mock on the first insert call instead.
+    const firstInsertValuesArg = (
+      mocks.insertMock.mock.results[0]?.value as { values: ReturnType<typeof vi.fn> }
+    ).values.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(parseFloat(firstInsertValuesArg['payableAmount'] as string)).toBeCloseTo(1090, 2)
+    expect(parseFloat(firstInsertValuesArg['incomeAmount'] as string)).toBeCloseTo(1500, 2)
 
     // update called once (link txs + flip to PENDING_PAYMENT)
-    expect(updateMock).toHaveBeenCalledTimes(1)
+    expect(mocks.updateMock).toHaveBeenCalledTimes(1)
   })
 
   it('per-tx payable aggregation: different sharePercent values', () => {
@@ -391,19 +479,117 @@ describe('createPayoutRequest (#7)', () => {
     expect(payable).toBeCloseTo(3700, 2)
     expect(income).toBeCloseTo(5000, 2)
   })
+
+  // ── Security (HIGH) — mixed-currency guard ──────────────────────────────
+  it('throws BadRequestException when selected txs span multiple currencies', async () => {
+    // USDT + USD = mixed → 400
+    const txUsdt = makeTx({
+      id: 'tx-usdt',
+      currency: 'USDT' as const,
+      amount: '1000',
+      seniorSharePercent: 26,
+    })
+    const txUsd = makeTx({
+      id: 'tx-usd',
+      currency: 'USD' as const,
+      amount: '500',
+      seniorSharePercent: 26,
+    })
+    const lockedRows = [txUsdt, txUsd]
+    const prRow = makePayoutRequestRow()
+
+    const { dbtx } = makeDbtxStub(lockedRows, prRow)
+    const db = {
+      db: {
+        query: {
+          transactions: { findFirst: vi.fn(), findMany: vi.fn() },
+          payoutRequests: { findFirst: vi.fn() },
+        },
+        transaction: vi
+          .fn()
+          .mockImplementation((fn: (tx: unknown) => Promise<unknown>) => fn(dbtx)),
+        update: vi.fn().mockReturnValue({
+          set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
+        }),
+        insert: vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue([]) }),
+      },
+    } as never
+    const svc = new TransactionsService(db, {} as never, {} as never)
+
+    await expect(svc.createPayoutRequest(['tx-usdt', 'tx-usd'], SENIOR_USER)).rejects.toThrow(
+      BadRequestException,
+    )
+  })
+
+  // ── Security (HIGH) — currency inherits from batch, not hardcoded USDT ──
+  it('PAYOUT row currency comes from the batch transactions, not hardcoded USDT', async () => {
+    // EUR batch — PAYOUT row should have currency='EUR'
+    const txEur1 = makeTx({
+      id: 'tx-eur-1',
+      currency: 'EUR' as const,
+      amount: '1000',
+      seniorSharePercent: 26,
+    })
+    const txEur2 = makeTx({
+      id: 'tx-eur-2',
+      currency: 'EUR' as const,
+      amount: '500',
+      seniorSharePercent: 26,
+    })
+    const lockedRows = [txEur1, txEur2]
+    const prRow = makePayoutRequestRow('pr-eur-1')
+
+    const { svc, mocks } = makeServiceWithTransaction(lockedRows, prRow)
+
+    await svc.createPayoutRequest(['tx-eur-1', 'tx-eur-2'], SENIOR_USER)
+
+    // Second insert is the PAYOUT row — check its currency argument
+    const secondInsertValuesFn = (
+      mocks.insertMock.mock.results[1]?.value as { values: ReturnType<typeof vi.fn> }
+    ).values
+    const payoutInsertArg = secondInsertValuesFn.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(payoutInsertArg['currency']).toBe('EUR')
+  })
+
+  // ── MED — atomicity: all writes run inside a single db.transaction() ──
+  it('all DB mutations run inside a single db.transaction() call', async () => {
+    const tx1 = makeTx({
+      id: 'tx-1',
+      currency: 'USDT' as const,
+      amount: '1000',
+      seniorSharePercent: 26,
+    })
+    const prRow = makePayoutRequestRow('pr-atomic-1')
+    const { svc, dbStub } = makeServiceWithTransaction([tx1], prRow)
+
+    await svc.createPayoutRequest(['tx-1'], SENIOR_USER)
+
+    const transactionMock = (dbStub as { db: { transaction: ReturnType<typeof vi.fn> } }).db
+      .transaction
+    expect(transactionMock).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('createPayoutRequest — duplicate guard (belt-and-suspenders, #7)', () => {
   it('BadRequest when all txs already have payoutRequestId (filter returns 0)', async () => {
-    // isNull(payoutRequestId) filter means linked txs are excluded from results
+    // FOR UPDATE lock returns [] (isNull guard excluded the already-linked tx).
+    // lockedRows.length (0) !== transactionIds.length (1) → BadRequestException.
+    const prRow = makePayoutRequestRow()
+    const { dbtx } = makeDbtxStub([], prRow) // empty locked rows
+
     const db = {
       db: {
         query: {
-          transactions: {
-            // Returns [] because isNull filter excluded the already-linked tx
-            findMany: vi.fn().mockResolvedValue([]),
-          },
+          transactions: { findFirst: vi.fn(), findMany: vi.fn() },
+          payoutRequests: { findFirst: vi.fn() },
         },
+        transaction: vi
+          .fn()
+          .mockImplementation((fn: (tx: unknown) => Promise<unknown>) => fn(dbtx)),
+        update: vi.fn().mockReturnValue({
+          set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
+        }),
+        insert: vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue([]) }),
       },
     } as never
     const svc = new TransactionsService(db, {} as never, {} as never)
