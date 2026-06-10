@@ -664,13 +664,17 @@ function ProjectDetailPage() {
 
   const activeMembers = project.members.filter((m) => m.leftAt === null)
   const pastMembers = project.members.filter((m) => m.leftAt !== null)
-  const senior = {
-    userId: project.seniorId,
-    displayName: project.seniorName,
-    role: 'SENIOR',
-    avatarUrl: null as string | null,
-    avatarDocumentId: null as string | null,
-  }
+  // seniorId/seniorName are null for JUNIOR viewers (identity masking by backend allowlist).
+  const senior =
+    project.seniorId != null
+      ? {
+          userId: project.seniorId,
+          displayName: project.seniorName ?? '',
+          role: 'SENIOR',
+          avatarUrl: null as string | null,
+          avatarDocumentId: null as string | null,
+        }
+      : null
   const activeJuniors = activeMembers.filter((m) => m.role === 'JUNIOR')
   const activeHRs = activeMembers.filter((m) => m.role === 'HR')
   const activeAccountants = activeMembers.filter((m) => m.role === 'ACCOUNTANT')
@@ -1016,26 +1020,28 @@ function ProjectDetailPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-1 divide-y divide-border/30">
-              {/* Senior — always shown */}
-              <div className="pb-3">
-                <Link
-                  to="/crm/profile/$userId"
-                  params={{ userId: senior.userId }}
-                  className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0"
-                >
-                  <Avatar className="h-8 w-8 shrink-0 ring-2 ring-[#6366f1]/30">
-                    <AvatarFallback className="text-[11px] font-semibold">
-                      {getInitials(senior.displayName)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm font-medium truncate text-primary hover:underline underline-offset-2">
-                    {senior.displayName}
-                  </span>
-                  <Badge variant="senior" className="shrink-0 text-[9px] ml-auto">
-                    Синьор
-                  </Badge>
-                </Link>
-              </div>
+              {/* Senior row — hidden for JUNIOR viewers (seniorId masked by backend allowlist) */}
+              {senior != null && (
+                <div className="pb-3">
+                  <Link
+                    to="/crm/profile/$userId"
+                    params={{ userId: senior.userId }}
+                    className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0"
+                  >
+                    <Avatar className="h-8 w-8 shrink-0 ring-2 ring-[#6366f1]/30">
+                      <AvatarFallback className="text-[11px] font-semibold">
+                        {getInitials(senior.displayName)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm font-medium truncate text-primary hover:underline underline-offset-2">
+                      {senior.displayName}
+                    </span>
+                    <Badge variant="senior" className="shrink-0 text-[9px] ml-auto">
+                      Синьор
+                    </Badge>
+                  </Link>
+                </div>
+              )}
 
               {/* HR */}
               <div className="pt-3 pb-3">

@@ -96,30 +96,40 @@ export function ProjectRow({ project }: ProjectRowProps) {
           </div>
         </div>
 
-        {/* Senior column */}
+        {/* Senior column — seniorId/seniorName are null for JUNIOR viewers (identity masking). */}
         <div className="flex items-center gap-2 min-w-0">
-          <Avatar className="h-7 w-7 shrink-0">
-            <AvatarFallback className="text-[10px] font-semibold bg-primary/20 text-primary">
-              {getInitials(project.seniorName)}
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold">
-              Синьор
-            </p>
-            {/* Inner link sits above the row-level stretched-link (z-[2] > z-[1]).
-                stopPropagation страховка на случай если bubbling доберётся до
-                row-level click handler в будущем. */}
-            <Link
-              to="/crm/profile/$userId"
-              params={{ userId: project.seniorId }}
-              onClick={(e) => e.stopPropagation()}
-              data-testid={`project-row-${project.id}-senior-link`}
-              className="relative z-[2] block text-xs font-medium truncate hover:underline hover:text-primary underline-offset-2"
-            >
-              {project.seniorName}
-            </Link>
-          </div>
+          {project.seniorId != null ? (
+            <>
+              <Avatar className="h-7 w-7 shrink-0">
+                <AvatarFallback className="text-[10px] font-semibold bg-primary/20 text-primary">
+                  {getInitials(project.seniorName ?? '')}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold">
+                  Синьор
+                </p>
+                {/* Inner link sits above the row-level stretched-link (z-[2] > z-[1]).
+                    stopPropagation страховка на случай если bubbling доберётся до
+                    row-level click handler в будущем. */}
+                <Link
+                  to="/crm/profile/$userId"
+                  params={{ userId: project.seniorId }}
+                  onClick={(e) => e.stopPropagation()}
+                  data-testid={`project-row-${project.id}-senior-link`}
+                  className="relative z-[2] block text-xs font-medium truncate hover:underline hover:text-primary underline-offset-2"
+                >
+                  {project.seniorName}
+                </Link>
+              </div>
+            </>
+          ) : (
+            /* JUNIOR viewer — senior identity masked by backend allowlist */
+            <div
+              className="h-7 w-7 shrink-0 rounded-full border border-dashed border-muted-foreground/20"
+              aria-hidden
+            />
+          )}
         </div>
 
         {/* Junior column */}

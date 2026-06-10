@@ -252,7 +252,8 @@ function ProjectsPage() {
         (p) =>
           p.companyName.toLowerCase().includes(q) ||
           p.name.toLowerCase().includes(q) ||
-          p.seniorName.toLowerCase().includes(q) ||
+          // seniorName is null for JUNIOR viewers (identity masking) — null-safe
+          (p.seniorName ?? '').toLowerCase().includes(q) ||
           (p.techStack ?? '').toLowerCase().includes(q),
       )
     }
