@@ -622,4 +622,87 @@ describe('Projects JUNIOR allowlist-masking — real DB integration', () => {
       expect(p.dropId, `dropId must be null for every list item`).toBeNull()
     }
   })
+
+  // ── MASK-9: effectiveTeam absent from JUNIOR response (MED-1) ────────────
+  //
+  // effectiveTeam carries the most sensitive identity payload: senior.email,
+  // drop.email, hrs[].email, accountants[].email. A regression where the field
+  // accidentally leaks to JUNIOR must be caught immediately.
+  //
+  // JSON serialisation drops `undefined` keys entirely — body.effectiveTeam
+  // resolves to `undefined` when the key is absent.
+
+  it('MASK-9 (MED-1). JUNIOR GET /api/projects/:id → effectiveTeam ABSENT from JSON response (identity email-leak regression guard)', async () => {
+    if (!dbAvailable) return
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/projects/${PROJ_A_ID}`,
+      cookies: { jwt: tokenFor(J1) },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as Record<string, unknown>
+
+    // Primary assertion: field must not exist in the serialised response.
+    // JSON.stringify drops undefined — if effectiveTeam were accidentally set
+    // (even to null) this would catch it.
+    expect(
+      body['effectiveTeam'],
+      'effectiveTeam must be absent for JUNIOR (identity PII)',
+    ).toBeUndefined()
+
+    // Belt-and-suspenders: raw payload string must not contain the word
+    // "effectiveTeam" at all — guards against accidental null serialisation.
+    expect(res.payload, 'raw payload must not contain "effectiveTeam" key').not.toContain(
+      '"effectiveTeam"',
+    )
+  })
+
+  // ── MASK-10: effectiveTeam present and carries email for ADMIN (positive control) ──
+  //
+  // Without this positive control MASK-9 would be trivially satisfied by a
+  // bug that strips effectiveTeam for everyone. Proves the field really exists
+  // for a privileged viewer and carries the sensitive email fields that JUNIOR
+  // must be protected from.
+
+  it('MASK-10 (MED-1 positive control). ADMIN GET /api/projects/:id → effectiveTeam PRESENT with senior.email and drop.email', async () => {
+    if (!dbAvailable) return
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/projects/${PROJ_A_ID}`,
+      cookies: { jwt: tokenFor(ADMIN) },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as Record<string, unknown>
+
+    // effectiveTeam must exist and be an object (not null / undefined)
+    expect(body['effectiveTeam'], 'effectiveTeam must be present for ADMIN').toBeDefined()
+    expect(body['effectiveTeam']).not.toBeNull()
+
+    const et = body['effectiveTeam'] as {
+      senior: { email: string; displayName: string } | null
+      drop: { email: string; displayName: string } | null
+      hrs: Array<{ email: string }>
+      accountants: Array<{ email: string }>
+    }
+
+    // senior must be set and carry real email (S1)
+    expect(et.senior, 'effectiveTeam.senior must be non-null for ADMIN').not.toBeNull()
+    expect(et.senior!.email, 'effectiveTeam.senior.email must match S1').toBe(S1.email)
+    expect(et.senior!.displayName).toBe(S1.displayName)
+
+    // drop must be set and carry real email (DROP1) — proves drop PII is present
+    // for privileged viewers and would leak to JUNIOR if MASK-9 were absent
+    expect(et.drop, 'effectiveTeam.drop must be non-null for ADMIN (DROP1 seeded)').not.toBeNull()
+    expect(et.drop!.email, 'effectiveTeam.drop.email must match DROP1').toBe(DROP1.email)
+
+    // hrs must include HR_X (seeded into Team X alongside S1)
+    const hrEmails = et.hrs.map((h) => h.email)
+    expect(hrEmails, 'effectiveTeam.hrs must include HR_X').toContain(HR_X.email)
+
+    // Entire effectiveTeam must be non-empty (proves positive-control distinction
+    // from JUNIOR path which returns no effectiveTeam at all)
+    const hasContent =
+      et.senior !== null || et.drop !== null || et.hrs.length > 0 || et.accountants.length > 0
+    expect(hasContent, 'effectiveTeam must have at least one non-empty member').toBe(true)
+  })
 })
