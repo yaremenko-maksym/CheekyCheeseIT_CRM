@@ -1420,7 +1420,11 @@ export class UsersService {
     //   techStack                               — fields.techStack
     //   displayName, avatarUrl, avatarDocumentId, role, id — always present
     // ---------------------------------------------------------------------------
-    const filteredUser: User = {
+    // FilteredUser extends User but allows email to be null when realContacts
+    // is masked (e.g. JUNIOR viewing SENIOR). The DB type is string (NOT NULL)
+    // but the API contract intentionally redacts it at this layer.
+    type FilteredUser = Omit<User, 'email'> & { email: string | null }
+    const filteredUser: FilteredUser = {
       // Always-safe identity fields (persona display, never masked)
       id: target.id,
       displayName: target.displayName,
