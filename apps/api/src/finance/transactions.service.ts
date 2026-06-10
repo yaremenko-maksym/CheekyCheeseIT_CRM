@@ -423,12 +423,11 @@ export class TransactionsService {
     } else if (currentUser.role === 'JUNIOR') {
       result = result.filter((tx) => tx.receiverId === currentUser.id)
     } else if (currentUser.role === 'HR') {
-      // HR sees salary transactions for their team members + their own
+      // HR sees only their own transactions (where they are sender or receiver).
+      // HR must NOT see all SALARY-type rows — that would leak salary amounts
+      // of other employees (F1 RBAC fix, OWASP A01).
       result = result.filter(
-        (tx) =>
-          tx.type === 'SALARY' ||
-          tx.receiverId === currentUser.id ||
-          tx.senderId === currentUser.id,
+        (tx) => tx.receiverId === currentUser.id || tx.senderId === currentUser.id,
       )
     } else if (currentUser.role === 'DROP') {
       // Drop role - phase 1 (AC1, security): DROP must only see transactions
@@ -1770,19 +1769,23 @@ export class TransactionsService {
       },
     })
     if (!req) throw new NotFoundException('Payout request not found')
-    if (currentUser.role === 'SENIOR' && req.seniorId !== currentUser.id)
-      throw new ForbiddenException()
-    // Drop role - phase 2 (backlog AC4): DROP CAN inspect their own payout
-    // requests. In drop-project flows `payout_requests.seniorId` actually
-    // points at the DROP user (the column is reused as "owner of the
-    // payout"; see `payPayoutRequest` header comment around the
-    // `req.seniorId === currentUser.id` check). The phase-1 blanket
-    // ForbiddenException made `payPayoutRequest` return HTTP 403 even after
-    // the cascade had committed, because the method tail-calls this lookup
-    // to build the response. Allow DROP to read THEIR OWN payout request;
-    // continue to deny when they would peek at someone else's.
-    if (currentUser.role === 'DROP' && req.seniorId !== currentUser.id)
-      throw new ForbiddenException()
+
+    // RBAC gate (F2 fix, OWASP A01): only ADMIN / ACCOUNTANT have unrestricted
+    // access; SENIOR and DROP may only see their own request (seniorId match);
+    // all other roles (HR, JUNIOR, etc.) are unconditionally forbidden.
+    //
+    // Previously the code only checked SENIOR and DROP — HR and JUNIOR fell
+    // through to the return statement and received the data (IDOR).
+    //
+    // Drop role - phase 2 note: `payout_requests.seniorId` is reused as the
+    // "owner" column for DROP requests too (see `payPayoutRequest` header).
+    // The ownership check below naturally handles both SENIOR and DROP via the
+    // `isOwner` branch.
+    const isPrivileged = currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT'
+    const isOwner =
+      (currentUser.role === 'SENIOR' || currentUser.role === 'DROP') &&
+      req.seniorId === currentUser.id
+    if (!isPrivileged && !isOwner) throw new ForbiddenException()
 
     return {
       id: req.id,
