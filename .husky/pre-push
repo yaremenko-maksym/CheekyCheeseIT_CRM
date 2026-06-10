@@ -1,2 +1,2 @@
 pnpm typecheck
-pnpm --filter @crm/shared --filter @crm/api --filter @crm/web --workspace-concurrency=1 test
+pnpm --filter @crm/shared --filter @crm/api --filter @crm/web test
