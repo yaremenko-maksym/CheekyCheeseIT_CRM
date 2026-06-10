@@ -152,7 +152,10 @@ export function ProjectRow({ project }: ProjectRowProps) {
                     {firstJunior.displayName}
                   </Link>
                   {remainingJuniors > 0 && (
-                    <span className="text-muted-foreground/70 font-normal"> +{remainingJuniors}</span>
+                    <span className="text-muted-foreground/70 font-normal">
+                      {' '}
+                      +{remainingJuniors}
+                    </span>
                   )}
                 </div>
               </div>
@@ -170,7 +173,10 @@ export function ProjectRow({ project }: ProjectRowProps) {
                   Джун
                 </p>
                 <p className="text-xs font-medium text-destructive/80 flex items-center gap-1.5 truncate">
-                  <span className="h-1.5 w-1.5 rounded-full bg-destructive/50 shrink-0" aria-hidden />
+                  <span
+                    className="h-1.5 w-1.5 rounded-full bg-destructive/50 shrink-0"
+                    aria-hidden
+                  />
                   Нет джуна
                 </p>
               </div>
@@ -178,10 +184,21 @@ export function ProjectRow({ project }: ProjectRowProps) {
           )}
         </div>
 
-        {/* Rate + date column */}
+        {/* Rate + date column.
+            rate / currency are null for JUNIOR viewers (finance masking, RBAC A01).
+            Render an em-dash placeholder so the column still occupies its grid cell. */}
         <div className="flex flex-col items-end justify-center text-right">
           <p className="text-sm font-semibold tabular-nums">
-            {project.rate.toLocaleString()} <span className="text-xs text-muted-foreground font-normal">{project.currency}</span>
+            {project.rate != null ? (
+              <>
+                {project.rate.toLocaleString()}{' '}
+                <span className="text-xs text-muted-foreground font-normal">
+                  {project.currency}
+                </span>
+              </>
+            ) : (
+              <span className="text-muted-foreground/40 italic text-xs">—</span>
+            )}
           </p>
           <p className="text-[11px] text-muted-foreground/80 tabular-nums">
             {new Date(project.startDate).toLocaleDateString('uk-UA', DATE_FORMAT_OPTS)}

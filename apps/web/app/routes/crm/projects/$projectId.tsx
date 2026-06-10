@@ -336,10 +336,10 @@ function ProjectEditFields({
 
         {/* Per-project SENIOR share — round-3 UI (PR #39 round 2):
             ShareSlider всегда виден; implicit reset (когда value === default —
-            backend пишет null). Toggle/Сбросить упразднены. RBAC: HR теперь
-            СЕКЦИЮ не видит вообще (фильтрация выше через viewerRole), а у
-            не-ADMIN/ACCOUNTANT слайдер disabled. */}
-        {viewerRole !== 'HR' && (
+            backend пишет null). Toggle/Сбросить упразднены.
+            RBAC: HR и JUNIOR не видят секцию вообще (фильтрация через viewerRole);
+            у не-ADMIN/ACCOUNTANT слайдер disabled. */}
+        {viewerRole !== 'HR' && viewerRole !== 'JUNIOR' && (
           <form.Field
             name="seniorSharePercentOverride"
             validators={{
@@ -478,9 +478,11 @@ function ProjectDetailPage() {
   const canRemoveMembers = isAdmin
   // ut-fix-round2 (PR #39 round 2): HR не видит финансовую информацию по
   // проекту — табу «Финансы», info-row «Доля синьора» в Обзоре и секцию
-  // ShareSlider в edit-форме. JUNIOR в этот роут вообще не пускают.
+  // ShareSlider в edit-форме.
+  // Junior finance-masking: JUNIOR тоже не видит финансы — backend уже
+  // эмитит rate/currency/share-поля как null, UI не должен пытаться их рендерить.
   // ADMIN/ACCOUNTANT/SENIOR видят всё (SENIOR — read-only).
-  const canSeeProjectFinance = user?.role !== 'HR'
+  const canSeeProjectFinance = user?.role !== 'HR' && user?.role !== 'JUNIOR'
 
   const [editOpen, setEditOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
@@ -802,20 +804,24 @@ function ProjectDetailPage() {
 
         {/* Stat chips row */}
         <div className="flex gap-3 px-6 pb-5 flex-wrap">
-          <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
-            <DollarSign className="h-4 w-4 text-emerald-400 shrink-0" />
-            <div>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Ставка</p>
-              <p className="text-sm font-semibold tabular-nums">
-                {project.rate.toLocaleString()} {project.currency}
-              </p>
-              {rates && project.currency !== 'USD' && project.currency !== 'USDT' && (
-                <p className="text-[10px] text-muted-foreground tabular-nums">
-                  ≈ {fmtUsd(project.rate, project.currency, rates)}
+          {/* rate / currency are null for JUNIOR (finance masking, RBAC A01).
+              Only render the stat chip when finance data is available. */}
+          {project.rate != null && project.currency != null && (
+            <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
+              <DollarSign className="h-4 w-4 text-emerald-400 shrink-0" />
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Ставка</p>
+                <p className="text-sm font-semibold tabular-nums">
+                  {project.rate.toLocaleString()} {project.currency}
                 </p>
-              )}
+                {rates && project.currency !== 'USD' && project.currency !== 'USDT' && (
+                  <p className="text-[10px] text-muted-foreground tabular-nums">
+                    ≈ {fmtUsd(project.rate, project.currency, rates)}
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
+          )}
           <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
             <Calendar className="h-4 w-4 text-blue-400 shrink-0" />
             <div>

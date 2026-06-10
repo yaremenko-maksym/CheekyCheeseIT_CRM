@@ -266,8 +266,9 @@ function ProjectsPage() {
         av = a.companyName
         bv = b.companyName
       } else if (sortKey === 'rate') {
-        av = a.rate
-        bv = b.rate
+        // rate is null for JUNIOR viewers; treat null as 0 for sort stability
+        av = a.rate ?? 0
+        bv = b.rate ?? 0
       } else if (sortKey === 'startDate') {
         av = new Date(a.startDate).getTime()
         bv = new Date(b.startDate).getTime()
