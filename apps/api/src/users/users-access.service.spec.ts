@@ -297,4 +297,76 @@ describe('UsersAccessService.getViewPermissions', () => {
     const p = await service.getViewPermissions(hrUser, dropUser)
     expect(p.fields.legend).toBe(true)
   })
+
+  // ── RBAC A01 (2026-06-10): PII / contact field flags ──
+  // These exercise the REAL getViewPermissions logic (only the DB-helper lookups
+  // are stubbed) so a regression in flag wiring is caught — closing the gap where
+  // buildProfileView tests mocked getViewPermissions entirely.
+  it('JUNIOR viewing their project SENIOR — realContacts/fopPii/adminNote all false (legend boundary)', async () => {
+    ;(service as unknown as Record<string, unknown>).isJuniorUnderLegendSubject = vi
+      .fn()
+      .mockResolvedValue(true)
+    const viewer = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const target = makeUser({ id: 'sr1', role: 'SENIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.fields.realContacts).toBe(false)
+    expect(p.fields.fopPii).toBe(false)
+    expect(p.fields.adminNote).toBe(false)
+  })
+
+  it('JUNIOR viewing their project DROP — realContacts false (legend boundary)', async () => {
+    ;(service as unknown as Record<string, unknown>).isJuniorUnderLegendSubject = vi
+      .fn()
+      .mockResolvedValue(true)
+    const viewer = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const target = makeUser({ id: 'drop1', role: 'DROP' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.fields.realContacts).toBe(false)
+  })
+
+  it('ADMIN viewing another user — adminNote/fopPii/realContacts all true', async () => {
+    const viewer = makeUser({ id: 'admin1', role: 'ADMIN' })
+    const target = makeUser({ id: 'sr1', role: 'SENIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.fields.adminNote).toBe(true)
+    expect(p.fields.fopPii).toBe(true)
+    expect(p.fields.realContacts).toBe(true)
+  })
+
+  it('ADMIN viewing self — adminNote false, fopPii true (own FOP), realContacts true', async () => {
+    const admin = makeUser({ id: 'admin1', role: 'ADMIN' })
+    const p = await service.getViewPermissions(admin, admin)
+    expect(p.fields.adminNote).toBe(false)
+    expect(p.fields.fopPii).toBe(true)
+    expect(p.fields.realContacts).toBe(true)
+  })
+
+  it('SELF (SENIOR) — fopPii/realContacts true, adminNote false', async () => {
+    const senior = makeUser({ id: 'sr1', role: 'SENIOR' })
+    const p = await service.getViewPermissions(senior, senior)
+    expect(p.fields.fopPii).toBe(true)
+    expect(p.fields.realContacts).toBe(true)
+    expect(p.fields.adminNote).toBe(false)
+  })
+
+  it('ACCOUNTANT viewing another — fopPii false, adminNote false, realContacts true', async () => {
+    const viewer = makeUser({ id: 'acc1', role: 'ACCOUNTANT' })
+    const target = makeUser({ id: 'sr1', role: 'SENIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.fields.fopPii).toBe(false)
+    expect(p.fields.adminNote).toBe(false)
+    expect(p.fields.realContacts).toBe(true)
+  })
+
+  it('HR viewing SENIOR in own team — fopPii false, adminNote false, realContacts true', async () => {
+    ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
+      .fn()
+      .mockResolvedValue(true)
+    const viewer = makeUser({ id: 'hr1', role: 'HR' })
+    const target = makeUser({ id: 'sr1', role: 'SENIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.fields.fopPii).toBe(false)
+    expect(p.fields.adminNote).toBe(false)
+    expect(p.fields.realContacts).toBe(true)
+  })
 })

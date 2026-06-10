@@ -60,6 +60,12 @@ export class UsersAccessService {
       fields.requisites = true
       // legalFullName (passport PII) — ADMIN always sees it (including self)
       fields.legalName = true
+      // adminNote — ADMIN only, never self (internal staff note, not surfaced to subject)
+      fields.adminNote = !isSelf
+      // FOP PII (registrationAddress, usrRecord) — ADMIN + self
+      fields.fopPii = true
+      // Real contacts (email, phone, telegram) — visible to ADMIN always
+      fields.realContacts = true
       // ADMIN can view/edit any SENIOR's or DROP's legend (subject excluded by isSelf check)
       fields.legend = targetIsLegendSubject && !isSelf
     } else if (isSelf) {
@@ -75,6 +81,12 @@ export class UsersAccessService {
       fields.requisites = true
       // legalFullName (passport PII) — owner always sees own legal name
       fields.legalName = true
+      // adminNote — self does NOT see their own admin note (internal staff memo)
+      fields.adminNote = false
+      // FOP PII — owner always sees own registrationAddress/usrRecord
+      fields.fopPii = true
+      // Real contacts — owner sees own contacts
+      fields.realContacts = true
       // Subject cannot view/edit their own legend (new model: self-access removed)
       fields.legend = false
     } else if (isAccountant) {
@@ -85,12 +97,24 @@ export class UsersAccessService {
       fields.registrationDate = true
       fields.techStack = targetHasTechStack
       fields.requisites = true
+      // adminNote — ACCOUNTANT does not see admin notes
+      fields.adminNote = false
+      // FOP PII — ACCOUNTANT does not see registrationAddress/usrRecord
+      fields.fopPii = false
+      // Real contacts — ACCOUNTANT sees contacts (email/phone/telegram)
+      fields.realContacts = true
     } else if (isHr) {
       if (await this.isHrInTargetTeam(viewer.id, target)) {
         tabs.push('overview', 'projects', 'team')
         if (targetIsSenior) tabs.push('interviews')
         fields.techStack = targetHasTechStack
         fields.registrationDate = true
+        // adminNote — HR does not see admin notes
+        fields.adminNote = false
+        // FOP PII — HR does not see registrationAddress/usrRecord
+        fields.fopPii = false
+        // Real contacts — HR sees contacts (email/phone/telegram)
+        fields.realContacts = true
         // HR can view/edit their SENIOR's or DROP's legend
         fields.legend = targetIsLegendSubject
       }
@@ -105,6 +129,9 @@ export class UsersAccessService {
           tabs.push('overview', 'projects', 'team')
           fields.techStack = targetHasTechStack
           fields.registrationDate = true
+          fields.adminNote = false
+          fields.fopPii = false
+          fields.realContacts = true
         }
       }
       // target.role === 'JUNIOR': intentionally fall through with no tabs (403 at route level).
@@ -112,10 +139,19 @@ export class UsersAccessService {
       // JUNIOR can view the legend of the SENIOR or DROP associated with their active project.
       // For SENIOR: projects.seniorId = target. For DROP: projects.dropId = target.
       // surfaces overview/projects/team tabs so the profile is reachable.
+      // RBAC: JUNIOR sees SENIOR/DROP only through their legend persona.
+      // Real contacts (email/phone/telegram) and FOP PII are hidden — these are
+      // identity fields of the real person behind the legend.
       if (await this.isJuniorUnderLegendSubject(viewer.id, target.id)) {
         tabs.push('overview', 'projects', 'team')
         fields.techStack = targetHasTechStack
         fields.registrationDate = true
+        fields.adminNote = false
+        fields.fopPii = false
+        // CRITICAL: JUNIOR must NOT see real contacts of their SENIOR/DROP.
+        // The legend persona boundary requires this: JUNIOR interacts with the
+        // client-facing persona, not the real identity behind it (OWASP A01).
+        fields.realContacts = false
         fields.legend = true
       }
     }

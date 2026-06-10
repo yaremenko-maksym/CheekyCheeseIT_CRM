@@ -1401,32 +1401,74 @@ export class UsersService {
       throw new ForbiddenException()
     }
 
-    // Filter user fields based on permissions
-    const filteredUser: User = { ...target }
-    if (!permissions.fields.salary) {
-      filteredUser.monthlySalary = null
-    }
-    if (!permissions.fields.share) {
-      filteredUser.seniorSharePercent = 0
-      // Drop role - phase 1: also mask dropSharePercent so non-privileged
-      // viewers don't see the drop's cut.
-      filteredUser.dropSharePercent = null
-    }
-    if (!permissions.fields.techStack) {
-      filteredUser.techStack = null
-    }
-    if (!permissions.fields.requisites) {
-      filteredUser.paymentMethod = null
-      filteredUser.walletUsdtErc20 = null
-      filteredUser.walletUsdtLabel = null
-      filteredUser.bankUahRecipient = null
-      filteredUser.bankUahIban = null
-      filteredUser.bankUahRnokpp = null
-      filteredUser.bankUahBankName = null
-    }
-    // legalFullName is passport PII — visible only to ADMIN and the user themselves.
-    if (!permissions.fields.legalName) {
-      filteredUser.legalFullName = null
+    // ---------------------------------------------------------------------------
+    // Build filteredUser with explicit allow-list projection (OWASP A01 guard).
+    //
+    // IMPORTANT: use an explicit field list rather than `{ ...target }` so that
+    // future DB columns do NOT leak automatically before a permissions gate is
+    // added. Add new sensitive fields here AND in getViewPermissions flags.
+    //
+    // Field visibility matrix (viewer → target):
+    //   email / phone / telegram (realContacts) — hidden when fields.realContacts=false
+    //     (e.g. JUNIOR viewing SENIOR/DROP: legend persona boundary)
+    //   adminNote                               — ADMIN only (fields.adminNote), never self
+    //   registrationAddress / usrRecord (fopPii)— ADMIN + self (fields.fopPii)
+    //   legalFullName                           — ADMIN + self (fields.legalName)
+    //   monthlySalary                           — fields.salary
+    //   seniorSharePercent / dropSharePercent   — fields.share
+    //   paymentMethod / wallet* / bankUah*      — fields.requisites
+    //   techStack                               — fields.techStack
+    //   displayName, avatarUrl, avatarDocumentId, role, id — always present
+    // ---------------------------------------------------------------------------
+    // FilteredUser extends User but allows email to be null when realContacts
+    // is masked (e.g. JUNIOR viewing SENIOR). The DB type is string (NOT NULL)
+    // but the API contract intentionally redacts it at this layer.
+    type FilteredUser = Omit<User, 'email'> & { email: string | null }
+    const filteredUser: FilteredUser = {
+      // Always-safe identity fields (persona display, never masked)
+      id: target.id,
+      displayName: target.displayName,
+      role: target.role,
+      avatarUrl: target.avatarUrl,
+      avatarDocumentId: target.avatarDocumentId,
+      googleId: target.googleId,
+      archivedAt: target.archivedAt,
+      createdAt: target.createdAt,
+      updatedAt: target.updatedAt,
+
+      // Real contacts — hidden from JUNIOR viewing SENIOR/DROP (legend boundary)
+      email: permissions.fields.realContacts ? target.email : null,
+      phone: permissions.fields.realContacts ? (target.phone ?? null) : null,
+      telegram: permissions.fields.realContacts ? (target.telegram ?? null) : null,
+
+      // Admin-only internal note (never visible to subject or non-ADMIN)
+      adminNote: permissions.fields.adminNote ? (target.adminNote ?? null) : null,
+
+      // FOP PII: registrationAddress + usrRecord — ADMIN + self only
+      registrationAddress: permissions.fields.fopPii ? (target.registrationAddress ?? null) : null,
+      usrRecord: permissions.fields.fopPii ? (target.usrRecord ?? null) : null,
+
+      // Passport PII — ADMIN + self only
+      legalFullName: permissions.fields.legalName ? (target.legalFullName ?? null) : null,
+
+      // Financial fields — gated by role-based flags
+      monthlySalary: permissions.fields.salary ? target.monthlySalary : null,
+      salaryCurrency: permissions.fields.salary ? (target.salaryCurrency ?? null) : null,
+      seniorSharePercent: permissions.fields.share ? target.seniorSharePercent : 0,
+      // Drop role - phase 1: also mask dropSharePercent for non-privileged viewers
+      dropSharePercent: permissions.fields.share ? (target.dropSharePercent ?? null) : null,
+
+      // Tech stack
+      techStack: permissions.fields.techStack ? (target.techStack ?? null) : null,
+
+      // Payment requisites
+      paymentMethod: permissions.fields.requisites ? (target.paymentMethod ?? null) : null,
+      walletUsdtErc20: permissions.fields.requisites ? (target.walletUsdtErc20 ?? null) : null,
+      walletUsdtLabel: permissions.fields.requisites ? (target.walletUsdtLabel ?? null) : null,
+      bankUahRecipient: permissions.fields.requisites ? (target.bankUahRecipient ?? null) : null,
+      bankUahIban: permissions.fields.requisites ? (target.bankUahIban ?? null) : null,
+      bankUahRnokpp: permissions.fields.requisites ? (target.bankUahRnokpp ?? null) : null,
+      bankUahBankName: permissions.fields.requisites ? (target.bankUahBankName ?? null) : null,
     }
 
     const data: Record<string, unknown> = {}
@@ -1439,7 +1481,9 @@ export class UsersService {
 
       data.overview = {
         techStack: permissions.fields.techStack ? (target.techStack ?? []) : null,
-        adminNote: viewer.role === 'ADMIN' ? target.adminNote : null,
+        // adminNote — gated by the same permission flag as filteredUser.adminNote
+        // (ADMIN viewing another user; never self). Keeps both surfaces consistent.
+        adminNote: permissions.fields.adminNote ? (target.adminNote ?? null) : null,
         tosAcceptedAt: tosAcceptance?.acceptedAt.toISOString() ?? null,
         tosVersion: tosAcceptance?.tosVersion ?? null,
       }
