@@ -8,6 +8,12 @@ import {
   forwardRef,
   Inject,
 } from '@nestjs/common'
+
+/** Default drop-share percentage when `users.dropSharePercent` is NULL.
+ *  Used in both `computeDropDistribution` (write-path) and `getSummary`
+ *  (read-path display). Single source of truth — never duplicate the literal 5.
+ */
+export const DEFAULT_DROP_SHARE_PERCENT = 5
 import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm'
 import type { SessionUser } from '@crm/shared'
 import { MAKSYM_ID, KOSTYA_ID } from '@crm/shared'
@@ -364,7 +370,7 @@ export class TransactionsService {
     partnerShares: { adminId: string; amount: number }[]
   } {
     const seniorPercent = senior.seniorSharePercent ?? 26
-    const dropPercent = drop.dropSharePercent ?? 5
+    const dropPercent = drop.dropSharePercent ?? DEFAULT_DROP_SHARE_PERCENT
 
     if (seniorPercent + dropPercent > 100) {
       throw new BadRequestException('Sum of senior+drop shares exceeds 100%')
@@ -1798,7 +1804,22 @@ export class TransactionsService {
 
   // ── Finance Summary (stats) ───────────────────────────────────────────────
 
-  async getSummary(_currentUser: SessionUser) {
+  async getSummary(currentUser: SessionUser) {
+    // RBAC: only ADMIN and ACCOUNTANT may see the full financial summary
+    // (adminBalances, dropBalances, totalIncome, dropSharePercent).
+    // Any other authenticated role (SENIOR / JUNIOR / HR / DROP) reaching
+    // GET /api/finance/summary directly would leak payment-routing config.
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+      throw new ForbiddenException(
+        'Access denied: finance summary requires ADMIN or ACCOUNTANT role',
+      )
+    }
+
+    // Scaled-integer constant used throughout aggregations below to avoid
+    // JS float accumulation errors (same scale as the write-path in
+    // confirmPayout / payPayoutRequest: SCALE = 1e6, round to int).
+    const SCALE = 1_000_000
+
     const allTxs = (await this.db.db.query.transactions.findMany({
       with: {
         sender: { columns: { displayName: true } },
@@ -1811,20 +1832,32 @@ export class TransactionsService {
 
     // Drop role - phase 2: DROP_INCOME counts toward total income for
     // reporting purposes (gross money that came in through DROPs).
-    const totalIncome = paid
-      .filter(
-        (tx) =>
-          tx.type === 'ADMIN_INCOME' || tx.type === 'SENIOR_INCOME' || tx.type === 'DROP_INCOME',
-      )
-      .reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
+    // Scaled-integer reduce to avoid float accumulation (MED-5).
+    const totalIncome =
+      Math.round(
+        paid
+          .filter(
+            (tx) =>
+              tx.type === 'ADMIN_INCOME' ||
+              tx.type === 'SENIOR_INCOME' ||
+              tx.type === 'DROP_INCOME',
+          )
+          .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0),
+      ) / SCALE
 
-    const totalExpenses = paid
-      .filter((tx) => tx.type === 'EXPENSE')
-      .reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
+    const totalExpenses =
+      Math.round(
+        paid
+          .filter((tx) => tx.type === 'EXPENSE')
+          .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0),
+      ) / SCALE
 
-    const totalSalaries = paid
-      .filter((tx) => tx.type === 'SALARY')
-      .reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
+    const totalSalaries =
+      Math.round(
+        paid
+          .filter((tx) => tx.type === 'SALARY')
+          .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0),
+      ) / SCALE
 
     // Admin balances: sum of PAYOUT_ADMIN received + ADMIN_INCOME - ADMIN_TRANSFER sent.
     // Drop role - phase 3 (spec §8.4): PAYOUT_CONFIRMED — the row inserted by
@@ -1840,7 +1873,7 @@ export class TransactionsService {
     })
 
     const adminBalances = adminUsers.map((admin) => {
-      const received = paid
+      const receivedScaled = paid
         .filter(
           (tx) =>
             tx.receiverId === admin.id &&
@@ -1849,11 +1882,15 @@ export class TransactionsService {
               tx.type === 'ADMIN_TRANSFER' ||
               tx.type === 'PAYOUT_CONFIRMED'),
         )
-        .reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
-      const sent = paid
+        .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0)
+      const sentScaled = paid
         .filter((tx) => tx.senderId === admin.id && tx.type === 'ADMIN_TRANSFER')
-        .reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
-      return { userId: admin.id, displayName: admin.displayName, balance: received - sent }
+        .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0)
+      return {
+        userId: admin.id,
+        displayName: admin.displayName,
+        balance: (receivedScaled - sentScaled) / SCALE,
+      }
     })
 
     // Drop role - phase 2 (AC4): aggregate balance per DROP user — credit on
@@ -1866,39 +1903,66 @@ export class TransactionsService {
     })
 
     const dropBalances = dropUsers.map((drop) => {
-      const received = paid
+      const receivedScaled = paid
         .filter((tx) => tx.receiverId === drop.id && tx.type === 'PAYOUT_DROP')
-        .reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
-      const sent = paid
+        .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0)
+      const sentScaled = paid
         .filter((tx) => tx.senderId === drop.id && tx.type === 'PAYOUT_DROP')
-        .reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
-      return { userId: drop.id, displayName: drop.displayName, balance: received - sent }
+        .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0)
+      // pendingCount: DROP_INCOME rows for this drop that are still awaiting
+      // validation (PENDING or VALIDATED status). Derived from allTxs without
+      // an extra DB round-trip.
+      // FIX (HIGH#2): createDropIncome sets receiverId = drop.id (drop is the
+      // income recipient) and senderId = null (external client is the payer).
+      // The previous check on senderId === drop.id always yielded 0.
+      const pendingCount = allTxs.filter(
+        (tx) =>
+          tx.type === 'DROP_INCOME' &&
+          tx.receiverId === drop.id &&
+          (tx.status === 'PENDING' || tx.status === 'VALIDATED'),
+      ).length
+      return {
+        userId: drop.id,
+        displayName: drop.displayName,
+        balance: (receivedScaled - sentScaled) / SCALE,
+        dropSharePercent: drop.dropSharePercent ?? DEFAULT_DROP_SHARE_PERCENT,
+        pendingCount,
+      }
     })
 
-    // Monthly breakdown
-    const monthMap = new Map<string, { income: number; expenses: number; salaries: number }>()
+    // Monthly breakdown — scaled-integer accumulation (MED-5).
+    const monthMap = new Map<
+      string,
+      { incomeScaled: number; expensesScaled: number; salariesScaled: number }
+    >()
 
     for (const tx of paid) {
       const month = tx.createdAt.toISOString().slice(0, 7) // YYYY-MM
-      if (!monthMap.has(month)) monthMap.set(month, { income: 0, expenses: 0, salaries: 0 })
+      if (!monthMap.has(month))
+        monthMap.set(month, { incomeScaled: 0, expensesScaled: 0, salariesScaled: 0 })
       const entry = monthMap.get(month)!
-      const amt = parseFloat(tx.amount)
+      const amtScaled = Math.round(parseFloat(tx.amount) * SCALE)
 
       if (tx.type === 'ADMIN_INCOME' || tx.type === 'SENIOR_INCOME' || tx.type === 'DROP_INCOME') {
-        entry.income += amt
-      } else if (tx.type === 'EXPENSE') entry.expenses += amt
-      else if (tx.type === 'SALARY') entry.salaries += amt
+        entry.incomeScaled += amtScaled
+      } else if (tx.type === 'EXPENSE') entry.expensesScaled += amtScaled
+      else if (tx.type === 'SALARY') entry.salariesScaled += amtScaled
     }
 
     const monthly = Array.from(monthMap.entries())
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([month, v]) => ({
-        month,
-        income: v.income,
-        expenses: v.expenses,
-        salaries: v.salaries,
-        profit: v.income - v.expenses - v.salaries,
-      }))
+      .map(([month, v]) => {
+        const income = v.incomeScaled / SCALE
+        const expenses = v.expensesScaled / SCALE
+        const salaries = v.salariesScaled / SCALE
+        return {
+          month,
+          income,
+          expenses,
+          salaries,
+          profit: (v.incomeScaled - v.expensesScaled - v.salariesScaled) / SCALE,
+        }
+      })
 
     return {
       totalIncome,

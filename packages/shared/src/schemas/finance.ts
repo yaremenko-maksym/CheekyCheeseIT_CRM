@@ -656,12 +656,20 @@ export const financeSummarySchema = z.object({
   // user — surfaced on the DROP user's profile / finance overview. Empty array
   // when there are no DROP users in the system. Existing UIs that ignore this
   // field stay unaffected.
+  //
+  // Redesign (feat/drop-balances-panel):
+  //   dropSharePercent — always a number; backend applies ?? DEFAULT_DROP_SHARE_PERCENT
+  //                      before returning, so null never reaches the client.
+  //   pendingCount     — number of DROP_INCOME rows in PENDING|VALIDATED
+  //                      status for this drop. Used by the «N ожидают» badge.
   dropBalances: z
     .array(
       z.object({
         userId: z.string().uuid(),
         displayName: z.string(),
         balance: z.number(),
+        dropSharePercent: z.number().int().min(0).max(100),
+        pendingCount: z.number().int().min(0),
       }),
     )
     .default([]),
