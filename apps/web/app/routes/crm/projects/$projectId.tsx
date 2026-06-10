@@ -482,16 +482,6 @@ function ProjectDetailPage() {
   // ADMIN/ACCOUNTANT/SENIOR видят всё (SENIOR — read-only).
   const canSeeProjectFinance = user?.role !== 'HR'
 
-  // Legend access: RBAC is enforced server-side. Client-side guard:
-  // subject (seniorId / dropId) is excluded; ADMIN, HR, JUNIOR get access.
-  // The hook itself silently returns null on 403/404 so we only need to
-  // hide the section for roles that can never have access (ACCOUNTANT,
-  // other SENIOR/DROP who are not the subject — server handles those).
-  const isSubject =
-    user?.id === project.seniorId || (project.dropId != null && user?.id === project.dropId)
-  const canAccessLegend =
-    !isSubject && (user?.role === 'ADMIN' || user?.role === 'HR' || user?.role === 'JUNIOR')
-
   const [editOpen, setEditOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [addedMemberIds, setAddedMemberIds] = useState<Set<string>>(new Set())
@@ -515,6 +505,16 @@ function ProjectDetailPage() {
   })
 
   const canEditOverride = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
+
+  // Legend access: RBAC enforced server-side. Client-side guard:
+  // subject (seniorId / dropId) excluded; ADMIN/HR/JUNIOR get access.
+  // The hook silently returns null on 403/404 for all other roles.
+  const isSubject =
+    user?.id === project?.seniorId || (project?.dropId != null && user?.id === project?.dropId)
+  const canAccessLegend =
+    !!project &&
+    !isSubject &&
+    (user?.role === 'ADMIN' || user?.role === 'HR' || user?.role === 'JUNIOR')
 
   const editForm = useForm({
     defaultValues: {
