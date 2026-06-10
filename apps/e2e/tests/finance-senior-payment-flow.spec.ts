@@ -190,9 +190,7 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     await mockTransactions(asSenior, [pendingPaymentIncome])
 
     await asSenior.goto('/crm/finance')
-    await expect(
-      asSenior.getByTestId('tx-status-badge-pending_payment').first(),
-    ).toBeVisible()
+    await expect(asSenior.getByTestId('tx-status-badge-pending_payment').first()).toBeVisible()
     // No inline button on the SENIOR_INCOME row — both quick-payout (old) and
     // pay-payout pills are gone for this row type.
     await expect(
@@ -204,9 +202,7 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     ).not.toBeVisible()
   })
 
-  test('SENIOR sees inline «Оплатить» on the auto-created PAYOUT row', async ({
-    asSenior,
-  }) => {
+  test('SENIOR sees inline «Оплатить» on the auto-created PAYOUT row', async ({ asSenior }) => {
     // ACCOUNTANT-just-validated state: SENIOR_INCOME in PENDING_PAYMENT plus
     // the auto-created «Выплата» (PAYOUT, PENDING_PAYMENT, senderId=senior).
     const incomeTx = makeSeniorIncome({
@@ -231,12 +227,8 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     await asSenior.goto('/crm/finance')
     await expect(asSenior.getByTestId('tx-status-badge-pending').first()).toBeVisible()
     // SENIOR_INCOME row should not carry any pay-out pill while PENDING.
-    await expect(
-      asSenior.getByTestId(`row-pay-payout-${pendingTx.id}`),
-    ).not.toBeVisible()
-    await expect(
-      asSenior.getByTestId(`tx-row-pay-salary-${pendingTx.id}`),
-    ).not.toBeVisible()
+    await expect(asSenior.getByTestId(`row-pay-payout-${pendingTx.id}`)).not.toBeVisible()
+    await expect(asSenior.getByTestId(`tx-row-pay-salary-${pendingTx.id}`)).not.toBeVisible()
   })
 
   test('Header batch «Выплатить (N)» button is gone (removed in task-payout-auto-on-validate)', async ({
@@ -251,9 +243,7 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     await expect(asSenior.getByTestId('header-payout-button')).not.toBeVisible()
     // Defensive: the testid would still be the canonical anchor — but as a
     // sanity check, no Wallet-pill row-level pay-payout button either.
-    await expect(
-      asSenior.getByTestId(`row-pay-payout-${validatedTx.id}`),
-    ).not.toBeVisible()
+    await expect(asSenior.getByTestId(`row-pay-payout-${validatedTx.id}`)).not.toBeVisible()
   })
 
   test('SENIOR pays auto-created PAYOUT: inline «Оплатить» → PayoutDetailDialog → submit tx hash', async ({
@@ -274,13 +264,9 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
 
     const dialog = asSenior.getByRole('dialog')
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByTestId('payout-detail-title')).toContainText(
-      /Подтвердить выплату/i,
-    )
+    await expect(dialog.getByTestId('payout-detail-title')).toContainText(/Подтвердить выплату/i)
 
-    await expect(dialog.getByTestId('payout-detail-contract-address')).toContainText(
-      STUB_CONTRACT,
-    )
+    await expect(dialog.getByTestId('payout-detail-contract-address')).toContainText(STUB_CONTRACT)
 
     // PR #56 dev-simulate gate:
     // In `vite dev` the simulate-success radio is rendered and real-mode is
@@ -310,12 +296,8 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     await asSenior.goto('/crm/finance')
     await expect(asSenior.getByTestId('tx-status-badge-rejected').first()).toBeVisible()
     // Rejected rows must not surface any pay-related button.
-    await expect(
-      asSenior.getByTestId(`row-pay-payout-${rejected.id}`),
-    ).not.toBeVisible()
-    await expect(
-      asSenior.getByTestId(`tx-row-pay-salary-${rejected.id}`),
-    ).not.toBeVisible()
+    await expect(asSenior.getByTestId(`row-pay-payout-${rejected.id}`)).not.toBeVisible()
+    await expect(asSenior.getByTestId(`tx-row-pay-salary-${rejected.id}`)).not.toBeVisible()
   })
 
   test('ACCOUNTANT does NOT see the «Оплатить» pill on PAYOUT rows (SENIOR-only)', async ({
@@ -419,8 +401,7 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
   test('Uploaded receipt (documentId) resolves to a presigned URL and renders inline', async ({
     asAdmin,
   }) => {
-    const PRESIGNED_URL =
-      'https://minio.example.com/crm-documents/uploads/receipt.png?sig=abc'
+    const PRESIGNED_URL = 'https://minio.example.com/crm-documents/uploads/receipt.png?sig=abc'
 
     const txWithUploadedReceipt = makeSeniorIncome({
       id: 'pay-flow-tx-uploaded',
