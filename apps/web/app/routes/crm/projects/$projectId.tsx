@@ -41,6 +41,7 @@ import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { ProjectLegendSection } from '@/components/projects/ProjectLegendSection'
 import { ProjectLogo } from '@/components/projects/ProjectLogo'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -335,10 +336,10 @@ function ProjectEditFields({
 
         {/* Per-project SENIOR share — round-3 UI (PR #39 round 2):
             ShareSlider всегда виден; implicit reset (когда value === default —
-            backend пишет null). Toggle/Сбросить упразднены. RBAC: HR теперь
-            СЕКЦИЮ не видит вообще (фильтрация выше через viewerRole), а у
-            не-ADMIN/ACCOUNTANT слайдер disabled. */}
-        {viewerRole !== 'HR' && (
+            backend пишет null). Toggle/Сбросить упразднены.
+            RBAC: HR и JUNIOR не видят секцию вообще (фильтрация через viewerRole);
+            у не-ADMIN/ACCOUNTANT слайдер disabled. */}
+        {viewerRole !== 'HR' && viewerRole !== 'JUNIOR' && (
           <form.Field
             name="seniorSharePercentOverride"
             validators={{
@@ -463,7 +464,7 @@ function ProjectShareInfo({
 }
 
 function ProjectDetailPage() {
-  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'])
+  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'JUNIOR'])
   const { projectId } = Route.useParams()
   const { user } = useAuth()
   if (denied) return null
@@ -477,9 +478,11 @@ function ProjectDetailPage() {
   const canRemoveMembers = isAdmin
   // ut-fix-round2 (PR #39 round 2): HR не видит финансовую информацию по
   // проекту — табу «Финансы», info-row «Доля синьора» в Обзоре и секцию
-  // ShareSlider в edit-форме. JUNIOR в этот роут вообще не пускают.
+  // ShareSlider в edit-форме.
+  // Junior finance-masking: JUNIOR тоже не видит финансы — backend уже
+  // эмитит rate/currency/share-поля как null, UI не должен пытаться их рендерить.
   // ADMIN/ACCOUNTANT/SENIOR видят всё (SENIOR — read-only).
-  const canSeeProjectFinance = user?.role !== 'HR'
+  const canSeeProjectFinance = user?.role !== 'HR' && user?.role !== 'JUNIOR'
 
   const [editOpen, setEditOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
@@ -504,6 +507,16 @@ function ProjectDetailPage() {
   })
 
   const canEditOverride = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
+
+  // Legend access: RBAC enforced server-side. Client-side guard:
+  // subject (seniorId / dropId) excluded; ADMIN/HR/JUNIOR get access.
+  // The hook silently returns null on 403/404 for all other roles.
+  const isSubject =
+    user?.id === project?.seniorId || (project?.dropId != null && user?.id === project?.dropId)
+  const canAccessLegend =
+    !!project &&
+    !isSubject &&
+    (user?.role === 'ADMIN' || user?.role === 'HR' || user?.role === 'JUNIOR')
 
   const editForm = useForm({
     defaultValues: {
@@ -651,13 +664,17 @@ function ProjectDetailPage() {
 
   const activeMembers = project.members.filter((m) => m.leftAt === null)
   const pastMembers = project.members.filter((m) => m.leftAt !== null)
-  const senior = {
-    userId: project.seniorId,
-    displayName: project.seniorName,
-    role: 'SENIOR',
-    avatarUrl: null as string | null,
-    avatarDocumentId: null as string | null,
-  }
+  // seniorId/seniorName are null for JUNIOR viewers (identity masking by backend allowlist).
+  const senior =
+    project.seniorId != null
+      ? {
+          userId: project.seniorId,
+          displayName: project.seniorName ?? '',
+          role: 'SENIOR',
+          avatarUrl: null as string | null,
+          avatarDocumentId: null as string | null,
+        }
+      : null
   const activeJuniors = activeMembers.filter((m) => m.role === 'JUNIOR')
   const activeHRs = activeMembers.filter((m) => m.role === 'HR')
   const activeAccountants = activeMembers.filter((m) => m.role === 'ACCOUNTANT')
@@ -729,16 +746,21 @@ function ProjectDetailPage() {
                 )}
                 {/* Drop role - phase 2. Distinct blue/info badge for drop-
                     projects so it's obvious at a glance that money flows
-                    through a DROP user. Hidden for regular senior-projects. */}
-                {project.dropId && (
-                  <Badge
-                    variant="outline"
-                    className="border-blue-500/30 bg-blue-500/10 text-blue-400 text-xs"
-                    data-testid="project-drop-badge"
-                  >
-                    Drop-проект
-                  </Badge>
-                )}
+                    through a DROP user. Hidden for regular senior-projects.
+                    RBAC: only ADMIN/HR/ACCOUNTANT see this badge — JUNIOR
+                    must not know the identity behind the legend is a DROP. */}
+                {project.dropId &&
+                  (user?.role === 'ADMIN' ||
+                    user?.role === 'HR' ||
+                    user?.role === 'ACCOUNTANT') && (
+                    <Badge
+                      variant="outline"
+                      className="border-blue-500/30 bg-blue-500/10 text-blue-400 text-xs"
+                      data-testid="project-drop-badge"
+                    >
+                      Drop-проект
+                    </Badge>
+                  )}
                 <Badge variant="outline" className="text-xs">
                   {project.domain}
                 </Badge>
@@ -786,20 +808,24 @@ function ProjectDetailPage() {
 
         {/* Stat chips row */}
         <div className="flex gap-3 px-6 pb-5 flex-wrap">
-          <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
-            <DollarSign className="h-4 w-4 text-emerald-400 shrink-0" />
-            <div>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Ставка</p>
-              <p className="text-sm font-semibold tabular-nums">
-                {project.rate.toLocaleString()} {project.currency}
-              </p>
-              {rates && project.currency !== 'USD' && project.currency !== 'USDT' && (
-                <p className="text-[10px] text-muted-foreground tabular-nums">
-                  ≈ {fmtUsd(project.rate, project.currency, rates)}
+          {/* rate / currency are null for JUNIOR (finance masking, RBAC A01).
+              Only render the stat chip when finance data is available. */}
+          {project.rate != null && project.currency != null && (
+            <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
+              <DollarSign className="h-4 w-4 text-emerald-400 shrink-0" />
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Ставка</p>
+                <p className="text-sm font-semibold tabular-nums">
+                  {project.rate.toLocaleString()} {project.currency}
                 </p>
-              )}
+                {rates && project.currency !== 'USD' && project.currency !== 'USDT' && (
+                  <p className="text-[10px] text-muted-foreground tabular-nums">
+                    ≈ {fmtUsd(project.rate, project.currency, rates)}
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
+          )}
           <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
             <Calendar className="h-4 w-4 text-blue-400 shrink-0" />
             <div>
@@ -994,26 +1020,28 @@ function ProjectDetailPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-1 divide-y divide-border/30">
-              {/* Senior — always shown */}
-              <div className="pb-3">
-                <Link
-                  to="/crm/profile/$userId"
-                  params={{ userId: senior.userId }}
-                  className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0"
-                >
-                  <Avatar className="h-8 w-8 shrink-0 ring-2 ring-[#6366f1]/30">
-                    <AvatarFallback className="text-[11px] font-semibold">
-                      {getInitials(senior.displayName)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm font-medium truncate text-primary hover:underline underline-offset-2">
-                    {senior.displayName}
-                  </span>
-                  <Badge variant="senior" className="shrink-0 text-[9px] ml-auto">
-                    Синьор
-                  </Badge>
-                </Link>
-              </div>
+              {/* Senior row — hidden for JUNIOR viewers (seniorId masked by backend allowlist) */}
+              {senior != null && (
+                <div className="pb-3">
+                  <Link
+                    to="/crm/profile/$userId"
+                    params={{ userId: senior.userId }}
+                    className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0"
+                  >
+                    <Avatar className="h-8 w-8 shrink-0 ring-2 ring-[#6366f1]/30">
+                      <AvatarFallback className="text-[11px] font-semibold">
+                        {getInitials(senior.displayName)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm font-medium truncate text-primary hover:underline underline-offset-2">
+                      {senior.displayName}
+                    </span>
+                    <Badge variant="senior" className="shrink-0 text-[9px] ml-auto">
+                      Синьор
+                    </Badge>
+                  </Link>
+                </div>
+              )}
 
               {/* HR */}
               <div className="pt-3 pb-3">
@@ -1085,6 +1113,11 @@ function ProjectDetailPage() {
             </CardContent>
           </Card>
         </motion.div>
+      )}
+
+      {/* Legend section — subject (seniorId/dropId) excluded per RBAC contract */}
+      {activeTab === 'overview' && (
+        <ProjectLegendSection projectId={projectId} canAccess={canAccessLegend} />
       )}
 
       {activeTab === 'finance' && canSeeProjectFinance && (

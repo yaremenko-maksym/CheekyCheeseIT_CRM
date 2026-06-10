@@ -1,44 +1,66 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Put } from '@nestjs/common'
-import { upsertLegendSchema, type SessionUser } from '@crm/shared'
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common'
+import { addLegendEntrySchema, upsertLegendSchema, type SessionUser } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { LegendsService } from './legends.service'
 
 // JwtAuthGuard runs globally (AppModule APP_GUARD) — authentication is covered.
-// RBAC for this controller is handled entirely inside LegendsService (canViewLegend /
-// canEdit checks). Adding @UseGuards(RolesGuard) without a matching @Roles() decorator
-// would be a no-op guard that misleads readers into thinking role-filtering happens here.
-@Controller('users/:id/legend')
+// RBAC for this controller is handled entirely inside LegendsService (canAccess
+// checks). Adding @UseGuards(RolesGuard) without a matching @Roles() decorator
+// would be a no-op guard that misleads readers into thinking role-filtering
+// happens here. Legend access is relationship-based (project membership), not
+// flat role-based.
+
+@Controller('projects')
 export class LegendsController {
   constructor(private readonly legendsService: LegendsService) {}
 
   /**
-   * GET /api/users/:id/legend
+   * GET /api/projects/:projectId/legend
    *
-   * Returns the legend for a SENIOR user.
-   * 400 if target is not SENIOR.
-   * 403 if viewer is not allowed.
-   * 404 if legend not yet created.
+   * Returns the legend for a project.
+   * 403 if viewer lacks access (subject excluded; ACCOUNTANT etc).
+   * 404 if project not found or legend not yet created.
    */
-  @Get()
-  getLegend(@CurrentUser() currentUser: SessionUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.legendsService.getLegend(currentUser, id)
+  @Get(':projectId/legend')
+  getLegend(
+    @CurrentUser() currentUser: SessionUser,
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+  ) {
+    return this.legendsService.getLegend(currentUser, projectId)
   }
 
   /**
-   * PUT /api/users/:id/legend
+   * PUT /api/projects/:projectId/legend
    *
-   * Upsert the legend for a SENIOR user.
-   * Only the SENIOR themselves or ADMIN can write.
-   * 400 if target is not SENIOR.
-   * 403 if viewer cannot edit.
+   * Upsert (create or update) the legend for a project.
+   * Edit access == view access (canAccess check in service).
+   * Subject (seniorId / dropId) is explicitly excluded.
+   * 403 if viewer lacks access; 404 if project not found.
    */
-  @Put()
+  @Put(':projectId/legend')
   upsertLegend(
     @CurrentUser() currentUser: SessionUser,
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('projectId', ParseUUIDPipe) projectId: string,
     @Body() body: unknown,
   ) {
     const dto = upsertLegendSchema.parse(body)
-    return this.legendsService.upsertLegend(currentUser, id, dto)
+    return this.legendsService.upsertLegend(currentUser, projectId, dto)
+  }
+
+  /**
+   * POST /api/projects/:projectId/legend/entries
+   *
+   * Add a journal entry to the project legend.
+   * 403 if viewer lacks access; 404 if project/legend not found.
+   * Returns updated Legend (with all entries).
+   */
+  @Post(':projectId/legend/entries')
+  addEntry(
+    @CurrentUser() currentUser: SessionUser,
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Body() body: unknown,
+  ) {
+    const dto = addLegendEntrySchema.parse(body)
+    return this.legendsService.addEntry(currentUser, projectId, dto)
   }
 }
