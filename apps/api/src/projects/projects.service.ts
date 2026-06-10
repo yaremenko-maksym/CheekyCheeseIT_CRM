@@ -217,6 +217,33 @@ export class ProjectsService {
     }
   }
 
+  /**
+   * Enforces HR cross-team scoping on write paths.
+   *
+   * HR can only manage projects whose senior belongs to one of HR's own teams.
+   * ADMIN and ACCOUNTANT are unrestricted (no-op for them).
+   * This helper is the single enforcement point for this class of RBAC check
+   * (OWASP A01: Broken Access Control — cross-team IDOR).
+   *
+   * @param seniorId - the `seniorId` column of the target project (may be null for admin-owned)
+   * @param user     - the acting user (SessionUser from JWT)
+   */
+  private async assertHrCanManageProject(
+    seniorId: string | null,
+    user: SessionUser,
+  ): Promise<void> {
+    if (user.role !== 'HR') return
+
+    if (!seniorId) {
+      throw new ForbiddenException('Проект не в ваших командах')
+    }
+
+    const allowedSeniorIds = await this.getHrSeniorIds(user.id)
+    if (!allowedSeniorIds.includes(seniorId)) {
+      throw new ForbiddenException('Проект не в ваших командах')
+    }
+  }
+
   private async getHrSeniorIds(hrId: string): Promise<string[]> {
     const hrTeams = await this.db.db
       .select({ teamId: teamMembers.teamId })
@@ -453,6 +480,9 @@ export class ProjectsService {
     if (senior.role !== 'SENIOR' && senior.role !== 'ADMIN')
       throw new BadRequestException('User is not a SENIOR or ADMIN')
 
+    // HR cross-team scoping: HR may only create projects for seniors in their own teams.
+    await this.assertHrCanManageProject(data.seniorId, currentUser)
+
     const override =
       data.seniorSharePercentOverride === undefined ? null : data.seniorSharePercentOverride
 
@@ -583,6 +613,13 @@ export class ProjectsService {
     })) as ProjectWithRelations | undefined
 
     if (!project) throw new NotFoundException('Project not found')
+
+    // HR cross-team scoping: HR may only update projects for seniors in their own teams.
+    // ACCOUNTANT doing a hasOnlyOverride patch is exempted (their patch is finance-scoped,
+    // not team-scoped — the field-level RBAC check above already ran).
+    if (!(role === 'ACCOUNTANT' && hasOnlyOverride)) {
+      await this.assertHrCanManageProject(project.seniorId, currentUser)
+    }
 
     // Drop role - phase 2: validate updated `dropId` (when present). Same
     // contract as create: `null` → clear, uuid → set to existing DROP user.
@@ -868,6 +905,9 @@ export class ProjectsService {
 
     if (!project) throw new NotFoundException('Project not found')
 
+    // HR cross-team scoping: HR may only add members to projects in their own teams.
+    await this.assertHrCanManageProject(project.seniorId, currentUser)
+
     const user = await this.db.db.query.users.findFirst({
       where: eq(users.id, userId),
     })
@@ -915,6 +955,15 @@ export class ProjectsService {
       throw new ForbiddenException()
     }
 
+    // HR cross-team scoping: load project early to check seniorId.
+    const projectForScope = (await this.db.db.query.projects.findFirst({
+      where: eq(projects.id, projectId),
+      with: { senior: true, drop: true, members: { with: { user: true } } },
+    })) as ProjectWithRelations | undefined
+    if (!projectForScope) throw new NotFoundException('Project not found')
+
+    await this.assertHrCanManageProject(projectForScope.seniorId, currentUser)
+
     const activeMember = await this.db.db.query.projectMembers.findFirst({
       where: and(
         eq(projectMembers.projectId, projectId),
@@ -927,10 +976,8 @@ export class ProjectsService {
     // Prevent removing last HR or last ACCOUNTANT from project
     const userToRemove = await this.db.db.query.users.findFirst({ where: eq(users.id, userId) })
     if (userToRemove?.role === 'HR' || userToRemove?.role === 'ACCOUNTANT') {
-      const project = (await this.db.db.query.projects.findFirst({
-        where: eq(projects.id, projectId),
-        with: { members: { with: { user: true } } },
-      })) as ProjectWithRelations | undefined
+      // Re-use already loaded project for the last-member check.
+      const project = projectForScope
 
       if (project) {
         const activeOfRole = project.members.filter(
