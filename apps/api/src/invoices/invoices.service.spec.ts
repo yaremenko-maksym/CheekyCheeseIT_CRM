@@ -1036,4 +1036,78 @@ describe('InvoicesService', () => {
       expect(h.pdfService.generateSignableInvoicePdf).not.toHaveBeenCalled()
     })
   })
+
+  // ── R2: getInvoice cross-counterparty 403 ──────────────────────────────────
+  //
+  // RBAC guard in `assertCanViewInvoice`:
+  //   - ADMIN + ACCOUNTANT see everything.
+  //   - SENIOR who is the counterparty (receiverId matches viewer.id) → ok.
+  //   - SENIOR who is NOT the counterparty → 403.
+  //   - All other roles that are not counterparty → 403.
+  //
+  // The guard is tested via `getInvoice` (the public-facing method that calls
+  // it) so we exercise the real code path, not a private method in isolation.
+  describe('getInvoice — R2: assertCanViewInvoice RBAC', () => {
+    // A SENIOR_INCOME tx owned by SENIOR (receiverId = SENIOR.id)
+    function makeInvoiceTx() {
+      return tx({
+        id: 'tx-invoice-1',
+        type: 'SENIOR_INCOME',
+        receiverId: SENIOR.id,
+        invoiceDocumentId: 'doc-inv-1',
+      })
+    }
+
+    it('non-counterparty SENIOR gets ForbiddenException (403)', async () => {
+      const h = buildHarness({
+        txs: [makeInvoiceTx()],
+        sigs: [],
+        users: [{ id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' }],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-invoice-1'
+
+      // SENIOR2 is not the counterparty (receiverId = SENIOR.id)
+      await expect(h.svc.getInvoice(SENIOR2, 'tx-invoice-1')).rejects.toThrow(ForbiddenException)
+    })
+
+    it('ADMIN sees invoice for any counterparty', async () => {
+      const h = buildHarness({
+        txs: [makeInvoiceTx()],
+        sigs: [],
+        users: [{ id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' }],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-invoice-1'
+
+      const result = await h.svc.getInvoice(ADMIN, 'tx-invoice-1')
+      expect(result.transactionId).toBe('tx-invoice-1')
+    })
+
+    it('ACCOUNTANT sees invoice for any counterparty', async () => {
+      const h = buildHarness({
+        txs: [makeInvoiceTx()],
+        sigs: [],
+        users: [{ id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' }],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-invoice-1'
+
+      const result = await h.svc.getInvoice(ACCOUNTANT, 'tx-invoice-1')
+      expect(result.transactionId).toBe('tx-invoice-1')
+    })
+
+    it('owner counterparty SENIOR sees their own invoice', async () => {
+      const h = buildHarness({
+        txs: [makeInvoiceTx()],
+        sigs: [],
+        users: [{ id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' }],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-invoice-1'
+
+      const result = await h.svc.getInvoice(SENIOR, 'tx-invoice-1')
+      expect(result.transactionId).toBe('tx-invoice-1')
+    })
+  })
 })
