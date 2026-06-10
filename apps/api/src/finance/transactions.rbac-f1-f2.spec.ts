@@ -87,6 +87,8 @@ function makeServiceWithTxs(txs: TxStub[]): TransactionsService {
       },
     },
   }
+  // 2nd ctor arg is DocumentsService — unused by the findAll / findPayoutRequest
+  // RBAC paths under test, so an empty stub is intentional and safe here.
   return new TransactionsService(dbStub as never, {} as never)
 }
 
@@ -128,6 +130,8 @@ function makeServiceWithPayoutRequest(
       },
     },
   }
+  // 2nd ctor arg is DocumentsService — unused by the findAll / findPayoutRequest
+  // RBAC paths under test, so an empty stub is intentional and safe here.
   return new TransactionsService(dbStub as never, {} as never)
 }
 
@@ -275,6 +279,22 @@ describe('F2 — payout-request IDOR: findPayoutRequest', () => {
     const ownerSenior = user('SENIOR', SENIOR_ID)
 
     await expect(svc.findPayoutRequest('req-1', ownerSenior)).resolves.toBeDefined()
+  })
+
+  it('owner DROP can access their own payout request', async () => {
+    // F2 isOwner branch covers DROP too (req.seniorId holds the owner id).
+    const dropReq = { ...baseReq, seniorId: 'drop-owner-id' }
+    const svc = makeServiceWithPayoutRequest(dropReq)
+    const ownerDrop = user('DROP', 'drop-owner-id')
+
+    await expect(svc.findPayoutRequest('req-1', ownerDrop)).resolves.toBeDefined()
+  })
+
+  it('non-owner DROP gets ForbiddenException', async () => {
+    const svc = makeServiceWithPayoutRequest(baseReq) // req.seniorId = SENIOR_ID
+    const otherDrop = user('DROP', 'another-drop-id')
+
+    await expect(svc.findPayoutRequest('req-1', otherDrop)).rejects.toThrow(ForbiddenException)
   })
 
   it('returns NotFoundException for non-existent payout request', async () => {
