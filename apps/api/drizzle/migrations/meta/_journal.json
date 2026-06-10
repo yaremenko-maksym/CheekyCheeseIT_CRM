@@ -64,6 +64,13 @@
       "when": 1781022717714,
       "tag": "0008_quick_mac_gargan",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1749600000000,
+      "tag": "0009_legends_per_project",
+      "breakpoints": true
     }
   ]
 }
