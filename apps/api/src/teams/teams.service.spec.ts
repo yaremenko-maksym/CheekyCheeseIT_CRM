@@ -519,3 +519,97 @@ describe('TeamsService.mapTeam — JUNIOR viewer: SENIOR/DROP contacts masked', 
     expect((seniorInResult as Record<string, unknown>).email).toBeNull()
   })
 })
+
+// ────────────────────────────────────────────────────────────────────────────
+// mapDropTeam — JUNIOR viewer: SENIOR/DROP contacts masked (RBAC A01 2026-06-10)
+//
+// Drop-teams render via mapDropTeam (team.type === 'DROP'). A JUNIOR can reach a
+// drop-team through assertAccess when the team's SENIOR member is the senior of
+// one of the junior's active projects. The legend-persona boundary must hold here
+// too: real contacts of SENIOR/DROP members are masked; displayName/HR contacts
+// are not.
+// ────────────────────────────────────────────────────────────────────────────
+describe('TeamsService.mapDropTeam — JUNIOR viewer: SENIOR/DROP contacts masked', () => {
+  // Active project linking junior-1 → senior-1, so a JUNIOR passes assertAccess
+  // (which finds the drop-team's SENIOR member).
+  const juniorActiveProject = {
+    id: 'proj-d1',
+    seniorId: 'senior-1',
+    dropId: null,
+    archivedAt: null,
+    members: [
+      {
+        id: 'pm-d1',
+        userId: 'junior-1',
+        projectId: 'proj-d1',
+        leftAt: null,
+        joinedAt: new Date(),
+        user: { id: 'junior-1', role: 'JUNIOR', displayName: 'Junior', email: 'j@cc.com' },
+      },
+    ],
+  }
+
+  const makeDropTeamWith = (members: unknown[]) =>
+    makeTeam({
+      type: 'DROP',
+      seniorSharePercentOverride: null,
+      archivedAt: null,
+      telegram: null,
+      telegramChannel: null,
+      notes: null,
+      members,
+    })
+
+  it('JUNIOR viewer → DROP member contacts (email/phone/telegram) are null', async () => {
+    const dropMember = makeMemberWithContacts('drop-1', 'DROP')
+    const seniorMember = makeMemberWithContacts('senior-1', 'SENIOR')
+    const team = makeDropTeamWith([dropMember, seniorMember])
+    const db = makeDb({ team, teamList: [team], projectList: [juniorActiveProject] })
+    const service = new TeamsService(db)
+
+    const result = await service.findOne('team-1', juniorUser)
+    const dropInResult = result.members.find((m: { userId: string }) => m.userId === 'drop-1')
+    expect(dropInResult).toBeDefined()
+    expect((dropInResult as Record<string, unknown>).email).toBeNull()
+    expect((dropInResult as Record<string, unknown>).phone).toBeNull()
+    expect((dropInResult as Record<string, unknown>).telegram).toBeNull()
+  })
+
+  it('JUNIOR viewer → SENIOR member (in drop-team) contacts are null', async () => {
+    const dropMember = makeMemberWithContacts('drop-1', 'DROP')
+    const seniorMember = makeMemberWithContacts('senior-1', 'SENIOR')
+    const team = makeDropTeamWith([dropMember, seniorMember])
+    const db = makeDb({ team, teamList: [team], projectList: [juniorActiveProject] })
+    const service = new TeamsService(db)
+
+    const result = await service.findOne('team-1', juniorUser)
+    const seniorInResult = result.members.find((m: { userId: string }) => m.userId === 'senior-1')
+    expect(seniorInResult).toBeDefined()
+    expect((seniorInResult as Record<string, unknown>).email).toBeNull()
+  })
+
+  it('JUNIOR viewer → DROP displayName present (persona display, never masked)', async () => {
+    const dropMember = makeMemberWithContacts('drop-1', 'DROP')
+    const seniorMember = makeMemberWithContacts('senior-1', 'SENIOR')
+    const team = makeDropTeamWith([dropMember, seniorMember])
+    const db = makeDb({ team, teamList: [team], projectList: [juniorActiveProject] })
+    const service = new TeamsService(db)
+
+    const result = await service.findOne('team-1', juniorUser)
+    const dropInResult = result.members.find((m: { userId: string }) => m.userId === 'drop-1')
+    expect((dropInResult as Record<string, unknown>).displayName).toBe('DROP drop-1')
+  })
+
+  it('HR viewer → DROP contacts visible (not masked for HR)', async () => {
+    const dropMember = makeMemberWithContacts('drop-1', 'DROP')
+    const seniorMember = makeMemberWithContacts('senior-1', 'SENIOR')
+    const hrMember = makeMemberWithContacts('hr-1', 'HR')
+    const team = makeDropTeamWith([dropMember, seniorMember, hrMember])
+    const db = makeDb({ team, teamList: [team], projectList: [] })
+    const service = new TeamsService(db)
+
+    const result = await service.findOne('team-1', hrUser)
+    const dropInResult = result.members.find((m: { userId: string }) => m.userId === 'drop-1')
+    expect((dropInResult as Record<string, unknown>).email).toBe('drop-1@secret.com')
+  })
+})

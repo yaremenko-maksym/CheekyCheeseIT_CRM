@@ -37,7 +37,7 @@ export class TeamsService {
     // Drop role - phase 1: early return for drop-teams keeps the legacy
     // senior-team branch (below) byte-for-byte identical.
     if (team.type === 'DROP') {
-      return this.mapDropTeam(team)
+      return this.mapDropTeam(team, currentUser)
     }
 
     const senior = team.members.find((m) => m.user?.role === 'SENIOR')
@@ -146,10 +146,13 @@ export class TeamsService {
    * drop-project distribution; for now juniors remain a senior-team
    * concept only).
    */
-  private mapDropTeam(team: TeamWithMembers) {
+  private mapDropTeam(team: TeamWithMembers, currentUser?: SessionUser) {
     const activeMembers = team.members.filter(
       (m) => m.leftAt === null && m.user?.role !== 'ADMIN' && m.user?.role !== 'JUNIOR',
     )
+    // RBAC A01 (2026-06-10): JUNIOR viewer must NOT see real contacts of SENIOR/DROP
+    // members — same legend-persona boundary as mapTeam (senior-team branch).
+    const isJuniorViewer = currentUser?.role === 'JUNIOR'
     return {
       id: team.id,
       name: team.name,
@@ -164,20 +167,24 @@ export class TeamsService {
       archivedAt: team.archivedAt ? team.archivedAt.toISOString() : null,
       createdAt: team.createdAt,
       updatedAt: team.updatedAt,
-      members: activeMembers.map((m) => ({
-        id: m.id,
-        userId: m.userId,
-        displayName: m.user?.displayName ?? '',
-        email: m.user?.email ?? '',
-        avatarUrl: m.user?.avatarUrl ?? null,
-        avatarDocumentId: m.user?.avatarDocumentId ?? null,
-        techStack: m.user?.techStack ?? null,
-        phone: m.user?.phone ?? null,
-        telegram: m.user?.telegram ?? null,
-        role: m.user?.role ?? 'DROP',
-        joinedAt: m.joinedAt,
-        leftAt: m.leftAt ? m.leftAt.toISOString() : null,
-      })),
+      members: activeMembers.map((m) => {
+        const memberIsLegendSubject = m.user?.role === 'SENIOR' || m.user?.role === 'DROP'
+        const maskContacts = isJuniorViewer && memberIsLegendSubject
+        return {
+          id: m.id,
+          userId: m.userId,
+          displayName: m.user?.displayName ?? '',
+          email: maskContacts ? null : (m.user?.email ?? ''),
+          avatarUrl: m.user?.avatarUrl ?? null,
+          avatarDocumentId: m.user?.avatarDocumentId ?? null,
+          techStack: m.user?.techStack ?? null,
+          phone: maskContacts ? null : (m.user?.phone ?? null),
+          telegram: maskContacts ? null : (m.user?.telegram ?? null),
+          role: m.user?.role ?? 'DROP',
+          joinedAt: m.joinedAt,
+          leftAt: m.leftAt ? m.leftAt.toISOString() : null,
+        }
+      }),
     }
   }
 

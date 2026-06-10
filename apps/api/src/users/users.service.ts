@@ -1481,7 +1481,9 @@ export class UsersService {
 
       data.overview = {
         techStack: permissions.fields.techStack ? (target.techStack ?? []) : null,
-        adminNote: viewer.role === 'ADMIN' ? target.adminNote : null,
+        // adminNote — gated by the same permission flag as filteredUser.adminNote
+        // (ADMIN viewing another user; never self). Keeps both surfaces consistent.
+        adminNote: permissions.fields.adminNote ? (target.adminNote ?? null) : null,
         tosAcceptedAt: tosAcceptance?.acceptedAt.toISOString() ?? null,
         tosVersion: tosAcceptance?.tosVersion ?? null,
       }
