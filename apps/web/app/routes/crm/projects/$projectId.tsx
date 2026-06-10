@@ -464,7 +464,7 @@ function ProjectShareInfo({
 }
 
 function ProjectDetailPage() {
-  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'])
+  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'JUNIOR'])
   const { projectId } = Route.useParams()
   const { user } = useAuth()
   if (denied) return null
@@ -740,16 +740,21 @@ function ProjectDetailPage() {
                 )}
                 {/* Drop role - phase 2. Distinct blue/info badge for drop-
                     projects so it's obvious at a glance that money flows
-                    through a DROP user. Hidden for regular senior-projects. */}
-                {project.dropId && (
-                  <Badge
-                    variant="outline"
-                    className="border-blue-500/30 bg-blue-500/10 text-blue-400 text-xs"
-                    data-testid="project-drop-badge"
-                  >
-                    Drop-проект
-                  </Badge>
-                )}
+                    through a DROP user. Hidden for regular senior-projects.
+                    RBAC: only ADMIN/HR/ACCOUNTANT see this badge — JUNIOR
+                    must not know the identity behind the legend is a DROP. */}
+                {project.dropId &&
+                  (user?.role === 'ADMIN' ||
+                    user?.role === 'HR' ||
+                    user?.role === 'ACCOUNTANT') && (
+                    <Badge
+                      variant="outline"
+                      className="border-blue-500/30 bg-blue-500/10 text-blue-400 text-xs"
+                      data-testid="project-drop-badge"
+                    >
+                      Drop-проект
+                    </Badge>
+                  )}
                 <Badge variant="outline" className="text-xs">
                   {project.domain}
                 </Badge>
