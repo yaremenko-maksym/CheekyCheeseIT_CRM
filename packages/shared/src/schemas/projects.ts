@@ -71,8 +71,16 @@ export const projectSchema = z.object({
   /** External logo URL (e.g. https://company.com/logo.svg). XOR with logoDocumentId. */
   logoExternalUrl: z.string().url().nullable(),
   startDate: z.string().datetime(),
-  seniorId: z.string().uuid(),
-  seniorName: z.string(),
+  /**
+   * Masked to `null` for JUNIOR viewers (identity data-hiding, RBAC A01).
+   * Non-null for all other roles.
+   */
+  seniorId: z.string().uuid().nullable(),
+  /**
+   * Masked to `null` for JUNIOR viewers (identity data-hiding, RBAC A01).
+   * Non-null for all other roles.
+   */
+  seniorName: z.string().nullable(),
   /**
    * Drop-only: when set, the project's income flows through the DROP user
    * and the finance distribution includes the drop's share (Phase 2).

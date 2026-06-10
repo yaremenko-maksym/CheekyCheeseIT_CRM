@@ -130,6 +130,14 @@ export class ProjectsService {
       effectiveSeniorSharePercent = resolved.value
       effectiveSeniorShareSource = resolved.source
     }
+    // Allowlist masking for JUNIOR viewers (RBAC A01):
+    // JUNIOR must not receive senior identity, drop identity, or any financial
+    // data. All sensitive fields are emitted as null so the DTO itself carries
+    // no sensitive data regardless of UI rendering. Members list is also
+    // emptied — JUNIOR knows they are a member of the project (they navigated
+    // here) but must not see the rest of the team roster via this endpoint.
+    const isJuniorViewer = viewerRole === 'JUNIOR'
+
     return {
       id: project.id,
       name: project.name,
@@ -138,61 +146,68 @@ export class ProjectsService {
       logoDocumentId: project.logoDocumentId ?? null,
       logoExternalUrl: project.logoExternalUrl ?? null,
       startDate: project.startDate.toISOString(),
-      seniorId: project.seniorId,
-      seniorName: project.senior?.displayName ?? '',
+      // Identity masking (RBAC A01): JUNIOR must not know who the senior is.
+      seniorId: isJuniorViewer ? null : project.seniorId,
+      seniorName: isJuniorViewer ? null : (project.senior?.displayName ?? ''),
+      // Drop identity masking: JUNIOR must not know the drop exists or who it is.
       // Drop role - phase 1: surfaced on the wire so FE can render drop-aware
-      // hints/badges. NULL = legacy senior-project (unchanged finance flow).
-      dropId: project.dropId ?? null,
+      // hints/badges. NULL = legacy senior-project OR JUNIOR viewer.
+      dropId: isJuniorViewer ? null : (project.dropId ?? null),
       // Drop role - phase 2: snapshot of the DROP user's display name and
-      // share % at read time. Used by the «Drop-проект» badge + the
-      // distribution breakdown panel. Both null for senior-only projects.
-      dropName: project.drop?.displayName ?? null,
-      dropSharePercent: project.drop?.dropSharePercent ?? null,
+      // share % at read time. Both null for senior-only projects or JUNIOR viewer.
+      dropName: isJuniorViewer ? null : (project.drop?.displayName ?? null),
+      dropSharePercent: isJuniorViewer ? null : (project.drop?.dropSharePercent ?? null),
       // Finance masking (RBAC A01): JUNIOR members must not receive rate,
       // currency, or share breakdown — these are emitted as null so the
       // DTO itself carries no sensitive data regardless of UI rendering.
-      rate: viewerRole === 'JUNIOR' ? null : project.rate,
-      currency: viewerRole === 'JUNIOR' ? null : project.currency,
+      rate: isJuniorViewer ? null : project.rate,
+      currency: isJuniorViewer ? null : project.currency,
       // Per-project SENIOR share override. NULL = senior's global default.
-      seniorSharePercentOverride:
-        viewerRole === 'JUNIOR' ? null : (project.seniorSharePercentOverride ?? null),
+      seniorSharePercentOverride: isJuniorViewer
+        ? null
+        : (project.seniorSharePercentOverride ?? null),
       // Computed default for UI hints — falls back to 26 when senior is
       // unreachable (e.g. soft-deleted) so the front-end never sees `null`.
       // Masked for JUNIOR (they should not see the default either).
-      seniorSharePercentDefault:
-        viewerRole === 'JUNIOR' ? 0 : (project.senior?.seniorSharePercent ?? 26),
+      seniorSharePercentDefault: isJuniorViewer ? 0 : (project.senior?.seniorSharePercent ?? 26),
       // task-team-senior-share-override. Pre-resolved effective share for
       // the project's senior. Masked for JUNIOR.
-      effectiveSeniorSharePercent: viewerRole === 'JUNIOR' ? null : effectiveSeniorSharePercent,
-      effectiveSeniorShareSource: viewerRole === 'JUNIOR' ? null : effectiveSeniorShareSource,
+      effectiveSeniorSharePercent: isJuniorViewer ? null : effectiveSeniorSharePercent,
+      effectiveSeniorShareSource: isJuniorViewer ? null : effectiveSeniorShareSource,
       techStack: project.techStack ?? null,
       teamSize: project.teamSize ?? null,
       benefits: project.benefits ?? null,
-      paymentType: project.paymentType ?? null,
-      salaryReview: project.salaryReview ?? null,
+      // Additional fields masked for JUNIOR: payment terms and salary review
+      // contain compensation context that JUNIOR must not see.
+      paymentType: isJuniorViewer ? null : (project.paymentType ?? null),
+      salaryReview: isJuniorViewer ? null : (project.salaryReview ?? null),
       corpTech: project.corpTech ?? null,
-      notesGeneral: project.notesGeneral ?? null,
+      // Internal notes masked for JUNIOR.
+      notesGeneral: isJuniorViewer ? null : (project.notesGeneral ?? null),
       archivedAt: project.archivedAt ? project.archivedAt.toISOString() : null,
       createdAt: project.createdAt.toISOString(),
       updatedAt: project.updatedAt.toISOString(),
-      // RBAC rule #1: SENIOR viewers must not see JUNIOR member identity.
-      // The fact that a junior slot exists is still communicated (leftAt/role
-      // remain), but name/email/avatar are redacted.
-      members: project.members.map((m) => {
-        const isJuniorMember = (m.user?.role ?? 'JUNIOR') === 'JUNIOR'
-        const redact = viewerRole === 'SENIOR' && isJuniorMember
-        return {
-          id: m.id,
-          userId: redact ? '[redacted]' : m.userId,
-          displayName: redact ? '' : (m.user?.displayName ?? ''),
-          email: redact ? '' : (m.user?.email ?? ''),
-          avatarUrl: redact ? null : (m.user?.avatarUrl ?? null),
-          avatarDocumentId: redact ? null : (m.user?.avatarDocumentId ?? null),
-          role: m.user?.role ?? 'JUNIOR',
-          joinedAt: m.joinedAt.toISOString(),
-          leftAt: m.leftAt ? m.leftAt.toISOString() : null,
-        }
-      }),
+      // Members allowlist: JUNIOR sees an empty array — they know they are a
+      // member via project access, but must not see the full roster (senior/HR/
+      // accountant identities). SENIOR viewers have JUNIOR identity redacted
+      // (RBAC rule #1) but see all other members.
+      members: isJuniorViewer
+        ? []
+        : project.members.map((m) => {
+            const isJuniorMember = (m.user?.role ?? 'JUNIOR') === 'JUNIOR'
+            const redact = viewerRole === 'SENIOR' && isJuniorMember
+            return {
+              id: m.id,
+              userId: redact ? '[redacted]' : m.userId,
+              displayName: redact ? '' : (m.user?.displayName ?? ''),
+              email: redact ? '' : (m.user?.email ?? ''),
+              avatarUrl: redact ? null : (m.user?.avatarUrl ?? null),
+              avatarDocumentId: redact ? null : (m.user?.avatarDocumentId ?? null),
+              role: m.user?.role ?? 'JUNIOR',
+              joinedAt: m.joinedAt.toISOString(),
+              leftAt: m.leftAt ? m.leftAt.toISOString() : null,
+            }
+          }),
     }
   }
 
@@ -344,7 +359,13 @@ export class ProjectsService {
     await this.assertAccess(project, currentUser)
 
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([project])
-    const effectiveTeam = await this.computeEffectiveTeam(project, currentUser.role)
+    // JUNIOR must not see effectiveTeam — it contains senior/HR/accountant
+    // identity. We skip the computation entirely (saves DB round-trip) and
+    // return undefined so the field is absent from the JUNIOR DTO.
+    const effectiveTeam =
+      currentUser.role === 'JUNIOR'
+        ? undefined
+        : await this.computeEffectiveTeam(project, currentUser.role)
     return { ...this.mapProject(project, teamOverridesBySeniorId, currentUser.role), effectiveTeam }
   }
 
