@@ -40,6 +40,7 @@ type TxStub = {
   receiverId: string | null
   projectId: string | null
   createdAt: Date
+  updatedAt: Date
   [k: string]: unknown
 }
 
@@ -54,6 +55,7 @@ function makeTx(overrides: Partial<TxStub>): TxStub {
     receiverId: null,
     projectId: null,
     createdAt: new Date(),
+    updatedAt: new Date(),
     ...overrides,
   }
 }
