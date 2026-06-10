@@ -1008,3 +1008,310 @@ describe('UsersService.buildProfileView — ForbiddenException on empty tabs', (
     await expect(service.buildProfileView(viewer as never, 'sr-self-id')).resolves.toBeDefined()
   })
 })
+
+// ---------------------------------------------------------------------------
+// buildProfileView — PII field masking matrix (RBAC A01, 2026-06-10)
+//
+// Matrix enforced by buildProfileView explicit allow-list projection:
+//   adminNote         → ADMIN only (never self)
+//   registrationAddress, usrRecord (FOP PII) → ADMIN + self
+//   email, phone, telegram (realContacts)    → hidden when viewer=JUNIOR
+//                                              and target is SENIOR or DROP
+//                                              (legend-subject persona boundary)
+// ---------------------------------------------------------------------------
+
+describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)', () => {
+  /** Reuse the same factory pattern as the legalFullName block above. */
+  function makeServicePii(
+    target: ReturnType<typeof makeUser>,
+    permissions: { tabs: string[]; actions: string[]; fields: Record<string, boolean> },
+  ): UsersService {
+    const db = {
+      db: {
+        select: vi.fn().mockReturnThis(),
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockResolvedValue([target]),
+        insert: vi.fn(),
+        update: vi.fn(),
+        delete: vi.fn(),
+      },
+    } as unknown as DrizzleDb
+
+    const accessService = {
+      getViewPermissions: vi.fn().mockResolvedValue(permissions),
+    } as unknown as import('./users-access.service').UsersAccessService
+
+    return new UsersService(
+      db as never,
+      accessService as never,
+      makeAuditLogService() as never,
+      makeTosService(),
+    )
+  }
+
+  // Shared target fixture: SENIOR with all sensitive fields populated
+  const seniorTarget = makeSenior({
+    id: 'senior-target',
+    email: 'secret-email@example.com',
+    phone: '+380991112233',
+    telegram: '@secrethandle',
+    adminNote: 'Internal admin-only note',
+    registrationAddress: 'Kyiv, Khreshchatyk 1',
+    usrRecord: '12.05.2024 №123456',
+  } as Record<string, unknown>)
+
+  // ── JUNIOR viewing their SENIOR (legend-subject) ──────────────────────────
+  // Access service: fields.realContacts = false (JUNIOR→SENIOR), no adminNote, no fopPii
+
+  it('JUNIOR → SENIOR: email is null (realContacts hidden)', async () => {
+    const viewer = makeJunior({ id: 'junior-viewer' })
+    const permissions = {
+      tabs: ['overview', 'projects', 'team'],
+      actions: [],
+      fields: { techStack: true, registrationDate: true, legend: true, realContacts: false },
+    }
+    const service = makeServicePii(seniorTarget, permissions)
+    const result = await service.buildProfileView(viewer as never, 'senior-target')
+    expect((result.user as Record<string, unknown>).email).toBeNull()
+  })
+
+  it('JUNIOR → SENIOR: phone is null (realContacts hidden)', async () => {
+    const viewer = makeJunior({ id: 'junior-viewer' })
+    const permissions = {
+      tabs: ['overview', 'projects', 'team'],
+      actions: [],
+      fields: { techStack: true, registrationDate: true, legend: true, realContacts: false },
+    }
+    const service = makeServicePii(seniorTarget, permissions)
+    const result = await service.buildProfileView(viewer as never, 'senior-target')
+    expect((result.user as Record<string, unknown>).phone).toBeNull()
+  })
+
+  it('JUNIOR → SENIOR: telegram is null (realContacts hidden)', async () => {
+    const viewer = makeJunior({ id: 'junior-viewer' })
+    const permissions = {
+      tabs: ['overview', 'projects', 'team'],
+      actions: [],
+      fields: { techStack: true, registrationDate: true, legend: true, realContacts: false },
+    }
+    const service = makeServicePii(seniorTarget, permissions)
+    const result = await service.buildProfileView(viewer as never, 'senior-target')
+    expect((result.user as Record<string, unknown>).telegram).toBeNull()
+  })
+
+  it('JUNIOR → SENIOR: registrationAddress is null (fopPii hidden from non-ADMIN/non-self)', async () => {
+    const viewer = makeJunior({ id: 'junior-viewer' })
+    const permissions = {
+      tabs: ['overview', 'projects', 'team'],
+      actions: [],
+      fields: { techStack: true, registrationDate: true, legend: true, realContacts: false },
+    }
+    const service = makeServicePii(seniorTarget, permissions)
+    const result = await service.buildProfileView(viewer as never, 'senior-target')
+    expect((result.user as Record<string, unknown>).registrationAddress).toBeNull()
+  })
+
+  it('JUNIOR → SENIOR: usrRecord is null (fopPii hidden from non-ADMIN/non-self)', async () => {
+    const viewer = makeJunior({ id: 'junior-viewer' })
+    const permissions = {
+      tabs: ['overview', 'projects', 'team'],
+      actions: [],
+      fields: { techStack: true, registrationDate: true, legend: true, realContacts: false },
+    }
+    const service = makeServicePii(seniorTarget, permissions)
+    const result = await service.buildProfileView(viewer as never, 'senior-target')
+    expect((result.user as Record<string, unknown>).usrRecord).toBeNull()
+  })
+
+  it('JUNIOR → SENIOR: adminNote is null (adminNote never exposed to non-ADMIN)', async () => {
+    const viewer = makeJunior({ id: 'junior-viewer' })
+    const permissions = {
+      tabs: ['overview', 'projects', 'team'],
+      actions: [],
+      fields: { techStack: true, registrationDate: true, legend: true, realContacts: false },
+    }
+    const service = makeServicePii(seniorTarget, permissions)
+    const result = await service.buildProfileView(viewer as never, 'senior-target')
+    expect((result.user as Record<string, unknown>).adminNote).toBeNull()
+  })
+
+  it('JUNIOR → SENIOR: displayName is present (persona display field, never masked)', async () => {
+    const viewer = makeJunior({ id: 'junior-viewer' })
+    const permissions = {
+      tabs: ['overview', 'projects', 'team'],
+      actions: [],
+      fields: { techStack: true, registrationDate: true, legend: true, realContacts: false },
+    }
+    const service = makeServicePii(seniorTarget, permissions)
+    const result = await service.buildProfileView(viewer as never, 'senior-target')
+    expect((result.user as Record<string, unknown>).displayName).toBe('Senior Dev')
+  })
+
+  // ── ACCOUNTANT viewing any user ───────────────────────────────────────────
+  // ACCOUNTANT has requisites access but NOT adminNote, NOT fopPii, contacts visible
+
+  it('ACCOUNTANT → SENIOR: adminNote is null', async () => {
+    const viewer = makeUser({ id: 'acc-viewer', role: 'ACCOUNTANT' })
+    const permissions = {
+      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
+      actions: [],
+      fields: { salary: true, share: true, requisites: true, techStack: true, realContacts: true },
+      // adminNote NOT in fields → must be null
+    }
+    const service = makeServicePii(seniorTarget, permissions)
+    const result = await service.buildProfileView(viewer as never, 'senior-target')
+    expect((result.user as Record<string, unknown>).adminNote).toBeNull()
+  })
+
+  it('ACCOUNTANT → SENIOR: registrationAddress is null (fopPii not in fields)', async () => {
+    const viewer = makeUser({ id: 'acc-viewer', role: 'ACCOUNTANT' })
+    const permissions = {
+      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
+      actions: [],
+      fields: { salary: true, share: true, requisites: true, techStack: true, realContacts: true },
+    }
+    const service = makeServicePii(seniorTarget, permissions)
+    const result = await service.buildProfileView(viewer as never, 'senior-target')
+    expect((result.user as Record<string, unknown>).registrationAddress).toBeNull()
+  })
+
+  it('ACCOUNTANT → SENIOR: usrRecord is null (fopPii not in fields)', async () => {
+    const viewer = makeUser({ id: 'acc-viewer', role: 'ACCOUNTANT' })
+    const permissions = {
+      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
+      actions: [],
+      fields: { salary: true, share: true, requisites: true, techStack: true, realContacts: true },
+    }
+    const service = makeServicePii(seniorTarget, permissions)
+    const result = await service.buildProfileView(viewer as never, 'senior-target')
+    expect((result.user as Record<string, unknown>).usrRecord).toBeNull()
+  })
+
+  // ── HR viewing their SENIOR ───────────────────────────────────────────────
+
+  it('HR → SENIOR: adminNote is null', async () => {
+    const viewer = makeHr({ id: 'hr-viewer' })
+    const permissions = {
+      tabs: ['overview', 'projects', 'team'],
+      actions: [],
+      fields: { techStack: true, registrationDate: true, realContacts: true },
+    }
+    const service = makeServicePii(seniorTarget, permissions)
+    const result = await service.buildProfileView(viewer as never, 'senior-target')
+    expect((result.user as Record<string, unknown>).adminNote).toBeNull()
+  })
+
+  it('HR → SENIOR: registrationAddress is null (fopPii not for HR)', async () => {
+    const viewer = makeHr({ id: 'hr-viewer' })
+    const permissions = {
+      tabs: ['overview', 'projects', 'team'],
+      actions: [],
+      fields: { techStack: true, registrationDate: true, realContacts: true },
+    }
+    const service = makeServicePii(seniorTarget, permissions)
+    const result = await service.buildProfileView(viewer as never, 'senior-target')
+    expect((result.user as Record<string, unknown>).registrationAddress).toBeNull()
+  })
+
+  it('HR → SENIOR: usrRecord is null (fopPii not for HR)', async () => {
+    const viewer = makeHr({ id: 'hr-viewer' })
+    const permissions = {
+      tabs: ['overview', 'projects', 'team'],
+      actions: [],
+      fields: { techStack: true, registrationDate: true, realContacts: true },
+    }
+    const service = makeServicePii(seniorTarget, permissions)
+    const result = await service.buildProfileView(viewer as never, 'senior-target')
+    expect((result.user as Record<string, unknown>).usrRecord).toBeNull()
+  })
+
+  // ── ADMIN viewing any user ────────────────────────────────────────────────
+  // ADMIN should see everything except adminNote on self (tested separately)
+
+  it('ADMIN → SENIOR: all PII fields visible (fields.adminNote, fopPii, realContacts all true)', async () => {
+    const viewer = makeUser({ id: 'admin-viewer', role: 'ADMIN' })
+    const permissions = {
+      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
+      actions: ['edit-profile'],
+      fields: {
+        adminNote: true,
+        fopPii: true,
+        realContacts: true,
+        requisites: true,
+        legalName: true,
+        techStack: true,
+        salary: true,
+        share: true,
+      },
+    }
+    const service = makeServicePii(seniorTarget, permissions)
+    const result = await service.buildProfileView(viewer as never, 'senior-target')
+    expect((result.user as Record<string, unknown>).adminNote).toBe('Internal admin-only note')
+    expect((result.user as Record<string, unknown>).registrationAddress).toBe(
+      'Kyiv, Khreshchatyk 1',
+    )
+    expect((result.user as Record<string, unknown>).usrRecord).toBe('12.05.2024 №123456')
+    expect((result.user as Record<string, unknown>).email).toBe('secret-email@example.com')
+  })
+
+  it('ADMIN self: registrationAddress/usrRecord visible, adminNote null (self cannot see own note)', async () => {
+    const adminSelf = makeUser({
+      id: 'admin-self',
+      role: 'ADMIN',
+      email: 'admin@cc.com',
+      adminNote: 'My own note',
+      registrationAddress: 'Admin street 1',
+      usrRecord: 'admin-record',
+    } as Record<string, unknown>)
+    const viewer = makeUser({ id: 'admin-self', role: 'ADMIN' })
+    // ADMIN self: isSelf → fopPii=true (legalName=true), but adminNote=false
+    const permissions = {
+      tabs: ['overview', 'projects', 'team', 'requisites', 'documents'],
+      actions: [],
+      fields: {
+        fopPii: true,
+        realContacts: true,
+        requisites: true,
+        legalName: true,
+        techStack: true,
+        // adminNote intentionally absent → must be masked
+      },
+    }
+    const service = makeServicePii(adminSelf, permissions)
+    const result = await service.buildProfileView(viewer as never, 'admin-self')
+    expect((result.user as Record<string, unknown>).adminNote).toBeNull()
+    expect((result.user as Record<string, unknown>).registrationAddress).toBe('Admin street 1')
+    expect((result.user as Record<string, unknown>).usrRecord).toBe('admin-record')
+  })
+
+  // ── SENIOR self ───────────────────────────────────────────────────────────
+  // self sees fopPii (registrationAddress/usrRecord), but NOT adminNote
+
+  it('SENIOR self: registrationAddress visible, adminNote null', async () => {
+    const seniorSelf = makeSenior({
+      id: 'senior-self',
+      adminNote: 'Staff note',
+      registrationAddress: 'Lviv, Rynok sq 1',
+      usrRecord: 'lviv-record',
+    } as Record<string, unknown>)
+    const viewer = makeSenior({ id: 'senior-self' })
+    const permissions = {
+      tabs: ['overview', 'projects', 'team', 'requisites', 'documents', 'finance'],
+      actions: [],
+      fields: {
+        fopPii: true,
+        realContacts: true,
+        requisites: true,
+        legalName: true,
+        techStack: true,
+        share: true,
+        // adminNote absent → must be masked
+      },
+    }
+    const service = makeServicePii(seniorSelf, permissions)
+    const result = await service.buildProfileView(viewer as never, 'senior-self')
+    expect((result.user as Record<string, unknown>).adminNote).toBeNull()
+    expect((result.user as Record<string, unknown>).registrationAddress).toBe('Lviv, Rynok sq 1')
+    expect((result.user as Record<string, unknown>).usrRecord).toBe('lviv-record')
+  })
+})
