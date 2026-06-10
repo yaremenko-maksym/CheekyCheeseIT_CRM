@@ -64,8 +64,18 @@ test.describe('Users page refactor (PR 2)', () => {
     test('clicking row navigates to profile', async ({ asAdmin: page }) => {
       await page.goto('/crm/users')
       const row = page.getByTestId(`user-row-${USERS.senior.id}`)
-      await row.getByText('Senior Dev').click()
-      await expect(page).toHaveURL(new RegExp(`/crm/profile/${USERS.senior.id}`))
+      // The row uses an opacity transition (hover-reveal pattern): clicking
+      // during the CSS transition can race the React onClick navigation
+      // handler and leave the URL unchanged. Ensure the row is fully visible
+      // and in the viewport before dispatching the click.
+      // Promise.all ties the waitForURL to the click atomically so Playwright
+      // awaits the navigation rather than racing a separate toHaveURL assert.
+      await row.scrollIntoViewIfNeeded()
+      await expect(row).toBeVisible()
+      await Promise.all([
+        page.waitForURL(new RegExp(`/crm/profile/${USERS.senior.id}`)),
+        row.getByText('Senior Dev').click(),
+      ])
     })
 
     test('clicking edit icon does NOT navigate (stopPropagation)', async ({ asAdmin: page }) => {

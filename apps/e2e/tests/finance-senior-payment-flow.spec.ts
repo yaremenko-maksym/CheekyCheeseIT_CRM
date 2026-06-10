@@ -282,9 +282,17 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
       STUB_CONTRACT,
     )
 
-    // PR #56 dev-simulate gate — real mode is blocked in dev → pick
-    // simulate-success to actually unlock the submit button.
-    await dialog.getByTestId('payout-detail-dev-simulate-success').click()
+    // PR #56 dev-simulate gate:
+    // In `vite dev` the simulate-success radio is rendered and real-mode is
+    // disabled — the SENIOR must opt into simulate to unlock submit.
+    // In CI's production build (`vite preview`) import.meta.env.DEV === false
+    // and the entire dev block is tree-shaken out → the testid is absent and
+    // a ≥10-char tx hash alone unlocks submit.
+    // isVisible() resolves instantly without timing out on a missing element.
+    const simulateRadio = dialog.getByTestId('payout-detail-dev-simulate-success')
+    if (await simulateRadio.isVisible()) {
+      await simulateRadio.click()
+    }
     await dialog.getByTestId('payout-detail-tx-hash-input').fill('0xabcd1234567890')
     await dialog.getByTestId('payout-detail-submit').click()
 
