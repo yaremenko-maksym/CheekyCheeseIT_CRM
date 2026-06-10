@@ -365,6 +365,29 @@ const makeMemberWithContacts = (
 })
 
 describe('TeamsService.mapTeam — JUNIOR viewer: SENIOR/DROP contacts masked', () => {
+  /**
+   * Active project shared between junior-1 and senior-1.
+   * Required so that assertAccess() passes for JUNIOR viewer — the access
+   * gate checks p.members.some(m => m.userId === junior.id && m.leftAt === null).
+   * joinedAt is a Date so pm.joinedAt.toISOString() inside mapTeam works.
+   */
+  const juniorActiveProject = {
+    id: 'proj-1',
+    seniorId: 'senior-1',
+    dropId: null,
+    archivedAt: null,
+    members: [
+      {
+        id: 'pm-1',
+        userId: 'junior-1',
+        projectId: 'proj-1',
+        leftAt: null,
+        joinedAt: new Date(),
+        user: { id: 'junior-1', role: 'JUNIOR', displayName: 'Junior', email: 'j@cc.com' },
+      },
+    ],
+  }
+
   it('JUNIOR viewer → SENIOR member email is null', async () => {
     const seniorMember = makeMemberWithContacts('senior-1', 'SENIOR')
     const team = makeTeam({
@@ -376,8 +399,7 @@ describe('TeamsService.mapTeam — JUNIOR viewer: SENIOR/DROP contacts masked', 
       notes: null,
       members: [seniorMember],
     })
-    // findOne: team returned by findFirst, no active projects needed
-    const db = makeDb({ team, teamList: [team], projectList: [] })
+    const db = makeDb({ team, teamList: [team], projectList: [juniorActiveProject] })
     const service = new TeamsService(db)
 
     const result = await service.findOne('team-1', juniorUser)
@@ -397,7 +419,7 @@ describe('TeamsService.mapTeam — JUNIOR viewer: SENIOR/DROP contacts masked', 
       notes: null,
       members: [seniorMember],
     })
-    const db = makeDb({ team, teamList: [team], projectList: [] })
+    const db = makeDb({ team, teamList: [team], projectList: [juniorActiveProject] })
     const service = new TeamsService(db)
 
     const result = await service.findOne('team-1', juniorUser)
@@ -417,7 +439,7 @@ describe('TeamsService.mapTeam — JUNIOR viewer: SENIOR/DROP contacts masked', 
       notes: null,
       members: [seniorMember],
     })
-    const db = makeDb({ team, teamList: [team], projectList: [] })
+    const db = makeDb({ team, teamList: [team], projectList: [juniorActiveProject] })
     const service = new TeamsService(db)
 
     const result = await service.findOne('team-1', juniorUser)
@@ -437,7 +459,7 @@ describe('TeamsService.mapTeam — JUNIOR viewer: SENIOR/DROP contacts masked', 
       notes: null,
       members: [seniorMember],
     })
-    const db = makeDb({ team, teamList: [team], projectList: [] })
+    const db = makeDb({ team, teamList: [team], projectList: [juniorActiveProject] })
     const service = new TeamsService(db)
 
     const result = await service.findOne('team-1', juniorUser)
@@ -458,6 +480,7 @@ describe('TeamsService.mapTeam — JUNIOR viewer: SENIOR/DROP contacts masked', 
       notes: null,
       members: [seniorMember, hrMember],
     })
+    // HR is a static team member → assertAccess passes via team.members check
     const db = makeDb({ team, teamList: [team], projectList: [] })
     const service = new TeamsService(db)
 
@@ -473,15 +496,6 @@ describe('TeamsService.mapTeam — JUNIOR viewer: SENIOR/DROP contacts masked', 
     // JUNIOR sees the team because they have an active project with this senior
     const seniorMember = makeMemberWithContacts('senior-1', 'SENIOR')
     const hrMember = makeMemberWithContacts('hr-1', 'HR')
-    const projectList = [
-      {
-        id: 'proj-1',
-        seniorId: 'senior-1',
-        dropId: null,
-        archivedAt: null,
-        members: [{ userId: 'junior-1', leftAt: null, user: { role: 'JUNIOR' } }],
-      },
-    ]
     const team = makeTeam({
       type: 'SENIOR',
       seniorSharePercentOverride: null,
@@ -491,19 +505,17 @@ describe('TeamsService.mapTeam — JUNIOR viewer: SENIOR/DROP contacts masked', 
       notes: null,
       members: [seniorMember, hrMember],
     })
-    const db = makeDb({ team, teamList: [team], projectList })
+    const db = makeDb({ team, teamList: [team], projectList: [juniorActiveProject] })
     const service = new TeamsService(db)
 
     const result = await service.findOne('team-1', juniorUser)
     const hrInResult = result.members.find((m: { userId: string }) => m.userId === 'hr-1')
-    // HR contacts should remain visible to JUNIOR
-    if (hrInResult) {
-      expect((hrInResult as Record<string, unknown>).email).toBe('hr-1@secret.com')
-    }
-    // SENIOR contacts should still be null
+    // HR contacts should remain visible to JUNIOR (HR is not a legend-subject)
+    expect(hrInResult).toBeDefined()
+    expect((hrInResult as Record<string, unknown>).email).toBe('hr-1@secret.com')
+    // SENIOR contacts must still be null
     const seniorInResult = result.members.find((m: { userId: string }) => m.userId === 'senior-1')
-    if (seniorInResult) {
-      expect((seniorInResult as Record<string, unknown>).email).toBeNull()
-    }
+    expect(seniorInResult).toBeDefined()
+    expect((seniorInResult as Record<string, unknown>).email).toBeNull()
   })
 })

@@ -91,6 +91,13 @@ export class TeamsService {
       filteredJuniorMembers = []
     }
 
+    // RBAC A01 (2026-06-10): JUNIOR viewer must NOT see real contacts of SENIOR/DROP members.
+    // The legend-subject persona boundary: JUNIOR interacts with the client-facing persona
+    // (legend), not the real identity. displayName and avatarUrl are safe — they are the
+    // persona display fields (kept by #157 single-directional rule).
+    // HR, ACCOUNTANT, and other non-legend-subject roles are NOT masked.
+    const isJuniorViewer = currentUser?.role === 'JUNIOR'
+
     return {
       id: team.id,
       name: team.name,
@@ -108,20 +115,25 @@ export class TeamsService {
       members: [
         ...team.members
           .filter((m) => m.user?.role !== 'ADMIN' && m.user?.role !== 'JUNIOR' && m.leftAt === null)
-          .map((m) => ({
-            id: m.id,
-            userId: m.userId,
-            displayName: m.user?.displayName ?? '',
-            email: m.user?.email ?? '',
-            avatarUrl: m.user?.avatarUrl ?? null,
-            avatarDocumentId: m.user?.avatarDocumentId ?? null,
-            techStack: m.user?.techStack ?? null,
-            phone: m.user?.phone ?? null,
-            telegram: m.user?.telegram ?? null,
-            role: m.user?.role ?? 'SENIOR',
-            joinedAt: m.joinedAt,
-            leftAt: m.leftAt ? m.leftAt.toISOString() : null,
-          })),
+          .map((m) => {
+            const memberIsLegendSubject = m.user?.role === 'SENIOR' || m.user?.role === 'DROP'
+            // Mask real contacts when JUNIOR views a SENIOR or DROP team member.
+            const maskContacts = isJuniorViewer && memberIsLegendSubject
+            return {
+              id: m.id,
+              userId: m.userId,
+              displayName: m.user?.displayName ?? '',
+              email: maskContacts ? null : (m.user?.email ?? ''),
+              avatarUrl: m.user?.avatarUrl ?? null,
+              avatarDocumentId: m.user?.avatarDocumentId ?? null,
+              techStack: m.user?.techStack ?? null,
+              phone: maskContacts ? null : (m.user?.phone ?? null),
+              telegram: maskContacts ? null : (m.user?.telegram ?? null),
+              role: m.user?.role ?? 'SENIOR',
+              joinedAt: m.joinedAt,
+              leftAt: m.leftAt ? m.leftAt.toISOString() : null,
+            }
+          }),
         ...filteredJuniorMembers,
       ],
     }
