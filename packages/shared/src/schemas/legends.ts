@@ -1,23 +1,37 @@
 import { z } from 'zod'
 
 // ---------------------------------------------------------------------------
-// Legend — client-facing SENIOR persona
-//
-// The «legend» is the profile a SENIOR presents to client companies. It is
-// intentionally SEPARATE from users.legalFullName (which is the real
-// passport/legal name used for MSA contracts). The legend fullName is a
-// client-facing persona name and can differ from the legal name.
+// Legend Entry — journal record added by viewers (ADMIN / HR / JUNIOR)
+// ---------------------------------------------------------------------------
+
+export const legendEntrySchema = z.object({
+  id: z.string().uuid(),
+  legendId: z.string().uuid(),
+  authorId: z.string().uuid(),
+  authorName: z.string(),
+  text: z.string(),
+  createdAt: z.string(), // ISO 8601
+})
+
+export type LegendEntry = z.infer<typeof legendEntrySchema>
+
+// ---------------------------------------------------------------------------
+// Legend — client-facing persona profile, one per project
 // ---------------------------------------------------------------------------
 
 export const legendSchema = z.object({
   id: z.string().uuid(),
-  userId: z.string().uuid(),
+  projectId: z.string().uuid(),
   /** Client-facing persona full name (Cyrillic). Separate from legalFullName. */
   fullName: z.string().min(1, 'ФИО обязательно'),
   dateOfBirth: z.string().nullable(),
   address: z.string().nullable(),
+  presentedRole: z.string().nullable(),
+  presentedStack: z.string().nullable(),
+  backstory: z.string().nullable(),
   hobbies: z.string().nullable(),
   notes: z.string().nullable(),
+  entries: z.array(legendEntrySchema),
   createdAt: z.string(),
   updatedAt: z.string(),
 })
@@ -34,11 +48,20 @@ const isoDateString = z
 
 export const upsertLegendSchema = z.object({
   /** Client-facing persona full name (required). */
-  fullName: z.string().min(1, 'ФИО обязательно'),
-  dateOfBirth: isoDateString.nullable().optional(),
-  address: z.string().nullable().optional(),
-  hobbies: z.string().nullable().optional(),
-  notes: z.string().nullable().optional(),
+  fullName: z.string().min(1, 'Имя обязательно'),
+  dateOfBirth: isoDateString.nullish(),
+  address: z.string().nullish(),
+  presentedRole: z.string().nullish(),
+  presentedStack: z.string().nullish(),
+  backstory: z.string().nullish(),
+  hobbies: z.string().nullish(),
+  notes: z.string().nullish(),
 })
 
 export type UpsertLegendDto = z.infer<typeof upsertLegendSchema>
+
+export const addLegendEntrySchema = z.object({
+  text: z.string().min(1, 'Текст обязателен').max(5000),
+})
+
+export type AddLegendEntryDto = z.infer<typeof addLegendEntrySchema>
