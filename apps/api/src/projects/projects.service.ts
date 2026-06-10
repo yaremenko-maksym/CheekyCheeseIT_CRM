@@ -148,18 +148,23 @@ export class ProjectsService {
       // distribution breakdown panel. Both null for senior-only projects.
       dropName: project.drop?.displayName ?? null,
       dropSharePercent: project.drop?.dropSharePercent ?? null,
-      rate: project.rate,
-      currency: project.currency,
+      // Finance masking (RBAC A01): JUNIOR members must not receive rate,
+      // currency, or share breakdown — these are emitted as null so the
+      // DTO itself carries no sensitive data regardless of UI rendering.
+      rate: viewerRole === 'JUNIOR' ? null : project.rate,
+      currency: viewerRole === 'JUNIOR' ? null : project.currency,
       // Per-project SENIOR share override. NULL = senior's global default.
-      seniorSharePercentOverride: project.seniorSharePercentOverride ?? null,
+      seniorSharePercentOverride:
+        viewerRole === 'JUNIOR' ? null : (project.seniorSharePercentOverride ?? null),
       // Computed default for UI hints — falls back to 26 when senior is
       // unreachable (e.g. soft-deleted) so the front-end never sees `null`.
-      seniorSharePercentDefault: project.senior?.seniorSharePercent ?? 26,
+      // Masked for JUNIOR (they should not see the default either).
+      seniorSharePercentDefault:
+        viewerRole === 'JUNIOR' ? 0 : (project.senior?.seniorSharePercent ?? 26),
       // task-team-senior-share-override. Pre-resolved effective share for
-      // the project's senior. Mirrors what the snapshot would store on a
-      // new SENIOR_INCOME row created right now.
-      effectiveSeniorSharePercent,
-      effectiveSeniorShareSource,
+      // the project's senior. Masked for JUNIOR.
+      effectiveSeniorSharePercent: viewerRole === 'JUNIOR' ? null : effectiveSeniorSharePercent,
+      effectiveSeniorShareSource: viewerRole === 'JUNIOR' ? null : effectiveSeniorShareSource,
       techStack: project.techStack ?? null,
       teamSize: project.teamSize ?? null,
       benefits: project.benefits ?? null,
