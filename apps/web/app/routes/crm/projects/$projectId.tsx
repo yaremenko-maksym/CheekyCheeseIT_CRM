@@ -41,6 +41,7 @@ import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { ProjectLegendSection } from '@/components/projects/ProjectLegendSection'
 import { ProjectLogo } from '@/components/projects/ProjectLogo'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -480,6 +481,16 @@ function ProjectDetailPage() {
   // ShareSlider в edit-форме. JUNIOR в этот роут вообще не пускают.
   // ADMIN/ACCOUNTANT/SENIOR видят всё (SENIOR — read-only).
   const canSeeProjectFinance = user?.role !== 'HR'
+
+  // Legend access: RBAC is enforced server-side. Client-side guard:
+  // subject (seniorId / dropId) is excluded; ADMIN, HR, JUNIOR get access.
+  // The hook itself silently returns null on 403/404 so we only need to
+  // hide the section for roles that can never have access (ACCOUNTANT,
+  // other SENIOR/DROP who are not the subject — server handles those).
+  const isSubject =
+    user?.id === project.seniorId || (project.dropId != null && user?.id === project.dropId)
+  const canAccessLegend =
+    !isSubject && (user?.role === 'ADMIN' || user?.role === 'HR' || user?.role === 'JUNIOR')
 
   const [editOpen, setEditOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
@@ -1085,6 +1096,11 @@ function ProjectDetailPage() {
             </CardContent>
           </Card>
         </motion.div>
+      )}
+
+      {/* Legend section — subject (seniorId/dropId) excluded per RBAC contract */}
+      {activeTab === 'overview' && (
+        <ProjectLegendSection projectId={projectId} canAccess={canAccessLegend} />
       )}
 
       {activeTab === 'finance' && canSeeProjectFinance && (
