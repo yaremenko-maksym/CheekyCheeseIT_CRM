@@ -31,6 +31,13 @@ const JWT_SECRET = 'test-legend-integration-secret-xxxx'
 
 // ---------------------------------------------------------------------------
 // Fixtures — valid RFC 4122 v4 UUIDs
+//
+// NOTE: PROJECT_ID is hardcoded here. This sentinel spec exercises the guard
+// stack (JwtAuthGuard → OnboardingGuard) and verifies that controller routes
+// are wired + projectId is propagated to the service. It does NOT verify
+// per-role RBAC decisions (those require a real DB and are covered by
+// legends.rbac.integration.spec.ts which uses the actual LegendsService
+// against crm_qa).
 // ---------------------------------------------------------------------------
 
 const PROJECT_ID = 'a1b2c3d4-e5f6-4aaa-9bbb-000000000001'

@@ -120,6 +120,7 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
             variant="ghost"
             size="sm"
             onClick={handleEdit}
+            disabled={upsert.isPending}
             data-testid="legend-edit-button"
             className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
           >

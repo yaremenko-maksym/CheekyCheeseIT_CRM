@@ -854,6 +854,10 @@ export const legendEntries = pgTable('legend_entries', {
   legendId: uuid('legend_id')
     .notNull()
     .references(() => legends.id, { onDelete: 'cascade' }),
+  // ON DELETE NO ACTION (Drizzle default) is intentional: we preserve
+  // journal history even when a user is later deleted. If hard-delete of
+  // users is ever introduced, a manual cleanup of orphaned authorId rows
+  // will be required before the FK constraint allows the delete.
   authorId: uuid('author_id')
     .notNull()
     .references(() => users.id),

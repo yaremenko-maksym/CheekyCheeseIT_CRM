@@ -247,6 +247,9 @@ export class LegendsService {
           hobbies: dto.hobbies ?? null,
           notes: dto.notes ?? null,
           updatedAt: now,
+          // createdAt is intentionally absent here: it is set once on INSERT
+          // and must not be overwritten on subsequent updates (immutable audit
+          // timestamp — tells us when the legend was first created).
         },
       })
       .returning()
@@ -271,6 +274,10 @@ export class LegendsService {
     if (!canEdit) throw new ForbiddenException('Нет доступа к легенде проекта')
 
     const legendRow = await this.loadLegendRow(projectId)
+    // Guard against a race with project cascade-delete: if the legend was
+    // removed between the canAccess check above and this point, we return
+    // 404 (NotFoundException) instead of letting the FK insert fail with a
+    // cryptic 500. Callers should upsert the legend first.
     if (!legendRow)
       throw new NotFoundException('Легенда проекта не найдена — сначала создайте легенду')
 
