@@ -809,6 +809,64 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
     )
   })
 
+  // Per-project legend (PR #164). Project-detail page renders ProjectLegendSection
+  // for ADMIN/HR/JUNIOR → GET /api/projects/:id/legend on mount. Unmocked →
+  // 401 → axios interceptor → /login (same failure mode as the notifications/
+  // documents/contracts mocks above). /entries sub-route before the generic.
+  await page.route(new RegExp(`${API}/projects/([^/?]+)/legend/entries$`), (r) =>
+    r.request().method() === 'POST'
+      ? jsonOk(
+          r,
+          {
+            id: 'legend-1-id',
+            projectId: r.request().url().split('/').slice(-3, -2)[0],
+            fullName: 'Alexander Petrenko',
+            dateOfBirth: null,
+            address: null,
+            presentedRole: null,
+            presentedStack: null,
+            backstory: null,
+            hobbies: null,
+            notes: null,
+            entries: [],
+            createdAt: '2024-01-15T00:00:00.000Z',
+            updatedAt: '2024-01-15T00:00:00.000Z',
+          },
+          201,
+        )
+      : r.fallback(),
+  )
+  await page.route(new RegExp(`${API}/projects/([^/?]+)/legend$`), (r) => {
+    // GET (page load): default 404 "no legend" → section shows its empty state
+    // (useLegend retry:false handles 403/404). Specs needing a real legend
+    // register their own handler AFTER mockAuthAs (LIFO). PUT: echo.
+    if (r.request().method() === 'GET') {
+      return r.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Легенда не найдена' }),
+      })
+    }
+    if (r.request().method() === 'PUT') {
+      return jsonOk(r, {
+        id: 'legend-1-id',
+        projectId: r.request().url().split('/').slice(-2, -1)[0],
+        fullName: 'Alexander Petrenko',
+        dateOfBirth: null,
+        address: null,
+        presentedRole: null,
+        presentedStack: null,
+        backstory: null,
+        hobbies: null,
+        notes: null,
+        entries: [],
+        createdAt: '2024-01-15T00:00:00.000Z',
+        updatedAt: '2024-01-15T00:00:00.000Z',
+      })
+    }
+    return r.fallback()
+  })
+
   // Interviews
   await page.route(new RegExp(`${API}/interviews/([^/?]+)/move`), (r) =>
     jsonOk(r, { ...INTERVIEWS[0], stage: 'ENGLISH_CHECK' }),
