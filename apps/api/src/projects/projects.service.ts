@@ -281,19 +281,43 @@ export class ProjectsService {
     }
   }
 
-  private async getHrSeniorIds(hrId: string): Promise<string[]> {
+  /**
+   * Returns senior user IDs that this HR actively belongs to (via team_members).
+   * Both the HR membership and the senior membership must have leftAt IS NULL —
+   * an HR who has left the team must not retain access to those projects.
+   * (dedup: was previously inlined as hrCanAccessProject; leftAt fix per task-junior-ux-3-cleanup defer #1)
+   */
+  async getHrSeniorIds(hrId: string): Promise<string[]> {
+    // Only active HR memberships
     const hrTeams = await this.db.db
       .select({ teamId: teamMembers.teamId })
       .from(teamMembers)
-      .where(eq(teamMembers.userId, hrId))
+      .where(and(eq(teamMembers.userId, hrId), isNull(teamMembers.leftAt)))
     if (!hrTeams.length) return []
     const teamIds = hrTeams.map((r) => r.teamId)
+    // Only active senior memberships in those same teams
     const seniors = await this.db.db
       .select({ userId: teamMembers.userId })
       .from(teamMembers)
       .innerJoin(users, eq(users.id, teamMembers.userId))
-      .where(and(inArray(teamMembers.teamId, teamIds), eq(users.role, 'SENIOR')))
+      .where(
+        and(
+          inArray(teamMembers.teamId, teamIds),
+          eq(users.role, 'SENIOR'),
+          isNull(teamMembers.leftAt),
+        ),
+      )
     return seniors.map((r) => r.userId)
+  }
+
+  /**
+   * Returns true if hrId is an active member of a team that also contains
+   * seniorId as an active member. Delegates to getHrSeniorIds.
+   * (dedup: replaces the old private hrCanAccessProject that duplicated the same join)
+   */
+  async hrCanAccessProject(hrId: string, seniorId: string): Promise<boolean> {
+    const seniorIds = await this.getHrSeniorIds(hrId)
+    return seniorIds.includes(seniorId)
   }
 
   async findAll(currentUser: SessionUser, filter: { archived?: boolean | 'all' } = {}) {
@@ -1173,35 +1197,6 @@ export class ProjectsService {
       telegram: hrRow?.telegram ?? null,
       phone: hrRow?.phone ?? null,
     }
-  }
-
-  /**
-   * Check if an HR user can access a project by team membership.
-   * Reuses hrCanAccess logic but exposed for getHrContact.
-   */
-  private async hrCanAccessProject(hrId: string, seniorId: string): Promise<boolean> {
-    const hrTeams = await this.db.db
-      .select({ teamId: teamMembers.teamId })
-      .from(teamMembers)
-      .where(and(eq(teamMembers.userId, hrId), isNull(teamMembers.leftAt)))
-      .limit(50)
-
-    if (hrTeams.length === 0) return false
-    const teamIds = hrTeams.map((t) => t.teamId)
-
-    const seniorInTeam = await this.db.db
-      .select({ id: teamMembers.id })
-      .from(teamMembers)
-      .where(
-        and(
-          eq(teamMembers.userId, seniorId),
-          inArray(teamMembers.teamId, teamIds),
-          isNull(teamMembers.leftAt),
-        ),
-      )
-      .limit(1)
-
-    return seniorInTeam.length > 0
   }
 
   private async assertAccess(project: ProjectWithRelations, currentUser: SessionUser) {
