@@ -287,7 +287,7 @@ export class ProjectsService {
    * an HR who has left the team must not retain access to those projects.
    * (dedup: was previously inlined as hrCanAccessProject; leftAt fix per task-junior-ux-3-cleanup defer #1)
    */
-  async getHrSeniorIds(hrId: string): Promise<string[]> {
+  private async getHrSeniorIds(hrId: string): Promise<string[]> {
     // Only active HR memberships
     const hrTeams = await this.db.db
       .select({ teamId: teamMembers.teamId })
@@ -315,7 +315,7 @@ export class ProjectsService {
    * seniorId as an active member. Delegates to getHrSeniorIds.
    * (dedup: replaces the old private hrCanAccessProject that duplicated the same join)
    */
-  async hrCanAccessProject(hrId: string, seniorId: string): Promise<boolean> {
+  private async hrCanAccessProject(hrId: string, seniorId: string): Promise<boolean> {
     const seniorIds = await this.getHrSeniorIds(hrId)
     return seniorIds.includes(seniorId)
   }

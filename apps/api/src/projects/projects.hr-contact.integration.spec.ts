@@ -4,7 +4,7 @@ import { JwtModule, JwtService } from '@nestjs/jwt'
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify'
 import { Test } from '@nestjs/testing'
 import cookie from '@fastify/cookie'
-import { inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -406,5 +406,30 @@ describe('GET /projects/:id/hr-contact — real DB RBAC integration', () => {
       cookies: cookieAuth(HR2),
     })
     expect(res.statusCode).toBe(403)
+  })
+
+  // ── HC-6: HR who left the team (leftAt set) → 403 ─────────────────────────
+
+  it('HC-6: HR1 who left the team (leftAt set) → 403; active again → 200', async () => {
+    if (!dbAvailable) return
+    const db = dbSvc.db
+    const hr1Membership = and(eq(teamMembers.teamId, TEAM_ID), eq(teamMembers.userId, HR1.id))
+    await db.update(teamMembers).set({ leftAt: new Date() }).where(hr1Membership)
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/projects/${PROJ_ID}/hr-contact`,
+        cookies: cookieAuth(HR1),
+      })
+      expect(res.statusCode, 'HR who left the team must lose hr-contact access').toBe(403)
+    } finally {
+      await db.update(teamMembers).set({ leftAt: null }).where(hr1Membership)
+    }
+    const restored = await app.inject({
+      method: 'GET',
+      url: `/api/projects/${PROJ_ID}/hr-contact`,
+      cookies: cookieAuth(HR1),
+    })
+    expect(restored.statusCode, 'restored membership regains access').toBe(200)
   })
 })

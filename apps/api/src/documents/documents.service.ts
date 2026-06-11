@@ -1022,18 +1022,26 @@ export class DocumentsService {
     return false
   }
 
+  // Mirrors ProjectsService.getHrSeniorIds — leftAt semantics MUST stay in
+  // sync: an HR who left the team retains no access (HC-6 pins the predicate).
   private async getHrSeniorIds(hrId: string): Promise<string[]> {
     const hrTeams = await this.db.db
       .select({ teamId: teamMembers.teamId })
       .from(teamMembers)
-      .where(eq(teamMembers.userId, hrId))
+      .where(and(eq(teamMembers.userId, hrId), isNull(teamMembers.leftAt)))
     if (!hrTeams.length) return []
     const teamIds = hrTeams.map((r) => r.teamId)
     const seniors = await this.db.db
       .select({ userId: teamMembers.userId })
       .from(teamMembers)
       .innerJoin(users, eq(users.id, teamMembers.userId))
-      .where(and(inArray(teamMembers.teamId, teamIds), eq(users.role, 'SENIOR')))
+      .where(
+        and(
+          inArray(teamMembers.teamId, teamIds),
+          eq(users.role, 'SENIOR'),
+          isNull(teamMembers.leftAt),
+        ),
+      )
     return seniors.map((r) => r.userId)
   }
 
