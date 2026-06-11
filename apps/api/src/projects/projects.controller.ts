@@ -120,4 +120,17 @@ export class ProjectsController {
   ) {
     return this.projectsService.removeMember(id, userId, user)
   }
+
+  /**
+   * GET /api/projects/:id/hr-contact
+   *
+   * Allowlist HR contact for a project — JUNIOR-facing surface.
+   * Returns { displayName, telegram, phone } or null fields when no HR assigned.
+   * Access: ADMIN / active JUNIOR member / HR of project's team.
+   * Others: 403.
+   */
+  @Get(':id/hr-contact')
+  getHrContact(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
+    return this.projectsService.getHrContact(id, user)
+  }
 }
