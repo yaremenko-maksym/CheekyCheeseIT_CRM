@@ -1,4 +1,7 @@
-> This file extends [common/performance.md](../common/performance.md) with web-specific performance content.
+---
+paths:
+  - 'apps/web/**'
+---
 
 # Web Performance Rules
 

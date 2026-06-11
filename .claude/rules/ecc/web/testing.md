@@ -1,3 +1,9 @@
+---
+paths:
+  - 'apps/web/**'
+  - 'apps/e2e/**'
+---
+
 > This file extends [common/testing.md](../common/testing.md) with web-specific testing content.
 
 # Web Testing Rules
