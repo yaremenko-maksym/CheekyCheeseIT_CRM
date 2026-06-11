@@ -717,6 +717,7 @@ describe('Projects JUNIOR allowlist-masking — real DB integration', () => {
 //   LEGEND-3  JUNIOR still gets null for seniorId / dropId / contacts (allowlist not opened)
 //   LEGEND-4  Non-JUNIOR (ADMIN) is NOT affected — still gets real seniorName + null seniorPresentedRole
 //   LEGEND-5  JUNIOR project without legend → seniorName null, seniorPresentedRole null
+//   LEGEND-6  JUNIOR non-member → 403 on legend project, persona not leaked in error body
 //
 // Senior-identity isolation — real-DB (task-junior-ux-1-backend AC2)
 //   SENIOR-ISO-1  SENIOR cannot open another SENIOR's profile (users-access path → zero tabs)
@@ -788,13 +789,7 @@ const LEGEND_ID = 'a9b8c7d6-e5f4-4003-cc00-000000000001'
 const PERSONA_FULL_NAME = 'Олексій Петренко'
 const PERSONA_PRESENTED_ROLE = 'Solutions Architect'
 
-const LEGEND_USER_IDS = [
-  LEGEND_S1.id,
-  LEGEND_J1.id,
-  LEGEND_J2.id,
-  LEGEND_S2.id,
-  LEGEND_DROP1.id,
-]
+const LEGEND_USER_IDS = [LEGEND_S1.id, LEGEND_J1.id, LEGEND_J2.id, LEGEND_S2.id, LEGEND_DROP1.id]
 
 describe('Legend persona enrichment + SENIOR isolation — real DB integration', () => {
   let app: NestFastifyApplication
@@ -1049,6 +1044,24 @@ describe('Legend persona enrichment + SENIOR isolation — real DB integration',
       'seniorPresentedRole must be null when no legend',
     ).toBeNull()
     expect(body['seniorId'], 'seniorId must be null for JUNIOR regardless').toBeNull()
+  })
+
+  // ── LEGEND-6: persona does not leak to non-member JUNIOR ─────────────────
+
+  it('LEGEND-6. J2 (member of Project B only) → 403 on legend Project A, persona not in error body', async () => {
+    if (!legendDbAvailable) return
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/projects/${LEGEND_PROJ_A}`,
+      cookies: { jwt: tokenFor(LEGEND_J2) },
+    })
+    expect(res.statusCode).toBe(403)
+    expect(res.body, 'error body must not leak legend persona name').not.toContain(
+      PERSONA_FULL_NAME,
+    )
+    expect(res.body, 'error body must not leak presented role').not.toContain(
+      PERSONA_PRESENTED_ROLE,
+    )
   })
 
   // ── SENIOR-ISO-1: SENIOR cannot view another SENIOR's profile (real-DB) ──

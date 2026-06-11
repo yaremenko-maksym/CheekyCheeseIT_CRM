@@ -18,7 +18,6 @@ import type {
 import { DatabaseService } from '../database/database.service'
 import {
   documents,
-  legends,
   projectFinanceSettings,
   projectMembers,
   projects,
@@ -944,7 +943,7 @@ export class ProjectsService {
 
     const project = (await this.db.db.query.projects.findFirst({
       where: eq(projects.id, projectId),
-      with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
+      with: { senior: true, drop: true, members: { with: { user: true } } },
     })) as ProjectWithRelations | undefined
 
     if (!project) throw new NotFoundException('Project not found')
@@ -1002,7 +1001,7 @@ export class ProjectsService {
     // HR cross-team scoping: load project early to check seniorId.
     const projectForScope = (await this.db.db.query.projects.findFirst({
       where: eq(projects.id, projectId),
-      with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
+      with: { senior: true, drop: true, members: { with: { user: true } } },
     })) as ProjectWithRelations | undefined
     if (!projectForScope) throw new NotFoundException('Project not found')
 
