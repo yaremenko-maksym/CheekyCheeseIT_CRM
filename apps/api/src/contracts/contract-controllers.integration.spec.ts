@@ -113,7 +113,7 @@ class SentinelEmployeeContractsController {
 
   @Get(':id/contract/pdf')
   @Roles() // override class ADMIN-only — owner-or-ADMIN enforced in handler below
-  @Header('Cache-Control', 'no-store, private')
+  @Header('Cache-Control', 'private, max-age=60')
   getPdf(
     @Param('id') id: string,
     @CurrentUser() requester: SessionUser,
@@ -135,7 +135,7 @@ class SentinelOnboardingContractController {
   }
 
   @Get('contract/pdf')
-  @Header('Cache-Control', 'no-store, private')
+  @Header('Cache-Control', 'private, max-age=60')
   getOwnPdf(@CurrentUser() _user: SessionUser, @Res() reply: import('fastify').FastifyReply): void {
     void reply.header('Content-Type', 'application/pdf').send(Buffer.from('%PDF-1.4 stub'))
   }
