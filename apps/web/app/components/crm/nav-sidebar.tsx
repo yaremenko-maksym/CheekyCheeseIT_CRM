@@ -1,13 +1,15 @@
 import { Link } from '@tanstack/react-router'
 import {
+  BarChart3,
+  BookOpen,
   Briefcase,
   ChevronLeft,
   ChevronRight,
   DollarSign,
   FileText,
+  Home,
   KanbanSquare,
   LayoutDashboard,
-  BarChart3,
   UserCircle,
   Users,
   UsersRound,
@@ -34,13 +36,28 @@ interface NavItem {
 
 // Drop role - phase 1: DROP sees only Profile / Team / Finance (spec §4).
 // No Dashboard, no Projects, no Interviews, no Documents. Existing role
-// visibilities for ADMIN / SENIOR / JUNIOR / HR / ACCOUNTANT are unchanged.
+// visibilities for ADMIN / SENIOR / HR / ACCOUNTANT are unchanged.
+// JUNIOR UX phase 2: JUNIOR gets a dedicated 5-item nav:
+//   Мой проект · Легенда · Финансы · Документы · Профиль.
+//   Дашборд / Команда / Проекты / Собеседования hidden for JUNIOR.
 const NAV_ITEMS: NavItem[] = [
+  {
+    label: 'Мой проект',
+    icon: Home,
+    to: '/crm/project',
+    roles: ['JUNIOR'],
+  },
+  {
+    label: 'Легенда',
+    icon: BookOpen,
+    to: '/crm/legend',
+    roles: ['JUNIOR'],
+  },
   {
     label: 'Дашборд',
     icon: LayoutDashboard,
     to: '/crm/dashboard',
-    roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'],
+    roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'],
   },
   {
     label: 'Профиль',
@@ -58,13 +75,13 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Команда',
     icon: UsersRound,
     to: '/crm/team',
-    roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'],
+    roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'DROP'],
   },
   {
     label: 'Проекты',
     icon: Briefcase,
     to: '/crm/projects',
-    roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'],
+    roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'],
   },
   {
     label: 'Финансы',
@@ -133,7 +150,10 @@ export function NavSidebar({
           )}
         >
           <ScrollArea className="flex-1">
-            <nav className="flex flex-col gap-0.5 p-2 pt-3">
+            <nav
+              className="flex flex-col gap-0.5 p-2 pt-3"
+              data-testid={user.role === 'JUNIOR' ? 'junior-nav' : undefined}
+            >
               {items.map((item) => (
                 <DesktopNavLink key={item.to} item={item} collapsed={collapsed} />
               ))}

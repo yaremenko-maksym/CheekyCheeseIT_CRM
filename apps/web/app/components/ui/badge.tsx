@@ -8,7 +8,8 @@ const badgeVariants = cva(
     variants: {
       variant: {
         default: 'border-transparent bg-primary text-primary-foreground shadow hover:bg-primary/80',
-        secondary: 'border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80',
+        secondary:
+          'border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80',
         destructive: 'border-transparent bg-destructive text-white shadow hover:bg-destructive/80',
         outline: 'text-foreground border-border',
         admin: 'border-yellow-500/30 bg-yellow-500/15 text-yellow-400',
@@ -19,6 +20,12 @@ const badgeVariants = cva(
         // Drop role - phase 1: cyan/teal pill, distinct from senior (blue)
         // and HR (purple) so the financial-proxy persona reads at a glance.
         drop: 'border-cyan-500/30 bg-cyan-500/15 text-cyan-400',
+        // Status variants for project/contract/salary badges (junior hub)
+        // Using CSS var tokens — no hardcoded hex values.
+        'status-active': 'border-green-500/30 bg-green-500/10 text-green-400',
+        'status-closed': 'border-transparent bg-secondary text-secondary-foreground',
+        paid: 'border-green-500/30 bg-green-500/10 text-green-400',
+        pending: 'border-transparent bg-secondary text-secondary-foreground',
       },
     },
     defaultVariants: { variant: 'default' },
@@ -26,8 +33,7 @@ const badgeVariants = cva(
 )
 
 interface BadgeProps
-  extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof badgeVariants> {}
+  extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof badgeVariants> {}
 
 function Badge({ className, variant, ...props }: BadgeProps) {
   return <div className={cn(badgeVariants({ variant }), className)} {...props} />
