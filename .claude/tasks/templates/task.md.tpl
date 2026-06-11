@@ -70,7 +70,7 @@
 - [ ] <Например: Autocomplete — Escape закрывает dropdown без потери query>
 - [ ] <Например: Modal — Escape закрывает; focus restore на trigger button>
 
-См. `docs/agents/coder.md` секция 6.1 для полного чек-листа по типам компонентов.
+См. `.claude/agents/coder.md` §6 (E2E правила при UI-изменениях) — чек-лист по типам компонентов.
 
 **Если interaction-логика отсутствует** (чистый CRUD без keyboard/focus) — отметить: «Interaction tests N/A — компонент без интерактивных элементов».
 
