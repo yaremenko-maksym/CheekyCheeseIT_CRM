@@ -780,6 +780,12 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   )
 
   // Projects
+  // task-junior-ux-2-hub: GET /projects/:id/hr-contact — allowlist DTO.
+  // Must be registered BEFORE the generic /projects/:id$ route (LIFO: later wins).
+  await page.route(new RegExp(`${API}/projects/([^/?]+)/hr-contact$`), (r) => {
+    if (r.request().method() !== 'GET') return r.fallback()
+    return jsonOk(r, { displayName: null, telegram: null, phone: null })
+  })
   await page.route(new RegExp(`${API}/projects/([^/?]+)/members`), (r) =>
     r.request().method() === 'DELETE' ? noContent(r) : jsonOk(r, PROJECTS[0], 201),
   )
@@ -1098,6 +1104,18 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   })
 
   // Compliance audit trail (Phase 6 polish PR3)
+
+  // task-junior-ux-2-hub: GET /contracts/me — JUNIOR hub uses this.
+  // Default: 404 (no contract yet). Tests that need a SIGNED contract
+  // register their own handler AFTER mockAuthAs (LIFO priority).
+  await page.route(new RegExp(`${API}/contracts/me$`), (r) => {
+    if (r.request().method() !== 'GET') return r.fallback()
+    return r.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'No contract found' }),
+    })
+  })
 }
 
 // ---------------------------------------------------------------------------
