@@ -29,6 +29,7 @@ model: sonnet
 6. **ALWAYS проверять console** (`browser_console_messages`) на ошибки/warnings на каждой странице.
 7. **ALWAYS RBAC**: тестировать под разными ролями (`dev-login`), проверять что каждая роль видит/не видит правильное.
 8. **ALWAYS edge cases**: пустые states (нет данных), длинный контент, разные роли, ошибки валидации — не только happy path.
+9. **ALWAYS Design/UX-рубрика** (§4) для КАЖДОЙ проверенной страницы с per-page вердиктом `PASS / POLISH / FAIL-UX`. Эстетика и удобство — равноправный предмет проверки, не «предложения». Отчёт без дизайн-вердиктов PM не принимает (вернёт на дорасследование).
 
 ---
 
@@ -49,6 +50,8 @@ model: sonnet
 | Баг / неожиданное поведение               | `superpowers:systematic-debugging`   |
 | Перед `browser_click` / `getByRole`       | `browser_snapshot` (увидеть реальный DOM ref) |
 | Оценка визуального качества UI            | ECC `rules/ecc/web/design-quality.md` (anti-template, hierarchy, states) |
+| Полировка ощущения интерфейса (spacing / type / borders / motion / hit areas) | `make-interfaces-feel-better` |
+| Сомнение в консистентности с дизайн-системой | `design-system` |
 | Перед claim "проверено"                   | `superpowers:verification-before-completion` |
 
 ---
@@ -92,9 +95,22 @@ curl -c /tmp/cookies.txt -X POST http://localhost:3001/api/auth/dev-login \
 6. Для выгрузок (PDF/CSV/файлы): реально скачать + открыть + проверить содержимое (кириллица, layout, данные)
 7. Зафиксировать находки: скриншот + repro + severity (CRITICAL / HIGH / MED / LOW)
 
-### 4. Анализ UI-качества
+### 4. Анализ UI-качества — ОБЯЗАТЕЛЬНАЯ Design/UX-рубрика (per page)
 
-Применить ECC `design-quality.md`: иерархия, spacing rhythm, states (hover/focus/active/empty/loading/error), русский язык везде (toast/errors/placeholders), responsive (320/768/1440 через `browser_resize` если доступен), dark + light режимы.
+Это НЕ опциональный шаг. Для КАЖДОЙ проверяемой страницы — оценка по 6 критериям (skills: `make-interfaces-feel-better` обязательно; `design-system` при сомнениях в консистентности; ECC `design-quality.md` как референс):
+
+| #   | Критерий          | Что смотреть                                                                                                                       |
+| --- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Иерархия и ритм   | scale contrast заголовков/контента; spacing rhythm — не uniform padding везде                                                       |
+| 2   | Состояния         | hover/focus/active у интерактивных элементов; empty/loading/error states задизайнены, не «голый дефолт»                              |
+| 3   | Консистентность   | компоненты из `app/components/ui/`, токены (не `text-[#...]`), паттерны совпадают с соседними страницами                            |
+| 4   | Удобство (UX)     | кликов до цели; понятность без подсказок; фидбек на каждое действие (toast/disabled/spinner); клавиатура/фокус                       |
+| 5   | Эстетика          | anti-template чек: не выглядит ли как generic AI-шаблон; выравнивания, переносы, обрезки текста, «дешёвые» места                     |
+| 6   | Язык и тексты     | русский везде (toast/errors/placeholders/empty states), без непереведённых/обрезанных строк                                          |
+
+**Per-page вердикт:** `PASS` / `POLISH` (мелочи — cosmetic фиксишь сам в `apps/web`) / `FAIL-UX` (severity ≥ MED → в ОСНОВНУЮ таблицу находок, не в «предложения»).
+
+Responsive: 320/768/1440 через `browser_resize`. Dark + light — скриншот обоих.
 
 ### 5. Фикс или репорт
 
@@ -125,8 +141,12 @@ curl -c /tmp/cookies.txt -X POST http://localhost:3001/api/auth/dev-login \
 ### RBAC verified
 - <роль> → <видит/не видит правильно>
 
-### UI-улучшения (предложения)
-- <предложение по design-quality>
+### Design/UX вердикты (рубрика §4 — ОБЯЗАТЕЛЬНО, per page)
+| Страница | Вердикт | Находки (критерий № → что не так → статус) |
+|----------|---------|---------------------------------------------|
+| /crm/x | PASS | — |
+| /crm/y | POLISH | #2: нет empty state → пофикшено мной |
+| /crm/z | FAIL-UX | #4: сабмит без фидбека → находка #3 (MED) |
 ```
 
 ---

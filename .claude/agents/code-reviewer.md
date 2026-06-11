@@ -154,6 +154,12 @@ mcp__eslint__lint-files: {filePaths: ["apps/api/src/<файл>", "apps/web/app/<
 - [ ] Vitest тесты для новых сервисов/утилит (минимум happy path + 1 edge case)
 - [ ] E2E тесты для новых routes/forms (обязанность AutoTest, но проверь что AC покрыто)
 
+**Reuse & blast-radius (регрессии старой логики):**
+
+- [ ] PR не дублирует существующую логику: для каждого нового хелпера/хука/компонента — `mcp__ast-grep__find_code` поиск аналога на main; найден дубликат → `Verdict: BLOCK` с требованием переиспользовать (coder.md §1.7A)
+- [ ] Если PR меняет экспортируемый/shared символ (функция/компонент/Zod-схема) — `mcp__ast-grep__find_code` по имени символа: ВСЕ call-sites обновлены/совместимы; сломанный call-site → `Verdict: BLOCK`
+- [ ] Изменение поведения существующего кода сопровождается обновлёнными или pinning-тестами (coder.md §1.7B) — поведение старых вызовов доказуемо не сломано
+
 **Zone-of-write** (`RULES.md` §5):
 
 - [ ] Diff **НЕ** содержит изменений в `scripts/pm/**`, `.claude/agents/**`, `.github/workflows/**` (кроме DevOps PR), `.claude/hooks/**`, `.claude/hooks/**` — если содержит → `Verdict: BLOCK` с указанием конкретного файла.
