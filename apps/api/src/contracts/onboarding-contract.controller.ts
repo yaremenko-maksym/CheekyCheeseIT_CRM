@@ -47,12 +47,17 @@ export class OnboardingContractController {
    * Renders the caller's READY_TO_SIGN employee_contract as an unsigned PDF
    * preview (signature block shows "Требуется подпись участника").
    *
-   * Throttle: 5 req/min (PDF generation is expensive).
+   * Cache: private, max-age=60 — own contract, so page reloads reuse the
+   * browser cache instead of re-rendering the (expensive) PDF. Prevents the
+   * 429 that rapid reloads hit under no-store. `private` keeps it out of any
+   * shared/CDN cache; 60s bounds staleness (Refresh button + admin edits show
+   * within a minute).
+   * Throttle: 20 req/min (covers hard-refreshes that bypass the browser cache).
    * Returns: application/pdf stream.
    */
   @Get('contract/pdf')
-  @Header('Cache-Control', 'no-store, private')
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Header('Cache-Control', 'private, max-age=60')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   async getOwnPdf(@CurrentUser() user: SessionUser, @Res() reply: FastifyReply): Promise<void> {
     const contract = await this.service.getReadyForSigning(user.id)
 

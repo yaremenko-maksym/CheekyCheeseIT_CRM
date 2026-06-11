@@ -136,12 +136,15 @@ export class EmployeeContractsController {
    * Access: ADMIN (any user) OR the contract owner themselves.
    * @Roles() — override class ADMIN-only — owner-or-ADMIN enforced in handler below.
    *
-   * Throttle: 5 req/min (PDF generation is expensive).
+   * Cache: private, max-age=60 — lets reloads reuse the browser cache instead
+   * of re-rendering the (expensive) PDF, preventing the 429 that rapid reloads
+   * hit under no-store. `private` keeps it per-browser; 60s bounds staleness.
+   * Throttle: 20 req/min (covers hard-refreshes that bypass the browser cache).
    */
   @Get(':id/contract/pdf')
   @Roles() // override class ADMIN-only — owner-or-ADMIN enforced in handler below
-  @Header('Cache-Control', 'no-store, private')
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Header('Cache-Control', 'private, max-age=60')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   async getPdf(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() requester: SessionUser,

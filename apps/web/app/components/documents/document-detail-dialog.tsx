@@ -21,7 +21,7 @@
  */
 import { useCallback, useEffect, useRef, useState, useMemo, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
-import { formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow, format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import {
   Calendar,
@@ -214,10 +214,10 @@ export function DocumentDetailDialog({
     }
   }, [doc])
 
-  const signedAtRelative = useMemo(() => {
+  const signedAtDate = useMemo(() => {
     if (!doc?.signedAt) return null
     try {
-      return formatDistanceToNow(new Date(doc.signedAt), { addSuffix: true, locale: ru })
+      return format(new Date(doc.signedAt), 'd MMMM yyyy', { locale: ru })
     } catch {
       return doc.signedAt
     }
@@ -309,7 +309,7 @@ export function DocumentDetailDialog({
             {/* Use div instead of DialogDescription to avoid <div>-in-<p> nesting warning (Badge renders <div>). */}
             <div
               id="document-detail-description"
-              className="mt-1 flex items-center gap-2 text-xs text-muted-foreground"
+              className="mt-3 flex items-center gap-2 text-xs text-muted-foreground"
             >
               {isDeleted ? (
                 <Badge variant="secondary" className="bg-muted-foreground/15">
@@ -361,7 +361,9 @@ export function DocumentDetailDialog({
                   value={relativeDate}
                   title={doc.createdAt}
                 />
-                <DetailRow icon={HardDrive} label="Размер" value={formatBytes(doc.sizeBytes)} />
+                {doc.sizeBytes > 0 ? (
+                  <DetailRow icon={HardDrive} label="Размер" value={formatBytes(doc.sizeBytes)} />
+                ) : null}
                 <DetailRow icon={FileType} label="Формат" value={doc.mimeType} />
                 {/* AC5: «Имя файла» row deliberately removed — the title
                     already shows displayName (original cyrillic-preserved
@@ -383,13 +385,22 @@ export function DocumentDetailDialog({
                   />
                 ) : null}
                 {isContractVirtual && doc.signedByName ? (
-                  <DetailRow icon={PenLine} label="Подписал" value={doc.signedByName} />
+                  <DetailRow
+                    icon={PenLine}
+                    label="Подписал"
+                    value={
+                      <span className="flex flex-col gap-0.5">
+                        <span>{doc.signedByName}</span>
+                        <span className="text-muted-foreground">CheekyCheeseIT</span>
+                      </span>
+                    }
+                  />
                 ) : null}
-                {isContractVirtual && doc.signedAt && signedAtRelative ? (
+                {isContractVirtual && doc.signedAt && signedAtDate ? (
                   <DetailRow
                     icon={Calendar}
                     label="Дата подписания"
-                    value={signedAtRelative}
+                    value={signedAtDate}
                     title={doc.signedAt}
                   />
                 ) : null}

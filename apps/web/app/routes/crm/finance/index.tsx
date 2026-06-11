@@ -403,7 +403,7 @@ function TransactionsTable({
 // ── Main page ──────────────────────────────────────────────────────────────────
 
 function FinancePage() {
-  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'ACCOUNTANT', 'HR', 'DROP'])
+  const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'ACCOUNTANT', 'HR', 'DROP', 'JUNIOR'])
   const { user } = useAuth()
   if (denied) return null
   const role = user?.role ?? ''

@@ -270,7 +270,16 @@ export class ContractPdfService {
     // Pre-process: group consecutive table rows into blocks so we can hand
     // them off to the two-column renderer as a unit while leaving all other
     // lines on the original single-column path.
-    const rawLines = params.bodyMarkdown.split('\n')
+    // Drop manual signature-placeholder rows (e.g. `| Підпис: \_\_\_ | Signature: \_\_\_ |`)
+    // from bilingual contracts — signatures are rendered in the dedicated block
+    // below, not as blank fill-in lines. Single-column bodies are left untouched
+    // to preserve their byte-identical determinism.
+    const isSignaturePlaceholderRow = (l: string): boolean =>
+      /(Підпис|Подпис[ьи]?|Signature)\s*:\s*(\\?_){3,}/iu.test(l)
+    const allBodyLines = params.bodyMarkdown.split('\n')
+    const rawLines = bilingual
+      ? allBodyLines.filter((l) => !isSignaturePlaceholderRow(l))
+      : allBodyLines
 
     type LineChunk = { kind: 'line'; value: string } | { kind: 'table'; rows: string[] }
 
@@ -432,80 +441,134 @@ export class ContractPdfService {
 
     const midX = pageMargin + contentWidth / 2 - 10
 
-    const participantLabel = bilingual ? 'Учасник / Signatory' : '1. Участник'
-    this.pdfGen.drawText(cursor.page, participantLabel, {
-      x: pageMargin,
-      y: cursor.y,
-      font: boldFont,
-      size: BODY_SIZE,
-      color: textColor,
-    })
-    const dualSigStartY = cursor.y
-
-    if (isSigned) {
-      cursor.y -= SIG_LINE_HEIGHT
-      this.pdfGen.drawText(cursor.page, params.signedTypedName, {
-        x: pageMargin,
-        y: cursor.y,
-        font: regularFont,
-        size: BODY_SIZE,
-        color: textColor,
-      })
-      cursor.y -= SIG_LINE_HEIGHT
-      const signedAtDisplay = params.signedAt ? formatDateRu(params.signedAt) : ''
-      this.pdfGen.drawText(cursor.page, signedAtDisplay, {
-        x: pageMargin,
-        y: cursor.y,
-        font: regularFont,
-        size: 9,
-        color: mutedColor,
-      })
-      cursor.y -= SIG_LINE_HEIGHT
-    } else {
-      cursor.y -= SIG_LINE_HEIGHT
-      this.pdfGen.drawText(cursor.page, 'Требуется подпись участника', {
-        x: pageMargin,
-        y: cursor.y,
-        font: regularFont,
-        size: BODY_SIZE,
-        color: mutedColor,
-      })
-      cursor.y -= SIG_LINE_HEIGHT
-    }
-
-    const companyLabel = bilingual ? 'CheekyCheeseIT' : '2. От CheekyCheeseIT'
-    let companyY = dualSigStartY
-    this.pdfGen.drawText(cursor.page, companyLabel, {
-      x: midX,
-      y: companyY,
-      font: boldFont,
-      size: BODY_SIZE,
-      color: textColor,
-    })
-    companyY -= SIG_LINE_HEIGHT
     if (bilingual) {
-      // Bilingual: show "Підписано / Signed" under company name, then date
-      this.pdfGen.drawText(cursor.page, PDF_BRAND.companyName, {
+      // ── Style A: clean electronic signature; brand mark on the company side ──
+      // role label · name on a signature rule · "✓ Підписано електронно" + date.
+      const colWidth = contentWidth / 2 - 30
+      const blockTopY = cursor.y
+
+      const drawSignatory = (
+        x: number,
+        roleLabel: string,
+        name: string,
+        withBrandMark: boolean,
+      ): number => {
+        let y = blockTopY
+        this.pdfGen.drawText(cursor.page, roleLabel, {
+          x,
+          y,
+          font: boldFont,
+          size: BODY_SIZE,
+          color: textColor,
+        })
+        y -= SIG_LINE_HEIGHT + 10
+        let nameX = x
+        if (withBrandMark) {
+          const markSz = 11
+          this.pdfGen.drawBrandMark(cursor.page, x, y - 1, markSz, brandColor)
+          nameX = x + markSz + 6
+        }
+        this.pdfGen.drawText(cursor.page, name, {
+          x: nameX,
+          y,
+          font: regularFont,
+          size: BODY_SIZE,
+          color: textColor,
+        })
+        y -= 6
+        this.pdfGen.drawSeparator(cursor.page, x, x + colWidth, y, separatorColor)
+        y -= SIG_LINE_HEIGHT
+        if (isSigned) {
+          this.pdfGen.drawText(cursor.page, '✓ Підписано електронно / Signed electronically', {
+            x,
+            y,
+            font: regularFont,
+            size: 8,
+            color: brandColor,
+          })
+          y -= SIG_LINE_HEIGHT - 2
+          this.pdfGen.drawText(cursor.page, params.signedAt ? formatDateRu(params.signedAt) : '', {
+            x,
+            y,
+            font: regularFont,
+            size: 8,
+            color: mutedColor,
+          })
+          y -= SIG_LINE_HEIGHT
+        } else {
+          this.pdfGen.drawText(cursor.page, 'Очікує підпису / Awaiting signature', {
+            x,
+            y,
+            font: regularFont,
+            size: 8,
+            color: mutedColor,
+          })
+          y -= SIG_LINE_HEIGHT
+        }
+        return y
+      }
+
+      const participantEndY = drawSignatory(
+        pageMargin,
+        'Учасник / Signatory',
+        isSigned ? params.signedTypedName : '',
+        false,
+      )
+      const companyEndY = drawSignatory(midX, 'Компанія / Company', PDF_BRAND.companyName, true)
+      cursor.y = Math.min(participantEndY, companyEndY)
+    } else {
+      // ── Single-column (Russian) path — byte-for-byte unchanged (MED-1 determinism) ──
+      const participantLabel = '1. Участник'
+      this.pdfGen.drawText(cursor.page, participantLabel, {
+        x: pageMargin,
+        y: cursor.y,
+        font: boldFont,
+        size: BODY_SIZE,
+        color: textColor,
+      })
+      const dualSigStartY = cursor.y
+
+      if (isSigned) {
+        cursor.y -= SIG_LINE_HEIGHT
+        this.pdfGen.drawText(cursor.page, params.signedTypedName, {
+          x: pageMargin,
+          y: cursor.y,
+          font: regularFont,
+          size: BODY_SIZE,
+          color: textColor,
+        })
+        cursor.y -= SIG_LINE_HEIGHT
+        const signedAtDisplay = params.signedAt ? formatDateRu(params.signedAt) : ''
+        this.pdfGen.drawText(cursor.page, signedAtDisplay, {
+          x: pageMargin,
+          y: cursor.y,
+          font: regularFont,
+          size: 9,
+          color: mutedColor,
+        })
+        cursor.y -= SIG_LINE_HEIGHT
+      } else {
+        cursor.y -= SIG_LINE_HEIGHT
+        this.pdfGen.drawText(cursor.page, 'Требуется подпись участника', {
+          x: pageMargin,
+          y: cursor.y,
+          font: regularFont,
+          size: BODY_SIZE,
+          color: mutedColor,
+        })
+        cursor.y -= SIG_LINE_HEIGHT
+      }
+
+      const companyLabel = '2. От CheekyCheeseIT'
+      let companyY = dualSigStartY
+      this.pdfGen.drawText(cursor.page, companyLabel, {
         x: midX,
         y: companyY,
-        font: regularFont,
+        font: boldFont,
         size: BODY_SIZE,
         color: textColor,
       })
       companyY -= SIG_LINE_HEIGHT
-      const bilingualCompanyDateStr = params.signedAt
-        ? formatDateRu(params.signedAt)
-        : 'Підписано / Signed'
-      this.pdfGen.drawText(cursor.page, bilingualCompanyDateStr, {
-        x: midX,
-        y: companyY,
-        font: regularFont,
-        size: 9,
-        color: mutedColor,
-      })
-      companyY -= SIG_LINE_HEIGHT
-    } else {
-      // Single-column: preserve original byte-identical rendering
       this.pdfGen.drawText(cursor.page, PDF_BRAND.companyName, {
         x: midX,
         y: companyY,
@@ -523,10 +586,10 @@ export class ContractPdfService {
         color: mutedColor,
       })
       companyY -= SIG_LINE_HEIGHT
-    }
 
-    if (companyY < cursor.y) {
-      cursor.y = companyY
+      if (companyY < cursor.y) {
+        cursor.y = companyY
+      }
     }
 
     // ---- QR + footer ---------------------------------------------------
