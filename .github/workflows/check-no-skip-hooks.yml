@@ -56,10 +56,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       # Collect PR-changed files of types we format (ts/tsx/js/jsx/json/md/yml).
+      # Three-dot diff (merge-base..HEAD) lists only files the PR branch itself
+      # touched; two-dot BASE..HEAD also swept files changed on main after
+      # branch-off, including paths that no longer exist on the merge ref
+      # (deleted/renamed on main) — prettier errors on missing files and the
+      # check went red without any real hook bypass (PR #167, 2026-06-11).
       - name: List PR-changed files
         run: |
-          git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" \
+          git diff --name-only --diff-filter=ACMR "$BASE_SHA...$HEAD_SHA" \
             | grep -E '\.(ts|tsx|js|jsx|json|md|yml|yaml)$' \
+            | while IFS= read -r f; do if [ -f "$f" ]; then printf '%s\n' "$f"; fi; done \
             > /tmp/pr-files.txt || true
           echo "Found $(wc -l < /tmp/pr-files.txt) candidate files."
 
