@@ -37,9 +37,11 @@ interface NavItem {
 // Drop role - phase 1: DROP sees only Profile / Team / Finance (spec §4).
 // No Dashboard, no Projects, no Interviews, no Documents. Existing role
 // visibilities for ADMIN / SENIOR / HR / ACCOUNTANT are unchanged.
-// JUNIOR UX phase 2: JUNIOR gets a dedicated 5-item nav:
-//   Мой проект · Легенда · Финансы · Документы · Профиль.
+// JUNIOR UX phase 2: JUNIOR gets a dedicated 5-item nav (spec §4.3):
+//   1. Мой проект · 2. Легенда · 3. Финансы · 4. Документы · 5. Профиль.
 //   Дашборд / Команда / Проекты / Собеседования hidden for JUNIOR.
+//   Note: NAV_ITEMS order controls visible order after role-filter.
+//   Профиль is placed last so JUNIOR sees it at position 5 (spec §4.3).
 const NAV_ITEMS: NavItem[] = [
   {
     label: 'Мой проект',
@@ -58,12 +60,6 @@ const NAV_ITEMS: NavItem[] = [
     icon: LayoutDashboard,
     to: '/crm/dashboard',
     roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'],
-  },
-  {
-    label: 'Профиль',
-    icon: UserCircle,
-    to: '/crm/profile',
-    roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'],
   },
   {
     label: 'Пользователи',
@@ -106,6 +102,16 @@ const NAV_ITEMS: NavItem[] = [
     icon: FileText,
     to: '/crm/documents',
     roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'],
+  },
+  {
+    // Профиль last: JUNIOR sees it at position 5 (spec §4.3).
+    // Other roles: it was previously at position 2 in the visible list —
+    // it now moves to after Документы. For ADMIN/SENIOR/HR/ACCOUNTANT
+    // the practical position shifts slightly but remains accessible.
+    label: 'Профиль',
+    icon: UserCircle,
+    to: '/crm/profile',
+    roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'],
   },
 ]
 
