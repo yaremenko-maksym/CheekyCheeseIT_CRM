@@ -1,3 +1,9 @@
+---
+paths:
+  - '**/*.ts'
+  - '**/*.tsx'
+---
+
 # Use the `eslint` MCP for code linting (replaces post-edit hook feedback)
 
 Status: active as of Phase 2.5 (2026-06-03). Supersedes

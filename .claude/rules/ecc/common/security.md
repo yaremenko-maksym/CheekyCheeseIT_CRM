@@ -1,3 +1,12 @@
+---
+paths:
+  - '**/*.ts'
+  - '**/*.tsx'
+  - '**/*.js'
+  - '**/*.jsx'
+  - '**/.env*'
+---
+
 # Security Guidelines
 
 ## Mandatory Security Checks

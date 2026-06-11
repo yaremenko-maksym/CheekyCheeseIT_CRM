@@ -24,12 +24,19 @@ Single source of truth для **factual state of the project**: фазы, миг
 - [x] **PHASE 4**: Собеседования (Interviews Kanban, dnd-kit)
 - [x] **PHASE 5**: Финансы (transactions, NBU rates, PDF, etherscan; финмодель рефакторена → payout_requests + pending_obligations)
 - [x] **PHASE 6**: Документы (S3/MinIO, `documents` table, PDF inline preview, search/sort, receipt lifecycle)
-- [x] **PHASE 7 (partial)**: Профили (`/crm/profile`, `/crm/users/:id`, telegram+phone, **фото S3** через `avatarDocumentId`)
+- [x] **PHASE 7**: Профили (`/crm/profile`, `/crm/users/:id`, telegram+phone, **фото S3** через `avatarDocumentId`) + Легенда **per-project** (#150 + #164: `legends` с projectId UNIQUE + `legend_entries` журнал; RBAC: видят/редактируют связанные ADMIN/HR/JUNIOR, субъект исключён)
 - [x] **Контракты + Онбординг** (вне исходного 9-фазного плана): `contract_templates`, `employee_contracts`, `signed_contracts`, ToS (`tos_versions`/`tos_acceptances`), система переменных шаблонов, двухколоночный UA|EN PDF, `/crm/onboarding`
 - [x] **DROP роль**: payment-routing (`dropSharePercent`, `payout_requests`, `pending_obligations`)
-- [ ] **PHASE 7 (остаток)**: легенда SENIOR — **НЕ реализована** (0 совпадений в коде); решить scope
 - [ ] **PHASE 8**: Смарт-контракти (USDT ERC-20, Ethereum mainnet) ← **СЛЕДУЮЩАЯ**. DB-фундамент готов: `project_finance_settings`, `seniorSharePercent`/`dropSharePercent`, `payout_requests`, USDT-кошельки
 - [ ] **PHASE 9**: Дашборд (сейчас placeholder в `/crm/index.tsx`)
+
+### 1.1. PHASE 8 — план (компакт; перенесён из CLAUDE.md при context diet 2026-06-11)
+
+- Solidity `PaymentSplitter` (Hardhat для разработки/тестов контракта), деплой один раз или per-project.
+- Принимает USDT ERC-20, распределяет автоматически: JUNIOR — фиксированная сумма (из `project_finance_settings`), остаток 50/50 ADMIN + партнёр. Адреса получателей конфигурируются при деплое.
+- Frontend: ethers.js v6, подпись транзакции через MetaMask/WalletConnect.
+- PDF-инвойс (бэк): проект, период, сумма, адрес контракта, хэш транзакции.
+- Сеть: **Ethereum mainnet** (решение принято; при необходимости — миграция на TRC-20).
 
 ---
 
@@ -121,9 +128,9 @@ Single source of truth для **factual state of the project**: фазы, миг
 
 ---
 
-## 5. Drizzle миграции (0000–0006 применены)
+## 5. Drizzle миграции (0000–0009 применены)
 
-> ⚠ **Факт (2026-06-09):** baseline **squashed** → `0000_purple_runaways` (все core-таблицы) + `0001_employee_contracts`, `0002`–`0003` (контракты/онбординг), `0004_contract_templates_remove_version`, `0005`, `0006_employee_contracts_custom_values`. Таблица ниже — **pre-squash историческая** (имена/нумерация НЕ соответствуют файлам в `apps/api/drizzle/migrations/`; комментарии `schema.ts` про «migration 0007–0013» — тоже исторические).
+> ⚠ **Факт (2026-06-11):** baseline **squashed** → `0000_purple_runaways` (все core-таблицы) + `0001_employee_contracts`, `0002`–`0003` (контракты/онбординг), `0004_contract_templates_remove_version`, `0005`, `0006_employee_contracts_custom_values`, `0007_cleanup_orphan_senior_payout_requests`, `0008_quick_mac_gargan`, `0009_legends_per_project`. Таблица ниже — **pre-squash историческая** (имена/нумерация НЕ соответствуют файлам в `apps/api/drizzle/migrations/`; комментарии `schema.ts` про «migration 0007–0013» — тоже исторические).
 
 | Migration                    | Что                                                                                                                                                                         |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -137,9 +144,9 @@ Single source of truth для **factual state of the project**: фазы, миг
 **Seed:** `pnpm --filter @crm/api db:seed`
 **Создать новую:** `pnpm --filter @crm/api db:generate`
 
-### 5.1. Активные DB таблицы (21)
+### 5.1. Активные DB таблицы (23)
 
-`users` · `teams` · `team_members` · `projects` · `project_finance_settings` · `project_members` · `interviews` · `payout_requests` · `transactions` · `pending_obligations` · `documents` · `invoice_signatures` · `contract_templates` · `signed_contracts` · `tos_versions` · `tos_acceptances` · `employee_contracts` · `notifications` · `user_audit_log` · `team_audit_log` · `project_audit_log`
+`users` · `teams` · `team_members` · `projects` · `project_finance_settings` · `project_members` · `interviews` · `payout_requests` · `transactions` · `pending_obligations` · `documents` · `invoice_signatures` · `contract_templates` · `signed_contracts` · `tos_versions` · `tos_acceptances` · `employee_contracts` · `notifications` · `user_audit_log` · `team_audit_log` · `project_audit_log` · `legends` · `legend_entries`
 
 > **Финмодель рефакторена:** старые `expenses`/`junior_payments`/`invoices`/`invoice_transactions`/`payouts`/`payout_transactions` → консолидированы в `transactions` (+`seniorSharePercent`/source) + `payout_requests` + `pending_obligations`.
 
@@ -197,7 +204,7 @@ Single Source of Truth для всех типов. Frontend и backend импо�
 - **Vite SPA**: `app/client.tsx` — точка входа (`createRoot` + `RouterProvider`). `index.html` в корне `apps/web/`. Это **НЕ** TanStack Start/vinxi — SSR не нужен.
 - **Fastify**: принудительно через `pnpm.overrides` на `^5.8.5` (конфликт с `@fastify/helmet`).
 - **`pnpm.overrides`**: НЕ добавлять для `@tanstack/router-*` — сломает сборку.
-- **TanStack Router + Plugin**: версии ОБЯЗАНЫ совпадать (`^1.168.x`).
+- **TanStack Router + Plugin**: peer-matched пара, EXACT-pinned — react-router `1.170.15` + plugin `1.168.18` (номера НЕ совпадают; не бампить раздельно и не переводить в caret) — см. `rules/common/version-pins.md`.
 - **Tailwind v4 dark mode**: `@custom-variant dark (&:is(.dark *))` + `class="dark"` на `<html>`.
 - **shadcn/ui tokens**: `@theme inline {}` маппит CSS vars → Tailwind utilities. `:root` = light, `.dark` = dark.
 - **`exactOptionalPropertyTypes`**: Radix CheckboxItem `checked` — передавать через `...props`, НЕ деструктурировать.

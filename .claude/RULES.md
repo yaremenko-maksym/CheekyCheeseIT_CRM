@@ -153,7 +153,7 @@ Phase 4 (см. `docs/architecture/2026-06-03-phase4-deliverable.md`) лифтн�
 
 ## 7. Version pins — `.claude/rules/common/version-pins.md`
 
-**Резюме:** Node 20 LTS, pnpm 7.32.4, Vite ^6.4 (НЕ 7.x), TanStack Router + plugin ^1.168 must-match, Tailwind v4, NestJS 11, Fastify ^5.8.5 через pnpm.overrides, Zod v4, PostgreSQL 16-alpine, Redis 7-alpine.
+**Резюме:** Node 20 LTS, pnpm 7.32.4, Vite ^6.4 (НЕ 7.x), TanStack Router `1.170.15` + plugin `1.168.18` (peer-matched EXACT пара, номера НЕ совпадают), Tailwind v4, NestJS 11, Fastify ^5.8.5 через pnpm.overrides, Zod v4, PostgreSQL 16-alpine, Redis 7-alpine.
 
 **Forbidden overrides:** `@tanstack/router-*` в pnpm.overrides, Vite 7.x, Node major change без DevOps task.
 

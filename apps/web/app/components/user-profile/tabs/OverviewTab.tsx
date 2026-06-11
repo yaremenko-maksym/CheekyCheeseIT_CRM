@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge'
 import type { UserProfileDto, ViewPermissions } from '@crm/shared'
 import { ProfileEditFields } from '../self-edit/ProfileEditFields'
 import { AdminNoteDialog } from '../admin-actions/AdminNoteDialog'
-import { LegendSection } from '../LegendSection'
 
 export interface OverviewTabProps {
   user: UserProfileDto
@@ -186,18 +185,8 @@ export function OverviewTab({ user, mode, data, permissions }: OverviewTabProps)
         </Card>
       )}
 
-      {/* Легенда SENIOR/DROP — персона для клиентской компании.
-          RBAC (2026-06-09 reversal — subject excluded, view==edit):
-          - mode === 'self': субъект свою легенду НЕ видит (subject excluded).
-          - mode === 'view': показывать если target — SENIOR/DROP
-            AND permissions.fields.legend === true (зритель допущен).
-            canEdit = true для всех допущенных (view==edit: ADMIN, HR, JUNIOR).
-          - ACCOUNTANT / другой SENIOR / несвязанные → fields.legend отсутствует → скрыто. */}
-      {mode === 'view' &&
-        (user.role === 'SENIOR' || user.role === 'DROP') &&
-        permissions.fields.legend === true && (
-          <LegendSection userId={user.id} canEdit={true} enabled={true} />
-        )}
+      {/* Legend moved to project detail page (per-project, subject excluded).
+          See apps/web/app/components/projects/ProjectLegendSection.tsx */}
 
       {canSeeTos && (
         <Card data-testid="tos-acceptance-card">

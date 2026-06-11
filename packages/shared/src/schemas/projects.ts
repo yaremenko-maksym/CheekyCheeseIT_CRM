@@ -71,8 +71,16 @@ export const projectSchema = z.object({
   /** External logo URL (e.g. https://company.com/logo.svg). XOR with logoDocumentId. */
   logoExternalUrl: z.string().url().nullable(),
   startDate: z.string().datetime(),
-  seniorId: z.string().uuid(),
-  seniorName: z.string(),
+  /**
+   * Masked to `null` for JUNIOR viewers (identity data-hiding, RBAC A01).
+   * Non-null for all other roles.
+   */
+  seniorId: z.string().uuid().nullable(),
+  /**
+   * Masked to `null` for JUNIOR viewers (identity data-hiding, RBAC A01).
+   * Non-null for all other roles.
+   */
+  seniorName: z.string().nullable(),
   /**
    * Drop-only: when set, the project's income flows through the DROP user
    * and the finance distribution includes the drop's share (Phase 2).
@@ -92,8 +100,16 @@ export const projectSchema = z.object({
    * breakdown panel («Доля дропа N%»). `null` for senior-only projects.
    */
   dropSharePercent: z.number().int().min(0).max(100).nullable(),
-  rate: z.number(),
-  currency: currencySchema,
+  /**
+   * Masked to `null` for JUNIOR viewers (finance data-hiding, RBAC A01).
+   * Non-null for all other roles (ADMIN / SENIOR / HR / ACCOUNTANT).
+   */
+  rate: z.number().nullable(),
+  /**
+   * Masked to `null` for JUNIOR viewers (finance data-hiding, RBAC A01).
+   * Non-null for all other roles.
+   */
+  currency: currencySchema.nullable(),
   // Per-project SENIOR share % override (0-100). NULL = use senior's
   // global default (see `seniorSharePercentDefault` below). Editable only
   // by ADMIN and ACCOUNTANT (enforced in projects.service.ts).

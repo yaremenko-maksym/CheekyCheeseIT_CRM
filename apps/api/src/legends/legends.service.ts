@@ -1,50 +1,63 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common'
-import { and, eq, inArray, isNull } from 'drizzle-orm'
-import type { SessionUser, UpsertLegendDto } from '@crm/shared'
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
+import type {
+  AddLegendEntryDto,
+  Legend,
+  LegendEntry,
+  SessionUser,
+  UpsertLegendDto,
+} from '@crm/shared'
 import { legendSchema } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { legends, projectMembers, projects, teamMembers, users } from '../database/schema'
+import {
+  legendEntries,
+  legends,
+  projectMembers,
+  projects,
+  teamMembers,
+  users,
+} from '../database/schema'
+
+type ProjectRow = { id: string; seniorId: string; dropId: string | null }
 
 @Injectable()
 export class LegendsService {
   constructor(private readonly db: DatabaseService) {}
 
   /**
-   * Check whether `viewer` is permitted to SEE the legend of `targetId`.
+   * RBAC check: can `viewer` access the legend for `project`?
    *
-   * NEW RBAC (2026-06-09 reversal):
-   *   Subject (SENIOR/DROP themselves) → EXCLUDED (false)
-   *   ADMIN              → always true
-   *   HR                 → true if target SENIOR/DROP is in one of HR's teams
-   *   JUNIOR             → true if JUNIOR is active project_member of a project
-   *                         owned by the target (seniorId OR dropId = targetId)
-   *   ACCOUNTANT         → false
-   *   other SENIOR/DROP  → false
+   * Contract (per embedded plan):
+   *   ADMIN                         → true
+   *   viewer.id === project.seniorId → false (subject excluded)
+   *   viewer.id === project.dropId   → false (subject excluded)
+   *   HR sharing active team with project.seniorId → true
+   *   HR with no shared team         → false
+   *   JUNIOR active project_member of this project → true
+   *   JUNIOR not a member            → false
+   *   ACCOUNTANT                     → false
+   *   any other SENIOR/DROP          → false
    *
-   * view-access == edit-access (caller uses canViewLegend for both).
+   * view-access == edit-access.
    */
-  async canViewLegend(viewer: SessionUser, targetId: string): Promise<boolean> {
-    // Subject is explicitly excluded (self-view removed)
-    if (viewer.id === targetId) return false
+  async canAccess(viewer: SessionUser, project: ProjectRow): Promise<boolean> {
+    // Subject explicitly excluded
+    if (viewer.id === project.seniorId) return false
+    if (project.dropId && viewer.id === project.dropId) return false
 
     if (viewer.role === 'ADMIN') return true
 
-    if (viewer.role === 'HR') return this.hrCanViewLegend(viewer.id, targetId)
+    if (viewer.role === 'HR') return this.hrCanAccess(viewer.id, project.seniorId)
 
-    if (viewer.role === 'JUNIOR') return this.juniorCanViewLegend(viewer.id, targetId)
+    if (viewer.role === 'JUNIOR') return this.juniorCanAccess(viewer.id, project.id)
 
     return false
   }
 
   /**
-   * HR can view a SENIOR's or DROP's legend if they share at least one active team.
+   * HR can access if they share at least one active team with the project's seniorId.
    */
-  private async hrCanViewLegend(hrId: string, targetId: string): Promise<boolean> {
+  private async hrCanAccess(hrId: string, seniorId: string): Promise<boolean> {
     const hrTeams = await this.db.db
       .select({ teamId: teamMembers.teamId })
       .from(teamMembers)
@@ -55,148 +68,188 @@ export class LegendsService {
 
     const teamIds = hrTeams.map((t) => t.teamId)
 
-    const targetInTeam = await this.db.db
+    const seniorInTeam = await this.db.db
       .select({ id: teamMembers.id })
       .from(teamMembers)
       .where(
         and(
-          eq(teamMembers.userId, targetId),
+          eq(teamMembers.userId, seniorId),
           inArray(teamMembers.teamId, teamIds),
           isNull(teamMembers.leftAt),
         ),
       )
       .limit(1)
 
-    return targetInTeam.length > 0
+    return seniorInTeam.length > 0
   }
 
   /**
-   * JUNIOR can view the legend of a SENIOR or DROP if they are an active
-   * project_member of a non-archived project associated with that user.
-   *
-   * For SENIOR targets: project.seniorId = targetId
-   * For DROP targets:   project.dropId   = targetId
-   *
-   * Both checks are run in one query — we match either FK column.
+   * JUNIOR can access if they are an active project_member of this exact project.
    */
-  private async juniorCanViewLegend(juniorId: string, targetId: string): Promise<boolean> {
-    // Match projects where targetId is either the senior or the drop user,
-    // and the JUNIOR is an active project_member on that project.
+  private async juniorCanAccess(juniorId: string, projectId: string): Promise<boolean> {
     const membership = await this.db.db
-      .select({ projectId: projectMembers.projectId })
+      .select({ id: projectMembers.id })
       .from(projectMembers)
-      .innerJoin(projects, eq(projectMembers.projectId, projects.id))
       .where(
         and(
           eq(projectMembers.userId, juniorId),
+          eq(projectMembers.projectId, projectId),
           isNull(projectMembers.leftAt),
-          isNull(projects.archivedAt),
         ),
       )
-      .limit(50)
+      .limit(1)
 
-    if (membership.length === 0) return false
-
-    const projectIds = membership.map((m) => m.projectId)
-
-    // Check if any of those projects are owned by targetId (as senior OR drop)
-    const projectRows = await this.db.db
-      .select({ id: projects.id, seniorId: projects.seniorId, dropId: projects.dropId })
-      .from(projects)
-      .where(inArray(projects.id, projectIds))
-
-    return projectRows.some((p) => p.seniorId === targetId || p.dropId === targetId)
+    return membership.length > 0
   }
 
   /**
-   * GET legend for a given userId.
-   * - 400 if target user is not SENIOR or DROP.
-   * - 403 if viewer lacks permission (including subject themselves).
-   * - 404 if no legend exists yet.
+   * Load project row — throws NotFoundException if not found.
    */
-  async getLegend(viewer: SessionUser, targetId: string) {
-    const targetRows = await this.db.db
-      .select({ id: users.id, role: users.role })
-      .from(users)
-      .where(eq(users.id, targetId))
+  private async loadProject(projectId: string): Promise<ProjectRow> {
+    const rows = await this.db.db
+      .select({ id: projects.id, seniorId: projects.seniorId, dropId: projects.dropId })
+      .from(projects)
+      .where(eq(projects.id, projectId))
       .limit(1)
 
-    const target = targetRows[0]
-    if (!target) throw new NotFoundException('Пользователь не найден')
-    if (target.role !== 'SENIOR' && target.role !== 'DROP') {
-      throw new BadRequestException('Легенда доступна только для ролей SENIOR и DROP')
-    }
+    const project = rows[0]
+    if (!project) throw new NotFoundException('Проект не найден')
+    return project
+  }
 
-    const allowed = await this.canViewLegend(viewer, targetId)
-    if (!allowed) throw new ForbiddenException('Нет доступа к легенде')
-
+  /**
+   * Load legend row for the project (no entries) — throws NotFoundException if not found.
+   */
+  private async loadLegendRow(projectId: string) {
     const rows = await this.db.db
       .select()
       .from(legends)
-      .where(eq(legends.userId, targetId))
+      .where(eq(legends.projectId, projectId))
       .limit(1)
 
-    const row = rows[0]
-    if (!row) throw new NotFoundException('Легенда не найдена')
+    return rows[0] ?? null
+  }
 
+  /**
+   * Load legend entries for a legend, ordered by createdAt ASC, with author name.
+   */
+  private async loadEntries(legendId: string): Promise<LegendEntry[]> {
+    const rows = await this.db.db
+      .select({
+        id: legendEntries.id,
+        legendId: legendEntries.legendId,
+        authorId: legendEntries.authorId,
+        authorName: users.displayName,
+        text: legendEntries.text,
+        createdAt: legendEntries.createdAt,
+      })
+      .from(legendEntries)
+      .leftJoin(users, eq(legendEntries.authorId, users.id))
+      .where(eq(legendEntries.legendId, legendId))
+      .orderBy(asc(legendEntries.createdAt))
+
+    return rows.map((r) => ({
+      id: r.id,
+      legendId: r.legendId,
+      authorId: r.authorId,
+      authorName: r.authorName ?? 'Неизвестный',
+      text: r.text,
+      createdAt: r.createdAt.toISOString(),
+    }))
+  }
+
+  /**
+   * Assemble a full Legend DTO from a DB row + entries.
+   */
+  private buildLegend(
+    row: NonNullable<Awaited<ReturnType<typeof this.loadLegendRow>>>,
+    entries: LegendEntry[],
+  ): Legend {
     return legendSchema.parse({
-      ...row,
+      id: row.id,
+      projectId: row.projectId,
+      fullName: row.fullName,
+      dateOfBirth: row.dateOfBirth ?? null,
+      address: row.address ?? null,
+      presentedRole: row.presentedRole ?? null,
+      presentedStack: row.presentedStack ?? null,
+      backstory: row.backstory ?? null,
+      hobbies: row.hobbies ?? null,
+      notes: row.notes ?? null,
+      entries,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     })
   }
 
   /**
-   * PUT (upsert) legend for a given userId.
-   *
-   * Edit permission = view permission (same canViewLegend check).
-   * Subject (SENIOR/DROP themselves) is explicitly excluded.
+   * GET legend for a given projectId.
+   * - 404 if project not found
+   * - 403 if viewer lacks permission
+   * - 404 if no legend exists yet
    */
-  async upsertLegend(viewer: SessionUser, targetId: string, dto: UpsertLegendDto) {
-    const targetRows = await this.db.db
-      .select({ id: users.id, role: users.role })
-      .from(users)
-      .where(eq(users.id, targetId))
-      .limit(1)
+  async getLegend(viewer: SessionUser, projectId: string): Promise<Legend> {
+    const project = await this.loadProject(projectId)
 
-    const target = targetRows[0]
-    if (!target) throw new NotFoundException('Пользователь не найден')
-    if (target.role !== 'SENIOR' && target.role !== 'DROP') {
-      throw new BadRequestException('Легенда доступна только для ролей SENIOR и DROP')
-    }
+    const allowed = await this.canAccess(viewer, project)
+    if (!allowed) throw new ForbiddenException('Нет доступа к легенде проекта')
 
-    // Edit access = view access (subject excluded by canViewLegend returning false for self)
-    const canEdit = await this.canViewLegend(viewer, targetId)
-    if (!canEdit) {
-      throw new ForbiddenException('Нет доступа к редактированию легенды')
-    }
+    const row = await this.loadLegendRow(projectId)
+    if (!row) throw new NotFoundException('Легенда проекта не найдена')
+
+    const entries = await this.loadEntries(row.id)
+    return this.buildLegend(row, entries)
+  }
+
+  /**
+   * PUT (upsert) legend for a given projectId.
+   *
+   * Edit permission = view permission (same canAccess check).
+   * Subject (seniorId/dropId) is excluded.
+   * Atomic upsert on the UNIQUE(project_id) constraint — race-safe.
+   */
+  async upsertLegend(
+    viewer: SessionUser,
+    projectId: string,
+    dto: UpsertLegendDto,
+  ): Promise<Legend> {
+    const project = await this.loadProject(projectId)
+
+    const canEdit = await this.canAccess(viewer, project)
+    if (!canEdit) throw new ForbiddenException('Нет доступа к редактированию легенды проекта')
 
     const now = new Date()
 
-    // Single atomic upsert on the UNIQUE(user_id) constraint — eliminates the
-    // race condition where two concurrent PUTs could both read "no row" and then
-    // both try INSERT, causing one to crash with a UNIQUE violation.
     const rows = await this.db.db
       .insert(legends)
       .values({
-        userId: targetId,
+        projectId,
         fullName: dto.fullName,
         dateOfBirth: dto.dateOfBirth ?? null,
         address: dto.address ?? null,
+        presentedRole: dto.presentedRole ?? null,
+        presentedStack: dto.presentedStack ?? null,
+        backstory: dto.backstory ?? null,
         hobbies: dto.hobbies ?? null,
         notes: dto.notes ?? null,
         createdAt: now,
         updatedAt: now,
       })
       .onConflictDoUpdate({
-        target: legends.userId,
+        target: legends.projectId,
         set: {
           fullName: dto.fullName,
           dateOfBirth: dto.dateOfBirth ?? null,
           address: dto.address ?? null,
+          presentedRole: dto.presentedRole ?? null,
+          presentedStack: dto.presentedStack ?? null,
+          backstory: dto.backstory ?? null,
           hobbies: dto.hobbies ?? null,
           notes: dto.notes ?? null,
           updatedAt: now,
+          // createdAt is intentionally absent here: it is set once on INSERT
+          // and must not be overwritten on subsequent updates (immutable audit
+          // timestamp — tells us when the legend was first created).
         },
       })
       .returning()
@@ -204,10 +257,38 @@ export class LegendsService {
     const row = rows[0]
     if (!row) throw new NotFoundException('Upsert failed — legend not returned')
 
-    return legendSchema.parse({
-      ...row,
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
+    const entries = await this.loadEntries(row.id)
+    return this.buildLegend(row, entries)
+  }
+
+  /**
+   * POST entry to legend journal for a given projectId.
+   * - 403 if viewer lacks access
+   * - 404 if project not found
+   * - 404 if legend does not exist yet (must upsert first)
+   */
+  async addEntry(viewer: SessionUser, projectId: string, dto: AddLegendEntryDto): Promise<Legend> {
+    const project = await this.loadProject(projectId)
+
+    const canEdit = await this.canAccess(viewer, project)
+    if (!canEdit) throw new ForbiddenException('Нет доступа к легенде проекта')
+
+    const legendRow = await this.loadLegendRow(projectId)
+    // Guard against a race with project cascade-delete: if the legend was
+    // removed between the canAccess check above and this point, we return
+    // 404 (NotFoundException) instead of letting the FK insert fail with a
+    // cryptic 500. Callers should upsert the legend first.
+    if (!legendRow)
+      throw new NotFoundException('Легенда проекта не найдена — сначала создайте легенду')
+
+    await this.db.db.insert(legendEntries).values({
+      legendId: legendRow.id,
+      authorId: viewer.id,
+      text: dto.text,
+      createdAt: new Date(),
     })
+
+    const entries = await this.loadEntries(legendRow.id)
+    return this.buildLegend(legendRow, entries)
   }
 }

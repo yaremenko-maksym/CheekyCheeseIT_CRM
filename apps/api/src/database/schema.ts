@@ -819,27 +819,50 @@ export const notifications = pgTable(
 )
 
 // ---------------------------------------------------------------------------
-// Legends — client-facing SENIOR persona profiles
+// Legends — client-facing persona profiles, one per project
 //
-// 1:1 with a SENIOR user. Intentionally separate from users.legalFullName
-// (passport name used in contracts). The legend is the persona the SENIOR
-// presents to client companies.
+// 1:1 with a PROJECT (not a user). The legend is the persona the senior
+// presents to the client company on that specific project.
+// Intentionally separate from users.legalFullName (passport name for contracts).
 // ---------------------------------------------------------------------------
 
 export const legends = pgTable('legends', {
   id: uuid('id').defaultRandom().primaryKey(),
-  userId: uuid('user_id')
+  projectId: uuid('project_id')
     .notNull()
     .unique()
-    .references(() => users.id, { onDelete: 'cascade' }),
+    .references(() => projects.id, { onDelete: 'cascade' }),
   /** Client-facing persona full name (Cyrillic). NOT the same as legalFullName. */
   fullName: text('full_name').notNull(),
   dateOfBirth: text('date_of_birth'),
   address: text('address'),
+  presentedRole: text('presented_role'),
+  presentedStack: text('presented_stack'),
+  backstory: text('backstory'),
   hobbies: text('hobbies'),
   notes: text('notes'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
+// ---------------------------------------------------------------------------
+// Legend Entries — journal entries that complement the legend persona
+// ---------------------------------------------------------------------------
+
+export const legendEntries = pgTable('legend_entries', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  legendId: uuid('legend_id')
+    .notNull()
+    .references(() => legends.id, { onDelete: 'cascade' }),
+  // ON DELETE NO ACTION (Drizzle default) is intentional: we preserve
+  // journal history even when a user is later deleted. If hard-delete of
+  // users is ever introduced, a manual cleanup of orphaned authorId rows
+  // will be required before the FK constraint allows the delete.
+  authorId: uuid('author_id')
+    .notNull()
+    .references(() => users.id),
+  text: text('text').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
 // ---------------------------------------------------------------------------
@@ -925,8 +948,7 @@ export const employeeContractsRelations = relations(employeeContracts, ({ one })
   }),
 }))
 
-export const usersRelations = relations(users, ({ one, many }) => ({
-  legend: one(legends, { fields: [users.id], references: [legends.userId] }),
+export const usersRelations = relations(users, ({ many }) => ({
   teamMemberships: many(teamMembers),
   projects: many(projects, { relationName: 'projectSenior' }),
   dropProjects: many(projects, { relationName: 'projectDrop' }),
@@ -1068,8 +1090,14 @@ export const notificationsRelations = relations(notifications, ({ one }) => ({
   user: one(users, { fields: [notifications.userId], references: [users.id] }),
 }))
 
-export const legendsRelations = relations(legends, ({ one }) => ({
-  user: one(users, { fields: [legends.userId], references: [users.id] }),
+export const legendsRelations = relations(legends, ({ one, many }) => ({
+  project: one(projects, { fields: [legends.projectId], references: [projects.id] }),
+  entries: many(legendEntries),
+}))
+
+export const legendEntriesRelations = relations(legendEntries, ({ one }) => ({
+  legend: one(legends, { fields: [legendEntries.legendId], references: [legends.id] }),
+  author: one(users, { fields: [legendEntries.authorId], references: [users.id] }),
 }))
 
 export const userAuditLogRelations = relations(userAuditLog, ({ one }) => ({
