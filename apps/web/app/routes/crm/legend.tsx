@@ -177,7 +177,7 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
       <CardHeader className="flex flex-row items-start justify-between pb-3">
         <div className="flex items-center gap-3">
           <Avatar className="h-10 w-10 shrink-0">
-            <AvatarFallback className="bg-yellow-subtle text-primary font-semibold text-sm">
+            <AvatarFallback className="bg-yellow-subtle text-avatar-text font-semibold text-sm">
               {initials}
             </AvatarFallback>
           </Avatar>
@@ -398,7 +398,7 @@ function LegendCoverBlock({ projectId, legend }: LegendBlockProps) {
   return (
     <Card className="border-border/40 bg-card" data-testid="legend-cover-block">
       <CardHeader className="flex flex-row items-center justify-between pb-3">
-        <CardTitle className="text-sm font-semibold">Cover Story</CardTitle>
+        <CardTitle className="text-sm font-semibold">Кавер-стори</CardTitle>
         {!editing && (
           <Button
             variant="ghost"
@@ -430,7 +430,7 @@ function LegendCoverBlock({ projectId, legend }: LegendBlockProps) {
       <CardContent>
         {!editing ? (
           !legend || (!legend.presentedRole && !legend.presentedStack && !legend.backstory) ? (
-            <p className="text-sm text-muted-foreground/60 italic">Cover story не заполнена.</p>
+            <p className="text-sm text-muted-foreground/60 italic">Кавер-стори не заполнена.</p>
           ) : (
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
               {legend.presentedRole && (

@@ -1,5 +1,5 @@
-@import "tailwindcss";
-@import "tw-animate-css";
+@import 'tailwindcss';
+@import 'tw-animate-css';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -27,6 +27,7 @@
   --color-surface-foreground: var(--surface-foreground);
   --color-yellow-subtle: var(--yellow-subtle);
   --color-yellow-muted: var(--yellow-muted);
+  --color-avatar-text: var(--avatar-text);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -51,69 +52,73 @@
 
 /* Light mode */
 :root {
-  --background:          oklch(0.98 0 0);
-  --foreground:          oklch(0.12 0 0);
-  --card:                oklch(1    0 0);
-  --card-foreground:     oklch(0.12 0 0);
-  --popover:             oklch(1    0 0);
-  --popover-foreground:  oklch(0.12 0 0);
-  --surface:             oklch(0.95 0.008 85);
-  --surface-foreground:  oklch(0.12 0 0);
-  --primary:             oklch(0.80 0.183 85.3);
-  --primary-foreground:  oklch(0.09 0 0);
-  --secondary:           oklch(0.94 0 0);
-  --secondary-foreground:oklch(0.20 0 0);
-  --muted:               oklch(0.94 0 0);
-  --muted-foreground:    oklch(0.50 0 0);
-  --accent:              oklch(0.93 0.018 85);
-  --accent-foreground:   oklch(0.20 0.04  85);
-  --yellow-muted:        oklch(0.75 0.14  85.3);
-  --yellow-subtle:       oklch(0.93 0.018 85);
-  --destructive:         oklch(0.58 0.245 27.3);
-  --border:              oklch(0.90 0 0);
-  --input:               oklch(0.92 0 0);
-  --ring:                oklch(0.80 0.183 85.3);
+  --background: oklch(0.98 0 0);
+  --foreground: oklch(0.12 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.12 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.12 0 0);
+  --surface: oklch(0.95 0.008 85);
+  --surface-foreground: oklch(0.12 0 0);
+  --primary: oklch(0.8 0.183 85.3);
+  --primary-foreground: oklch(0.09 0 0);
+  --secondary: oklch(0.94 0 0);
+  --secondary-foreground: oklch(0.2 0 0);
+  --muted: oklch(0.94 0 0);
+  --muted-foreground: oklch(0.5 0 0);
+  --accent: oklch(0.93 0.018 85);
+  --accent-foreground: oklch(0.2 0.04 85);
+  --yellow-muted: oklch(0.75 0.14 85.3);
+  --yellow-subtle: oklch(0.93 0.018 85);
+  --avatar-text: oklch(
+    0.3 0.02 85
+  ); /* initials on yellow-subtle: primary is 1.5:1 here, this is 11:1 */
+  --destructive: oklch(0.58 0.245 27.3);
+  --border: oklch(0.9 0 0);
+  --input: oklch(0.92 0 0);
+  --ring: oklch(0.8 0.183 85.3);
   --radius: 0.625rem;
 }
 
 /* Dark mode — CheekyCheeseIT brand identity (default via .dark on <html>) */
 .dark {
   /* ── Backgrounds (3 blacks) ── */
-  --background:          oklch(0.08 0 0);       /* deepest canvas */
-  --card:                oklch(0.12 0 0);       /* raised card */
-  --surface:             oklch(0.16 0.006 85);  /* sidebar active, popovers — faint amber warmth */
-  --surface-foreground:  oklch(0.97 0 0);
+  --background: oklch(0.08 0 0); /* deepest canvas */
+  --card: oklch(0.12 0 0); /* raised card */
+  --surface: oklch(0.16 0.006 85); /* sidebar active, popovers — faint amber warmth */
+  --surface-foreground: oklch(0.97 0 0);
 
   /* ── Foregrounds (3 whites) ── */
-  --foreground:          oklch(0.97 0 0);       /* primary text */
-  --card-foreground:     oklch(0.97 0 0);
-  --popover:             oklch(0.13 0 0);
-  --popover-foreground:  oklch(0.97 0 0);
-  --muted-foreground:    oklch(0.58 0 0);       /* captions, hints */
+  --foreground: oklch(0.97 0 0); /* primary text */
+  --card-foreground: oklch(0.97 0 0);
+  --popover: oklch(0.13 0 0);
+  --popover-foreground: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.58 0 0); /* captions, hints */
 
   /* ── Yellows (3 shades) ── */
-  --primary:             oklch(0.84 0.183 85.3); /* brand yellow — buttons, badges */
-  --primary-foreground:  oklch(0.08 0 0);        /* near-black on yellow */
-  --yellow-muted:        oklch(0.72 0.13  85.3); /* dimmed yellow — hover rings */
-  --yellow-subtle:       oklch(0.22 0.04  85.3); /* dark amber tint — subtle highlights */
+  --primary: oklch(0.84 0.183 85.3); /* brand yellow — buttons, badges */
+  --primary-foreground: oklch(0.08 0 0); /* near-black on yellow */
+  --yellow-muted: oklch(0.72 0.13 85.3); /* dimmed yellow — hover rings */
+  --yellow-subtle: oklch(0.22 0.04 85.3); /* dark amber tint — subtle highlights */
+  --avatar-text: oklch(0.84 0.183 85.3); /* = primary; 10.5:1 on dark yellow-subtle */
 
   /* ── Interactive states ── */
-  --secondary:           oklch(0.20 0 0);
-  --secondary-foreground:oklch(0.97 0 0);
-  --muted:               oklch(0.16 0 0);
+  --secondary: oklch(0.2 0 0);
+  --secondary-foreground: oklch(0.97 0 0);
+  --muted: oklch(0.16 0 0);
 
   /*
     accent = sidebar active state & ghost hover
     Dark warm surface so text stays crisp white — NOT yellow bg
   */
-  --accent:              oklch(0.19 0.012 85);  /* warm dark, clearly distinct from bg */
-  --accent-foreground:   oklch(0.97 0 0);       /* white text — always readable */
+  --accent: oklch(0.19 0.012 85); /* warm dark, clearly distinct from bg */
+  --accent-foreground: oklch(0.97 0 0); /* white text — always readable */
 
   /* ── System ── */
-  --destructive:         oklch(0.65 0.21  22.2);
-  --border:              oklch(0.22 0.004 85);   /* subtle warm border */
-  --input:               oklch(0.16 0 0);
-  --ring:                oklch(0.84 0.183 85.3);
+  --destructive: oklch(0.65 0.21 22.2);
+  --border: oklch(0.22 0.004 85); /* subtle warm border */
+  --input: oklch(0.16 0 0);
+  --ring: oklch(0.84 0.183 85.3);
 }
 
 * {
@@ -130,8 +135,8 @@ body {
 }
 
 /* Cursor: pointer for all interactive elements (Tailwind v4 preflight resets button to default) */
-button:not(:disabled):not([aria-disabled="true"]),
-[role="button"]:not([aria-disabled="true"]),
+button:not(:disabled):not([aria-disabled='true']),
+[role='button']:not([aria-disabled='true']),
 a[href],
 label[for],
 summary,
@@ -139,11 +144,11 @@ select:not(:disabled) {
   cursor: pointer;
 }
 
-input[type=number]::-webkit-inner-spin-button,
-input[type=number]::-webkit-outer-spin-button {
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
-input[type=number] {
+input[type='number'] {
   -moz-appearance: textfield;
 }

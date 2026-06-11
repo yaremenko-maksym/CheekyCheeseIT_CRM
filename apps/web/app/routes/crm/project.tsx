@@ -383,7 +383,7 @@ function PersonaCard({ legend, isLoading }: PersonaCardProps) {
       <CardContent className="flex flex-col gap-4">
         <div className="flex items-center gap-3">
           <Avatar className="h-12 w-12 shrink-0">
-            <AvatarFallback className="bg-yellow-subtle text-primary font-bold text-sm">
+            <AvatarFallback className="bg-yellow-subtle text-avatar-text font-bold text-sm">
               {initials}
             </AvatarFallback>
           </Avatar>
