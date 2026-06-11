@@ -109,6 +109,8 @@ Skill `superpowers:writing-plans`. Для каждой задачи:
 
 Skill `pm-dispatching` подгружает готовые `Agent()` сниппеты из `pm-snippets.md`. Параллельные независимые задачи — в одном сообщении, оба `Agent(... run_in_background=True)`.
 
+**Model routing (обязательно):** тир модели для каждого диспетча — по `rules/common/model-routing.md`. Статика уже в frontmatter агентов (opus: pm/security-reviewer/architect/legal; sonnet: остальные); `model=` в `Agent()` передаётся ТОЛЬКО при динамическом override (эскалация → opus по триггерам; даунгрейд → haiku для механики/разведки с автогейтом). Поле `## Модель:` из task-файла — источник для override. `model` записывается в `agent_started` event (additive).
+
 ### Шаг 5: Записать pm-state.json
 
 Формат — `pm-snippets.md` секция «pm-state.json schema v2».
@@ -249,6 +251,8 @@ gh pr edit <N> --remove-label "awaiting-pm-review" --add-label "do-not-merge"
 ```
 
 `review_rounds++` в `pm-state.json`. Если `>=3` — STOP. Иначе fix-task для Coder с `target_branch = ветка PR`.
+
+**Model-эскалация:** на втором BLOCK подряд по одной задаче (`review_rounds == 2`) fix-task диспатчится с `model="opus"` (`rules/common/model-routing.md`) — двойной провал sonnet-Coder'а означает, что задача сложнее тира; третий круг той же моделью жжёт токены без прогресса.
 
 **Aggregated fix-task content:** если оба reviewer'а вернули BLOCK — fix-task объединяет findings обоих (HIGH-confidence только) в один `task-fix-pr-<N>.md`. Если только один BLOCK — task ссылается только на findings этого reviewer'а.
 
