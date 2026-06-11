@@ -232,13 +232,13 @@ test.describe('Finance — page load', () => {
 
   // PR #167: JUNIOR добавлен в useRoleGuard(['...', 'JUNIOR']) +
   // backend TransactionsService возвращает только его собственные SALARY строки.
-  test('JUNIOR: видит заголовок "Финансы" и блок "Ваши выплаты", нет кнопки создания', async ({
+  test('JUNIOR: видит заголовок "Финансы" и блок "Ваши зарплатные выплаты", нет кнопки создания', async ({
     asJunior,
   }) => {
     await mockTransactions(asJunior, [])
     await asJunior.goto('/crm/finance')
     await expect(asJunior.getByRole('heading', { name: 'Финансы' })).toBeVisible()
-    await expect(asJunior.getByText('Ваши выплаты')).toBeVisible()
+    await expect(asJunior.getByText('Ваши зарплатные выплаты')).toBeVisible()
     await expect(asJunior.getByRole('button', { name: /Новая транзакция/i })).not.toBeVisible()
   })
 
@@ -722,7 +722,7 @@ test.describe('Finance — RBAC', () => {
     await mockTransactions(page, [TX_SALARY_JUNIOR])
     await page.goto('/crm/finance')
     // Ждём рендер таблицы выплат
-    await expect(page.getByText('Ваши выплаты')).toBeVisible()
+    await expect(page.getByText('Ваши зарплатные выплаты')).toBeVisible()
     // Чужая сумма (HR row) — не видна в JUNIOR-view (бэкенд не вернул её)
     await expect(page.getByText(USERS.hr.displayName)).not.toBeVisible()
     // Нет общей таблицы транзакций — нет других сумм/распределений
