@@ -987,6 +987,12 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   members: many(projectMembers),
   transactions: many(transactions),
   financeSettings: one(projectFinanceSettings),
+  // Legend persona for this project — used to enrich JUNIOR-facing DTO
+  // (task-junior-ux-1-backend: JUNIOR sees persona name+role, not real identity).
+  legend: one(legends, {
+    fields: [projects.id],
+    references: [legends.projectId],
+  }),
 }))
 
 export const projectFinanceSettingsRelations = relations(projectFinanceSettings, ({ one }) => ({
@@ -1234,3 +1240,5 @@ export type TosAcceptance = typeof tosAcceptances.$inferSelect
 export type NewTosAcceptance = typeof tosAcceptances.$inferInsert
 export type EmployeeContract = typeof employeeContracts.$inferSelect
 export type NewEmployeeContract = typeof employeeContracts.$inferInsert
+export type Legend = typeof legends.$inferSelect
+export type NewLegend = typeof legends.$inferInsert

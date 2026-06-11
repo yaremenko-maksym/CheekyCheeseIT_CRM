@@ -192,6 +192,33 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.tabs).toEqual([])
   })
 
+  // task-junior-ux-1-backend §2 (SENIOR→SENIOR side-fix): SENIOR must NOT view
+  // profiles of other SENIORs or DROPs. Zero tabs regardless of project membership.
+  // This closes the gap where isSeniorViewingOwnProjectMember was called for
+  // non-JUNIOR targets — potentially exposing SENIOR/DROP identity to peers.
+  it('SENIOR viewing another SENIOR — zero tabs (identity isolation, task-junior-ux-1-backend §2)', async () => {
+    // Even if isSeniorViewingOwnProjectMember returns true (same-project senior),
+    // the target is non-JUNIOR so the code must not enter the project-member path.
+    const spy = vi.fn().mockResolvedValue(true)
+    ;(service as unknown as Record<string, unknown>).isSeniorViewingOwnProjectMember = spy
+    const viewer = makeUser({ id: 'sr1', role: 'SENIOR' })
+    const target = makeUser({ id: 'sr2', role: 'SENIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.tabs).toEqual([])
+    // DB helper must NOT be called — the non-JUNIOR gate short-circuits before it
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it('SENIOR viewing a DROP user — zero tabs (identity isolation, task-junior-ux-1-backend §2)', async () => {
+    const spy = vi.fn().mockResolvedValue(true)
+    ;(service as unknown as Record<string, unknown>).isSeniorViewingOwnProjectMember = spy
+    const viewer = makeUser({ id: 'sr1', role: 'SENIOR' })
+    const target = makeUser({ id: 'drop1', role: 'DROP' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.tabs).toEqual([])
+    expect(spy).not.toHaveBeenCalled()
+  })
+
   // Regression: ADMIN/HR visibility of JUNIOR must NOT be broken by RBAC #1.
   it('ADMIN viewing JUNIOR — keeps full tabs (regression)', async () => {
     const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })

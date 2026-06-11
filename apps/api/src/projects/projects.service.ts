@@ -25,6 +25,7 @@ import {
   teams,
   users,
   type Interview,
+  type Legend,
   type Project,
   type ProjectMember,
   type User,
@@ -39,6 +40,10 @@ type ProjectWithRelations = Project & {
   // mapping a project. Null for regular senior-projects (no dropId).
   drop?: User | null
   members: Array<ProjectMember & { user: User | null }>
+  // task-junior-ux-1-backend: legend persona for this project.
+  // Loaded via `with: { legend: true }` in all findMany/findFirst queries.
+  // `null` when no legend has been created for this project yet.
+  legend?: Legend | null
 }
 
 @Injectable()
@@ -138,6 +143,15 @@ export class ProjectsService {
     // here) but must not see the rest of the team roster via this endpoint.
     const isJuniorViewer = viewerRole === 'JUNIOR'
 
+    // task-junior-ux-1-backend: legend persona enrichment for JUNIOR.
+    // JUNIOR sees the persona name/role instead of real identity (which stays null).
+    // Non-JUNIOR viewers get null for these fields (they use seniorName/seniorId).
+    // Real identity fields (seniorId, dropId, contacts) remain null for JUNIOR —
+    // allowlist is ENRICHED (persona name/role added), NOT opened (real ID stays null).
+    const legend = project.legend ?? null
+    const seniorPresentedRole: string | null =
+      isJuniorViewer && legend ? (legend.presentedRole ?? null) : null
+
     return {
       id: project.id,
       name: project.name,
@@ -148,7 +162,10 @@ export class ProjectsService {
       startDate: project.startDate.toISOString(),
       // Identity masking (RBAC A01): JUNIOR must not know who the senior is.
       seniorId: isJuniorViewer ? null : project.seniorId,
-      seniorName: isJuniorViewer ? null : (project.senior?.displayName ?? ''),
+      // JUNIOR: persona fullName from legend (or null if no legend). Non-JUNIOR: real displayName.
+      seniorName: isJuniorViewer ? (legend?.fullName ?? null) : (project.senior?.displayName ?? ''),
+      // Legend persona role — JUNIOR only. Non-JUNIOR viewers get null (unused by their UI).
+      seniorPresentedRole,
       // Drop identity masking: JUNIOR must not know the drop exists or who it is.
       // Drop role - phase 1: surfaced on the wire so FE can render drop-aware
       // hints/badges. NULL = legacy senior-project OR JUNIOR viewer.
@@ -290,7 +307,7 @@ export class ProjectsService {
           : isNull(projects.archivedAt)
     const allProjects = await this.db.db.query.projects.findMany({
       ...(archivedWhere ? { where: archivedWhere } : {}),
-      with: { senior: true, drop: true, members: { with: { user: true } } },
+      with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
     })
 
     let filtered = allProjects as ProjectWithRelations[]
@@ -352,7 +369,7 @@ export class ProjectsService {
   async findOne(id: string, currentUser: SessionUser) {
     const project = (await this.db.db.query.projects.findFirst({
       where: eq(projects.id, id),
-      with: { senior: true, drop: true, members: { with: { user: true } } },
+      with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
     })) as ProjectWithRelations | undefined
 
     if (!project) throw new NotFoundException('Project not found')
@@ -568,7 +585,7 @@ export class ProjectsService {
       where: eq(projects.id, project!.id),
       // Drop role - phase 2: load `drop` relation so mapProject can emit
       // dropName/dropSharePercent for the «Drop-проект» badge + breakdown.
-      with: { senior: true, drop: true, members: { with: { user: true } } },
+      with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
     })) as ProjectWithRelations
 
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([created])
@@ -635,7 +652,7 @@ export class ProjectsService {
 
     const project = (await this.db.db.query.projects.findFirst({
       where: eq(projects.id, id),
-      with: { senior: true, drop: true, members: { with: { user: true } } },
+      with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
     })) as ProjectWithRelations | undefined
 
     if (!project) throw new NotFoundException('Project not found')
@@ -750,7 +767,7 @@ export class ProjectsService {
 
     const updated = (await this.db.db.query.projects.findFirst({
       where: eq(projects.id, id),
-      with: { senior: true, drop: true, members: { with: { user: true } } },
+      with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
     })) as ProjectWithRelations
 
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([updated])
