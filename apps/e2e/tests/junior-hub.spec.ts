@@ -27,9 +27,14 @@ const API = 'http://localhost:3001/api'
 // PROJECTS[0] is guaranteed — fixture array always has at least 2 elements.
 // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
 const P0 = PROJECTS[0]!
+// JUNIOR_PROJECT must use a valid UUID for id so legendSchema.projectId (z.string().uuid()) parses.
+const JUNIOR_PROJECT_ID = 'a0000000-0000-4000-8000-000000000099'
+const LEGEND_ID = 'b0000000-0000-4000-8000-000000000001'
+const LEGEND_ENTRY_ID = 'b0000000-0000-4000-8000-000000000002'
+
 const JUNIOR_PROJECT = {
   ...P0,
-  id: 'project-junior-view',
+  id: JUNIOR_PROJECT_ID,
   companyName: P0.companyName,
   domain: P0.domain,
   seniorId: null as string | null,
@@ -39,10 +44,13 @@ const JUNIOR_PROJECT = {
   currency: null as string | null,
 }
 
-/** Legend response for the JUNIOR_PROJECT — returned by GET /projects/:id/legend */
+/** Legend response for the JUNIOR_PROJECT — returned by GET /projects/:id/legend.
+ *  Shape must match legendSchema (packages/shared/src/schemas/legends.ts):
+ *  entries items require { id, legendId, authorId, authorName, text, createdAt } — all UUIDs.
+ */
 const LEGEND_FIXTURE = {
-  id: 'legend-hub-id',
-  projectId: JUNIOR_PROJECT.id,
+  id: LEGEND_ID,
+  projectId: JUNIOR_PROJECT_ID,
   fullName: 'Олександр Петренко',
   dateOfBirth: '1990-05-15',
   address: 'Київ, вул. Хрещатик 1',
@@ -53,11 +61,12 @@ const LEGEND_FIXTURE = {
   notes: null,
   entries: [
     {
-      id: 'entry-1',
-      legendId: 'legend-hub-id',
-      content: 'Перший запис журналу',
+      id: LEGEND_ENTRY_ID,
+      legendId: LEGEND_ID,
+      authorId: USERS.junior.id,
+      authorName: USERS.junior.displayName,
+      text: 'Перший запис журналу',
       createdAt: '2024-01-15T10:00:00.000Z',
-      createdBy: USERS.junior.id,
     },
   ],
   createdAt: '2024-01-15T00:00:00.000Z',
@@ -90,11 +99,12 @@ async function mockJuniorProjectsAndLegend(page: import('@playwright/test').Page
   await page.route(new RegExp(`${API}/projects/${JUNIOR_PROJECT.id}/legend/entries$`), (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     const newEntry = {
-      id: 'entry-new',
-      legendId: 'legend-hub-id',
-      content: 'Новий запис',
+      id: 'b0000000-0000-4000-8000-000000000003',
+      legendId: LEGEND_ID,
+      authorId: USERS.junior.id,
+      authorName: USERS.junior.displayName,
+      text: 'Новий запис',
       createdAt: new Date().toISOString(),
-      createdBy: USERS.junior.id,
     }
     return r.fulfill({
       status: 201,
@@ -197,10 +207,10 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
     const card = page.getByTestId('project-info-card')
     // Company name visible
     await expect(card.getByText(JUNIOR_PROJECT.companyName)).toBeVisible()
-    // Domain visible
-    await expect(card.getByText(JUNIOR_PROJECT.domain!)).toBeVisible()
-    // Status badge visible
-    await expect(card.getByText('Активний')).toBeVisible()
+    // Domain visible — exact:true avoids strict-mode conflict with companyName substring
+    await expect(card.getByText(JUNIOR_PROJECT.domain!, { exact: true })).toBeVisible()
+    // Status badge visible — text is 'Активный' (Russian) per project.tsx
+    await expect(card.getByText('Активный', { exact: true })).toBeVisible()
 
     // Rate and currency MUST NOT be in the DOM (AC1: not CSS hiding)
     // The real project fixture has rate=5000, currency='USDT' — JUNIOR sees null
@@ -241,9 +251,7 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
     await expect(page).toHaveURL('/crm/legend')
   })
 
-  test('HR contact card shows name, telegram, phone from allowlist', async ({
-    asJunior: page,
-  }) => {
+  test('HR contact card shows name, telegram, phone from allowlist', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
     await page.goto('/crm/project')
@@ -267,9 +275,7 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
     await expect(card.getByTestId('salary-all-link')).toBeVisible()
   })
 
-  test('quick links bar contains legend, documents, finance links', async ({
-    asJunior: page,
-  }) => {
+  test('quick links bar contains legend, documents, finance links', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
     await page.goto('/crm/project')
@@ -349,7 +355,7 @@ test.describe('AC2 — JUNIOR /crm/legend', () => {
     await expect(block.getByTestId('legend-entry-item').first()).toBeVisible()
     const firstEntry = LEGEND_FIXTURE.entries[0]
     if (firstEntry) {
-      await expect(block.getByText(firstEntry.content)).toBeVisible()
+      await expect(block.getByText(firstEntry.text)).toBeVisible()
     }
 
     // Add-entry button

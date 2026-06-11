@@ -21,13 +21,13 @@ import { test, expect } from './fixtures'
 const PROFILE_HEADING_REGEX = /(Admin User|Senior Dev|Junior Dev|HR Manager|Accountant User)/
 
 const COMMON_ROUTES: { label: string; href: string; heading: RegExp }[] = [
-  { label: 'Дашборд',      href: '/crm/dashboard',   heading: /дашборд/i },
-  { label: 'Профиль',      href: '/crm/profile',      heading: PROFILE_HEADING_REGEX },
-  { label: 'Команда',      href: '/crm/team',         heading: /команд/i },
-  { label: 'Проекты',      href: '/crm/projects',     heading: /проект/i },
+  { label: 'Дашборд', href: '/crm/dashboard', heading: /дашборд/i },
+  { label: 'Профиль', href: '/crm/profile', heading: PROFILE_HEADING_REGEX },
+  { label: 'Команда', href: '/crm/team', heading: /команд/i },
+  { label: 'Проекты', href: '/crm/projects', heading: /проект/i },
   // Finance heading renders after API load — match the sidebar text instead
-  { label: 'Финансы',      href: '/crm/finance',      heading: /финанс/i },
-  { label: 'Документы',    href: '/crm/documents',    heading: /документ/i },
+  { label: 'Финансы', href: '/crm/finance', heading: /финанс/i },
+  { label: 'Документы', href: '/crm/documents', heading: /документ/i },
 ]
 
 // ---------------------------------------------------------------------------
@@ -35,7 +35,9 @@ const COMMON_ROUTES: { label: string; href: string; heading: RegExp }[] = [
 // ---------------------------------------------------------------------------
 async function assertStayedInCrm(page: import('@playwright/test').Page, route: string) {
   const url = page.url()
-  expect(url, `Navigating to ${route} should not redirect to landing`).not.toMatch(/^http:\/\/localhost:3000\/?$/)
+  expect(url, `Navigating to ${route} should not redirect to landing`).not.toMatch(
+    /^http:\/\/localhost:3000\/?$/,
+  )
   expect(url, `Navigating to ${route} should not redirect to login`).not.toMatch(/\/crm\/login/)
   expect(url, `URL should contain the target path`).toContain(route.replace('/crm/', ''))
 }
@@ -56,7 +58,9 @@ test.describe('ADMIN sidebar navigation', () => {
       await page.waitForLoadState('networkidle')
 
       await assertStayedInCrm(page, route.href)
-      await expect(page.locator('h1').filter({ hasText: route.heading }).first()).toBeVisible({ timeout: 10_000 })
+      await expect(page.locator('h1').filter({ hasText: route.heading }).first()).toBeVisible({
+        timeout: 10_000,
+      })
     })
   }
 
@@ -96,7 +100,9 @@ test.describe('ADMIN sidebar navigation', () => {
       await page.waitForLoadState('domcontentloaded')
 
       const url = page.url()
-      expect(url, `${href}: should not redirect to landing`).not.toMatch(/^http:\/\/localhost:3000\/?$/)
+      expect(url, `${href}: should not redirect to landing`).not.toMatch(
+        /^http:\/\/localhost:3000\/?$/,
+      )
       expect(url, `${href}: should not redirect to login`).not.toMatch(/\/crm\/login/)
     }
   })
@@ -128,7 +134,9 @@ test.describe('SENIOR sidebar navigation', () => {
         await page.waitForURL(`**${route.href}**`, { timeout: 8_000 })
         await page.waitForLoadState('networkidle')
         await assertStayedInCrm(page, route.href)
-        await expect(page.locator('h1').filter({ hasText: route.heading }).first()).toBeVisible({ timeout: 10_000 })
+        await expect(page.locator('h1').filter({ hasText: route.heading }).first()).toBeVisible({
+          timeout: 10_000,
+        })
       }
     })
   }
@@ -153,47 +161,54 @@ test.describe('HR sidebar navigation', () => {
       await page.waitForLoadState('networkidle')
 
       await assertStayedInCrm(page, route.href)
-      await expect(page.locator('h1').filter({ hasText: route.heading }).first()).toBeVisible({ timeout: 10_000 })
+      await expect(page.locator('h1').filter({ hasText: route.heading }).first()).toBeVisible({
+        timeout: 10_000,
+      })
     })
   }
 })
 
 // ---------------------------------------------------------------------------
-// JUNIOR sidebar navigation (no Interviews link)
+// JUNIOR sidebar navigation (phase 2 UX: exactly 5 items)
+// Дашборд / Команда / Проекты / Собеседования are HIDDEN for JUNIOR.
+// Visible: Мой проект · Легенда · Финансы · Документы · Профиль.
 // ---------------------------------------------------------------------------
 
+// Routes that JUNIOR actually sees in the sidebar (junior-nav testid).
+const JUNIOR_ROUTES: { label: string; href: string; heading: RegExp }[] = [
+  { label: 'Мой проект', href: '/crm/project', heading: /проект/i },
+  { label: 'Профиль', href: '/crm/profile', heading: PROFILE_HEADING_REGEX },
+  { label: 'Финансы', href: '/crm/finance', heading: /финанс/i },
+  { label: 'Документы', href: '/crm/documents', heading: /документ/i },
+]
+
 test.describe('JUNIOR sidebar navigation', () => {
-  for (const route of COMMON_ROUTES) {
+  for (const route of JUNIOR_ROUTES) {
     test(`sidebar → ${route.label} stays in CRM`, async ({ asJunior: page }) => {
-      await page.goto('/crm/dashboard')
+      await page.goto('/crm/project')
       await page.waitForLoadState('networkidle')
 
       await page.click(`a[href="${route.href}"]`)
-      
-      // Handle team redirect for JUNIOR users
-      if (route.href === '/crm/team') {
-        // JUNIOR gets redirected to /crm/team/:id, so wait for that
-        await page.waitForURL('**/crm/team/**', { timeout: 8_000 })
-        await page.waitForLoadState('networkidle')
-        await assertStayedInCrm(page, route.href)
-        // Heading will be the team name, just ensure we're still in team area and not logged out
-        await expect(page.getByRole('heading').first()).toBeVisible({ timeout: 10_000 })
-      } else if (route.href === '/crm/finance') {
-        // JUNIOR has no finance access — just verify no logout occurred
-        await page.waitForLoadState('networkidle')
-        await assertStayedInCrm(page, '/crm')
-      } else {
-        await page.waitForURL(`**${route.href}**`, { timeout: 8_000 })
-        await page.waitForLoadState('networkidle')
-        await assertStayedInCrm(page, route.href)
-        await expect(page.locator('h1').filter({ hasText: route.heading }).first()).toBeVisible({ timeout: 10_000 })
-      }
+      await page.waitForURL(`**${route.href}**`, { timeout: 8_000 })
+      await page.waitForLoadState('networkidle')
+
+      await assertStayedInCrm(page, route.href)
+      await expect(page.locator('h1').filter({ hasText: route.heading }).first()).toBeVisible({
+        timeout: 10_000,
+      })
     })
   }
 
-  test('JUNIOR does not see Собеседования in sidebar', async ({ asJunior: page }) => {
-    await page.goto('/crm/dashboard')
-    await expect(page.locator('a[href="/crm/interviews"]')).not.toBeVisible()
+  test('JUNIOR does not see Команда, Проекты, Дашборд, Собеседования in sidebar', async ({
+    asJunior: page,
+  }) => {
+    await page.goto('/crm/project')
+    const nav = page.getByTestId('junior-nav')
+    await expect(nav).toBeVisible()
+    await expect(nav.getByText('Команда')).not.toBeVisible()
+    await expect(nav.getByText('Проекты')).not.toBeVisible()
+    await expect(nav.getByText('Дашборд')).not.toBeVisible()
+    await expect(nav.getByText('Собеседования')).not.toBeVisible()
   })
 })
 
