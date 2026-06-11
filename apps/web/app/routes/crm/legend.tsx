@@ -583,7 +583,7 @@ function LegendJournalBlock({ projectId, legend }: LegendBlockProps) {
             Записей пока нет.{' '}
             <button
               onClick={() => setShowForm(true)}
-              className="underline underline-offset-2 hover:text-foreground transition-colors"
+              className="underline underline-offset-2 hover:text-foreground transition-colors inline-flex items-center min-h-[24px]"
             >
               Добавить первую запись
             </button>
