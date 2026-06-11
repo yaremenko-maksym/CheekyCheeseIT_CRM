@@ -120,19 +120,18 @@ export class UsersAccessService {
       }
     } else if (isSenior) {
       // SENIOR cannot view JUNIOR profiles (identity hidden per RBAC rule #1).
-      // SENIOR can view profiles of other non-JUNIOR members (e.g. their own
-      // HR or accountant) if there is a shared team relation — but that path
-      // was never implemented and is left for a future task. For now: SENIOR
-      // viewing a JUNIOR always gets zero tabs (profile unreachable).
+      // SENIOR can view profiles of other non-JUNIOR members of their own projects —
+      // but only when the target is also a project_member (HR/ACCOUNTANT in that project).
+      // task-junior-ux-1-backend §6: SENIOR must NOT see other SENIOR/DROP profiles —
+      // only JUNIOR members of their own projects are accessible (and those are blocked
+      // above). In practice this means SENIOR→non-JUNIOR always gets zero tabs.
+      // The isSeniorViewingOwnProjectMember helper is now restricted to JUNIOR-role
+      // targets only, so SENIOR→SENIOR and SENIOR→DROP are blocked at the role check.
       if (target.role !== 'JUNIOR') {
-        if (await this.isSeniorViewingOwnProjectMember(viewer.id, target.id)) {
-          tabs.push('overview', 'projects', 'team')
-          fields.techStack = targetHasTechStack
-          fields.registrationDate = true
-          fields.adminNote = false
-          fields.fopPii = false
-          fields.realContacts = true
-        }
+        // SENIOR cannot view another SENIOR, DROP, HR, ADMIN, or ACCOUNTANT profile
+        // via the project-member path. Zero tabs — 403 at route level.
+        // (Future: a separate "team-mate" path for HR/ACCOUNTANT could be added,
+        //  but is explicitly out of scope per task-junior-ux-1-backend §2 side-fix.)
       }
       // target.role === 'JUNIOR': intentionally fall through with no tabs (403 at route level).
     } else if (isJunior && targetIsLegendSubject) {
