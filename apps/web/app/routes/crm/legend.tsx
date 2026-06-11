@@ -101,12 +101,16 @@ function LegendPage() {
 
       {!isLoading && projectId && (
         <motion.div className="space-y-4" variants={container} initial="hidden" animate="show">
-          <motion.div variants={card}>
-            <LegendPersonaBlock projectId={projectId} legend={legend ?? null} />
-          </motion.div>
-          <motion.div variants={card}>
-            <LegendCoverBlock projectId={projectId} legend={legend ?? null} />
-          </motion.div>
+          {/* Desktop ≥1024px: persona | cover story in 2-column grid (spec §4.2) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <motion.div variants={card}>
+              <LegendPersonaBlock projectId={projectId} legend={legend ?? null} />
+            </motion.div>
+            <motion.div variants={card}>
+              <LegendCoverBlock projectId={projectId} legend={legend ?? null} />
+            </motion.div>
+          </div>
+          {/* Journal — full width below the 2-col grid */}
           <motion.div variants={card}>
             <LegendJournalBlock projectId={projectId} legend={legend ?? null} />
           </motion.div>
