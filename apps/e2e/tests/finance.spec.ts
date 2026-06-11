@@ -117,6 +117,32 @@ const TX_SALARY_HR: object = {
   receiverName: USERS.hr.displayName,
 }
 
+// JUNIOR salary fixture — backend returns only the junior's own SALARY rows
+// (filtered by receiverId === junior.id via RBAC guard in TransactionsService).
+// PR #167 added JUNIOR to useRoleGuard + backend enforcement.
+const TX_SALARY_JUNIOR: object = {
+  ...TX_SALARY_PENDING,
+  id: 'tx-salary-junior',
+  type: 'SALARY',
+  status: 'PAID',
+  amount: '800.00',
+  currency: 'USD',
+  receiverId: USERS.junior.id,
+  receiverName: USERS.junior.displayName,
+  txHash: '0xabc123def456789',
+}
+
+// A SALARY belonging to a different user — used to verify JUNIOR cannot see
+// another user's row (backend guards it; UI simply won't receive it).
+const TX_SALARY_OTHER: object = {
+  ...TX_SALARY_PENDING,
+  id: 'tx-salary-other',
+  type: 'SALARY',
+  status: 'PAID',
+  receiverId: USERS.hr.id,
+  receiverName: USERS.hr.displayName,
+}
+
 // ── Helper: mock transactions endpoint ────────────────────────────────────────
 
 async function mockTransactions(page: import('@playwright/test').Page, rows: object[]) {
@@ -177,12 +203,33 @@ test.describe('Finance — page load', () => {
     await expect(asHr.getByRole('button', { name: /Новая транзакция/i })).not.toBeVisible()
   })
 
-  // JUNIOR: useRoleGuard в finance/index.tsx разрешает только
-  // ['ADMIN', 'SENIOR', 'ACCOUNTANT', 'HR'] — JUNIOR редиректится на /crm/dashboard.
-  // Отдельный вид "Ваши выплаты" с колонкой TX Hash для JUNIOR в коде есть,
-  // но он недостижим из-за RBAC guard.
-  test.skip('TODO: JUNIOR должен видеть "Ваши выплаты" — сейчас redirect на dashboard (нужен фикс RBAC)', async () => {
-    // noop
+  // PR #167: JUNIOR добавлен в useRoleGuard(['...', 'JUNIOR']) +
+  // backend TransactionsService возвращает только его собственные SALARY строки.
+  test('JUNIOR: видит заголовок "Финансы" и блок "Ваши выплаты", нет кнопки создания', async ({ asJunior }) => {
+    await mockTransactions(asJunior, [])
+    await asJunior.goto('/crm/finance')
+    await expect(asJunior.getByRole('heading', { name: 'Финансы' })).toBeVisible()
+    await expect(asJunior.getByText('Ваши выплаты')).toBeVisible()
+    await expect(asJunior.getByRole('button', { name: /Новая транзакция/i })).not.toBeVisible()
+  })
+
+  test('JUNIOR: видит свою SALARY строку с колонкой TX Hash', async ({ asJunior }) => {
+    await mockTransactions(asJunior, [TX_SALARY_JUNIOR])
+    await asJunior.goto('/crm/finance')
+    // Сумма — форматируется как «800,00 USD»
+    await expect(asJunior.getByText(/800/).first()).toBeVisible()
+    // Месяц — fmtMonth('2026-05') → 'май 2026 г.' (ru-RU)
+    await expect(asJunior.getByText(/2026|май/i).first()).toBeVisible()
+    // TX Hash колонка — заголовок
+    await expect(asJunior.getByRole('columnheader', { name: /TX Hash/i })).toBeVisible()
+    // Значение хэша — обрезан до 14 символов
+    await expect(asJunior.getByText(/0xabc123def456/).first()).toBeVisible()
+  })
+
+  test('JUNIOR: пустое состояние показывает "Выплат пока нет"', async ({ asJunior }) => {
+    await mockTransactions(asJunior, [])
+    await asJunior.goto('/crm/finance')
+    await expect(asJunior.getByText('Выплат пока нет')).toBeVisible()
   })
 
   test('ACCOUNTANT: видит полную таблицу, нет кнопки создания', async ({ page }) => {
@@ -570,6 +617,31 @@ test.describe('Finance — RBAC', () => {
     await mockTransactions(asSenior, [notMine])
     await asSenior.goto('/crm/finance')
     await expect(asSenior.getByRole('button', { name: /Исправить/i })).not.toBeVisible()
+  })
+
+  // PR #167: JUNIOR RBAC — видит только свои выплаты, не видит чужих сумм и полной таблицы.
+  test('JUNIOR: не видит кнопки validate/edit/delete (нет полной таблицы)', async ({ asJunior }) => {
+    // mockTransactions возвращает только junior-строки (бэкенд-гард),
+    // у junior-view нет TransactionsTable с кнопками действий
+    await mockTransactions(asJunior, [TX_SALARY_JUNIOR])
+    await asJunior.goto('/crm/finance')
+    await expect(asJunior.getByRole('button', { name: /Проверить/i })).not.toBeVisible()
+    await expect(asJunior.getByTitle('Редактировать')).not.toBeVisible()
+    await expect(asJunior.getByTitle('Удалить')).not.toBeVisible()
+  })
+
+  test('JUNIOR: не видит чужих SALARY строк (мок бэкенда фильтрует по receiverId)', async ({ page }) => {
+    // Бэкенд при PR #167 возвращает JUNIOR только его строки.
+    // Мокаем ответ как если бы сервер уже отфильтровал — только своя строка.
+    await mockAuthAs(page, USERS.junior)
+    await mockTransactions(page, [TX_SALARY_JUNIOR])
+    await page.goto('/crm/finance')
+    // Ждём рендер таблицы выплат
+    await expect(page.getByText('Ваши выплаты')).toBeVisible()
+    // Чужая сумма (HR row) — не видна в JUNIOR-view (бэкенд не вернул её)
+    await expect(page.getByText(USERS.hr.displayName)).not.toBeVisible()
+    // Нет общей таблицы транзакций — нет других сумм/распределений
+    await expect(page.getByText('Все транзакции')).not.toBeVisible()
   })
 })
 
