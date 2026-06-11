@@ -82,6 +82,14 @@ export const projectSchema = z.object({
    */
   seniorName: z.string().nullable(),
   /**
+   * Legend persona role visible to JUNIOR viewers.
+   * When a legend exists for this project, JUNIOR receives `legends.presentedRole`
+   * here instead of the real senior's role/title. Non-JUNIOR viewers receive `null`
+   * (they see the real identity via seniorId/seniorName, not the persona).
+   * `null` when no legend or not a JUNIOR viewer.
+   */
+  seniorPresentedRole: z.string().nullable().optional(),
+  /**
    * Drop-only: when set, the project's income flows through the DROP user
    * and the finance distribution includes the drop's share (Phase 2).
    * `null` = legacy senior-project (no drop) — finance behavior unchanged.
