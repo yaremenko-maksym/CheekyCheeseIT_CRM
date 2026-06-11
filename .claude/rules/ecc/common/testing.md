@@ -1,38 +1,25 @@
+---
+paths:
+  - '**/*.ts'
+  - '**/*.tsx'
+---
+
 # Testing Requirements
 
-## Minimum Test Coverage: 80%
+Coverage policy задаётся per task-файл: каждая задача ОБЯЗАНА иметь явные AC на
+unit/E2E/regression тесты; для security-critical логики (auth/finance/RBAC) тесты
+MANDATORY, не optional. TDD workflow — через skill `superpowers:test-driven-development`.
 
-Test Types (ALL required):
+## Test Types
 
-1. **Unit Tests** - Individual functions, utilities, components
-2. **Integration Tests** - API endpoints, database operations
-3. **E2E Tests** - Critical user flows (framework chosen per language)
-
-## Test-Driven Development
-
-MANDATORY workflow:
-
-1. Write test first (RED)
-2. Run test - it should FAIL
-3. Write minimal implementation (GREEN)
-4. Run test - it should PASS
-5. Refactor (IMPROVE)
-6. Verify coverage (80%+)
-
-## Troubleshooting Test Failures
-
-1. Use **tdd-guide** agent
-2. Check test isolation
-3. Verify mocks are correct
-4. Fix implementation, not tests (unless tests are wrong)
-
-## Agent Support
-
-- **tdd-guide** - Use PROACTIVELY for new features, enforces write-tests-first
+1. **Unit** — функции, утилиты, компоненты (Vitest)
+2. **Integration** — API endpoints + БД; RBAC guards проверять против **реальной БД**
+   (`crm_qa`) с assertion на 403/404 — mocked E2E НЕ доказывает backend guard
+   (урок повторялся 3×, см. lessons)
+3. **E2E** — критичные user flows (Playwright, `apps/e2e`; перед написанием spec —
+   skill `playwright-patterns`)
 
 ## Test Structure (AAA Pattern)
-
-Prefer Arrange-Act-Assert structure for tests:
 
 ```typescript
 test('calculates similarity correctly', () => {
