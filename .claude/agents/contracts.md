@@ -257,6 +257,26 @@ Trigger: code-reviewer / Manual QA / Designer Mode B пометили LOW-severi
 
 ---
 
+## 5.3. Flaky E2E SLA (PM Mode 2)
+
+Политика zero-flaky: любой флак чинится немедленно, не маскируется и не «пересиживается» через re-run.
+
+**Сигналы флака:**
+
+- CI показывает тесты со статусом `flaky` (прошли с retry) — flaky-report в summary;
+- E2E job прошёл только после ручного re-run;
+- агент/USER наблюдал нестабильность локально.
+
+**SLA — в тот же день (до следующего `merge-approved`):**
+
+1. PM записывает `flaky_detected` event в pm-state.json: `{spec, test, run_url}`.
+2. PM dispatch `autotest` **Режим 4 Fix-Flaky** (промпт: `<spec>:<test>` + ссылки на runs).
+3. До диспетча флак НЕ «прощается»: re-run для разблокировки merge допустим, но ТОЛЬКО вместе с записью `flaky_detected` + dispatch — иначе это маскировка.
+
+**Definition of fixed:** найден root cause (НЕ повышение таймаутов, НЕ retry-маскировка), тест 10/10 зелёный локально в изоляции + полный шард 1×. Известный класс причин: dev/prod build difference — CI гоняет production build, где dev-only элементы tree-shaken (см. `memory/autotest/lessons.md`).
+
+---
+
 ## 6. Reviewer verdict semantics
 
 | Event API         | Body first line  | Семантика                       | PM action                                            |
