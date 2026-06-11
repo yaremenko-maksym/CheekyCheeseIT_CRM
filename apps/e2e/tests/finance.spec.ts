@@ -148,7 +148,11 @@ const TX_SALARY_OTHER: object = {
 async function mockTransactions(page: import('@playwright/test').Page, rows: object[]) {
   await page.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) => {
     if (r.request().method() === 'POST') {
-      return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ ...TX_PENDING_SENIOR, id: 'tx-new' }) })
+      return r.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...TX_PENDING_SENIOR, id: 'tx-new' }),
+      })
     }
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) })
   })
@@ -156,19 +160,38 @@ async function mockTransactions(page: import('@playwright/test').Page, rows: obj
     const id = r.request().url().split('/').at(-1)!
     const found = rows.find((t) => (t as { id: string }).id === id) ?? rows[0]
     if (r.request().method() === 'DELETE') {
-      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ deleted: true }) })
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ deleted: true }),
+      })
     }
-    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...(found as object), ...(JSON.parse(r.request().postData() ?? '{}') as object) }) })
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...(found as object),
+        ...(JSON.parse(r.request().postData() ?? '{}') as object),
+      }),
+    })
   })
   await page.route(new RegExp(`${API}/transactions/([^/?]+)/(validate|pay|admin-edit)`), (r) => {
     const id = r.request().url().split('/').at(-2)!
     const found = rows.find((t) => (t as { id: string }).id === id) ?? rows[0]
-    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...(found as object) }) })
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ...(found as object) }),
+    })
   })
   await page.route(new RegExp(`${API}/transactions/senior-income/([^/?]+)$`), (r) => {
     const id = r.request().url().split('/').at(-1)!
     const found = rows.find((t) => (t as { id: string }).id === id) ?? rows[0]
-    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...(found as object), status: 'PENDING' }) })
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ...(found as object), status: 'PENDING' }),
+    })
   })
 }
 
@@ -184,7 +207,9 @@ test.describe('Finance — page load', () => {
     await expect(asAdmin.getByRole('button', { name: /Новая транзакция/i })).toBeVisible()
   })
 
-  test('SENIOR: видит кнопку создания, нет batch-кнопки Выплатить (удалена в task-payout-auto-on-validate)', async ({ asSenior }) => {
+  test('SENIOR: видит кнопку создания, нет batch-кнопки Выплатить (удалена в task-payout-auto-on-validate)', async ({
+    asSenior,
+  }) => {
     await mockTransactions(asSenior, [])
     await asSenior.goto('/crm/finance')
     await expect(asSenior.getByRole('button', { name: /Новая транзакция/i })).toBeVisible()
@@ -196,7 +221,9 @@ test.describe('Finance — page load', () => {
   // finance-senior-payment-flow.spec.ts. Старая batch-кнопка «Выплатить (N)»
   // полностью удалена (task-payout-auto-on-validate).
 
-  test('HR: видит только заголовок "История ваших выплат", нет кнопки создания', async ({ asHr }) => {
+  test('HR: видит только заголовок "История ваших выплат", нет кнопки создания', async ({
+    asHr,
+  }) => {
     await mockTransactions(asHr, [TX_SALARY_HR])
     await asHr.goto('/crm/finance')
     await expect(asHr.getByText(/история ваших выплат/i)).toBeVisible()
@@ -205,7 +232,9 @@ test.describe('Finance — page load', () => {
 
   // PR #167: JUNIOR добавлен в useRoleGuard(['...', 'JUNIOR']) +
   // backend TransactionsService возвращает только его собственные SALARY строки.
-  test('JUNIOR: видит заголовок "Финансы" и блок "Ваши выплаты", нет кнопки создания', async ({ asJunior }) => {
+  test('JUNIOR: видит заголовок "Финансы" и блок "Ваши выплаты", нет кнопки создания', async ({
+    asJunior,
+  }) => {
     await mockTransactions(asJunior, [])
     await asJunior.goto('/crm/finance')
     await expect(asJunior.getByRole('heading', { name: 'Финансы' })).toBeVisible()
@@ -273,20 +302,30 @@ test.describe('Finance — таблица транзакций', () => {
     await expect(asAdmin.getByText('Чек недействителен').first()).toBeVisible()
   })
 
-  test('SENIOR: видит только свою REJECTED транзакцию с кнопкой "Исправить"', async ({ asSenior }) => {
-    const myRejected = { ...TX_REJECTED_SENIOR, senderId: USERS.senior.id, receiverId: USERS.senior.id }
+  test('SENIOR: видит только свою REJECTED транзакцию с кнопкой "Исправить"', async ({
+    asSenior,
+  }) => {
+    const myRejected = {
+      ...TX_REJECTED_SENIOR,
+      senderId: USERS.senior.id,
+      receiverId: USERS.senior.id,
+    }
     await mockTransactions(asSenior, [myRejected])
     await asSenior.goto('/crm/finance')
     await expect(asSenior.getByRole('button', { name: /Исправить/i })).toBeVisible()
   })
 
-  test('ADMIN/ACCOUNTANT: кнопка "Проверить" видна на PENDING SENIOR_INCOME', async ({ asAdmin }) => {
+  test('ADMIN/ACCOUNTANT: кнопка "Проверить" видна на PENDING SENIOR_INCOME', async ({
+    asAdmin,
+  }) => {
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR])
     await asAdmin.goto('/crm/finance')
     await expect(asAdmin.getByRole('button', { name: /Проверить/i })).toBeVisible()
   })
 
-  test('ADMIN: кнопки редактирования и удаления видны на не-PAYOUT транзакциях', async ({ asAdmin }) => {
+  test('ADMIN: кнопки редактирования и удаления видны на не-PAYOUT транзакциях', async ({
+    asAdmin,
+  }) => {
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR, TX_EXPENSE])
     await asAdmin.goto('/crm/finance')
     await expect(asAdmin.getByTitle('Редактировать').first()).toBeVisible()
@@ -379,10 +418,18 @@ test.describe('Finance — создание транзакции', () => {
   test('ADMIN: открывает диалог EXPENSE с категорией', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [])
     await asAdmin.route(`${API}/projects`, (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: PROJECT_ID, name: PROJECT_NAME, seniorId: USERS.senior.id }]) }),
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{ id: PROJECT_ID, name: PROJECT_NAME, seniorId: USERS.senior.id }]),
+      }),
     )
     await asAdmin.route(`${API}/users`, (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([USERS.senior, USERS.junior]) }),
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([USERS.senior, USERS.junior]),
+      }),
     )
     await asAdmin.goto('/crm/finance')
     await asAdmin.getByRole('button', { name: /Новая транзакция/i }).click()
@@ -449,7 +496,11 @@ test.describe('Finance — валидация транзакции', () => {
 
 test.describe('Finance — исправление REJECTED транзакции (SENIOR)', () => {
   test('SENIOR: открывает диалог исправления', async ({ asSenior }) => {
-    const myRejected = { ...TX_REJECTED_SENIOR, senderId: USERS.senior.id, receiverId: USERS.senior.id }
+    const myRejected = {
+      ...TX_REJECTED_SENIOR,
+      senderId: USERS.senior.id,
+      receiverId: USERS.senior.id,
+    }
     await mockTransactions(asSenior, [myRejected])
     await asSenior.goto('/crm/finance')
     await asSenior.getByRole('button', { name: /Исправить/i }).click()
@@ -458,7 +509,11 @@ test.describe('Finance — исправление REJECTED транзакции 
   })
 
   test('SENIOR: показывает причину отклонения в диалоге', async ({ asSenior }) => {
-    const myRejected = { ...TX_REJECTED_SENIOR, senderId: USERS.senior.id, receiverId: USERS.senior.id }
+    const myRejected = {
+      ...TX_REJECTED_SENIOR,
+      senderId: USERS.senior.id,
+      receiverId: USERS.senior.id,
+    }
     await mockTransactions(asSenior, [myRejected])
     await asSenior.goto('/crm/finance')
     await asSenior.getByRole('button', { name: /Исправить/i }).click()
@@ -467,7 +522,11 @@ test.describe('Finance — исправление REJECTED транзакции 
   })
 
   test('SENIOR: не видит кнопку Исправить на PENDING транзакции', async ({ asSenior }) => {
-    const myPending = { ...TX_PENDING_SENIOR, senderId: USERS.senior.id, receiverId: USERS.senior.id }
+    const myPending = {
+      ...TX_PENDING_SENIOR,
+      senderId: USERS.senior.id,
+      receiverId: USERS.senior.id,
+    }
     await mockTransactions(asSenior, [myPending])
     await asSenior.goto('/crm/finance')
     await expect(asSenior.getByRole('button', { name: /Исправить/i })).not.toBeVisible()
@@ -496,7 +555,11 @@ test.describe('Finance — редактирование транзакции (AD
   })
 
   test('SENIOR: не видит кнопку Редактировать (иконка без title)', async ({ asSenior }) => {
-    const myPending = { ...TX_PENDING_SENIOR, senderId: USERS.senior.id, receiverId: USERS.senior.id }
+    const myPending = {
+      ...TX_PENDING_SENIOR,
+      senderId: USERS.senior.id,
+      receiverId: USERS.senior.id,
+    }
     await mockTransactions(asSenior, [myPending])
     await asSenior.goto('/crm/finance')
     await expect(asSenior.getByTitle('Редактировать')).not.toBeVisible()
@@ -528,7 +591,10 @@ test.describe('Finance — удаление транзакции (ADMIN)', () =>
     await mockTransactions(asAdmin, [TX_EXPENSE])
     await asAdmin.goto('/crm/finance')
     await asAdmin.getByTitle('Удалить').first().click()
-    await asAdmin.getByRole('button', { name: /^Удалить$/i }).last().click()
+    await asAdmin
+      .getByRole('button', { name: /^Удалить$/i })
+      .last()
+      .click()
     await expect(asAdmin.getByRole('dialog')).not.toBeVisible()
   })
 })
@@ -599,28 +665,45 @@ test.describe('Finance — RBAC', () => {
   })
 
   test('SENIOR: не видит кнопку Проверить', async ({ asSenior }) => {
-    const myPending = { ...TX_PENDING_SENIOR, senderId: USERS.senior.id, receiverId: USERS.senior.id }
+    const myPending = {
+      ...TX_PENDING_SENIOR,
+      senderId: USERS.senior.id,
+      receiverId: USERS.senior.id,
+    }
     await mockTransactions(asSenior, [myPending])
     await asSenior.goto('/crm/finance')
     await expect(asSenior.getByRole('button', { name: /Проверить/i })).not.toBeVisible()
   })
 
   test('SENIOR: не видит кнопку удаления', async ({ asSenior }) => {
-    const myPending = { ...TX_PENDING_SENIOR, senderId: USERS.senior.id, receiverId: USERS.senior.id }
+    const myPending = {
+      ...TX_PENDING_SENIOR,
+      senderId: USERS.senior.id,
+      receiverId: USERS.senior.id,
+    }
     await mockTransactions(asSenior, [myPending])
     await asSenior.goto('/crm/finance')
     await expect(asSenior.getByTitle('Удалить')).not.toBeVisible()
   })
 
-  test('SENIOR: видит кнопку Исправить только на своей REJECTED транзакции', async ({ asSenior }) => {
-    const notMine = { ...TX_REJECTED_SENIOR, id: 'not-mine', senderId: 'other-id', receiverId: 'other-id' }
+  test('SENIOR: видит кнопку Исправить только на своей REJECTED транзакции', async ({
+    asSenior,
+  }) => {
+    const notMine = {
+      ...TX_REJECTED_SENIOR,
+      id: 'not-mine',
+      senderId: 'other-id',
+      receiverId: 'other-id',
+    }
     await mockTransactions(asSenior, [notMine])
     await asSenior.goto('/crm/finance')
     await expect(asSenior.getByRole('button', { name: /Исправить/i })).not.toBeVisible()
   })
 
   // PR #167: JUNIOR RBAC — видит только свои выплаты, не видит чужих сумм и полной таблицы.
-  test('JUNIOR: не видит кнопки validate/edit/delete (нет полной таблицы)', async ({ asJunior }) => {
+  test('JUNIOR: не видит кнопки validate/edit/delete (нет полной таблицы)', async ({
+    asJunior,
+  }) => {
     // mockTransactions возвращает только junior-строки (бэкенд-гард),
     // у junior-view нет TransactionsTable с кнопками действий
     await mockTransactions(asJunior, [TX_SALARY_JUNIOR])
@@ -630,7 +713,9 @@ test.describe('Finance — RBAC', () => {
     await expect(asJunior.getByTitle('Удалить')).not.toBeVisible()
   })
 
-  test('JUNIOR: не видит чужих SALARY строк (мок бэкенда фильтрует по receiverId)', async ({ page }) => {
+  test('JUNIOR: не видит чужих SALARY строк (мок бэкенда фильтрует по receiverId)', async ({
+    page,
+  }) => {
     // Бэкенд при PR #167 возвращает JUNIOR только его строки.
     // Мокаем ответ как если бы сервер уже отфильтровал — только своя строка.
     await mockAuthAs(page, USERS.junior)
@@ -650,20 +735,26 @@ test.describe('Finance — RBAC', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test.describe('Finance — PENDING_PAYMENT status', () => {
-  test('ADMIN: отображает статус-бейдж "Ожидает выплаты" на PENDING_PAYMENT транзакции', async ({ asAdmin }) => {
+  test('ADMIN: отображает статус-бейдж "Ожидает выплаты" на PENDING_PAYMENT транзакции', async ({
+    asAdmin,
+  }) => {
     await mockTransactions(asAdmin, [TX_PENDING_PAYMENT_SENIOR])
     await asAdmin.goto('/crm/finance')
     await expect(asAdmin.getByText('Ожидает выплаты').first()).toBeVisible()
   })
 
-  test('SENIOR: не видит кнопку Выплатить при наличии только PENDING_PAYMENT транзакций', async ({ asSenior }) => {
+  test('SENIOR: не видит кнопку Выплатить при наличии только PENDING_PAYMENT транзакций', async ({
+    asSenior,
+  }) => {
     const myPendingPayment = { ...TX_PENDING_PAYMENT_SENIOR, senderId: USERS.senior.id }
     await mockTransactions(asSenior, [myPendingPayment])
     await asSenior.goto('/crm/finance')
     await expect(asSenior.getByRole('button', { name: /Выплатить \(/i })).not.toBeVisible()
   })
 
-  test('SENIOR: batch-кнопка «Выплатить (N)» удалена даже при mix VALIDATED + PENDING_PAYMENT', async ({ asSenior }) => {
+  test('SENIOR: batch-кнопка «Выплатить (N)» удалена даже при mix VALIDATED + PENDING_PAYMENT', async ({
+    asSenior,
+  }) => {
     // Regression: после task-payout-auto-on-validate batch-flow убран.
     // Inline «Оплатить» теперь живёт на PAYOUT row — покрыто в
     // finance-senior-payment-flow.spec.ts.
