@@ -367,6 +367,19 @@ export const addProjectMemberSchema = z.object({
   userId: z.string().uuid(),
 })
 
+/**
+ * Allowlist DTO for GET /api/projects/:id/hr-contact.
+ * JUNIOR-facing surface — only safe contact fields, no ids/roles/finance.
+ * `null` when no HR is assigned to the project's team.
+ */
+export const hrContactSchema = z.object({
+  displayName: z.string().nullable(),
+  telegram: z.string().nullable(),
+  phone: z.string().nullable(),
+})
+
+export type HrContactDto = z.infer<typeof hrContactSchema>
+
 export type ProjectMemberDto = z.infer<typeof projectMemberSchema>
 export type ProjectDto = z.infer<typeof projectSchema>
 export type CreateProjectDto = z.infer<typeof createProjectSchema>

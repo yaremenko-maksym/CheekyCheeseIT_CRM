@@ -361,10 +361,24 @@ test.describe('Team page', () => {
   // ---------------------------------------------------------------------------
 
   test.describe('JUNIOR RBAC', () => {
-    test('JUNIOR can access team list page (newly allowed)', async ({ asJunior: page }) => {
+    test('JUNIOR sidebar does NOT contain Команда nav item', async ({ asJunior: page }) => {
+      // Phase 2 junior UX: JUNIOR nav has exactly 5 items (Мой проект / Легенда /
+      // Финансы / Документы / Профиль). Команда link is absent from junior-nav.
+      await page.goto('/crm/project')
+      const nav = page.getByTestId('junior-nav')
+      await expect(nav).toBeVisible()
+      await expect(nav.getByText('Команда')).not.toBeVisible()
+    })
+
+    test('JUNIOR navigating directly to /crm/team does not crash or logout', async ({
+      asJunior: page,
+    }) => {
+      // The route guard allows JUNIOR on /crm/team (useRoleGuard includes JUNIOR),
+      // but the sidebar hides the link. Direct URL access must not cause a logout.
       await page.goto('/crm/team')
-      await expect(page.getByText('Команда')).toBeVisible()
-      // Should not crash or redirect to login
+      const url = page.url()
+      expect(url).not.toMatch(/\/crm\/login/)
+      expect(url).not.toMatch(/^http:\/\/localhost:\d+\/?$/)
     })
 
     test('JUNIOR can access team detail page (newly allowed)', async ({ asJunior: page }) => {

@@ -1100,6 +1100,110 @@ export class ProjectsService {
     return project
   }
 
+  /**
+   * GET /api/projects/:id/hr-contact
+   *
+   * Returns the HR contact for the project's senior team.
+   * Allowlist-only: displayName, telegram, phone — no ids/roles/finance.
+   * Returns null fields when no HR is assigned.
+   *
+   * Access:
+   *   - ADMIN → always
+   *   - Active JUNIOR project member → yes (their primary consumer)
+   *   - HR of project's team → yes
+   *   - All others → 403
+   */
+  async getHrContact(
+    projectId: string,
+    currentUser: SessionUser,
+  ): Promise<{ displayName: string | null; telegram: string | null; phone: string | null }> {
+    const project = (await this.db.db.query.projects.findFirst({
+      where: eq(projects.id, projectId),
+      with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
+    })) as ProjectWithRelations | undefined
+
+    if (!project) throw new NotFoundException('Проект не найден')
+
+    // RBAC: ADMIN, active JUNIOR member, HR of project's team
+    const isAdmin = currentUser.role === 'ADMIN'
+    const isActiveJunior =
+      currentUser.role === 'JUNIOR' &&
+      project.members.some((m) => m.userId === currentUser.id && m.leftAt === null)
+    const isTeamHr =
+      currentUser.role === 'HR' &&
+      project.seniorId !== null &&
+      (await this.hrCanAccessProject(currentUser.id, project.seniorId))
+
+    if (!isAdmin && !isActiveJunior && !isTeamHr) {
+      throw new ForbiddenException('Нет доступа к контакту HR')
+    }
+
+    if (!project.seniorId) {
+      return { displayName: null, telegram: null, phone: null }
+    }
+
+    // Find HR in the senior's active team
+    const seniorMembership = await this.db.db.query.teamMembers.findFirst({
+      where: and(eq(teamMembers.userId, project.seniorId), isNull(teamMembers.leftAt)),
+    })
+    if (!seniorMembership) {
+      return { displayName: null, telegram: null, phone: null }
+    }
+
+    const hrRow = await this.db.db
+      .select({
+        displayName: users.displayName,
+        telegram: users.telegram,
+        phone: users.phone,
+      })
+      .from(teamMembers)
+      .innerJoin(users, eq(users.id, teamMembers.userId))
+      .where(
+        and(
+          eq(teamMembers.teamId, seniorMembership.teamId),
+          eq(users.role, 'HR'),
+          isNull(teamMembers.leftAt),
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0] ?? null)
+
+    return {
+      displayName: hrRow?.displayName ?? null,
+      telegram: hrRow?.telegram ?? null,
+      phone: hrRow?.phone ?? null,
+    }
+  }
+
+  /**
+   * Check if an HR user can access a project by team membership.
+   * Reuses hrCanAccess logic but exposed for getHrContact.
+   */
+  private async hrCanAccessProject(hrId: string, seniorId: string): Promise<boolean> {
+    const hrTeams = await this.db.db
+      .select({ teamId: teamMembers.teamId })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.userId, hrId), isNull(teamMembers.leftAt)))
+      .limit(50)
+
+    if (hrTeams.length === 0) return false
+    const teamIds = hrTeams.map((t) => t.teamId)
+
+    const seniorInTeam = await this.db.db
+      .select({ id: teamMembers.id })
+      .from(teamMembers)
+      .where(
+        and(
+          eq(teamMembers.userId, seniorId),
+          inArray(teamMembers.teamId, teamIds),
+          isNull(teamMembers.leftAt),
+        ),
+      )
+      .limit(1)
+
+    return seniorInTeam.length > 0
+  }
+
   private async assertAccess(project: ProjectWithRelations, currentUser: SessionUser) {
     if (currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT') return
     if (currentUser.role === 'SENIOR' && project.seniorId === currentUser.id) return
