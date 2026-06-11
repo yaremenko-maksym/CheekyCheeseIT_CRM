@@ -2,6 +2,7 @@
 
 ## Агент: coder | autotest | devops
 ## Приоритет: critical | high | medium | low
+## Модель: sonnet (default) | opus — только по триггерам rules/common/model-routing.md, добавить строку-обоснование
 ## Зависит от: (опционально, id другой задачи)
 ## Ветка: feature/<slug>
 ## (Для фиксов в существующей ветке — указать её имя)
