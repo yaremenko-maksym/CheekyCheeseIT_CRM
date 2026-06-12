@@ -12,6 +12,7 @@ import type { SessionUser } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
+import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
 import { LegendsService } from './legends.service'
 import {
@@ -282,7 +283,7 @@ class TestDatabaseModule {}
     Reflector,
     {
       provide: LegendsService,
-      useFactory: (db: DatabaseService) => new LegendsService(db),
+      useFactory: (db: DatabaseService) => new LegendsService(db, new HrAccessService(db)),
       inject: [DatabaseService],
     },
     {

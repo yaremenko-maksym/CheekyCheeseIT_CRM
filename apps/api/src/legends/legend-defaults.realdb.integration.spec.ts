@@ -28,6 +28,7 @@ import { eq, inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
+import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
 import { LegendsService } from './legends.service'
 import {
@@ -133,7 +134,7 @@ describe('LegendsService.getLegend — defaults RBAC, real DB (AC8)', () => {
     const dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
     Object.assign(dbSvc, { pool: _pool, db })
 
-    legendsSvc = new LegendsService(dbSvc)
+    legendsSvc = new LegendsService(dbSvc, new HrAccessService(dbSvc))
 
     // ── Seed users
     await db
