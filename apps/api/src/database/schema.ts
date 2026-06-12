@@ -862,6 +862,13 @@ export const legendEntries = pgTable('legend_entries', {
     .notNull()
     .references(() => users.id),
   text: text('text').notNull(),
+  /**
+   * Optional event date (YYYY-MM-DD text). When set, represents the real-world
+   * date of the event described in the entry, allowing backdating. Entries are
+   * sorted by COALESCE(event_date, created_at::date) so the journal timeline
+   * reflects event order, not insertion order. NULL = use createdAt for display.
+   */
+  eventDate: text('event_date'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
