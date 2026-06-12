@@ -1,14 +1,21 @@
 /**
- * junior-hub.spec.ts — task-junior-ux-2-hub (AC1, AC2, AC3, AC4).
+ * junior-hub.spec.ts — PR #177 update: contract/salary hooks now use new endpoints.
+ *
+ * Changes vs previous version:
+ *   - Contract mock: /contracts/me → /contracts/me/status ({id,status})
+ *   - Salary meta mock: added GET /api/users/me/salary-meta
+ *   - Contract card: AC1 — SIGNED badge, READY_TO_SIGN CTA, no-contract, error-state
+ *   - Salary block: AC3 — rate+currency, changedAt, last-3-txs, PAID|VALIDATED→"Выплачено"
  *
  * Covers:
- *   AC1 — JUNIOR login → /crm/project hub with all 6 blocks;
- *          rate / real senior identity absent from DOM.
- *   AC2 — /crm/legend renders all 3 blocks; JUNIOR can add journal entry.
- *   AC3 — JUNIOR sidebar has exactly 5 nav items.
+ *   AC1 — JUNIOR hub contract card uses /contracts/me/status; SIGNED→badge «Подписан»;
+ *          READY_TO_SIGN→badge + CTA; no contract→«Контракт не оформлен»;
+ *          error-state ≠ «Контракт не оформлен».
+ *   AC3 — Salary block: rate+currency, changedAt line, last-3 txs; PAID+VALIDATED→«Выплачено».
+ *   Hub/nav/persona: unchanged regression coverage.
  *
- * All tests are mock-based (no live server required for the mock suite).
- * Pattern follows rbac-senior-junior.spec.ts: role-fixtures + per-test route overrides.
+ * All tests are mock-based (no live server required).
+ * Pattern: role-fixtures + per-test route.fulfill() overrides.
  */
 
 import { test, expect, USERS, PROJECTS } from './fixtures'
@@ -19,15 +26,8 @@ const API = 'http://localhost:3001/api'
 // Shared junior-facing fixtures
 // ---------------------------------------------------------------------------
 
-/**
- * A JUNIOR-masked project: seniorId / rate / currency nulled out,
- * seniorName replaced with legend persona (as the backend would return it).
- * Used in tests that assert real identity is absent from DOM.
- */
-// PROJECTS[0] is guaranteed — fixture array always has at least 2 elements.
 // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
 const P0 = PROJECTS[0]!
-// JUNIOR_PROJECT must use a valid UUID for id so legendSchema.projectId (z.string().uuid()) parses.
 const JUNIOR_PROJECT_ID = 'a0000000-0000-4000-8000-000000000099'
 const LEGEND_ID = 'b0000000-0000-4000-8000-000000000001'
 const LEGEND_ENTRY_ID = 'b0000000-0000-4000-8000-000000000002'
@@ -38,16 +38,12 @@ const JUNIOR_PROJECT = {
   companyName: P0.companyName,
   domain: P0.domain,
   seniorId: null as string | null,
-  seniorName: 'Олександр П.', // masked legend name — not a real display name
+  seniorName: 'Олександр П.',
   seniorPresentedRole: 'Lead Developer',
   rate: null as number | null,
   currency: null as string | null,
 }
 
-/** Legend response for the JUNIOR_PROJECT — returned by GET /projects/:id/legend.
- *  Shape must match legendSchema (packages/shared/src/schemas/legends.ts):
- *  entries items require { id, legendId, authorId, authorName, text, createdAt } — all UUIDs.
- */
 const LEGEND_FIXTURE = {
   id: LEGEND_ID,
   projectId: JUNIOR_PROJECT_ID,
@@ -66,14 +62,15 @@ const LEGEND_FIXTURE = {
       authorId: USERS.junior.id,
       authorName: USERS.junior.displayName,
       text: 'Перший запис журналу',
+      eventDate: null,
       createdAt: '2024-01-15T10:00:00.000Z',
     },
   ],
+  defaults: null, // JUNIOR viewer — no real identity leak
   createdAt: '2024-01-15T00:00:00.000Z',
   updatedAt: '2024-01-20T00:00:00.000Z',
 }
 
-/** HR contact allowlist DTO returned by GET /projects/:id/hr-contact */
 const HR_CONTACT_FIXTURE = {
   displayName: USERS.hr.displayName,
   telegram: '@hrmanager',
@@ -81,11 +78,100 @@ const HR_CONTACT_FIXTURE = {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: mount junior-specific mocks on top of mockAuthAs(page, USERS.junior)
+// Salary fixtures
 // ---------------------------------------------------------------------------
 
-async function mockJuniorProjectsAndLegend(page: import('@playwright/test').Page) {
-  // Override projects list — return the masked project
+const SALARY_META_FIXTURE = {
+  monthlySalary: '800',
+  salaryCurrency: 'USD',
+  changedAt: '2026-03-01T00:00:00.000Z',
+}
+
+// Base transaction object satisfying transactionSchema (all nullable fields explicit)
+const TX_BASE = {
+  type: 'SALARY',
+  amount: '800',
+  currency: 'USD',
+  senderId: null,
+  senderLabel: null,
+  senderName: null,
+  receiverLabel: null,
+  receiverName: null,
+  projectId: null,
+  projectName: null,
+  payoutRequestId: null,
+  payoutRequest: null,
+  seniorSharePercent: null,
+  seniorSharePercentSource: null,
+  receiptDocumentId: null,
+  receiptExternalUrl: null,
+  txHash: null,
+  validatedBy: null,
+  validatedAt: null,
+  rejectionReason: null,
+  notes: null,
+  txDate: null,
+  recipientId: null,
+  createdBy: 'a0000000-0000-4000-8000-000000000001', // admin uuid
+}
+
+const SALARY_TX_PAID = {
+  ...TX_BASE,
+  id: 'c0000000-0000-4000-8000-000000000011',
+  status: 'PAID',
+  receiverId: USERS.junior.id,
+  salaryMonth: '2026-05',
+  createdAt: '2026-05-31T00:00:00.000Z',
+  updatedAt: '2026-05-31T00:00:00.000Z',
+}
+
+const SALARY_TX_VALIDATED = {
+  ...TX_BASE,
+  id: 'c0000000-0000-4000-8000-000000000012',
+  status: 'VALIDATED',
+  receiverId: USERS.junior.id,
+  salaryMonth: '2026-04',
+  createdAt: '2026-04-30T00:00:00.000Z',
+  updatedAt: '2026-04-30T00:00:00.000Z',
+}
+
+const SALARY_TX_PENDING = {
+  ...TX_BASE,
+  id: 'c0000000-0000-4000-8000-000000000013',
+  status: 'PENDING',
+  receiverId: USERS.junior.id,
+  salaryMonth: '2026-03',
+  createdAt: '2026-03-31T00:00:00.000Z',
+  updatedAt: '2026-03-31T00:00:00.000Z',
+}
+
+// ---------------------------------------------------------------------------
+// Helper: mount junior-specific mocks
+//
+// contractStatus — override response for /contracts/me/status.
+//   null (default) → 404 "no contract" state.
+//   Pass an object to simulate SIGNED/READY_TO_SIGN/error.
+//
+// salaryMeta — override response for /users/me/salary-meta.
+//   null (default) → SALARY_META_FIXTURE.
+//   Pass a custom object to simulate other states.
+//
+// NOTE: Playwright uses LIFO route handler order — handlers registered
+// LAST take precedence. Register per-test overrides BEFORE calling this
+// helper, or use the contractStatus/salaryMeta parameters instead.
+// ---------------------------------------------------------------------------
+
+interface MockOptions {
+  contractStatus?: { status: number; body: object } | null
+  salaryMeta?: { status: number; body: object } | null
+  legend?: object | null
+}
+
+async function mockJuniorProjectsAndLegend(
+  page: import('@playwright/test').Page,
+  opts: MockOptions = {},
+) {
+  // Projects list — masked project
   await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({
@@ -95,7 +181,27 @@ async function mockJuniorProjectsAndLegend(page: import('@playwright/test').Page
     })
   })
 
-  // Override per-project legend — return filled fixture
+  // Legend GET + PUT
+  const legendBody = opts.legend ?? LEGEND_FIXTURE
+  await page.route(new RegExp(`${API}/projects/${JUNIOR_PROJECT.id}/legend$`), (r) => {
+    if (r.request().method() === 'GET') {
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(legendBody),
+      })
+    }
+    if (r.request().method() === 'PUT') {
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(legendBody),
+      })
+    }
+    return r.fallback()
+  })
+
+  // Legend entries POST
   await page.route(new RegExp(`${API}/projects/${JUNIOR_PROJECT.id}/legend/entries$`), (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     const newEntry = {
@@ -104,33 +210,18 @@ async function mockJuniorProjectsAndLegend(page: import('@playwright/test').Page
       authorId: USERS.junior.id,
       authorName: USERS.junior.displayName,
       text: 'Новий запис',
+      eventDate: null,
       createdAt: new Date().toISOString(),
     }
+    const base = (opts.legend ?? LEGEND_FIXTURE) as typeof LEGEND_FIXTURE
     return r.fulfill({
       status: 201,
       contentType: 'application/json',
-      body: JSON.stringify({ ...LEGEND_FIXTURE, entries: [...LEGEND_FIXTURE.entries, newEntry] }),
+      body: JSON.stringify({ ...base, entries: [...base.entries, newEntry] }),
     })
   })
-  await page.route(new RegExp(`${API}/projects/${JUNIOR_PROJECT.id}/legend$`), (r) => {
-    if (r.request().method() === 'GET') {
-      return r.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(LEGEND_FIXTURE),
-      })
-    }
-    if (r.request().method() === 'PUT') {
-      return r.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(LEGEND_FIXTURE),
-      })
-    }
-    return r.fallback()
-  })
 
-  // HR contact endpoint (new in this task)
+  // HR contact
   await page.route(new RegExp(`${API}/projects/${JUNIOR_PROJECT.id}/hr-contact$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({
@@ -140,17 +231,29 @@ async function mockJuniorProjectsAndLegend(page: import('@playwright/test').Page
     })
   })
 
-  // Contract — null (no contract yet)
-  await page.route(new RegExp(`${API}/contracts/me$`), (r) => {
+  // Contract status — AC1 fix: uses /contracts/me/status, NOT /contracts/me
+  const contractOpts = opts.contractStatus ?? { status: 404, body: { message: 'Not found' } }
+  await page.route(new RegExp(`${API}/contracts/me/status$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({
-      status: 404,
+      status: contractOpts.status,
       contentType: 'application/json',
-      body: JSON.stringify({ message: 'Not found' }),
+      body: JSON.stringify(contractOpts.body),
     })
   })
 
-  // Transactions (salary) — one paid entry
+  // Salary meta
+  const salaryMetaOpts = opts.salaryMeta ?? { status: 200, body: SALARY_META_FIXTURE }
+  await page.route(new RegExp(`${API}/users/me/salary-meta$`), (r) => {
+    if (r.request().method() !== 'GET') return r.fallback()
+    return r.fulfill({
+      status: salaryMetaOpts.status,
+      contentType: 'application/json',
+      body: JSON.stringify(salaryMetaOpts.body),
+    })
+  })
+
+  // Salary transactions
   await page.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     const url = new URL(r.request().url())
@@ -158,16 +261,7 @@ async function mockJuniorProjectsAndLegend(page: import('@playwright/test').Page
       return r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([
-          {
-            id: 'tx-salary-1',
-            amount: '800',
-            currency: 'USD',
-            salaryMonth: 'Травень 2026',
-            status: 'VALIDATED',
-            createdAt: '2026-05-31T00:00:00.000Z',
-          },
-        ]),
+        body: JSON.stringify([SALARY_TX_PAID, SALARY_TX_VALIDATED, SALARY_TX_PENDING]),
       })
     }
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
@@ -184,10 +278,8 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
 
     await page.goto('/crm/project')
 
-    // Root hub container
     await expect(page.getByTestId('junior-hub')).toBeVisible()
 
-    // All 6 blocks
     await expect(page.getByTestId('project-info-card')).toBeVisible()
     await expect(page.getByTestId('persona-card')).toBeVisible()
     await expect(page.getByTestId('contract-status-card')).toBeVisible()
@@ -205,15 +297,11 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
     await expect(page.getByTestId('project-info-card')).toBeVisible()
 
     const card = page.getByTestId('project-info-card')
-    // Company name visible
     await expect(card.getByText(JUNIOR_PROJECT.companyName)).toBeVisible()
-    // Domain visible — exact:true avoids strict-mode conflict with companyName substring
     await expect(card.getByText(JUNIOR_PROJECT.domain!, { exact: true })).toBeVisible()
-    // Status badge visible — text is 'Активный' (Russian) per project.tsx
     await expect(card.getByText('Активный', { exact: true })).toBeVisible()
 
-    // Rate and currency MUST NOT be in the DOM (AC1: not CSS hiding)
-    // The real project fixture has rate=5000, currency='USDT' — JUNIOR sees null
+    // Rate and currency MUST NOT be in the DOM
     await expect(page.getByText('5000')).toHaveCount(0)
     await expect(page.getByText('5 000')).toHaveCount(0)
     await expect(page.getByText('USDT')).toHaveCount(0)
@@ -228,14 +316,10 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
     await expect(page.getByTestId('persona-card')).toBeVisible()
 
     const card = page.getByTestId('persona-card')
-    // Legend persona name visible
     await expect(card.getByTestId('persona-fullname')).toContainText(LEGEND_FIXTURE.fullName)
-    // Presented role visible
     await expect(card.getByTestId('persona-role')).toContainText(LEGEND_FIXTURE.presentedRole!)
 
-    // Real senior display name must NOT appear
     await expect(page.getByText(USERS.senior.displayName, { exact: false })).toHaveCount(0)
-    // Real senior email must NOT appear
     await expect(page.getByText(USERS.senior.email, { exact: false })).toHaveCount(0)
   })
 
@@ -263,18 +347,6 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
     await expect(card.getByText(HR_CONTACT_FIXTURE.phone)).toBeVisible()
   })
 
-  test('salary snapshot card shows last salary amount', async ({ asJunior: page }) => {
-    await mockJuniorProjectsAndLegend(page)
-
-    await page.goto('/crm/project')
-    await expect(page.getByTestId('salary-snapshot-card')).toBeVisible()
-
-    const card = page.getByTestId('salary-snapshot-card')
-    await expect(card.getByTestId('salary-last-amount')).toBeVisible()
-    // "Все мои выплаты" link
-    await expect(card.getByTestId('salary-all-link')).toBeVisible()
-  })
-
   test('quick links bar contains legend, documents, finance links', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
@@ -288,7 +360,6 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
   })
 
   test('empty-state shown when JUNIOR has no projects', async ({ asJunior: page }) => {
-    // Override projects to empty
     await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) => {
       if (r.request().method() !== 'GET') return r.fallback()
       return r.fulfill({
@@ -301,6 +372,190 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
     await page.goto('/crm/project')
     await expect(page.getByTestId('junior-hub')).toBeVisible()
     await expect(page.getByText('Вас ещё не добавили в проект.')).toBeVisible()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC1 — Contract status card: new endpoint /contracts/me/status
+// ---------------------------------------------------------------------------
+
+test.describe('AC1 — Contract card — /contracts/me/status endpoint', () => {
+  test('SIGNED contract → badge «Подписан» visible', async ({ asJunior: page }) => {
+    // Pass contractStatus via opts — registered as the single LIFO handler
+    await mockJuniorProjectsAndLegend(page, {
+      contractStatus: {
+        status: 200,
+        body: { id: 'd0000000-0000-4000-8000-000000000001', status: 'SIGNED' },
+      },
+    })
+
+    await page.goto('/crm/project')
+    await expect(page.getByTestId('contract-status-card')).toBeVisible()
+
+    const card = page.getByTestId('contract-status-card')
+    const badge = card.getByTestId('contract-status-badge')
+    await expect(badge).toBeVisible()
+    await expect(badge).toContainText('Подписан')
+  })
+
+  test('READY_TO_SIGN → badge «Ожидает подписи» + CTA button', async ({ asJunior: page }) => {
+    await mockJuniorProjectsAndLegend(page, {
+      contractStatus: {
+        status: 200,
+        body: { id: 'd0000000-0000-4000-8000-000000000002', status: 'READY_TO_SIGN' },
+      },
+    })
+
+    await page.goto('/crm/project')
+    const card = page.getByTestId('contract-status-card')
+    await expect(card).toBeVisible()
+
+    const badge = card.getByTestId('contract-status-badge')
+    await expect(badge).toContainText('Ожидает подписи')
+
+    // CTA button to sign
+    await expect(card.getByTestId('contract-sign-btn')).toBeVisible()
+  })
+
+  test('no contract (404) → badge «Контракт не оформлен»', async ({ asJunior: page }) => {
+    // Default opts.contractStatus is 404 → "no contract" state
+    await mockJuniorProjectsAndLegend(page)
+
+    await page.goto('/crm/project')
+    const card = page.getByTestId('contract-status-card')
+    await expect(card).toBeVisible()
+
+    const badge = card.getByTestId('contract-status-badge')
+    await expect(badge).toContainText('Контракт не оформлен')
+  })
+
+  test('error state (500) → NOT «Контракт не оформлен»', async ({ asJunior: page }) => {
+    // Server error — must not be treated as "no contract"
+    await mockJuniorProjectsAndLegend(page, {
+      contractStatus: {
+        status: 500,
+        body: { message: 'Internal server error' },
+      },
+    })
+
+    await page.goto('/crm/project')
+    const card = page.getByTestId('contract-status-card')
+    await expect(card).toBeVisible()
+
+    // Error state must show something OTHER than «Контракт не оформлен»
+    const main = page.locator('main')
+    await expect(main.getByText('Контракт не оформлен')).toHaveCount(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC3 — Salary snapshot card
+// ---------------------------------------------------------------------------
+
+test.describe('AC3 — Salary snapshot card', () => {
+  test('shows rate amount and currency from salary-meta', async ({ asJunior: page }) => {
+    await mockJuniorProjectsAndLegend(page)
+
+    await page.goto('/crm/project')
+    const card = page.getByTestId('salary-snapshot-card')
+    await expect(card).toBeVisible()
+
+    // Rate amount
+    await expect(card.getByTestId('salary-rate-amount')).toBeVisible()
+    await expect(card.getByTestId('salary-rate-amount')).toContainText('800')
+    // Currency label visible in card (first match — the currency badge near the rate)
+    await expect(card.getByText('USD').first()).toBeVisible()
+  })
+
+  test('shows "изменена <дата>" line when changedAt is present', async ({ asJunior: page }) => {
+    await mockJuniorProjectsAndLegend(page)
+
+    await page.goto('/crm/project')
+    const card = page.getByTestId('salary-snapshot-card')
+    await expect(card).toBeVisible()
+
+    // changedAt = '2026-03-01T00:00:00.000Z' → "изменена 01 марта 2026 г."
+    await expect(card.getByTestId('salary-changed-at')).toBeVisible()
+    await expect(card.getByTestId('salary-changed-at')).toContainText('изменена')
+  })
+
+  test('PAID transaction shows badge «Выплачено»', async ({ asJunior: page }) => {
+    await mockJuniorProjectsAndLegend(page)
+
+    await page.goto('/crm/project')
+    const card = page.getByTestId('salary-snapshot-card')
+    await expect(card).toBeVisible()
+
+    const txList = card.getByTestId('salary-tx-list')
+    await expect(txList).toBeVisible()
+
+    // At least one «Выплачено» badge for PAID tx
+    const paidBadges = txList.getByText('Выплачено')
+    await expect(paidBadges.first()).toBeVisible()
+  })
+
+  test('VALIDATED transaction also shows badge «Выплачено»', async ({ asJunior: page }) => {
+    await mockJuniorProjectsAndLegend(page)
+
+    await page.goto('/crm/project')
+    const card = page.getByTestId('salary-snapshot-card')
+    await expect(card).toBeVisible()
+
+    const txList = card.getByTestId('salary-tx-list')
+    // PAID + VALIDATED → 2 «Выплачено» badges
+    const paidBadges = txList.getByText('Выплачено')
+    await expect(paidBadges).toHaveCount(2)
+  })
+
+  test('PENDING transaction shows badge «Ожидание»', async ({ asJunior: page }) => {
+    await mockJuniorProjectsAndLegend(page)
+
+    await page.goto('/crm/project')
+    const card = page.getByTestId('salary-snapshot-card')
+    await expect(card).toBeVisible()
+
+    const txList = card.getByTestId('salary-tx-list')
+    await expect(txList.getByText('Ожидание').first()).toBeVisible()
+  })
+
+  test('shows max 3 last transactions', async ({ asJunior: page }) => {
+    await mockJuniorProjectsAndLegend(page)
+
+    await page.goto('/crm/project')
+    const card = page.getByTestId('salary-snapshot-card')
+    await expect(card).toBeVisible()
+
+    const txRows = card.getByTestId('salary-tx-row')
+    // mockJuniorProjectsAndLegend returns 3 transactions; hook slices to 3
+    await expect(txRows).toHaveCount(3)
+  })
+
+  test('"Все мои выплаты" link visible and leads to /crm/finance', async ({ asJunior: page }) => {
+    await mockJuniorProjectsAndLegend(page)
+
+    await page.goto('/crm/project')
+    const card = page.getByTestId('salary-snapshot-card')
+    await expect(card.getByTestId('salary-all-link')).toBeVisible()
+    await expect(card.getByTestId('salary-all-link')).toHaveAttribute('href', '/crm/finance')
+  })
+
+  test('no-salary state when salary-meta returns null monthlySalary', async ({
+    asJunior: page,
+  }) => {
+    // Use opts.salaryMeta to override — avoids LIFO conflict
+    await mockJuniorProjectsAndLegend(page, {
+      salaryMeta: {
+        status: 200,
+        body: { monthlySalary: null, salaryCurrency: null, changedAt: null },
+      },
+    })
+
+    await page.goto('/crm/project')
+    const card = page.getByTestId('salary-snapshot-card')
+    await expect(card).toBeVisible()
+
+    await expect(card.getByTestId('salary-no-rate')).toBeVisible()
+    await expect(card.getByTestId('salary-no-rate')).toContainText('Ставка не назначена')
   })
 })
 
@@ -351,7 +606,7 @@ test.describe('AC2 — JUNIOR /crm/legend', () => {
     const block = page.getByTestId('legend-journal-block')
     await expect(block).toBeVisible()
 
-    // Existing entry
+    // Existing entry text
     await expect(block.getByTestId('legend-entry-item').first()).toBeVisible()
     const firstEntry = LEGEND_FIXTURE.entries[0]
     if (firstEntry) {
@@ -369,14 +624,11 @@ test.describe('AC2 — JUNIOR /crm/legend', () => {
     const block = page.getByTestId('legend-journal-block')
     await expect(block).toBeVisible()
 
-    // Open add form
     await block.getByTestId('legend-entry-add-btn').click()
     await expect(block.getByTestId('legend-entry-textarea')).toBeVisible()
 
-    // Type entry text
     await block.getByTestId('legend-entry-textarea').fill('Тестовий запис від JUNIOR')
 
-    // Submit
     await block.getByTestId('legend-entry-submit-btn').click()
 
     // Form should collapse (success path)
@@ -384,17 +636,178 @@ test.describe('AC2 — JUNIOR /crm/legend', () => {
   })
 
   test('SENIOR is redirected away from /crm/legend', async ({ asSenior: page }) => {
-    // SENIOR must not access the legend page — redirected to /crm/profile
     await page.goto('/crm/legend')
-    // Wait for redirect; the page must not show legend-page testid
     await expect(page.getByTestId('legend-page')).not.toBeVisible({ timeout: 3000 })
-    // Should land on profile or show no legend content
     await expect(page).not.toHaveURL('/crm/legend')
   })
 })
 
 // ---------------------------------------------------------------------------
-// AC3 — JUNIOR sidebar: exactly 5 nav items
+// AC6 — Legend persona UX: icon-only X in header, «Отмена» only in footer
+// ---------------------------------------------------------------------------
+
+test.describe('AC6 — Legend persona edit form UX', () => {
+  test('edit form has icon-only X cancel in header and text Отмена only in footer', async ({
+    asJunior: page,
+  }) => {
+    await mockJuniorProjectsAndLegend(page)
+
+    await page.goto('/crm/legend')
+    const block = page.getByTestId('legend-persona-block')
+    await expect(block).toBeVisible()
+
+    // Open edit form
+    await block.getByRole('button', { name: /Редактировать|Создать/ }).click()
+
+    // Header X cancel: aria-label "Отмена редактирования", icon-only (no visible text)
+    const headerCancel = block.getByTestId('persona-edit-cancel-icon')
+    await expect(headerCancel).toBeVisible()
+
+    // Footer «Отмена» button (exact text label — distinct from header aria-label "Отмена редактирования")
+    const footerCancel = block.getByRole('button', { name: 'Отмена', exact: true })
+    await expect(footerCancel).toBeVisible()
+
+    // Only ONE exact-text «Отмена» button — the footer one
+    await expect(block.getByRole('button', { name: 'Отмена', exact: true })).toHaveCount(1)
+  })
+
+  test('footer Отмена resets form and exits edit mode', async ({ asJunior: page }) => {
+    await mockJuniorProjectsAndLegend(page)
+
+    await page.goto('/crm/legend')
+    const block = page.getByTestId('legend-persona-block')
+
+    await block.getByRole('button', { name: /Редактировать|Создать/ }).click()
+
+    // Edit form is open — ФИО input should be visible
+    const fullNameInput = block.getByRole('textbox', { name: /ФИО/ })
+    await expect(fullNameInput).toBeVisible()
+    await fullNameInput.fill('Зміни які не зберегти')
+
+    await block.getByRole('button', { name: 'Отмена', exact: true }).click()
+
+    // Edit form collapses
+    await expect(fullNameInput).not.toBeVisible({ timeout: 2000 })
+  })
+
+  test('header X cancel also exits edit mode without saving', async ({ asJunior: page }) => {
+    await mockJuniorProjectsAndLegend(page)
+
+    await page.goto('/crm/legend')
+    const block = page.getByTestId('legend-persona-block')
+
+    await block.getByRole('button', { name: /Редактировать|Створити|Создать/ }).click()
+
+    const fullNameInput = block.getByRole('textbox', { name: /ФИО/ })
+    await expect(fullNameInput).toBeVisible()
+
+    // Click the icon-only X in the header
+    await block.getByTestId('persona-edit-cancel-icon').click()
+
+    await expect(fullNameInput).not.toBeVisible({ timeout: 2000 })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC7 — Legend: DatePickerField in persona form and journal form
+// ---------------------------------------------------------------------------
+
+test.describe('AC7 — DatePickerField in legend forms', () => {
+  test('persona edit form has DatePickerField for Дата рождения', async ({ asJunior: page }) => {
+    // Use legend with no dateOfBirth so DatePickerField shows placeholder text
+    const legendNoDob = { ...LEGEND_FIXTURE, dateOfBirth: null }
+    await mockJuniorProjectsAndLegend(page, { legend: legendNoDob })
+
+    await page.goto('/crm/legend')
+    const block = page.getByTestId('legend-persona-block')
+    await expect(block).toBeVisible()
+
+    await block.getByRole('button', { name: /Редактировать|Создать/ }).click()
+
+    // DatePickerField renders as a button; placeholder shows when no date is set
+    const datePickerBtn = block.getByRole('button', { name: /Выберите дату рождения/i })
+    await expect(datePickerBtn).toBeVisible()
+  })
+
+  test('journal add form has DatePickerField for event date (default empty)', async ({
+    asJunior: page,
+  }) => {
+    await mockJuniorProjectsAndLegend(page)
+
+    await page.goto('/crm/legend')
+    const block = page.getByTestId('legend-journal-block')
+    await expect(block).toBeVisible()
+
+    await block.getByTestId('legend-entry-add-btn').click()
+
+    // DatePickerField for event date
+    const eventDateBtn = block.getByRole('button', { name: /Выберите дату события/i })
+    await expect(eventDateBtn).toBeVisible()
+  })
+
+  test('journal entry item shows eventDate when provided (not createdAt)', async ({
+    asJunior: page,
+  }) => {
+    // Override legend via opts.legend — single handler, no LIFO conflicts
+    const legendWithEventDate = {
+      ...LEGEND_FIXTURE,
+      entries: [
+        {
+          ...LEGEND_FIXTURE.entries[0]!,
+          eventDate: '2026-01-15',
+          // createdAt is different to confirm we display eventDate, not createdAt
+          createdAt: '2026-01-20T00:00:00.000Z',
+        },
+      ],
+    }
+
+    await mockJuniorProjectsAndLegend(page, { legend: legendWithEventDate })
+
+    await page.goto('/crm/legend')
+    const block = page.getByTestId('legend-journal-block')
+    await expect(block).toBeVisible()
+
+    const entryItem = block.getByTestId('legend-entry-item').first()
+    await expect(entryItem).toBeVisible()
+    // eventDate 2026-01-15 → displayed as "15.01.2026" (ru-RU locale)
+    await expect(entryItem).toContainText('15.01.2026')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC8 (RBAC UI) — JUNIOR gets no defaults prefill in persona form
+// ---------------------------------------------------------------------------
+
+test.describe('AC8 — JUNIOR legend persona form has no prefill (defaults=null)', () => {
+  test('JUNIOR edit form fields are empty (no defaults leaked)', async ({ asJunior: page }) => {
+    // Legend with no fullName/address and defaults=null — as API returns for JUNIOR viewer
+    const emptyLegend = {
+      ...LEGEND_FIXTURE,
+      fullName: null,
+      address: null,
+      defaults: null,
+    }
+    await mockJuniorProjectsAndLegend(page, { legend: emptyLegend })
+
+    await page.goto('/crm/legend')
+    const block = page.getByTestId('legend-persona-block')
+    await expect(block).toBeVisible()
+
+    await block.getByRole('button', { name: /Создать|Редактировать/ }).click()
+
+    // ФИО field must be empty (no prefill from real senior identity)
+    const fullNameInput = block.getByRole('textbox', { name: /ФИО/ })
+    await expect(fullNameInput).toBeVisible()
+    await expect(fullNameInput).toHaveValue('')
+
+    // Address field must be empty
+    const addressInput = block.getByRole('textbox', { name: /Адрес/i })
+    await expect(addressInput).toHaveValue('')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC3 — JUNIOR sidebar nav
 // ---------------------------------------------------------------------------
 
 test.describe('AC3 — JUNIOR sidebar nav', () => {
@@ -407,7 +820,6 @@ test.describe('AC3 — JUNIOR sidebar nav', () => {
     const nav = page.getByTestId('junior-nav')
     await expect(nav).toBeVisible()
 
-    // Count nav links inside the junior nav element
     const navLinks = nav.getByRole('link')
     await expect(navLinks).toHaveCount(5)
   })
@@ -448,10 +860,8 @@ test.describe('AC3 — JUNIOR sidebar nav', () => {
   }) => {
     await page.goto('/crm/team')
 
-    // ADMIN nav does NOT have the junior-nav testid
     await expect(page.getByTestId('junior-nav')).not.toBeVisible()
 
-    // ADMIN sees sections JUNIOR does not
     await expect(page.getByRole('link', { name: 'Команда' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Проекты' })).toBeVisible()
   })
@@ -459,7 +869,6 @@ test.describe('AC3 — JUNIOR sidebar nav', () => {
   test('Regression — SENIOR nav is unaffected', async ({ asSenior: page }) => {
     await page.goto('/crm/profile')
 
-    // SENIOR has no junior-nav
     await expect(page.getByTestId('junior-nav')).not.toBeVisible()
   })
 })
