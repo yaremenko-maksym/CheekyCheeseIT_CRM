@@ -14,9 +14,23 @@ test.describe('Interviews (Kanban) page', () => {
   // -------------------------------------------------------------------------
 
   test.describe('Access control', () => {
-    test('JUNIOR sees "Нет доступа" message', async ({ asJunior: page }) => {
+    test('JUNIOR on /crm/interviews → redirected to /crm/project (route-guard PR #184)', async ({
+      asJunior: page,
+    }) => {
+      // PR #184 replaced the in-page «Нет доступа к разделу» panel with a
+      // declarative beforeLoad redirect in CrmLayout. JUNIOR is not in the
+      // allowed roles for /crm/interviews → guard redirects to /crm/project.
+      await page.route(/\/api\/projects(\?.*)?$/, (r) => {
+        if (r.request().method() !== 'GET') return r.fallback()
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([]),
+        })
+      })
       await page.goto('/crm/interviews')
-      await expect(page.getByText(/нет доступа к разделу/i)).toBeVisible()
+      await expect(page).toHaveURL('/crm/project', { timeout: 8000 })
+      await expect(page).not.toHaveURL('/crm/interviews')
     })
 
     test('SENIOR sees kanban board', async ({ asSenior: page }) => {

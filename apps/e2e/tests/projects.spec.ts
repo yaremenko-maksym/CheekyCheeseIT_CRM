@@ -450,13 +450,25 @@ test.describe('Projects page', () => {
       await expect(page.getByText('Архив пуст')).toBeVisible()
     })
 
-    test('JUNIOR sees projects but no management controls', async ({ asJunior: page }) => {
+    test('JUNIOR on /crm/projects → redirected to /crm/project (route-guard PR #184)', async ({
+      asJunior: page,
+    }) => {
+      // PR #184 introduced a declarative route-guard in CrmLayout: JUNIOR is
+      // not in the allowed roles for /crm/projects, so the guard fires a
+      // beforeLoad redirect to the JUNIOR role-home (/crm/project) before
+      // the projects page ever renders. The old behaviour (JUNIOR saw the
+      // list with management controls hidden) is replaced by a hard redirect.
+      await page.route(/\/api\/projects(\?.*)?$/, (r) => {
+        if (r.request().method() !== 'GET') return r.fallback()
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([]),
+        })
+      })
       await page.goto('/crm/projects')
-      await expect(page.getByText('AI Platform v2')).toBeVisible()
-      await expect(page.getByRole('button', { name: /новый проект/i })).not.toBeVisible()
-      // ut-27 (PR 34 round 1): inline archive icon is gone from cards; the
-      // «Архив» tab itself is admin-only and not rendered for JUNIOR.
-      await expect(page.getByTestId('toggle-archived-projects')).not.toBeVisible()
+      await expect(page).toHaveURL('/crm/project', { timeout: 8000 })
+      await expect(page).not.toHaveURL('/crm/projects')
     })
   })
 })
