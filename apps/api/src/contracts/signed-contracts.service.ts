@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { randomBytes } from 'crypto'
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq, isNull } from 'drizzle-orm'
 import type { InterpolatableVariableKey, SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { signedContracts, type User } from '../database/schema'
@@ -143,6 +143,10 @@ export class SignedContractsService {
           signedUserAgent: userAgent,
           signedAt,
           contractNumber,
+          // task-junior-ut-round2 §7: pdfSizeBytes is left NULL here and lazily
+          // filled on first PDF download (recordPdfSize) — the PDF's verifyUrl
+          // embeds the row id, which is only known after this insert. Computing
+          // it now with a placeholder URL would produce a slightly-off size.
         })
         .returning()
 
@@ -194,6 +198,21 @@ export class SignedContractsService {
       signedAt: new Date(row.signedAt),
       verifyUrl: `${frontendUrl}/contract/v/${row.id}`,
     }
+  }
+
+  /**
+   * task-junior-ut-round2 §7: lazily persist the real PDF size after the first
+   * render. Idempotent and best-effort — only writes when the column is still
+   * NULL, so we don't churn the row on every download. A write failure must not
+   * break the download, so callers wrap this in a try/catch (or ignore the
+   * returned promise rejection).
+   */
+  async recordPdfSizeIfAbsent(id: string, sizeBytes: number): Promise<void> {
+    if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) return
+    await this.db.db
+      .update(signedContracts)
+      .set({ pdfSizeBytes: sizeBytes })
+      .where(and(eq(signedContracts.id, id), isNull(signedContracts.pdfSizeBytes)))
   }
 }
 
