@@ -1,40 +1,87 @@
 {
-  "feature": "Onboarding flow + редактируемые шаблоны контрактов (Phase 6)",
-  "brief": ".claude/briefs/onboarding-brief.md",
+  "feature": "Junior UX refactor COMPLETE (phases 1-3). Next per roadmap: drop role, then accountant (specs approved in docs/architecture).",
+  "brief": "docs/architecture/2026-06-10-junior-ux-refactor-design.md",
   "started_at": "2026-06-03T00:00:00Z",
   "phase": "development",
-  "active": [
-    {
-      "id": "task-onboarding-6a-data-backend",
-      "file": ".claude/tasks/task-onboarding-6a-data-backend.md",
-      "agent": "coder",
-      "branch": "feature/onboarding-data-backend",
-      "pr_number": null,
-      "status": "pending_dispatch",
-      "started_at": "2026-06-03T00:00:00Z",
-      "review_rounds": 0,
-      "max_review_rounds": 5,
-      "agent_invocations": { "coder": 0, "reviewer": 0, "autotest": 0, "devops": 0 },
-      "events": [
-        {
-          "at": "2026-06-03T00:00:00Z",
-          "type": "brief_approved",
-          "brief": ".claude/briefs/onboarding-brief.md"
-        },
-        {
-          "at": "2026-06-03T00:00:00Z",
-          "type": "task_file_created",
-          "file": ".claude/tasks/task-onboarding-6a-data-backend.md"
-        }
-      ],
-      "pending_fixes": [],
-      "notes": "Phase 6A. Next phases: 6B (UI+gate), 6C (admin editor), 6D (invoice contract_number)."
-    }
-  ],
+  "active": [],
   "completed": [
     {
       "id": "legacy-may-2026-batch",
       "note": "stale state — previous PM feature was Teams UI/E2E. See git log for merged PRs."
+    },
+    {
+      "id": "task-onboarding-6a-data-backend",
+      "note": "stale pending_dispatch — Phase 6 shipped long ago via other PRs; archived 2026-06-11T07:04:29Z"
+    },
+    {
+      "id": "task-pr167-live-fixes",
+      "pr_number": 167,
+      "merged_at": "2026-06-11T12:48:19Z",
+      "agent_invocations": {
+        "coder": 0,
+        "code_reviewer": 0,
+        "security_reviewer": 0,
+        "autotest": 0,
+        "devops": 0,
+        "legal": 0
+      },
+      "rounds": 0
+    },
+    {
+      "id": "task-junior-ux-1-backend",
+      "pr_number": 171,
+      "merged_at": "2026-06-11T12:48:19Z",
+      "agent_invocations": {
+        "coder": 1,
+        "code_reviewer": 0,
+        "security_reviewer": 0,
+        "autotest": 0,
+        "devops": 0,
+        "legal": 0
+      },
+      "rounds": 0
+    },
+    {
+      "id": "task-junior-ux-design",
+      "pr_number": 170,
+      "merged_at": "2026-06-11T12:48:19Z",
+      "agent_invocations": {},
+      "rounds": 0
+    },
+    {
+      "id": "task-tooling-light-track",
+      "pr_number": 168,
+      "merged_at": "2026-06-11T12:48:19Z",
+      "agent_invocations": {},
+      "rounds": 0
+    },
+    {
+      "id": "task-junior-ux-2-hub",
+      "pr_number": 172,
+      "merged_at": "2026-06-11T20:11:25Z",
+      "agent_invocations": {
+        "coder": 3,
+        "code_reviewer": 1,
+        "security_reviewer": 1,
+        "autotest": 1,
+        "devops": 0,
+        "legal": 0
+      },
+      "rounds": 1
+    },
+    {
+      "id": "task-junior-ux-3-cleanup",
+      "pr_number": 174,
+      "merged_at": "2026-06-12T05:39:55Z",
+      "agent_invocations": {
+        "coder": 1,
+        "code_reviewer": 1,
+        "security_reviewer": 1,
+        "autotest": 1,
+        "devops": 0,
+        "legal": 0
+      },
+      "rounds": 1
     }
   ],
   "blocked": [],
