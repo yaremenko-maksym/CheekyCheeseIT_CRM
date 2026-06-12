@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
-import { and, asc, eq, isNull } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
 import type {
   CreateCredentialDto,
   ProjectCredential,
@@ -280,6 +280,198 @@ export class CredentialsService {
     if (!row) throw new NotFoundException('Запись не найдена')
 
     return { password: this.crypto.decrypt(row.ciphertext) }
+  }
+
+  // ── User-scoped surface (task-junior-ut-round2 §6) ──────────────────────────
+  //
+  // Credentials of a JUNIOR's projects, viewed from that JUNIOR's profile by
+  // ADMIN / HR. This is a DIFFERENT relationship from the project-page RBAC:
+  //   viewer = ADMIN || (HR sharing an active team with the SENIOR of a project
+  //            where the target JUNIOR is an active member)
+  //   target = a JUNIOR user
+  // The JUNIOR themselves does NOT use this surface (they have the hub). SENIOR /
+  // ACCOUNTANT / DROP and unrelated HR → 403. Plaintext is never returned in the
+  // list — only the reveal endpoint, gated by the same check.
+
+  /**
+   * Asserts the viewer may see the target user's project credentials from the
+   * profile surface, and returns the set of project ids that gate the data.
+   * Throws ForbiddenException (no access) — never leaks whether the user exists.
+   */
+  private async assertUserCredentialsAccess(
+    viewer: SessionUser,
+    targetUserId: string,
+  ): Promise<string[]> {
+    // Active projects the target JUNIOR belongs to.
+    const memberships = await this.db.db
+      .select({ projectId: projectMembers.projectId, seniorId: projects.seniorId })
+      .from(projectMembers)
+      .innerJoin(projects, eq(projectMembers.projectId, projects.id))
+      .where(and(eq(projectMembers.userId, targetUserId), isNull(projectMembers.leftAt)))
+
+    if (viewer.role === 'ADMIN') {
+      return memberships.map((m) => m.projectId)
+    }
+
+    if (viewer.role === 'HR') {
+      // HR sees the credentials only for those of the target's projects whose
+      // SENIOR shares an active team with this HR.
+      const allowedProjectIds: string[] = []
+      for (const m of memberships) {
+        if (!m.seniorId) continue
+        if (await this.hrAccess.hrSharesActiveTeamWith(viewer.id, m.seniorId)) {
+          allowedProjectIds.push(m.projectId)
+        }
+      }
+      if (allowedProjectIds.length === 0) {
+        throw new ForbiddenException('Нет доступа к паролям пользователя')
+      }
+      return allowedProjectIds
+    }
+
+    // SENIOR, DROP, ACCOUNTANT, JUNIOR (incl. self) and anything else.
+    throw new ForbiddenException('Нет доступа к паролям пользователя')
+  }
+
+  /**
+   * List the target user's project credentials (across the viewer-allowed
+   * projects). NEVER selects password_ciphertext (same projection as `list`).
+   */
+  async listForUser(viewer: SessionUser, targetUserId: string): Promise<ProjectCredential[]> {
+    const projectIds = await this.assertUserCredentialsAccess(viewer, targetUserId)
+    if (projectIds.length === 0) return []
+
+    const rows = await this.db.db
+      .select({
+        id: projectCredentials.id,
+        projectId: projectCredentials.projectId,
+        label: projectCredentials.label,
+        login: projectCredentials.login,
+        url: projectCredentials.url,
+        notes: projectCredentials.notes,
+        createdAt: projectCredentials.createdAt,
+        updatedAt: projectCredentials.updatedAt,
+      })
+      .from(projectCredentials)
+      .where(inArray(projectCredentials.projectId, projectIds))
+      .orderBy(asc(projectCredentials.createdAt))
+
+    return rows.map((r) =>
+      projectCredentialSchema.parse({
+        id: r.id,
+        projectId: r.projectId,
+        label: r.label,
+        login: r.login ?? null,
+        url: r.url ?? null,
+        notes: r.notes ?? null,
+        createdAt: r.createdAt.toISOString(),
+        updatedAt: r.updatedAt.toISOString(),
+      }),
+    )
+  }
+
+  /**
+   * Reveal one of the target user's credentials. Same gate as listForUser; the
+   * credential MUST belong to one of the viewer-allowed projects (prevents IDOR
+   * across users / projects).
+   */
+  async revealForUser(
+    viewer: SessionUser,
+    targetUserId: string,
+    credentialId: string,
+  ): Promise<{ password: string }> {
+    const projectIds = await this.assertUserCredentialsAccess(viewer, targetUserId)
+    if (projectIds.length === 0) throw new NotFoundException('Запись не найдена')
+
+    const rows = await this.db.db
+      .select({ ciphertext: projectCredentials.passwordCiphertext })
+      .from(projectCredentials)
+      .where(
+        and(
+          eq(projectCredentials.id, credentialId),
+          inArray(projectCredentials.projectId, projectIds),
+        ),
+      )
+      .limit(1)
+
+    const row = rows[0]
+    if (!row) throw new NotFoundException('Запись не найдена')
+
+    return { password: this.crypto.decrypt(row.ciphertext) }
+  }
+
+  /**
+   * Update one of the target user's credentials from the profile surface.
+   * ADMIN / HR (same gate). The credential must belong to a viewer-allowed
+   * project. JUNIOR can never reach this (assertUserCredentialsAccess → 403).
+   */
+  async updateForUser(
+    viewer: SessionUser,
+    targetUserId: string,
+    credentialId: string,
+    dto: UpdateCredentialDto,
+  ): Promise<ProjectCredential> {
+    const projectIds = await this.assertUserCredentialsAccess(viewer, targetUserId)
+    if (projectIds.length === 0) throw new NotFoundException('Запись не найдена')
+
+    // Confirm the credential is in an allowed project before mutating (IDOR guard).
+    const owned = await this.db.db
+      .select({ id: projectCredentials.id })
+      .from(projectCredentials)
+      .where(
+        and(
+          eq(projectCredentials.id, credentialId),
+          inArray(projectCredentials.projectId, projectIds),
+        ),
+      )
+      .limit(1)
+    if (!owned[0]) throw new NotFoundException('Запись не найдена')
+
+    const patch: {
+      label?: string
+      login?: string | null
+      url?: string | null
+      notes?: string | null
+      passwordCiphertext?: string
+      updatedAt: Date
+    } = { updatedAt: new Date() }
+
+    if (dto.label !== undefined) patch.label = dto.label
+    if (dto.login !== undefined) patch.login = dto.login ?? null
+    if (dto.url !== undefined) patch.url = dto.url ?? null
+    if (dto.notes !== undefined) patch.notes = dto.notes ?? null
+    if (dto.password !== undefined && dto.password.length > 0) {
+      patch.passwordCiphertext = this.crypto.encrypt(dto.password)
+    }
+
+    const rows = await this.db.db
+      .update(projectCredentials)
+      .set(patch)
+      .where(eq(projectCredentials.id, credentialId))
+      .returning({
+        id: projectCredentials.id,
+        projectId: projectCredentials.projectId,
+        label: projectCredentials.label,
+        login: projectCredentials.login,
+        url: projectCredentials.url,
+        notes: projectCredentials.notes,
+        createdAt: projectCredentials.createdAt,
+        updatedAt: projectCredentials.updatedAt,
+      })
+
+    const row = rows[0]
+    if (!row) throw new NotFoundException('Запись не найдена')
+
+    return projectCredentialSchema.parse({
+      id: row.id,
+      projectId: row.projectId,
+      label: row.label,
+      login: row.login ?? null,
+      url: row.url ?? null,
+      notes: row.notes ?? null,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    })
   }
 
   /**

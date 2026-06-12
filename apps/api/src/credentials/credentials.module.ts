@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { DatabaseModule } from '../database/database.module'
 import { CredentialsController } from './credentials.controller'
+import { UserCredentialsController } from './user-credentials.controller'
 import { CredentialsCryptoService } from './credentials-crypto.service'
 import { CredentialsService } from './credentials.service'
 
@@ -8,7 +9,7 @@ import { CredentialsService } from './credentials.service'
 // @Global DatabaseModule. CredentialsCryptoService is local to this module.
 @Module({
   imports: [DatabaseModule],
-  controllers: [CredentialsController],
+  controllers: [CredentialsController, UserCredentialsController],
   providers: [CredentialsService, CredentialsCryptoService],
   exports: [CredentialsService],
 })
