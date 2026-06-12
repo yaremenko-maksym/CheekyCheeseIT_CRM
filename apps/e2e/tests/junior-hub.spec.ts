@@ -1,21 +1,21 @@
 /**
- * junior-hub.spec.ts — PR #177 update: contract/salary hooks now use new endpoints.
- *
- * Changes vs previous version:
- *   - Contract mock: /contracts/me → /contracts/me/status ({id,status})
- *   - Salary meta mock: added GET /api/users/me/salary-meta
- *   - Contract card: AC1 — SIGNED badge, READY_TO_SIGN CTA, no-contract, error-state
- *   - Salary block: AC3 — rate+currency, changedAt, last-3-txs, PAID|VALIDATED→"Выплачено"
+ * junior-hub.spec.ts — PR #177: contract/salary hooks now use new endpoints.
  *
  * Covers:
- *   AC1 — JUNIOR hub contract card uses /contracts/me/status; SIGNED→badge «Подписан»;
- *          READY_TO_SIGN→badge + CTA; no contract→«Контракт не оформлен»;
- *          error-state ≠ «Контракт не оформлен».
- *   AC3 — Salary block: rate+currency, changedAt line, last-3 txs; PAID+VALIDATED→«Выплачено».
- *   Hub/nav/persona: unchanged regression coverage.
+ *   AC1 — ContractStatusCard uses /contracts/me/status; SIGNED→«Подписан»;
+ *          READY_TO_SIGN→badge + CTA; 404→«Контракт не оформлен»;
+ *          500 error ≠ «Контракт не оформлен».
+ *   AC3 — SalarySnapshotCard: rate+currency from salary-meta, changedAt line,
+ *          last-3 txs from /transactions?type=SALARY; PAID+VALIDATED→«Выплачено».
+ *   AC6 — Legend persona edit: icon-only X cancel in header (testid persona-edit-cancel-icon),
+ *          text «Отмена» ONLY in footer.
+ *   AC7 — DatePickerField for dateOfBirth (persona form) and eventDate (journal form);
+ *          journal entries display eventDate when present.
+ *   AC8 — JUNIOR defaults=null → form has no prefill; ADMIN/HR get defaults.
+ *   Hub/nav/persona: regression coverage (unchanged).
  *
- * All tests are mock-based (no live server required).
- * Pattern: role-fixtures + per-test route.fulfill() overrides.
+ * All tests are mock-based. Pattern: role-fixtures + per-test route.fulfill() overrides.
+ * Fixtures must satisfy Zod schemas exactly (z.string().uuid() etc.).
  */
 
 import { test, expect, USERS, PROJECTS } from './fixtures'
