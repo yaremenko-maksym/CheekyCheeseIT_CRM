@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Role } from './route-access'
-import { isRouteAllowed, navRolesFor, resolveRoleHome } from './route-access'
+import { isRouteAllowed, navRolesFor, resolveRoleHome, resolveRouteAccess } from './route-access'
 
 const ALL: Role[] = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
 
@@ -160,4 +160,74 @@ describe('route-access · navRolesFor (nav sync source-of-truth)', () => {
   it('throws for nav route missing from the map (drift guard)', () => {
     expect(() => navRolesFor('/crm/does-not-exist')).toThrow(/no access entry/)
   })
+})
+
+// ── LOW-7: ROUTE_ACCESS coverage invariant ──────────────────────────────────
+// Client guard is default-ALLOW for routes with no ROUTE_ACCESS entry
+// (resolveRouteAccess → null → isRouteAllowed → true). That fail-open is fine for
+// service paths (/crm/login, root index) but DANGEROUS for a real CRM section: a
+// forgotten map entry silently exposes the page to every role. This invariant
+// enumerates every route FILE under routes/crm/** and asserts each navigable
+// route is mapped — so a new page without a ROUTE_ACCESS entry turns RED here
+// instead of shipping a silent fail-open.
+describe('route-access · ROUTE_ACCESS coverage invariant (no silent fail-open)', () => {
+  // Enumerate route modules at build time (Vite glob). Keys are absolute-ish
+  // module paths under app/routes/crm.
+  const routeFiles = Object.keys(import.meta.glob('../routes/crm/**/*.{ts,tsx}', { eager: false }))
+
+  // Files that legitimately do NOT need a ROUTE_ACCESS entry:
+  //  - `route.tsx`      → pathless layout wrapper, not a navigable leaf
+  //  - `index.tsx` at the crm root → `/crm` redirect shell (fail-open by design)
+  //  - non-route modules colocated under routes/ (api/constants/hooks/sort/
+  //    components/__tests__) — not navigable routes
+  const isExempt = (rel: string): boolean => {
+    if (rel.endsWith('/route.tsx')) return true
+    if (rel === 'crm/index.tsx') return true // /crm root redirect shell
+    if (/\/(components|__tests__)\//.test(rel)) return true
+    if (/\.(spec|test)\.tsx?$/.test(rel)) return true
+    // Colocated non-route helpers (finance/api.ts, interviews/constants.ts, …).
+    if (/\/(api|constants|sort|hooks)\.(ts|tsx)$/.test(rel)) return true
+    if (rel.endsWith('.ts') && !rel.endsWith('index.ts')) return true
+    return false
+  }
+
+  /**
+   * Translate a TanStack file-based route path into a representative URL the
+   * guard would see. We only need the TOP-LEVEL section to assert prefix
+   * coverage, so dynamic/flat segments collapse to a concrete-ish sample.
+   *   crm/dashboard.tsx                       → /crm/dashboard
+   *   crm/projects/$projectId.tsx             → /crm/projects/sample
+   *   crm/admin/templates/contracts.index.tsx → /crm/admin/templates/contracts
+   *   crm/payments/initiate.$incomeId.tsx     → /crm/payments/initiate/sample
+   */
+  const toPathname = (rel: string): string => {
+    let p = rel.replace(/\.tsx?$/, '')
+    p = p.replace(/\/index$/, '') // index → parent dir
+    // flat-route dots → path separators (contracts.index, initiate.$incomeId)
+    p = p.replace(/\./g, '/').replace(/\/index$/, '')
+    // dynamic params → a concrete sample segment
+    p = p.replace(/\$[^/]+/g, 'sample')
+    return `/${p}`
+  }
+
+  const navigableRoutes = routeFiles
+    .map((f) => f.replace(/^\.\.\/routes\//, '')) // → crm/dashboard.tsx
+    .filter((rel) => !isExempt(rel))
+
+  it('discovers a non-trivial set of crm route files (glob sanity)', () => {
+    // Guard against the glob silently matching nothing (which would make the
+    // whole invariant vacuously pass).
+    expect(navigableRoutes.length).toBeGreaterThanOrEqual(10)
+  })
+
+  for (const rel of navigableRoutes) {
+    const pathname = toPathname(rel)
+    it(`route ${rel} (${pathname}) has a ROUTE_ACCESS entry`, () => {
+      expect(
+        resolveRouteAccess(pathname),
+        `No ROUTE_ACCESS entry covers "${pathname}" (file routes/${rel}). ` +
+          `Add a { prefix, roles } entry to ROUTE_ACCESS or mark the file exempt.`,
+      ).not.toBeNull()
+    })
+  }
 })

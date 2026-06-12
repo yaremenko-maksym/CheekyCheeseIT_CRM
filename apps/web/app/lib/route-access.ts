@@ -86,8 +86,12 @@ export function resolveRoleHome(role: Role): string {
  * Найти роли, которым доступен путь, по longest-prefix match.
  * Возвращает `null`, если путь не покрыт картой (тогда guard его не трогает —
  * fail-open для незакартированных служебных путей; новые разделы добавлять сюда).
+ *
+ * Экспортируется для coverage-инварианта (route-access.spec.ts): тест проверяет,
+ * что каждый файл-роут под routes/crm/** имеет запись в ROUTE_ACCESS, иначе
+ * забытая запись = тихий fail-open (LOW-7). `null` в тесте = красный, а не зелёный.
  */
-function resolveRouteAccess(pathname: string): readonly Role[] | null {
+export function resolveRouteAccess(pathname: string): readonly Role[] | null {
   let best: { prefix: string; roles: readonly Role[] } | null = null
   for (const entry of ROUTE_ACCESS) {
     const matches = pathname === entry.prefix || pathname.startsWith(`${entry.prefix}/`)
