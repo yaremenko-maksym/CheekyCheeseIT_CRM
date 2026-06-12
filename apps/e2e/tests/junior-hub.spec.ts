@@ -1,14 +1,21 @@
 /**
- * junior-hub.spec.ts — PR #177: contract/salary hooks now use new endpoints.
+ * junior-hub.spec.ts — PR #184 (junior UT round 2): bento hub, route guards,
+ * credentials visibility. Updated from PR #177 state.
  *
  * Covers:
  *   AC1 — ContractStatusCard uses /contracts/me/status; SIGNED→«Подписан»;
  *          READY_TO_SIGN→badge + CTA; 404→«Контракт не оформлен»;
  *          500 error ≠ «Контракт не оформлен».
+ *   AC2 (bento hub) — hub renders bento grid (junior-hub-bento testid);
+ *          QuickLinksBar removed from DOM; HR+credentials bottom row present.
  *   AC3 — SalarySnapshotCard: rate+currency from salary-meta, changedAt line,
  *          last-3 txs from /transactions?type=SALARY; PAID+VALIDATED→«Выплачено».
+ *   AC4 (route guards) — JUNIOR по прямому URL на запрещённые роуты редиректит
+ *          на /crm/project; разрешённые открываются.
  *   AC6 — Legend persona edit: icon-only X cancel in header (testid persona-edit-cancel-icon),
  *          text «Отмена» ONLY in footer.
+ *   AC6 (credentials) — hub shows add-credential button (canAdd); ProfileCredentialsSection
+ *          visible to ADMIN/HR in junior profile, hidden for junior self-view.
  *   AC7 — DatePickerField for dateOfBirth (persona form) and eventDate (journal form);
  *          journal entries display eventDate when present.
  *   AC8 — JUNIOR defaults=null → form has no prefill; ADMIN/HR get defaults.
@@ -285,7 +292,8 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
     await expect(page.getByTestId('contract-status-card')).toBeVisible()
     await expect(page.getByTestId('salary-snapshot-card')).toBeVisible()
     await expect(page.getByTestId('hr-contact-card')).toBeVisible()
-    await expect(page.getByTestId('quick-links-bar')).toBeVisible()
+    // AC2: QuickLinksBar removed — quick-links-bar must NOT be in DOM
+    await expect(page.getByTestId('quick-links-bar')).toHaveCount(0)
   })
 
   test('project-info card shows company name, domain, status — no rate/currency', async ({
@@ -347,16 +355,21 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
     await expect(card.getByText(HR_CONTACT_FIXTURE.phone)).toBeVisible()
   })
 
-  test('quick links bar contains legend, documents, finance links', async ({ asJunior: page }) => {
+  test('AC2: bento grid present, quick-links-bar absent from DOM', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
     await page.goto('/crm/project')
-    await expect(page.getByTestId('quick-links-bar')).toBeVisible()
+    await expect(page.getByTestId('junior-hub')).toBeVisible()
 
-    const bar = page.getByTestId('quick-links-bar')
-    await expect(bar.getByTestId('quick-link-legend')).toBeVisible()
-    await expect(bar.getByText('Документы')).toBeVisible()
-    await expect(bar.getByText('Финансы')).toBeVisible()
+    // Bento grid container must be rendered
+    await expect(page.getByTestId('junior-hub-bento')).toBeVisible()
+
+    // HR+credentials bottom band present
+    await expect(page.getByTestId('junior-hub-hr-credentials-row')).toBeVisible()
+
+    // QuickLinksBar completely removed (PR #184 AC2)
+    await expect(page.getByTestId('quick-links-bar')).toHaveCount(0)
+    await expect(page.getByTestId('quick-link-legend')).toHaveCount(0)
   })
 
   test('empty-state shown when JUNIOR has no projects', async ({ asJunior: page }) => {
@@ -724,8 +737,9 @@ test.describe('AC7 — DatePickerField in legend forms', () => {
 
     await block.getByRole('button', { name: /Редактировать|Создать/ }).click()
 
-    // DatePickerField renders as a button; placeholder shows when no date is set
-    const datePickerBtn = block.getByRole('button', { name: /Выберите дату рождения/i })
+    // DatePickerField renders as a button with the field label when no date is set
+    // DOM snapshot shows: button "Дата рождения" (label text, not placeholder phrase)
+    const datePickerBtn = block.getByRole('button', { name: /Дата рождения/i })
     await expect(datePickerBtn).toBeVisible()
   })
 
@@ -870,5 +884,205 @@ test.describe('AC3 — JUNIOR sidebar nav', () => {
     await page.goto('/crm/profile')
 
     await expect(page.getByTestId('junior-nav')).not.toBeVisible()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC4 — Route guards: JUNIOR redirect on forbidden URLs (PR #184 §4)
+// ---------------------------------------------------------------------------
+
+test.describe('AC4 — Route guards — JUNIOR redirected from forbidden routes', () => {
+  // Forbidden routes for JUNIOR (not in ROUTE_ACCESS['JUNIOR'] list)
+  const forbiddenRoutes = ['/crm/projects', '/crm/team', '/crm/users', '/crm/stats']
+
+  for (const route of forbiddenRoutes) {
+    test(`JUNIOR on ${route} → redirected to /crm/project`, async ({ asJunior: page }) => {
+      // Need minimal mocks so the hub can render after redirect
+      await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) => {
+        if (r.request().method() !== 'GET') return r.fallback()
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([]),
+        })
+      })
+
+      await page.goto(route)
+
+      // After guard fires: URL changes to /crm/project (role home for JUNIOR)
+      await expect(page).toHaveURL('/crm/project', { timeout: 8000 })
+      // The forbidden page must not have rendered its content
+      await expect(page).not.toHaveURL(route)
+    })
+  }
+
+  // Allowed routes for JUNIOR — must open without redirect
+  const allowedRoutes = [
+    { path: '/crm/project', testid: 'junior-hub' },
+    { path: '/crm/legend', testid: 'legend-page' },
+  ]
+
+  for (const { path, testid } of allowedRoutes) {
+    test(`JUNIOR on ${path} → stays on page (not redirected)`, async ({ asJunior: page }) => {
+      await mockJuniorProjectsAndLegend(page)
+
+      await page.goto(path)
+
+      // Must stay on intended URL
+      await expect(page).toHaveURL(path, { timeout: 8000 })
+      await expect(page.getByTestId(testid)).toBeVisible()
+    })
+  }
+
+  test('JUNIOR on /crm/finance → stays on finance page (allowed)', async ({ asJunior: page }) => {
+    await mockJuniorProjectsAndLegend(page)
+
+    await page.goto('/crm/finance')
+
+    // Finance allowed for all roles — must not redirect to /crm/project
+    await expect(page).not.toHaveURL('/crm/project', { timeout: 5000 })
+    await expect(page).toHaveURL('/crm/finance')
+  })
+
+  test('JUNIOR on /crm/documents → stays on documents page (allowed)', async ({
+    asJunior: page,
+  }) => {
+    await mockJuniorProjectsAndLegend(page)
+
+    await page.goto('/crm/documents')
+
+    await expect(page).not.toHaveURL('/crm/project', { timeout: 5000 })
+    await expect(page).toHaveURL('/crm/documents')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC6 — Credentials: hub add-button visible; profile section RBAC (PR #184 §6)
+// ---------------------------------------------------------------------------
+
+const CRED_ID = 'e0000000-0000-4000-8000-000000000001'
+
+const CREDENTIAL_FIXTURE = {
+  id: CRED_ID,
+  projectId: 'a0000000-0000-4000-8000-000000000099',
+  label: 'Jira',
+  login: 'junior@company.com',
+  url: 'https://company.atlassian.net',
+  createdAt: '2024-01-15T00:00:00.000Z',
+}
+
+/** Mock /api/users/:userId/credentials (user-scoped for ProfileCredentialsSection) */
+async function mockUserCredentials(
+  page: import('@playwright/test').Page,
+  userId: string,
+  body: object[],
+  status = 200,
+) {
+  await page.route(new RegExp(`${API}/users/${userId}/credentials$`), (r) => {
+    if (r.request().method() !== 'GET') return r.fallback()
+    return r.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
+  })
+}
+
+test.describe('AC6 — Credentials visibility', () => {
+  test('JUNIOR hub has add-credential button (canAdd)', async ({ asJunior: page }) => {
+    await mockJuniorProjectsAndLegend(page)
+
+    await page.goto('/crm/project')
+    await expect(page.getByTestId('junior-hub-bento')).toBeVisible()
+
+    // ProjectCredentialsSection is rendered in the bottom band with canAdd=true
+    // The credentials section add button must be present in the hub
+    const credRow = page.getByTestId('junior-hub-hr-credentials-row')
+    await expect(credRow).toBeVisible()
+
+    // canAdd=true means the add button (add-credential-btn or similar) is rendered.
+    // We check the section is present and contains an actionable button.
+    const addBtn = credRow.getByRole('button', { name: /добавить|add/i })
+    await expect(addBtn).toBeVisible()
+  })
+
+  test('ADMIN viewing JUNIOR profile: profile-credentials-section visible', async ({
+    asAdmin: page,
+  }) => {
+    // LIFO: register AFTER mockAuthAs (called by asAdmin fixture) to win over the generic handler
+    await page.route(new RegExp(`${API}/users/${USERS.junior.id}$`), (r) => {
+      if (r.request().method() !== 'GET') return r.fallback()
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          user: { ...USERS.junior },
+          permissions: {
+            tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
+            actions: [
+              'edit-profile',
+              'change-role',
+              'change-salary',
+              'change-requisites',
+              'set-note',
+              'archive',
+            ],
+            fields: {
+              salary: true,
+              share: false,
+              paymentMethodKpi: true,
+              techStack: true,
+              registrationDate: true,
+              // ADMIN/HR can see junior credentials (PR #184 §6)
+              projectCredentials: true,
+            },
+          },
+          data: {},
+        }),
+      })
+    })
+
+    // Mock user-scoped credentials endpoint → returns a credential
+    await mockUserCredentials(page, USERS.junior.id, [CREDENTIAL_FIXTURE])
+
+    // Correct route: /crm/profile/$userId (not /crm/users/$userId)
+    await page.goto(`/crm/profile/${USERS.junior.id}`)
+
+    await expect(page.getByTestId('profile-credentials-section')).toBeVisible({ timeout: 8000 })
+  })
+
+  test('HR viewing JUNIOR profile: profile-credentials-section visible', async ({ asHr: page }) => {
+    await page.route(new RegExp(`${API}/users/${USERS.junior.id}$`), (r) => {
+      if (r.request().method() !== 'GET') return r.fallback()
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          user: { ...USERS.junior },
+          permissions: {
+            tabs: ['overview', 'projects', 'team'],
+            actions: [],
+            fields: {
+              techStack: true,
+              registrationDate: true,
+              projectCredentials: true,
+            },
+          },
+          data: {},
+        }),
+      })
+    })
+
+    await mockUserCredentials(page, USERS.junior.id, [CREDENTIAL_FIXTURE])
+
+    await page.goto(`/crm/profile/${USERS.junior.id}`)
+
+    await expect(page.getByTestId('profile-credentials-section')).toBeVisible({ timeout: 8000 })
+  })
+
+  test('JUNIOR self-view: profile-credentials-section NOT visible', async ({ asJunior: page }) => {
+    // Self-view does NOT include projectCredentials permission
+    // (the section is only for ADMIN/HR viewers of a junior)
+    await page.goto('/crm/profile')
+
+    // profile-credentials-section should NOT be rendered for self-view
+    // (permissions.fields.projectCredentials is absent/false in self-view DTO)
+    await expect(page.getByTestId('profile-credentials-section')).toHaveCount(0)
   })
 })
