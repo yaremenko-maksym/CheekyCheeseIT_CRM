@@ -17,24 +17,23 @@
  * Every test does `if (!dbAvailable) return` and stays green.
  */
 
-import { Global, Inject, Module } from '@nestjs/common'
 import { Pool } from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { eq, and, ne } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { DatabaseService } from '../database/database.service'
 import { EmployeeContractsService } from './employee-contracts.service'
 import { ContractTemplatesService } from './contract-templates.service'
-import { employeeContracts, users, contractTemplates } from '../database/schema'
+import { employeeContracts, users } from '../database/schema'
 import * as schema from '../database/schema'
 
 // ---------------------------------------------------------------------------
-// Template IDs from scratch-DB seed (crm_scratch_m6, stable after migration+seed)
-const TEMPLATE_JUNIOR_ID = '88c5cb95-5458-4555-88e7-ff6c0dca2c65'
-const TEMPLATE_SENIOR_ID = 'ee31a0eb-5f25-4283-8dad-650bdf06e76a'
-// ADMIN ID from scratch-DB seed (created_by_user_id FK for template insert not needed — using existing templates)
+// Template IDs are resolved dynamically from the target DB in beforeAll.
+// ADMIN ID from seed (stable across both crm_db and crm_scratch_m6)
 const SEED_ADMIN_ID = 'a8f4d3b1-c2e5-4a1f-9b3d-8c7e6f5a4b21'
+let TEMPLATE_JUNIOR_ID: string
+let TEMPLATE_SENIOR_ID: string
 
 // Test IDs — stable namespace c5db- (contract-status-realdb), valid hex UUIDs
 // ---------------------------------------------------------------------------
@@ -59,48 +58,29 @@ let _pool: Pool | null = null
 let ecSvc: EmployeeContractsService
 
 // ---------------------------------------------------------------------------
-// TestDatabaseModule — same pattern as legends.rbac.integration.spec.ts
-// ---------------------------------------------------------------------------
-@Global()
-@Module({
-  providers: [
-    {
-      provide: DatabaseService,
-      useFactory: (): DatabaseService => {
-        _pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-        const db = drizzle(_pool, { schema })
-        const instance = Object.create(DatabaseService.prototype) as DatabaseService
-        Object.assign(instance, { pool: _pool, db })
-        Object.defineProperty(instance, 'onModuleInit', {
-          value: () => Promise.resolve(),
-          writable: false,
-          enumerable: false,
-          configurable: true,
-        })
-        Object.defineProperty(instance, 'onModuleDestroy', {
-          value: () => _pool?.end() ?? Promise.resolve(),
-          writable: false,
-          enumerable: false,
-          configurable: true,
-        })
-        return instance
-      },
-    },
-  ],
-  exports: [DatabaseService],
-})
-class TestDbModule {}
-
-// ---------------------------------------------------------------------------
 // Suite
 // ---------------------------------------------------------------------------
 describe('EmployeeContractsService.getMyStatus — real DB (AC2)', () => {
   beforeAll(async () => {
-    // DB availability probe
+    // DB availability probe + resolve dynamic template IDs
     try {
       const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
       await probePool.query('SELECT 1')
+      // Resolve template IDs dynamically — they differ between crm_db and crm_scratch_m6
+      const juniorRow = await probePool.query<{ id: string }>(
+        `SELECT id FROM contract_templates WHERE target_role = 'JUNIOR' LIMIT 1`,
+      )
+      const seniorRow = await probePool.query<{ id: string }>(
+        `SELECT id FROM contract_templates WHERE target_role = 'SENIOR' LIMIT 1`,
+      )
       await probePool.end()
+      if (!juniorRow.rows[0] || !seniorRow.rows[0]) {
+        console.warn('[contract-status-realdb] SKIPPED — no contract templates found in DB')
+        dbAvailable = false
+        return
+      }
+      TEMPLATE_JUNIOR_ID = juniorRow.rows[0].id
+      TEMPLATE_SENIOR_ID = seniorRow.rows[0].id
     } catch {
       console.warn(
         '[contract-status-realdb] SKIPPED — no DB at DATABASE_URL (expected in CI unit job)',
