@@ -302,6 +302,14 @@ export class CredentialsService {
     viewer: SessionUser,
     targetUserId: string,
   ): Promise<string[]> {
+    // Role fast-path FIRST — roles that NEVER have access (SENIOR, DROP,
+    // ACCOUNTANT, JUNIOR incl. self, and anything else) get 403 BEFORE any DB
+    // read. This avoids leaking membership-shaped timing and keeps the cheap
+    // authorization decision ahead of the SELECT.
+    if (viewer.role !== 'ADMIN' && viewer.role !== 'HR') {
+      throw new ForbiddenException('Нет доступа к паролям пользователя')
+    }
+
     // Active projects the target JUNIOR belongs to.
     const memberships = await this.db.db
       .select({ projectId: projectMembers.projectId, seniorId: projects.seniorId })
@@ -313,24 +321,19 @@ export class CredentialsService {
       return memberships.map((m) => m.projectId)
     }
 
-    if (viewer.role === 'HR') {
-      // HR sees the credentials only for those of the target's projects whose
-      // SENIOR shares an active team with this HR.
-      const allowedProjectIds: string[] = []
-      for (const m of memberships) {
-        if (!m.seniorId) continue
-        if (await this.hrAccess.hrSharesActiveTeamWith(viewer.id, m.seniorId)) {
-          allowedProjectIds.push(m.projectId)
-        }
+    // viewer.role === 'HR': sees the credentials only for those of the target's
+    // projects whose SENIOR shares an active team with this HR.
+    const allowedProjectIds: string[] = []
+    for (const m of memberships) {
+      if (!m.seniorId) continue
+      if (await this.hrAccess.hrSharesActiveTeamWith(viewer.id, m.seniorId)) {
+        allowedProjectIds.push(m.projectId)
       }
-      if (allowedProjectIds.length === 0) {
-        throw new ForbiddenException('Нет доступа к паролям пользователя')
-      }
-      return allowedProjectIds
     }
-
-    // SENIOR, DROP, ACCOUNTANT, JUNIOR (incl. self) and anything else.
-    throw new ForbiddenException('Нет доступа к паролям пользователя')
+    if (allowedProjectIds.length === 0) {
+      throw new ForbiddenException('Нет доступа к паролям пользователя')
+    }
+    return allowedProjectIds
   }
 
   /**
@@ -444,10 +447,21 @@ export class CredentialsService {
       patch.passwordCiphertext = this.crypto.encrypt(dto.password)
     }
 
+    // TOCTOU-safe scoped UPDATE: re-assert the credential is inside the
+    // viewer-allowed projects in the WHERE clause itself (mirrors revealForUser
+    // :389-394). The `owned` pre-check above narrows error semantics, but the
+    // mutation MUST NOT trust it — a concurrent project-membership change between
+    // the SELECT and the UPDATE must not let plaintext be re-encrypted on a
+    // credential that drifted out of scope.
     const rows = await this.db.db
       .update(projectCredentials)
       .set(patch)
-      .where(eq(projectCredentials.id, credentialId))
+      .where(
+        and(
+          eq(projectCredentials.id, credentialId),
+          inArray(projectCredentials.projectId, projectIds),
+        ),
+      )
       .returning({
         id: projectCredentials.id,
         projectId: projectCredentials.projectId,

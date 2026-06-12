@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Global, Header, Inject, Module, Param, Patch } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Get,
+  Global,
+  Header,
+  Inject,
+  Module,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+} from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
 import { JwtModule, JwtService } from '@nestjs/jwt'
 import { Throttle, ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
@@ -10,7 +21,7 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { SessionUser } from '@crm/shared'
+import { updateCredentialSchema, type SessionUser } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
@@ -125,32 +136,65 @@ const ACCOUNTANT: SessionUser = {
   legalFullName: null,
 }
 
+/** Senior of Project B — a SEPARATE team, NOT shared with HR_X. */
+const S2: SessionUser = {
+  id: 'b1c2d3e4-0000-4000-bc00-000000000008',
+  email: 'usercred-s2@test.spec',
+  displayName: 'UserCred Senior2',
+  avatarUrl: null,
+  role: 'SENIOR',
+  seniorSharePercent: 26,
+  legalFullName: null,
+}
+
+/** JUNIOR member of Project B only — a DIFFERENT target than J1. */
+const J2: SessionUser = {
+  id: 'b1c2d3e4-0000-4000-bc00-000000000009',
+  email: 'usercred-j2@test.spec',
+  displayName: 'UserCred Junior2',
+  avatarUrl: null,
+  role: 'JUNIOR',
+  seniorSharePercent: 0,
+  legalFullName: null,
+}
+
 const PROJ_A_ID = 'b1c2d3e4-0000-4000-bd00-000000000010'
 const CRED_A_ID = 'b1c2d3e4-0000-4000-bd00-000000000020'
 const TEAM_X_ID = 'b1c2d3e4-0000-4000-bd00-000000000030'
 const TEAM_Y_ID = 'b1c2d3e4-0000-4000-bd00-000000000031'
 const PROJ_A_MEMBER_J1 = 'b1c2d3e4-0000-4000-bd00-000000000040'
 
-const TEST_USER_IDS = [S1.id, D1.id, J1.id, S1.id, HR_X.id, HR_Y.id, ACCOUNTANT.id, ADMIN.id]
+// Project B — J1 is NOT a member; its credential CRED_B is OUT of J1's scope.
+// Used for the cross-user IDOR regression (HIGH-1).
+const PROJ_B_ID = 'b1c2d3e4-0000-4000-bd00-000000000011'
+const CRED_B_ID = 'b1c2d3e4-0000-4000-bd00-000000000021'
+const TEAM_Z_ID = 'b1c2d3e4-0000-4000-bd00-000000000032'
+const PROJ_B_MEMBER_J2 = 'b1c2d3e4-0000-4000-bd00-000000000041'
+
+const TEST_USER_IDS = [S1.id, S2.id, D1.id, J1.id, J2.id, HR_X.id, HR_Y.id, ACCOUNTANT.id, ADMIN.id]
 const CREDENTIALS_SERVICE_TOKEN = 'USER_CREDENTIALS_SERVICE_TOKEN_RBAC'
 
+// Mirror the REAL UserCredentialsController exactly: ParseUUIDPipe on every
+// param + updateCredentialSchema.parse(body). Without these the param-validation
+// layer (400-on-malformed-uuid) and DTO validation were never exercised (MED-5).
 @Controller('users')
 class SentinelUserCredentialsController {
   constructor(@Inject(CREDENTIALS_SERVICE_TOKEN) private readonly svc: CredentialsService) {}
 
   @Get(':userId/credentials')
-  list(@CurrentUser() actor: SessionUser, @Param('userId') userId: string) {
+  list(@CurrentUser() actor: SessionUser, @Param('userId', ParseUUIDPipe) userId: string) {
     return this.svc.listForUser(actor, userId)
   }
 
   @Patch(':userId/credentials/:id')
   update(
     @CurrentUser() actor: SessionUser,
-    @Param('userId') userId: string,
-    @Param('id') id: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() body: unknown,
   ) {
-    return this.svc.updateForUser(actor, userId, id, body as never)
+    const dto = updateCredentialSchema.parse(body)
+    return this.svc.updateForUser(actor, userId, id, dto)
   }
 
   @Get(':userId/credentials/:id/reveal')
@@ -158,8 +202,8 @@ class SentinelUserCredentialsController {
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   reveal(
     @CurrentUser() actor: SessionUser,
-    @Param('userId') userId: string,
-    @Param('id') id: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.svc.revealForUser(actor, userId, id)
   }
@@ -274,7 +318,7 @@ describe('User-scoped credentials RBAC — real backend integration (§6)', () =
     await db
       .insert(users)
       .values(
-        [ADMIN, S1, D1, J1, HR_X, HR_Y, ACCOUNTANT].map((u) => ({
+        [ADMIN, S1, S2, D1, J1, J2, HR_X, HR_Y, ACCOUNTANT].map((u) => ({
           id: u.id,
           email: u.email,
           displayName: u.displayName,
@@ -298,12 +342,29 @@ describe('User-scoped credentials RBAC — real backend integration (§6)', () =
           currency: 'USDT',
           rate: '100',
         },
+        {
+          // Project B: senior S2 (separate team Z, NOT shared with HR_X).
+          // J1 is NOT a member here → CRED_B is outside J1's allowed scope.
+          id: PROJ_B_ID,
+          name: 'UserCred Project B',
+          companyName: 'Test Corp B',
+          domain: 'e-commerce',
+          startDate: new Date('2025-01-01'),
+          seniorId: S2.id,
+          dropId: null,
+          currency: 'USDT',
+          rate: '100',
+        },
       ])
       .onConflictDoNothing()
 
     await db
       .insert(projectMembers)
-      .values([{ id: PROJ_A_MEMBER_J1, projectId: PROJ_A_ID, userId: J1.id, joinedAt: new Date() }])
+      .values([
+        { id: PROJ_A_MEMBER_J1, projectId: PROJ_A_ID, userId: J1.id, joinedAt: new Date() },
+        // J2 is the member of Project B (not J1).
+        { id: PROJ_B_MEMBER_J2, projectId: PROJ_B_ID, userId: J2.id, joinedAt: new Date() },
+      ])
       .onConflictDoNothing()
 
     await db
@@ -311,6 +372,7 @@ describe('User-scoped credentials RBAC — real backend integration (§6)', () =
       .values([
         { id: TEAM_X_ID, name: 'UserCred Team X' },
         { id: TEAM_Y_ID, name: 'UserCred Team Y' },
+        { id: TEAM_Z_ID, name: 'UserCred Team Z' },
       ])
       .onConflictDoNothing()
 
@@ -320,24 +382,42 @@ describe('User-scoped credentials RBAC — real backend integration (§6)', () =
         { teamId: TEAM_X_ID, userId: HR_X.id, joinedAt: new Date() },
         { teamId: TEAM_X_ID, userId: S1.id, joinedAt: new Date() },
         { teamId: TEAM_Y_ID, userId: HR_Y.id, joinedAt: new Date() },
+        // S2 lives in Team Z — HR_X is NOT a member, so Project B is unreachable
+        // for HR_X (and J1 isn't a member of B regardless).
+        { teamId: TEAM_Z_ID, userId: S2.id, joinedAt: new Date() },
       ])
       .onConflictDoNothing()
 
     const crypto = new CredentialsCryptoService(cryptoConfig)
     await db
       .insert(projectCredentials)
-      .values({
-        id: CRED_A_ID,
-        projectId: PROJ_A_ID,
-        label: 'GitHub',
-        login: 'usercred@example.com',
-        passwordCiphertext: crypto.encrypt(KNOWN_PASSWORD),
-        url: 'https://github.com',
-        notes: null,
-        createdBy: ADMIN.id,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
+      .values([
+        {
+          id: CRED_A_ID,
+          projectId: PROJ_A_ID,
+          label: 'GitHub',
+          login: 'usercred@example.com',
+          passwordCiphertext: crypto.encrypt(KNOWN_PASSWORD),
+          url: 'https://github.com',
+          notes: null,
+          createdBy: ADMIN.id,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          // Credential of Project B — must be UNREACHABLE under J1's userId.
+          id: CRED_B_ID,
+          projectId: PROJ_B_ID,
+          label: 'GitLab-B',
+          login: 'usercred-b@example.com',
+          passwordCiphertext: crypto.encrypt('proj-b-secret-do-not-leak'),
+          url: 'https://gitlab.com',
+          notes: null,
+          createdBy: ADMIN.id,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ])
       .onConflictDoNothing()
   }, 30_000)
 
@@ -345,11 +425,17 @@ describe('User-scoped credentials RBAC — real backend integration (§6)', () =
     if (!dbAvailable) return
     try {
       const db = dbSvc.db
-      await db.delete(projectCredentials).where(inArray(projectCredentials.id, [CRED_A_ID]))
-      await db.delete(projectMembers).where(inArray(projectMembers.id, [PROJ_A_MEMBER_J1]))
-      await db.delete(teamMembers).where(inArray(teamMembers.teamId, [TEAM_X_ID, TEAM_Y_ID]))
-      await db.delete(projects).where(inArray(projects.id, [PROJ_A_ID]))
-      await db.delete(teams).where(inArray(teams.id, [TEAM_X_ID, TEAM_Y_ID]))
+      await db
+        .delete(projectCredentials)
+        .where(inArray(projectCredentials.id, [CRED_A_ID, CRED_B_ID]))
+      await db
+        .delete(projectMembers)
+        .where(inArray(projectMembers.id, [PROJ_A_MEMBER_J1, PROJ_B_MEMBER_J2]))
+      await db
+        .delete(teamMembers)
+        .where(inArray(teamMembers.teamId, [TEAM_X_ID, TEAM_Y_ID, TEAM_Z_ID]))
+      await db.delete(projects).where(inArray(projects.id, [PROJ_A_ID, PROJ_B_ID]))
+      await db.delete(teams).where(inArray(teams.id, [TEAM_X_ID, TEAM_Y_ID, TEAM_Z_ID]))
       await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
     } catch {
       // non-fatal
@@ -380,6 +466,33 @@ describe('User-scoped credentials RBAC — real backend integration (§6)', () =
       url: `/api/users/${J1.id}/credentials/${CRED_A_ID}`,
       cookies: { jwt: tokenFor(user) },
       payload: { label: 'Updated by viewer' },
+    })
+  }
+  // Cross-user IDOR probe: target = J1 (in URL), but credentialId belongs to
+  // Project B (CRED_B), which J1 is NOT a member of. The viewer-allowed scope
+  // for J1 is [Project A] only, so this credential is out of scope.
+  function patchIdorReq(user: SessionUser, payload: unknown = { label: 'IDOR attempt' }) {
+    return app.inject({
+      method: 'PATCH',
+      url: `/api/users/${J1.id}/credentials/${CRED_B_ID}`,
+      cookies: { jwt: tokenFor(user) },
+      payload,
+    })
+  }
+  function revealIdorReq(user: SessionUser) {
+    return app.inject({
+      method: 'GET',
+      url: `/api/users/${J1.id}/credentials/${CRED_B_ID}/reveal`,
+      cookies: { jwt: tokenFor(user) },
+    })
+  }
+  // Malformed-UUID probe (MED-5): ParseUUIDPipe must reject before any handler.
+  function patchMalformedUuidReq(user: SessionUser) {
+    return app.inject({
+      method: 'PATCH',
+      url: `/api/users/${J1.id}/credentials/not-a-uuid`,
+      cookies: { jwt: tokenFor(user) },
+      payload: { label: 'x' },
     })
   }
 
@@ -473,5 +586,53 @@ describe('User-scoped credentials RBAC — real backend integration (§6)', () =
     for (const u of [HR_Y, S1, ACCOUNTANT, D1, J1]) {
       expect((await patchReq(u)).statusCode).toBe(403)
     }
+  })
+
+  // ── HIGH-1: cross-user IDOR (TOCTOU-safe scoped UPDATE) ──────────────────────
+  // The credential id (CRED_B) belongs to Project B, which the TARGET (J1) is not
+  // a member of. Even an authorized viewer (HR_X / ADMIN) must NOT be able to
+  // mutate it via J1's userId — the scoped WHERE clause excludes it → 404
+  // ("Запись не найдена"), never 200, never a leak of CRED_B's existence/content.
+  it('PATCH IDOR: HR_X mutating out-of-scope credential under J1 → 404 (not 200)', async () => {
+    if (!dbAvailable) return
+    const res = await patchIdorReq(HR_X)
+    expect(res.statusCode).toBe(404)
+    // No plaintext / ciphertext / Project-B label leaked in the error body.
+    expect(res.body).not.toContain('proj-b-secret-do-not-leak')
+    expect(res.body).not.toContain('GitLab-B')
+  })
+
+  it('PATCH IDOR: ADMIN mutating out-of-scope credential under J1 → 404 (scope, not role)', async () => {
+    if (!dbAvailable) return
+    // ADMIN is fully authorized for J1, yet CRED_B is outside J1's project scope.
+    // The scoped UPDATE (HIGH-1) must still reject it — defense-in-depth beyond
+    // the `owned` pre-check.
+    expect((await patchIdorReq(ADMIN)).statusCode).toBe(404)
+  })
+
+  it('PATCH IDOR: even with a password payload, out-of-scope credential is untouched (404)', async () => {
+    if (!dbAvailable) return
+    // Confirm a password-bearing mutation cannot re-encrypt a drifted/out-of-scope
+    // credential. After the rejected PATCH, CRED_B's plaintext is unchanged.
+    const res = await patchIdorReq(HR_X, { label: 'pwn', password: 'attacker-set-pass' })
+    expect(res.statusCode).toBe(404)
+    const crypto = new CredentialsCryptoService(cryptoConfig)
+    const stored = await dbSvc.db
+      .select({ ct: projectCredentials.passwordCiphertext })
+      .from(projectCredentials)
+      .where(inArray(projectCredentials.id, [CRED_B_ID]))
+    expect(crypto.decrypt(stored[0]!.ct)).toBe('proj-b-secret-do-not-leak')
+  })
+
+  it('REVEAL IDOR: HR_X revealing out-of-scope credential under J1 → 404', async () => {
+    if (!dbAvailable) return
+    expect((await revealIdorReq(HR_X)).statusCode).toBe(404)
+  })
+
+  // ── MED-5: ParseUUIDPipe param validation ───────────────────────────────────
+  it('PATCH malformed credentialId (not a uuid) → 400 (ParseUUIDPipe)', async () => {
+    if (!dbAvailable) return
+    const res = await patchMalformedUuidReq(ADMIN)
+    expect(res.statusCode).toBe(400)
   })
 })
