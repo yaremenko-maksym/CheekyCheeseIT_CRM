@@ -873,6 +873,37 @@ export const legendEntries = pgTable('legend_entries', {
 })
 
 // ---------------------------------------------------------------------------
+// Project Credentials — work-account passwords stored per project.
+//
+// SECURITY: the password is stored ONLY as an AES-256-GCM ciphertext token
+// (`v1:<iv>:<tag>:<data>`, see CredentialsCryptoService). Plaintext is never
+// persisted. List/read endpoints never select this column.
+// ---------------------------------------------------------------------------
+
+export const projectCredentials = pgTable(
+  'project_credentials',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    /** Display label, e.g. «GitHub», «Jira». */
+    label: text('label').notNull(),
+    login: text('login'),
+    /** AES-256-GCM token: v1:<iv b64>:<tag b64>:<ciphertext b64>. Never plaintext. */
+    passwordCiphertext: text('password_ciphertext').notNull(),
+    url: text('url'),
+    notes: text('notes'),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('project_credentials_project_idx').on(t.projectId)],
+)
+
+// ---------------------------------------------------------------------------
 // User Audit Log
 // ---------------------------------------------------------------------------
 
@@ -1111,6 +1142,17 @@ export const legendsRelations = relations(legends, ({ one, many }) => ({
 export const legendEntriesRelations = relations(legendEntries, ({ one }) => ({
   legend: one(legends, { fields: [legendEntries.legendId], references: [legends.id] }),
   author: one(users, { fields: [legendEntries.authorId], references: [users.id] }),
+}))
+
+export const projectCredentialsRelations = relations(projectCredentials, ({ one }) => ({
+  project: one(projects, {
+    fields: [projectCredentials.projectId],
+    references: [projects.id],
+  }),
+  creator: one(users, {
+    fields: [projectCredentials.createdBy],
+    references: [users.id],
+  }),
 }))
 
 export const userAuditLogRelations = relations(userAuditLog, ({ one }) => ({

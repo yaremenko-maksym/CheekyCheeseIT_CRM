@@ -45,6 +45,7 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { ProjectLogo } from '@/components/projects/ProjectLogo'
+import { ProjectCredentialsSection } from '@/components/projects/ProjectCredentialsSection'
 
 export const Route = createFileRoute('/crm/project')({
   component: JuniorProjectHub,
@@ -300,7 +301,12 @@ function HubCards({ project, projectId }: { project: ProjectDto; projectId: stri
         <HrContactCard hrContact={hrContact ?? null} isLoading={hrLoading} />
       </motion.div>
 
-      {/* Row 4: quick links — full width */}
+      {/* Row 4: project credentials — full width. JUNIOR is view+reveal only. */}
+      <motion.div variants={card} className="col-span-full">
+        <ProjectCredentialsSection projectId={projectId} canEdit={false} />
+      </motion.div>
+
+      {/* Row 5: quick links — full width */}
       <motion.div variants={card}>
         <QuickLinksBar />
       </motion.div>

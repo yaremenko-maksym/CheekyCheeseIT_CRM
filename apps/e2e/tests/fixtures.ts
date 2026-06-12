@@ -815,6 +815,40 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
     )
   })
 
+  // Per-project credentials (PR #178). ProjectCredentialsSection mounts on
+  // /crm/project (JUNIOR hub) and /crm/projects/$id (overview) and fires
+  // GET /api/projects/:id/credentials. Unmocked → 401 → axios interceptor →
+  // /login (same failure mode as legend/documents mocks above).
+  // Default: empty list []. Specs that need real data register their own
+  // handler AFTER mockAuthAs (LIFO) so it wins.
+  // reveal/:id sub-route registered first so the generic credentials$ doesn't swallow it.
+  await page.route(new RegExp(`${API}/projects/([^/?]+)/credentials/([^/?]+)/reveal$`), (r) => {
+    if (r.request().method() !== 'GET') return r.fallback()
+    // Default reveal returns 200 with a placeholder — tests override per-credential.
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ password: 'mock-password' }),
+    })
+  })
+  await page.route(new RegExp(`${API}/projects/([^/?]+)/credentials/([^/?]+)$`), (r) => {
+    if (r.request().method() === 'DELETE') return r.fulfill({ status: 204, body: '' })
+    if (r.request().method() === 'PATCH')
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({}),
+      })
+    return r.fallback()
+  })
+  await page.route(new RegExp(`${API}/projects/([^/?]+)/credentials$`), (r) => {
+    if (r.request().method() === 'GET')
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
+    if (r.request().method() === 'POST')
+      return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({}) })
+    return r.fallback()
+  })
+
   // Per-project legend (PR #164). Project-detail page renders ProjectLegendSection
   // for ADMIN/HR/JUNIOR → GET /api/projects/:id/legend on mount. Unmocked →
   // 401 → axios interceptor → /login (same failure mode as the notifications/

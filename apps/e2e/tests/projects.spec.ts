@@ -170,18 +170,30 @@ test.describe('Projects page', () => {
 
     test('ADMIN sees "Добавить" button on active project detail', async ({ asAdmin: page }) => {
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
-      await expect(page.getByRole('button', { name: /добавить/i })).toBeVisible()
+      // PR #178 added a second «Добавить» button in the credentials section
+      // (data-testid="credentials-add-btn" sits ON the button — .filter({hasNot})
+      // checks descendants only, so intersect with :not() instead).
+      const membersAddBtn = page
+        .getByRole('button', { name: /добавить/i })
+        .and(page.locator(':not([data-testid="credentials-add-btn"])'))
+      await expect(membersAddBtn).toBeVisible()
     })
 
     test('"Добавить" opens edit dialog', async ({ asAdmin: page }) => {
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
-      await page.getByRole('button', { name: /добавить/i }).click()
+      const membersAddBtn = page
+        .getByRole('button', { name: /добавить/i })
+        .and(page.locator(':not([data-testid="credentials-add-btn"])'))
+      await membersAddBtn.click()
       await expect(page.getByRole('dialog')).toBeVisible()
     })
 
     test('cancel closes dialog', async ({ asAdmin: page }) => {
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
-      await page.getByRole('button', { name: /добавить/i }).click()
+      const membersAddBtn = page
+        .getByRole('button', { name: /добавить/i })
+        .and(page.locator(':not([data-testid="credentials-add-btn"])'))
+      await membersAddBtn.click()
       // Dialog has Отмена or close via Escape
       const cancelBtn = page.getByRole('button', { name: 'Отмена' })
       if (await cancelBtn.isVisible()) {
@@ -204,7 +216,7 @@ test.describe('Projects page', () => {
       await expect(page.getByRole('dialog')).toBeVisible()
 
       const dialog = page.getByRole('dialog')
-      
+
       // Check for metadata field labels in create dialog
       await expect(dialog.getByText('Стек технологий')).toBeVisible()
       await expect(dialog.getByText('Состав команды')).toBeVisible()
@@ -230,27 +242,37 @@ test.describe('Projects page', () => {
       await dialog.getByPlaceholder('5000').fill('3000')
 
       // Fill new metadata fields
-      const techStackField = dialog.getByPlaceholder(/стек технологий/i).or(dialog.locator('input[name*="tech"]').or(dialog.locator('textarea[name*="tech"]')))
+      const techStackField = dialog
+        .getByPlaceholder(/стек технологий/i)
+        .or(dialog.locator('input[name*="tech"]').or(dialog.locator('textarea[name*="tech"]')))
       if (await techStackField.isVisible()) {
         await techStackField.fill('React, TypeScript, Node.js')
       }
 
-      const teamSizeField = dialog.getByPlaceholder(/размер команды/i).or(dialog.locator('input[name*="team"]'))
+      const teamSizeField = dialog
+        .getByPlaceholder(/размер команды/i)
+        .or(dialog.locator('input[name*="team"]'))
       if (await teamSizeField.isVisible()) {
         await teamSizeField.fill('5-7 developers')
       }
 
-      const benefitsField = dialog.getByPlaceholder(/benefi|льгот/i).or(dialog.locator('textarea[name*="benefit"]'))
+      const benefitsField = dialog
+        .getByPlaceholder(/benefi|льгот/i)
+        .or(dialog.locator('textarea[name*="benefit"]'))
       if (await benefitsField.isVisible()) {
         await benefitsField.fill('Medical insurance, flexible schedule')
       }
 
-      const paymentTypeField = dialog.getByPlaceholder(/тип оплаты/i).or(dialog.locator('input[name*="payment"]'))
+      const paymentTypeField = dialog
+        .getByPlaceholder(/тип оплаты/i)
+        .or(dialog.locator('input[name*="payment"]'))
       if (await paymentTypeField.isVisible()) {
         await paymentTypeField.fill('Monthly USDT payments')
       }
 
-      const salaryReviewField = dialog.getByPlaceholder(/пересмотр зп/i).or(dialog.locator('input[name*="salary"]'))
+      const salaryReviewField = dialog
+        .getByPlaceholder(/пересмотр зп/i)
+        .or(dialog.locator('input[name*="salary"]'))
       if (await salaryReviewField.isVisible()) {
         await salaryReviewField.fill('Every 6 months')
       }
@@ -260,7 +282,7 @@ test.describe('Projects page', () => {
       const req = await postReq
       const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
       expect(body).toMatchObject({ name: 'Test Project', companyName: 'Test Company' })
-      
+
       // Verify metadata fields are included in request (if fields are present)
       if (body.techStack) expect(body.techStack).toBe('React, TypeScript, Node.js')
       if (body.teamSize) expect(body.teamSize).toBe('5-7 developers')
@@ -279,7 +301,7 @@ test.describe('Projects page', () => {
         paymentType: 'Hourly',
         salaryReview: 'Quarterly',
         corpTech: 'Agile/Scrum',
-        notesGeneral: 'Great project with modern stack'
+        notesGeneral: 'Great project with modern stack',
       }
 
       await page.route(`http://localhost:3001/api/projects/${PROJECTS[0]!.id}`, (r) => {
@@ -293,14 +315,19 @@ test.describe('Projects page', () => {
         return r.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ ...projectWithMetadata, ...(JSON.parse(r.request().postData() ?? '{}') as object) }),
+          body: JSON.stringify({
+            ...projectWithMetadata,
+            ...(JSON.parse(r.request().postData() ?? '{}') as object),
+          }),
         })
       })
 
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
-      
+
       // Look for edit button (could be "Редактировать" or an edit icon)
-      const editButton = page.getByRole('button', { name: /редактир/i }).or(page.getByTitle(/редактир/i))
+      const editButton = page
+        .getByRole('button', { name: /редактир/i })
+        .or(page.getByTitle(/редактир/i))
       if (await editButton.isVisible()) {
         await editButton.click()
         await expect(page.getByRole('dialog')).toBeVisible()
@@ -308,19 +335,25 @@ test.describe('Projects page', () => {
         const dialog = page.getByRole('dialog')
 
         // Verify metadata fields are pre-filled
-        const techStackField = dialog.getByPlaceholder(/стек технологий/i).or(dialog.locator('input[name*="tech"]').or(dialog.locator('textarea[name*="tech"]')))
+        const techStackField = dialog
+          .getByPlaceholder(/стек технологий/i)
+          .or(dialog.locator('input[name*="tech"]').or(dialog.locator('textarea[name*="tech"]')))
         if (await techStackField.isVisible()) {
           await expect(techStackField).toHaveValue('Vue.js, Python')
         }
 
-        const teamSizeField = dialog.getByPlaceholder(/размер команды/i).or(dialog.locator('input[name*="team"]'))
+        const teamSizeField = dialog
+          .getByPlaceholder(/размер команды/i)
+          .or(dialog.locator('input[name*="team"]'))
         if (await teamSizeField.isVisible()) {
           await expect(teamSizeField).toHaveValue('3-4 developers')
         }
       }
     })
 
-    test('metadata fields respect character limits (varchar constraints)', async ({ asAdmin: page }) => {
+    test('metadata fields respect character limits (varchar constraints)', async ({
+      asAdmin: page,
+    }) => {
       await page.goto('/crm/projects')
       await page.getByRole('button', { name: /новый проект/i }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
@@ -328,7 +361,9 @@ test.describe('Projects page', () => {
       const dialog = page.getByRole('dialog')
 
       // Test character limits based on schema: tech_stack varchar(500), notes_general varchar(1000)
-      const techStackField = dialog.getByPlaceholder(/стек технологий/i).or(dialog.locator('input[name*="tech"]').or(dialog.locator('textarea[name*="tech"]')))
+      const techStackField = dialog
+        .getByPlaceholder(/стек технологий/i)
+        .or(dialog.locator('input[name*="tech"]').or(dialog.locator('textarea[name*="tech"]')))
       if (await techStackField.isVisible()) {
         const longText = 'A'.repeat(600) // Exceeds 500 char limit
         await techStackField.fill(longText)
@@ -338,7 +373,9 @@ test.describe('Projects page', () => {
         expect(fieldValue.length).toBeLessThanOrEqual(500)
       }
 
-      const notesField = dialog.getByPlaceholder(/заметк|notes/i).or(dialog.locator('textarea[name*="notes"]'))
+      const notesField = dialog
+        .getByPlaceholder(/заметк|notes/i)
+        .or(dialog.locator('textarea[name*="notes"]'))
       if (await notesField.isVisible()) {
         const veryLongText = 'A'.repeat(1100) // Exceeds 1000 char limit
         await notesField.fill(veryLongText)
@@ -359,7 +396,7 @@ test.describe('Projects page', () => {
         paymentType: 'Monthly crypto',
         salaryReview: 'Annual',
         corpTech: 'Microservices, Docker',
-        notesGeneral: 'Long-term strategic project'
+        notesGeneral: 'Long-term strategic project',
       }
 
       await page.route(`http://localhost:3001/api/projects/${PROJECTS[0]!.id}`, (r) => {
@@ -374,7 +411,7 @@ test.describe('Projects page', () => {
       })
 
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
-      
+
       // Check if metadata is displayed somewhere on the page
       await expect(page.getByText('React, Node.js, PostgreSQL')).toBeVisible()
       await expect(page.getByText('5-8 developers')).toBeVisible()

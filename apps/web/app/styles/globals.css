@@ -152,3 +152,31 @@ input[type='number']::-webkit-outer-spin-button {
 input[type='number'] {
   -moz-appearance: textfield;
 }
+
+/*
+ * Credentials reveal auto-hide timer bar (ProjectCredentialsSection).
+ * A pure-CSS 30s countdown — the inner bar shrinks from full width to 0,
+ * acting as a visual "window closing" indicator. `onAnimationEnd` in the
+ * component clears the revealed plaintext when this completes.
+ * Reduced-motion: snap to 0 width immediately (no animated shrink).
+ */
+@keyframes credentials-shrink {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+.credentials-timer-bar {
+  animation: credentials-shrink 30s linear forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .credentials-timer-bar {
+    animation-duration: 30s;
+    /* Keep the timer functional but without the continuous motion. */
+    animation-timing-function: step-end;
+  }
+}

@@ -11,6 +11,15 @@ const envSchema = z
     GOOGLE_CALLBACK_URL: z.string().min(1),
     JWT_SECRET: z.string().min(32),
     SESSION_SECRET: z.string().min(32),
+    // AES-256-GCM key for project credential passwords (at-rest encryption).
+    // ≥32 chars of entropy; derived to exactly 32 bytes via SHA-256 in
+    // CredentialsCryptoService. Generate: `openssl rand -hex 32`.
+    // The dev default below is convenience-only — production safety is enforced
+    // via refine() (NODE_ENV=production + dev default → throw).
+    CREDENTIALS_ENC_KEY: z
+      .string()
+      .min(32)
+      .default('dev-only-credentials-key-change-in-production-0000'),
     // Default — для локального dev (Vite на :3000). В production должен быть задан
     // явно через env (см. refine ниже — пустой default + NODE_ENV=production → ошибка).
     FRONTEND_URL: z.string().min(1).default('http://localhost:3000'),
@@ -20,7 +29,9 @@ const envSchema = z
     // enforced via refine() below (NODE_ENV=production + minioadmin → throw).
     // Prod: see docs/runbooks/s3-storage.md.
     S3_ENDPOINT: z.string().url().default('http://localhost:9000'),
-    S3_FORCE_PATH_STYLE: z.preprocess((v) => typeof v === 'string' ? v.toLowerCase() === 'true' : v, z.boolean()).default(true),
+    S3_FORCE_PATH_STYLE: z
+      .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
+      .default(true),
     S3_REGION: z.string().default('us-east-1'),
     S3_BUCKET: z.string().default('crm-documents'),
     // Default false: matches dev/MinIO (no SSE-S3 support — MinIO returns
@@ -28,7 +39,9 @@ const envSchema = z
     // a configured KMS backend). Production must explicitly set
     // `S3_USE_SSE=true` to enable SSE-S3 against an AWS S3 bucket. See
     // `docs/runbooks/s3-storage.md`.
-    S3_USE_SSE: z.preprocess((v) => typeof v === 'string' ? v.toLowerCase() === 'true' : v, z.boolean()).default(false),
+    S3_USE_SSE: z
+      .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
+      .default(false),
     AWS_ACCESS_KEY_ID: z.string().min(1).default('minioadmin'),
     AWS_SECRET_ACCESS_KEY: z.string().min(1).default('minioadmin'),
   })
@@ -42,6 +55,24 @@ const envSchema = z
       'AWS_SECRET_ACCESS_KEY must be overridden in production (minioadmin default is for dev/MinIO only)',
     path: ['AWS_SECRET_ACCESS_KEY'],
   })
+  .refine(
+    (env) =>
+      env.NODE_ENV !== 'production' ||
+      env.CREDENTIALS_ENC_KEY !== 'dev-only-credentials-key-change-in-production-0000',
+    {
+      message:
+        'CREDENTIALS_ENC_KEY must be overridden in production (the dev default leaks all credential passwords). Generate: openssl rand -hex 32',
+      path: ['CREDENTIALS_ENC_KEY'],
+    },
+  )
+  .refine(
+    (env) => env.NODE_ENV !== 'production' || !env.CREDENTIALS_ENC_KEY.startsWith('change_me'),
+    {
+      message:
+        'CREDENTIALS_ENC_KEY must not use the placeholder value in production (change_me_* prefix detected). Generate: openssl rand -hex 32',
+      path: ['CREDENTIALS_ENC_KEY'],
+    },
+  )
 
 export type Env = z.infer<typeof envSchema>
 

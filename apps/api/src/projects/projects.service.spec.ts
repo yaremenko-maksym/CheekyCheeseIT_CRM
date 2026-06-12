@@ -20,6 +20,7 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
+import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
 import { projectFinanceSettings, projects } from '../database/schema'
 
@@ -239,6 +240,7 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
     db as never,
     projectAuditLogService as never,
     usersService as never,
+    new HrAccessService(db as never),
   )
 
   return {
@@ -649,6 +651,7 @@ function buildHrScopingHarness({
     db as never,
     projectAuditLogService as never,
     usersService as never,
+    new HrAccessService(db as never),
   )
 
   return {

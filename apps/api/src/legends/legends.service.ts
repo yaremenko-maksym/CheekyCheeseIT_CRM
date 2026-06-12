@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 import type {
   AddLegendEntryDto,
   Legend,
@@ -8,15 +8,9 @@ import type {
   UpsertLegendDto,
 } from '@crm/shared'
 import { legendSchema } from '@crm/shared'
+import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
-import {
-  legendEntries,
-  legends,
-  projectMembers,
-  projects,
-  teamMembers,
-  users,
-} from '../database/schema'
+import { legendEntries, legends, projectMembers, projects, users } from '../database/schema'
 
 type ProjectRow = { id: string; seniorId: string; dropId: string | null }
 
@@ -28,7 +22,10 @@ interface LegendDefaults {
 
 @Injectable()
 export class LegendsService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly hrAccess: HrAccessService,
+  ) {}
 
   /**
    * RBAC check: can `viewer` access the legend for `project`?
@@ -53,40 +50,14 @@ export class LegendsService {
 
     if (viewer.role === 'ADMIN') return true
 
-    if (viewer.role === 'HR') return this.hrCanAccess(viewer.id, project.seniorId)
+    // HR can access if they share an active team with the project's senior.
+    // Consolidated into HrAccessService (was a private hrCanAccess copy).
+    if (viewer.role === 'HR')
+      return this.hrAccess.hrSharesActiveTeamWith(viewer.id, project.seniorId)
 
     if (viewer.role === 'JUNIOR') return this.juniorCanAccess(viewer.id, project.id)
 
     return false
-  }
-
-  /**
-   * HR can access if they share at least one active team with the project's seniorId.
-   */
-  private async hrCanAccess(hrId: string, seniorId: string): Promise<boolean> {
-    const hrTeams = await this.db.db
-      .select({ teamId: teamMembers.teamId })
-      .from(teamMembers)
-      .where(and(eq(teamMembers.userId, hrId), isNull(teamMembers.leftAt)))
-      .limit(50)
-
-    if (hrTeams.length === 0) return false
-
-    const teamIds = hrTeams.map((t) => t.teamId)
-
-    const seniorInTeam = await this.db.db
-      .select({ id: teamMembers.id })
-      .from(teamMembers)
-      .where(
-        and(
-          eq(teamMembers.userId, seniorId),
-          inArray(teamMembers.teamId, teamIds),
-          isNull(teamMembers.leftAt),
-        ),
-      )
-      .limit(1)
-
-    return seniorInTeam.length > 0
   }
 
   /**

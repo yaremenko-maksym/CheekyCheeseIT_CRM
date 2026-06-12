@@ -5,8 +5,10 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
 import { AuthModule } from './auth/auth.module'
 import { JwtAuthGuard } from './auth/jwt.guard'
 import { OnboardingGuard } from './auth/onboarding.guard'
+import { CommonModule } from './common/common.module'
 import { validateEnv } from './config/env'
 import { ContractsModule } from './contracts/contracts.module'
+import { CredentialsModule } from './credentials/credentials.module'
 import { DatabaseModule } from './database/database.module'
 import { DocumentsModule } from './documents/documents.module'
 import { HealthModule } from './health/health.module'
@@ -35,6 +37,9 @@ import { LegendsModule } from './legends/legends.module'
       },
     ]),
     DatabaseModule,
+    // Global cross-cutting providers (HrAccessService). Imported early so it is
+    // available to feature modules below (it is @Global, order is belt-and-braces).
+    CommonModule,
     UsersModule,
     AuthModule,
     TeamsModule,
@@ -52,6 +57,7 @@ import { LegendsModule } from './legends/legends.module'
     OnboardingModule,
     HealthModule,
     LegendsModule,
+    CredentialsModule,
   ],
   providers: [
     // ORDER MATTERS — NestJS executes APP_GUARD providers in registration order
