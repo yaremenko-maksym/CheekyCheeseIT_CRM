@@ -357,4 +357,19 @@ export class UsersController {
   async archiveImpact(@Param('id', ParseUUIDPipe) id: string) {
     return this.usersService.getArchiveImpact(id)
   }
+
+  /**
+   * GET /api/users/me/salary-meta — self-only salary metadata for JUNIOR hub.
+   *
+   * Returns current monthly salary, currency, and the date it was last changed
+   * (from user_audit_log where changes contains 'monthlySalary' key).
+   * No role restriction — any authenticated user can query their own data.
+   * Self-only by construction: userId from JWT, no param accepted.
+   *
+   * AC3/4: salary block in JUNIOR hub.
+   */
+  @Get('me/salary-meta')
+  async getSalaryMeta(@CurrentUser() currentUser: SessionUser) {
+    return this.usersService.getSalaryMeta(currentUser.id)
+  }
 }

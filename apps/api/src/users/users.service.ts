@@ -7,7 +7,7 @@ import {
   NotFoundException,
   forwardRef,
 } from '@nestjs/common'
-import { and, eq, inArray, isNotNull, isNull, ne } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
 import type { ArchiveImpact, SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
@@ -16,6 +16,7 @@ import {
   projects,
   teamMembers,
   teams,
+  userAuditLog,
   users,
   type User,
 } from '../database/schema'
@@ -1741,5 +1742,49 @@ export class UsersService {
       .limit(1)
       .then((rows) => rows[0])
     return Boolean(row)
+  }
+
+  /**
+   * Returns salary metadata for the currently authenticated user (self-only).
+   * changedAt = created_at of the most recent user_audit_log row where
+   * target_id = userId AND changes JSONB contains 'monthlySalary' key.
+   * Values in changes are redacted (SENSITIVE_FIELDS) — only the date is needed.
+   *
+   * AC3/4: used by JUNIOR hub salary block.
+   */
+  async getSalaryMeta(userId: string): Promise<{
+    monthlySalary: string | null
+    salaryCurrency: string | null
+    changedAt: string | null
+  }> {
+    const userRow = await this.db.db
+      .select({ monthlySalary: users.monthlySalary, salaryCurrency: users.salaryCurrency })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1)
+
+    const user = userRow[0]
+    if (!user) return { monthlySalary: null, salaryCurrency: null, changedAt: null }
+
+    // Find the most recent audit log entry where monthlySalary was changed.
+    // changes is JSONB — use raw sql for the ? key-existence operator.
+    const auditRows = await this.db.db
+      .select({ createdAt: userAuditLog.createdAt })
+      .from(userAuditLog)
+      .where(
+        and(
+          eq(userAuditLog.targetId, userId),
+          // JSONB ?  operator checks for key existence; parameterised as string literal.
+          sql`${userAuditLog.changes} \?\? 'monthlySalary'`,
+        ),
+      )
+      .orderBy(desc(userAuditLog.createdAt))
+      .limit(1)
+
+    return {
+      monthlySalary: user.monthlySalary ?? null,
+      salaryCurrency: user.salaryCurrency ?? null,
+      changedAt: auditRows[0]?.createdAt.toISOString() ?? null,
+    }
   }
 }
