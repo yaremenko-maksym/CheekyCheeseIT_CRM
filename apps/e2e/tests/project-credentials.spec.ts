@@ -150,10 +150,7 @@ const ADMIN_PROJECT = {
 // Регистрируется В ТЕЛЕ ТЕСТА после fixture setup → LIFO побеждает
 // ---------------------------------------------------------------------------
 
-async function setupJuniorHub(
-  page: import('@playwright/test').Page,
-  credList: object[],
-) {
+async function setupJuniorHub(page: import('@playwright/test').Page, credList: object[]) {
   // LIFO: позже зарегистрированные маршруты выигрывают у mockAuthAs defaults
 
   // Projects list — замаскированный junior project
@@ -245,10 +242,7 @@ async function mockReveal(
 // Helper: minimal mocks for admin project detail
 // ---------------------------------------------------------------------------
 
-async function setupAdminProjectDetail(
-  page: import('@playwright/test').Page,
-  credList: object[],
-) {
+async function setupAdminProjectDetail(page: import('@playwright/test').Page, credList: object[]) {
   // Credentials list
   await page.route(new RegExp(`${API}/projects/${ADMIN_PROJECT_ID}/credentials$`), (r) => {
     if (r.request().method() === 'GET') {
@@ -279,20 +273,17 @@ async function setupAdminProjectDetail(
   })
 
   // Credentials single CRUD (PATCH / DELETE)
-  await page.route(
-    new RegExp(`${API}/projects/${ADMIN_PROJECT_ID}/credentials/([^/?]+)$`),
-    (r) => {
-      if (r.request().method() === 'DELETE') return r.fulfill({ status: 204, body: '' })
-      if (r.request().method() === 'PATCH') {
-        return r.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(CREDENTIAL_ADMIN_1),
-        })
-      }
-      return r.fallback()
-    },
-  )
+  await page.route(new RegExp(`${API}/projects/${ADMIN_PROJECT_ID}/credentials/([^/?]+)$`), (r) => {
+    if (r.request().method() === 'DELETE') return r.fulfill({ status: 204, body: '' })
+    if (r.request().method() === 'PATCH') {
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(CREDENTIAL_ADMIN_1),
+      })
+    }
+    return r.fallback()
+  })
 
   // Reveal
   await page.route(
@@ -488,19 +479,16 @@ test.describe('JUNIOR hub — 403 на credentials list', () => {
     await setupJuniorHub(page, [])
 
     // LIFO: перебиваем [] мок 403-ом (регистрируем после setupJuniorHub)
-    await page.route(
-      new RegExp(`${API}/projects/${JUNIOR_PROJECT_ID}/credentials$`),
-      (r) => {
-        if (r.request().method() === 'GET') {
-          return r.fulfill({
-            status: 403,
-            contentType: 'application/json',
-            body: JSON.stringify({ message: 'Forbidden' }),
-          })
-        }
-        return r.fallback()
-      },
-    )
+    await page.route(new RegExp(`${API}/projects/${JUNIOR_PROJECT_ID}/credentials$`), (r) => {
+      if (r.request().method() === 'GET') {
+        return r.fulfill({
+          status: 403,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: 'Forbidden' }),
+        })
+      }
+      return r.fallback()
+    })
 
     await page.goto('/crm/project')
 
@@ -658,7 +646,8 @@ test.describe('ADMIN project detail — credentials section', () => {
     await page.route(new RegExp(`${API}/projects/${ADMIN_PROJECT_ID}/credentials$`), (r) => {
       if (r.request().method() === 'GET') {
         callCount++
-        const list = callCount === 1 ? [CREDENTIAL_ADMIN_1, CREDENTIAL_ADMIN_2] : [CREDENTIAL_ADMIN_2]
+        const list =
+          callCount === 1 ? [CREDENTIAL_ADMIN_1, CREDENTIAL_ADMIN_2] : [CREDENTIAL_ADMIN_2]
         return r.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -696,14 +685,12 @@ test.describe('ADMIN project detail — credentials section', () => {
     await confirmDialog.getByRole('button', { name: 'Удалить' }).click()
 
     // Запись исчезла
-    await expect(
-      section.getByTestId(`credentials-item-${CRED_ID_1}`),
-    ).not.toBeVisible({ timeout: 5000 })
+    await expect(section.getByTestId(`credentials-item-${CRED_ID_1}`)).not.toBeVisible({
+      timeout: 5000,
+    })
   })
 
-  test('ADMIN reveal — plaintext виден, повторный клик скрывает', async ({
-    asAdmin: page,
-  }) => {
+  test('ADMIN reveal — plaintext виден, повторный клик скрывает', async ({ asAdmin: page }) => {
     await setupAdminProjectDetail(page, [CREDENTIAL_ADMIN_1])
 
     await page.goto(`/crm/projects/${ADMIN_PROJECT_ID}`)
@@ -734,9 +721,7 @@ test.describe('ADMIN project detail — credentials section', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('RBAC — SENIOR не имеет доступа к credentials', () => {
-  test('SENIOR на project detail → credentials-section отсутствует', async ({
-    asSenior: page,
-  }) => {
+  test('SENIOR на project detail → credentials-section отсутствует', async ({ asSenior: page }) => {
     // SENIOR: canManageCredentials = false → компонент не рендерится вообще
     // (страница /crm/projects/$id проверяет role === ADMIN || HR перед рендером секции)
     await page.goto(`/crm/projects/${ADMIN_PROJECT_ID}`)
