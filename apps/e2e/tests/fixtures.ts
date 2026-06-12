@@ -1116,6 +1116,33 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
       body: JSON.stringify({ message: 'No contract found' }),
     })
   })
+
+  // task-junior-ux-hub: GET /contracts/me/status — ContractStatusCard (JUNIOR hub).
+  // Must be registered BEFORE the generic /contracts/me$ route so it matches first (LIFO).
+  // Default: 404 "no contract". junior-hub.spec.ts overrides this after mockAuthAs for
+  // SIGNED/READY_TO_SIGN scenarios. Without this mock the request hits the real backend
+  // → 401 → axios interceptor → /login redirect → networkidle never settles
+  // → navigation.spec.ts JUNIOR tests timeout at 30 000 ms.
+  await page.route(new RegExp(`${API}/contracts/me/status$`), (r) => {
+    if (r.request().method() !== 'GET') return r.fallback()
+    return r.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'No contract found' }),
+    })
+  })
+
+  // task-junior-ux-hub: GET /users/me/salary-meta — SalarySnapshotCard (JUNIOR hub).
+  // Default: null salary (role has no salary configured). junior-hub.spec.ts overrides
+  // for the salary-populated scenarios. Without this mock same timeout failure as above.
+  await page.route(new RegExp(`${API}/users/me/salary-meta$`), (r) => {
+    if (r.request().method() !== 'GET') return r.fallback()
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ monthlySalary: null, salaryCurrency: null, changedAt: null }),
+    })
+  })
 }
 
 // ---------------------------------------------------------------------------

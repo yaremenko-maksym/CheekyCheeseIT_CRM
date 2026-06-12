@@ -10,6 +10,8 @@ export const legendEntrySchema = z.object({
   authorId: z.string().uuid(),
   authorName: z.string(),
   text: z.string(),
+  /** Optional event date (YYYY-MM-DD). Falls back to createdAt for display if null. */
+  eventDate: z.string().nullable(),
   createdAt: z.string(), // ISO 8601
 })
 
@@ -32,6 +34,18 @@ export const legendSchema = z.object({
   hobbies: z.string().nullable(),
   notes: z.string().nullable(),
   entries: z.array(legendEntrySchema),
+  /**
+   * Persona prefill data from the real subject (drop ?? senior).
+   * Only provided when viewer is ADMIN or HR (team-scoped).
+   * JUNIOR viewers always receive null — prevents real identity leakage (AC8 / bug class #157/#158).
+   */
+  defaults: z
+    .object({
+      fullName: z.string().nullable(),
+      address: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 })
@@ -62,6 +76,25 @@ export type UpsertLegendDto = z.infer<typeof upsertLegendSchema>
 
 export const addLegendEntrySchema = z.object({
   text: z.string().min(1, 'Текст обязателен').max(5000),
+  /** Optional event date (YYYY-MM-DD). Defaults to today on client, stored as-is. */
+  eventDate: isoDateString.nullish(),
 })
 
 export type AddLegendEntryDto = z.infer<typeof addLegendEntrySchema>
+
+// ---------------------------------------------------------------------------
+// Salary meta — GET /api/users/me/salary-meta
+// ---------------------------------------------------------------------------
+
+/**
+ * Self-only salary metadata for the JUNIOR hub salary block.
+ * changedAt = created_at of the last user_audit_log row for this user
+ * where changes contains 'monthlySalary' key (actual values are redacted).
+ */
+export const salaryMetaSchema = z.object({
+  monthlySalary: z.string().nullable(), // numeric string from DB, null if not set
+  salaryCurrency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).nullable(),
+  changedAt: z.string().nullable(), // ISO 8601 or null
+})
+
+export type SalaryMetaDto = z.infer<typeof salaryMetaSchema>

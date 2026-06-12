@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, ne, sql } from 'drizzle-orm'
 import type {
   ContractTargetRole,
   ContractVariableInfo,
@@ -324,6 +324,24 @@ export class EmployeeContractsService {
       .limit(1)
 
     return result.length > 0
+  }
+
+  /**
+   * Get the status of the active (non-CANCELLED) employee contract for the current user.
+   * Self-only by construction — caller passes their own userId from JWT.
+   * Returns null if no non-CANCELLED contract exists yet.
+   *
+   * AC1 fix: source is employee_contracts.status, not signed_contracts list.
+   * signed_contracts rows lack the `status` field → contractMeDtoSchema.parse() threw.
+   */
+  async getMyStatus(userId: string): Promise<{ id: string; status: string } | null> {
+    const result = await this.db.db
+      .select({ id: employeeContracts.id, status: employeeContracts.status })
+      .from(employeeContracts)
+      .where(and(eq(employeeContracts.userId, userId), ne(employeeContracts.status, 'CANCELLED')))
+      .limit(1)
+
+    return result[0] ?? null
   }
 
   /**

@@ -422,3 +422,183 @@ describe('LegendsService — TASK 7: cross-project isolation + team isolation', 
     await expect(service.getLegend(hr, PROJECT_ID)).rejects.toThrow(ForbiddenException)
   })
 })
+
+// ---------------------------------------------------------------------------
+// AC8 — canReceiveDefaults RBAC: ADMIN/HR yes; JUNIOR/SENIOR/ACCOUNTANT no
+// ---------------------------------------------------------------------------
+
+describe('LegendsService.canReceiveDefaults — defaults RBAC (AC8)', () => {
+  it('ADMIN viewer → canReceiveDefaults = true', () => {
+    const { service } = buildService()
+    expect(
+      (
+        service as unknown as { canReceiveDefaults: (v: SessionUser) => boolean }
+      ).canReceiveDefaults(admin),
+    ).toBe(true)
+  })
+
+  it('HR viewer → canReceiveDefaults = true', () => {
+    const { service } = buildService()
+    expect(
+      (
+        service as unknown as { canReceiveDefaults: (v: SessionUser) => boolean }
+      ).canReceiveDefaults(hr),
+    ).toBe(true)
+  })
+
+  it('JUNIOR viewer → canReceiveDefaults = false (identity isolation)', () => {
+    const { service } = buildService()
+    expect(
+      (
+        service as unknown as { canReceiveDefaults: (v: SessionUser) => boolean }
+      ).canReceiveDefaults(junior),
+    ).toBe(false)
+  })
+
+  it('SENIOR viewer → canReceiveDefaults = false', () => {
+    const { service } = buildService()
+    expect(
+      (
+        service as unknown as { canReceiveDefaults: (v: SessionUser) => boolean }
+      ).canReceiveDefaults(senior),
+    ).toBe(false)
+  })
+
+  it('ACCOUNTANT viewer → canReceiveDefaults = false', () => {
+    const { service } = buildService()
+    expect(
+      (
+        service as unknown as { canReceiveDefaults: (v: SessionUser) => boolean }
+      ).canReceiveDefaults(accountant),
+    ).toBe(false)
+  })
+
+  it('getLegend for ADMIN includes defaults object (non-null)', async () => {
+    const { service, chain } = buildService()
+    // Simulate: project found → ADMIN has access (no membership query) →
+    // legend exists → entries empty → loadDefaults returns subject data
+    chain.limit
+      .mockResolvedValueOnce([seniorProject]) // loadProject
+      .mockResolvedValueOnce([mockLegendRow]) // loadLegendRow
+      .mockResolvedValueOnce([{ legalFullName: 'Справжнє ФІО', registrationAddress: 'Київ' }]) // loadDefaults
+    chain.orderBy.mockResolvedValueOnce([]) // loadEntries
+
+    const legend = await service.getLegend(admin, PROJECT_ID)
+    expect(legend.defaults).not.toBeNull()
+    expect(legend.defaults?.fullName).toBe('Справжнє ФІО')
+    expect(legend.defaults?.address).toBe('Київ')
+  })
+
+  it('getLegend for JUNIOR returns defaults = null (no identity leak)', async () => {
+    const { service, chain } = buildService()
+    chain.limit
+      .mockResolvedValueOnce([seniorProject]) // loadProject
+      .mockResolvedValueOnce([{ id: 'pm-1' }]) // juniorCanAccess — active member
+      .mockResolvedValueOnce([mockLegendRow]) // loadLegendRow
+    chain.orderBy.mockResolvedValueOnce([]) // loadEntries — no loadDefaults call
+
+    const legend = await service.getLegend(junior, PROJECT_ID)
+    // defaults must be null — JUNIOR must never receive real identity data
+    expect(legend.defaults).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC9 — eventDate sort: entries ordered by eventDate (fallback createdAt)
+// ---------------------------------------------------------------------------
+
+describe('LegendsService.loadEntries — eventDate sort (AC9)', () => {
+  it('getLegend returns entries in ascending eventDate order when all have eventDate', async () => {
+    const { service, chain } = buildService()
+
+    const entryEarlier = {
+      id: 'b0000001-0000-4000-a000-000000000001',
+      legendId: LEGEND_ID,
+      authorId: AUTHOR_ID,
+      authorName: 'Author',
+      text: 'Earlier event',
+      eventDate: '2024-01-10',
+      createdAt: new Date('2024-01-15T00:00:00Z'), // createdAt is LATER
+    }
+    const entryLater = {
+      id: 'b0000001-0000-4000-a000-000000000002',
+      legendId: LEGEND_ID,
+      authorId: AUTHOR_ID,
+      authorName: 'Author',
+      text: 'Later event',
+      eventDate: '2024-03-20',
+      createdAt: new Date('2024-01-01T00:00:00Z'), // createdAt is EARLIER
+    }
+
+    chain.limit
+      .mockResolvedValueOnce([seniorProject]) // loadProject
+      .mockResolvedValueOnce([mockLegendRow]) // loadLegendRow
+      .mockResolvedValueOnce([]) // loadDefaults (ADMIN)
+    // loadEntries — DB returns entries sorted by COALESCE(eventDate, to_char(createdAt))
+    chain.orderBy.mockResolvedValueOnce([entryEarlier, entryLater])
+
+    const legend = await service.getLegend(admin, PROJECT_ID)
+    expect(legend.entries).toHaveLength(2)
+    expect(legend.entries[0].id).toBe('b0000001-0000-4000-a000-000000000001')
+    expect(legend.entries[0].eventDate).toBe('2024-01-10')
+    expect(legend.entries[1].id).toBe('b0000001-0000-4000-a000-000000000002')
+    expect(legend.entries[1].eventDate).toBe('2024-03-20')
+  })
+
+  it('entry with null eventDate falls back to createdAt for display', async () => {
+    const { service, chain } = buildService()
+
+    const entryNoEventDate = {
+      id: 'b0000001-0000-4000-a000-000000000003',
+      legendId: LEGEND_ID,
+      authorId: AUTHOR_ID,
+      authorName: 'Author',
+      text: 'No event date',
+      eventDate: null as string | null,
+      createdAt: new Date('2024-02-01T00:00:00Z'),
+    }
+
+    chain.limit
+      .mockResolvedValueOnce([seniorProject]) // loadProject
+      .mockResolvedValueOnce([mockLegendRow]) // loadLegendRow
+      .mockResolvedValueOnce([]) // loadDefaults (ADMIN)
+    chain.orderBy.mockResolvedValueOnce([entryNoEventDate])
+
+    const legend = await service.getLegend(admin, PROJECT_ID)
+    expect(legend.entries).toHaveLength(1)
+    expect(legend.entries[0].eventDate).toBeNull()
+    // createdAt is preserved as ISO string
+    expect(legend.entries[0].createdAt).toBe('2024-02-01T00:00:00.000Z')
+  })
+
+  it('addEntry saves eventDate to the DB row', async () => {
+    const { service, chain } = buildService()
+
+    chain.limit
+      .mockResolvedValueOnce([seniorProject]) // loadProject
+      .mockResolvedValueOnce([{ id: 'pm-1' }]) // juniorCanAccess
+      .mockResolvedValueOnce([mockLegendRow]) // loadLegendRow
+    chain.returning.mockResolvedValueOnce([])
+    chain.orderBy.mockResolvedValueOnce([
+      {
+        id: 'b0000001-0000-4000-a000-000000000004',
+        legendId: LEGEND_ID,
+        authorId: JUNIOR_ID,
+        authorName: 'Junior',
+        text: 'Event with specific date',
+        eventDate: '2024-05-15',
+        createdAt: new Date('2024-06-01T00:00:00Z'),
+      },
+    ])
+
+    const legend = await service.addEntry(junior, PROJECT_ID, {
+      text: 'Event with specific date',
+      eventDate: '2024-05-15',
+    })
+
+    // Verify the insert was called (db.insert → chain.values was invoked)
+    expect(chain.values).toHaveBeenCalled()
+    // Result should include the entry with the eventDate
+    expect(legend.entries[0].eventDate).toBe('2024-05-15')
+  })
+})

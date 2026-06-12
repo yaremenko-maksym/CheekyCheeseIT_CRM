@@ -124,6 +124,21 @@ export const contractMeDtoSchema = z.object({
 export type ContractMeDto = z.infer<typeof contractMeDtoSchema>
 
 /**
+ * Self contract status DTO returned by GET /api/contracts/me/status.
+ * Returns the employee_contracts status for the current user (not signed_contracts list).
+ * Used in JUNIOR hub to correctly show contract status — resolves the bug where
+ * signed_contracts list rows lacked the \ field causing .parse() to throw.
+ *
+ * AC1 fix: source is employee_contracts.status, not signed_contracts.
+ */
+export const contractStatusMeDtoSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(['DRAFT', 'READY_TO_SIGN', 'SIGNED', 'CANCELLED']),
+})
+
+export type ContractStatusMeDto = z.infer<typeof contractStatusMeDtoSchema>
+
+/**
  * Row shape returned by GET /api/contracts/templates and
  * GET /api/contracts/templates/current/:role.
  *

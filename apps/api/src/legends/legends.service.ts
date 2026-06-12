@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type {
   AddLegendEntryDto,
   Legend,
@@ -19,6 +19,12 @@ import {
 } from '../database/schema'
 
 type ProjectRow = { id: string; seniorId: string; dropId: string | null }
+
+/** Defaults prefilled from the real subject (drop ?? senior) for ADMIN/HR viewers. */
+interface LegendDefaults {
+  fullName: string | null
+  address: string | null
+}
 
 @Injectable()
 export class LegendsService {
@@ -131,7 +137,8 @@ export class LegendsService {
   }
 
   /**
-   * Load legend entries for a legend, ordered by createdAt ASC, with author name.
+   * Load legend entries for a legend, ordered by eventDate (fallback createdAt) ASC.
+   * Includes eventDate field added in migration 0010.
    */
   private async loadEntries(legendId: string): Promise<LegendEntry[]> {
     const rows = await this.db.db
@@ -141,12 +148,20 @@ export class LegendsService {
         authorId: legendEntries.authorId,
         authorName: users.displayName,
         text: legendEntries.text,
+        eventDate: legendEntries.eventDate,
         createdAt: legendEntries.createdAt,
       })
       .from(legendEntries)
       .leftJoin(users, eq(legendEntries.authorId, users.id))
       .where(eq(legendEntries.legendId, legendId))
-      .orderBy(asc(legendEntries.createdAt))
+      // Sort by event_date when present, falling back to created_at date.
+      // Both compared as text (YYYY-MM-DD format) for consistent ordering.
+      .orderBy(
+        asc(
+          sql`COALESCE(${legendEntries.eventDate}, to_char(${legendEntries.createdAt}, 'YYYY-MM-DD'))`,
+        ),
+        asc(legendEntries.createdAt),
+      )
 
     return rows.map((r) => ({
       id: r.id,
@@ -154,16 +169,44 @@ export class LegendsService {
       authorId: r.authorId,
       authorName: r.authorName ?? 'Неизвестный',
       text: r.text,
+      eventDate: r.eventDate ?? null,
       createdAt: r.createdAt.toISOString(),
     }))
   }
 
   /**
-   * Assemble a full Legend DTO from a DB row + entries.
+   * Load prefill defaults from the real subject (drop ?? senior).
+   * Returns legalFullName + registrationAddress.
+   * Only called for ADMIN/HR viewers — NEVER for JUNIOR (AC8 / bug class #157/#158).
+   */
+  private async loadDefaults(project: ProjectRow): Promise<LegendDefaults> {
+    // Subject is drop if set, else senior
+    const subjectId = project.dropId ?? project.seniorId
+    const row = await this.db.db
+      .select({
+        legalFullName: users.legalFullName,
+        registrationAddress: users.registrationAddress,
+      })
+      .from(users)
+      .where(eq(users.id, subjectId))
+      .limit(1)
+
+    const subject = row[0]
+    if (!subject) return { fullName: null, address: null }
+
+    return {
+      fullName: subject.legalFullName ?? null,
+      address: subject.registrationAddress ?? null,
+    }
+  }
+
+  /**
+   * Assemble a full Legend DTO from a DB row + entries + optional defaults.
    */
   private buildLegend(
     row: NonNullable<Awaited<ReturnType<typeof this.loadLegendRow>>>,
     entries: LegendEntry[],
+    defaults?: LegendDefaults | null,
   ): Legend {
     return legendSchema.parse({
       id: row.id,
@@ -177,9 +220,18 @@ export class LegendsService {
       hobbies: row.hobbies ?? null,
       notes: row.notes ?? null,
       entries,
+      defaults: defaults ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     })
+  }
+
+  /**
+   * Returns true if viewer is ADMIN or HR (can receive defaults).
+   * JUNIOR must never receive real identity data (AC8 — bug class #157/#158).
+   */
+  private canReceiveDefaults(viewer: SessionUser): boolean {
+    return viewer.role === 'ADMIN' || viewer.role === 'HR'
   }
 
   /**
@@ -187,6 +239,7 @@ export class LegendsService {
    * - 404 if project not found
    * - 403 if viewer lacks permission
    * - 404 if no legend exists yet
+   * - defaults: non-null only for ADMIN/HR (AC8)
    */
   async getLegend(viewer: SessionUser, projectId: string): Promise<Legend> {
     const project = await this.loadProject(projectId)
@@ -197,8 +250,12 @@ export class LegendsService {
     const row = await this.loadLegendRow(projectId)
     if (!row) throw new NotFoundException('Легенда проекта не найдена')
 
-    const entries = await this.loadEntries(row.id)
-    return this.buildLegend(row, entries)
+    const [entries, defaults] = await Promise.all([
+      this.loadEntries(row.id),
+      this.canReceiveDefaults(viewer) ? this.loadDefaults(project) : Promise.resolve(null),
+    ])
+
+    return this.buildLegend(row, entries, defaults)
   }
 
   /**
@@ -257,8 +314,12 @@ export class LegendsService {
     const row = rows[0]
     if (!row) throw new NotFoundException('Upsert failed — legend not returned')
 
-    const entries = await this.loadEntries(row.id)
-    return this.buildLegend(row, entries)
+    const [entries, defaults] = await Promise.all([
+      this.loadEntries(row.id),
+      this.canReceiveDefaults(viewer) ? this.loadDefaults(project) : Promise.resolve(null),
+    ])
+
+    return this.buildLegend(row, entries, defaults)
   }
 
   /**
@@ -285,10 +346,15 @@ export class LegendsService {
       legendId: legendRow.id,
       authorId: viewer.id,
       text: dto.text,
+      eventDate: dto.eventDate ?? null,
       createdAt: new Date(),
     })
 
-    const entries = await this.loadEntries(legendRow.id)
-    return this.buildLegend(legendRow, entries)
+    const [entries, defaults] = await Promise.all([
+      this.loadEntries(legendRow.id),
+      this.canReceiveDefaults(viewer) ? this.loadDefaults(project) : Promise.resolve(null),
+    ])
+
+    return this.buildLegend(legendRow, entries, defaults)
   }
 }

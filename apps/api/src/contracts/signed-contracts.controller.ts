@@ -6,15 +6,17 @@ import { signContractSchema, type SessionUser } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { SignedContractsService } from './signed-contracts.service'
 import { ContractPdfService } from './contract-pdf.service'
+import { EmployeeContractsService } from './employee-contracts.service'
 
 /**
  * Sign / read signed-contracts endpoints.
  *
  * RBAC:
- *   POST /api/contracts/sign       — any authenticated non-ADMIN
- *   GET  /api/contracts/me         — caller's own signed contracts
- *   GET  /api/contracts/:id        — ADMIN | ACCOUNTANT | owner
- *   GET  /api/contracts/:id/pdf    — owner | ADMIN | ACCOUNTANT
+ *   POST /api/contracts/sign           — any authenticated non-ADMIN
+ *   GET  /api/contracts/me             — caller's own signed contracts
+ *   GET  /api/contracts/me/status      — caller's employee_contract status (AC1 fix)
+ *   GET  /api/contracts/:id            — ADMIN | ACCOUNTANT | owner
+ *   GET  /api/contracts/:id/pdf        — owner | ADMIN | ACCOUNTANT
  *
  * A3-1: GET /api/contracts/preview-pdf REMOVED — replaced by per-employee
  * contract PDF endpoints:
@@ -33,6 +35,7 @@ export class SignedContractsController {
   constructor(
     private readonly service: SignedContractsService,
     private readonly contractPdf: ContractPdfService,
+    private readonly employeeContracts: EmployeeContractsService,
   ) {}
 
   // Signing a contract is a one-time user action — 10 req/min prevents
@@ -56,6 +59,23 @@ export class SignedContractsController {
   @Get('me')
   findMine(@CurrentUser() user: SessionUser) {
     return this.service.findMine(user.id)
+  }
+
+  /**
+   * GET /api/contracts/me/status — self-only employee_contract status.
+   *
+   * AC1 fix: the JUNIOR hub was reading GET /contracts/me (signed_contracts list)
+   * which returned rows WITHOUT a `status` field — causing contractMeDtoSchema.parse()
+   * to throw, query to land in error state, and the card to render «Контракт не оформлен»
+   * even for SIGNED users.
+   *
+   * This endpoint reads employee_contracts.status directly.
+   * Returns null (HTTP 200 with null body) when no active contract exists yet.
+   * Self-only by construction — userId comes from JWT, no param accepted.
+   */
+  @Get('me/status')
+  async getMyContractStatus(@CurrentUser() user: SessionUser) {
+    return this.employeeContracts.getMyStatus(user.id)
   }
 
   @Get(':id')
