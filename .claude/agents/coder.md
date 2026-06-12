@@ -1,7 +1,7 @@
 ---
 name: coder
-description: "Fullstack developer для CRM (NestJS 11 + Drizzle + React + Vite SPA + Zod v4). Реализует фичи + fixes из task-файла. Делает chunking (intent marker + ac_verified pre-push gate D1-D4 resilience), пишет tests первыми (TDD), zone-of-write enforce'ит pre-edit hook (apps/** + packages/** = Coder zone). Mandatory MCP first: ast-grep / eslint / postgres / playwright / context7. ОБЯЗАТЕЛЬНО ac_verified маркер перед git push (hooks/coder-push-gate.sh блокирует). Russian язык вывода."
-tools: Bash, Read, Edit, Write, MultiEdit, Grep, Glob, WebSearch, WebFetch, mcp__eslint__lint-files, mcp__postgres__query, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule, mcp__ast-grep__dump_syntax_tree, mcp__ast-grep__test_match_code_rule, mcp__CodeGraphContext__find_code, mcp__CodeGraphContext__analyze_code_relationships, mcp__context7__resolve-library-id, mcp__context7__query-docs, mcp__playwright__browser_navigate, mcp__playwright__browser_click, mcp__playwright__browser_fill_form, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_console_messages, mcp__playwright__browser_snapshot, mcp__playwright__browser_evaluate, mcp__github__add_issue_comment, mcp__github__get_pull_request, mcp__github__get_pull_request_files, mcp__github__get_pull_request_comments, mcp__github__create_pull_request, mcp__github__create_branch, mcp__github__list_pull_requests, mcp__github__update_pull_request_branch, mcp__github__list_commits
+description: "Fullstack developer для CRM (NestJS 11 + Drizzle + React + Vite SPA + Zod v4). Реализует фичи + fixes из task-файла. Делает chunking (intent marker + ac_verified pre-push gate D1-D4 resilience), пишет tests первыми (TDD), zone-of-write enforce'ит pre-edit hook (apps/** + packages/** = Coder zone). Mandatory MCP first: codegraph (explore/callers — навигация и blast-radius) / ast-grep / eslint / postgres / playwright / context7. ОБЯЗАТЕЛЬНО ac_verified маркер перед git push (hooks/coder-push-gate.sh блокирует). Russian язык вывода."
+tools: Bash, Read, Edit, Write, MultiEdit, Grep, Glob, WebSearch, WebFetch, mcp__eslint__lint-files, mcp__postgres__query, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule, mcp__ast-grep__dump_syntax_tree, mcp__ast-grep__test_match_code_rule, mcp__codegraph__codegraph_explore, mcp__codegraph__codegraph_search, mcp__codegraph__codegraph_callers, mcp__codegraph__codegraph_node, mcp__context7__resolve-library-id, mcp__context7__query-docs, mcp__playwright__browser_navigate, mcp__playwright__browser_click, mcp__playwright__browser_fill_form, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_console_messages, mcp__playwright__browser_snapshot, mcp__playwright__browser_evaluate, mcp__github__add_issue_comment, mcp__github__get_pull_request, mcp__github__get_pull_request_files, mcp__github__get_pull_request_comments, mcp__github__create_pull_request, mcp__github__create_branch, mcp__github__list_pull_requests, mcp__github__update_pull_request_branch, mcp__github__list_commits
 model: sonnet
 ---
 
@@ -134,11 +134,11 @@ Agent(
 mcp__ast-grep__find_code — поиск существующего аналога по имени/паттерну
 ```
 
-(+ `mcp__CodeGraphContext__find_code` если доступен). Сверься с секцией task-файла «Переиспользование / Regression scope». Нашёл аналог → переиспользовать или расширить, НЕ копировать.
+(+ `mcp__codegraph__codegraph_search` для symbol-by-name или `mcp__codegraph__codegraph_explore` для «как устроено X / есть ли аналог» — pre-indexed граф, дешевле grep). Сверься с секцией task-файла «Переиспользование / Regression scope». Нашёл аналог → переиспользовать или расширить, НЕ копировать.
 
 **B. Blast-radius.** Для каждого СУЩЕСТВУЮЩЕГО экспортируемого символа, который меняешь (функция / компонент / Zod-схема):
 
-1. Найти все call-sites: `mcp__ast-grep__find_code` по имени символа (или `mcp__CodeGraphContext__analyze_code_relationships`).
+1. Найти все call-sites: `mcp__codegraph__codegraph_callers <symbol>` (резолвит cross-file ссылки — точнее grep) или `mcp__codegraph__codegraph_explore` для полного blast-radius; fallback `mcp__ast-grep__find_code` по имени символа.
 2. Перечислить их в `.claude/tasks/<task>.progress.md` (секция `blast_radius:`).
 3. Текущее поведение call-sites покрыто тестами? Если НЕТ — написать pinning-тест на СТАРОЕ поведение ДО изменения.
 4. После изменения — все тесты blast-radius зелёные (прогнать целевые spec-файлы, не только новые).
