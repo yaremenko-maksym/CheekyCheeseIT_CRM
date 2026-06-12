@@ -420,4 +420,56 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.adminNote).toBe(false)
     expect(p.fields.realContacts).toBe(true)
   })
+
+  // ── task-junior-ut-round2 §6 — projectCredentials / editCredentials flags ──
+  it('ADMIN viewing JUNIOR — projectCredentials/editCredentials true', async () => {
+    const admin = makeUser({ id: 'admin1', role: 'ADMIN' })
+    const junior = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(admin, junior)
+    expect(p.fields.projectCredentials).toBe(true)
+    expect(p.fields.editCredentials).toBe(true)
+  })
+
+  it('ADMIN viewing SENIOR — projectCredentials/editCredentials falsy (junior-only)', async () => {
+    const admin = makeUser({ id: 'admin1', role: 'ADMIN' })
+    const senior = makeUser({ id: 'sr1', role: 'SENIOR' })
+    const p = await service.getViewPermissions(admin, senior)
+    expect(p.fields.projectCredentials).toBeFalsy()
+    expect(p.fields.editCredentials).toBeFalsy()
+  })
+
+  it('ADMIN self — projectCredentials/editCredentials falsy (never self)', async () => {
+    const admin = makeUser({ id: 'admin1', role: 'ADMIN' })
+    const p = await service.getViewPermissions(admin, admin)
+    expect(p.fields.projectCredentials).toBeFalsy()
+    expect(p.fields.editCredentials).toBeFalsy()
+  })
+
+  it('HR (in team) viewing JUNIOR — projectCredentials/editCredentials true', async () => {
+    ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
+      .fn()
+      .mockResolvedValue(true)
+    const hr = makeUser({ id: 'hr1', role: 'HR' })
+    const junior = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(hr, junior)
+    expect(p.fields.projectCredentials).toBe(true)
+    expect(p.fields.editCredentials).toBe(true)
+  })
+
+  it('HR (NOT in team) viewing JUNIOR — no tabs, no credential flags', async () => {
+    ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
+      .fn()
+      .mockResolvedValue(false)
+    const hr = makeUser({ id: 'hr1', role: 'HR' })
+    const junior = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(hr, junior)
+    expect(p.fields.projectCredentials).toBeFalsy()
+    expect(p.fields.editCredentials).toBeFalsy()
+  })
+
+  it('JUNIOR self — no projectCredentials flag (self does not see the section)', async () => {
+    const junior = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(junior, junior)
+    expect(p.fields.projectCredentials).toBeFalsy()
+  })
 })

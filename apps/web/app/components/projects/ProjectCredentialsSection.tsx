@@ -65,16 +65,28 @@ interface ProjectCredentialsSectionProps {
   /** UUID проекта */
   projectId: string
   /**
-   * Controls add/edit/delete button visibility.
+   * Controls edit/delete button visibility (per-row ✏/🗑).
    * JUNIOR → false (reveal/copy only). ADMIN/HR → true.
    */
   canEdit: boolean
+  /**
+   * Controls the «+ Добавить» button independently of canEdit (task §6 round 2).
+   * JUNIOR on their own project → true (create allowed, edit/delete not).
+   * Defaults to `canEdit` for backwards compatibility (ADMIN/HR inherit).
+   */
+  canAdd?: boolean
 }
 
 // Threshold (§9.2): wrap the list in a ScrollArea once it grows past this many rows.
 const SCROLL_THRESHOLD = 8
 
-export function ProjectCredentialsSection({ projectId, canEdit }: ProjectCredentialsSectionProps) {
+export function ProjectCredentialsSection({
+  projectId,
+  canEdit,
+  canAdd,
+}: ProjectCredentialsSectionProps) {
+  // «+ Добавить» shows for editors (ADMIN/HR) and for JUNIOR with explicit canAdd.
+  const showAddButton = canEdit || (canAdd ?? false)
   const { data: credentials, isLoading, isError } = useCredentials(projectId)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<ProjectCredential | null>(null)
@@ -100,12 +112,13 @@ export function ProjectCredentialsSection({ projectId, canEdit }: ProjectCredent
           <KeyRound className="h-3.5 w-3.5" />
           Пароли проекта
         </CardTitle>
-        {canEdit && (
+        {showAddButton && (
           <Button
             variant="ghost"
             size="sm"
             onClick={openAdd}
             data-testid="credentials-add-btn"
+            title="Добавить аккаунт проекта"
             className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
           >
             <Plus className="h-3 w-3" />
