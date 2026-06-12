@@ -85,6 +85,13 @@
       "when": 1781596800000,
       "tag": "0011_project_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1781683200000,
+      "tag": "0012_signed_contracts_pdf_size",
+      "breakpoints": true
     }
   ]
 }
