@@ -13,12 +13,12 @@ import { api } from '@/lib/axios'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { DatePickerField } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 
 export const Route = createFileRoute('/crm/legend')({
   component: LegendPage,
@@ -32,14 +32,6 @@ const container = {
 const card = {
   hidden: { opacity: 0, y: 12 },
   show: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] as const } },
-}
-
-function getInitials(name: string | null): string {
-  if (!name) return '?'
-  const parts = name.trim().split(' ')
-  const first = parts[0]?.[0] ?? ''
-  const second = parts[1]?.[0] ?? ''
-  return (first + second).toUpperCase() || '?'
 }
 
 function LegendPage() {
@@ -132,8 +124,6 @@ interface LegendBlockProps {
 function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
   const [editing, setEditing] = useState(false)
   const upsert = useUpsertLegend(projectId)
-  const initials = getInitials(legend?.fullName ?? null)
-
   const form = useForm({
     defaultValues: {
       fullName: legend?.fullName ?? '',
@@ -163,10 +153,19 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
   })
 
   const handleEdit = () => {
+    // AC8: prefill empty fullName / address from defaults (ADMIN/HR only; JUNIOR gets null from API)
+    const defaultFullName =
+      !legend?.fullName && legend?.defaults?.fullName
+        ? legend.defaults.fullName
+        : (legend?.fullName ?? '')
+    const defaultAddress =
+      !legend?.address && legend?.defaults?.address
+        ? legend.defaults.address
+        : (legend?.address ?? '')
     form.reset({
-      fullName: legend?.fullName ?? '',
+      fullName: defaultFullName,
       dateOfBirth: legend?.dateOfBirth ?? '',
-      address: legend?.address ?? '',
+      address: defaultAddress,
       hobbies: legend?.hobbies ?? '',
       presentedRole: legend?.presentedRole ?? '',
       presentedStack: legend?.presentedStack ?? '',
@@ -180,11 +179,6 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
     <Card className="border-border/40 bg-card" data-testid="legend-persona-block">
       <CardHeader className="flex flex-row items-start justify-between pb-3">
         <div className="flex items-center gap-3">
-          <Avatar className="h-10 w-10 shrink-0">
-            <AvatarFallback className="bg-yellow-subtle text-avatar-text font-semibold text-sm">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
           <CardTitle className="text-sm font-semibold">Персона</CardTitle>
         </div>
         {!editing && (
@@ -203,15 +197,16 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
         {editing && (
           <Button
             variant="ghost"
-            size="sm"
+            size="icon"
             onClick={() => {
               form.reset()
               setEditing(false)
             }}
-            className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
+            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            aria-label="Отмена редактирования"
+            data-testid="persona-edit-cancel-icon"
           >
-            <X className="h-3.5 w-3.5" />
-            Отмена
+            <X className="h-4 w-4" />
           </Button>
         )}
       </CardHeader>
@@ -281,13 +276,11 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
               <form.Field name="dateOfBirth">
                 {(field) => (
                   <div className="space-y-1">
-                    <Label htmlFor="persona-dob">Дата рождения</Label>
-                    <Input
-                      id="persona-dob"
-                      value={field.state.value}
-                      onBlur={field.handleBlur}
-                      onChange={(e) => field.handleChange(e.target.value)}
-                      placeholder="1990-01-15"
+                    <Label>Дата рождения</Label>
+                    <DatePickerField
+                      value={field.state.value ?? ''}
+                      onChange={(v) => field.handleChange(v)}
+                      placeholder="Выберите дату рождения"
                     />
                   </div>
                 )}
@@ -419,15 +412,16 @@ function LegendCoverBlock({ projectId, legend }: LegendBlockProps) {
         {editing && (
           <Button
             variant="ghost"
-            size="sm"
+            size="icon"
             onClick={() => {
               form.reset()
               setEditing(false)
             }}
-            className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
+            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            aria-label="Отмена редактирования"
+            data-testid="persona-edit-cancel-icon"
           >
-            <X className="h-3.5 w-3.5" />
-            Отмена
+            <X className="h-4 w-4" />
           </Button>
         )}
       </CardHeader>
@@ -546,14 +540,19 @@ function LegendCoverBlock({ projectId, legend }: LegendBlockProps) {
 function LegendJournalBlock({ projectId, legend }: LegendBlockProps) {
   const [showForm, setShowForm] = useState(false)
   const [entryText, setEntryText] = useState('')
+  const [entryDate, setEntryDate] = useState('')
   const addEntry = useAddLegendEntry(projectId)
   const charCount = entryText.length
   const MAX_CHARS = 2000
 
   const handleSubmit = async () => {
     if (!entryText.trim()) return
-    await addEntry.mutateAsync({ text: entryText.trim() })
+    await addEntry.mutateAsync({
+      text: entryText.trim(),
+      eventDate: entryDate || null,
+    })
     setEntryText('')
+    setEntryDate('')
     setShowForm(false)
   }
 
@@ -596,7 +595,7 @@ function LegendJournalBlock({ projectId, legend }: LegendBlockProps) {
               {entries.map((entry) => (
                 <li key={entry.id} className="text-sm" data-testid="legend-entry-item">
                   <span className="text-muted-foreground text-xs mr-1.5">
-                    {new Date(entry.createdAt).toLocaleDateString('ru-RU', {
+                    {new Date(entry.eventDate ?? entry.createdAt).toLocaleDateString('ru-RU', {
                       day: '2-digit',
                       month: '2-digit',
                       year: 'numeric',
@@ -627,6 +626,15 @@ function LegendJournalBlock({ projectId, legend }: LegendBlockProps) {
               <p className="text-xs text-muted-foreground text-right">
                 {charCount} / {MAX_CHARS}
               </p>
+              <div className="space-y-1">
+                <Label className="text-xs">Дата события (необязательно)</Label>
+                <DatePickerField
+                  value={entryDate}
+                  onChange={setEntryDate}
+                  placeholder="Выберите дату события"
+                  data-testid="legend-entry-date"
+                />
+              </div>
               <div className="flex gap-2">
                 <Button
                   size="sm"

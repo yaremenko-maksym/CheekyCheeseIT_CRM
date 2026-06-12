@@ -21,8 +21,19 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { ContractMeDto, HrContactDto, ProjectDto } from '@crm/shared'
-import { contractMeDtoSchema, hrContactSchema } from '@crm/shared'
+import type {
+  ContractStatusMeDto,
+  HrContactDto,
+  ProjectDto,
+  SalaryMetaDto,
+  TransactionDto,
+} from '@crm/shared'
+import {
+  contractStatusMeDtoSchema,
+  hrContactSchema,
+  salaryMetaSchema,
+  transactionSchema,
+} from '@crm/shared'
 import { useLegend } from '@/hooks/use-legend'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
@@ -79,15 +90,13 @@ function useJuniorProjects() {
 }
 
 function useMyContract() {
-  return useQuery<ContractMeDto | null>({
-    queryKey: ['contracts', 'me'],
+  return useQuery<ContractStatusMeDto | null>({
+    queryKey: ['contracts', 'me', 'status'],
     queryFn: async () => {
       try {
-        const res = await api.get<unknown>('/contracts/me')
-        // endpoint may return array or single item
-        const raw = Array.isArray(res.data) ? res.data[0] : res.data
-        if (!raw) return null
-        return contractMeDtoSchema.parse(raw)
+        const res = await api.get<unknown>('/contracts/me/status')
+        if (!res.data) return null
+        return contractStatusMeDtoSchema.parse(res.data)
       } catch (err: unknown) {
         if (getAxiosStatus(err) === 404) return null
         throw err
@@ -97,29 +106,30 @@ function useMyContract() {
   })
 }
 
-interface SalaryTx {
-  id: string
-  amount: string
-  currency: string
-  salaryMonth: string | null
-  status: string
-  createdAt: string
+function useSalaryMeta() {
+  return useQuery({
+    queryKey: ['salary', 'meta'],
+    queryFn: async () => {
+      const res = await api.get<unknown>('/users/me/salary-meta')
+      return salaryMetaSchema.parse(res.data)
+    },
+    staleTime: 60_000,
+  })
 }
 
-function useLastSalary() {
-  return useQuery<SalaryTx | null>({
-    queryKey: ['transactions', 'salary', 'last'],
+function useSalaryTransactions() {
+  return useQuery<TransactionDto[]>({
+    queryKey: ['transactions', 'salary'],
     queryFn: async () => {
       try {
-        const res = await api.get<SalaryTx[]>('/transactions', { params: { type: 'SALARY' } })
-        if (!res.data || res.data.length === 0) return null
-        // Sort by createdAt descending, take first
-        const sorted = [...res.data].sort(
-          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-        )
-        return sorted[0] ?? null
+        const res = await api.get<unknown[]>('/transactions', { params: { type: 'SALARY' } })
+        if (!Array.isArray(res.data)) return []
+        return res.data
+          .map((item) => transactionSchema.parse(item))
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          .slice(0, 3)
       } catch {
-        return null
+        return []
       }
     },
     staleTime: 60_000,
@@ -248,9 +258,12 @@ function ProjectSwitcher({
 
 function HubCards({ project, projectId }: { project: ProjectDto; projectId: string }) {
   const { data: legend, isLoading: legendLoading } = useLegend(projectId, true)
-  const { data: contract, isLoading: contractLoading } = useMyContract()
-  const { data: lastSalary, isLoading: salaryLoading } = useLastSalary()
+  const { data: contract, isLoading: contractLoading, isError: contractError } = useMyContract()
+  const { data: salaryMeta, isLoading: salaryMetaLoading } = useSalaryMeta()
+  const { data: salaryTxs, isLoading: salaryTxsLoading } = useSalaryTransactions()
   const { data: hrContact, isLoading: hrLoading } = useHrContact(projectId)
+
+  const salaryLoading = salaryMetaLoading || salaryTxsLoading
 
   return (
     <motion.div className="space-y-4" variants={container} initial="hidden" animate="show">
@@ -267,10 +280,18 @@ function HubCards({ project, projectId }: { project: ProjectDto; projectId: stri
       {/* Row 2: contract + salary (2-col on md+) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <motion.div variants={card}>
-          <ContractStatusCard contract={contract ?? null} isLoading={contractLoading} />
+          <ContractStatusCard
+            contract={contract ?? null}
+            isLoading={contractLoading}
+            isError={contractError}
+          />
         </motion.div>
         <motion.div variants={card}>
-          <SalarySnapshotCard lastSalary={lastSalary ?? null} isLoading={salaryLoading} />
+          <SalarySnapshotCard
+            salaryMeta={salaryMeta ?? null}
+            salaryTxs={salaryTxs ?? []}
+            isLoading={salaryLoading}
+          />
         </motion.div>
       </div>
 
@@ -416,14 +437,15 @@ function PersonaCard({ legend, isLoading }: PersonaCardProps) {
 // ---------------------------------------------------------------------------
 
 interface ContractStatusCardProps {
-  contract: ContractMeDto | null
+  contract: ContractStatusMeDto | null
   isLoading: boolean
+  isError: boolean
 }
 
-function ContractStatusCard({ contract, isLoading }: ContractStatusCardProps) {
+function ContractStatusCard({ contract, isLoading, isError }: ContractStatusCardProps) {
   const isSigned = contract?.status === 'SIGNED'
   const isReadyToSign = contract?.status === 'READY_TO_SIGN'
-  const noContract = !contract
+  const noContract = !contract && !isError
 
   if (isLoading) {
     return (
@@ -474,7 +496,12 @@ function ContractStatusCard({ contract, isLoading }: ContractStatusCardProps) {
             Черновик
           </Badge>
         )}
-        {noContract && (
+        {isError && (
+          <Badge variant="secondary" className="text-xs" data-testid="contract-status-badge">
+            Ошибка загрузки
+          </Badge>
+        )}
+        {noContract && !isError && (
           <Badge variant="secondary" className="text-xs" data-testid="contract-status-badge">
             Контракт не оформлен
           </Badge>
@@ -489,26 +516,27 @@ function ContractStatusCard({ contract, isLoading }: ContractStatusCardProps) {
 // ---------------------------------------------------------------------------
 
 interface SalarySnapshotCardProps {
-  lastSalary: SalaryTx | null
+  salaryMeta: SalaryMetaDto | null
+  salaryTxs: TransactionDto[]
   isLoading: boolean
 }
 
-function SalarySnapshotCard({ lastSalary, isLoading }: SalarySnapshotCardProps) {
+function SalarySnapshotCard({ salaryMeta, salaryTxs, isLoading }: SalarySnapshotCardProps) {
   if (isLoading) {
     return (
       <Card className="border-border/40 bg-card" data-testid="salary-snapshot-card">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold">Моя зарплата</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-2">
           <Skeleton className="h-8 w-32" />
+          <Skeleton className="h-4 w-48" />
         </CardContent>
       </Card>
     )
   }
 
-  const statusVariant =
-    lastSalary?.status === 'VALIDATED' ? ('paid' as const) : ('pending' as const)
+  const hasRate = salaryMeta?.monthlySalary != null
 
   return (
     <Card className="border-border/40 bg-card" data-testid="salary-snapshot-card">
@@ -517,23 +545,66 @@ function SalarySnapshotCard({ lastSalary, isLoading }: SalarySnapshotCardProps) 
         <DollarSign className="h-4 w-4 text-muted-foreground" aria-hidden />
       </CardHeader>
       <CardContent className="space-y-3">
-        {lastSalary ? (
+        {hasRate ? (
           <>
             <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-bold tabular-nums" data-testid="salary-last-amount">
-                {Number(lastSalary.amount).toLocaleString('ru-RU')}
+              <span className="text-2xl font-bold tabular-nums" data-testid="salary-rate-amount">
+                {Number(salaryMeta!.monthlySalary).toLocaleString('ru-RU')}
               </span>
-              <span className="text-xs text-muted-foreground uppercase">{lastSalary.currency}</span>
-              <Badge variant={statusVariant} className="text-xs ml-auto">
-                {lastSalary.status === 'VALIDATED' ? 'Выплачено' : 'Ожидание'}
-              </Badge>
+              <span className="text-xs text-muted-foreground uppercase">
+                {salaryMeta!.salaryCurrency ?? ''}
+              </span>
+              <span className="text-xs text-muted-foreground ml-auto">/ мес</span>
             </div>
-            {lastSalary.salaryMonth && (
-              <p className="text-xs text-muted-foreground">За {lastSalary.salaryMonth}</p>
+            {salaryMeta?.changedAt && (
+              <p className="text-xs text-muted-foreground" data-testid="salary-changed-at">
+                изменена{' '}
+                {new Date(salaryMeta.changedAt).toLocaleDateString('ru-RU', {
+                  day: '2-digit',
+                  month: 'long',
+                  year: 'numeric',
+                })}
+              </p>
             )}
           </>
         ) : (
-          <p className="text-sm text-muted-foreground/60 italic">Выплат пока нет</p>
+          <p className="text-sm text-muted-foreground/60 italic" data-testid="salary-no-rate">
+            Ставка не назначена
+          </p>
+        )}
+        {salaryTxs.length > 0 && (
+          <>
+            <Separator className="opacity-30" />
+            <div className="space-y-1.5" data-testid="salary-tx-list">
+              {salaryTxs.map((tx) => {
+                const isPaid = tx.status === 'PAID' || tx.status === 'VALIDATED'
+                const txVariant = isPaid ? ('paid' as const) : ('pending' as const)
+                return (
+                  <div
+                    key={tx.id}
+                    className="flex items-center justify-between text-xs"
+                    data-testid="salary-tx-row"
+                  >
+                    <span className="text-muted-foreground">
+                      {tx.salaryMonth ??
+                        new Date(tx.createdAt).toLocaleDateString('ru-RU', {
+                          month: 'long',
+                          year: 'numeric',
+                        })}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="tabular-nums font-medium">
+                        {Number(tx.amount).toLocaleString('ru-RU')} {tx.currency}
+                      </span>
+                      <Badge variant={txVariant} className="text-xs">
+                        {isPaid ? 'Выплачено' : 'Ожидание'}
+                      </Badge>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </>
         )}
         <Separator className="opacity-50" />
         <Link
