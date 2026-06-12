@@ -14,3 +14,4 @@
 - "Если PR трогает RBAC — обязательно проверить все 5 ролей в комментарии"
 - "Не давать APPROVE если в diff есть console.log даже в test файлах"
 -->
+2026-06-12 [P1] [pr-177] (#github-api) GitHub блокирует event:APPROVE на self-PR (owner==reviewer) так же, как REQUEST_CHANGES — 422 «Can not approve your own pull request». Для ЛЮБОГО verdict использовать event:COMMENT + первая строка `Verdict: APPROVE|BLOCK`. Write-then-post обязателен — тело сохранять в /tmp до MCP-вызова, переотправка без потерь.
