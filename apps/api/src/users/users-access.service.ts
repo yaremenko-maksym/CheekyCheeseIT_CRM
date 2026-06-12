@@ -69,9 +69,18 @@ export class UsersAccessService {
       // ADMIN can view/edit any SENIOR's or DROP's legend (subject excluded by isSelf check)
       fields.legend = targetIsLegendSubject && !isSelf
     } else if (isSelf) {
-      tabs.push('overview', 'projects', 'team', 'requisites', 'documents')
-      // Drop role - phase 1: DROP has finance access (read), same as senior/etc.
-      if (isSenior || isJunior || isHr || isAccountant || isDrop) tabs.push('finance')
+      // task-junior-ut-round2 §3 (security, data-leak): JUNIOR self-view is an
+      // EXPLICIT allow-list — overview/requisites/documents only. JUNIOR must NOT
+      // get projects/team/finance tabs: those surface the senior/drop identity and
+      // project/team internals (same class as mapProject allow-list + RBAC audit
+      // 2026-06-10). The junior hub (/crm/project) is their project surface.
+      if (isJunior) {
+        tabs.push('overview', 'requisites', 'documents')
+      } else {
+        tabs.push('overview', 'projects', 'team', 'requisites', 'documents')
+        // Drop role - phase 1: DROP has finance access (read), same as senior/etc.
+        if (isSenior || isHr || isAccountant || isDrop) tabs.push('finance')
+      }
       // SENIOR: interviews moved to header link; no separate tab here
       fields.salary = targetIsSalaryRole
       fields.share = targetIsShareRole

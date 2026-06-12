@@ -239,12 +239,36 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.tabs).toContain('overview')
   })
 
-  it('JUNIOR viewing themselves — keeps own tabs (regression)', async () => {
+  // task-junior-ut-round2 §3 (security, data-leak): JUNIOR self-view is an
+  // EXPLICIT allow-list — overview/requisites/documents ONLY. Projects/Team/Finance
+  // are removed: they surface senior/drop identity + project/team internals.
+  // (Supersedes the previous expectation that JUNIOR self saw projects/team.)
+  it('JUNIOR viewing themselves — allow-list overview/requisites/documents only (no projects/team/finance)', async () => {
     const junior = makeUser({ id: 'jr1', role: 'JUNIOR' })
     const p = await service.getViewPermissions(junior, junior)
-    expect(p.tabs).toContain('overview')
-    expect(p.tabs).toContain('projects')
-    expect(p.tabs).toContain('team')
+    expect(p.tabs).toEqual(['overview', 'requisites', 'documents'])
+    expect(p.tabs).not.toContain('projects')
+    expect(p.tabs).not.toContain('team')
+    expect(p.tabs).not.toContain('finance')
+  })
+
+  it('JUNIOR self — own salary still visible (fields.salary), requisites visible — not a leak of own data', async () => {
+    const junior = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(junior, junior)
+    expect(p.fields.salary).toBe(true)
+    expect(p.fields.requisites).toBe(true)
+    // share is for SENIOR/ADMIN/DROP — JUNIOR self must not have it
+    expect(p.fields.share).toBe(false)
+  })
+
+  it('SELF — SENIOR/HR/ACCOUNTANT/DROP keep projects/team (allow-list change is JUNIOR-only)', async () => {
+    for (const role of ['SENIOR', 'HR', 'ACCOUNTANT', 'DROP'] as const) {
+      const u = makeUser({ id: `${role}-id`, role })
+      const p = await service.getViewPermissions(u, u)
+      expect(p.tabs, `${role} self should keep projects`).toContain('projects')
+      expect(p.tabs, `${role} self should keep team`).toContain('team')
+      expect(p.tabs, `${role} self should keep finance`).toContain('finance')
+    }
   })
 
   it('JUNIOR viewing their project SENIOR — gets overview/projects/team + fields.legend=true', async () => {
