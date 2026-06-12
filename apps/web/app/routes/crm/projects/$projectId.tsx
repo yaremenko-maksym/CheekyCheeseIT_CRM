@@ -42,6 +42,7 @@ import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProjectLegendSection } from '@/components/projects/ProjectLegendSection'
+import { ProjectCredentialsSection } from '@/components/projects/ProjectCredentialsSection'
 import { ProjectLogo } from '@/components/projects/ProjectLogo'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -517,6 +518,12 @@ function ProjectDetailPage() {
     !!project &&
     !isSubject &&
     (user?.role === 'ADMIN' || user?.role === 'HR' || user?.role === 'JUNIOR')
+
+  // Credentials section on the project-detail page is for ADMIN/HR managers.
+  // (JUNIOR manages credentials from their «Мой проект» hub, not here.)
+  // The component self-hides on a 403 from the backend (e.g. an HR with no
+  // shared team), so the client guard only needs the role gate.
+  const canManageCredentials = !!project && (user?.role === 'ADMIN' || user?.role === 'HR')
 
   const editForm = useForm({
     defaultValues: {
@@ -1118,6 +1125,11 @@ function ProjectDetailPage() {
       {/* Legend section — subject (seniorId/dropId) excluded per RBAC contract */}
       {activeTab === 'overview' && (
         <ProjectLegendSection projectId={projectId} canAccess={canAccessLegend} />
+      )}
+
+      {/* Credentials section — ADMIN/HR managers (self-hides on 403) */}
+      {activeTab === 'overview' && canManageCredentials && (
+        <ProjectCredentialsSection projectId={projectId} canEdit />
       )}
 
       {activeTab === 'finance' && canSeeProjectFinance && (
