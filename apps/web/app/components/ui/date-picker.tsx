@@ -8,14 +8,20 @@ import { Popover, PopoverContent, PopoverTrigger } from './popover'
 import { cn } from '@/lib/utils'
 
 interface DatePickerFieldProps {
-  value: string        // "YYYY-MM-DD"
+  value: string // "YYYY-MM-DD"
   onChange: (v: string) => void
   placeholder?: string
   className?: string
   disabled?: boolean
 }
 
-export function DatePickerField({ value, onChange, placeholder = 'Выберите дату', className, disabled }: DatePickerFieldProps) {
+export function DatePickerField({
+  value,
+  onChange,
+  placeholder = 'Выберите дату',
+  className,
+  disabled,
+}: DatePickerFieldProps) {
   const [open, setOpen] = useState(false)
   const selected = value ? parseISO(value) : undefined
 
@@ -31,8 +37,10 @@ export function DatePickerField({ value, onChange, placeholder = 'Выберит
             className,
           )}
         >
-          <CalendarIcon className="mr-2 h-4 w-4" />
-          {selected ? format(selected, 'dd MMM yyyy', { locale: ru }) : placeholder}
+          <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+          <span className="truncate">
+            {selected ? format(selected, 'dd MMM yyyy', { locale: ru }) : placeholder}
+          </span>
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">

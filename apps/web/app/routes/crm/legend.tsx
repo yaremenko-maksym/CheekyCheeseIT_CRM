@@ -280,7 +280,7 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
                     <DatePickerField
                       value={field.state.value ?? ''}
                       onChange={(v) => field.handleChange(v)}
-                      placeholder="Выберите дату рождения"
+                      placeholder="Дата рождения"
                     />
                   </div>
                 )}

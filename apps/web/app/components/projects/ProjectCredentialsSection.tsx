@@ -106,7 +106,7 @@ export function ProjectCredentialsSection({
   }
 
   return (
-    <Card data-testid="credentials-section" className="border-border/40 col-span-full">
+    <Card data-testid="credentials-section" className="border-border/40">
       <CardHeader className="flex flex-row items-center justify-between pb-3">
         <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
           <KeyRound className="h-3.5 w-3.5" />
