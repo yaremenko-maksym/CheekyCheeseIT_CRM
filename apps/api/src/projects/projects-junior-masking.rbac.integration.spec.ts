@@ -12,6 +12,7 @@ import type { SessionUser } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
+import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
 import { ProjectsService } from './projects.service'
 import { ProjectAuditLogService } from './project-audit-log.service'
@@ -245,7 +246,7 @@ class TestDatabaseModule {}
     {
       provide: ProjectsService,
       useFactory: (db: DatabaseService, auditLog: ProjectAuditLogService, usersSvc: UsersService) =>
-        new ProjectsService(db, auditLog, usersSvc),
+        new ProjectsService(db, auditLog, usersSvc, new HrAccessService(db)),
       inject: [DatabaseService, ProjectAuditLogService, UsersService],
     },
     {

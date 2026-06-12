@@ -21,6 +21,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
+import { HrAccessService } from '../common/hr-access.service'
 import { LegendsService } from './legends.service'
 
 // ---------------------------------------------------------------------------
@@ -127,7 +128,11 @@ const mockEntryDbRow = {
 
 function buildService() {
   const stub = makeDbStub()
-  const service = new LegendsService(stub as never)
+  // HrAccessService shares the SAME db stub so the existing chain.limit mock
+  // sequencing drives the HR-access queries (they were relocated out of
+  // LegendsService into HrAccessService — same SQL, same stub behavior).
+  const hrAccess = new HrAccessService(stub as never)
+  const service = new LegendsService(stub as never, hrAccess)
   return { service, chain: stub._chain, db: stub.db }
 }
 

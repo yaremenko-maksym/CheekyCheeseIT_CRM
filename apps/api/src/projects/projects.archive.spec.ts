@@ -6,13 +6,33 @@
  *
  * Spec: docs/specs/2026-05-21-users-archive-refactor-design.md §5.2 + §6.3
  */
-import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
+import { HrAccessService } from '../common/hr-access.service'
 import { ProjectsService } from './projects.service'
 
-const adminUser: SessionUser = { id: 'admin-1', role: 'ADMIN', displayName: 'Admin', email: 'a@x.com', avatar: null, seniorSharePercent: 26 }
-const hrUser: SessionUser = { id: 'hr-1', role: 'HR', displayName: 'HR', email: 'h@x.com', avatar: null, seniorSharePercent: 26 }
+const adminUser: SessionUser = {
+  id: 'admin-1',
+  role: 'ADMIN',
+  displayName: 'Admin',
+  email: 'a@x.com',
+  avatar: null,
+  seniorSharePercent: 26,
+}
+const hrUser: SessionUser = {
+  id: 'hr-1',
+  role: 'HR',
+  displayName: 'HR',
+  email: 'h@x.com',
+  avatar: null,
+  seniorSharePercent: 26,
+}
 
 vi.mock('drizzle-orm', async (importOriginal) => {
   const actual = await importOriginal<typeof import('drizzle-orm')>()
@@ -23,7 +43,8 @@ vi.mock('drizzle-orm', async (importOriginal) => {
     }
     return String(col)
   }
-  const toJsKey = (sqlName: string): string => sqlName.replace(/_([a-z])/g, (_, l: string) => l.toUpperCase())
+  const toJsKey = (sqlName: string): string =>
+    sqlName.replace(/_([a-z])/g, (_, l: string) => l.toUpperCase())
   const resolveKey = (col: unknown): string => toJsKey(colName(col))
   return {
     ...actual,
@@ -61,14 +82,27 @@ interface ProjectFixture {
   name: string
   seniorId: string
   archivedAt: Date | null
-  senior: { id: string; displayName: string; role: string; archivedAt?: Date | null; email?: string; avatar?: string | null } | null
+  senior: {
+    id: string
+    displayName: string
+    role: string
+    archivedAt?: Date | null
+    email?: string
+    avatar?: string | null
+  } | null
   members: Array<{
     id: string
     projectId: string
     userId: string
     leftAt: Date | null
     joinedAt: Date
-    user: { id: string; role: string; displayName: string; email: string; avatar: string | null } | null
+    user: {
+      id: string
+      role: string
+      displayName: string
+      email: string
+      avatar: string | null
+    } | null
   }>
 }
 
@@ -104,7 +138,9 @@ function makeDb(store: Store) {
       from: (t: unknown) => selectChain(t),
       where: (expr: unknown) => {
         const pred = toPredicate(expr)
-        const rows = tableKey ? (store[tableKey] as Array<Record<string, unknown>>).filter(pred) : []
+        const rows = tableKey
+          ? (store[tableKey] as Array<Record<string, unknown>>).filter(pred)
+          : []
         const thenable = {
           then: (onF: (v: unknown[]) => unknown) => Promise.resolve(onF(rows)),
           orderBy: () => thenable,
@@ -122,7 +158,7 @@ function makeDb(store: Store) {
             if (tableKey === 'projectMembers') {
               const joined = store.projectMembers.map((m) => ({
                 ...m,
-                role: (store.users.find((u) => u.id === m['userId'])?.role) ?? null,
+                role: store.users.find((u) => u.id === m['userId'])?.role ?? null,
               })) as Array<Record<string, unknown>>
               const rows = joined.filter(pred)
               const thenable = {
@@ -137,8 +173,8 @@ function makeDb(store: Store) {
             if (tableKey === 'teamMembers') {
               const joined = store.teamMembers.map((m) => ({
                 ...m,
-                role: (store.users.find((u) => u.id === m['userId'])?.role) ?? null,
-                displayName: (store.users.find((u) => u.id === m['userId'])?.displayName) ?? '',
+                role: store.users.find((u) => u.id === m['userId'])?.role ?? null,
+                displayName: store.users.find((u) => u.id === m['userId'])?.displayName ?? '',
               })) as Array<Record<string, unknown>>
               const rows = joined.filter(pred)
               const thenable = {
@@ -163,7 +199,7 @@ function makeDb(store: Store) {
         where: (expr: unknown) => {
           const pred = toPredicate(expr)
           if (tableKey) {
-            for (const row of (store[tableKey] as Array<Record<string, unknown>>)) {
+            for (const row of store[tableKey] as Array<Record<string, unknown>>) {
               if (pred(row)) Object.assign(row, values)
             }
           }
@@ -187,22 +223,27 @@ function makeDb(store: Store) {
             const pred = toPredicate(opts?.where)
             return Promise.resolve(store.projects.find(pred))
           },
-          findMany: (opts?: { where?: unknown }) => Promise.resolve(store.projects.filter(toPredicate(opts?.where))),
+          findMany: (opts?: { where?: unknown }) =>
+            Promise.resolve(store.projects.filter(toPredicate(opts?.where))),
         },
         users: {
-          findFirst: (opts: { where?: unknown }) => Promise.resolve(store.users.find(toPredicate(opts?.where))),
+          findFirst: (opts: { where?: unknown }) =>
+            Promise.resolve(store.users.find(toPredicate(opts?.where))),
         },
         teams: {
-          findFirst: (opts: { where?: unknown }) => Promise.resolve(store.teams.find(toPredicate(opts?.where))),
+          findFirst: (opts: { where?: unknown }) =>
+            Promise.resolve(store.teams.find(toPredicate(opts?.where))),
         },
         teamMembers: {
-          findFirst: (opts: { where?: unknown }) => Promise.resolve(store.teamMembers.find(toPredicate(opts?.where))),
+          findFirst: (opts: { where?: unknown }) =>
+            Promise.resolve(store.teamMembers.find(toPredicate(opts?.where))),
         },
         projectMembers: {
-          findFirst: (opts: { where?: unknown }) => Promise.resolve(store.projectMembers.find(toPredicate(opts?.where))),
+          findFirst: (opts: { where?: unknown }) =>
+            Promise.resolve(store.projectMembers.find(toPredicate(opts?.where))),
         },
       },
-      transaction: async <T,>(fn: (tx: unknown) => Promise<T>): Promise<T> => {
+      transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => {
         // Build a tx that targets the same store (transactional semantics not needed for assertions).
         return fn({
           select: (_proj?: unknown) => ({ from: (table: unknown) => selectChain(table) }),
@@ -213,7 +254,12 @@ function makeDb(store: Store) {
   }
 }
 
-function buildService(store: Store, opts: { usersServiceUnarchive?: (tx: unknown, id: string, actorId: string) => Promise<unknown> } = {}) {
+function buildService(
+  store: Store,
+  opts: {
+    usersServiceUnarchive?: (tx: unknown, id: string, actorId: string) => Promise<unknown>
+  } = {},
+) {
   const projectAuditLogService = {
     record: vi.fn(async () => undefined),
     list: vi.fn(async () => ({ entries: [], total: 0 })),
@@ -228,30 +274,72 @@ function buildService(store: Store, opts: { usersServiceUnarchive?: (tx: unknown
     unarchivePairTx: vi.fn(opts.usersServiceUnarchive ?? (async () => undefined)),
   }
   const db = makeDb(store)
-  const service = new ProjectsService(db as never, projectAuditLogService as never, usersService as never)
+  const service = new ProjectsService(
+    db as never,
+    projectAuditLogService as never,
+    usersService as never,
+    new HrAccessService(db as never),
+  )
   // Stub findOne so we don't reconstruct the full mapProject chain after archive.
   vi.spyOn(service, 'findOne').mockImplementation(async (id: string) => {
     const p = store.projects.find((p) => p.id === id)
-    return p ? ({ id: p.id, name: p.name, archivedAt: p.archivedAt?.toISOString() ?? null } as never) : (undefined as never)
+    return p
+      ? ({ id: p.id, name: p.name, archivedAt: p.archivedAt?.toISOString() ?? null } as never)
+      : (undefined as never)
   })
   return { service, projectAuditLogService, usersService }
 }
 
 function seedActiveSeniorTeamProject(store: Store) {
-  store.users.push({ id: 'senior-1', role: 'SENIOR', displayName: 'Senior', email: 's@x.com', avatar: null, archivedAt: null })
-  store.users.push({ id: 'junior-1', role: 'JUNIOR', displayName: 'Junior', email: 'j@x.com', avatar: null, archivedAt: null })
+  store.users.push({
+    id: 'senior-1',
+    role: 'SENIOR',
+    displayName: 'Senior',
+    email: 's@x.com',
+    avatar: null,
+    archivedAt: null,
+  })
+  store.users.push({
+    id: 'junior-1',
+    role: 'JUNIOR',
+    displayName: 'Junior',
+    email: 'j@x.com',
+    avatar: null,
+    archivedAt: null,
+  })
   store.teams.push({ id: 'team-1', name: 'T', archivedAt: null })
-  store.teamMembers.push({ id: 'tm-s', teamId: 'team-1', userId: 'senior-1', leftAt: null, joinedAt: new Date() })
+  store.teamMembers.push({
+    id: 'tm-s',
+    teamId: 'team-1',
+    userId: 'senior-1',
+    leftAt: null,
+    joinedAt: new Date(),
+  })
   const startDate = new Date('2026-01-01')
   store.projects.push({
     id: 'proj-1',
     name: 'Project',
     seniorId: 'senior-1',
     archivedAt: null,
-    senior: { id: 'senior-1', displayName: 'Senior', role: 'SENIOR', archivedAt: null, email: 's@x.com', avatar: null },
+    senior: {
+      id: 'senior-1',
+      displayName: 'Senior',
+      role: 'SENIOR',
+      archivedAt: null,
+      email: 's@x.com',
+      avatar: null,
+    },
     members: [],
     // Cast through unknown to satisfy ProjectFixture which doesn't declare startDate/companyName.
-  } as ProjectFixture & { startDate: Date; companyName: string; domain: string; createdAt: Date; updatedAt: Date; currency: string; rate: number })
+  } as ProjectFixture & {
+    startDate: Date
+    companyName: string
+    domain: string
+    createdAt: Date
+    updatedAt: Date
+    currency: string
+    rate: number
+  })
   // Augment the row with required fields the service reads via mapProject.
   Object.assign(store.projects[store.projects.length - 1] as unknown as Record<string, unknown>, {
     startDate,
@@ -272,7 +360,11 @@ function seedActiveSeniorTeamProject(store: Store) {
     notesGeneral: null,
   })
   store.projectMembers.push({
-    id: 'pm-1', projectId: 'proj-1', userId: 'junior-1', leftAt: null, joinedAt: new Date(),
+    id: 'pm-1',
+    projectId: 'proj-1',
+    userId: 'junior-1',
+    leftAt: null,
+    joinedAt: new Date(),
   })
 }
 
@@ -294,7 +386,9 @@ describe('ProjectsService.archive', () => {
     expect((store.users[0] as { archivedAt: Date | null }).archivedAt).toBeNull()
     expect((store.teams[0] as { archivedAt: Date | null }).archivedAt).toBeNull()
     // Audit log written.
-    const calls = projectAuditLogService.record.mock.calls.map((c) => (c[0] as { action: string }).action)
+    const calls = projectAuditLogService.record.mock.calls.map(
+      (c) => (c[0] as { action: string }).action,
+    )
     expect(calls).toContain('project_archived')
     expect(calls).toContain('project_member_removed')
   })
@@ -336,7 +430,9 @@ describe('ProjectsService.unarchive', () => {
 
     expect((store.projects[0] as ProjectFixture).archivedAt).toBeNull()
     // project_members.leftAt is NOT restored.
-    const calls = projectAuditLogService.record.mock.calls.map((c) => (c[0] as { action: string }).action)
+    const calls = projectAuditLogService.record.mock.calls.map(
+      (c) => (c[0] as { action: string }).action,
+    )
     expect(calls).toContain('project_unarchived')
   })
 
@@ -354,7 +450,10 @@ describe('ProjectsService.unarchive', () => {
       captured = err
     }
     expect(captured).toBeInstanceOf(ConflictException)
-    const response = (captured as ConflictException).getResponse() as { requiresCascade: boolean; entities: Array<{ type: string; id: string; name: string }> }
+    const response = (captured as ConflictException).getResponse() as {
+      requiresCascade: boolean
+      entities: Array<{ type: string; id: string; name: string }>
+    }
     expect(response.requiresCascade).toBe(true)
     expect(response.entities.find((e) => e.type === 'user')?.id).toBe('senior-1')
   })
@@ -384,7 +483,7 @@ describe('ProjectsService.unarchive', () => {
     const [txArg, idArg, actorArg] = usersService.unarchivePairTx.mock.calls[0]!
     expect(idArg).toBe('senior-1')
     expect(actorArg).toBe(adminUser.id)
-    expect(txArg).toBeDefined()  // a tx handle from the outer transaction
+    expect(txArg).toBeDefined() // a tx handle from the outer transaction
     expect(usersService.unarchive).not.toHaveBeenCalled()
     expect((store.projects[0] as ProjectFixture).archivedAt).toBeNull()
     expect((store.users[0] as { archivedAt: Date | null }).archivedAt).toBeNull()
@@ -444,13 +543,40 @@ describe('ProjectsService.findOne — effectiveTeam dynamism', () => {
     const store = emptyStore()
     seedActiveSeniorTeamProject(store)
     store.users.push(
-      { id: 'hr-old', role: 'HR', displayName: 'Old HR', email: 'o@x.com', avatar: null, archivedAt: null },
-      { id: 'hr-new', role: 'HR', displayName: 'New HR', email: 'n@x.com', avatar: null, archivedAt: null },
-      { id: 'acc-1', role: 'ACCOUNTANT', displayName: 'Acc', email: 'a@x.com', avatar: null, archivedAt: null },
+      {
+        id: 'hr-old',
+        role: 'HR',
+        displayName: 'Old HR',
+        email: 'o@x.com',
+        avatar: null,
+        archivedAt: null,
+      },
+      {
+        id: 'hr-new',
+        role: 'HR',
+        displayName: 'New HR',
+        email: 'n@x.com',
+        avatar: null,
+        archivedAt: null,
+      },
+      {
+        id: 'acc-1',
+        role: 'ACCOUNTANT',
+        displayName: 'Acc',
+        email: 'a@x.com',
+        avatar: null,
+        archivedAt: null,
+      },
     )
     store.teamMembers.push(
       // Senior was already added
-      { id: 'tm-old', teamId: 'team-1', userId: 'hr-old', leftAt: new Date(), joinedAt: new Date() },
+      {
+        id: 'tm-old',
+        teamId: 'team-1',
+        userId: 'hr-old',
+        leftAt: new Date(),
+        joinedAt: new Date(),
+      },
       { id: 'tm-new', teamId: 'team-1', userId: 'hr-new', leftAt: null, joinedAt: new Date() },
       { id: 'tm-acc', teamId: 'team-1', userId: 'acc-1', leftAt: null, joinedAt: new Date() },
     )
@@ -462,13 +588,28 @@ describe('ProjectsService.findOne — effectiveTeam dynamism', () => {
     }
     const usersService = { unarchive: vi.fn() }
     const db = makeDb(store)
-    const service = new ProjectsService(db as never, projectAuditLogService as never, usersService as never)
+    const service = new ProjectsService(
+      db as never,
+      projectAuditLogService as never,
+      usersService as never,
+      new HrAccessService(db as never),
+    )
 
     const result = await service.findOne('proj-1', adminUser)
     // Old HR is filtered out (leftAt set); new HR is present.
-    expect((result as { effectiveTeam: { hrs: Array<{ userId: string }> } }).effectiveTeam.hrs.map((h) => h.userId)).toEqual(['hr-new'])
-    expect((result as { effectiveTeam: { accountants: Array<{ userId: string }> } }).effectiveTeam.accountants.map((a) => a.userId)).toEqual(['acc-1'])
-    expect((result as { effectiveTeam: { senior: { id: string } | null } }).effectiveTeam.senior?.id).toBe('senior-1')
+    expect(
+      (result as { effectiveTeam: { hrs: Array<{ userId: string }> } }).effectiveTeam.hrs.map(
+        (h) => h.userId,
+      ),
+    ).toEqual(['hr-new'])
+    expect(
+      (
+        result as { effectiveTeam: { accountants: Array<{ userId: string }> } }
+      ).effectiveTeam.accountants.map((a) => a.userId),
+    ).toEqual(['acc-1'])
+    expect(
+      (result as { effectiveTeam: { senior: { id: string } | null } }).effectiveTeam.senior?.id,
+    ).toBe('senior-1')
   })
 })
 
@@ -484,12 +625,54 @@ describe('ProjectsService.findAll — RBAC matrix', () => {
   function seedMultiProject(store: Store) {
     // Two seniors with one project each + one archived project for senior-1.
     store.users.push(
-      { id: 'admin-1', role: 'ADMIN', displayName: 'Admin', email: 'a@x.com', avatar: null, archivedAt: null },
-      { id: 'acc-1', role: 'ACCOUNTANT', displayName: 'Acc', email: 'ac@x.com', avatar: null, archivedAt: null },
-      { id: 'senior-1', role: 'SENIOR', displayName: 'Senior 1', email: 's1@x.com', avatar: null, archivedAt: null },
-      { id: 'senior-2', role: 'SENIOR', displayName: 'Senior 2', email: 's2@x.com', avatar: null, archivedAt: null },
-      { id: 'hr-1', role: 'HR', displayName: 'HR', email: 'hr@x.com', avatar: null, archivedAt: null },
-      { id: 'junior-1', role: 'JUNIOR', displayName: 'Jr', email: 'j@x.com', avatar: null, archivedAt: null },
+      {
+        id: 'admin-1',
+        role: 'ADMIN',
+        displayName: 'Admin',
+        email: 'a@x.com',
+        avatar: null,
+        archivedAt: null,
+      },
+      {
+        id: 'acc-1',
+        role: 'ACCOUNTANT',
+        displayName: 'Acc',
+        email: 'ac@x.com',
+        avatar: null,
+        archivedAt: null,
+      },
+      {
+        id: 'senior-1',
+        role: 'SENIOR',
+        displayName: 'Senior 1',
+        email: 's1@x.com',
+        avatar: null,
+        archivedAt: null,
+      },
+      {
+        id: 'senior-2',
+        role: 'SENIOR',
+        displayName: 'Senior 2',
+        email: 's2@x.com',
+        avatar: null,
+        archivedAt: null,
+      },
+      {
+        id: 'hr-1',
+        role: 'HR',
+        displayName: 'HR',
+        email: 'hr@x.com',
+        avatar: null,
+        archivedAt: null,
+      },
+      {
+        id: 'junior-1',
+        role: 'JUNIOR',
+        displayName: 'Jr',
+        email: 'j@x.com',
+        avatar: null,
+        archivedAt: null,
+      },
     )
     store.teams.push({ id: 'team-1', name: 'T1', archivedAt: null })
     store.teamMembers.push(
@@ -497,37 +680,95 @@ describe('ProjectsService.findAll — RBAC matrix', () => {
       { id: 'tm-hr', teamId: 'team-1', userId: 'hr-1', leftAt: null, joinedAt: new Date() },
     )
     const baseProj = {
-      companyName: 'C', domain: 'Other', startDate: new Date('2026-01-01'),
-      currency: 'USDT', rate: 100, logoDocumentId: null, logoExternalUrl: null, techStack: null,
-      teamSize: null, benefits: null, paymentType: null, salaryReview: null,
-      corpTech: null, notesGeneral: null, createdAt: new Date('2026-01-01'),
+      companyName: 'C',
+      domain: 'Other',
+      startDate: new Date('2026-01-01'),
+      currency: 'USDT',
+      rate: 100,
+      logoDocumentId: null,
+      logoExternalUrl: null,
+      techStack: null,
+      teamSize: null,
+      benefits: null,
+      paymentType: null,
+      salaryReview: null,
+      corpTech: null,
+      notesGeneral: null,
+      createdAt: new Date('2026-01-01'),
       updatedAt: new Date('2026-01-01'),
     }
     store.projects.push({
-      id: 'p-s1-active', name: 'P1', seniorId: 'senior-1', archivedAt: null,
-      senior: { id: 'senior-1', displayName: 'Senior 1', role: 'SENIOR', archivedAt: null, email: 's1@x.com', avatar: null },
+      id: 'p-s1-active',
+      name: 'P1',
+      seniorId: 'senior-1',
+      archivedAt: null,
+      senior: {
+        id: 'senior-1',
+        displayName: 'Senior 1',
+        role: 'SENIOR',
+        archivedAt: null,
+        email: 's1@x.com',
+        avatar: null,
+      },
       members: [],
       ...baseProj,
     } as never)
     store.projects.push({
-      id: 'p-s1-archived', name: 'P-arc', seniorId: 'senior-1', archivedAt: new Date('2026-04-01'),
-      senior: { id: 'senior-1', displayName: 'Senior 1', role: 'SENIOR', archivedAt: null, email: 's1@x.com', avatar: null },
+      id: 'p-s1-archived',
+      name: 'P-arc',
+      seniorId: 'senior-1',
+      archivedAt: new Date('2026-04-01'),
+      senior: {
+        id: 'senior-1',
+        displayName: 'Senior 1',
+        role: 'SENIOR',
+        archivedAt: null,
+        email: 's1@x.com',
+        avatar: null,
+      },
       members: [],
       ...baseProj,
     } as never)
     store.projects.push({
-      id: 'p-s2-active', name: 'P2', seniorId: 'senior-2', archivedAt: null,
-      senior: { id: 'senior-2', displayName: 'Senior 2', role: 'SENIOR', archivedAt: null, email: 's2@x.com', avatar: null },
+      id: 'p-s2-active',
+      name: 'P2',
+      seniorId: 'senior-2',
+      archivedAt: null,
+      senior: {
+        id: 'senior-2',
+        displayName: 'Senior 2',
+        role: 'SENIOR',
+        archivedAt: null,
+        email: 's2@x.com',
+        avatar: null,
+      },
       members: [
-        { id: 'pm-j', projectId: 'p-s2-active', userId: 'junior-1', leftAt: null, joinedAt: new Date(),
-          user: { id: 'junior-1', role: 'JUNIOR', displayName: 'Jr', email: 'j@x.com', avatar: null } },
+        {
+          id: 'pm-j',
+          projectId: 'p-s2-active',
+          userId: 'junior-1',
+          leftAt: null,
+          joinedAt: new Date(),
+          user: {
+            id: 'junior-1',
+            role: 'JUNIOR',
+            displayName: 'Jr',
+            email: 'j@x.com',
+            avatar: null,
+          },
+        },
       ],
       ...baseProj,
     } as never)
   }
 
   const sessionFor = (id: string, role: SessionUser['role']): SessionUser => ({
-    id, role, displayName: id, email: `${id}@x.com`, avatar: null, seniorSharePercent: 26,
+    id,
+    role,
+    displayName: id,
+    email: `${id}@x.com`,
+    avatar: null,
+    seniorSharePercent: 26,
   })
 
   it('ADMIN sees all active projects', async () => {

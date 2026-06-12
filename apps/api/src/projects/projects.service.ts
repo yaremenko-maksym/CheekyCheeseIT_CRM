@@ -15,6 +15,7 @@ import type {
   SessionUser,
   UpdateProjectDto,
 } from '@crm/shared'
+import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
 import {
   documents,
@@ -53,6 +54,7 @@ export class ProjectsService {
     private projectAuditLogService: ProjectAuditLogService,
     @Inject(forwardRef(() => UsersService))
     private usersService: UsersService,
+    private readonly hrAccess: HrAccessService,
   ) {}
 
   /**
@@ -308,16 +310,6 @@ export class ProjectsService {
         ),
       )
     return seniors.map((r) => r.userId)
-  }
-
-  /**
-   * Returns true if hrId is an active member of a team that also contains
-   * seniorId as an active member. Delegates to getHrSeniorIds.
-   * (dedup: replaces the old private hrCanAccessProject that duplicated the same join)
-   */
-  private async hrCanAccessProject(hrId: string, seniorId: string): Promise<boolean> {
-    const seniorIds = await this.getHrSeniorIds(hrId)
-    return seniorIds.includes(seniorId)
   }
 
   async findAll(currentUser: SessionUser, filter: { archived?: boolean | 'all' } = {}) {
@@ -1156,7 +1148,7 @@ export class ProjectsService {
     const isTeamHr =
       currentUser.role === 'HR' &&
       project.seniorId !== null &&
-      (await this.hrCanAccessProject(currentUser.id, project.seniorId))
+      (await this.hrAccess.hrSharesActiveTeamWith(currentUser.id, project.seniorId))
 
     if (!isAdmin && !isActiveJunior && !isTeamHr) {
       throw new ForbiddenException('Нет доступа к контакту HR')
