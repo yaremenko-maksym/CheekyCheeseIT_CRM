@@ -131,12 +131,25 @@ function ProfileCredentialRow({
             )}
           </div>
           {revealed ? (
-            <p
-              className="text-sm font-mono mt-0.5 break-all"
-              data-testid={`profile-credentials-plaintext-${credential.id}`}
-            >
-              {plaintext}
-            </p>
+            <div className="mt-0.5">
+              <p
+                className="text-sm font-mono break-all"
+                data-testid={`profile-credentials-plaintext-${credential.id}`}
+              >
+                {plaintext}
+              </p>
+              {/* 30s auto-hide — mirrors ProjectCredentialsSection. The CSS timer
+                  bar (.credentials-timer-bar, globals.css) shrinks over 30s; on
+                  animation end the plaintext is cleared from local state so a
+                  revealed password never lingers on screen indefinitely. */}
+              <div className="mt-1.5 h-0.5 w-full bg-primary/30 rounded-full overflow-hidden">
+                <div
+                  className="credentials-timer-bar h-full bg-primary/60"
+                  data-testid={`profile-credentials-timer-bar-${credential.id}`}
+                  onAnimationEnd={() => setPlaintext(null)}
+                />
+              </div>
+            </div>
           ) : (
             <p className="text-sm text-muted-foreground/50 tracking-widest font-mono mt-0.5">
               ••••••••
