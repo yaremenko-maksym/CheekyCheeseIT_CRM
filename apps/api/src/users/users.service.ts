@@ -1774,8 +1774,10 @@ export class UsersService {
       .where(
         and(
           eq(userAuditLog.targetId, userId),
-          // JSONB ?  operator checks for key existence; parameterised as string literal.
-          sql`${userAuditLog.changes} \?\? 'monthlySalary'`,
+          // jsonb_exists(col, key) checks for top-level key existence in JSONB.
+          // Using the function form instead of the ? operator avoids issues with
+          // pg parameterized-query escaping of the ? character.
+          sql`jsonb_exists(${userAuditLog.changes}, 'monthlySalary')`,
         ),
       )
       .orderBy(desc(userAuditLog.createdAt))
