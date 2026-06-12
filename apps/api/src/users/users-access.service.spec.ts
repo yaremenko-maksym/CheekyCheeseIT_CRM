@@ -41,7 +41,12 @@ describe('UsersAccessService.getViewPermissions', () => {
     ;(service as unknown as Record<string, unknown>).isSeniorViewingOwnProjectMember = vi
       .fn()
       .mockResolvedValue(false)
-    ;(service as unknown as Record<string, unknown>).isJuniorUnderSenior = vi
+    // Real private method is `isJuniorUnderLegendSubject` (renamed from the old
+    // `isJuniorUnderSenior` to cover SENIOR + DROP). Mocking the OLD name was a
+    // silent no-op: the real DB-backed method stayed live against the empty `db`
+    // mock, so the JUNIOR-under-legend masking branch (:161) was never truly
+    // exercised by these unit tests (HIGH-2).
+    ;(service as unknown as Record<string, unknown>).isJuniorUnderLegendSubject = vi
       .fn()
       .mockResolvedValue(false)
   })
@@ -292,6 +297,43 @@ describe('UsersAccessService.getViewPermissions', () => {
     const target = makeUser({ id: 'sr1', role: 'SENIOR' })
     const p = await service.getViewPermissions(viewer, target)
     expect(p.tabs).toEqual([])
+  })
+
+  // HIGH-2: with the mock correctly wired to isJuniorUnderLegendSubject, flipping
+  // it to TRUE must drive the masking branch (:161) — full identity-masking
+  // assertion in one place so a regression in tabs OR field-flags fails here.
+  it('JUNIOR under legend subject (mock=true) — masked tabs/fields/actions (legend boundary)', async () => {
+    const spy = vi.fn().mockResolvedValue(true)
+    ;(service as unknown as Record<string, unknown>).isJuniorUnderLegendSubject = spy
+    const viewer = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const target = makeUser({ id: 'sr1', role: 'SENIOR', techStack: 'React, Node' })
+    const p = await service.getViewPermissions(viewer, target)
+
+    // The masking branch was actually entered (proves the mock is wired now).
+    expect(spy).toHaveBeenCalledWith('jr1', 'sr1')
+    // Persona-only tabs.
+    expect(p.tabs).toEqual(['overview', 'projects', 'team'])
+    // Legend persona surfaced; real identity hidden.
+    expect(p.fields.legend).toBe(true)
+    expect(p.fields.realContacts).toBe(false)
+    expect(p.fields.fopPii).toBe(false)
+    expect(p.fields.adminNote).toBe(false)
+    expect(p.fields.techStack).toBe(true)
+    expect(p.fields.registrationDate).toBe(true)
+    // JUNIOR has no mutating actions on anyone.
+    expect(p.actions).toEqual([])
+  })
+
+  it('JUNIOR under legend subject — DROP target (mock=true) — masked realContacts/legend', async () => {
+    const spy = vi.fn().mockResolvedValue(true)
+    ;(service as unknown as Record<string, unknown>).isJuniorUnderLegendSubject = spy
+    const viewer = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const target = makeUser({ id: 'drop1', role: 'DROP' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(spy).toHaveBeenCalledWith('jr1', 'drop1')
+    expect(p.tabs).toEqual(['overview', 'projects', 'team'])
+    expect(p.fields.legend).toBe(true)
+    expect(p.fields.realContacts).toBe(false)
   })
 
   it('JUNIOR viewing another JUNIOR — no tabs (unchanged)', async () => {

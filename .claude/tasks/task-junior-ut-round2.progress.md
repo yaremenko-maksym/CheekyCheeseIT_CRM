@@ -6,11 +6,11 @@ scratch_db: scratch_junr2 (postgresql://crm_user@[::1]:5432/scratch_junr2)
 
 ## Findings status
 
-- [ ] HIGH-1 — credentials.service.ts:450 scoped UPDATE + IDOR regress test
+- [x] HIGH-1 — credentials.service.ts:450 scoped UPDATE + IDOR regress test (20 tests pass on scratch DB @127.0.0.1)
 - [ ] HIGH-2 — users-access.service.spec.ts no-op mock rename + masking test
 - [ ] MED-3 — ProfileCredentialsSection 30s auto-hide
-- [ ] MED-4 — assertUserCredentialsAccess role-check before DB SELECT
-- [ ] MED-5 — ParseUUIDPipe in integration mock-controller
+- [x] MED-4 — assertUserCredentialsAccess role-check before DB SELECT
+- [x] MED-5 — ParseUUIDPipe in integration mock-controller (400-on-malformed-uuid test)
 - [ ] MED-6 — useJuniorProjects queryKey ['junior','projects'] (NOT in persist allow-list)
 - [ ] LOW-7 — route-access coverage invariant test
 - [x] LOW-8 — DEFER (0012_snapshot.json drizzle tech debt) — document in PR body
