@@ -162,7 +162,7 @@ const CATEGORY_LABELS_RU: Record<DocumentCategory, string> = {
 const TAB_VISIBILITY: Record<Role, DocumentCategory[]> = {
   ADMIN: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE'],
   SENIOR: ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE'],
-  JUNIOR: ['RESUME', 'SCAN', 'INVOICE'],
+  JUNIOR: ['RESUME', 'SCAN', 'CONTRACT', 'INVOICE'],
   HR: ['RESUME', 'SCAN', 'CONTRACT'],
   ACCOUNTANT: ['SCAN', 'RECEIPT', 'INVOICE'],
   // Drop role - phase 1 (backend): documents UX for DROP ships in a later
@@ -389,17 +389,23 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
     )
   }
 
-  // Status-tab options. ARCHIVED is ADMIN-only — `disabled` for the rest so
-  // the pill renders but isn't clickable, matching /crm/users behavior.
+  // Status-tab options. ARCHIVED is ADMIN-only — disabled for SENIOR/HR/ACCOUNTANT
+  // (pill renders but is not clickable, matching /crm/users behavior) and hidden
+  // entirely for JUNIOR (they have no concept of archived documents).
+  const isJunior = viewer.role === 'JUNIOR'
   const statusOptions: ReadonlyArray<SegmentedToggleOption<StatusTab>> = [
     { value: 'ALL', label: 'Все' },
     { value: 'ACTIVE', label: 'Активные' },
-    {
-      value: 'ARCHIVED',
-      label: 'Архив',
-      icon: Archive,
-      disabled: !isAdmin,
-    },
+    ...(!isJunior
+      ? [
+          {
+            value: 'ARCHIVED' as StatusTab,
+            label: 'Архив',
+            icon: Archive,
+            disabled: !isAdmin,
+          },
+        ]
+      : []),
   ]
 
   return (
@@ -664,7 +670,11 @@ function DocumentsHeader({ viewer, categoryFilter, users }: HeaderProps) {
       >
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Документы</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">Резюме, договоры и сканы</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {viewer.role === 'JUNIOR'
+              ? 'Ваши документы: резюме, договор и сканы'
+              : 'Резюме, договоры и сканы'}
+          </p>
         </div>
 
         {canShowUploadButton ? (

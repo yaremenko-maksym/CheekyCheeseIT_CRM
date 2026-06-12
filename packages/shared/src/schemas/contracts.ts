@@ -112,6 +112,18 @@ export type SignedContractDto = z.infer<typeof signedContractSchema>
 export type SignContractDto = z.infer<typeof signContractSchema>
 
 /**
+ * Minimal contract DTO returned by GET /api/contracts/me.
+ * Used in the JUNIOR hub to display contract status.
+ * Moved from an inline interface in project.tsx to shared (task-junior-ux-3-cleanup defer #2).
+ */
+export const contractMeDtoSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(['DRAFT', 'READY_TO_SIGN', 'SIGNED', 'CANCELLED']),
+})
+
+export type ContractMeDto = z.infer<typeof contractMeDtoSchema>
+
+/**
  * Row shape returned by GET /api/contracts/templates and
  * GET /api/contracts/templates/current/:role.
  *

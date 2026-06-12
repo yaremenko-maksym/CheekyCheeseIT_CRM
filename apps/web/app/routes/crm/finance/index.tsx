@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Dialog,
   CrmDialogContent,
@@ -585,70 +586,104 @@ function FinancePage() {
   if (isJunior) {
     const mySalaries = transactions.filter((t) => t.type === 'SALARY' && t.receiverId === userId)
     return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Финансы</h1>
-          <p className="text-sm text-muted-foreground">Ваши выплаты</p>
-        </div>
-        <Card>
-          <CardContent className="p-0">
-            {txLoading ? (
-              <div className="p-6 space-y-3">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <Skeleton key={i} className="h-12 rounded-lg" />
-                ))}
-              </div>
-            ) : mySalaries.length === 0 ? (
-              <div className="py-16 text-center text-sm text-muted-foreground">Выплат пока нет</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-border text-xs text-muted-foreground">
-                      <th className="py-3 px-4 text-left font-medium">Сумма</th>
-                      <th className="py-3 px-4 text-left font-medium">Месяц</th>
-                      <th className="py-3 px-4 text-left font-medium">Дата</th>
-                      <th className="py-3 px-4 text-left font-medium">Статус</th>
-                      <th className="py-3 px-4 text-left font-medium">TX Hash</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {mySalaries.map((t) => (
-                      <tr
-                        key={t.id}
-                        className="border-b border-border/50 hover:bg-muted/30 transition-colors"
-                      >
-                        <td className="py-3 px-4 text-sm tabular-nums font-medium text-green-500">
-                          {fmtAmount(t.amount, t.currency)}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-muted-foreground">
-                          {fmtMonth(t.salaryMonth)}
-                        </td>
-                        <td className="py-3 px-4 text-xs text-muted-foreground">
-                          {fmtDate(t.txDate ?? t.createdAt)}
-                        </td>
-                        <td className="py-3 px-4">
-                          <span
-                            className={cn(
-                              'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
-                              STATUS_COLORS[t.status],
-                            )}
-                          >
-                            {STATUS_LABELS[t.status]}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-xs font-mono text-muted-foreground">
-                          {t.txHash ? <span title={t.txHash}>{t.txHash.slice(0, 14)}…</span> : '—'}
-                        </td>
+      <TooltipProvider>
+        <div className="space-y-6">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Финансы</h1>
+            <p className="text-sm text-muted-foreground">Ваши зарплатные выплаты</p>
+          </div>
+          <Card>
+            <CardContent className="p-0">
+              {txLoading ? (
+                <div className="p-6 space-y-3">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <Skeleton key={i} className="h-12 rounded-lg" />
+                  ))}
+                </div>
+              ) : mySalaries.length === 0 ? (
+                <div className="py-16 text-center text-sm text-muted-foreground">
+                  Выплат пока нет
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-border text-xs text-muted-foreground">
+                        <th className="py-3 px-4 text-left font-medium">Сумма</th>
+                        <th className="py-3 px-4 text-left font-medium">Проект</th>
+                        <th className="py-3 px-4 text-left font-medium">Месяц</th>
+                        <th className="py-3 px-4 text-left font-medium">Дата</th>
+                        <th className="py-3 px-4 text-left font-medium">Статус</th>
+                        <th className="py-3 px-4 text-left font-medium">TX Hash</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                    </thead>
+                    <tbody>
+                      {mySalaries.map((t) => (
+                        <tr
+                          key={t.id}
+                          className="border-b border-border/50 hover:bg-muted/30 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                          tabIndex={0}
+                          aria-label={`Открыть транзакцию за ${t.salaryMonth ?? t.createdAt}`}
+                          onClick={() => setDetailTx(t)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              setDetailTx(t)
+                            }
+                          }}
+                        >
+                          <td className="py-3 px-4 text-sm tabular-nums font-medium text-green-500">
+                            {fmtAmount(t.amount, t.currency)}
+                          </td>
+                          <td className="py-3 px-4 text-sm text-muted-foreground">
+                            {t.projectName ?? '—'}
+                          </td>
+                          <td className="py-3 px-4 text-sm text-muted-foreground">
+                            {fmtMonth(t.salaryMonth)}
+                          </td>
+                          <td className="py-3 px-4 text-xs text-muted-foreground">
+                            {fmtDate(t.txDate ?? t.createdAt)}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span
+                              className={cn(
+                                'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
+                                STATUS_COLORS[t.status],
+                              )}
+                            >
+                              {STATUS_LABELS[t.status]}
+                            </span>
+                          </td>
+                          <td
+                            className="py-3 px-4 text-xs font-mono text-muted-foreground"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {t.txHash ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="cursor-default underline decoration-dotted underline-offset-2">
+                                    {t.txHash.slice(0, 14)}…
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs break-all font-mono">
+                                  {t.txHash}
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+          <TransactionDetailDialog tx={detailTx} onClose={() => setDetailTx(null)} />
+        </div>
+      </TooltipProvider>
     )
   }
 

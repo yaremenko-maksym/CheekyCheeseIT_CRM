@@ -21,8 +21,8 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { HrContactDto, ProjectDto } from '@crm/shared'
-import { hrContactSchema } from '@crm/shared'
+import type { ContractMeDto, HrContactDto, ProjectDto } from '@crm/shared'
+import { contractMeDtoSchema, hrContactSchema } from '@crm/shared'
 import { useLegend } from '@/hooks/use-legend'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
@@ -78,20 +78,16 @@ function useJuniorProjects() {
   })
 }
 
-interface ContractMeDto {
-  id: string
-  status: 'DRAFT' | 'READY_TO_SIGN' | 'SIGNED' | 'CANCELLED'
-}
-
 function useMyContract() {
   return useQuery<ContractMeDto | null>({
     queryKey: ['contracts', 'me'],
     queryFn: async () => {
       try {
-        const res = await api.get<ContractMeDto[] | ContractMeDto>('/contracts/me')
+        const res = await api.get<unknown>('/contracts/me')
         // endpoint may return array or single item
-        const data = Array.isArray(res.data) ? res.data[0] : res.data
-        return data ?? null
+        const raw = Array.isArray(res.data) ? res.data[0] : res.data
+        if (!raw) return null
+        return contractMeDtoSchema.parse(raw)
       } catch (err: unknown) {
         if (getAxiosStatus(err) === 404) return null
         throw err
