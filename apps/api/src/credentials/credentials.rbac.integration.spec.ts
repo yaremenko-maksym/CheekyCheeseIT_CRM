@@ -168,6 +168,12 @@ const ACCOUNTANT: SessionUser = {
 const PROJ_A_ID = 'c1d2e3f4-0000-4000-bb00-000000000010'
 const PROJ_B_ID = 'c1d2e3f4-0000-4000-bb00-000000000011'
 const CRED_A_ID = 'c1d2e3f4-0000-4000-bb00-000000000020'
+// Credential that belongs to Project B — used in IDOR cross-project tests.
+const CRED_B_ID = 'c1d2e3f4-0000-4000-bb00-000000000021'
+// Throw-away credential created in PATCH/DELETE tests so the seeded CRED_A_ID
+// is never mutated and remains available for all later assertions.
+const CRED_PATCH_ID = 'c1d2e3f4-0000-4000-bb00-000000000022'
+const CRED_DELETE_ID = 'c1d2e3f4-0000-4000-bb00-000000000023'
 const TEAM_X_ID = 'c1d2e3f4-0000-4000-bb00-000000000030'
 const TEAM_Y_ID = 'c1d2e3f4-0000-4000-bb00-000000000031'
 const PROJ_A_MEMBER_J1 = 'c1d2e3f4-0000-4000-bb00-000000000040'
@@ -428,13 +434,66 @@ describe('Credentials RBAC — real backend integration (real DB, no mocks)', ()
         updatedAt: new Date(),
       })
       .onConflictDoNothing()
+
+    // Seed a credential on Project B — used for IDOR cross-project assertions.
+    await db
+      .insert(projectCredentials)
+      .values({
+        id: CRED_B_ID,
+        projectId: PROJ_B_ID,
+        label: 'GitLab (Project B)',
+        login: 'cred-rbac-b@example.com',
+        passwordCiphertext: crypto.encrypt('proj-b-password-rbac'),
+        url: null,
+        notes: null,
+        createdBy: ADMIN.id,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .onConflictDoNothing()
+
+    // Seed mutable credentials on Project A for PATCH / DELETE tests.
+    // These are separate IDs so the main CRED_A_ID is never mutated.
+    await db
+      .insert(projectCredentials)
+      .values([
+        {
+          id: CRED_PATCH_ID,
+          projectId: PROJ_A_ID,
+          label: 'Patch-Target',
+          login: null,
+          passwordCiphertext: crypto.encrypt('patch-orig-pass'),
+          url: null,
+          notes: null,
+          createdBy: ADMIN.id,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          id: CRED_DELETE_ID,
+          projectId: PROJ_A_ID,
+          label: 'Delete-Target',
+          login: null,
+          passwordCiphertext: crypto.encrypt('delete-orig-pass'),
+          url: null,
+          notes: null,
+          createdBy: ADMIN.id,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ])
+      .onConflictDoNothing()
   }, 30_000)
 
   afterAll(async () => {
     if (!dbAvailable) return
     try {
       const db = dbSvc.db
-      await db.delete(projectCredentials).where(inArray(projectCredentials.id, [CRED_A_ID]))
+      await db
+        .delete(projectCredentials)
+        .where(
+          inArray(projectCredentials.id, [CRED_A_ID, CRED_B_ID, CRED_PATCH_ID, CRED_DELETE_ID]),
+        )
       await db
         .delete(projectMembers)
         .where(inArray(projectMembers.id, [PROJ_A_MEMBER_J1, PROJ_B_MEMBER_J2]))
@@ -588,5 +647,120 @@ describe('Credentials RBAC — real backend integration (real DB, no mocks)', ()
   it('REVEAL: ACCOUNTANT → 403', async () => {
     if (!dbAvailable) return
     expect((await revealReq(ACCOUNTANT)).statusCode).toBe(403)
+  })
+
+  // ── PATCH — RBAC matrix ───────────────────────────────────────────────────
+
+  function patchReq(user: SessionUser, credId = CRED_PATCH_ID) {
+    return app.inject({
+      method: 'PATCH',
+      url: `/api/projects/${PROJ_A_ID}/credentials/${credId}`,
+      cookies: { jwt: tokenFor(user) },
+      payload: { label: 'Updated Label' },
+    })
+  }
+
+  it('PATCH: ADMIN → 200', async () => {
+    if (!dbAvailable) return
+    const res = await patchReq(ADMIN)
+    expect(res.statusCode).toBe(200)
+  })
+
+  it('PATCH: own JUNIOR (J1) → 200', async () => {
+    if (!dbAvailable) return
+    const res = await patchReq(J1)
+    expect(res.statusCode).toBe(200)
+  })
+
+  it('PATCH: foreign JUNIOR (J2, member of B) → 403', async () => {
+    if (!dbAvailable) return
+    expect((await patchReq(J2)).statusCode).toBe(403)
+  })
+
+  it('PATCH: SENIOR (S1) → 403 (allowlist excludes SENIOR)', async () => {
+    if (!dbAvailable) return
+    expect((await patchReq(S1)).statusCode).toBe(403)
+  })
+
+  // ── DELETE — RBAC matrix ──────────────────────────────────────────────────
+
+  function deleteReq(user: SessionUser, credId = CRED_DELETE_ID) {
+    return app.inject({
+      method: 'DELETE',
+      url: `/api/projects/${PROJ_A_ID}/credentials/${credId}`,
+      cookies: { jwt: tokenFor(user) },
+    })
+  }
+
+  it('DELETE: ADMIN → 204', async () => {
+    if (!dbAvailable) return
+    // Re-seed before deleting so this test is not order-dependent.
+    const crypto = new CredentialsCryptoService(cryptoConfig)
+    await dbSvc.db
+      .insert(projectCredentials)
+      .values({
+        id: CRED_DELETE_ID,
+        projectId: PROJ_A_ID,
+        label: 'Delete-Target',
+        login: null,
+        passwordCiphertext: crypto.encrypt('delete-orig-pass'),
+        url: null,
+        notes: null,
+        createdBy: ADMIN.id,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .onConflictDoNothing()
+    const res = await deleteReq(ADMIN)
+    expect(res.statusCode).toBe(204)
+  })
+
+  it('DELETE: foreign HR (HR_Y, different team) → 403', async () => {
+    if (!dbAvailable) return
+    // Use CRED_PATCH_ID which still exists (not deleted by the ADMIN delete test above).
+    expect((await deleteReq(HR_Y, CRED_PATCH_ID)).statusCode).toBe(403)
+  })
+
+  it('DELETE: ACCOUNTANT → 403', async () => {
+    if (!dbAvailable) return
+    expect((await deleteReq(ACCOUNTANT, CRED_PATCH_ID)).statusCode).toBe(403)
+  })
+
+  // ── IDOR — cross-project credential ID ───────────────────────────────────
+  //
+  // The IDOR property: PROJ_A_ID is valid AND accessible for J1, but CRED_B_ID
+  // belongs to PROJ_B. `loadOwnedCredentialId` checks the (credentialId,
+  // projectId) pair — a mismatched pair must yield 404 (not 200 or 403).
+  // This proves the ownership SQL runs and cannot be bypassed by guessing IDs.
+
+  it('IDOR — PATCH with own projectId + foreign credentialId → 404 (not 200)', async () => {
+    if (!dbAvailable) return
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/projects/${PROJ_A_ID}/credentials/${CRED_B_ID}`,
+      cookies: { jwt: tokenFor(ADMIN) },
+      payload: { label: 'Injected' },
+    })
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('IDOR — DELETE with own projectId + foreign credentialId → 404 (not 204)', async () => {
+    if (!dbAvailable) return
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/api/projects/${PROJ_A_ID}/credentials/${CRED_B_ID}`,
+      cookies: { jwt: tokenFor(ADMIN) },
+    })
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('IDOR — REVEAL with own projectId + foreign credentialId → 404 (not 200)', async () => {
+    if (!dbAvailable) return
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/projects/${PROJ_A_ID}/credentials/${CRED_B_ID}/reveal`,
+      cookies: { jwt: tokenFor(ADMIN) },
+    })
+    expect(res.statusCode).toBe(404)
   })
 })
