@@ -17,6 +17,7 @@ import {
 import type { SessionUser } from '@crm/shared'
 import type { FileRouteTypes } from '@/routeTree.gen'
 import { cn } from '@/lib/utils'
+import { navRolesFor } from '@/lib/route-access'
 import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -31,7 +32,7 @@ interface NavItem {
   label: string
   icon: React.ElementType
   to: RouteTo
-  roles: Role[]
+  roles: readonly Role[]
 }
 
 // Drop role - phase 1: DROP sees only Profile / Team / Finance (spec §4).
@@ -42,76 +43,40 @@ interface NavItem {
 //   Дашборд / Команда / Проекты / Собеседования hidden for JUNIOR.
 //   Note: NAV_ITEMS order controls visible order after role-filter.
 //   Профиль is placed last so JUNIOR sees it at position 5 (spec §4.3).
+// roles берутся из единого источника истины lib/route-access (navRolesFor),
+// чтобы карта ролей-по-роуту НЕ дублировалась между меню и route-guard'ом.
 const NAV_ITEMS: NavItem[] = [
-  {
-    label: 'Мой проект',
-    icon: Home,
-    to: '/crm/project',
-    roles: ['JUNIOR'],
-  },
-  {
-    label: 'Легенда',
-    icon: BookOpen,
-    to: '/crm/legend',
-    roles: ['JUNIOR'],
-  },
+  { label: 'Мой проект', icon: Home, to: '/crm/project', roles: navRolesFor('/crm/project') },
+  { label: 'Легенда', icon: BookOpen, to: '/crm/legend', roles: navRolesFor('/crm/legend') },
   {
     label: 'Дашборд',
     icon: LayoutDashboard,
     to: '/crm/dashboard',
-    roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'],
+    roles: navRolesFor('/crm/dashboard'),
   },
-  {
-    label: 'Пользователи',
-    icon: Users,
-    to: '/crm/users',
-    roles: ['ADMIN'],
-  },
-  {
-    label: 'Команда',
-    icon: UsersRound,
-    to: '/crm/team',
-    roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'DROP'],
-  },
-  {
-    label: 'Проекты',
-    icon: Briefcase,
-    to: '/crm/projects',
-    roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'],
-  },
-  {
-    label: 'Финансы',
-    icon: DollarSign,
-    to: '/crm/finance',
-    roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'],
-  },
-  {
-    label: 'Статистика',
-    icon: BarChart3,
-    to: '/crm/stats',
-    roles: ['ADMIN'],
-  },
+  { label: 'Пользователи', icon: Users, to: '/crm/users', roles: navRolesFor('/crm/users') },
+  { label: 'Команда', icon: UsersRound, to: '/crm/team', roles: navRolesFor('/crm/team') },
+  { label: 'Проекты', icon: Briefcase, to: '/crm/projects', roles: navRolesFor('/crm/projects') },
+  { label: 'Финансы', icon: DollarSign, to: '/crm/finance', roles: navRolesFor('/crm/finance') },
+  { label: 'Статистика', icon: BarChart3, to: '/crm/stats', roles: navRolesFor('/crm/stats') },
   {
     label: 'Собеседования',
     icon: KanbanSquare,
     to: '/crm/interviews',
-    roles: ['ADMIN', 'SENIOR', 'HR'],
+    roles: navRolesFor('/crm/interviews'),
   },
   {
     label: 'Документы',
     icon: FileText,
     to: '/crm/documents',
-    roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'],
+    roles: navRolesFor('/crm/documents'),
   },
   {
     // Профиль last: JUNIOR sees it at position 5 (spec §4.3).
-    // Other roles: it was previously at position 2 in the visible list —
-    // it now moves to after Документы. For ADMIN/SENIOR/HR/ACCOUNTANT
-    // the practical position shifts slightly but remains accessible.
     label: 'Профиль',
     icon: UserCircle,
     to: '/crm/profile',
-    roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'],
+    roles: navRolesFor('/crm/profile'),
   },
 ]
 
