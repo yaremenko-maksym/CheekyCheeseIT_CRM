@@ -34,6 +34,7 @@ import {
   transactionSchema,
 } from '@crm/shared'
 import { useLegend } from '@/hooks/use-legend'
+import { useJuniorProjects } from '@/hooks/use-junior-projects'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
 import { getAxiosStatus } from '@/lib/axios-utils'
@@ -80,26 +81,6 @@ function getInitials(name: string | null | undefined): string {
 // ---------------------------------------------------------------------------
 // Data hooks
 // ---------------------------------------------------------------------------
-
-/**
- * JUNIOR-facing: GET /api/projects returns only their projects with masking.
- *
- * Namespaced queryKey `['junior', 'projects']` (NOT the shared `['projects']`):
- *  1. avoids cache collision with the ADMIN/SENIOR `['projects']` list in the
- *     shared QueryClient (a non-junior list would otherwise overwrite / be read
- *     by the hub, leaking unmasked rows or stale shapes);
- *  2. keeps junior data OFF disk — `['junior', …]` is NOT in the persist
- *     allow-list (PERSISTED_KEY_PREFIXES in __root.tsx), whereas `['projects']`
- *     IS — so masked junior project data is never written to IndexedDB.
- * Do NOT add `'junior'` to the persist allow-list.
- */
-function useJuniorProjects() {
-  return useQuery<ProjectDto[]>({
-    queryKey: ['junior', 'projects'],
-    queryFn: () => api.get<ProjectDto[]>('/projects').then((r) => r.data),
-    staleTime: 5 * 60_000,
-  })
-}
 
 function useMyContract() {
   return useQuery<ContractStatusMeDto | null>({
