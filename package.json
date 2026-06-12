@@ -29,6 +29,9 @@
       "pnpm --filter @crm/api exec eslint --fix",
       "prettier --write"
     ],
+    "apps/e2e/**/*.ts": [
+      "prettier --write"
+    ],
     "packages/shared/**/*.ts": [
       "prettier --write"
     ],

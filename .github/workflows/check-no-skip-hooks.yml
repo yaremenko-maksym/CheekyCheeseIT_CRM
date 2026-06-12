@@ -121,6 +121,29 @@ jobs:
               ].join('\n'),
             })
 
+      # On success: remove the hook-bypass-warning label if it was previously added
+      # (e.g. developer fixed formatting after the label was applied). Wrapped in
+      # try/catch because removeLabel throws 404 if the label is not present.
+      - name: Remove hook-bypass-warning label on success
+        if: steps.prettier.outcome == 'success'
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ env.PR_NUM }}
+        with:
+          script: |
+            const prNum = parseInt(process.env.PR_NUMBER, 10)
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNum,
+                name: 'hook-bypass-warning',
+              })
+            } catch (err) {
+              // 404 = label not present on this PR — nothing to remove, ignore.
+              if (err.status !== 404) throw err
+            }
+
       # Re-fail the job so the check is visible as red on the PR.
       - name: Mark check failed if formatting violated
         if: steps.prettier.outcome == 'failure'
