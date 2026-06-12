@@ -65,6 +65,14 @@ const envSchema = z
       path: ['CREDENTIALS_ENC_KEY'],
     },
   )
+  .refine(
+    (env) => env.NODE_ENV !== 'production' || !env.CREDENTIALS_ENC_KEY.startsWith('change_me'),
+    {
+      message:
+        'CREDENTIALS_ENC_KEY must not use the placeholder value in production (change_me_* prefix detected). Generate: openssl rand -hex 32',
+      path: ['CREDENTIALS_ENC_KEY'],
+    },
+  )
 
 export type Env = z.infer<typeof envSchema>
 
