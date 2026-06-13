@@ -1,44 +1,29 @@
 /**
- * /crm/project — JUNIOR hub «Мой проект»
+ * /crm/project — JUNIOR hub «Мой проект» (round 3 redesign)
  *
- * Shows: project info · persona · contract status · salary snapshot
- *        · HR contact · quick links. Switcher when >1 active project.
+ * Design spec: docs/design/junior-hub-round3.md
+ * Changes from round 2:
+ *  - items-start grid → no h-full stretching (root cause of empty space)
+ *  - Left stack col-span-1: ProjectInfoCard (HR inline) + PersonaCard
+ *  - Right wide col-span-2: SalarySnapshotCard
+ *  - Bottom col-span-full: ProjectCredentialsSection (twoColumn)
+ *  - Removed: ContractStatusCard, HrContactCard, useMyContract hook
  *
  * AC1: ставка/реальные идентичности отсутствуют в DOM.
  * AC3: redirect JUNIOR → /crm/project при логине (в index.tsx).
  */
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
-import {
-  BookOpen,
-  CheckCircle2,
-  DollarSign,
-  ExternalLink,
-  Phone,
-  Send,
-  UserCircle,
-} from 'lucide-react'
+import { BookOpen, DollarSign, ExternalLink, Phone, Send, UserCircle } from 'lucide-react'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type {
-  ContractStatusMeDto,
-  HrContactDto,
-  ProjectDto,
-  SalaryMetaDto,
-  TransactionDto,
-} from '@crm/shared'
-import {
-  contractStatusMeDtoSchema,
-  hrContactSchema,
-  salaryMetaSchema,
-  transactionSchema,
-} from '@crm/shared'
+import type { HrContactDto, ProjectDto, SalaryMetaDto, TransactionDto } from '@crm/shared'
+import { hrContactSchema, salaryMetaSchema, transactionSchema } from '@crm/shared'
 import { useLegend } from '@/hooks/use-legend'
 import { useJuniorProjects } from '@/hooks/use-junior-projects'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
 import { getAxiosStatus } from '@/lib/axios-utils'
-import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -81,23 +66,6 @@ function getInitials(name: string | null | undefined): string {
 // ---------------------------------------------------------------------------
 // Data hooks
 // ---------------------------------------------------------------------------
-
-function useMyContract() {
-  return useQuery<ContractStatusMeDto | null>({
-    queryKey: ['contracts', 'me', 'status'],
-    queryFn: async () => {
-      try {
-        const res = await api.get<unknown>('/contracts/me/status')
-        if (!res.data) return null
-        return contractStatusMeDtoSchema.parse(res.data)
-      } catch (err: unknown) {
-        if (getAxiosStatus(err) === 404) return null
-        throw err
-      }
-    },
-    staleTime: 60_000,
-  })
-}
 
 function useSalaryMeta() {
   return useQuery({
@@ -165,14 +133,21 @@ function JuniorProjectHub() {
     return (
       <div className="space-y-4" data-testid="junior-hub">
         <Skeleton className="h-7 w-44" />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Skeleton className="h-36 rounded-lg" />
-          <Skeleton className="h-36 rounded-lg" />
-          <Skeleton className="h-28 rounded-lg" />
-          <Skeleton className="h-28 rounded-lg" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
+          {/* Left stack skeleton */}
+          <div className="lg:col-span-1 flex flex-col gap-4">
+            <Skeleton className="h-44 rounded-lg" />
+            <Skeleton className="h-28 rounded-lg" />
+          </div>
+          {/* Right wide skeleton */}
+          <div className="lg:col-span-2">
+            <Skeleton className="h-56 rounded-lg" />
+          </div>
+          {/* Bottom skeleton */}
+          <div className="col-span-full">
+            <Skeleton className="h-32 rounded-lg" />
+          </div>
         </div>
-        <Skeleton className="h-20 rounded-lg" />
-        <Skeleton className="h-12 rounded-lg" />
       </div>
     )
   }
@@ -246,12 +221,11 @@ function ProjectSwitcher({
 }
 
 // ---------------------------------------------------------------------------
-// HubCards — grid layout with all data cards
+// HubCards — round 3 bento (items-start eliminates h-full empty space)
 // ---------------------------------------------------------------------------
 
 function HubCards({ project, projectId }: { project: ProjectDto; projectId: string }) {
   const { data: legend, isLoading: legendLoading } = useLegend(projectId, true)
-  const { data: contract, isLoading: contractLoading, isError: contractError } = useMyContract()
   const { data: salaryMeta, isLoading: salaryMetaLoading } = useSalaryMeta()
   const { data: salaryTxs, isLoading: salaryTxsLoading } = useSalaryTransactions()
   const { data: hrContact, isLoading: hrLoading } = useHrContact(projectId)
@@ -259,73 +233,57 @@ function HubCards({ project, projectId }: { project: ProjectDto; projectId: stri
   const salaryLoading = salaryMetaLoading || salaryTxsLoading
 
   return (
-    // Bento grid (task §1, design junior-hub-round2): a single 3-col grid on lg
-    // so the hub fits one screen @1440×900 without a long vertical scroll.
-    // Left: project identity · middle: persona · right: contract+salary stacked.
-    // Bottom band: HR contact + project credentials side-by-side.
+    // items-start: grid rows wrap to content height — no empty stretching.
+    // Structure: left 1/3 stack + right 2/3 salary + full-width credentials.
+    // ContractStatusCard removed per task-junior-ut-round3 §5 (PM decision).
     <motion.div
-      className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+      className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start"
       variants={container}
       initial="hidden"
       animate="show"
       data-testid="junior-hub-bento"
     >
-      <motion.div variants={card} className="lg:col-span-1">
-        <ProjectInfoCard project={project} />
-      </motion.div>
-
-      <motion.div variants={card} className="lg:col-span-1">
+      {/* Left stack: О проекте (с HR) + Синьор проекта */}
+      <motion.div variants={card} className="lg:col-span-1 flex flex-col gap-4">
+        <ProjectInfoCard project={project} hrContact={hrContact ?? null} hrLoading={hrLoading} />
         <PersonaCard legend={legend ?? null} isLoading={legendLoading} />
       </motion.div>
 
-      {/* Right column: contract + salary stacked (no separator between them). */}
-      <motion.div variants={card} className="lg:col-span-1 flex flex-col gap-3">
-        <ContractStatusCard
-          contract={contract ?? null}
-          isLoading={contractLoading}
-          isError={contractError}
-        />
+      {/* Right wide: Моя зарплата — col-span-2 (2/3 width on desktop) */}
+      <motion.div variants={card} className="lg:col-span-2">
         <SalarySnapshotCard
-          className="flex-1"
           salaryMeta={salaryMeta ?? null}
           salaryTxs={salaryTxs ?? []}
           isLoading={salaryLoading}
         />
       </motion.div>
 
-      {/* Bottom band: HR contact (fixed width) + credentials (fills the rest).
-          JUNIOR is view+reveal+ADD (canEdit false, canAdd true — task §6). */}
+      {/* Bottom full-width: Пароли проекта — twoColumn for wide layout */}
       <motion.div variants={card} className="col-span-full">
-        <section
-          aria-label="HR и пароли проекта"
-          className="flex flex-col md:flex-row gap-4"
-          data-testid="junior-hub-hr-credentials-row"
-        >
-          <HrContactCard
-            className="md:w-[280px] shrink-0 h-fit"
-            hrContact={hrContact ?? null}
-            isLoading={hrLoading}
-          />
-          <div className="flex-1 min-w-0">
-            <ProjectCredentialsSection projectId={projectId} canEdit={false} canAdd />
-          </div>
-        </section>
+        <ProjectCredentialsSection projectId={projectId} canEdit={false} canAdd twoColumn />
       </motion.div>
     </motion.div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// ProjectInfoCard
+// ProjectInfoCard — project meta + embedded HrInline (no separate HrContactCard)
 // ---------------------------------------------------------------------------
 
-function ProjectInfoCard({ project }: { project: ProjectDto }) {
-  // status derived from archivedAt — no dedicated status field in ProjectDto
+function ProjectInfoCard({
+  project,
+  hrContact,
+  hrLoading,
+}: {
+  project: ProjectDto
+  hrContact: HrContactDto | null
+  hrLoading: boolean
+}) {
   const isActive = !project.archivedAt
   const statusVariant = isActive ? ('status-active' as const) : ('status-closed' as const)
 
   return (
-    <Card className="border-border/40 bg-card h-full" data-testid="project-info-card">
+    <Card className="border-border/40 bg-card" data-testid="project-info-card">
       <CardHeader className="flex flex-row items-start gap-3 pb-3">
         <ProjectLogo
           documentId={project.logoDocumentId ?? null}
@@ -342,32 +300,99 @@ function ProjectInfoCard({ project }: { project: ProjectDto }) {
           )}
         </div>
       </CardHeader>
-      <CardContent className="pt-0 space-y-2 text-sm">
-        {project.startDate && (
+      <CardContent className="pt-0 space-y-3 text-sm">
+        {/* Project meta rows */}
+        <div className="space-y-2">
+          {project.startDate && (
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground text-xs">Старт</span>
+              <span className="font-medium text-xs">
+                {new Date(project.startDate).toLocaleDateString('ru-RU', {
+                  day: '2-digit',
+                  month: 'long',
+                  year: 'numeric',
+                })}
+              </span>
+            </div>
+          )}
           <div className="flex items-center justify-between">
-            <span className="text-muted-foreground text-xs">Старт</span>
-            <span className="font-medium text-xs">
-              {new Date(project.startDate).toLocaleDateString('ru-RU', {
-                day: '2-digit',
-                month: 'long',
-                year: 'numeric',
-              })}
-            </span>
+            <span className="text-muted-foreground text-xs">Статус</span>
+            <Badge variant={statusVariant} className="text-xs">
+              {isActive ? 'Активный' : 'Завершён'}
+            </Badge>
           </div>
-        )}
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground text-xs">Статус</span>
-          <Badge variant={statusVariant} className="text-xs">
-            {isActive ? 'Активный' : 'Завершён'}
-          </Badge>
         </div>
+
+        {/* HR contact — embedded, no separate Card */}
+        <Separator className="opacity-30" />
+        <section aria-label="Контакт HR">
+          <HrInline hrContact={hrContact} isLoading={hrLoading} />
+        </section>
       </CardContent>
     </Card>
   )
 }
 
 // ---------------------------------------------------------------------------
-// PersonaCard — shows seniorName/seniorPresentedRole from legend masking
+// HrInline — compact HR block inside ProjectInfoCard (not a separate Card)
+// ---------------------------------------------------------------------------
+
+function HrInline({
+  hrContact,
+  isLoading,
+}: {
+  hrContact: HrContactDto | null
+  isLoading: boolean
+}) {
+  if (isLoading) {
+    return (
+      <div data-testid="hr-inline">
+        <p className="text-xs text-muted-foreground mb-1">Ваш HR</p>
+        <Skeleton className="h-4 w-32" />
+      </div>
+    )
+  }
+
+  const hasContact = hrContact?.displayName || hrContact?.telegram || hrContact?.phone
+
+  return (
+    <div data-testid="hr-inline">
+      <p className="text-xs text-muted-foreground mb-1">Ваш HR</p>
+      {!hasContact ? (
+        <p className="text-xs text-muted-foreground/60 italic">HR не назначен</p>
+      ) : (
+        <div className="space-y-1.5">
+          {hrContact?.displayName && <p className="text-sm font-medium">{hrContact.displayName}</p>}
+          <div className="flex flex-wrap gap-3">
+            {hrContact?.telegram && (
+              <a
+                href={`https://t.me/${hrContact.telegram.replace(/^@/, '')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors min-h-[24px]"
+              >
+                <Send className="h-3 w-3 shrink-0" />
+                {hrContact.telegram}
+              </a>
+            )}
+            {hrContact?.phone && (
+              <a
+                href={`tel:${hrContact.phone}`}
+                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors min-h-[24px]"
+              >
+                <Phone className="h-3 w-3 shrink-0" />
+                {hrContact.phone}
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// PersonaCard — compact h-fit (round 3: no h-full, gap-3, avatar h-10)
 // ---------------------------------------------------------------------------
 
 interface PersonaCardProps {
@@ -384,12 +409,12 @@ function PersonaCard({ legend, isLoading }: PersonaCardProps) {
 
   if (isLoading) {
     return (
-      <Card className="border-border/40 bg-card h-full" data-testid="persona-card">
+      <Card className="border-border/40 bg-card" data-testid="persona-card">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold">Синьор проекта</CardTitle>
         </CardHeader>
-        <CardContent className="flex items-center gap-4">
-          <Skeleton className="h-12 w-12 rounded-full shrink-0" />
+        <CardContent className="flex items-center gap-3">
+          <Skeleton className="h-10 w-10 rounded-full shrink-0" />
           <div className="space-y-2 flex-1">
             <Skeleton className="h-4 w-36" />
             <Skeleton className="h-3 w-24" />
@@ -400,13 +425,15 @@ function PersonaCard({ legend, isLoading }: PersonaCardProps) {
   }
 
   return (
-    <Card className="border-border/40 bg-card h-full" data-testid="persona-card">
+    // No h-full — card is h-fit; parent grid items-start prevents stretching
+    <Card className="border-border/40 bg-card" data-testid="persona-card">
       <CardHeader className="flex flex-row items-center justify-between pb-3">
         <CardTitle className="text-sm font-semibold">Синьор проекта</CardTitle>
       </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+      <CardContent className="flex flex-col gap-3">
         <div className="flex items-center gap-3">
-          <Avatar className="h-12 w-12 shrink-0">
+          {/* h-10 (compact vs round2 h-12) per design spec */}
+          <Avatar className="h-10 w-10 shrink-0">
             <AvatarFallback className="bg-yellow-subtle text-avatar-text font-bold text-sm">
               {initials}
             </AvatarFallback>
@@ -440,86 +467,7 @@ function PersonaCard({ legend, isLoading }: PersonaCardProps) {
 }
 
 // ---------------------------------------------------------------------------
-// ContractStatusCard
-// ---------------------------------------------------------------------------
-
-interface ContractStatusCardProps {
-  contract: ContractStatusMeDto | null
-  isLoading: boolean
-  isError: boolean
-}
-
-function ContractStatusCard({ contract, isLoading, isError }: ContractStatusCardProps) {
-  const isSigned = contract?.status === 'SIGNED'
-  const isReadyToSign = contract?.status === 'READY_TO_SIGN'
-  const noContract = !contract && !isError
-
-  if (isLoading) {
-    return (
-      <Card className="border-border/40 bg-card" data-testid="contract-status-card">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-semibold">Контракт</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Skeleton className="h-8 w-full rounded-md" />
-        </CardContent>
-      </Card>
-    )
-  }
-
-  return (
-    <Card className="border-border/40 bg-card" data-testid="contract-status-card">
-      <CardHeader className="flex flex-row items-center justify-between pb-3">
-        <CardTitle className="text-sm font-semibold">Контракт</CardTitle>
-        {isSigned && <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" aria-hidden />}
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {isSigned && (
-          <Badge
-            variant="outline"
-            className="text-xs border-green-500/40 text-green-400"
-            data-testid="contract-status-badge"
-          >
-            Подписан
-          </Badge>
-        )}
-        {isReadyToSign && (
-          <>
-            <Badge variant="default" className="text-xs" data-testid="contract-status-badge">
-              Ожидает подписи
-            </Badge>
-            <Button
-              size="sm"
-              className="w-full"
-              data-testid="contract-sign-btn"
-              onClick={() => void window.open('/crm/onboarding', '_self')}
-            >
-              Подписать контракт
-            </Button>
-          </>
-        )}
-        {!isSigned && !isReadyToSign && !noContract && (
-          <Badge variant="secondary" className="text-xs" data-testid="contract-status-badge">
-            Черновик
-          </Badge>
-        )}
-        {isError && (
-          <Badge variant="secondary" className="text-xs" data-testid="contract-status-badge">
-            Ошибка загрузки
-          </Badge>
-        )}
-        {noContract && !isError && (
-          <Badge variant="secondary" className="text-xs" data-testid="contract-status-badge">
-            Контракт не оформлен
-          </Badge>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// SalarySnapshotCard
+// SalarySnapshotCard — wide (col-span-2), text-3xl amount, full tx rows
 // ---------------------------------------------------------------------------
 
 interface SalarySnapshotCardProps {
@@ -535,17 +483,17 @@ function SalarySnapshotCard({
   isLoading,
   className,
 }: SalarySnapshotCardProps) {
+  const baseClass = 'border-border/40 bg-card'
+  const cardClass = className ? `${baseClass} ${className}` : baseClass
+
   if (isLoading) {
     return (
-      <Card
-        className={cn('border-border/40 bg-card', className)}
-        data-testid="salary-snapshot-card"
-      >
+      <Card className={cardClass} data-testid="salary-snapshot-card">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold">Моя зарплата</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          <Skeleton className="h-8 w-32" />
+          <Skeleton className="h-10 w-40" />
           <Skeleton className="h-4 w-48" />
         </CardContent>
       </Card>
@@ -555,74 +503,64 @@ function SalarySnapshotCard({
   const hasRate = salaryMeta?.monthlySalary != null
 
   return (
-    <Card className={cn('border-border/40 bg-card', className)} data-testid="salary-snapshot-card">
+    <Card className={cardClass} data-testid="salary-snapshot-card">
       <CardHeader className="flex flex-row items-center justify-between pb-3">
         <CardTitle className="text-sm font-semibold">Моя зарплата</CardTitle>
         <DollarSign className="h-4 w-4 text-muted-foreground" aria-hidden />
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-4">
+        {/* Rate display — text-3xl on wide card (round 3 vs text-2xl in round 2) */}
         {hasRate ? (
-          <>
-            <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-bold tabular-nums" data-testid="salary-rate-amount">
-                {Number(salaryMeta!.monthlySalary).toLocaleString('ru-RU')}
-              </span>
-              <span className="text-xs text-muted-foreground uppercase">
-                {salaryMeta!.salaryCurrency ?? ''}
-              </span>
-              <span className="text-xs text-muted-foreground ml-auto">/ мес</span>
-            </div>
-            {salaryMeta?.changedAt && (
-              <p className="text-xs text-muted-foreground" data-testid="salary-changed-at">
-                изменена{' '}
-                {new Date(salaryMeta.changedAt).toLocaleDateString('ru-RU', {
-                  day: '2-digit',
-                  month: 'long',
-                  year: 'numeric',
-                })}
-              </p>
-            )}
-          </>
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-bold tabular-nums" data-testid="salary-rate-amount">
+              {Number(salaryMeta!.monthlySalary).toLocaleString('ru-RU')}
+            </span>
+            <span className="text-sm text-muted-foreground uppercase">
+              {salaryMeta!.salaryCurrency ?? ''}
+            </span>
+            <span className="text-xs text-muted-foreground ml-auto">/ мес</span>
+          </div>
         ) : (
           <p className="text-sm text-muted-foreground/60 italic" data-testid="salary-no-rate">
             Ставка не назначена
           </p>
         )}
+
+        {/* Last 3 payments — full rows with border-b separators */}
         {salaryTxs.length > 0 && (
-          <>
-            <Separator className="opacity-30" />
-            <div className="space-y-1.5" data-testid="salary-tx-list">
-              {salaryTxs.map((tx) => {
-                const isPaid = tx.status === 'PAID' || tx.status === 'VALIDATED'
-                const txVariant = isPaid ? ('paid' as const) : ('pending' as const)
-                return (
-                  <div
-                    key={tx.id}
-                    className="flex items-center justify-between text-xs"
-                    data-testid="salary-tx-row"
-                  >
-                    <span className="text-muted-foreground">
-                      {tx.salaryMonth ??
-                        new Date(tx.createdAt).toLocaleDateString('ru-RU', {
-                          month: 'long',
-                          year: 'numeric',
-                        })}
+          <div data-testid="salary-tx-list">
+            <p className="text-xs text-muted-foreground mb-2">Последние выплаты</p>
+            {salaryTxs.map((tx) => {
+              const isPaid = tx.status === 'PAID' || tx.status === 'VALIDATED'
+              const txVariant = isPaid ? ('paid' as const) : ('pending' as const)
+              return (
+                <div
+                  key={tx.id}
+                  className="flex items-center justify-between py-1.5 border-b border-border/20 last:border-0"
+                  data-testid="salary-tx-row"
+                >
+                  <span className="text-sm text-muted-foreground">
+                    {tx.salaryMonth ??
+                      new Date(tx.createdAt).toLocaleDateString('ru-RU', {
+                        month: 'long',
+                        year: 'numeric',
+                      })}
+                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="tabular-nums text-sm font-medium">
+                      {Number(tx.amount).toLocaleString('ru-RU')} {tx.currency}
                     </span>
-                    <div className="flex items-center gap-2">
-                      <span className="tabular-nums font-medium">
-                        {Number(tx.amount).toLocaleString('ru-RU')} {tx.currency}
-                      </span>
-                      <Badge variant={txVariant} className="text-xs">
-                        {isPaid ? 'Выплачено' : 'Ожидание'}
-                      </Badge>
-                    </div>
+                    <Badge variant={txVariant} className="text-xs">
+                      {isPaid ? 'Выплачено' : 'Ожидание'}
+                    </Badge>
                   </div>
-                )
-              })}
-            </div>
-          </>
+                </div>
+              )
+            })}
+          </div>
         )}
-        <Separator className="opacity-50" />
+
+        {/* All payments link */}
         <Link
           to="/crm/finance"
           className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -631,77 +569,6 @@ function SalarySnapshotCard({
           <ExternalLink className="h-3 w-3" />
           Все мои выплаты
         </Link>
-      </CardContent>
-    </Card>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// HrContactCard
-// ---------------------------------------------------------------------------
-
-interface HrContactCardProps {
-  hrContact: HrContactDto | null
-  isLoading: boolean
-  className?: string
-}
-
-function HrContactCard({ hrContact, isLoading, className }: HrContactCardProps) {
-  if (isLoading) {
-    return (
-      <Card className={cn('border-border/40 bg-card', className)} data-testid="hr-contact-card">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-semibold">Ваш HR</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Skeleton className="h-5 w-40" />
-        </CardContent>
-      </Card>
-    )
-  }
-
-  const hasContact = hrContact?.displayName || hrContact?.telegram || hrContact?.phone
-
-  return (
-    <Card className={cn('border-border/40 bg-card', className)} data-testid="hr-contact-card">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-semibold">Ваш HR</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {!hasContact && (
-          <p className="text-sm text-muted-foreground/60 italic">
-            HR не назначен. Обратитесь к администратору.
-          </p>
-        )}
-        {hasContact && (
-          <div className="space-y-2">
-            {hrContact?.displayName && (
-              <p className="text-sm font-medium">{hrContact.displayName}</p>
-            )}
-            <div className="flex flex-wrap gap-3">
-              {hrContact?.telegram && (
-                <a
-                  href={`https://t.me/${hrContact.telegram.replace(/^@/, '')}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                  {hrContact.telegram}
-                </a>
-              )}
-              {hrContact?.phone && (
-                <a
-                  href={`tel:${hrContact.phone}`}
-                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <Phone className="h-3.5 w-3.5" />
-                  {hrContact.phone}
-                </a>
-              )}
-            </div>
-          </div>
-        )}
       </CardContent>
     </Card>
   )
