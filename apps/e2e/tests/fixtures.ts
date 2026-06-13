@@ -574,26 +574,37 @@ export function buildSelfView(user: (typeof USERS)[keyof typeof USERS]): object 
 }
 
 // ---------------------------------------------------------------------------
-// API base URL (matches what the web app uses via env)
+// API route matching — origin-agnostic
 // ---------------------------------------------------------------------------
 //
-// In dev mode (vite dev, :3000) the Vite proxy forwards same-origin /api/*
-// requests to localhost:3001, so the browser sends them to
-// `http://localhost:3001/api/...` — Playwright page.route intercepts at that
-// absolute URL.
+// Playwright page.route() intercepts at the browser-fetch URL, NOT the
+// final backend URL after any proxy rewrite.  The web app can run on
+// different origins depending on the test environment:
 //
-// In production build (vite preview, e.g. :3010) the proxy ALSO forwards
-// /api/* → localhost:3001, but the browser's fetch URL is same-origin
-// (e.g. `http://localhost:3010/api/auth/me`). Playwright intercepts the
-// request BEFORE the proxy forwards it, so the mock must match the
-// web-server origin, not :3001.
+//   CI / vite dev (:3000)    → browser fetches http://localhost:3001/api/*
+//                               (axios VITE_API_URL=http://localhost:3001)
+//   Local preview (:3010)    → browser fetches http://localhost:3010/api/*
+//                               (same-origin, vite preview proxy rewrites)
+//   Future: any other port   → origin varies
 //
-// Solution: derive the mock URL origin from PLAYWRIGHT_BASE_URL (or fall
-// back to localhost:3000). This keeps the existing "dev" behaviour (mock on
-// :3000 same as :3001 proxy target) and makes preview builds work too.
-const _webOrigin =
-  (typeof process !== 'undefined' && process.env['PLAYWRIGHT_BASE_URL']) || 'http://localhost:3000'
-const API = `${_webOrigin}/api`
+// Using a hardcoded origin (e.g. "http://localhost:3001") OR deriving it
+// from PLAYWRIGHT_BASE_URL both break in at least one scenario.
+//
+// Fix: match on the URL *path* only, ignoring the origin.
+//   • String routes  → use Playwright glob  `**/api/<path>` which matches
+//     any host/port prefix followed by /api/<path>.
+//   • RegExp routes  → replace `${API_RE}/path` with `/\\/api\\/path/`
+//     which matches the path segment in the full URL string on any origin.
+//
+// NOTE: we deliberately do NOT match Vite page-navigation URLs (/crm/...)
+// because those never contain "/api/" as a path segment.
+//
+// API_GLOB — prefix for string-literal page.route() patterns.
+const API_GLOB = '**/api'
+// API_RE — prefix for RegExp-based page.route() patterns.  A leading
+// `\\/` anchors to the `/api/` path component without accidentally
+// matching a hostname that contains "api" as a substring.
+const API_RE = '\\/api'
 
 // ---------------------------------------------------------------------------
 // Route helpers
@@ -611,12 +622,12 @@ function noContent(route: Route) {
 // Mock all API calls for a given authenticated user
 // ---------------------------------------------------------------------------
 export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof USERS]) {
-  // All routes use the API base derived from PLAYWRIGHT_BASE_URL (see `API`
-  // constant above) so mocks match regardless of dev (:3000) or preview (:3010).
+  // All routes use origin-agnostic patterns (see API_GLOB / API_RE above)
+  // so mocks match regardless of dev (:3001), preview (:3010), or CI.
 
   // Auth
-  await page.route(`${API}/auth/me`, (r) => jsonOk(r, user))
-  await page.route(`${API}/auth/logout`, (r) => noContent(r))
+  await page.route(`${API_GLOB}/auth/me`, (r) => jsonOk(r, user))
+  await page.route(`${API_GLOB}/auth/logout`, (r) => noContent(r))
 
   // Notifications (Round 4 — Invoice Signing Epic) — NotificationsBell mounts
   // in the CRM header layout and immediately fires GET /api/notifications via
@@ -626,42 +637,46 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   // failure mode as PR #48 documents mocks). Register specific sub-routes
   // before the generic list route so PATCH /:id/read and PATCH /read-all
   // hit the right handlers.
-  await page.route(new RegExp(`${API}/notifications/read-all$`), (r) => noContent(r))
-  await page.route(new RegExp(`${API}/notifications/([^/?]+)/read$`), (r) => noContent(r))
-  await page.route(new RegExp(`${API}/notifications(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/notifications/read-all$`), (r) => noContent(r))
+  await page.route(new RegExp(`${API_RE}/notifications/([^/?]+)/read$`), (r) => noContent(r))
+  await page.route(new RegExp(`${API_RE}/notifications(\\?.*)?$`), (r) =>
     jsonOk(r, { items: [], unreadCount: 0 }),
   )
 
   // task-drop-company-debt-and-invoices. Senior IOUs are owed by the
   // company — DROP no longer has any debts. Replaced
   // `/pending-settlements/drop` with `/pending-settlements/company`.
-  await page.route(new RegExp(`${API}/pending-settlements/senior(\\?.*)?$`), (r) => jsonOk(r, []))
-  await page.route(new RegExp(`${API}/pending-settlements/company(\\?.*)?$`), (r) => jsonOk(r, []))
+  await page.route(new RegExp(`${API_RE}/pending-settlements/senior(\\?.*)?$`), (r) =>
+    jsonOk(r, []),
+  )
+  await page.route(new RegExp(`${API_RE}/pending-settlements/company(\\?.*)?$`), (r) =>
+    jsonOk(r, []),
+  )
 
-  await page.route(new RegExp(`${API}/balances/admin/([^/?]+)(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/balances/admin/([^/?]+)(\\?.*)?$`), (r) =>
     jsonOk(r, { balance: 0, currency: 'USD', breakdown: {} }),
   )
-  await page.route(new RegExp(`${API}/balances/senior/([^/?]+)(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/balances/senior/([^/?]+)(\\?.*)?$`), (r) =>
     jsonOk(r, { balance: 0, currency: 'USD', breakdown: {} }),
   )
 
   // Users — register specific sub-routes before the generic one
   // /users/me — profile shell expects UserWithPermissionsResponse shape
-  await page.route(`${API}/users/me`, (r) =>
+  await page.route(`${API_GLOB}/users/me`, (r) =>
     r.request().method() === 'PATCH'
       ? jsonOk(r, { ...user, ...(JSON.parse(r.request().postData() ?? '{}') as object) })
       : jsonOk(r, buildSelfView(user)),
   )
   // /users/me/requisites — PATCH for self requisites update
-  await page.route(`${API}/users/me/requisites`, (r) =>
+  await page.route(`${API_GLOB}/users/me/requisites`, (r) =>
     jsonOk(r, { ...user, ...(JSON.parse(r.request().postData() ?? '{}') as object) }),
   )
   // /users/:id/role — PATCH for admin role change
-  await page.route(new RegExp(`${API}/users/([^/?]+)/role$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/role$`), (r) =>
     jsonOk(r, { ...user, ...(JSON.parse(r.request().postData() ?? '{}') as object) }),
   )
   // /users/:id/archive-impact — used by ArchiveConfirmDialog to populate warning text
-  await page.route(new RegExp(`${API}/users/([^/?]+)/archive-impact$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/archive-impact$`), (r) => {
     const targetId = r.request().url().split('/').slice(-2, -1)[0]
     const target = ALL_USERS.find((u) => u.id === targetId) ?? user
     const impact = (() => {
@@ -690,14 +705,14 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   })
 
   // /users/:id/unarchive — pair-unarchive for SENIOR, single for others
-  await page.route(new RegExp(`${API}/users/([^/?]+)/unarchive$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/unarchive$`), (r) => {
     const targetId = r.request().url().split('/').slice(-2, -1)[0]
     const target = ALL_USERS.find((u) => u.id === targetId) ?? user
     return jsonOk(r, { ...target, archivedAt: null })
   })
 
   // /users/:id/team — used by UserDialog Edit to seed HR/Accountant selections
-  await page.route(new RegExp(`${API}/users/([^/?]+)/team$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/team$`), (r) =>
     jsonOk(r, [
       {
         id: USERS.hr.id,
@@ -717,7 +732,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   )
 
   // /users/:id — profile shell expects UserWithPermissionsResponse shape for view mode
-  await page.route(new RegExp(`${API}/users/([^/?]+)$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)$`), (r) => {
     const id = r.request().url().split('/').at(-1)
     const found = ALL_USERS.find((u) => u.id === id) ?? user
     if (r.request().method() === 'PATCH') {
@@ -731,7 +746,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   // `{ user, team: { id, ... }, members }` — frontend navigates to
   // `/crm/team/<team.id>` on success (UserDialog.createDropMutation
   // — unified dialog after task-fix-drop-unify-dialog).
-  await page.route(new RegExp(`${API}/users/drops$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/users/drops$`), (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     const body = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>
     const newUser = {
@@ -755,13 +770,13 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   // SENIOR rejoins via CREATE_NEW (auto-team) or JOIN_DROP_TEAM (existing
   // drop-team). 204 no-content is plenty for the dialog; the real API
   // returns 200 with details, but neither path is asserted by the UI.
-  await page.route(new RegExp(`${API}/users/me/rejoin-team$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/users/me/rejoin-team$`), (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     return jsonOk(r, { ok: true })
   })
 
   // /users — supports `?archived=true|false` filter
-  await page.route(new RegExp(`${API}/users(\\?.*)?$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/users(\\?.*)?$`), (r) => {
     if (r.request().method() === 'POST') {
       return jsonOk(
         r,
@@ -783,7 +798,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   // Drop role - phase 1 (AC4): rotate-senior on a drop-team. Register
   // BEFORE the generic `/teams/:id` matcher so PATCH on the rotate path
   // doesn't accidentally hit the team-update handler.
-  await page.route(new RegExp(`${API}/teams/([^/?]+)/rotate-senior$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/teams/([^/?]+)/rotate-senior$`), (r) => {
     if (r.request().method() !== 'PATCH' && r.request().method() !== 'POST') {
       return r.fallback()
     }
@@ -791,10 +806,10 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
     const team = ALL_TEAMS.find((t) => t.id === teamId) ?? DROP_TEAM
     return jsonOk(r, team)
   })
-  await page.route(new RegExp(`${API}/teams/([^/?]+)/members`), (r) =>
+  await page.route(new RegExp(`${API_RE}/teams/([^/?]+)/members`), (r) =>
     r.request().method() === 'DELETE' ? noContent(r) : jsonOk(r, TEAMS[0], 201),
   )
-  await page.route(new RegExp(`${API}/teams/([^/?]+)$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/teams/([^/?]+)$`), (r) => {
     const teamId = r.request().url().split('/').at(-1)
     // Drop role - phase 1: search across senior + drop fixtures.
     const team = ALL_TEAMS.find((t) => t.id === teamId) ?? TEAMS[0]
@@ -805,7 +820,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
         ? jsonOk(r, team)
         : jsonOk(r, { ...team, ...(JSON.parse(r.request().postData() ?? '{}') as object) })
   })
-  await page.route(`${API}/teams`, (r) =>
+  await page.route(`${API_GLOB}/teams`, (r) =>
     r.request().method() === 'POST'
       ? jsonOk(r, { ...TEAMS[0], id: 'new-team-id', name: 'New Team' }, 201)
       : jsonOk(r, TEAMS),
@@ -814,14 +829,14 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   // Projects
   // task-junior-ux-2-hub: GET /projects/:id/hr-contact — allowlist DTO.
   // Must be registered BEFORE the generic /projects/:id$ route (LIFO: later wins).
-  await page.route(new RegExp(`${API}/projects/([^/?]+)/hr-contact$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/projects/([^/?]+)/hr-contact$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return jsonOk(r, { displayName: null, telegram: null, phone: null })
   })
-  await page.route(new RegExp(`${API}/projects/([^/?]+)/members`), (r) =>
+  await page.route(new RegExp(`${API_RE}/projects/([^/?]+)/members`), (r) =>
     r.request().method() === 'DELETE' ? noContent(r) : jsonOk(r, PROJECTS[0], 201),
   )
-  await page.route(new RegExp(`${API}/projects/([^/?]+)$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/projects/([^/?]+)$`), (r) =>
     r.request().method() === 'DELETE'
       ? noContent(r)
       : jsonOk(r, { ...PROJECTS[0], ...(JSON.parse(r.request().postData() ?? '{}') as object) }),
@@ -829,7 +844,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   // Round 5: honor the `?archived=true|false` filter so the new «Все/Активные/Архив»
   // tabs return the expected slice of fixture projects. PROJECTS[0] is active
   // (archivedAt = null) and PROJECTS[1] is archived (archivedAt = timestamp).
-  await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/projects(\\?.*)?$`), (r) => {
     if (r.request().method() === 'POST') {
       return jsonOk(r, { ...PROJECTS[0], id: 'new-project-id' }, 201)
     }
@@ -854,7 +869,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   // Default: empty list []. Specs that need real data register their own
   // handler AFTER mockAuthAs (LIFO) so it wins.
   // reveal/:id sub-route registered first so the generic credentials$ doesn't swallow it.
-  await page.route(new RegExp(`${API}/projects/([^/?]+)/credentials/([^/?]+)/reveal$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/projects/([^/?]+)/credentials/([^/?]+)/reveal$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     // Default reveal returns 200 with a placeholder — tests override per-credential.
     return r.fulfill({
@@ -863,7 +878,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
       body: JSON.stringify({ password: 'mock-password' }),
     })
   })
-  await page.route(new RegExp(`${API}/projects/([^/?]+)/credentials/([^/?]+)$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/projects/([^/?]+)/credentials/([^/?]+)$`), (r) => {
     if (r.request().method() === 'DELETE') return r.fulfill({ status: 204, body: '' })
     if (r.request().method() === 'PATCH')
       return r.fulfill({
@@ -873,7 +888,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
       })
     return r.fallback()
   })
-  await page.route(new RegExp(`${API}/projects/([^/?]+)/credentials$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/projects/([^/?]+)/credentials$`), (r) => {
     if (r.request().method() === 'GET')
       return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
     if (r.request().method() === 'POST')
@@ -885,7 +900,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   // for ADMIN/HR/JUNIOR → GET /api/projects/:id/legend on mount. Unmocked →
   // 401 → axios interceptor → /login (same failure mode as the notifications/
   // documents/contracts mocks above). /entries sub-route before the generic.
-  await page.route(new RegExp(`${API}/projects/([^/?]+)/legend/entries$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/projects/([^/?]+)/legend/entries$`), (r) =>
     r.request().method() === 'POST'
       ? jsonOk(
           r,
@@ -908,7 +923,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
         )
       : r.fallback(),
   )
-  await page.route(new RegExp(`${API}/projects/([^/?]+)/legend$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/projects/([^/?]+)/legend$`), (r) => {
     // GET (page load): default 404 "no legend" → section shows its empty state
     // (useLegend retry:false handles 403/404). Specs needing a real legend
     // register their own handler AFTER mockAuthAs (LIFO). PUT: echo.
@@ -940,48 +955,48 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   })
 
   // Interviews
-  await page.route(new RegExp(`${API}/interviews/([^/?]+)/move`), (r) =>
+  await page.route(new RegExp(`${API_RE}/interviews/([^/?]+)/move`), (r) =>
     jsonOk(r, { ...INTERVIEWS[0], stage: 'ENGLISH_CHECK' }),
   )
-  await page.route(new RegExp(`${API}/interviews/([^/?]+)$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/interviews/([^/?]+)$`), (r) =>
     r.request().method() === 'DELETE'
       ? noContent(r)
       : jsonOk(r, { ...INTERVIEWS[0], ...(JSON.parse(r.request().postData() ?? '{}') as object) }),
   )
-  await page.route(new RegExp(`${API}/interviews(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/interviews(\\?.*)?$`), (r) =>
     r.request().method() === 'POST'
       ? jsonOk(r, { ...INTERVIEWS[0], id: 'new-interview-id' }, 201)
       : jsonOk(r, INTERVIEWS),
   )
 
   // Finance — real API paths (no /finance/ prefix for transactions/payout-requests)
-  await page.route(new RegExp(`${API}/transactions/senior-income/([^/?]+)$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/transactions/senior-income/([^/?]+)$`), (r) =>
     jsonOk(r, { id: r.request().url().split('/').at(-1), status: 'PENDING' }),
   )
-  await page.route(new RegExp(`${API}/transactions/([^/?]+)/(validate|pay|admin-edit)$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/transactions/([^/?]+)/(validate|pay|admin-edit)$`), (r) =>
     jsonOk(r, { id: r.request().url().split('/').at(-2), status: 'VALIDATED' }),
   )
-  await page.route(new RegExp(`${API}/transactions/([^/?]+)$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/transactions/([^/?]+)$`), (r) => {
     if (r.request().method() === 'DELETE') return jsonOk(r, { deleted: true })
     if (r.request().method() === 'POST') return jsonOk(r, { id: 'tx-new', status: 'PENDING' }, 201)
     return jsonOk(r, { id: r.request().url().split('/').at(-1), status: 'PENDING' })
   })
-  await page.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
     r.request().method() === 'POST'
       ? jsonOk(r, { id: 'tx-new', status: 'PENDING' }, 201)
       : jsonOk(r, []),
   )
-  await page.route(new RegExp(`${API}/payout-requests/([^/?]+)/pay$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/payout-requests/([^/?]+)/pay$`), (r) =>
     jsonOk(r, { id: r.request().url().split('/').at(-2), status: 'PAID' }),
   )
-  await page.route(new RegExp(`${API}/payout-requests(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) =>
     r.request().method() === 'POST'
       ? jsonOk(r, { id: 'payout-req-new', status: 'PENDING_PAYMENT' }, 201)
       : jsonOk(r, []),
   )
 
   // Finance — summary, transactions, expenses, payouts, junior-payments, invoices, exchange rates
-  await page.route(new RegExp(`${API}/finance/summary(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/finance/summary(\\?.*)?$`), (r) =>
     jsonOk(r, {
       totalIncome: '50000.00',
       totalExpenses: '12000.00',
@@ -997,44 +1012,44 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
       },
     }),
   )
-  await page.route(new RegExp(`${API}/finance/transactions(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/finance/transactions(\\?.*)?$`), (r) =>
     r.request().method() === 'POST'
       ? jsonOk(r, { id: 'tx-new', status: 'PENDING' }, 201)
       : jsonOk(r, []),
   )
-  await page.route(new RegExp(`${API}/finance/transactions/([^/?]+)`), (r) =>
+  await page.route(new RegExp(`${API_RE}/finance/transactions/([^/?]+)`), (r) =>
     jsonOk(r, { id: r.request().url().split('/').at(-1), status: 'VALIDATED' }),
   )
-  await page.route(new RegExp(`${API}/finance/expenses(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/finance/expenses(\\?.*)?$`), (r) =>
     r.request().method() === 'POST'
       ? jsonOk(r, { id: 'exp-new', expenseType: 'COMPANY_INCOME' }, 201)
       : jsonOk(r, []),
   )
-  await page.route(new RegExp(`${API}/finance/expenses/([^/?]+)`), (r) =>
+  await page.route(new RegExp(`${API_RE}/finance/expenses/([^/?]+)`), (r) =>
     jsonOk(r, { id: r.request().url().split('/').at(-1) }),
   )
-  await page.route(new RegExp(`${API}/finance/junior-payments(\\?.*)?$`), (r) => jsonOk(r, []))
-  await page.route(new RegExp(`${API}/finance/invoices(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/finance/junior-payments(\\?.*)?$`), (r) => jsonOk(r, []))
+  await page.route(new RegExp(`${API_RE}/finance/invoices(\\?.*)?$`), (r) =>
     r.request().method() === 'POST'
       ? jsonOk(r, { id: 'inv-new', status: 'DRAFT' }, 201)
       : jsonOk(r, []),
   )
-  await page.route(new RegExp(`${API}/finance/invoices/([^/?]+)`), (r) =>
+  await page.route(new RegExp(`${API_RE}/finance/invoices/([^/?]+)`), (r) =>
     jsonOk(r, { id: r.request().url().split('/').at(-1), status: 'DRAFT' }),
   )
-  await page.route(new RegExp(`${API}/finance/payouts(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/finance/payouts(\\?.*)?$`), (r) =>
     r.request().method() === 'POST'
       ? jsonOk(r, { id: 'payout-new', status: 'PENDING_PAYMENT' }, 201)
       : jsonOk(r, []),
   )
-  await page.route(new RegExp(`${API}/finance/payouts/([^/?]+)`), (r) =>
+  await page.route(new RegExp(`${API_RE}/finance/payouts/([^/?]+)`), (r) =>
     jsonOk(r, { id: r.request().url().split('/').at(-1), status: 'PENDING_PAYMENT' }),
   )
-  await page.route(new RegExp(`${API}/finance/exchange-rate(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/finance/exchange-rate(\\?.*)?$`), (r) =>
     jsonOk(r, { usdUah: '41.50', usdtUah: '41.50', eurUah: '44.80', date: '2026-05-10' }),
   )
-  await page.route(new RegExp(`${API}/finance/chart(/.*)?$`), (r) => jsonOk(r, []))
-  await page.route(new RegExp(`${API}/finance/partner-balance(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/finance/chart(/.*)?$`), (r) => jsonOk(r, []))
+  await page.route(new RegExp(`${API_RE}/finance/partner-balance(\\?.*)?$`), (r) =>
     jsonOk(r, {
       maksymSpentUsd: '6000.00',
       kostyaSpentUsd: '6000.00',
@@ -1042,15 +1057,15 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
       debtDirection: 'SETTLED',
     }),
   )
-  await page.route(new RegExp(`${API}/finance/my-salary(\\?.*)?$`), (r) => jsonOk(r, []))
-  await page.route(new RegExp(`${API}/finance/expenses/hints(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/finance/my-salary(\\?.*)?$`), (r) => jsonOk(r, []))
+  await page.route(new RegExp(`${API_RE}/finance/expenses/hints(\\?.*)?$`), (r) =>
     jsonOk(r, { projects: [], users: [] }),
   )
 
   // Onboarding (Phase 6B) — default: fully onboarded, no wizard redirect.
   // Tests that need unboarded state call mockOnboardingApi() AFTER mockAuthAs();
   // Playwright's LIFO route-handler stack ensures the later registration wins.
-  await page.route(`${API}/onboarding/status`, (r) =>
+  await page.route(`${API_GLOB}/onboarding/status`, (r) =>
     jsonOk(r, {
       requiresContract: false,
       requiresTos: false,
@@ -1066,14 +1081,14 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   // DocumentsPage → useDocuments() → GET /documents. Without these mocks the
   // request hits the real backend → 401 → axios interceptor → location.href =
   // '/login' → user gets logged out mid-navigation (root cause for PR #48 fails).
-  await page.route(new RegExp(`${API}/documents/([^/?]+)/download$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/documents/([^/?]+)/download$`), (r) =>
     jsonOk(r, {
       url: 'http://localhost:9000/crm-documents/mock-download',
       expiresAt: '2099-01-01T00:00:00.000Z',
     }),
   )
-  await page.route(new RegExp(`${API}/documents/([^/?]+)/thumbnail$`), (r) => jsonOk(r, null))
-  await page.route(new RegExp(`${API}/documents/([^/?]+)/restore$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/documents/([^/?]+)/thumbnail$`), (r) => jsonOk(r, null))
+  await page.route(new RegExp(`${API_RE}/documents/([^/?]+)/restore$`), (r) =>
     jsonOk(r, {
       id: r.request().url().split('/').slice(-2, -1)[0],
       ownerId: user.id,
@@ -1091,8 +1106,8 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
       createdAt: '2026-05-01T10:00:00.000Z',
     }),
   )
-  await page.route(new RegExp(`${API}/documents/([^/?]+)/hard$`), (r) => noContent(r))
-  await page.route(new RegExp(`${API}/documents/([^/?]+)$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/documents/([^/?]+)/hard$`), (r) => noContent(r))
+  await page.route(new RegExp(`${API_RE}/documents/([^/?]+)$`), (r) =>
     r.request().method() === 'DELETE'
       ? noContent(r)
       : jsonOk(r, {
@@ -1112,7 +1127,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
           createdAt: '2026-05-01T10:00:00.000Z',
         }),
   )
-  await page.route(new RegExp(`${API}/documents(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/documents(\\?.*)?$`), (r) =>
     r.request().method() === 'POST'
       ? jsonOk(
           r,
@@ -1144,19 +1159,19 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   // Sub-routes must be registered BEFORE the generic /contract$ pattern so
   // they match first (Playwright uses LIFO within a registration sequence;
   // later-registered routes take priority over earlier ones).
-  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/variables$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract/variables$`), (r) =>
     jsonOk(r, { variables: [], customVariables: [] }),
   )
-  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/custom-values$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract/custom-values$`), (r) =>
     r.request().method() === 'PATCH' ? jsonOk(r, {}) : r.fallback(),
   )
-  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/pdf$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract/pdf$`), (r) =>
     r.fulfill({ status: 200, contentType: 'application/pdf', body: Buffer.from('%PDF-1.4') }),
   )
-  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/(ready|revert|reset)$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract/(ready|revert|reset)$`), (r) =>
     r.fallback(),
   )
-  await page.route(new RegExp(`${API}/users/([^/?]+)/contract$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract$`), (r) => {
     if (r.request().method() === 'GET') {
       // Default: 404 "no template" — tests that need a real contract
       // register their own handler AFTER mockAuthAs so it takes priority (LIFO).
@@ -1174,7 +1189,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   // task-junior-ux-2-hub: GET /contracts/me — JUNIOR hub uses this.
   // Default: 404 (no contract yet). Tests that need a SIGNED contract
   // register their own handler AFTER mockAuthAs (LIFO priority).
-  await page.route(new RegExp(`${API}/contracts/me$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/contracts/me$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({
       status: 404,
@@ -1189,7 +1204,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   // SIGNED/READY_TO_SIGN scenarios. Without this mock the request hits the real backend
   // → 401 → axios interceptor → /login redirect → networkidle never settles
   // → navigation.spec.ts JUNIOR tests timeout at 30 000 ms.
-  await page.route(new RegExp(`${API}/contracts/me/status$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/contracts/me/status$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({
       status: 404,
@@ -1201,7 +1216,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   // task-junior-ux-hub: GET /users/me/salary-meta — SalarySnapshotCard (JUNIOR hub).
   // Default: null salary (role has no salary configured). junior-hub.spec.ts overrides
   // for the salary-populated scenarios. Without this mock same timeout failure as above.
-  await page.route(new RegExp(`${API}/users/me/salary-meta$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/users/me/salary-meta$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({
       status: 200,
@@ -1222,7 +1237,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   // JUNIOR hub mocks above. Defaults produce a minimal non-error state so the
   // hub renders its cards. Specs that need specific data register their own
   // handlers AFTER mockAuthAs (LIFO) so they take priority.
-  await page.route(new RegExp(`${API}/finance/drop/me/summary$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/finance/drop/me/summary$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return jsonOk(r, {
       balance: 0,
@@ -1231,15 +1246,15 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
       debtToCompany: 0,
     })
   })
-  await page.route(new RegExp(`${API}/finance/drop/me/incomes(\\?.*)?$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/finance/drop/me/incomes(\\?.*)?$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return jsonOk(r, { items: [], total: 0, page: 1, limit: 20 })
   })
-  await page.route(new RegExp(`${API}/finance/drop/me/payments$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/finance/drop/me/payments$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return jsonOk(r, [])
   })
-  await page.route(new RegExp(`${API}/projects/drop/me$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/projects/drop/me$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return jsonOk(r, [])
   })
