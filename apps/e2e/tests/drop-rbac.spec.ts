@@ -1,14 +1,13 @@
 /**
- * drop-rbac.spec.ts — Drop role - phase 1 (AC8).
+ * drop-rbac.spec.ts — Drop role RBAC visibility sweep.
  *
- * Verifies DROP-role visibility constraints:
- *   - Sidebar exposes only Profile / Team / Finance (no Dashboard,
- *     Projects, Interviews, Documents).
- *   - Direct URL hit on /crm/dashboard redirects DROP to /crm/profile
- *     (DashboardPage useEffect guard).
- *   - /crm/users page is admin-only — DROP is redirected to /crm/profile.
- *   - DROP profile self-view exposes only the DROP-permitted tabs
- *     (overview / team / requisites / finance per spec §4).
+ * Phase 1 (AC8): sidebar items, /crm/dashboard redirect, /crm/users redirect,
+ *   profile self-view tabs.
+ *
+ * Phase 2 update (PR #189): resolveRoleHome(DROP) changed to /crm/routing.
+ *   All redirect expectations updated from /crm/profile to /crm/routing.
+ *   Sidebar now has 4 items: Мой роутинг / Финансы / Команда / Профиль
+ *   (data-testid="drop-nav" from nav-sidebar.tsx).
  *
  * Mock-based — `asDrop` fixture authenticates as `USERS.drop` and pumps
  * the standard `/api/users/me` mock that returns the self-view from
@@ -17,44 +16,53 @@
 
 import { test, expect } from './fixtures'
 
-test.describe('Drop RBAC visibility — AC8', () => {
-  test('sidebar exposes only Profile / Team / Finance for DROP', async ({ asDrop: page }) => {
-    await page.goto('/crm/profile')
-    await expect(page.locator('a[href="/crm/profile"]').first()).toBeVisible({ timeout: 8_000 })
+test.describe('Drop RBAC visibility — AC8 (phase 2 update)', () => {
+  test('sidebar has exactly 4 items for DROP: Мой роутинг / Финансы / Команда / Профиль', async ({
+    asDrop: page,
+  }) => {
+    // Navigate to DROP home first (routing hub).
+    await page.goto('/crm/routing')
+    await expect(page.getByTestId('drop-routing-hub')).toBeVisible({ timeout: 8_000 })
 
-    // Allowed entries per spec §4 (sidebar items configured in nav-sidebar.tsx).
-    await expect(page.locator('a[href="/crm/team"]').first()).toBeVisible()
-    await expect(page.locator('a[href="/crm/finance"]').first()).toBeVisible()
+    // Scope to the drop-nav testid (data-testid="drop-nav" in nav-sidebar.tsx).
+    const nav = page.getByTestId('drop-nav')
+    await expect(nav).toBeVisible()
 
-    // Forbidden entries — absent for DROP per spec.
-    // Note: the brand link in the header points to /crm/dashboard for all
-    // roles (CrmLayout — unaffected by the sidebar gate). Scope the
-    // assertion to the sidebar <nav> so the header link doesn't false-trip.
-    const sidebar = page.locator('nav').first()
-    await expect(sidebar.locator('a[href="/crm/projects"]')).toHaveCount(0)
-    await expect(sidebar.locator('a[href="/crm/interviews"]')).toHaveCount(0)
-    await expect(sidebar.locator('a[href="/crm/documents"]')).toHaveCount(0)
-    // ADMIN-only entries also stay out of the sidebar.
-    await expect(sidebar.locator('a[href="/crm/users"]')).toHaveCount(0)
-    await expect(sidebar.locator('a[href="/crm/stats"]')).toHaveCount(0)
+    // Phase 2: 4 allowed entries.
+    await expect(nav.locator('a[href="/crm/routing"]')).toBeVisible()
+    await expect(nav.locator('a[href="/crm/finance"]')).toBeVisible()
+    await expect(nav.locator('a[href="/crm/team"]')).toBeVisible()
+    await expect(nav.locator('a[href="/crm/profile"]')).toBeVisible()
+
+    // Exactly 4 nav links.
+    await expect(nav.locator('a')).toHaveCount(4)
+
+    // Forbidden entries — absent for DROP.
+    await expect(nav.locator('a[href="/crm/projects"]')).toHaveCount(0)
+    await expect(nav.locator('a[href="/crm/interviews"]')).toHaveCount(0)
+    await expect(nav.locator('a[href="/crm/documents"]')).toHaveCount(0)
+    await expect(nav.locator('a[href="/crm/dashboard"]')).toHaveCount(0)
+    await expect(nav.locator('a[href="/crm/users"]')).toHaveCount(0)
+    await expect(nav.locator('a[href="/crm/stats"]')).toHaveCount(0)
   })
 
-  test('direct hit on /crm/dashboard redirects DROP to /crm/profile', async ({ asDrop: page }) => {
+  test('direct hit on /crm/dashboard redirects DROP to /crm/routing (phase 2)', async ({
+    asDrop: page,
+  }) => {
     await page.goto('/crm/dashboard')
-    // DashboardPage useEffect navigates DROP away.
-    await expect(page).toHaveURL(/\/crm\/profile/, { timeout: 8_000 })
+    // DashboardPage useEffect: navigates DROP to resolveRoleHome('DROP') = /crm/routing.
+    await expect(page).toHaveURL(/\/crm\/routing/, { timeout: 8_000 })
   })
 
-  test('/crm/users denies DROP access — redirects to profile', async ({ asDrop: page }) => {
-    // useRoleGuard(['ADMIN','SENIOR','JUNIOR','HR','ACCOUNTANT']) on /crm/users
-    // does NOT include DROP, so the guard fires navigate({to:'/crm/dashboard'}).
-    // DashboardPage then redirects DROP onward to /crm/profile.
-    // We verify the final resting URL rather than any on-screen text.
+  test('/crm/users denies DROP access — redirects to /crm/routing', async ({ asDrop: page }) => {
+    // useRoleGuard fires navigate to resolveRoleHome('DROP') = /crm/routing.
     await page.goto('/crm/users')
-    await expect(page).toHaveURL(/\/crm\/profile/, { timeout: 8_000 })
+    await expect(page).toHaveURL(/\/crm\/routing/, { timeout: 8_000 })
   })
 
-  test('DROP self-profile renders without Documents / Projects tabs', async ({ asDrop: page }) => {
+  test('DROP self-profile renders with correct tabs (overview/projects/team/requisites/documents/finance)', async ({
+    asDrop: page,
+  }) => {
     await page.goto('/crm/profile')
 
     // Header h1 = displayName ('Drop User').
@@ -62,17 +70,16 @@ test.describe('Drop RBAC visibility — AC8', () => {
       timeout: 8_000,
     })
 
-    // Allowed tabs per buildSelfView(USERS.drop): overview / team /
-    // requisites / finance (per spec §4 + finance). AnimatedTabs renders
-    // each entry as a plain <button> (not role=tab) so we filter by name.
-    // Scope to <main> to avoid matching the sidebar «Финансы» entry.
+    // Allowed tabs per buildSelfView(USERS.drop) — mirrors backend isSelf branch:
+    // overview / projects / team / requisites / documents / finance.
+    // AnimatedTabs renders each entry as a plain <button> (not role=tab).
+    // Scope to <main> to avoid matching the sidebar «Финансы» / «Документы» links.
     const main = page.locator('main')
     await expect(main.getByRole('button', { name: /Финансы/ }).first()).toBeVisible({
       timeout: 8_000,
     })
 
-    // Forbidden tabs — Documents/Interviews should not surface inside main.
-    await expect(main.getByRole('button', { name: /^Документы$/ })).toHaveCount(0)
+    // Forbidden tab — Собеседования must not surface inside main.
     await expect(main.getByRole('button', { name: /^Собеседования$/ })).toHaveCount(0)
   })
 

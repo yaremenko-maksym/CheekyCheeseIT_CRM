@@ -528,7 +528,12 @@ export function buildSelfView(user: (typeof USERS)[keyof typeof USERS]): object 
   // identity and project internals. Mirrors users-access.service.ts:84 exactly:
   //   tabs.push('overview', 'requisites')
   //
-  // DROP: overview / team / requisites / finance (no projects / documents).
+  // DROP: overview / projects / team / requisites / documents / finance.
+  //   Mirrors users-access.service.ts:86-88 (isSelf branch, non-JUNIOR):
+  //     tabs.push('overview', 'projects', 'team', 'requisites', 'documents')
+  //     if (isSenior || isHr || isAccountant || isDrop) tabs.push('finance')
+  //   NOTE: previous fixture had 'overview/team/requisites/finance' — that was
+  //   a drift vs backend; corrected 2026-06-13 (drop-phase-2 E2E coverage task).
   //
   // Everyone else (SENIOR, HR, ACCOUNTANT, ADMIN):
   //   overview / projects / team / requisites / documents
@@ -538,7 +543,8 @@ export function buildSelfView(user: (typeof USERS)[keyof typeof USERS]): object 
     // Explicit allow-list — no documents, no finance, no projects, no team.
     tabs = ['overview', 'requisites']
   } else if (user.role === 'DROP') {
-    tabs = ['overview', 'team', 'requisites', 'finance']
+    // Full self-view — mirrors backend isSelf branch lines 86-88.
+    tabs = ['overview', 'projects', 'team', 'requisites', 'documents', 'finance']
   } else {
     tabs = ['overview', 'projects', 'team', 'requisites', 'documents']
     if (user.role === 'SENIOR' || user.role === 'HR' || user.role === 'ACCOUNTANT') {
@@ -570,7 +576,24 @@ export function buildSelfView(user: (typeof USERS)[keyof typeof USERS]): object 
 // ---------------------------------------------------------------------------
 // API base URL (matches what the web app uses via env)
 // ---------------------------------------------------------------------------
-const API = 'http://localhost:3001/api'
+//
+// In dev mode (vite dev, :3000) the Vite proxy forwards same-origin /api/*
+// requests to localhost:3001, so the browser sends them to
+// `http://localhost:3001/api/...` — Playwright page.route intercepts at that
+// absolute URL.
+//
+// In production build (vite preview, e.g. :3010) the proxy ALSO forwards
+// /api/* → localhost:3001, but the browser's fetch URL is same-origin
+// (e.g. `http://localhost:3010/api/auth/me`). Playwright intercepts the
+// request BEFORE the proxy forwards it, so the mock must match the
+// web-server origin, not :3001.
+//
+// Solution: derive the mock URL origin from PLAYWRIGHT_BASE_URL (or fall
+// back to localhost:3000). This keeps the existing "dev" behaviour (mock on
+// :3000 same as :3001 proxy target) and makes preview builds work too.
+const _webOrigin =
+  (typeof process !== 'undefined' && process.env['PLAYWRIGHT_BASE_URL']) || 'http://localhost:3000'
+const API = `${_webOrigin}/api`
 
 // ---------------------------------------------------------------------------
 // Route helpers
@@ -588,8 +611,8 @@ function noContent(route: Route) {
 // Mock all API calls for a given authenticated user
 // ---------------------------------------------------------------------------
 export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof USERS]) {
-  // All routes use the exact API base (localhost:3001/api) to avoid
-  // intercepting Vite page navigation requests (localhost:3000).
+  // All routes use the API base derived from PLAYWRIGHT_BASE_URL (see `API`
+  // constant above) so mocks match regardless of dev (:3000) or preview (:3010).
 
   // Auth
   await page.route(`${API}/auth/me`, (r) => jsonOk(r, user))
@@ -1185,6 +1208,40 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
       contentType: 'application/json',
       body: JSON.stringify({ monthlySalary: null, salaryCurrency: null, changedAt: null }),
     })
+  })
+
+  // Drop role - phase 2: DROP hub «Мой роутинг» + finance cabinet.
+  //
+  // GET /api/finance/drop/me/summary → DropSelfSummaryDto
+  // GET /api/finance/drop/me/incomes → PaginatedDropIncomes
+  // GET /api/finance/drop/me/payments → DropPaymentDto[]
+  // GET /api/projects/drop/me → DropProjectDto[]
+  //
+  // Without these mocks the requests hit the real backend → 401 → axios
+  // interceptor → window.location = '/login' — identical failure mode to the
+  // JUNIOR hub mocks above. Defaults produce a minimal non-error state so the
+  // hub renders its cards. Specs that need specific data register their own
+  // handlers AFTER mockAuthAs (LIFO) so they take priority.
+  await page.route(new RegExp(`${API}/finance/drop/me/summary$`), (r) => {
+    if (r.request().method() !== 'GET') return r.fallback()
+    return jsonOk(r, {
+      balance: 0,
+      dropSharePercent: 5,
+      pendingIncomesCount: 0,
+      debtToCompany: 0,
+    })
+  })
+  await page.route(new RegExp(`${API}/finance/drop/me/incomes(\\?.*)?$`), (r) => {
+    if (r.request().method() !== 'GET') return r.fallback()
+    return jsonOk(r, { items: [], total: 0, page: 1, limit: 20 })
+  })
+  await page.route(new RegExp(`${API}/finance/drop/me/payments$`), (r) => {
+    if (r.request().method() !== 'GET') return r.fallback()
+    return jsonOk(r, [])
+  })
+  await page.route(new RegExp(`${API}/projects/drop/me$`), (r) => {
+    if (r.request().method() !== 'GET') return r.fallback()
+    return jsonOk(r, [])
   })
 }
 
