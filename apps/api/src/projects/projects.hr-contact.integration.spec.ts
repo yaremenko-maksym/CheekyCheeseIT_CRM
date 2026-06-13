@@ -344,11 +344,12 @@ describe('GET /projects/:id/hr-contact — real DB RBAC integration', () => {
     })
     expect(res.statusCode).toBe(200)
     const body = res.json<Record<string, unknown>>()
-    // Allowlist check: exactly these three keys
+    // Allowlist check: exactly these four keys (avatarUrl added round5)
     const keys = Object.keys(body)
     expect(keys).toContain('displayName')
     expect(keys).toContain('telegram')
     expect(keys).toContain('phone')
+    expect(keys).toContain('avatarUrl')
     // Must NOT leak identifiers or finance
     expect(keys).not.toContain('id')
     expect(keys).not.toContain('role')

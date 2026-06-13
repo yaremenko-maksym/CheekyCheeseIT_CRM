@@ -29,7 +29,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProjectLogo } from '@/components/projects/ProjectLogo'
 import { ProjectCredentialsSection } from '@/components/projects/ProjectCredentialsSection'
 
@@ -365,7 +365,22 @@ function HrInline({
         <p className="text-xs text-muted-foreground/60 italic">HR не назначен</p>
       ) : (
         <div className="space-y-1.5">
-          {hrContact?.displayName && <p className="text-sm font-medium">{hrContact.displayName}</p>}
+          {hrContact?.displayName && (
+            <div className="flex items-center gap-2">
+              <Avatar className="h-8 w-8 shrink-0">
+                <AvatarImage src={hrContact.avatarUrl ?? undefined} alt={hrContact.displayName} />
+                <AvatarFallback className="text-xs">
+                  {hrContact.displayName
+                    .split(' ')
+                    .map((n) => n[0])
+                    .join('')
+                    .slice(0, 2)
+                    .toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <p className="text-sm font-medium">{hrContact.displayName}</p>
+            </div>
+          )}
           <div className="flex flex-wrap gap-3">
             {hrContact?.telegram && (
               <a
@@ -540,18 +555,6 @@ function SalarySnapshotCard({
           </div>
         )}
 
-        {/* Changed-at — shown only when changedAt is present (round-1 req) */}
-        {salaryMeta?.changedAt != null && (
-          <p className="text-xs text-muted-foreground pb-3" data-testid="salary-changed-at">
-            Изменена{' '}
-            {new Date(salaryMeta.changedAt).toLocaleDateString('ru-RU', {
-              day: 'numeric',
-              month: 'long',
-              year: 'numeric',
-            })}
-          </p>
-        )}
-
         <Separator className="opacity-30 mb-4 shrink-0" />
 
         {/* Payments zone */}
@@ -595,16 +598,19 @@ function SalarySnapshotCard({
         {/* Spacer — pushes summary zone to bottom */}
         <div className="flex-1" />
 
-        {/* Summary zone — anchored to bottom via mt-auto, shown only when rate exists */}
+        {/* Summary zone — anchored to bottom, shows changedAt or fallback (never duplicates rate) */}
         {hasRate && (
           <div className="mt-auto pt-3 shrink-0" data-testid="salary-summary">
             <Separator className="opacity-20 mb-3" />
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">Ставка за месяц</span>
-              <span className="text-sm font-semibold tabular-nums">
-                {amount} {currency}
-              </span>
-            </div>
+            <p className="text-xs text-muted-foreground" data-testid="salary-changed-at">
+              {salaryMeta?.changedAt != null
+                ? `Изменена ${new Date(salaryMeta.changedAt).toLocaleDateString('ru-RU', {
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                  })}`
+                : 'Ставка ещё не менялась'}
+            </p>
           </div>
         )}
       </CardContent>
