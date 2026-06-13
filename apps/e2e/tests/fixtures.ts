@@ -524,16 +524,17 @@ export function buildSelfView(user: (typeof USERS)[keyof typeof USERS]): object 
   // SENIOR: interviews surfaced via header link, not tab.
   // Drop role - phase 1 (AC8): DROP sees Profile / Team / Finance — no
   // projects / interviews / documents tabs on the self-view.
-  const tabs: string[] =
-    user.role === 'DROP'
-      ? ['overview', 'team', 'requisites', 'finance']
-      : ['overview', 'projects', 'team', 'requisites', 'documents']
-  if (
-    user.role === 'SENIOR' ||
-    user.role === 'JUNIOR' ||
-    user.role === 'HR' ||
-    user.role === 'ACCOUNTANT'
-  ) {
+  // task-junior-ut-round3 §6a: JUNIOR self-view loses 'documents' tab
+  // (data-privacy: /crm/project hub is junior's primary project surface).
+  let tabs: string[]
+  if (user.role === 'DROP') {
+    tabs = ['overview', 'team', 'requisites', 'finance']
+  } else if (user.role === 'JUNIOR') {
+    tabs = ['overview', 'requisites', 'finance']
+  } else {
+    tabs = ['overview', 'projects', 'team', 'requisites', 'documents']
+  }
+  if (user.role === 'SENIOR' || user.role === 'HR' || user.role === 'ACCOUNTANT') {
     tabs.push('finance')
   }
 
