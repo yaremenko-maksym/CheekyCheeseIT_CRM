@@ -11,6 +11,7 @@ import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
 import type {
   ArchiveImpact,
   CreateProjectDto,
+  DropProjectDto,
   EffectiveTeam,
   SessionUser,
   UpdateProjectDto,
@@ -24,6 +25,7 @@ import {
   projects,
   teamMembers,
   teams,
+  transactions,
   users,
   type Interview,
   type Legend,
@@ -380,6 +382,58 @@ export class ProjectsService {
     // effective share + source without N+1 queries.
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior(filtered)
     return filtered.map((p) => this.mapProject(p, teamOverridesBySeniorId, currentUser.role))
+  }
+
+  /**
+   * Self-only DROP project feed for `GET /api/projects/drop/me`.
+   *
+   * Drop role - phase 2 (task-drop-2-backend). RBAC: DROP only — every other
+   * role gets 403. Returns ALL drop-projects the caller owns — both active and
+   * closed (`dropId = self.id`, no archivedAt filter), each enriched with:
+   *   - `seniorDisplayName` — the senior's REAL display name. Unlike the JUNIOR
+   *     legend persona, the drop coordinates directly with the senior, so this
+   *     is NOT masked (design spec §10.1).
+   *   - `incomesCount`      — number of DROP_INCOME rows the drop owns on this
+   *     project (`receiverId = self.id AND projectId = project.id`).
+   *   - `status`            — project archival mapped to active|closed.
+   *
+   * archivedAt IS NOT filtered out here: DropProjectDto.status is
+   * 'active'|'closed' per spec §10.1 — showing only active projects made the
+   * 'closed' branch unreachable (dead code). Fix: MED review finding code-review-1.
+   * incomesCount is computed from a single batched read of this drop's
+   * DROP_INCOME rows (no N+1).
+   */
+  async findDropOwnProjects(currentUser: SessionUser): Promise<DropProjectDto[]> {
+    if (currentUser.role !== 'DROP') {
+      throw new ForbiddenException('Access denied: drop projects are available to DROP role only')
+    }
+
+    const ownProjects = (await this.db.db.query.projects.findMany({
+      // No archivedAt filter: drop sees both active and closed own projects.
+      // status is derived from archivedAt in the mapping below.
+      where: eq(projects.dropId, currentUser.id),
+      with: { senior: { columns: { displayName: true } } },
+    })) as Array<Project & { senior: { displayName: string } | null }>
+
+    // Batch-count this drop's DROP_INCOME rows per project in one read (self-
+    // scoped: receiverId = self). Avoids a per-project query.
+    const dropIncomes = await this.db.db.query.transactions.findMany({
+      where: and(eq(transactions.type, 'DROP_INCOME'), eq(transactions.receiverId, currentUser.id)),
+      columns: { projectId: true },
+    })
+    const incomesByProject = new Map<string, number>()
+    for (const tx of dropIncomes) {
+      if (!tx.projectId) continue
+      incomesByProject.set(tx.projectId, (incomesByProject.get(tx.projectId) ?? 0) + 1)
+    }
+
+    return ownProjects.map((p) => ({
+      id: p.id,
+      companyName: p.companyName,
+      seniorDisplayName: p.senior?.displayName ?? '',
+      incomesCount: incomesByProject.get(p.id) ?? 0,
+      status: p.archivedAt === null ? ('active' as const) : ('closed' as const),
+    }))
   }
 
   async findOne(id: string, currentUser: SessionUser) {

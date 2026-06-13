@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Global, Inject, Module, Param, Post } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Get,
+  Global,
+  Inject,
+  Module,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+} from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
 import { JwtModule, JwtService } from '@nestjs/jwt'
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify'
@@ -9,6 +20,7 @@ import { inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
+import { dropIncomesQuerySchema } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
@@ -16,6 +28,9 @@ import { DatabaseService } from '../database/database.service'
 import { TransactionsService } from './transactions.service'
 import { PaymentChannelService } from './payment-channel.service'
 import { TeamsService } from '../teams/teams.service'
+import { ProjectsService } from '../projects/projects.service'
+import { ProjectAuditLogService } from '../projects/project-audit-log.service'
+import { HrAccessService } from '../common/hr-access.service'
 import {
   payoutRequests,
   projects,
@@ -138,6 +153,14 @@ const TEAM_B_ID = 'd2d2e3f4-0000-4000-dd00-00000000000b'
 const PROJ_B_ID = 'd2d2e3f4-0000-4000-ee00-00000000000b'
 const PAYOUT_REQ_B_ID = 'd2d2e3f4-0000-4000-ff00-00000000000b'
 const INCOME_B_ID = 'd2d2e3f4-0000-4000-ab00-00000000000b'
+const PAYOUT_B_ID = 'd2d2e3f4-0000-4000-ab00-00000000000c'
+
+// task-drop-2-backend: Drop A's OWN resources, so positive assertions
+// (A sees their own incomes / projects / payments) have data to read.
+const PROJ_A_ID = 'd2d2e3f4-0000-4000-ee00-00000000000a'
+const INCOME_A1_ID = 'd2d2e3f4-0000-4000-ab00-00000000001a' // VALIDATED
+const INCOME_A2_ID = 'd2d2e3f4-0000-4000-ab00-00000000002a' // PENDING
+const PAYOUT_A_ID = 'd2d2e3f4-0000-4000-ab00-00000000003a' // PENDING_PAYMENT, sender A
 
 // Cleanup deletes ONLY the spec-namespaced users. MAKSYM/KOSTYA are seeded
 // with the canonical admin UUIDs (onConflictDoNothing keeps any pre-existing
@@ -148,6 +171,7 @@ const TEST_USER_IDS = [SENIOR.id, JUNIOR.id, HR.id, ACCOUNTANT.id, DROP_A.id, DR
 const TX_SERVICE = 'TX_SERVICE_DROP_RBAC'
 const PC_SERVICE = 'PC_SERVICE_DROP_RBAC'
 const TEAMS_SERVICE = 'TEAMS_SERVICE_DROP_RBAC'
+const PROJECTS_SERVICE = 'PROJECTS_SERVICE_DROP_RBAC'
 
 @Controller('finance')
 class SentinelFinanceController {
@@ -156,6 +180,38 @@ class SentinelFinanceController {
   @Get('drop/me/summary')
   dropSummary(@CurrentUser() user: SessionUser) {
     return this.svc.getDropSelfSummary(user)
+  }
+
+  // task-drop-2-backend: self-only income feed (pagination + filters).
+  @Get('drop/me/incomes')
+  dropIncomes(@CurrentUser() user: SessionUser, @Query() query: Record<string, string>) {
+    return this.svc.getDropSelfIncomes(user, dropIncomesQuerySchema.parse(query ?? {}))
+  }
+
+  // task-drop-2-backend: self-only outgoing payments feed.
+  @Get('drop/me/payments')
+  dropPayments(@CurrentUser() user: SessionUser) {
+    return this.svc.getDropSelfPayments(user)
+  }
+}
+
+@Controller('projects')
+class SentinelProjectsController {
+  constructor(@Inject(PROJECTS_SERVICE) private readonly svc: ProjectsService) {}
+
+  // task-drop-2-backend: self-only drop-project feed. Declared BEFORE the
+  // param route to mirror the real controller's route-ordering (see below).
+  @Get('drop/me')
+  dropProjects(@CurrentUser() user: SessionUser) {
+    return this.svc.findDropOwnProjects(user)
+  }
+
+  // Mirrors the real `@Get(':id')` (with the ParseUUIDPipe). Its presence makes
+  // the route-ordering assertion meaningful — if `drop/me` were declared AFTER
+  // this, find-my-way would route `drop` into `:id` and the pipe would 400.
+  @Get(':id')
+  findOne(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: SessionUser) {
+    return this.svc.findOne(id, user)
   }
 }
 
@@ -246,6 +302,7 @@ class TestDatabaseModule {}
     SentinelTransactionsController,
     SentinelPaymentsController,
     SentinelTeamsController,
+    SentinelProjectsController,
   ],
   providers: [
     Reflector,
@@ -273,6 +330,16 @@ class TestDatabaseModule {}
       inject: [DatabaseService],
     },
     { provide: TEAMS_SERVICE, useExisting: TeamsService },
+    // ProjectsService: auditLog / usersService collaborators are stubbed — the
+    // paths under test (findDropOwnProjects / findOne ownership gate) never call
+    // back into them. hrAccess is a real instance (cheap, db-only).
+    {
+      provide: ProjectsService,
+      useFactory: (db: DatabaseService) =>
+        new ProjectsService(db, {} as ProjectAuditLogService, {} as never, new HrAccessService(db)),
+      inject: [DatabaseService],
+    },
+    { provide: PROJECTS_SERVICE, useExisting: ProjectsService },
     {
       provide: APP_GUARD,
       useFactory: (jwtSvc: JwtService, reflector: Reflector) => new JwtAuthGuard(jwtSvc, reflector),
@@ -407,7 +474,7 @@ describe('DROP RBAC — real backend integration (real DB, no mocks)', () => {
           createdBy: DROP_B.id,
         },
         {
-          id: 'd2d2e3f4-0000-4000-ab00-00000000000c',
+          id: PAYOUT_B_ID,
           type: 'PAYOUT',
           status: 'PENDING_PAYMENT',
           amount: '950',
@@ -420,6 +487,70 @@ describe('DROP RBAC — real backend integration (real DB, no mocks)', () => {
         },
       ])
       .onConflictDoNothing()
+
+    // ── Drop A's OWN resources (task-drop-2-backend) ─────────────────────────
+    // A drop-project owned by DROP_A + two DROP_INCOME rows (one VALIDATED, one
+    // PENDING) + one outgoing PAYOUT (PENDING_PAYMENT, sender A). These let the
+    // positive feeds assert A sees their own data while NEVER seeing B's.
+    await db
+      .insert(projects)
+      .values({
+        id: PROJ_A_ID,
+        name: 'Drop RBAC Project A',
+        companyName: 'TechCorp A',
+        domain: 'ai',
+        startDate: new Date('2025-02-01'),
+        seniorId: SENIOR.id,
+        dropId: DROP_A.id,
+        currency: 'USDT',
+        rate: 1000,
+      })
+      .onConflictDoNothing()
+    await db
+      .insert(transactions)
+      .values([
+        {
+          id: INCOME_A1_ID,
+          type: 'DROP_INCOME',
+          status: 'VALIDATED',
+          amount: '1500',
+          currency: 'USDT',
+          senderId: null,
+          senderLabel: 'TechCorp A',
+          receiverId: DROP_A.id,
+          recipientId: DROP_A.id,
+          projectId: PROJ_A_ID,
+          txDate: new Date('2026-06-12T00:00:00Z'),
+          createdBy: DROP_A.id,
+        },
+        {
+          id: INCOME_A2_ID,
+          type: 'DROP_INCOME',
+          status: 'PENDING',
+          amount: '800',
+          currency: 'USDT',
+          senderId: null,
+          senderLabel: 'TechCorp A',
+          receiverId: DROP_A.id,
+          recipientId: DROP_A.id,
+          projectId: PROJ_A_ID,
+          txDate: new Date('2026-06-10T00:00:00Z'),
+          createdBy: DROP_A.id,
+        },
+        {
+          id: PAYOUT_A_ID,
+          type: 'PAYOUT',
+          status: 'PENDING_PAYMENT',
+          amount: '1425',
+          currency: 'USDT',
+          senderId: DROP_A.id,
+          receiverLabel: 'CheekyCheeseIT',
+          txHash: '0x' + 'a'.repeat(64),
+          projectId: PROJ_A_ID,
+          createdBy: DROP_A.id,
+        },
+      ])
+      .onConflictDoNothing()
   }, 30_000)
 
   afterAll(async () => {
@@ -428,9 +559,17 @@ describe('DROP RBAC — real backend integration (real DB, no mocks)', () => {
       const db = dbSvc.db
       await db
         .delete(transactions)
-        .where(inArray(transactions.id, [INCOME_B_ID, 'd2d2e3f4-0000-4000-ab00-00000000000c']))
+        .where(
+          inArray(transactions.id, [
+            INCOME_B_ID,
+            PAYOUT_B_ID,
+            INCOME_A1_ID,
+            INCOME_A2_ID,
+            PAYOUT_A_ID,
+          ]),
+        )
       await db.delete(payoutRequests).where(inArray(payoutRequests.id, [PAYOUT_REQ_B_ID]))
-      await db.delete(projects).where(inArray(projects.id, [PROJ_B_ID]))
+      await db.delete(projects).where(inArray(projects.id, [PROJ_B_ID, PROJ_A_ID]))
       await db.delete(teamMembers).where(inArray(teamMembers.teamId, [TEAM_A_ID, TEAM_B_ID]))
       await db.delete(teams).where(inArray(teams.id, [TEAM_A_ID, TEAM_B_ID]))
       await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
@@ -480,7 +619,7 @@ describe('DROP RBAC — real backend integration (real DB, no mocks)', () => {
 
   // ── drop/me/summary (AC6) ───────────────────────────────────────────────────
 
-  it('SUMMARY: Drop A → 200 with own debtToCompany (0; their project has no income)', async () => {
+  it("SUMMARY: Drop A → 200 with own $1425 debt (B's $950 must NOT leak)", async () => {
     if (!dbAvailable) return
     const res = await app.inject({
       method: 'GET',
@@ -489,9 +628,11 @@ describe('DROP RBAC — real backend integration (real DB, no mocks)', () => {
     })
     expect(res.statusCode).toBe(200)
     const body = res.json() as { debtToCompany: number; balance: number }
-    // Drop A has no PAYOUT rows of their own → debt and balance are 0. Crucially
-    // Drop B's $950 PENDING_PAYMENT payout must NOT leak into Drop A's debt.
-    expect(body.debtToCompany).toBe(0)
+    // task-drop-2-backend seeded Drop A's own PENDING_PAYMENT PAYOUT ($1425),
+    // so A's debt is exactly that. Crucially Drop B's $950 PENDING_PAYMENT payout
+    // must NOT leak into Drop A's debt (cross-drop isolation). balance stays 0
+    // (no PAYOUT_DROP credit/debit rows for A).
+    expect(body.debtToCompany).toBe(1425)
     expect(body.balance).toBe(0)
   })
 
@@ -519,6 +660,209 @@ describe('DROP RBAC — real backend integration (real DB, no mocks)', () => {
       const res = await app.inject({
         method: 'GET',
         url: '/api/finance/drop/me/summary',
+        cookies: { jwt: tokenFor(persona) },
+      })
+      expect(res.statusCode).toBe(403)
+    })
+  }
+
+  // ── drop/me/incomes — self-only feed + cross-drop IDOR (AC6) ────────────────
+
+  it('INCOMES: Drop A sees ONLY their own DROP_INCOME rows (B incomes never leak)', async () => {
+    if (!dbAvailable) return
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/finance/drop/me/incomes',
+      cookies: { jwt: tokenFor(DROP_A) },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { items: Array<{ id: string }>; total: number }
+    const ids = body.items.map((i) => i.id)
+    // A's two incomes present; B's income absent (IDOR class).
+    expect(ids).toContain(INCOME_A1_ID)
+    expect(ids).toContain(INCOME_A2_ID)
+    expect(ids).not.toContain(INCOME_B_ID)
+    expect(body.total).toBe(2)
+  })
+
+  it('INCOMES: Drop B sees ONLY their own income (A incomes never leak)', async () => {
+    if (!dbAvailable) return
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/finance/drop/me/incomes',
+      cookies: { jwt: tokenFor(DROP_B) },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { items: Array<{ id: string }> }
+    const ids = body.items.map((i) => i.id)
+    expect(ids).toContain(INCOME_B_ID)
+    expect(ids).not.toContain(INCOME_A1_ID)
+    expect(ids).not.toContain(INCOME_A2_ID)
+  })
+
+  it('INCOMES: status filter narrows to validated only', async () => {
+    if (!dbAvailable) return
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/finance/drop/me/incomes?status=validated',
+      cookies: { jwt: tokenFor(DROP_A) },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { items: Array<{ id: string; status: string }>; total: number }
+    expect(body.total).toBe(1)
+    expect(body.items[0]!.id).toBe(INCOME_A1_ID)
+    expect(body.items[0]!.status).toBe('validated')
+  })
+
+  it('INCOMES: pagination — limit=1 returns 1 item, total reflects full count', async () => {
+    if (!dbAvailable) return
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/finance/drop/me/incomes?page=1&limit=1',
+      cookies: { jwt: tokenFor(DROP_A) },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { items: unknown[]; total: number; page: number; limit: number }
+    expect(body.items).toHaveLength(1)
+    expect(body.total).toBe(2)
+    expect(body.limit).toBe(1)
+  })
+
+  for (const [label, persona] of [
+    ['SENIOR', SENIOR],
+    ['JUNIOR', JUNIOR],
+    ['HR', HR],
+    ['ACCOUNTANT', ACCOUNTANT],
+    ['ADMIN', MAKSYM],
+  ] as Array<[string, SessionUser]>) {
+    it(`INCOMES: ${label} → 403`, async () => {
+      if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/finance/drop/me/incomes',
+        cookies: { jwt: tokenFor(persona) },
+      })
+      expect(res.statusCode).toBe(403)
+    })
+  }
+
+  // ── projects/drop/me — self-only feed + route-ordering (AC6 / AC5) ──────────
+
+  it('PROJECTS: Drop A sees ONLY their own drop-project with correct incomesCount', async () => {
+    if (!dbAvailable) return
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/projects/drop/me',
+      cookies: { jwt: tokenFor(DROP_A) },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as Array<{
+      id: string
+      companyName: string
+      seniorDisplayName: string
+      incomesCount: number
+      status: string
+    }>
+    expect(body.map((p) => p.id)).toEqual([PROJ_A_ID])
+    expect(body[0]!.companyName).toBe('TechCorp A')
+    // Real senior display name (NOT masked).
+    expect(body[0]!.seniorDisplayName).toBe(SENIOR.displayName)
+    // Two DROP_INCOME rows on this project.
+    expect(body[0]!.incomesCount).toBe(2)
+    expect(body[0]!.status).toBe('active')
+  })
+
+  it("PROJECTS: Drop B never sees Drop A's project", async () => {
+    if (!dbAvailable) return
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/projects/drop/me',
+      cookies: { jwt: tokenFor(DROP_B) },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as Array<{ id: string }>
+    expect(body.map((p) => p.id)).toEqual([PROJ_B_ID])
+    expect(body.map((p) => p.id)).not.toContain(PROJ_A_ID)
+  })
+
+  it('PROJECTS: route-ordering — static drop/me is NOT captured by the :id param route', async () => {
+    if (!dbAvailable) return
+    // If `drop/me` were declared AFTER `@Get(':id')`, find-my-way would route
+    // `drop` into `:id` and the ParseUUIDPipe would 400 (or NotFound). A 200
+    // proves the static literal wins.
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/projects/drop/me',
+      cookies: { jwt: tokenFor(DROP_A) },
+    })
+    expect(res.statusCode).toBe(200)
+  })
+
+  for (const [label, persona] of [
+    ['SENIOR', SENIOR],
+    ['JUNIOR', JUNIOR],
+    ['HR', HR],
+    ['ACCOUNTANT', ACCOUNTANT],
+    ['ADMIN', MAKSYM],
+  ] as Array<[string, SessionUser]>) {
+    it(`PROJECTS: ${label} → 403`, async () => {
+      if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/projects/drop/me',
+        cookies: { jwt: tokenFor(persona) },
+      })
+      expect(res.statusCode).toBe(403)
+    })
+  }
+
+  // ── drop/me/payments — self-only feed + cross-drop IDOR (AC6) ───────────────
+
+  it("PAYMENTS: Drop A sees ONLY their own PAYOUT (B's payout never leaks)", async () => {
+    if (!dbAvailable) return
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/finance/drop/me/payments',
+      cookies: { jwt: tokenFor(DROP_A) },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as Array<{
+      id: string
+      amount: number
+      status: string
+      txHash?: string
+    }>
+    expect(body.map((p) => p.id)).toEqual([PAYOUT_A_ID])
+    expect(body[0]!.amount).toBe(1425)
+    expect(body[0]!.status).toBe('pending')
+    expect(body[0]!.txHash).toBe('0x' + 'a'.repeat(64))
+  })
+
+  it("PAYMENTS: Drop B sees ONLY their own PAYOUT (A's payout never leaks)", async () => {
+    if (!dbAvailable) return
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/finance/drop/me/payments',
+      cookies: { jwt: tokenFor(DROP_B) },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as Array<{ id: string }>
+    expect(body.map((p) => p.id)).toEqual([PAYOUT_B_ID])
+    expect(body.map((p) => p.id)).not.toContain(PAYOUT_A_ID)
+  })
+
+  for (const [label, persona] of [
+    ['SENIOR', SENIOR],
+    ['JUNIOR', JUNIOR],
+    ['HR', HR],
+    ['ACCOUNTANT', ACCOUNTANT],
+    ['ADMIN', MAKSYM],
+  ] as Array<[string, SessionUser]>) {
+    it(`PAYMENTS: ${label} → 403`, async () => {
+      if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/finance/drop/me/payments',
         cookies: { jwt: tokenFor(persona) },
       })
       expect(res.statusCode).toBe(403)

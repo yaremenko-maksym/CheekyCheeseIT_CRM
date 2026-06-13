@@ -42,6 +42,20 @@ export class ProjectsController {
     return this.projectsService.findAll(user, { archived })
   }
 
+  // Drop role - phase 2 (task-drop-2-backend). Self-only DROP project feed.
+  // GET /api/projects/drop/me — DROP role ONLY (service throws 403 for every
+  // other role). Returns the drop's own active drop-projects enriched with
+  // incomesCount + real seniorDisplayName + active|closed status.
+  //
+  // ROUTE-ORDERING (CRITICAL): this STATIC `drop/me` literal MUST be declared
+  // BEFORE `@Get(':id')` below — Fastify/find-my-way would otherwise route
+  // `drop` into the `:id` param (and the ParseUUIDPipe would 400 on the
+  // non-UUID literal). Declaring it first makes the static segment win.
+  @Get('drop/me')
+  findDropOwnProjects(@CurrentUser() user: SessionUser) {
+    return this.projectsService.findDropOwnProjects(user)
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
     return this.projectsService.findOne(id, user)
