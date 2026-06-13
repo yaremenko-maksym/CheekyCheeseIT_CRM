@@ -206,6 +206,30 @@ describe('getDropSelfIncomes — date-window filter', () => {
     expect(res.total).toBe(1)
     expect(res.items[0]!.id).toBe('00000000-0000-4000-8000-000000000011')
   })
+
+  it('to bound includes incomes at noon on the last day (non-midnight timestamps)', async () => {
+    // Regression for MED review finding code-review-2: Date.parse('YYYY-MM-DD')
+    // returns midnight UTC, so incomes at 12:00 on the `to` day were previously
+    // dropped. The fix adds 86_399_999 ms to cover the full calendar day.
+    const noonOnToDay = new Date('2026-06-15T12:30:00Z') // same day as rows[1]
+    const rowsWithNoon = [
+      income({
+        id: '00000000-0000-4000-8000-000000000020',
+        createdAt: new Date('2026-05-01T00:00:00Z'),
+      }),
+      income({
+        id: '00000000-0000-4000-8000-000000000021',
+        createdAt: noonOnToDay,
+      }),
+    ]
+    const svc = makeSvc(rowsWithNoon)
+    const res = await svc.getDropSelfIncomes(
+      user('DROP', DROP_ID),
+      q({ to: '2026-06-15' }), // last day is 2026-06-15 — noon must be INCLUDED
+    )
+    expect(res.total).toBe(2)
+    expect(res.items.some((i) => i.id === '00000000-0000-4000-8000-000000000021')).toBe(true)
+  })
 })
 
 describe('getDropSelfIncomes — pagination', () => {
@@ -288,6 +312,9 @@ describe('getDropSelfPayments — status mapping', () => {
     ['PENDING_PAYMENT', 'pending'],
     ['PAID', 'confirmed'],
     ['REJECTED', 'failed'],
+    // Phase 4-B cash-payment gate: explicit case in mapDropPaymentStatus.
+    // Fix: MED security finding — was previously falling through silent default.
+    ['PENDING_CASH_CONFIRM', 'pending'],
   ]
   for (const [db, fe] of cases) {
     it(`maps DB ${db} → ${fe}`, async () => {

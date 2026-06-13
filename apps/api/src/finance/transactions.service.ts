@@ -561,6 +561,21 @@ export class TransactionsService {
    * validation starts PENDING_PAYMENT (→ pending), flips to PAID on company
    * settlement (→ confirmed); REJECTED (→ failed). Anything else surfaces as
    * 'pending' defensively.
+   *
+   * PENDING_CASH_CONFIRM is the phase 4-B cash-payment confirmation gate:
+   * semantically it is still a "waiting" state (company has not yet settled),
+   * so it maps to 'pending'. Declared explicitly — NOT via the silent default —
+   * so that if the mapping needs to diverge in phase 4-B it is immediately
+   * visible here rather than buried in a catch-all. Fix: MED security finding.
+   *
+   * Remaining reachable PAYOUT statuses from the DB enum:
+   *   PENDING_PAYMENT → pending  (normal pre-settlement state)
+   *   PAID            → confirmed
+   *   REJECTED        → failed
+   *   PENDING_CASH_CONFIRM → pending  (phase 4-B cash gate, explicit)
+   * Unreachable on PAYOUT but present in the enum (LOCKED / PENDING /
+   * VALIDATED — income/interview lifecycle statuses) fall through to the
+   * defensive default.
    */
   private mapDropPaymentStatus(dbStatus: string): DropPaymentStatus {
     switch (dbStatus) {
@@ -568,6 +583,10 @@ export class TransactionsService {
         return 'confirmed'
       case 'REJECTED':
         return 'failed'
+      // Phase 4-B cash-payment confirmation gate — semantically still pending;
+      // explicit to prevent silent mis-attribution when phase 4-B ships.
+      case 'PENDING_CASH_CONFIRM':
+        return 'pending'
       case 'PENDING_PAYMENT':
       default:
         return 'pending'
@@ -607,7 +626,11 @@ export class TransactionsService {
     // mapping in one place). The status filter compares the MAPPED status so
     // the FE contract (pending|validated|paid|rejected) is honoured.
     const fromTs = query.from ? Date.parse(query.from) : undefined
-    const toTs = query.to ? Date.parse(query.to) : undefined
+    // `to` is a YYYY-MM-DD date string: Date.parse gives midnight UTC (start of
+    // that day). Add 86_399_999 ms (= 23:59:59.999) so that incomes created
+    // anywhere during the last requested day are included — not just those at
+    // exactly 00:00:00 UTC. Fix: MED review finding code-review-2.
+    const toTs = query.to ? Date.parse(query.to) + 86_399_999 : undefined
 
     const filtered = rows.filter((tx) => {
       if (query.status && this.mapDropIncomeStatus(tx.status) !== query.status) return false
