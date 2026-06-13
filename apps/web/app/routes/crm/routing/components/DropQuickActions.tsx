@@ -16,7 +16,7 @@ export function DropQuickActions() {
           variant="outline"
           className="flex items-center gap-2 sm:flex-none"
           onClick={() => setShowCreate(true)}
-          data-testid="drop-quick-register-btn"
+          data-testid="drop-register-income-btn"
         >
           <Plus className="h-4 w-4" aria-hidden="true" />
           Зарегистрировать приход
