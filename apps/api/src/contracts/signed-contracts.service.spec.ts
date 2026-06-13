@@ -7,6 +7,7 @@ import {
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
+import type { ContractPdfService } from './contract-pdf.service'
 import type { EmployeeContractsService } from './employee-contracts.service'
 import {
   SignedContractsService,
@@ -206,6 +207,25 @@ function makeEmployeeContractsSvc({
     }),
     markSigned: vi.fn().mockResolvedValue({ ...makeEmployeeContract(), status: 'SIGNED' }),
   } as unknown as EmployeeContractsService
+}
+
+/**
+ * Mock ContractPdfService — used in sign() for eager PDF size recording.
+ * Default: returns a 42-byte buffer so tests can assert on pdfSizeBytes.
+ */
+function makePdfSvc({
+  bufferLength = 42,
+  shouldThrow = false,
+}: {
+  bufferLength?: number
+  shouldThrow?: boolean
+} = {}) {
+  return {
+    generateContractPdf: vi.fn().mockImplementation(async () => {
+      if (shouldThrow) throw new Error('PDF generation failed')
+      return { pdfBuffer: Buffer.alloc(bufferLength) }
+    }),
+  } as unknown as ContractPdfService
 }
 
 // ---------------------------------------------------------------------------
@@ -410,7 +430,11 @@ describe('SignedContractsService', () => {
     it('refuses for ADMIN role', async () => {
       const mockDb = makeDb()
       const empSvc = makeEmployeeContractsSvc()
-      const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
+      const service = new SignedContractsService(
+        mockDb as unknown as DatabaseService,
+        empSvc,
+        makePdfSvc(),
+      )
 
       await expect(
         service.sign({
@@ -427,7 +451,11 @@ describe('SignedContractsService', () => {
       const mockDb = makeDb()
       // readyContract=null → getReadyForSigning throws ConflictException
       const empSvc = makeEmployeeContractsSvc({ readyContract: null })
-      const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
+      const service = new SignedContractsService(
+        mockDb as unknown as DatabaseService,
+        empSvc,
+        makePdfSvc(),
+      )
 
       await expect(
         service.sign({
@@ -444,7 +472,11 @@ describe('SignedContractsService', () => {
       const userWithoutLegal = makeUser({ legalFullName: null })
       const mockDb = makeDb({ userRow: userWithoutLegal })
       const empSvc = makeEmployeeContractsSvc()
-      const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
+      const service = new SignedContractsService(
+        mockDb as unknown as DatabaseService,
+        empSvc,
+        makePdfSvc(),
+      )
 
       await expect(
         service.sign({
@@ -461,7 +493,11 @@ describe('SignedContractsService', () => {
       const userWithEmptyLegal = makeUser({ legalFullName: '   ' })
       const mockDb = makeDb({ userRow: userWithEmptyLegal })
       const empSvc = makeEmployeeContractsSvc()
-      const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
+      const service = new SignedContractsService(
+        mockDb as unknown as DatabaseService,
+        empSvc,
+        makePdfSvc(),
+      )
 
       await expect(
         service.sign({
@@ -478,7 +514,11 @@ describe('SignedContractsService', () => {
       const inserted = makeSignedContract({ contractNumber: 'CHK-AB12CD' })
       const mockDb = makeDb({ insertedRow: inserted })
       const empSvc = makeEmployeeContractsSvc()
-      const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
+      const service = new SignedContractsService(
+        mockDb as unknown as DatabaseService,
+        empSvc,
+        makePdfSvc(),
+      )
 
       const result = await service.sign({
         userId: seniorUser.id,
@@ -504,7 +544,11 @@ describe('SignedContractsService', () => {
       const inserted = makeSignedContract()
       const mockDb = makeDb({ insertedRow: inserted })
       const empSvc = makeEmployeeContractsSvc({ readyContract: ec })
-      const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
+      const service = new SignedContractsService(
+        mockDb as unknown as DatabaseService,
+        empSvc,
+        makePdfSvc(),
+      )
 
       await service.sign({
         userId: seniorUser.id,
@@ -536,7 +580,11 @@ describe('SignedContractsService', () => {
         markSigned: vi.fn().mockResolvedValue({ ...ec, status: 'SIGNED' }),
       } as unknown as EmployeeContractsService
 
-      const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
+      const service = new SignedContractsService(
+        mockDb as unknown as DatabaseService,
+        empSvc,
+        makePdfSvc(),
+      )
 
       await service.sign({
         userId: seniorUser.id,
@@ -584,7 +632,11 @@ describe('SignedContractsService', () => {
         markSigned: vi.fn().mockResolvedValue({ ...ec, status: 'SIGNED' }),
       } as unknown as import('./employee-contracts.service').EmployeeContractsService
 
-      const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
+      const service = new SignedContractsService(
+        mockDb as unknown as DatabaseService,
+        empSvc,
+        makePdfSvc(),
+      )
 
       await service.sign({
         userId: seniorUser.id,
@@ -604,7 +656,11 @@ describe('SignedContractsService', () => {
       // MED#3: getReadyForSigning now runs inside tx — error propagates out of transaction
       const mockDb = makeDb()
       const empSvc = makeEmployeeContractsSvc({ readyContract: null })
-      const service = new SignedContractsService(mockDb as unknown as DatabaseService, empSvc)
+      const service = new SignedContractsService(
+        mockDb as unknown as DatabaseService,
+        empSvc,
+        makePdfSvc(),
+      )
 
       await expect(
         service.sign({
@@ -616,6 +672,63 @@ describe('SignedContractsService', () => {
         }),
       ).rejects.toThrow(ConflictException)
     })
+
+    it('eager PDF size: recordPdfSizeIfAbsent is called with real buffer length after signing', async () => {
+      // Arrange: PDF mock returns a buffer of known length (99 bytes).
+      const EXPECTED_SIZE = 99
+      const pdfSvc = makePdfSvc({ bufferLength: EXPECTED_SIZE })
+      const inserted = makeSignedContract({ id: 'sc-eager' })
+      const mockDb = makeDb({ insertedRow: inserted })
+      // Spy on recordPdfSizeIfAbsent via a real instance with mock db that has .update.
+      const whereFn = vi.fn().mockResolvedValue(undefined)
+      const setFn = vi.fn().mockReturnValue({ where: whereFn })
+      const updateFn = vi.fn().mockReturnValue({ set: setFn })
+      // Augment the existing mockDb with an .update method so recordPdfSizeIfAbsent works.
+      ;(mockDb.db as Record<string, unknown>).update = updateFn
+      const empSvc = makeEmployeeContractsSvc()
+      const service = new SignedContractsService(
+        mockDb as unknown as DatabaseService,
+        empSvc,
+        pdfSvc,
+      )
+
+      await service.sign({
+        userId: seniorUser.id,
+        userRole: 'SENIOR',
+        typedName: '',
+        ip: null,
+        userAgent: null,
+      })
+
+      // generateContractPdf must have been called once (eager path).
+      expect(pdfSvc.generateContractPdf).toHaveBeenCalledTimes(1)
+      // recordPdfSizeIfAbsent must have persisted the real buffer length.
+      expect(setFn).toHaveBeenCalledWith({ pdfSizeBytes: EXPECTED_SIZE })
+    })
+
+    it('eager PDF failure: sign() still resolves even when PDF generation throws', async () => {
+      // Arrange: PDF service throws — must NOT propagate (contract already committed).
+      const pdfSvc = makePdfSvc({ shouldThrow: true })
+      const inserted = makeSignedContract()
+      const mockDb = makeDb({ insertedRow: inserted })
+      const empSvc = makeEmployeeContractsSvc()
+      const service = new SignedContractsService(
+        mockDb as unknown as DatabaseService,
+        empSvc,
+        pdfSvc,
+      )
+
+      // sign() must resolve (not throw) even though PDF generation failed.
+      await expect(
+        service.sign({
+          userId: seniorUser.id,
+          userRole: 'SENIOR',
+          typedName: '',
+          ip: null,
+          userAgent: null,
+        }),
+      ).resolves.toBeDefined()
+    })
   })
 
   describe('findById RBAC', () => {
@@ -626,6 +739,7 @@ describe('SignedContractsService', () => {
       const service = new SignedContractsService(
         mockDb as unknown as DatabaseService,
         makeEmployeeContractsSvc(),
+        makePdfSvc(),
       )
 
       const result = await service.findById(row.id, seniorUser)
@@ -639,6 +753,7 @@ describe('SignedContractsService', () => {
       const service = new SignedContractsService(
         mockDb as unknown as DatabaseService,
         makeEmployeeContractsSvc(),
+        makePdfSvc(),
       )
 
       const result = await service.findById(row.id, adminUser)
@@ -652,6 +767,7 @@ describe('SignedContractsService', () => {
       const service = new SignedContractsService(
         mockDb as unknown as DatabaseService,
         makeEmployeeContractsSvc(),
+        makePdfSvc(),
       )
 
       const result = await service.findById(row.id, accountantUser)
@@ -665,6 +781,7 @@ describe('SignedContractsService', () => {
       const service = new SignedContractsService(
         mockDb as unknown as DatabaseService,
         makeEmployeeContractsSvc(),
+        makePdfSvc(),
       )
 
       await expect(service.findById(row.id, otherSenior)).rejects.toThrow(ForbiddenException)
@@ -676,6 +793,7 @@ describe('SignedContractsService', () => {
       const service = new SignedContractsService(
         mockDb as unknown as DatabaseService,
         makeEmployeeContractsSvc(),
+        makePdfSvc(),
       )
 
       await expect(service.findById('nope', adminUser)).rejects.toThrow(NotFoundException)
@@ -693,6 +811,7 @@ describe('SignedContractsService', () => {
       const service = new SignedContractsService(
         mockDb as unknown as DatabaseService,
         makeEmployeeContractsSvc(),
+        makePdfSvc(),
       )
 
       const result = await service.findMine('senior-1')
@@ -714,7 +833,11 @@ describe('SignedContractsService', () => {
 
     it('writes the size when positive', async () => {
       const { dbService, updateFn, setFn } = makeUpdatableDb()
-      const service = new SignedContractsService(dbService, makeEmployeeContractsSvc())
+      const service = new SignedContractsService(
+        dbService,
+        makeEmployeeContractsSvc(),
+        makePdfSvc(),
+      )
       await service.recordPdfSizeIfAbsent('sc-1', 12345)
       expect(updateFn).toHaveBeenCalledTimes(1)
       expect(setFn).toHaveBeenCalledWith({ pdfSizeBytes: 12345 })
@@ -722,14 +845,22 @@ describe('SignedContractsService', () => {
 
     it('skips the write for zero size (no fake number persisted)', async () => {
       const { dbService, updateFn } = makeUpdatableDb()
-      const service = new SignedContractsService(dbService, makeEmployeeContractsSvc())
+      const service = new SignedContractsService(
+        dbService,
+        makeEmployeeContractsSvc(),
+        makePdfSvc(),
+      )
       await service.recordPdfSizeIfAbsent('sc-1', 0)
       expect(updateFn).not.toHaveBeenCalled()
     })
 
     it('skips the write for negative / non-finite size', async () => {
       const { dbService, updateFn } = makeUpdatableDb()
-      const service = new SignedContractsService(dbService, makeEmployeeContractsSvc())
+      const service = new SignedContractsService(
+        dbService,
+        makeEmployeeContractsSvc(),
+        makePdfSvc(),
+      )
       await service.recordPdfSizeIfAbsent('sc-1', -5)
       await service.recordPdfSizeIfAbsent('sc-1', Number.NaN)
       expect(updateFn).not.toHaveBeenCalled()

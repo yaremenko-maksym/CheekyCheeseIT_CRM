@@ -226,9 +226,9 @@ class TestDatabaseModule {}
     },
     {
       provide: SignedContractsService,
-      useFactory: (db: DatabaseService, ec: EmployeeContractsService) =>
-        new SignedContractsService(db, ec),
-      inject: [DatabaseService, EmployeeContractsService],
+      useFactory: (db: DatabaseService, ec: EmployeeContractsService, pdf: ContractPdfService) =>
+        new SignedContractsService(db, ec, pdf),
+      inject: [DatabaseService, EmployeeContractsService, ContractPdfService],
     },
     {
       provide: TosService,
