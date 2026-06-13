@@ -593,7 +593,7 @@ test.describe('AC3 — Salary snapshot card', () => {
     await expect(txRows).toHaveCount(3)
   })
 
-  test('salary card shows rate zone and summary zone, no all-payments link', async ({
+  test('salary card shows rate zone with changedAt under rate, no summary zone, no all-payments link', async ({
     asJunior: page,
   }) => {
     await mockJuniorProjectsAndLegend(page)
@@ -605,8 +605,11 @@ test.describe('AC3 — Salary snapshot card', () => {
     // rate zone — крупная ставка (salary-rate-zone присутствует когда ставка задана)
     await expect(card.getByTestId('salary-rate-zone')).toBeVisible()
 
-    // summary zone — прижата к низу, показывает ставку за месяц
-    await expect(card.getByTestId('salary-summary')).toBeVisible()
+    // round-6: salary-summary зона УДАЛЕНА. changedAt перенесён под ставку.
+    await expect(card.getByTestId('salary-summary')).toHaveCount(0)
+
+    // changedAt под ставкой (не в отдельной summary-зоне)
+    await expect(card.getByTestId('salary-changed-at')).toBeVisible()
 
     // кнопка «Все мои выплаты» УДАЛЕНА по фидбеку UT round 4
     await expect(card.getByTestId('salary-all-link')).toHaveCount(0)
