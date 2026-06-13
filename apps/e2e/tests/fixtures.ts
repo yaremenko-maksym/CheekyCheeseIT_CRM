@@ -520,22 +520,30 @@ export function buildJuniorViewingJunior(targetUser: (typeof USERS)[keyof typeof
 
 /** Self-view response (used by GET /users/me on profile page) */
 export function buildSelfView(user: (typeof USERS)[keyof typeof USERS]): object {
-  // Mirrors users-access.service.ts isSelf branch.
-  // SENIOR: interviews surfaced via header link, not tab.
-  // Drop role - phase 1 (AC8): DROP sees Profile / Team / Finance — no
-  // projects / interviews / documents tabs on the self-view.
-  // task-junior-ut-round3 §6a: JUNIOR self-view loses 'documents' tab
-  // (data-privacy: /crm/project hub is junior's primary project surface).
+  // Mirrors users-access.service.ts isSelf branch exactly.
+  //
+  // JUNIOR self-view is an EXPLICIT allow-list (data-privacy, task-junior-ut-round2 §3 +
+  // PR #188 fixture-fidelity fix): ONLY overview / requisites / documents.
+  // MUST NOT include finance / projects / team — those surface senior identity
+  // and project internals. Verified against real backend via curl (2026-06-13).
+  // upstream had 'finance' here (bug) — corrected to match users-access.service.ts:82.
+  //
+  // DROP: overview / team / requisites / finance (no projects / documents).
+  //
+  // Everyone else (SENIOR, HR, ACCOUNTANT, ADMIN):
+  //   overview / projects / team / requisites / documents
+  //   + finance for SENIOR / HR / ACCOUNTANT.
   let tabs: string[]
-  if (user.role === 'DROP') {
+  if (user.role === 'JUNIOR') {
+    // Explicit allow-list — no finance, no projects, no team.
+    tabs = ['overview', 'requisites', 'documents']
+  } else if (user.role === 'DROP') {
     tabs = ['overview', 'team', 'requisites', 'finance']
-  } else if (user.role === 'JUNIOR') {
-    tabs = ['overview', 'requisites', 'finance']
   } else {
     tabs = ['overview', 'projects', 'team', 'requisites', 'documents']
-  }
-  if (user.role === 'SENIOR' || user.role === 'HR' || user.role === 'ACCOUNTANT') {
-    tabs.push('finance')
+    if (user.role === 'SENIOR' || user.role === 'HR' || user.role === 'ACCOUNTANT') {
+      tabs.push('finance')
+    }
   }
 
   const isSalaryRole = user.role === 'JUNIOR' || user.role === 'HR' || user.role === 'ACCOUNTANT'

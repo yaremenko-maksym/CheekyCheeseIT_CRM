@@ -21,7 +21,9 @@ const API = 'http://localhost:3001/api'
 // ---------------------------------------------------------------------------
 
 test.describe('Profile self-edit — debounced autosave', () => {
-  test('editing Telegram fires PATCH /users/me after debounce and shows "Сохранено" toast', async ({ page }) => {
+  test('editing Telegram fires PATCH /users/me after debounce and shows "Сохранено" toast', async ({
+    page,
+  }) => {
     await mockAuthAs(page, USERS.junior)
     await page.goto('/crm/profile')
 
@@ -129,11 +131,60 @@ test.describe('Profile self-edit — debounced autosave', () => {
     // with CardTitle "Реквизиты для выплат" and a CardDescription containing
     // the same phrase ("Выберите метод и заполните реквизиты для выплат").
     // Target the heading specifically to avoid strict-mode violations.
-    await expect(
-      page.getByRole('heading', { name: 'Реквизиты для выплат' }),
-    ).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Реквизиты для выплат' })).toBeVisible()
     // Tab trigger is also visible — use exact match to avoid colliding with the
     // "Сохранить реквизиты" submit button.
     await expect(page.getByRole('button', { name: 'Реквизиты', exact: true })).toBeVisible()
+  })
+
+  // -------------------------------------------------------------------------
+  // Data-privacy allowlist: JUNIOR self-view MUST expose EXACTLY overview +
+  // requisites + documents. finance / projects / team tabs must be absent.
+  //
+  // Regression guard for fixture drift (mocked-E2E guards lesson, PR #188):
+  // buildSelfView(USERS.junior) must mirror users-access.service.ts lines 81-82.
+  // -------------------------------------------------------------------------
+
+  test('JUNIOR self-view: ONLY overview + requisites + documents tabs visible', async ({
+    asJunior: page,
+  }) => {
+    // LIFO override: mockAuthAs registers /users/([^/?]+)$ AFTER /users/me —
+    // the generic :id handler wins and returns buildAdminViewingUser instead of
+    // buildSelfView. Re-register /users/me last so it takes LIFO priority.
+    // See: fixtures.ts mockAuthAs registration order (lines 628 vs 698).
+    const API = 'http://localhost:3001/api'
+    await page.route(`${API}/users/me`, (r) =>
+      r.request().method() === 'PATCH'
+        ? r.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(USERS.junior),
+          })
+        : r.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(buildSelfView(USERS.junior)),
+          }),
+    )
+
+    await page.goto('/crm/profile')
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
+
+    // Allowed tabs — must be present
+    await expect(page.getByRole('button', { name: 'Обзор', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Реквизиты', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Документы', exact: true })).toBeVisible()
+
+    // Forbidden tabs — must be completely absent from DOM (data-privacy allowlist).
+    // Each covers a distinct privacy risk for the junior role:
+    //   finance  → surfaces payment history — privacy boundary for junior
+    //   Проект   → surfaces project internals (rate, client, senior identity)
+    //   Команда  → surfaces team membership and senior/drop identity
+    // Source: users-access.service.ts isSelf JUNIOR branch (lines 81-82).
+    await expect(page.getByRole('button', { name: 'Финансы', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Проект', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Команда', exact: true })).toHaveCount(0)
+    // Контракт tab must also be absent — only ADMIN-viewing-non-ADMIN gets it.
+    await expect(page.getByRole('button', { name: 'Контракт', exact: true })).toHaveCount(0)
   })
 })
