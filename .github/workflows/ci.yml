@@ -194,11 +194,10 @@ jobs:
       - if: steps.filter.outputs.code == 'true'
         run: pnpm build
 
-      # Apply all Drizzle migrations (0000→latest) against the fresh CI Postgres.
-      # Migration 0002 was fixed (commit a195fbf) — no duplicate DDL, runs clean.
-      - name: Run DB migrations
+      # Push schema directly to fresh CI Postgres (no migration history needed).
+      - name: Push DB schema
         if: steps.filter.outputs.code == 'true'
-        run: pnpm --filter @crm/api db:migrate
+        run: pnpm --filter @crm/api db:push
 
       # Seed canonical users (stable UUIDs) so integration specs can satisfy FK
       # constraints without per-test inserts of baseline data.

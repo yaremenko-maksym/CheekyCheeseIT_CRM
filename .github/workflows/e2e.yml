@@ -138,9 +138,9 @@ jobs:
         if: steps.pw-cache.outputs.cache-hit == 'true'
         run: pnpm --filter @crm/e2e exec playwright install-deps chromium
 
-      - name: Run migrations + seed
+      - name: Push DB schema + seed
         run: |
-          pnpm --filter @crm/api db:migrate
+          pnpm --filter @crm/api db:push
           pnpm --filter @crm/api db:seed
 
       - name: Build shared
