@@ -64,7 +64,7 @@ export class EmployeeContractsController {
   @Roles() // override class ADMIN-only — owner-or-ADMIN enforced below
   async get(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() viewer: SessionUser) {
     if (viewer.role !== 'ADMIN' && viewer.id !== id) {
-      throw new ForbiddenException('Можна переглянути лише власний контракт')
+      throw new ForbiddenException('Можно просмотреть только свой контракт')
     }
     // ADMIN: lazy-create DRAFT if needed (original behaviour).
     if (viewer.role === 'ADMIN') {
