@@ -10,7 +10,15 @@ import {
 } from '@nestjs/common'
 
 import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm'
-import type { SessionUser } from '@crm/shared'
+import type {
+  SessionUser,
+  DropIncomeDto,
+  DropIncomeStatus,
+  DropIncomesQuery,
+  DropPaymentDto,
+  DropPaymentStatus,
+  PaginatedDropIncomes,
+} from '@crm/shared'
 import { MAKSYM_ID, KOSTYA_ID } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
@@ -523,6 +531,143 @@ export class TransactionsService {
       pendingIncomesCount: aggregate.pendingCount,
       debtToCompany: aggregate.debtToCompany,
     }
+  }
+
+  /**
+   * Map a raw DB `transaction_status` to the FE-facing income status. The four
+   * states a DROP_INCOME row can carry in its lifecycle are PENDING / VALIDATED
+   * / PAID / REJECTED; any other DB status (PENDING_PAYMENT etc. — which belong
+   * to PAYOUT rows, never DROP_INCOME rows) is not expected, so we surface it
+   * as 'pending' defensively rather than leaking the internal enum. Single
+   * source of truth so incomes feed + any future drop income view agree.
+   */
+  private mapDropIncomeStatus(dbStatus: string): DropIncomeStatus {
+    switch (dbStatus) {
+      case 'VALIDATED':
+        return 'validated'
+      case 'PAID':
+        return 'paid'
+      case 'REJECTED':
+        return 'rejected'
+      case 'PENDING':
+      default:
+        return 'pending'
+    }
+  }
+
+  /**
+   * Map a raw DB `transaction_status` to the FE-facing payment status for a
+   * drop → company PAYOUT row. The placeholder PAYOUT booked at income
+   * validation starts PENDING_PAYMENT (→ pending), flips to PAID on company
+   * settlement (→ confirmed); REJECTED (→ failed). Anything else surfaces as
+   * 'pending' defensively.
+   */
+  private mapDropPaymentStatus(dbStatus: string): DropPaymentStatus {
+    switch (dbStatus) {
+      case 'PAID':
+        return 'confirmed'
+      case 'REJECTED':
+        return 'failed'
+      case 'PENDING_PAYMENT':
+      default:
+        return 'pending'
+    }
+  }
+
+  /**
+   * Self-only DROP income feed for `GET /api/finance/drop/me/incomes`.
+   *
+   * Drop role - phase 2 (task-drop-2-backend). RBAC: DROP only — every other
+   * role gets 403. The drop only ever sees THEIR OWN incomes — the query is
+   * scoped to `receiverId = self.id AND type = 'DROP_INCOME'` at the DB level,
+   * so no other drop's income can leak. Supports status / date-window filters
+   * and offset pagination; `total` is the count BEFORE the page slice.
+   *
+   * `companyName` is sourced from the income's `senderLabel` (set to
+   * `project.companyName` at creation — see `createDropIncome`), falling back
+   * to the linked project's companyName, then '' if neither is present.
+   */
+  async getDropSelfIncomes(
+    currentUser: SessionUser,
+    query: DropIncomesQuery,
+  ): Promise<PaginatedDropIncomes> {
+    if (currentUser.role !== 'DROP') {
+      throw new ForbiddenException('Access denied: drop incomes are available to DROP role only')
+    }
+
+    // Self-scope at the DB level: only this drop's DROP_INCOME rows.
+    const rows = await this.db.db.query.transactions.findMany({
+      where: and(eq(transactions.type, 'DROP_INCOME'), eq(transactions.receiverId, currentUser.id)),
+      orderBy: [desc(transactions.createdAt)],
+      with: { project: { columns: { companyName: true } } },
+    })
+
+    // In-memory status + date-window filters (the feed per drop is small;
+    // pushing these to SQL would not change correctness and keeps the status
+    // mapping in one place). The status filter compares the MAPPED status so
+    // the FE contract (pending|validated|paid|rejected) is honoured.
+    const fromTs = query.from ? Date.parse(query.from) : undefined
+    const toTs = query.to ? Date.parse(query.to) : undefined
+
+    const filtered = rows.filter((tx) => {
+      if (query.status && this.mapDropIncomeStatus(tx.status) !== query.status) return false
+      const created =
+        tx.createdAt instanceof Date ? tx.createdAt.getTime() : Date.parse(String(tx.createdAt))
+      if (fromTs !== undefined && !Number.isNaN(fromTs) && created < fromTs) return false
+      if (toTs !== undefined && !Number.isNaN(toTs) && created > toTs) return false
+      return true
+    })
+
+    const total = filtered.length
+    const start = (query.page - 1) * query.limit
+    const pageRows = filtered.slice(start, start + query.limit)
+
+    const items: DropIncomeDto[] = pageRows.map((tx) => ({
+      id: tx.id,
+      companyName: tx.senderLabel ?? tx.project?.companyName ?? '',
+      amount: parseFloat(tx.amount),
+      currency: tx.currency,
+      createdAt:
+        tx.createdAt instanceof Date
+          ? tx.createdAt.toISOString()
+          : new Date(tx.createdAt).toISOString(),
+      status: this.mapDropIncomeStatus(tx.status),
+    }))
+
+    return { items, total, page: query.page, limit: query.limit }
+  }
+
+  /**
+   * Self-only DROP outgoing-payments feed for
+   * `GET /api/finance/drop/me/payments`.
+   *
+   * Drop role - phase 2 (task-drop-2-backend). RBAC: DROP only — every other
+   * role gets 403. Lists the PAYOUT rows the drop owes / has paid the company,
+   * scoped to `type = 'PAYOUT' AND senderId = self.id` at the DB level (same
+   * rows that feed `debtToCompany` in `computeDropAggregate`), so no other
+   * drop's payments can leak.
+   */
+  async getDropSelfPayments(currentUser: SessionUser): Promise<DropPaymentDto[]> {
+    if (currentUser.role !== 'DROP') {
+      throw new ForbiddenException('Access denied: drop payments are available to DROP role only')
+    }
+
+    const rows = await this.db.db.query.transactions.findMany({
+      where: and(eq(transactions.type, 'PAYOUT'), eq(transactions.senderId, currentUser.id)),
+      orderBy: [desc(transactions.createdAt)],
+    })
+
+    return rows.map((tx) => ({
+      id: tx.id,
+      amount: parseFloat(tx.amount),
+      currency: tx.currency,
+      ...(tx.txHash ? { txHash: tx.txHash } : {}),
+      status: this.mapDropPaymentStatus(tx.status),
+      createdAt:
+        tx.createdAt instanceof Date
+          ? tx.createdAt.toISOString()
+          : new Date(tx.createdAt).toISOString(),
+    }))
   }
 
   async findAll(

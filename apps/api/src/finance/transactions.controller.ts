@@ -10,6 +10,7 @@ import {
   createPayoutRequestSchema,
   createSeniorIncomeSchema,
   createSalarySchema,
+  dropIncomesQuerySchema,
   payPayoutRequestSchema,
   paySalarySchema,
   updateProjectFinanceSettingsSchema,
@@ -216,6 +217,28 @@ export class FinanceSummaryController {
   @Get('drop/me/summary')
   getDropSelfSummary(@CurrentUser() user: SessionUser) {
     return this.svc.getDropSelfSummary(user)
+  }
+
+  // Drop role - phase 2 (task-drop-2-backend). Self-only DROP income feed.
+  // GET /api/finance/drop/me/incomes — DROP role ONLY (service throws 403 for
+  // every other role). Scoped to the caller's own DROP_INCOME rows, so no
+  // other drop's incomes can leak. Query params (status/type/from/to/page/
+  // limit) are validated + coerced through `dropIncomesQuerySchema` (page/limit
+  // arrive as strings on the query string → z.coerce). Returns a paginated
+  // envelope (`paginatedDropIncomesSchema`). This literal `drop/me/incomes`
+  // segment is unambiguous — the controller has no `:id` param routes.
+  @Get('drop/me/incomes')
+  getDropSelfIncomes(@CurrentUser() user: SessionUser, @Query() query: unknown) {
+    return this.svc.getDropSelfIncomes(user, dropIncomesQuerySchema.parse(query ?? {}))
+  }
+
+  // Drop role - phase 2 (task-drop-2-backend). Self-only DROP outgoing payments
+  // (drop → company). GET /api/finance/drop/me/payments — DROP role ONLY.
+  // Scoped to the caller's own PAYOUT rows (senderId = self), so no other
+  // drop's payments can leak. Returns `dropPaymentDtoSchema[]`.
+  @Get('drop/me/payments')
+  getDropSelfPayments(@CurrentUser() user: SessionUser) {
+    return this.svc.getDropSelfPayments(user)
   }
 
   // ?date=YYYYMMDD — optional, defaults to today
