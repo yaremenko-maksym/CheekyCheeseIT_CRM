@@ -139,15 +139,18 @@ test.describe('Profile self-edit — debounced autosave', () => {
 
   // -------------------------------------------------------------------------
   // Data-privacy allowlist: JUNIOR self-view MUST expose EXACTLY overview +
-  // requisites + documents. finance / projects / team tabs must be absent.
+  // requisites. All other profile tabs (documents / finance / projects / team /
+  // contract) must be absent.
   //
-  // Regression guard for fixture drift (mocked-E2E guards lesson, PR #188):
-  // buildSelfView(USERS.junior) must mirror users-access.service.ts lines 81-82.
+  // Regression guard for fixture drift (mocked-E2E guards lesson, PR #188 §6a):
+  // buildSelfView(USERS.junior) mirrors users-access.service.ts:84 exactly:
+  //   tabs.push('overview', 'requisites')
+  // 'documents' was removed in round-3 §6a — JUNIOR profile shell does NOT
+  // have a Documents tab (junior accesses /crm/documents via sidebar nav, not
+  // via a profile tab).
   // -------------------------------------------------------------------------
 
-  test('JUNIOR self-view: ONLY overview + requisites + documents tabs visible', async ({
-    asJunior: page,
-  }) => {
+  test('JUNIOR self-view: ONLY overview + requisites tabs visible', async ({ asJunior: page }) => {
     // LIFO override: mockAuthAs registers /users/([^/?]+)$ AFTER /users/me —
     // the generic :id handler wins and returns buildAdminViewingUser instead of
     // buildSelfView. Re-register /users/me last so it takes LIFO priority.
@@ -170,21 +173,22 @@ test.describe('Profile self-edit — debounced autosave', () => {
     await page.goto('/crm/profile')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
-    // Allowed tabs — must be present
+    // Allowed tabs — must be present (EXACTLY these two, per service.ts:84)
     await expect(page.getByRole('button', { name: 'Обзор', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Реквизиты', exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Документы', exact: true })).toBeVisible()
 
     // Forbidden tabs — must be completely absent from DOM (data-privacy allowlist).
     // Each covers a distinct privacy risk for the junior role:
-    //   finance  → surfaces payment history — privacy boundary for junior
-    //   Проект   → surfaces project internals (rate, client, senior identity)
-    //   Команда  → surfaces team membership and senior/drop identity
-    // Source: users-access.service.ts isSelf JUNIOR branch (lines 81-82).
+    //   Документы → profile tab absent (junior accesses docs via /crm/documents nav)
+    //   Финансы   → surfaces payment history — privacy boundary for junior
+    //   Проект    → surfaces project internals (rate, client, senior identity)
+    //   Команда   → surfaces team membership and senior/drop identity
+    //   Контракт  → only ADMIN-viewing-non-ADMIN gets it
+    // Source: users-access.service.ts isSelf JUNIOR branch (line 84).
+    await expect(page.getByRole('button', { name: 'Документы', exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Финансы', exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Проект', exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Команда', exact: true })).toHaveCount(0)
-    // Контракт tab must also be absent — only ADMIN-viewing-non-ADMIN gets it.
     await expect(page.getByRole('button', { name: 'Контракт', exact: true })).toHaveCount(0)
   })
 })

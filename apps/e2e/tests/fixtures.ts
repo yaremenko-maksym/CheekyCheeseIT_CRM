@@ -523,10 +523,10 @@ export function buildSelfView(user: (typeof USERS)[keyof typeof USERS]): object 
   // Mirrors users-access.service.ts isSelf branch exactly.
   //
   // JUNIOR self-view is an EXPLICIT allow-list (data-privacy, task-junior-ut-round2 §3 +
-  // PR #188 fixture-fidelity fix): ONLY overview / requisites / documents.
-  // MUST NOT include finance / projects / team — those surface senior identity
-  // and project internals. Verified against real backend via curl (2026-06-13).
-  // upstream had 'finance' here (bug) — corrected to match users-access.service.ts:82.
+  // PR #188 fixture-fidelity fix §6a): ONLY overview / requisites.
+  // MUST NOT include documents / finance / projects / team — those surface senior
+  // identity and project internals. Mirrors users-access.service.ts:84 exactly:
+  //   tabs.push('overview', 'requisites')
   //
   // DROP: overview / team / requisites / finance (no projects / documents).
   //
@@ -535,8 +535,8 @@ export function buildSelfView(user: (typeof USERS)[keyof typeof USERS]): object 
   //   + finance for SENIOR / HR / ACCOUNTANT.
   let tabs: string[]
   if (user.role === 'JUNIOR') {
-    // Explicit allow-list — no finance, no projects, no team.
-    tabs = ['overview', 'requisites', 'documents']
+    // Explicit allow-list — no documents, no finance, no projects, no team.
+    tabs = ['overview', 'requisites']
   } else if (user.role === 'DROP') {
     tabs = ['overview', 'team', 'requisites', 'finance']
   } else {
