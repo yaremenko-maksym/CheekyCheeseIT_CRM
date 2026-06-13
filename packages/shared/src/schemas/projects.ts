@@ -376,6 +376,7 @@ export const hrContactSchema = z.object({
   displayName: z.string().nullable(),
   telegram: z.string().nullable(),
   phone: z.string().nullable(),
+  avatarUrl: z.string().nullable(),
 })
 
 export type HrContactDto = z.infer<typeof hrContactSchema>

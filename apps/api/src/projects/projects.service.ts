@@ -1186,7 +1186,12 @@ export class ProjectsService {
   async getHrContact(
     projectId: string,
     currentUser: SessionUser,
-  ): Promise<{ displayName: string | null; telegram: string | null; phone: string | null }> {
+  ): Promise<{
+    displayName: string | null
+    telegram: string | null
+    phone: string | null
+    avatarUrl: string | null
+  }> {
     const project = (await this.db.db.query.projects.findFirst({
       where: eq(projects.id, projectId),
       with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
@@ -1209,7 +1214,7 @@ export class ProjectsService {
     }
 
     if (!project.seniorId) {
-      return { displayName: null, telegram: null, phone: null }
+      return { displayName: null, telegram: null, phone: null, avatarUrl: null }
     }
 
     // Find HR in the senior's active team
@@ -1217,7 +1222,7 @@ export class ProjectsService {
       where: and(eq(teamMembers.userId, project.seniorId), isNull(teamMembers.leftAt)),
     })
     if (!seniorMembership) {
-      return { displayName: null, telegram: null, phone: null }
+      return { displayName: null, telegram: null, phone: null, avatarUrl: null }
     }
 
     const hrRow = await this.db.db
@@ -1225,6 +1230,7 @@ export class ProjectsService {
         displayName: users.displayName,
         telegram: users.telegram,
         phone: users.phone,
+        avatarUrl: users.avatarUrl,
       })
       .from(teamMembers)
       .innerJoin(users, eq(users.id, teamMembers.userId))
@@ -1242,6 +1248,7 @@ export class ProjectsService {
       displayName: hrRow?.displayName ?? null,
       telegram: hrRow?.telegram ?? null,
       phone: hrRow?.phone ?? null,
+      avatarUrl: hrRow?.avatarUrl ?? null,
     }
   }
 
