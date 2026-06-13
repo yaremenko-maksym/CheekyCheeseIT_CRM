@@ -719,6 +719,10 @@ export type PaginatedDropIncomes = z.infer<typeof paginatedDropIncomesSchema>
 // forward-compatibility and to mirror the FE filter UI.
 export const dropIncomesQuerySchema = z.object({
   status: dropIncomeStatusSchema.optional(),
+  // forward-compat: type is not used in WHERE (only DROP_INCOME rows are ever
+  // returned for a drop), but kept as an explicit filter field so the FE can
+  // pass it without errors and future income types can narrow without a schema
+  // change. LOW review finding — intentionally NOT removed.
   type: z.literal('DROP_INCOME').optional(),
   from: z.string().optional(),
   to: z.string().optional(),
