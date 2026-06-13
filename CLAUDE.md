@@ -56,7 +56,7 @@ packages/shared # Zod-схемы + типы (Single Source of Truth)
 ```bash
 pnpm dev | build | typecheck | test            # все пакеты (turbo)
 pnpm --filter @crm/web|@crm/api|@crm/e2e <cmd> # отдельный пакет
-pnpm --filter @crm/api db:generate | db:seed   # Drizzle: миграция / сид
+pnpm --filter @crm/api db:push | db:seed       # Drizzle: schema sync (push) / сид
 docker-compose up -d                           # Postgres + Redis локально
 ```
 

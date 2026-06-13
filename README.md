@@ -17,7 +17,7 @@ pnpm install
 cp apps/api/.env.example apps/api/.env   # fill in secrets
 cp apps/web/.env.example apps/web/.env
 docker compose up -d                     # start Postgres + Redis
-pnpm --filter @crm/api db:migrate        # apply migrations
+pnpm --filter @crm/api db:push           # sync schema (push-based, no migrations)
 pnpm --filter @crm/api db:seed           # seed initial data
 ```
 
