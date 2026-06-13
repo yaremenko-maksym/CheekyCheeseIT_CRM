@@ -1,11 +1,14 @@
 import 'dotenv/config'
 import { drizzle } from 'drizzle-orm/node-postgres'
+import { eq } from 'drizzle-orm'
 
 import { Pool } from 'pg'
 import * as schema from './schema'
 import { JUNIOR_CONTRACT } from './seed-templates/contract-junior'
 import { HR_CONTRACT } from './seed-templates/contract-hr'
 import { ACCOUNTANT_CONTRACT } from './seed-templates/contract-accountant'
+import { ContractPdfService } from '../contracts/contract-pdf.service'
+import { PdfGenerationService } from '../common/pdf/pdf-generation.service'
 
 // ---------------------------------------------------------------------------
 // Canonical UUIDs — must stay stable across reseeds (e2e fixtures + dev-login)
@@ -1729,6 +1732,9 @@ async function main() {
   // Map userId → signed_contract.id for employee_contracts backfill (AC9)
   const signedContractIdByUser: Record<string, string> = {}
 
+  // Instantiate once for real PDF size calculation (no DI deps needed)
+  const contractPdf = new ContractPdfService(new PdfGenerationService())
+
   for (const u of onboardedUsers) {
     const tmplId = templateMap[u.role]
     if (!tmplId) continue
@@ -1760,12 +1766,26 @@ async function main() {
         signedIp: '127.0.0.1',
         signedAt: u.signedAt,
         contractNumber: `CHK-${u.contractNum}-2025`,
-        // Pre-fill realistic PDF size so UT shows real size on first load
-        // (lazy recordPdfSizeIfAbsent fills this on first preview in prod)
-        pdfSizeBytes: 81920 + (u.contractNum % 5) * 10240,
       })
       .returning()
-    if (sc) signedContractIdByUser[u.userId] = sc.id
+    if (sc) {
+      signedContractIdByUser[u.userId] = sc.id
+
+      // Generate real PDF to record actual file size (not a fake formula)
+      const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000'
+      const { pdfBuffer } = await contractPdf.generateContractPdf({
+        contractNumber: `CHK-${u.contractNum}-2025`,
+        bodyMarkdown: snapshot,
+        signedTypedName: u.legalName,
+        signedAt: u.signedAt,
+        verifyUrl: `${frontendUrl}/contract/v/${sc.id}`,
+      })
+      await db
+        .update(schema.signedContracts)
+        .set({ pdfSizeBytes: pdfBuffer.length })
+        .where(eq(schema.signedContracts.id, sc.id))
+      console.log(`    pdf size for CHK-${u.contractNum}-2025: ${pdfBuffer.length} bytes`)
+    }
 
     // ToS acceptance for onboarded users
     await db.insert(schema.tosAcceptances).values({
