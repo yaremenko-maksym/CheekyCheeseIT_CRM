@@ -487,7 +487,9 @@ function TeamPage() {
   useEffect(() => {
     if (!teams || isLoading || !user) return
 
-    if (user.role === 'SENIOR' || user.role === 'JUNIOR') {
+    // task-drop-phase3-frontend: DROP added alongside SENIOR/JUNIOR — backend
+    // already returns only the drop's own team (TeamsService.findAll isolates DROP).
+    if (user.role === 'SENIOR' || user.role === 'JUNIOR' || user.role === 'DROP') {
       if (teams.length === 1 && teams[0]) {
         navigate({ to: '/crm/team/$teamId', params: { teamId: teams[0].id } })
       }

@@ -1,5 +1,17 @@
 import { useState } from 'react'
-import { Pencil, Plus, ShieldCheck, StickyNote } from 'lucide-react'
+import {
+  Bitcoin,
+  Building2,
+  Hash,
+  IdCard,
+  Landmark,
+  Pencil,
+  Plus,
+  ShieldCheck,
+  StickyNote,
+  User as UserIcon,
+  Wallet,
+} from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -13,6 +25,150 @@ export interface OverviewTabProps {
   data: Record<string, unknown>
   permissions: ViewPermissions
   mode: 'self' | 'view'
+  onGoToTab?: (tab: string) => void
+}
+
+// ── DROP-specific overview components ─────────────────────────────────────────
+
+/** Shown on overview when DROP has no payment method set. */
+function RequisitesMissingBanner({ onGoToRequisites }: { onGoToRequisites: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="flex flex-col gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-4 sm:flex-row sm:items-center sm:justify-between"
+      data-testid="drop-requisites-missing-banner"
+    >
+      <div className="flex items-start gap-3">
+        <Wallet className="h-5 w-5 shrink-0 mt-0.5 text-destructive" aria-hidden="true" />
+        <div className="space-y-0.5">
+          <p className="text-sm font-medium">Реквизиты не заполнены</p>
+          <p className="text-xs text-muted-foreground">
+            Без реквизитов невозможен роутинг платежей. Укажите USDT кошелёк или банковский счёт.
+          </p>
+        </div>
+      </div>
+      <Button
+        size="sm"
+        onClick={onGoToRequisites}
+        data-testid="drop-requisites-missing-cta"
+        className="shrink-0"
+      >
+        Заполнить реквизиты
+      </Button>
+    </div>
+  )
+}
+
+/** Readonly preview of current requisites on overview, with «Изменить» nav button. */
+function DropRequisitesSnippet({
+  user,
+  onGoToRequisites,
+}: {
+  user: UserProfileDto
+  onGoToRequisites: () => void
+}) {
+  const isUsdt = user.paymentMethod === 'USDT_ERC20'
+  const isBank = user.paymentMethod === 'BANK_UAH_FOP'
+
+  const methodLabel = isUsdt ? 'USDT ERC-20' : isBank ? 'Банк UAH (ФОП)' : null
+  if (!methodLabel) return null
+
+  const walletValue = isUsdt ? user.walletUsdtErc20 : user.bankUahIban
+
+  return (
+    <Card data-testid="drop-requisites-snippet">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3 pt-4 px-5">
+        <div className="flex items-center gap-2">
+          {isUsdt ? (
+            <Bitcoin className="h-4 w-4 text-primary" aria-hidden="true" />
+          ) : (
+            <Landmark className="h-4 w-4 text-primary" aria-hidden="true" />
+          )}
+          <span className="text-sm font-semibold">Реквизиты для выплат</span>
+          <Badge variant="outline" className="text-xs">
+            {methodLabel}
+          </Badge>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onGoToRequisites}
+          data-testid="drop-requisites-snippet-edit-btn"
+          className="h-8 gap-1.5"
+        >
+          <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+          Изменить
+        </Button>
+      </CardHeader>
+      <CardContent className="px-5 pb-4 space-y-2">
+        {isUsdt && (
+          <div className="flex items-center gap-3 rounded-md border bg-muted/30 px-3.5 py-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
+              <Wallet className="h-4 w-4" aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">USDT кошелёк</p>
+              <p className="truncate text-sm font-mono">
+                {walletValue ?? <span className="italic text-muted-foreground">не указано</span>}
+              </p>
+            </div>
+          </div>
+        )}
+        {isBank && (
+          <>
+            <div className="flex items-center gap-3 rounded-md border bg-muted/30 px-3.5 py-2.5">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
+                <UserIcon className="h-4 w-4" aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Получатель</p>
+                <p className="truncate text-sm">
+                  {user.bankUahRecipient ?? (
+                    <span className="italic text-muted-foreground">не указано</span>
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-md border bg-muted/30 px-3.5 py-2.5">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
+                <Hash className="h-4 w-4" aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">IBAN</p>
+                <p className="truncate text-sm font-mono">
+                  {user.bankUahIban ?? (
+                    <span className="italic text-muted-foreground">не указано</span>
+                  )}
+                </p>
+              </div>
+            </div>
+            {user.bankUahRnokpp && (
+              <div className="flex items-center gap-3 rounded-md border bg-muted/30 px-3.5 py-2.5">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
+                  <IdCard className="h-4 w-4" aria-hidden="true" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">РНОКПП</p>
+                  <p className="truncate text-sm font-mono">{user.bankUahRnokpp}</p>
+                </div>
+              </div>
+            )}
+            {user.bankUahBankName && (
+              <div className="flex items-center gap-3 rounded-md border bg-muted/30 px-3.5 py-2.5">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
+                  <Building2 className="h-4 w-4" aria-hidden="true" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Банк</p>
+                  <p className="truncate text-sm">{user.bankUahBankName}</p>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
 }
 
 const CURRENCY_LABEL: Record<string, string> = {
@@ -40,7 +196,7 @@ interface OverviewData {
   tosVersion?: number | null
 }
 
-export function OverviewTab({ user, mode, data, permissions }: OverviewTabProps) {
+export function OverviewTab({ user, mode, data, permissions, onGoToTab }: OverviewTabProps) {
   const overview = (data.overview ?? {}) as OverviewData
   const techStack = user.techStack ?? []
   const showSalary = permissions.fields.salary === true
@@ -62,8 +218,23 @@ export function OverviewTab({ user, mode, data, permissions }: OverviewTabProps)
   const tosVersion = overview.tosVersion
   const canSeeTos = tosAcceptedAt !== undefined
 
+  // DROP self-view: show requisites banner/snippet on overview.
+  // Banner: only when paymentMethod is null (not set yet).
+  // Snippet: only when paymentMethod is set (read-only preview with «Изменить»).
+  const isDropSelfView = mode === 'self' && user.role === 'DROP'
+  const goToRequisites = () => onGoToTab?.('requisites')
+
   return (
     <div className="space-y-6">
+      {/* task-drop-phase3-frontend: requisites section for DROP self-view (Q3 owner decision).
+          Banner is rendered before all other content so it reads first in DOM order (A11y §5.2). */}
+      {isDropSelfView && user.paymentMethod === null && (
+        <RequisitesMissingBanner onGoToRequisites={goToRequisites} />
+      )}
+      {isDropSelfView && user.paymentMethod !== null && (
+        <DropRequisitesSnippet user={user} onGoToRequisites={goToRequisites} />
+      )}
+
       {kpiCards > 0 && (
         <div
           className={`grid grid-cols-1 gap-4 ${

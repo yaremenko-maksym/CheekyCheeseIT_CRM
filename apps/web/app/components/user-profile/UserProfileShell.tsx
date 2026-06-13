@@ -239,6 +239,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
                 data={viewData as Record<string, unknown>}
                 permissions={permissions}
                 mode={mode}
+                onGoToTab={handleTabChange}
               />
             )}
             {activeTab === 'finance' && permissions.tabs.includes('finance') && (
