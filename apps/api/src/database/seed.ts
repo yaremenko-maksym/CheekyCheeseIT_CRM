@@ -538,7 +538,7 @@ async function main() {
   // ---- 1. Truncate all data (order matters for FK constraints) ----
   console.log('\n[1/8] Truncating existing data...')
   await db.execute(
-    'TRUNCATE TABLE tos_acceptances, employee_contracts, signed_contracts, tos_versions, contract_templates, notifications, user_audit_log, team_audit_log, project_audit_log, invoice_signatures, pending_obligations, transactions, payout_requests, project_finance_settings, project_members, projects, interviews, team_members, teams, documents, users RESTART IDENTITY CASCADE' as unknown as Parameters<
+    'TRUNCATE TABLE tos_acceptances, employee_contracts, signed_contracts, tos_versions, contract_templates, notifications, user_audit_log, team_audit_log, project_audit_log, invoice_signatures, pending_obligations, transactions, payout_requests, project_credentials, legend_entries, legends, project_finance_settings, project_members, projects, interviews, team_members, teams, documents, users RESTART IDENTITY CASCADE' as unknown as Parameters<
       typeof db.execute
     >[0],
   )
@@ -821,22 +821,18 @@ async function main() {
   })
 
   // Project 7: FinTrack Mobile — Nazar (ACTIVE, Feb 2026–)
-  const proj7Rows = await db
-    .insert(schema.projects)
-    .values({
-      name: 'FinTrack Mobile',
-      companyName: 'FinTrack Ltd',
-      domain: 'fintrack.app',
-      startDate: d(2026, 2, 1),
-      seniorId: NAZAR_ID,
-      rate: 5000,
-      currency: 'USDT',
-      techStack: 'NestJS, React Native, PostgreSQL',
-      createdAt: d(2026, 2, 1),
-      updatedAt: d(2026, 2, 1),
-    })
-    .returning()
-  const proj7 = proj7Rows[0]!
+  await db.insert(schema.projects).values({
+    name: 'FinTrack Mobile',
+    companyName: 'FinTrack Ltd',
+    domain: 'fintrack.app',
+    startDate: d(2026, 2, 1),
+    seniorId: NAZAR_ID,
+    rate: 5000,
+    currency: 'USDT',
+    techStack: 'NestJS, React Native, PostgreSQL',
+    createdAt: d(2026, 2, 1),
+    updatedAt: d(2026, 2, 1),
+  })
 
   // Project 8: Oleksiy solo (ADMIN-owned context not applicable for Oleksiy)
   // Keeping 8 projects total
