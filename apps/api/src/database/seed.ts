@@ -1475,6 +1475,48 @@ async function main() {
     `  ✓ ${txRows.length + expenseRows.length + juniorSalaryRows.length} transactions inserted`,
   )
 
+  // ---- 6b. User audit log — salary change events for juniors ----
+  // getSalaryMeta (users.service.ts) reads changedAt = createdAt of the latest
+  // user_audit_log row where jsonb_exists(changes, 'monthlySalary').
+  // Without these rows changedAt is null and the "Изменена <дата>" UI element
+  // is never visible in UT.
+  const salaryAuditRows: schema.NewUserAuditLogEntry[] = [
+    // Sofia — initial salary set when onboarded to proj1 (Sep 2025)
+    {
+      actorId: MAKSYM_ID,
+      targetId: SOFIA_ID,
+      action: 'UPDATE_SALARY',
+      changes: { monthlySalary: '[REDACTED]' },
+      createdAt: d(2025, 9, 1),
+    },
+    // Sofia — salary updated for proj2 (Feb 2026)
+    {
+      actorId: MAKSYM_ID,
+      targetId: SOFIA_ID,
+      action: 'UPDATE_SALARY',
+      changes: { monthlySalary: '[REDACTED]' },
+      createdAt: d(2026, 2, 10),
+    },
+    // Yuriy — salary set when onboarded (Oct 2025)
+    {
+      actorId: MAKSYM_ID,
+      targetId: YURIY_ID,
+      action: 'UPDATE_SALARY',
+      changes: { monthlySalary: '[REDACTED]' },
+      createdAt: d(2025, 10, 5),
+    },
+    // Lena — salary set when onboarded (Jan 2026)
+    {
+      actorId: MAKSYM_ID,
+      targetId: LENA_ID,
+      action: 'UPDATE_SALARY',
+      changes: { monthlySalary: '[REDACTED]' },
+      createdAt: d(2026, 1, 15),
+    },
+  ]
+  await db.insert(schema.userAuditLog).values(salaryAuditRows)
+  console.log(`  ✓ ${salaryAuditRows.length} user_audit_log salary-change rows inserted`)
+
   // ---- 7. Onboarding: ToS + contract templates + signed contracts ----
   console.log('\n[7/8] Inserting onboarding data...')
 
