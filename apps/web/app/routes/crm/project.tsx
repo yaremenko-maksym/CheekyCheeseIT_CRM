@@ -520,7 +520,7 @@ function SalarySnapshotCard({
       <CardContent className="flex flex-col flex-1 pt-0 gap-0">
         {/* Rate zone */}
         {hasRate ? (
-          <div className="flex items-baseline gap-2 pb-4" data-testid="salary-rate-zone">
+          <div className="flex items-baseline gap-2 pb-1" data-testid="salary-rate-zone">
             <span
               className="text-4xl font-bold tabular-nums leading-none"
               data-testid="salary-rate-amount"
@@ -533,11 +533,23 @@ function SalarySnapshotCard({
             <span className="text-sm text-muted-foreground ml-auto">/ месяц</span>
           </div>
         ) : (
-          <div className="pb-4">
+          <div className="pb-1">
             <p className="text-sm text-muted-foreground/60 italic" data-testid="salary-no-rate">
               Ставка не назначена
             </p>
           </div>
+        )}
+
+        {/* Changed-at — shown only when changedAt is present (round-1 req) */}
+        {salaryMeta?.changedAt != null && (
+          <p className="text-xs text-muted-foreground pb-3" data-testid="salary-changed-at">
+            Изменена{' '}
+            {new Date(salaryMeta.changedAt).toLocaleDateString('ru-RU', {
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric',
+            })}
+          </p>
         )}
 
         <Separator className="opacity-30 mb-4 shrink-0" />
