@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common'
 import { randomBytes } from 'crypto'
@@ -11,7 +12,7 @@ import type { InterpolatableVariableKey, SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { signedContracts, type User } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
-import type { GenerateContractPdfParams } from './contract-pdf.service'
+import { ContractPdfService, type GenerateContractPdfParams } from './contract-pdf.service'
 import { renderContractTemplate, type ContractRenderUserContext } from './contract-rendering'
 import { EmployeeContractsService } from './employee-contracts.service'
 
@@ -36,9 +37,12 @@ import { EmployeeContractsService } from './employee-contracts.service'
  */
 @Injectable()
 export class SignedContractsService {
+  private readonly logger = new Logger(SignedContractsService.name)
+
   constructor(
     private readonly db: DatabaseService,
     private readonly employeeContracts: EmployeeContractsService,
+    private readonly contractPdf: ContractPdfService,
   ) {}
 
   /**
@@ -75,7 +79,7 @@ export class SignedContractsService {
       throw new BadRequestException('ADMIN_DOES_NOT_SIGN_CONTRACTS')
     }
 
-    return this.db.db.transaction(async (tx: DrizzleTx) => {
+    const inserted = await this.db.db.transaction(async (tx: DrizzleTx) => {
       // Security (MED#1 / MED#2 + MED#3): getReadyForSigning runs INSIDE the
       // transaction with a FOR UPDATE row-level lock so concurrent sign() calls
       // on the same user are serialised. The second caller blocks here until
@@ -130,7 +134,7 @@ export class SignedContractsService {
       // typedName from the client body is ignored (kept optional in signContractSchema).
       const resolvedTypedName = user.legalFullName?.trim() || user.displayName || ''
 
-      const [inserted] = await tx
+      const [row] = await tx
         .insert(signedContracts)
         .values({
           userId,
@@ -143,23 +147,51 @@ export class SignedContractsService {
           signedUserAgent: userAgent,
           signedAt,
           contractNumber,
-          // task-junior-ut-round2 §7: pdfSizeBytes is left NULL here and lazily
-          // filled on first PDF download (recordPdfSize) — the PDF's verifyUrl
-          // embeds the row id, which is only known after this insert. Computing
-          // it now with a placeholder URL would produce a slightly-off size.
+          // pdfSizeBytes is left NULL here — the PDF verifyUrl embeds the row id
+          // (known only after this insert). Size is eagerly written right after the
+          // transaction commits (see below) so the documents list never shows "—".
         })
         .returning()
 
-      if (!inserted) throw new Error('Failed to insert signed contract')
+      if (!row) throw new Error('Failed to insert signed contract')
 
       // A3-1: transition employee_contract READY_TO_SIGN → SIGNED.
       // Pass `tx` so the UPDATE shares the same connection as the INSERT above —
       // required for the FK constraint on signed_contract_id to resolve the
       // uncommitted signed_contracts row within the same transaction (MED#3).
-      await this.employeeContracts.markSigned(userId, inserted.id, tx)
+      await this.employeeContracts.markSigned(userId, row.id, tx)
 
-      return inserted
+      return row
     })
+
+    // Eagerly generate the real PDF and persist its byte-length so the
+    // documents list shows an accurate size immediately after signing — without
+    // waiting for the first preview download (lazy path). We do this OUTSIDE
+    // the transaction (PDF generation is CPU-bound and must not hold a DB lock)
+    // and wrap it in try/catch so that a rendering failure never rolls back or
+    // blocks the already-committed signing event.
+    try {
+      const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000'
+      const pdfParams: GenerateContractPdfParams = {
+        contractNumber: inserted.contractNumber,
+        bodyMarkdown: inserted.bodyMarkdownSnapshot,
+        signedTypedName: inserted.signedTypedName,
+        signedAt: new Date(inserted.signedAt),
+        verifyUrl: `${frontendUrl}/contract/v/${inserted.id}`,
+      }
+      const { pdfBuffer } = await this.contractPdf.generateContractPdf(pdfParams)
+      await this.recordPdfSizeIfAbsent(inserted.id, pdfBuffer.length)
+    } catch (err: unknown) {
+      // Non-fatal: contract is already signed in DB. Size will be filled lazily
+      // on first PDF download via the existing recordPdfSizeIfAbsent call in the
+      // controller's download handler.
+      this.logger.warn(
+        `Eager PDF size recording failed for signed contract ${inserted.id} — falling back to lazy path`,
+        err instanceof Error ? err.message : String(err),
+      )
+    }
+
+    return inserted
   }
 
   async findById(id: string, requester: SessionUser) {
