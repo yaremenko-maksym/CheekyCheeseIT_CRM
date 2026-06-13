@@ -285,19 +285,16 @@ test.describe('Team page', () => {
       await expect(page).toHaveURL(`/crm/team/${TEAMS[0]!.id}`)
     })
 
-    test('JUNIOR with single team gets redirected to team detail', async ({ page }) => {
+    test('JUNIOR navigating to /crm/team gets redirected to /crm/project (route-guard)', async ({
+      page,
+    }) => {
+      // PR #184 route-guard: /crm/team is no longer in JUNIOR's allowed list.
+      // resolveRoleHome('JUNIOR') = '/crm/project'. The old auto-redirect to
+      // team-detail is gone — JUNIOR hits the guard before any team logic runs.
       await mockAuthAs(page, USERS.junior)
-      await page.route('**/api/teams', (r) =>
-        r.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([TEAMS[0]]), // Only one team
-        }),
-      )
-
       await page.goto('/crm/team')
-      // Should auto-redirect to team detail
-      await expect(page).toHaveURL(`/crm/team/${TEAMS[0]!.id}`)
+      await expect(page).toHaveURL(/\/crm\/project/, { timeout: 8_000 })
+      await expect(page).not.toHaveURL(/\/crm\/team/)
     })
 
     test('ADMIN with single team does NOT get redirected (can manage)', async ({
@@ -370,37 +367,38 @@ test.describe('Team page', () => {
       await expect(nav.getByText('Команда')).not.toBeVisible()
     })
 
-    test('JUNIOR navigating directly to /crm/team does not crash or logout', async ({
+    test('JUNIOR navigating directly to /crm/team gets redirected to /crm/project (no logout)', async ({
       asJunior: page,
     }) => {
-      // The route guard allows JUNIOR on /crm/team (useRoleGuard includes JUNIOR),
-      // but the sidebar hides the link. Direct URL access must not cause a logout.
+      // PR #184 route-guard: /crm/team is no longer in JUNIOR's allowed list.
+      // Guard fires before any team logic and redirects to resolveRoleHome('JUNIOR')
+      // = '/crm/project'. Must NOT cause logout or landing-page redirect.
       await page.goto('/crm/team')
-      const url = page.url()
-      expect(url).not.toMatch(/\/crm\/login/)
-      expect(url).not.toMatch(/^http:\/\/localhost:\d+\/?$/)
+      await expect(page).toHaveURL(/\/crm\/project/, { timeout: 8_000 })
+      await expect(page).not.toHaveURL(/\/crm\/login/)
+      await expect(page).not.toHaveURL(/^http:\/\/localhost:\d+\/?$/)
     })
 
-    test('JUNIOR can access team detail page (newly allowed)', async ({ asJunior: page }) => {
+    test('JUNIOR accessing team detail page gets redirected to /crm/project (route-guard)', async ({
+      asJunior: page,
+    }) => {
+      // PR #184 route-guard: /crm/team/* is no longer in JUNIOR's allowed list
+      // (STALE: was "newly allowed" in earlier PR, lockdown applied in UT round 2).
+      // JUNIOR has no team nav links; direct URL triggers guard → /crm/project.
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
-      await expect(page.getByText('Alpha Team')).toBeVisible()
-      await expect(page.getByText('Участники команды')).toBeVisible()
+      await expect(page).toHaveURL(/\/crm\/project/, { timeout: 8_000 })
+      await expect(page).not.toHaveURL(/\/crm\/team/)
     })
 
-    test('JUNIOR sees all team members (read-only access)', async ({ asJunior: page }) => {
-      // According to CLAUDE.md: "SENIOR, JUNIOR, HR, ACCOUNTANT видят список своей команды (read-only)"
-      // JUNIOR should see ALL team members, not just themselves
+    test('JUNIOR accessing /crm/team/:id gets redirected to /crm/project (route-guard)', async ({
+      asJunior: page,
+    }) => {
+      // PR #184 route-guard: /crm/team prefix is not in JUNIOR's allowed roles.
+      // STALE: previously "JUNIOR sees all team members (read-only access)".
+      // The guard now fires before the team-detail component mounts.
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
-      await expect(page.getByText('Alpha Team')).toBeVisible()
-      await expect(page.getByText('Участники команды')).toBeVisible()
-
-      // Should see team members by their names (flat list, no role headers)
-      await expect(page.getByText('Senior Dev')).toBeVisible()
-      await expect(page.getByText('HR Manager')).toBeVisible()
-
-      // Should have no management buttons (read-only access)
-      await expect(page.getByRole('button', { name: 'Добавить' })).not.toBeVisible()
-      await expect(page.getByTitle('Исключить')).not.toBeVisible()
+      await expect(page).toHaveURL(/\/crm\/project/, { timeout: 8_000 })
+      await expect(page).not.toHaveURL(/\/crm\/team/)
     })
   })
 
@@ -664,22 +662,15 @@ test.describe('Team page', () => {
       await expect(mainContent).not.toHaveClass(/grid-cols-3/)
     })
 
-    test('JUNIOR sees filtered member list (no other JUNIORs) and only own projects', async ({
+    test('JUNIOR accessing team detail gets redirected to /crm/project — no content leak', async ({
       asJunior: page,
     }) => {
+      // PR #184 route-guard: /crm/team prefix is not in JUNIOR's allowed list.
+      // STALE: previously tested filtered member view (before lockdown in UT round 2).
+      // Guard now fires before team-detail component mounts → no content rendered.
       await page.goto(`/crm/team/${TEAMS[0]!.id}`)
-
-      // Should see team page
-      await expect(page.getByText('Alpha Team')).toBeVisible()
-      await expect(page.getByText('Участники команды')).toBeVisible()
-
-      // Should see team members by names (flat list, JUNIOR sees filtered view)
-      await expect(page.getByText('Senior Dev')).toBeVisible()
-      await expect(page.getByText('HR Manager')).toBeVisible()
-
-      // No management buttons
-      await expect(page.getByRole('button', { name: 'Редактировать' })).not.toBeVisible()
-      await expect(page.getByRole('button', { name: 'Добавить' })).not.toBeVisible()
+      await expect(page).toHaveURL(/\/crm\/project/, { timeout: 8_000 })
+      await expect(page).not.toHaveURL(/\/crm\/team/)
     })
   })
 

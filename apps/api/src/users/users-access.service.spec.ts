@@ -41,7 +41,12 @@ describe('UsersAccessService.getViewPermissions', () => {
     ;(service as unknown as Record<string, unknown>).isSeniorViewingOwnProjectMember = vi
       .fn()
       .mockResolvedValue(false)
-    ;(service as unknown as Record<string, unknown>).isJuniorUnderSenior = vi
+    // Real private method is `isJuniorUnderLegendSubject` (renamed from the old
+    // `isJuniorUnderSenior` to cover SENIOR + DROP). Mocking the OLD name was a
+    // silent no-op: the real DB-backed method stayed live against the empty `db`
+    // mock, so the JUNIOR-under-legend masking branch (:161) was never truly
+    // exercised by these unit tests (HIGH-2).
+    ;(service as unknown as Record<string, unknown>).isJuniorUnderLegendSubject = vi
       .fn()
       .mockResolvedValue(false)
   })
@@ -239,12 +244,36 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.tabs).toContain('overview')
   })
 
-  it('JUNIOR viewing themselves — keeps own tabs (regression)', async () => {
+  // task-junior-ut-round2 §3 (security, data-leak): JUNIOR self-view is an
+  // EXPLICIT allow-list — overview/requisites/documents ONLY. Projects/Team/Finance
+  // are removed: they surface senior/drop identity + project/team internals.
+  // (Supersedes the previous expectation that JUNIOR self saw projects/team.)
+  it('JUNIOR viewing themselves — allow-list overview/requisites/documents only (no projects/team/finance)', async () => {
     const junior = makeUser({ id: 'jr1', role: 'JUNIOR' })
     const p = await service.getViewPermissions(junior, junior)
-    expect(p.tabs).toContain('overview')
-    expect(p.tabs).toContain('projects')
-    expect(p.tabs).toContain('team')
+    expect(p.tabs).toEqual(['overview', 'requisites', 'documents'])
+    expect(p.tabs).not.toContain('projects')
+    expect(p.tabs).not.toContain('team')
+    expect(p.tabs).not.toContain('finance')
+  })
+
+  it('JUNIOR self — own salary still visible (fields.salary), requisites visible — not a leak of own data', async () => {
+    const junior = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(junior, junior)
+    expect(p.fields.salary).toBe(true)
+    expect(p.fields.requisites).toBe(true)
+    // share is for SENIOR/ADMIN/DROP — JUNIOR self must not have it
+    expect(p.fields.share).toBe(false)
+  })
+
+  it('SELF — SENIOR/HR/ACCOUNTANT/DROP keep projects/team (allow-list change is JUNIOR-only)', async () => {
+    for (const role of ['SENIOR', 'HR', 'ACCOUNTANT', 'DROP'] as const) {
+      const u = makeUser({ id: `${role}-id`, role })
+      const p = await service.getViewPermissions(u, u)
+      expect(p.tabs, `${role} self should keep projects`).toContain('projects')
+      expect(p.tabs, `${role} self should keep team`).toContain('team')
+      expect(p.tabs, `${role} self should keep finance`).toContain('finance')
+    }
   })
 
   it('JUNIOR viewing their project SENIOR — gets overview/projects/team + fields.legend=true', async () => {
@@ -268,6 +297,43 @@ describe('UsersAccessService.getViewPermissions', () => {
     const target = makeUser({ id: 'sr1', role: 'SENIOR' })
     const p = await service.getViewPermissions(viewer, target)
     expect(p.tabs).toEqual([])
+  })
+
+  // HIGH-2: with the mock correctly wired to isJuniorUnderLegendSubject, flipping
+  // it to TRUE must drive the masking branch (:161) — full identity-masking
+  // assertion in one place so a regression in tabs OR field-flags fails here.
+  it('JUNIOR under legend subject (mock=true) — masked tabs/fields/actions (legend boundary)', async () => {
+    const spy = vi.fn().mockResolvedValue(true)
+    ;(service as unknown as Record<string, unknown>).isJuniorUnderLegendSubject = spy
+    const viewer = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const target = makeUser({ id: 'sr1', role: 'SENIOR', techStack: 'React, Node' })
+    const p = await service.getViewPermissions(viewer, target)
+
+    // The masking branch was actually entered (proves the mock is wired now).
+    expect(spy).toHaveBeenCalledWith('jr1', 'sr1')
+    // Persona-only tabs.
+    expect(p.tabs).toEqual(['overview', 'projects', 'team'])
+    // Legend persona surfaced; real identity hidden.
+    expect(p.fields.legend).toBe(true)
+    expect(p.fields.realContacts).toBe(false)
+    expect(p.fields.fopPii).toBe(false)
+    expect(p.fields.adminNote).toBe(false)
+    expect(p.fields.techStack).toBe(true)
+    expect(p.fields.registrationDate).toBe(true)
+    // JUNIOR has no mutating actions on anyone.
+    expect(p.actions).toEqual([])
+  })
+
+  it('JUNIOR under legend subject — DROP target (mock=true) — masked realContacts/legend', async () => {
+    const spy = vi.fn().mockResolvedValue(true)
+    ;(service as unknown as Record<string, unknown>).isJuniorUnderLegendSubject = spy
+    const viewer = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const target = makeUser({ id: 'drop1', role: 'DROP' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(spy).toHaveBeenCalledWith('jr1', 'drop1')
+    expect(p.tabs).toEqual(['overview', 'projects', 'team'])
+    expect(p.fields.legend).toBe(true)
+    expect(p.fields.realContacts).toBe(false)
   })
 
   it('JUNIOR viewing another JUNIOR — no tabs (unchanged)', async () => {
@@ -395,5 +461,57 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.fopPii).toBe(false)
     expect(p.fields.adminNote).toBe(false)
     expect(p.fields.realContacts).toBe(true)
+  })
+
+  // ── task-junior-ut-round2 §6 — projectCredentials / editCredentials flags ──
+  it('ADMIN viewing JUNIOR — projectCredentials/editCredentials true', async () => {
+    const admin = makeUser({ id: 'admin1', role: 'ADMIN' })
+    const junior = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(admin, junior)
+    expect(p.fields.projectCredentials).toBe(true)
+    expect(p.fields.editCredentials).toBe(true)
+  })
+
+  it('ADMIN viewing SENIOR — projectCredentials/editCredentials falsy (junior-only)', async () => {
+    const admin = makeUser({ id: 'admin1', role: 'ADMIN' })
+    const senior = makeUser({ id: 'sr1', role: 'SENIOR' })
+    const p = await service.getViewPermissions(admin, senior)
+    expect(p.fields.projectCredentials).toBeFalsy()
+    expect(p.fields.editCredentials).toBeFalsy()
+  })
+
+  it('ADMIN self — projectCredentials/editCredentials falsy (never self)', async () => {
+    const admin = makeUser({ id: 'admin1', role: 'ADMIN' })
+    const p = await service.getViewPermissions(admin, admin)
+    expect(p.fields.projectCredentials).toBeFalsy()
+    expect(p.fields.editCredentials).toBeFalsy()
+  })
+
+  it('HR (in team) viewing JUNIOR — projectCredentials/editCredentials true', async () => {
+    ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
+      .fn()
+      .mockResolvedValue(true)
+    const hr = makeUser({ id: 'hr1', role: 'HR' })
+    const junior = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(hr, junior)
+    expect(p.fields.projectCredentials).toBe(true)
+    expect(p.fields.editCredentials).toBe(true)
+  })
+
+  it('HR (NOT in team) viewing JUNIOR — no tabs, no credential flags', async () => {
+    ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
+      .fn()
+      .mockResolvedValue(false)
+    const hr = makeUser({ id: 'hr1', role: 'HR' })
+    const junior = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(hr, junior)
+    expect(p.fields.projectCredentials).toBeFalsy()
+    expect(p.fields.editCredentials).toBeFalsy()
+  })
+
+  it('JUNIOR self — no projectCredentials flag (self does not see the section)', async () => {
+    const junior = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(junior, junior)
+    expect(p.fields.projectCredentials).toBeFalsy()
   })
 })

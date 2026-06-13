@@ -14,7 +14,6 @@ import {
   CheckCircle2,
   DollarSign,
   ExternalLink,
-  FileText,
   Phone,
   Send,
   UserCircle,
@@ -35,9 +34,11 @@ import {
   transactionSchema,
 } from '@crm/shared'
 import { useLegend } from '@/hooks/use-legend'
+import { useJuniorProjects } from '@/hooks/use-junior-projects'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
 import { getAxiosStatus } from '@/lib/axios-utils'
+import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -80,15 +81,6 @@ function getInitials(name: string | null | undefined): string {
 // ---------------------------------------------------------------------------
 // Data hooks
 // ---------------------------------------------------------------------------
-
-/** JUNIOR-facing: GET /api/projects returns only their projects with masking. */
-function useJuniorProjects() {
-  return useQuery<ProjectDto[]>({
-    queryKey: ['projects'],
-    queryFn: () => api.get<ProjectDto[]>('/projects').then((r) => r.data),
-    staleTime: 5 * 60_000,
-  })
-}
 
 function useMyContract() {
   return useQuery<ContractStatusMeDto | null>({
@@ -267,48 +259,57 @@ function HubCards({ project, projectId }: { project: ProjectDto; projectId: stri
   const salaryLoading = salaryMetaLoading || salaryTxsLoading
 
   return (
-    <motion.div className="space-y-4" variants={container} initial="hidden" animate="show">
-      {/* Row 1: project info + persona (2-col on md+) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <motion.div variants={card}>
-          <ProjectInfoCard project={project} />
-        </motion.div>
-        <motion.div variants={card}>
-          <PersonaCard legend={legend ?? null} isLoading={legendLoading} />
-        </motion.div>
-      </div>
-
-      {/* Row 2: contract + salary (2-col on md+) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <motion.div variants={card}>
-          <ContractStatusCard
-            contract={contract ?? null}
-            isLoading={contractLoading}
-            isError={contractError}
-          />
-        </motion.div>
-        <motion.div variants={card}>
-          <SalarySnapshotCard
-            salaryMeta={salaryMeta ?? null}
-            salaryTxs={salaryTxs ?? []}
-            isLoading={salaryLoading}
-          />
-        </motion.div>
-      </div>
-
-      {/* Row 3: HR contact — full width */}
-      <motion.div variants={card}>
-        <HrContactCard hrContact={hrContact ?? null} isLoading={hrLoading} />
+    // Bento grid (task §1, design junior-hub-round2): a single 3-col grid on lg
+    // so the hub fits one screen @1440×900 without a long vertical scroll.
+    // Left: project identity · middle: persona · right: contract+salary stacked.
+    // Bottom band: HR contact + project credentials side-by-side.
+    <motion.div
+      className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+      variants={container}
+      initial="hidden"
+      animate="show"
+      data-testid="junior-hub-bento"
+    >
+      <motion.div variants={card} className="lg:col-span-1">
+        <ProjectInfoCard project={project} />
       </motion.div>
 
-      {/* Row 4: project credentials — full width. JUNIOR is view+reveal only. */}
+      <motion.div variants={card} className="lg:col-span-1">
+        <PersonaCard legend={legend ?? null} isLoading={legendLoading} />
+      </motion.div>
+
+      {/* Right column: contract + salary stacked (no separator between them). */}
+      <motion.div variants={card} className="lg:col-span-1 flex flex-col gap-3">
+        <ContractStatusCard
+          contract={contract ?? null}
+          isLoading={contractLoading}
+          isError={contractError}
+        />
+        <SalarySnapshotCard
+          className="flex-1"
+          salaryMeta={salaryMeta ?? null}
+          salaryTxs={salaryTxs ?? []}
+          isLoading={salaryLoading}
+        />
+      </motion.div>
+
+      {/* Bottom band: HR contact (fixed width) + credentials (fills the rest).
+          JUNIOR is view+reveal+ADD (canEdit false, canAdd true — task §6). */}
       <motion.div variants={card} className="col-span-full">
-        <ProjectCredentialsSection projectId={projectId} canEdit={false} />
-      </motion.div>
-
-      {/* Row 5: quick links — full width */}
-      <motion.div variants={card}>
-        <QuickLinksBar />
+        <section
+          aria-label="HR и пароли проекта"
+          className="flex flex-col md:flex-row gap-4"
+          data-testid="junior-hub-hr-credentials-row"
+        >
+          <HrContactCard
+            className="md:w-[280px] shrink-0 h-fit"
+            hrContact={hrContact ?? null}
+            isLoading={hrLoading}
+          />
+          <div className="flex-1 min-w-0">
+            <ProjectCredentialsSection projectId={projectId} canEdit={false} canAdd />
+          </div>
+        </section>
       </motion.div>
     </motion.div>
   )
@@ -525,12 +526,21 @@ interface SalarySnapshotCardProps {
   salaryMeta: SalaryMetaDto | null
   salaryTxs: TransactionDto[]
   isLoading: boolean
+  className?: string
 }
 
-function SalarySnapshotCard({ salaryMeta, salaryTxs, isLoading }: SalarySnapshotCardProps) {
+function SalarySnapshotCard({
+  salaryMeta,
+  salaryTxs,
+  isLoading,
+  className,
+}: SalarySnapshotCardProps) {
   if (isLoading) {
     return (
-      <Card className="border-border/40 bg-card" data-testid="salary-snapshot-card">
+      <Card
+        className={cn('border-border/40 bg-card', className)}
+        data-testid="salary-snapshot-card"
+      >
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold">Моя зарплата</CardTitle>
         </CardHeader>
@@ -545,7 +555,7 @@ function SalarySnapshotCard({ salaryMeta, salaryTxs, isLoading }: SalarySnapshot
   const hasRate = salaryMeta?.monthlySalary != null
 
   return (
-    <Card className="border-border/40 bg-card" data-testid="salary-snapshot-card">
+    <Card className={cn('border-border/40 bg-card', className)} data-testid="salary-snapshot-card">
       <CardHeader className="flex flex-row items-center justify-between pb-3">
         <CardTitle className="text-sm font-semibold">Моя зарплата</CardTitle>
         <DollarSign className="h-4 w-4 text-muted-foreground" aria-hidden />
@@ -633,12 +643,13 @@ function SalarySnapshotCard({ salaryMeta, salaryTxs, isLoading }: SalarySnapshot
 interface HrContactCardProps {
   hrContact: HrContactDto | null
   isLoading: boolean
+  className?: string
 }
 
-function HrContactCard({ hrContact, isLoading }: HrContactCardProps) {
+function HrContactCard({ hrContact, isLoading, className }: HrContactCardProps) {
   if (isLoading) {
     return (
-      <Card className="border-border/40 bg-card" data-testid="hr-contact-card">
+      <Card className={cn('border-border/40 bg-card', className)} data-testid="hr-contact-card">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold">Ваш HR</CardTitle>
         </CardHeader>
@@ -652,7 +663,7 @@ function HrContactCard({ hrContact, isLoading }: HrContactCardProps) {
   const hasContact = hrContact?.displayName || hrContact?.telegram || hrContact?.phone
 
   return (
-    <Card className="border-border/40 bg-card" data-testid="hr-contact-card">
+    <Card className={cn('border-border/40 bg-card', className)} data-testid="hr-contact-card">
       <CardHeader className="pb-3">
         <CardTitle className="text-sm font-semibold">Ваш HR</CardTitle>
       </CardHeader>
@@ -691,37 +702,6 @@ function HrContactCard({ hrContact, isLoading }: HrContactCardProps) {
             </div>
           </div>
         )}
-      </CardContent>
-    </Card>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// QuickLinksBar
-// ---------------------------------------------------------------------------
-
-function QuickLinksBar() {
-  return (
-    <Card className="border-border/40 bg-card" data-testid="quick-links-bar">
-      <CardContent className="flex flex-wrap gap-2 py-3">
-        <Button variant="outline" size="sm" className="gap-2 h-9" asChild>
-          <Link to="/crm/legend" data-testid="quick-link-legend">
-            <BookOpen className="h-3.5 w-3.5" />
-            Легенда
-          </Link>
-        </Button>
-        <Button variant="outline" size="sm" className="gap-2 h-9" asChild>
-          <Link to="/crm/documents">
-            <FileText className="h-3.5 w-3.5" />
-            Документы
-          </Link>
-        </Button>
-        <Button variant="outline" size="sm" className="gap-2 h-9" asChild>
-          <Link to="/crm/finance">
-            <DollarSign className="h-3.5 w-3.5" />
-            Финансы
-          </Link>
-        </Button>
       </CardContent>
     </Card>
   )

@@ -68,10 +68,23 @@ export class UsersAccessService {
       fields.realContacts = true
       // ADMIN can view/edit any SENIOR's or DROP's legend (subject excluded by isSelf check)
       fields.legend = targetIsLegendSubject && !isSelf
+      // task-junior-ut-round2 §6: ADMIN sees + edits a JUNIOR's project credentials
+      // section in that junior's profile. Never for self / non-JUNIOR targets.
+      fields.projectCredentials = target.role === 'JUNIOR' && !isSelf
+      fields.editCredentials = target.role === 'JUNIOR' && !isSelf
     } else if (isSelf) {
-      tabs.push('overview', 'projects', 'team', 'requisites', 'documents')
-      // Drop role - phase 1: DROP has finance access (read), same as senior/etc.
-      if (isSenior || isJunior || isHr || isAccountant || isDrop) tabs.push('finance')
+      // task-junior-ut-round2 §3 (security, data-leak): JUNIOR self-view is an
+      // EXPLICIT allow-list — overview/requisites/documents only. JUNIOR must NOT
+      // get projects/team/finance tabs: those surface the senior/drop identity and
+      // project/team internals (same class as mapProject allow-list + RBAC audit
+      // 2026-06-10). The junior hub (/crm/project) is their project surface.
+      if (isJunior) {
+        tabs.push('overview', 'requisites', 'documents')
+      } else {
+        tabs.push('overview', 'projects', 'team', 'requisites', 'documents')
+        // Drop role - phase 1: DROP has finance access (read), same as senior/etc.
+        if (isSenior || isHr || isAccountant || isDrop) tabs.push('finance')
+      }
       // SENIOR: interviews moved to header link; no separate tab here
       fields.salary = targetIsSalaryRole
       fields.share = targetIsShareRole
@@ -117,6 +130,10 @@ export class UsersAccessService {
         fields.realContacts = true
         // HR can view/edit their SENIOR's or DROP's legend
         fields.legend = targetIsLegendSubject
+        // task-junior-ut-round2 §6: HR (sharing the target junior's team) sees +
+        // edits that junior's project credentials in their profile. JUNIOR only.
+        fields.projectCredentials = target.role === 'JUNIOR'
+        fields.editCredentials = target.role === 'JUNIOR'
       }
     } else if (isSenior) {
       // SENIOR cannot view JUNIOR profiles (identity hidden per RBAC rule #1).

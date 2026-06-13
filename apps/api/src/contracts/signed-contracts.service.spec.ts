@@ -699,6 +699,42 @@ describe('SignedContractsService', () => {
       expect(result).toHaveLength(2)
     })
   })
+
+  // task-junior-ut-round2 §7 — lazy backfill of the real PDF size.
+  describe('recordPdfSizeIfAbsent', () => {
+    // The service calls `this.db.db.update(...)`, so the injected DatabaseService
+    // must expose a `.db` field holding the Drizzle client with `.update`.
+    function makeUpdatableDb() {
+      const whereFn = vi.fn().mockResolvedValue(undefined)
+      const setFn = vi.fn().mockReturnValue({ where: whereFn })
+      const updateFn = vi.fn().mockReturnValue({ set: setFn })
+      const dbService = { db: { update: updateFn } } as unknown as DatabaseService
+      return { dbService, updateFn, setFn, whereFn }
+    }
+
+    it('writes the size when positive', async () => {
+      const { dbService, updateFn, setFn } = makeUpdatableDb()
+      const service = new SignedContractsService(dbService, makeEmployeeContractsSvc())
+      await service.recordPdfSizeIfAbsent('sc-1', 12345)
+      expect(updateFn).toHaveBeenCalledTimes(1)
+      expect(setFn).toHaveBeenCalledWith({ pdfSizeBytes: 12345 })
+    })
+
+    it('skips the write for zero size (no fake number persisted)', async () => {
+      const { dbService, updateFn } = makeUpdatableDb()
+      const service = new SignedContractsService(dbService, makeEmployeeContractsSvc())
+      await service.recordPdfSizeIfAbsent('sc-1', 0)
+      expect(updateFn).not.toHaveBeenCalled()
+    })
+
+    it('skips the write for negative / non-finite size', async () => {
+      const { dbService, updateFn } = makeUpdatableDb()
+      const service = new SignedContractsService(dbService, makeEmployeeContractsSvc())
+      await service.recordPdfSizeIfAbsent('sc-1', -5)
+      await service.recordPdfSizeIfAbsent('sc-1', Number.NaN)
+      expect(updateFn).not.toHaveBeenCalled()
+    })
+  })
 })
 
 describe('ipTrailingSegment', () => {

@@ -101,6 +101,11 @@ export class SignedContractsController {
     const data = await this.service.getPdfData(id, user)
     const { pdfBuffer } = await this.contractPdf.generateContractPdf(data)
 
+    // task-junior-ut-round2 §7: lazily persist the real PDF size so the documents
+    // list shows it instead of 0 B. Best-effort — a write failure must not block
+    // the download.
+    void this.service.recordPdfSizeIfAbsent(id, pdfBuffer.length).catch(() => {})
+
     await reply
       .header('Content-Type', 'application/pdf')
       .header('Content-Disposition', `attachment; filename="contract-${data.contractNumber}.pdf"`)

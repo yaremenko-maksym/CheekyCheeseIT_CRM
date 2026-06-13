@@ -48,6 +48,7 @@ export class EmployeeContractsController {
     private readonly service: EmployeeContractsService,
     private readonly contractPdf: ContractPdfService,
     private readonly db: DatabaseService,
+    private readonly signedContracts: SignedContractsService,
   ) {}
 
   /**
@@ -164,6 +165,9 @@ export class EmployeeContractsController {
     const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000'
 
     let pdfParams: Parameters<typeof this.contractPdf.generateContractPdf>[0]
+    // task-junior-ut-round2 §7: when this is a SIGNED contract, remember its
+    // signed_contract id so we can lazily persist the real PDF size below.
+    let signedContractIdForSize: string | null = null
 
     if (contract.status === 'SIGNED' && contract.signedContractId) {
       // Fetch signed_contract for real signature data
@@ -185,6 +189,7 @@ export class EmployeeContractsController {
         signedAt: new Date(signed.signedAt),
         verifyUrl: `${frontendUrl}/contract/v/${signed.id}`,
       }
+      signedContractIdForSize = signed.id
     } else {
       // DRAFT or READY_TO_SIGN — unsigned preview.
       // Pass customValues so the PDF preview reflects admin-filled variables.
@@ -206,6 +211,14 @@ export class EmployeeContractsController {
     }
 
     const { pdfBuffer } = await this.contractPdf.generateContractPdf(pdfParams)
+
+    // task-junior-ut-round2 §7: lazily persist the real PDF size for SIGNED
+    // contracts so the documents list shows it instead of 0 B. Best-effort.
+    if (signedContractIdForSize) {
+      void this.signedContracts
+        .recordPdfSizeIfAbsent(signedContractIdForSize, pdfBuffer.length)
+        .catch(() => {})
+    }
 
     const { contentDisposition } = safeContractFilename(userRow.displayName, contract.status)
 

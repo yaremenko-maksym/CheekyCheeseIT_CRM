@@ -696,6 +696,10 @@ export const signedContracts = pgTable(
     signedUserAgent: text('signed_user_agent'),
     signedAt: timestamp('signed_at', { withTimezone: true }).defaultNow().notNull(),
     contractNumber: text('contract_number').notNull().unique(),
+    // task-junior-ut-round2 §7: real PDF size in bytes. Filled at signing time
+    // (deterministic render), lazily backfilled on first download for legacy
+    // rows. NULL = not yet computed (documents list falls back to 0 until then).
+    pdfSizeBytes: integer('pdf_size_bytes'),
   },
   (t) => [index('signed_contracts_user_id_idx').on(t.userId)],
 )

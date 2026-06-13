@@ -40,6 +40,7 @@ function makeContractRow(overrides: {
   status: 'DRAFT' | 'READY_TO_SIGN' | 'SIGNED' | 'CANCELLED'
   contractNumber?: string
   createdAt?: Date
+  pdfSizeBytes?: number | null
 }) {
   return {
     id: overrides.id ?? `contract-${Math.random().toString(36).slice(2)}`,
@@ -48,7 +49,7 @@ function makeContractRow(overrides: {
     createdAt: overrides.createdAt ?? new Date('2026-06-01'),
     signedContract:
       overrides.status === 'SIGNED' && overrides.contractNumber
-        ? { contractNumber: overrides.contractNumber }
+        ? { contractNumber: overrides.contractNumber, pdfSizeBytes: overrides.pdfSizeBytes ?? null }
         : null,
   }
 }
@@ -186,5 +187,53 @@ describe('DocumentsService — contract virtual entry readable name (п.4)', () 
     const result = await svc.list(SENIOR, { category: 'CONTRACT' })
 
     expect(result[0]!.name).not.toContain(contractId)
+  })
+})
+
+// task-junior-ut-round2 §7 — real PDF size in the documents list (no more 0 B).
+describe('DocumentsService — contract virtual entry PDF size (§7)', () => {
+  it('SIGNED with pdfSizeBytes → maps the real size, not 0', async () => {
+    const rows = [
+      makeContractRow({
+        status: 'SIGNED',
+        contractNumber: 'CHK-SIZE01',
+        userId: SENIOR.id,
+        pdfSizeBytes: 48213,
+      }),
+    ]
+    const svc = makeService(rows)
+
+    const result = await svc.list(SENIOR, { category: 'CONTRACT' })
+
+    expect(result[0]!.sizeBytes).toBe(48213)
+  })
+
+  it('SIGNED without computed size yet (null) → falls back to 0 (no crash, no fake number)', async () => {
+    const rows = [
+      makeContractRow({
+        status: 'SIGNED',
+        contractNumber: 'CHK-SIZE02',
+        userId: SENIOR.id,
+        pdfSizeBytes: null,
+      }),
+    ]
+    const svc = makeService(rows)
+
+    const result = await svc.list(SENIOR, { category: 'CONTRACT' })
+
+    expect(result[0]!.sizeBytes).toBe(0)
+  })
+
+  it('DRAFT / READY_TO_SIGN (no signed_contract) → size 0 (never blocks list on generation)', async () => {
+    const rows = [
+      makeContractRow({ status: 'READY_TO_SIGN', userId: SENIOR.id }),
+      makeContractRow({ status: 'DRAFT', userId: SENIOR.id }),
+    ]
+    const svc = makeService(rows)
+
+    const result = await svc.list(ADMIN, { category: 'CONTRACT' })
+
+    expect(result[0]!.sizeBytes).toBe(0)
+    expect(result[1]!.sizeBytes).toBe(0)
   })
 })

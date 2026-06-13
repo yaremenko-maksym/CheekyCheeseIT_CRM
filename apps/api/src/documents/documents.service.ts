@@ -524,6 +524,7 @@ export class DocumentsService {
         contractNumber: string
         signedTypedName: string | null
         signedAt: Date | string | null
+        pdfSizeBytes?: number | null
       } | null
     },
     actorUserDisplayNames: Record<string, string>,
@@ -569,7 +570,11 @@ export class DocumentsService {
       originalName: null,
       s3Key: '',
       thumbnailS3Key: null,
-      sizeBytes: 0,
+      // task-junior-ut-round2 §7: real PDF size from the signed contract. Filled at
+      // signing time; lazily backfilled on first download for legacy rows. For
+      // DRAFT/READY_TO_SIGN (no signed_contract yet) and legacy rows not yet
+      // downloaded, fall back to 0 — never block the list on PDF generation.
+      sizeBytes: contract.signedContract?.pdfSizeBytes ?? 0,
       mimeType: 'application/pdf',
       uploadedBy: contract.userId,
       uploadedByDisplayName,

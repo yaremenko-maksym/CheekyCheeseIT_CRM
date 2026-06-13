@@ -10,6 +10,7 @@ import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { useLogout } from '@/lib/use-logout'
 import { NavSidebar } from '@/components/crm/nav-sidebar'
+import { isRouteAllowed, resolveRoleHome } from '@/lib/route-access'
 import { BrandMark } from '@/components/brand-mark'
 import { NotificationsBell } from '@/components/layout/notifications-bell'
 import { UserAvatar } from '@/components/users/UserAvatar'
@@ -98,6 +99,20 @@ function CrmLayout() {
       void navigate({ to: '/crm/login' })
     }
   }, [user, isLoading, navigate])
+
+  // Declarative role route-guard (task §4, security: front-only gating fix).
+  // Defense-in-depth ПОВЕРХ backend RBAC: если роль попала по прямому URL на
+  // запрещённый раздел — редиректим на её дом. Источник истины ролей —
+  // lib/route-access (та же карта, что NAV_ITEMS). Onboarding-роуты исключены:
+  // их гейтит отдельный onboarding-flow выше. Backend RBAC НЕ ослаблен.
+  useEffect(() => {
+    if (isLoading || !user) return
+    const path = location.pathname
+    if (path.startsWith('/crm/onboarding')) return
+    if (!isRouteAllowed(path, user.role)) {
+      void navigate({ to: resolveRoleHome(user.role), replace: true })
+    }
+  }, [user, isLoading, location.pathname, navigate])
 
   const handleToggle = () => {
     setCollapsed((prev) => {

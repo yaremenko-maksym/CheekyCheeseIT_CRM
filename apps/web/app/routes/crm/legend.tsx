@@ -2,14 +2,12 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
 import { BookOpen, Loader2, Pencil, Plus, Save, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import type { ProjectDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
+import { useJuniorProjects } from '@/hooks/use-junior-projects'
 import { useLegend, useUpsertLegend, useAddLegendEntry } from '@/hooks/use-legend'
 import { useForm } from '@tanstack/react-form'
 import { upsertLegendSchema } from '@crm/shared'
-import { api } from '@/lib/axios'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -39,13 +37,10 @@ function LegendPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
 
-  // Get the active project for the current user
-  const { data: projects, isLoading: projectsLoading } = useQuery<ProjectDto[]>({
-    queryKey: ['projects'],
-    queryFn: () => api.get<ProjectDto[]>('/projects').then((r) => r.data),
-    staleTime: 5 * 60_000,
-    enabled: !denied,
-  })
+  // Get the active project for the current user.
+  // useJuniorProjects uses queryKey ['junior', 'projects'] — NOT in the
+  // PERSISTED_KEY_PREFIXES allow-list — so masked data is never written to IndexedDB.
+  const { data: projects, isLoading: projectsLoading } = useJuniorProjects()
 
   const activeProject = projects?.[0] ?? null
   const projectId = activeProject?.id
@@ -280,7 +275,7 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
                     <DatePickerField
                       value={field.state.value ?? ''}
                       onChange={(v) => field.handleChange(v)}
-                      placeholder="Выберите дату рождения"
+                      placeholder="Дата рождения"
                     />
                   </div>
                 )}

@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import type { UserProfileDto, ViewPermissions } from '@crm/shared'
 import { ProfileEditFields } from '../self-edit/ProfileEditFields'
 import { AdminNoteDialog } from '../admin-actions/AdminNoteDialog'
+import { ProfileCredentialsSection } from '../ProfileCredentialsSection'
 
 export interface OverviewTabProps {
   user: UserProfileDto
@@ -110,6 +111,13 @@ export function OverviewTab({ user, mode, data, permissions }: OverviewTabProps)
             </Card>
           )}
         </div>
+      )}
+
+      {/* task-junior-ut-round2 §6: a JUNIOR's project credentials, visible to
+          ADMIN / HR (in the junior's profile) only. The backend flag gates it;
+          the section also hides itself on a 403 from the user-scoped endpoint. */}
+      {user.role === 'JUNIOR' && permissions.fields.projectCredentials === true && (
+        <ProfileCredentialsSection userId={user.id} />
       )}
 
       {permissions.fields.techStack !== false && (

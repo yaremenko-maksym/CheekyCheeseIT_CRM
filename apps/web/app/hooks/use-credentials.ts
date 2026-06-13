@@ -113,3 +113,59 @@ export function useRevealCredential(projectId: string) {
         .then((r) => revealResponseSchema.parse(r.data).password),
   })
 }
+
+// ── User-scoped surface (task-junior-ut-round2 §6) ──────────────────────────
+// Credentials of a JUNIOR's projects, viewed from that junior's profile by
+// ADMIN / HR. Backend: GET/PATCH /api/users/:userId/credentials[/:id[/reveal]].
+// Same security contract: list never carries plaintext; reveal is manual.
+
+const userCredentialsKey = (userId: string) => ['user-credentials', userId] as const
+
+export function useUserCredentials(userId: string | undefined, enabled = true) {
+  return useQuery<ProjectCredential[] | null>({
+    queryKey: userCredentialsKey(userId ?? ''),
+    queryFn: async () => {
+      try {
+        const res = await api.get<unknown>(`/users/${userId}/credentials`)
+        return credentialListSchema.parse(res.data)
+      } catch (err: unknown) {
+        // 403 = no access → hide the section (not an error state).
+        if (getAxiosStatus(err) === 403) return null
+        throw err
+      }
+    },
+    enabled: enabled && !!userId,
+    staleTime: 30_000,
+    retry: (failureCount, error: unknown) => {
+      const status = getAxiosStatus(error)
+      if (status === 403 || status === 404 || status === 400) return false
+      return failureCount < 2
+    },
+  })
+}
+
+export function useUpdateUserCredential(userId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateCredentialDto }) => {
+      const dto = updateCredentialSchema.parse(data)
+      return api
+        .patch<unknown>(`/users/${userId}/credentials/${id}`, dto)
+        .then((r) => projectCredentialSchema.parse(r.data))
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: userCredentialsKey(userId) })
+      toast.success('Изменения сохранены')
+    },
+    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+  })
+}
+
+export function useRevealUserCredential(userId: string) {
+  return useMutation<string, unknown, string>({
+    mutationFn: (credentialId: string) =>
+      api
+        .get<unknown>(`/users/${userId}/credentials/${credentialId}/reveal`)
+        .then((r) => revealResponseSchema.parse(r.data).password),
+  })
+}

@@ -63,19 +63,35 @@ test.describe('Users management page', () => {
       await expect(page.getByText(/доступ только для администратора/i)).not.toBeVisible()
     })
 
-    test('SENIOR sees "Доступ только для администратора"', async ({ asSenior: page }) => {
+    test('SENIOR accessing /crm/users gets redirected to /crm/dashboard (route-guard)', async ({
+      asSenior: page,
+    }) => {
+      // PR #184 route-guard: /crm/users is ADMIN-only. resolveRoleHome('SENIOR')
+      // = '/crm/dashboard'. Old in-page «Доступ только для администратора» panel
+      // is no longer rendered — guard redirects before the page mounts.
       await page.goto('/crm/users')
-      await expect(page.getByText(/доступ только для администратора/i)).toBeVisible()
+      await expect(page).toHaveURL(/\/crm\/dashboard/, { timeout: 8_000 })
+      await expect(page).not.toHaveURL(/\/crm\/users/)
     })
 
-    test('HR cannot access users page (admin-only)', async ({ asHr: page }) => {
+    test('HR accessing /crm/users gets redirected to /crm/dashboard (route-guard)', async ({
+      asHr: page,
+    }) => {
+      // PR #184 route-guard: /crm/users is ADMIN-only. resolveRoleHome('HR')
+      // = '/crm/dashboard'. Guard redirects before the page mounts.
       await page.goto('/crm/users')
-      await expect(page.getByText(/доступ только для администратора/i)).toBeVisible()
+      await expect(page).toHaveURL(/\/crm\/dashboard/, { timeout: 8_000 })
+      await expect(page).not.toHaveURL(/\/crm\/users/)
     })
 
-    test('JUNIOR sees access denied', async ({ asJunior: page }) => {
+    test('JUNIOR accessing /crm/users gets redirected to /crm/project (route-guard)', async ({
+      asJunior: page,
+    }) => {
+      // PR #184 route-guard: /crm/users is ADMIN-only. resolveRoleHome('JUNIOR')
+      // = '/crm/project'. Guard redirects before the page mounts.
       await page.goto('/crm/users')
-      await expect(page.getByText(/доступ только для администратора/i)).toBeVisible()
+      await expect(page).toHaveURL(/\/crm\/project/, { timeout: 8_000 })
+      await expect(page).not.toHaveURL(/\/crm\/users/)
     })
   })
 
@@ -579,12 +595,15 @@ test.describe('Users management page', () => {
       await expect(page.getByText(/выберите хотя бы одного HR/i)).toBeVisible()
     })
 
-    test('HR: sees access-denied notice on /crm/users (admin-only page)', async ({
+    test('HR: accessing /crm/users gets redirected to /crm/dashboard (route-guard)', async ({
       asHr: page,
     }) => {
+      // PR #184 route-guard: /crm/users is ADMIN-only. HR is redirected to
+      // resolveRoleHome('HR') = '/crm/dashboard'. The in-page «Доступ только
+      // для администратора» notice is no longer rendered — guard fires first.
       await page.goto('/crm/users')
-      await expect(page.getByText(/доступ только для администратора/i)).toBeVisible()
-      await expect(page.getByTestId('users-create-button')).toHaveCount(0)
+      await expect(page).toHaveURL(/\/crm\/dashboard/, { timeout: 8_000 })
+      await expect(page).not.toHaveURL(/\/crm\/users/)
     })
   })
 })
