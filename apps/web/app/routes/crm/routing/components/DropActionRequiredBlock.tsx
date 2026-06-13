@@ -121,17 +121,15 @@ export function DropActionRequiredBlock({
               </Link>
             )}
 
-            {/* Pay all CTA */}
+            {/* Pay all CTA — navigates to finance cabinet where each validated
+                income has its own per-row «Платить» button.
+                Note: no aggregate pay-all flow exists in phase 2; the cabinet
+                is the canonical entry point for payment initiation. */}
             <Button
               variant="default"
               className="w-full"
               data-testid="drop-action-pay-all-btn"
-              onClick={() =>
-                void navigate({
-                  to: '/crm/payments/initiate/$incomeId',
-                  params: { incomeId: incomes[0]!.id },
-                })
-              }
+              onClick={() => void navigate({ to: '/crm/finance' })}
             >
               Платить компании
             </Button>

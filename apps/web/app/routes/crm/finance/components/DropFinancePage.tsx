@@ -347,10 +347,22 @@ function DropIncomesTable() {
 
 function DropPaymentsHistory({
   payments,
+  isLoading,
 }: {
   payments: DropPaymentDto[] | undefined
   isLoading: boolean
 }) {
+  if (isLoading) {
+    return (
+      <div className="space-y-2" data-testid="drop-payments-history-skeleton">
+        <Skeleton className="h-8 w-40 rounded" />
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-10 w-full rounded-lg" />
+        ))}
+      </div>
+    )
+  }
+
   if (!payments) return null
 
   return (

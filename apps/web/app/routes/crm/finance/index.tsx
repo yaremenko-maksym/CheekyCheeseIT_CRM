@@ -475,9 +475,13 @@ function FinancePage() {
 
   const canCreate = isAdmin || isSenior || isDrop
 
+  // DROP has its own self-scoped API endpoints (drop-incomes / drop-payments)
+  // rendered via DropFinancePage below. Disabling the privileged /transactions
+  // query for DROP avoids an unnecessary request with a different data shape.
   const { data: transactions = [], isLoading: txLoading } = useQuery({
     queryKey: ['transactions'],
     queryFn: () => financeApi.getTransactions(),
+    enabled: !isDrop,
   })
 
   const { data: rates } = useQuery<ExchangeRates>({
