@@ -10,6 +10,7 @@ import {
   Home,
   KanbanSquare,
   LayoutDashboard,
+  Route,
   UserCircle,
   Users,
   UsersRound,
@@ -38,6 +39,9 @@ interface NavItem {
 // Drop role - phase 1: DROP sees only Profile / Team / Finance (spec §4).
 // No Dashboard, no Projects, no Interviews, no Documents. Existing role
 // visibilities for ADMIN / SENIOR / HR / ACCOUNTANT are unchanged.
+// Drop role - phase 2: DROP gets a 4-item nav (drop-role-ux.md §2):
+//   1. Мой роутинг · 2. Финансы · 3. Команда · 4. Профиль.
+//   «Мой роутинг» is placed first (only DROP) using `Route` lucide icon.
 // JUNIOR UX phase 2: JUNIOR gets a dedicated 5-item nav (spec §4.3):
 //   1. Мой проект · 2. Легенда · 3. Финансы · 4. Документы · 5. Профиль.
 //   Дашборд / Команда / Проекты / Собеседования hidden for JUNIOR.
@@ -46,6 +50,12 @@ interface NavItem {
 // roles берутся из единого источника истины lib/route-access (navRolesFor),
 // чтобы карта ролей-по-роуту НЕ дублировалась между меню и route-guard'ом.
 const NAV_ITEMS: NavItem[] = [
+  {
+    label: 'Мой роутинг',
+    icon: Route,
+    to: '/crm/routing',
+    roles: navRolesFor('/crm/routing'),
+  },
   { label: 'Мой проект', icon: Home, to: '/crm/project', roles: navRolesFor('/crm/project') },
   { label: 'Легенда', icon: BookOpen, to: '/crm/legend', roles: navRolesFor('/crm/legend') },
   {
@@ -123,7 +133,13 @@ export function NavSidebar({
           <ScrollArea className="flex-1">
             <nav
               className="flex flex-col gap-0.5 p-2 pt-3"
-              data-testid={user.role === 'JUNIOR' ? 'junior-nav' : undefined}
+              data-testid={
+                user.role === 'JUNIOR'
+                  ? 'junior-nav'
+                  : user.role === 'DROP'
+                    ? 'drop-nav'
+                    : undefined
+              }
             >
               {items.map((item) => (
                 <DesktopNavLink key={item.to} item={item} collapsed={collapsed} />

@@ -67,15 +67,14 @@ const item = {
 }
 
 function CrmDashboard() {
-  // Drop role - phase 1 fix (AC5): /crm root for DROP → /crm/profile.
-  // DROP has no Dashboard placeholder by design (sidebar hides the link too);
-  // the index route would otherwise render this legacy placeholder.
-  // JUNIOR UX phase 2: JUNIOR → /crm/project (their hub).
+  // Drop role - phase 2: /crm root for DROP → /crm/routing (hub «Мой роутинг»).
+  // Phase 1 used /crm/profile as a temporary placeholder; phase 2 gives DROP
+  // their own dedicated hub. JUNIOR UX phase 2: JUNIOR → /crm/project (hub).
   const { user } = useAuth()
   const navigate = useNavigate()
   useEffect(() => {
     if (user?.role === 'DROP') {
-      void navigate({ to: '/crm/profile', replace: true })
+      void navigate({ to: '/crm/routing', replace: true })
     } else if (user?.role === 'JUNIOR') {
       void navigate({ to: '/crm/project', replace: true })
     }
