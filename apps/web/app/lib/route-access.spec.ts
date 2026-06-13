@@ -8,8 +8,10 @@ describe('route-access · resolveRoleHome', () => {
   it('JUNIOR → /crm/project', () => {
     expect(resolveRoleHome('JUNIOR')).toBe('/crm/project')
   })
-  it('DROP → /crm/profile', () => {
-    expect(resolveRoleHome('DROP')).toBe('/crm/profile')
+  // Drop role - phase 2: home changed from /crm/profile (phase-1 placeholder)
+  // to /crm/routing (the dedicated «Мой роутинг» hub).
+  it('DROP → /crm/routing', () => {
+    expect(resolveRoleHome('DROP')).toBe('/crm/routing')
   })
   it('ADMIN/SENIOR/HR/ACCOUNTANT → /crm/dashboard', () => {
     for (const r of ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'] as Role[]) {
@@ -85,7 +87,9 @@ describe('route-access · isRouteAllowed (other roles not broken)', () => {
     }
   })
 
-  it('DROP allowed team/finance/profile, denied projects/dashboard/documents/interviews', () => {
+  it('DROP allowed routing/team/finance/profile, denied projects/dashboard/documents/interviews', () => {
+    // Drop role - phase 2: /crm/routing is the new DROP hub (was /crm/profile redirect).
+    expect(isRouteAllowed('/crm/routing', 'DROP')).toBe(true)
     expect(isRouteAllowed('/crm/team', 'DROP')).toBe(true)
     expect(isRouteAllowed('/crm/finance', 'DROP')).toBe(true)
     expect(isRouteAllowed('/crm/profile', 'DROP')).toBe(true)
@@ -93,6 +97,10 @@ describe('route-access · isRouteAllowed (other roles not broken)', () => {
     expect(isRouteAllowed('/crm/dashboard', 'DROP')).toBe(false)
     expect(isRouteAllowed('/crm/documents', 'DROP')).toBe(false)
     expect(isRouteAllowed('/crm/interviews', 'DROP')).toBe(false)
+    // /crm/routing is DROP-only: other roles denied.
+    expect(isRouteAllowed('/crm/routing', 'SENIOR')).toBe(false)
+    expect(isRouteAllowed('/crm/routing', 'ADMIN')).toBe(false)
+    expect(isRouteAllowed('/crm/routing', 'JUNIOR')).toBe(false)
   })
 
   it('HR allowed dashboard/team/projects/interviews/finance/documents, denied users/stats/junior-hub', () => {

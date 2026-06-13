@@ -150,8 +150,9 @@ function DropIncomesTable() {
   const PAGE_SIZE = 20
 
   const dates = periodToDates(periodFilter)
+  const resolvedStatus = statusFilter === 'all' ? undefined : statusFilter
   const { data, isLoading } = useDropIncomes({
-    status: statusFilter === 'all' ? undefined : statusFilter,
+    ...(resolvedStatus !== undefined ? { status: resolvedStatus } : {}),
     page,
     limit: PAGE_SIZE,
     ...dates,
