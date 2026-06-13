@@ -87,7 +87,9 @@ export class UsersAccessService {
         // routing hub (/crm/routing) is the canonical project surface for DROP.
         // 'team' is reachable via /crm/team/$teamId. 'projects' tab would surface
         // internal project data that the routing hub already provides contextually.
-        tabs.push('overview', 'team', 'requisites', 'documents', 'finance')
+        // 'contract' included: DROP has a signed employee_contract and must see it
+        // in their own profile (UT finding 3a, drop-phase3-frontend round 2).
+        tabs.push('overview', 'finance', 'team', 'requisites', 'documents', 'contract')
       } else {
         tabs.push('overview', 'projects', 'team', 'requisites', 'documents')
         // SENIOR, HR, ACCOUNTANT: finance access

@@ -51,7 +51,7 @@ interface NavItem {
 // чтобы карта ролей-по-роуту НЕ дублировалась между меню и route-guard'ом.
 const NAV_ITEMS: NavItem[] = [
   {
-    label: 'Мой роутинг',
+    label: 'Дашборд',
     icon: Route,
     to: '/crm/routing',
     roles: navRolesFor('/crm/routing'),

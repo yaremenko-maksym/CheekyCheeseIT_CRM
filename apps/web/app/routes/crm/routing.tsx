@@ -53,7 +53,7 @@ function DropRoutingHubContent({ onRetrySummary }: { onRetrySummary: () => void 
     <main data-testid="drop-routing-hub" className="space-y-6">
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Мой роутинг</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Дашборд</h1>
         <p className="text-sm text-muted-foreground">Платёжный хаб</p>
       </div>
 

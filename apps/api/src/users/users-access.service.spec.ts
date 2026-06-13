@@ -118,17 +118,17 @@ describe('UsersAccessService.getViewPermissions', () => {
     )
     expect(p.tabs).not.toContain('interviews')
     expect(p.tabs).not.toContain('audit')
-    // Negative-regression guard: 'contract' tab is ADMIN-only (A3-2).
-    // A SENIOR viewing their OWN profile must never see the contract editor tab —
-    // it is only surfaced when an ADMIN views another user's profile.
+    // Negative-regression guard: 'contract' tab must not appear on SENIOR self-view.
+    // Contract is surfaced: (a) ADMIN viewing another user, or (b) DROP self-view
+    // (UT finding 3a: DROP has a signed employee_contract). SENIOR self = neither case.
     expect(p.tabs).not.toContain('contract')
   })
 
-  it('SELF — HR sees own tabs without contract (ADMIN-only tab)', async () => {
+  it('SELF — HR sees own tabs without contract (contract only for ADMIN-viewing-others and DROP self)', async () => {
     const hr = makeUser({ id: 'hr-id', role: 'HR' })
     const p = await service.getViewPermissions(hr, hr)
-    // Negative-regression guard: 'contract' tab must not appear on SELF views
-    // for any non-ADMIN role (A3-2 RBAC: only ADMIN viewing others gets contract tab).
+    // Negative-regression guard: 'contract' tab must not appear on HR/SENIOR/JUNIOR/ACCOUNTANT self views.
+    // ADMIN viewing others gets contract tab; DROP self also gets contract tab (UT finding 3a).
     expect(p.tabs).not.toContain('contract')
   })
 
@@ -280,15 +280,18 @@ describe('UsersAccessService.getViewPermissions', () => {
 
   // task-drop-phase3-frontend: DROP self-view excludes 'projects' tab.
   // The routing hub (/crm/routing) is the canonical project surface for DROP.
+  // task-drop-phase3-frontend round 2 (UT finding 3a): DROP self-view INCLUDES
+  // 'contract' — DROP has a signed employee_contract and must be able to view it.
   // SENIOR/ADMIN profiles are NOT affected — only DROP self-view.
-  it('SELF — DROP sees overview/team/requisites/documents/finance but NOT projects', async () => {
+  it('SELF — DROP sees overview/finance/team/requisites/documents/contract but NOT projects', async () => {
     const drop = makeUser({ id: 'drop-id', role: 'DROP' })
     const p = await service.getViewPermissions(drop, drop)
     expect(p.tabs).toContain('overview')
+    expect(p.tabs).toContain('finance')
     expect(p.tabs).toContain('team')
     expect(p.tabs).toContain('requisites')
     expect(p.tabs).toContain('documents')
-    expect(p.tabs).toContain('finance')
+    expect(p.tabs).toContain('contract')
     expect(p.tabs).not.toContain('projects')
   })
 
