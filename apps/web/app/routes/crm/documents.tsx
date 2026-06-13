@@ -441,24 +441,28 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
           ARCHIVED is ADMIN-only — the option renders but is disabled for
           non-admins so the page layout doesn't shift between roles.
           Kept in its own row above the toolbar Card, same pattern as /crm/projects. */}
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.28, delay: 0.05 }}
-        className="flex items-center"
-      >
-        <SegmentedToggle<StatusTab>
-          value={statusTab}
-          onChange={setStatusTab}
-          options={statusOptions}
-          ariaLabel="Фильтр документов"
-          variant="tabs"
-          size="sm"
-          layoutId="documents-status-tabs"
-          className="w-fit"
-          testId="documents-status-tabs"
-        />
-      </motion.div>
+      {/* Hidden for JUNIOR (UT round 5): juniors only ever see ACTIVE documents
+          (statusTab defaults to 'ACTIVE'), so the toggle is noise for them. */}
+      {!isJunior && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.28, delay: 0.05 }}
+          className="flex items-center"
+        >
+          <SegmentedToggle<StatusTab>
+            value={statusTab}
+            onChange={setStatusTab}
+            options={statusOptions}
+            ariaLabel="Фильтр документов"
+            variant="tabs"
+            size="sm"
+            layoutId="documents-status-tabs"
+            className="w-fit"
+            testId="documents-status-tabs"
+          />
+        </motion.div>
+      )}
 
       {/* Unified toolbar — canonical Card pattern matching /crm/projects */}
       <Card>
