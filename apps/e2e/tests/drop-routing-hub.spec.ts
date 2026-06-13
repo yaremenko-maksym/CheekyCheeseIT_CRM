@@ -2,7 +2,7 @@
  * drop-routing-hub.spec.ts — E2E coverage for Drop phase 2 surfaces.
  *
  * PR #189 adds two new DROP-only pages:
- *   1. /crm/routing  — «Мой роутинг» hub (DropRoutingHub)
+ *   1. /crm/routing  — «Дашборд» hub (DropRoutingHub)
  *   2. /crm/finance  — DropFinancePage (rendered when user.role === 'DROP')
  *
  * And changes DROP home from /crm/profile → /crm/routing.
@@ -12,7 +12,7 @@
  *   B. Hub with data: DropActionRequiredBlock income items, pay button navigation.
  *   C. Finance cabinet: DropFinancePage testid, heading, DropBalanceCard,
  *      DropIncomesTable, DropPaymentsHistory.
- *   D. Navigation: DROP sidebar 4 items, click Мой роутинг → hub, click Финансы → finance.
+ *   D. Navigation: DROP sidebar 4 items, click Дашборд → hub, click Финансы → finance.
  *   E. RBAC: non-DROP cannot reach /crm/routing (redirected to own home).
  *
  * All tests are mock-based (LIFO route registration). Source of truth:
@@ -152,8 +152,8 @@ test.describe('A. DROP routing hub — /crm/routing render', () => {
     const main = page.getByTestId('drop-routing-hub')
     await expect(main).toBeVisible({ timeout: 8_000 })
 
-    // Page heading
-    await expect(main.getByRole('heading', { level: 1 })).toContainText('Мой роутинг')
+    // Page heading — renamed to «Дашборд» in PR #198 (drop-phase3-frontend)
+    await expect(main.getByRole('heading', { level: 1 })).toContainText('Дашборд')
   })
 
   test('hub renders DropBalanceCard with loading → loaded state', async ({ asDrop: page }) => {
@@ -205,7 +205,8 @@ test.describe('A. DROP routing hub — /crm/routing render', () => {
   test('hub renders DropQuickActions buttons', async ({ asDrop: page }) => {
     await page.goto('/crm/routing')
 
-    await expect(page.getByTestId('drop-quick-register-btn')).toBeVisible({ timeout: 8_000 })
+    // testid renamed drop-quick-register-btn → drop-register-income-btn in PR #198
+    await expect(page.getByTestId('drop-register-income-btn')).toBeVisible({ timeout: 8_000 })
     await expect(page.getByTestId('drop-quick-pay-btn')).toBeVisible()
   })
 })
@@ -451,12 +452,23 @@ test.describe('C. DROP finance cabinet — /crm/finance', () => {
     await expect(page.getByTestId('drop-filter-status')).toBeVisible({ timeout: 8_000 })
     await expect(page.getByTestId('drop-filter-period')).toBeVisible()
   })
+
+  test('finance cabinet header has «Зарегистрировать приход» button (PR #198 unification)', async ({
+    asDrop: page,
+  }) => {
+    // PR #198 (drop-phase3-frontend): «Зарегистрировать приход» action was added to
+    // DropFinancePage header with the same testid drop-register-income-btn as in
+    // DropQuickActions — canonical CTA available from both hub and finance page.
+    await page.goto('/crm/finance')
+    await expect(page.getByTestId('drop-finance-page')).toBeVisible({ timeout: 8_000 })
+    await expect(page.getByTestId('drop-register-income-btn')).toBeVisible({ timeout: 8_000 })
+  })
 })
 
 // ── D. Sidebar navigation ──────────────────────────────────────────────────────
 
 test.describe('D. DROP sidebar navigation — 4 items', () => {
-  test('DROP sidebar has 4 nav links (Мой роутинг / Финансы / Команда / Профиль)', async ({
+  test('DROP sidebar has 4 nav links (Дашборд / Финансы / Команда / Профиль)', async ({
     asDrop: page,
   }) => {
     await page.goto('/crm/routing')
@@ -529,7 +541,7 @@ test.describe('E. RBAC — /crm/routing is DROP-only', () => {
     await expect(page).toHaveURL(/\/crm\/project/, { timeout: 8_000 })
   })
 
-  test('non-DROP does NOT see «Мой роутинг» in sidebar', async ({ asAdmin: page }) => {
+  test('non-DROP does NOT see «Дашборд» (DROP nav) in sidebar', async ({ asAdmin: page }) => {
     await page.goto('/crm/dashboard')
     await expect(page).toHaveURL(/\/crm\/dashboard/, { timeout: 8_000 })
     // No drop-nav testid for ADMIN (only rendered for DROP)
