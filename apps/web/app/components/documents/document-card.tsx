@@ -210,7 +210,7 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
         </TooltipProvider>
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{formatBytes(doc.sizeBytes)}</span>
+          <span>{doc.sizeBytes > 0 ? formatBytes(doc.sizeBytes) : '—'}</span>
           <span aria-hidden="true">·</span>
           <span title={doc.createdAt}>{relativeDate}</span>
         </div>
