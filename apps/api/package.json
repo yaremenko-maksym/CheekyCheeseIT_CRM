@@ -10,8 +10,7 @@
     "lint": "eslint src",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "drizzle-kit push",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx src/database/seed.ts"
