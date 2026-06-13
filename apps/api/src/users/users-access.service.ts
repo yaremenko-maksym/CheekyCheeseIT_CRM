@@ -82,10 +82,16 @@ export class UsersAccessService {
         // task-junior-ut-round3 §6a: 'documents' removed from JUNIOR self-view
         // (data-privacy: /crm/project hub is the junior's primary project surface).
         tabs.push('overview', 'requisites')
+      } else if (isDrop) {
+        // task-drop-phase3-frontend: DROP self-view excludes 'projects' — the
+        // routing hub (/crm/routing) is the canonical project surface for DROP.
+        // 'team' is reachable via /crm/team/$teamId. 'projects' tab would surface
+        // internal project data that the routing hub already provides contextually.
+        tabs.push('overview', 'team', 'requisites', 'documents', 'finance')
       } else {
         tabs.push('overview', 'projects', 'team', 'requisites', 'documents')
-        // Drop role - phase 1: DROP has finance access (read), same as senior/etc.
-        if (isSenior || isHr || isAccountant || isDrop) tabs.push('finance')
+        // SENIOR, HR, ACCOUNTANT: finance access
+        if (isSenior || isHr || isAccountant) tabs.push('finance')
       }
       // SENIOR: interviews moved to header link; no separate tab here
       fields.salary = targetIsSalaryRole

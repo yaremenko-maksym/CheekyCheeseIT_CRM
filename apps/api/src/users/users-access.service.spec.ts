@@ -268,14 +268,45 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.share).toBe(false)
   })
 
-  it('SELF — SENIOR/HR/ACCOUNTANT/DROP keep projects/team (allow-list change is JUNIOR-only)', async () => {
-    for (const role of ['SENIOR', 'HR', 'ACCOUNTANT', 'DROP'] as const) {
+  it('SELF — SENIOR/HR/ACCOUNTANT keep projects/team (allow-list change is JUNIOR-only)', async () => {
+    for (const role of ['SENIOR', 'HR', 'ACCOUNTANT'] as const) {
       const u = makeUser({ id: `${role}-id`, role })
       const p = await service.getViewPermissions(u, u)
       expect(p.tabs, `${role} self should keep projects`).toContain('projects')
       expect(p.tabs, `${role} self should keep team`).toContain('team')
       expect(p.tabs, `${role} self should keep finance`).toContain('finance')
     }
+  })
+
+  // task-drop-phase3-frontend: DROP self-view excludes 'projects' tab.
+  // The routing hub (/crm/routing) is the canonical project surface for DROP.
+  // SENIOR/ADMIN profiles are NOT affected — only DROP self-view.
+  it('SELF — DROP sees overview/team/requisites/documents/finance but NOT projects', async () => {
+    const drop = makeUser({ id: 'drop-id', role: 'DROP' })
+    const p = await service.getViewPermissions(drop, drop)
+    expect(p.tabs).toContain('overview')
+    expect(p.tabs).toContain('team')
+    expect(p.tabs).toContain('requisites')
+    expect(p.tabs).toContain('documents')
+    expect(p.tabs).toContain('finance')
+    expect(p.tabs).not.toContain('projects')
+  })
+
+  // Regression: SENIOR/ADMIN self-view still includes projects (DROP change is DROP-only).
+  it('SELF — SENIOR still has projects tab (not affected by DROP exclusion)', async () => {
+    const senior = makeUser({ id: 'sr-id', role: 'SENIOR' })
+    const p = await service.getViewPermissions(senior, senior)
+    expect(p.tabs).toContain('projects')
+  })
+
+  // Regression: ADMIN viewing DROP target still gets full tabs (ADMIN branch unchanged).
+  it('ADMIN viewing DROP — still gets all 6 standard tabs including projects', async () => {
+    const admin = makeUser({ id: 'admin-id', role: 'ADMIN' })
+    const drop = makeUser({ id: 'drop-id', role: 'DROP' })
+    const p = await service.getViewPermissions(admin, drop)
+    expect(p.tabs).toContain('projects')
+    expect(p.tabs).toContain('finance')
+    expect(p.tabs).toContain('requisites')
   })
 
   it('JUNIOR viewing their project SENIOR — gets overview/projects/team + fields.legend=true', async () => {
