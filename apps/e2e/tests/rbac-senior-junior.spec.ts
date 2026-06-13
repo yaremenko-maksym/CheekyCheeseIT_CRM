@@ -319,43 +319,36 @@ test.describe('RBAC #1 — SENIOR cannot access JUNIOR profile', () => {
 // #11 — JUNIOR does not see "Active Projects" or TG-канал on team page
 // ---------------------------------------------------------------------------
 
-test.describe('RBAC #11 — JUNIOR does not see active-projects or TG-канал on team detail', () => {
-  test('JUNIOR does not see active-projects section', async ({ asJunior: page }) => {
-    // Backend returns team with only the junior's own membership visible
+test.describe('RBAC #11 — JUNIOR is redirected away from /crm/team (route-guard)', () => {
+  // PR #184 route-guard: /crm/team prefix is NOT in JUNIOR's allowed list.
+  // resolveRoleHome('JUNIOR') = '/crm/project'. Guard fires before the team-detail
+  // component mounts, so active-projects / TG-канал are never rendered.
+  // These tests verify the redirect contract (stronger than "section not visible").
+
+  test('JUNIOR accessing team detail is redirected to /crm/project (active-projects never rendered)', async ({
+    asJunior: page,
+  }) => {
+    // Even if the backend would return a team with projects, the route-guard
+    // intercepts before the component mounts → JUNIOR never sees any team content.
     const teamForJunior = {
       ...TEAM_WITH_TELEGRAM,
-      // For JUNIOR viewer: backend returns HR, SENIOR, ACCOUNTANT but NOT other JUNIORs
-      // (JUNIORs are not stored in team_members — they are derived from project_members,
-      // and that derivation is suppressed when the viewer is a JUNIOR to prevent
-      // juniors from discovering each other's identities).
       members: TEAM_WITH_TELEGRAM.members.filter((m) => m.role !== 'JUNIOR'),
     }
     await mockTeamDetail(page, teamForJunior.id, teamForJunior)
-    await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) => {
-      if (r.request().method() !== 'GET') return r.fallback()
-      return r.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([PROJECT_WITH_JUNIOR]),
-      })
-    })
 
     await page.goto(`/crm/team/${teamForJunior.id}`)
-    await expect(page.getByRole('heading', { name: teamForJunior.name })).toBeVisible()
-
-    // "Активные проекты" section must NOT be rendered for JUNIOR viewer
-    await expect(page.getByText('Активные проекты')).not.toBeVisible()
+    await expect(page).toHaveURL(/\/crm\/project/, { timeout: 8_000 })
+    await expect(page).not.toHaveURL(/\/crm\/team/)
   })
 
-  test('JUNIOR does not see TG-канал link', async ({ asJunior: page }) => {
+  test('JUNIOR accessing team detail is redirected to /crm/project (TG-канал never rendered)', async ({
+    asJunior: page,
+  }) => {
     await mockTeamDetail(page, TEAM_WITH_TELEGRAM.id, TEAM_WITH_TELEGRAM)
 
     await page.goto(`/crm/team/${TEAM_WITH_TELEGRAM.id}`)
-    await expect(page.getByRole('heading', { name: TEAM_WITH_TELEGRAM.name })).toBeVisible()
-
-    // Telegram-канал link must NOT be shown for JUNIOR
-    await expect(page.getByTestId('team-telegram-link')).not.toBeVisible()
-    await expect(page.getByText('Telegram-канал')).not.toBeVisible()
+    await expect(page).toHaveURL(/\/crm\/project/, { timeout: 8_000 })
+    await expect(page).not.toHaveURL(/\/crm\/team/)
   })
 })
 
@@ -386,8 +379,11 @@ test.describe('Regression — ADMIN and HR still see JUNIOR identity (not broken
     })
 
     await page.goto(`/crm/team/${TEAM_WITH_JUNIOR.id}`)
-    await expect(page.getByText('Активные проекты')).toBeVisible()
-    await expect(page.getByText(USERS.junior.displayName)).toBeVisible()
+    const main = page.locator('main')
+    await expect(main.getByText('Активные проекты')).toBeVisible()
+    // Scope to main to avoid strict-mode violation: junior name may appear
+    // in both members list and active-projects slot → use first() to pick one.
+    await expect(main.getByText(USERS.junior.displayName).first()).toBeVisible()
   })
 
   test('ADMIN sees TG-канал link on team page', async ({ asAdmin: page }) => {
@@ -425,22 +421,21 @@ test.describe('Regression — ADMIN and HR still see JUNIOR identity (not broken
 // Regression: JUNIOR sees own tabs on team page (members list, not projects)
 // ---------------------------------------------------------------------------
 
-test.describe('Regression — JUNIOR on team page sees members (not projects/TG)', () => {
-  test('JUNIOR sees team members section (HR, SENIOR, ACCOUNTANT) but not other juniors', async ({
+test.describe('Regression — JUNIOR /crm/team route-guard redirect (not content render)', () => {
+  // PR #184 route-guard: JUNIOR is redirected from /crm/team to /crm/project.
+  // STALE: previously "JUNIOR sees team members section (HR, SENIOR, ACCOUNTANT)".
+  // The route-guard now fires before the team component mounts — no content is shown.
+  test('JUNIOR navigating to team detail is redirected to /crm/project', async ({
     asJunior: page,
   }) => {
     const teamForJunior = {
       ...TEAM_WITH_JUNIOR,
-      // Backend filters out JUNIORs from members list for JUNIOR viewer
       members: TEAM_WITH_JUNIOR.members.filter((m) => m.role !== 'JUNIOR'),
     }
     await mockTeamDetail(page, teamForJunior.id, teamForJunior)
 
     await page.goto(`/crm/team/${teamForJunior.id}`)
-    await expect(page.getByRole('heading', { name: teamForJunior.name })).toBeVisible()
-
-    // Should see non-junior members
-    await expect(page.getByText(USERS.senior.displayName)).toBeVisible()
-    await expect(page.getByText(USERS.hr.displayName)).toBeVisible()
+    await expect(page).toHaveURL(/\/crm\/project/, { timeout: 8_000 })
+    await expect(page).not.toHaveURL(/\/crm\/team/)
   })
 })
