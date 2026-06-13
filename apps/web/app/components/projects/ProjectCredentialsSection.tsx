@@ -60,6 +60,7 @@ import {
   useUpdateCredential,
 } from '@/hooks/use-credentials'
 import { getAxiosStatus } from '@/lib/axios-utils'
+import { cn } from '@/lib/utils'
 
 interface ProjectCredentialsSectionProps {
   /** UUID проекта */
