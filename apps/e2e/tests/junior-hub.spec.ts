@@ -444,16 +444,35 @@ test.describe('AC3 — Salary snapshot card', () => {
     await expect(card.getByText('USD').first()).toBeVisible()
   })
 
-  test('shows "изменена <дата>" line when changedAt is present', async ({ asJunior: page }) => {
+  test('salary-changed-at line visible and contains «Изменена» when changedAt is set', async ({
+    asJunior: page,
+  }) => {
+    // SALARY_META_FIXTURE already contains changedAt: '2026-03-01T00:00:00.000Z'
+    // The Coder commit cf00988 renders: <p data-testid="salary-changed-at">Изменена 1 марта 2026 г.</p>
     await mockJuniorProjectsAndLegend(page)
 
     await page.goto('/crm/project')
     const card = page.getByTestId('salary-snapshot-card')
     await expect(card).toBeVisible()
 
-    // changedAt = '2026-03-01T00:00:00.000Z' → "изменена 01 марта 2026 г."
-    await expect(card.getByTestId('salary-changed-at')).toBeVisible()
-    await expect(card.getByTestId('salary-changed-at')).toContainText('изменена')
+    const changedAtEl = card.getByTestId('salary-changed-at')
+    await expect(changedAtEl).toBeVisible()
+    await expect(changedAtEl).toContainText('Изменена')
+  })
+
+  test('salary-changed-at absent from DOM when changedAt is null', async ({ asJunior: page }) => {
+    await mockJuniorProjectsAndLegend(page, {
+      salaryMeta: {
+        status: 200,
+        body: { monthlySalary: '800', salaryCurrency: 'USD', changedAt: null },
+      },
+    })
+
+    await page.goto('/crm/project')
+    const card = page.getByTestId('salary-snapshot-card')
+    await expect(card).toBeVisible()
+
+    await expect(card.getByTestId('salary-changed-at')).toHaveCount(0)
   })
 
   test('PAID transaction shows badge «Выплачено»', async ({ asJunior: page }) => {
@@ -507,13 +526,23 @@ test.describe('AC3 — Salary snapshot card', () => {
     await expect(txRows).toHaveCount(3)
   })
 
-  test('"Все мои выплаты" link visible and leads to /crm/finance', async ({ asJunior: page }) => {
+  test('salary card shows rate zone and summary zone, no all-payments link', async ({
+    asJunior: page,
+  }) => {
     await mockJuniorProjectsAndLegend(page)
 
     await page.goto('/crm/project')
     const card = page.getByTestId('salary-snapshot-card')
-    await expect(card.getByTestId('salary-all-link')).toBeVisible()
-    await expect(card.getByTestId('salary-all-link')).toHaveAttribute('href', '/crm/finance')
+    await expect(card).toBeVisible()
+
+    // rate zone — крупная ставка (salary-rate-zone присутствует когда ставка задана)
+    await expect(card.getByTestId('salary-rate-zone')).toBeVisible()
+
+    // summary zone — прижата к низу, показывает ставку за месяц
+    await expect(card.getByTestId('salary-summary')).toBeVisible()
+
+    // кнопка «Все мои выплаты» УДАЛЕНА по фидбеку UT round 4
+    await expect(card.getByTestId('salary-all-link')).toHaveCount(0)
   })
 
   test('no-salary state when salary-meta returns null monthlySalary', async ({

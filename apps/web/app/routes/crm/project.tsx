@@ -1,20 +1,20 @@
 /**
- * /crm/project — JUNIOR hub «Мой проект» (round 3 redesign)
+ * /crm/project — JUNIOR hub «Мой проект» (round 4 redesign)
  *
- * Design spec: docs/design/junior-hub-round3.md
- * Changes from round 2:
- *  - items-start grid → no h-full stretching (root cause of empty space)
- *  - Left stack col-span-1: ProjectInfoCard (HR inline) + PersonaCard
- *  - Right wide col-span-2: SalarySnapshotCard
- *  - Bottom col-span-full: ProjectCredentialsSection (twoColumn)
- *  - Removed: ContractStatusCard, HrContactCard, useMyContract hook
+ * Design spec: docs/design/junior-hub-round4.md
+ * Changes from round 3:
+ *  - Equal-height columns: removed items-start, left stack gets self-start,
+ *    right motion.div gets flex flex-col, SalaryCard gets flex-1 className
+ *  - SalarySnapshotCard: 3-zone layout (rate / payments / summary), text-4xl,
+ *    flex flex-col flex-1, summary anchored mt-auto
+ *  - Removed: «Все мои выплаты» Link + ExternalLink import + Link import
  *
  * AC1: ставка/реальные идентичности отсутствуют в DOM.
  * AC3: redirect JUNIOR → /crm/project при логине (в index.tsx).
  */
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
-import { BookOpen, DollarSign, ExternalLink, Phone, Send, UserCircle } from 'lucide-react'
+import { BookOpen, DollarSign, Phone, Send, UserCircle } from 'lucide-react'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { HrContactDto, ProjectDto, SalaryMetaDto, TransactionDto } from '@crm/shared'
@@ -133,15 +133,15 @@ function JuniorProjectHub() {
     return (
       <div className="space-y-4" data-testid="junior-hub">
         <Skeleton className="h-7 w-44" />
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {/* Left stack skeleton */}
-          <div className="lg:col-span-1 flex flex-col gap-4">
+          <div className="lg:col-span-1 flex flex-col gap-4 self-start">
             <Skeleton className="h-44 rounded-lg" />
             <Skeleton className="h-28 rounded-lg" />
           </div>
-          {/* Right wide skeleton */}
-          <div className="lg:col-span-2">
-            <Skeleton className="h-56 rounded-lg" />
+          {/* Right wide skeleton — flex flex-col matches equal-height strategy */}
+          <div className="lg:col-span-2 flex flex-col">
+            <Skeleton className="flex-1 min-h-[200px] rounded-lg" />
           </div>
           {/* Bottom skeleton */}
           <div className="col-span-full">
@@ -221,7 +221,7 @@ function ProjectSwitcher({
 }
 
 // ---------------------------------------------------------------------------
-// HubCards — round 3 bento (items-start eliminates h-full empty space)
+// HubCards — round 4 bento (equal-height: stretch default + self-start left)
 // ---------------------------------------------------------------------------
 
 function HubCards({ project, projectId }: { project: ProjectDto; projectId: string }) {
@@ -233,28 +233,31 @@ function HubCards({ project, projectId }: { project: ProjectDto; projectId: stri
   const salaryLoading = salaryMetaLoading || salaryTxsLoading
 
   return (
-    // items-start: grid rows wrap to content height — no empty stretching.
+    // Round 4 equal-height strategy:
+    //  - No items-start → default align-items: stretch
+    //  - Left motion.div: self-start → height = content (~551px), cards stay h-fit
+    //  - Right motion.div: flex flex-col → SalaryCard flex-1 fills grid row height
     // Structure: left 1/3 stack + right 2/3 salary + full-width credentials.
-    // ContractStatusCard removed per task-junior-ut-round3 §5 (PM decision).
     <motion.div
-      className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start"
+      className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
       variants={container}
       initial="hidden"
       animate="show"
       data-testid="junior-hub-bento"
     >
-      {/* Left stack: О проекте (с HR) + Синьор проекта */}
-      <motion.div variants={card} className="lg:col-span-1 flex flex-col gap-4">
+      {/* Left stack: self-start → h-fit cards, не растягиваются по высоте ряда */}
+      <motion.div variants={card} className="lg:col-span-1 flex flex-col gap-4 self-start">
         <ProjectInfoCard project={project} hrContact={hrContact ?? null} hrLoading={hrLoading} />
         <PersonaCard legend={legend ?? null} isLoading={legendLoading} />
       </motion.div>
 
-      {/* Right wide: Моя зарплата — col-span-2 (2/3 width on desktop) */}
-      <motion.div variants={card} className="lg:col-span-2">
+      {/* Right wide: flex flex-col → SalaryCard flex-1 = grid row height */}
+      <motion.div variants={card} className="lg:col-span-2 flex flex-col">
         <SalarySnapshotCard
           salaryMeta={salaryMeta ?? null}
           salaryTxs={salaryTxs ?? []}
           isLoading={salaryLoading}
+          className="flex-1"
         />
       </motion.div>
 
@@ -425,7 +428,6 @@ function PersonaCard({ legend, isLoading }: PersonaCardProps) {
   }
 
   return (
-    // No h-full — card is h-fit; parent grid items-start prevents stretching
     <Card className="border-border/40 bg-card" data-testid="persona-card">
       <CardHeader className="flex flex-row items-center justify-between pb-3">
         <CardTitle className="text-sm font-semibold">Синьор проекта</CardTitle>
@@ -467,7 +469,9 @@ function PersonaCard({ legend, isLoading }: PersonaCardProps) {
 }
 
 // ---------------------------------------------------------------------------
-// SalarySnapshotCard — wide (col-span-2), text-3xl amount, full tx rows
+// SalarySnapshotCard — round 4: 3-zone layout, flex flex-col, text-4xl
+// Zones: Rate (крупная ставка) / Payments (выплаты) / Summary (прижат к низу)
+// «Все мои выплаты» link REMOVED per UT round 4 feedback.
 // ---------------------------------------------------------------------------
 
 interface SalarySnapshotCardProps {
@@ -483,17 +487,17 @@ function SalarySnapshotCard({
   isLoading,
   className,
 }: SalarySnapshotCardProps) {
-  const baseClass = 'border-border/40 bg-card'
+  const baseClass = 'border-border/40 bg-card flex flex-col'
   const cardClass = className ? `${baseClass} ${className}` : baseClass
 
   if (isLoading) {
     return (
       <Card className={cardClass} data-testid="salary-snapshot-card">
-        <CardHeader className="pb-3">
+        <CardHeader className="pb-3 shrink-0">
           <CardTitle className="text-sm font-semibold">Моя зарплата</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2">
-          <Skeleton className="h-10 w-40" />
+        <CardContent className="flex flex-col flex-1 pt-0 gap-0">
+          <Skeleton className="h-10 w-40 mb-4" />
           <Skeleton className="h-4 w-48" />
         </CardContent>
       </Card>
@@ -501,74 +505,108 @@ function SalarySnapshotCard({
   }
 
   const hasRate = salaryMeta?.monthlySalary != null
+  const currency = salaryMeta?.salaryCurrency ?? 'USD'
+  const amount = hasRate ? Number(salaryMeta!.monthlySalary).toLocaleString('ru-RU') : null
 
   return (
     <Card className={cardClass} data-testid="salary-snapshot-card">
-      <CardHeader className="flex flex-row items-center justify-between pb-3">
+      {/* Header — shrink-0 prevents compression when card grows via flex-1 */}
+      <CardHeader className="flex flex-row items-center justify-between pb-3 shrink-0">
         <CardTitle className="text-sm font-semibold">Моя зарплата</CardTitle>
         <DollarSign className="h-4 w-4 text-muted-foreground" aria-hidden />
       </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Rate display — text-3xl on wide card (round 3 vs text-2xl in round 2) */}
+
+      {/* CardContent: flex flex-col flex-1 → fills grid row height */}
+      <CardContent className="flex flex-col flex-1 pt-0 gap-0">
+        {/* Rate zone */}
         {hasRate ? (
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-bold tabular-nums" data-testid="salary-rate-amount">
-              {Number(salaryMeta!.monthlySalary).toLocaleString('ru-RU')}
+          <div className="flex items-baseline gap-2 pb-1" data-testid="salary-rate-zone">
+            <span
+              className="text-4xl font-bold tabular-nums leading-none"
+              data-testid="salary-rate-amount"
+            >
+              {amount}
             </span>
-            <span className="text-sm text-muted-foreground uppercase">
-              {salaryMeta!.salaryCurrency ?? ''}
+            <span className="text-base text-muted-foreground uppercase tracking-wide">
+              {currency}
             </span>
-            <span className="text-xs text-muted-foreground ml-auto">/ мес</span>
+            <span className="text-sm text-muted-foreground ml-auto">/ месяц</span>
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground/60 italic" data-testid="salary-no-rate">
-            Ставка не назначена
+          <div className="pb-1">
+            <p className="text-sm text-muted-foreground/60 italic" data-testid="salary-no-rate">
+              Ставка не назначена
+            </p>
+          </div>
+        )}
+
+        {/* Changed-at — shown only when changedAt is present (round-1 req) */}
+        {salaryMeta?.changedAt != null && (
+          <p className="text-xs text-muted-foreground pb-3" data-testid="salary-changed-at">
+            Изменена{' '}
+            {new Date(salaryMeta.changedAt).toLocaleDateString('ru-RU', {
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric',
+            })}
           </p>
         )}
 
-        {/* Last 3 payments — full rows with border-b separators */}
-        {salaryTxs.length > 0 && (
-          <div data-testid="salary-tx-list">
-            <p className="text-xs text-muted-foreground mb-2">Последние выплаты</p>
-            {salaryTxs.map((tx) => {
+        <Separator className="opacity-30 mb-4 shrink-0" />
+
+        {/* Payments zone */}
+        <div className="space-y-0" data-testid="salary-tx-list">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
+            Последние выплаты
+          </p>
+          {salaryTxs.length === 0 ? (
+            <p className="text-xs text-muted-foreground/60 italic py-2">Выплат ещё не было</p>
+          ) : (
+            salaryTxs.map((tx) => {
               const isPaid = tx.status === 'PAID' || tx.status === 'VALIDATED'
               const txVariant = isPaid ? ('paid' as const) : ('pending' as const)
+              const label =
+                tx.salaryMonth ??
+                new Date(tx.createdAt).toLocaleDateString('ru-RU', {
+                  month: 'long',
+                  year: 'numeric',
+                })
               return (
                 <div
                   key={tx.id}
-                  className="flex items-center justify-between py-1.5 border-b border-border/20 last:border-0"
+                  className="flex items-center justify-between py-2.5 border-b border-border/20 last:border-0"
                   data-testid="salary-tx-row"
                 >
-                  <span className="text-sm text-muted-foreground">
-                    {tx.salaryMonth ??
-                      new Date(tx.createdAt).toLocaleDateString('ru-RU', {
-                        month: 'long',
-                        year: 'numeric',
-                      })}
-                  </span>
+                  <span className="text-sm text-muted-foreground capitalize">{label}</span>
                   <div className="flex items-center gap-3">
                     <span className="tabular-nums text-sm font-medium">
                       {Number(tx.amount).toLocaleString('ru-RU')} {tx.currency}
                     </span>
-                    <Badge variant={txVariant} className="text-xs">
+                    <Badge variant={txVariant} className="text-xs min-w-[72px] justify-center">
                       {isPaid ? 'Выплачено' : 'Ожидание'}
                     </Badge>
                   </div>
                 </div>
               )
-            })}
+            })
+          )}
+        </div>
+
+        {/* Spacer — pushes summary zone to bottom */}
+        <div className="flex-1" />
+
+        {/* Summary zone — anchored to bottom via mt-auto, shown only when rate exists */}
+        {hasRate && (
+          <div className="mt-auto pt-3 shrink-0" data-testid="salary-summary">
+            <Separator className="opacity-20 mb-3" />
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Ставка за месяц</span>
+              <span className="text-sm font-semibold tabular-nums">
+                {amount} {currency}
+              </span>
+            </div>
           </div>
         )}
-
-        {/* All payments link */}
-        <Link
-          to="/crm/finance"
-          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          data-testid="salary-all-link"
-        >
-          <ExternalLink className="h-3 w-3" />
-          Все мои выплаты
-        </Link>
       </CardContent>
     </Card>
   )
