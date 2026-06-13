@@ -444,7 +444,36 @@ test.describe('AC3 — Salary snapshot card', () => {
     await expect(card.getByText('USD').first()).toBeVisible()
   })
 
-  // salary-changed-at REMOVED in round 4 (UT feedback — changedAt line removed from SalaryCard)
+  test('salary-changed-at line visible and contains «Изменена» when changedAt is set', async ({
+    asJunior: page,
+  }) => {
+    // SALARY_META_FIXTURE already contains changedAt: '2026-03-01T00:00:00.000Z'
+    // The Coder commit cf00988 renders: <p data-testid="salary-changed-at">Изменена 1 марта 2026 г.</p>
+    await mockJuniorProjectsAndLegend(page)
+
+    await page.goto('/crm/project')
+    const card = page.getByTestId('salary-snapshot-card')
+    await expect(card).toBeVisible()
+
+    const changedAtEl = card.getByTestId('salary-changed-at')
+    await expect(changedAtEl).toBeVisible()
+    await expect(changedAtEl).toContainText('Изменена')
+  })
+
+  test('salary-changed-at absent from DOM when changedAt is null', async ({ asJunior: page }) => {
+    await mockJuniorProjectsAndLegend(page, {
+      salaryMeta: {
+        status: 200,
+        body: { monthlySalary: '800', salaryCurrency: 'USD', changedAt: null },
+      },
+    })
+
+    await page.goto('/crm/project')
+    const card = page.getByTestId('salary-snapshot-card')
+    await expect(card).toBeVisible()
+
+    await expect(card.getByTestId('salary-changed-at')).toHaveCount(0)
+  })
 
   test('PAID transaction shows badge «Выплачено»', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
