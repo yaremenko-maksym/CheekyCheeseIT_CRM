@@ -671,6 +671,96 @@ export const dropSelfSummarySchema = z.object({
 })
 export type DropSelfSummaryDto = z.infer<typeof dropSelfSummarySchema>
 
+// ── Drop self-view DTOs (Drop role - phase 2, task-drop-2-backend) ──────────
+//
+// Three read-only, DROP-only data contracts consumed by the drop «Мой роутинг»
+// hub + finance cabinet (design spec docs/design/drop-role-ux.md §10). Every
+// endpoint behind them is self-scoped (drop sees only their own rows); these
+// schemas only describe the wire shape — RBAC lives in the service.
+
+/**
+ * Drop income status — the four states the FE renders for a DROP_INCOME row.
+ * Derived from the DB `transaction_status` enum (PENDING|VALIDATED|PAID|REJECTED);
+ * the other DB statuses (PENDING_PAYMENT / LOCKED / PENDING_CASH_CONFIRM) never
+ * apply to a DROP_INCOME income row, so they are intentionally excluded here.
+ */
+export const dropIncomeStatusSchema = z.enum(['pending', 'validated', 'paid', 'rejected'])
+export type DropIncomeStatus = z.infer<typeof dropIncomeStatusSchema>
+
+// GET /api/finance/drop/me/incomes — one row of the drop's income feed.
+// `companyName` is the client company that paid (sourced from the income's
+// senderLabel / project.companyName). `amount` is the gross income before the
+// drop's share is split out.
+export const dropIncomeDtoSchema = z.object({
+  id: z.string().uuid(),
+  companyName: z.string(),
+  amount: z.number(),
+  currency: z.string(),
+  createdAt: z.string(), // ISO date
+  status: dropIncomeStatusSchema,
+})
+export type DropIncomeDto = z.infer<typeof dropIncomeDtoSchema>
+
+// Paginated envelope for the incomes feed. Mirrors the established
+// `auditLogListSchema` shape (items + total + page + limit). `total` is the
+// count BEFORE pagination so the FE can render «N приходов» and page controls.
+export const paginatedDropIncomesSchema = z.object({
+  items: z.array(dropIncomeDtoSchema),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  limit: z.number().int().positive(),
+})
+export type PaginatedDropIncomes = z.infer<typeof paginatedDropIncomesSchema>
+
+// Query filters for GET /api/finance/drop/me/incomes. All optional; status/type
+// narrow the feed, from/to bound the createdAt window (ISO date strings), and
+// page/limit drive pagination (defaults 1 / 20). `type` currently only accepts
+// DROP_INCOME (the sole income type a drop owns) but is kept as a filter for
+// forward-compatibility and to mirror the FE filter UI.
+export const dropIncomesQuerySchema = z.object({
+  status: dropIncomeStatusSchema.optional(),
+  type: z.literal('DROP_INCOME').optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  page: z.coerce.number().int().positive().optional().default(1),
+  limit: z.coerce.number().int().positive().max(100).optional().default(20),
+})
+export type DropIncomesQuery = z.infer<typeof dropIncomesQuerySchema>
+
+// GET /api/projects/drop/me — drop-project with its income aggregate.
+// `seniorDisplayName` is the senior's REAL display name (the drop coordinates
+// directly with the senior — NOT masked, unlike the JUNIOR legend persona).
+// `incomesCount` = number of DROP_INCOME rows the drop owns on this project.
+// `status` maps project archival: active = not archived, closed = archived.
+export const dropProjectDtoSchema = z.object({
+  id: z.string().uuid(),
+  companyName: z.string(),
+  seniorDisplayName: z.string(),
+  incomesCount: z.number().int().nonnegative(),
+  status: z.enum(['active', 'closed']),
+})
+export type DropProjectDto = z.infer<typeof dropProjectDtoSchema>
+
+/**
+ * Drop payment status — the three states the FE renders for an outgoing
+ * PAYOUT (drop → company). Derived from the DB `transaction_status` enum:
+ * PENDING_PAYMENT → pending, PAID → confirmed, REJECTED → failed.
+ */
+export const dropPaymentStatusSchema = z.enum(['pending', 'confirmed', 'failed'])
+export type DropPaymentStatus = z.infer<typeof dropPaymentStatusSchema>
+
+// GET /api/finance/drop/me/payments — one outgoing payment (drop → company).
+// `txHash` present only for crypto payments; omitted otherwise.
+export const dropPaymentDtoSchema = z.object({
+  id: z.string().uuid(),
+  amount: z.number(),
+  currency: z.string(),
+  txHash: z.string().optional(),
+  status: dropPaymentStatusSchema,
+  createdAt: z.string(), // ISO date
+})
+export type DropPaymentDto = z.infer<typeof dropPaymentDtoSchema>
+
 export const financeSummarySchema = z.object({
   totalIncome: z.number(),
   totalExpenses: z.number(),

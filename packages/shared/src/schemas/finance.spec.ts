@@ -139,3 +139,152 @@ describe('financeSummarySchema.dropBalances — new fields', () => {
     expect(result.dropBalances[1]!.pendingCount).toBe(3)
   })
 })
+
+// ── Drop self-view DTOs (task-drop-2-backend) ───────────────────────────────
+import {
+  dropIncomeDtoSchema,
+  dropIncomesQuerySchema,
+  dropPaymentDtoSchema,
+  dropProjectDtoSchema,
+  paginatedDropIncomesSchema,
+} from './finance'
+
+describe('dropIncomeDtoSchema', () => {
+  const base = {
+    id: 'a0000000-0000-4000-8000-000000000010',
+    companyName: 'TechCorp',
+    amount: 1500,
+    currency: 'USDT',
+    createdAt: '2026-06-12T10:00:00.000Z',
+    status: 'validated',
+  }
+
+  it('parses a valid income row', () => {
+    const r = dropIncomeDtoSchema.parse(base)
+    expect(r.companyName).toBe('TechCorp')
+    expect(r.status).toBe('validated')
+  })
+
+  it.each(['pending', 'validated', 'paid', 'rejected'])('accepts status %s', (status) => {
+    expect(dropIncomeDtoSchema.parse({ ...base, status }).status).toBe(status)
+  })
+
+  it('rejects a DB-internal status that must never reach the FE', () => {
+    expect(() => dropIncomeDtoSchema.parse({ ...base, status: 'PENDING_PAYMENT' })).toThrow()
+  })
+
+  it('rejects a non-uuid id', () => {
+    expect(() => dropIncomeDtoSchema.parse({ ...base, id: 'not-a-uuid' })).toThrow()
+  })
+})
+
+describe('paginatedDropIncomesSchema', () => {
+  it('parses an envelope with items + pagination meta', () => {
+    const r = paginatedDropIncomesSchema.parse({
+      items: [
+        {
+          id: 'a0000000-0000-4000-8000-000000000011',
+          companyName: 'StartupA',
+          amount: 800,
+          currency: 'USDT',
+          createdAt: '2026-06-10T10:00:00.000Z',
+          status: 'pending',
+        },
+      ],
+      total: 42,
+      page: 2,
+      limit: 20,
+    })
+    expect(r.items).toHaveLength(1)
+    expect(r.total).toBe(42)
+    expect(r.page).toBe(2)
+  })
+
+  it('rejects a non-positive page', () => {
+    expect(() =>
+      paginatedDropIncomesSchema.parse({ items: [], total: 0, page: 0, limit: 20 }),
+    ).toThrow()
+  })
+})
+
+describe('dropIncomesQuerySchema', () => {
+  it('applies default page=1 limit=20 when omitted', () => {
+    const r = dropIncomesQuerySchema.parse({})
+    expect(r.page).toBe(1)
+    expect(r.limit).toBe(20)
+  })
+
+  it('coerces string page/limit (query params arrive as strings)', () => {
+    const r = dropIncomesQuerySchema.parse({ page: '3', limit: '50' })
+    expect(r.page).toBe(3)
+    expect(r.limit).toBe(50)
+  })
+
+  it('caps limit at 100', () => {
+    expect(() => dropIncomesQuerySchema.parse({ limit: '500' })).toThrow()
+  })
+
+  it('only accepts DROP_INCOME for type', () => {
+    expect(dropIncomesQuerySchema.parse({ type: 'DROP_INCOME' }).type).toBe('DROP_INCOME')
+    expect(() => dropIncomesQuerySchema.parse({ type: 'SENIOR_INCOME' })).toThrow()
+  })
+})
+
+describe('dropProjectDtoSchema', () => {
+  const base = {
+    id: 'a0000000-0000-4000-8000-000000000012',
+    companyName: 'TechCorp',
+    seniorDisplayName: 'Oleksiy Kovalenko',
+    incomesCount: 12,
+    status: 'active',
+  }
+
+  it('parses a valid drop-project row with real senior display name', () => {
+    const r = dropProjectDtoSchema.parse(base)
+    expect(r.seniorDisplayName).toBe('Oleksiy Kovalenko')
+    expect(r.incomesCount).toBe(12)
+    expect(r.status).toBe('active')
+  })
+
+  it('accepts status closed', () => {
+    expect(dropProjectDtoSchema.parse({ ...base, status: 'closed' }).status).toBe('closed')
+  })
+
+  it('rejects an unknown status', () => {
+    expect(() => dropProjectDtoSchema.parse({ ...base, status: 'archived' })).toThrow()
+  })
+
+  it('rejects a negative incomesCount', () => {
+    expect(() => dropProjectDtoSchema.parse({ ...base, incomesCount: -1 })).toThrow()
+  })
+})
+
+describe('dropPaymentDtoSchema', () => {
+  const base = {
+    id: 'a0000000-0000-4000-8000-000000000013',
+    amount: 950,
+    currency: 'USDT',
+    status: 'pending',
+    createdAt: '2026-06-12T10:00:00.000Z',
+  }
+
+  it('parses a payment without txHash (txHash optional)', () => {
+    const r = dropPaymentDtoSchema.parse(base)
+    expect(r.txHash).toBeUndefined()
+    expect(r.status).toBe('pending')
+  })
+
+  it('parses a payment with txHash', () => {
+    const r = dropPaymentDtoSchema.parse({ ...base, txHash: '0xabc123', status: 'confirmed' })
+    expect(r.txHash).toBe('0xabc123')
+    expect(r.status).toBe('confirmed')
+  })
+
+  it.each(['pending', 'confirmed', 'failed'])('accepts payment status %s', (status) => {
+    expect(dropPaymentDtoSchema.parse({ ...base, status }).status).toBe(status)
+  })
+
+  it('rejects an income-style status on a payment', () => {
+    expect(() => dropPaymentDtoSchema.parse({ ...base, status: 'validated' })).toThrow()
+  })
+})
