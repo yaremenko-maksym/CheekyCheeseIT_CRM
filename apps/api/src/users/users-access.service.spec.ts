@@ -245,13 +245,15 @@ describe('UsersAccessService.getViewPermissions', () => {
   })
 
   // task-junior-ut-round2 §3 (security, data-leak): JUNIOR self-view is an
-  // EXPLICIT allow-list — overview/requisites/documents ONLY. Projects/Team/Finance
-  // are removed: they surface senior/drop identity + project/team internals.
-  // (Supersedes the previous expectation that JUNIOR self saw projects/team.)
-  it('JUNIOR viewing themselves — allow-list overview/requisites/documents only (no projects/team/finance)', async () => {
+  // EXPLICIT allow-list — overview/requisites ONLY. Projects/Team/Finance/Documents
+  // are removed: they surface senior/drop identity and project/team internals.
+  // task-junior-ut-round3 §6a: 'documents' also removed from JUNIOR self-view
+  // (data-privacy: /crm/project hub is the junior's primary project surface).
+  it('JUNIOR viewing themselves — allow-list overview/requisites only (no documents/projects/team/finance)', async () => {
     const junior = makeUser({ id: 'jr1', role: 'JUNIOR' })
     const p = await service.getViewPermissions(junior, junior)
-    expect(p.tabs).toEqual(['overview', 'requisites', 'documents'])
+    expect(p.tabs).toEqual(['overview', 'requisites'])
+    expect(p.tabs).not.toContain('documents')
     expect(p.tabs).not.toContain('projects')
     expect(p.tabs).not.toContain('team')
     expect(p.tabs).not.toContain('finance')

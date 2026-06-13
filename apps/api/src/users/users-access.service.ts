@@ -79,7 +79,9 @@ export class UsersAccessService {
       // project/team internals (same class as mapProject allow-list + RBAC audit
       // 2026-06-10). The junior hub (/crm/project) is their project surface.
       if (isJunior) {
-        tabs.push('overview', 'requisites', 'documents')
+        // task-junior-ut-round3 §6a: 'documents' removed from JUNIOR self-view
+        // (data-privacy: /crm/project hub is the junior's primary project surface).
+        tabs.push('overview', 'requisites')
       } else {
         tabs.push('overview', 'projects', 'team', 'requisites', 'documents')
         // Drop role - phase 1: DROP has finance access (read), same as senior/etc.
