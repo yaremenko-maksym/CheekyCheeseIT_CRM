@@ -280,18 +280,23 @@ async function mockJuniorProjectsAndLegend(
 // ---------------------------------------------------------------------------
 
 test.describe('AC1 — JUNIOR hub /crm/project', () => {
-  test('hub renders with all 6 blocks visible', async ({ asJunior: page }) => {
+  test('hub renders with all main blocks visible (round 3 layout)', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
     await page.goto('/crm/project')
 
     await expect(page.getByTestId('junior-hub')).toBeVisible()
 
+    // Left stack: ProjectInfoCard (with HR inline) + PersonaCard
     await expect(page.getByTestId('project-info-card')).toBeVisible()
+    await expect(page.getByTestId('hr-inline')).toBeVisible()
     await expect(page.getByTestId('persona-card')).toBeVisible()
-    await expect(page.getByTestId('contract-status-card')).toBeVisible()
+    // Right wide: SalarySnapshotCard
     await expect(page.getByTestId('salary-snapshot-card')).toBeVisible()
-    await expect(page.getByTestId('hr-contact-card')).toBeVisible()
+    // ContractStatusCard REMOVED in round 3 (task-junior-ut-round3 §5)
+    await expect(page.getByTestId('contract-status-card')).toHaveCount(0)
+    // HrContactCard REMOVED — HR is now inline in ProjectInfoCard
+    await expect(page.getByTestId('hr-contact-card')).toHaveCount(0)
     // AC2: QuickLinksBar removed — quick-links-bar must NOT be in DOM
     await expect(page.getByTestId('quick-links-bar')).toHaveCount(0)
   })
@@ -343,19 +348,24 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
     await expect(page).toHaveURL('/crm/legend')
   })
 
-  test('HR contact card shows name, telegram, phone from allowlist', async ({ asJunior: page }) => {
+  test('HR contact inline shows name, telegram, phone inside project-info-card (round 3)', async ({
+    asJunior: page,
+  }) => {
     await mockJuniorProjectsAndLegend(page)
 
     await page.goto('/crm/project')
-    await expect(page.getByTestId('hr-contact-card')).toBeVisible()
+    // HR is now inline in ProjectInfoCard (HrInline component, data-testid="hr-inline")
+    await expect(page.getByTestId('hr-inline')).toBeVisible()
 
-    const card = page.getByTestId('hr-contact-card')
-    await expect(card.getByText(HR_CONTACT_FIXTURE.displayName)).toBeVisible()
-    await expect(card.getByText(HR_CONTACT_FIXTURE.telegram)).toBeVisible()
-    await expect(card.getByText(HR_CONTACT_FIXTURE.phone)).toBeVisible()
+    const hrBlock = page.getByTestId('hr-inline')
+    await expect(hrBlock.getByText(HR_CONTACT_FIXTURE.displayName)).toBeVisible()
+    await expect(hrBlock.getByText(HR_CONTACT_FIXTURE.telegram)).toBeVisible()
+    await expect(hrBlock.getByText(HR_CONTACT_FIXTURE.phone)).toBeVisible()
   })
 
-  test('AC2: bento grid present, quick-links-bar absent from DOM', async ({ asJunior: page }) => {
+  test('AC2: bento grid present, quick-links-bar and contract-card absent from DOM (round 3)', async ({
+    asJunior: page,
+  }) => {
     await mockJuniorProjectsAndLegend(page)
 
     await page.goto('/crm/project')
@@ -364,12 +374,17 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
     // Bento grid container must be rendered
     await expect(page.getByTestId('junior-hub-bento')).toBeVisible()
 
-    // HR+credentials bottom band present
-    await expect(page.getByTestId('junior-hub-hr-credentials-row')).toBeVisible()
+    // Bottom full-width credentials section (round 3: no hr-credentials-row wrapper)
+    await expect(page.getByTestId('credentials-section')).toBeVisible()
+    // junior-hub-hr-credentials-row REMOVED in round 3 (credentials are now col-span-full standalone)
+    await expect(page.getByTestId('junior-hub-hr-credentials-row')).toHaveCount(0)
 
     // QuickLinksBar completely removed (PR #184 AC2)
     await expect(page.getByTestId('quick-links-bar')).toHaveCount(0)
     await expect(page.getByTestId('quick-link-legend')).toHaveCount(0)
+
+    // ContractStatusCard REMOVED in round 3
+    await expect(page.getByTestId('contract-status-card')).toHaveCount(0)
   })
 
   test('empty-state shown when JUNIOR has no projects', async ({ asJunior: page }) => {
@@ -389,75 +404,24 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
 })
 
 // ---------------------------------------------------------------------------
-// AC1 — Contract status card: new endpoint /contracts/me/status
+// Round 3 regression — ContractStatusCard removed from hub
 // ---------------------------------------------------------------------------
 
-test.describe('AC1 — Contract card — /contracts/me/status endpoint', () => {
-  test('SIGNED contract → badge «Подписан» visible', async ({ asJunior: page }) => {
-    // Pass contractStatus via opts — registered as the single LIFO handler
-    await mockJuniorProjectsAndLegend(page, {
-      contractStatus: {
-        status: 200,
-        body: { id: 'd0000000-0000-4000-8000-000000000001', status: 'SIGNED' },
-      },
-    })
-
-    await page.goto('/crm/project')
-    await expect(page.getByTestId('contract-status-card')).toBeVisible()
-
-    const card = page.getByTestId('contract-status-card')
-    const badge = card.getByTestId('contract-status-badge')
-    await expect(badge).toBeVisible()
-    await expect(badge).toContainText('Подписан')
-  })
-
-  test('READY_TO_SIGN → badge «Ожидает подписи» + CTA button', async ({ asJunior: page }) => {
-    await mockJuniorProjectsAndLegend(page, {
-      contractStatus: {
-        status: 200,
-        body: { id: 'd0000000-0000-4000-8000-000000000002', status: 'READY_TO_SIGN' },
-      },
-    })
-
-    await page.goto('/crm/project')
-    const card = page.getByTestId('contract-status-card')
-    await expect(card).toBeVisible()
-
-    const badge = card.getByTestId('contract-status-badge')
-    await expect(badge).toContainText('Ожидает подписи')
-
-    // CTA button to sign
-    await expect(card.getByTestId('contract-sign-btn')).toBeVisible()
-  })
-
-  test('no contract (404) → badge «Контракт не оформлен»', async ({ asJunior: page }) => {
-    // Default opts.contractStatus is 404 → "no contract" state
+test.describe('Round 3 regression — ContractStatusCard absent from hub', () => {
+  test('contract-status-card NOT present in junior hub DOM (removed in round 3)', async ({
+    asJunior: page,
+  }) => {
     await mockJuniorProjectsAndLegend(page)
 
     await page.goto('/crm/project')
-    const card = page.getByTestId('contract-status-card')
-    await expect(card).toBeVisible()
+    await expect(page.getByTestId('junior-hub')).toBeVisible()
 
-    const badge = card.getByTestId('contract-status-badge')
-    await expect(badge).toContainText('Контракт не оформлен')
-  })
-
-  test('error state (500) → NOT «Контракт не оформлен»', async ({ asJunior: page }) => {
-    // Server error — must not be treated as "no contract"
-    await mockJuniorProjectsAndLegend(page, {
-      contractStatus: {
-        status: 500,
-        body: { message: 'Internal server error' },
-      },
-    })
-
-    await page.goto('/crm/project')
-    const card = page.getByTestId('contract-status-card')
-    await expect(card).toBeVisible()
-
-    // Error state must show something OTHER than «Контракт не оформлен»
-    const main = page.locator('main')
-    await expect(main.getByText('Контракт не оформлен')).toHaveCount(0)
+    // ContractStatusCard was removed from the hub in task-junior-ut-round3 §5.
+    // Regression guard: ensure it is not accidentally re-introduced.
+    await expect(page.getByTestId('contract-status-card')).toHaveCount(0)
+    // /contracts/me/status should still NOT be called (no hook on hub after removal)
+    // salary card must still be present
+    await expect(page.getByTestId('salary-snapshot-card')).toBeVisible()
   })
 })
 
@@ -985,20 +949,21 @@ async function mockUserCredentials(
 }
 
 test.describe('AC6 — Credentials visibility', () => {
-  test('JUNIOR hub has add-credential button (canAdd)', async ({ asJunior: page }) => {
+  test('JUNIOR hub has add-credential button (canAdd=true, round 3 col-span-full)', async ({
+    asJunior: page,
+  }) => {
     await mockJuniorProjectsAndLegend(page)
 
     await page.goto('/crm/project')
     await expect(page.getByTestId('junior-hub-bento')).toBeVisible()
 
-    // ProjectCredentialsSection is rendered in the bottom band with canAdd=true
-    // The credentials section add button must be present in the hub
-    const credRow = page.getByTestId('junior-hub-hr-credentials-row')
-    await expect(credRow).toBeVisible()
+    // Round 3: credentials are full-width col-span-full, no hr-credentials-row wrapper.
+    // credentials-section is rendered directly in the bento grid.
+    const credSection = page.getByTestId('credentials-section')
+    await expect(credSection).toBeVisible()
 
-    // canAdd=true means the add button (add-credential-btn or similar) is rendered.
-    // We check the section is present and contains an actionable button.
-    const addBtn = credRow.getByRole('button', { name: /добавить|add/i })
+    // canAdd=true → add button present (JUNIOR can add credentials to their project)
+    const addBtn = credSection.getByTestId('credentials-add-btn')
     await expect(addBtn).toBeVisible()
   })
 
@@ -1084,5 +1049,39 @@ test.describe('AC6 — Credentials visibility', () => {
     // profile-credentials-section should NOT be rendered for self-view
     // (permissions.fields.projectCredentials is absent/false in self-view DTO)
     await expect(page.getByTestId('profile-credentials-section')).toHaveCount(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Round 3 — JUNIOR profile: 2 tabs only (overview + requisites, no documents)
+// ---------------------------------------------------------------------------
+
+test.describe('Round 3 — JUNIOR profile self-view tabs', () => {
+  test('JUNIOR self-view has overview and requisites tabs, documents tab absent', async ({
+    asJunior: page,
+  }) => {
+    await page.goto('/crm/profile')
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
+
+    // overview tab present
+    await expect(page.getByRole('button', { name: 'Обзор' })).toBeVisible()
+    // requisites tab present
+    await expect(page.getByRole('button', { name: 'Реквизиты', exact: true })).toBeVisible()
+
+    // documents tab ABSENT — task-junior-ut-round3 §6a removed it from JUNIOR self-view
+    await expect(page.getByRole('button', { name: 'Документы', exact: true })).toHaveCount(0)
+  })
+
+  test('JUNIOR self-view: tos-acceptance-card absent (backend withholds tosAcceptedAt)', async ({
+    asJunior: page,
+  }) => {
+    // Backend sets canSeeTos=false for JUNIOR self (task-junior-ut-round3 §6b):
+    // tosAcceptedAt is NOT included in data.overview → OverviewTab renders canSeeTos=false
+    // → tos-acceptance-card is not rendered.
+    await page.goto('/crm/profile')
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
+
+    // tos-acceptance-card must NOT be present
+    await expect(page.getByTestId('tos-acceptance-card')).toHaveCount(0)
   })
 })

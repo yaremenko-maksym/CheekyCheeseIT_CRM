@@ -316,7 +316,7 @@ async function setupAdminProjectDetail(page: import('@playwright/test').Page, cr
 // ---------------------------------------------------------------------------
 
 test.describe('JUNIOR hub — credentials-section empty state', () => {
-  test('секция видна, empty-state показан, кнопка добавить отсутствует', async ({
+  test('секция видна, empty-state показан, кнопка добавить ЕСТЬ (canAdd=true, round 3)', async ({
     asJunior: page,
   }) => {
     await setupJuniorHub(page, [])
@@ -329,8 +329,9 @@ test.describe('JUNIOR hub — credentials-section empty state', () => {
     // Empty state message
     await expect(section.getByText('Нет сохранённых паролей')).toBeVisible()
 
-    // JUNIOR: кнопка «Добавить» отсутствует (canEdit=false)
-    await expect(section.getByTestId('credentials-add-btn')).toHaveCount(0)
+    // round 3: JUNIOR has canAdd=true (passed from hub) → add button IS present
+    // (previously canEdit=false made it absent, but now canAdd is explicitly set)
+    await expect(section.getByTestId('credentials-add-btn')).toBeVisible()
   })
 })
 
@@ -728,5 +729,120 @@ test.describe('RBAC — SENIOR не имеет доступа к credentials', (
 
     // Секция credentials не рендерится для SENIOR
     await expect(page.getByTestId('credentials-section')).toHaveCount(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Round 3 — форма паролей сбрасывается при повторном открытии (security fix)
+// task-junior-ut-round3 §4: CredentialDialog unmounts on close → form reset
+// ---------------------------------------------------------------------------
+
+test.describe('Round 3 — credential dialog form reset on reopen', () => {
+  test('add-dialog: поля пустые при повторном открытии (форма сбрасывается)', async ({
+    asAdmin: page,
+  }) => {
+    await setupAdminProjectDetail(page, [])
+
+    await page.goto(`/crm/projects/${ADMIN_PROJECT_ID}`)
+
+    const section = page.getByTestId('credentials-section')
+    await expect(section).toBeVisible()
+
+    // Первое открытие — заполняем форму
+    await section.getByTestId('credentials-add-btn').click()
+    const dialog = page.getByTestId('credentials-dialog')
+    await expect(dialog).toBeVisible()
+
+    await dialog.getByTestId('credentials-input-label').fill('OldValue')
+    await dialog.getByTestId('credentials-input-login').fill('oldlogin@test.com')
+    await dialog.getByTestId('credentials-input-password').fill('oldpassword123')
+
+    // Закрываем через Отмена
+    await dialog.getByRole('button', { name: 'Отмена' }).click()
+    await expect(dialog).not.toBeVisible({ timeout: 3000 })
+
+    // Второе открытие — поля должны быть ПУСТЫМИ (dialog unmounted → state reset)
+    await section.getByTestId('credentials-add-btn').click()
+    await expect(dialog).toBeVisible()
+
+    // Security: старый пароль не должен быть в форме
+    const labelInput = dialog.getByTestId('credentials-input-label')
+    const loginInput = dialog.getByTestId('credentials-input-login')
+    const passwordInput = dialog.getByTestId('credentials-input-password')
+
+    await expect(labelInput).toHaveValue('')
+    await expect(loginInput).toHaveValue('')
+    await expect(passwordInput).toHaveValue('')
+  })
+
+  test('add-dialog: поля пустые после успешного сабмита и повторного открытия', async ({
+    asAdmin: page,
+  }) => {
+    const NEW_CRED_ID = 'd0000000-0000-4000-8000-000000000099'
+    let callCount = 0
+    await page.route(new RegExp(`${API}/projects/${ADMIN_PROJECT_ID}/credentials$`), (r) => {
+      if (r.request().method() === 'POST') {
+        return r.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: NEW_CRED_ID,
+            projectId: ADMIN_PROJECT_ID,
+            label: 'Added',
+            login: 'added@test.com',
+            url: null,
+            notes: null,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }),
+        })
+      }
+      if (r.request().method() === 'GET') {
+        callCount++
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(
+            callCount === 1
+              ? []
+              : [
+                  {
+                    id: NEW_CRED_ID,
+                    projectId: ADMIN_PROJECT_ID,
+                    label: 'Added',
+                    login: 'added@test.com',
+                    url: null,
+                    notes: null,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                  },
+                ],
+          ),
+        })
+      }
+      return r.fallback()
+    })
+
+    await page.goto(`/crm/projects/${ADMIN_PROJECT_ID}`)
+    const section = page.getByTestId('credentials-section')
+    await expect(section).toBeVisible()
+
+    // Первый сабмит
+    await section.getByTestId('credentials-add-btn').click()
+    const dialog = page.getByTestId('credentials-dialog')
+    await expect(dialog).toBeVisible()
+
+    await dialog.getByTestId('credentials-input-label').fill('Added')
+    await dialog.getByTestId('credentials-input-login').fill('added@test.com')
+    await dialog.getByTestId('credentials-input-password').fill('s3cr3t!')
+    await dialog.getByTestId('credentials-dialog-submit').click()
+    await expect(dialog).not.toBeVisible({ timeout: 5000 })
+
+    // Повторное открытие — форма сброшена
+    await section.getByTestId('credentials-add-btn').click()
+    await expect(dialog).toBeVisible()
+
+    await expect(dialog.getByTestId('credentials-input-label')).toHaveValue('')
+    await expect(dialog.getByTestId('credentials-input-password')).toHaveValue('')
   })
 })

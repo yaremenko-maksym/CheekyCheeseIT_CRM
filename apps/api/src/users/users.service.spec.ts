@@ -1315,3 +1315,108 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
     expect((result.user as Record<string, unknown>).usrRecord).toBe('lviv-record')
   })
 })
+
+// ---------------------------------------------------------------------------
+// buildProfileView — ToS acceptance masking for JUNIOR self (task-junior-ut-round3 §6b)
+// ---------------------------------------------------------------------------
+
+describe('UsersService.buildProfileView — ToS hidden from JUNIOR self (data-privacy)', () => {
+  /** Factory with configurable tosService mock */
+  function makeServiceToS(
+    target: ReturnType<typeof makeUser>,
+    permissions: { tabs: string[]; actions: string[]; fields: Record<string, boolean> },
+    tosReturnValue: { acceptedAt: Date; tosVersion: string } | null,
+  ): UsersService {
+    const db = {
+      db: {
+        select: vi.fn().mockReturnThis(),
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockResolvedValue([target]),
+        insert: vi.fn(),
+        update: vi.fn(),
+        delete: vi.fn(),
+      },
+    } as unknown as DrizzleDb
+
+    const accessService = {
+      getViewPermissions: vi.fn().mockResolvedValue(permissions),
+    } as unknown as import('./users-access.service').UsersAccessService
+
+    const tosService = {
+      getLatestAcceptanceForUser: vi.fn().mockResolvedValue(tosReturnValue),
+    } as never
+
+    return new UsersService(
+      db as never,
+      accessService as never,
+      makeAuditLogService() as never,
+      tosService,
+    )
+  }
+
+  const tosData = { acceptedAt: new Date('2026-01-15T10:00:00Z'), tosVersion: 'v1' }
+
+  // task-junior-ut-round3 §6b: JUNIOR self-view must NOT receive tosAcceptedAt/tosVersion
+  it('JUNIOR self — tosAcceptedAt and tosVersion are null in overview (data-privacy)', async () => {
+    const junior = makeJunior({ id: 'jr-self' })
+    const viewer = makeJunior({ id: 'jr-self' })
+    const permissions = {
+      tabs: ['overview', 'requisites'],
+      actions: [],
+      fields: { salary: true, requisites: true, techStack: true, realContacts: true },
+    }
+    const service = makeServiceToS(junior, permissions, tosData)
+    const result = await service.buildProfileView(viewer as never, 'jr-self')
+    const overview = result.data.overview as Record<string, unknown>
+    expect(overview.tosAcceptedAt).toBeNull()
+    expect(overview.tosVersion).toBeNull()
+  })
+
+  // Regression: SENIOR self must still receive tosAcceptedAt
+  it('SENIOR self — tosAcceptedAt is visible (non-JUNIOR role allowed)', async () => {
+    const senior = makeSenior({ id: 'sr-self' })
+    const viewer = makeSenior({ id: 'sr-self' })
+    const permissions = {
+      tabs: ['overview', 'projects', 'team', 'requisites', 'documents', 'finance'],
+      actions: [],
+      fields: {
+        salary: true,
+        share: true,
+        requisites: true,
+        techStack: true,
+        realContacts: true,
+        legalName: true,
+        fopPii: true,
+      },
+    }
+    const service = makeServiceToS(senior, permissions, tosData)
+    const result = await service.buildProfileView(viewer as never, 'sr-self')
+    const overview = result.data.overview as Record<string, unknown>
+    expect(overview.tosAcceptedAt).toBe('2026-01-15T10:00:00.000Z')
+    expect(overview.tosVersion).toBe('v1')
+  })
+
+  // Regression: ADMIN viewing JUNIOR must still receive tosAcceptedAt (ADMIN role)
+  it('ADMIN viewing JUNIOR — tosAcceptedAt is visible (ADMIN always allowed)', async () => {
+    const junior = makeJunior({ id: 'jr-target' })
+    const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
+    const permissions = {
+      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
+      actions: ['edit-profile'],
+      fields: {
+        salary: true,
+        requisites: true,
+        legalName: true,
+        techStack: true,
+        realContacts: true,
+        adminNote: true,
+        fopPii: true,
+      },
+    }
+    const service = makeServiceToS(junior, permissions, tosData)
+    const result = await service.buildProfileView(viewer as never, 'jr-target')
+    const overview = result.data.overview as Record<string, unknown>
+    expect(overview.tosAcceptedAt).toBe('2026-01-15T10:00:00.000Z')
+    expect(overview.tosVersion).toBe('v1')
+  })
+})

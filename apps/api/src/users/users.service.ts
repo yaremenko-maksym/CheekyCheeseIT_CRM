@@ -1474,8 +1474,12 @@ export class UsersService {
 
     const data: Record<string, unknown> = {}
     if (permissions.tabs.includes('overview')) {
-      // ToS acceptance — visible to ADMIN or the user viewing their own profile
-      const canSeeTos = viewer.role === 'ADMIN' || viewer.id === target.id
+      // ToS acceptance — visible to ADMIN or self (except JUNIOR self: data-privacy,
+      // task-junior-ut-round3 §6b). JUNIOR sees their own overview tab but does NOT
+      // get tosAcceptedAt/tosVersion — the onboarding flow already gated them before
+      // reaching the hub, so the date is irrelevant and leaks internal audit info.
+      const canSeeTos =
+        viewer.role === 'ADMIN' || (viewer.id === target.id && viewer.role !== 'JUNIOR')
       const tosAcceptance = canSeeTos
         ? await this.tosService.getLatestAcceptanceForUser(target.id)
         : null

@@ -60,6 +60,7 @@ import {
   useUpdateCredential,
 } from '@/hooks/use-credentials'
 import { getAxiosStatus } from '@/lib/axios-utils'
+import { cn } from '@/lib/utils'
 
 interface ProjectCredentialsSectionProps {
   /** UUID проекта */
@@ -75,6 +76,12 @@ interface ProjectCredentialsSectionProps {
    * Defaults to `canEdit` for backwards compatibility (ADMIN/HR inherit).
    */
   canAdd?: boolean
+  /**
+   * Render credentials in a 2-column grid when >= 2 items (junior hub full-width).
+   * Scoped to junior hub only — default false to avoid changing ADMIN/HR profile view.
+   * task-junior-ut-round3 §2.5
+   */
+  twoColumn?: boolean
 }
 
 // Threshold (§9.2): wrap the list in a ScrollArea once it grows past this many rows.
@@ -84,6 +91,7 @@ export function ProjectCredentialsSection({
   projectId,
   canEdit,
   canAdd,
+  twoColumn = false,
 }: ProjectCredentialsSectionProps) {
   // «+ Добавить» shows for editors (ADMIN/HR) and for JUNIOR with explicit canAdd.
   const showAddButton = canEdit || (canAdd ?? false)
@@ -140,17 +148,21 @@ export function ProjectCredentialsSection({
             projectId={projectId}
             canEdit={canEdit}
             onEdit={openEdit}
+            twoColumn={twoColumn}
           />
         )}
       </CardContent>
 
-      <CredentialDialog
-        key={editing?.id ?? 'new'}
-        projectId={projectId}
-        editing={editing}
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-      />
+      {/* Unmount CredentialDialog when closed so form state resets on every open.
+          Security: plaintext never lingers between sessions (task-junior-ut-round3 §4). */}
+      {dialogOpen && (
+        <CredentialDialog
+          projectId={projectId}
+          editing={editing}
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+        />
+      )}
     </Card>
   )
 }
@@ -162,18 +174,27 @@ function CredentialList({
   projectId,
   canEdit,
   onEdit,
+  twoColumn,
 }: {
   credentials: ProjectCredential[]
   projectId: string
   canEdit: boolean
   onEdit: (cred: ProjectCredential) => void
+  twoColumn?: boolean
 }) {
+  // Two-column grid for >= 2 items when twoColumn prop is set (junior hub full-width).
+  // Single item → 1-col (avoids rogue right-side gap on full-width strip).
+  const useTwoCol = twoColumn && credentials.length >= 2
+
   const rows = (
     <TooltipProvider delayDuration={300}>
-      <ul className="space-y-1" data-testid="credentials-list">
+      <ul
+        className={cn(useTwoCol ? 'grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1' : 'space-y-1')}
+        data-testid="credentials-list"
+      >
         {credentials.map((cred, i) => (
           <li key={cred.id}>
-            {i > 0 && <Separator className="my-1" />}
+            {!useTwoCol && i > 0 && <Separator className="my-1" />}
             <CredentialRow
               credential={cred}
               projectId={projectId}
