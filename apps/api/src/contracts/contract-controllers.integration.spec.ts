@@ -101,7 +101,7 @@ class SentinelEmployeeContractsController {
   @Roles() // override class ADMIN-only — owner-or-ADMIN enforced below
   get(@Param('id') id: string, @CurrentUser() viewer: SessionUser) {
     if (viewer.role !== 'ADMIN' && viewer.id !== id) {
-      throw new ForbiddenException('Можна переглянути лише власний контракт')
+      throw new ForbiddenException('Можно просмотреть только свой контракт')
     }
     return { ok: true, endpoint: 'GET /users/:id/contract', id, viewer: viewer.role }
   }
