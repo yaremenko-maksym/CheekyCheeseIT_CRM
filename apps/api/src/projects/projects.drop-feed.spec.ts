@@ -7,11 +7,15 @@
  *  Mapping: companyName, REAL seniorDisplayName (NOT masked), status
  *    (archivedAt null → active, set → closed), incomesCount per project
  *    (counted from this drop's DROP_INCOME rows, 0 when none).
+ *  Closed projects included: archivedAt IS NOT filtered in the WHERE clause —
+ *    a closed project (archivedAt set) MUST appear with status='closed'.
+ *    Fix: MED review finding code-review-1 (dead 'closed' branch removed by
+ *    dropping the isNull(archivedAt) WHERE restriction).
  *
  * Pure stub for DatabaseService — no Postgres. The DB-level self-scope
- * (dropId = self AND archivedAt IS NULL WHERE clause + receiverId on incomes)
- * is pinned by the real-DB integration spec (drop.rbac.integration.spec.ts);
- * the stub's findMany ignores the `where`, so these tests target the in-memory
+ * (dropId = self WHERE clause + receiverId on incomes) is pinned by the
+ * real-DB integration spec (drop.rbac.integration.spec.ts); the stub's
+ * findMany ignores the `where`, so these tests target the in-memory
  * enrichment/mapping the WHERE clause cannot cover.
  */
 import { ForbiddenException } from '@nestjs/common'
@@ -128,5 +132,25 @@ describe('findDropOwnProjects — mapping', () => {
     const svc = makeSvc([projA], [])
     const [row] = await svc.findDropOwnProjects(user('DROP', DROP_ID))
     expect(row!.incomesCount).toBe(0)
+  })
+
+  // Regression: MED review finding code-review-1 — before the fix the WHERE
+  // clause contained isNull(archivedAt), making archivedAt≠null rows invisible
+  // and the 'closed' branch of the status mapping dead / unreachable.
+  // After the fix the query has NO archivedAt restriction, so closed projects
+  // are included and mapped to status='closed'.
+  it('closed project (archivedAt set) is included in results with status=closed', async () => {
+    const closedProject: ProjectRow = {
+      id: 'proj-closed',
+      companyName: 'ClosedCorp',
+      archivedAt: new Date('2026-03-01T00:00:00Z'),
+      senior: { displayName: 'Ivan Petrenko' },
+    }
+    const svc = makeSvc([projA, closedProject], [])
+    const res = await svc.findDropOwnProjects(user('DROP', DROP_ID))
+    const closed = res.find((p) => p.id === 'proj-closed')
+    expect(closed).toBeDefined()
+    expect(closed!.status).toBe('closed')
+    expect(closed!.companyName).toBe('ClosedCorp')
   })
 })

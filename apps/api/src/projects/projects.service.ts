@@ -388,8 +388,8 @@ export class ProjectsService {
    * Self-only DROP project feed for `GET /api/projects/drop/me`.
    *
    * Drop role - phase 2 (task-drop-2-backend). RBAC: DROP only — every other
-   * role gets 403. Returns the active drop-projects the caller owns
-   * (`dropId = self.id`), each enriched with:
+   * role gets 403. Returns ALL drop-projects the caller owns — both active and
+   * closed (`dropId = self.id`, no archivedAt filter), each enriched with:
    *   - `seniorDisplayName` — the senior's REAL display name. Unlike the JUNIOR
    *     legend persona, the drop coordinates directly with the senior, so this
    *     is NOT masked (design spec §10.1).
@@ -397,10 +397,11 @@ export class ProjectsService {
    *     project (`receiverId = self.id AND projectId = project.id`).
    *   - `status`            — project archival mapped to active|closed.
    *
-   * Reuses the same `dropId === self && archivedAt === null` filter as the DROP
-   * branch of `findAll` (the canonical drop-project ownership rule) rather than
-   * duplicating ownership semantics. incomesCount is computed from a single
-   * batched read of this drop's DROP_INCOME rows (no N+1).
+   * archivedAt IS NOT filtered out here: DropProjectDto.status is
+   * 'active'|'closed' per spec §10.1 — showing only active projects made the
+   * 'closed' branch unreachable (dead code). Fix: MED review finding code-review-1.
+   * incomesCount is computed from a single batched read of this drop's
+   * DROP_INCOME rows (no N+1).
    */
   async findDropOwnProjects(currentUser: SessionUser): Promise<DropProjectDto[]> {
     if (currentUser.role !== 'DROP') {
@@ -408,7 +409,9 @@ export class ProjectsService {
     }
 
     const ownProjects = (await this.db.db.query.projects.findMany({
-      where: and(eq(projects.dropId, currentUser.id), isNull(projects.archivedAt)),
+      // No archivedAt filter: drop sees both active and closed own projects.
+      // status is derived from archivedAt in the mapping below.
+      where: eq(projects.dropId, currentUser.id),
       with: { senior: { columns: { displayName: true } } },
     })) as Array<Project & { senior: { displayName: string } | null }>
 
