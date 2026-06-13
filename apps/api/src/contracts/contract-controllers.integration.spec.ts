@@ -74,6 +74,16 @@ const seniorUser: SessionUser = {
   seniorSharePercent: 26,
 }
 
+// DROP self-view contract (UT finding 3a): DROP must be able to GET their own contract.
+const dropUser: SessionUser = {
+  id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+  email: 'drop@test.com',
+  displayName: 'Drop',
+  avatarUrl: null,
+  role: 'DROP',
+  seniorSharePercent: 26,
+}
+
 const targetUserId = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
 
 // ---------------------------------------------------------------------------
@@ -86,8 +96,13 @@ const targetUserId = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
 @Controller('users')
 @Roles('ADMIN')
 class SentinelEmployeeContractsController {
+  // task-drop-phase3-frontend UT finding 3a: owner-or-ADMIN (mirrors real controller).
   @Get(':id/contract')
+  @Roles() // override class ADMIN-only — owner-or-ADMIN enforced below
   get(@Param('id') id: string, @CurrentUser() viewer: SessionUser) {
+    if (viewer.role !== 'ADMIN' && viewer.id !== id) {
+      throw new ForbiddenException('Можна переглянути лише власний контракт')
+    }
     return { ok: true, endpoint: 'GET /users/:id/contract', id, viewer: viewer.role }
   }
 
@@ -306,13 +321,41 @@ describe('Contract controllers — real-route integration (double-prefix regress
   // 3. RBAC — non-ADMIN cannot access /api/users/:id/contract* (403)
   // -------------------------------------------------------------------------
 
-  it('GET /api/users/:id/contract → 403 for SENIOR (RolesGuard: ADMIN only)', async () => {
+  // task-drop-phase3-frontend UT finding 3a: GET /contract is now owner-or-ADMIN.
+  // SENIOR accessing a *different* user's contract → still 403 (ForbiddenException in handler).
+  it('GET /api/users/:id/contract → 403 for SENIOR accessing another user (not owner, not ADMIN)', async () => {
     const res = await app.inject({
       method: 'GET',
       url: `/api/users/${targetUserId}/contract`,
       cookies: { jwt: signFor(seniorUser) },
     })
     expect(res.statusCode).toBe(403)
+  })
+
+  // DROP self: GET /api/users/:dropId/contract → 200 (owner access, UT finding 3a).
+  it('GET /api/users/:id/contract → 200 for DROP self (owner-or-ADMIN, UT finding 3a)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/users/${dropUser.id}/contract`,
+      cookies: { jwt: signFor(dropUser) },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { ok: boolean; viewer: string }
+    expect(body.ok).toBe(true)
+    expect(body.viewer).toBe('DROP')
+  })
+
+  // SENIOR self: GET /api/users/:seniorId/contract → 200 (owner access, regression guard).
+  it('GET /api/users/:id/contract → 200 for SENIOR accessing own contract (owner self)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/users/${seniorUser.id}/contract`,
+      cookies: { jwt: signFor(seniorUser) },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { ok: boolean; viewer: string }
+    expect(body.ok).toBe(true)
+    expect(body.viewer).toBe('SENIOR')
   })
 
   it('PATCH /api/users/:id/contract → 403 for SENIOR', async () => {
