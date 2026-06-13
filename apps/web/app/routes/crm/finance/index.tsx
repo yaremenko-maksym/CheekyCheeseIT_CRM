@@ -58,6 +58,7 @@ import { TransactionDetailDialog } from './components/dialogs/TransactionDetailD
 import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransactionDialog'
 import { MyProjectShares } from './components/MyProjectShares'
 import { DropBalanceCard } from './components/KpiCards'
+import { DropFinancePage } from './components/DropFinancePage'
 import { PendingSettlementSeniorCard } from './components/PendingSettlementSeniorCard'
 import { PendingSettlementCompanyCard } from './components/PendingSettlementCompanyCard'
 import { LogCashPaymentDialog } from './components/dialogs/LogCashPaymentDialog'
@@ -504,6 +505,12 @@ function FinancePage() {
   const validatedSeniorIncomes = transactions.filter(
     (t) => t.type === 'SENIOR_INCOME' && t.status === 'VALIDATED' && !t.payoutRequestId,
   )
+
+  // Drop role - phase 2. DROP gets their own dedicated finance cabinet that
+  // shows only their own incomes/payments via self-scoped API endpoints.
+  // Must return BEFORE loading transactions — DROP doesn't use the shared
+  // transactions query (different data shape + API path).
+  if (isDrop) return <DropFinancePage />
 
   // HR view
   if (isHr) {
