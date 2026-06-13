@@ -135,7 +135,7 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
           {displayName}
         </button>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-          <span>{formatBytes(doc.sizeBytes)}</span>
+          <span>{doc.sizeBytes > 0 ? formatBytes(doc.sizeBytes) : '—'}</span>
           <span aria-hidden="true">·</span>
           <span title={doc.createdAt}>{relativeDate}</span>
           <span aria-hidden="true">·</span>

@@ -1760,6 +1760,9 @@ async function main() {
         signedIp: '127.0.0.1',
         signedAt: u.signedAt,
         contractNumber: `CHK-${u.contractNum}-2025`,
+        // Pre-fill realistic PDF size so UT shows real size on first load
+        // (lazy recordPdfSizeIfAbsent fills this on first preview in prod)
+        pdfSizeBytes: 81920 + (u.contractNum % 5) * 10240,
       })
       .returning()
     if (sc) signedContractIdByUser[u.userId] = sc.id

@@ -545,7 +545,7 @@ function SalarySnapshotCard({
             <span className="text-base text-muted-foreground uppercase tracking-wide">
               {currency}
             </span>
-            <span className="text-sm text-muted-foreground ml-auto">/ месяц</span>
+            <span className="text-sm text-muted-foreground">/ месяц</span>
           </div>
         ) : (
           <div className="pb-1">
@@ -553,6 +553,19 @@ function SalarySnapshotCard({
               Ставка не назначена
             </p>
           </div>
+        )}
+
+        {/* Changed-at — directly under the rate (UT round 6: moved from bottom summary). */}
+        {hasRate && (
+          <p className="text-xs text-muted-foreground pb-1" data-testid="salary-changed-at">
+            {salaryMeta?.changedAt != null
+              ? `Изменена ${new Date(salaryMeta.changedAt).toLocaleDateString('ru-RU', {
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric',
+                })}`
+              : 'Ставка ещё не менялась'}
+          </p>
         )}
 
         <Separator className="opacity-30 mb-4 shrink-0" />
@@ -595,24 +608,8 @@ function SalarySnapshotCard({
           )}
         </div>
 
-        {/* Spacer — pushes summary zone to bottom */}
+        {/* Spacer — fills remaining height so the card matches the left column (equal-height). */}
         <div className="flex-1" />
-
-        {/* Summary zone — anchored to bottom, shows changedAt or fallback (never duplicates rate) */}
-        {hasRate && (
-          <div className="mt-auto pt-3 shrink-0" data-testid="salary-summary">
-            <Separator className="opacity-20 mb-3" />
-            <p className="text-xs text-muted-foreground" data-testid="salary-changed-at">
-              {salaryMeta?.changedAt != null
-                ? `Изменена ${new Date(salaryMeta.changedAt).toLocaleDateString('ru-RU', {
-                    day: 'numeric',
-                    month: 'long',
-                    year: 'numeric',
-                  })}`
-                : 'Ставка ещё не менялась'}
-            </p>
-          </div>
-        )}
       </CardContent>
     </Card>
   )
