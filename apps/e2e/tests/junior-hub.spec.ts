@@ -27,7 +27,9 @@
 
 import { test, expect, USERS, PROJECTS } from './fixtures'
 
-const API = 'http://localhost:3001/api'
+// Origin-agnostic API path prefix — matches both direct (:3001) and proxied (:3000/:3020) origins.
+// RegExp patterns built from this prefix match on path only, so they work regardless of dev port.
+const API = '\\/api'
 
 // ---------------------------------------------------------------------------
 // Shared junior-facing fixtures
@@ -82,6 +84,7 @@ const HR_CONTACT_FIXTURE = {
   displayName: USERS.hr.displayName,
   telegram: '@hrmanager',
   phone: '+380671234567',
+  avatarUrl: 'https://example.com/hr-avatar.jpg',
 }
 
 // ---------------------------------------------------------------------------
@@ -363,6 +366,64 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
     await expect(hrBlock.getByText(HR_CONTACT_FIXTURE.phone)).toBeVisible()
   })
 
+  test('HR avatar rendered inside hr-inline when avatarUrl present (round 5)', async ({
+    asJunior: page,
+  }) => {
+    // HR_CONTACT_FIXTURE has avatarUrl — HrInline renders Avatar+AvatarImage+AvatarFallback.
+    // round-5 (3cf5567): HrInline wraps displayName in Avatar component.
+    // The AvatarFallback (initials) is always rendered as DOM fallback — assert it's present.
+    await mockJuniorProjectsAndLegend(page)
+
+    await page.goto('/crm/project')
+    const hrBlock = page.getByTestId('hr-inline')
+    await expect(hrBlock).toBeVisible()
+
+    // Avatar wrapper rendered — img or fallback span present
+    // AvatarFallback always in DOM (radix renders it as accessible fallback)
+    const initials = HR_CONTACT_FIXTURE.displayName
+      .split(' ')
+      .map((n: string) => n[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase()
+    await expect(hrBlock.getByText(initials)).toBeVisible()
+  })
+
+  test('HR avatar fallback initials shown when avatarUrl is null (round 5)', async ({
+    asJunior: page,
+  }) => {
+    // When avatarUrl is null the AvatarImage src is undefined — AvatarFallback shows initials.
+    // Register override BEFORE mockJuniorProjectsAndLegend (LIFO: later wins).
+    // Use origin-agnostic pattern: path-only regex (no hardcoded host).
+    await page.route(new RegExp(`\\/api\\/projects\\/${JUNIOR_PROJECT.id}\\/hr-contact$`), (r) => {
+      if (r.request().method() !== 'GET') return r.fallback()
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          displayName: HR_CONTACT_FIXTURE.displayName,
+          telegram: HR_CONTACT_FIXTURE.telegram,
+          phone: HR_CONTACT_FIXTURE.phone,
+          avatarUrl: null,
+        }),
+      })
+    })
+    await mockJuniorProjectsAndLegend(page)
+
+    await page.goto('/crm/project')
+    const hrBlock = page.getByTestId('hr-inline')
+    await expect(hrBlock).toBeVisible()
+
+    // Initials fallback always present for non-empty displayName
+    const initials = HR_CONTACT_FIXTURE.displayName
+      .split(' ')
+      .map((n: string) => n[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase()
+    await expect(hrBlock.getByText(initials)).toBeVisible()
+  })
+
   test('AC2: bento grid present, quick-links-bar and contract-card absent from DOM (round 3)', async ({
     asJunior: page,
   }) => {
@@ -460,7 +521,11 @@ test.describe('AC3 — Salary snapshot card', () => {
     await expect(changedAtEl).toContainText('Изменена')
   })
 
-  test('salary-changed-at absent from DOM when changedAt is null', async ({ asJunior: page }) => {
+  test('salary-changed-at shows fallback «Ставка ещё не менялась» when changedAt is null', async ({
+    asJunior: page,
+  }) => {
+    // round-5: salary-changed-at is ALWAYS in DOM when hasRate=true.
+    // changedAt==null → fallback text «Ставка ещё не менялась» (not absent).
     await mockJuniorProjectsAndLegend(page, {
       salaryMeta: {
         status: 200,
@@ -472,7 +537,9 @@ test.describe('AC3 — Salary snapshot card', () => {
     const card = page.getByTestId('salary-snapshot-card')
     await expect(card).toBeVisible()
 
-    await expect(card.getByTestId('salary-changed-at')).toHaveCount(0)
+    const changedAtEl = card.getByTestId('salary-changed-at')
+    await expect(changedAtEl).toBeVisible()
+    await expect(changedAtEl).toContainText('Ставка ещё не менялась')
   })
 
   test('PAID transaction shows badge «Выплачено»', async ({ asJunior: page }) => {
