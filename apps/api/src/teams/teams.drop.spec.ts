@@ -11,7 +11,7 @@
  * already exercises elsewhere (see users.archive.spec.ts) but slimmer: we
  * only need to verify routing and validation messages.
  */
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { TeamsService } from './teams.service'
@@ -388,6 +388,145 @@ describe('TeamsService.rotateSenior', () => {
 // ---------------------------------------------------------------------------
 // mapTeam early return — DROP type does not invoke the senior-team branch
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// findAll / findOne — DROP visibility (task-drop-1-backend AC1 + AC2)
+//
+// AC1: a DROP sees ONLY their own drop-team via findAll (never a foreign team,
+//      never "all"). AC2: findOne on a foreign team → 403.
+// ---------------------------------------------------------------------------
+
+const dropViewer: SessionUser = {
+  id: 'drop-A',
+  role: 'DROP',
+  displayName: 'Drop A',
+  email: 'dropa@cc.com',
+  avatarUrl: null,
+  seniorSharePercent: 26,
+}
+
+// Build a DROP-team row in the shape `mapDropTeam` + the findAll filter expect:
+// members carry `user` joins; `leftAt` controls active membership.
+function dropTeamRow(
+  id: string,
+  members: Array<{ userId: string; role: string; leftAt?: Date | null }>,
+) {
+  return {
+    id,
+    name: `Drop team ${id}`,
+    type: 'DROP' as const,
+    telegram: null,
+    telegramChannel: null,
+    notes: null,
+    seniorSharePercentOverride: null,
+    archivedAt: null,
+    createdAt: new Date('2026-01-01'),
+    updatedAt: new Date('2026-01-01'),
+    members: members.map((m, i) => ({
+      id: `${id}-tm-${i}`,
+      teamId: id,
+      userId: m.userId,
+      leftAt: m.leftAt ?? null,
+      joinedAt: new Date('2026-01-01'),
+      user: {
+        id: m.userId,
+        role: m.role,
+        displayName: `User ${m.userId}`,
+        email: `${m.userId}@cc.com`,
+        avatarUrl: null,
+        avatarDocumentId: null,
+        techStack: null,
+        phone: null,
+        telegram: null,
+      },
+    })),
+  }
+}
+
+describe('TeamsService.findAll — DROP visibility (AC1)', () => {
+  it('returns ONLY the drop-team where the DROP is a current member', async () => {
+    const own = dropTeamRow('team-own', [
+      { userId: 'drop-A', role: 'DROP' },
+      { userId: 'hr-1', role: 'HR' },
+      { userId: 'acc-1', role: 'ACCOUNTANT' },
+    ])
+    const foreign = dropTeamRow('team-foreign', [
+      { userId: 'drop-B', role: 'DROP' },
+      { userId: 'hr-1', role: 'HR' },
+    ])
+    const { svc, db } = service({ users: [], teams: [], teamMembers: [], projects: [] })
+    db.query.teams.findMany = vi.fn().mockResolvedValue([own, foreign])
+    db.query.projects.findMany = vi.fn().mockResolvedValue([])
+
+    const result = (await svc.findAll(dropViewer)) as Array<{ id: string }>
+    expect(result).toHaveLength(1)
+    expect(result[0]!.id).toBe('team-own')
+  })
+
+  it('does NOT return a foreign drop-team (no cross-drop leak)', async () => {
+    const foreign = dropTeamRow('team-foreign', [{ userId: 'drop-B', role: 'DROP' }])
+    const { svc, db } = service({ users: [], teams: [], teamMembers: [], projects: [] })
+    db.query.teams.findMany = vi.fn().mockResolvedValue([foreign])
+    db.query.projects.findMany = vi.fn().mockResolvedValue([])
+
+    const result = (await svc.findAll(dropViewer)) as unknown[]
+    expect(result).toHaveLength(0)
+  })
+
+  it('does NOT return "all teams" even when many exist', async () => {
+    const own = dropTeamRow('team-own', [{ userId: 'drop-A', role: 'DROP' }])
+    const f1 = dropTeamRow('f1', [{ userId: 'drop-B', role: 'DROP' }])
+    const f2 = dropTeamRow('f2', [{ userId: 'drop-C', role: 'DROP' }])
+    const { svc, db } = service({ users: [], teams: [], teamMembers: [], projects: [] })
+    db.query.teams.findMany = vi.fn().mockResolvedValue([own, f1, f2])
+    db.query.projects.findMany = vi.fn().mockResolvedValue([])
+
+    const result = (await svc.findAll(dropViewer)) as Array<{ id: string }>
+    expect(result.map((t) => t.id)).toEqual(['team-own'])
+  })
+
+  it('ignores a team where the DROP membership is no longer active (leftAt set)', async () => {
+    const leftTeam = dropTeamRow('team-left', [
+      { userId: 'drop-A', role: 'DROP', leftAt: new Date('2026-02-01') },
+    ])
+    const { svc, db } = service({ users: [], teams: [], teamMembers: [], projects: [] })
+    db.query.teams.findMany = vi.fn().mockResolvedValue([leftTeam])
+    db.query.projects.findMany = vi.fn().mockResolvedValue([])
+
+    const result = (await svc.findAll(dropViewer)) as unknown[]
+    // findAll filters teams by `archived` only at the DB layer; the DROP
+    // branch matches on `members.some(userId === self)` regardless of leftAt,
+    // BUT a member whose `leftAt` is set is still a row in `team.members`.
+    // We assert the stricter active-only contract: the seed flow never leaves
+    // a drop in a team they left, so a left membership must not surface the
+    // team. If this fails, the findAll DROP filter needs `&& leftAt === null`.
+    expect(result).toHaveLength(0)
+  })
+})
+
+describe('TeamsService.findOne — DROP access (AC2)', () => {
+  it('allows the DROP to read their own drop-team', async () => {
+    const own = dropTeamRow('team-own', [
+      { userId: 'drop-A', role: 'DROP' },
+      { userId: 'hr-1', role: 'HR' },
+    ])
+    const { svc, db } = service({ users: [], teams: [], teamMembers: [], projects: [] })
+    db.query.teams.findFirst = vi.fn().mockResolvedValue(own)
+    db.query.projects.findMany = vi.fn().mockResolvedValue([])
+
+    const result = (await svc.findOne('team-own', dropViewer)) as { id: string }
+    expect(result.id).toBe('team-own')
+  })
+
+  it('forbids the DROP from reading a foreign drop-team → 403', async () => {
+    const foreign = dropTeamRow('team-foreign', [{ userId: 'drop-B', role: 'DROP' }])
+    const { svc, db } = service({ users: [], teams: [], teamMembers: [], projects: [] })
+    db.query.teams.findFirst = vi.fn().mockResolvedValue(foreign)
+    db.query.projects.findMany = vi.fn().mockResolvedValue([])
+
+    await expect(svc.findOne('team-foreign', dropViewer)).rejects.toBeInstanceOf(ForbiddenException)
+  })
+})
 
 describe('TeamsService.mapTeam — DROP branch isolation', () => {
   it('senior-team team unaffected by DROP type discrimination (regression)', async () => {

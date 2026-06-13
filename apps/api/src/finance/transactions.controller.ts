@@ -204,6 +204,20 @@ export class FinanceSummaryController {
     return this.svc.getSummary(user)
   }
 
+  // Drop role - phase 1 (task-drop-1-backend). Self-only DROP summary.
+  // GET /api/finance/drop/me/summary — DROP role ONLY; the service throws
+  // ForbiddenException for every other role (SENIOR / JUNIOR / HR / ACCOUNTANT
+  // / ADMIN), so this never leaks the full `dropBalances` aggregate nor any
+  // other drop's figures. Returns `dropSelfSummarySchema` shape
+  // ({ balance, dropSharePercent, pendingIncomesCount, debtToCompany }).
+  // Declared BEFORE `:id`-style routes is not a concern here — this controller
+  // has no param routes — but the explicit `drop/me/summary` literal segment
+  // also keeps it unambiguous.
+  @Get('drop/me/summary')
+  getDropSelfSummary(@CurrentUser() user: SessionUser) {
+    return this.svc.getDropSelfSummary(user)
+  }
+
   // ?date=YYYYMMDD — optional, defaults to today
   @Get('exchange-rate')
   getExchangeRate(@Query('date') date: string | undefined) {

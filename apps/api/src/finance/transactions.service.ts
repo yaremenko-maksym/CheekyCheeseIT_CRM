@@ -9,11 +9,6 @@ import {
   Inject,
 } from '@nestjs/common'
 
-/** Default drop-share percentage when `users.dropSharePercent` is NULL.
- *  Used in both `computeDropDistribution` (write-path) and `getSummary`
- *  (read-path display). Single source of truth — never duplicate the literal 5.
- */
-export const DEFAULT_DROP_SHARE_PERCENT = 5
 import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm'
 import type { SessionUser } from '@crm/shared'
 import { MAKSYM_ID, KOSTYA_ID } from '@crm/shared'
@@ -32,6 +27,20 @@ import {
 import { InvoicesService } from '../invoices/invoices.service'
 import { DocumentsService } from '../documents/documents.service'
 import { resolveSeniorShare } from './senior-share-resolver'
+
+/** Default drop-share percentage when `users.dropSharePercent` is NULL.
+ *  Used in both `computeDropDistribution` (write-path) and `getSummary`
+ *  (read-path display). Single source of truth — never duplicate the literal 5.
+ */
+export const DEFAULT_DROP_SHARE_PERCENT = 5
+
+/**
+ * Scaled-integer constant used throughout money aggregations to avoid JS
+ * float accumulation errors (same scale as the write-path in confirmPayout /
+ * payPayoutRequest: 1e6, round to int). Single source of truth so the
+ * per-drop aggregate helper and `getSummary` agree.
+ */
+export const MONEY_SCALE = 1_000_000
 
 type TxWithRelations = Transaction & {
   sender: { displayName: string } | null
@@ -384,6 +393,135 @@ export class TransactionsService {
       seniorShare: { amount: seniorAmount, percent: seniorPercent },
       dropShare: { amount: dropAmount, percent: dropPercent },
       partnerShares: this.computePartnersSplit(remainder),
+    }
+  }
+
+  /**
+   * Per-DROP financial aggregate — single source of truth shared by the
+   * admin/accountant `getSummary` (full list of every drop) and the
+   * self-only `getDropSelfSummary` (one drop). Pure function over already
+   * fetched transaction rows — no DB round-trips, no RBAC (callers gate).
+   *
+   * Drop role - phase 1 (task-drop-1-backend). Extracted from the inline
+   * `dropBalances.map(...)` in `getSummary` WITHOUT changing its semantics:
+   *   - `balance`             — Σ PAYOUT_DROP received − sent (the slice the
+   *                             drop keeps), scaled-integer to avoid float drift.
+   *   - `dropSharePercent`    — `drop.dropSharePercent ?? DEFAULT_DROP_SHARE_PERCENT`.
+   *   - `pendingCount`        — DROP_INCOME rows with `receiverId = drop.id` in
+   *                             PENDING|VALIDATED status (the «N ожидают» badge).
+   *
+   * NEW field (additive, only consumed by the drop self-summary; the admin
+   * summary maps it away so its DTO/tests are unaffected):
+   *   - `debtToCompany`       — what the drop still owes the company for
+   *                             VALIDATED-but-unsettled incomes.
+   *
+   * debtToCompany formula (derived from the DROP_INCOME → company lifecycle,
+   * see `validateTransaction` + `PaymentChannelService`):
+   *   At DROP_INCOME validation a placeholder PAYOUT row is booked with
+   *   `senderId = drop.id`, `status = 'PENDING_PAYMENT'`,
+   *   `amount = income × (1 − dropSharePercent/100)`. The drop pays the company
+   *   via crypto/cash confirm, which flips that PAYOUT row → 'PAID'. Therefore
+   *   the outstanding company debt is exactly the sum of the drop's PAYOUT
+   *   rows still in 'PENDING_PAYMENT'. This reads the BOOKED payable directly
+   *   (rather than recomputing share math), so it stays correct even if a
+   *   future income carries a per-row share override.
+   */
+  private computeDropAggregate(
+    drop: { id: string; displayName: string; dropSharePercent: number | null },
+    allTxs: Array<{
+      type: string
+      status: string
+      amount: string
+      senderId: string | null
+      receiverId: string | null
+    }>,
+  ): {
+    userId: string
+    displayName: string
+    balance: number
+    dropSharePercent: number
+    pendingCount: number
+    debtToCompany: number
+  } {
+    const paid = allTxs.filter((tx) => tx.status === 'PAID')
+
+    const receivedScaled = paid
+      .filter((tx) => tx.receiverId === drop.id && tx.type === 'PAYOUT_DROP')
+      .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * MONEY_SCALE), 0)
+    const sentScaled = paid
+      .filter((tx) => tx.senderId === drop.id && tx.type === 'PAYOUT_DROP')
+      .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * MONEY_SCALE), 0)
+
+    // pendingCount: DROP_INCOME rows for this drop still awaiting validation.
+    // createDropIncome sets receiverId = drop.id (drop is the recipient),
+    // senderId = null (external client). HIGH#2 fix: match on receiverId.
+    const pendingCount = allTxs.filter(
+      (tx) =>
+        tx.type === 'DROP_INCOME' &&
+        tx.receiverId === drop.id &&
+        (tx.status === 'PENDING' || tx.status === 'VALIDATED'),
+    ).length
+
+    // debtToCompany: placeholder PAYOUT rows booked at validation that the
+    // company-payment step has not yet flipped to PAID. senderId = drop.id.
+    const debtScaled = allTxs
+      .filter(
+        (tx) => tx.type === 'PAYOUT' && tx.senderId === drop.id && tx.status === 'PENDING_PAYMENT',
+      )
+      .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * MONEY_SCALE), 0)
+
+    return {
+      userId: drop.id,
+      displayName: drop.displayName,
+      balance: (receivedScaled - sentScaled) / MONEY_SCALE,
+      dropSharePercent: drop.dropSharePercent ?? DEFAULT_DROP_SHARE_PERCENT,
+      pendingCount,
+      debtToCompany: debtScaled / MONEY_SCALE,
+    }
+  }
+
+  /**
+   * Self-only DROP summary for `GET /api/finance/drop/me/summary`.
+   *
+   * Drop role - phase 1 (task-drop-1-backend). RBAC: DROP only — every other
+   * role (SENIOR / JUNIOR / HR / ACCOUNTANT / ADMIN) gets 403. The drop only
+   * ever sees THEIR OWN aggregate — the method filters the ledger to the
+   * caller's own rows inside `computeDropAggregate(self, …)`, so no other
+   * drop's balance / debt can leak out of this endpoint.
+   */
+  async getDropSelfSummary(currentUser: SessionUser): Promise<{
+    balance: number
+    dropSharePercent: number
+    pendingIncomesCount: number
+    debtToCompany: number
+  }> {
+    if (currentUser.role !== 'DROP') {
+      throw new ForbiddenException('Access denied: drop summary is available to DROP role only')
+    }
+
+    const self = await this.db.db.query.users.findFirst({
+      where: eq(users.id, currentUser.id),
+    })
+    if (!self) throw new NotFoundException('Drop user not found')
+
+    const allTxs = (await this.db.db.query.transactions.findMany()) as Array<{
+      type: string
+      status: string
+      amount: string
+      senderId: string | null
+      receiverId: string | null
+    }>
+
+    const aggregate = this.computeDropAggregate(
+      { id: self.id, displayName: self.displayName, dropSharePercent: self.dropSharePercent },
+      allTxs,
+    )
+
+    return {
+      balance: aggregate.balance,
+      dropSharePercent: aggregate.dropSharePercent,
+      pendingIncomesCount: aggregate.pendingCount,
+      debtToCompany: aggregate.debtToCompany,
     }
   }
 
@@ -1819,9 +1957,10 @@ export class TransactionsService {
     }
 
     // Scaled-integer constant used throughout aggregations below to avoid
-    // JS float accumulation errors (same scale as the write-path in
-    // confirmPayout / payPayoutRequest: SCALE = 1e6, round to int).
-    const SCALE = 1_000_000
+    // JS float accumulation errors. Aliased to the module-level `MONEY_SCALE`
+    // single source of truth so this method and `computeDropAggregate` can
+    // never drift apart on the rounding scale.
+    const SCALE = MONEY_SCALE
 
     const allTxs = (await this.db.db.query.transactions.findMany({
       with: {
@@ -1905,31 +2044,23 @@ export class TransactionsService {
       where: eq(users.role, 'DROP'),
     })
 
+    // Drop role - phase 1 (task-drop-1-backend): per-drop aggregate now flows
+    // through the shared `computeDropAggregate` helper (single source of truth
+    // also consumed by the self-only `getDropSelfSummary`). The admin summary
+    // DTO is unchanged — `debtToCompany` (returned by the helper) is mapped
+    // away here so `financeSummarySchema.dropBalances` and its existing unit
+    // tests stay byte-for-byte identical.
     const dropBalances = dropUsers.map((drop) => {
-      const receivedScaled = paid
-        .filter((tx) => tx.receiverId === drop.id && tx.type === 'PAYOUT_DROP')
-        .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0)
-      const sentScaled = paid
-        .filter((tx) => tx.senderId === drop.id && tx.type === 'PAYOUT_DROP')
-        .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0)
-      // pendingCount: DROP_INCOME rows for this drop that are still awaiting
-      // validation (PENDING or VALIDATED status). Derived from allTxs without
-      // an extra DB round-trip.
-      // FIX (HIGH#2): createDropIncome sets receiverId = drop.id (drop is the
-      // income recipient) and senderId = null (external client is the payer).
-      // The previous check on senderId === drop.id always yielded 0.
-      const pendingCount = allTxs.filter(
-        (tx) =>
-          tx.type === 'DROP_INCOME' &&
-          tx.receiverId === drop.id &&
-          (tx.status === 'PENDING' || tx.status === 'VALIDATED'),
-      ).length
+      const aggregate = this.computeDropAggregate(
+        { id: drop.id, displayName: drop.displayName, dropSharePercent: drop.dropSharePercent },
+        allTxs,
+      )
       return {
-        userId: drop.id,
-        displayName: drop.displayName,
-        balance: (receivedScaled - sentScaled) / SCALE,
-        dropSharePercent: drop.dropSharePercent ?? DEFAULT_DROP_SHARE_PERCENT,
-        pendingCount,
+        userId: aggregate.userId,
+        displayName: aggregate.displayName,
+        balance: aggregate.balance,
+        dropSharePercent: aggregate.dropSharePercent,
+        pendingCount: aggregate.pendingCount,
       }
     })
 

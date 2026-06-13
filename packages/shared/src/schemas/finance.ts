@@ -640,6 +640,37 @@ export const settleObligationResponseSchema = z.object({
 })
 export type SettleObligationResponseDto = z.infer<typeof settleObligationResponseSchema>
 
+// ---------------------------------------------------------------------------
+// Drop role - phase 1 (task-drop-1-backend). Self-only DROP summary.
+// ---------------------------------------------------------------------------
+//
+// Returned by `GET /api/finance/drop/me/summary` — DROP-only (every other role
+// gets 403). This is the drop-facing slice of the admin/accountant
+// `financeSummarySchema.dropBalances` aggregate, computed ONLY for the
+// authenticated drop. It NEVER carries any other drop's figures.
+//
+// Fields:
+//   - balance              — accrued drop share: Σ PAYOUT_DROP received − sent
+//                            (the slice the drop keeps; same math as
+//                            dropBalances[].balance in getSummary).
+//   - dropSharePercent     — the drop's configured share % (?? default 5).
+//   - pendingIncomesCount  — DROP_INCOME rows for this drop still in
+//                            PENDING|VALIDATED status (= dropBalances[].pendingCount).
+//   - debtToCompany        — amount the drop still owes the company for
+//                            VALIDATED-but-unsettled incomes. Formula (see
+//                            transactions.service `computeDropAggregate`):
+//                            Σ over PAYOUT rows where senderId = drop AND
+//                            status = 'PENDING_PAYMENT' of `amount`
+//                            (= income × (1 − dropSharePercent/100) per income,
+//                            booked at validation, cleared on company payment).
+export const dropSelfSummarySchema = z.object({
+  balance: z.number(),
+  dropSharePercent: z.number().int().min(0).max(100),
+  pendingIncomesCount: z.number().int().min(0),
+  debtToCompany: z.number(),
+})
+export type DropSelfSummaryDto = z.infer<typeof dropSelfSummarySchema>
+
 export const financeSummarySchema = z.object({
   totalIncome: z.number(),
   totalExpenses: z.number(),

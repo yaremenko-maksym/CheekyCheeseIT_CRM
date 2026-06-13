@@ -629,6 +629,46 @@ async function main() {
   ])
   console.log('  ✓ 4 teams + members inserted')
 
+  // ---- Drop-teams (6) — task-drop-1-backend AC3 ----
+  // Each of the 6 seed DROPs must belong to their OWN drop-team so the
+  // drop-facing surfaces (teams list, «Мой проект» hub) have data for the
+  // phase-2 UT. Mirrors the product flow `TeamsService.createDropTeam`
+  // exactly: type='DROP', name='Команда <displayName>', members = drop + HR(s)
+  // + the single ACCOUNTANT. No SENIOR by default (createDropTeam adds none).
+  // The 3 HRs are spread across the 6 drops; MYKOLA is the only accountant.
+  const dropTeamSeed: { dropId: string; name: string; hrId: string; joinedAt: Date }[] = [
+    { dropId: DROP1_ID, name: 'Команда Viktor Drozhzhyn', hrId: ANNA_ID, joinedAt: d(2025, 7, 1) },
+    {
+      dropId: DROP2_ID,
+      name: 'Команда Olena Drozdova',
+      hrId: KATERYNA_ID,
+      joinedAt: d(2025, 7, 15),
+    },
+    { dropId: DROP3_ID, name: 'Команда Roman Drobotenko', hrId: HR3_ID, joinedAt: d(2025, 8, 1) },
+    { dropId: DROP4_ID, name: 'Команда Marta Drozd', hrId: ANNA_ID, joinedAt: d(2025, 9, 1) },
+    { dropId: DROP5_ID, name: 'Команда Serhiy Drofa', hrId: KATERYNA_ID, joinedAt: d(2025, 9, 15) },
+    { dropId: DROP6_ID, name: 'Команда Tamara Drobysh', hrId: HR3_ID, joinedAt: d(2025, 10, 1) },
+  ]
+  for (const dt of dropTeamSeed) {
+    const dropTeamRows = await db
+      .insert(schema.teams)
+      .values({
+        name: dt.name,
+        type: 'DROP',
+        notes: 'Drop payment-routing team',
+        createdAt: dt.joinedAt,
+        updatedAt: dt.joinedAt,
+      })
+      .returning()
+    const dropTeam = dropTeamRows[0]!
+    await db.insert(schema.teamMembers).values([
+      { teamId: dropTeam.id, userId: dt.dropId, joinedAt: dt.joinedAt },
+      { teamId: dropTeam.id, userId: dt.hrId, joinedAt: dt.joinedAt },
+      { teamId: dropTeam.id, userId: MYKOLA_ID, joinedAt: dt.joinedAt },
+    ])
+  }
+  console.log('  ✓ 6 drop-teams + members inserted')
+
   // ---- 4. Projects (~8) ----
   console.log('\n[4/8] Inserting projects...')
 

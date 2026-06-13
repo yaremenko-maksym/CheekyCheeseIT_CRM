@@ -240,6 +240,20 @@ export class TeamsService {
     let filtered = allTeams
     if (currentUser.role === 'HR') {
       filtered = allTeams.filter((t) => this.isHrOfTeam(t, currentUser.id))
+    } else if (currentUser.role === 'DROP') {
+      // Drop role - phase 1 (task-drop-1-backend AC1). EXPLICIT branch: a DROP
+      // sees ONLY teams where they are a current static member (their own
+      // drop-team — created by `createDropTeam` with drop + HR + ACCOUNTANT).
+      // The JUNIOR project-derivation below MUST NOT apply to DROP (a drop is
+      // never derived into another senior's team via a project), so this
+      // branch is kept separate and deliberately narrow. Contract pinned by
+      // teams.drop.spec.ts: own team visible / foreign team hidden / never
+      // "all teams". Membership is ACTIVE-only (`leftAt === null`) per the
+      // task spec (`team_members.user_id = drop.id AND left_at IS NULL`) — a
+      // drop removed from a team must not keep seeing it.
+      filtered = allTeams.filter((t) =>
+        t.members.some((m) => m.userId === currentUser.id && m.leftAt === null),
+      )
     } else if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
       // SENIOR/JUNIOR: show teams where they are a static member
       // For JUNIORs derived from projects, also include teams where their senior is
@@ -589,6 +603,19 @@ export class TeamsService {
     allProjects: ProjectWithMembers[],
   ) {
     if (currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT') return
+
+    // Drop role - phase 1 (task-drop-1-backend AC2). EXPLICIT, ACTIVE-only
+    // branch evaluated BEFORE the generic membership check below: a DROP may
+    // access a team ONLY when they are a CURRENT member (`leftAt === null`),
+    // matching the findAll DROP filter. A foreign team — or one the drop has
+    // left — is unconditionally forbidden; the JUNIOR project-derivation below
+    // MUST NOT grant a DROP access. Returning/throwing here keeps the contract
+    // unambiguous and future-proof.
+    if (currentUser.role === 'DROP') {
+      if (team.members.some((m) => m.userId === currentUser.id && m.leftAt === null)) return
+      throw new ForbiddenException()
+    }
+
     if (team.members.some((m) => m.userId === currentUser.id)) return
 
     // For JUNIORs: check if they have an active project with this team's senior
