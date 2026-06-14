@@ -59,6 +59,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { formatBytes } from '@/lib/format-bytes'
+import { ProfileNameLink } from '@/components/users/ProfileNameLink'
 import {
   useDeleteDocument,
   useDocumentDownloadUrl,
@@ -345,14 +346,14 @@ export function DocumentDetailDialog({
                   icon={UserCircle2}
                   label="Загрузил"
                   value={
-                    <Link
-                      to="/crm/profile/$userId"
-                      params={{ userId: doc.uploadedBy }}
+                    <ProfileNameLink
+                      userId={doc.uploadedBy}
+                      viewerRole={viewer.role}
                       className="text-primary hover:underline focus:outline-none focus-visible:underline"
-                      data-testid="document-detail-uploader-link"
+                      testId="document-detail-uploader-link"
                     >
                       {uploaderLabel}
-                    </Link>
+                    </ProfileNameLink>
                   }
                 />
                 <DetailRow

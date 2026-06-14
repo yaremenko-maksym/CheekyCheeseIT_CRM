@@ -12,7 +12,6 @@
  * user. RECEIPT/INVOICE deletion rules are identical to DocumentCard.
  */
 import { useMemo, useState } from 'react'
-import { Link } from '@tanstack/react-router'
 import { formatDistanceToNow } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import {
@@ -29,6 +28,7 @@ import type { Document, SessionUser } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { ProfileNameLink } from '@/components/users/ProfileNameLink'
 import { DocumentStatusBadge } from './document-status-badge'
 import {
   AlertDialog,
@@ -141,14 +141,14 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
           <span aria-hidden="true">·</span>
           <span className="flex items-center gap-1">
             <UserCircle2 className="h-3 w-3" />
-            <Link
-              to="/crm/profile/$userId"
-              params={{ userId: doc.uploadedBy }}
+            <ProfileNameLink
+              userId={doc.uploadedBy}
+              viewerRole={viewer.role}
               className="hover:text-foreground hover:underline focus:outline-none"
-              data-testid="document-row-uploader-link"
+              testId="document-row-uploader-link"
             >
               {uploaderLabel}
-            </Link>
+            </ProfileNameLink>
           </span>
         </div>
       </div>
