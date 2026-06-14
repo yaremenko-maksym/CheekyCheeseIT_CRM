@@ -44,9 +44,11 @@ function resolveMainRepoRoot(): string | null {
   if (!match) return null
   const gitdirPath = match[1].trim()
   // gitdirPath = <mainRepo>/.git/worktrees/<name>
-  // mainRepo   = gitdirPath minus the last 3 segments
-  const mainGitDir = path.dirname(path.dirname(path.dirname(gitdirPath))) // → <mainRepo>/.git
-  const mainRepo = path.dirname(mainGitDir) // → <mainRepo>
+  // Strip 3 trailing segments to reach <mainRepo>:
+  //   dirname(<name>)      → <mainRepo>/.git/worktrees
+  //   dirname(worktrees)   → <mainRepo>/.git
+  //   dirname(.git)        → <mainRepo>
+  const mainRepo = path.dirname(path.dirname(path.dirname(gitdirPath)))
   return existsSync(path.join(mainRepo, 'node_modules')) ? mainRepo : null
 }
 
@@ -76,6 +78,10 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['src/**/*.{spec,test}.ts'],
+    // Generous per-test budget for CPU-bound tests (contract-pdf ~5s, compression ~60s
+    // under load). Pre-push hook now runs packages sequentially so each test worker
+    // gets the full CPU, but we keep a 90 s ceiling to catch genuine hangs.
+    testTimeout: 90000,
     ...(isWorktree && {
       // Extend vitest's server module resolution to include main repo's packages.
       server: {

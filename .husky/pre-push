@@ -1,2 +1,7 @@
 pnpm typecheck
-pnpm --filter @crm/shared --filter @crm/api --filter @crm/web test
+# Run packages sequentially so each vitest worker gets full CPU budget.
+# Parallel fork-pools (shared + api + web) competed for CPU under load,
+# causing contract-pdf / compression / phone-input tests to time out even
+# though they pass in isolation. Sequential runs are ~30 s slower on an
+# idle machine but deterministic under any load. (2026-06-14 fix)
+pnpm --filter @crm/shared test && pnpm --filter @crm/api test && pnpm --filter @crm/web test
