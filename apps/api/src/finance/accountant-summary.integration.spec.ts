@@ -8,7 +8,7 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { SessionUser } from '@crm/shared'
+import type { SessionUser, AccountantSummaryDto as AccountantSummaryDtoT } from '@crm/shared'
 import { accountantSummarySchema } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
@@ -195,6 +195,13 @@ describe('accountant-summary — real backend integration (real DB, no mocks)', 
   let jwt: JwtService
   let dbSvc: DatabaseService
 
+  // Baseline KPI captured BEFORE this spec inserts its own rows. The CI
+  // Integration job runs against the SEEDED crm_db (not an empty DB), so the
+  // global aggregate already contains seed rows. We therefore assert on the
+  // DELTA contributed by this spec's fixtures, which is robust against any
+  // pre-existing data (empty scratch DB OR seeded crm_db alike).
+  let baseline: AccountantSummaryDtoT | null = null
+
   const now = new Date()
   const thisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 15))
   const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15))
@@ -270,14 +277,27 @@ describe('accountant-summary — real backend integration (real DB, no mocks)', 
       })
       .onConflictDoNothing()
 
+    // ── Capture baseline KPI BEFORE inserting this spec's rows ──────────────────
+    // (delta-based assertions — see `baseline` declaration above). SENIOR/DROP
+    // were just inserted but own NO transactions yet, so they do not yet count
+    // toward recipientCount; the delta below isolates exactly this spec's effect.
+    {
+      const baseRes = await app.inject({
+        method: 'GET',
+        url: '/api/finance/accountant-summary',
+        cookies: { jwt: jwt.sign(ADMIN) },
+      })
+      baseline = accountantSummarySchema.parse(baseRes.json())
+    }
+
     // ── Seed transactions (deterministic KPI fixtures) ──────────────────────────
-    // pendingValidation: TX_PENDING_1 (1000, senior SENIOR) + TX_PENDING_2 (500,
-    //   drop receiver DROP) → count 2, amount 1500.
-    // validatedThisMonth: TX_VALIDATED_THIS (800, validatedAt thisMonth) → count 1,
-    //   amount 800. TX_VALIDATED_OLD (7777, validatedAt lastMonth) excluded.
-    // paidThisMonth: TX_PAID_THIS (2000, createdAt thisMonth) → 2000.
-    // recipientCount: income parties = {SENIOR (TX_PENDING_1, TX_VALIDATED_THIS,
-    //   TX_VALIDATED_OLD, TX_PAID_THIS senderId), DROP (TX_PENDING_2 receiverId)} → 2.
+    // Δ pendingValidation: TX_PENDING_1 (1000, senior SENIOR) + TX_PENDING_2 (500,
+    //   drop receiver DROP) → +count 2, +amount 1500.
+    // Δ validatedThisMonth: TX_VALIDATED_THIS (800, validatedAt thisMonth) → +count
+    //   1, +amount 800. TX_VALIDATED_OLD (7777, validatedAt lastMonth) excluded.
+    // Δ paidThisMonth: TX_PAID_THIS (2000, createdAt thisMonth) → +2000.
+    // Δ recipientCount: NEW income parties = {SENIOR, DROP} → +2 (neither owned any
+    //   income row at baseline capture time).
     await db.insert(transactions).values([
       {
         id: TX_PENDING_1,
@@ -412,8 +432,11 @@ describe('accountant-summary — real backend integration (real DB, no mocks)', 
     expect(parsed).toBeTruthy()
   })
 
-  it('KPI values are computed correctly over the seeded rows', async () => {
+  it('KPI deltas reflect exactly this spec inserted rows (robust on seeded DB)', async () => {
     if (!dbAvailable) return
+    expect(baseline).not.toBeNull()
+    const base = baseline!
+
     const res = await app.inject({
       method: 'GET',
       url: '/api/finance/accountant-summary',
@@ -421,18 +444,29 @@ describe('accountant-summary — real backend integration (real DB, no mocks)', 
     })
     const body = accountantSummarySchema.parse(res.json())
 
-    // pendingValidation: TX_PENDING_1 (1000) + TX_PENDING_2 (500).
-    expect(body.pendingValidation.count).toBe(2)
-    expect(body.pendingValidation.amount).toBe(1500)
+    // Delta assertions — independent of any pre-existing seed rows. CI runs this
+    // against the seeded crm_db, so absolute counts would include seed data; the
+    // delta isolates exactly this spec's 5 inserted rows.
 
-    // validatedThisMonth: only TX_VALIDATED_THIS (800); the lastMonth row excluded.
-    expect(body.validatedThisMonth.count).toBe(1)
-    expect(body.validatedThisMonth.amount).toBe(800)
+    // Δ pendingValidation: +2 rows (TX_PENDING_1 1000 + TX_PENDING_2 500).
+    expect(body.pendingValidation.count - base.pendingValidation.count).toBe(2)
+    expect(
+      Math.round((body.pendingValidation.amount - base.pendingValidation.amount) * 100) / 100,
+    ).toBe(1500)
 
-    // paidThisMonth: TX_PAID_THIS (2000).
-    expect(body.paidThisMonth.amount).toBe(2000)
+    // Δ validatedThisMonth: +1 (TX_VALIDATED_THIS 800); lastMonth row excluded.
+    expect(body.validatedThisMonth.count - base.validatedThisMonth.count).toBe(1)
+    expect(
+      Math.round((body.validatedThisMonth.amount - base.validatedThisMonth.amount) * 100) / 100,
+    ).toBe(800)
 
-    // recipientCount: SENIOR + DROP = 2 distinct income parties.
-    expect(body.recipientCount).toBe(2)
+    // Δ paidThisMonth: +2000 (TX_PAID_THIS).
+    expect(Math.round((body.paidThisMonth.amount - base.paidThisMonth.amount) * 100) / 100).toBe(
+      2000,
+    )
+
+    // Δ recipientCount: +2 new income parties (SENIOR + DROP — neither owned an
+    // income row at baseline capture).
+    expect(body.recipientCount - base.recipientCount).toBe(2)
   })
 })
