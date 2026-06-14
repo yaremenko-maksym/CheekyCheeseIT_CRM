@@ -13,6 +13,11 @@ function shouldShowContractTab(viewerRole: string, targetRole: string): boolean 
   return viewerRole === 'ADMIN' && targetRole !== 'ADMIN'
 }
 
+// Mirrors the canEdit prop logic in UserProfileShell.
+function canEditContract(viewerRole: string): boolean {
+  return viewerRole === 'ADMIN'
+}
+
 describe('contract tab visibility logic', () => {
   it('shows for ADMIN viewer + non-ADMIN target (SENIOR)', () => {
     expect(shouldShowContractTab('ADMIN', 'SENIOR')).toBe(true)
@@ -43,10 +48,37 @@ describe('contract tab visibility logic', () => {
   })
 })
 
+describe('canEditContract — ADMIN-only edit gate', () => {
+  it('ADMIN can edit', () => {
+    expect(canEditContract('ADMIN')).toBe(true)
+  })
+
+  it('DROP cannot edit (read-only PDF view)', () => {
+    expect(canEditContract('DROP')).toBe(false)
+  })
+
+  it('SENIOR cannot edit', () => {
+    expect(canEditContract('SENIOR')).toBe(false)
+  })
+
+  it('JUNIOR cannot edit', () => {
+    expect(canEditContract('JUNIOR')).toBe(false)
+  })
+
+  it('HR cannot edit', () => {
+    expect(canEditContract('HR')).toBe(false)
+  })
+
+  it('ACCOUNTANT cannot edit', () => {
+    expect(canEditContract('ACCOUNTANT')).toBe(false)
+  })
+})
+
 // ─── ContractTab empty state (no-template 404) ───────────────────────────────
 // ContractTab itself is integration-heavy (useQuery + mutations).
 // We test the no-template empty state via a minimal stub render.
 
+// Default mock: ADMIN viewer. Individual tests override via vi.mocked if needed.
 vi.mock('@/context/auth', () => ({
   useAuth: () => ({ user: { id: 'admin-1', role: 'ADMIN' } }),
 }))
@@ -96,9 +128,63 @@ function renderWithProvider(ui: React.ReactElement) {
 }
 
 describe('ContractTab', () => {
-  it('renders without crashing for a given userId', () => {
-    renderWithProvider(<ContractTab userId="senior-uuid" targetRole="SENIOR" />)
+  it('renders without crashing for a given userId (no-template 404 state)', () => {
+    renderWithProvider(<ContractTab userId="senior-uuid" targetRole="SENIOR" canEdit={true} />)
     // No crash = pass; full lifecycle is covered by E2E
     expect(document.body).toBeInTheDocument()
+  })
+})
+
+// ─── ContractTab read-only mode (canEdit=false) ───────────────────────────────
+// When canEdit=false (non-ADMIN viewers: DROP self-view, etc.) ContractTab must
+// render the read-only PDF view — no editor, no action bar, no fill form.
+
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-query')>()
+  return {
+    ...actual,
+    useQuery: vi.fn().mockReturnValue({
+      data: {
+        id: 'contract-uuid',
+        status: 'READY_TO_SIGN',
+        bodyMarkdown: '# Contract',
+        customValues: {},
+      },
+      isLoading: false,
+      error: null,
+    }),
+    useMutation: vi.fn().mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+    }),
+    useQueryClient: vi.fn().mockReturnValue({ invalidateQueries: vi.fn() }),
+  }
+})
+
+// ContractPdfPreview makes its own query — stub it so we don't need an iframe env.
+vi.mock('../ContractPdfPreview', () => ({
+  ContractPdfPreview: () => <div data-testid="contract-pdf-preview-stub">PDF Preview</div>,
+}))
+
+describe('ContractTab read-only mode (canEdit=false)', () => {
+  it('renders contract-tab-readonly testid when canEdit=false', () => {
+    const { getByTestId } = renderWithProvider(
+      <ContractTab userId="drop-uuid" targetRole="DROP" canEdit={false} />,
+    )
+    expect(getByTestId('contract-tab-readonly')).toBeInTheDocument()
+  })
+
+  it('does NOT render the full editor (contract-tab testid) when canEdit=false', () => {
+    const { queryByTestId } = renderWithProvider(
+      <ContractTab userId="drop-uuid" targetRole="DROP" canEdit={false} />,
+    )
+    expect(queryByTestId('contract-tab')).not.toBeInTheDocument()
+  })
+
+  it('renders contract-tab (full editor) testid when canEdit=true', () => {
+    const { getByTestId } = renderWithProvider(
+      <ContractTab userId="admin-viewing-uuid" targetRole="SENIOR" canEdit={true} />,
+    )
+    expect(getByTestId('contract-tab')).toBeInTheDocument()
   })
 })
