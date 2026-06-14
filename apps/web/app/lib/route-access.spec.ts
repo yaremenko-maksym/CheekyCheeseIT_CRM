@@ -87,16 +87,17 @@ describe('route-access · isRouteAllowed (other roles not broken)', () => {
     }
   })
 
-  it('DROP allowed dashboard/routing/team/finance/profile, denied projects/documents/interviews', () => {
+  it('DROP allowed dashboard/routing/team/finance/profile/documents, denied projects/interviews', () => {
     // Drop role - phase 3: /crm/dashboard теперь включает DROP (роль-зависимый рендер).
     // /crm/routing — deprecated редирект-роут, остаётся DROP-only.
+    // /crm/documents — DROP теперь имеет отдельную страницу документов (page-not-tab model).
     expect(isRouteAllowed('/crm/dashboard', 'DROP')).toBe(true)
     expect(isRouteAllowed('/crm/routing', 'DROP')).toBe(true)
     expect(isRouteAllowed('/crm/team', 'DROP')).toBe(true)
     expect(isRouteAllowed('/crm/finance', 'DROP')).toBe(true)
     expect(isRouteAllowed('/crm/profile', 'DROP')).toBe(true)
+    expect(isRouteAllowed('/crm/documents', 'DROP')).toBe(true)
     expect(isRouteAllowed('/crm/projects', 'DROP')).toBe(false)
-    expect(isRouteAllowed('/crm/documents', 'DROP')).toBe(false)
     expect(isRouteAllowed('/crm/interviews', 'DROP')).toBe(false)
     // /crm/routing is DROP-only: other roles denied.
     expect(isRouteAllowed('/crm/routing', 'SENIOR')).toBe(false)

@@ -282,16 +282,19 @@ describe('UsersAccessService.getViewPermissions', () => {
   // The routing hub (/crm/routing) is the canonical project surface for DROP.
   // task-drop-phase3-frontend round 2 (UT finding 3a): DROP self-view INCLUDES
   // 'contract' — DROP has a signed employee_contract and must be able to view it.
+  // task-drop-phase3-frontend UT finding (drop-docs-contract): 'documents' removed from
+  // DROP self-view profile tab — DROP now has dedicated /crm/documents page (page-not-tab model).
   // SENIOR/ADMIN profiles are NOT affected — only DROP self-view.
-  it('SELF — DROP sees overview/finance/team/requisites/documents/contract but NOT projects', async () => {
+  it('SELF — DROP sees overview/finance/team/requisites/contract but NOT projects/documents', async () => {
     const drop = makeUser({ id: 'drop-id', role: 'DROP' })
     const p = await service.getViewPermissions(drop, drop)
     expect(p.tabs).toContain('overview')
     expect(p.tabs).toContain('finance')
     expect(p.tabs).toContain('team')
     expect(p.tabs).toContain('requisites')
-    expect(p.tabs).toContain('documents')
     expect(p.tabs).toContain('contract')
+    // documents removed: DROP has dedicated /crm/documents page (page-not-tab model, like JUNIOR)
+    expect(p.tabs).not.toContain('documents')
     expect(p.tabs).not.toContain('projects')
   })
 

@@ -89,7 +89,9 @@ export class UsersAccessService {
         // internal project data that the routing hub already provides contextually.
         // 'contract' included: DROP has a signed employee_contract and must see it
         // in their own profile (UT finding 3a, drop-phase3-frontend round 2).
-        tabs.push('overview', 'finance', 'team', 'requisites', 'documents', 'contract')
+        // 'documents' removed from DROP self-view profile tab: DROP now has a
+        // dedicated /crm/documents page (like JUNIOR page-not-tab model).
+        tabs.push('overview', 'finance', 'team', 'requisites', 'contract')
       } else {
         tabs.push('overview', 'projects', 'team', 'requisites', 'documents')
         // SENIOR, HR, ACCOUNTANT: finance access

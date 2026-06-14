@@ -55,8 +55,8 @@ const ROUTE_ACCESS: ReadonlyArray<{ prefix: string; roles: readonly Role[] }> = 
   // Финансы — все роли.
   { prefix: '/crm/finance', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] },
 
-  // Документы — все, кроме DROP.
-  { prefix: '/crm/documents', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'] },
+  // Документы — все роли включая DROP (DROP видит свою страницу документов, не профиль-таб).
+  { prefix: '/crm/documents', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] },
 
   // Профиль (свой + чужой $userId) — все роли (RBAC видимости решается на backend).
   { prefix: '/crm/profile', roles: ALL_ROLES },
