@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 import { ShieldOff, UsersRound } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
+import { useAuth } from '@/context/auth'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,6 +48,7 @@ export interface UserProfileShellProps {
 }
 
 export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfileShellProps) {
+  const { user: viewer } = useAuth()
   const meQuery = useMe(mode === 'self')
   const userQuery = useUser(userId, mode === 'view')
   const query = mode === 'self' ? meQuery : userQuery
@@ -239,6 +241,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
                 data={viewData as Record<string, unknown>}
                 permissions={permissions}
                 mode={mode}
+                onGoToTab={handleTabChange}
               />
             )}
             {activeTab === 'finance' && permissions.tabs.includes('finance') && (
@@ -263,6 +266,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
               <ContractTab
                 userId={user.id}
                 targetRole={user.role}
+                canEdit={viewer?.role === 'ADMIN'}
                 onDirtyChange={handleContractDirtyChange}
               />
             )}

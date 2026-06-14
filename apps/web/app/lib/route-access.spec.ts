@@ -8,10 +8,10 @@ describe('route-access · resolveRoleHome', () => {
   it('JUNIOR → /crm/project', () => {
     expect(resolveRoleHome('JUNIOR')).toBe('/crm/project')
   })
-  // Drop role - phase 2: home changed from /crm/profile (phase-1 placeholder)
-  // to /crm/routing (the dedicated «Мой роутинг» hub).
-  it('DROP → /crm/routing', () => {
-    expect(resolveRoleHome('DROP')).toBe('/crm/routing')
+  // Drop role - phase 3 (UT fix): home changed from /crm/routing to /crm/dashboard.
+  // Хаб роутинга теперь рендерится роль-зависимо на /crm/dashboard.
+  it('DROP → /crm/dashboard', () => {
+    expect(resolveRoleHome('DROP')).toBe('/crm/dashboard')
   })
   it('ADMIN/SENIOR/HR/ACCOUNTANT → /crm/dashboard', () => {
     for (const r of ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'] as Role[]) {
@@ -87,15 +87,17 @@ describe('route-access · isRouteAllowed (other roles not broken)', () => {
     }
   })
 
-  it('DROP allowed routing/team/finance/profile, denied projects/dashboard/documents/interviews', () => {
-    // Drop role - phase 2: /crm/routing is the new DROP hub (was /crm/profile redirect).
+  it('DROP allowed dashboard/routing/team/finance/profile/documents, denied projects/interviews', () => {
+    // Drop role - phase 3: /crm/dashboard теперь включает DROP (роль-зависимый рендер).
+    // /crm/routing — deprecated редирект-роут, остаётся DROP-only.
+    // /crm/documents — DROP теперь имеет отдельную страницу документов (page-not-tab model).
+    expect(isRouteAllowed('/crm/dashboard', 'DROP')).toBe(true)
     expect(isRouteAllowed('/crm/routing', 'DROP')).toBe(true)
     expect(isRouteAllowed('/crm/team', 'DROP')).toBe(true)
     expect(isRouteAllowed('/crm/finance', 'DROP')).toBe(true)
     expect(isRouteAllowed('/crm/profile', 'DROP')).toBe(true)
+    expect(isRouteAllowed('/crm/documents', 'DROP')).toBe(true)
     expect(isRouteAllowed('/crm/projects', 'DROP')).toBe(false)
-    expect(isRouteAllowed('/crm/dashboard', 'DROP')).toBe(false)
-    expect(isRouteAllowed('/crm/documents', 'DROP')).toBe(false)
     expect(isRouteAllowed('/crm/interviews', 'DROP')).toBe(false)
     // /crm/routing is DROP-only: other roles denied.
     expect(isRouteAllowed('/crm/routing', 'SENIOR')).toBe(false)
@@ -163,6 +165,7 @@ describe('route-access · navRolesFor (nav sync source-of-truth)', () => {
     expect(navRolesFor('/crm/legend')).toEqual(['JUNIOR'])
     expect(navRolesFor('/crm/users')).toEqual(['ADMIN'])
     expect(navRolesFor('/crm/dashboard')).toContain('ADMIN')
+    expect(navRolesFor('/crm/dashboard')).toContain('DROP')
     expect(navRolesFor('/crm/dashboard')).not.toContain('JUNIOR')
   })
   it('throws for nav route missing from the map (drift guard)', () => {

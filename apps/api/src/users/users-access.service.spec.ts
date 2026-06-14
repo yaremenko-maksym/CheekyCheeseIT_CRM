@@ -118,17 +118,17 @@ describe('UsersAccessService.getViewPermissions', () => {
     )
     expect(p.tabs).not.toContain('interviews')
     expect(p.tabs).not.toContain('audit')
-    // Negative-regression guard: 'contract' tab is ADMIN-only (A3-2).
-    // A SENIOR viewing their OWN profile must never see the contract editor tab —
-    // it is only surfaced when an ADMIN views another user's profile.
+    // Negative-regression guard: 'contract' tab must not appear on SENIOR self-view.
+    // Contract is surfaced: (a) ADMIN viewing another user, or (b) DROP self-view
+    // (UT finding 3a: DROP has a signed employee_contract). SENIOR self = neither case.
     expect(p.tabs).not.toContain('contract')
   })
 
-  it('SELF — HR sees own tabs without contract (ADMIN-only tab)', async () => {
+  it('SELF — HR sees own tabs without contract (contract only for ADMIN-viewing-others and DROP self)', async () => {
     const hr = makeUser({ id: 'hr-id', role: 'HR' })
     const p = await service.getViewPermissions(hr, hr)
-    // Negative-regression guard: 'contract' tab must not appear on SELF views
-    // for any non-ADMIN role (A3-2 RBAC: only ADMIN viewing others gets contract tab).
+    // Negative-regression guard: 'contract' tab must not appear on HR/SENIOR/JUNIOR/ACCOUNTANT self views.
+    // ADMIN viewing others gets contract tab; DROP self also gets contract tab (UT finding 3a).
     expect(p.tabs).not.toContain('contract')
   })
 
@@ -268,14 +268,51 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.share).toBe(false)
   })
 
-  it('SELF — SENIOR/HR/ACCOUNTANT/DROP keep projects/team (allow-list change is JUNIOR-only)', async () => {
-    for (const role of ['SENIOR', 'HR', 'ACCOUNTANT', 'DROP'] as const) {
+  it('SELF — SENIOR/HR/ACCOUNTANT keep projects/team (allow-list change is JUNIOR-only)', async () => {
+    for (const role of ['SENIOR', 'HR', 'ACCOUNTANT'] as const) {
       const u = makeUser({ id: `${role}-id`, role })
       const p = await service.getViewPermissions(u, u)
       expect(p.tabs, `${role} self should keep projects`).toContain('projects')
       expect(p.tabs, `${role} self should keep team`).toContain('team')
       expect(p.tabs, `${role} self should keep finance`).toContain('finance')
     }
+  })
+
+  // task-drop-phase3-frontend: DROP self-view excludes 'projects' tab.
+  // The routing hub (/crm/routing) is the canonical project surface for DROP.
+  // task-drop-phase3-frontend round 2 (UT finding 3a): DROP self-view INCLUDES
+  // 'contract' — DROP has a signed employee_contract and must be able to view it.
+  // task-drop-phase3-frontend UT finding (drop-docs-contract): 'documents' removed from
+  // DROP self-view profile tab — DROP now has dedicated /crm/documents page (page-not-tab model).
+  // SENIOR/ADMIN profiles are NOT affected — only DROP self-view.
+  it('SELF — DROP sees overview/finance/team/requisites/contract but NOT projects/documents', async () => {
+    const drop = makeUser({ id: 'drop-id', role: 'DROP' })
+    const p = await service.getViewPermissions(drop, drop)
+    expect(p.tabs).toContain('overview')
+    expect(p.tabs).toContain('finance')
+    expect(p.tabs).toContain('team')
+    expect(p.tabs).toContain('requisites')
+    expect(p.tabs).toContain('contract')
+    // documents removed: DROP has dedicated /crm/documents page (page-not-tab model, like JUNIOR)
+    expect(p.tabs).not.toContain('documents')
+    expect(p.tabs).not.toContain('projects')
+  })
+
+  // Regression: SENIOR/ADMIN self-view still includes projects (DROP change is DROP-only).
+  it('SELF — SENIOR still has projects tab (not affected by DROP exclusion)', async () => {
+    const senior = makeUser({ id: 'sr-id', role: 'SENIOR' })
+    const p = await service.getViewPermissions(senior, senior)
+    expect(p.tabs).toContain('projects')
+  })
+
+  // Regression: ADMIN viewing DROP target still gets full tabs (ADMIN branch unchanged).
+  it('ADMIN viewing DROP — still gets all 6 standard tabs including projects', async () => {
+    const admin = makeUser({ id: 'admin-id', role: 'ADMIN' })
+    const drop = makeUser({ id: 'drop-id', role: 'DROP' })
+    const p = await service.getViewPermissions(admin, drop)
+    expect(p.tabs).toContain('projects')
+    expect(p.tabs).toContain('finance')
+    expect(p.tabs).toContain('requisites')
   })
 
   it('JUNIOR viewing their project SENIOR — gets overview/projects/team + fields.legend=true', async () => {

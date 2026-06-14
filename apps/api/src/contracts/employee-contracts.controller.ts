@@ -53,11 +53,25 @@ export class EmployeeContractsController {
 
   /**
    * GET /api/users/:id/contract
-   * Lazy-create a DRAFT employee_contract if none exists, or return the active one.
+   * - ADMIN: lazy-create a DRAFT if none exists, or return the active one.
+   * - Owner self (e.g. DROP viewing their own contract): read-only — returns the
+   *   active contract without lazy-create. 404 if no active contract yet.
+   *
+   * @Roles() — override class ADMIN-only — owner-or-ADMIN enforced in handler.
+   * This mirrors the pattern used by GET :id/contract/pdf.
    */
   @Get(':id/contract')
+  @Roles() // override class ADMIN-only — owner-or-ADMIN enforced below
   async get(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() viewer: SessionUser) {
-    return this.service.getOrCreateForUser(id, viewer)
+    if (viewer.role !== 'ADMIN' && viewer.id !== id) {
+      throw new ForbiddenException('Можно просмотреть только свой контракт')
+    }
+    // ADMIN: lazy-create DRAFT if needed (original behaviour).
+    if (viewer.role === 'ADMIN') {
+      return this.service.getOrCreateForUser(id, viewer)
+    }
+    // Owner self: read-only access — no lazy-create (ADMIN must create contracts).
+    return this.service.getActiveForUser(id)
   }
 
   /**

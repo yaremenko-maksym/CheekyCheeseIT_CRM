@@ -296,7 +296,12 @@ export class DocumentsService {
   // -------------------------------------------------------------------------
 
   async list(actor: SessionUser, filters: DocumentListFilters): Promise<DocumentDto[]> {
-    const where = await this.buildListWhere(actor, filters)
+    // Security: DROP must only see their own documents regardless of any ownerId
+    // filter passed by the client. Force ownerId = self for DROP to prevent
+    // cross-user document enumeration (OWASP IDOR / A01).
+    const effectiveFilters: DocumentListFilters =
+      actor.role === 'DROP' ? { ...filters, ownerId: actor.id } : filters
+    const where = await this.buildListWhere(actor, effectiveFilters)
     if (where === 'NONE') return []
 
     // LEFT JOIN users so the response carries the uploader's display name
@@ -811,11 +816,17 @@ export class DocumentsService {
         if (role === 'JUNIOR' && !isSelf) {
           throw new ForbiddenException('JUNIOR может загружать только свои документы')
         }
+        if (role === 'DROP' && !isSelf) {
+          throw new ForbiddenException('DROP может загружать только свои документы')
+        }
         return
       case 'CONTRACT':
         if (role === 'ADMIN') return
         if (role === 'SENIOR' && isSelf) return
-        throw new ForbiddenException('CONTRACT может загрузить только ADMIN или SENIOR для себя')
+        if (role === 'DROP' && isSelf) return
+        throw new ForbiddenException(
+          'CONTRACT может загрузить только ADMIN, SENIOR или DROP для себя',
+        )
       case 'RECEIPT':
         if (role === 'ADMIN' || role === 'ACCOUNTANT') return
         if (role === 'SENIOR' && isSelf) return
@@ -951,6 +962,19 @@ export class DocumentsService {
       visibleClauses.push(and(eq(documents.category, 'SCAN'), eq(documents.ownerId, actor.id))!)
     }
 
+    // DROP: self-scope for RESUME and SCAN (DROP uploads RESUME/SCAN like JUNIOR self).
+    // Security: ownerId is already forced to actor.id by the `list()` caller via
+    // effectiveFilters, so this clause adds the category filter to the visibility set.
+    // The canSeeAll/canSeeSelf helpers don't handle DROP — explicit branch here.
+    if (actor.role === 'DROP') {
+      if (!category || category === 'RESUME') {
+        visibleClauses.push(and(eq(documents.category, 'RESUME'), eq(documents.ownerId, actor.id))!)
+      }
+      if (!category || category === 'SCAN') {
+        visibleClauses.push(and(eq(documents.category, 'SCAN'), eq(documents.ownerId, actor.id))!)
+      }
+    }
+
     if (!category || category === 'CONTRACT') {
       if (actor.role === 'SENIOR') {
         visibleClauses.push(
@@ -963,6 +987,11 @@ export class DocumentsService {
             and(eq(documents.category, 'CONTRACT'), inArray(documents.ownerId, seniorIds))!,
           )
         }
+      } else if (actor.role === 'DROP') {
+        // DROP can see their own uploaded CONTRACT documents (RESUME/SCAN/CONTRACT allowed per spec).
+        visibleClauses.push(
+          and(eq(documents.category, 'CONTRACT'), eq(documents.ownerId, actor.id))!,
+        )
       }
       // JUNIOR/ACCOUNTANT see no contracts
     }
@@ -975,7 +1004,7 @@ export class DocumentsService {
           and(eq(documents.category, 'RECEIPT'), eq(documents.ownerId, actor.id))!,
         )
       }
-      // HR/JUNIOR see no receipts
+      // HR/JUNIOR/DROP see no receipts
     }
 
     if (!category || category === 'AVATAR') {

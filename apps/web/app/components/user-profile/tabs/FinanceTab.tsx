@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Plus, Search, Send, X } from 'lucide-react'
+import { Search, Send, X } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import type { TransactionDto } from '@crm/shared'
@@ -21,7 +21,6 @@ import { financeApi } from '@/routes/crm/finance/api'
 import { STATUS_LABELS, TYPE_LABELS, type ExchangeRates } from '@/routes/crm/finance/constants'
 import { TransactionRow } from '@/routes/crm/finance/components/TransactionRow'
 import { TransactionDetailDialog } from '@/routes/crm/finance/components/dialogs/TransactionDetailDialog'
-import { CreateTransactionDialog } from '@/routes/crm/finance/components/dialogs/CreateTransactionDialog'
 
 const TYPE_OPTIONS = Object.entries(TYPE_LABELS).map(([value, label]) => ({ value, label }))
 const STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }))
@@ -41,17 +40,16 @@ export function FinanceTab({ userId }: { userId: string }) {
   const navigate = useNavigate()
   const role = viewer?.role ?? ''
   const isPrivileged = role === 'ADMIN' || role === 'ACCOUNTANT'
-  // Drop role - phase 2. When the DROP user is viewing their own profile,
-  // expose «Добавить приход» CTA that reuses CreateTransactionDialog
-  // (it auto-selects DROP_INCOME for the role). Other roles never see
-  // the button on this tab.
+  // task-drop-phase3-frontend (Q2 owner decision): «Зарегистрировать приход» CTA
+  // removed from FinanceTab. The canonical trigger is DropQuickActions on /crm/routing,
+  // with a secondary ghost button in DropFinancePage header (/crm/finance).
+  // isOwnDropProfile kept for the «Платить компании» row logic below.
   const isOwnDropProfile = role === 'DROP' && viewer?.id === userId
   // Drop role - phase 4-B. «Платить компании» appears on every VALIDATED
   // DROP_INCOME row of the profile owner — but only the owner-DROP themselves
   // and privileged ADMIN/ACCOUNTANT see the action.
   const showInitiatePaymentForDrop =
     (isOwnDropProfile || isPrivileged) && (role === 'DROP' || isPrivileged)
-  const [createOpen, setCreateOpen] = useState(false)
 
   const { data: transactions = [], isLoading } = useQuery({
     queryKey: ['profile-transactions', userId, role],
@@ -150,17 +148,6 @@ export function FinanceTab({ userId }: { userId: string }) {
   if (transactions.length === 0) {
     return (
       <>
-        {isOwnDropProfile && (
-          <div className="mb-3 flex justify-end">
-            <Button
-              size="sm"
-              onClick={() => setCreateOpen(true)}
-              data-testid="profile-drop-income-button"
-            >
-              <Plus className="h-4 w-4 mr-1" /> Добавить приход
-            </Button>
-          </div>
-        )}
         {/* task-drop-company-debt-and-invoices: DROP no longer holds
             debts to seniors — section removed. The company settles via
             /crm/finance (PendingSettlementCompanyCard). */}
@@ -169,24 +156,12 @@ export function FinanceTab({ userId }: { userId: string }) {
             Транзакций пока нет
           </CardContent>
         </Card>
-        <CreateTransactionDialog open={createOpen} onClose={() => setCreateOpen(false)} />
       </>
     )
   }
 
   return (
     <>
-      {isOwnDropProfile && (
-        <div className="mb-3 flex justify-end">
-          <Button
-            size="sm"
-            onClick={() => setCreateOpen(true)}
-            data-testid="profile-drop-income-button"
-          >
-            <Plus className="h-4 w-4 mr-1" /> Добавить приход
-          </Button>
-        </div>
-      )}
       {/* task-drop-company-debt-and-invoices: the DROP debts-to-seniors
           section has been removed. The company is now the debtor and
           settles centrally on /crm/finance. */}
@@ -324,7 +299,6 @@ export function FinanceTab({ userId }: { userId: string }) {
       </Card>
 
       <TransactionDetailDialog tx={detailTx} onClose={() => setDetailTx(null)} />
-      <CreateTransactionDialog open={createOpen} onClose={() => setCreateOpen(false)} />
     </>
   )
 }

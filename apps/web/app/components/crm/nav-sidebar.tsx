@@ -10,7 +10,6 @@ import {
   Home,
   KanbanSquare,
   LayoutDashboard,
-  Route,
   UserCircle,
   Users,
   UsersRound,
@@ -39,9 +38,9 @@ interface NavItem {
 // Drop role - phase 1: DROP sees only Profile / Team / Finance (spec §4).
 // No Dashboard, no Projects, no Interviews, no Documents. Existing role
 // visibilities for ADMIN / SENIOR / HR / ACCOUNTANT are unchanged.
-// Drop role - phase 2: DROP gets a 4-item nav (drop-role-ux.md §2):
-//   1. Мой роутинг · 2. Финансы · 3. Команда · 4. Профиль.
-//   «Мой роутинг» is placed first (only DROP) using `Route` lucide icon.
+// Drop role - phase 3 (UT fix): DROP «Дашборд» консолидирован на /crm/dashboard.
+//   Хаб роутинга рендерится роль-зависимо в dashboard.tsx (DROP → DropDashboard).
+//   Отдельный пункт /crm/routing для DROP удалён — теперь единый «Дашборд».
 // JUNIOR UX phase 2: JUNIOR gets a dedicated 5-item nav (spec §4.3):
 //   1. Мой проект · 2. Легенда · 3. Финансы · 4. Документы · 5. Профиль.
 //   Дашборд / Команда / Проекты / Собеседования hidden for JUNIOR.
@@ -50,15 +49,13 @@ interface NavItem {
 // roles берутся из единого источника истины lib/route-access (navRolesFor),
 // чтобы карта ролей-по-роуту НЕ дублировалась между меню и route-guard'ом.
 const NAV_ITEMS: NavItem[] = [
-  {
-    label: 'Мой роутинг',
-    icon: Route,
-    to: '/crm/routing',
-    roles: navRolesFor('/crm/routing'),
-  },
   { label: 'Мой проект', icon: Home, to: '/crm/project', roles: navRolesFor('/crm/project') },
   { label: 'Легенда', icon: BookOpen, to: '/crm/legend', roles: navRolesFor('/crm/legend') },
   {
+    // Единый «Дашборд» для всех ролей кроме JUNIOR.
+    // DROP видит роль-зависимый хаб платёжного роутинга на этом же URL.
+    // Route-иконка сохранена для позиционирования пункта первым для DROP
+    // (ADMIN/SENIOR/HR/ACCOUNTANT используют LayoutDashboard).
     label: 'Дашборд',
     icon: LayoutDashboard,
     to: '/crm/dashboard',

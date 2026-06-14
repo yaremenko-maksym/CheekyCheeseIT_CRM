@@ -528,12 +528,13 @@ export function buildSelfView(user: (typeof USERS)[keyof typeof USERS]): object 
   // identity and project internals. Mirrors users-access.service.ts:84 exactly:
   //   tabs.push('overview', 'requisites')
   //
-  // DROP: overview / projects / team / requisites / documents / finance.
-  //   Mirrors users-access.service.ts:86-88 (isSelf branch, non-JUNIOR):
-  //     tabs.push('overview', 'projects', 'team', 'requisites', 'documents')
-  //     if (isSenior || isHr || isAccountant || isDrop) tabs.push('finance')
-  //   NOTE: previous fixture had 'overview/team/requisites/finance' — that was
-  //   a drift vs backend; corrected 2026-06-13 (drop-phase-2 E2E coverage task).
+  // DROP: overview / finance / team / requisites / documents / contract.
+  //   Mirrors users-access.service.ts isSelf branch (task-drop-phase3-frontend):
+  //     tabs.push('overview', 'finance', 'team', 'requisites', 'documents', 'contract')
+  //   NOTE: 'projects' removed — /crm/routing hub is the canonical project surface
+  //   for DROP. 'contract' added — DROP has a signed employee_contract and must see
+  //   it in their own profile (UT finding 3a, drop-phase3-frontend round 2).
+  //   Updated 2026-06-13 (PR #198 drop-phase3-frontend).
   //
   // Everyone else (SENIOR, HR, ACCOUNTANT, ADMIN):
   //   overview / projects / team / requisites / documents
@@ -543,8 +544,9 @@ export function buildSelfView(user: (typeof USERS)[keyof typeof USERS]): object 
     // Explicit allow-list — no documents, no finance, no projects, no team.
     tabs = ['overview', 'requisites']
   } else if (user.role === 'DROP') {
-    // Full self-view — mirrors backend isSelf branch lines 86-88.
-    tabs = ['overview', 'projects', 'team', 'requisites', 'documents', 'finance']
+    // task-drop-phase3-frontend: 'projects' excluded (routing hub is canonical),
+    // 'contract' included (DROP views own signed contract).
+    tabs = ['overview', 'finance', 'team', 'requisites', 'documents', 'contract']
   } else {
     tabs = ['overview', 'projects', 'team', 'requisites', 'documents']
     if (user.role === 'SENIOR' || user.role === 'HR' || user.role === 'ACCOUNTANT') {

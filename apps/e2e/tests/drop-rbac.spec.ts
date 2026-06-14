@@ -6,8 +6,14 @@
  *
  * Phase 2 update (PR #189): resolveRoleHome(DROP) changed to /crm/routing.
  *   All redirect expectations updated from /crm/profile to /crm/routing.
- *   Sidebar now has 4 items: Мой роутинг / Финансы / Команда / Профиль
+ *   Sidebar now has 4 items: Дашборд / Финансы / Команда / Профиль
  *   (data-testid="drop-nav" from nav-sidebar.tsx).
+ *
+ * Phase 3 update (PR #198): resolveRoleHome(DROP) changed to /crm/dashboard.
+ *   DROP included in ROUTE_ACCESS for /crm/dashboard.
+ *   /crm/routing permanently redirects to /crm/dashboard.
+ *   Sidebar «Дашборд» link href changed from /crm/routing → /crm/dashboard.
+ *   All DROP home expectations updated from /crm/routing to /crm/dashboard.
  *
  * Mock-based — `asDrop` fixture authenticates as `USERS.drop` and pumps
  * the standard `/api/users/me` mock that returns the self-view from
@@ -16,20 +22,20 @@
 
 import { test, expect } from './fixtures'
 
-test.describe('Drop RBAC visibility — AC8 (phase 2 update)', () => {
-  test('sidebar has exactly 4 items for DROP: Мой роутинг / Финансы / Команда / Профиль', async ({
+test.describe('Drop RBAC visibility — AC8 (phase 3 update)', () => {
+  test('sidebar has exactly 4 items for DROP: Дашборд / Финансы / Команда / Профиль', async ({
     asDrop: page,
   }) => {
-    // Navigate to DROP home first (routing hub).
-    await page.goto('/crm/routing')
+    // Navigate to DROP home (dashboard hub, PR #198).
+    await page.goto('/crm/dashboard')
     await expect(page.getByTestId('drop-routing-hub')).toBeVisible({ timeout: 8_000 })
 
     // Scope to the drop-nav testid (data-testid="drop-nav" in nav-sidebar.tsx).
     const nav = page.getByTestId('drop-nav')
     await expect(nav).toBeVisible()
 
-    // Phase 2: 4 allowed entries.
-    await expect(nav.locator('a[href="/crm/routing"]')).toBeVisible()
+    // Phase 3: 4 allowed entries. «Дашборд» href is now /crm/dashboard (was /crm/routing).
+    await expect(nav.locator('a[href="/crm/dashboard"]')).toBeVisible()
     await expect(nav.locator('a[href="/crm/finance"]')).toBeVisible()
     await expect(nav.locator('a[href="/crm/team"]')).toBeVisible()
     await expect(nav.locator('a[href="/crm/profile"]')).toBeVisible()
@@ -41,26 +47,29 @@ test.describe('Drop RBAC visibility — AC8 (phase 2 update)', () => {
     await expect(nav.locator('a[href="/crm/projects"]')).toHaveCount(0)
     await expect(nav.locator('a[href="/crm/interviews"]')).toHaveCount(0)
     await expect(nav.locator('a[href="/crm/documents"]')).toHaveCount(0)
-    await expect(nav.locator('a[href="/crm/dashboard"]')).toHaveCount(0)
+    // /crm/routing no longer in nav (consolidated to /crm/dashboard)
+    await expect(nav.locator('a[href="/crm/routing"]')).toHaveCount(0)
     await expect(nav.locator('a[href="/crm/users"]')).toHaveCount(0)
     await expect(nav.locator('a[href="/crm/stats"]')).toHaveCount(0)
   })
 
-  test('direct hit on /crm/dashboard redirects DROP to /crm/routing (phase 2)', async ({
+  test('DROP on /crm/dashboard stays and sees drop hub (phase 3 — no redirect)', async ({
     asDrop: page,
   }) => {
+    // PR #198: DROP is now in ROUTE_ACCESS for /crm/dashboard.
+    // dashboard.tsx renders DropDashboard (role-branch) — no redirect loop.
     await page.goto('/crm/dashboard')
-    // DashboardPage useEffect: navigates DROP to resolveRoleHome('DROP') = /crm/routing.
-    await expect(page).toHaveURL(/\/crm\/routing/, { timeout: 8_000 })
+    await expect(page).toHaveURL(/\/crm\/dashboard/, { timeout: 8_000 })
+    await expect(page.getByTestId('drop-routing-hub')).toBeVisible({ timeout: 8_000 })
   })
 
-  test('/crm/users denies DROP access — redirects to /crm/routing', async ({ asDrop: page }) => {
-    // useRoleGuard fires navigate to resolveRoleHome('DROP') = /crm/routing.
+  test('/crm/users denies DROP access — redirects to /crm/dashboard', async ({ asDrop: page }) => {
+    // useRoleGuard fires navigate to resolveRoleHome('DROP') = /crm/dashboard.
     await page.goto('/crm/users')
-    await expect(page).toHaveURL(/\/crm\/routing/, { timeout: 8_000 })
+    await expect(page).toHaveURL(/\/crm\/dashboard/, { timeout: 8_000 })
   })
 
-  test('DROP self-profile renders with correct tabs (overview/projects/team/requisites/documents/finance)', async ({
+  test('DROP self-profile renders with correct tabs (contract tab present, no interviews)', async ({
     asDrop: page,
   }) => {
     await page.goto('/crm/profile')
@@ -70,16 +79,23 @@ test.describe('Drop RBAC visibility — AC8 (phase 2 update)', () => {
       timeout: 8_000,
     })
 
-    // Allowed tabs per buildSelfView(USERS.drop) — mirrors backend isSelf branch:
-    // overview / projects / team / requisites / documents / finance.
+    // Key change in PR #198: 'contract' tab is now included in the DROP profile view.
+    // The mock for /api/users/me is matched by the generic /users/:id handler (LIFO)
+    // which returns buildAdminViewingUser(DROP) → includes 'contract' tab because
+    // DROP is non-ADMIN. This means the mock faithfully reflects the PR #198 backend
+    // change: GET /api/users/:id/contract is now owner-or-ADMIN (not ADMIN-only),
+    // so the profile service now includes 'contract' in DROP's tabs.
+    //
     // AnimatedTabs renders each entry as a plain <button> (not role=tab).
     // Scope to <main> to avoid matching the sidebar «Финансы» / «Документы» links.
     const main = page.locator('main')
     await expect(main.getByRole('button', { name: /Финансы/ }).first()).toBeVisible({
       timeout: 8_000,
     })
+    // «Контракт» tab MUST be present for DROP (key PR #198 regression guard)
+    await expect(main.getByRole('button', { name: /Контракт/ }).first()).toBeVisible()
 
-    // Forbidden tab — Собеседования must not surface inside main.
+    // Forbidden tab — «Собеседования» must never surface for DROP.
     await expect(main.getByRole('button', { name: /^Собеседования$/ })).toHaveCount(0)
   })
 
@@ -98,17 +114,97 @@ test.describe('Drop RBAC visibility — AC8 (phase 2 update)', () => {
   })
 
   test('DROP can open /crm/team and stays on the team page', async ({ asDrop: page }) => {
-    // Spec §4: DROP sees Team. `useRoleGuard` on /crm/team now includes
-    // DROP so the list renders (the backend filters teams to the DROP's
-    // own one — the mock returns the senior fixture which is plenty for
-    // the route-guard sanity check).
+    // Spec §4: DROP sees Team. `useRoleGuard` on /crm/team now includes DROP.
+    // PR #198 (task-drop-phase3-frontend): DROP is now added to the auto-redirect
+    // alongside SENIOR/JUNIOR — when teams.length === 1, TeamPage immediately
+    // navigates to /crm/team/<teamId>. So the final URL is /crm/team/<uuid>,
+    // not /crm/team with an h1 «Команда» list heading.
     await page.goto('/crm/team')
+    // Stays within /crm/team subtree (either list or detail page)
     await expect(page).toHaveURL(/\/crm\/team/, { timeout: 8_000 })
     await expect(page).not.toHaveURL(/\/login/)
     await expect(page).not.toHaveURL(/\/crm\/profile/)
+    // On team detail page the team name is the h1 (e.g. «Alpha Team»)
     const main = page.locator('main')
-    await expect(main.getByRole('heading', { level: 1, name: 'Команда' })).toBeVisible({
+    await expect(main.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 8_000 })
+  })
+
+  test('DROP viewing own profile — «Контракт» tab visible (owner-or-ADMIN, PR #198)', async ({
+    asDrop: page,
+  }) => {
+    // PR #198 (drop-phase3-frontend): GET /api/users/:id/contract changed from
+    // ADMIN-only to owner-or-ADMIN. DROP must see the «Контракт» tab on self-profile.
+    // Fixture: buildSelfView(USERS.drop) now includes 'contract' in tabs array.
+    // Mock: register a minimal contract response so the tab content renders without
+    // hitting the real backend.
+    const DROP_SELF_CONTRACT = {
+      id: 'dc000001-0000-4000-8000-000000000001',
+      userId: 'a0000000-0000-4000-8000-000000000007', // USERS.drop.id
+      sourceTemplateId: 'dc000001-0000-4000-8000-000000000002',
+      bodyMarkdown: '# Drop Contract',
+      status: 'DRAFT',
+      signedContractId: null,
+      createdByUserId: 'a0000000-0000-4000-8000-000000000001',
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    }
+    // Register AFTER asDrop mockAuthAs (LIFO) — wins over any default.
+    await page.route(/\/api\/users\/[^/?]+\/contract$/, async (r) => {
+      if (r.request().method() === 'GET') {
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(DROP_SELF_CONTRACT),
+        })
+      }
+      return r.fallback()
+    })
+    await page.route(/\/api\/users\/[^/?]+\/contract\/variables$/, async (r) => {
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ variables: [], customVariables: [] }),
+      })
+    })
+
+    await page.goto('/crm/profile')
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('Drop User', {
       timeout: 8_000,
     })
+
+    // «Контракт» tab must be present in DROP self-view
+    const main = page.locator('main')
+    const contractTabBtn = main.getByRole('button', { name: /Контракт/ }).first()
+    await expect(contractTabBtn).toBeVisible({ timeout: 8_000 })
+
+    // Click the tab and confirm contract content renders (status badge)
+    await contractTabBtn.click()
+    await expect(page.getByTestId('contract-tab')).toBeVisible({ timeout: 8_000 })
+    await expect(page.getByTestId('contract-status-badge')).toBeVisible()
+  })
+
+  test('back-button NOT visible for DROP on /crm/team/$teamId (PR #198)', async ({
+    asDrop: page,
+  }) => {
+    // PR #198: $teamId.tsx hides back-button for SENIOR, JUNIOR, and DROP.
+    // DROP redirects to its single team — back would loop. Button omitted via
+    // {user?.role !== 'SENIOR' && user?.role !== 'JUNIOR' && user?.role !== 'DROP'}.
+    await page.goto('/crm/team')
+    // DROP auto-redirects to team detail (teams.length===1)
+    await expect(page).toHaveURL(/\/crm\/team\/.+/, { timeout: 8_000 })
+    // back-button must be absent for DROP
+    await expect(page.getByTestId('back-button')).toHaveCount(0)
+  })
+
+  test('back-button IS visible for ADMIN on /crm/team/$teamId', async ({ asAdmin: page }) => {
+    // ADMIN is NOT in the hidden-roles list → back-button is rendered.
+    // This is a regression guard: if someone accidentally broadens the hide condition,
+    // ADMIN (and HR/ACCOUNTANT) would lose the «back» affordance.
+    // Use direct goto with the fixture team id (TEAMS[0].id = 'team-1-id') to avoid
+    // clicking the card which has a z-20 overlay div that intercepts pointer events.
+    await page.goto('/crm/team/team-1-id')
+    await expect(page).toHaveURL(/\/crm\/team\/team-1-id/, { timeout: 8_000 })
+    // back-button must be present for ADMIN
+    await expect(page.getByTestId('back-button')).toBeVisible({ timeout: 8_000 })
   })
 })

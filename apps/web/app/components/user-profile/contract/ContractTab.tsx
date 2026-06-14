@@ -50,13 +50,24 @@ const FROZEN_BANNERS: Partial<Record<EmployeeContractStatus, string>> = {
 export interface ContractTabProps {
   userId: string
   targetRole: string
+  /**
+   * Whether the current viewer can edit the contract. Only ADMIN can edit.
+   * Non-ADMIN viewers (e.g. DROP self-view) see read-only PDF preview only.
+   * Defaults to false for safety — callers must explicitly pass true for ADMIN.
+   */
+  canEdit?: boolean
   /** Called whenever the editor dirty state changes — used by parent for tab-change guard. */
   onDirtyChange?: (dirty: boolean) => void
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export function ContractTab({ userId, targetRole, onDirtyChange }: ContractTabProps) {
+export function ContractTab({
+  userId,
+  targetRole,
+  canEdit = false,
+  onDirtyChange,
+}: ContractTabProps) {
   const { data: contract, isLoading, error } = useEmployeeContract(userId)
 
   // Local editor state — tracks unsaved body changes.
@@ -164,7 +175,29 @@ export function ContractTab({ userId, targetRole, onDirtyChange }: ContractTabPr
     )
   }
 
-  // ── Actions ────────────────────────────────────────────────────────────────
+  // ── Read-only view (non-ADMIN: DROP self-view and other viewers) ─────────────
+  // Non-ADMIN callers see status header + PDF preview only.
+  // ContractEditor / ContractActionBar / ContractFillForm are hidden to avoid
+  // exposing mutation controls when backend already returns 403 for those ops.
+
+  if (!canEdit) {
+    return (
+      <div className="space-y-6" data-testid="contract-tab-readonly">
+        {/* Status header */}
+        <div className="flex items-center gap-3">
+          <h3 className="text-sm font-medium text-muted-foreground">Статус контракта:</h3>
+          <Badge variant={STATUS_VARIANTS[contract.status]} data-testid="contract-status-badge">
+            {STATUS_LABELS[contract.status]}
+          </Badge>
+        </div>
+
+        {/* PDF preview — the only affordance available to non-ADMIN viewers */}
+        <ContractPdfPreview userId={userId} isDirty={false} data-testid="contract-pdf-preview" />
+      </div>
+    )
+  }
+
+  // ── Actions (ADMIN-only) ───────────────────────────────────────────────────
 
   const handleSave = () => {
     if (!isDirty) return
@@ -193,7 +226,7 @@ export function ContractTab({ userId, targetRole, onDirtyChange }: ContractTabPr
     })
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Render (ADMIN full editor) ────────────────────────────────────────────
 
   const readOnly = contract.status !== 'DRAFT'
   const frozenBanner = FROZEN_BANNERS[contract.status]

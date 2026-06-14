@@ -11,7 +11,7 @@
  */
 import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { ArrowUpRight, CheckCircle, CircleCheck, Clock, XCircle } from 'lucide-react'
+import { ArrowUpRight, CheckCircle, CircleCheck, Clock, Plus, XCircle } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { DropIncomeDto, DropIncomeStatus, DropPaymentDto } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
@@ -37,6 +37,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useDropSummary, DROP_SUMMARY_QUERY_KEY } from '@/hooks/use-drop-summary'
 import { useDropIncomes, useDropPayments } from '@/hooks/use-drop-incomes'
 import { DropBalanceCard } from '@/routes/crm/routing/components/DropBalanceCard'
+import { CreateTransactionDialog } from './dialogs/CreateTransactionDialog'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -424,13 +425,27 @@ export function DropFinancePage() {
   const qc = useQueryClient()
   const { data: summary, isLoading: summaryLoading, isError: summaryError } = useDropSummary()
   const { data: payments, isLoading: paymentsLoading } = useDropPayments()
+  // task-drop-phase3-frontend: canonical «Зарегистрировать приход» action.
+  // This ghost button mirrors DropQuickActions on /crm/routing — a contextual
+  // shortcut for when the DROP is already on the finance page.
+  const [showCreate, setShowCreate] = useState(false)
 
   return (
     <div className="space-y-6" data-testid="drop-finance-page">
       {/* Page header */}
-      <div>
+      <div className="flex items-baseline justify-between gap-3 flex-wrap">
         <h1 className="text-2xl font-bold tracking-tight">Финансы</h1>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowCreate(true)}
+          data-testid="drop-register-income-btn"
+        >
+          <Plus className="h-4 w-4 mr-1" aria-hidden="true" />
+          Зарегистрировать приход
+        </Button>
       </div>
+      <CreateTransactionDialog open={showCreate} onClose={() => setShowCreate(false)} />
 
       {/* Balance summary (variant=full) */}
       <DropBalanceCard
