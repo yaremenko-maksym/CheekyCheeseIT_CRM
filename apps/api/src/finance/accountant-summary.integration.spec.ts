@@ -113,9 +113,26 @@ const TX_PENDING_2 = 'ac111111-0000-4000-cc00-000000000002' // DROP_INCOME PENDI
 const TX_VALIDATED_THIS = 'ac111111-0000-4000-cc00-000000000003' // VALIDATED this month 800
 const TX_VALIDATED_OLD = 'ac111111-0000-4000-cc00-000000000004' // VALIDATED last month 7777
 const TX_PAID_THIS = 'ac111111-0000-4000-cc00-000000000005' // PAID this month 2000
+// Sprint 2 boundary fixtures (SQL aggregation must EXCLUDE each of these):
+const TX_PAID_OLD = 'ac111111-0000-4000-cc00-000000000006' // PAID last month 6666 → NOT in paidThisMonth
+const TX_VALIDATED_NULL = 'ac111111-0000-4000-cc00-000000000007' // VALIDATED, validatedAt NULL 5555 → excluded
+const TX_EXPENSE_PENDING = 'ac111111-0000-4000-cc00-000000000008' // EXPENSE PENDING 333 → not validatable income
+const TX_SALARY_PENDING = 'ac111111-0000-4000-cc00-000000000009' // SALARY PENDING 444 → not validatable income
+const TX_DEDUP_PARTY = 'ac111111-0000-4000-cc00-00000000000a' // 2nd SENIOR_INCOME for SENIOR → dedup, no new party
 
 const TEST_USER_IDS = [ACCOUNTANT.id, ADMIN.id, SENIOR.id, SENIOR2.id, JUNIOR.id, HR.id, DROP.id]
-const TEST_TX_IDS = [TX_PENDING_1, TX_PENDING_2, TX_VALIDATED_THIS, TX_VALIDATED_OLD, TX_PAID_THIS]
+const TEST_TX_IDS = [
+  TX_PENDING_1,
+  TX_PENDING_2,
+  TX_VALIDATED_THIS,
+  TX_VALIDATED_OLD,
+  TX_PAID_THIS,
+  TX_PAID_OLD,
+  TX_VALIDATED_NULL,
+  TX_EXPENSE_PENDING,
+  TX_SALARY_PENDING,
+  TX_DEDUP_PARTY,
+]
 
 // ── Sentinel controller — mirrors the real /finance/accountant-summary route ─
 const TX_SERVICE = 'TX_SERVICE_ACCT_SUM'
@@ -292,12 +309,17 @@ describe('accountant-summary — real backend integration (real DB, no mocks)', 
 
     // ── Seed transactions (deterministic KPI fixtures) ──────────────────────────
     // Δ pendingValidation: TX_PENDING_1 (1000, senior SENIOR) + TX_PENDING_2 (500,
-    //   drop receiver DROP) → +count 2, +amount 1500.
+    //   drop receiver DROP) → +count 2, +amount 1500. EXPENSE/SALARY PENDING rows
+    //   (TX_EXPENSE_PENDING / TX_SALARY_PENDING) are NOT validatable income → excluded.
     // Δ validatedThisMonth: TX_VALIDATED_THIS (800, validatedAt thisMonth) → +count
-    //   1, +amount 800. TX_VALIDATED_OLD (7777, validatedAt lastMonth) excluded.
+    //   1, +amount 800. TX_VALIDATED_OLD (7777, validatedAt lastMonth) AND
+    //   TX_VALIDATED_NULL (5555, validatedAt NULL) both excluded.
     // Δ paidThisMonth: TX_PAID_THIS (2000, createdAt thisMonth) → +2000.
+    //   TX_PAID_OLD (6666, createdAt lastMonth) excluded.
     // Δ recipientCount: NEW income parties = {SENIOR, DROP} → +2 (neither owned any
-    //   income row at baseline capture time).
+    //   income row at baseline capture time). TX_DEDUP_PARTY is a 2nd SENIOR income
+    //   row → COUNT(DISTINCT …) dedups SENIOR → still +2, not +3. EXPENSE/SALARY
+    //   rows contribute no party.
     await db.insert(transactions).values([
       {
         id: TX_PENDING_1,
@@ -357,6 +379,80 @@ describe('accountant-summary — real backend integration (real DB, no mocks)', 
         senderId: SENIOR.id,
         projectId: PROJ_ID,
         createdAt: thisMonth,
+        createdBy: SENIOR.id,
+      },
+      // ── Sprint 2 boundary fixtures — every row below must be EXCLUDED by the
+      //    SQL aggregation, so it adds NOTHING to the deltas asserted later. ──
+      // PAID but created last month → excluded from paidThisMonth.
+      {
+        id: TX_PAID_OLD,
+        type: 'SENIOR_INCOME',
+        status: 'PAID',
+        amount: '6666',
+        currency: 'USDT',
+        senderId: SENIOR.id,
+        projectId: PROJ_ID,
+        createdAt: lastMonth,
+        createdBy: SENIOR.id,
+      },
+      // VALIDATED but validatedAt IS NULL → excluded from validatedThisMonth
+      // (the `validated_at is not null` predicate). createdAt this month so only
+      // the NULL validatedAt — not the month — is what excludes it.
+      {
+        id: TX_VALIDATED_NULL,
+        type: 'SENIOR_INCOME',
+        status: 'VALIDATED',
+        amount: '5555',
+        currency: 'USDT',
+        senderId: SENIOR.id,
+        projectId: PROJ_ID,
+        validatedBy: ACCOUNTANT.id,
+        validatedAt: null,
+        createdAt: thisMonth,
+        createdBy: SENIOR.id,
+      },
+      // EXPENSE PENDING → not validatable income → excluded from
+      // pendingValidation AND recipientCount.
+      {
+        id: TX_EXPENSE_PENDING,
+        type: 'EXPENSE',
+        status: 'PENDING',
+        amount: '333',
+        currency: 'USDT',
+        senderId: ADMIN.id,
+        projectId: PROJ_ID,
+        createdAt: thisMonth,
+        createdBy: ADMIN.id,
+      },
+      // SALARY PENDING → not validatable income → excluded from
+      // pendingValidation AND recipientCount.
+      {
+        id: TX_SALARY_PENDING,
+        type: 'SALARY',
+        status: 'PENDING',
+        amount: '444',
+        currency: 'USDT',
+        senderId: ADMIN.id,
+        receiverId: JUNIOR.id,
+        projectId: PROJ_ID,
+        createdAt: thisMonth,
+        createdBy: ADMIN.id,
+      },
+      // 2nd validatable-income row for SENIOR (already a party via the rows
+      // above). VALIDATED last month so it touches NO money/count bucket; its
+      // only possible effect is recipientCount — and the COUNT(DISTINCT …) must
+      // dedup SENIOR to a single party (delta stays +2, not +3).
+      {
+        id: TX_DEDUP_PARTY,
+        type: 'SENIOR_INCOME',
+        status: 'VALIDATED',
+        amount: '111',
+        currency: 'USDT',
+        senderId: SENIOR.id,
+        projectId: PROJ_ID,
+        validatedBy: ACCOUNTANT.id,
+        validatedAt: lastMonth,
+        createdAt: lastMonth,
         createdBy: SENIOR.id,
       },
     ])
@@ -446,27 +542,112 @@ describe('accountant-summary — real backend integration (real DB, no mocks)', 
 
     // Delta assertions — independent of any pre-existing seed rows. CI runs this
     // against the seeded crm_db, so absolute counts would include seed data; the
-    // delta isolates exactly this spec's 5 inserted rows.
+    // delta isolates exactly this spec's inserted rows. Although this spec inserts
+    // 10 rows, only 5 are KPI-contributing — the other 5 (TX_PAID_OLD,
+    // TX_VALIDATED_NULL, TX_EXPENSE_PENDING, TX_SALARY_PENDING, TX_DEDUP_PARTY)
+    // are boundary fixtures the SQL aggregation must exclude, so the deltas below
+    // are the SAME as if only those 5 contributing rows existed. The dedicated
+    // boundary tests further down assert each exclusion in isolation.
 
     // Δ pendingValidation: +2 rows (TX_PENDING_1 1000 + TX_PENDING_2 500).
+    // EXPENSE/SALARY PENDING rows excluded (not validatable income).
     expect(body.pendingValidation.count - base.pendingValidation.count).toBe(2)
     expect(
       Math.round((body.pendingValidation.amount - base.pendingValidation.amount) * 100) / 100,
     ).toBe(1500)
 
-    // Δ validatedThisMonth: +1 (TX_VALIDATED_THIS 800); lastMonth row excluded.
+    // Δ validatedThisMonth: +1 (TX_VALIDATED_THIS 800); lastMonth + NULL-validatedAt
+    // rows excluded.
     expect(body.validatedThisMonth.count - base.validatedThisMonth.count).toBe(1)
     expect(
       Math.round((body.validatedThisMonth.amount - base.validatedThisMonth.amount) * 100) / 100,
     ).toBe(800)
 
-    // Δ paidThisMonth: +2000 (TX_PAID_THIS).
+    // Δ paidThisMonth: +2000 (TX_PAID_THIS); lastMonth PAID row excluded.
     expect(Math.round((body.paidThisMonth.amount - base.paidThisMonth.amount) * 100) / 100).toBe(
       2000,
     )
 
     // Δ recipientCount: +2 new income parties (SENIOR + DROP — neither owned an
-    // income row at baseline capture).
+    // income row at baseline capture). TX_DEDUP_PARTY (2nd SENIOR income) dedups.
     expect(body.recipientCount - base.recipientCount).toBe(2)
+  })
+
+  // ── Boundary exclusions (AC6) ─────────────────────────────────────────────────
+  // Each assertion is framed as a delta vs the pre-insert baseline so it holds on
+  // an empty scratch DB AND on the seeded crm_db alike. The boundary fixtures were
+  // inserted in beforeAll; here we prove each is correctly excluded by the SQL.
+
+  async function summaryAsAdmin(): Promise<AccountantSummaryDtoT> {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/finance/accountant-summary',
+      cookies: { jwt: tokenFor(ADMIN) },
+    })
+    return accountantSummarySchema.parse(res.json())
+  }
+
+  it('excludes PAID rows created in a previous month from paidThisMonth', async () => {
+    if (!dbAvailable) return
+    const base = baseline!
+    const body = await summaryAsAdmin()
+    // TX_PAID_OLD (6666, lastMonth) must NOT appear — only TX_PAID_THIS (2000) does.
+    // If the createdAt month filter regressed, the delta would be 8666, not 2000.
+    expect(Math.round((body.paidThisMonth.amount - base.paidThisMonth.amount) * 100) / 100).toBe(
+      2000,
+    )
+  })
+
+  it('excludes VALIDATED rows with NULL validatedAt from validatedThisMonth', async () => {
+    if (!dbAvailable) return
+    const base = baseline!
+    const body = await summaryAsAdmin()
+    // TX_VALIDATED_NULL (5555, validatedAt NULL, createdAt thisMonth) must NOT count.
+    // A regressed `validated_at is not null` predicate would inflate count to 2 and
+    // amount delta to 6355 (800 + 5555).
+    expect(body.validatedThisMonth.count - base.validatedThisMonth.count).toBe(1)
+    expect(
+      Math.round((body.validatedThisMonth.amount - base.validatedThisMonth.amount) * 100) / 100,
+    ).toBe(800)
+  })
+
+  it('excludes EXPENSE / SALARY rows from pendingValidation (not validatable income)', async () => {
+    if (!dbAvailable) return
+    const base = baseline!
+    const body = await summaryAsAdmin()
+    // TX_EXPENSE_PENDING (333) + TX_SALARY_PENDING (444) are PENDING but not income.
+    // A regressed type filter would push count to 4 and amount delta to 2277.
+    expect(body.pendingValidation.count - base.pendingValidation.count).toBe(2)
+    expect(
+      Math.round((body.pendingValidation.amount - base.pendingValidation.amount) * 100) / 100,
+    ).toBe(1500)
+  })
+
+  it('dedups a party with multiple income rows in recipientCount (COUNT DISTINCT)', async () => {
+    if (!dbAvailable) return
+    const base = baseline!
+    const body = await summaryAsAdmin()
+    // SENIOR owns TX_PENDING_1, TX_VALIDATED_THIS, TX_PAID_THIS, TX_PAID_OLD,
+    // TX_VALIDATED_NULL AND TX_DEDUP_PARTY — six income rows, ONE distinct party.
+    // DROP owns one. So the distinct-party delta is exactly +2, never per-row.
+    expect(body.recipientCount - base.recipientCount).toBe(2)
+  })
+
+  it('never leaks NULL through COALESCE — amounts are always finite numbers', async () => {
+    if (!dbAvailable) return
+    const body = await summaryAsAdmin()
+    // COALESCE(SUM(...), 0) guarantees the empty-set / no-match buckets are 0, never
+    // NULL/NaN. (The empty-DB → all-zeros path is proven in the unit spec; here we
+    // assert the wire payload always carries finite numeric money on a real DB.)
+    for (const amount of [
+      body.pendingValidation.amount,
+      body.validatedThisMonth.amount,
+      body.paidThisMonth.amount,
+    ]) {
+      expect(Number.isFinite(amount)).toBe(true)
+    }
+    expect(Number.isInteger(body.pendingValidation.count)).toBe(true)
+    expect(Number.isInteger(body.validatedThisMonth.count)).toBe(true)
+    expect(Number.isInteger(body.recipientCount)).toBe(true)
   })
 })
