@@ -124,6 +124,11 @@ export function TechAutocompleteInput({
     }
 
     if (e.key === 'Escape') {
+      if (dropdownOpen) {
+        // Dropdown is open: dismiss only the dropdown, not the parent Dialog.
+        e.preventDefault()
+        e.stopPropagation()
+      }
       setInput('')
       setActiveIdx(0)
       return
