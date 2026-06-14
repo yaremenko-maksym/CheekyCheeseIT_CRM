@@ -23,7 +23,7 @@
 import { test, expect } from './fixtures'
 
 test.describe('Drop RBAC visibility — AC8 (phase 3 update)', () => {
-  test('sidebar has exactly 4 items for DROP: Дашборд / Финансы / Команда / Профиль', async ({
+  test('sidebar has exactly 5 items for DROP: Дашборд / Финансы / Команда / Документы / Профиль', async ({
     asDrop: page,
   }) => {
     // Navigate to DROP home (dashboard hub, PR #198).
@@ -34,19 +34,21 @@ test.describe('Drop RBAC visibility — AC8 (phase 3 update)', () => {
     const nav = page.getByTestId('drop-nav')
     await expect(nav).toBeVisible()
 
-    // Phase 3: 4 allowed entries. «Дашборд» href is now /crm/dashboard (was /crm/routing).
+    // Finding 1 fix (PR #198): DROP added to /crm/documents ROUTE_ACCESS.
+    // nav-sidebar uses navRolesFor('/crm/documents') → now includes DROP.
+    // Phase 3 + Finding 1: 5 allowed entries.
     await expect(nav.locator('a[href="/crm/dashboard"]')).toBeVisible()
     await expect(nav.locator('a[href="/crm/finance"]')).toBeVisible()
     await expect(nav.locator('a[href="/crm/team"]')).toBeVisible()
+    await expect(nav.locator('a[href="/crm/documents"]')).toBeVisible()
     await expect(nav.locator('a[href="/crm/profile"]')).toBeVisible()
 
-    // Exactly 4 nav links.
-    await expect(nav.locator('a')).toHaveCount(4)
+    // Exactly 5 nav links.
+    await expect(nav.locator('a')).toHaveCount(5)
 
     // Forbidden entries — absent for DROP.
     await expect(nav.locator('a[href="/crm/projects"]')).toHaveCount(0)
     await expect(nav.locator('a[href="/crm/interviews"]')).toHaveCount(0)
-    await expect(nav.locator('a[href="/crm/documents"]')).toHaveCount(0)
     // /crm/routing no longer in nav (consolidated to /crm/dashboard)
     await expect(nav.locator('a[href="/crm/routing"]')).toHaveCount(0)
     await expect(nav.locator('a[href="/crm/users"]')).toHaveCount(0)
@@ -177,10 +179,16 @@ test.describe('Drop RBAC visibility — AC8 (phase 3 update)', () => {
     const contractTabBtn = main.getByRole('button', { name: /Контракт/ }).first()
     await expect(contractTabBtn).toBeVisible({ timeout: 8_000 })
 
-    // Click the tab and confirm contract content renders (status badge)
+    // Click the tab and confirm read-only contract content renders.
+    // Finding 2 (PR #198): DROP gets canEdit=false → contract-tab-readonly renders,
+    // NOT the ADMIN editor (contract-tab). The read-only view shows status badge + PDF.
     await contractTabBtn.click()
-    await expect(page.getByTestId('contract-tab')).toBeVisible({ timeout: 8_000 })
+    // Read-only wrapper must be present (Finding 2 regression guard).
+    await expect(page.getByTestId('contract-tab-readonly')).toBeVisible({ timeout: 8_000 })
+    // Status badge present in read-only view.
     await expect(page.getByTestId('contract-status-badge')).toBeVisible()
+    // ADMIN editor must NOT be rendered for DROP (canEdit=false).
+    await expect(page.getByTestId('contract-tab')).toHaveCount(0)
   })
 
   test('back-button NOT visible for DROP on /crm/team/$teamId (PR #198)', async ({

@@ -19,13 +19,14 @@
  *   resolveRoleHome('DROP') === '/crm/dashboard'
  *
  * Forbidden routes for DROP (not in ROUTE_ACCESS for DROP):
- *   /crm/projects, /crm/interviews, /crm/documents,
+ *   /crm/projects, /crm/interviews,
  *   /crm/stats, /crm/users, /crm/legend, /crm/project (JUNIOR-only),
  *   /crm root (no entry → resolves to role home via index redirect).
  *
  * Allowed routes for DROP:
  *   /crm/dashboard (DROP home — DropDashboard component), /crm/routing (→ redirects to /crm/dashboard),
- *   /crm/finance, /crm/team, /crm/profile, /crm/payments
+ *   /crm/finance, /crm/team, /crm/profile, /crm/payments,
+ *   /crm/documents (Finding 1 fix — DROP sees own documents, PR #198)
  *
  * Mock-based — uses the `asDrop` fixture from fixtures.ts.
  */
@@ -48,11 +49,15 @@ test.describe('Drop frontend route-guards — phase 3 (home = /crm/dashboard)', 
     await expect(page).toHaveURL(/\/crm\/dashboard/, { timeout: 8_000 })
   })
 
-  test('/crm/documents for DROP → /crm/dashboard', async ({ asDrop: page }) => {
-    // ROUTE_ACCESS for /crm/documents: ['ADMIN','SENIOR','JUNIOR','HR','ACCOUNTANT']
-    // DROP is excluded → redirect to /crm/dashboard.
+  test('/crm/documents for DROP → stays on documents page (Finding 1 fix, PR #198)', async ({
+    asDrop: page,
+  }) => {
+    // Finding 1 fix (PR #198): DROP added to ROUTE_ACCESS for /crm/documents.
+    // DROP can now view their own documents — no longer redirected to dashboard.
     await page.goto('/crm/documents')
-    await expect(page).toHaveURL(/\/crm\/dashboard/, { timeout: 8_000 })
+    await expect(page).toHaveURL(/\/crm\/documents/, { timeout: 8_000 })
+    await expect(page).not.toHaveURL(/\/crm\/dashboard/)
+    await expect(page).not.toHaveURL(/\/login/)
   })
 
   test('/crm/stats for DROP → /crm/dashboard', async ({ asDrop: page }) => {

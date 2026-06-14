@@ -12,6 +12,13 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ContractPdfPreview } from '../ContractPdfPreview'
 
+// Note: this component mounts a real `<iframe src={blobUrl}>`. happy-dom would
+// otherwise try to navigate the iframe to that `blob:` URL and reject
+// asynchronously with a stray DOMException, which manifested as a load-dependent
+// flake under the parallel pre-push run. That async navigation is disabled
+// globally via `disableIframePageLoading` in apps/web/vitest.config.ts, so the
+// iframe assertions below stay deterministic without any per-test stubbing.
+
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
 // Mock sonner toast so we can assert calls without real DOM toasts
