@@ -1,4 +1,19 @@
-import { Module, Global } from '@nestjs/common'
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  Global,
+  Inject,
+  Module,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
 import { JwtModule, JwtService } from '@nestjs/jwt'
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify'
@@ -8,11 +23,16 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { SessionUser } from '@crm/shared'
+import {
+  createInterviewSchema,
+  moveInterviewSchema,
+  updateInterviewSchema,
+  type SessionUser,
+} from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
+import { CurrentUser } from '../auth/current-user.decorator'
 import { DatabaseService } from '../database/database.service'
-import { InterviewsController } from './interviews.controller'
 import { InterviewsService } from './interviews.service'
 import { ProjectsService } from '../projects/projects.service'
 import { interviews, teamMembers, teams, users } from '../database/schema'
@@ -28,9 +48,9 @@ import * as schema from '../database/schema'
  *   Before this spec there were ZERO tests pinning that contract, and HR is
  *   the primary kanban actor. A mocked-service test cannot prove that real SQL
  *   enforces the "own team-seniors only" / "DROP fully blocked" rules — the
- *   exact data-leak class that bit us 3×. This drives the REAL controller +
- *   real InterviewsService over a Fastify app against real PostgreSQL, so a
- *   regression that re-opens cross-team / DROP / role access fails loudly.
+ *   exact data-leak class that bit us 3×. This drives the REAL InterviewsService
+ *   over a Fastify app against real PostgreSQL, so a regression that re-opens
+ *   cross-team / DROP / role access fails loudly.
  *
  * COVERED (HTTP status assertions, real 200/403/401):
  *   GET    /api/interviews            (findBySenior)
@@ -45,6 +65,18 @@ import * as schema from '../database/schema'
  *
  * SEED namespace: c1d2e3f4-0a1b-4c2d-** (distinct from existing groups).
  *
+ * WHY a sentinel controller (not the real InterviewsController):
+ *   vitest transpiles via esbuild, which STRIPS TS `emitDecoratorMetadata`
+ *   constructor-param type metadata. Importing the real controller makes Nest
+ *   inject `undefined` for InterviewsService → 500s, not RBAC results. Every
+ *   other integration spec in this repo (teams.drop.rbac, legends.rbac,
+ *   credentials.rbac, …) uses a sentinel with `@Inject(TOKEN)` to bypass this.
+ *   SentinelInterviewsController mirrors the REAL controller boundary
+ *   byte-for-byte (assertNotDrop + ParseUUIDPipe + the exact Zod `.parse()`
+ *   calls + delegation order) and delegates into the REAL InterviewsService —
+ *   so the RBAC contract under test (DROP→403, team-scope, role-set) is the
+ *   real one. Keep this mirror in sync with interviews.controller.ts.
+ *
  * ProjectsService: a thin stub — its only method reachable from the routes
  * under test is createFromInterview, which fires ONLY when a card is moved
  * INTO 'HIRED'. Every move case here uses non-HIRED stages, so the stub is
@@ -57,6 +89,68 @@ import * as schema from '../database/schema'
  */
 
 const JWT_SECRET = 'interviews-rbac-integration-secret-32chars'
+const INTERVIEWS_SERVICE_TOKEN = 'INTERVIEWS_SERVICE_TOKEN_RBAC'
+
+// ── Sentinel controller — mirrors the REAL InterviewsController boundary ───────
+//    (assertNotDrop + ParseUUIDPipe + Zod .parse()) and delegates into the
+//    REAL InterviewsService via @Inject(token). Bypasses esbuild metadata strip.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+@Controller('interviews')
+class SentinelInterviewsController {
+  constructor(@Inject(INTERVIEWS_SERVICE_TOKEN) private readonly svc: InterviewsService) {}
+
+  // Mirror of InterviewsController.assertNotDrop (private in the real controller).
+  private assertNotDrop(user: SessionUser): void {
+    if (user.role === 'DROP') {
+      throw new ForbiddenException('Дроп не имеет доступа к собеседованиям')
+    }
+  }
+
+  @Get()
+  findBySenior(@Query('seniorId') seniorId: string | undefined, @CurrentUser() user: SessionUser) {
+    this.assertNotDrop(user)
+    if (seniorId !== undefined && !UUID_RE.test(seniorId)) {
+      throw new BadRequestException('seniorId must be a valid UUID')
+    }
+    return this.svc.findBySenior(seniorId, user)
+  }
+
+  @Post()
+  create(@Body() body: unknown, @CurrentUser() user: SessionUser) {
+    this.assertNotDrop(user)
+    const data = createInterviewSchema.parse(body)
+    return this.svc.create(data, user)
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    this.assertNotDrop(user)
+    const data = updateInterviewSchema.parse(body)
+    return this.svc.update(id, data, user)
+  }
+
+  @Patch(':id/move')
+  move(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    this.assertNotDrop(user)
+    const data = moveInterviewSchema.parse(body)
+    return this.svc.move(id, data, user)
+  }
+
+  @Delete(':id')
+  remove(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
+    this.assertNotDrop(user)
+    return this.svc.remove(id, user)
+  }
+}
 
 // ── Personas ─────────────────────────────────────────────────────────────────
 // Namespace: c1d2e3f4-0a1b-4c2d-aa00-<seq> (users), bb00-<seq> (teams).
@@ -209,7 +303,7 @@ class TestDatabaseModule {}
     TestDatabaseModule,
     JwtModule.register({ secret: JWT_SECRET, signOptions: { expiresIn: '1h' } }),
   ],
-  controllers: [InterviewsController],
+  controllers: [SentinelInterviewsController],
   providers: [
     Reflector,
     {
@@ -221,6 +315,12 @@ class TestDatabaseModule {}
       useFactory: (db: DatabaseService, projects: ProjectsService) =>
         new InterviewsService(db, projects),
       inject: [DatabaseService, ProjectsService],
+    },
+    {
+      // String-token alias — SentinelInterviewsController injects via
+      // @Inject(token) to dodge esbuild constructor-metadata stripping.
+      provide: INTERVIEWS_SERVICE_TOKEN,
+      useExisting: InterviewsService,
     },
     {
       provide: APP_GUARD,
