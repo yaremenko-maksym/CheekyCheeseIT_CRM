@@ -451,9 +451,7 @@ test.describe('Users page refactor (PR 2)', () => {
       await expect(listbox).toHaveCount(0)
     })
 
-    test('TechAutocomplete: Tab commits the highlighted suggestion', async ({
-      asAdmin: page,
-    }) => {
+    test('TechAutocomplete: Tab commits the highlighted suggestion', async ({ asAdmin: page }) => {
       await page.goto('/crm/users')
       await page.getByTestId('users-create-button').click()
       await expect(page.getByRole('dialog')).toBeVisible()
