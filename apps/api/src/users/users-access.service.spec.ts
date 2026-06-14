@@ -49,6 +49,10 @@ describe('UsersAccessService.getViewPermissions', () => {
     ;(service as unknown as Record<string, unknown>).isJuniorUnderLegendSubject = vi
       .fn()
       .mockResolvedValue(false)
+    // task-drop-profile-rbac-r2 (Finding B): DROP-own-team lookup mock — default false.
+    ;(service as unknown as Record<string, unknown>).isDropInTargetTeam = vi
+      .fn()
+      .mockResolvedValue(false)
   })
 
   it('ADMIN viewing JUNIOR sees 7 tabs including contract (no Собеседования, no audit)', async () => {
@@ -278,22 +282,20 @@ describe('UsersAccessService.getViewPermissions', () => {
     }
   })
 
-  // task-drop-phase3-frontend: DROP self-view excludes 'projects' tab.
-  // The routing hub (/crm/routing) is the canonical project surface for DROP.
-  // task-drop-phase3-frontend round 2 (UT finding 3a): DROP self-view INCLUDES
-  // 'contract' — DROP has a signed employee_contract and must be able to view it.
-  // task-drop-phase3-frontend UT finding (drop-docs-contract): 'documents' removed from
-  // DROP self-view profile tab — DROP now has dedicated /crm/documents page (page-not-tab model).
-  // SENIOR/ADMIN profiles are NOT affected — only DROP self-view.
-  it('SELF — DROP sees overview/finance/team/requisites/contract but NOT projects/documents', async () => {
+  // task-drop-profile-rbac-r2 (Finding A): DROP self-view is now an EXPLICIT
+  // allow-list — overview + requisites ONLY. finance/team/contract were removed:
+  //   - finance  → DROP sees финансы on /crm/routing, not in a profile tab.
+  //   - team     → reachable via /crm/team/$teamId, not as a tab.
+  //   - contract → DROP reads контракт on /crm/documents (page-not-tab model).
+  // documents was already removed (dedicated /crm/documents page). projects was
+  // already removed (routing hub). SENIOR/ADMIN profiles are NOT affected.
+  it('SELF — DROP sees ONLY overview + requisites (Finding A: finance/team/contract/documents/projects removed)', async () => {
     const drop = makeUser({ id: 'drop-id', role: 'DROP' })
     const p = await service.getViewPermissions(drop, drop)
-    expect(p.tabs).toContain('overview')
-    expect(p.tabs).toContain('finance')
-    expect(p.tabs).toContain('team')
-    expect(p.tabs).toContain('requisites')
-    expect(p.tabs).toContain('contract')
-    // documents removed: DROP has dedicated /crm/documents page (page-not-tab model, like JUNIOR)
+    expect(p.tabs).toEqual(['overview', 'requisites'])
+    expect(p.tabs).not.toContain('finance')
+    expect(p.tabs).not.toContain('team')
+    expect(p.tabs).not.toContain('contract')
     expect(p.tabs).not.toContain('documents')
     expect(p.tabs).not.toContain('projects')
   })
@@ -552,5 +554,91 @@ describe('UsersAccessService.getViewPermissions', () => {
     const junior = makeUser({ id: 'jr1', role: 'JUNIOR' })
     const p = await service.getViewPermissions(junior, junior)
     expect(p.fields.projectCredentials).toBeFalsy()
+  })
+
+  // ── task-drop-profile-rbac-r2 (Finding B): DROP viewing OWN-TEAM member ──
+  // DROP gets an "open card": overview tab ONLY, with every sensitive field
+  // masked (realContacts/fopPii/legalName/salary/share/requisites/adminNote).
+  // DROP viewing a NON-teammate → zero tabs → 403 (existing behaviour preserved).
+
+  it('DROP viewing own-team member (mock=true) — overview tab ONLY, all sensitive fields masked', async () => {
+    const spy = vi.fn().mockResolvedValue(true)
+    ;(service as unknown as Record<string, unknown>).isDropInTargetTeam = spy
+    const viewer = makeUser({ id: 'drop1', role: 'DROP' })
+    const target = makeUser({ id: 'sr1', role: 'SENIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+
+    // Branch was entered (proves the helper is wired)
+    expect(spy).toHaveBeenCalledWith('drop1', 'sr1')
+    // Open card = overview ONLY
+    expect(p.tabs).toEqual(['overview'])
+    expect(p.tabs).not.toContain('projects')
+    expect(p.tabs).not.toContain('team')
+    expect(p.tabs).not.toContain('finance')
+    expect(p.tabs).not.toContain('requisites')
+    expect(p.tabs).not.toContain('contract')
+    expect(p.tabs).not.toContain('documents')
+    // ALL sensitive flags masked
+    expect(p.fields.realContacts).toBe(false)
+    expect(p.fields.fopPii).toBe(false)
+    expect(p.fields.legalName).toBe(false)
+    expect(p.fields.salary).toBe(false)
+    expect(p.fields.share).toBe(false)
+    expect(p.fields.requisites).toBe(false)
+    expect(p.fields.adminNote).toBe(false)
+    // Legend persona surfaced (target is a SENIOR = legend subject)
+    expect(p.fields.legend).toBe(true)
+    // No mutating actions for DROP
+    expect(p.actions).toEqual([])
+  })
+
+  it('DROP viewing own-team JUNIOR (mock=true) — overview only; legend false (JUNIOR is not a legend subject)', async () => {
+    const spy = vi.fn().mockResolvedValue(true)
+    ;(service as unknown as Record<string, unknown>).isDropInTargetTeam = spy
+    const viewer = makeUser({ id: 'drop1', role: 'DROP' })
+    const target = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.tabs).toEqual(['overview'])
+    expect(p.fields.realContacts).toBe(false)
+    // JUNIOR is not a SENIOR/DROP → not a legend subject → legend falsy
+    expect(p.fields.legend).toBeFalsy()
+  })
+
+  it('DROP viewing own-team DROP (mock=true) — overview only, legend true (DROP is a legend subject)', async () => {
+    const spy = vi.fn().mockResolvedValue(true)
+    ;(service as unknown as Record<string, unknown>).isDropInTargetTeam = spy
+    const viewer = makeUser({ id: 'drop1', role: 'DROP' })
+    const target = makeUser({ id: 'drop2', role: 'DROP' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.tabs).toEqual(['overview'])
+    expect(p.fields.legend).toBe(true)
+    expect(p.fields.realContacts).toBe(false)
+  })
+
+  it('DROP viewing NON-teammate (mock=false) — zero tabs → 403 (existing behaviour preserved)', async () => {
+    // isDropInTargetTeam returns false (default mock)
+    const viewer = makeUser({ id: 'drop1', role: 'DROP' })
+    const target = makeUser({ id: 'sr1', role: 'SENIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.tabs).toEqual([])
+  })
+
+  it('DROP self-view does NOT enter the own-team branch (isSelf short-circuit)', async () => {
+    const spy = vi.fn().mockResolvedValue(true)
+    ;(service as unknown as Record<string, unknown>).isDropInTargetTeam = spy
+    const drop = makeUser({ id: 'drop1', role: 'DROP' })
+    const p = await service.getViewPermissions(drop, drop)
+    // self-view path produces overview+requisites; the own-team helper must NOT be called
+    expect(p.tabs).toEqual(['overview', 'requisites'])
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  // Regression: the DROP-own-team branch must NOT weaken access for OTHER roles.
+  // A SENIOR viewing a teammate still gets zero tabs (handled by the isSenior branch).
+  it('SENIOR viewing own-team SENIOR — still zero tabs (DROP-own-team branch does not apply)', async () => {
+    const viewer = makeUser({ id: 'sr1', role: 'SENIOR' })
+    const target = makeUser({ id: 'sr2', role: 'SENIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.tabs).toEqual([])
   })
 })
