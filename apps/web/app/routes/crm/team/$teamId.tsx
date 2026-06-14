@@ -25,6 +25,7 @@ import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
 import { hasRealPhone } from '@/lib/format-phone'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { ProfileNameLink } from '@/components/users/ProfileNameLink'
 import { ProjectLogo } from '@/components/projects/ProjectLogo'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -441,23 +442,23 @@ function TeamDetailPage() {
             {isDropTeam && dropOwner && (
               <p className="text-xs text-muted-foreground mt-0.5">
                 Дроп:{' '}
-                <Link
-                  to="/crm/profile/$userId"
-                  params={{ userId: dropOwner.userId }}
+                <ProfileNameLink
+                  userId={dropOwner.userId}
+                  viewerRole={user?.role ?? 'JUNIOR'}
                   className="text-primary hover:underline font-medium"
                 >
                   {dropOwner.displayName}
-                </Link>
+                </ProfileNameLink>
                 {activeSenior ? (
                   <>
                     {' · Синьор: '}
-                    <Link
-                      to="/crm/profile/$userId"
-                      params={{ userId: activeSenior.userId }}
+                    <ProfileNameLink
+                      userId={activeSenior.userId}
+                      viewerRole={user?.role ?? 'JUNIOR'}
                       className="text-primary hover:underline font-medium"
                     >
                       {activeSenior.displayName}
-                    </Link>
+                    </ProfileNameLink>
                   </>
                 ) : (
                   <span className="ml-1 text-amber-500/80">· Синьор не назначен</span>
@@ -596,11 +597,14 @@ function TeamDetailPage() {
                       >
                         {/* round-2 AC1: avatar + name is the only profile <Link>;
                             email/telegram/phone are sibling <a> tags (NOT nested
-                            inside another anchor) — fixes validateDOMNesting. */}
+                            inside another anchor) — fixes validateDOMNesting.
+                            task-drop-profile-lockdown: for a DROP viewer these
+                            become plain (non-navigable) — DROP has no profile
+                            access. Contacts below stay visible. */}
                         <div className="flex min-w-0 flex-1 items-center gap-3">
-                          <Link
-                            to="/crm/profile/$userId"
-                            params={{ userId: member.userId }}
+                          <ProfileNameLink
+                            userId={member.userId}
+                            viewerRole={user?.role ?? 'JUNIOR'}
                             className="shrink-0 transition-opacity hover:opacity-80"
                           >
                             <Avatar className="h-9 w-9 shrink-0">
@@ -611,18 +615,18 @@ function TeamDetailPage() {
                                 {getInitials(member.displayName)}
                               </AvatarFallback>
                             </Avatar>
-                          </Link>
+                          </ProfileNameLink>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
-                              <Link
-                                to="/crm/profile/$userId"
-                                params={{ userId: member.userId }}
+                              <ProfileNameLink
+                                userId={member.userId}
+                                viewerRole={user?.role ?? 'JUNIOR'}
                                 className="min-w-0 transition-opacity hover:opacity-80"
                               >
                                 <p className="truncate text-sm font-medium leading-tight hover:text-primary transition-colors">
                                   {member.displayName}
                                 </p>
-                              </Link>
+                              </ProfileNameLink>
                               <Badge
                                 variant={ROLE_VARIANT[member.role] ?? 'junior'}
                                 className="text-[9px] shrink-0"

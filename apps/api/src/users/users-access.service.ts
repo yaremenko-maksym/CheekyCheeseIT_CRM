@@ -184,34 +184,17 @@ export class UsersAccessService {
         fields.realContacts = false
         fields.legend = true
       }
-    } else if (isDrop && !isSelf && (await this.isDropInTargetTeam(viewer.id, target.id))) {
-      // task-drop-profile-rbac-r2 (Finding B): DROP viewing a member of THEIR OWN
-      // team gets an "open card" — overview tab ONLY, with every sensitive field
-      // masked. Mirrors the JUNIOR-under-legend persona boundary (OWASP A01).
-      //
-      // DROP is a public-facing identity (front of the routing scheme), so they
-      // may see the client-facing persona of teammates but NEVER the real identity,
-      // contacts, PII, or finance. A DROP viewing a NON-teammate falls through to
-      // zero tabs → 403 (existing behaviour, NOT weakened for other roles).
-      tabs.push('overview')
-      // Public skill (tech stack) is allowed; registration date is non-sensitive.
-      fields.techStack = targetHasTechStack
-      fields.registrationDate = true
-      // Mask EVERYTHING identity/PII/finance-related:
-      fields.realContacts = false // hide email / phone / telegram
-      fields.fopPii = false // hide registrationAddress / usrRecord
-      fields.legalName = false // hide passport legalFullName
-      fields.salary = false // hide monthlySalary
-      fields.share = false // hide senior/drop share percent
-      fields.adminNote = false // never surface internal admin note
-      fields.requisites = false // hide payment requisites
-      // Legend persona: when the target is a legend subject (SENIOR/DROP), surface
-      // the persona flag so the client-facing legend is shown while the real
-      // identity stays masked (same contract as the JUNIOR-under-legend branch).
-      fields.legend = targetIsLegendSubject
     }
-    // Other JUNIOR viewing non-SENIOR/non-DROP, ACCOUNTANT, DROP viewing a
-    // non-teammate: no tabs → 403.
+    // task-drop-profile-lockdown: DROP has NO access to ANY other user's profile.
+    // The previous "own-team open card" branch (Finding B from #202) is removed —
+    // DROP→non-self always yields zero tabs → 403. DROP sees teammates' inline
+    // contacts on the team page (/crm/team/$teamId), which is sufficient; there is
+    // no profile surface for them. This tightens the model (less exposure) and
+    // partially reverts finding B1 from #202. DROP self-view (overview+requisites,
+    // Finding A) is unchanged — handled in the isSelf branch above.
+    //
+    // Other JUNIOR viewing non-SENIOR/non-DROP, ACCOUNTANT, DROP viewing ANY other
+    // user: no tabs → 403.
 
     return { tabs, actions, fields }
   }
@@ -271,38 +254,6 @@ export class UsersAccessService {
       return targetActive.length > 0
     }
     return false
-  }
-
-  /**
-   * task-drop-profile-rbac-r2 (Finding B): DROP viewing another user — true if the
-   * target is an active member of ANY team the DROP is an active member of.
-   *
-   * Active membership = teamMembers row with leftAt IS NULL. Mirrors the team-scoped
-   * lookup used by isHrInTargetTeam (SENIOR branch) but is target-role-agnostic — a
-   * DROP and any teammate (SENIOR/HR/ACCOUNTANT/JUNIOR/DROP) in a shared active team.
-   */
-  private async isDropInTargetTeam(dropId: string, targetId: string): Promise<boolean> {
-    // DROP's active team memberships
-    const dropMemberships = await this.db.db
-      .select({ teamId: teamMembers.teamId })
-      .from(teamMembers)
-      .where(and(eq(teamMembers.userId, dropId), isNull(teamMembers.leftAt)))
-    if (dropMemberships.length === 0) return false
-    const dropTeamIds = dropMemberships.map((m) => m.teamId)
-
-    // Is the target an active member of any of those teams?
-    const shared = await this.db.db
-      .select({ teamId: teamMembers.teamId })
-      .from(teamMembers)
-      .where(
-        and(
-          eq(teamMembers.userId, targetId),
-          inArray(teamMembers.teamId, dropTeamIds),
-          isNull(teamMembers.leftAt),
-        ),
-      )
-      .limit(1)
-    return shared.length > 0
   }
 
   /**

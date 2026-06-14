@@ -131,6 +131,29 @@ test.describe('Drop RBAC visibility — AC8 (phase 3 update)', () => {
     await expect(main.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 8_000 })
   })
 
+  // task-drop-profile-lockdown: DROP has NO profile access — on the team page,
+  // member names (and the «Дроп: …»/«Синьор: …» banner) must be PLAIN TEXT, with
+  // zero links into /crm/profile/*. Inline contacts (mailto) stay visible.
+  test('DROP team page renders member names as plain text — no profile links', async ({
+    asDrop: page,
+  }) => {
+    // Go straight to the DROP team detail page (fixture DROP_TEAM id).
+    await page.goto('/crm/team/drop-team-1-id')
+    const main = page.locator('main')
+    await expect(main.getByRole('heading', { level: 1, name: 'Drop Team Alpha' })).toBeVisible({
+      timeout: 8_000,
+    })
+
+    // The senior teammate's name is shown (member roster + banner) — as text.
+    await expect(main.getByText('Senior Dev').first()).toBeVisible()
+
+    // CRITICAL: there must be ZERO anchors into the profile surface for DROP.
+    await expect(page.locator('a[href^="/crm/profile/"]')).toHaveCount(0)
+
+    // Inline contacts remain available to DROP (sufficient per the lockdown model).
+    await expect(main.locator('a[href^="mailto:"]').first()).toBeVisible()
+  })
+
   test('DROP viewing own profile — «Контракт» tab visible (owner-or-ADMIN, PR #198)', async ({
     asDrop: page,
   }) => {

@@ -49,6 +49,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { formatBytes } from '@/lib/format-bytes'
+import { ProfileNameLink } from '@/components/users/ProfileNameLink'
 import {
   useDeleteDocument,
   useDocumentDownloadUrl,
@@ -217,14 +218,14 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
 
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
           <UserCircle2 className="h-3.5 w-3.5" />
-          <Link
-            to="/crm/profile/$userId"
-            params={{ userId: doc.uploadedBy }}
+          <ProfileNameLink
+            userId={doc.uploadedBy}
+            viewerRole={viewer.role}
             className="line-clamp-1 hover:text-foreground hover:underline focus:outline-none focus-visible:text-foreground focus-visible:underline"
-            data-testid="document-card-uploader-link"
+            testId="document-card-uploader-link"
           >
             {uploaderLabel}
-          </Link>
+          </ProfileNameLink>
         </div>
 
         {isReceipt && doc.projectId ? (
