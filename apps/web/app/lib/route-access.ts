@@ -32,11 +32,12 @@ const ROUTE_ACCESS: ReadonlyArray<{ prefix: string; roles: readonly Role[] }> = 
   { prefix: '/crm/project', roles: ['JUNIOR'] },
   { prefix: '/crm/legend', roles: ['JUNIOR'] },
 
-  // DROP hub «Мой роутинг» — только DROP.
+  // DROP hub redirect (старый URL — редирект на /crm/dashboard) — только DROP.
   { prefix: '/crm/routing', roles: ['DROP'] },
 
-  // Дашборд — все, кроме JUNIOR/DROP (у них свои дома).
-  { prefix: '/crm/dashboard', roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'] },
+  // Дашборд — все, кроме JUNIOR (у них свой хаб /crm/project).
+  // DROP включён: /crm/dashboard рендерит роль-зависимый контент (платёжный хаб для DROP).
+  { prefix: '/crm/dashboard', roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'DROP'] },
 
   // Пользователи / Статистика — только ADMIN.
   { prefix: '/crm/users', roles: ['ADMIN'] },
@@ -79,7 +80,7 @@ export function resolveRoleHome(role: Role): string {
     case 'JUNIOR':
       return '/crm/project'
     case 'DROP':
-      return '/crm/routing'
+      return '/crm/dashboard'
     default:
       return '/crm/dashboard'
   }

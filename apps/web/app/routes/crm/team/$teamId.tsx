@@ -329,12 +329,15 @@ function TeamDetailPage() {
         <p className="mt-1 text-xs text-muted-foreground">
           Возможно, у вас нет доступа к этой команде
         </p>
-        <Button asChild variant="outline" size="sm" className="mt-4">
-          <Link to="/crm/team">
-            <ArrowLeft className="h-4 w-4 mr-1.5" />
-            Вернуться к списку
-          </Link>
-        </Button>
+        {/* «Вернуться к списку» скрыто для DROP: им некуда возвращаться. */}
+        {user?.role !== 'DROP' && (
+          <Button asChild variant="outline" size="sm" className="mt-4">
+            <Link to="/crm/team">
+              <ArrowLeft className="h-4 w-4 mr-1.5" />
+              Вернуться к списку
+            </Link>
+          </Button>
+        )}
       </div>
     )
   }
@@ -387,8 +390,18 @@ function TeamDetailPage() {
       {/* Header */}
       <motion.div variants={item} className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
-          {user?.role !== 'SENIOR' && user?.role !== 'JUNIOR' && (
-            <Button asChild variant="outline" size="icon" className="shrink-0">
+          {/* Back button hidden for SENIOR, JUNIOR, and DROP.
+              SENIOR/JUNIOR: они не видят список команд (нет пункта «Команда» в nav).
+              DROP: редиректится на свою единственную команду — возвращаться некуда,
+              кнопка «назад» вела бы в петлю. */}
+          {user?.role !== 'SENIOR' && user?.role !== 'JUNIOR' && user?.role !== 'DROP' && (
+            <Button
+              asChild
+              variant="outline"
+              size="icon"
+              className="shrink-0"
+              data-testid="back-button"
+            >
               <Link to="/crm/team">
                 <ArrowLeft className="h-4 w-4" />
               </Link>
