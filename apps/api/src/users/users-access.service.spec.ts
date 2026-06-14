@@ -49,10 +49,9 @@ describe('UsersAccessService.getViewPermissions', () => {
     ;(service as unknown as Record<string, unknown>).isJuniorUnderLegendSubject = vi
       .fn()
       .mockResolvedValue(false)
-    // task-drop-profile-rbac-r2 (Finding B): DROP-own-team lookup mock — default false.
-    ;(service as unknown as Record<string, unknown>).isDropInTargetTeam = vi
-      .fn()
-      .mockResolvedValue(false)
+    // task-drop-profile-lockdown: the isDropInTargetTeam helper was DELETED — DROP
+    // has no access to any other user's profile, so there is no own-team lookup to
+    // mock. DROP→non-self always yields zero tabs (asserted below).
   })
 
   it('ADMIN viewing JUNIOR sees 7 tabs including contract (no Собеседования, no audit)', async () => {
@@ -556,86 +555,52 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.projectCredentials).toBeFalsy()
   })
 
-  // ── task-drop-profile-rbac-r2 (Finding B): DROP viewing OWN-TEAM member ──
-  // DROP gets an "open card": overview tab ONLY, with every sensitive field
-  // masked (realContacts/fopPii/legalName/salary/share/requisites/adminNote).
-  // DROP viewing a NON-teammate → zero tabs → 403 (existing behaviour preserved).
+  // ── task-drop-profile-lockdown: DROP has NO access to ANY other profile ──
+  // The #202 "own-team open card" (Finding B) was removed. DROP→non-self ALWAYS
+  // yields zero tabs → 403. DROP self-view (overview+requisites, Finding A) is
+  // unchanged. Team page (/crm/team/$teamId) shows teammate contacts inline —
+  // the profile surface is fully closed for DROP.
 
-  it('DROP viewing own-team member (mock=true) — overview tab ONLY, all sensitive fields masked', async () => {
-    const spy = vi.fn().mockResolvedValue(true)
-    ;(service as unknown as Record<string, unknown>).isDropInTargetTeam = spy
+  it('DROP viewing own-team SENIOR — zero tabs → 403 (open card removed)', async () => {
     const viewer = makeUser({ id: 'drop1', role: 'DROP' })
     const target = makeUser({ id: 'sr1', role: 'SENIOR' })
     const p = await service.getViewPermissions(viewer, target)
-
-    // Branch was entered (proves the helper is wired)
-    expect(spy).toHaveBeenCalledWith('drop1', 'sr1')
-    // Open card = overview ONLY
-    expect(p.tabs).toEqual(['overview'])
-    expect(p.tabs).not.toContain('projects')
-    expect(p.tabs).not.toContain('team')
-    expect(p.tabs).not.toContain('finance')
-    expect(p.tabs).not.toContain('requisites')
-    expect(p.tabs).not.toContain('contract')
-    expect(p.tabs).not.toContain('documents')
-    // ALL sensitive flags masked
-    expect(p.fields.realContacts).toBe(false)
-    expect(p.fields.fopPii).toBe(false)
-    expect(p.fields.legalName).toBe(false)
-    expect(p.fields.salary).toBe(false)
-    expect(p.fields.share).toBe(false)
-    expect(p.fields.requisites).toBe(false)
-    expect(p.fields.adminNote).toBe(false)
-    // Legend persona surfaced (target is a SENIOR = legend subject)
-    expect(p.fields.legend).toBe(true)
-    // No mutating actions for DROP
+    expect(p.tabs).toEqual([])
     expect(p.actions).toEqual([])
-  })
-
-  it('DROP viewing own-team JUNIOR (mock=true) — overview only; legend false (JUNIOR is not a legend subject)', async () => {
-    const spy = vi.fn().mockResolvedValue(true)
-    ;(service as unknown as Record<string, unknown>).isDropInTargetTeam = spy
-    const viewer = makeUser({ id: 'drop1', role: 'DROP' })
-    const target = makeUser({ id: 'jr1', role: 'JUNIOR' })
-    const p = await service.getViewPermissions(viewer, target)
-    expect(p.tabs).toEqual(['overview'])
-    expect(p.fields.realContacts).toBe(false)
-    // JUNIOR is not a SENIOR/DROP → not a legend subject → legend falsy
+    // No persona/legend leak either — there is no view to render.
     expect(p.fields.legend).toBeFalsy()
   })
 
-  it('DROP viewing own-team DROP (mock=true) — overview only, legend true (DROP is a legend subject)', async () => {
-    const spy = vi.fn().mockResolvedValue(true)
-    ;(service as unknown as Record<string, unknown>).isDropInTargetTeam = spy
+  it('DROP viewing own-team JUNIOR — zero tabs → 403', async () => {
+    const viewer = makeUser({ id: 'drop1', role: 'DROP' })
+    const target = makeUser({ id: 'jr1', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.tabs).toEqual([])
+  })
+
+  it('DROP viewing another DROP — zero tabs → 403', async () => {
     const viewer = makeUser({ id: 'drop1', role: 'DROP' })
     const target = makeUser({ id: 'drop2', role: 'DROP' })
     const p = await service.getViewPermissions(viewer, target)
-    expect(p.tabs).toEqual(['overview'])
-    expect(p.fields.legend).toBe(true)
-    expect(p.fields.realContacts).toBe(false)
+    expect(p.tabs).toEqual([])
   })
 
-  it('DROP viewing NON-teammate (mock=false) — zero tabs → 403 (existing behaviour preserved)', async () => {
-    // isDropInTargetTeam returns false (default mock)
+  it('DROP viewing a NON-teammate — zero tabs → 403 (unchanged for outsiders)', async () => {
     const viewer = makeUser({ id: 'drop1', role: 'DROP' })
     const target = makeUser({ id: 'sr1', role: 'SENIOR' })
     const p = await service.getViewPermissions(viewer, target)
     expect(p.tabs).toEqual([])
   })
 
-  it('DROP self-view does NOT enter the own-team branch (isSelf short-circuit)', async () => {
-    const spy = vi.fn().mockResolvedValue(true)
-    ;(service as unknown as Record<string, unknown>).isDropInTargetTeam = spy
+  it('DROP self-view — overview + requisites ONLY (Finding A, unchanged)', async () => {
     const drop = makeUser({ id: 'drop1', role: 'DROP' })
     const p = await service.getViewPermissions(drop, drop)
-    // self-view path produces overview+requisites; the own-team helper must NOT be called
     expect(p.tabs).toEqual(['overview', 'requisites'])
-    expect(spy).not.toHaveBeenCalled()
   })
 
-  // Regression: the DROP-own-team branch must NOT weaken access for OTHER roles.
+  // Regression: closing the DROP profile must NOT weaken access for OTHER roles.
   // A SENIOR viewing a teammate still gets zero tabs (handled by the isSenior branch).
-  it('SENIOR viewing own-team SENIOR — still zero tabs (DROP-own-team branch does not apply)', async () => {
+  it('SENIOR viewing own-team SENIOR — still zero tabs (unaffected by DROP lockdown)', async () => {
     const viewer = makeUser({ id: 'sr1', role: 'SENIOR' })
     const target = makeUser({ id: 'sr2', role: 'SENIOR' })
     const p = await service.getViewPermissions(viewer, target)

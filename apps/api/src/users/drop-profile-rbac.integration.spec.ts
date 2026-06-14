@@ -11,22 +11,22 @@ import { UsersAccessService } from './users-access.service'
 import { UsersService } from './users.service'
 
 /**
- * task-drop-profile-rbac-r2 — DROP profile RBAC, real-Postgres integration.
+ * task-drop-profile-lockdown — DROP profile RBAC, real-Postgres integration.
  *
  * WHY this exists (security-critical, OWASP A01):
- *   DROP gained the ability to open the "card" of a teammate. A mocked-service
- *   test cannot prove that the masked DTO emitted by buildProfileView actually
- *   nulls out the teammate's real contacts / PII / finance — the exact class of
- *   data-leak that bit us 3× (feedback_mocked_e2e_guards). This spec drives the
- *   REAL UsersAccessService.getViewPermissions + UsersService.buildProfileView
- *   against a real DB row so a regression in flag-wiring OR field-projection fails.
+ *   DROP must have NO access to ANY other user's profile. The #202 "own-team
+ *   open card" is removed — even a teammate's masked card is gone. A mocked-
+ *   service test cannot prove that buildProfileView raises ForbiddenException
+ *   for a real teammate row (the exact class of data-leak that bit us 3×,
+ *   feedback_mocked_e2e_guards). This spec drives the REAL
+ *   UsersAccessService.getViewPermissions + UsersService.buildProfileView
+ *   against real DB rows so a regression that re-opens the card fails loudly.
  *
  * COVERED:
- *   B-INT-1  DROP → teammate (same active team)  → 200, tabs=['overview'],
- *            real email/phone/telegram/legalFullName/salary/requisites ABSENT (null)
+ *   B-INT-1  DROP → teammate (same active team)  → 403 ForbiddenException (no leak)
  *   B-INT-2  DROP → outsider (different team)     → 403 ForbiddenException
  *   B-INT-3  DROP self                            → 200, tabs=['overview','requisites']
- *   B-INT-4  DROP → former teammate (leftAt set)  → 403 (active membership required)
+ *   B-INT-4  DROP → former teammate (leftAt set)  → 403 (membership irrelevant now)
  *
  * SEED namespace: d40b1c2e-7a3f-4f10-** (distinct from existing groups)
  *
@@ -185,51 +185,16 @@ describe('DROP profile RBAC — real DB integration (task-drop-profile-rbac-r2)'
     await pool?.end()
   }, 15_000)
 
-  // ── B-INT-1: DROP → teammate open card, masked ───────────────────────────────
+  // ── B-INT-1: DROP → teammate is now FULLY CLOSED (403, no card) ──────────────
 
-  it('B-INT-1. DROP viewing OWN-TEAM member → 200, tabs=["overview"], real contacts/PII/finance ABSENT', async () => {
+  it('B-INT-1. DROP viewing OWN-TEAM member → 403 ForbiddenException (open card removed, no leak)', async () => {
     if (!dbAvailable) return
-    const view = await usersService.buildProfileView(DROP, TEAMMATE.id)
-
-    // Open card = overview ONLY
-    expect(view.permissions.tabs).toEqual(['overview'])
-
-    // ── Identity / contacts — MUST be null (real values were seeded) ──────────
-    expect(view.user.email, 'real email must be masked').toBeNull()
-    expect(view.user.phone, 'real phone must be masked').toBeNull()
-    expect(view.user.telegram, 'real telegram must be masked').toBeNull()
-    expect(view.user.legalFullName, 'passport legalFullName must be masked').toBeNull()
-
-    // ── FOP PII — MUST be null ────────────────────────────────────────────────
-    expect(view.user.registrationAddress, 'FOP address must be masked').toBeNull()
-    expect(view.user.usrRecord, 'USR record must be masked').toBeNull()
-
-    // ── Finance — MUST be null ────────────────────────────────────────────────
-    expect(view.user.monthlySalary, 'salary must be masked').toBeNull()
-    expect(view.user.salaryCurrency, 'salary currency must be masked').toBeNull()
-
-    // ── Requisites — MUST be null ─────────────────────────────────────────────
-    expect(view.user.paymentMethod, 'paymentMethod must be masked').toBeNull()
-    expect(view.user.bankUahIban, 'IBAN must be masked').toBeNull()
-    expect(view.user.bankUahRecipient, 'bank recipient must be masked').toBeNull()
-
-    // ── adminNote — MUST be null ──────────────────────────────────────────────
-    expect(view.user.adminNote, 'adminNote must be masked').toBeNull()
-
-    // ── Persona display name is allowed (client-facing identity) ──────────────
-    expect(view.user.displayName).toBe(TEAMMATE.displayName)
-    expect(view.user.role).toBe('SENIOR')
-
-    // ── Raw payload must not leak the real secret values anywhere ─────────────
-    const raw = JSON.stringify(view)
-    expect(raw, 'raw response must not contain real phone').not.toContain('+380501234567')
-    expect(raw, 'raw response must not contain real telegram').not.toContain('@teammate_secret')
-    expect(raw, 'raw response must not contain real IBAN').not.toContain(
-      'UA123456789012345678901234567',
-    )
-    expect(raw, 'raw response must not contain real email').not.toContain(TEAMMATE.email)
-    expect(raw, 'raw response must not contain passport name').not.toContain(
-      'Тарас Реальне-Прізвище',
+    // task-drop-profile-lockdown: even a teammate's masked card is gone — DROP
+    // has zero profile access. buildProfileView must throw (zero tabs → 403),
+    // so none of the teammate's real contacts / PII / finance can ever be
+    // projected into a response in the first place.
+    await expect(usersService.buildProfileView(DROP, TEAMMATE.id)).rejects.toBeInstanceOf(
+      ForbiddenException,
     )
   })
 
@@ -253,8 +218,10 @@ describe('DROP profile RBAC — real DB integration (task-drop-profile-rbac-r2)'
   })
 
   // ── B-INT-4: former teammate (leftAt set) → 403 ──────────────────────────────
+  // (Membership state is now irrelevant — every non-self target is 403. This case
+  // is kept as a regression guard that the former-teammate path stays closed.)
 
-  it('B-INT-4. DROP viewing a FORMER teammate (leftAt set) → 403 (active membership required)', async () => {
+  it('B-INT-4. DROP viewing a FORMER teammate (leftAt set) → 403 (profile fully closed)', async () => {
     if (!dbAvailable) return
     const db = dbSvc.db
     // Temporarily mark TEAMMATE as having left the shared team
