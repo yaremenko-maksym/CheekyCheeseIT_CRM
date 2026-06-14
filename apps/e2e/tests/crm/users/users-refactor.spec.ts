@@ -403,23 +403,46 @@ test.describe('Users page refactor (PR 2)', () => {
       await expect(nextBtn).toBeFocused()
     })
 
-    // Split into two isolated tests so each owns one fresh dialog open — no
+    // Split into isolated tests so each owns one fresh dialog open — no
     // sequential state carried over, no intra-test goto() races under load.
     //
-    // Root-cause of the original flakiness (fixed here):
+    // Root-cause of the original flakiness (fixed in #199):
     //   fill() → immediate expect(listbox).toBeVisible() raced against
     //   useDeferredValue: React schedules suggestions recompute as a deferred
     //   render pass, so the <ul role="listbox"> might not exist yet at the
     //   moment of the assertion. aria-expanded="true" on the input is a
     //   deterministic signal emitted in the same React commit that mounts the
     //   listbox — waiting for it eliminates the race (verified 20/20 locally).
-    //
-    // Separate known defect (escalated to Coder, NOT fixed here):
-    //   TechAutocompleteInput.handleKeyDown does not call e.preventDefault()
-    //   on Escape, so the event bubbles to Radix Dialog which closes the modal.
-    //   Fix: add `e.preventDefault(); e.stopPropagation()` in the Escape branch
-    //   of handleKeyDown when `dropdownOpen` is true.
-    //   File: apps/web/app/components/ui/tech-autocomplete-input.tsx, line ~126.
+
+    test('TechAutocomplete: Escape closes dropdown but NOT the dialog; second Escape closes dialog', async ({
+      asAdmin: page,
+    }) => {
+      await page.goto('/crm/users')
+      await page.getByTestId('users-create-button').click()
+      const dialog = page.getByRole('dialog')
+      await expect(dialog).toBeVisible()
+
+      const techInput = dialog.locator('input[placeholder*="технологи"]').first()
+      await techInput.focus()
+      await techInput.fill('Re')
+
+      // Deterministic gate: aria-expanded="true" confirms deferred render done
+      // and listbox is mounted in the same commit.
+      await expect(techInput).toHaveAttribute('aria-expanded', 'true')
+      const listbox = page.getByRole('listbox')
+      await expect(listbox).toBeVisible()
+
+      // First Escape — must close only the dropdown, not the dialog.
+      await page.keyboard.press('Escape')
+      await expect(techInput).toHaveAttribute('aria-expanded', 'false')
+      await expect(listbox).toHaveCount(0)
+      // Dialog must still be open.
+      await expect(dialog).toBeVisible()
+
+      // Second Escape — no dropdown open, event bubbles to Radix Dialog → closes it.
+      await page.keyboard.press('Escape')
+      await expect(dialog).toBeHidden()
+    })
 
     test('TechAutocomplete: ArrowDown navigates and Enter commits a suggestion', async ({
       asAdmin: page,
