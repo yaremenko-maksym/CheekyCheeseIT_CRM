@@ -16,7 +16,13 @@ import { DatabaseService } from '../database/database.service'
 import { DocumentsService } from './documents.service'
 import { S3Service } from './s3.service'
 import { CompressionService } from './compression.service'
-import { documents, invoiceSignatures, transactions } from '../database/schema'
+import {
+  contractTemplates,
+  documents,
+  employeeContracts,
+  invoiceSignatures,
+  transactions,
+} from '../database/schema'
 import * as schema from '../database/schema'
 
 /**
@@ -689,5 +695,286 @@ describe('PR-2 documents unified list — real backend integration', () => {
     // They should see no contract entries at all (only READY_TO_SIGN/SIGNED would be shown)
     const ownContracts = contractEntries.filter((d) => d.ownerId === QA_SENIOR_WITH_DRAFT.id)
     expect(ownContracts).toHaveLength(0)
+  })
+})
+
+// ===========================================================================
+// DROP list() self-scope (IDOR) — real-Postgres integration coverage.
+//
+// WHY this suite exists (security-review MED finding, PR #198):
+//   DocumentsService.list() applies two independent force-scopes for DROP so a
+//   DROP can NEVER enumerate another user's documents (OWASP A01 / IDOR):
+//     #1  list(): effectiveFilters = role==='DROP' ? {...filters, ownerId: actor.id}
+//         — overwrites any client-supplied ownerId on the FILE path.
+//     #2  buildContractVirtualEntries(): the non-ADMIN branch scopes
+//         employee_contract virtual entries to `eq(userId, actor.id)`, so a DROP
+//         only ever sees their OWN contract virtual entry (never another user's).
+//   The documents surface has historically leaked data (getProfile #157,
+//   getSummary #158 — see feedback_mocked_e2e_guards), so mocked E2E is NOT
+//   sufficient. This suite hits a REAL PostgreSQL and asserts that:
+//     - DROP without an ownerId filter sees ONLY their own docs + own contract.
+//     - DROP WITH a malicious ownerId pointing at another user STILL sees only
+//       their own docs (force-scope #1 overwrites the client ownerId), and the
+//       other user's document never appears (file path AND virtual-contract path).
+//
+// Self-contained: its own DB probe, its own Nest app, its own run-id-tagged
+// rows, cleaned up in afterAll. Reuses the file-scope Sentinel module/classes.
+// ===========================================================================
+
+/**
+ * DROP actor (seed user marta.drop — a deterministic seed UUID present in every
+ * seeded DB). We seed our OWN run-id-tagged contract + RESUME for this user so
+ * the suite is DB-agnostic and never depends on which SIGNED seed contract
+ * happens to exist (the full `vitest run` may execute against any DATABASE_URL).
+ */
+const DROP_ACTOR: SessionUser = {
+  id: 'a7c8b9e0-f1a2-4b3c-ad5e-6f7a8b9c0d55',
+  email: 'marta.drop@cheekycheese.dev',
+  displayName: 'Marta Drozd',
+  avatarUrl: null,
+  role: 'DROP',
+  seniorSharePercent: 26,
+  legalFullName: null,
+}
+
+/**
+ * Another user (seed SENIOR artem.kravchenko — deterministic seed UUID). A DROP
+ * must NEVER see this user's file or contract virtual entry, even when passing
+ * ?ownerId=<this user's id> (anti-IDOR). We seed this user their OWN run-id
+ * RESUME + contract so the "forbidden" target is guaranteed to exist.
+ */
+const OTHER_USER_ID = 'd8f9e0b1-c2d3-4e4f-9a6b-7c8d9e0f1acc'
+
+/** Run-id tag isolating this suite's temp rows from any other run. */
+const DROP_TEST_TAG = `drop-idor-spec-${Date.now()}`
+
+// Two RESUME file rows: one owned by DROP (visible), one by OTHER (forbidden).
+const DROP_OWN_RESUME_ID = '40000001-0000-4000-d000-000000000001'
+const OTHER_RESUME_ID = '40000001-0000-4000-d000-000000000002'
+
+// Two run-id-tagged employee_contracts (self-seeded, DB-agnostic):
+//   - DROP's OWN contract (READY_TO_SIGN) → DROP must SEE this virtual entry.
+//   - OTHER user's contract (READY_TO_SIGN) → DROP must NEVER see it.
+const DROP_OWN_CONTRACT_ID = '50000001-0000-4000-e000-000000000001'
+const OTHER_CONTRACT_ID = '50000001-0000-4000-e000-000000000002'
+
+describe('DROP list() self-scope (IDOR) — real-Postgres integration', () => {
+  let app: NestFastifyApplication
+  let jwt: JwtService
+  // Local availability flag — this suite is self-contained and does not rely
+  // on the first suite's module-level `dbAvailable` (test ordering / isolation).
+  let dropDbAvailable = true
+
+  beforeAll(async () => {
+    // ── DB availability probe ────────────────────────────────────────────────
+    try {
+      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+      await probePool.query('SELECT 1')
+      await probePool.end()
+    } catch {
+      console.warn(
+        '[drop-idor integration] SKIPPED — no DB reachable at DATABASE_URL (expected in CI unit job)',
+      )
+      dropDbAvailable = false
+      return
+    }
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [DocumentsUnifiedTestModule],
+    }).compile()
+
+    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+    await app.register(cookie, { secret: 'drop-idor-integration-cookie-secret' })
+    app.setGlobalPrefix('api')
+    await app.init()
+    await app.getHttpAdapter().getInstance().ready()
+
+    jwt = moduleRef.get(JwtService)
+
+    // ── Insert run-id-tagged RESUME rows ─────────────────────────────────────
+    const dbSvc = moduleRef.get(DatabaseService)
+    const db = dbSvc.db
+
+    // 1. RESUME owned by the DROP actor — DROP must see this.
+    await db
+      .insert(documents)
+      .values({
+        id: DROP_OWN_RESUME_ID,
+        ownerId: DROP_ACTOR.id,
+        projectId: null,
+        category: 'RESUME',
+        name: `${DROP_TEST_TAG}-drop-own.pdf`,
+        originalName: null,
+        s3Key: `${DROP_TEST_TAG}/drop-own.pdf`,
+        thumbnailS3Key: null,
+        sizeBytes: 1024,
+        mimeType: 'application/pdf',
+        uploadedBy: DROP_ACTOR.id,
+      })
+      .onConflictDoNothing()
+
+    // 2. RESUME owned by ANOTHER user — DROP must NEVER see this (IDOR target).
+    await db
+      .insert(documents)
+      .values({
+        id: OTHER_RESUME_ID,
+        ownerId: OTHER_USER_ID,
+        projectId: null,
+        category: 'RESUME',
+        name: `${DROP_TEST_TAG}-other.pdf`,
+        originalName: null,
+        s3Key: `${DROP_TEST_TAG}/other.pdf`,
+        thumbnailS3Key: null,
+        sizeBytes: 2048,
+        mimeType: 'application/pdf',
+        uploadedBy: OTHER_USER_ID,
+      })
+      .onConflictDoNothing()
+
+    // ── Self-seed run-id-tagged employee_contracts (DB-agnostic) ─────────────
+    // The virtual-contract path (force-scope #2) is exercised by giving BOTH the
+    // DROP actor and the OTHER user their own READY_TO_SIGN contract. We look up
+    // ANY existing contract_template at runtime (template ids differ per DB) to
+    // satisfy the NOT-NULL FK, rather than hardcoding one. READY_TO_SIGN is
+    // chosen so the contract is visible to a non-ADMIN owner (DRAFT is hidden,
+    // SIGNED needs a signed_contracts row). DROP_ACTOR.id is also a valid
+    // created_by_user_id (FK → users) since it is a seeded user.
+    const [tpl] = await db.select({ id: contractTemplates.id }).from(contractTemplates).limit(1)
+
+    if (tpl) {
+      // DROP's OWN contract — DROP must SEE this virtual entry.
+      await db
+        .insert(employeeContracts)
+        .values({
+          id: DROP_OWN_CONTRACT_ID,
+          userId: DROP_ACTOR.id,
+          sourceTemplateId: tpl.id,
+          bodyMarkdown: `${DROP_TEST_TAG} drop own contract body`,
+          status: 'READY_TO_SIGN',
+          createdByUserId: DROP_ACTOR.id,
+        })
+        .onConflictDoNothing()
+
+      // OTHER user's contract — DROP must NEVER see this virtual entry.
+      await db
+        .insert(employeeContracts)
+        .values({
+          id: OTHER_CONTRACT_ID,
+          userId: OTHER_USER_ID,
+          sourceTemplateId: tpl.id,
+          bodyMarkdown: `${DROP_TEST_TAG} other user contract body`,
+          status: 'READY_TO_SIGN',
+          createdByUserId: DROP_ACTOR.id,
+        })
+        .onConflictDoNothing()
+    }
+  }, 30_000)
+
+  afterAll(async () => {
+    if (!dropDbAvailable) return
+    try {
+      const dbSvc = app.get(DatabaseService)
+      const db = dbSvc.db
+      // FK-safe order: contracts first (no FK into documents), then documents.
+      await db
+        .delete(employeeContracts)
+        .where(inArray(employeeContracts.id, [DROP_OWN_CONTRACT_ID, OTHER_CONTRACT_ID]))
+      await db.delete(documents).where(inArray(documents.id, [DROP_OWN_RESUME_ID, OTHER_RESUME_ID]))
+    } catch {
+      // Non-fatal cleanup failure — rows are run-id-tagged and harmless.
+    }
+    await app.close()
+  }, 15_000)
+
+  function tokenForDrop(user: SessionUser): string {
+    return jwt.sign(user)
+  }
+
+  // ── 13. DROP without ownerId filter → sees ONLY own docs + own contract ───
+
+  it('13. DROP without ownerId filter: list() is hard self-scoped (own docs + own contract only)', async () => {
+    if (!dropDbAvailable) return
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/documents',
+      cookies: { jwt: tokenForDrop(DROP_ACTOR) },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as DocumentDto[]
+
+    // The list is non-trivial — at minimum DROP's own RESUME + own contract entry.
+    expect(body.length).toBeGreaterThan(0)
+
+    // Force-scope #1 + #2: EVERY returned entry must belong to the DROP actor.
+    // No row from any other owner may ever appear (file path AND contract path).
+    for (const doc of body) {
+      expect(doc.ownerId).toBe(DROP_ACTOR.id)
+    }
+
+    // DROP's own seeded RESUME is present (file path works for self).
+    const ownResume = body.find((d) => d.id === DROP_OWN_RESUME_ID)
+    expect(ownResume).toBeDefined()
+    expect(ownResume!.ownerId).toBe(DROP_ACTOR.id)
+    expect(ownResume!.source ?? 'file').toBe('file')
+
+    // The OTHER user's seeded RESUME must NOT leak (file-path IDOR).
+    const leakedOtherFile = body.find((d) => d.id === OTHER_RESUME_ID)
+    expect(leakedOtherFile).toBeUndefined()
+
+    // Virtual-contract path: DROP's OWN (self-seeded) contract virtual entry is visible.
+    const ownContract = body.find((d) => d.id === DROP_OWN_CONTRACT_ID)
+    expect(ownContract).toBeDefined()
+    expect(ownContract!.source).toBe('employee_contract')
+    expect(ownContract!.ownerId).toBe(DROP_ACTOR.id)
+
+    // The OTHER user's contract virtual entry must NOT leak (contract-path IDOR).
+    const leakedOtherContract = body.find((d) => d.id === OTHER_CONTRACT_ID)
+    expect(leakedOtherContract).toBeUndefined()
+
+    // Defence-in-depth: no employee_contract virtual entry for any non-self owner.
+    const foreignContracts = body.filter(
+      (d) => d.source === 'employee_contract' && d.ownerId !== DROP_ACTOR.id,
+    )
+    expect(foreignContracts).toHaveLength(0)
+  })
+
+  // ── 14. Anti-IDOR: client ownerId pointing at another user is overwritten ──
+
+  it('14. DROP with malicious ?ownerId=<otherUser>: force-scope overwrites it — still own docs only', async () => {
+    if (!dropDbAvailable) return
+
+    // Attacker passes the OTHER user's id as ownerId to try to enumerate their docs.
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/documents?ownerId=${OTHER_USER_ID}`,
+      cookies: { jwt: tokenForDrop(DROP_ACTOR) },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as DocumentDto[]
+
+    // Force-scope #1 overwrote the client ownerId with actor.id → EVERY entry
+    // still belongs to the DROP actor; the other user's docs are NOT enumerated.
+    for (const doc of body) {
+      expect(doc.ownerId).toBe(DROP_ACTOR.id)
+    }
+
+    // The OTHER user's seeded RESUME must NOT appear despite ?ownerId=<other>.
+    const leakedOtherFile = body.find((d) => d.id === OTHER_RESUME_ID)
+    expect(leakedOtherFile).toBeUndefined()
+
+    // The OTHER user's contract virtual entry must NOT appear either.
+    const leakedOtherContract = body.find((d) => d.id === OTHER_CONTRACT_ID)
+    expect(leakedOtherContract).toBeUndefined()
+
+    // DROP's OWN RESUME is still returned — the request is scoped to self, not empty.
+    const ownResume = body.find((d) => d.id === DROP_OWN_RESUME_ID)
+    expect(ownResume).toBeDefined()
+    expect(ownResume!.ownerId).toBe(DROP_ACTOR.id)
+
+    // Sanity: at least one entry returned (proves we self-scoped, not zeroed out).
+    expect(body.length).toBeGreaterThan(0)
   })
 })
