@@ -9,7 +9,7 @@ import {
   Inject,
 } from '@nestjs/common'
 
-import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import type {
   SessionUser,
   DropIncomeDto,
@@ -2283,18 +2283,27 @@ export class TransactionsService {
    * RBAC: ACCOUNTANT + ADMIN only. Every other role (SENIOR / JUNIOR / HR /
    * DROP) reaching GET /api/finance/accountant-summary directly would leak
    * company-wide payment-validation figures → ForbiddenException. Mirrors the
-   * guard in `getSummary` above (single, explicit role check).
+   * guard in `getSummary` above (single, explicit role check) and is thrown
+   * BEFORE any DB access.
    *
-   * KPI semantics (computed over real `transactions` rows, scaled-integer
-   * accumulation to avoid float drift):
+   * KPI semantics (Sprint 2: aggregated in SQL — a single pass over the
+   * `transactions` table via conditional `SUM`/`COUNT` (`FILTER (WHERE ...)`)
+   * + `COUNT(DISTINCT ...)`, instead of loading every row into Node. The wire
+   * shape and values are byte-for-byte identical to the Sprint 1 in-memory
+   * implementation):
    *   - pendingValidation  — income rows (SENIOR_INCOME + DROP_INCOME) still in
    *                          PENDING status, i.e. awaiting accountant action.
    *   - validatedThisMonth — rows the accountant VALIDATED in the current
-   *                          calendar month (by `validatedAt`).
+   *                          calendar month (by `validatedAt`, NOT NULL).
    *   - paidThisMonth      — income/payout money settled (status PAID) whose
    *                          `createdAt` falls in the current month.
    *   - recipientCount     — distinct income parties (seniors / drops) the
-   *                          accountant oversees.
+   *                          accountant oversees: COUNT(DISTINCT
+   *                          COALESCE(receiver_id, sender_id)) over income rows.
+   *
+   * Money: `amount` is numeric(18,6); `COALESCE(SUM(amount), 0)` yields an exact
+   * decimal string on the empty set → 0, mapped to a JS number with `Number`
+   * (matching the previous float accumulation to the column's 6-decimal scale).
    */
   async getAccountantSummary(currentUser: SessionUser): Promise<{
     pendingValidation: { count: number; amount: number }
@@ -2308,87 +2317,63 @@ export class TransactionsService {
       )
     }
 
-    const SCALE = MONEY_SCALE
-
     // Current-month boundary, computed once. UTC-based to match how the rest of
     // the summary buckets months (`createdAt.toISOString().slice(0,7)`).
     const now = new Date()
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
 
-    const allTxs = (await this.db.db.query.transactions.findMany()) as Array<{
-      type: string
-      status: string
-      amount: string
-      senderId: string | null
-      receiverId: string | null
-      validatedAt: Date | null
-      createdAt: Date
-    }>
+    // Income types a senior / drop submits that require accountant validation —
+    // the validatable-income predicate (pendingValidation + recipientCount).
+    const incomeTypes = sql`${transactions.type} in ('SENIOR_INCOME', 'DROP_INCOME')`
 
-    // Income types a senior / drop submits that require accountant validation.
-    const isValidatableIncome = (t: { type: string }) =>
-      t.type === 'SENIOR_INCOME' || t.type === 'DROP_INCOME'
+    // Income/payout money types eligible for paidThisMonth.
+    const paidEligibleTypes = sql`${transactions.type} in ('SENIOR_INCOME', 'DROP_INCOME', 'PAYOUT', 'PAYOUT_ADMIN', 'PAYOUT_DROP', 'PAYOUT_CONFIRMED')`
 
-    // pendingValidation — PENDING validatable income rows.
-    const pendingRows = allTxs.filter((t) => isValidatableIncome(t) && t.status === 'PENDING')
-    const pendingAmountScaled = pendingRows.reduce(
-      (sum, t) => sum + Math.round(parseFloat(t.amount) * SCALE),
-      0,
-    )
-
-    // validatedThisMonth — rows now VALIDATED whose validatedAt is in this month.
-    const validatedRows = allTxs.filter(
-      (t) =>
-        t.status === 'VALIDATED' &&
-        t.validatedAt !== null &&
-        t.validatedAt.getTime() >= monthStart.getTime(),
-    )
-    const validatedAmountScaled = validatedRows.reduce(
-      (sum, t) => sum + Math.round(parseFloat(t.amount) * SCALE),
-      0,
-    )
-
-    // paidThisMonth — PAID income/payout money created in the current month.
-    const paidRows = allTxs.filter(
-      (t) =>
-        t.status === 'PAID' &&
-        (t.type === 'SENIOR_INCOME' ||
-          t.type === 'DROP_INCOME' ||
-          t.type === 'PAYOUT' ||
-          t.type === 'PAYOUT_ADMIN' ||
-          t.type === 'PAYOUT_DROP' ||
-          t.type === 'PAYOUT_CONFIRMED') &&
-        t.createdAt.getTime() >= monthStart.getTime(),
-    )
-    const paidAmountScaled = paidRows.reduce(
-      (sum, t) => sum + Math.round(parseFloat(t.amount) * SCALE),
-      0,
-    )
-
-    // recipientCount — distinct income parties (the senior/drop on each income
-    // row). Income rows put the earner on receiverId (DROP_INCOME) or senderId
-    // (SENIOR_INCOME — senior is the source of the money into the company), so
-    // we collect whichever user id is present, falling back across both.
-    const partyIds = new Set<string>()
-    for (const t of allTxs) {
-      if (!isValidatableIncome(t)) continue
-      const party = t.receiverId ?? t.senderId
-      if (party) partyIds.add(party)
-    }
+    // Single aggregating pass — conditional COUNT/SUM via FILTER (WHERE ...)
+    // plus a distinct-party count. `COALESCE(SUM(...), 0)` guarantees 0 (not
+    // NULL) on the empty set; numeric sums arrive as decimal strings → Number.
+    const [row] = await this.db.db
+      .select({
+        pendingCount:
+          sql<number>`count(*) filter (where ${transactions.status} = 'PENDING' and ${incomeTypes})`.mapWith(
+            Number,
+          ),
+        pendingAmount:
+          sql<number>`coalesce(sum(${transactions.amount}) filter (where ${transactions.status} = 'PENDING' and ${incomeTypes}), 0)`.mapWith(
+            Number,
+          ),
+        validatedCount:
+          sql<number>`count(*) filter (where ${transactions.status} = 'VALIDATED' and ${transactions.validatedAt} is not null and ${transactions.validatedAt} >= ${monthStart})`.mapWith(
+            Number,
+          ),
+        validatedAmount:
+          sql<number>`coalesce(sum(${transactions.amount}) filter (where ${transactions.status} = 'VALIDATED' and ${transactions.validatedAt} is not null and ${transactions.validatedAt} >= ${monthStart}), 0)`.mapWith(
+            Number,
+          ),
+        paidAmount:
+          sql<number>`coalesce(sum(${transactions.amount}) filter (where ${transactions.status} = 'PAID' and ${paidEligibleTypes} and ${transactions.createdAt} >= ${monthStart}), 0)`.mapWith(
+            Number,
+          ),
+        recipientCount:
+          sql<number>`count(distinct coalesce(${transactions.receiverId}, ${transactions.senderId})) filter (where ${incomeTypes})`.mapWith(
+            Number,
+          ),
+      })
+      .from(transactions)
 
     return {
       pendingValidation: {
-        count: pendingRows.length,
-        amount: pendingAmountScaled / SCALE,
+        count: row?.pendingCount ?? 0,
+        amount: row?.pendingAmount ?? 0,
       },
       validatedThisMonth: {
-        count: validatedRows.length,
-        amount: validatedAmountScaled / SCALE,
+        count: row?.validatedCount ?? 0,
+        amount: row?.validatedAmount ?? 0,
       },
       paidThisMonth: {
-        amount: paidAmountScaled / SCALE,
+        amount: row?.paidAmount ?? 0,
       },
-      recipientCount: partyIds.size,
+      recipientCount: row?.recipientCount ?? 0,
     }
   }
 
