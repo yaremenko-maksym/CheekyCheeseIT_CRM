@@ -124,6 +124,11 @@ export function TechAutocompleteInput({
     }
 
     if (e.key === 'Escape') {
+      if (dropdownOpen) {
+        // Dropdown is open: dismiss only the dropdown, not the parent Dialog.
+        e.preventDefault()
+        e.stopPropagation()
+      }
       setInput('')
       setActiveIdx(0)
       return
@@ -148,11 +153,7 @@ export function TechAutocompleteInput({
   }
 
   return (
-    <div
-      ref={containerRef}
-      className={cn('space-y-2', className)}
-      onBlur={handleBlur}
-    >
+    <div ref={containerRef} className={cn('space-y-2', className)} onBlur={handleBlur}>
       {value.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {value.map((tag) => (
@@ -211,9 +212,7 @@ export function TechAutocompleteInput({
                     onMouseEnter={() => setActiveIdx(i)}
                     className={cn(
                       'flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm transition-colors',
-                      isActive
-                        ? 'bg-accent text-accent-foreground'
-                        : 'hover:bg-accent/40',
+                      isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/40',
                     )}
                   >
                     <span className="truncate">{suggestion}</span>

@@ -403,7 +403,48 @@ test.describe('Users page refactor (PR 2)', () => {
       await expect(nextBtn).toBeFocused()
     })
 
-    test('TechAutocomplete: ArrowDown navigates, Enter adds, Esc clears, Tab commits', async ({
+    // Split into isolated tests so each owns one fresh dialog open — no
+    // sequential state carried over, no intra-test goto() races under load.
+    //
+    // Root-cause of the original flakiness (fixed in #199):
+    //   fill() → immediate expect(listbox).toBeVisible() raced against
+    //   useDeferredValue: React schedules suggestions recompute as a deferred
+    //   render pass, so the <ul role="listbox"> might not exist yet at the
+    //   moment of the assertion. aria-expanded="true" on the input is a
+    //   deterministic signal emitted in the same React commit that mounts the
+    //   listbox — waiting for it eliminates the race (verified 20/20 locally).
+
+    test('TechAutocomplete: Escape closes dropdown but NOT the dialog; second Escape closes dialog', async ({
+      asAdmin: page,
+    }) => {
+      await page.goto('/crm/users')
+      await page.getByTestId('users-create-button').click()
+      const dialog = page.getByRole('dialog')
+      await expect(dialog).toBeVisible()
+
+      const techInput = dialog.locator('input[placeholder*="технологи"]').first()
+      await techInput.focus()
+      await techInput.fill('Re')
+
+      // Deterministic gate: aria-expanded="true" confirms deferred render done
+      // and listbox is mounted in the same commit.
+      await expect(techInput).toHaveAttribute('aria-expanded', 'true')
+      const listbox = page.getByRole('listbox')
+      await expect(listbox).toBeVisible()
+
+      // First Escape — must close only the dropdown, not the dialog.
+      await page.keyboard.press('Escape')
+      await expect(techInput).toHaveAttribute('aria-expanded', 'false')
+      await expect(listbox).toHaveCount(0)
+      // Dialog must still be open.
+      await expect(dialog).toBeVisible()
+
+      // Second Escape — no dropdown open, event bubbles to Radix Dialog → closes it.
+      await page.keyboard.press('Escape')
+      await expect(dialog).toBeHidden()
+    })
+
+    test('TechAutocomplete: ArrowDown navigates and Enter commits a suggestion', async ({
       asAdmin: page,
     }) => {
       await page.goto('/crm/users')
@@ -417,35 +458,39 @@ test.describe('Users page refactor (PR 2)', () => {
       await techSection.focus()
       await techSection.fill('Re')
 
-      // The listbox appears once suggestions are computed (deferred value).
+      // Wait for aria-expanded="true" before asserting the listbox: the
+      // attribute and the <ul role="listbox"> are rendered in the same React
+      // commit, so this gate is fully deterministic under useDeferredValue.
+      await expect(techSection).toHaveAttribute('aria-expanded', 'true')
       const listbox = page.getByRole('listbox')
       await expect(listbox).toBeVisible()
 
-      // ArrowDown highlights the second option.
+      // ArrowDown highlights the second suggestion.
       await page.keyboard.press('ArrowDown')
-      // Enter commits the highlighted option as a pill in the dialog.
+      // Enter commits the highlighted suggestion as a chip.
       await page.keyboard.press('Enter')
-      // After commit input is cleared and listbox should be hidden.
+      // After commit: input is cleared and listbox is hidden.
       await expect(techSection).toHaveValue('')
+      await expect(listbox).toHaveCount(0)
+    })
 
-      // Re-open listbox, then Escape — input cleared, no pill added.
-      // Re-focus explicitly: commit() may have left focus stable but the
-      // listbox open-state depends on `isFocused`, which we want to re-assert
-      // before typing again.
-      await techSection.focus()
-      await techSection.fill('Pyt')
-      await expect(page.getByRole('listbox')).toBeVisible()
-      await page.keyboard.press('Escape')
-      await expect(techSection).toHaveValue('')
-      // Wait for listbox to fully close before next focus/fill sequence —
-      // prevents the subsequent fill from racing against Escape's async
-      // close animation when other tests run in parallel.
-      await expect(page.getByRole('listbox')).toHaveCount(0)
+    test('TechAutocomplete: Tab commits the highlighted suggestion', async ({ asAdmin: page }) => {
+      await page.goto('/crm/users')
+      await page.getByTestId('users-create-button').click()
+      await expect(page.getByRole('dialog')).toBeVisible()
 
-      // Type and Tab — Tab commits highlighted suggestion (when present).
+      const techSection = page
+        .getByRole('dialog')
+        .locator('input[placeholder*="технологи"]')
+        .first()
       await techSection.focus()
       await techSection.fill('Ja')
+
+      // Deterministic gate: aria-expanded="true" confirms deferred render done.
+      await expect(techSection).toHaveAttribute('aria-expanded', 'true')
       await expect(page.getByRole('listbox')).toBeVisible()
+
+      // Tab commits the highlighted suggestion (first match for "Ja").
       await page.keyboard.press('Tab')
       await expect(techSection).toHaveValue('')
     })
