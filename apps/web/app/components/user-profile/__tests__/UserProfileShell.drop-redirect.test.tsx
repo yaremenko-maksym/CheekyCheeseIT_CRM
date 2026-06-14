@@ -2,9 +2,14 @@ import { render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
- * task-drop-profile-rbac-r2 (Finding B2): a DROP viewer hitting a 403 must be
- * redirected to /crm/dashboard instead of seeing the "Нет доступа" screen.
- * Other roles keep the access-denied message.
+ * task-drop-profile-rbac-r2 (Finding B2) + task-drop-profile-lockdown: a DROP
+ * viewer hitting a 403 must be redirected to /crm/dashboard instead of seeing
+ * the "Нет доступа" screen. Other roles keep the access-denied message.
+ *
+ * Scope note (lockdown): the backend now returns 403 for DROP→ANY other profile
+ * (the #202 own-team open card was removed), so this redirect is the safety-net
+ * for every foreign-profile URL a DROP might reach directly. Behaviour of this
+ * shell is unchanged — only the set of profiles that yield 403 grew to "all".
  *
  * Strategy: mock the data hooks + useAuth + useActiveTeam + react-router's
  * useNavigate so the UserProfileShell renders its error branch deterministically.

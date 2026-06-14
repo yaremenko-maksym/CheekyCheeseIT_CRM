@@ -69,10 +69,10 @@ function baseDoc(overrides: Partial<Document> = {}): Document {
   }
 }
 
-function renderRow(doc: Document) {
+function renderRow(doc: Document, rowViewer: SessionUser = viewer) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const rootRoute = createRootRoute({
-    component: () => <DocumentRow doc={doc} viewer={viewer} />,
+    component: () => <DocumentRow doc={doc} viewer={rowViewer} />,
   })
   const router = createRouter({
     routeTree: rootRoute,
@@ -151,6 +151,32 @@ describe('DocumentRow — statusBadge (PR-2)', () => {
     expect(badge).toHaveTextContent('Требует подписи')
     // DocumentStatusBadge should NOT render (only the fallback badge)
     expect(screen.queryByTestId('document-status-badge')).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Uploader link — DROP viewer gating (task-drop-profile-lockdown)
+// ---------------------------------------------------------------------------
+
+describe('DocumentRow — uploader link gated by viewer role (DROP lockdown)', () => {
+  const dropViewer: SessionUser = { ...viewer, role: 'DROP' }
+
+  it('SENIOR viewer → uploader name is a profile <Link> to /crm/profile/$uploadedBy', async () => {
+    renderRow(baseDoc())
+    const link = await screen.findByTestId('document-row-uploader-link')
+    expect(link.tagName).toBe('A')
+    expect(link).toHaveAttribute('href', `/crm/profile/${OWNER_ID}`)
+    expect(link).toHaveTextContent('Owner')
+  })
+
+  it('DROP viewer → uploader name is PLAIN TEXT (span), NOT a link', async () => {
+    renderRow(baseDoc(), dropViewer)
+    const el = await screen.findByTestId('document-row-uploader-link')
+    expect(el.tagName).toBe('SPAN')
+    expect(el).not.toHaveAttribute('href')
+    expect(el).toHaveTextContent('Owner')
+    // No navigable profile anchor anywhere for DROP.
+    expect(screen.queryByRole('link')).toBeNull()
   })
 })
 
