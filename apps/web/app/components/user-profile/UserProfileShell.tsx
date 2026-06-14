@@ -1,4 +1,5 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import { ShieldOff, UsersRound } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
@@ -88,6 +89,26 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
   // shown only on the self-profile of a teamless SENIOR.
   const { isTeamless: isTeamlessSenior } = useActiveTeam()
   const [rejoinOpen, setRejoinOpen] = useState(false)
+  const navigate = useNavigate()
+
+  // task-drop-profile-rbac-r2 (Finding B2): a DROP hitting a 403 (viewing a
+  // profile that is NOT their own-team open card — e.g. an outsider) is silently
+  // redirected to the dashboard instead of seeing the "Нет доступа" screen.
+  // Computed at top-level (not inside the error branch) so the effect is an
+  // unconditional hook — mirrors the JUNIOR redirect in profile/$userId.tsx.
+  const is403 =
+    isError &&
+    error != null &&
+    typeof error === 'object' &&
+    'response' in error &&
+    (error as { response?: { status?: number } }).response?.status === 403
+  const isDropViewer = viewer?.role === 'DROP'
+  const shouldRedirectDrop = mode === 'view' && isDropViewer && is403 === true
+  useEffect(() => {
+    if (shouldRedirectDrop) {
+      void navigate({ to: '/crm/dashboard', replace: true })
+    }
+  }, [shouldRedirectDrop, navigate])
 
   if (isLoading) {
     return (
@@ -100,11 +121,10 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
   }
 
   if (isError || !data) {
-    const is403 =
-      error != null &&
-      typeof error === 'object' &&
-      'response' in error &&
-      (error as { response?: { status?: number } }).response?.status === 403
+    // DROP viewer + 403 → redirect (effect above). Render nothing while it
+    // fires so the "Нет доступа" screen never flashes for a DROP. Other roles
+    // keep the access-denied / not-found message unchanged.
+    if (shouldRedirectDrop) return null
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
         <ShieldOff className="h-12 w-12 text-muted-foreground" />
