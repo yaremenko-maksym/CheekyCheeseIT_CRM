@@ -935,4 +935,75 @@ describe('UsersAccessService.isHrInTargetTeam (all role branches)', () => {
     expect(ok).toBe(false)
     expect(selectCalls()).toBe(0)
   })
+
+  // ── leftAt-filter correctness (SECURITY-MED fix) ──
+  // After the fix, both the HR-membership lookup and the target-membership lookup
+  // filter on leftAt IS NULL. These unit tests simulate what the real DB would
+  // return when the only matching row has leftAt set (i.e. the DB returns an EMPTY
+  // result set because leftAt IS NULL is not satisfied). The mock-queue already
+  // models this: returning [] for the first query simulates "HR has no ACTIVE
+  // memberships" → short-circuit false. Returning [] for the second query
+  // simulates "target is not an ACTIVE member of any HR team" → false.
+  //
+  // This covers the SECURITY-MED finding: before the fix, a former HR teammate
+  // (leftAt set) would still appear in the hrMemberships result set and allow
+  // over-grant. After the fix, the DB predicate excludes such rows → [] → false.
+
+  it('SENIOR: HR has only a past (leftAt-filtered) membership → false (over-grant blocked)', async () => {
+    // hrMemberships returns [] — simulates DB filtering out the leftAt-set row
+    const { svc } = buildServiceWithQueue([
+      [], // hrMemberships — empty because leftAt IS NULL filtered out past membership
+    ])
+    const ok = await callHelper(svc, 'hr1', makeUser({ id: 'sr1', role: 'SENIOR' }))
+    expect(ok).toBe(false)
+  })
+
+  it('SENIOR: HR active, target has only a past (leftAt-filtered) membership → false (over-grant blocked)', async () => {
+    // HR has an active membership, but target's membership is past (leftAt set)
+    // → target is NOT in HR's current teams → false.
+    const { svc } = buildServiceWithQueue([
+      [{ teamId: 't1' }], // hrMemberships — HR is actively in t1
+      [], // targetInTeams — empty because target's row has leftAt set (DB filters it)
+    ])
+    const ok = await callHelper(svc, 'hr1', makeUser({ id: 'sr1', role: 'SENIOR' }))
+    expect(ok).toBe(false)
+  })
+
+  it('ACCOUNTANT: HR has only a past membership → false (over-grant blocked)', async () => {
+    const { svc } = buildServiceWithQueue([
+      [], // hrMemberships empty (leftAt-filtered)
+    ])
+    const ok = await callHelper(svc, 'hr1', makeUser({ id: 'acc1', role: 'ACCOUNTANT' }))
+    expect(ok).toBe(false)
+  })
+
+  it('ACCOUNTANT: HR active, target has only past membership → false (over-grant blocked)', async () => {
+    const { svc } = buildServiceWithQueue([
+      [{ teamId: 't1' }], // hrMemberships — HR is active
+      [], // targetInTeams — empty because target's leftAt is set
+    ])
+    const ok = await callHelper(svc, 'hr1', makeUser({ id: 'acc1', role: 'ACCOUNTANT' }))
+    expect(ok).toBe(false)
+  })
+
+  it('JUNIOR path: HR has only past team membership → false (over-grant blocked)', async () => {
+    // hrTeams returns [] → short-circuit before project-path
+    const { svc, selectCalls } = buildServiceWithQueue([
+      [], // hrTeams — empty (leftAt-filtered)
+    ])
+    const ok = await callHelper(svc, 'hr1', makeUser({ id: 'jr1', role: 'JUNIOR' }))
+    expect(ok).toBe(false)
+    expect(selectCalls()).toBe(1)
+  })
+
+  it('JUNIOR path: HR active, senior in team has past membership → no seniors found → false', async () => {
+    // hrTeams has rows, but seniorMembers is empty because senior's leftAt is set
+    const { svc, selectCalls } = buildServiceWithQueue([
+      [{ teamId: 't1' }], // hrTeams — HR is active
+      [], // seniorMembers — empty because senior's team_members.leftAt is set
+    ])
+    const ok = await callHelper(svc, 'hr1', makeUser({ id: 'jr1', role: 'JUNIOR' }))
+    expect(ok).toBe(false)
+    expect(selectCalls()).toBe(2)
+  })
 })

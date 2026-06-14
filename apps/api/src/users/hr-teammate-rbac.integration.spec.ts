@@ -96,6 +96,15 @@ const SENIOR_MATE: User = makeRow({
   phone: '+380507778899',
 })
 
+/** EX-teammate ACCOUNTANT — was in HR_TEAM but has leftAt set → must get 403 */
+const ACCOUNTANT_EX_MATE: User = makeRow({
+  id: 'e51c2d3f-8b4a-4f10-aa00-000000000007',
+  email: 'hr-teammate-acc-ex@test.spec',
+  displayName: 'Accountant Ex-Teammate',
+  role: 'ACCOUNTANT',
+  phone: '+380509990011',
+})
+
 /** ADMIN — never opened to HR via the teammate branch */
 const ADMIN_USER: User = makeRow({
   id: 'e51c2d3f-8b4a-4f10-aa00-000000000006',
@@ -114,6 +123,7 @@ const TEST_USER_IDS = [
   ACCOUNTANT_OUTSIDER.id,
   SENIOR_MATE.id,
   ADMIN_USER.id,
+  ACCOUNTANT_EX_MATE.id,
 ]
 const TEST_TEAM_IDS = [HR_TEAM_ID, OTHER_TEAM_ID]
 
@@ -195,6 +205,7 @@ describe('HR teammate profile RBAC — real DB integration (task-hr-rbac-teammat
         { ...ACCOUNTANT_OUTSIDER, googleId: `test-hr-rbac-${ACCOUNTANT_OUTSIDER.id}` },
         { ...SENIOR_MATE, googleId: `test-hr-rbac-${SENIOR_MATE.id}` },
         { ...ADMIN_USER, googleId: `test-hr-rbac-${ADMIN_USER.id}` },
+        { ...ACCOUNTANT_EX_MATE, googleId: `test-hr-rbac-${ACCOUNTANT_EX_MATE.id}` },
       ])
       .onConflictDoNothing()
 
@@ -208,6 +219,7 @@ describe('HR teammate profile RBAC — real DB integration (task-hr-rbac-teammat
 
     // HR + ACCOUNTANT_MATE + HR_MATE + SENIOR_MATE active in HR_TEAM;
     // ACCOUNTANT_OUTSIDER active in OTHER_TEAM. ADMIN is in no team.
+    // ACCOUNTANT_EX_MATE: in HR_TEAM but with leftAt set (former member).
     await db
       .insert(teamMembers)
       .values([
@@ -216,6 +228,12 @@ describe('HR teammate profile RBAC — real DB integration (task-hr-rbac-teammat
         { teamId: HR_TEAM_ID, userId: HR_MATE.id, joinedAt: new Date() },
         { teamId: HR_TEAM_ID, userId: SENIOR_MATE.id, joinedAt: new Date() },
         { teamId: OTHER_TEAM_ID, userId: ACCOUNTANT_OUTSIDER.id, joinedAt: new Date() },
+        {
+          teamId: HR_TEAM_ID,
+          userId: ACCOUNTANT_EX_MATE.id,
+          joinedAt: new Date('2025-01-01'),
+          leftAt: new Date('2025-06-01'), // left 6 months ago → must NOT be accessible
+        },
       ])
       .onConflictDoNothing()
   }, 30_000)
@@ -300,6 +318,18 @@ describe('HR teammate profile RBAC — real DB integration (task-hr-rbac-teammat
   it('HR-INT-5. HR viewing an ADMIN → 403 ForbiddenException (ADMIN never opened to HR)', async () => {
     if (!dbAvailable) return
     await expect(usersService.buildProfileView(HR, ADMIN_USER.id)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    )
+  })
+
+  // ── HR-INT-6: HR → ex-teammate (leftAt set) → 403 ─────────────────────────────
+  // SECURITY-MED fix: team_members with leftAt IS NOT NULL must be excluded from
+  // the shared-team check. A former ACCOUNTANT who left the team 6 months ago
+  // must not be viewable by HR who is still active in that team.
+
+  it('HR-INT-6. HR viewing former ACCOUNTANT teammate (leftAt set) → 403 ForbiddenException (soft-delete excluded)', async () => {
+    if (!dbAvailable) return
+    await expect(usersService.buildProfileView(HR, ACCOUNTANT_EX_MATE.id)).rejects.toBeInstanceOf(
       ForbiddenException,
     )
   })
