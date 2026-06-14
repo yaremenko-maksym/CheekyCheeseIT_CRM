@@ -205,6 +205,17 @@ export class FinanceSummaryController {
     return this.svc.getSummary(user)
   }
 
+  // ACCOUNTANT Sprint 1. KPI snapshot for the accountant финансовый хаб
+  // (AccountantDashboard). GET /api/finance/accountant-summary — ACCOUNTANT +
+  // ADMIN ONLY; the service throws ForbiddenException for every other role
+  // (SENIOR / JUNIOR / HR / DROP), so company-wide validation KPI never leak.
+  // Returns `accountantSummarySchema` shape ({ pendingValidation,
+  // validatedThisMonth, paidThisMonth, recipientCount }).
+  @Get('accountant-summary')
+  getAccountantSummary(@CurrentUser() user: SessionUser) {
+    return this.svc.getAccountantSummary(user)
+  }
+
   // Drop role - phase 1 (task-drop-1-backend). Self-only DROP summary.
   // GET /api/finance/drop/me/summary — DROP role ONLY; the service throws
   // ForbiddenException for every other role (SENIOR / JUNIOR / HR / ACCOUNTANT
