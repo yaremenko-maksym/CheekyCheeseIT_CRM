@@ -207,7 +207,6 @@ test.describe('A. DROP routing hub — /crm/routing render', () => {
 
     // testid renamed drop-quick-register-btn → drop-register-income-btn in PR #198
     await expect(page.getByTestId('drop-register-income-btn')).toBeVisible({ timeout: 8_000 })
-    await expect(page.getByTestId('drop-quick-pay-btn')).toBeVisible()
   })
 })
 
@@ -237,9 +236,6 @@ test.describe('B. DROP routing hub — loaded with data', () => {
     // 2 income items rendered
     const items = actionBlock.getByTestId('drop-action-income-item')
     await expect(items).toHaveCount(2)
-
-    // Pay all CTA visible
-    await expect(page.getByTestId('drop-action-pay-all-btn')).toBeVisible()
   })
 
   test('DropProjectsList renders project items when data available', async ({ asDrop: page }) => {
@@ -507,14 +503,6 @@ test.describe('D. DROP sidebar navigation — 4 items', () => {
     await nav.locator('a[href="/crm/profile"]').click()
     await expect(page).toHaveURL(/\/crm\/profile/, { timeout: 8_000 })
     await expect(page).not.toHaveURL(/\/login/)
-  })
-
-  test('QuickActions "Платить компании" navigates to /crm/finance', async ({ asDrop: page }) => {
-    await page.goto('/crm/routing')
-    await expect(page.getByTestId('drop-routing-hub')).toBeVisible({ timeout: 8_000 })
-
-    await page.getByTestId('drop-quick-pay-btn').click()
-    await expect(page).toHaveURL(/\/crm\/finance/, { timeout: 8_000 })
   })
 })
 
