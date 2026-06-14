@@ -228,34 +228,48 @@ export class UsersAccessService {
     // getViewPermissions, so a match here for an HR target can only be
     // HR↔other-HR (never HR↔self).
     if (target.role === 'SENIOR' || target.role === 'ACCOUNTANT' || target.role === 'HR') {
+      // Only active (leftAt IS NULL) memberships count — exclude former teammates.
       const hrMemberships = await this.db.db
         .select({ teamId: teamMembers.teamId })
         .from(teamMembers)
-        .where(eq(teamMembers.userId, hrId))
+        .where(and(eq(teamMembers.userId, hrId), isNull(teamMembers.leftAt)))
       if (hrMemberships.length === 0) return false
       const teamIds = hrMemberships.map((m) => m.teamId)
       const targetInTeams = await this.db.db
         .select({ teamId: teamMembers.teamId })
         .from(teamMembers)
-        .where(and(eq(teamMembers.userId, target.id), inArray(teamMembers.teamId, teamIds)))
+        .where(
+          and(
+            eq(teamMembers.userId, target.id),
+            inArray(teamMembers.teamId, teamIds),
+            isNull(teamMembers.leftAt),
+          ),
+        )
       return targetInTeams.length > 0
     }
     if (target.role === 'JUNIOR') {
-      // Find seniors in HR's teams, then projects of those seniors,
+      // Find seniors in HR's active teams, then projects of those seniors,
       // then check if target is an active member of any of those projects.
+      // Only active (leftAt IS NULL) memberships count — exclude former teammates.
       const hrTeams = await this.db.db
         .select({ teamId: teamMembers.teamId })
         .from(teamMembers)
-        .where(eq(teamMembers.userId, hrId))
+        .where(and(eq(teamMembers.userId, hrId), isNull(teamMembers.leftAt)))
       if (hrTeams.length === 0) return false
       const teamIds = hrTeams.map((t) => t.teamId)
 
-      // Get SENIOR users in those teams
+      // Get SENIOR users in those active teams (also exclude left members)
       const seniorMembers = await this.db.db
         .select({ userId: teamMembers.userId })
         .from(teamMembers)
         .innerJoin(users, eq(teamMembers.userId, users.id))
-        .where(and(inArray(teamMembers.teamId, teamIds), eq(users.role, 'SENIOR')))
+        .where(
+          and(
+            inArray(teamMembers.teamId, teamIds),
+            eq(users.role, 'SENIOR'),
+            isNull(teamMembers.leftAt),
+          ),
+        )
       const seniorIds = seniorMembers.map((s) => s.userId)
       if (seniorIds.length === 0) return false
 
