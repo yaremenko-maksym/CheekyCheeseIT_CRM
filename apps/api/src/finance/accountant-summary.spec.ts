@@ -34,6 +34,27 @@ function user(role: SessionUser['role'], id = `${role.toLowerCase()}-1`): Sessio
 }
 
 /**
+ * Shape of the single aggregation row returned by the SQL `.select().from()`
+ * query inside `getAccountantSummary`. Explicit field names ensure that if the
+ * production query renames a column the compiler surfaces the mismatch here
+ * (unlike `Record<string, number>` which would silently accept any key).
+ */
+interface AggregateStubRow {
+  /** COUNT of PENDING SENIOR_INCOME / DROP_INCOME rows */
+  pendingCount: number
+  /** SUM of amounts for pending income rows (raw numeric, cents or decimals) */
+  pendingAmount: number
+  /** COUNT of VALIDATED income rows whose validatedAt falls in the current month */
+  validatedCount: number
+  /** SUM of amounts for validated-this-month rows */
+  validatedAmount: number
+  /** SUM of amounts for PAID income/payout rows created in the current month */
+  paidAmount: number
+  /** COUNT(DISTINCT COALESCE(receiver_id, sender_id)) over income rows */
+  recipientCount: number
+}
+
+/**
  * Minimal DatabaseService stub for the SQL `.select().from()` aggregating path.
  *
  * `aggregateRow` is what the single aggregation query resolves to. For RBAC
@@ -44,7 +65,7 @@ function user(role: SessionUser['role'], id = `${role.toLowerCase()}-1`): Sessio
  * throws and the test fails loudly.
  */
 function makeStub(
-  aggregateRow: Record<string, number> = {
+  aggregateRow: AggregateStubRow = {
     pendingCount: 0,
     pendingAmount: 0,
     validatedCount: 0,

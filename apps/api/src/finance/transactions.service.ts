@@ -2278,7 +2278,7 @@ export class TransactionsService {
   }
 
   /**
-   * ACCOUNTANT Sprint 1 — KPI snapshot for the accountant финансовый хаб.
+   * Accountant KPI snapshot for the финансовый хаб (Sprint 2).
    *
    * RBAC: ACCOUNTANT + ADMIN only. Every other role (SENIOR / JUNIOR / HR /
    * DROP) reaching GET /api/finance/accountant-summary directly would leak
@@ -2286,11 +2286,11 @@ export class TransactionsService {
    * guard in `getSummary` above (single, explicit role check) and is thrown
    * BEFORE any DB access.
    *
-   * KPI semantics (Sprint 2: aggregated in SQL — a single pass over the
-   * `transactions` table via conditional `SUM`/`COUNT` (`FILTER (WHERE ...)`)
-   * + `COUNT(DISTINCT ...)`, instead of loading every row into Node. The wire
-   * shape and values are byte-for-byte identical to the Sprint 1 in-memory
-   * implementation):
+   * Implementation: loads all transaction rows via `findMany()` and aggregates
+   * the KPI buckets in-process using a single scan. UTC-based month boundaries
+   * are computed once from `new Date()` so every bucket uses the same cutoff.
+   *
+   * KPI semantics:
    *   - pendingValidation  — income rows (SENIOR_INCOME + DROP_INCOME) still in
    *                          PENDING status, i.e. awaiting accountant action.
    *   - validatedThisMonth — rows the accountant VALIDATED in the current
@@ -2298,8 +2298,7 @@ export class TransactionsService {
    *   - paidThisMonth      — income/payout money settled (status PAID) whose
    *                          `createdAt` falls in the current month.
    *   - recipientCount     — distinct income parties (seniors / drops) the
-   *                          accountant oversees: COUNT(DISTINCT
-   *                          COALESCE(receiver_id, sender_id)) over income rows.
+   *                          accountant oversees.
    *
    * Money: `amount` is numeric(18,6); `COALESCE(SUM(amount), 0)` yields an exact
    * decimal string on the empty set → 0, mapped to a JS number with `Number`
