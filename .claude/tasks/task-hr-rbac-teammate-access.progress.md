@@ -1,7 +1,7 @@
 # Progress: task-hr-rbac-teammate-access
 
 branch: feature/hr-rbac-teammate-access
-current_milestone: 1/3
+current_milestone: 2/3
 last_update: 2026-06-14
 
 ## Milestones
@@ -9,7 +9,9 @@ last_update: 2026-06-14
 - [x] M1 — production code: isHrInTargetTeam (ACCOUNTANT/HR shared-team branch) +
       getViewPermissions HR-branch (overview+team only for ACCOUNTANT/HR target).
       typecheck + eslint clean.
-- [ ] M2 — unit tests: isHrInTargetTeam all branches + getViewPermissions HR→ACCOUNTANT/HR.
+- [x] M2 — unit tests: isHrInTargetTeam all branches (queued drizzle-mock) +
+      getViewPermissions HR→ACCOUNTANT/HR. 76 passed in users-access.spec, 69 in
+      users.service.spec (regression). eslint clean.
 - [ ] M3 — integration test (real DB): HR→ACCOUNTANT teammate=200 masked, other-team=403,
       SENIOR teammate=200 regression. scratch-DB run green.
 
