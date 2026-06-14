@@ -389,23 +389,13 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
     )
   }
 
-  // Status-tab options. ARCHIVED is ADMIN-only — disabled for SENIOR/HR/ACCOUNTANT
-  // (pill renders but is not clickable, matching /crm/users behavior) and hidden
-  // entirely for JUNIOR (they have no concept of archived documents).
-  const isJunior = viewer.role === 'JUNIOR'
+  // Status-tab options — only rendered for ADMIN (see JSX guard below).
+  // Non-admin roles see only their active documents; the entire toggle is
+  // hidden so the layout stays clean and there is no disabled-pill confusion.
   const statusOptions: ReadonlyArray<SegmentedToggleOption<StatusTab>> = [
     { value: 'ALL', label: 'Все' },
     { value: 'ACTIVE', label: 'Активные' },
-    ...(!isJunior
-      ? [
-          {
-            value: 'ARCHIVED' as StatusTab,
-            label: 'Архив',
-            icon: Archive,
-            disabled: !isAdmin,
-          },
-        ]
-      : []),
+    { value: 'ARCHIVED', label: 'Архив', icon: Archive },
   ]
 
   return (
@@ -437,13 +427,11 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
 
       <DocumentsHeader viewer={viewer} categoryFilter={categoryFilter} users={users} />
 
-      {/* Tri-state status filter — matches /crm/users (Все / Активные / Архив).
-          ARCHIVED is ADMIN-only — the option renders but is disabled for
-          non-admins so the page layout doesn't shift between roles.
-          Kept in its own row above the toolbar Card, same pattern as /crm/projects. */}
-      {/* Hidden for JUNIOR (UT round 5): juniors only ever see ACTIVE documents
-          (statusTab defaults to 'ACTIVE'), so the toggle is noise for them. */}
-      {!isJunior && (
+      {/* Tri-state status filter — ADMIN-only (UT finding 2026-06-14).
+          Non-admin roles (SENIOR/JUNIOR/HR/ACCOUNTANT/DROP) only ever see
+          their active documents; statusTab stays at 'ACTIVE' (default) and
+          the toggle is hidden entirely so the layout stays clean. */}
+      {isAdmin && (
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
