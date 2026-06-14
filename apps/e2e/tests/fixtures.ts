@@ -1014,6 +1014,17 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
       },
     }),
   )
+  // ACCOUNTANT Sprint 1 — accountant финансовый хаб KPI snapshot. Default
+  // non-zero values so AccountantDashboard renders the loaded state. Tests that
+  // need other figures register their own handler AFTER mockAuthAs (LIFO).
+  await page.route(new RegExp(`${API_RE}/finance/accountant-summary(\\?.*)?$`), (r) =>
+    jsonOk(r, {
+      pendingValidation: { count: 4, amount: 15000 },
+      validatedThisMonth: { count: 2, amount: 3500 },
+      paidThisMonth: { amount: 12000 },
+      recipientCount: 5,
+    }),
+  )
   await page.route(new RegExp(`${API_RE}/finance/transactions(\\?.*)?$`), (r) =>
     r.request().method() === 'POST'
       ? jsonOk(r, { id: 'tx-new', status: 'PENDING' }, 201)
@@ -1272,6 +1283,8 @@ type Fixtures = {
   asJunior: Page
   /** Drop role - phase 1: DROP-authenticated page for AC8 RBAC sweep. */
   asDrop: Page
+  /** ACCOUNTANT Sprint 1: ACCOUNTANT-authenticated page for the finance hub. */
+  asAccountant: Page
 }
 
 export const test = base.extend<Fixtures>({
@@ -1293,6 +1306,10 @@ export const test = base.extend<Fixtures>({
   },
   asDrop: async ({ page }, use) => {
     await mockAuthAs(page, USERS.drop)
+    await use(page)
+  },
+  asAccountant: async ({ page }, use) => {
+    await mockAuthAs(page, USERS.accountant)
     await use(page)
   },
 })

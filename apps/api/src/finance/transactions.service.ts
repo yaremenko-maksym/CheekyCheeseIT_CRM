@@ -2277,6 +2277,121 @@ export class TransactionsService {
     }
   }
 
+  /**
+   * ACCOUNTANT Sprint 1 — KPI snapshot for the accountant финансовый хаб.
+   *
+   * RBAC: ACCOUNTANT + ADMIN only. Every other role (SENIOR / JUNIOR / HR /
+   * DROP) reaching GET /api/finance/accountant-summary directly would leak
+   * company-wide payment-validation figures → ForbiddenException. Mirrors the
+   * guard in `getSummary` above (single, explicit role check).
+   *
+   * KPI semantics (computed over real `transactions` rows, scaled-integer
+   * accumulation to avoid float drift):
+   *   - pendingValidation  — income rows (SENIOR_INCOME + DROP_INCOME) still in
+   *                          PENDING status, i.e. awaiting accountant action.
+   *   - validatedThisMonth — rows the accountant VALIDATED in the current
+   *                          calendar month (by `validatedAt`).
+   *   - paidThisMonth      — income/payout money settled (status PAID) whose
+   *                          `createdAt` falls in the current month.
+   *   - recipientCount     — distinct income parties (seniors / drops) the
+   *                          accountant oversees.
+   */
+  async getAccountantSummary(currentUser: SessionUser): Promise<{
+    pendingValidation: { count: number; amount: number }
+    validatedThisMonth: { count: number; amount: number }
+    paidThisMonth: { amount: number }
+    recipientCount: number
+  }> {
+    if (currentUser.role !== 'ACCOUNTANT' && currentUser.role !== 'ADMIN') {
+      throw new ForbiddenException(
+        'Access denied: accountant summary requires ACCOUNTANT or ADMIN role',
+      )
+    }
+
+    const SCALE = MONEY_SCALE
+
+    // Current-month boundary, computed once. UTC-based to match how the rest of
+    // the summary buckets months (`createdAt.toISOString().slice(0,7)`).
+    const now = new Date()
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+
+    const allTxs = (await this.db.db.query.transactions.findMany()) as Array<{
+      type: string
+      status: string
+      amount: string
+      senderId: string | null
+      receiverId: string | null
+      validatedAt: Date | null
+      createdAt: Date
+    }>
+
+    // Income types a senior / drop submits that require accountant validation.
+    const isValidatableIncome = (t: { type: string }) =>
+      t.type === 'SENIOR_INCOME' || t.type === 'DROP_INCOME'
+
+    // pendingValidation — PENDING validatable income rows.
+    const pendingRows = allTxs.filter((t) => isValidatableIncome(t) && t.status === 'PENDING')
+    const pendingAmountScaled = pendingRows.reduce(
+      (sum, t) => sum + Math.round(parseFloat(t.amount) * SCALE),
+      0,
+    )
+
+    // validatedThisMonth — rows now VALIDATED whose validatedAt is in this month.
+    const validatedRows = allTxs.filter(
+      (t) =>
+        t.status === 'VALIDATED' &&
+        t.validatedAt !== null &&
+        t.validatedAt.getTime() >= monthStart.getTime(),
+    )
+    const validatedAmountScaled = validatedRows.reduce(
+      (sum, t) => sum + Math.round(parseFloat(t.amount) * SCALE),
+      0,
+    )
+
+    // paidThisMonth — PAID income/payout money created in the current month.
+    const paidRows = allTxs.filter(
+      (t) =>
+        t.status === 'PAID' &&
+        (t.type === 'SENIOR_INCOME' ||
+          t.type === 'DROP_INCOME' ||
+          t.type === 'PAYOUT' ||
+          t.type === 'PAYOUT_ADMIN' ||
+          t.type === 'PAYOUT_DROP' ||
+          t.type === 'PAYOUT_CONFIRMED') &&
+        t.createdAt.getTime() >= monthStart.getTime(),
+    )
+    const paidAmountScaled = paidRows.reduce(
+      (sum, t) => sum + Math.round(parseFloat(t.amount) * SCALE),
+      0,
+    )
+
+    // recipientCount — distinct income parties (the senior/drop on each income
+    // row). Income rows put the earner on receiverId (DROP_INCOME) or senderId
+    // (SENIOR_INCOME — senior is the source of the money into the company), so
+    // we collect whichever user id is present, falling back across both.
+    const partyIds = new Set<string>()
+    for (const t of allTxs) {
+      if (!isValidatableIncome(t)) continue
+      const party = t.receiverId ?? t.senderId
+      if (party) partyIds.add(party)
+    }
+
+    return {
+      pendingValidation: {
+        count: pendingRows.length,
+        amount: pendingAmountScaled / SCALE,
+      },
+      validatedThisMonth: {
+        count: validatedRows.length,
+        amount: validatedAmountScaled / SCALE,
+      },
+      paidThisMonth: {
+        amount: paidAmountScaled / SCALE,
+      },
+      recipientCount: partyIds.size,
+    }
+  }
+
   // ── Project Finance Settings ──────────────────────────────────────────────
 
   async getProjectFinanceSettings(projectId: string, currentUser: SessionUser) {

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Search, ArrowUpDown, ChevronDown, X, Wallet } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
-import type { TransactionDto } from '@crm/shared'
+import type { TransactionDto, TransactionStatus } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { cn } from '@/lib/utils'
@@ -65,8 +65,37 @@ import { LogCashPaymentDialog } from './components/dialogs/LogCashPaymentDialog'
 import { ConfirmPayoutDialog } from '@/components/finance/ConfirmPayoutDialog'
 import type { FinanceSummaryDto } from '@crm/shared'
 
+/**
+ * Deep-link search params for /crm/finance.
+ *
+ * `status` — optional pre-selected transaction-status filter (e.g. the
+ * AccountantDashboard CTA navigates with `?status=PENDING`). Validated against
+ * the known transaction statuses; anything unexpected is dropped (returns
+ * undefined) so a malformed URL never poisons the filter UI.
+ */
+type FinanceSearch = {
+  status?: TransactionStatus
+}
+
+const KNOWN_STATUSES: readonly TransactionStatus[] = [
+  'PENDING',
+  'VALIDATED',
+  'PENDING_PAYMENT',
+  'REJECTED',
+  'PAID',
+  'LOCKED',
+  'PENDING_CASH_CONFIRM',
+]
+
 export const Route = createFileRoute('/crm/finance/')({
   component: FinancePage,
+  validateSearch: (search: Record<string, unknown>): FinanceSearch => {
+    const raw = search['status']
+    if (typeof raw === 'string' && (KNOWN_STATUSES as readonly string[]).includes(raw)) {
+      return { status: raw as TransactionStatus }
+    }
+    return {}
+  },
 })
 
 // ── Shared UI primitives ───────────────────────────────────────────────────────
@@ -197,6 +226,7 @@ function TransactionsTable({
   role,
   rates,
   currentUserId,
+  initialStatus,
   onValidate,
   onEdit,
   onAdminEdit,
@@ -212,6 +242,12 @@ function TransactionsTable({
   loading: boolean
   role: string
   rates: ExchangeRates | undefined
+  /**
+   * Deep-link initial status filter (e.g. AccountantDashboard CTA →
+   * `?status=PENDING`). When omitted, the filter starts at 'all'. The user can
+   * still change/clear it freely afterwards — it only seeds the initial value.
+   */
+  initialStatus?: string
   currentUserId?: string | null
   onValidate: (tx: TransactionDto) => void
   onEdit: (tx: TransactionDto) => void
@@ -244,7 +280,9 @@ function TransactionsTable({
 }) {
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
-  const [statusFilter, setStatusFilter] = useState('all')
+  // Seed from the deep-link `?status=` param (AccountantDashboard CTA). Falls
+  // back to 'all'. Only the initial value — user changes/clears it freely after.
+  const [statusFilter, setStatusFilter] = useState(initialStatus ?? 'all')
   const [sortKey, setSortKey] = useState<TxSort>('date')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
@@ -407,6 +445,9 @@ function TransactionsTable({
 function FinancePage() {
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'ACCOUNTANT', 'HR', 'DROP', 'JUNIOR'])
   const { user } = useAuth()
+  // Deep-link status filter (?status=PENDING) — from the AccountantDashboard CTA.
+  // useSearch is hook-order-safe (called before the early returns below).
+  const { status: deepLinkStatus } = Route.useSearch()
   if (denied) return null
   const role = user?.role ?? ''
   const userId = user?.id ?? ''
@@ -755,6 +796,7 @@ function FinancePage() {
             role={role}
             rates={rates}
             currentUserId={userId}
+            {...(deepLinkStatus ? { initialStatus: deepLinkStatus } : {})}
             onValidate={setValidateTx}
             onEdit={setEditTx}
             onAdminEdit={setAdminEditTx}

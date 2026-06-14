@@ -809,3 +809,41 @@ export const financeSummarySchema = z.object({
   ),
 })
 export type FinanceSummaryDto = z.infer<typeof financeSummarySchema>
+
+// ---------------------------------------------------------------------------
+// Accountant summary DTO (ACCOUNTANT Sprint 1)
+// ---------------------------------------------------------------------------
+//
+// KPI snapshot for the ACCOUNTANT финансовый хаб-дашборд (and ADMIN, who sees
+// the same financial scope). Surfaced by GET /api/finance/accountant-summary —
+// RBAC: ACCOUNTANT + ADMIN only; every other role gets 403 (the endpoint would
+// otherwise leak company-wide payment-validation figures).
+//
+// Все суммы — USD-эквивалент (numeric → JS number, scaled-integer accumulation
+// in the service to avoid float drift). Counts — целые неотрицательные.
+//
+// Fields:
+//   pendingValidation   — income rows (SENIOR_INCOME + DROP_INCOME) still in
+//                         PENDING status, i.e. awaiting accountant validation.
+//                         { count, amount }.
+//   validatedThisMonth  — rows the accountant VALIDATED in the current calendar
+//                         month (by `validatedAt`). { count, amount }.
+//   paidThisMonth       — income/payout money settled (status PAID) whose
+//                         `createdAt` falls in the current month. { amount }.
+//   recipientCount      — number of distinct income parties (seniors / drops)
+//                         whose finances the accountant oversees.
+export const accountantSummarySchema = z.object({
+  pendingValidation: z.object({
+    count: z.number().int().nonnegative(),
+    amount: z.number(),
+  }),
+  validatedThisMonth: z.object({
+    count: z.number().int().nonnegative(),
+    amount: z.number(),
+  }),
+  paidThisMonth: z.object({
+    amount: z.number(),
+  }),
+  recipientCount: z.number().int().nonnegative(),
+})
+export type AccountantSummaryDto = z.infer<typeof accountantSummarySchema>
