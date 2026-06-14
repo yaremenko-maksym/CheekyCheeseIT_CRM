@@ -32,6 +32,8 @@ import {
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
+import { Roles } from '../common/decorators/roles.decorator'
+import { RolesGuard } from '../common/guards/roles.guard'
 import { DatabaseService } from '../database/database.service'
 import { InterviewsService } from './interviews.service'
 import { ProjectsService } from '../projects/projects.service'
@@ -96,6 +98,12 @@ const INTERVIEWS_SERVICE_TOKEN = 'INTERVIEWS_SERVICE_TOKEN_RBAC'
 //    REAL InterviewsService via @Inject(token). Bypasses esbuild metadata strip.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+// RolesGuard is applied globally (APP_GUARD in the test module) — exactly the
+// way the real app wires it via AppModule. No @UseGuards here; @Roles metadata
+// on each handler drives the global guard. (The real InterviewsController uses
+// @UseGuards(RolesGuard), which is equivalent — class-level guard + class-level
+// global guard both read the same @Roles metadata; global is used in the test
+// to dodge esbuild's constructor-metadata stripping on @UseGuards(ClassRef).)
 @Controller('interviews')
 class SentinelInterviewsController {
   constructor(@Inject(INTERVIEWS_SERVICE_TOKEN) private readonly svc: InterviewsService) {}
@@ -108,6 +116,7 @@ class SentinelInterviewsController {
   }
 
   @Get()
+  @Roles('ADMIN', 'SENIOR', 'HR')
   findBySenior(@Query('seniorId') seniorId: string | undefined, @CurrentUser() user: SessionUser) {
     this.assertNotDrop(user)
     if (seniorId !== undefined && !UUID_RE.test(seniorId)) {
@@ -117,6 +126,7 @@ class SentinelInterviewsController {
   }
 
   @Post()
+  @Roles('ADMIN', 'SENIOR', 'HR')
   create(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     this.assertNotDrop(user)
     const data = createInterviewSchema.parse(body)
@@ -124,6 +134,7 @@ class SentinelInterviewsController {
   }
 
   @Patch(':id')
+  @Roles('ADMIN', 'SENIOR', 'HR')
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: unknown,
@@ -135,6 +146,7 @@ class SentinelInterviewsController {
   }
 
   @Patch(':id/move')
+  @Roles('ADMIN', 'SENIOR', 'HR')
   move(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: unknown,
@@ -146,6 +158,7 @@ class SentinelInterviewsController {
   }
 
   @Delete(':id')
+  @Roles('ADMIN', 'HR')
   remove(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
     this.assertNotDrop(user)
     return this.svc.remove(id, user)
@@ -322,10 +335,19 @@ class TestDatabaseModule {}
       provide: INTERVIEWS_SERVICE_TOKEN,
       useExisting: InterviewsService,
     },
+    // JwtAuthGuard first: populates req.user from the cookie.
     {
       provide: APP_GUARD,
       useFactory: (jwtSvc: JwtService, reflector: Reflector) => new JwtAuthGuard(jwtSvc, reflector),
       inject: [JwtService, Reflector],
+    },
+    // RolesGuard second: reads req.user.role + @Roles() metadata. Registered
+    // globally (factory + explicit inject) to mirror AppModule and avoid the
+    // esbuild metadata strip that breaks @UseGuards(RolesGuard) class-form.
+    {
+      provide: APP_GUARD,
+      useFactory: (reflector: Reflector) => new RolesGuard(reflector),
+      inject: [Reflector],
     },
   ],
 })
@@ -596,6 +618,32 @@ describe('Interviews RBAC — real backend integration (real DB, no mocks)', () 
     if (!dbAvailable) return
     const res = await app.inject({ method: 'GET', url: `/api/interviews?seniorId=${SENIOR_A.id}` })
     expect(res.statusCode).toBe(401)
+  })
+
+  // ── ACCOUNTANT gap closure (HR-2): @Roles excludes ACCOUNTANT from boards ────
+  // Before HR-2 the service had no else-branch for ACCOUNTANT, so an ACCOUNTANT
+  // with a valid seniorId fell through to the query and got 200 (front-only
+  // gating — the sidebar hid the link, the API did not). docs/business/modules/
+  // interviews.md restricts boards to ADMIN/HR/SENIOR; @Roles now enforces it.
+
+  it('LIST 11. ACCOUNTANT → 403 with a valid seniorId (closed gap; was 200)', async () => {
+    if (!dbAvailable) return
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/interviews?seniorId=${SENIOR_A.id}`,
+      cookies: { jwt: tokenFor(ACCOUNTANT) },
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('LIST 12. ACCOUNTANT → 403 without seniorId', async () => {
+    if (!dbAvailable) return
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/interviews`,
+      cookies: { jwt: tokenFor(ACCOUNTANT) },
+    })
+    expect(res.statusCode).toBe(403)
   })
 
   // ════════════════════════════════════════════════════════════════════════════

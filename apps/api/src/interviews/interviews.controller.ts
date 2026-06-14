@@ -10,6 +10,7 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common'
 import {
   createInterviewSchema,
@@ -18,9 +19,31 @@ import {
   updateInterviewSchema,
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
+import { Roles } from '../common/decorators/roles.decorator'
+import { RolesGuard } from '../common/guards/roles.guard'
 import { InterviewsService } from './interviews.service'
 
-// Auth enforced by global JwtAuthGuard (see AppModule APP_GUARD).
+/**
+ * Auth enforced by global JwtAuthGuard (see AppModule APP_GUARD).
+ *
+ * RBAC (HR-2 hardening): the interviews module is restricted to the roles the
+ * business spec allows (docs/business/modules/interviews.md → "Доступ к доскам:
+ * ADMIN/HR see boards, SENIOR sees own"). `@Roles` + `RolesGuard` is a
+ * defense-in-depth role-set gate that runs BEFORE the handler:
+ *   - findBySenior / create / update / move → ADMIN, SENIOR, HR
+ *   - remove                                → ADMIN, HR (SENIOR cannot delete)
+ * It does NOT replace the per-endpoint team-scope logic in InterviewsService
+ * (HR own-team only, SENIOR own-board only, IDOR guards) — that stays in the
+ * service. The guard closes a previously-uncovered gap where ACCOUNTANT could
+ * read any board via GET /interviews?seniorId=<uuid> (front-only gating; the
+ * sidebar hid the link but the API let ACCOUNTANT/JUNIOR through with a valid
+ * seniorId). `assertNotDrop` is kept as a second, message-specific DROP barrier
+ * even though the guard already rejects DROP — see its docblock.
+ *
+ * Coverage: apps/api/src/interviews/interviews-rbac.integration.spec.ts pins
+ * every cell of this matrix against a real database.
+ */
+@UseGuards(RolesGuard)
 @Controller('interviews')
 export class InterviewsController {
   constructor(private readonly interviewsService: InterviewsService) {}
@@ -31,6 +54,10 @@ export class InterviewsController {
    * and the API rejects every endpoint at the controller boundary with 403.
    * Defense-in-depth: even if a future refactor wires the route back into
    * the DROP sidebar, the backend still rejects the request.
+   *
+   * NOTE: the class-level @Roles set excludes DROP, so RolesGuard already
+   * rejects DROP before this runs. This assertion stays as a redundant,
+   * message-specific barrier (and guards against a future @Roles widening).
    */
   private assertNotDrop(user: SessionUser): void {
     if (user.role === 'DROP') {
@@ -39,6 +66,7 @@ export class InterviewsController {
   }
 
   @Get()
+  @Roles('ADMIN', 'SENIOR', 'HR')
   findBySenior(@Query('seniorId') seniorId: string | undefined, @CurrentUser() user: SessionUser) {
     this.assertNotDrop(user)
     if (
@@ -52,6 +80,7 @@ export class InterviewsController {
   }
 
   @Post()
+  @Roles('ADMIN', 'SENIOR', 'HR')
   create(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     this.assertNotDrop(user)
     const data = createInterviewSchema.parse(body)
@@ -59,6 +88,7 @@ export class InterviewsController {
   }
 
   @Patch(':id')
+  @Roles('ADMIN', 'SENIOR', 'HR')
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: unknown,
@@ -70,6 +100,7 @@ export class InterviewsController {
   }
 
   @Patch(':id/move')
+  @Roles('ADMIN', 'SENIOR', 'HR')
   move(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: unknown,
@@ -81,6 +112,7 @@ export class InterviewsController {
   }
 
   @Delete(':id')
+  @Roles('ADMIN', 'HR')
   remove(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
     this.assertNotDrop(user)
     return this.interviewsService.remove(id, user)
