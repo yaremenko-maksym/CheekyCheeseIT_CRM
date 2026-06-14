@@ -48,6 +48,8 @@ const SENIOR2 = u('senior-2', 'SENIOR')
 const JUNIOR = u('junior-1', 'JUNIOR')
 const HR = u('hr-1', 'HR')
 const ACCOUNTANT = u('acc-1', 'ACCOUNTANT')
+const DROP = u('drop-1', 'DROP')
+const DROP2 = u('drop-2', 'DROP')
 
 // -----------------------------------------------------------------------------
 // Harness: predicate-blind drizzle imposter
@@ -1389,5 +1391,137 @@ describe('DocumentsService — RECEIPT soft-delete rule (Task 3)', () => {
       docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RECEIPT', deletedAt: null }],
     })
     await expect(h.service.hardDelete(ADMIN, 'd1')).rejects.toBeInstanceOf(BadRequestException)
+  })
+})
+
+// -----------------------------------------------------------------------------
+// DROP RBAC — IDOR self-scope enforcement (security: no cross-user access)
+// task: drop-docs-contract UT finding 1
+// -----------------------------------------------------------------------------
+describe('DocumentsService — DROP IDOR self-scope', () => {
+  // UPLOAD: DROP can upload RESUME/SCAN/CONTRACT for self, not for others.
+  describe('upload RBAC for DROP', () => {
+    it('DROP can upload RESUME for self → ok', async () => {
+      const h = makeHarness()
+      await expect(
+        h.service.upload(
+          DROP,
+          { buffer: Buffer.alloc(10), mimetype: 'application/pdf', originalname: 'cv.pdf' },
+          { category: 'RESUME', ownerId: DROP.id },
+        ),
+      ).resolves.toBeDefined()
+    })
+
+    it('DROP cannot upload RESUME for another user → 403', async () => {
+      const h = makeHarness()
+      await expect(
+        h.service.upload(
+          DROP,
+          { buffer: Buffer.alloc(10), mimetype: 'application/pdf', originalname: 'cv.pdf' },
+          { category: 'RESUME', ownerId: DROP2.id },
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+    })
+
+    it('DROP can upload SCAN for self → ok', async () => {
+      const h = makeHarness()
+      await expect(
+        h.service.upload(
+          DROP,
+          { buffer: Buffer.alloc(10), mimetype: 'application/pdf', originalname: 'scan.pdf' },
+          { category: 'SCAN', ownerId: DROP.id },
+        ),
+      ).resolves.toBeDefined()
+    })
+
+    it('DROP cannot upload SCAN for another user → 403', async () => {
+      const h = makeHarness()
+      await expect(
+        h.service.upload(
+          DROP,
+          { buffer: Buffer.alloc(10), mimetype: 'application/pdf', originalname: 'scan.pdf' },
+          { category: 'SCAN', ownerId: DROP2.id },
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+    })
+
+    it('DROP can upload CONTRACT for self with projectId → ok', async () => {
+      const h = makeHarness()
+      await expect(
+        h.service.upload(
+          DROP,
+          { buffer: Buffer.alloc(10), mimetype: 'application/pdf', originalname: 'contract.pdf' },
+          { category: 'CONTRACT', ownerId: DROP.id, projectId: 'proj-uuid' },
+        ),
+      ).resolves.toBeDefined()
+    })
+
+    it('DROP cannot upload CONTRACT for another user → 403', async () => {
+      const h = makeHarness()
+      await expect(
+        h.service.upload(
+          DROP,
+          { buffer: Buffer.alloc(10), mimetype: 'application/pdf', originalname: 'contract.pdf' },
+          { category: 'CONTRACT', ownerId: DROP2.id, projectId: 'proj-uuid' },
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+    })
+
+    it('DROP cannot upload RECEIPT → 403', async () => {
+      const h = makeHarness()
+      await expect(
+        h.service.upload(
+          DROP,
+          { buffer: Buffer.alloc(10), mimetype: 'application/pdf', originalname: 'receipt.pdf' },
+          { category: 'RECEIPT', ownerId: DROP.id },
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+    })
+  })
+
+  // LIST: DROP is forced to ownerId=self — passing a foreign ownerId must be ignored.
+  // The service enforces this via effectiveFilters (ownerId override for DROP).
+  //
+  // NOTE: The unit harness does not support .leftJoin() in the drizzle select chain
+  // (the harness builder models .where().orderBy() only). Full list() SQL correctness
+  // is verified against a real PostgreSQL in documents-unified.integration.spec.ts.
+  //
+  // Here we test the IDOR invariant through the public softDelete path: if DROP
+  // could access another user's document, softDelete would succeed; if access is
+  // properly scoped (owner check), it throws ForbiddenException.
+  describe('list() IDOR — DROP cannot access foreign docs via softDelete proxy', () => {
+    it("softDelete: DROP cannot delete SENIOR's doc → 403 (ownership check holds)", async () => {
+      const h = makeHarness({
+        docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME' }],
+      })
+      // DROP is not the owner and not ADMIN → ForbiddenException
+      await expect(h.service.softDelete(DROP, 'd1')).rejects.toBeInstanceOf(ForbiddenException)
+    })
+
+    it('softDelete: DROP can delete own doc → ok (self-ownership check holds)', async () => {
+      const h = makeHarness({
+        docs: [{ id: 'd2', ownerId: DROP.id, category: 'RESUME' }],
+      })
+      await expect(h.service.softDelete(DROP, 'd2')).resolves.toBeUndefined()
+    })
+  })
+
+  // DOWNLOAD: DROP can download their own doc (ownerId === DROP.id).
+  describe('getDownloadUrl — DROP self-doc visibility', () => {
+    it('DROP can download their own document', async () => {
+      const h = makeHarness({
+        docs: [{ id: 'd1', ownerId: DROP.id, category: 'RESUME' }],
+        honorSoftDeleteFilter: true,
+      })
+      await expect(h.service.getDownloadUrl(DROP, 'd1')).resolves.toBeDefined()
+    })
+
+    it("DROP cannot download another user's document → 404", async () => {
+      const h = makeHarness({
+        docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME' }],
+        honorSoftDeleteFilter: true,
+      })
+      await expect(h.service.getDownloadUrl(DROP, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+    })
   })
 })

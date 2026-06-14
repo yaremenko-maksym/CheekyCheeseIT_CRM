@@ -194,10 +194,10 @@ function canSeeOwnerFilter(role: Role): boolean {
 // ---------------------------------------------------------------------------
 
 function DocumentsPage() {
-  // Drop role - phase 1 fix (AC4): DROP must not access /crm/documents in
-  // Phase 1 (drop document UX ships later). Sidebar already hides the link;
-  // route guard catches direct URL navigation.
-  useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'])
+  // Drop role - phase 3 (UT finding 1): DROP now has a /crm/documents page.
+  // They see only their own docs (IDOR-scoped at service layer).
+  // Sidebar link, route-access, and backend service all updated together.
+  useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
   const { user } = useAuth()
   if (!user) return null
 
