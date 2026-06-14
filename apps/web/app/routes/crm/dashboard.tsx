@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/context/auth'
 import { DropDashboard } from './routing/components/DropDashboard'
+import { AccountantDashboard } from './routing/components/AccountantDashboard'
 
 export const Route = createFileRoute('/crm/dashboard')({
   component: DashboardPage,
@@ -35,6 +36,13 @@ function DashboardPage() {
   // resolveRoleHome тоже указывает DROP → /crm/dashboard.
   if (user?.role === 'DROP') {
     return <DropDashboard />
+  }
+
+  // ACCOUNTANT role: финансовый хаб-дашборд с KPI валидации (ACCOUNTANT Sprint 1).
+  // /crm/dashboard уже разрешён для ACCOUNTANT в route-access; данные KPI отдаёт
+  // GET /api/finance/accountant-summary (RBAC ACCOUNTANT+ADMIN, 403 для прочих).
+  if (user?.role === 'ACCOUNTANT') {
+    return <AccountantDashboard />
   }
 
   return (
