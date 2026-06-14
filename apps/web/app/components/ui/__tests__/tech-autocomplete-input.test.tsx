@@ -97,8 +97,8 @@ describe('TechAutocompleteInput — Escape key behaviour', () => {
     // When dropdown is closed, Escape must bubble normally so a parent Dialog
     // (Radix) can close itself.
     expect(parentKeyDown).toHaveBeenCalledOnce()
-    const event = parentKeyDown.mock.calls[0][0] as React.KeyboardEvent
-    expect(event.key).toBe('Escape')
+    const eventKey = (parentKeyDown.mock.calls[0] as [React.KeyboardEvent])[0].key
+    expect(eventKey).toBe('Escape')
   })
 
   it('input is cleared after Escape regardless of whether dropdown was open', async () => {
