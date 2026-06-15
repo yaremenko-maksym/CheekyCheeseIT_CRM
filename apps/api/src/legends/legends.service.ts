@@ -30,9 +30,15 @@ export class LegendsService {
   /**
    * RBAC check: can `viewer` access the legend for `project`?
    *
-   * Contract (per embedded plan):
-   *   ADMIN                         → true
-   *   viewer.id === project.seniorId → false (subject excluded)
+   * Contract (execution order matters — see task-admin-as-senior reorder):
+   *   ADMIN                         → true  ← FIRST (before subject-exclusion)
+   *                                           When seniorId = ADMIN_ID, subject-exclusion
+   *                                           would wrongly deny the admin access to the
+   *                                           legend of their own project. Checking ADMIN
+   *                                           first prevents that. ADMIN always has full
+   *                                           legend access regardless of being the subject.
+   *   viewer.id === project.seniorId → false (subject excluded — applies to SENIOR/DROP
+   *                                           only; ADMIN is already returned true above)
    *   viewer.id === project.dropId   → false (subject excluded)
    *   HR sharing active team with project.seniorId → true
    *   HR with no shared team         → false

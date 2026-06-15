@@ -1039,8 +1039,11 @@ function ProjectDetailPage() {
                 <div className="pb-3">
                   {/* senior.userId is null when backend masks it (admin-project + non-privileged viewer).
                       In that case we render a non-navigable span via ProfileNameLink nonNavigable prop. */}
+                  {/* LOW fix: when nonNavigable=true (seniorId=null → admin-project without access),
+                      userId is not consumed by ProfileNameLink (renders span). Pass it only when
+                      navigation is possible (exactOptionalPropertyTypes: conditional spread). */}
                   <ProfileNameLink
-                    userId={senior.userId ?? ''}
+                    {...(senior.userId != null ? { userId: senior.userId } : {})}
                     viewerRole={user?.role ?? 'JUNIOR'}
                     nonNavigable={senior.userId == null}
                     className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0"
@@ -1050,7 +1053,10 @@ function ProjectDetailPage() {
                         {getInitials(senior.displayName)}
                       </AvatarFallback>
                     </Avatar>
-                    <span className="text-sm font-medium truncate text-primary hover:underline underline-offset-2">
+                    {/* MED1: no hover:underline — element may be non-navigable (nonNavigable=true)
+                        when viewer cannot access the admin's profile. A non-clickable span
+                        must not show pointer/underline hover styles. */}
+                    <span className="text-sm font-medium truncate text-primary">
                       {senior.displayName}
                     </span>
                     <Badge variant="senior" className="shrink-0 text-[9px] ml-auto">
@@ -1737,7 +1743,11 @@ function ProjectEffectiveTeamCard({
                   {getInitials(m.displayName)}
                 </AvatarFallback>
               </Avatar>
-              <span className="text-sm font-medium truncate flex-1 text-primary hover:underline">
+              {/* MED1: hover:underline only when the row is navigable — a non-clickable
+                  div (isNavigable=false) must not show pointer/underline hover style. */}
+              <span
+                className={`text-sm font-medium truncate flex-1 text-primary${isNavigable ? ' hover:underline' : ''}`}
+              >
                 {m.displayName}
               </span>
               {/* Drop role - phase 2. DROP gets a distinct blue/info badge so

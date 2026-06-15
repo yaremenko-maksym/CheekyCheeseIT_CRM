@@ -28,8 +28,18 @@ import type { Role } from '@/lib/route-access'
 import { cn } from '@/lib/utils'
 
 interface ProfileNameLinkProps {
-  /** Target user's id — used for the /crm/profile/$userId link. */
-  userId: string
+  /**
+   * Target user's id — used for the /crm/profile/$userId link.
+   *
+   * LOW fix: when `nonNavigable=true` the component renders a plain `<span>`
+   * and `userId` is never used. Callers should omit it (or pass `undefined`)
+   * rather than supplying a sentinel `userId=""`. The prop is therefore optional;
+   * callers that allow navigation (nonNavigable=false, viewerRole≠'DROP') must
+   * still supply a valid non-empty id — TypeScript will catch missing values at
+   * the Link branch via the `userId ?? ''` fallback which is safe because that
+   * branch is unreachable when userId is undefined (nonNavigable=true guards it).
+   */
+  userId?: string
   /** The CURRENT viewer's role. DROP → plain text; everyone else → link. */
   viewerRole: Role
   /** Classes applied to the rendered element (link or span) identically. */
@@ -46,6 +56,8 @@ interface ProfileNameLinkProps {
    * (e.g. non-admin viewers on admin-projects — the profile returns 403 for them,
    * so surfacing a link would be a dead navigation and could leak profile existence).
    * DROP path is preserved separately (viewerRole === 'DROP' also triggers plain text).
+   *
+   * When nonNavigable=true, `userId` is not required and may be omitted.
    */
   nonNavigable?: boolean
   children: ReactNode
@@ -77,7 +89,7 @@ export function ProfileNameLink({
   return (
     <Link
       to="/crm/profile/$userId"
-      params={{ userId }}
+      params={{ userId: userId ?? '' }}
       className={cn(className)}
       title={title}
       onClick={onClick}
