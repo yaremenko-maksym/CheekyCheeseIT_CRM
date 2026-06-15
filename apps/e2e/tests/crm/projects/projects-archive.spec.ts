@@ -14,7 +14,11 @@
 
 import { test, expect, USERS, PROJECTS } from '../../fixtures'
 
-const API = 'http://localhost:3001/api'
+// Origin-agnostic route patterns — mirrors fixtures.ts convention.
+// page.route intercepts at the browser-fetch URL (same-origin proxy: localhost:3000/api/...),
+// so full-origin 'http://localhost:3001/api/...' never matches.
+const API_RE = '\\/api'
+const API_GLOB = '**/api'
 
 const activeProject = PROJECTS[0]!
 
@@ -66,15 +70,62 @@ test.describe('Projects archive — list page tab', () => {
     await expect(page.getByTestId('toggle-archived-projects')).toBeVisible()
   })
 
+  // AC1: ADMIN sees the full status tabs row (Все | Активные | Архив).
+  test('ADMIN sees full status tabs row on projects list', async ({ asAdmin: page }) => {
+    await page.goto('/crm/projects')
+    await expect(page.getByTestId('projects-status-tabs')).toBeVisible()
+  })
+
   test('non-ADMIN does not see «Архив» tab on projects list', async ({ asHr: page }) => {
     await page.goto('/crm/projects')
     await expect(page.getByTestId('toggle-archived-projects')).not.toBeVisible()
   })
 
+  // AC2: non-ADMIN sees no tabs row at all (not just the «Архив» tab).
+  test('non-ADMIN does not see any status tabs row (SENIOR)', async ({ asSenior: page }) => {
+    await page.goto('/crm/projects')
+    await expect(page.getByTestId('projects-status-tabs')).not.toBeVisible()
+  })
+
+  // AC3: non-ADMIN with ?archived=true URL — tabs absent, no archived projects shown.
+  // The page silently falls back to active-only list regardless of URL param.
+  test('non-ADMIN with ?archived=true URL sees active-only list, no tabs (SENIOR)', async ({
+    asSenior: page,
+  }) => {
+    // Mock: active project in default list, archived project only when ?archived=true
+    await page.route(new RegExp(`${API_RE}/projects(\\?.*)?$`), (r) => {
+      const url = r.request().url()
+      const isArchiveQuery = url.includes('archived=true') || url.includes('archived=all')
+      if (isArchiveQuery) {
+        // archived API response — should NOT be shown to non-ADMIN
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([{ ...activeProject, archivedAt: '2026-01-01T00:00:00.000Z' }]),
+        })
+      }
+      // active list
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([activeProject]),
+      })
+    })
+
+    await page.goto('/crm/projects?archived=true')
+
+    // Tabs row must not be visible
+    await expect(page.getByTestId('projects-status-tabs')).not.toBeVisible()
+    // Active project is shown (from active-only API call)
+    await expect(page.getByText(activeProject.name)).toBeVisible()
+    // Subtitle shows «Активные проекты», not «Активные и завершённые»
+    await expect(page.getByText('Активные проекты')).toBeVisible()
+  })
+
   test('archived project card has data-archived=true and no inline restore button (ut-38)', async ({
     asAdmin: page,
   }) => {
-    await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/projects(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -101,7 +152,7 @@ test.describe('Projects archive — list page tab', () => {
       ...archivedProject,
       effectiveTeam: projectWithEffectiveTeam.effectiveTeam,
     }
-    await page.route(`${API}/projects/${archivedProject.id}`, (r) =>
+    await page.route(`${API_GLOB}/projects/${archivedProject.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(archived) }),
     )
     const unarchived = page.waitForRequest(
@@ -109,7 +160,7 @@ test.describe('Projects archive — list page tab', () => {
         req.url().endsWith(`/projects/${archivedProject.id}/unarchive`) && req.method() === 'POST',
       { timeout: 5000 },
     )
-    await page.route(`${API}/projects/${archivedProject.id}/unarchive`, (r) =>
+    await page.route(`${API_GLOB}/projects/${archivedProject.id}/unarchive`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
     )
 
@@ -129,12 +180,12 @@ test.describe('Projects archive — list page tab', () => {
       ...archivedProject,
       effectiveTeam: projectWithEffectiveTeam.effectiveTeam,
     }
-    await page.route(`${API}/projects/${archivedProject.id}`, (r) =>
+    await page.route(`${API_GLOB}/projects/${archivedProject.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(archived) }),
     )
     // First call returns 409 with cascade required
     let called = 0
-    await page.route(`${API}/projects/${archivedProject.id}/unarchive`, (r) => {
+    await page.route(`${API_GLOB}/projects/${archivedProject.id}/unarchive`, (r) => {
       called++
       r.fulfill({
         status: 409,
@@ -149,8 +200,9 @@ test.describe('Projects archive — list page tab', () => {
       })
     })
     // Cascade=true call
-    await page.route(`${API}/projects/${archivedProject.id}/unarchive?cascade=true`, (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
+    await page.route(
+      new RegExp(`${API_RE}/projects/${archivedProject.id}/unarchive\\?cascade=true$`),
+      (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
     )
 
     await page.goto(`/crm/projects/${archivedProject.id}`)
@@ -171,7 +223,7 @@ test.describe('Project detail page — header actions + tabs', () => {
   // ut-28: project detail page header now uses explicit Edit + Archive buttons
   // (replaces former «Действия» dropdown / AdminActionsMenu).
   test('ADMIN sees explicit Archive button on project detail', async ({ asAdmin: page }) => {
-    await page.route(`${API}/projects/${activeProject.id}`, (r) =>
+    await page.route(`${API_GLOB}/projects/${activeProject.id}`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -183,7 +235,7 @@ test.describe('Project detail page — header actions + tabs', () => {
   })
 
   test('non-ADMIN does not see Archive button on project detail', async ({ asHr: page }) => {
-    await page.route(`${API}/projects/${activeProject.id}`, (r) =>
+    await page.route(`${API_GLOB}/projects/${activeProject.id}`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -197,7 +249,7 @@ test.describe('Project detail page — header actions + tabs', () => {
   test('project detail shows tabs (Обзор, Состав, Финансы) for ADMIN', async ({
     asAdmin: page,
   }) => {
-    await page.route(`${API}/projects/${activeProject.id}`, (r) =>
+    await page.route(`${API_GLOB}/projects/${activeProject.id}`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -213,7 +265,7 @@ test.describe('Project detail page — header actions + tabs', () => {
   test('Состав tab renders effective team from project.effectiveTeam', async ({
     asAdmin: page,
   }) => {
-    await page.route(`${API}/projects/${activeProject.id}`, (r) =>
+    await page.route(`${API_GLOB}/projects/${activeProject.id}`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -263,7 +315,7 @@ test.describe('Project detail page — header actions + tabs', () => {
         juniors: [],
       },
     }
-    await page.route(`${API}/projects/${activeProject.id}`, (r) =>
+    await page.route(`${API_GLOB}/projects/${activeProject.id}`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -288,7 +340,7 @@ test.describe('Project detail page — header actions + tabs', () => {
       ...archivedProject,
       effectiveTeam: projectWithEffectiveTeam.effectiveTeam,
     }
-    await page.route(`${API}/projects/${archivedProject.id}`, (r) =>
+    await page.route(`${API_GLOB}/projects/${archivedProject.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(archived) }),
     )
 
