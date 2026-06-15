@@ -27,6 +27,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { StickyPageHeader } from '@/components/crm/StickyPageHeader'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import {
@@ -422,15 +423,14 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-0">
       {pendingCount > 0 ? (
         // Amber banner — invites the viewer to switch to the INVOICE tab and
         // sign the documents that are still missing the COUNTERPARTY
-        // signature. We don't auto-redirect; clicking «Перейти» just narrows
-        // the category filter (so the URL stays shareable and the user
-        // doesn't lose their place).
+        // signature. Intentionally NOT in the sticky header so it scrolls
+        // away once the user has seen it and navigated to the INVOICE filter.
         <div
-          className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 p-4"
+          className="mx-0 mt-0 flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 p-4"
           data-testid="documents-pending-signature-banner"
         >
           <div className="flex items-center gap-3">
@@ -448,35 +448,36 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
         </div>
       ) : null}
 
-      <DocumentsHeader viewer={viewer} categoryFilter={categoryFilter} users={users} />
+      <StickyPageHeader>
+        <DocumentsHeader viewer={viewer} categoryFilter={categoryFilter} users={users} />
 
-      {/* Tri-state status filter — ADMIN-only (UT finding 2026-06-14).
-          Non-admin roles (SENIOR/JUNIOR/HR/ACCOUNTANT/DROP) only ever see
-          their active documents; statusTab stays at 'ACTIVE' (default) and
-          the toggle is hidden entirely so the layout stays clean. */}
-      {isAdmin && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.28, delay: 0.05 }}
-          className="flex items-center"
-        >
-          <SegmentedToggle<StatusTab>
-            value={statusTab}
-            onChange={setStatusTab}
-            options={statusOptions}
-            ariaLabel="Фильтр документов"
-            variant="tabs"
-            size="sm"
-            layoutId="documents-status-tabs"
-            className="w-fit"
-            testId="documents-status-tabs"
-          />
-        </motion.div>
-      )}
+        {/* Tri-state status filter — ADMIN-only (UT finding 2026-06-14).
+            Non-admin roles (SENIOR/JUNIOR/HR/ACCOUNTANT/DROP) only ever see
+            their active documents; statusTab stays at 'ACTIVE' (default) and
+            the toggle is hidden entirely so the layout stays clean. */}
+        {isAdmin && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.28, delay: 0.05 }}
+            className="flex items-center"
+          >
+            <SegmentedToggle<StatusTab>
+              value={statusTab}
+              onChange={setStatusTab}
+              options={statusOptions}
+              ariaLabel="Фильтр документов"
+              variant="tabs"
+              size="sm"
+              layoutId="documents-status-tabs"
+              className="w-fit"
+              testId="documents-status-tabs"
+            />
+          </motion.div>
+        )}
 
-      {/* Unified toolbar — canonical Card pattern matching /crm/projects */}
-      <Card>
+        {/* Unified toolbar — canonical Card pattern matching /crm/projects */}
+        <Card>
         <CardContent className="flex flex-wrap items-center gap-3 pt-4 pb-4">
           {/* Search */}
           <div className="relative flex-1 min-w-50">
@@ -586,8 +587,10 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
             </button>
           </div>
         </CardContent>
-      </Card>
+        </Card>
+      </StickyPageHeader>
 
+      <div className="pt-4 space-y-6">
       <DocumentsListSection
         viewer={viewer}
         categoryFilter={categoryFilter}
@@ -618,6 +621,7 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
       />
       {/* uploadedByDisplayName comes embedded in each doc DTO (API LEFT JOIN),
           so no /api/users round-trip is needed here. */}
+      </div>
     </div>
   )
 }
