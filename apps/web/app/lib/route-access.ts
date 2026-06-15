@@ -17,6 +17,15 @@ export type Role = SessionUser['role']
 const ALL_ROLES: readonly Role[] = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
 
 /**
+ * Роли, видящие nav-пункт «Дашборд» (ведёт на корень `/crm`).
+ *
+ * Это НЕ запись route-access: сам `/crm` — fail-open (доступен всем, см. ROUTE_ACCESS),
+ * а вот пункт меню скрыт для JUNIOR (у них свой хаб «Мой проект»). Набор повторяет
+ * роли удалённого роута `/crm/dashboard`. Источник истины для NAV_ITEMS «Дашборд».
+ */
+export const DASHBOARD_NAV_ROLES: readonly Role[] = ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'DROP']
+
+/**
  * Карта: префикс CRM-роута → роли, которым доступен этот раздел.
  *
  * Порядок важен: `resolveRouteAccess` берёт САМЫЙ ДЛИННЫЙ совпавший префикс
@@ -32,12 +41,17 @@ const ROUTE_ACCESS: ReadonlyArray<{ prefix: string; roles: readonly Role[] }> = 
   { prefix: '/crm/project', roles: ['JUNIOR'] },
   { prefix: '/crm/legend', roles: ['JUNIOR'] },
 
-  // DROP hub redirect (старый URL — редирект на /crm/dashboard) — только DROP.
+  // DROP hub redirect (старый URL — редирект на /crm) — только DROP.
   { prefix: '/crm/routing', roles: ['DROP'] },
 
-  // Дашборд — все, кроме JUNIOR (у них свой хаб /crm/project).
-  // DROP включён: /crm/dashboard рендерит роль-зависимый контент (платёжный хаб для DROP).
-  { prefix: '/crm/dashboard', roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'DROP'] },
+  // Дашборд консолидирован на корень `/crm` (index.tsx): он рендерит роль-зависимый
+  // контент (DROP → платёжный хаб, ACCOUNTANT → финхаб, HR → рекрутинг-хаб, ADMIN/
+  // SENIOR → дженерик). `/crm` НЕ заводится записью в карте намеренно: корень — это
+  // fail-open служебный путь (как /crm/login), доступен ВСЕМ аутентифицированным
+  // ролям включая DROP (AC5). JUNIOR на `/crm` редиректится index.tsx → /crm/project.
+  // Видимость nav-пункта «Дашборд» задаётся отдельной константой DASHBOARD_NAV_ROLES
+  // (роли != route-access: nav скрыт для JUNIOR, но сам /crm для JUNIOR не 403).
+  // Отдельного роута `/crm/dashboard` больше нет — запись удалена.
 
   // Пользователи — только ADMIN.
   { prefix: '/crm/users', roles: ['ADMIN'] },
@@ -76,16 +90,15 @@ const ROUTE_ACCESS: ReadonlyArray<{ prefix: string; roles: readonly Role[] }> = 
 
 /**
  * Дом роли — куда редиректим, если роль попала на запрещённый роут.
- * JUNIOR → хаб «Мой проект»; DROP → профиль; остальные → дашборд.
+ * JUNIOR → хаб «Мой проект»; все остальные роли (вкл. DROP/ACCOUNTANT/HR) → корень
+ * `/crm`, который рендерит роль-зависимый дашборд (консолидация роутинга).
  */
 export function resolveRoleHome(role: Role): string {
   switch (role) {
     case 'JUNIOR':
       return '/crm/project'
-    case 'DROP':
-      return '/crm/dashboard'
     default:
-      return '/crm/dashboard'
+      return '/crm'
   }
 }
 

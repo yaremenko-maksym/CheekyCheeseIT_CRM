@@ -216,7 +216,7 @@ function CrmLayout() {
             >
               <Menu />
             </Button>
-            <Link to="/crm/dashboard" className="flex items-center gap-2">
+            <Link to="/crm" className="flex items-center gap-2">
               <BrandMark className="h-7 w-7 text-primary" />
               <span className="font-semibold tracking-tight">CheekyCheeseIT</span>
             </Link>

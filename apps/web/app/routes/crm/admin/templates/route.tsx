@@ -12,7 +12,7 @@ function AdminTemplatesRoot() {
   const { user, isLoading } = useAuth()
   const navigate = useNavigate()
 
-  // RBAC: non-ADMIN → redirect to dashboard + toast
+  // RBAC: non-ADMIN → redirect to dashboard (/crm) + toast
   useEffect(() => {
     if (isLoading) return
     if (!user) {
@@ -21,7 +21,7 @@ function AdminTemplatesRoot() {
     }
     if (user.role !== 'ADMIN') {
       toast.error('Доступ только для ADMIN')
-      void navigate({ to: '/crm/dashboard' })
+      void navigate({ to: '/crm' })
     }
   }, [user, isLoading, navigate])
 

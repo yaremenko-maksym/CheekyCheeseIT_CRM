@@ -8,7 +8,7 @@
  * income row.
  *
  * RBAC: DROP can only act on their OWN income; ACCOUNTANT/ADMIN can access
- * any. Other roles are redirected to /crm/dashboard.
+ * any. Other roles are redirected to /crm.
  */
 import { useEffect, useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
@@ -75,7 +75,7 @@ function InitiatePaymentPage() {
     const isOwner = income.recipientId === user.id || income.receiverId === user.id
     const isPrivileged = user.role === 'ADMIN' || user.role === 'ACCOUNTANT'
     if (!isPrivileged && !(user.role === 'DROP' && isOwner)) {
-      void navigate({ to: '/crm/dashboard' })
+      void navigate({ to: '/crm' })
     }
   }, [user, income, navigate])
 

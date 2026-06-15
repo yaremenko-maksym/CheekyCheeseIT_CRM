@@ -106,7 +106,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
   const shouldRedirectDrop = mode === 'view' && isDropViewer && is403 === true
   useEffect(() => {
     if (shouldRedirectDrop) {
-      void navigate({ to: '/crm/dashboard', replace: true })
+      void navigate({ to: '/crm', replace: true })
     }
   }, [shouldRedirectDrop, navigate])
 

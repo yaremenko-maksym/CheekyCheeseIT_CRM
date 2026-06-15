@@ -17,7 +17,7 @@ import {
 import type { SessionUser } from '@crm/shared'
 import type { FileRouteTypes } from '@/routeTree.gen'
 import { cn } from '@/lib/utils'
-import { navRolesFor } from '@/lib/route-access'
+import { DASHBOARD_NAV_ROLES, navRolesFor } from '@/lib/route-access'
 import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -38,8 +38,8 @@ interface NavItem {
 // Drop role - phase 1: DROP sees only Profile / Team / Finance (spec §4).
 // No Dashboard, no Projects, no Interviews, no Documents. Existing role
 // visibilities for ADMIN / SENIOR / HR / ACCOUNTANT are unchanged.
-// Drop role - phase 3 (UT fix): DROP «Дашборд» консолидирован на /crm/dashboard.
-//   Хаб роутинга рендерится роль-зависимо в dashboard.tsx (DROP → DropDashboard).
+// Drop role - phase 3 (UT fix): DROP «Дашборд» консолидирован на корень /crm.
+//   Хаб роутинга рендерится роль-зависимо в index.tsx (DROP → DropDashboard).
 //   Отдельный пункт /crm/routing для DROP удалён — теперь единый «Дашборд».
 // JUNIOR UX phase 2: JUNIOR gets a dedicated 5-item nav (spec §4.3):
 //   1. Мой проект · 2. Легенда · 3. Финансы · 4. Документы · 5. Профиль.
@@ -58,8 +58,8 @@ const NAV_ITEMS: NavItem[] = [
     // (ADMIN/SENIOR/HR/ACCOUNTANT используют LayoutDashboard).
     label: 'Дашборд',
     icon: LayoutDashboard,
-    to: '/crm/dashboard',
-    roles: navRolesFor('/crm/dashboard'),
+    to: '/crm',
+    roles: DASHBOARD_NAV_ROLES,
   },
   { label: 'Пользователи', icon: Users, to: '/crm/users', roles: navRolesFor('/crm/users') },
   { label: 'Команда', icon: UsersRound, to: '/crm/team', roles: navRolesFor('/crm/team') },
