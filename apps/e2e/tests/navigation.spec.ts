@@ -21,7 +21,8 @@ import { test, expect } from './fixtures'
 const PROFILE_HEADING_REGEX = /(Admin User|Senior Dev|Junior Dev|HR Manager|Accountant User)/
 
 const COMMON_ROUTES: { label: string; href: string; heading: RegExp }[] = [
-  { label: 'Дашборд', href: '/crm/dashboard', heading: /дашборд/i },
+  // Dashboard consolidated to /crm root (was /crm/dashboard). Nav «Дашборд» → /crm.
+  { label: 'Дашборд', href: '/crm', heading: /дашборд/i },
   { label: 'Профиль', href: '/crm/profile', heading: PROFILE_HEADING_REGEX },
   { label: 'Команда', href: '/crm/team', heading: /команд/i },
   { label: 'Проекты', href: '/crm/projects', heading: /проект/i },
@@ -42,6 +43,15 @@ async function assertStayedInCrm(page: import('@playwright/test').Page, route: s
   expect(url, `URL should contain the target path`).toContain(route.replace('/crm/', ''))
 }
 
+/**
+ * Click a sidebar nav link by href, scoped to the desktop `<aside>` sidebar so it
+ * never collides with the header logo link (which is also `<a href="/crm">` after
+ * the dashboard→/crm consolidation). Strict-mode safe.
+ */
+function clickSidebarLink(page: import('@playwright/test').Page, href: string) {
+  return page.locator(`aside a[href="${href}"]`).first().click()
+}
+
 // ---------------------------------------------------------------------------
 // ADMIN sidebar navigation
 // ---------------------------------------------------------------------------
@@ -50,10 +60,10 @@ test.describe('ADMIN sidebar navigation', () => {
   for (const route of COMMON_ROUTES) {
     test(`sidebar → ${route.label} stays in CRM`, async ({ asAdmin: page }) => {
       // Start from dashboard so we test SPA navigation, not direct URL load
-      await page.goto('/crm/dashboard')
+      await page.goto('/crm')
       await page.waitForLoadState('networkidle')
 
-      await page.click(`a[href="${route.href}"]`)
+      await clickSidebarLink(page, route.href)
       await page.waitForURL(`**${route.href}**`, { timeout: 8_000 })
       await page.waitForLoadState('networkidle')
 
@@ -65,10 +75,10 @@ test.describe('ADMIN sidebar navigation', () => {
   }
 
   test('sidebar → Собеседования stays in CRM', async ({ asAdmin: page }) => {
-    await page.goto('/crm/dashboard')
+    await page.goto('/crm')
     await page.waitForLoadState('networkidle')
 
-    await page.click('a[href="/crm/interviews"]')
+    await clickSidebarLink(page, '/crm/interviews')
     await page.waitForURL('**/crm/interviews**', { timeout: 8_000 })
     await page.waitForLoadState('networkidle')
 
@@ -79,7 +89,7 @@ test.describe('ADMIN sidebar navigation', () => {
   // ADMIN round-trip: skip interviews since sidebar link requires auth context to load
   test('full round-trip through all sidebar links without logout', async ({ asAdmin: page }) => {
     const allRoutes = [
-      '/crm/dashboard',
+      '/crm',
       '/crm/team',
       '/crm/projects',
       '/crm/finance',
@@ -88,13 +98,13 @@ test.describe('ADMIN sidebar navigation', () => {
       '/crm/interviews',
     ]
 
-    await page.goto('/crm/dashboard')
+    await page.goto('/crm')
     await page.waitForLoadState('networkidle')
 
     for (const href of allRoutes) {
       // Interviews link is only in sidebar for ADMIN/SENIOR/HR — wait for it
-      await page.waitForSelector(`a[href="${href}"]`, { timeout: 10_000 })
-      await page.click(`a[href="${href}"]`)
+      await page.locator(`aside a[href="${href}"]`).first().waitFor({ timeout: 10_000 })
+      await clickSidebarLink(page, href)
       await page.waitForURL(`**${href}**`, { timeout: 10_000 })
       // Wait for SPA to settle before checking next link exists
       await page.waitForLoadState('domcontentloaded')
@@ -119,10 +129,10 @@ test.describe('SENIOR sidebar navigation', () => {
 
   for (const route of seniorRoutes) {
     test(`sidebar → ${route.label} stays in CRM`, async ({ asSenior: page }) => {
-      await page.goto('/crm/dashboard')
+      await page.goto('/crm')
       await page.waitForLoadState('networkidle')
 
-      await page.click(`a[href="${route.href}"]`)
+      await clickSidebarLink(page, route.href)
 
       // Handle team redirect for SENIOR (single team → detail page)
       if (route.href === '/crm/team') {
@@ -153,10 +163,10 @@ test.describe('HR sidebar navigation', () => {
 
   for (const route of hrRoutes) {
     test(`sidebar → ${route.label} stays in CRM`, async ({ asHr: page }) => {
-      await page.goto('/crm/dashboard')
+      await page.goto('/crm')
       await page.waitForLoadState('networkidle')
 
-      await page.click(`a[href="${route.href}"]`)
+      await clickSidebarLink(page, route.href)
       await page.waitForURL(`**${route.href}**`, { timeout: 8_000 })
       await page.waitForLoadState('networkidle')
 
@@ -188,7 +198,7 @@ test.describe('JUNIOR sidebar navigation', () => {
       await page.goto('/crm/project')
       await page.waitForLoadState('networkidle')
 
-      await page.click(`a[href="${route.href}"]`)
+      await clickSidebarLink(page, route.href)
       await page.waitForURL(`**${route.href}**`, { timeout: 8_000 })
       await page.waitForLoadState('networkidle')
 
@@ -251,8 +261,8 @@ test.describe('Regression: interviews navigation bug', () => {
       errors.push(msg.text())
     })
 
-    await page.goto('/crm/dashboard')
-    await page.click('a[href="/crm/interviews"]')
+    await page.goto('/crm')
+    await clickSidebarLink(page, '/crm/interviews')
     await page.waitForURL('**/crm/interviews**', { timeout: 8_000 })
     await page.waitForLoadState('networkidle')
 
@@ -264,12 +274,12 @@ test.describe('Regression: interviews navigation bug', () => {
     await page.waitForLoadState('domcontentloaded')
 
     await page.waitForSelector('a[href="/crm/finance"]', { timeout: 10_000 })
-    await page.click('a[href="/crm/finance"]')
+    await clickSidebarLink(page, '/crm/finance')
     await page.waitForURL('**/crm/finance**', { timeout: 10_000 })
     await page.waitForLoadState('domcontentloaded')
 
     await page.waitForSelector('a[href="/crm/interviews"]', { timeout: 10_000 })
-    await page.click('a[href="/crm/interviews"]')
+    await clickSidebarLink(page, '/crm/interviews')
     await page.waitForURL('**/crm/interviews**', { timeout: 10_000 })
 
     await expect(page).toHaveURL(/\/crm\/interviews/)
@@ -283,7 +293,7 @@ test.describe('Regression: interviews navigation bug', () => {
 
 test.describe('Unauthenticated redirect', () => {
   const ALL_CRM_ROUTES = [
-    '/crm/dashboard',
+    '/crm',
     '/crm/team',
     '/crm/projects',
     '/crm/finance',
