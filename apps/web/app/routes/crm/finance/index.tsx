@@ -514,13 +514,6 @@ function FinancePage() {
 
   const canCreate = isAdmin || isSenior || isDrop
 
-  // AC2 / AC3: validatable pending-транзакции — SENIOR_INCOME и DROP_INCOME со
-  // статусом PENDING. Это те же строки, что считает дашборд «ожидают валидации».
-  // Используются для очереди в ValidateDialog.
-  const validateQueue = transactions.filter(
-    (t) => (t.type === 'SENIOR_INCOME' || t.type === 'DROP_INCOME') && t.status === 'PENDING',
-  )
-
   // DROP has its own self-scoped API endpoints (drop-incomes / drop-payments)
   // rendered via DropFinancePage below. Disabling the privileged /transactions
   // query for DROP avoids an unnecessary request with a different data shape.
@@ -539,6 +532,13 @@ function FinancePage() {
   // Payout-requests query is not needed here — the SENIOR initiates a payout
   // by clicking «Выплатить» on a VALIDATED row, which opens PayoutDialog.
   // PAYOUT rows (after creation) are surfaced in the main transactions table.
+
+  // AC2 / AC3: validatable pending-транзакции — SENIOR_INCOME и DROP_INCOME со
+  // статусом PENDING. Это те же строки, что считает дашборд «ожидают валидации».
+  // Используются для очереди в ValidateDialog.
+  const validateQueue = transactions.filter(
+    (t) => (t.type === 'SENIOR_INCOME' || t.type === 'DROP_INCOME') && t.status === 'PENDING',
+  )
 
   // VALIDATED SENIOR_INCOME rows available for batching into a new payout.
   // Used by PayoutDialog to populate the multi-select list.
