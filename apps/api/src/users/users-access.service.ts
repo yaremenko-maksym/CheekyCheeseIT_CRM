@@ -94,10 +94,18 @@ export class UsersAccessService {
         //   - 'documents'→ already a dedicated /crm/documents page (like JUNIOR page-not-tab).
         //   - 'projects' → routing hub (/crm/routing) is the canonical surface.
         tabs.push('overview', 'requisites')
+      } else if (isAccountant) {
+        // task-accountant-self-view-tabs: ACCOUNTANT self-view is an explicit
+        // allow-list — overview + requisites + finance ONLY.
+        // projects/team/documents are not relevant to the accountant's own
+        // day-to-day self-service (financial routing, requisites) and would
+        // expose team/project internals with no business value on a self-view.
+        // SENIOR-self and HR-self keep the full surface unchanged.
+        tabs.push('overview', 'requisites', 'finance')
       } else {
         tabs.push('overview', 'projects', 'team', 'requisites', 'documents')
-        // SENIOR, HR, ACCOUNTANT: finance access
-        if (isSenior || isHr || isAccountant) tabs.push('finance')
+        // SENIOR, HR: finance access (ACCOUNTANT self handled above)
+        if (isSenior || isHr) tabs.push('finance')
       }
       // SENIOR: interviews moved to header link; no separate tab here
       fields.salary = targetIsSalaryRole
