@@ -83,8 +83,15 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // dialog (mirrors SENIOR_INCOME from the senior path). Other roles never
   // reach this dialog (FinancePage guards them out).
   const isDrop = user?.role === 'DROP'
+  // task-accountant-create-transaction. ACCOUNTANT gets the SAME create set as
+  // ADMIN (income/expense/salary/transfer). Throughout this dialog the
+  // admin-only branches are widened to `isAdminSet` so the accountant renders
+  // an identical type list, project pool, user pool and transfer UI. The
+  // backend enforces the matching RBAC parity (ADMIN || ACCOUNTANT) per method.
+  const isAccountant = user?.role === 'ACCOUNTANT'
+  const isAdminSet = isAdmin || isAccountant
 
-  const availableTypes: TransactionType[] = isAdmin
+  const availableTypes: TransactionType[] = isAdminSet
     ? ['ADMIN_INCOME', 'EXPENSE', 'SALARY', 'ADMIN_TRANSFER']
     : isSenior
       ? ['SENIOR_INCOME']
@@ -130,13 +137,13 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   const { data: projects = [] } = useQuery<ProjectOption[]>({
     queryKey: ['projects'],
     queryFn: () => api.get<ProjectOption[]>('/projects').then((r) => r.data),
-    enabled: open && (isAdmin || isSenior || isDrop),
+    enabled: open && (isAdmin || isSenior || isDrop || isAccountant),
   })
 
   const { data: allUsers = [] } = useQuery<UserOption[]>({
     queryKey: ['users-all'],
     queryFn: () => api.get<UserOption[]>('/users').then((r) => r.data),
-    enabled: open && isAdmin,
+    enabled: open && isAdminSet,
   })
 
   // Fetch NBU rates when non-USD/USDT currency selected, keyed by date
@@ -151,17 +158,33 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   })
 
   const myProjects = isSenior ? projects.filter((p) => p.seniorId === user?.id) : projects
-  const adminProjects = isAdmin ? projects.filter((p) => p.seniorId === user?.id) : []
+  const adminUsers = allUsers.filter((u) => u.role === 'ADMIN')
+  const adminUserIds = new Set(adminUsers.map((u) => u.id))
+  // ADMIN_INCOME pool. ADMIN sees income for projects they own (seniorId===self).
+  // ACCOUNTANT registers income on ANY admin-owned project on behalf of that
+  // admin owner — backend credits `receiverId = project.seniorId`, so the pool
+  // is every project whose senior is an ADMIN (keeps the «доход админ-проекта»
+  // semantics; never the accountant's own income).
+  const adminProjects = isAdmin
+    ? projects.filter((p) => p.seniorId === user?.id)
+    : isAccountant
+      ? projects.filter((p) => adminUserIds.has(p.seniorId))
+      : []
   // Drop role - phase 2. DROP user can only declare income on drop-projects
   // routed through them. Backend enforces this too — UI mirrors the rule.
   const dropProjects = isDrop ? projects.filter((p) => p.dropId === user?.id) : []
   const salaryTargets = allUsers.filter((u) => ['JUNIOR', 'HR', 'ACCOUNTANT'].includes(u.role))
-  const adminUsers = allUsers.filter((u) => u.role === 'ADMIN')
-  const adminTargets = adminUsers.filter((u) => u.id !== user?.id)
+  // ADMIN_TRANSFER parties must BOTH be ADMIN. The accountant is never a
+  // transfer party, so the sender/receiver pools are the same admin list for
+  // both roles; for ADMIN we still exclude self from the receiver pool.
+  const adminTargets = isAdmin ? adminUsers.filter((u) => u.id !== user?.id) : adminUsers
 
-  // Init transferSenderId to self when admins load
-  const effectiveTransferSenderId = transferSenderId || user?.id || ''
-  const transferReceiverId = receiverId || adminTargets[0]?.id || ''
+  // Default the transfer sender to self for ADMIN; for ACCOUNTANT (not a party)
+  // default to the first admin so the transfer always has two ADMIN endpoints.
+  const defaultTransferSenderId = isAdmin ? (user?.id ?? '') : (adminUsers[0]?.id ?? '')
+  const effectiveTransferSenderId = transferSenderId || defaultTransferSenderId
+  const transferReceiverId =
+    receiverId || adminTargets.find((u) => u.id !== effectiveTransferSenderId)?.id || ''
   const transferSender = adminUsers.find((u) => u.id === effectiveTransferSenderId)
   const transferReceiver = adminUsers.find((u) => u.id === transferReceiverId)
 

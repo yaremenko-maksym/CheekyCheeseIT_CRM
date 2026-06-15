@@ -454,6 +454,10 @@ function FinancePage() {
   const isSenior = role === 'SENIOR'
   const isJunior = role === 'JUNIOR'
   const isHr = role === 'HR'
+  // task-accountant-create-transaction. ACCOUNTANT may create transactions with
+  // the SAME set as ADMIN (income/expense/salary/transfer) — see business doc
+  // finance.md: «ACCOUNTANT — Все транзакции, валидация, расходы, выплаты».
+  const isAccountant = role === 'ACCOUNTANT'
   // Drop role - phase 2. DROP user reaches the normal finance table and
   // can register new income via «Новая транзакция» (which renders the
   // DROP_INCOME card from CreateTransactionDialog).
@@ -512,7 +516,7 @@ function FinancePage() {
     },
   })
 
-  const canCreate = isAdmin || isSenior || isDrop
+  const canCreate = isAdmin || isSenior || isDrop || isAccountant
 
   // DROP has its own self-scoped API endpoints (drop-incomes / drop-payments)
   // rendered via DropFinancePage below. Disabling the privileged /transactions
