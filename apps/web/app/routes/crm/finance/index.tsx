@@ -57,13 +57,11 @@ import { PayoutDetailDialog } from './components/dialogs/PayoutDetailDialog'
 import { TransactionDetailDialog } from './components/dialogs/TransactionDetailDialog'
 import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransactionDialog'
 import { MyProjectShares } from './components/MyProjectShares'
-import { DropBalanceCard } from './components/KpiCards'
 import { DropFinancePage } from './components/DropFinancePage'
 import { PendingSettlementSeniorCard } from './components/PendingSettlementSeniorCard'
 import { PendingSettlementCompanyCard } from './components/PendingSettlementCompanyCard'
 import { LogCashPaymentDialog } from './components/dialogs/LogCashPaymentDialog'
 import { ConfirmPayoutDialog } from '@/components/finance/ConfirmPayoutDialog'
-import type { FinanceSummaryDto } from '@crm/shared'
 
 /**
  * Deep-link search params for /crm/finance.
@@ -531,19 +529,16 @@ function FinancePage() {
     staleTime: 1000 * 60 * 60,
   })
 
-  // Drop role - phase 2. ADMIN / ACCOUNTANT see the global «Балансы дропов»
-  // panel rolled up across all DROP users. Hidden for other roles (returns
-  // null when the array is empty too, so a zero-drop deployment shows nothing).
-  const { data: summary } = useQuery<FinanceSummaryDto>({
-    queryKey: ['finance-summary'],
-    queryFn: () => financeApi.getSummary(),
-    enabled: isAdmin || role === 'ACCOUNTANT',
-    staleTime: 30_000,
-  })
-
   // Payout-requests query is not needed here — the SENIOR initiates a payout
   // by clicking «Выплатить» on a VALIDATED row, which opens PayoutDialog.
   // PAYOUT rows (after creation) are surfaced in the main transactions table.
+
+  // AC2 / AC3: validatable pending-транзакции — SENIOR_INCOME и DROP_INCOME со
+  // статусом PENDING. Это те же строки, что считает дашборд «ожидают валидации».
+  // Используются для очереди в ValidateDialog.
+  const validateQueue = transactions.filter(
+    (t) => (t.type === 'SENIOR_INCOME' || t.type === 'DROP_INCOME') && t.status === 'PENDING',
+  )
 
   // VALIDATED SENIOR_INCOME rows available for batching into a new payout.
   // Used by PayoutDialog to populate the multi-select list.
@@ -777,10 +772,6 @@ function FinancePage() {
       {/* SENIOR — own projects + effective share % (no impact for other roles). */}
       {isSenior && <MyProjectShares />}
 
-      {/* Drop role - phase 2. ADMIN/ACCOUNTANT-only «Балансы дропов» panel.
-          Auto-hidden when no drop balances exist (empty array). */}
-      {summary && <DropBalanceCard summary={summary} />}
-
       {/* task-drop-company-debt-and-invoices. Senior IOUs and the
           ADMIN/ACCOUNTANT-only "Долги компании перед синьорами" card.
           DROP no longer holds senior debts — the DropCard was removed. */}
@@ -813,7 +804,12 @@ function FinancePage() {
 
       {/* Dialogs */}
       <CreateTransactionDialog open={showCreate} onClose={() => setShowCreate(false)} />
-      <ValidateDialog tx={validateTx} onClose={() => setValidateTx(null)} />
+      <ValidateDialog
+        tx={validateTx}
+        queue={validateQueue}
+        onClose={() => setValidateTx(null)}
+        onAdvance={(nextTx) => setValidateTx(nextTx)}
+      />
       <EditSeniorIncomeDialog tx={editTx} onClose={() => setEditTx(null)} />
       <AdminEditTransactionDialog tx={adminEditTx} onClose={() => setAdminEditTx(null)} />
       <PaySalaryDialog tx={paySalaryTx} onClose={() => setPaySalaryTx(null)} />

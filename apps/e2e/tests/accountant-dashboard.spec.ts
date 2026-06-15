@@ -65,12 +65,57 @@ test.describe('B. ACCOUNTANT hub — KPI cards', () => {
   })
 })
 
-// ── C. CTA navigation ────────────────────────────────────────────────────────
+// ── C. CTA opens ValidateDialog queue (AC3) ──────────────────────────────────
 
 test.describe('C. ACCOUNTANT hub — validate CTA', () => {
-  test('CTA shows the pending count and navigates to /crm/finance?status=PENDING', async ({
+  test('CTA shows the pending count and opens ValidateDialog queue (AC3)', async ({
     asAccountant: page,
   }) => {
+    // Seed a PENDING SENIOR_INCOME tx so validateQueue is non-empty when CTA is clicked.
+    // AccountantDashboard calls GET /api/transactions to build the queue.
+    await page.route(
+      new RegExp(`${API_BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/transactions(\\?.*)?$`),
+      (r) => {
+        if (r.request().method() !== 'GET') return r.fallback()
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([
+            {
+              id: 'c0000000-0000-4000-8000-000000000099',
+              type: 'SENIOR_INCOME',
+              status: 'PENDING',
+              amount: '2500',
+              currency: 'USDT',
+              senderId: null,
+              senderLabel: 'Senior B',
+              senderName: 'Senior B',
+              receiverId: null,
+              receiverLabel: null,
+              receiverName: null,
+              projectId: null,
+              projectName: 'Proj B',
+              payoutRequestId: null,
+              seniorSharePercent: null,
+              receiptDocumentId: null,
+              receiptExternalUrl: null,
+              txHash: null,
+              validatedBy: null,
+              validatedAt: null,
+              rejectionReason: null,
+              notes: null,
+              salaryMonth: null,
+              txDate: null,
+              recipientId: null,
+              createdBy: 'c0000000-0000-4000-8000-0000000000aa',
+              createdAt: '2026-06-10T10:00:00.000Z',
+              updatedAt: '2026-06-10T10:00:00.000Z',
+            },
+          ]),
+        })
+      },
+    )
+
     await page.goto('/crm/dashboard')
 
     const cta = page.getByTestId('accountant-validate-cta')
@@ -79,8 +124,10 @@ test.describe('C. ACCOUNTANT hub — validate CTA', () => {
 
     await cta.click()
 
-    // Lands on finance with the PENDING deep-link applied.
-    await expect(page).toHaveURL(/\/crm\/finance\?status=PENDING/, { timeout: 8_000 })
+    // AC3: ValidateDialog opens (modal, not navigation to /crm/finance).
+    await expect(page.getByTestId('validate-transaction-dialog')).toBeVisible({ timeout: 8_000 })
+    // Page URL stays on dashboard — no navigation happened.
+    await expect(page).toHaveURL(/\/crm\/dashboard/)
   })
 })
 
