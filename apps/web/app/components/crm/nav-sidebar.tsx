@@ -191,7 +191,7 @@ export function NavSidebar({
                 <Link
                   key={item.to}
                   to={item.to}
-                  activeOptions={item.activeOptions}
+                  {...(item.activeOptions ? { activeOptions: item.activeOptions } : {})}
                   onClick={onMobileClose}
                   className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground data-[status=active]:bg-accent data-[status=active]:text-accent-foreground data-[status=active]:border-l-2 data-[status=active]:border-primary data-[status=active]:pl-2.5"
                 >
@@ -211,7 +211,7 @@ function DesktopNavLink({ item, collapsed }: { item: NavItem; collapsed: boolean
   const link = (
     <Link
       to={item.to}
-      activeOptions={item.activeOptions}
+      {...(item.activeOptions ? { activeOptions: item.activeOptions } : {})}
       className={cn(
         'group flex items-center gap-3 rounded-md py-2 text-sm font-medium text-muted-foreground',
         'transition-colors hover:bg-accent hover:text-accent-foreground',
