@@ -121,19 +121,21 @@ describe('route-access · isRouteAllowed (other roles not broken)', () => {
     expect(isRouteAllowed('/crm/project', 'HR')).toBe(false)
   })
 
-  it('ACCOUNTANT allowed dashboard/team/projects/finance/documents, denied users/interviews/stats/junior-hub', () => {
+  it('ACCOUNTANT allowed dashboard/team/projects/finance/documents/stats, denied users/interviews/junior-hub', () => {
     for (const path of [
       '/crm/dashboard',
       '/crm/team',
       '/crm/projects',
       '/crm/finance',
       '/crm/documents',
+      // task-accountant-stats: ACCOUNTANT gets the stats section (economic part
+      // only — non-economic sub-sections are gated ADMIN-only inside stats.tsx).
+      '/crm/stats',
     ]) {
       expect(isRouteAllowed(path, 'ACCOUNTANT')).toBe(true)
     }
     expect(isRouteAllowed('/crm/users', 'ACCOUNTANT')).toBe(false)
     expect(isRouteAllowed('/crm/interviews', 'ACCOUNTANT')).toBe(false)
-    expect(isRouteAllowed('/crm/stats', 'ACCOUNTANT')).toBe(false)
     expect(isRouteAllowed('/crm/project', 'ACCOUNTANT')).toBe(false)
   })
 })
@@ -167,6 +169,16 @@ describe('route-access · navRolesFor (nav sync source-of-truth)', () => {
     expect(navRolesFor('/crm/dashboard')).toContain('ADMIN')
     expect(navRolesFor('/crm/dashboard')).toContain('DROP')
     expect(navRolesFor('/crm/dashboard')).not.toContain('JUNIOR')
+  })
+  // task-accountant-stats: «Статистика» nav item must surface for ACCOUNTANT
+  // (so the section is reachable) and ADMIN — and STAY hidden for everyone else.
+  it('/crm/stats nav roles = ADMIN + ACCOUNTANT only', () => {
+    const statsRoles = navRolesFor('/crm/stats')
+    expect(statsRoles).toContain('ADMIN')
+    expect(statsRoles).toContain('ACCOUNTANT')
+    for (const r of ['SENIOR', 'JUNIOR', 'HR', 'DROP'] as Role[]) {
+      expect(statsRoles).not.toContain(r)
+    }
   })
   it('throws for nav route missing from the map (drift guard)', () => {
     expect(() => navRolesFor('/crm/does-not-exist')).toThrow(/no access entry/)
