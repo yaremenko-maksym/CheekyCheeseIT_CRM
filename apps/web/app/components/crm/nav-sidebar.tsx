@@ -33,6 +33,8 @@ interface NavItem {
   icon: React.ElementType
   to: RouteTo
   roles: readonly Role[]
+  /** When true, link is active only on exact path match (no children routes). */
+  activeOptions?: { exact?: boolean }
 }
 
 // Drop role - phase 1: DROP sees only Profile / Team / Finance (spec §4).
@@ -56,10 +58,14 @@ const NAV_ITEMS: NavItem[] = [
     // DROP видит роль-зависимый хаб платёжного роутинга на этом же URL.
     // Route-иконка сохранена для позиционирования пункта первым для DROP
     // (ADMIN/SENIOR/HR/ACCOUNTANT используют LayoutDashboard).
+    // activeOptions.exact: true — «Дашборд» active ТОЛЬКО на /crm, не на /crm/*.
+    // Без exact TanStack Router матчит /crm как prefix для всех дочерних роутов,
+    // что приводит к двойной подсветке (Dashboard + текущий раздел).
     label: 'Дашборд',
     icon: LayoutDashboard,
     to: '/crm',
     roles: DASHBOARD_NAV_ROLES,
+    activeOptions: { exact: true },
   },
   { label: 'Пользователи', icon: Users, to: '/crm/users', roles: navRolesFor('/crm/users') },
   { label: 'Команда', icon: UsersRound, to: '/crm/team', roles: navRolesFor('/crm/team') },
@@ -185,6 +191,7 @@ export function NavSidebar({
                 <Link
                   key={item.to}
                   to={item.to}
+                  {...(item.activeOptions ? { activeOptions: item.activeOptions } : {})}
                   onClick={onMobileClose}
                   className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground data-[status=active]:bg-accent data-[status=active]:text-accent-foreground data-[status=active]:border-l-2 data-[status=active]:border-primary data-[status=active]:pl-2.5"
                 >
@@ -204,6 +211,7 @@ function DesktopNavLink({ item, collapsed }: { item: NavItem; collapsed: boolean
   const link = (
     <Link
       to={item.to}
+      {...(item.activeOptions ? { activeOptions: item.activeOptions } : {})}
       className={cn(
         'group flex items-center gap-3 rounded-md py-2 text-sm font-medium text-muted-foreground',
         'transition-colors hover:bg-accent hover:text-accent-foreground',
