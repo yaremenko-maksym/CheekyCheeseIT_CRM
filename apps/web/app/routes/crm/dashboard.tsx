@@ -6,6 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/context/auth'
 import { DropDashboard } from './routing/components/DropDashboard'
 import { AccountantDashboard } from './routing/components/AccountantDashboard'
+import { HRDashboard } from './routing/components/HRDashboard'
 
 export const Route = createFileRoute('/crm/dashboard')({
   component: DashboardPage,
@@ -43,6 +44,13 @@ function DashboardPage() {
   // GET /api/finance/accountant-summary (RBAC ACCOUNTANT+ADMIN, 403 для прочих).
   if (user?.role === 'ACCOUNTANT') {
     return <AccountantDashboard />
+  }
+
+  // HR role: рекрутинг хаб-дашборд с KPI собеседований + статусом зарплаты.
+  // /crm/dashboard уже разрешён для HR в route-access; данные KPI отдаёт
+  // GET /api/interviews/hr-summary (RBAC HR+ADMIN, 403 для прочих).
+  if (user?.role === 'HR') {
+    return <HRDashboard />
   }
 
   return (
