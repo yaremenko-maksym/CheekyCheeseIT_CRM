@@ -67,10 +67,10 @@ function OnboardingPage() {
     }
   }, [status, search.step])
 
-  // Navigate to dashboard when done
+  // Navigate to dashboard (/crm) when done
   useEffect(() => {
     if (step === 'done') {
-      void navigate({ to: '/crm/dashboard' })
+      void navigate({ to: '/crm' })
     }
   }, [step, navigate])
 

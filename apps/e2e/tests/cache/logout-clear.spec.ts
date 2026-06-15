@@ -46,7 +46,7 @@ test.describe('Logout cache clear — AC9, AC10, AC11', () => {
   async function populateCaches(page: import('@playwright/test').Page): Promise<void> {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     // Double goto: SW must be active controller so requests are intercepted.
-    await navigateWithSWReady(page, '/crm/dashboard')
+    await navigateWithSWReady(page, '/crm')
 
     // Wait until api-cache has at least one entry.
     await expect

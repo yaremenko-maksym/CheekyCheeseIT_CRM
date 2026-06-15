@@ -41,7 +41,7 @@ test.describe('SW Smoke — registration and cache creation', () => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
 
     // Navigate to the CRM — this triggers SW registration.
-    await page.goto('/crm/dashboard')
+    await page.goto('/crm')
 
     // Wait for SW to become the active controller.
     // waitForSWActive polls navigator.serviceWorker.controller !== null.
@@ -61,7 +61,7 @@ test.describe('SW Smoke — registration and cache creation', () => {
 
     // navigateWithSWReady: double goto ensures SW is active controller before
     // requests fire (see helpers.ts for full explanation).
-    await navigateWithSWReady(page, '/crm/dashboard')
+    await navigateWithSWReady(page, '/crm')
 
     // Poll until api-cache appears in caches.keys().
     await expect
@@ -83,7 +83,7 @@ test.describe('SW Smoke — registration and cache creation', () => {
   test('AC3: media-cache store is registered by the SW (exists in caches)', async ({ page }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     // Double goto for SW controller warm-up.
-    await navigateWithSWReady(page, '/crm/dashboard')
+    await navigateWithSWReady(page, '/crm')
 
     // media-cache is created lazily — only when the SW intercepts a
     // cross-origin image request (request.destination === 'image' && external
@@ -126,7 +126,7 @@ test.describe('SW Smoke — registration and cache creation', () => {
   // ── Structural: SW scope and script URL ─────────────────────────────────
   test('SW is registered with correct scope and script URL', async ({ page }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
-    await page.goto('/crm/dashboard')
+    await page.goto('/crm')
     await waitForSWActive(page)
     // Single goto is sufficient for this test (only checks registration, not cache).
 

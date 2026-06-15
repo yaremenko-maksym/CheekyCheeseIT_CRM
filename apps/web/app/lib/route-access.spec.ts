@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { Role } from './route-access'
-import { isRouteAllowed, navRolesFor, resolveRoleHome, resolveRouteAccess } from './route-access'
+import {
+  DASHBOARD_NAV_ROLES,
+  isRouteAllowed,
+  navRolesFor,
+  resolveRoleHome,
+  resolveRouteAccess,
+} from './route-access'
 
 const ALL: Role[] = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
 
@@ -8,14 +14,14 @@ describe('route-access · resolveRoleHome', () => {
   it('JUNIOR → /crm/project', () => {
     expect(resolveRoleHome('JUNIOR')).toBe('/crm/project')
   })
-  // Drop role - phase 3 (UT fix): home changed from /crm/routing to /crm/dashboard.
-  // Хаб роутинга теперь рендерится роль-зависимо на /crm/dashboard.
-  it('DROP → /crm/dashboard', () => {
-    expect(resolveRoleHome('DROP')).toBe('/crm/dashboard')
+  // Dashboard consolidation: home для всех ролей (вкл. DROP/ACCOUNTANT/HR) — корень
+  // /crm, который рендерит роль-зависимый дашборд. Отдельного /crm/dashboard больше нет.
+  it('DROP → /crm', () => {
+    expect(resolveRoleHome('DROP')).toBe('/crm')
   })
-  it('ADMIN/SENIOR/HR/ACCOUNTANT → /crm/dashboard', () => {
+  it('ADMIN/SENIOR/HR/ACCOUNTANT → /crm', () => {
     for (const r of ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'] as Role[]) {
-      expect(resolveRoleHome(r)).toBe('/crm/dashboard')
+      expect(resolveRoleHome(r)).toBe('/crm')
     }
   })
 })
@@ -30,7 +36,6 @@ describe('route-access · isRouteAllowed (JUNIOR lockdown — task §4)', () => 
     '/crm/users',
     '/crm/interviews',
     '/crm/stats',
-    '/crm/dashboard',
     '/crm/admin/templates/contracts',
   ]
   for (const path of juniorForbidden) {
@@ -64,7 +69,7 @@ describe('route-access · isRouteAllowed (other roles not broken)', () => {
       '/crm/interviews',
       '/crm/stats',
       '/crm/admin/templates/tos/new',
-      '/crm/dashboard',
+      '/crm', // consolidated dashboard root
     ]) {
       expect(isRouteAllowed(path, 'ADMIN')).toBe(true)
     }
@@ -87,11 +92,11 @@ describe('route-access · isRouteAllowed (other roles not broken)', () => {
     }
   })
 
-  it('DROP allowed dashboard/routing/team/finance/profile/documents, denied projects/interviews', () => {
-    // Drop role - phase 3: /crm/dashboard теперь включает DROP (роль-зависимый рендер).
-    // /crm/routing — deprecated редирект-роут, остаётся DROP-only.
-    // /crm/documents — DROP теперь имеет отдельную страницу документов (page-not-tab model).
-    expect(isRouteAllowed('/crm/dashboard', 'DROP')).toBe(true)
+  it('DROP allowed root/routing/team/finance/profile/documents, denied projects/interviews', () => {
+    // Dashboard consolidation: DROP home — корень /crm (fail-open, доступен всем).
+    // /crm/routing — deprecated редирект-роут (→ /crm), остаётся DROP-only.
+    // /crm/documents — DROP имеет отдельную страницу документов (page-not-tab model).
+    expect(isRouteAllowed('/crm', 'DROP')).toBe(true)
     expect(isRouteAllowed('/crm/routing', 'DROP')).toBe(true)
     expect(isRouteAllowed('/crm/team', 'DROP')).toBe(true)
     expect(isRouteAllowed('/crm/finance', 'DROP')).toBe(true)
@@ -105,9 +110,9 @@ describe('route-access · isRouteAllowed (other roles not broken)', () => {
     expect(isRouteAllowed('/crm/routing', 'JUNIOR')).toBe(false)
   })
 
-  it('HR allowed dashboard/team/projects/interviews/finance/documents, denied users/stats/junior-hub', () => {
+  it('HR allowed root/team/projects/interviews/finance/documents, denied users/stats/junior-hub', () => {
     for (const path of [
-      '/crm/dashboard',
+      '/crm', // consolidated dashboard root
       '/crm/team',
       '/crm/projects',
       '/crm/interviews',
@@ -121,9 +126,9 @@ describe('route-access · isRouteAllowed (other roles not broken)', () => {
     expect(isRouteAllowed('/crm/project', 'HR')).toBe(false)
   })
 
-  it('ACCOUNTANT allowed dashboard/team/projects/finance/documents/stats, denied users/interviews/junior-hub', () => {
+  it('ACCOUNTANT allowed root/team/projects/finance/documents/stats, denied users/interviews/junior-hub', () => {
     for (const path of [
-      '/crm/dashboard',
+      '/crm', // consolidated dashboard root
       '/crm/team',
       '/crm/projects',
       '/crm/finance',
@@ -151,6 +156,17 @@ describe('route-access · uncovered paths fail-open', () => {
     }
   })
 
+  // Dashboard consolidation (AC5): корень /crm — единственная home-страница CRM и
+  // рендерит роль-зависимый дашборд. Он ДОЛЖЕН быть доступен ВСЕМ аутентифицированным
+  // ролям (вкл. DROP), иначе роль ловит 403/пустую страницу на собственном home.
+  it('AC5: /crm root is allowed for ALL authenticated roles incl DROP', () => {
+    for (const r of ALL) {
+      expect(isRouteAllowed('/crm', r)).toBe(true)
+      expect(isRouteAllowed('/crm/', r)).toBe(true)
+    }
+    expect(isRouteAllowed('/crm', 'DROP')).toBe(true)
+  })
+
   it('longest-prefix: /crm/projects does NOT match /crm/project (junior hub)', () => {
     // /crm/project (JUNIOR) and /crm/projects (no JUNIOR) must not collide.
     expect(isRouteAllowed('/crm/projects', 'JUNIOR')).toBe(false)
@@ -166,9 +182,17 @@ describe('route-access · navRolesFor (nav sync source-of-truth)', () => {
     expect(navRolesFor('/crm/project')).toEqual(['JUNIOR'])
     expect(navRolesFor('/crm/legend')).toEqual(['JUNIOR'])
     expect(navRolesFor('/crm/users')).toEqual(['ADMIN'])
-    expect(navRolesFor('/crm/dashboard')).toContain('ADMIN')
-    expect(navRolesFor('/crm/dashboard')).toContain('DROP')
-    expect(navRolesFor('/crm/dashboard')).not.toContain('JUNIOR')
+  })
+  // Dashboard consolidation: nav-пункт «Дашборд» ведёт на корень /crm; его роли —
+  // отдельная константа DASHBOARD_NAV_ROLES (не route-access запись, т.к. /crm —
+  // fail-open). Пункт виден всем, кроме JUNIOR (у них свой хаб «Мой проект»).
+  it('DASHBOARD_NAV_ROLES: «Дашборд» visible to ADMIN+DROP, hidden for JUNIOR', () => {
+    expect(DASHBOARD_NAV_ROLES).toContain('ADMIN')
+    expect(DASHBOARD_NAV_ROLES).toContain('SENIOR')
+    expect(DASHBOARD_NAV_ROLES).toContain('HR')
+    expect(DASHBOARD_NAV_ROLES).toContain('ACCOUNTANT')
+    expect(DASHBOARD_NAV_ROLES).toContain('DROP')
+    expect(DASHBOARD_NAV_ROLES).not.toContain('JUNIOR')
   })
   // task-accountant-stats: «Статистика» nav item must surface for ACCOUNTANT
   // (so the section is reachable) and ADMIN — and STAY hidden for everyone else.
@@ -200,12 +224,13 @@ describe('route-access · ROUTE_ACCESS coverage invariant (no silent fail-open)'
 
   // Files that legitimately do NOT need a ROUTE_ACCESS entry:
   //  - `route.tsx`      → pathless layout wrapper, not a navigable leaf
-  //  - `index.tsx` at the crm root → `/crm` redirect shell (fail-open by design)
+  //  - `index.tsx` at the crm root → `/crm` role-dispatch dashboard (fail-open by
+  //    design — доступен всем аутентифицированным ролям; per-role контент в компоненте)
   //  - non-route modules colocated under routes/ (api/constants/hooks/sort/
   //    components/__tests__) — not navigable routes
   const isExempt = (rel: string): boolean => {
     if (rel.endsWith('/route.tsx')) return true
-    if (rel === 'crm/index.tsx') return true // /crm root redirect shell
+    if (rel === 'crm/index.tsx') return true // /crm root role-dispatch dashboard (fail-open)
     if (/\/(components|__tests__)\//.test(rel)) return true
     if (/\.(spec|test)\.tsx?$/.test(rel)) return true
     // Colocated non-route helpers (finance/api.ts, interviews/constants.ts, …).
@@ -218,7 +243,7 @@ describe('route-access · ROUTE_ACCESS coverage invariant (no silent fail-open)'
    * Translate a TanStack file-based route path into a representative URL the
    * guard would see. We only need the TOP-LEVEL section to assert prefix
    * coverage, so dynamic/flat segments collapse to a concrete-ish sample.
-   *   crm/dashboard.tsx                       → /crm/dashboard
+   *   crm/stats.tsx                           → /crm/stats
    *   crm/projects/$projectId.tsx             → /crm/projects/sample
    *   crm/admin/templates/contracts.index.tsx → /crm/admin/templates/contracts
    *   crm/payments/initiate.$incomeId.tsx     → /crm/payments/initiate/sample

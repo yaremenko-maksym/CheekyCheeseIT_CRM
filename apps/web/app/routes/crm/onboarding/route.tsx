@@ -29,11 +29,11 @@ function OnboardingRoot() {
     staleTime: 0, // always fresh on onboarding page
   })
 
-  // If user doesn't need onboarding → redirect to dashboard
+  // If user doesn't need onboarding → redirect to dashboard (/crm)
   useEffect(() => {
     if (!status) return
     if (!status.requiresContract && !status.requiresTos) {
-      void navigate({ to: '/crm/dashboard' })
+      void navigate({ to: '/crm' })
     }
   }, [status, navigate])
 

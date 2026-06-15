@@ -105,7 +105,7 @@ test.describe('Media Cache (CacheFirst) — AC4, AC5', () => {
     page,
   }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
-    await navigateWithSWReady(page, '/crm/dashboard')
+    await navigateWithSWReady(page, '/crm')
 
     // Seed the cache with a presigned-URL-style entry (with query params).
     // The SW normalizes it to origin+pathname — we store the normalized key
@@ -162,7 +162,7 @@ test.describe('Media Cache (CacheFirst) — AC4, AC5', () => {
   // ── AC4: fromServiceWorker on cached image ───────────────────────────────
   test('AC4: SW serves cached image fromServiceWorker on repeat request', async ({ page }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
-    await navigateWithSWReady(page, '/crm/dashboard')
+    await navigateWithSWReady(page, '/crm')
 
     // Pre-seed media-cache (simulates first-load caching).
     await seedMediaCache(page)
@@ -215,7 +215,7 @@ test.describe('Media Cache (CacheFirst) — AC4, AC5', () => {
   // ── AC5: Offline — image loads from cache ───────────────────────────────
   test('AC5: offline — cached image loads from media-cache without network', async ({ page }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
-    await navigateWithSWReady(page, '/crm/dashboard')
+    await navigateWithSWReady(page, '/crm')
 
     // Seed media-cache with the image.
     await seedMediaCache(page)
@@ -275,7 +275,7 @@ test.describe('Media Cache (CacheFirst) — AC4, AC5', () => {
     page,
   }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
-    await navigateWithSWReady(page, '/crm/dashboard')
+    await navigateWithSWReady(page, '/crm')
     await seedMediaCache(page)
 
     // Verify seeded.

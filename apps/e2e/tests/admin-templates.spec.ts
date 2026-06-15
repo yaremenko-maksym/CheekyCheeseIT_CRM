@@ -7,7 +7,7 @@
  * 2. ADMIN publishes new ToS version → onboarding-status invalidated
  *    (soft-notify banner visible for an onboarded user)
  * 3. non-ADMIN (SENIOR) navigates to /crm/admin/templates →
- *    redirected to /crm/dashboard + error toast shown
+ *    redirected to /crm + error toast shown
  *
  * All tests use Playwright route mocks (no real backend required).
  */
@@ -218,13 +218,14 @@ test('ADMIN publishes new ToS, soft-notify banner visible for onboarded user', a
 // AC 6C-8 — Scenario 3: non-ADMIN redirected from /crm/admin/templates
 // ---------------------------------------------------------------------------
 
-test('non-ADMIN navigating to /crm/admin/templates is redirected to /crm/dashboard', async ({
+test('non-ADMIN navigating to /crm/admin/templates is redirected to /crm', async ({
   asSenior: page,
 }) => {
   await page.goto('/crm/admin/templates/contracts')
 
-  // Should land on dashboard (redirect triggered by RBAC guard in route layout)
-  await expect(page).toHaveURL(/\/crm\/dashboard/)
+  // Should land on the dashboard root /crm (redirect triggered by RBAC guard in
+  // route layout). Anchored so it doesn't match /crm/admin/... sub-paths.
+  await expect(page).toHaveURL(/\/crm\/?$/)
 
   // Error toast should be shown
   await expect(page.getByText(/только для ADMIN/i)).toBeVisible()

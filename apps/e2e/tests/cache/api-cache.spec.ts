@@ -80,7 +80,7 @@ test.describe('API Cache (NetworkFirst) — AC6, AC7, AC8', () => {
   test('AC6: GET /api/auth/me is cached in api-cache', async ({ page }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     // Double goto: SW must be active controller before auth/me is issued.
-    await navigateWithSWReady(page, '/crm/dashboard')
+    await navigateWithSWReady(page, '/crm')
 
     // Cached URL is http://localhost:3001/api/auth/me (axios baseURL = :3001).
     await expect
@@ -98,7 +98,7 @@ test.describe('API Cache (NetworkFirst) — AC6, AC7, AC8', () => {
     page,
   }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
-    await navigateWithSWReady(page, '/crm/dashboard')
+    await navigateWithSWReady(page, '/crm')
 
     // Wait for cache to be populated.
     await expect
@@ -160,7 +160,7 @@ test.describe('API Cache (NetworkFirst) — AC6, AC7, AC8', () => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
 
     // First: populate the cache while online (double goto → SW is controller).
-    await navigateWithSWReady(page, '/crm/dashboard')
+    await navigateWithSWReady(page, '/crm')
 
     // Wait for api-cache to be populated with any entry (not just auth/me).
     await expect
@@ -192,7 +192,7 @@ test.describe('API Cache (NetworkFirst) — AC6, AC7, AC8', () => {
     // Navigate to a page while offline — the SW should serve cached /api/* responses.
     // The page itself (index.html) is served from precache (SPA fallback).
     // API calls: SW tries network (fails, offline), falls back to api-cache.
-    await page.goto('/crm/dashboard', { waitUntil: 'domcontentloaded' }).catch(() => {
+    await page.goto('/crm', { waitUntil: 'domcontentloaded' }).catch(() => {
       // Navigation may time out offline — acceptable, we only need response events.
     })
 

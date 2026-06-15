@@ -705,7 +705,7 @@ export function StatsPage() {
   // monthly breakdown). The employee/partner-level sections — participants
   // balances, the partner-balances settlement card, and the future
   // HR/Команда/Проекты placeholders — stay ADMIN-only (`isAdmin`). Other roles
-  // are bounced to the dashboard (defense-in-depth over the route-access guard).
+  // are bounced to the dashboard at /crm (defense-in-depth over the route-access guard).
   // task-accountant-stats: economic data is the accountant's profile surface;
   // employee-level balances must never leak to ACCOUNTANT here.
   const isPrivilegedViewer = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
@@ -713,7 +713,7 @@ export function StatsPage() {
 
   useEffect(() => {
     if (user && !isPrivilegedViewer) {
-      void navigate({ to: '/crm/dashboard' })
+      void navigate({ to: '/crm' })
     }
   }, [user, isPrivilegedViewer, navigate])
 

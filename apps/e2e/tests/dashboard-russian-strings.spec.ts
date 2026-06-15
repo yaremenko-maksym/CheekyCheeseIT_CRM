@@ -1,33 +1,37 @@
 /**
  * dashboard-russian-strings.spec.ts — task-e2e-fragile-points-audit.
  *
- * Regression catcher for English strings on the dashboard placeholder.
- * The dashboard widgets (`/crm` root + `/crm/dashboard`) were originally
- * scaffolded with English copy («Active Candidates», «Recent Candidates»,
- * «Connect DB» hints) and were translated to Russian in PR #66.
+ * Regression catcher for English strings on the dashboard.
+ * The dashboard widgets were originally scaffolded with English copy
+ * («Active Candidates», «Recent Candidates», «Connect DB» hints) and were
+ * translated to Russian in PR #66.
+ *
+ * Dashboard consolidation: the role-dispatch dashboard now lives ONLY at the
+ * CRM root `/crm` (index.tsx); the separate `/crm/dashboard` route and the old
+ * generic candidates/vacancies placeholder were removed. ADMIN/SENIOR see the
+ * generic dashboard; HR sees HRDashboard; DROP/ACCOUNTANT/JUNIOR have their own
+ * surfaces and are excluded here (DROP/JUNIOR redirect off /crm; ACCOUNTANT hub
+ * is covered by accountant-dashboard.spec).
  *
  * Per project policy (CLAUDE.md «Язык UI: Русский»), all interface text
  * must be Russian. A reverted translation slips silently because the
  * placeholder cards render fine — only a human spot-check catches it.
  *
- * This spec asserts:
- *   1. `/crm/dashboard` for each non-DROP role contains the Russian
- *      labels («Активных проектов», «Сотрудников», etc.) and does NOT
- *      contain English placeholders.
- *   2. `/crm` (root) for each non-DROP role contains «Активные кандидаты»,
- *      «Открытые вакансии», «Найм за месяц», etc.
- *   3. None of these pages contain «Active Candidates», «Recent Candidates»,
+ * This spec asserts, for each covered role on `/crm`:
+ *   1. The Russian dashboard labels are present.
+ *   2. None of the pages contain «Active Candidates», «Recent Candidates»,
  *      «Connect DB», or other English leftovers.
  *
- * Mock-based using the fixture authentication. DROP is intentionally
- * excluded because the dashboard pages redirect DROP to /crm/profile.
- * ACCOUNTANT (AccountantDashboard) and HR (HRDashboard) render their own
- * role-specific hub on /crm/dashboard instead of the generic placeholder, so
- * the dashboard test below uses role-specific RU token sets for them. The `/crm`
- * root (which has no role dispatch) keeps the shared placeholder token set.
+ * NOTE: each test destructures EXACTLY ONE auth fixture. All `asX` fixtures
+ * share the same `page` (they call mockAuthAs on it), so destructuring more
+ * than one in a single test silently re-authenticates the page as the
+ * last-resolved role — separate per-role tests avoid that trap.
+ *
+ * Mock-based using the fixture authentication.
  */
 
 import { test, expect } from './fixtures'
+import type { Page } from '@playwright/test'
 
 const ENGLISH_BLOCKLIST = [
   /Active Candidates/i,
@@ -50,9 +54,9 @@ const RU_DASHBOARD_TOKENS = [
   'Дашборд',
 ]
 
-// HR renders HRDashboard (рекрутинг хаб) on /crm/dashboard instead of the
-// generic placeholder — assert its own RU copy. Kept Russian-only + checked
-// against the same English blocklist below.
+// HR renders HRDashboard (рекрутинг хаб) on /crm instead of the generic
+// dashboard — assert its own RU copy. Russian-only + checked against the same
+// English blocklist below.
 const RU_HR_DASHBOARD_TOKENS = [
   'Дашборд',
   'Рекрутинг хаб HR-менеджера',
@@ -60,83 +64,45 @@ const RU_HR_DASHBOARD_TOKENS = [
   'Нанято за месяц',
 ]
 
-const RU_INDEX_TOKENS = [
-  'Активные кандидаты',
-  'Открытые вакансии',
-  'Найм за месяц',
-  'Среднее время найма',
-  'Дашборд',
-  'Последние кандидаты',
-  'Роли команды',
-]
+/**
+ * Navigate to /crm, assert all expected RU tokens are visible and no English
+ * leftover from the blocklist appears in the dashboard <main>.
+ */
+async function assertDashboardRu(page: Page, role: string, expectedTokens: string[]) {
+  await page.goto('/crm')
+  // HRDashboard renders its own nested <main data-testid="hr-dashboard-hub">,
+  // so scope to the OUTER layout <main> (.first()) — it contains the hub too.
+  const main = page.locator('main').first()
+  await expect(main).toBeVisible({ timeout: 8_000 })
 
-test.describe('Dashboard placeholder — Russian-only copy', () => {
-  for (const role of ['Admin', 'Senior', 'Hr', 'Junior'] as const) {
-    test(`/crm/dashboard for ${role.toUpperCase()} has Russian copy and NO English leftovers`, async ({
-      asAdmin,
-      asSenior,
-      asHr,
-      asJunior,
-    }) => {
-      const page =
-        role === 'Admin' ? asAdmin : role === 'Senior' ? asSenior : role === 'Hr' ? asHr : asJunior
-
-      await page.goto('/crm/dashboard')
-      // Wait for the page to settle (motion staggers fade-in).
-      const main = page.locator('main')
-      await expect(main).toBeVisible({ timeout: 8_000 })
-
-      // HR renders its own role hub (HRDashboard) instead of the placeholder.
-      const expectedTokens = role === 'Hr' ? RU_HR_DASHBOARD_TOKENS : RU_DASHBOARD_TOKENS
-
-      // All RU tokens present.
-      for (const token of expectedTokens) {
-        await expect(
-          main.getByText(token, { exact: false }).first(),
-          `Expected RU token «${token}» on /crm/dashboard for ${role}`,
-        ).toBeVisible({ timeout: 6_000 })
-      }
-
-      // Snapshot the rendered text — any English leftovers in the blocklist
-      // is an immediate fail. Use innerText to avoid matching against
-      // hidden / ARIA-only text.
-      const mainText = (await main.innerText()).replace(/\s+/g, ' ')
-      for (const enRegex of ENGLISH_BLOCKLIST) {
-        expect(
-          enRegex.test(mainText),
-          `Forbidden English token ${enRegex} found on /crm/dashboard for ${role}`,
-        ).toBe(false)
-      }
-    })
-
-    test(`/crm root for ${role.toUpperCase()} has Russian copy and NO English leftovers`, async ({
-      asAdmin,
-      asSenior,
-      asHr,
-      asJunior,
-    }) => {
-      const page =
-        role === 'Admin' ? asAdmin : role === 'Senior' ? asSenior : role === 'Hr' ? asHr : asJunior
-
-      await page.goto('/crm')
-      const main = page.locator('main')
-      await expect(main).toBeVisible({ timeout: 8_000 })
-
-      // All RU tokens present.
-      for (const token of RU_INDEX_TOKENS) {
-        await expect(
-          main.getByText(token, { exact: false }).first(),
-          `Expected RU token «${token}» on /crm root for ${role}`,
-        ).toBeVisible({ timeout: 6_000 })
-      }
-
-      const mainText = (await main.innerText()).replace(/\s+/g, ' ')
-      for (const enRegex of ENGLISH_BLOCKLIST) {
-        expect(
-          enRegex.test(mainText),
-          `Forbidden English token ${enRegex} found on /crm root for ${role}`,
-        ).toBe(false)
-      }
-    })
+  for (const token of expectedTokens) {
+    await expect(
+      main.getByText(token, { exact: false }).first(),
+      `Expected RU token «${token}» on /crm for ${role}`,
+    ).toBeVisible({ timeout: 6_000 })
   }
+
+  // Snapshot the rendered text — any English leftovers in the blocklist is an
+  // immediate fail. Use innerText to avoid matching hidden / ARIA-only text.
+  const mainText = (await main.innerText()).replace(/\s+/g, ' ')
+  for (const enRegex of ENGLISH_BLOCKLIST) {
+    expect(
+      enRegex.test(mainText),
+      `Forbidden English token ${enRegex} found on /crm for ${role}`,
+    ).toBe(false)
+  }
+}
+
+test.describe('Dashboard — Russian-only copy (consolidated /crm root)', () => {
+  test('/crm for ADMIN has Russian copy and NO English leftovers', async ({ asAdmin: page }) => {
+    await assertDashboardRu(page, 'ADMIN', RU_DASHBOARD_TOKENS)
+  })
+
+  test('/crm for SENIOR has Russian copy and NO English leftovers', async ({ asSenior: page }) => {
+    await assertDashboardRu(page, 'SENIOR', RU_DASHBOARD_TOKENS)
+  })
+
+  test('/crm for HR has Russian copy and NO English leftovers', async ({ asHr: page }) => {
+    await assertDashboardRu(page, 'HR', RU_HR_DASHBOARD_TOKENS)
+  })
 })

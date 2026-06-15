@@ -72,7 +72,7 @@ function makeSignedInvoiceDto(): object {
     status: 'SIGNED',
     documentId: INVOICE_DOC_ID_SIGNED,
     signatures: [
-      ...((makeUnsignedInvoiceDto() as { signatures: object[] }).signatures),
+      ...(makeUnsignedInvoiceDto() as { signatures: object[] }).signatures,
       {
         signerId: USERS.senior.id,
         signerName: USERS.senior.displayName,
@@ -157,9 +157,7 @@ function mockInvoiceFlow(
     r.fulfill({ status: 204, body: '' }),
   )
   void page.route(new RegExp(`${API}/notifications/([^/?]+)$`), (r) =>
-    r.request().method() === 'DELETE'
-      ? r.fulfill({ status: 204, body: '' })
-      : r.fallback(),
+    r.request().method() === 'DELETE' ? r.fulfill({ status: 204, body: '' }) : r.fallback(),
   )
   void page.route(new RegExp(`${API}/notifications(\\?.*)?$`), (r) =>
     r.fulfill({
@@ -226,9 +224,7 @@ function mockInvoiceFlow(
     return r.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(
-        makeInvoiceDocument(docId, currentState === 'signed'),
-      ),
+      body: JSON.stringify(makeInvoiceDocument(docId, currentState === 'signed')),
     })
   })
   void page.route(new RegExp(`${API}/documents(\\?.*)?$`), (r) =>
@@ -256,7 +252,7 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
     asSenior,
   }) => {
     mockInvoiceFlow(asSenior)
-    await asSenior.goto('/crm/dashboard')
+    await asSenior.goto('/crm')
 
     // Bell badge — `unreadCount` from the mocked /notifications endpoint.
     const bell = asSenior.getByTestId('notifications-bell-trigger')
@@ -283,9 +279,7 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
     // pending. Use the per-row testids exposed by the dialog component.
     await expect(asSenior.getByTestId('signature-row-company')).toBeVisible()
     await expect(asSenior.getByTestId('signature-row-company')).toContainText('Авто')
-    await expect(
-      asSenior.getByTestId('signature-row-counterparty-pending'),
-    ).toBeVisible()
+    await expect(asSenior.getByTestId('signature-row-counterparty-pending')).toBeVisible()
     await expect(asSenior.getByTestId('invoice-detail-sign-button')).toBeVisible()
   })
 
@@ -392,9 +386,7 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
     await expect(page.getByTestId('invoice-verify-status-heading')).toContainText(
       'Документ верифицирован',
     )
-    await expect(
-      page.getByTestId('invoice-verify-signatures-table'),
-    ).toBeVisible()
+    await expect(page.getByTestId('invoice-verify-signatures-table')).toBeVisible()
     await expect(page.getByTestId('invoice-verify-signatures-count')).toContainText(
       'Подписи (2 из 2)',
     )

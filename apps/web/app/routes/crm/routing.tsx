@@ -1,9 +1,9 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
 /**
- * /crm/routing → редирект на /crm/dashboard.
+ * /crm/routing → редирект на /crm.
  *
- * Хаб дропа переехал на /crm/dashboard (консолидация: DROP получает
+ * Хаб дропа переехал на корень /crm (консолидация: DROP получает
  * роль-зависимый дашборд по единому URL). Старый роут /crm/routing
  * оставлен как постоянный редирект чтобы старые ссылки, букмарки
  * и E2E-спеки резолвились без 404.
@@ -13,6 +13,6 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
  */
 export const Route = createFileRoute('/crm/routing')({
   beforeLoad: () => {
-    throw redirect({ to: '/crm/dashboard', replace: true })
+    throw redirect({ to: '/crm', replace: true })
   },
 })
