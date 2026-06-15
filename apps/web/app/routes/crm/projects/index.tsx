@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { StickyPageHeader } from '@/components/crm/StickyPageHeader'
 import { useForm, type FieldApi } from '@tanstack/react-form'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -362,44 +363,45 @@ function ProjectsPage() {
   ]
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Проекты</h1>
-          {/* AC4: non-ADMIN sees "Активные проекты"; ADMIN sees full subtitle */}
-          <p className="text-sm text-muted-foreground">
-            {isAdmin ? 'Активные и завершённые проекты' : 'Активные проекты'}
-          </p>
+    <div className="flex flex-col gap-0">
+      <StickyPageHeader>
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Проекты</h1>
+            {/* AC4: non-ADMIN sees "Активные проекты"; ADMIN sees full subtitle */}
+            <p className="text-sm text-muted-foreground">
+              {isAdmin ? 'Активные и завершённые проекты' : 'Активные проекты'}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {canCreate && (
+              <Button size="sm" onClick={() => setShowCreate(true)}>
+                <Plus className="mr-1.5 h-4 w-4" />
+                Новый проект
+              </Button>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {canCreate && (
-            <Button size="sm" onClick={() => setShowCreate(true)}>
-              <Plus className="mr-1.5 h-4 w-4" />
-              Новый проект
-            </Button>
-          )}
-        </div>
-      </div>
 
-      {/* ut-25 + ut-26 + ut-33 + ut-44: status tabs row — ADMIN only (AC1-AC2) */}
-      {isAdmin && (
-        <SegmentedToggle<StatusTab>
-          value={currentTab}
-          onChange={handleTabChange}
-          options={tabs}
-          ariaLabel="Фильтр проектов"
-          variant="tabs"
-          size="sm"
-          layoutId="projects-status-tabs"
-          className="w-fit"
-          testId="projects-status-tabs"
-        />
-      )}
+        {/* ut-25 + ut-26 + ut-33 + ut-44: status tabs row — ADMIN only (AC1-AC2) */}
+        {isAdmin && (
+          <SegmentedToggle<StatusTab>
+            value={currentTab}
+            onChange={handleTabChange}
+            options={tabs}
+            ariaLabel="Фильтр проектов"
+            variant="tabs"
+            size="sm"
+            layoutId="projects-status-tabs"
+            className="w-fit"
+            testId="projects-status-tabs"
+          />
+        )}
 
-      {/* ut-43: unified toolbar — search + senior filter (ADMIN) + sort key + direction */}
-      <Card>
-        <CardContent className="flex flex-wrap items-center gap-3 pt-4 pb-4">
+        {/* ut-43: unified toolbar — search + senior filter (ADMIN) + sort key + direction */}
+        <Card>
+          <CardContent className="flex flex-wrap items-center gap-3 pt-4 pb-4">
           <div className="relative flex-1 min-w-50">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
@@ -455,11 +457,13 @@ function ProjectsPage() {
               <ArrowDown className="h-4 w-4" />
             )}
           </Button>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </StickyPageHeader>
 
-      {/* Empty state */}
-      {filtered.length === 0 && (
+      <div className="pt-4 space-y-6">
+        {/* Empty state */}
+        {filtered.length === 0 && (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
           <Briefcase className="h-10 w-10 text-muted-foreground/30" />
           <p className="mt-4 text-sm font-medium">
@@ -812,8 +816,9 @@ function ProjectsPage() {
         </CrmDialogContent>
       </Dialog>
 
-      {/* ut-27 + ut-38: Archive + Unarchive (including cascade modal) live on
-          the project detail page header — list cards have no inline actions. */}
+        {/* ut-27 + ut-38: Archive + Unarchive (including cascade modal) live on
+            the project detail page header — list cards have no inline actions. */}
+      </div>
     </div>
   )
 }
