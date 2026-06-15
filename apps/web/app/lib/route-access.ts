@@ -39,9 +39,12 @@ const ROUTE_ACCESS: ReadonlyArray<{ prefix: string; roles: readonly Role[] }> = 
   // DROP включён: /crm/dashboard рендерит роль-зависимый контент (платёжный хаб для DROP).
   { prefix: '/crm/dashboard', roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'DROP'] },
 
-  // Пользователи / Статистика — только ADMIN.
+  // Пользователи — только ADMIN.
   { prefix: '/crm/users', roles: ['ADMIN'] },
-  { prefix: '/crm/stats', roles: ['ADMIN'] },
+  // Статистика — ADMIN (всё) + ACCOUNTANT (только экономическая часть; секции
+  // балансов сотрудников и плейсхолдеры HR/Команда/Проекты гейтятся ADMIN-only
+  // внутри stats.tsx — route-access лишь открывает раздел бухгалтеру).
+  { prefix: '/crm/stats', roles: ['ADMIN', 'ACCOUNTANT'] },
 
   // Команда — ADMIN/SENIOR/HR/ACCOUNTANT/DROP (DROP видит свою команду).
   { prefix: '/crm/team', roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'DROP'] },

@@ -568,10 +568,13 @@ function computeExtraStats(summary: FinanceSummaryDto) {
 
 // ── Participants balances list (Phase 4 refactor) ─────────────────────────────
 //
-// Visible only to ADMIN/ACCOUNTANT; the backend route also enforces the
-// permission. The corporate ТОВ balance card has been removed in the refactor
-// (task-drop-phase4-refactor-remove-tov.md AC5). Only the flat list of
-// admin/senior balances pulled from BalanceService is rendered now.
+// ADMIN-only (gated by the `isAdmin` check at the call-site in StatsPage —
+// task-accountant-stats: this is employee/partner-level balance data, not part
+// of the accountant's economic surface). It also calls GET /api/users, which is
+// ADMIN/HR-only on the backend, so ACCOUNTANT would 403 here anyway — the FE
+// gate prevents the request entirely. The corporate ТОВ balance card has been
+// removed in the refactor (task-drop-phase4-refactor-remove-tov.md AC5). Only
+// the flat list of admin/senior balances pulled from BalanceService is rendered.
 
 function ParticipantsBalancesSection() {
   const { data: users = [], isLoading: usersLoading } = useQuery({
@@ -692,14 +695,22 @@ function ParticipantList({
 
 // ── Main page ──────────────────────────────────────────────────────────────────
 
-function StatsPage() {
+// Exported for the role-split unit test (stats.test.tsx). The route still binds
+// it via `Route.component = StatsPage` below.
+export function StatsPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
 
-  // Drop role - phase 4-B. ACCOUNTANT joins ADMIN as a viewer on /crm/stats so
-  // both roles can see the new ТОВ balance card + participants list. Other
-  // roles are bounced to the dashboard.
+  // ACCOUNTANT joins ADMIN as a viewer on /crm/stats, but sees ONLY the
+  // economic part (P&L: income / expenses / salaries / Net / profit + charts +
+  // monthly breakdown). The employee/partner-level sections — participants
+  // balances, the partner-balances settlement card, and the future
+  // HR/Команда/Проекты placeholders — stay ADMIN-only (`isAdmin`). Other roles
+  // are bounced to the dashboard (defense-in-depth over the route-access guard).
+  // task-accountant-stats: economic data is the accountant's profile surface;
+  // employee-level balances must never leak to ACCOUNTANT here.
   const isPrivilegedViewer = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
+  const isAdmin = user?.role === 'ADMIN'
 
   useEffect(() => {
     if (user && !isPrivilegedViewer) {
@@ -718,7 +729,7 @@ function StatsPage() {
   const extra = summary ? computeExtraStats(summary) : null
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8" data-testid={isAdmin ? 'stats-page-admin' : 'stats-page-accountant'}>
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
@@ -733,11 +744,13 @@ function StatsPage() {
         </Badge>
       </div>
 
-      {/* ── Participants balances (Phase 4 refactor — TOV card removed) ── */}
-      <ParticipantsBalancesSection />
+      {/* ── Participants balances (ADMIN-only) ──
+          Employee/partner-level balances are not part of the accountant's
+          economic surface — gated to ADMIN. */}
+      {isAdmin && <ParticipantsBalancesSection />}
 
-      {/* ── Finance section ── */}
-      <section className="space-y-4">
+      {/* ── Finance section (economic — ADMIN + ACCOUNTANT) ── */}
+      <section className="space-y-4" data-testid="stats-finance-section">
         <div className="flex items-center gap-2">
           <DollarSign className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
@@ -828,40 +841,45 @@ function StatsPage() {
               </div>
             )}
 
-            {/* Chart + Partner balances */}
+            {/* Chart + Partner balances.
+                Partner-balances card is employee/partner-level → ADMIN-only.
+                For ACCOUNTANT the chart spans the full width. */}
             <div className="grid gap-4 lg:grid-cols-3">
-              <div className="lg:col-span-2">
+              <div className={isAdmin ? 'lg:col-span-2' : 'lg:col-span-3'}>
                 <FinanceChart summary={summary} />
               </div>
-              <PartnerBalancesCard summary={summary} />
+              {isAdmin && <PartnerBalancesCard summary={summary} />}
             </div>
           </>
         ) : null}
       </section>
 
-      {/* Future sections placeholder */}
-      <section className="space-y-4">
-        <div className="flex items-center gap-2">
-          <HelpCircle className="h-4 w-4 text-muted-foreground/40" />
-          <h2 className="text-sm font-semibold text-muted-foreground/40 uppercase tracking-wider">
-            Другие разделы
-          </h2>
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {['HR — воронка собеседований', 'Команда — активность', 'Проекты — загрузка'].map(
-            (label) => (
-              <div
-                key={label}
-                className="rounded-xl border border-dashed border-border/50 p-6 text-center text-sm text-muted-foreground/40"
-              >
-                {label}
-                <br />
-                <span className="text-xs">в разработке</span>
-              </div>
-            ),
-          )}
-        </div>
-      </section>
+      {/* Future sections placeholder (ADMIN-only — HR/Команда/Проекты analytics
+          are not part of the accountant's economic surface). */}
+      {isAdmin && (
+        <section className="space-y-4" data-testid="stats-placeholders-section">
+          <div className="flex items-center gap-2">
+            <HelpCircle className="h-4 w-4 text-muted-foreground/40" />
+            <h2 className="text-sm font-semibold text-muted-foreground/40 uppercase tracking-wider">
+              Другие разделы
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {['HR — воронка собеседований', 'Команда — активность', 'Проекты — загрузка'].map(
+              (label) => (
+                <div
+                  key={label}
+                  className="rounded-xl border border-dashed border-border/50 p-6 text-center text-sm text-muted-foreground/40"
+                >
+                  {label}
+                  <br />
+                  <span className="text-xs">в разработке</span>
+                </div>
+              ),
+            )}
+          </div>
+        </section>
+      )}
     </div>
   )
 }
