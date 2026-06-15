@@ -261,12 +261,12 @@ test.describe('Finance — page load', () => {
     await expect(asJunior.getByText('Выплат пока нет')).toBeVisible()
   })
 
-  test('ACCOUNTANT: видит полную таблицу, нет кнопки создания', async ({ page }) => {
+  test('ACCOUNTANT: видит полную таблицу и кнопку создания транзакции', async ({ page }) => {
     await mockAuthAs(page, USERS.accountant)
     await mockTransactions(page, [TX_PENDING_SENIOR])
     await page.goto('/crm/finance')
     await expect(page.getByRole('heading', { name: 'Финансы' })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Новая транзакция/i })).not.toBeVisible()
+    await expect(page.getByRole('button', { name: /Новая транзакция/i })).toBeVisible()
   })
 
   test('пустое состояние: "Нет данных"', async ({ asAdmin }) => {

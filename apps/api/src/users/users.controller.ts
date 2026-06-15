@@ -65,12 +65,26 @@ export class UsersController {
     // every other role (including DROP) is rejected. /me, /:id (single
     // profile lookup) and /me/* endpoints remain available since they're
     // self-only or used by the existing profile view.
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') throw new ForbiddenException()
+    //
+    // task-accountant-create-transaction: ACCOUNTANT now has create-parity with
+    // ADMIN on the finance page. CreateTransactionDialog needs the directory for
+    // the admin set — SALARY receiver picker, ADMIN_TRANSFER party picker, and
+    // identifying admin-owned projects for ACCOUNTANT-registered ADMIN_INCOME.
+    // The list projection (UserListItem) excludes PII (legalFullName); the
+    // accountant already has company-wide finance read access, so surfacing the
+    // directory is consistent with the role. ACCOUNTANT gets the SAME listing as
+    // ADMIN (incl. admins — required to pick transfer parties / admin owners).
+    if (
+      currentUser.role !== 'ADMIN' &&
+      currentUser.role !== 'HR' &&
+      currentUser.role !== 'ACCOUNTANT'
+    )
+      throw new ForbiddenException()
     // round 7 (ut-44): tri-state filter — 'true' = archived only, 'all' = both,
     // anything else (including missing) = active only. Boolean kept for legacy
     // E2E + clients still expecting only `true`/absent.
     const archived: boolean | 'all' = archivedParam === 'all' ? 'all' : archivedParam === 'true'
-    return currentUser.role === 'ADMIN'
+    return currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT'
       ? this.usersService.findAllIncludingAdmin({ archived })
       : this.usersService.findAll({ archived })
   }

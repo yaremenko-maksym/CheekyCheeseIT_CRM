@@ -828,14 +828,42 @@ export class TransactionsService {
     },
     currentUser: SessionUser,
   ) {
-    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
+    // task-accountant-create-transaction. ACCOUNTANT has create-parity with
+    // ADMIN for ADMIN_INCOME. Ownership + crediting differ by caller so the
+    // income is ALWAYS credited to the admin owner of the project, never the
+    // accountant (an ADMIN_INCOME is «доход с админ-проекта»):
+    //   - ADMIN caller: project must be their own (seniorId === self); income
+    //     is credited to that admin (receiverId = self). UNCHANGED.
+    //   - ACCOUNTANT caller: may register on ANY admin-owned project (the
+    //     project's senior must be an ADMIN); income is credited to that admin
+    //     owner (receiverId = project.seniorId). The accountant is the recorder
+    //     (createdBy), not the recipient.
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT')
+      throw new ForbiddenException()
 
     const project = await this.db.db.query.projects.findFirst({
       where: eq(projects.id, data.projectId),
     })
     if (!project) throw new NotFoundException('Project not found')
-    if (project.seniorId !== currentUser.id) {
-      throw new ForbiddenException('You can only add income for your own projects')
+
+    let receiverId: string
+    if (currentUser.role === 'ADMIN') {
+      if (project.seniorId !== currentUser.id) {
+        throw new ForbiddenException('You can only add income for your own projects')
+      }
+      receiverId = currentUser.id
+    } else {
+      // ACCOUNTANT: the project must belong to an ADMIN (ADMIN_INCOME is income
+      // owned by an admin partner). Credit that admin, never the accountant.
+      const owner = await this.db.db.query.users.findFirst({
+        where: eq(users.id, project.seniorId),
+      })
+      if (!owner || owner.role !== 'ADMIN') {
+        throw new ForbiddenException(
+          'ADMIN_INCOME can only be registered for an admin-owned project',
+        )
+      }
+      receiverId = owner.id
     }
 
     // HIGH-1: validate receipt ownership + category before writing FK
@@ -852,7 +880,7 @@ export class TransactionsService {
         currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
         senderId: null,
         senderLabel: project.companyName,
-        receiverId: currentUser.id,
+        receiverId,
         projectId: data.projectId,
         receiptDocumentId: data.receiptDocumentId ?? null,
         receiptExternalUrl: data.receiptExternalUrl ?? null,
@@ -1527,7 +1555,11 @@ export class TransactionsService {
     },
     currentUser: SessionUser,
   ) {
-    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
+    // task-accountant-create-transaction. ACCOUNTANT has create-parity with
+    // ADMIN for company expenses (business doc finance.md: «ACCOUNTANT — …,
+    // расходы, …»). senderId = currentUser.id records who booked the expense.
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT')
+      throw new ForbiddenException()
 
     // HIGH-1: validate receipt ownership + category before writing FK
     if (data.receiptDocumentId) {
@@ -1567,7 +1599,13 @@ export class TransactionsService {
     },
     currentUser: SessionUser,
   ) {
-    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
+    // task-accountant-create-transaction. ACCOUNTANT has create-parity with
+    // ADMIN for salaries (business doc finance.md: «ACCOUNTANT — …, выплаты»).
+    // senderId = currentUser.id records the payer. The receiver-role allow-list
+    // (JUNIOR/HR/ACCOUNTANT) is unchanged — accountant cannot self-pay a salary
+    // beyond what an ADMIN could already grant.
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT')
+      throw new ForbiddenException()
 
     const receiver = await this.db.db.query.users.findFirst({
       where: eq(users.id, data.receiverId),
@@ -1614,12 +1652,30 @@ export class TransactionsService {
     },
     currentUser: SessionUser,
   ) {
-    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
+    // task-accountant-create-transaction. ACCOUNTANT has create-parity with
+    // ADMIN for partner transfers. BOTH transfer parties must be ADMIN — the
+    // accountant is NEVER a party. So:
+    //   - ADMIN caller: sender defaults to self (as before).
+    //   - ACCOUNTANT caller: senderId is REQUIRED and must resolve to an ADMIN
+    //     (no implicit self-as-sender, which would book a non-ADMIN sender).
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT')
+      throw new ForbiddenException()
+
+    const isAdminCaller = currentUser.role === 'ADMIN'
+
+    if (!isAdminCaller && !data.senderId) {
+      throw new BadRequestException('senderId is required (transfer is between two ADMINs)')
+    }
 
     const effectiveSenderId = data.senderId ?? currentUser.id
 
-    if (data.senderId && data.senderId !== currentUser.id) {
-      const sender = await this.db.db.query.users.findFirst({ where: eq(users.id, data.senderId) })
+    // Validate the sender is an ADMIN whenever it is not the (ADMIN) caller —
+    // i.e. always for an ACCOUNTANT caller, and for an ADMIN who delegates the
+    // sender to a different admin partner.
+    if (effectiveSenderId !== currentUser.id || !isAdminCaller) {
+      const sender = await this.db.db.query.users.findFirst({
+        where: eq(users.id, effectiveSenderId),
+      })
       if (!sender || sender.role !== 'ADMIN')
         throw new BadRequestException('Sender must be an ADMIN')
     }
