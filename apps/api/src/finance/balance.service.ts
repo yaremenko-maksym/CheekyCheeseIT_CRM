@@ -187,13 +187,13 @@ export class BalanceService {
    *
    *   - JUNIOR / HR / ACCOUNTANT → SALARY rows (status=PAID, receiverId=user).
    *     Salary is the only channel the company pays these roles.
-   *   - SENIOR → PAID SENIOR_INCOME (the share the senior earned through the
-   *     platform; recipient = receiverId ?? senderId for legacy rows) PLUS any
-   *     direct company→senior payout rows (SENIOR_PAID / SENIOR_INCOME_CRYPTO /
-   *     PAYOUT_DROP with recipient=user). The latter are Phase 4-B types not yet
-   *     emitted in the current data, so today only SENIOR_INCOME contributes —
-   *     this keeps the figure meaningful (non-zero) on present-day rows while
-   *     remaining forward-compatible once the dedicated payout rows land.
+   *   - SENIOR → PAID SENIOR_INCOME only (the share the senior earned through
+   *     the platform; recipient = receiverId ?? senderId for legacy rows).
+   *     Consistent with getSeniorBalance.paidIncome — only money the platform
+   *     confirmed as received by this senior. Phase 4-B types (SENIOR_PAID /
+   *     SENIOR_INCOME_CRYPTO) are NOT counted here: they have not been emitted
+   *     in the current data and belong to a separate payout channel; adding them
+   *     to totalEarned would double-count once that channel lands.
    *   - DROP → PAID PAYOUT_DROP (drop's distribution share) PLUS PAID DROP_INCOME
    *     where recipient/receiver = drop (income that landed on the drop account).
    *   - ADMIN → PAID PAYOUT_ADMIN / DIVIDEND_TO_ADMIN / ADMIN_INCOME_CASH /
@@ -205,10 +205,6 @@ export class BalanceService {
    * mirroring getAdminBalance / getSeniorBalance. `breakdown` exposes the
    * per-source split so the UI can show "salary" vs "payout" if desired.
    *
-   * NOTE for reviewers: the senior aggregation intentionally counts PAID
-   * SENIOR_INCOME as "earned with us". If the desired semantics is strictly
-   * "company→senior payouts only" (SENIOR_PAID), narrow `SENIOR_EARNED_TYPES`
-   * to the payout set — the per-role buckets are isolated for exactly that.
    */
   async getTotalEarned(
     targetUserId: string,
@@ -248,19 +244,15 @@ export class BalanceService {
         // Company pays these roles only via SALARY.
         if (tx.type === 'SALARY' && tx.receiverId === targetUserId) add('salary', converted)
       } else if (role === 'SENIOR') {
+        // Only PAID SENIOR_INCOME counts — consistent with getSeniorBalance.paidIncome.
+        // Phase 4-B types (SENIOR_PAID, SENIOR_INCOME_CRYPTO) are excluded: they
+        // belong to a separate payout channel and would double-count once emitted.
         if (
           tx.type === 'SENIOR_INCOME' &&
           (tx.receiverId === targetUserId ||
             (tx.receiverId == null && tx.senderId === targetUserId))
         ) {
           add('income', converted)
-        } else if (
-          (tx.type === 'SENIOR_PAID' ||
-            tx.type === 'SENIOR_INCOME_CRYPTO' ||
-            tx.type === 'PAYOUT_DROP') &&
-          recipient === targetUserId
-        ) {
-          add('payout', converted)
         }
       } else if (role === 'DROP') {
         if (tx.type === 'PAYOUT_DROP' && recipient === targetUserId) {

@@ -17,7 +17,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { TotalEarnedDto } from '@crm/shared'
+import type { Role, TotalEarnedDto } from '@crm/shared'
 
 const TARGET_ID = 'fe000000-0000-4000-8000-000000000001'
 
@@ -77,7 +77,7 @@ const EARNED: TotalEarnedDto = {
   breakdown: { income: 12345.5 },
 }
 
-function renderTab(targetRole: string) {
+function renderTab(targetRole: Role) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>

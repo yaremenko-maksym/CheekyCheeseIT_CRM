@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Search, Send, Wallet, X } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import type { TransactionDto, TotalEarnedDto } from '@crm/shared'
+import type { Role, TransactionDto, TotalEarnedDto } from '@crm/shared'
 import { totalEarnedSchema } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -39,9 +39,9 @@ const STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ 
 // Roles for which «всего заработано с нами» is a meaningful figure (people the
 // company actually pays: senior payouts / drop shares / junior+HR salary).
 // ADMIN targets are intentionally excluded — admins are partners, not payees.
-const EARNED_TARGET_ROLES = ['SENIOR', 'DROP', 'JUNIOR', 'HR'] as const
+const EARNED_TARGET_ROLES: ReadonlyArray<Role> = ['SENIOR', 'DROP', 'JUNIOR', 'HR']
 
-export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?: string }) {
+export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?: Role }) {
   const { user: viewer } = useAuth()
   const navigate = useNavigate()
   const role = viewer?.role ?? ''
@@ -51,8 +51,7 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
   // viewers (incl. the target self-viewing) never get the figure — the backend
   // also enforces this (assertCanReadTotalEarned → 403), so the query is the
   // belt-and-suspenders second layer to the server guard.
-  const showTotalEarned =
-    isPrivileged && !!targetRole && (EARNED_TARGET_ROLES as readonly string[]).includes(targetRole)
+  const showTotalEarned = isPrivileged && !!targetRole && EARNED_TARGET_ROLES.includes(targetRole)
 
   const { data: totalEarned } = useQuery<TotalEarnedDto>({
     queryKey: ['profile-total-earned', userId],
