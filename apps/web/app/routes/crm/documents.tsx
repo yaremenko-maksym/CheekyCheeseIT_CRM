@@ -27,6 +27,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { StickyPageHeader } from '@/components/crm/StickyPageHeader'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import {
@@ -422,15 +423,14 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-0">
       {pendingCount > 0 ? (
         // Amber banner — invites the viewer to switch to the INVOICE tab and
         // sign the documents that are still missing the COUNTERPARTY
-        // signature. We don't auto-redirect; clicking «Перейти» just narrows
-        // the category filter (so the URL stays shareable and the user
-        // doesn't lose their place).
+        // signature. Intentionally NOT in the sticky header so it scrolls
+        // away once the user has seen it and navigated to the INVOICE filter.
         <div
-          className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 p-4"
+          className="mx-0 mt-0 flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 p-4"
           data-testid="documents-pending-signature-banner"
         >
           <div className="flex items-center gap-3">
@@ -448,176 +448,180 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
         </div>
       ) : null}
 
-      <DocumentsHeader viewer={viewer} categoryFilter={categoryFilter} users={users} />
+      <StickyPageHeader>
+        <DocumentsHeader viewer={viewer} categoryFilter={categoryFilter} users={users} />
 
-      {/* Tri-state status filter — ADMIN-only (UT finding 2026-06-14).
-          Non-admin roles (SENIOR/JUNIOR/HR/ACCOUNTANT/DROP) only ever see
-          their active documents; statusTab stays at 'ACTIVE' (default) and
-          the toggle is hidden entirely so the layout stays clean. */}
-      {isAdmin && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.28, delay: 0.05 }}
-          className="flex items-center"
-        >
-          <SegmentedToggle<StatusTab>
-            value={statusTab}
-            onChange={setStatusTab}
-            options={statusOptions}
-            ariaLabel="Фильтр документов"
-            variant="tabs"
-            size="sm"
-            layoutId="documents-status-tabs"
-            className="w-fit"
-            testId="documents-status-tabs"
-          />
-        </motion.div>
-      )}
-
-      {/* Unified toolbar — canonical Card pattern matching /crm/projects */}
-      <Card>
-        <CardContent className="flex flex-wrap items-center gap-3 pt-4 pb-4">
-          {/* Search */}
-          <div className="relative flex-1 min-w-50">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Поиск по имени…"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className={searchInput ? 'pl-8 pr-8' : 'pl-8'}
-              data-testid="documents-search"
+        {/* Tri-state status filter — ADMIN-only (UT finding 2026-06-14).
+            Non-admin roles (SENIOR/JUNIOR/HR/ACCOUNTANT/DROP) only ever see
+            their active documents; statusTab stays at 'ACTIVE' (default) and
+            the toggle is hidden entirely so the layout stays clean. */}
+        {isAdmin && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.28, delay: 0.05 }}
+            className="flex items-center"
+          >
+            <SegmentedToggle<StatusTab>
+              value={statusTab}
+              onChange={setStatusTab}
+              options={statusOptions}
+              ariaLabel="Фильтр документов"
+              variant="tabs"
+              size="sm"
+              layoutId="documents-status-tabs"
+              className="w-fit"
+              testId="documents-status-tabs"
             />
-            {searchInput ? (
-              <button
-                type="button"
-                onClick={handleClearSearch}
-                aria-label="Очистить поиск"
-                className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            ) : null}
-          </div>
+          </motion.div>
+        )}
 
-          {/* Owner filter — ADMIN/HR only */}
-          {showOwnerFilter ? (
-            <Select value={ownerFilter} onValueChange={setOwnerFilter}>
-              <SelectTrigger className="w-44" data-testid="documents-owner-filter">
-                <SelectValue placeholder="Все владельцы" />
+        {/* Unified toolbar — canonical Card pattern matching /crm/projects */}
+        <Card>
+          <CardContent className="flex flex-wrap items-center gap-3 pt-4 pb-4">
+            {/* Search */}
+            <div className="relative flex-1 min-w-50">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Поиск по имени…"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                className={searchInput ? 'pl-8 pr-8' : 'pl-8'}
+                data-testid="documents-search"
+              />
+              {searchInput ? (
+                <button
+                  type="button"
+                  onClick={handleClearSearch}
+                  aria-label="Очистить поиск"
+                  className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
+
+            {/* Owner filter — ADMIN/HR only */}
+            {showOwnerFilter ? (
+              <Select value={ownerFilter} onValueChange={setOwnerFilter}>
+                <SelectTrigger className="w-44" data-testid="documents-owner-filter">
+                  <SelectValue placeholder="Все владельцы" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">Все владельцы</SelectItem>
+                  {(users ?? []).map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.displayName} ({u.email})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : null}
+
+            {/* Category filter */}
+            <Select
+              value={categoryFilter}
+              onValueChange={(v) => setCategoryFilter(v as CategoryFilter)}
+            >
+              <SelectTrigger className="w-44" data-testid="documents-category-filter">
+                <SelectValue placeholder="Все категории" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="ALL">Все владельцы</SelectItem>
-                {(users ?? []).map((u) => (
-                  <SelectItem key={u.id} value={u.id}>
-                    {u.displayName} ({u.email})
+                <SelectItem value="ALL">Все категории</SelectItem>
+                {availableCategories.map((cat) => (
+                  <SelectItem key={cat} value={cat}>
+                    {CATEGORY_LABELS_RU[cat]}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          ) : null}
 
-          {/* Category filter */}
-          <Select
-            value={categoryFilter}
-            onValueChange={(v) => setCategoryFilter(v as CategoryFilter)}
-          >
-            <SelectTrigger className="w-44" data-testid="documents-category-filter">
-              <SelectValue placeholder="Все категории" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">Все категории</SelectItem>
-              {availableCategories.map((cat) => (
-                <SelectItem key={cat} value={cat}>
-                  {CATEGORY_LABELS_RU[cat]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            <div className="hidden h-6 w-px bg-border sm:block" aria-hidden />
 
-          <div className="hidden h-6 w-px bg-border sm:block" aria-hidden />
+            {/* Sort */}
+            <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+              <SelectTrigger className="w-52" data-testid="documents-sort">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SORT_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-          {/* Sort */}
-          <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
-            <SelectTrigger className="w-52" data-testid="documents-sort">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SORT_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {/* View toggle — list / grid */}
-          <div
-            className="ml-auto flex items-center gap-1 rounded-md border border-border p-0.5"
-            data-testid="documents-view-toggle"
-          >
-            <button
-              type="button"
-              aria-label="Список"
-              aria-pressed={view === 'list'}
-              data-testid="documents-view-list"
-              onClick={() => handleViewChange('list')}
-              className={`flex h-7 w-7 items-center justify-center rounded transition ${
-                view === 'list'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
+            {/* View toggle — list / grid */}
+            <div
+              className="ml-auto flex items-center gap-1 rounded-md border border-border p-0.5"
+              data-testid="documents-view-toggle"
             >
-              <List className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              aria-label="Сетка"
-              aria-pressed={view === 'grid'}
-              data-testid="documents-view-grid"
-              onClick={() => handleViewChange('grid')}
-              className={`flex h-7 w-7 items-center justify-center rounded transition ${
-                view === 'grid'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </button>
-          </div>
-        </CardContent>
-      </Card>
+              <button
+                type="button"
+                aria-label="Список"
+                aria-pressed={view === 'list'}
+                data-testid="documents-view-list"
+                onClick={() => handleViewChange('list')}
+                className={`flex h-7 w-7 items-center justify-center rounded transition ${
+                  view === 'list'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <List className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                aria-label="Сетка"
+                aria-pressed={view === 'grid'}
+                data-testid="documents-view-grid"
+                onClick={() => handleViewChange('grid')}
+                className={`flex h-7 w-7 items-center justify-center rounded transition ${
+                  view === 'grid'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+      </StickyPageHeader>
 
-      <DocumentsListSection
-        viewer={viewer}
-        categoryFilter={categoryFilter}
-        ownerId={ownerFilter === 'ALL' ? undefined : ownerFilter}
-        includeDeleted={includeDeleted}
-        statusTab={statusTab}
-        onOpen={openDetail}
-        openDocId={search.openDocId}
-        view={view}
-        searchQuery={debouncedSearch}
-        sortKey={sortKey}
-      />
+      <div className="pt-4 space-y-6">
+        <DocumentsListSection
+          viewer={viewer}
+          categoryFilter={categoryFilter}
+          ownerId={ownerFilter === 'ALL' ? undefined : ownerFilter}
+          includeDeleted={includeDeleted}
+          statusTab={statusTab}
+          onOpen={openDetail}
+          openDocId={search.openDocId}
+          view={view}
+          searchQuery={debouncedSearch}
+          sortKey={sortKey}
+        />
 
-      <DocumentDetailDialog
-        open={detailOpen}
-        onOpenChange={closeDetail}
-        doc={detailDoc}
-        viewer={viewer}
-      />
-      {/* InvoiceDetailDialog — opens for INVOICE documents (signature table +
+        <DocumentDetailDialog
+          open={detailOpen}
+          onOpenChange={closeDetail}
+          doc={detailDoc}
+          viewer={viewer}
+        />
+        {/* InvoiceDetailDialog — opens for INVOICE documents (signature table +
           «Подписать» button) and via the `?openTx=<uuid>` deep-link from
           notifications. Replaces the standalone /crm/finance/invoices page. */}
-      <InvoiceDetailDialog
-        open={invoiceOpen}
-        onOpenChange={closeInvoice}
-        transactionId={invoiceTxId}
-        viewer={viewer}
-      />
-      {/* uploadedByDisplayName comes embedded in each doc DTO (API LEFT JOIN),
+        <InvoiceDetailDialog
+          open={invoiceOpen}
+          onOpenChange={closeInvoice}
+          transactionId={invoiceTxId}
+          viewer={viewer}
+        />
+        {/* uploadedByDisplayName comes embedded in each doc DTO (API LEFT JOIN),
           so no /api/users round-trip is needed here. */}
+      </div>
     </div>
   )
 }
