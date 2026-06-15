@@ -1,30 +1,62 @@
 /**
  * AccountantDashboard.test.tsx — unit tests for the ACCOUNTANT финансовый хаб
- * (ACCOUNTANT Sprint 1).
+ * (ACCOUNTANT Sprint 1 + finance-validation-ux AC2/AC3).
  *
- * Covers (AC4 / AC5):
+ * Covers:
  *   - loading skeleton state
  *   - error state
  *   - renders 4 KPI cards with correct values (pending / validated / paid / recipients)
- *   - CTA shows the pending count and navigates to /crm/finance?status=PENDING
- *   - CTA sub-label reflects pending=0 vs pending>0
+ *   - CTA opens ValidateDialog queue (NOT navigate) when pending > 0
+ *   - CTA is disabled / shows «нет приходов» sub-label when pending = 0
  *
- * `useAccountantSummary` and `useNavigate` are mocked so the component renders
- * in isolation (no real query client / router needed).
+ * `useAccountantSummary` and `useQuery` / `financeApi` are mocked so the
+ * component renders in isolation (no real QueryClient / router needed).
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import type { AccountantSummaryDto } from '@crm/shared'
+import type { AccountantSummaryDto, TransactionDto } from '@crm/shared'
 
-const navigateMock = vi.fn()
 const useAccountantSummaryMock = vi.fn()
-
-vi.mock('@tanstack/react-router', () => ({
-  useNavigate: () => navigateMock,
-}))
+const useQueryMock = vi.fn()
 
 vi.mock('@/hooks/use-accountant-summary', () => ({
   useAccountantSummary: () => useAccountantSummaryMock(),
+}))
+
+// Mock @tanstack/react-query — useQuery used for transactions list
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-query')>()
+  return {
+    ...actual,
+    useQuery: (...args: unknown[]) => useQueryMock(...args),
+    useMutation: () => ({ mutate: vi.fn(), isPending: false }),
+    useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+  }
+})
+
+// ValidateDialog is a heavy component with its own queries; mock it to a
+// lightweight sentinel so CTA tests stay focused on AccountantDashboard logic.
+vi.mock('@/routes/crm/finance/components/dialogs/ValidateDialog', () => ({
+  ValidateDialog: ({
+    tx,
+    onClose,
+  }: {
+    tx: { id: string } | null
+    onClose: () => void
+    queue: unknown[]
+    onAdvance: (tx: unknown) => void
+  }) =>
+    tx ? (
+      <div data-testid="validate-dialog-mock">
+        <button onClick={onClose}>close</button>
+      </div>
+    ) : null,
+}))
+
+vi.mock('@/routes/crm/finance/api', () => ({
+  financeApi: {
+    getTransactions: vi.fn().mockResolvedValue([]),
+  },
 }))
 
 import { AccountantDashboard } from '../AccountantDashboard'
@@ -39,9 +71,29 @@ function makeSummary(overrides: Partial<AccountantSummaryDto> = {}): AccountantS
   }
 }
 
+function makePendingTx(id: string): TransactionDto {
+  return {
+    id,
+    type: 'SENIOR_INCOME',
+    status: 'PENDING',
+    amount: 1000,
+    currency: 'USD',
+    createdAt: new Date().toISOString(),
+    senderName: null,
+    projectName: null,
+    notes: null,
+    receiptDocumentId: null,
+    receiptExternalUrl: null,
+    recipientId: 'user-1',
+    rejectionReason: null,
+  } as unknown as TransactionDto
+}
+
 beforeEach(() => {
-  navigateMock.mockReset()
   useAccountantSummaryMock.mockReset()
+  useQueryMock.mockReset()
+  // Default: transactions query returns empty list
+  useQueryMock.mockReturnValue({ data: [] })
 })
 
 describe('AccountantDashboard', () => {
@@ -59,7 +111,7 @@ describe('AccountantDashboard', () => {
     expect(screen.getByText('Не удалось загрузить финансовую сводку')).toBeInTheDocument()
   })
 
-  describe('KPI cards (AC4)', () => {
+  describe('KPI cards', () => {
     beforeEach(() => {
       useAccountantSummaryMock.mockReturnValue({
         data: makeSummary(),
@@ -107,7 +159,7 @@ describe('AccountantDashboard', () => {
     })
   })
 
-  describe('CTA — validate pending (AC5)', () => {
+  describe('CTA — validate pending (AC2/AC3)', () => {
     it('shows the pending count in the CTA label', () => {
       useAccountantSummaryMock.mockReturnValue({
         data: makeSummary({ pendingValidation: { count: 4, amount: 15000 } }),
@@ -120,18 +172,32 @@ describe('AccountantDashboard', () => {
       )
     })
 
-    it('navigates to /crm/finance with status=PENDING on click', () => {
+    it('opens ValidateDialog on CTA click when pending transactions exist (AC3)', () => {
       useAccountantSummaryMock.mockReturnValue({
         data: makeSummary(),
         isLoading: false,
         isError: false,
       })
+      // transactions query returns 2 pending items
+      useQueryMock.mockReturnValue({
+        data: [makePendingTx('tx-1'), makePendingTx('tx-2')],
+      })
       render(<AccountantDashboard />)
       fireEvent.click(screen.getByTestId('accountant-validate-cta'))
-      expect(navigateMock).toHaveBeenCalledWith({
-        to: '/crm/finance',
-        search: { status: 'PENDING' },
+      expect(screen.getByTestId('validate-dialog-mock')).toBeInTheDocument()
+    })
+
+    it('does NOT open ValidateDialog when transactions list is empty', () => {
+      useAccountantSummaryMock.mockReturnValue({
+        data: makeSummary({ pendingValidation: { count: 4, amount: 15000 } }),
+        isLoading: false,
+        isError: false,
       })
+      // transactions query returns empty (edge: summary says 4 but transactions not loaded yet)
+      useQueryMock.mockReturnValue({ data: [] })
+      render(<AccountantDashboard />)
+      fireEvent.click(screen.getByTestId('accountant-validate-cta'))
+      expect(screen.queryByTestId('validate-dialog-mock')).not.toBeInTheDocument()
     })
 
     it('reflects «нет приходов» sub-label when pending = 0', () => {
@@ -142,9 +208,7 @@ describe('AccountantDashboard', () => {
       })
       render(<AccountantDashboard />)
       expect(screen.getByText('Нет приходов, ожидающих валидации')).toBeInTheDocument()
-      expect(screen.getByTestId('accountant-validate-cta')).toHaveTextContent(
-        'Валидировать ожидающие (0)',
-      )
+      expect(screen.getByTestId('accountant-validate-cta')).toBeDisabled()
     })
   })
 })
