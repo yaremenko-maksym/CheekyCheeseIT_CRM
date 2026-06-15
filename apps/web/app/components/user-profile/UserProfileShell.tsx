@@ -265,7 +265,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
               />
             )}
             {activeTab === 'finance' && permissions.tabs.includes('finance') && (
-              <FinanceTab userId={user.id} />
+              <FinanceTab userId={user.id} targetRole={user.role} />
             )}
             {activeTab === 'projects' && permissions.tabs.includes('projects') && (
               <ProjectsTab userId={user.id} role={user.role} />

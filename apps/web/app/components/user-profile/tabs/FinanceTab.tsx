@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
-import { Search, Send, X } from 'lucide-react'
+import { Search, Send, Wallet, X } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import type { TransactionDto } from '@crm/shared'
+import type { TransactionDto, TotalEarnedDto } from '@crm/shared'
+import { totalEarnedSchema } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -16,7 +17,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/axios'
 import { useAuth } from '@/context/auth'
-import { formatAmountUsd } from '@/lib/format-amount'
+import { formatAmount, formatAmountUsd } from '@/lib/format-amount'
 import { financeApi } from '@/routes/crm/finance/api'
 import { STATUS_LABELS, TYPE_LABELS, type ExchangeRates } from '@/routes/crm/finance/constants'
 import { TransactionRow } from '@/routes/crm/finance/components/TransactionRow'
@@ -35,11 +36,31 @@ const STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ 
  * the full unfiltered list when looking at any senior; SENIOR self-view
  * sees only their own).
  */
-export function FinanceTab({ userId }: { userId: string }) {
+// Roles for which «всего заработано с нами» is a meaningful figure (people the
+// company actually pays: senior payouts / drop shares / junior+HR salary).
+// ADMIN targets are intentionally excluded — admins are partners, not payees.
+const EARNED_TARGET_ROLES = ['SENIOR', 'DROP', 'JUNIOR', 'HR'] as const
+
+export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?: string }) {
   const { user: viewer } = useAuth()
   const navigate = useNavigate()
   const role = viewer?.role ?? ''
   const isPrivileged = role === 'ADMIN' || role === 'ACCOUNTANT'
+  // «Всего заработано» is a privileged financial metric: only ADMIN / ACCOUNTANT
+  // viewers see it, and only on SENIOR / DROP / JUNIOR / HR profiles. Other
+  // viewers (incl. the target self-viewing) never get the figure — the backend
+  // also enforces this (assertCanReadTotalEarned → 403), so the query is the
+  // belt-and-suspenders second layer to the server guard.
+  const showTotalEarned =
+    isPrivileged && !!targetRole && (EARNED_TARGET_ROLES as readonly string[]).includes(targetRole)
+
+  const { data: totalEarned } = useQuery<TotalEarnedDto>({
+    queryKey: ['profile-total-earned', userId],
+    queryFn: () =>
+      api.get(`/balances/total-earned/${userId}`).then((r) => totalEarnedSchema.parse(r.data)),
+    enabled: showTotalEarned,
+    staleTime: 60_000,
+  })
   // task-drop-phase3-frontend (Q2 owner decision): «Зарегистрировать приход» CTA
   // removed from FinanceTab. The canonical trigger is DropQuickActions on /crm/routing,
   // with a secondary ghost button in DropFinancePage header (/crm/finance).
@@ -143,11 +164,44 @@ export function FinanceTab({ userId }: { userId: string }) {
     )
   }, [transactions, showInitiatePaymentForDrop, userId, settledPayoutRequestIds])
 
+  // «Всего заработано с нами» card — lifetime money the company paid this user.
+  // Rendered above the transactions list, visible to ADMIN / ACCOUNTANT only on
+  // SENIOR / DROP / JUNIOR / HR profiles (see showTotalEarned). Shown in both the
+  // empty-state and the populated branch so the figure is consistent regardless
+  // of whether the row list is non-empty.
+  const earnedCard =
+    showTotalEarned && totalEarned ? (
+      <Card className="mb-3 border-primary/30 bg-primary/5" data-testid="total-earned-card">
+        <CardContent className="flex items-center justify-between gap-4 py-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Wallet className="h-4 w-4" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                Всего заработано с нами
+              </p>
+              <p className="text-xs text-muted-foreground/70">
+                Накопленные выплаты компании за всё время
+              </p>
+            </div>
+          </div>
+          <span
+            className="text-2xl font-bold tabular-nums whitespace-nowrap"
+            data-testid="total-earned-amount"
+          >
+            {formatAmount(totalEarned.totalEarned, totalEarned.currency)}
+          </span>
+        </CardContent>
+      </Card>
+    ) : null
+
   if (isLoading) return <Skeleton className="h-64 w-full" />
 
   if (transactions.length === 0) {
     return (
       <>
+        {earnedCard}
         {/* task-drop-company-debt-and-invoices: DROP no longer holds
             debts to seniors — section removed. The company settles via
             /crm/finance (PendingSettlementCompanyCard). */}
@@ -162,6 +216,7 @@ export function FinanceTab({ userId }: { userId: string }) {
 
   return (
     <>
+      {earnedCard}
       {/* task-drop-company-debt-and-invoices: the DROP debts-to-seniors
           section has been removed. The company is now the debtor and
           settles centrally on /crm/finance. */}
