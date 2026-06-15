@@ -1,16 +1,24 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
-import { and, asc, count, eq, isNull } from 'drizzle-orm'
+import { and, asc, count, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type {
   CreateInterviewDto,
+  HrSummaryDto,
   InterviewDto,
   ItDomain,
   MoveInterviewDto,
+  SalaryStatus,
   SessionUser,
   UpdateInterviewDto,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { ProjectsService } from '../projects/projects.service'
-import { interviews, teamMembers, type Interview, type User } from '../database/schema'
+import {
+  interviews,
+  teamMembers,
+  transactions,
+  type Interview,
+  type User,
+} from '../database/schema'
 
 type InterviewWithRelations = Interview & {
   senior: User | null
@@ -308,5 +316,101 @@ export class InterviewsService {
     }
 
     throw new ForbiddenException()
+  }
+
+  /**
+   * HR dashboard / HR-хаб KPI snapshot — `GET /api/interviews/hr-summary`.
+   *
+   * RBAC: HR + ADMIN ONLY. The ForbiddenException is thrown BEFORE any DB
+   * access (mirrors getAccountantSummary), so no team-scoped recruiting figures
+   * nor a foreign salary status ever leak to SENIOR / JUNIOR / ACCOUNTANT / DROP.
+   *
+   * KPI (all SQL-aggregated — COUNT with WHERE/FILTER, never findMany-in-memory):
+   *   - openInterviews — active-stage cards (every stage except HIRED / REJECTED
+   *     / ARCHIVED) scoped to the boards the caller can access. HR is restricted
+   *     to its own teams' seniors via getAccessibleSeniorIds; ADMIN sees all.
+   *   - hiredThisMonth — cards in HIRED whose updatedAt falls in the current
+   *     calendar month (UTC boundary, like getAccountantSummary), same scope.
+   *   - mySalaryStatus — the caller's OWN salary row for the current month
+   *     (type=SALARY, receiver=self, salaryMonth=YYYY-MM); null if none yet.
+   *
+   * Team-scope note: for HR with NO accessible seniors the scope set is empty,
+   * so both interview KPI are 0 (we short-circuit instead of emitting an empty
+   * `IN ()` predicate). ADMIN has no seniorId filter.
+   */
+  async getHrSummary(currentUser: SessionUser): Promise<HrSummaryDto> {
+    if (currentUser.role !== 'HR' && currentUser.role !== 'ADMIN') {
+      throw new ForbiddenException('Access denied: HR summary requires HR or ADMIN role')
+    }
+
+    // Current-month boundary (UTC), computed once — matches getAccountantSummary.
+    const now = new Date()
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+    const salaryMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
+
+    // Terminal stages are excluded from openInterviews (anything not actively in
+    // the pipeline). Active = every stage that is NOT one of these.
+    const terminalStages = sql`${interviews.stage} not in ('HIRED', 'REJECTED', 'ARCHIVED')`
+
+    // Team-scope predicate. HR → only its accessible seniors' boards; ADMIN →
+    // all boards (no scope filter). An HR with no accessible seniors gets 0 for
+    // both interview KPI without issuing an empty `IN ()` predicate.
+    let scope = sql`true`
+    if (currentUser.role === 'HR') {
+      const accessibleSeniorIds = [...(await this.getAccessibleSeniorIds(currentUser))]
+      if (accessibleSeniorIds.length === 0) {
+        const mySalaryStatus = await this.getOwnSalaryStatus(currentUser.id, salaryMonth)
+        return { openInterviews: 0, hiredThisMonth: 0, mySalaryStatus }
+      }
+      scope = inArray(interviews.seniorId, accessibleSeniorIds)
+    }
+
+    // Single aggregating pass — conditional COUNT via FILTER (WHERE ...).
+    const [row] = await this.db.db
+      .select({
+        openCount: sql<number>`count(*) filter (where ${terminalStages})`.mapWith(Number),
+        hiredThisMonthCount:
+          sql<number>`count(*) filter (where ${interviews.stage} = 'HIRED' and ${interviews.updatedAt} >= ${monthStart})`.mapWith(
+            Number,
+          ),
+      })
+      .from(interviews)
+      .where(scope)
+
+    const mySalaryStatus = await this.getOwnSalaryStatus(currentUser.id, salaryMonth)
+
+    return {
+      openInterviews: row?.openCount ?? 0,
+      hiredThisMonth: row?.hiredThisMonthCount ?? 0,
+      mySalaryStatus,
+    }
+  }
+
+  /**
+   * The caller's own SALARY transaction for `salaryMonth` (YYYY-MM), or null if
+   * none exists yet. Only PENDING / PAID / LOCKED statuses are valid for a
+   * SALARY row; any other status is mapped to null (defensive — should not occur).
+   */
+  private async getOwnSalaryStatus(
+    userId: string,
+    salaryMonth: string,
+  ): Promise<HrSummaryDto['mySalaryStatus']> {
+    const salaryRow = await this.db.db.query.transactions.findFirst({
+      where: and(
+        eq(transactions.type, 'SALARY'),
+        eq(transactions.receiverId, userId),
+        eq(transactions.salaryMonth, salaryMonth),
+      ),
+    })
+
+    if (!salaryRow) return null
+
+    const validStatuses: SalaryStatus[] = ['PENDING', 'PAID', 'LOCKED']
+    if (!validStatuses.includes(salaryRow.status as SalaryStatus)) return null
+
+    return {
+      amount: Number(salaryRow.amount),
+      status: salaryRow.status as SalaryStatus,
+    }
   }
 }

@@ -970,6 +970,18 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
       ? jsonOk(r, { ...INTERVIEWS[0], id: 'new-interview-id' }, 201)
       : jsonOk(r, INTERVIEWS),
   )
+  // HR dashboard summary — registered AFTER the `/interviews/:id` route so it
+  // wins under Playwright's LIFO route matching (last-registered handler runs
+  // first). Without this ordering the `([^/?]+)` param matcher above would
+  // swallow the literal `hr-summary` segment and return an interview row
+  // (hrSummarySchema.parse would then throw → HRDashboard error-state).
+  await page.route(new RegExp(`${API_RE}/interviews/hr-summary(\\?.*)?$`), (r) =>
+    jsonOk(r, {
+      openInterviews: 3,
+      hiredThisMonth: 1,
+      mySalaryStatus: { amount: 1500, status: 'PENDING' },
+    }),
+  )
 
   // Finance — real API paths (no /finance/ prefix for transactions/payout-requests)
   await page.route(new RegExp(`${API_RE}/transactions/senior-income/([^/?]+)$`), (r) =>

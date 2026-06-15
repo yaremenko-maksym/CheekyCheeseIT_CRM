@@ -69,3 +69,39 @@ export type InterviewDto = z.infer<typeof interviewSchema>
 export type CreateInterviewDto = z.infer<typeof createInterviewSchema>
 export type UpdateInterviewDto = z.infer<typeof updateInterviewSchema>
 export type MoveInterviewDto = z.infer<typeof moveInterviewSchema>
+
+// ---------------------------------------------------------------------------
+// HR summary DTO (HR dashboard / HR-хаб)
+// ---------------------------------------------------------------------------
+//
+// KPI snapshot for the HR рекрутинг хаб-дашборд (and ADMIN, who sees the same
+// recruiting scope). Surfaced by GET /api/interviews/hr-summary — RBAC: HR +
+// ADMIN only; every other role gets 403 (the endpoint would otherwise leak
+// team-scoped recruiting figures + a foreign salary status).
+//
+// Fields:
+//   openInterviews  — number of interview cards still in an ACTIVE stage (every
+//                     stage except the terminal HIRED / REJECTED / ARCHIVED),
+//                     scoped to the boards the HR can access (own teams' seniors
+//                     via getAccessibleSeniorIds; ADMIN sees all).
+//   hiredThisMonth  — number of interviews that reached the HIRED stage during
+//                     the current calendar month (UTC boundary, by updatedAt),
+//                     within the same team-scope.
+//   mySalaryStatus  — the calling HR's OWN salary transaction for the current
+//                     month (type=SALARY, receiver=self, salaryMonth=YYYY-MM).
+//                     `null` when no salary row exists yet for this month.
+export const salaryStatusSchema = z.enum(['PENDING', 'PAID', 'LOCKED'])
+
+export const hrSummarySchema = z.object({
+  openInterviews: z.number().int().nonnegative(),
+  hiredThisMonth: z.number().int().nonnegative(),
+  mySalaryStatus: z
+    .object({
+      amount: z.number(),
+      status: salaryStatusSchema,
+    })
+    .nullable(),
+})
+
+export type SalaryStatus = z.infer<typeof salaryStatusSchema>
+export type HrSummaryDto = z.infer<typeof hrSummarySchema>
