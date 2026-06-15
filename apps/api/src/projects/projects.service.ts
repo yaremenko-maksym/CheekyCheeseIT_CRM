@@ -147,6 +147,24 @@ export class ProjectsService {
     // here) but must not see the rest of the team roster via this endpoint.
     const isJuniorViewer = viewerRole === 'JUNIOR'
 
+    // task-admin-as-senior: when the project's senior is an ADMIN user,
+    // only ADMIN and ACCOUNTANT viewers get the real seniorId (navigable profile).
+    // All other non-JUNIOR roles (SENIOR, HR, DROP) get seniorId=null — they see
+    // the displayName but cannot navigate to the admin's profile (403 for them).
+    // JUNIOR falls through to the existing null path regardless.
+    const isPrivilegedViewer = viewerRole === 'ADMIN' || viewerRole === 'ACCOUNTANT'
+    const isAdminSenior = project.senior?.role === 'ADMIN'
+
+    // Effective seniorId for non-JUNIOR viewers:
+    //   - Regular project (senior role ≠ ADMIN): real seniorId
+    //   - Admin-project + privileged viewer (ADMIN/ACCOUNTANT): real seniorId
+    //   - Admin-project + non-privileged viewer (SENIOR/HR/DROP): null (no link)
+    const effectiveSeniorId: string | null = isJuniorViewer
+      ? null
+      : isAdminSenior && !isPrivilegedViewer
+        ? null
+        : (project.seniorId ?? null)
+
     // task-junior-ux-1-backend: legend persona enrichment for JUNIOR.
     // JUNIOR sees the persona name/role instead of real identity (which stays null).
     // Non-JUNIOR viewers get null for these fields (they use seniorName/seniorId).
@@ -165,7 +183,8 @@ export class ProjectsService {
       logoExternalUrl: project.logoExternalUrl ?? null,
       startDate: project.startDate.toISOString(),
       // Identity masking (RBAC A01): JUNIOR must not know who the senior is.
-      seniorId: isJuniorViewer ? null : project.seniorId,
+      // task-admin-as-senior: non-privileged viewers also get null for admin-projects.
+      seniorId: effectiveSeniorId,
       // JUNIOR: persona fullName from legend (or null if no legend). Non-JUNIOR: real displayName.
       seniorName: isJuniorViewer ? (legend?.fullName ?? null) : (project.senior?.displayName ?? ''),
       // Legend persona role — JUNIOR only. Non-JUNIOR viewers get null (unused by their UI).
@@ -469,14 +488,29 @@ export class ProjectsService {
     project: ProjectWithRelations,
     viewerRole?: string,
   ): Promise<EffectiveTeam> {
+    // task-admin-as-senior: when the project's senior is an ADMIN user,
+    // non-privileged viewers (SENIOR/HR/DROP) must not receive PII (email)
+    // or a navigable profile link. ADMIN/ACCOUNTANT see everything as-is.
+    const isAdminSeniorProject = project.senior?.role === 'ADMIN'
+    const isPrivilegedViewerForSenior = viewerRole === 'ADMIN' || viewerRole === 'ACCOUNTANT'
+    const maskAdminSenior = isAdminSeniorProject && !isPrivilegedViewerForSenior
+
     const senior = project.senior
       ? {
           id: project.senior.id,
           displayName: project.senior.displayName,
-          email: project.senior.email,
+          // Mask email when senior is ADMIN and viewer is non-privileged.
+          // Empty string keeps the type contract (z.string()) while leaking nothing.
+          email: maskAdminSenior ? '' : project.senior.email,
           avatarUrl: project.senior.avatarUrl ?? null,
           avatarDocumentId: project.senior.avatarDocumentId ?? null,
+          // EffectiveTeam.senior.role is typed as 'SENIOR' in the shared schema
+          // for backward compat. We keep this literal even for ADMIN-senior projects
+          // (the role field here indicates the team slot, not the DB role).
           role: 'SENIOR' as const,
+          // task-admin-as-senior: whether the viewer can navigate to the senior's
+          // profile. False for non-privileged viewers of admin-projects.
+          profileNavigable: !maskAdminSenior,
         }
       : null
 

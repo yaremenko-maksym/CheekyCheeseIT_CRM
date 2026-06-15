@@ -168,6 +168,14 @@ export const effectiveTeamSchema = z.object({
       avatarUrl: z.string().url().nullable(),
       avatarDocumentId: z.string().uuid().nullable(),
       role: z.literal('SENIOR'),
+      /**
+       * task-admin-as-senior: when the project's senior is an ADMIN user,
+       * non-privileged viewers (SENIOR/HR/DROP) must not navigate to the
+       * admin's profile (it returns 403 for them). Backend sets this to
+       * `false` for those viewers; ADMIN/ACCOUNTANT get `true`.
+       * Defaults to `true` for regular SENIOR-projects (backward-compat).
+       */
+      profileNavigable: z.boolean().default(true),
     })
     .nullable(),
   /**

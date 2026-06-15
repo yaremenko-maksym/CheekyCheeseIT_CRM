@@ -44,11 +44,16 @@ export class LegendsService {
    * view-access == edit-access.
    */
   async canAccess(viewer: SessionUser, project: ProjectRow): Promise<boolean> {
-    // Subject explicitly excluded
+    // task-admin-as-senior: ADMIN check runs FIRST — before subject-exclusion.
+    // When seniorId = ADMIN_ID, subject-exclusion would otherwise wrongly deny
+    // the admin access to the legend of their own project. ADMIN always has
+    // full legend access regardless of whether they are the project's subject.
+    if (viewer.role === 'ADMIN') return true
+
+    // Subject explicitly excluded (SENIOR/DROP who is the project persona
+    // must not see/edit their own legend — they ARE the subject).
     if (viewer.id === project.seniorId) return false
     if (project.dropId && viewer.id === project.dropId) return false
-
-    if (viewer.role === 'ADMIN') return true
 
     // HR can access if they share an active team with the project's senior.
     // Consolidated into HrAccessService (was a private hrCanAccess copy).
