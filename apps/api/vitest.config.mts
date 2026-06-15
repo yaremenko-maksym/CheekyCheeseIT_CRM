@@ -58,6 +58,34 @@ const mainApiNodeModules = mainRepoRoot ? `${mainRepoRoot}/apps/api/node_modules
 const mainRootNodeModules = mainRepoRoot ? `${mainRepoRoot}/node_modules` : ''
 const worktreeRoot = path.resolve(__dirname, '../..')
 
+// ── Integration-run detection ──────────────────────────────────────────────
+//
+// The `*.integration.spec.ts` specs hit ONE shared Postgres. Some of them read
+// GLOBAL / cross-row aggregate state — e.g. accountant-summary asserts on the
+// DELTA of a company-wide `count(*) / sum(amount) / count(distinct party)` over
+// the WHOLE `transactions` table (`getAccountantSummary` has no per-caller WHERE
+// scoping). When vitest runs those files in PARALLEL worker forks against the
+// single DB, another spec's income inserts (receipt-replace, drop.rbac,
+// documents-unified, transactions.junior-findall — all insert SENIOR_INCOME /
+// DROP_INCOME) land inside accountant-summary's baseline→assert window and
+// corrupt its deltas. This is a cross-file data race, reproduced locally on a
+// seeded scratch DB on the first full integration run.
+//
+// CI invokes the integration suite as `vitest run … integration.spec` (a path
+// substring filter — see the `integration` job in .github/workflows/ci.yml). We
+// detect that filter from argv and, ONLY for an integration run, disable file
+// parallelism so the specs no longer share the DB concurrently. `fileParallelism:
+// false` forces serial file execution (vitest then pins maxWorkers to 1). This
+// fixes the whole CLASS of integration races (current and future specs that read
+// global state), not a single assertion — and the asserts stay untouched.
+//
+// It does NOT affect the unit-test `quality` job: that runs `vitest run` with no
+// filter and no DATABASE_URL, so `isIntegrationRun` is false and unit specs keep
+// running fully parallel. A local FULL run that also includes integration specs
+// (DATABASE_URL set, no filter) is the developer's choice; the authoritative,
+// race-free path is the filtered integration run used by CI and reproduction.
+const isIntegrationRun = process.argv.some((arg) => arg.includes('integration.spec'))
+
 export default defineConfig({
   ...(isWorktree && {
     resolve: {
@@ -82,6 +110,14 @@ export default defineConfig({
     // under load). Pre-push hook now runs packages sequentially so each test worker
     // gets the full CPU, but we keep a 90 s ceiling to catch genuine hangs.
     testTimeout: 90000,
+    pool: 'forks',
+    // Serialize the integration run so specs never share the single Postgres
+    // concurrently (see `isIntegrationRun` above). `fileParallelism: false`
+    // disables parallel file execution and pins maxWorkers to 1 — the durable
+    // fix for the cross-file DB data race. Applies to BOTH main-repo (CI) and
+    // worktree integration runs. For non-integration runs we leave file
+    // parallelism at its default (true) so the unit suite stays fast.
+    ...(isIntegrationRun && { fileParallelism: false }),
     ...(isWorktree && {
       // Extend vitest's server module resolution to include main repo's packages.
       server: {
@@ -91,10 +127,12 @@ export default defineConfig({
       },
       // In a worktree the node_modules resolution chain is longer and heavy
       // tests (JPEG compression, PDF generation) compete for CPU with the
-      // shared main-repo process pool.  Limit forks to 2 so resource-intensive
-      // integration tests get enough CPU time instead of hitting 5 s timeouts.
-      pool: 'forks',
-      poolOptions: { forks: { maxForks: 2 } },
+      // shared main-repo process pool. Cap workers so resource-intensive tests
+      // get enough CPU time instead of hitting timeouts. (vitest 4 removed
+      // `poolOptions.forks.maxForks` — the cap is now the top-level
+      // `maxWorkers`. An integration run further narrows this to 1 via
+      // `fileParallelism: false` above.)
+      maxWorkers: 2,
     }),
     coverage: {
       provider: 'v8',
