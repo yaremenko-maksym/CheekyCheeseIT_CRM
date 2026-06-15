@@ -135,6 +135,11 @@ function ProjectsPage() {
   const canCreate = user?.role === 'ADMIN' || user?.role === 'HR'
   const isAdmin = user?.role === 'ADMIN'
 
+  // AC1-AC3: non-ADMIN roles always see active-only; tabs + ?archived URL are
+  // ADMIN-exclusive. For non-ADMIN we ignore `search.archived` entirely so a
+  // manually crafted ?archived=true URL silently falls back to the active list.
+  const effectiveIsArchivedView = isAdmin && isArchivedView
+
   // ut-44: tri-state tab — local "ACTIVE" / "ALL" state plus URL-driven "ARCHIVED".
   // We don't use URL for ALL/ACTIVE so deep-linking still defaults to active.
   const [filter, setFilter] = useState<StatusTab>('ALL')
@@ -155,7 +160,8 @@ function ProjectsPage() {
   // a skeleton/empty state mid-flight. The `archivedQuery` derives the query
   // param: ARCHIVED → `?archived=true`, ALL → `?archived=all`, ACTIVE → no
   // param (default backend behaviour).
-  const currentTab: StatusTab = isArchivedView ? 'ARCHIVED' : filter
+  // AC1-AC3: non-ADMIN always resolves to ACTIVE regardless of URL or local filter.
+  const currentTab: StatusTab = isAdmin ? (effectiveIsArchivedView ? 'ARCHIVED' : filter) : 'ACTIVE'
   const archivedQuery = currentTab === 'ARCHIVED' ? 'true' : currentTab === 'ALL' ? 'all' : ''
   const { data: projects, isLoading } = useQuery({
     queryKey: ['projects', { archived: archivedQuery || 'active' }],
@@ -334,7 +340,7 @@ function ProjectsPage() {
         navigate({ to: '/crm/projects', search: { archived: true } })
         return
       }
-      if (isArchivedView) {
+      if (effectiveIsArchivedView) {
         navigate({ to: '/crm/projects', search: {} })
       }
       // ALL or ACTIVE — both kept in local state.
@@ -361,7 +367,10 @@ function ProjectsPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Проекты</h1>
-          <p className="text-sm text-muted-foreground">Активные и завершённые проекты</p>
+          {/* AC4: non-ADMIN sees "Активные проекты"; ADMIN sees full subtitle */}
+          <p className="text-sm text-muted-foreground">
+            {isAdmin ? 'Активные и завершённые проекты' : 'Активные проекты'}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {canCreate && (
@@ -373,18 +382,20 @@ function ProjectsPage() {
         </div>
       </div>
 
-      {/* ut-25 + ut-26 + ut-33 + ut-44: status tabs row */}
-      <SegmentedToggle<StatusTab>
-        value={currentTab}
-        onChange={handleTabChange}
-        options={tabs}
-        ariaLabel="Фильтр проектов"
-        variant="tabs"
-        size="sm"
-        layoutId="projects-status-tabs"
-        className="w-fit"
-        testId="projects-status-tabs"
-      />
+      {/* ut-25 + ut-26 + ut-33 + ut-44: status tabs row — ADMIN only (AC1-AC2) */}
+      {isAdmin && (
+        <SegmentedToggle<StatusTab>
+          value={currentTab}
+          onChange={handleTabChange}
+          options={tabs}
+          ariaLabel="Фильтр проектов"
+          variant="tabs"
+          size="sm"
+          layoutId="projects-status-tabs"
+          className="w-fit"
+          testId="projects-status-tabs"
+        />
+      )}
 
       {/* ut-43: unified toolbar — search + senior filter (ADMIN) + sort key + direction */}
       <Card>
@@ -452,9 +463,9 @@ function ProjectsPage() {
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
           <Briefcase className="h-10 w-10 text-muted-foreground/30" />
           <p className="mt-4 text-sm font-medium">
-            {isArchivedView ? 'Архив пуст' : 'Проектов пока нет'}
+            {effectiveIsArchivedView ? 'Архив пуст' : 'Проектов пока нет'}
           </p>
-          {canManage && !isArchivedView && (
+          {canManage && !effectiveIsArchivedView && (
             <Button
               size="sm"
               variant="outline"
