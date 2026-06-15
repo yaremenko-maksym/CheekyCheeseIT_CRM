@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { StickyPageHeader } from '@/components/crm/StickyPageHeader'
 import { useForm } from '@tanstack/react-form'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
@@ -596,82 +597,85 @@ function TeamPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">Команда</h1>
-        <div className="flex items-center gap-2">
-          {isHr && (
-            <Button onClick={() => setShowCreateSenior(true)} size="sm" className="gap-1.5">
-              <Plus className="h-4 w-4" />
-              Создать синьора
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* ut-25 + ut-26 + ut-33: Tabs row replacing the «Показать архивных» button.
-          Only ADMIN sees the Archive tab; for other roles tabs aren't needed
-          since they don't have access to archived teams. */}
-      {isAdmin && (
-        <SegmentedToggle<TeamTab>
-          value={currentTeamTab}
-          onChange={handleTeamTabChange}
-          options={teamTabs}
-          ariaLabel="Фильтр команд"
-          variant="tabs"
-          size="sm"
-          layoutId="team-status-tabs"
-          className="w-fit"
-          testId="team-status-tabs"
-        />
-      )}
-
-      {teams && teams.length === 0 && (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
-          <Users className="h-10 w-10 text-muted-foreground/30" />
-          <p className="mt-4 text-sm font-medium">Команд пока нет</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {isHr
-              ? 'Нажмите «Создать синьора» чтобы сформировать первую команду'
-              : 'Команды создаются автоматически при добавлении синьора в систему'}
-          </p>
-        </div>
-      )}
-
-      {teams && teams.length > 0 && (
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Поиск по названию…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-            />
+    <div className="flex flex-col gap-0">
+      <StickyPageHeader>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold tracking-tight">Команда</h1>
+          <div className="flex items-center gap-2">
+            {isHr && (
+              <Button onClick={() => setShowCreateSenior(true)} size="sm" className="gap-1.5">
+                <Plus className="h-4 w-4" />
+                Создать синьора
+              </Button>
+            )}
           </div>
-          <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Сортування" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="name">Название A→Z</SelectItem>
-              <SelectItem value="members">Участники ↓</SelectItem>
-              <SelectItem value="projects">Проекты ↓</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
-      )}
 
-      <motion.div
-        className="flex flex-col gap-1.5"
-        variants={container}
-        initial="hidden"
-        animate="show"
-      >
-        {filteredTeams.length === 0 && (teams?.length ?? 0) > 0 && (
-          <p className="py-8 text-center text-sm text-muted-foreground">Ничего не найдено</p>
+        {/* ut-25 + ut-26 + ut-33: Tabs row replacing the «Показать архивных» button.
+            Only ADMIN sees the Archive tab; for other roles tabs aren't needed
+            since they don't have access to archived teams. */}
+        {isAdmin && (
+          <SegmentedToggle<TeamTab>
+            value={currentTeamTab}
+            onChange={handleTeamTabChange}
+            options={teamTabs}
+            ariaLabel="Фильтр команд"
+            variant="tabs"
+            size="sm"
+            layoutId="team-status-tabs"
+            className="w-fit"
+            testId="team-status-tabs"
+          />
         )}
-        {filteredTeams.map((team) => {
+
+        {teams && teams.length > 0 && (
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Поиск по названию…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+              <SelectTrigger className="w-40">
+                <SelectValue placeholder="Сортування" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="name">Название A→Z</SelectItem>
+                <SelectItem value="members">Участники ↓</SelectItem>
+                <SelectItem value="projects">Проекты ↓</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </StickyPageHeader>
+
+      <div className="pt-4 space-y-6">
+        {teams && teams.length === 0 && (
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
+            <Users className="h-10 w-10 text-muted-foreground/30" />
+            <p className="mt-4 text-sm font-medium">Команд пока нет</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {isHr
+                ? 'Нажмите «Создать синьора» чтобы сформировать первую команду'
+                : 'Команды создаются автоматически при добавлении синьора в систему'}
+            </p>
+          </div>
+        )}
+
+        <motion.div
+          className="flex flex-col gap-1.5"
+          variants={container}
+          initial="hidden"
+          animate="show"
+        >
+          {filteredTeams.length === 0 && (teams?.length ?? 0) > 0 && (
+            <p className="py-8 text-center text-sm text-muted-foreground">Ничего не найдено</p>
+          )}
+          {filteredTeams.map((team) => {
           // ut-39a: per-card management controls removed — all team CRUD is
           // performed from the detail page header. No need for per-team
           // RBAC computation here.
@@ -799,19 +803,20 @@ function TeamPage() {
             </motion.div>
           )
         })}
-      </motion.div>
+        </motion.div>
 
-      {/* HR: Create senior dialog */}
-      {isHr && user && (
-        <HrCreateSeniorDialog
-          open={showCreateSenior}
-          onClose={() => setShowCreateSenior(false)}
-          hrUserId={user.id}
-        />
-      )}
+        {/* HR: Create senior dialog */}
+        {isHr && user && (
+          <HrCreateSeniorDialog
+            open={showCreateSenior}
+            onClose={() => setShowCreateSenior(false)}
+            hrUserId={user.id}
+          />
+        )}
 
-      {/* ut-39a: Edit + Add member + Unarchive flows live on the team detail
-          page header — list page is purely navigational. */}
+        {/* ut-39a: Edit + Add member + Unarchive flows live on the team detail
+            page header — list page is purely navigational. */}
+      </div>
     </div>
   )
 }
