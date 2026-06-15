@@ -21,6 +21,10 @@
  *
  * Mock-based using the fixture authentication. DROP is intentionally
  * excluded because the dashboard pages redirect DROP to /crm/profile.
+ * ACCOUNTANT (AccountantDashboard) and HR (HRDashboard) render their own
+ * role-specific hub on /crm/dashboard instead of the generic placeholder, so
+ * the dashboard test below uses role-specific RU token sets for them. The `/crm`
+ * root (which has no role dispatch) keeps the shared placeholder token set.
  */
 
 import { test, expect } from './fixtures'
@@ -46,6 +50,16 @@ const RU_DASHBOARD_TOKENS = [
   'Дашборд',
 ]
 
+// HR renders HRDashboard (рекрутинг хаб) on /crm/dashboard instead of the
+// generic placeholder — assert its own RU copy. Kept Russian-only + checked
+// against the same English blocklist below.
+const RU_HR_DASHBOARD_TOKENS = [
+  'Дашборд',
+  'Рекрутинг хаб HR-менеджера',
+  'Открытые собеседования',
+  'Нанято за месяц',
+]
+
 const RU_INDEX_TOKENS = [
   'Активные кандидаты',
   'Открытые вакансии',
@@ -65,21 +79,18 @@ test.describe('Dashboard placeholder — Russian-only copy', () => {
       asJunior,
     }) => {
       const page =
-        role === 'Admin'
-          ? asAdmin
-          : role === 'Senior'
-            ? asSenior
-            : role === 'Hr'
-              ? asHr
-              : asJunior
+        role === 'Admin' ? asAdmin : role === 'Senior' ? asSenior : role === 'Hr' ? asHr : asJunior
 
       await page.goto('/crm/dashboard')
       // Wait for the page to settle (motion staggers fade-in).
       const main = page.locator('main')
       await expect(main).toBeVisible({ timeout: 8_000 })
 
+      // HR renders its own role hub (HRDashboard) instead of the placeholder.
+      const expectedTokens = role === 'Hr' ? RU_HR_DASHBOARD_TOKENS : RU_DASHBOARD_TOKENS
+
       // All RU tokens present.
-      for (const token of RU_DASHBOARD_TOKENS) {
+      for (const token of expectedTokens) {
         await expect(
           main.getByText(token, { exact: false }).first(),
           `Expected RU token «${token}» on /crm/dashboard for ${role}`,
@@ -105,13 +116,7 @@ test.describe('Dashboard placeholder — Russian-only copy', () => {
       asJunior,
     }) => {
       const page =
-        role === 'Admin'
-          ? asAdmin
-          : role === 'Senior'
-            ? asSenior
-            : role === 'Hr'
-              ? asHr
-              : asJunior
+        role === 'Admin' ? asAdmin : role === 'Senior' ? asSenior : role === 'Hr' ? asHr : asJunior
 
       await page.goto('/crm')
       const main = page.locator('main')
