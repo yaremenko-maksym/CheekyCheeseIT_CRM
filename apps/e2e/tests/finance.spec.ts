@@ -455,12 +455,18 @@ test.describe('Finance — валидация транзакции', () => {
     await expect(asAdmin.getByRole('heading', { name: /Валидация транзакции/i })).toBeVisible()
   })
 
-  test('ADMIN: валидирует транзакцию кнопкой Подтвердить', async ({ asAdmin }) => {
+  test('ADMIN: валидирует транзакцию кнопкой Подтвердить (AC2: confirm popup)', async ({
+    asAdmin,
+  }) => {
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR])
     await asAdmin.goto('/crm/finance')
     await asAdmin.getByRole('button', { name: /Проверить/i }).click()
-    await asAdmin.getByRole('button', { name: 'Подтвердить' }).click()
-    await expect(asAdmin.getByRole('dialog')).not.toBeVisible()
+    // AC2: кнопка «Подтвердить» открывает AlertDialog confirm
+    await asAdmin.getByTestId('validate-transaction-confirm').click()
+    await expect(asAdmin.getByTestId('validate-confirm-alert')).toBeVisible()
+    // Подтверждаем в AlertDialog → диалог закрывается (очередь из 1 исчерпана)
+    await asAdmin.getByTestId('validate-confirm-ok').click()
+    await expect(asAdmin.getByTestId('validate-transaction-dialog')).not.toBeVisible()
   })
 
   test('ADMIN: отклоняет транзакцию — требует причину', async ({ asAdmin }) => {
@@ -469,24 +475,29 @@ test.describe('Finance — валидация транзакции', () => {
     await asAdmin.getByRole('button', { name: /Проверить/i }).click()
 
     // Без причины — кнопка "Отклонить" disabled
-    const rejectBtn = asAdmin.getByRole('button', { name: 'Отклонить' })
+    const rejectBtn = asAdmin.getByTestId('validate-transaction-reject')
     await expect(rejectBtn).toBeDisabled()
 
     await asAdmin.getByPlaceholder('Укажите причину при отклонении...').fill('Чек не подходит')
     await expect(rejectBtn).not.toBeDisabled()
     await rejectBtn.click()
-    await expect(asAdmin.getByRole('dialog')).not.toBeVisible()
+    await expect(asAdmin.getByTestId('validate-transaction-dialog')).not.toBeVisible()
   })
 
-  test('ACCOUNTANT: тоже видит кнопку Проверить и может валидировать', async ({ page }) => {
+  test('ACCOUNTANT: тоже видит кнопку Проверить и может валидировать (AC2: confirm popup)', async ({
+    page,
+  }) => {
     await mockAuthAs(page, USERS.accountant)
     await mockTransactions(page, [TX_PENDING_SENIOR])
     await page.goto('/crm/finance')
     await expect(page.getByRole('button', { name: /Проверить/i })).toBeVisible()
     await page.getByRole('button', { name: /Проверить/i }).click()
-    await expect(page.getByRole('dialog')).toBeVisible()
-    await page.getByRole('button', { name: 'Подтвердить' }).click()
-    await expect(page.getByRole('dialog')).not.toBeVisible()
+    await expect(page.getByTestId('validate-transaction-dialog')).toBeVisible()
+    // AC2: confirm popup перед валидацией
+    await page.getByTestId('validate-transaction-confirm').click()
+    await expect(page.getByTestId('validate-confirm-alert')).toBeVisible()
+    await page.getByTestId('validate-confirm-ok').click()
+    await expect(page.getByTestId('validate-transaction-dialog')).not.toBeVisible()
   })
 })
 
