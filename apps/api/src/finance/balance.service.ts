@@ -21,11 +21,11 @@
  * `PAYOUT_ADMIN + ADMIN_INCOME + ADMIN_TRANSFER + PAYOUT_CONFIRMED` map,
  * BalanceService reads only the Phase 4 personal-credit types.
  */
-import { ForbiddenException, Injectable } from '@nestjs/common'
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
 import type { SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { pendingObligations } from '../database/schema'
+import { pendingObligations, users } from '../database/schema'
 import { NbuCurrencyService, type ExchangeRateResult } from './nbu-currency.service'
 
 export type BalanceCurrency = 'USDT' | 'USD' | 'EUR' | 'UAH'
@@ -176,6 +176,109 @@ export class BalanceService {
   }
 
   /**
+   * Lifetime «всего заработано с нами» — the cumulative amount the COMPANY has
+   * actually PAID this user across the whole history, surfaced on the employee
+   * profile «Финансы» tab for ADMIN / ACCOUNTANT viewers.
+   *
+   * Definition (task-profile-earned-balance, USER-confirmed): the accumulated
+   * money that the company *actually paid out* to this user. We therefore sum
+   * only PAID transaction rows where the user is the REAL money recipient,
+   * mapped per the user's role:
+   *
+   *   - JUNIOR / HR / ACCOUNTANT → SALARY rows (status=PAID, receiverId=user).
+   *     Salary is the only channel the company pays these roles.
+   *   - SENIOR → PAID SENIOR_INCOME only (the share the senior earned through
+   *     the platform; recipient = receiverId ?? senderId for legacy rows).
+   *     Consistent with getSeniorBalance.paidIncome — only money the platform
+   *     confirmed as received by this senior. Phase 4-B types (SENIOR_PAID /
+   *     SENIOR_INCOME_CRYPTO) are NOT counted here: they have not been emitted
+   *     in the current data and belong to a separate payout channel; adding them
+   *     to totalEarned would double-count once that channel lands.
+   *   - DROP → PAID PAYOUT_DROP (drop's distribution share) PLUS PAID DROP_INCOME
+   *     where recipient/receiver = drop (income that landed on the drop account).
+   *   - ADMIN → PAID PAYOUT_ADMIN / DIVIDEND_TO_ADMIN / ADMIN_INCOME_CASH /
+   *     ADMIN_INCOME_CRYPTO where recipient = admin. (Admins are not a profile
+   *     target for this metric per the task, but supporting them keeps the
+   *     resolver total — no role silently returns a wrong 0.)
+   *
+   * Multi-currency rows are converted to `currency` (default USD) via NBU rates,
+   * mirroring getAdminBalance / getSeniorBalance. `breakdown` exposes the
+   * per-source split so the UI can show "salary" vs "payout" if desired.
+   *
+   */
+  async getTotalEarned(
+    targetUserId: string,
+    currency: BalanceCurrency = 'USD',
+  ): Promise<{
+    userId: string
+    role: 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
+    totalEarned: number
+    currency: BalanceCurrency
+    breakdown: Record<string, number>
+  }> {
+    const target = await this.db.db.query.users.findFirst({
+      where: eq(users.id, targetUserId),
+    })
+    if (!target) throw new NotFoundException('Пользователь не найден')
+
+    const rates = await this.nbu.getRates()
+    const allTxs = await this.db.db.query.transactions.findMany()
+
+    // Only money that has actually moved counts — PAID is the single gate.
+    const paidTxs = allTxs.filter((tx) => tx.status === 'PAID')
+
+    const role = target.role as 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
+    const breakdown: Record<string, number> = {}
+
+    const add = (key: string, amount: number) => {
+      breakdown[key] = (breakdown[key] ?? 0) + amount
+    }
+
+    for (const tx of paidTxs) {
+      const amt = parseFloat(tx.amount)
+      if (!Number.isFinite(amt)) continue
+      const recipient = tx.recipientId ?? tx.receiverId
+      const converted = convertToBase(amt, tx.currency as BalanceCurrency, currency, rates)
+
+      if (role === 'JUNIOR' || role === 'HR' || role === 'ACCOUNTANT') {
+        // Company pays these roles only via SALARY.
+        if (tx.type === 'SALARY' && tx.receiverId === targetUserId) add('salary', converted)
+      } else if (role === 'SENIOR') {
+        // Only PAID SENIOR_INCOME counts — consistent with getSeniorBalance.paidIncome.
+        // Phase 4-B types (SENIOR_PAID, SENIOR_INCOME_CRYPTO) are excluded: they
+        // belong to a separate payout channel and would double-count once emitted.
+        if (
+          tx.type === 'SENIOR_INCOME' &&
+          (tx.receiverId === targetUserId ||
+            (tx.receiverId == null && tx.senderId === targetUserId))
+        ) {
+          add('income', converted)
+        }
+      } else if (role === 'DROP') {
+        if (tx.type === 'PAYOUT_DROP' && recipient === targetUserId) {
+          add('payout', converted)
+        } else if (tx.type === 'DROP_INCOME' && recipient === targetUserId) {
+          add('income', converted)
+        }
+      } else if (role === 'ADMIN') {
+        if (
+          (tx.type === 'PAYOUT_ADMIN' ||
+            tx.type === 'DIVIDEND_TO_ADMIN' ||
+            tx.type === 'ADMIN_INCOME_CASH' ||
+            tx.type === 'ADMIN_INCOME_CRYPTO') &&
+          recipient === targetUserId
+        ) {
+          add('admin_income', converted)
+        }
+      }
+    }
+
+    const totalEarned = Object.values(breakdown).reduce((sum, v) => sum + v, 0)
+
+    return { userId: targetUserId, role, totalEarned, currency, breakdown }
+  }
+
+  /**
    * Direct read from `pending_obligations`. Caller filters via optional
    * `creditorUserId` and `status`. Returned rows are mapped to the wire
    * shape (`PendingObligationDto`) — `amount` stays a numeric string to
@@ -241,6 +344,19 @@ export class BalanceService {
     if (viewer.role === 'ADMIN' || viewer.role === 'ACCOUNTANT') return
     if (viewer.role === 'SENIOR' && viewer.id === targetSeniorId) return
     throw new ForbiddenException('Доступ к балансу синьора: ADMIN, ACCOUNTANT или сам синьор')
+  }
+
+  /**
+   * /api/balances/total-earned/:id — the lifetime «всего заработано» metric is
+   * a privileged financial figure: only ADMIN and ACCOUNTANT may read it, for
+   * ANY target user. Every other role (incl. the target viewing their own
+   * profile, and SENIOR/JUNIOR/HR/DROP) is forbidden — the figure is never
+   * surfaced to non-privileged viewers (AC2/AC3). No self-view exception by
+   * design: the metric exists for finance oversight, not self-reporting.
+   */
+  assertCanReadTotalEarned(viewer: SessionUser): void {
+    if (viewer.role === 'ADMIN' || viewer.role === 'ACCOUNTANT') return
+    throw new ForbiddenException('Доступ к показателю «всего заработано»: ADMIN или ACCOUNTANT')
   }
 
   /**

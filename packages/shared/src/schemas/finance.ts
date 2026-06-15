@@ -464,6 +464,30 @@ export const balanceSchema = z.object({
 })
 export type BalanceDto = z.infer<typeof balanceSchema>
 
+// Total earned — lifetime accumulated money the COMPANY actually PAID this
+// user, via `GET /api/balances/total-earned/:userId`. RBAC: ADMIN + ACCOUNTANT
+// only (it is a privileged financial metric — see balance.service.ts
+// assertCanReadTotalEarned). Surfaced on the «Финансы» tab of an employee
+// profile for those two viewer roles.
+//
+// Aggregation is over PAID transaction rows where the target user is the real
+// money recipient, mapped per the target's role (see BalanceService.getTotalEarned
+// JSDoc). All amounts are converted to a single base currency (default USD)
+// through NbuCurrencyService so the figure is comparable across multi-currency
+// rows. `breakdown` carries the per-source split (salary / income / payout / …).
+export const totalEarnedSchema = z.object({
+  /** Target user the figure belongs to. */
+  userId: z.string().uuid(),
+  /** Target user's role at query time — drives which PAID rows are summed. */
+  role: z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']),
+  /** Sum of all PAID money the company routed to this user, in `currency`. */
+  totalEarned: z.number(),
+  currency: z.string(),
+  /** Per-source split (e.g. { salary, income, payout }). Always finite numbers. */
+  breakdown: z.record(z.string(), z.number()),
+})
+export type TotalEarnedDto = z.infer<typeof totalEarnedSchema>
+
 // Pending obligations — table-backed, distinct lifecycle from the
 // transactions ledger. Each row: "creditor (senior) is owed `amount`
 // `currency` by debtor (DROP / COMPANY / admin)". A SENIOR_PAID

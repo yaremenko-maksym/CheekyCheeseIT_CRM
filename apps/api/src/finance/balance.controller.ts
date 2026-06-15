@@ -53,6 +53,22 @@ export class BalanceController {
     this.balance.assertCanReadSeniorBalance(user, seniorId)
     return this.balance.getSeniorBalance(seniorId, parseCurrency(currency))
   }
+
+  /**
+   * GET /api/balances/total-earned/:userId — lifetime «всего заработано с нами».
+   * RBAC: ADMIN / ACCOUNTANT only (assertCanReadTotalEarned). Returns a
+   * TotalEarnedDto for any target user (SENIOR / DROP / JUNIOR / HR / …),
+   * computed by SQL aggregation of PAID rows mapped to the target's role.
+   */
+  @Get('total-earned/:userId')
+  async getTotalEarned(
+    @Param('userId') userId: string,
+    @CurrentUser() user: SessionUser,
+    @Query('currency') currency: string | undefined,
+  ) {
+    this.balance.assertCanReadTotalEarned(user)
+    return this.balance.getTotalEarned(userId, parseCurrency(currency))
+  }
 }
 
 /**
