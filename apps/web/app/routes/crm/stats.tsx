@@ -29,7 +29,6 @@ import type { BalanceDto, FinanceSummaryDto, UserProfileDto } from '@crm/shared'
 import { api } from '@/lib/axios'
 import { useAuth } from '@/context/auth'
 import { cn } from '@/lib/utils'
-import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select,
@@ -736,12 +735,6 @@ export function StatsPage() {
           <h1 className="text-2xl font-bold tracking-tight">Статистика</h1>
           <p className="text-sm text-muted-foreground">Аналитика и метрики компании</p>
         </div>
-        <Badge
-          variant="outline"
-          className="text-xs text-amber-400 border-amber-400/40 bg-amber-400/5"
-        >
-          Раздел в разработке — сейчас только финансовая статистика
-        </Badge>
       </div>
 
       {/* ── Participants balances (ADMIN-only) ──
@@ -872,8 +865,6 @@ export function StatsPage() {
                   className="rounded-xl border border-dashed border-border/50 p-6 text-center text-sm text-muted-foreground/40"
                 >
                   {label}
-                  <br />
-                  <span className="text-xs">в разработке</span>
                 </div>
               ),
             )}
