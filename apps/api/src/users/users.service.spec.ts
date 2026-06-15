@@ -276,6 +276,103 @@ describe('UsersService.findAll — legalFullName not present in list response', 
 })
 
 // ---------------------------------------------------------------------------
+// Slim list projection — sensitive PII / finance fields excluded
+// (security data-exposure fix, ревью #222 / task-slim-users-projection)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/users (list) must NOT carry PII / finance for every user to the
+ * ADMIN/HR/ACCOUNTANT audience — pickers only need id/displayName/role.
+ *
+ * Stronger than the legalFullName test above: rather than simulating Drizzle's
+ * projection by deleting keys from the mock row, this captures the *actual
+ * projection object* passed to `db.select(projection)` and asserts the sensitive
+ * column refs are absent. That tests USER_LIST_PROJECTION directly — if someone
+ * re-adds `bankUahIban` to the projection, this fails even though the mock row
+ * would still "look" clean.
+ */
+const SENSITIVE_LIST_FIELDS = [
+  'bankUahIban',
+  'bankUahRnokpp',
+  'bankUahRecipient',
+  'bankUahBankName',
+  'walletUsdtErc20',
+  'walletUsdtLabel',
+  'paymentMethod',
+  'monthlySalary',
+  'registrationAddress',
+  'usrRecord',
+  'adminNote',
+  'legalFullName',
+] as const
+
+describe('UsersService list projection — sensitive fields excluded', () => {
+  /**
+   * Capture the projection object handed to `db.select(...)` on the FIRST call
+   * (the users list query). The second select() (projectMembers) is ignored.
+   * `where()` resolves to the row data so the method completes normally.
+   */
+  function makeProjectionCapturingDb(rows: ReturnType<typeof makeUser>[]): {
+    db: DrizzleDb
+    getListProjection: () => Record<string, unknown> | undefined
+  } {
+    let listProjection: Record<string, unknown> | undefined
+    let selectCall = 0
+    let whereCall = 0
+    const chain = {
+      select: vi.fn().mockImplementation((projection?: Record<string, unknown>) => {
+        selectCall++
+        // First select() = the users list projection we care about.
+        if (selectCall === 1) listProjection = projection
+        return chain
+      }),
+      from: vi.fn().mockReturnThis(),
+      // findAllIncludingAdmin (no archived filter) resolves at `.from(...)`,
+      // while findAll / archived variants resolve at `.where(...)`. Make BOTH
+      // thenable so either call shape works, returning rows once then [].
+      where: vi.fn().mockImplementation(() => {
+        whereCall++
+        return Promise.resolve(whereCall === 1 ? rows : [])
+      }),
+    }
+    return {
+      db: { db: chain as unknown } as unknown as DrizzleDb,
+      getListProjection: () => listProjection,
+    }
+  }
+
+  it('USER_LIST_PROJECTION (findAll) selects no sensitive PII/finance column', async () => {
+    const { db, getListProjection } = makeProjectionCapturingDb([makeSenior()])
+    const service = makeUsersService(db)
+
+    await service.findAll()
+
+    const projection = getListProjection()
+    expect(projection).toBeDefined()
+    for (const field of SENSITIVE_LIST_FIELDS) {
+      expect(projection).not.toHaveProperty(field)
+    }
+    // Sanity: the slim directory fields the pickers need ARE selected.
+    for (const keep of ['id', 'displayName', 'role', 'email', 'avatarUrl']) {
+      expect(projection).toHaveProperty(keep)
+    }
+  })
+
+  it('USER_LIST_PROJECTION (findAllIncludingAdmin) selects no sensitive PII/finance column', async () => {
+    const { db, getListProjection } = makeProjectionCapturingDb([makeSenior()])
+    const service = makeUsersService(db)
+
+    await service.findAllIncludingAdmin()
+
+    const projection = getListProjection()
+    expect(projection).toBeDefined()
+    for (const field of SENSITIVE_LIST_FIELDS) {
+      expect(projection).not.toHaveProperty(field)
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
 // createUser — base cases
 // ---------------------------------------------------------------------------
 

@@ -38,18 +38,49 @@ export interface TeamMemberPreview {
   avatarDocumentId: string | null
 }
 
-// legalFullName is intentionally excluded from the list projection — it is PII
-// (passport name) and must only be surfaced through the single-resource
-// GET /api/users/:id endpoint where buildProfileView applies RBAC masking.
-// ADMIN-only use-cases that require legal names in bulk should use a dedicated
-// admin endpoint, not the shared list.
-export type UserListItem = Omit<User, 'legalFullName'>
+// Slim list-item projection for GET /api/users. ONLY directory fields the UI
+// pickers (CreateTransactionDialog, team/project dropdowns, nav, admin user
+// list rows) actually consume — id / displayName / role / contacts / avatar /
+// share. Sensitive PII and finance fields are deliberately EXCLUDED from the
+// list payload (security data-exposure fix, ревью #222):
+//   bankUahIban / bankUahRnokpp (налоговый №) / bankUahRecipient / bankUahBankName,
+//   walletUsdtErc20 / walletUsdtLabel, paymentMethod, monthlySalary,
+//   registrationAddress / usrRecord (ФОП ЄДР PII), adminNote, legalFullName.
+// Those remain accessible ONLY via the single-resource GET /api/users/:id
+// endpoint, where buildProfileView applies RBAC masking per viewer→target.
+// `UserListItem` is an explicit Pick (not Omit<User, …>) so adding a new column
+// to the schema does NOT silently leak it into the list — and so `tsc` flags any
+// consumer that reads a field we deliberately dropped (drives the slim contract).
+export type UserListItem = Pick<
+  User,
+  | 'id'
+  | 'email'
+  | 'displayName'
+  | 'role'
+  | 'avatarUrl'
+  | 'avatarDocumentId'
+  | 'googleId'
+  | 'telegram'
+  | 'phone'
+  | 'techStack'
+  | 'seniorSharePercent'
+  | 'dropSharePercent'
+  | 'salaryCurrency'
+  | 'archivedAt'
+  | 'createdAt'
+  | 'updatedAt'
+>
 export type UserWithAvailability = UserListItem & { hasActiveProject: boolean }
 
 /**
- * Drizzle select projection for list endpoints (GET /api/users).
- * legalFullName (passport PII) is intentionally excluded — it is only
- * accessible via GET /api/users/:id through buildProfileView + RBAC masking.
+ * Drizzle select projection for list endpoints (GET /api/users). Mirrors
+ * `UserListItem` exactly. PII / finance columns (bankUah*, wallet*,
+ * paymentMethod, monthlySalary, registrationAddress, usrRecord, adminNote,
+ * legalFullName) are intentionally absent — they are only accessible via
+ * GET /api/users/:id through buildProfileView + RBAC masking.
+ *
+ * `salaryCurrency` / share percents are non-sensitive (no amount, just the
+ * unit / split %) and pickers key UI off them, so they stay.
  */
 const USER_LIST_PROJECTION = {
   id: users.id,
@@ -62,24 +93,15 @@ const USER_LIST_PROJECTION = {
   telegram: users.telegram,
   phone: users.phone,
   techStack: users.techStack,
-  paymentMethod: users.paymentMethod,
-  walletUsdtErc20: users.walletUsdtErc20,
-  walletUsdtLabel: users.walletUsdtLabel,
-  bankUahRecipient: users.bankUahRecipient,
-  bankUahIban: users.bankUahIban,
-  bankUahRnokpp: users.bankUahRnokpp,
-  bankUahBankName: users.bankUahBankName,
   seniorSharePercent: users.seniorSharePercent,
   dropSharePercent: users.dropSharePercent,
-  monthlySalary: users.monthlySalary,
   salaryCurrency: users.salaryCurrency,
-  registrationAddress: users.registrationAddress,
-  usrRecord: users.usrRecord,
   archivedAt: users.archivedAt,
-  adminNote: users.adminNote,
   createdAt: users.createdAt,
   updatedAt: users.updatedAt,
-  // legalFullName intentionally omitted — see UserListItem type
+  // SENSITIVE — intentionally excluded from list (see UserListItem): bankUah*,
+  // wallet*, paymentMethod, monthlySalary, registrationAddress, usrRecord,
+  // adminNote, legalFullName. Available via GET /api/users/:id only.
 } as const
 
 @Injectable()
