@@ -197,6 +197,10 @@ function canSeeOwnerFilter(role: Role): boolean {
  *   2. Role-based default: ACCOUNTANT → 'RECEIPT' (primary workflow: validating
  *      receipts as proof of income). All other roles → 'ALL'.
  *
+ * Note: 'RECEIPT' is in TAB_VISIBILITY['ACCOUNTANT'], so the downstream
+ * reset-to-ALL effect (which fires when the selected category is not in
+ * availableCategories) will never override this default. No conflict.
+ *
  * Exported for unit testing; no React dependencies.
  */
 export function initialCategoryForRole(
