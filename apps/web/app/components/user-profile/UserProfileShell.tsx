@@ -286,9 +286,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
           {activeTab === 'requisites' && permissions.tabs.includes('requisites') && (
             <RequisitesTab user={user} mode={mode} />
           )}
-          {activeTab === 'documents' && permissions.tabs.includes('documents') && (
-            <DocumentsTab />
-          )}
+          {activeTab === 'documents' && permissions.tabs.includes('documents') && <DocumentsTab />}
           {activeTab === 'contract' && permissions.tabs.includes('contract') && (
             <ContractTab
               userId={user.id}

@@ -569,88 +569,6 @@ function FinancePage() {
           </div>
         </StickyPageHeader>
         <div className="pt-4 space-y-6">
-        <Card>
-          <CardContent className="p-0">
-            {txLoading ? (
-              <div className="p-6 space-y-3">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <Skeleton key={i} className="h-12 rounded-lg" />
-                ))}
-              </div>
-            ) : mySalaries.length === 0 ? (
-              <div className="py-16 text-center text-sm text-muted-foreground">Выплат пока нет</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-border text-xs text-muted-foreground">
-                      <th className="py-3 px-4 text-left font-medium">Сумма</th>
-                      <th className="py-3 px-4 text-left font-medium">Месяц</th>
-                      <th className="py-3 px-4 text-left font-medium">Дата</th>
-                      <th className="py-3 px-4 text-left font-medium">Статус</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {mySalaries.map((t) => (
-                      <tr
-                        key={t.id}
-                        className="border-b border-border/50 hover:bg-muted/30 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                        tabIndex={0}
-                        aria-label={`Открыть транзакцию за ${t.salaryMonth ?? t.createdAt}`}
-                        onClick={() => setDetailTx(t)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault()
-                            setDetailTx(t)
-                          }
-                        }}
-                      >
-                        <td className="py-3 px-4 text-sm tabular-nums font-medium text-green-500">
-                          {fmtAmount(t.amount, t.currency)}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-muted-foreground">
-                          {fmtMonth(t.salaryMonth)}
-                        </td>
-                        <td className="py-3 px-4 text-xs text-muted-foreground">
-                          {fmtDate(t.txDate ?? t.createdAt)}
-                        </td>
-                        <td className="py-3 px-4">
-                          <span
-                            className={cn(
-                              'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
-                              STATUS_COLORS[t.status],
-                            )}
-                          >
-                            {STATUS_LABELS[t.status]}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        <TransactionDetailDialog tx={detailTx} onClose={() => setDetailTx(null)} />
-        </div>
-      </div>
-    )
-  }
-
-  // Junior view
-  if (isJunior) {
-    const mySalaries = transactions.filter((t) => t.type === 'SALARY' && t.receiverId === userId)
-    return (
-      <TooltipProvider>
-        <div className="flex flex-col gap-0">
-          <StickyPageHeader>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">Финансы</h1>
-              <p className="text-sm text-muted-foreground">Ваши зарплатные выплаты</p>
-            </div>
-          </StickyPageHeader>
-          <div className="pt-4 space-y-6">
           <Card>
             <CardContent className="p-0">
               {txLoading ? (
@@ -669,11 +587,9 @@ function FinancePage() {
                     <thead>
                       <tr className="border-b border-border text-xs text-muted-foreground">
                         <th className="py-3 px-4 text-left font-medium">Сумма</th>
-                        <th className="py-3 px-4 text-left font-medium">Проект</th>
                         <th className="py-3 px-4 text-left font-medium">Месяц</th>
                         <th className="py-3 px-4 text-left font-medium">Дата</th>
                         <th className="py-3 px-4 text-left font-medium">Статус</th>
-                        <th className="py-3 px-4 text-left font-medium">TX Hash</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -695,9 +611,6 @@ function FinancePage() {
                             {fmtAmount(t.amount, t.currency)}
                           </td>
                           <td className="py-3 px-4 text-sm text-muted-foreground">
-                            {t.projectName ?? '—'}
-                          </td>
-                          <td className="py-3 px-4 text-sm text-muted-foreground">
                             {fmtMonth(t.salaryMonth)}
                           </td>
                           <td className="py-3 px-4 text-xs text-muted-foreground">
@@ -713,25 +626,6 @@ function FinancePage() {
                               {STATUS_LABELS[t.status]}
                             </span>
                           </td>
-                          <td
-                            className="py-3 px-4 text-xs font-mono text-muted-foreground"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {t.txHash ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="cursor-default underline decoration-dotted underline-offset-2">
-                                    {t.txHash.slice(0, 14)}…
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="max-w-xs break-all font-mono">
-                                  {t.txHash}
-                                </TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -741,6 +635,117 @@ function FinancePage() {
             </CardContent>
           </Card>
           <TransactionDetailDialog tx={detailTx} onClose={() => setDetailTx(null)} />
+        </div>
+      </div>
+    )
+  }
+
+  // Junior view
+  if (isJunior) {
+    const mySalaries = transactions.filter((t) => t.type === 'SALARY' && t.receiverId === userId)
+    return (
+      <TooltipProvider>
+        <div className="flex flex-col gap-0">
+          <StickyPageHeader>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Финансы</h1>
+              <p className="text-sm text-muted-foreground">Ваши зарплатные выплаты</p>
+            </div>
+          </StickyPageHeader>
+          <div className="pt-4 space-y-6">
+            <Card>
+              <CardContent className="p-0">
+                {txLoading ? (
+                  <div className="p-6 space-y-3">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <Skeleton key={i} className="h-12 rounded-lg" />
+                    ))}
+                  </div>
+                ) : mySalaries.length === 0 ? (
+                  <div className="py-16 text-center text-sm text-muted-foreground">
+                    Выплат пока нет
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-border text-xs text-muted-foreground">
+                          <th className="py-3 px-4 text-left font-medium">Сумма</th>
+                          <th className="py-3 px-4 text-left font-medium">Проект</th>
+                          <th className="py-3 px-4 text-left font-medium">Месяц</th>
+                          <th className="py-3 px-4 text-left font-medium">Дата</th>
+                          <th className="py-3 px-4 text-left font-medium">Статус</th>
+                          <th className="py-3 px-4 text-left font-medium">TX Hash</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {mySalaries.map((t) => (
+                          <tr
+                            key={t.id}
+                            className="border-b border-border/50 hover:bg-muted/30 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                            tabIndex={0}
+                            aria-label={`Открыть транзакцию за ${t.salaryMonth ?? t.createdAt}`}
+                            onClick={() => setDetailTx(t)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                setDetailTx(t)
+                              }
+                            }}
+                          >
+                            <td className="py-3 px-4 text-sm tabular-nums font-medium text-green-500">
+                              {fmtAmount(t.amount, t.currency)}
+                            </td>
+                            <td className="py-3 px-4 text-sm text-muted-foreground">
+                              {t.projectName ?? '—'}
+                            </td>
+                            <td className="py-3 px-4 text-sm text-muted-foreground">
+                              {fmtMonth(t.salaryMonth)}
+                            </td>
+                            <td className="py-3 px-4 text-xs text-muted-foreground">
+                              {fmtDate(t.txDate ?? t.createdAt)}
+                            </td>
+                            <td className="py-3 px-4">
+                              <span
+                                className={cn(
+                                  'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
+                                  STATUS_COLORS[t.status],
+                                )}
+                              >
+                                {STATUS_LABELS[t.status]}
+                              </span>
+                            </td>
+                            <td
+                              className="py-3 px-4 text-xs font-mono text-muted-foreground"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {t.txHash ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="cursor-default underline decoration-dotted underline-offset-2">
+                                      {t.txHash.slice(0, 14)}…
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent
+                                    side="top"
+                                    className="max-w-xs break-all font-mono"
+                                  >
+                                    {t.txHash}
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : (
+                                '—'
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            <TransactionDetailDialog tx={detailTx} onClose={() => setDetailTx(null)} />
           </div>
         </div>
       </TooltipProvider>
@@ -757,29 +762,29 @@ function FinancePage() {
             <p className="text-sm text-muted-foreground">Все транзакции</p>
           </div>
           <div className="flex gap-2">
-          {/* feat/finance-payout-flow (#7): SENIOR can batch multiple VALIDATED
+            {/* feat/finance-payout-flow (#7): SENIOR can batch multiple VALIDATED
               incomes into one payout via the header button. Badge shows count. */}
-          {isSenior && validatedSeniorIncomes.length > 0 && (
-            <Button
-              variant="outline"
-              onClick={() => {
-                setPreselectedPayoutTxId(undefined)
-                setPayoutDialogOpen(true)
-              }}
-              data-testid="finance-initiate-payout-button"
-            >
-              <Wallet className="h-4 w-4 mr-1" />
-              Выплатить ({validatedSeniorIncomes.length})
-            </Button>
-          )}
-          {canCreate && (
-            <Button
-              onClick={() => setShowCreate(true)}
-              data-testid="finance-create-transaction-button"
-            >
-              <Plus className="h-4 w-4 mr-1" /> Новая транзакция
-            </Button>
-          )}
+            {isSenior && validatedSeniorIncomes.length > 0 && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setPreselectedPayoutTxId(undefined)
+                  setPayoutDialogOpen(true)
+                }}
+                data-testid="finance-initiate-payout-button"
+              >
+                <Wallet className="h-4 w-4 mr-1" />
+                Выплатить ({validatedSeniorIncomes.length})
+              </Button>
+            )}
+            {canCreate && (
+              <Button
+                onClick={() => setShowCreate(true)}
+                data-testid="finance-create-transaction-button"
+              >
+                <Plus className="h-4 w-4 mr-1" /> Новая транзакция
+              </Button>
+            )}
           </div>
         </div>
       </StickyPageHeader>
@@ -788,101 +793,101 @@ function FinancePage() {
         {/* SENIOR — own projects + effective share % (no impact for other roles). */}
         {isSenior && <MyProjectShares />}
 
-      {/* task-drop-company-debt-and-invoices. Senior IOUs and the
+        {/* task-drop-company-debt-and-invoices. Senior IOUs and the
           ADMIN/ACCOUNTANT-only "Долги компании перед синьорами" card.
           DROP no longer holds senior debts — the DropCard was removed. */}
-      {(isSenior || isAdmin || role === 'ACCOUNTANT') && <PendingSettlementSeniorCard />}
-      {(isAdmin || role === 'ACCOUNTANT') && <PendingSettlementCompanyCard />}
+        {(isSenior || isAdmin || role === 'ACCOUNTANT') && <PendingSettlementSeniorCard />}
+        {(isAdmin || role === 'ACCOUNTANT') && <PendingSettlementCompanyCard />}
 
-      {/* Transactions table */}
-      <Card>
-        <CardContent className="p-0">
-          <TransactionsTable
-            transactions={transactions}
-            loading={txLoading}
-            role={role}
-            rates={rates}
-            currentUserId={userId}
-            {...(deepLinkStatus ? { initialStatus: deepLinkStatus } : {})}
-            onValidate={setValidateTx}
-            onEdit={setEditTx}
-            onAdminEdit={setAdminEditTx}
-            onDelete={setDeleteTx}
-            onPaySalary={setPaySalaryTx}
-            onOpenPayoutDetail={openPayoutDetail}
-            {...(isSenior ? { onInitiatePayout: openPayoutDialogForTx } : {})}
-            onConfirmPayout={setConfirmPayoutTx}
-            onLogCash={setLogCashTx}
-            onDetail={setDetailTx}
-          />
-        </CardContent>
-      </Card>
+        {/* Transactions table */}
+        <Card>
+          <CardContent className="p-0">
+            <TransactionsTable
+              transactions={transactions}
+              loading={txLoading}
+              role={role}
+              rates={rates}
+              currentUserId={userId}
+              {...(deepLinkStatus ? { initialStatus: deepLinkStatus } : {})}
+              onValidate={setValidateTx}
+              onEdit={setEditTx}
+              onAdminEdit={setAdminEditTx}
+              onDelete={setDeleteTx}
+              onPaySalary={setPaySalaryTx}
+              onOpenPayoutDetail={openPayoutDetail}
+              {...(isSenior ? { onInitiatePayout: openPayoutDialogForTx } : {})}
+              onConfirmPayout={setConfirmPayoutTx}
+              onLogCash={setLogCashTx}
+              onDetail={setDetailTx}
+            />
+          </CardContent>
+        </Card>
 
-      {/* Dialogs */}
-      <CreateTransactionDialog open={showCreate} onClose={() => setShowCreate(false)} />
-      <ValidateDialog
-        tx={validateTx}
-        queue={validateQueue}
-        onClose={() => setValidateTx(null)}
-        onAdvance={(nextTx) => setValidateTx(nextTx)}
-      />
-      <EditSeniorIncomeDialog tx={editTx} onClose={() => setEditTx(null)} />
-      <AdminEditTransactionDialog tx={adminEditTx} onClose={() => setAdminEditTx(null)} />
-      <PaySalaryDialog tx={paySalaryTx} onClose={() => setPaySalaryTx(null)} />
-      {/* feat/finance-payout-flow (#7): PayoutDialog re-activated. SENIOR
+        {/* Dialogs */}
+        <CreateTransactionDialog open={showCreate} onClose={() => setShowCreate(false)} />
+        <ValidateDialog
+          tx={validateTx}
+          queue={validateQueue}
+          onClose={() => setValidateTx(null)}
+          onAdvance={(nextTx) => setValidateTx(nextTx)}
+        />
+        <EditSeniorIncomeDialog tx={editTx} onClose={() => setEditTx(null)} />
+        <AdminEditTransactionDialog tx={adminEditTx} onClose={() => setAdminEditTx(null)} />
+        <PaySalaryDialog tx={paySalaryTx} onClose={() => setPaySalaryTx(null)} />
+        {/* feat/finance-payout-flow (#7): PayoutDialog re-activated. SENIOR
           selects one or more VALIDATED SENIOR_INCOME rows → single payout. */}
-      <PayoutDialog
-        open={payoutDialogOpen}
-        onClose={() => {
-          setPayoutDialogOpen(false)
-          setPreselectedPayoutTxId(undefined)
-        }}
-        validatedTxs={validatedSeniorIncomes}
-        {...(preselectedPayoutTxId ? { preselectedTxIds: [preselectedPayoutTxId] } : {})}
-      />
-      <PayoutDetailDialog
-        open={!!payoutDetailId}
-        onClose={closePayoutDetail}
-        payoutId={payoutDetailId}
-      />
-      <ConfirmPayoutDialog tx={confirmPayoutTx} onClose={() => setConfirmPayoutTx(null)} />
-      <LogCashPaymentDialog tx={logCashTx} onClose={() => setLogCashTx(null)} />
-      <TransactionDetailDialog tx={detailTx} onClose={() => setDetailTx(null)} />
+        <PayoutDialog
+          open={payoutDialogOpen}
+          onClose={() => {
+            setPayoutDialogOpen(false)
+            setPreselectedPayoutTxId(undefined)
+          }}
+          validatedTxs={validatedSeniorIncomes}
+          {...(preselectedPayoutTxId ? { preselectedTxIds: [preselectedPayoutTxId] } : {})}
+        />
+        <PayoutDetailDialog
+          open={!!payoutDetailId}
+          onClose={closePayoutDetail}
+          payoutId={payoutDetailId}
+        />
+        <ConfirmPayoutDialog tx={confirmPayoutTx} onClose={() => setConfirmPayoutTx(null)} />
+        <LogCashPaymentDialog tx={logCashTx} onClose={() => setLogCashTx(null)} />
+        <TransactionDetailDialog tx={detailTx} onClose={() => setDetailTx(null)} />
 
-      {/* Delete confirmation */}
-      <Dialog open={!!deleteTx} onOpenChange={(o) => !o && setDeleteTx(null)}>
-        <CrmDialogContent maxWidth="sm:max-w-sm">
-          <CrmDialogHeader>
-            <DialogTitle className="text-base text-destructive">Удалить транзакцию?</DialogTitle>
-            <DialogDescription className="sr-only">
-              Подтверждение безвозвратного удаления финансовой транзакции.
-            </DialogDescription>
-          </CrmDialogHeader>
-          <CrmDialogBody className="pb-2">
-            <div className="text-sm text-muted-foreground space-y-1">
-              <p>Это действие необратимо.</p>
-              {deleteTx && (
-                <p className="font-medium text-foreground">
-                  {TYPE_LABELS[deleteTx.type]} · {fmtAmount(deleteTx.amount, deleteTx.currency)}
-                </p>
-              )}
-            </div>
-          </CrmDialogBody>
-          <CrmDialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setDeleteTx(null)}>
-              Отмена
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => deleteTx && deleteMutation.mutate(deleteTx.id)}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending ? 'Удаление...' : 'Удалить'}
-            </Button>
-          </CrmDialogFooter>
-        </CrmDialogContent>
-      </Dialog>
+        {/* Delete confirmation */}
+        <Dialog open={!!deleteTx} onOpenChange={(o) => !o && setDeleteTx(null)}>
+          <CrmDialogContent maxWidth="sm:max-w-sm">
+            <CrmDialogHeader>
+              <DialogTitle className="text-base text-destructive">Удалить транзакцию?</DialogTitle>
+              <DialogDescription className="sr-only">
+                Подтверждение безвозвратного удаления финансовой транзакции.
+              </DialogDescription>
+            </CrmDialogHeader>
+            <CrmDialogBody className="pb-2">
+              <div className="text-sm text-muted-foreground space-y-1">
+                <p>Это действие необратимо.</p>
+                {deleteTx && (
+                  <p className="font-medium text-foreground">
+                    {TYPE_LABELS[deleteTx.type]} · {fmtAmount(deleteTx.amount, deleteTx.currency)}
+                  </p>
+                )}
+              </div>
+            </CrmDialogBody>
+            <CrmDialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setDeleteTx(null)}>
+                Отмена
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => deleteTx && deleteMutation.mutate(deleteTx.id)}
+                disabled={deleteMutation.isPending}
+              >
+                {deleteMutation.isPending ? 'Удаление...' : 'Удалить'}
+              </Button>
+            </CrmDialogFooter>
+          </CrmDialogContent>
+        </Dialog>
       </div>
     </div>
   )
