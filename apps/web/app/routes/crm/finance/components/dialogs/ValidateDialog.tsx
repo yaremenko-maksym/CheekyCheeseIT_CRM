@@ -91,7 +91,12 @@ export function ValidateDialog({
   const handleActionSuccess = () => {
     setReason('')
     setShowConfirm(false)
-    const nextTx = currentIndex >= 0 ? queue[currentIndex + 1] : undefined
+    // Guard: if tx is not found in queue (desync) or it's the last element → close.
+    if (currentIndex === -1 || currentIndex >= queue.length - 1) {
+      onClose()
+      return
+    }
+    const nextTx = queue[currentIndex + 1]
     if (nextTx) {
       onAdvance(nextTx)
     } else {

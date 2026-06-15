@@ -48,10 +48,9 @@ vi.mock('@/lib/axios', () => ({
 }))
 
 // receipt-panel adds async fetch for S3 — stub it out
-vi.mock(
-  '/Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/worktrees/agent-ad163a46b78e12bca/apps/web/app/routes/crm/finance/components/dialogs/receipt-panel',
-  () => ({ ReceiptPanel: () => null }),
-)
+vi.mock('@/routes/crm/finance/components/dialogs/receipt-panel', () => ({
+  ReceiptPanel: () => null,
+}))
 
 import { ValidateDialog } from '../components/dialogs/ValidateDialog'
 
