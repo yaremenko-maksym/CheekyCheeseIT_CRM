@@ -38,6 +38,7 @@ import {
 } from '@crm/shared'
 import { toast } from 'sonner'
 import { useAuth } from '@/context/auth'
+import { useUser } from '@/hooks/use-user-profile'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -167,7 +168,31 @@ export function UserDialog(props: UserDialogProps) {
   const isCreate = props.mode === 'create'
   const isEdit = props.mode === 'edit'
   const open = isCreate ? props.open : !!props.user
-  const editingUser = isEdit ? props.user : null
+  const listUser = isEdit ? props.user : null
+
+  // Slim list payload (GET /api/users) deliberately omits PII / finance fields
+  // (bankUah*, wallet*, paymentMethod, monthlySalary, registrationAddress,
+  // usrRecord, …). For the edit form to prefill those, fetch the full
+  // single-resource profile (GET /api/users/:id → buildProfileView). The ADMIN
+  // viewer sees every field unmasked there. Until it loads we fall back to the
+  // list-item so identity (name/email/role) renders instantly; `form.reset`
+  // re-seeds once the full profile arrives (effect below keys on its presence).
+  const { data: fullProfile } = useUser(listUser?.id, isEdit && open && !!listUser?.id)
+  const editingUser: UserProfileDto | null = useMemo(() => {
+    if (!isEdit || !listUser) return null
+    // buildProfileView returns `{ user, permissions, data }`; `.user` is the
+    // full UserProfileDto for an ADMIN viewer. Merge over the list-item so the
+    // form has every requisite / salary / PII field for prefill.
+    if (fullProfile?.user && fullProfile.user.id === listUser.id) {
+      return { ...listUser, ...(fullProfile.user as UserProfileDto) }
+    }
+    return listUser
+  }, [isEdit, listUser, fullProfile])
+
+  // Marker used to re-trigger `form.reset` once the full /:id profile lands:
+  // null while only the slim list-item is available, then the user id.
+  const fullProfileLoadedId =
+    fullProfile?.user && fullProfile.user.id === listUser?.id ? fullProfile.user.id : null
 
   const hrOnly = isCreate ? !!props.hrOnly : false
 
@@ -864,7 +889,13 @@ export function UserDialog(props: UserDialogProps) {
         usrRecord: editingUser.usrRecord ?? '',
       })
     }
-  }, [editingUser?.id, isEdit])
+    // Re-seed when the edited user changes AND when the full profile finishes
+    // loading (slim list → full /:id). `fullProfileLoadedId` flips from null to
+    // the user id once GET /api/users/:id resolves, so the requisite / salary /
+    // FOP-PII fields (absent from the slim list) get prefilled into the form.
+    // `form` is stable and intentionally excluded (re-running on every form
+    // change would clobber edits in progress).
+  }, [editingUser?.id, isEdit, fullProfileLoadedId])
 
   const handleClose = () => {
     if (isCreate) {
