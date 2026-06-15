@@ -472,22 +472,25 @@ test.describe('C. DROP finance cabinet — /crm/finance', () => {
 
 // ── D. Sidebar navigation ──────────────────────────────────────────────────────
 
-test.describe('D. DROP sidebar navigation — 4 items', () => {
-  test('DROP sidebar has 4 nav links (Дашборд / Финансы / Команда / Профиль)', async ({
+test.describe('D. DROP sidebar navigation — 5 items', () => {
+  test('DROP sidebar has 5 nav links (Дашборд / Финансы / Команда / Документы / Профиль)', async ({
     asDrop: page,
   }) => {
     // Dashboard consolidation: DROP home is /crm; nav «Дашборд» link also points there.
+    // Finding 1 (PR #198): «Документы» link added to drop-nav → 5 items total
+    // (kept in sync with drop-rbac.spec, the authoritative nav-count test).
     await page.goto('/crm')
     await expect(page.getByTestId('drop-routing-hub')).toBeVisible({ timeout: 8_000 })
 
     const nav = page.getByTestId('drop-nav')
     await expect(nav).toBeVisible()
-    await expect(nav.locator('a')).toHaveCount(4)
+    await expect(nav.locator('a')).toHaveCount(5)
 
     // Each expected link present (Дашборд href → /crm root)
     await expect(nav.locator('a[href="/crm"]')).toBeVisible()
     await expect(nav.locator('a[href="/crm/finance"]')).toBeVisible()
     await expect(nav.locator('a[href="/crm/team"]')).toBeVisible()
+    await expect(nav.locator('a[href="/crm/documents"]')).toBeVisible()
     await expect(nav.locator('a[href="/crm/profile"]')).toBeVisible()
   })
 
