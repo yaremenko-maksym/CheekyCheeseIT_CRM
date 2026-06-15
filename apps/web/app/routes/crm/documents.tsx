@@ -189,6 +189,25 @@ function canSeeOwnerFilter(role: Role): boolean {
   return role === 'ADMIN' || role === 'HR'
 }
 
+/**
+ * Returns the initial category filter for the documents page.
+ *
+ * Priority:
+ *   1. Explicit deep-link `?category=<X>` — always wins.
+ *   2. Role-based default: ACCOUNTANT → 'RECEIPT' (primary workflow: validating
+ *      receipts as proof of income). All other roles → 'ALL'.
+ *
+ * Exported for unit testing; no React dependencies.
+ */
+export function initialCategoryForRole(
+  role: Role,
+  deepLinkCategory: DocumentCategory | undefined,
+): CategoryFilter {
+  if (deepLinkCategory !== undefined) return deepLinkCategory
+  if (role === 'ACCOUNTANT') return 'RECEIPT'
+  return 'ALL'
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -231,12 +250,12 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   const [statusTab, setStatusTab] = useState<StatusTab>('ACTIVE')
   const [ownerFilter, setOwnerFilter] = useState<string>('ALL')
   // Category filter: 'ALL' = no category filter (show all accessible to role).
-  // Default is 'ALL' per user choice (Variant A) — show everything by default,
-  // narrow down via dropdown. When the URL ships a `?category=` deep-link
+  // ACCOUNTANT defaults to 'RECEIPT' (primary workflow: receipt validation).
+  // All other roles default to 'ALL'. An explicit `?category=` deep-link
   // (e.g. from a notification → `/crm/documents?category=INVOICE&openTx=…`)
-  // we honour it as the initial filter.
-  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>(
-    (search.category as CategoryFilter | undefined) ?? 'ALL',
+  // always wins over the role-based default.
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>(() =>
+    initialCategoryForRole(viewer.role, search.category),
   )
 
   // AC1 — search input state + debounce 250ms
