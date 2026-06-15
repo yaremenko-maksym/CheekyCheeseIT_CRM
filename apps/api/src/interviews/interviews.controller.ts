@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common'
 import {
   createInterviewSchema,
+  hrSummarySchema,
   moveInterviewSchema,
   type SessionUser,
   updateInterviewSchema,
@@ -63,6 +64,25 @@ export class InterviewsController {
     if (user.role === 'DROP') {
       throw new ForbiddenException('Дроп не имеет доступа к собеседованиям')
     }
+  }
+
+  /**
+   * HR dashboard / HR-хаб KPI snapshot. GET /api/interviews/hr-summary — HR +
+   * ADMIN ONLY (the @Roles set + the service's own role check both reject every
+   * other role with 403 BEFORE any DB access). Declared BEFORE the param routes
+   * (`:id`) so the literal `hr-summary` segment is never swallowed by a
+   * param-matcher — although the only param routes here are @Patch/@Delete, the
+   * explicit ordering keeps it unambiguous.
+   *
+   * Returns `hrSummarySchema` shape ({ openInterviews, hiredThisMonth,
+   * mySalaryStatus }), parsed at the wire boundary.
+   */
+  @Get('hr-summary')
+  @Roles('ADMIN', 'HR')
+  async hrSummary(@CurrentUser() user: SessionUser) {
+    this.assertNotDrop(user)
+    const summary = await this.interviewsService.getHrSummary(user)
+    return hrSummarySchema.parse(summary)
   }
 
   @Get()
