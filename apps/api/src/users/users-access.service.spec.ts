@@ -277,14 +277,80 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.share).toBe(false)
   })
 
-  it('SELF — SENIOR/HR/ACCOUNTANT keep projects/team (allow-list change is JUNIOR-only)', async () => {
-    for (const role of ['SENIOR', 'HR', 'ACCOUNTANT'] as const) {
+  // task-accountant-self-view-tabs: ACCOUNTANT self-view is now trimmed to
+  // [overview, requisites, finance] — SENIOR-self and HR-self keep the full
+  // surface unchanged (projects/team still included for those roles).
+  it('SELF — SENIOR/HR keep projects/team (allow-list change is JUNIOR and ACCOUNTANT only)', async () => {
+    for (const role of ['SENIOR', 'HR'] as const) {
       const u = makeUser({ id: `${role}-id`, role })
       const p = await service.getViewPermissions(u, u)
       expect(p.tabs, `${role} self should keep projects`).toContain('projects')
       expect(p.tabs, `${role} self should keep team`).toContain('team')
       expect(p.tabs, `${role} self should keep finance`).toContain('finance')
     }
+  })
+
+  // ── task-accountant-self-view-tabs (AC1): ACCOUNTANT self-view allow-list ──
+  it('SELF — ACCOUNTANT sees exactly [overview, requisites, finance] (no projects/team/documents)', async () => {
+    const accountant = makeUser({ id: 'acc-self', role: 'ACCOUNTANT' })
+    const p = await service.getViewPermissions(accountant, accountant)
+    expect(p.tabs).toEqual(['overview', 'requisites', 'finance'])
+    expect(p.tabs).not.toContain('projects')
+    expect(p.tabs).not.toContain('team')
+    expect(p.tabs).not.toContain('documents')
+    expect(p.tabs).toContain('overview')
+    expect(p.tabs).toContain('requisites')
+    expect(p.tabs).toContain('finance')
+  })
+
+  // ── task-accountant-self-view-tabs (AC2): ACCOUNTANT viewing ANOTHER user unchanged ──
+  it('ACCOUNTANT viewing another user — tabs include projects/team/documents (other-view unchanged)', async () => {
+    const viewer = makeUser({ id: 'acc1', role: 'ACCOUNTANT' })
+    const target = makeUser({ id: 'sr1', role: 'SENIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.tabs).toContain('overview')
+    expect(p.tabs).toContain('finance')
+    expect(p.tabs).toContain('projects')
+    expect(p.tabs).toContain('team')
+    expect(p.tabs).toContain('requisites')
+    expect(p.tabs).toContain('documents')
+  })
+
+  // ── task-accountant-self-view-tabs (AC3): regression guards — SENIOR/HR-self unchanged ──
+  it('SELF — SENIOR keeps full tab surface (projects/team/documents/finance) — regression guard', async () => {
+    const senior = makeUser({ id: 'sr-self', role: 'SENIOR' })
+    const p = await service.getViewPermissions(senior, senior)
+    expect(p.tabs).toContain('projects')
+    expect(p.tabs).toContain('team')
+    expect(p.tabs).toContain('documents')
+    expect(p.tabs).toContain('finance')
+    expect(p.tabs).not.toContain('contract')
+  })
+
+  it('SELF — HR keeps full tab surface (projects/team/documents/finance) — regression guard', async () => {
+    const hr = makeUser({ id: 'hr-self', role: 'HR' })
+    const p = await service.getViewPermissions(hr, hr)
+    expect(p.tabs).toContain('projects')
+    expect(p.tabs).toContain('team')
+    expect(p.tabs).toContain('documents')
+    expect(p.tabs).toContain('finance')
+  })
+
+  // ── ACCOUNTANT self — fields unchanged (requisites/finance remain accessible) ──
+  it('ACCOUNTANT self — fields.requisites and fields.salary are true (own PII still accessible)', async () => {
+    const accountant = makeUser({ id: 'acc-self', role: 'ACCOUNTANT' })
+    const p = await service.getViewPermissions(accountant, accountant)
+    expect(p.fields.requisites).toBe(true)
+    // ACCOUNTANT is a salary role (monthlySalary surface)
+    expect(p.fields.salary).toBe(true)
+    // ACCOUNTANT is not a share role
+    expect(p.fields.share).toBe(false)
+    // Owner sees own contacts, FOP PII, legal name
+    expect(p.fields.realContacts).toBe(true)
+    expect(p.fields.fopPii).toBe(true)
+    expect(p.fields.legalName).toBe(true)
+    // No admin note on self
+    expect(p.fields.adminNote).toBe(false)
   })
 
   // task-drop-profile-rbac-r2 (Finding A): DROP self-view is now an EXPLICIT
