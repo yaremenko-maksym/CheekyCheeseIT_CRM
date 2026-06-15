@@ -69,6 +69,7 @@ import {
   type UnarchiveError,
 } from '@/hooks/use-archive'
 import { CascadeUnarchiveModal } from '@/components/archive/CascadeUnarchiveModal'
+import { ProfileNameLink } from '@/components/users/ProfileNameLink'
 import type { AxiosError } from 'axios'
 
 /**
@@ -672,10 +673,14 @@ function ProjectDetailPage() {
   const activeMembers = project.members.filter((m) => m.leftAt === null)
   const pastMembers = project.members.filter((m) => m.leftAt !== null)
   // seniorId/seniorName are null for JUNIOR viewers (identity masking by backend allowlist).
+  // task-admin-as-senior: for non-privileged viewers of admin-projects, seniorId is null
+  // but seniorName is still set (displayName is safe to show). We show the row without a link
+  // by setting userId=null (ProfileNameLink nonNavigable prop handles the plain-text render).
   const senior =
-    project.seniorId != null
+    project.seniorId != null || project.seniorName != null
       ? {
-          userId: project.seniorId,
+          // null when backend masks it (admin-project + non-privileged viewer)
+          userId: project.seniorId ?? null,
           displayName: project.seniorName ?? '',
           role: 'SENIOR',
           avatarUrl: null as string | null,
@@ -1027,12 +1032,20 @@ function ProjectDetailPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-1 divide-y divide-border/30">
-              {/* Senior row — hidden for JUNIOR viewers (seniorId masked by backend allowlist) */}
+              {/* Senior row — hidden for JUNIOR viewers (seniorId masked by backend allowlist).
+                  task-admin-as-senior: when seniorId is null but seniorName is set, the senior
+                  is an ADMIN and this viewer lacks profile access — render name without link. */}
               {senior != null && (
                 <div className="pb-3">
-                  <Link
-                    to="/crm/profile/$userId"
-                    params={{ userId: senior.userId }}
+                  {/* senior.userId is null when backend masks it (admin-project + non-privileged viewer).
+                      In that case we render a non-navigable span via ProfileNameLink nonNavigable prop. */}
+                  {/* LOW fix: when nonNavigable=true (seniorId=null → admin-project without access),
+                      userId is not consumed by ProfileNameLink (renders span). Pass it only when
+                      navigation is possible (exactOptionalPropertyTypes: conditional spread). */}
+                  <ProfileNameLink
+                    {...(senior.userId != null ? { userId: senior.userId } : {})}
+                    viewerRole={user?.role ?? 'JUNIOR'}
+                    nonNavigable={senior.userId == null}
                     className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0"
                   >
                     <Avatar className="h-8 w-8 shrink-0 ring-2 ring-[#6366f1]/30">
@@ -1040,13 +1053,16 @@ function ProjectDetailPage() {
                         {getInitials(senior.displayName)}
                       </AvatarFallback>
                     </Avatar>
-                    <span className="text-sm font-medium truncate text-primary hover:underline underline-offset-2">
+                    {/* MED1: no hover:underline — element may be non-navigable (nonNavigable=true)
+                        when viewer cannot access the admin's profile. A non-clickable span
+                        must not show pointer/underline hover styles. */}
+                    <span className="text-sm font-medium truncate text-primary">
                       {senior.displayName}
                     </span>
                     <Badge variant="senior" className="shrink-0 text-[9px] ml-auto">
                       Синьор
                     </Badge>
-                  </Link>
+                  </ProfileNameLink>
                 </div>
               )}
 
@@ -1615,6 +1631,8 @@ function ProjectEffectiveTeamCard({
   // ut-30: flat list — single «Эффективный состав» heading; role-specific
   // section headings («СИНЬОР», «HR (N)», «БУХГАЛТЕРЫ (N)», «ДЖУНЫ (N)») removed.
   // Each row keeps its role badge for visual differentiation.
+  // task-admin-as-senior: profileNavigable=false for admin-senior when viewer lacks
+  // profile access — renders plain text instead of a navigable link.
   type FlatMember = {
     key: string
     profileId: string
@@ -1623,6 +1641,7 @@ function ProjectEffectiveTeamCard({
     avatarDocumentId: string | null
     role: 'SENIOR' | 'DROP' | 'HR' | 'ACCOUNTANT' | 'JUNIOR'
     sectionTestId: string
+    profileNavigable?: boolean
   }
   const flatMembers: FlatMember[] = []
   if (senior) {
@@ -1634,6 +1653,8 @@ function ProjectEffectiveTeamCard({
       avatarDocumentId: senior.avatarDocumentId,
       role: 'SENIOR',
       sectionTestId: 'effective-team-senior',
+      // false when admin-senior and viewer lacks profile access (backend sets profileNavigable=false)
+      profileNavigable: effective?.senior?.profileNavigable ?? true,
     })
   }
   // Drop role - phase 2. Insert drop directly after senior to keep the
@@ -1710,56 +1731,78 @@ function ProjectEffectiveTeamCard({
             Джун не назначен
           </p>
         )}
-        {flatMembers.map((m) => (
-          <Link
-            key={m.key}
-            to="/crm/profile/$userId"
-            params={{ userId: m.profileId }}
-            data-testid={m.sectionTestId}
-            className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/30 transition-colors"
-          >
-            <Avatar className="h-7 w-7 shrink-0">
-              {m.avatarUrl && <AvatarImage src={m.avatarUrl} alt={m.displayName} />}
-              <AvatarFallback className="text-[10px] font-semibold">
-                {getInitials(m.displayName)}
-              </AvatarFallback>
-            </Avatar>
-            <span className="text-sm font-medium truncate flex-1 text-primary hover:underline">
-              {m.displayName}
-            </span>
-            {/* Drop role - phase 2. DROP gets a distinct blue/info badge so
-                it is visually separable from SENIOR/HR/ACCOUNTANT/JUNIOR. */}
-            {m.role === 'DROP' ? (
-              <Badge
-                variant="outline"
-                className="border-blue-500/30 bg-blue-500/10 text-blue-400 shrink-0 text-[9px]"
+        {flatMembers.map((m) => {
+          // task-admin-as-senior: admin-senior with profileNavigable=false renders
+          // as a non-navigable row (plain div) instead of a profile <Link>.
+          const isNavigable = m.profileNavigable !== false && viewerRole !== 'DROP'
+          const rowContent = (
+            <>
+              <Avatar className="h-7 w-7 shrink-0">
+                {m.avatarUrl && <AvatarImage src={m.avatarUrl} alt={m.displayName} />}
+                <AvatarFallback className="text-[10px] font-semibold">
+                  {getInitials(m.displayName)}
+                </AvatarFallback>
+              </Avatar>
+              {/* MED1: hover:underline only when the row is navigable — a non-clickable
+                  div (isNavigable=false) must not show pointer/underline hover style. */}
+              <span
+                className={`text-sm font-medium truncate flex-1 text-primary${isNavigable ? ' hover:underline' : ''}`}
               >
-                Дроп
-              </Badge>
-            ) : (
-              <Badge
-                variant={
-                  m.role === 'SENIOR'
-                    ? 'senior'
+                {m.displayName}
+              </span>
+              {/* Drop role - phase 2. DROP gets a distinct blue/info badge so
+                  it is visually separable from SENIOR/HR/ACCOUNTANT/JUNIOR. */}
+              {m.role === 'DROP' ? (
+                <Badge
+                  variant="outline"
+                  className="border-blue-500/30 bg-blue-500/10 text-blue-400 shrink-0 text-[9px]"
+                >
+                  Дроп
+                </Badge>
+              ) : (
+                <Badge
+                  variant={
+                    m.role === 'SENIOR'
+                      ? 'senior'
+                      : m.role === 'HR'
+                        ? 'hr'
+                        : m.role === 'ACCOUNTANT'
+                          ? 'accountant'
+                          : 'junior'
+                  }
+                  className="shrink-0 text-[9px]"
+                >
+                  {m.role === 'SENIOR'
+                    ? 'Синьор'
                     : m.role === 'HR'
-                      ? 'hr'
+                      ? 'HR'
                       : m.role === 'ACCOUNTANT'
-                        ? 'accountant'
-                        : 'junior'
-                }
-                className="shrink-0 text-[9px]"
-              >
-                {m.role === 'SENIOR'
-                  ? 'Синьор'
-                  : m.role === 'HR'
-                    ? 'HR'
-                    : m.role === 'ACCOUNTANT'
-                      ? 'Бухгалтер'
-                      : 'Джун'}
-              </Badge>
-            )}
-          </Link>
-        ))}
+                        ? 'Бухгалтер'
+                        : 'Джун'}
+                </Badge>
+              )}
+            </>
+          )
+          return isNavigable ? (
+            <Link
+              key={m.key}
+              to="/crm/profile/$userId"
+              params={{ userId: m.profileId }}
+              data-testid={m.sectionTestId}
+              className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/30 transition-colors"
+            >
+              {rowContent}
+            </Link>
+          ) : (
+            <div
+              key={m.key}
+              data-testid={m.sectionTestId}
+              className="flex items-center gap-2.5 rounded-md px-2 py-1.5"
+            >
+              {rowContent}
+            </div>
+          )
+        })}
       </CardContent>
     </Card>
   )

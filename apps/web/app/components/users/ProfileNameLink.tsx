@@ -15,6 +15,12 @@
  *
  * Single source of truth so the DROP gate is not duplicated across the team page,
  * document rows/cards and the document detail dialog.
+ *
+ * task-admin-as-senior: `nonNavigable` prop added for the case where the target
+ * user is an ADMIN and the viewer lacks profile access (non-admin viewers on
+ * admin-projects). Passing `nonNavigable={true}` renders plain text regardless
+ * of viewer role — prevents a dead/forbidden navigation that would leak the
+ * existence of the admin's profile.
  */
 import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
@@ -22,8 +28,18 @@ import type { Role } from '@/lib/route-access'
 import { cn } from '@/lib/utils'
 
 interface ProfileNameLinkProps {
-  /** Target user's id — used for the /crm/profile/$userId link. */
-  userId: string
+  /**
+   * Target user's id — used for the /crm/profile/$userId link.
+   *
+   * LOW fix: when `nonNavigable=true` the component renders a plain `<span>`
+   * and `userId` is never used. Callers should omit it (or pass `undefined`)
+   * rather than supplying a sentinel `userId=""`. The prop is therefore optional;
+   * callers that allow navigation (nonNavigable=false, viewerRole≠'DROP') must
+   * still supply a valid non-empty id — TypeScript will catch missing values at
+   * the Link branch via the `userId ?? ''` fallback which is safe because that
+   * branch is unreachable when userId is undefined (nonNavigable=true guards it).
+   */
+  userId?: string
   /** The CURRENT viewer's role. DROP → plain text; everyone else → link. */
   viewerRole: Role
   /** Classes applied to the rendered element (link or span) identically. */
@@ -34,12 +50,23 @@ interface ProfileNameLinkProps {
   onClick?: (e: React.MouseEvent) => void
   /** title attribute (tooltip) — applied to both link and span. */
   title?: string
+  /**
+   * task-admin-as-senior: when true, render plain text regardless of viewer role.
+   * Used when the target user is an ADMIN and the viewer lacks profile access
+   * (e.g. non-admin viewers on admin-projects — the profile returns 403 for them,
+   * so surfacing a link would be a dead navigation and could leak profile existence).
+   * DROP path is preserved separately (viewerRole === 'DROP' also triggers plain text).
+   *
+   * When nonNavigable=true, `userId` is not required and may be omitted.
+   */
+  nonNavigable?: boolean
   children: ReactNode
 }
 
 /**
- * Render the user's name. For DROP viewers it is plain, non-navigable text;
- * for all other roles it is a `<Link>` to that user's profile.
+ * Render the user's name. For DROP viewers (or when nonNavigable=true) it is
+ * plain, non-navigable text; for all other roles it is a `<Link>` to that
+ * user's profile.
  */
 export function ProfileNameLink({
   userId,
@@ -48,9 +75,10 @@ export function ProfileNameLink({
   testId,
   onClick,
   title,
+  nonNavigable,
   children,
 }: ProfileNameLinkProps) {
-  if (viewerRole === 'DROP') {
+  if (viewerRole === 'DROP' || nonNavigable) {
     return (
       <span className={cn(className)} title={title} data-testid={testId}>
         {children}
@@ -61,7 +89,7 @@ export function ProfileNameLink({
   return (
     <Link
       to="/crm/profile/$userId"
-      params={{ userId }}
+      params={{ userId: userId ?? '' }}
       className={cn(className)}
       title={title}
       onClick={onClick}

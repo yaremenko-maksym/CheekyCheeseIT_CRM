@@ -862,7 +862,96 @@ async function main() {
     joinedAt: d(2025, 11, 1),
   })
 
-  console.log('  ✓ 8 projects + members inserted')
+  // Admin-projects: Maksym acts as senior (task-admin-as-senior)
+  // Project 9: NeuroEdge AI — admin-as-senior (ACTIVE, Mar 2026–)
+  const adminProj1Rows = await db
+    .insert(schema.projects)
+    .values({
+      name: 'NeuroEdge AI',
+      companyName: 'NeuroEdge Labs',
+      domain: 'neuroedge.ai',
+      startDate: d(2026, 3, 1),
+      seniorId: MAKSYM_ID,
+      rate: 6000,
+      currency: 'USDT',
+      techStack: 'Python, PyTorch, FastAPI, React',
+      createdAt: d(2026, 3, 1),
+      updatedAt: d(2026, 3, 1),
+    })
+    .returning()
+  const adminProj1 = adminProj1Rows[0]!
+  // Sofia is active junior on adminProj1
+  await db.insert(schema.projectMembers).values({
+    projectId: adminProj1.id,
+    userId: SOFIA_ID,
+    joinedAt: d(2026, 3, 1),
+  })
+  // Legend for adminProj1 — persona so JUNIOR sees "Олексій Маринченко" not Maksym
+  const adminProj1LegendRows = await db
+    .insert(schema.legends)
+    .values({
+      projectId: adminProj1.id,
+      fullName: 'Олексій Маринченко',
+      presentedRole: 'Senior Full-Stack Engineer',
+      presentedStack: 'Python, PyTorch, FastAPI',
+      backstory: 'Досвідчений AI-інженер з 7 роками у сфері ML/DL рішень',
+      createdAt: d(2026, 3, 1),
+      updatedAt: d(2026, 3, 1),
+    })
+    .returning()
+  const adminProj1Legend = adminProj1LegendRows[0]!
+  await db.insert(schema.legendEntries).values({
+    legendId: adminProj1Legend.id,
+    authorId: MAKSYM_ID,
+    text: 'Загальна персона для проекту NeuroEdge AI. Джун бачить цей аккаунт замість реального синьора.',
+    createdAt: d(2026, 3, 1),
+  })
+
+  // Project 10: EduFlow Platform — admin-as-senior (ACTIVE, Apr 2026–)
+  const adminProj2Rows = await db
+    .insert(schema.projects)
+    .values({
+      name: 'EduFlow Platform',
+      companyName: 'EduFlow EdTech',
+      domain: 'eduflow.app',
+      startDate: d(2026, 4, 1),
+      seniorId: MAKSYM_ID,
+      rate: 4800,
+      currency: 'USD',
+      techStack: 'React, NestJS, PostgreSQL, Redis',
+      createdAt: d(2026, 4, 1),
+      updatedAt: d(2026, 4, 1),
+    })
+    .returning()
+  const adminProj2 = adminProj2Rows[0]!
+  // Nazar as junior on adminProj2
+  await db.insert(schema.projectMembers).values({
+    projectId: adminProj2.id,
+    userId: NAZAR_ID,
+    joinedAt: d(2026, 4, 1),
+  })
+  // Legend for adminProj2
+  const adminProj2LegendRows = await db
+    .insert(schema.legends)
+    .values({
+      projectId: adminProj2.id,
+      fullName: 'Дмитро Савченко',
+      presentedRole: 'Senior Frontend Engineer',
+      presentedStack: 'React, TypeScript, TailwindCSS',
+      backstory: 'Спеціаліст у EdTech-продуктах із досвідом у дизайн-системах',
+      createdAt: d(2026, 4, 1),
+      updatedAt: d(2026, 4, 1),
+    })
+    .returning()
+  const adminProj2Legend = adminProj2LegendRows[0]!
+  await db.insert(schema.legendEntries).values({
+    legendId: adminProj2Legend.id,
+    authorId: MAKSYM_ID,
+    text: 'Персона для EduFlow Platform. Джун бачить Дмитра Савченка замість Maksym Yaremenko.',
+    createdAt: d(2026, 4, 1),
+  })
+
+  console.log('  ✓ 10 projects (incl. 2 admin-as-senior) + members + legends inserted')
 
   // ---- 5. Interviews (~12) ----
   console.log('\n[5/8] Inserting interviews...')
