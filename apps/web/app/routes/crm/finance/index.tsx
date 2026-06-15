@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { StickyPageHeader } from '@/components/crm/StickyPageHeader'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Search, ArrowUpDown, ChevronDown, X, Wallet } from 'lucide-react'
 import { useCallback, useState } from 'react'
@@ -560,11 +561,14 @@ function FinancePage() {
   if (isHr) {
     const mySalaries = transactions.filter((t) => t.type === 'SALARY' && t.receiverId === userId)
     return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Финансы</h1>
-          <p className="text-sm text-muted-foreground">История ваших выплат</p>
-        </div>
+      <div className="flex flex-col gap-0">
+        <StickyPageHeader>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Финансы</h1>
+            <p className="text-sm text-muted-foreground">История ваших выплат</p>
+          </div>
+        </StickyPageHeader>
+        <div className="pt-4 space-y-6">
         <Card>
           <CardContent className="p-0">
             {txLoading ? (
@@ -629,6 +633,7 @@ function FinancePage() {
           </CardContent>
         </Card>
         <TransactionDetailDialog tx={detailTx} onClose={() => setDetailTx(null)} />
+        </div>
       </div>
     )
   }
@@ -638,11 +643,14 @@ function FinancePage() {
     const mySalaries = transactions.filter((t) => t.type === 'SALARY' && t.receiverId === userId)
     return (
       <TooltipProvider>
-        <div className="space-y-6">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Финансы</h1>
-            <p className="text-sm text-muted-foreground">Ваши зарплатные выплаты</p>
-          </div>
+        <div className="flex flex-col gap-0">
+          <StickyPageHeader>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Финансы</h1>
+              <p className="text-sm text-muted-foreground">Ваши зарплатные выплаты</p>
+            </div>
+          </StickyPageHeader>
+          <div className="pt-4 space-y-6">
           <Card>
             <CardContent className="p-0">
               {txLoading ? (
@@ -733,20 +741,22 @@ function FinancePage() {
             </CardContent>
           </Card>
           <TransactionDetailDialog tx={detailTx} onClose={() => setDetailTx(null)} />
+          </div>
         </div>
       </TooltipProvider>
     )
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Финансы</h1>
-          <p className="text-sm text-muted-foreground">Все транзакции</p>
-        </div>
-        <div className="flex gap-2">
+    <div className="flex flex-col gap-0">
+      <StickyPageHeader>
+        {/* Header */}
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Финансы</h1>
+            <p className="text-sm text-muted-foreground">Все транзакции</p>
+          </div>
+          <div className="flex gap-2">
           {/* feat/finance-payout-flow (#7): SENIOR can batch multiple VALIDATED
               incomes into one payout via the header button. Badge shows count. */}
           {isSenior && validatedSeniorIncomes.length > 0 && (
@@ -770,11 +780,13 @@ function FinancePage() {
               <Plus className="h-4 w-4 mr-1" /> Новая транзакция
             </Button>
           )}
+          </div>
         </div>
-      </div>
+      </StickyPageHeader>
 
-      {/* SENIOR — own projects + effective share % (no impact for other roles). */}
-      {isSenior && <MyProjectShares />}
+      <div className="pt-4 space-y-6">
+        {/* SENIOR — own projects + effective share % (no impact for other roles). */}
+        {isSenior && <MyProjectShares />}
 
       {/* task-drop-company-debt-and-invoices. Senior IOUs and the
           ADMIN/ACCOUNTANT-only "Долги компании перед синьорами" card.
@@ -871,6 +883,7 @@ function FinancePage() {
           </CrmDialogFooter>
         </CrmDialogContent>
       </Dialog>
+      </div>
     </div>
   )
 }
