@@ -2124,6 +2124,20 @@ export class TransactionsService {
       )
     }
 
+    // task-accountant-summary-balances-rbac (security LOW, review #215): the
+    // partner/drop balance arrays expose payment-routing config (partner +
+    // DROP display names alongside their accumulated balances). ACCOUNTANT
+    // needs the economic P&L surface (income/expenses/salaries/net + monthly)
+    // for /crm/stats + the финансовый хаб, but NOT the per-partner / per-drop
+    // balances — those are ADMIN-only and the ACCOUNTANT UI already hides them
+    // (#214 removed the drop-balances panel; #215 gates the balance sections on
+    // /crm/stats to ADMIN). We therefore stop sending them on the wire too:
+    // ADMIN keeps the full arrays (no regression), ACCOUNTANT gets empty arrays
+    // (`[]`). Empty — not omitted — because `financeSummarySchema.adminBalances`
+    // is a required array, so the existing FinanceSummaryDto parse on the client
+    // stays valid for both roles.
+    const canSeeBalances = currentUser.role === 'ADMIN'
+
     // Scaled-integer constant used throughout aggregations below to avoid
     // JS float accumulation errors. Aliased to the module-level `MONEY_SCALE`
     // single source of truth so this method and `computeDropAggregate` can
@@ -2178,59 +2192,69 @@ export class TransactionsService {
     // ТРОГАТЬ — manual flow живёт параллельно"). Senior-only / legacy admin
     // balance values are unchanged because they never produce PAYOUT_CONFIRMED
     // rows.
-    const adminUsers = await this.db.db.query.users.findMany({
-      where: eq(users.role, 'ADMIN'),
-    })
-
-    const adminBalances = adminUsers.map((admin) => {
-      const receivedScaled = paid
-        .filter(
-          (tx) =>
-            tx.receiverId === admin.id &&
-            (tx.type === 'PAYOUT_ADMIN' ||
-              tx.type === 'ADMIN_INCOME' ||
-              tx.type === 'ADMIN_TRANSFER' ||
-              tx.type === 'PAYOUT_CONFIRMED'),
-        )
-        .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0)
-      const sentScaled = paid
-        .filter((tx) => tx.senderId === admin.id && tx.type === 'ADMIN_TRANSFER')
-        .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0)
-      return {
-        userId: admin.id,
-        displayName: admin.displayName,
-        balance: (receivedScaled - sentScaled) / SCALE,
-      }
-    })
+    // ACCOUNTANT does not receive the balance arrays (see `canSeeBalances`
+    // above) — skip the extra DB reads + aggregation entirely and return `[]`
+    // for both. ADMIN keeps the full, unchanged computation below.
+    const adminBalances = !canSeeBalances
+      ? []
+      : (
+          await this.db.db.query.users.findMany({
+            where: eq(users.role, 'ADMIN'),
+          })
+        ).map((admin) => {
+          const receivedScaled = paid
+            .filter(
+              (tx) =>
+                tx.receiverId === admin.id &&
+                (tx.type === 'PAYOUT_ADMIN' ||
+                  tx.type === 'ADMIN_INCOME' ||
+                  tx.type === 'ADMIN_TRANSFER' ||
+                  tx.type === 'PAYOUT_CONFIRMED'),
+            )
+            .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0)
+          const sentScaled = paid
+            .filter((tx) => tx.senderId === admin.id && tx.type === 'ADMIN_TRANSFER')
+            .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0)
+          return {
+            userId: admin.id,
+            displayName: admin.displayName,
+            balance: (receivedScaled - sentScaled) / SCALE,
+          }
+        })
 
     // Drop role - phase 2 (AC4): aggregate balance per DROP user — credit on
     // PAYOUT_DROP (their slice of drop-project distribution) minus any debit
     // (none today; field kept here for symmetry with adminBalances). Empty
     // array when no DROP users exist. The shape is intentionally identical
     // to adminBalances so the frontend can render both side-by-side.
-    const dropUsers = await this.db.db.query.users.findMany({
-      where: eq(users.role, 'DROP'),
-    })
-
-    // Drop role - phase 1 (task-drop-1-backend): per-drop aggregate now flows
+    //
+    // Drop role - phase 1 (task-drop-1-backend): per-drop aggregate flows
     // through the shared `computeDropAggregate` helper (single source of truth
     // also consumed by the self-only `getDropSelfSummary`). The admin summary
     // DTO is unchanged — `debtToCompany` (returned by the helper) is mapped
     // away here so `financeSummarySchema.dropBalances` and its existing unit
     // tests stay byte-for-byte identical.
-    const dropBalances = dropUsers.map((drop) => {
-      const aggregate = this.computeDropAggregate(
-        { id: drop.id, displayName: drop.displayName, dropSharePercent: drop.dropSharePercent },
-        allTxs,
-      )
-      return {
-        userId: aggregate.userId,
-        displayName: aggregate.displayName,
-        balance: aggregate.balance,
-        dropSharePercent: aggregate.dropSharePercent,
-        pendingCount: aggregate.pendingCount,
-      }
-    })
+    //
+    // ACCOUNTANT gets `[]` (see `canSeeBalances`); ADMIN keeps the full list.
+    const dropBalances = !canSeeBalances
+      ? []
+      : (
+          await this.db.db.query.users.findMany({
+            where: eq(users.role, 'DROP'),
+          })
+        ).map((drop) => {
+          const aggregate = this.computeDropAggregate(
+            { id: drop.id, displayName: drop.displayName, dropSharePercent: drop.dropSharePercent },
+            allTxs,
+          )
+          return {
+            userId: aggregate.userId,
+            displayName: aggregate.displayName,
+            balance: aggregate.balance,
+            dropSharePercent: aggregate.dropSharePercent,
+            pendingCount: aggregate.pendingCount,
+          }
+        })
 
     // Monthly breakdown — scaled-integer accumulation (MED-5).
     const monthMap = new Map<
