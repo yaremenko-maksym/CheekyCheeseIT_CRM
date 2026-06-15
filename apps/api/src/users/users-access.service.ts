@@ -132,22 +132,41 @@ export class UsersAccessService {
       fields.realContacts = true
     } else if (isHr) {
       if (await this.isHrInTargetTeam(viewer.id, target)) {
-        tabs.push('overview', 'projects', 'team')
-        if (targetIsSenior) tabs.push('interviews')
+        // task-hr-rbac-teammate-access §2: differentiate the HR tab surface by
+        // target role. ACCOUNTANT / HR teammates are NOT senior/project subjects,
+        // so they only expose overview + team (a lightweight teammate card) — never
+        // 'projects' or 'interviews' (those are senior/project surfaces). SENIOR /
+        // JUNIOR behaviour is unchanged (overview/projects/team [+interviews for
+        // SENIOR]).
+        const targetIsHrPeer = target.role === 'ACCOUNTANT' || target.role === 'HR'
+        if (targetIsHrPeer) {
+          tabs.push('overview', 'team')
+        } else {
+          tabs.push('overview', 'projects', 'team')
+          if (targetIsSenior) tabs.push('interviews')
+        }
         fields.techStack = targetHasTechStack
         fields.registrationDate = true
         // adminNote — HR does not see admin notes
         fields.adminNote = false
         // FOP PII — HR does not see registrationAddress/usrRecord
         fields.fopPii = false
-        // Real contacts — HR sees contacts (email/phone/telegram)
+        // Real contacts — HR sees contacts (email/phone/telegram), including for an
+        // ACCOUNTANT / HR teammate.
         fields.realContacts = true
-        // HR can view/edit their SENIOR's or DROP's legend
+        // HR can view/edit their SENIOR's or DROP's legend. ACCOUNTANT / HR targets
+        // are not legend subjects, so this stays false for them (targetIsLegendSubject).
         fields.legend = targetIsLegendSubject
         // task-junior-ut-round2 §6: HR (sharing the target junior's team) sees +
-        // edits that junior's project credentials in their profile. JUNIOR only.
+        // edits that junior's project credentials in their profile. JUNIOR only —
+        // false for ACCOUNTANT / HR / SENIOR targets.
         fields.projectCredentials = target.role === 'JUNIOR'
         fields.editCredentials = target.role === 'JUNIOR'
+        // Financial / requisites / PII flags (salary, share, requisites, fopPii,
+        // legalName) are intentionally left at their `false` default for HR — an
+        // ACCOUNTANT / HR teammate's salary, payment requisites and FOP-PII stay
+        // masked (null in buildProfileView), same as the existing SENIOR/JUNIOR
+        // path. No new financial surface is opened by this teammate access.
       }
     } else if (isSenior) {
       // SENIOR cannot view JUNIOR profiles (identity hidden per RBAC rule #1).
@@ -200,35 +219,57 @@ export class UsersAccessService {
   }
 
   private async isHrInTargetTeam(hrId: string, target: User): Promise<boolean> {
-    if (target.role === 'SENIOR') {
+    // Shared-team membership path: the target is visible to HR when both are
+    // members of at least one common team. Covers SENIOR (unchanged behaviour)
+    // plus the new ACCOUNTANT / HR teammate-access path
+    // (task-hr-rbac-teammate-access §1). ADMIN / DROP are intentionally excluded
+    // — those profiles are never opened to HR via this branch (they fall through
+    // to `return false` below). self is handled earlier by the isSelf branch in
+    // getViewPermissions, so a match here for an HR target can only be
+    // HR↔other-HR (never HR↔self).
+    if (target.role === 'SENIOR' || target.role === 'ACCOUNTANT' || target.role === 'HR') {
+      // Only active (leftAt IS NULL) memberships count — exclude former teammates.
       const hrMemberships = await this.db.db
         .select({ teamId: teamMembers.teamId })
         .from(teamMembers)
-        .where(eq(teamMembers.userId, hrId))
+        .where(and(eq(teamMembers.userId, hrId), isNull(teamMembers.leftAt)))
       if (hrMemberships.length === 0) return false
       const teamIds = hrMemberships.map((m) => m.teamId)
-      const seniorInTeams = await this.db.db
+      const targetInTeams = await this.db.db
         .select({ teamId: teamMembers.teamId })
         .from(teamMembers)
-        .where(and(eq(teamMembers.userId, target.id), inArray(teamMembers.teamId, teamIds)))
-      return seniorInTeams.length > 0
+        .where(
+          and(
+            eq(teamMembers.userId, target.id),
+            inArray(teamMembers.teamId, teamIds),
+            isNull(teamMembers.leftAt),
+          ),
+        )
+      return targetInTeams.length > 0
     }
     if (target.role === 'JUNIOR') {
-      // Find seniors in HR's teams, then projects of those seniors,
+      // Find seniors in HR's active teams, then projects of those seniors,
       // then check if target is an active member of any of those projects.
+      // Only active (leftAt IS NULL) memberships count — exclude former teammates.
       const hrTeams = await this.db.db
         .select({ teamId: teamMembers.teamId })
         .from(teamMembers)
-        .where(eq(teamMembers.userId, hrId))
+        .where(and(eq(teamMembers.userId, hrId), isNull(teamMembers.leftAt)))
       if (hrTeams.length === 0) return false
       const teamIds = hrTeams.map((t) => t.teamId)
 
-      // Get SENIOR users in those teams
+      // Get SENIOR users in those active teams (also exclude left members)
       const seniorMembers = await this.db.db
         .select({ userId: teamMembers.userId })
         .from(teamMembers)
         .innerJoin(users, eq(teamMembers.userId, users.id))
-        .where(and(inArray(teamMembers.teamId, teamIds), eq(users.role, 'SENIOR')))
+        .where(
+          and(
+            inArray(teamMembers.teamId, teamIds),
+            eq(users.role, 'SENIOR'),
+            isNull(teamMembers.leftAt),
+          ),
+        )
       const seniorIds = seniorMembers.map((s) => s.userId)
       if (seniorIds.length === 0) return false
 
