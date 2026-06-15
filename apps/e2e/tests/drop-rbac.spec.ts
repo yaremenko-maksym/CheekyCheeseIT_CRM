@@ -1,7 +1,7 @@
 /**
  * drop-rbac.spec.ts — Drop role RBAC visibility sweep.
  *
- * Phase 1 (AC8): sidebar items, /crm/dashboard redirect, /crm/users redirect,
+ * Phase 1 (AC8): sidebar items, dashboard redirect, /crm/users redirect,
  *   profile self-view tabs.
  *
  * Phase 2 update (PR #189): resolveRoleHome(DROP) changed to /crm/routing.
@@ -9,11 +9,10 @@
  *   Sidebar now has 4 items: Дашборд / Финансы / Команда / Профиль
  *   (data-testid="drop-nav" from nav-sidebar.tsx).
  *
- * Phase 3 update (PR #198): resolveRoleHome(DROP) changed to /crm/dashboard.
- *   DROP included in ROUTE_ACCESS for /crm/dashboard.
- *   /crm/routing permanently redirects to /crm/dashboard.
- *   Sidebar «Дашборд» link href changed from /crm/routing → /crm/dashboard.
- *   All DROP home expectations updated from /crm/routing to /crm/dashboard.
+ * Dashboard consolidation: the role-dispatch dashboard moved from /crm/dashboard
+ *   (DELETED) to the CRM root /crm. resolveRoleHome(DROP) === '/crm'.
+ *   /crm root renders DropDashboard for DROP; /crm/routing → /crm.
+ *   Sidebar «Дашборд» link href → /crm. All DROP home expectations → /crm.
  *
  * Mock-based — `asDrop` fixture authenticates as `USERS.drop` and pumps
  * the standard `/api/users/me` mock that returns the self-view from
@@ -22,12 +21,15 @@
 
 import { test, expect } from './fixtures'
 
+// CRM root, anchored — matches `/crm` (and `/crm/`) but NOT `/crm/team` etc.
+const CRM_ROOT = /\/crm\/?$/
+
 test.describe('Drop RBAC visibility — AC8 (phase 3 update)', () => {
   test('sidebar has exactly 5 items for DROP: Дашборд / Финансы / Команда / Документы / Профиль', async ({
     asDrop: page,
   }) => {
-    // Navigate to DROP home (dashboard hub, PR #198).
-    await page.goto('/crm/dashboard')
+    // Navigate to DROP home (dashboard hub at the CRM root /crm).
+    await page.goto('/crm')
     await expect(page.getByTestId('drop-routing-hub')).toBeVisible({ timeout: 8_000 })
 
     // Scope to the drop-nav testid (data-testid="drop-nav" in nav-sidebar.tsx).
@@ -37,7 +39,7 @@ test.describe('Drop RBAC visibility — AC8 (phase 3 update)', () => {
     // Finding 1 fix (PR #198): DROP added to /crm/documents ROUTE_ACCESS.
     // nav-sidebar uses navRolesFor('/crm/documents') → now includes DROP.
     // Phase 3 + Finding 1: 5 allowed entries.
-    await expect(nav.locator('a[href="/crm/dashboard"]')).toBeVisible()
+    await expect(nav.locator('a[href="/crm"]')).toBeVisible()
     await expect(nav.locator('a[href="/crm/finance"]')).toBeVisible()
     await expect(nav.locator('a[href="/crm/team"]')).toBeVisible()
     await expect(nav.locator('a[href="/crm/documents"]')).toBeVisible()
@@ -49,26 +51,23 @@ test.describe('Drop RBAC visibility — AC8 (phase 3 update)', () => {
     // Forbidden entries — absent for DROP.
     await expect(nav.locator('a[href="/crm/projects"]')).toHaveCount(0)
     await expect(nav.locator('a[href="/crm/interviews"]')).toHaveCount(0)
-    // /crm/routing no longer in nav (consolidated to /crm/dashboard)
+    // /crm/routing no longer in nav (consolidated to the CRM root /crm)
     await expect(nav.locator('a[href="/crm/routing"]')).toHaveCount(0)
     await expect(nav.locator('a[href="/crm/users"]')).toHaveCount(0)
     await expect(nav.locator('a[href="/crm/stats"]')).toHaveCount(0)
   })
 
-  test('DROP on /crm/dashboard stays and sees drop hub (phase 3 — no redirect)', async ({
-    asDrop: page,
-  }) => {
-    // PR #198: DROP is now in ROUTE_ACCESS for /crm/dashboard.
-    // dashboard.tsx renders DropDashboard (role-branch) — no redirect loop.
-    await page.goto('/crm/dashboard')
-    await expect(page).toHaveURL(/\/crm\/dashboard/, { timeout: 8_000 })
+  test('DROP on /crm stays and sees drop hub (no redirect)', async ({ asDrop: page }) => {
+    // /crm is DROP home; index.tsx renders DropDashboard (role-branch) — no redirect loop.
+    await page.goto('/crm')
+    await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
     await expect(page.getByTestId('drop-routing-hub')).toBeVisible({ timeout: 8_000 })
   })
 
-  test('/crm/users denies DROP access — redirects to /crm/dashboard', async ({ asDrop: page }) => {
-    // useRoleGuard fires navigate to resolveRoleHome('DROP') = /crm/dashboard.
+  test('/crm/users denies DROP access — redirects to /crm', async ({ asDrop: page }) => {
+    // useRoleGuard fires navigate to resolveRoleHome('DROP') = /crm.
     await page.goto('/crm/users')
-    await expect(page).toHaveURL(/\/crm\/dashboard/, { timeout: 8_000 })
+    await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
   })
 
   test('DROP self-profile renders with correct tabs (contract tab present, no interviews)', async ({
