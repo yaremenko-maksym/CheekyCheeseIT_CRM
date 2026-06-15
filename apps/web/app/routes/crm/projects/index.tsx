@@ -135,6 +135,7 @@ function ProjectsPage() {
   const canManage = user?.role === 'ADMIN' || user?.role === 'HR'
   const canCreate = user?.role === 'ADMIN' || user?.role === 'HR'
   const isAdmin = user?.role === 'ADMIN'
+  const isAccountant = user?.role === 'ACCOUNTANT'
 
   // AC1-AC3: non-ADMIN roles always see active-only; tabs + ?archived URL are
   // ADMIN-exclusive. For non-ADMIN we ignore `search.archived` entirely so a
@@ -179,10 +180,21 @@ function ProjectsPage() {
   const { data: allUsers } = useQuery({
     queryKey: ['users'],
     queryFn: () => api.get<UserOption[]>('/users').then((r) => r.data),
-    enabled: canManage,
+    enabled: canManage || isAccountant,
   })
 
   const seniorUsers = allUsers?.filter((u) => u.role === 'SENIOR') ?? []
+
+  // ut-accountant-filter: build owner list for the senior/admin filter dropdown.
+  // Includes SENIOR users + ADMIN users who own at least one visible project.
+  // This ensures admins-as-seniors (e.g. Maksym on NeuroEdge AI / EduFlow) appear.
+  const ownerUsers = useMemo(() => {
+    if (!allUsers) return []
+    const projectSeniorIds = new Set((projects ?? []).map((p) => p.seniorId).filter(Boolean))
+    return allUsers
+      .filter((u) => u.role === 'SENIOR' || (u.role === 'ADMIN' && projectSeniorIds.has(u.id)))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, 'uk'))
+  }, [allUsers, projects])
   // Drop role - phase 2: list of DROP users for the optional Select in the
   // create-project form. The list is hidden entirely when empty so the form
   // looks identical to pre-phase-2 for companies that don't use drops.
@@ -264,7 +276,7 @@ function ProjectsPage() {
           (p.techStack ?? '').toLowerCase().includes(q),
       )
     }
-    if (isAdmin && seniorFilter !== 'ALL') {
+    if ((isAdmin || isAccountant) && seniorFilter !== 'ALL') {
       list = list.filter((p) => p.seniorId === seniorFilter)
     }
     list.sort((a, b) => {
@@ -286,7 +298,7 @@ function ProjectsPage() {
       return 0
     })
     return list
-  }, [projects, searchQuery, seniorFilter, isAdmin, sortKey, sortDir])
+  }, [projects, searchQuery, seniorFilter, isAdmin, isAccountant, sortKey, sortDir])
 
   if (isLoading) {
     return (
@@ -413,16 +425,17 @@ function ProjectsPage() {
               />
             </div>
 
-            {isAdmin && seniorUsers.length > 0 && (
+            {(isAdmin || isAccountant) && ownerUsers.length > 0 && (
               <Select value={seniorFilter} onValueChange={setSeniorFilter}>
                 <SelectTrigger className="w-44" data-testid="projects-senior-filter">
-                  <SelectValue placeholder="Все синьоры" />
+                  <SelectValue placeholder="Все ответственные" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="ALL">Все синьоры</SelectItem>
-                  {seniorUsers.map((u) => (
+                  <SelectItem value="ALL">Все ответственные</SelectItem>
+                  {ownerUsers.map((u) => (
                     <SelectItem key={u.id} value={u.id}>
                       {u.displayName}
+                      {u.role === 'ADMIN' ? ' (админ)' : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>
