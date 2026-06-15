@@ -102,7 +102,7 @@ test.describe('Onboarding logout', () => {
     await expect(page).toHaveURL(/\/login/, { timeout: 8000 })
 
     // Guard holds: navigating back to /crm re-redirects to login (no bypass).
-    await page.goto('/crm/dashboard')
+    await page.goto('/crm')
     await expect(page).toHaveURL(/\/login/, { timeout: 8000 })
   })
 })

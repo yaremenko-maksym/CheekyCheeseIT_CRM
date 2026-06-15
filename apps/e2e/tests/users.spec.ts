@@ -63,24 +63,24 @@ test.describe('Users management page', () => {
       await expect(page.getByText(/доступ только для администратора/i)).not.toBeVisible()
     })
 
-    test('SENIOR accessing /crm/users gets redirected to /crm/dashboard (route-guard)', async ({
+    test('SENIOR accessing /crm/users gets redirected to /crm (route-guard)', async ({
       asSenior: page,
     }) => {
       // PR #184 route-guard: /crm/users is ADMIN-only. resolveRoleHome('SENIOR')
-      // = '/crm/dashboard'. Old in-page «Доступ только для администратора» panel
+      // = '/crm'. Old in-page «Доступ только для администратора» panel
       // is no longer rendered — guard redirects before the page mounts.
       await page.goto('/crm/users')
-      await expect(page).toHaveURL(/\/crm\/dashboard/, { timeout: 8_000 })
+      await expect(page).toHaveURL(/\/crm\/?$/, { timeout: 8_000 })
       await expect(page).not.toHaveURL(/\/crm\/users/)
     })
 
-    test('HR accessing /crm/users gets redirected to /crm/dashboard (route-guard)', async ({
+    test('HR accessing /crm/users gets redirected to /crm (route-guard)', async ({
       asHr: page,
     }) => {
       // PR #184 route-guard: /crm/users is ADMIN-only. resolveRoleHome('HR')
-      // = '/crm/dashboard'. Guard redirects before the page mounts.
+      // = '/crm'. Guard redirects before the page mounts.
       await page.goto('/crm/users')
-      await expect(page).toHaveURL(/\/crm\/dashboard/, { timeout: 8_000 })
+      await expect(page).toHaveURL(/\/crm\/?$/, { timeout: 8_000 })
       await expect(page).not.toHaveURL(/\/crm\/users/)
     })
 
@@ -595,14 +595,14 @@ test.describe('Users management page', () => {
       await expect(page.getByText(/выберите хотя бы одного HR/i)).toBeVisible()
     })
 
-    test('HR: accessing /crm/users gets redirected to /crm/dashboard (route-guard)', async ({
+    test('HR: accessing /crm/users gets redirected to /crm (route-guard)', async ({
       asHr: page,
     }) => {
       // PR #184 route-guard: /crm/users is ADMIN-only. HR is redirected to
-      // resolveRoleHome('HR') = '/crm/dashboard'. The in-page «Доступ только
+      // resolveRoleHome('HR') = '/crm'. The in-page «Доступ только
       // для администратора» notice is no longer rendered — guard fires first.
       await page.goto('/crm/users')
-      await expect(page).toHaveURL(/\/crm\/dashboard/, { timeout: 8_000 })
+      await expect(page).toHaveURL(/\/crm\/?$/, { timeout: 8_000 })
       await expect(page).not.toHaveURL(/\/crm\/users/)
     })
   })

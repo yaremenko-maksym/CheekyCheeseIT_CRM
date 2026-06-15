@@ -2,10 +2,10 @@
  * hr-dashboard.spec.ts — E2E for the HR рекрутинг хаб (HR dashboard).
  *
  * Coverage (AC3):
- *   A. dashboard.tsx dispatches HR → HRDashboard hub on /crm/dashboard.
+ *   A. dashboard.tsx dispatches HR → HRDashboard hub on the /crm root.
  *   B. Hub renders 3 KPI cards with the mocked values.
  *   C. CTA «Открыть канбан» navigates to /crm/interviews.
- *   D. Non-HR roles do NOT see the HR hub on /crm/dashboard.
+ *   D. Non-HR roles do NOT see the HR hub on the /crm root.
  *
  * Mock-based (LIFO route registration via fixtures). Default
  * /interviews/hr-summary mock returns { 3, 1, {1500, PENDING} } (see fixtures.ts).
@@ -13,12 +13,15 @@
 
 import { test, expect } from './fixtures'
 
+// CRM root, anchored — matches `/crm` (and `/crm/`) but NOT `/crm/team` etc.
+const CRM_ROOT = /\/crm\/?$/
+
 // ── A. Dispatch + hub render ─────────────────────────────────────────────────
 
 test.describe('A. HR dashboard dispatch', () => {
-  test('HR on /crm/dashboard sees the HR hub (not general dashboard)', async ({ asHr: page }) => {
-    await page.goto('/crm/dashboard')
-    await expect(page).toHaveURL(/\/crm\/dashboard/, { timeout: 8_000 })
+  test('HR on /crm sees the HR hub (not general dashboard)', async ({ asHr: page }) => {
+    await page.goto('/crm')
+    await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
 
     const hub = page.getByTestId('hr-dashboard-hub')
     await expect(hub).toBeVisible({ timeout: 8_000 })
@@ -35,7 +38,7 @@ test.describe('A. HR dashboard dispatch', () => {
 
 test.describe('B. HR hub — KPI cards', () => {
   test('renders all 3 KPI cards with mocked values', async ({ asHr: page }) => {
-    await page.goto('/crm/dashboard')
+    await page.goto('/crm')
     await expect(page.getByTestId('hr-kpi-grid')).toBeVisible({ timeout: 8_000 })
 
     const open = page.getByTestId('kpi-open-interviews')
@@ -59,7 +62,7 @@ test.describe('B. HR hub — KPI cards', () => {
 
 test.describe('C. HR hub — interviews CTA', () => {
   test('CTA «Открыть канбан» navigates to /crm/interviews', async ({ asHr: page }) => {
-    await page.goto('/crm/dashboard')
+    await page.goto('/crm')
 
     const cta = page.getByTestId('hr-interviews-cta')
     await expect(cta).toBeVisible({ timeout: 8_000 })
@@ -73,16 +76,16 @@ test.describe('C. HR hub — interviews CTA', () => {
 
 // ── D. RBAC — non-HR does not see the hub ────────────────────────────────────
 
-test.describe('D. RBAC — HR hub is HR-only on /crm/dashboard', () => {
-  test('ADMIN on /crm/dashboard does NOT see the HR hub', async ({ asAdmin: page }) => {
-    await page.goto('/crm/dashboard')
-    await expect(page).toHaveURL(/\/crm\/dashboard/, { timeout: 8_000 })
+test.describe('D. RBAC — HR hub is HR-only on /crm root', () => {
+  test('ADMIN on /crm does NOT see the HR hub', async ({ asAdmin: page }) => {
+    await page.goto('/crm')
+    await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
     await expect(page.getByTestId('hr-dashboard-hub')).toHaveCount(0)
   })
 
-  test('SENIOR on /crm/dashboard does NOT see the HR hub', async ({ asSenior: page }) => {
-    await page.goto('/crm/dashboard')
-    await expect(page).toHaveURL(/\/crm\/dashboard/, { timeout: 8_000 })
+  test('SENIOR on /crm does NOT see the HR hub', async ({ asSenior: page }) => {
+    await page.goto('/crm')
+    await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
     await expect(page.getByTestId('hr-dashboard-hub')).toHaveCount(0)
   })
 })

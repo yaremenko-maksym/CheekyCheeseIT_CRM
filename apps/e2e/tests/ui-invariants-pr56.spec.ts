@@ -32,7 +32,7 @@ test.describe('Flow E1 — Header avatar dropdown', () => {
   test('avatar trigger opens dropdown with «Профиль», «Выйти», role badge', async ({
     asSenior,
   }) => {
-    await asSenior.goto('/crm/dashboard')
+    await asSenior.goto('/crm')
 
     const trigger = asSenior.getByTestId('header-user-menu-trigger')
     await expect(trigger).toBeVisible()
@@ -49,7 +49,7 @@ test.describe('Flow E1 — Header avatar dropdown', () => {
   })
 
   test('avatar trigger toggles closed when clicked again', async ({ asSenior }) => {
-    await asSenior.goto('/crm/dashboard')
+    await asSenior.goto('/crm')
     const trigger = asSenior.getByTestId('header-user-menu-trigger')
     await trigger.click()
     await expect(asSenior.getByTestId('header-user-menu-profile')).toBeVisible()
@@ -66,9 +66,7 @@ test.describe('Flow E1 — Header avatar dropdown', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('Flow E2 — Transaction receipt height capped at max-h-[520px]', () => {
-  test('receipt panel frame uses max-h-[520px] (PR #56 final UT AC3)', async ({
-    asAdmin,
-  }) => {
+  test('receipt panel frame uses max-h-[520px] (PR #56 final UT AC3)', async ({ asAdmin }) => {
     // Tiny 1x1 PNG so the receipt image actually loads in the test browser
     // (otherwise onError hides it).
     const PNG = Buffer.from(
@@ -195,9 +193,7 @@ test.describe('Flow E2 — Transaction receipt height capped at max-h-[520px]', 
 // ---------------------------------------------------------------------------
 
 test.describe('Flow E3 — DocumentDetailDialog layout', () => {
-  test('preview panel testid is present + no «Имя файла» row in metadata', async ({
-    asSenior,
-  }) => {
+  test('preview panel testid is present + no «Имя файла» row in metadata', async ({ asSenior }) => {
     // `?openDocId` route schema enforces UUID — using a non-UUID id will
     // trip TanStack Router's validateSearch and bypass dialog auto-open.
     const docId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
@@ -342,7 +338,11 @@ test.describe('Flow E4 — InvoiceDetailDialog signature cards', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(invoiceDoc) }),
     )
     await asSenior.route(new RegExp(`${API}/documents(\\?.*)?$`), (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([invoiceDoc]) }),
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([invoiceDoc]),
+      }),
     )
 
     await asSenior.goto(`/crm/documents?category=INVOICE&openTx=${TX_ID}`)

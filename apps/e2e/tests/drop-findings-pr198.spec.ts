@@ -6,7 +6,7 @@
  *
  * Finding 1 — DROP documents page access:
  *   Before fix: DROP was absent from ROUTE_ACCESS['/crm/documents'] →
- *   useRoleGuard redirected to /crm/dashboard. Backend also had no
+ *   useRoleGuard redirected to the DROP home (now /crm root). Backend also had no
  *   ownerId-scoping for DROP in documents.service.ts.
  *
  *   After fix:
@@ -153,7 +153,7 @@ test.describe('Finding 1 — DROP documents page access (PR #198)', () => {
   test('F1b: drop-nav contains «Документы» link after Finding 1 fix', async ({ asDrop: page }) => {
     // nav-sidebar builds items via navRolesFor('/crm/documents') — DROP is now
     // included in route-access.ts → link appears in drop-nav.
-    await page.goto('/crm/dashboard')
+    await page.goto('/crm')
     await expect(page.getByTestId('drop-routing-hub')).toBeVisible({ timeout: 8_000 })
 
     const nav = page.getByTestId('drop-nav')

@@ -20,7 +20,7 @@ const API = 'http://localhost:3001/api'
 
 test.describe('Sidebar — audit-log link removed', () => {
   test('ADMIN sidebar has no "Аудит-журнал" link', async ({ asAdmin: page }) => {
-    await page.goto('/crm/dashboard')
+    await page.goto('/crm')
     await page.waitForLoadState('networkidle')
     // Any link whose text is «Аудит-журнал» must not be in the DOM.
     await expect(page.getByRole('link', { name: /аудит-журнал/i })).toHaveCount(0)
@@ -29,7 +29,7 @@ test.describe('Sidebar — audit-log link removed', () => {
 
   test('ACCOUNTANT sidebar has no "Аудит-журнал" link', async ({ page }) => {
     await mockAuthAs(page, USERS.accountant)
-    await page.goto('/crm/dashboard')
+    await page.goto('/crm')
     await page.waitForLoadState('networkidle')
     await expect(page.getByRole('link', { name: /аудит-журнал/i })).toHaveCount(0)
   })

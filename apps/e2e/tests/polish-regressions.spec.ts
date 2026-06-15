@@ -122,9 +122,7 @@ async function mockTxList(page: Page, rows: object[]) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 test.describe('AC1 — money format', () => {
-  test('table renders the USD amount with a $ prefix, NOT the ₮ glyph', async ({
-    asAdmin,
-  }) => {
+  test('table renders the USD amount with a $ prefix, NOT the ₮ glyph', async ({ asAdmin }) => {
     await mockTxList(asAdmin, [TX_USDT_SENIOR])
     await asAdmin.goto('/crm/finance')
 
@@ -165,11 +163,9 @@ test.describe('AC2 — avatar fallback renders initials', () => {
   // asserted by its rendered initials text inside the avatar root — not by a
   // [data-slot=avatar-fallback] selector. The Radix Fallback is the only text
   // node the avatar emits when no image is present.
-  test('header user menu avatar falls back to the user initials', async ({
-    asSenior,
-  }) => {
+  test('header user menu avatar falls back to the user initials', async ({ asSenior }) => {
     // Seed senior has avatarUrl=null + avatarDocumentId=null → initials path.
-    await asSenior.goto('/crm/dashboard')
+    await asSenior.goto('/crm')
     const trigger = asSenior.getByTestId('header-user-menu-trigger')
     await expect(trigger).toBeVisible()
 
@@ -224,9 +220,7 @@ test.describe('AC2 — avatar fallback renders initials', () => {
     // project-senior-share testid proves the detail page loaded its header.
     await expect(asAdmin.getByTestId('project-senior-share')).toBeVisible()
     // The logo fallback renders the company initials (Radix Fallback span).
-    await expect(
-      asAdmin.getByText(expectedInitials, { exact: true }).first(),
-    ).toBeVisible()
+    await expect(asAdmin.getByText(expectedInitials, { exact: true }).first()).toBeVisible()
     // No DocumentImage error stub leaked into the logo slot.
     await expect(asAdmin.getByText('Превью недоступно')).toHaveCount(0)
     await expect(asAdmin.locator('img[alt="Превью недоступно"]')).toHaveCount(0)
@@ -252,23 +246,18 @@ test.describe('AC3 — console clean: forwardRef / nested-a / 403', () => {
     const refWarnings = console_.messages.filter((m) =>
       /Function components cannot be given refs/i.test(m),
     )
-    expect(
-      refWarnings,
-      `forwardRef warnings on /crm/finance:\n${refWarnings.join('\n')}`,
-    ).toEqual([])
+    expect(refWarnings, `forwardRef warnings on /crm/finance:\n${refWarnings.join('\n')}`).toEqual(
+      [],
+    )
   })
 
-  test('/crm/team/:id: no validateDOMNesting «<a> in <a>» warning', async ({
-    asAdmin,
-  }) => {
+  test('/crm/team/:id: no validateDOMNesting «<a> in <a>» warning', async ({ asAdmin }) => {
     const console_ = collectConsole(asAdmin)
     const teamId = 'team-1-id'
     await asAdmin.goto(`/crm/team/${teamId}`)
     // The member cards are what nest the anchors — wait until they render.
     await expect(asAdmin.getByText('Участники команды')).toBeVisible()
-    await expect(
-      asAdmin.getByText(USERS.senior.displayName).first(),
-    ).toBeVisible()
+    await expect(asAdmin.getByText(USERS.senior.displayName).first()).toBeVisible()
     await asAdmin.waitForTimeout(300)
 
     const nestingWarnings = console_.messages.filter(
@@ -378,9 +367,7 @@ test.describe('AC5 — styled 404 empty-state', () => {
     await expect(asAdmin.getByText(/^Not Found$/)).toHaveCount(0)
   })
 
-  test('clicking «На главную» navigates back to the CRM workspace', async ({
-    asAdmin,
-  }) => {
+  test('clicking «На главную» navigates back to the CRM workspace', async ({ asAdmin }) => {
     // asAdmin already mocks every CRM API call (incl. transactions), so the
     // dashboard shell that /crm lands on renders without extra stubs.
     await asAdmin.goto('/crm/nonexistent-xyz')
