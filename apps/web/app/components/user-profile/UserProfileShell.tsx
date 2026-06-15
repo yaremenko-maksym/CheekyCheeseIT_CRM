@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
+import { StickyPageHeader } from '@/components/crm/StickyPageHeader'
 import { ShieldOff, UsersRound } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
@@ -157,22 +158,40 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
   }
 
   return (
-    <div className="space-y-6">
-      <UserProfileHeader
-        user={user}
-        showCreatedAt={showCreatedAt}
-        showInterviewsLink={showInterviewsLink}
-        onAvatarClick={mode === 'self' ? () => setAvatarOpen(true) : undefined}
-        actionsSlot={
-          permissions.actions.length > 0 ? (
-            <AdminActionsMenu
-              userId={userId}
-              user={user}
-              actions={permissions.actions as import('@crm/shared').ActionKey[]}
+    <div className="flex flex-col gap-0">
+      <StickyPageHeader>
+        <UserProfileHeader
+          user={user}
+          showCreatedAt={showCreatedAt}
+          showInterviewsLink={showInterviewsLink}
+          onAvatarClick={mode === 'self' ? () => setAvatarOpen(true) : undefined}
+          actionsSlot={
+            permissions.actions.length > 0 ? (
+              <AdminActionsMenu
+                userId={userId}
+                user={user}
+                actions={permissions.actions as import('@crm/shared').ActionKey[]}
+              />
+            ) : null
+          }
+        />
+
+        {permissions.tabs.length > 0 && (
+          // Tab bar: horizontal scroll for many tabs on narrow viewports; pb-1
+          // keeps the pill's shadow from being clipped by overflow-x-auto.
+          <div className="relative overflow-x-auto pb-1">
+            <AnimatedTabs
+              tabs={permissions.tabs.map((t) => ({ value: t, label: tabLabel(t) }))}
+              value={activeTab}
+              onChange={handleTabChange}
             />
-          ) : null
-        }
-      />
+          </div>
+        )}
+      </StickyPageHeader>
+
+      {/* ── Off-sticky content ─────────────────────────────────────────────── */}
+
+      {/* Avatar upload dialog — rendered via portal, position doesn't matter */}
       {mode === 'self' && (
         <AvatarUploadDialog
           open={avatarOpen}
@@ -183,12 +202,11 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
         />
       )}
 
-      {/* Drop role - phase 1 (AC7): teamless SENIOR banner. Surfaces
-          the rejoin-team CTA on self-profile only — view-mode profile
-          for other users intentionally hides it. */}
+      {/* Drop role - phase 1 (AC7): teamless SENIOR banner.
+          Intentionally scrollable (not sticky) — it's a notification. */}
       {mode === 'self' && user.role === 'SENIOR' && isTeamlessSenior && (
         <div
-          className="flex flex-col gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 sm:flex-row sm:items-center sm:justify-between"
+          className="mt-4 flex flex-col gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 sm:flex-row sm:items-center sm:justify-between"
           data-testid="profile-teamless-banner"
         >
           <div className="flex items-start gap-3">
@@ -233,7 +251,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
 
       {permissions.tabs.length === 0 && mode === 'view' && (
         <div
-          className="rounded-lg border border-border bg-muted/40 px-6 py-10 text-center"
+          className="mt-4 rounded-lg border border-border bg-muted/40 px-6 py-10 text-center"
           data-testid="profile-no-access"
         >
           <p className="text-sm text-muted-foreground">Нет доступа к этому профилю</p>
@@ -241,56 +259,42 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
       )}
 
       {permissions.tabs.length > 0 && (
-        <div className="flex flex-col gap-4">
-          {/* Tab bar: horizontal scroll for many tabs on narrow viewports; pb-1
-              keeps the pill's shadow from being clipped by overflow-x-auto. */}
-          <div className="relative overflow-x-auto pb-1">
-            <AnimatedTabs
-              tabs={permissions.tabs.map((t) => ({ value: t, label: tabLabel(t) }))}
-              value={activeTab}
-              onChange={handleTabChange}
+        /* Content area scrolls naturally via the parent <main> (overflow-y-auto in /crm route).
+           No overflow-hidden here — that was blocking the scroll for long tabs. */
+        <div className="pt-4 min-w-0 flex-1">
+          {activeTab === 'overview' && permissions.tabs.includes('overview') && (
+            <OverviewTab
+              user={user}
+              data={viewData as Record<string, unknown>}
+              permissions={permissions}
+              mode={mode}
+              onGoToTab={handleTabChange}
             />
-          </div>
-
-          {/* Content area scrolls naturally via the parent `<main>` (overflow-y-auto in /crm route).
-              No overflow-hidden here — that was blocking the scroll for long tabs. */}
-          <div className="min-w-0 flex-1">
-            {activeTab === 'overview' && permissions.tabs.includes('overview') && (
-              <OverviewTab
-                user={user}
-                data={viewData as Record<string, unknown>}
-                permissions={permissions}
-                mode={mode}
-                onGoToTab={handleTabChange}
-              />
-            )}
-            {activeTab === 'finance' && permissions.tabs.includes('finance') && (
-              <FinanceTab userId={user.id} targetRole={user.role} />
-            )}
-            {activeTab === 'projects' && permissions.tabs.includes('projects') && (
-              <ProjectsTab userId={user.id} role={user.role} />
-            )}
-            {activeTab === 'team' && permissions.tabs.includes('team') && (
-              <TeamTab userId={user.id} />
-            )}
-            {activeTab === 'interviews' && permissions.tabs.includes('interviews') && (
-              <InterviewsTab seniorId={user.id} />
-            )}
-            {activeTab === 'requisites' && permissions.tabs.includes('requisites') && (
-              <RequisitesTab user={user} mode={mode} />
-            )}
-            {activeTab === 'documents' && permissions.tabs.includes('documents') && (
-              <DocumentsTab />
-            )}
-            {activeTab === 'contract' && permissions.tabs.includes('contract') && (
-              <ContractTab
-                userId={user.id}
-                targetRole={user.role}
-                canEdit={viewer?.role === 'ADMIN'}
-                onDirtyChange={handleContractDirtyChange}
-              />
-            )}
-          </div>
+          )}
+          {activeTab === 'finance' && permissions.tabs.includes('finance') && (
+            <FinanceTab userId={user.id} targetRole={user.role} />
+          )}
+          {activeTab === 'projects' && permissions.tabs.includes('projects') && (
+            <ProjectsTab userId={user.id} role={user.role} />
+          )}
+          {activeTab === 'team' && permissions.tabs.includes('team') && (
+            <TeamTab userId={user.id} />
+          )}
+          {activeTab === 'interviews' && permissions.tabs.includes('interviews') && (
+            <InterviewsTab seniorId={user.id} />
+          )}
+          {activeTab === 'requisites' && permissions.tabs.includes('requisites') && (
+            <RequisitesTab user={user} mode={mode} />
+          )}
+          {activeTab === 'documents' && permissions.tabs.includes('documents') && <DocumentsTab />}
+          {activeTab === 'contract' && permissions.tabs.includes('contract') && (
+            <ContractTab
+              userId={user.id}
+              targetRole={user.role}
+              canEdit={viewer?.role === 'ADMIN'}
+              onDirtyChange={handleContractDirtyChange}
+            />
+          )}
         </div>
       )}
     </div>

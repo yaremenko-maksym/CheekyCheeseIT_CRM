@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { StickyPageHeader } from '@/components/crm/StickyPageHeader'
 import { useForm } from '@tanstack/react-form'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
@@ -596,222 +597,230 @@ function TeamPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">Команда</h1>
-        <div className="flex items-center gap-2">
-          {isHr && (
-            <Button onClick={() => setShowCreateSenior(true)} size="sm" className="gap-1.5">
-              <Plus className="h-4 w-4" />
-              Создать синьора
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* ut-25 + ut-26 + ut-33: Tabs row replacing the «Показать архивных» button.
-          Only ADMIN sees the Archive tab; for other roles tabs aren't needed
-          since they don't have access to archived teams. */}
-      {isAdmin && (
-        <SegmentedToggle<TeamTab>
-          value={currentTeamTab}
-          onChange={handleTeamTabChange}
-          options={teamTabs}
-          ariaLabel="Фильтр команд"
-          variant="tabs"
-          size="sm"
-          layoutId="team-status-tabs"
-          className="w-fit"
-          testId="team-status-tabs"
-        />
-      )}
-
-      {teams && teams.length === 0 && (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
-          <Users className="h-10 w-10 text-muted-foreground/30" />
-          <p className="mt-4 text-sm font-medium">Команд пока нет</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {isHr
-              ? 'Нажмите «Создать синьора» чтобы сформировать первую команду'
-              : 'Команды создаются автоматически при добавлении синьора в систему'}
-          </p>
-        </div>
-      )}
-
-      {teams && teams.length > 0 && (
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Поиск по названию…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-            />
+    <div className="flex flex-col gap-0">
+      <StickyPageHeader>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold tracking-tight">Команда</h1>
+          <div className="flex items-center gap-2">
+            {isHr && (
+              <Button onClick={() => setShowCreateSenior(true)} size="sm" className="gap-1.5">
+                <Plus className="h-4 w-4" />
+                Создать синьора
+              </Button>
+            )}
           </div>
-          <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Сортування" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="name">Название A→Z</SelectItem>
-              <SelectItem value="members">Участники ↓</SelectItem>
-              <SelectItem value="projects">Проекты ↓</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
-      )}
 
-      <motion.div
-        className="flex flex-col gap-1.5"
-        variants={container}
-        initial="hidden"
-        animate="show"
-      >
-        {filteredTeams.length === 0 && (teams?.length ?? 0) > 0 && (
-          <p className="py-8 text-center text-sm text-muted-foreground">Ничего не найдено</p>
+        {/* ut-25 + ut-26 + ut-33: Tabs row replacing the «Показать архивных» button.
+            Only ADMIN sees the Archive tab; for other roles tabs aren't needed
+            since they don't have access to archived teams. */}
+        {isAdmin && (
+          <SegmentedToggle<TeamTab>
+            value={currentTeamTab}
+            onChange={handleTeamTabChange}
+            options={teamTabs}
+            ariaLabel="Фильтр команд"
+            variant="tabs"
+            size="sm"
+            layoutId="team-status-tabs"
+            className="w-fit"
+            testId="team-status-tabs"
+          />
         )}
-        {filteredTeams.map((team) => {
-          // ut-39a: per-card management controls removed — all team CRUD is
-          // performed from the detail page header. No need for per-team
-          // RBAC computation here.
-          const hrMembers = team.members.filter((m) => m.role === 'HR')
-          const activeProjects = projects
-            ? projects.filter(
-                (p) =>
-                  p.archivedAt === null &&
-                  team.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
-              ).length
-            : 0
-          const isArchived = !!team.archivedAt
 
-          return (
-            <motion.div
-              key={team.id}
-              variants={item}
-              layout="position"
-              transition={{ duration: 0.08, ease: 'easeOut' }}
-            >
-              <div
-                data-testid={`team-card-${team.id}`}
-                data-archived={isArchived ? 'true' : 'false'}
-                className={cn(
-                  'group relative flex h-14 items-center gap-3 rounded-lg border border-border/60 bg-card/50 px-3 transition-all duration-200 hover:border-primary/30 hover:bg-card cursor-pointer',
-                  isArchived && 'opacity-60',
-                )}
-                onClick={() => navigate({ to: '/crm/team/$teamId', params: { teamId: team.id } })}
+        {teams && teams.length > 0 && (
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Поиск по названию…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+              <SelectTrigger className="w-40">
+                <SelectValue placeholder="Сортування" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="name">Название A→Z</SelectItem>
+                <SelectItem value="members">Участники ↓</SelectItem>
+                <SelectItem value="projects">Проекты ↓</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </StickyPageHeader>
+
+      <div className="pt-4 space-y-6">
+        {teams && teams.length === 0 && (
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
+            <Users className="h-10 w-10 text-muted-foreground/30" />
+            <p className="mt-4 text-sm font-medium">Команд пока нет</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {isHr
+                ? 'Нажмите «Создать синьора» чтобы сформировать первую команду'
+                : 'Команды создаются автоматически при добавлении синьора в систему'}
+            </p>
+          </div>
+        )}
+
+        <motion.div
+          className="flex flex-col gap-1.5"
+          variants={container}
+          initial="hidden"
+          animate="show"
+        >
+          {filteredTeams.length === 0 && (teams?.length ?? 0) > 0 && (
+            <p className="py-8 text-center text-sm text-muted-foreground">Ничего не найдено</p>
+          )}
+          {filteredTeams.map((team) => {
+            // ut-39a: per-card management controls removed — all team CRUD is
+            // performed from the detail page header. No need for per-team
+            // RBAC computation here.
+            const hrMembers = team.members.filter((m) => m.role === 'HR')
+            const activeProjects = projects
+              ? projects.filter(
+                  (p) =>
+                    p.archivedAt === null &&
+                    team.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
+                ).length
+              : 0
+            const isArchived = !!team.archivedAt
+
+            return (
+              <motion.div
+                key={team.id}
+                variants={item}
+                layout="position"
+                transition={{ duration: 0.08, ease: 'easeOut' }}
               >
-                <Link
-                  to="/crm/team/$teamId"
-                  params={{ teamId: team.id }}
-                  className="absolute inset-0 z-10"
-                  title={`Перейти до команди ${team.name}`}
-                />
-
-                {/* Avatars */}
-                <div className="flex shrink-0 -space-x-2 relative z-20">
-                  {team.members.slice(0, 4).map((member, index) => (
-                    <Avatar
-                      key={member.id}
-                      className="h-7 w-7 ring-2 ring-background bg-muted"
-                      style={{ zIndex: 4 - index }}
-                    >
-                      {member.avatarUrl && (
-                        <AvatarImage src={member.avatarUrl} alt={member.displayName} />
-                      )}
-                      <AvatarFallback className="bg-muted text-[10px]">
-                        {getInitials(member.displayName)}
-                      </AvatarFallback>
-                    </Avatar>
-                  ))}
-                  {team.members.length > 4 && (
-                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted ring-2 ring-background">
-                      <span className="text-[9px] font-medium text-muted-foreground">
-                        +{team.members.length - 4}
-                      </span>
-                    </div>
+                <div
+                  data-testid={`team-card-${team.id}`}
+                  data-archived={isArchived ? 'true' : 'false'}
+                  className={cn(
+                    'group relative flex h-14 items-center gap-3 rounded-lg border border-border/60 bg-card/50 px-3 transition-all duration-200 hover:border-primary/30 hover:bg-card cursor-pointer',
+                    isArchived && 'opacity-60',
                   )}
-                </div>
+                  onClick={() => navigate({ to: '/crm/team/$teamId', params: { teamId: team.id } })}
+                >
+                  <Link
+                    to="/crm/team/$teamId"
+                    params={{ teamId: team.id }}
+                    className="absolute inset-0 z-10"
+                    title={`Перейти до команди ${team.name}`}
+                  />
 
-                {/* Name + HRs */}
-                <div className="relative z-20 min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <p className="truncate text-sm font-semibold group-hover:text-primary transition-colors">
-                      {team.name}
-                    </p>
-                    {/* Drop role - phase 1 (AC4): badge surfaces drop-teams
-                        on the team list. Senior-teams render no badge so
-                        existing visuals are unchanged. */}
-                    {team.type === 'DROP' && (
-                      <Badge variant="drop" className="text-[10px] shrink-0">
-                        DROP
-                      </Badge>
+                  {/* Avatars */}
+                  <div className="flex shrink-0 -space-x-2 relative z-20">
+                    {team.members.slice(0, 4).map((member, index) => (
+                      <Avatar
+                        key={member.id}
+                        className="h-7 w-7 ring-2 ring-background bg-muted"
+                        style={{ zIndex: 4 - index }}
+                      >
+                        {member.avatarUrl && (
+                          <AvatarImage src={member.avatarUrl} alt={member.displayName} />
+                        )}
+                        <AvatarFallback className="bg-muted text-[10px]">
+                          {getInitials(member.displayName)}
+                        </AvatarFallback>
+                      </Avatar>
+                    ))}
+                    {team.members.length > 4 && (
+                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted ring-2 ring-background">
+                        <span className="text-[9px] font-medium text-muted-foreground">
+                          +{team.members.length - 4}
+                        </span>
+                      </div>
                     )}
                   </div>
-                  <p className="truncate text-xs text-muted-foreground overflow-hidden whitespace-nowrap">
-                    HR: {hrMembers.map((m) => m.displayName).join(', ') || 'Без HR'}
-                  </p>
-                </div>
 
-                {/* Pills */}
-                <div className="relative z-20 flex shrink-0 items-center gap-2">
-                  {isArchived && (
+                  {/* Name + HRs */}
+                  <div className="relative z-20 min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <p className="truncate text-sm font-semibold group-hover:text-primary transition-colors">
+                        {team.name}
+                      </p>
+                      {/* Drop role - phase 1 (AC4): badge surfaces drop-teams
+                        on the team list. Senior-teams render no badge so
+                        existing visuals are unchanged. */}
+                      {team.type === 'DROP' && (
+                        <Badge variant="drop" className="text-[10px] shrink-0">
+                          DROP
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="truncate text-xs text-muted-foreground overflow-hidden whitespace-nowrap">
+                      HR: {hrMembers.map((m) => m.displayName).join(', ') || 'Без HR'}
+                    </p>
+                  </div>
+
+                  {/* Pills */}
+                  <div className="relative z-20 flex shrink-0 items-center gap-2">
+                    {isArchived && (
+                      <Badge
+                        variant="outline"
+                        className="border-amber-500/30 bg-amber-500/10 text-amber-500 text-[11px]"
+                      >
+                        В архиве
+                      </Badge>
+                    )}
+                    {team.telegram && (
+                      <a
+                        href={team.telegram}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/30 px-2.5 py-1 text-xs font-medium text-blue-500 hover:bg-blue-500/10 transition-colors"
+                      >
+                        <Send className="h-3 w-3" />
+                        Telegram
+                      </a>
+                    )}
+                    <Badge variant="outline" className="text-[11px] tabular-nums">
+                      {team.members.length} уч.
+                    </Badge>
                     <Badge
                       variant="outline"
-                      className="border-amber-500/30 bg-amber-500/10 text-amber-500 text-[11px]"
+                      className={cn(
+                        'text-[11px] tabular-nums',
+                        activeProjects > 0
+                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                          : 'text-muted-foreground',
+                      )}
                     >
-                      В архиве
+                      {activeProjects}{' '}
+                      {activeProjects === 1
+                        ? 'проект'
+                        : activeProjects < 5
+                          ? 'проекта'
+                          : 'проектов'}
                     </Badge>
-                  )}
-                  {team.telegram && (
-                    <a
-                      href={team.telegram}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/30 px-2.5 py-1 text-xs font-medium text-blue-500 hover:bg-blue-500/10 transition-colors"
-                    >
-                      <Send className="h-3 w-3" />
-                      Telegram
-                    </a>
-                  )}
-                  <Badge variant="outline" className="text-[11px] tabular-nums">
-                    {team.members.length} уч.
-                  </Badge>
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      'text-[11px] tabular-nums',
-                      activeProjects > 0
-                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
-                        : 'text-muted-foreground',
-                    )}
-                  >
-                    {activeProjects}{' '}
-                    {activeProjects === 1 ? 'проект' : activeProjects < 5 ? 'проекта' : 'проектов'}
-                  </Badge>
-                </div>
+                  </div>
 
-                {/* ut-39a: rename / unarchive / admin actions removed from
+                  {/* ut-39a: rename / unarchive / admin actions removed from
                     list cards (matches ut-38 project pattern). All team
                     management lives on the detail page header. */}
-              </div>
-            </motion.div>
-          )
-        })}
-      </motion.div>
+                </div>
+              </motion.div>
+            )
+          })}
+        </motion.div>
 
-      {/* HR: Create senior dialog */}
-      {isHr && user && (
-        <HrCreateSeniorDialog
-          open={showCreateSenior}
-          onClose={() => setShowCreateSenior(false)}
-          hrUserId={user.id}
-        />
-      )}
+        {/* HR: Create senior dialog */}
+        {isHr && user && (
+          <HrCreateSeniorDialog
+            open={showCreateSenior}
+            onClose={() => setShowCreateSenior(false)}
+            hrUserId={user.id}
+          />
+        )}
 
-      {/* ut-39a: Edit + Add member + Unarchive flows live on the team detail
-          page header — list page is purely navigational. */}
+        {/* ut-39a: Edit + Add member + Unarchive flows live on the team detail
+            page header — list page is purely navigational. */}
+      </div>
     </div>
   )
 }
