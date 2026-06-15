@@ -70,6 +70,27 @@ const economicSummarySchema = z.object({
   ),
 })
 
+// task-accountant-summary-balances-rbac: payload schema that ALSO surfaces the
+// balance arrays so this spec can assert they are empty for ACCOUNTANT and
+// present for ADMIN. The element shapes mirror financeSummarySchema; we only
+// need .length here, so element fields are loose-but-present.
+const balancesSummarySchema = economicSummarySchema.extend({
+  adminBalances: z.array(
+    z.object({
+      userId: z.string(),
+      displayName: z.string(),
+      balance: z.number(),
+    }),
+  ),
+  dropBalances: z.array(
+    z.object({
+      userId: z.string(),
+      displayName: z.string(),
+      balance: z.number(),
+    }),
+  ),
+})
+
 // ── Personas — stable IDs namespaced to THIS spec ───────────────────────────
 const ACCOUNTANT: SessionUser = {
   id: '5a111111-0000-4000-aa00-000000000001',
@@ -365,5 +386,44 @@ describe('finance/summary — real backend RBAC integration (real DB, no mocks)'
       expect(Number.isFinite(m.income)).toBe(true)
       expect(Number.isFinite(m.profit)).toBe(true)
     }
+  })
+
+  // ── task-accountant-summary-balances-rbac: balance arrays narrowed for
+  //    ACCOUNTANT (empty `[]`) while ADMIN keeps them populated ───────────────
+  // The ACCOUNTANT assertion is a hard invariant of the fix — `canSeeBalances`
+  // returns `[]` regardless of seeded data, so it stays deterministic even when
+  // the whole *.integration.spec suite shares one seeded DB (cross-spec
+  // contamination cannot make these arrays non-empty for the accountant). The
+  // ADMIN assertion relies on this spec's own seeded ADMIN + DROP rows, so the
+  // arrays carry at least those entries.
+  async function summaryBody(user: SessionUser) {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/finance/summary',
+      cookies: { jwt: tokenFor(user) },
+    })
+    expect(res.statusCode).toBe(200)
+    return balancesSummarySchema.parse(res.json())
+  }
+
+  it('ACCOUNTANT payload: adminBalances + dropBalances are EMPTY (no payment-routing leak)', async () => {
+    if (!dbAvailable) return
+    const body = await summaryBody(ACCOUNTANT)
+    expect(body.adminBalances).toEqual([])
+    expect(body.dropBalances).toEqual([])
+    // Economic surface still present — narrowing balances did not strip P&L.
+    expect(Number.isFinite(body.totalIncome)).toBe(true)
+    expect(Number.isFinite(body.netBalance)).toBe(true)
+  })
+
+  it('ADMIN payload: adminBalances + dropBalances are NON-EMPTY (no regression)', async () => {
+    if (!dbAvailable) return
+    const body = await summaryBody(ADMIN)
+    // This spec seeds an ADMIN (with a PAID ADMIN_INCOME row) and a DROP user,
+    // so both arrays must carry at least the seeded entries.
+    expect(body.adminBalances.length).toBeGreaterThan(0)
+    expect(body.adminBalances.some((b) => b.userId === ADMIN.id)).toBe(true)
+    expect(body.dropBalances.length).toBeGreaterThan(0)
+    expect(body.dropBalances.some((b) => b.userId === DROP.id)).toBe(true)
   })
 })
