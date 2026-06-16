@@ -1,4 +1,14 @@
-import { Controller, Get, Global, Inject, Module, Param } from '@nestjs/common'
+import {
+  Controller,
+  ForbiddenException,
+  Get,
+  Global,
+  Inject,
+  Module,
+  NotFoundException,
+  Param,
+  ParseUUIDPipe,
+} from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
 import { JwtModule, JwtService } from '@nestjs/jwt'
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify'
@@ -10,6 +20,7 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
+import { eq } from 'drizzle-orm'
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { HrAccessService } from '../common/hr-access.service'
@@ -44,8 +55,8 @@ import * as schema from '../database/schema'
  *   ADMIN-SR-3  ADMIN viewer → seniorId=MAKSYM_ID, email present, profileNavigable=true
  *               (displayName taken from real DB row, not a hardcoded constant)
  *   ADMIN-SR-4  ACCOUNTANT viewer → same as ADMIN (full visibility)
- *   ADMIN-SR-5  JUNIOR → GET /api/users/:adminId = 403 (HTTP, real DB)
- *   ADMIN-SR-5b JUNIOR → UsersAccessService.getViewPermissions → 0 tabs (unit-style)
+ *   ADMIN-SR-5  JUNIOR → GET /api/users/:adminId = 403 (HTTP, real DB, SentinelUsersController)
+ *   ADMIN-SR-5b JUNIOR → UsersAccessService.getViewPermissions → 0 tabs (defense-in-depth)
  *   ADMIN-SR-6  Legend canAccess — ADMIN as subject (seniorId=ADMIN_ID) → true
  *               (reorder: ADMIN check before subject-exclusion)
  *   ADMIN-SR-7  SENIOR-subject (non-admin) → legend canAccess still false (regression)
@@ -158,6 +169,41 @@ class SentinelProjectsController {
 }
 
 // ---------------------------------------------------------------------------
+// SentinelUsersController — mirrors UsersController.getProfile path:
+//   viewer lookup → getViewPermissions → 0 tabs → ForbiddenException (403)
+// Mounted at /users/:id to provide the real HTTP assertion for ADMIN-SR-5.
+// ---------------------------------------------------------------------------
+
+const USERS_ACCESS_SERVICE_TOKEN = 'USERS_ACCESS_SERVICE_TOKEN_ADMIN_SR'
+
+@Controller('users')
+class SentinelUsersController {
+  constructor(
+    @Inject(DatabaseService) private readonly db: DatabaseService,
+    @Inject(USERS_ACCESS_SERVICE_TOKEN) private readonly accessSvc: UsersAccessService,
+  ) {}
+
+  @Get(':id')
+  async getProfile(
+    @CurrentUser() currentUser: SessionUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    // Step 1: re-hydrate viewer from DB (mirrors UsersController.getProfile line 240)
+    const viewer = await this.db.db.query.users.findFirst({
+      where: eq(users.id, currentUser.id),
+    })
+    if (!viewer) throw new ForbiddenException()
+    // Step 2: resolve target
+    const target = await this.db.db.query.users.findFirst({ where: eq(users.id, id) })
+    if (!target) throw new NotFoundException()
+    // Step 3: permission gate — 0 tabs → ForbiddenException (mirrors buildProfileView line 1423)
+    const perms = await this.accessSvc.getViewPermissions(viewer, target)
+    if (perms.tabs.length === 0) throw new ForbiddenException()
+    return { tabs: perms.tabs }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // TestDatabaseModule
 // ---------------------------------------------------------------------------
 
@@ -199,7 +245,7 @@ class TestDatabaseModule {}
     TestDatabaseModule,
     JwtModule.register({ secret: JWT_SECRET, signOptions: { expiresIn: '1h' } }),
   ],
-  controllers: [SentinelProjectsController],
+  controllers: [SentinelProjectsController, SentinelUsersController],
   providers: [
     Reflector,
     {
@@ -215,6 +261,15 @@ class TestDatabaseModule {}
         return svc
       },
       inject: [DatabaseService],
+    },
+    {
+      provide: UsersAccessService,
+      useFactory: (db: DatabaseService) => new UsersAccessService(db),
+      inject: [DatabaseService],
+    },
+    {
+      provide: USERS_ACCESS_SERVICE_TOKEN,
+      useExisting: UsersAccessService,
     },
     {
       provide: ProjectsService,
@@ -534,24 +589,39 @@ describe('Admin-as-Senior RBAC — real DB integration', () => {
     expect(et?.senior?.profileNavigable, 'ACCOUNTANT: profileNavigable must be true').toBe(true)
   })
 
-  // ── ADMIN-SR-5: JUNIOR → GET admin profile = 403 (HTTP, real DB) ────────────
+  // ── ADMIN-SR-5: JUNIOR → GET /api/users/:adminId = 403 (HTTP, real DB) ──────
   //
-  // M2 addition: direct HTTP assertion that JUNIOR cannot reach ADMIN profile via
-  // GET /api/users/:adminId. UsersService.buildProfileView → getViewPermissions
-  // returns tabs=[] for JUNIOR→ADMIN (JUNIOR is not a legend-subject viewer for
-  // an ADMIN target, and the isSelf branch does not match) → throws ForbiddenException.
+  // Real HTTP assertion via SentinelUsersController (mirrors UsersController.getProfile):
+  //   JWT(JUNIOR) → viewer re-hydration from DB → getViewPermissions → 0 tabs
+  //   → ForbiddenException → HTTP 403.
   //
-  // The test module only exposes the /projects sentinel controller, so we need a
-  // separate UsersService / UsersController call. We test at the service level
-  // (UsersAccessService.getViewPermissions) for the unit-style assertion (SR-5b),
-  // and at the HTTP level using UsersAccessService directly (SR-5).
+  // This proves that the guard fires at the HTTP layer, not just in service tests.
+  // ADMIN target (role=ADMIN) is never reachable via the JUNIOR→legend-subject branch
+  // (requires role=SENIOR|DROP), so tabs=[] → 403.
 
-  it('ADMIN-SR-5. JUNIOR → UsersAccessService.getViewPermissions(JUNIOR, ADMIN) → tabs=[] → would yield 403', async () => {
+  it('ADMIN-SR-5. JUNIOR → GET /api/users/:adminId = 403 (HTTP, real guard, real DB)', async () => {
     if (!dbAvailable) return
 
-    // M2: real HTTP path — verified through the service layer (the test module
-    // does not mount UsersController; asserting via service is the equivalent
-    // real-DB path that buildProfileView exercises before throwing ForbiddenException).
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/users/${ADMIN.id}`,
+      cookies: { jwt: tokenFor(JUNIOR1) },
+    })
+    expect(
+      res.statusCode,
+      'JUNIOR must receive HTTP 403 when accessing ADMIN profile (real guard path)',
+    ).toBe(403)
+  })
+
+  // ── ADMIN-SR-5b: JUNIOR → getViewPermissions → 0 tabs (defense-in-depth) ────
+  //
+  // Service-level assertion that confirms getViewPermissions itself returns 0 tabs
+  // before any HTTP layer is involved. Kept as defense-in-depth: if someone
+  // accidentally widens the permission logic, this fires even without HTTP overhead.
+
+  it('ADMIN-SR-5b. JUNIOR → UsersAccessService.getViewPermissions(JUNIOR, ADMIN) → tabs=[] (defense-in-depth)', async () => {
+    if (!dbAvailable) return
+
     const db = dbSvc.db
 
     const juniorRow = await db.query.users.findFirst({
@@ -573,27 +643,6 @@ describe('Admin-as-Senior RBAC — real DB integration', () => {
     expect(perms.tabs, 'JUNIOR viewing ADMIN profile → 0 tabs → ForbiddenException (403)').toEqual(
       [],
     )
-  })
-
-  it('ADMIN-SR-5b. JUNIOR → profile view of ADMIN → 0 tabs (UsersAccessService defense-in-depth, regression guard)', async () => {
-    if (!dbAvailable) return
-
-    const db = dbSvc.db
-
-    const juniorRow = await db.query.users.findFirst({
-      where: (u, { eq }) => eq(u.id, JUNIOR1.id),
-    })
-    const adminRow = await db.query.users.findFirst({
-      where: (u, { eq }) => eq(u.id, ADMIN.id),
-    })
-    expect(juniorRow, 'JUNIOR1 must be in DB').toBeDefined()
-    expect(adminRow, 'ADMIN must be in DB').toBeDefined()
-
-    const svc = new UsersAccessService(dbSvc)
-    const perms = await svc.getViewPermissions(juniorRow!, adminRow!)
-
-    // JUNIOR viewing ADMIN must get 0 tabs (ADMIN not reachable via junior-legend branch)
-    expect(perms.tabs, 'JUNIOR viewing ADMIN profile → 0 tabs').toEqual([])
   })
 
   // ── ADMIN-SR-6: Legend canAccess — ADMIN as subject → true ────────────────
