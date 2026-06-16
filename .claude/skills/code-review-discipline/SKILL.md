@@ -9,7 +9,6 @@ allowed-tools:
   - Write
   - mcp__github__create_pull_request_review
   - mcp__github__get_pull_request_files
-  - mcp__github__get_pull_request_diff
 ---
 
 # Code Review Discipline (delta vs ECC)
