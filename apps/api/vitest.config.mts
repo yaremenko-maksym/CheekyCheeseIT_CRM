@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config'
 import path from 'path'
 import { existsSync, readFileSync, statSync } from 'fs'
+import { config as loadDotenv } from 'dotenv'
 
 // Detect whether we are running inside a git worktree and, if so, locate
 // the main repo root so that vitest can resolve packages installed there.
@@ -58,6 +59,26 @@ const mainApiNodeModules = mainRepoRoot ? `${mainRepoRoot}/apps/api/node_modules
 const mainRootNodeModules = mainRepoRoot ? `${mainRepoRoot}/node_modules` : ''
 const worktreeRoot = path.resolve(__dirname, '../..')
 
+// ── Integration-run detection & DB safety ─────────────────────────────────
+//
+// Load .env.test early (in the vitest config process) so that `test.env`
+// below can merge its variables into the test-worker environment.
+// `override: false` means shell-exported DATABASE_URL always wins — the
+// guard in globalSetup will still catch crm_db regardless.
+const envTestPath = path.resolve(__dirname, '.env.test')
+const envTestVars: Record<string, string> = {}
+if (existsSync(envTestPath)) {
+  const result = loadDotenv({ path: envTestPath, processEnv: envTestVars })
+  void result // dotenv returns { parsed, error }; we only need the side-effect into envTestVars
+}
+// Build the effective DATABASE_URL for workers:
+// shell env > .env.test > nothing (unit runs have no DATABASE_URL)
+const workerDatabaseUrl = process.env['DATABASE_URL'] ?? envTestVars['DATABASE_URL'] ?? undefined
+const workerEnv: Record<string, string> = {}
+if (workerDatabaseUrl) {
+  workerEnv['DATABASE_URL'] = workerDatabaseUrl
+}
+
 // ── Integration-run detection ──────────────────────────────────────────────
 //
 // The `*.integration.spec.ts` specs hit ONE shared Postgres. Some of them read
@@ -84,6 +105,13 @@ const worktreeRoot = path.resolve(__dirname, '../..')
 // running fully parallel. A local FULL run that also includes integration specs
 // (DATABASE_URL set, no filter) is the developer's choice; the authoritative,
 // race-free path is the filtered integration run used by CI and reproduction.
+//
+// DB isolation guard (see src/test/integration-db-guard.ts):
+// For integration runs we inject a globalSetup that:
+//   1. Loads .env.test (DATABASE_URL defaults to crm_qa) if not already set.
+//   2. Fails fast with an explicit error if DATABASE_URL points to crm_db AND
+//      CI is not set — preventing local residue in the working database.
+//   3. Passes through silently when CI=true (throwaway container DB).
 const isIntegrationRun = process.argv.some((arg) => arg.includes('integration.spec'))
 
 export default defineConfig({
@@ -118,6 +146,19 @@ export default defineConfig({
     // worktree integration runs. For non-integration runs we leave file
     // parallelism at its default (true) so the unit suite stays fast.
     ...(isIntegrationRun && { fileParallelism: false }),
+    // DB isolation guard — only active for integration runs.
+    // globalSetup runs in the main vitest process (before workers), so it can
+    // load .env.test and check DATABASE_URL before any Pool connection opens.
+    ...(isIntegrationRun && {
+      globalSetup: ['src/test/integration-db-guard.ts'],
+    }),
+    // Inject the effective DATABASE_URL into test workers so specs pick up
+    // crm_qa without developers having to export it manually in their shell.
+    // `workerEnv` is computed above: shell env wins over .env.test default.
+    // This applies to integration runs only; unit runs have no DATABASE_URL.
+    ...(isIntegrationRun && Object.keys(workerEnv).length > 0 && {
+      env: workerEnv,
+    }),
     ...(isWorktree && {
       // Extend vitest's server module resolution to include main repo's packages.
       server: {
