@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { PageHeader } from '@/components/crm/StickyPageHeader'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import {
   ArrowDownLeft,
@@ -728,149 +729,156 @@ export function StatsPage() {
   const extra = summary ? computeExtraStats(summary) : null
 
   return (
-    <div className="space-y-8" data-testid={isAdmin ? 'stats-page-admin' : 'stats-page-accountant'}>
-      {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Статистика</h1>
-          <p className="text-sm text-muted-foreground">Аналитика и метрики компании</p>
+    <div
+      className="flex flex-col h-full"
+      data-testid={isAdmin ? 'stats-page-admin' : 'stats-page-accountant'}
+    >
+      <PageHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Статистика</h1>
+            <p className="text-sm text-muted-foreground">Аналитика и метрики компании</p>
+          </div>
         </div>
-      </div>
-
-      {/* ── Participants balances (ADMIN-only) ──
+      </PageHeader>
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
+        <div className="space-y-8">
+          {/* ── Participants balances (ADMIN-only) ──
           Employee/partner-level balances are not part of the accountant's
           economic surface — gated to ADMIN. */}
-      {isAdmin && <ParticipantsBalancesSection />}
+          {isAdmin && <ParticipantsBalancesSection />}
 
-      {/* ── Finance section (economic — ADMIN + ACCOUNTANT) ── */}
-      <section className="space-y-4" data-testid="stats-finance-section">
-        <div className="flex items-center gap-2">
-          <DollarSign className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-            Финансы
-          </h2>
-        </div>
-
-        {isLoading ? (
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <Skeleton key={i} className="h-28 rounded-xl" />
-            ))}
-          </div>
-        ) : summary ? (
-          <>
-            {/* Primary KPIs */}
-            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-              <StatCard
-                title="Общий доход"
-                hint="Сумма всех оплаченных транзакций типа ADMIN_INCOME и SENIOR_INCOME за всё время."
-                value={`$${summary.totalIncome.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                icon={<TrendingUp className="h-5 w-5" />}
-                color="green"
-                {...(extra?.incomeTrend !== null && extra?.incomeTrend !== undefined
-                  ? { trend: { value: extra.incomeTrend, label: 'vs пред. месяц' } }
-                  : {})}
-              />
-              <StatCard
-                title="Расходы"
-                hint="Сумма всех оплаченных транзакций типа EXPENSE — операционные расходы компании."
-                value={`$${summary.totalExpenses.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                icon={<ArrowDownLeft className="h-5 w-5" />}
-                color="red"
-              />
-              <StatCard
-                title="Зарплаты"
-                hint="Сумма всех оплаченных зарплат (SALARY) сотрудникам компании за всё время."
-                value={`$${summary.totalSalaries.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                icon={<Users className="h-5 w-5" />}
-                color="purple"
-              />
-              <StatCard
-                title="Net balance"
-                hint="Чистый остаток: доход минус расходы и зарплаты. Положительное значение = компания в плюсе."
-                value={`$${summary.netBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                icon={<Wallet className="h-5 w-5" />}
-                color={summary.netBalance >= 0 ? 'blue' : 'red'}
-              />
+          {/* ── Finance section (economic — ADMIN + ACCOUNTANT) ── */}
+          <section className="space-y-4" data-testid="stats-finance-section">
+            <div className="flex items-center gap-2">
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                Финансы
+              </h2>
             </div>
 
-            {/* Secondary KPIs */}
-            {extra && (
+            {isLoading ? (
               <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-                <StatCard
-                  title="Доход за последний месяц"
-                  hint={`Выручка за ${extra.lastMonth.month}. Включает доходы всех синьоров и админов.`}
-                  value={`$${extra.lastMonth.income.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                  icon={<BarChart3 className="h-5 w-5" />}
-                  color="green"
-                  sub={extra.lastMonth.month}
-                />
-                <StatCard
-                  title="Прибыль за последний месяц"
-                  hint={`Чистая прибыль за ${extra.lastMonth.month}: доход минус расходы и зарплаты того месяца.`}
-                  value={`$${extra.lastMonth.profit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                  icon={<TrendingUp className="h-5 w-5" />}
-                  color={extra.lastMonth.profit >= 0 ? 'cyan' : 'red'}
-                  {...(extra.profitMargin !== null
-                    ? { sub: `Маржа: ${extra.profitMargin.toFixed(1)}%` }
-                    : {})}
-                />
-                <StatCard
-                  title="Средний доход / мес."
-                  hint="Среднемесячная выручка за всё время работы компании."
-                  value={`$${extra.avgMonthlyIncome.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                  icon={<Clock className="h-5 w-5" />}
-                  color="blue"
-                  sub={`за ${summary.monthly.length} мес.`}
-                />
-                <StatCard
-                  title="Лучший месяц"
-                  hint="Месяц с наибольшей выручкой за всё время."
-                  value={`$${extra.bestMonth.income.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                  icon={<TrendingUp className="h-5 w-5" />}
-                  color="yellow"
-                  sub={extra.bestMonth.month}
-                />
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <Skeleton key={i} className="h-28 rounded-xl" />
+                ))}
               </div>
-            )}
+            ) : summary ? (
+              <>
+                {/* Primary KPIs */}
+                <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+                  <StatCard
+                    title="Общий доход"
+                    hint="Сумма всех оплаченных транзакций типа ADMIN_INCOME и SENIOR_INCOME за всё время."
+                    value={`$${summary.totalIncome.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                    icon={<TrendingUp className="h-5 w-5" />}
+                    color="green"
+                    {...(extra?.incomeTrend !== null && extra?.incomeTrend !== undefined
+                      ? { trend: { value: extra.incomeTrend, label: 'vs пред. месяц' } }
+                      : {})}
+                  />
+                  <StatCard
+                    title="Расходы"
+                    hint="Сумма всех оплаченных транзакций типа EXPENSE — операционные расходы компании."
+                    value={`$${summary.totalExpenses.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                    icon={<ArrowDownLeft className="h-5 w-5" />}
+                    color="red"
+                  />
+                  <StatCard
+                    title="Зарплаты"
+                    hint="Сумма всех оплаченных зарплат (SALARY) сотрудникам компании за всё время."
+                    value={`$${summary.totalSalaries.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                    icon={<Users className="h-5 w-5" />}
+                    color="purple"
+                  />
+                  <StatCard
+                    title="Net balance"
+                    hint="Чистый остаток: доход минус расходы и зарплаты. Положительное значение = компания в плюсе."
+                    value={`$${summary.netBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                    icon={<Wallet className="h-5 w-5" />}
+                    color={summary.netBalance >= 0 ? 'blue' : 'red'}
+                  />
+                </div>
 
-            {/* Chart + Partner balances.
+                {/* Secondary KPIs */}
+                {extra && (
+                  <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+                    <StatCard
+                      title="Доход за последний месяц"
+                      hint={`Выручка за ${extra.lastMonth.month}. Включает доходы всех синьоров и админов.`}
+                      value={`$${extra.lastMonth.income.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                      icon={<BarChart3 className="h-5 w-5" />}
+                      color="green"
+                      sub={extra.lastMonth.month}
+                    />
+                    <StatCard
+                      title="Прибыль за последний месяц"
+                      hint={`Чистая прибыль за ${extra.lastMonth.month}: доход минус расходы и зарплаты того месяца.`}
+                      value={`$${extra.lastMonth.profit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                      icon={<TrendingUp className="h-5 w-5" />}
+                      color={extra.lastMonth.profit >= 0 ? 'cyan' : 'red'}
+                      {...(extra.profitMargin !== null
+                        ? { sub: `Маржа: ${extra.profitMargin.toFixed(1)}%` }
+                        : {})}
+                    />
+                    <StatCard
+                      title="Средний доход / мес."
+                      hint="Среднемесячная выручка за всё время работы компании."
+                      value={`$${extra.avgMonthlyIncome.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                      icon={<Clock className="h-5 w-5" />}
+                      color="blue"
+                      sub={`за ${summary.monthly.length} мес.`}
+                    />
+                    <StatCard
+                      title="Лучший месяц"
+                      hint="Месяц с наибольшей выручкой за всё время."
+                      value={`$${extra.bestMonth.income.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                      icon={<TrendingUp className="h-5 w-5" />}
+                      color="yellow"
+                      sub={extra.bestMonth.month}
+                    />
+                  </div>
+                )}
+
+                {/* Chart + Partner balances.
                 Partner-balances card is employee/partner-level → ADMIN-only.
                 For ACCOUNTANT the chart spans the full width. */}
-            <div className="grid gap-4 lg:grid-cols-3">
-              <div className={isAdmin ? 'lg:col-span-2' : 'lg:col-span-3'}>
-                <FinanceChart summary={summary} />
-              </div>
-              {isAdmin && <PartnerBalancesCard summary={summary} />}
-            </div>
-          </>
-        ) : null}
-      </section>
-
-      {/* Future sections placeholder (ADMIN-only — HR/Команда/Проекты analytics
-          are not part of the accountant's economic surface). */}
-      {isAdmin && (
-        <section className="space-y-4" data-testid="stats-placeholders-section">
-          <div className="flex items-center gap-2">
-            <HelpCircle className="h-4 w-4 text-muted-foreground/40" />
-            <h2 className="text-sm font-semibold text-muted-foreground/40 uppercase tracking-wider">
-              Другие разделы
-            </h2>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {['HR — воронка собеседований', 'Команда — активность', 'Проекты — загрузка'].map(
-              (label) => (
-                <div
-                  key={label}
-                  className="rounded-xl border border-dashed border-border/50 p-6 text-center text-sm text-muted-foreground/40"
-                >
-                  {label}
+                <div className="grid gap-4 lg:grid-cols-3">
+                  <div className={isAdmin ? 'lg:col-span-2' : 'lg:col-span-3'}>
+                    <FinanceChart summary={summary} />
+                  </div>
+                  {isAdmin && <PartnerBalancesCard summary={summary} />}
                 </div>
-              ),
-            )}
-          </div>
-        </section>
-      )}
+              </>
+            ) : null}
+          </section>
+
+          {/* Future sections placeholder (ADMIN-only — HR/Команда/Проекты analytics
+          are not part of the accountant's economic surface). */}
+          {isAdmin && (
+            <section className="space-y-4" data-testid="stats-placeholders-section">
+              <div className="flex items-center gap-2">
+                <HelpCircle className="h-4 w-4 text-muted-foreground/40" />
+                <h2 className="text-sm font-semibold text-muted-foreground/40 uppercase tracking-wider">
+                  Другие разделы
+                </h2>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {['HR — воронка собеседований', 'Команда — активность', 'Проекты — загрузка'].map(
+                  (label) => (
+                    <div
+                      key={label}
+                      className="rounded-xl border border-dashed border-border/50 p-6 text-center text-sm text-muted-foreground/40"
+                    >
+                      {label}
+                    </div>
+                  ),
+                )}
+              </div>
+            </section>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
