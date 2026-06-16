@@ -17,7 +17,7 @@ import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { DatabaseService } from '../database/database.service'
 import { InterviewsService } from './interviews.service'
-import { interviews, teamMembers, teams, transactions, users } from '../database/schema'
+import { interviews, projects, teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
 
 /**
@@ -132,9 +132,6 @@ const IV_IN_ARCHIVED = 'b0000000-0000-4000-cc00-000000000006' // senior-in-team,
 const IV_OUT_ACTIVE = 'b0000000-0000-4000-cc00-000000000007' // senior-OUT-team, FINAL_INTERVIEW (active) → NOT in HR scope
 const IV_OUT_HIRED_THIS = 'b0000000-0000-4000-cc00-000000000008' // senior-OUT-team, HIRED this month → NOT in HR scope
 
-// Salary tx for HR (own current-month salary).
-const TX_HR_SALARY = 'b0000000-0000-4000-dd00-000000000001'
-
 const TEST_USER_IDS = [
   ADMIN.id,
   HR.id,
@@ -155,7 +152,14 @@ const TEST_IV_IDS = [
   IV_OUT_ACTIVE,
   IV_OUT_HIRED_THIS,
 ]
-const TEST_TX_IDS = [TX_HR_SALARY]
+
+// Project IDs for activeProjects KPI test
+const PROJ_IN_ACTIVE_1 = 'b0000000-0000-4000-ee00-000000000001' // seniorId=SENIOR_IN_TEAM, no archivedAt → in HR scope
+const PROJ_IN_ACTIVE_2 = 'b0000000-0000-4000-ee00-000000000002' // seniorId=SENIOR_IN_TEAM, no archivedAt → in HR scope
+const PROJ_IN_ARCHIVED = 'b0000000-0000-4000-ee00-000000000003' // seniorId=SENIOR_IN_TEAM, archivedAt set → excluded
+const PROJ_OUT_ACTIVE = 'b0000000-0000-4000-ee00-000000000004' // seniorId=SENIOR_OUT_TEAM, active → NOT in HR scope
+
+const TEST_PROJ_IDS = [PROJ_IN_ACTIVE_1, PROJ_IN_ACTIVE_2, PROJ_IN_ARCHIVED, PROJ_OUT_ACTIVE]
 
 // ── Sentinel controller — mirrors the real /interviews/hr-summary route ──────
 const IV_SERVICE = 'IV_SERVICE_HR_SUM'
@@ -214,7 +218,7 @@ class TestDatabaseModule {}
   providers: [
     Reflector,
     // ProjectsService collaborator is stubbed — getHrSummary never touches it
-    // (read-only aggregate over interviews + transactions).
+    // (read-only aggregate over interviews + projects).
     {
       provide: InterviewsService,
       useFactory: (db: DatabaseService) => new InterviewsService(db, {} as never),
@@ -251,7 +255,6 @@ describe('hr-summary — real backend integration (real DB, no mocks)', () => {
   const now = new Date()
   const thisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 15))
   const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15))
-  const salaryMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
 
   beforeAll(async () => {
     try {
@@ -290,7 +293,7 @@ describe('hr-summary — real backend integration (real DB, no mocks)', () => {
     const db = dbSvc.db
 
     // Surgical cleanup of any leftover rows BEFORE seeding (deterministic counts).
-    await db.delete(transactions).where(inArray(transactions.id, TEST_TX_IDS))
+    await db.delete(projects).where(inArray(projects.id, TEST_PROJ_IDS))
     await db.delete(interviews).where(inArray(interviews.id, TEST_IV_IDS))
     await db.delete(teamMembers).where(inArray(teamMembers.userId, TEST_USER_IDS))
     await db.delete(teams).where(inArray(teams.id, [TEAM_ID]))
@@ -419,27 +422,60 @@ describe('hr-summary — real backend integration (real DB, no mocks)', () => {
       },
     ])
 
-    // ── Seed HR's own current-month salary (PENDING) ──────────────────────────
-    await db.insert(transactions).values({
-      id: TX_HR_SALARY,
-      type: 'SALARY',
-      status: 'PENDING',
-      amount: '1500',
-      currency: 'USD',
-      senderId: ADMIN.id,
-      senderLabel: 'CheekyCheeseIT',
-      receiverId: HR.id,
-      salaryMonth,
-      createdAt: thisMonth,
-      createdBy: ADMIN.id,
-    })
+    // ── Seed projects for activeProjects KPI ──────────────────────────────────
+    // PROJ_IN_ACTIVE_1 + PROJ_IN_ACTIVE_2 — in HR scope (SENIOR_IN_TEAM), active → +2 for HR.
+    // PROJ_IN_ARCHIVED — in HR scope but archived → excluded from activeProjects.
+    // PROJ_OUT_ACTIVE  — SENIOR_OUT_TEAM (not HR scope), active → +0 for HR, +1 for ADMIN.
+    await db.insert(projects).values([
+      {
+        id: PROJ_IN_ACTIVE_1,
+        name: 'HR Proj Active 1',
+        companyName: 'TestCo',
+        domain: 'AI',
+        seniorId: SENIOR_IN_TEAM.id,
+        startDate: thisMonth,
+        rate: 1000,
+        currency: 'USD',
+      },
+      {
+        id: PROJ_IN_ACTIVE_2,
+        name: 'HR Proj Active 2',
+        companyName: 'TestCo',
+        domain: 'AI',
+        seniorId: SENIOR_IN_TEAM.id,
+        startDate: thisMonth,
+        rate: 1000,
+        currency: 'USD',
+      },
+      {
+        id: PROJ_IN_ARCHIVED,
+        name: 'HR Proj Archived',
+        companyName: 'TestCo',
+        domain: 'AI',
+        seniorId: SENIOR_IN_TEAM.id,
+        startDate: thisMonth,
+        rate: 1000,
+        currency: 'USD',
+        archivedAt: thisMonth,
+      },
+      {
+        id: PROJ_OUT_ACTIVE,
+        name: 'HR Proj Out Active',
+        companyName: 'TestCo',
+        domain: 'AI',
+        seniorId: SENIOR_OUT_TEAM.id,
+        startDate: thisMonth,
+        rate: 1000,
+        currency: 'USD',
+      },
+    ])
   }, 30_000)
 
   afterAll(async () => {
     if (!dbAvailable) return
     try {
       const db = dbSvc.db
-      await db.delete(transactions).where(inArray(transactions.id, TEST_TX_IDS))
+      await db.delete(projects).where(inArray(projects.id, TEST_PROJ_IDS))
       await db.delete(interviews).where(inArray(interviews.id, TEST_IV_IDS))
       await db.delete(teamMembers).where(inArray(teamMembers.userId, TEST_USER_IDS))
       await db.delete(teams).where(inArray(teams.id, [TEAM_ID]))
@@ -560,19 +596,47 @@ describe('hr-summary — real backend integration (real DB, no mocks)', () => {
     expect(body.hiredThisMonth).toBe(0)
   })
 
-  // ── mySalaryStatus (AC2) ──────────────────────────────────────────────────────
-  it('returns HR own current-month salary status', async () => {
+  // ── activeProjects (AC2) ─────────────────────────────────────────────────────
+  it('HR activeProjects: only active non-archived projects of in-team seniors', async () => {
     if (!dbAvailable) return
+    expect(hrBaseline).not.toBeNull()
+    const base = hrBaseline!
     const body = await summaryAs(HR)
-    expect(body.mySalaryStatus).not.toBeNull()
-    expect(body.mySalaryStatus!.amount).toBe(1500)
-    expect(body.mySalaryStatus!.status).toBe('PENDING')
+    // Delta: PROJ_IN_ACTIVE_1 + PROJ_IN_ACTIVE_2 in HR scope, active → +2.
+    // PROJ_IN_ARCHIVED is archived → excluded (delta 0).
+    // PROJ_OUT_ACTIVE is SENIOR_OUT_TEAM → not in HR scope (delta 0).
+    expect(body.activeProjects - base.activeProjects).toBe(2)
   })
 
-  it('returns null mySalaryStatus when caller has no salary row this month', async () => {
+  it('ADMIN activeProjects: sees all non-archived projects (no team-scope filter)', async () => {
     if (!dbAvailable) return
-    // ADMIN has no SALARY tx seeded for this month → null.
+    expect(adminBaseline).not.toBeNull()
+    const base = adminBaseline!
     const body = await summaryAs(ADMIN)
-    expect(body.mySalaryStatus).toBeNull()
+    // Delta: PROJ_IN_ACTIVE_1 + PROJ_IN_ACTIVE_2 + PROJ_OUT_ACTIVE = +3.
+    // PROJ_IN_ARCHIVED excluded (archived).
+    expect(body.activeProjects - base.activeProjects).toBe(3)
+  })
+
+  it('team-scope: out-of-team project NEVER leaks into HR activeProjects', async () => {
+    if (!dbAvailable) return
+    expect(hrBaseline).not.toBeNull()
+    const base = hrBaseline!
+    const body = await summaryAs(HR)
+    // If team-scope regressed, HR would see PROJ_OUT_ACTIVE → delta 3. Must stay at 2.
+    expect(body.activeProjects - base.activeProjects).toBe(2)
+  })
+
+  it('HR with NO team gets 0 activeProjects', async () => {
+    if (!dbAvailable) return
+    const body = await summaryAs(HR_NO_TEAM)
+    expect(body.activeProjects).toBe(0)
+  })
+
+  it('schema has no mySalaryStatus field', async () => {
+    if (!dbAvailable) return
+    const body = await summaryAs(HR)
+    // hrSummarySchema no longer contains mySalaryStatus — ensure it's absent.
+    expect('mySalaryStatus' in body).toBe(false)
   })
 })
