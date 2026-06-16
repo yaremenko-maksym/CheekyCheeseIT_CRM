@@ -6,8 +6,12 @@
  * a DROP viewer and as a navigable <Link to="/crm/profile/$userId"> for every
  * other role.
  *
+ * task-senior-ui-followups §3a: SENIOR is also in the plain-text gate — the
+ * backend returns 403 for SENIOR→non-self profile requests (users-access.service.ts:183-198),
+ * so surfacing a link would be dead/forbidden navigation.
+ *
  * Setup: minimal in-memory TanStack Router (one __root__ route) so the inner
- * `<Link>` can build a valid <a href="…"> for the non-DROP cases. Mirrors the
+ * `<Link>` can build a valid <a href="…"> for the non-DROP/non-SENIOR cases. Mirrors the
  * ProjectRow.test.tsx convention.
  */
 import { render, screen } from '@testing-library/react'
@@ -50,7 +54,16 @@ describe('ProfileNameLink', () => {
     expect(screen.queryByRole('link')).toBeNull()
   })
 
-  it.each<Role>(['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'JUNIOR'])(
+  it('SENIOR viewer — renders PLAIN TEXT (span), NOT a profile link (backend 403 for SENIOR→non-self)', async () => {
+    renderForRole('SENIOR')
+    const el = await screen.findByTestId('profile-name-link')
+    expect(el.tagName).toBe('SPAN')
+    expect(el).not.toHaveAttribute('href')
+    expect(el).toHaveTextContent('Иван Иванов')
+    expect(screen.queryByRole('link')).toBeNull()
+  })
+
+  it.each<Role>(['ADMIN', 'HR', 'ACCOUNTANT', 'JUNIOR'])(
     '%s viewer — renders a profile <Link> to /crm/profile/$userId',
     async (role) => {
       renderForRole(role)

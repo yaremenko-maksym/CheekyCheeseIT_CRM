@@ -122,7 +122,7 @@ export function EarningsStatsBlock({
                 Нет активных проектов
               </p>
             ) : (
-              <ul className="space-y-2 flex-1">
+              <ul className="space-y-2 flex-1 max-h-[160px] overflow-y-auto pr-0.5">
                 {activeProjects.map((p) => (
                   <li
                     key={p.id}

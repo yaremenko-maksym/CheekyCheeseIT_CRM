@@ -160,9 +160,20 @@ describe('DocumentRow — statusBadge (PR-2)', () => {
 
 describe('DocumentRow — uploader link gated by viewer role (DROP lockdown)', () => {
   const dropViewer: SessionUser = { ...viewer, role: 'DROP' }
+  const adminViewer: SessionUser = { ...viewer, role: 'ADMIN' }
 
-  it('SENIOR viewer → uploader name is a profile <Link> to /crm/profile/$uploadedBy', async () => {
+  it('SENIOR viewer → uploader name is PLAIN TEXT (span), NOT a link (task-senior-ui-followups §3a)', async () => {
+    // SENIOR cannot navigate to other users' profiles (backend 403 for SENIOR→non-self).
     renderRow(baseDoc())
+    const el = await screen.findByTestId('document-row-uploader-link')
+    expect(el.tagName).toBe('SPAN')
+    expect(el).not.toHaveAttribute('href')
+    expect(el).toHaveTextContent('Owner')
+    expect(screen.queryByRole('link')).toBeNull()
+  })
+
+  it('ADMIN viewer → uploader name is a profile <Link> to /crm/profile/$uploadedBy', async () => {
+    renderRow(baseDoc(), adminViewer)
     const link = await screen.findByTestId('document-row-uploader-link')
     expect(link.tagName).toBe('A')
     expect(link).toHaveAttribute('href', `/crm/profile/${OWNER_ID}`)

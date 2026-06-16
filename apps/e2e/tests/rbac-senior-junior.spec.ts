@@ -204,9 +204,12 @@ test.describe('RBAC #1 — SENIOR does not see JUNIOR identity on team page', ()
     await expect(page.getByText(USERS.junior.email)).not.toBeVisible()
   })
 
-  test('SENIOR does not see junior name in active projects slot', async ({ asSenior: page }) => {
+  test('SENIOR does not see «Активные проекты» section at all (task-senior-ui-followups §3b)', async ({
+    asSenior: page,
+  }) => {
     await mockTeamDetail(page, TEAM_WITH_JUNIOR.id, TEAM_WITH_JUNIOR)
-    // Projects with junior member
+    // Projects with junior member — irrelevant because the section is hidden
+    // for SENIOR entirely (stronger protection than hiding junior identity within it).
     await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) => {
       if (r.request().method() !== 'GET') return r.fallback()
       return r.fulfill({
@@ -219,31 +222,12 @@ test.describe('RBAC #1 — SENIOR does not see JUNIOR identity on team page', ()
     await page.goto(`/crm/team/${TEAM_WITH_JUNIOR.id}`)
     await expect(page.getByRole('heading', { name: TEAM_WITH_JUNIOR.name })).toBeVisible()
 
-    // Project itself is visible
-    await expect(page.getByText(PROJECT_WITH_JUNIOR.companyName)).toBeVisible()
+    // «Активные проекты» section must not be visible for SENIOR at all.
+    // This also guarantees junior identity is never leaked via that section.
+    await expect(page.getByText('Активные проекты')).toHaveCount(0)
 
-    // Junior name must NOT appear in active-projects block
+    // Junior name must NOT appear anywhere on the page for SENIOR
     await expect(page.getByText(USERS.junior.displayName)).not.toBeVisible()
-    // Instead: neutral placeholder shown
-    await expect(page.getByText('Джун назначен')).toBeVisible()
-  })
-
-  test('SENIOR sees project itself (project data not hidden, only junior identity)', async ({
-    asSenior: page,
-  }) => {
-    await mockTeamDetail(page, TEAM_WITH_JUNIOR.id, TEAM_WITH_JUNIOR)
-    await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) => {
-      if (r.request().method() !== 'GET') return r.fallback()
-      return r.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([PROJECT_WITH_JUNIOR]),
-      })
-    })
-
-    await page.goto(`/crm/team/${TEAM_WITH_JUNIOR.id}`)
-    await expect(page.getByText(PROJECT_WITH_JUNIOR.name)).toBeVisible()
-    await expect(page.getByText(PROJECT_WITH_JUNIOR.companyName)).toBeVisible()
   })
 })
 
