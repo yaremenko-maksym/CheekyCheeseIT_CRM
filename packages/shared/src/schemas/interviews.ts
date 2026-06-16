@@ -77,7 +77,7 @@ export type MoveInterviewDto = z.infer<typeof moveInterviewSchema>
 // KPI snapshot for the HR рекрутинг хаб-дашборд (and ADMIN, who sees the same
 // recruiting scope). Surfaced by GET /api/interviews/hr-summary — RBAC: HR +
 // ADMIN only; every other role gets 403 (the endpoint would otherwise leak
-// team-scoped recruiting figures + a foreign salary status).
+// team-scoped recruiting figures).
 //
 // Fields:
 //   openInterviews  — number of interview cards still in an ACTIVE stage (every
@@ -87,9 +87,9 @@ export type MoveInterviewDto = z.infer<typeof moveInterviewSchema>
 //   hiredThisMonth  — number of interviews that reached the HIRED stage during
 //                     the current calendar month (UTC boundary, by updatedAt),
 //                     within the same team-scope.
-//   mySalaryStatus  — the calling HR's OWN salary transaction for the current
-//                     month (type=SALARY, receiver=self, salaryMonth=YYYY-MM).
-//                     `null` when no salary row exists yet for this month.
+//   activeProjects  — number of non-archived projects whose seniorId belongs to
+//                     the HR's accessible seniors (HR-scoped; ADMIN sees all).
+//                     Uses the same team-scope logic as openInterviews.
 export const salaryStatusSchema = z.enum(['PENDING', 'PAID', 'LOCKED'])
 
 // Single source of truth for the «my salary status» payload, shared by BOTH the
@@ -114,7 +114,7 @@ export const mySalaryStatusSchema = z
 export const hrSummarySchema = z.object({
   openInterviews: z.number().int().nonnegative(),
   hiredThisMonth: z.number().int().nonnegative(),
-  mySalaryStatus: mySalaryStatusSchema,
+  activeProjects: z.number().int().nonnegative(),
 })
 
 export type SalaryStatus = z.infer<typeof salaryStatusSchema>
