@@ -277,9 +277,10 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.share).toBe(false)
   })
 
-  // task-accountant-self-view-tabs: ACCOUNTANT self-view is now trimmed to
-  // [overview, requisites, finance] — SENIOR-self and HR-self keep the full
-  // surface unchanged (projects/team still included for those roles).
+  // task-accountant-self-no-finance-tab: ACCOUNTANT self-view is now trimmed to
+  // [overview, requisites] — 'finance' removed (page-not-tab model: /crm/finance).
+  // SENIOR-self and HR-self keep the full surface unchanged
+  // (projects/team/finance still included for those roles).
   it('SELF — SENIOR/HR keep projects/team (allow-list change is JUNIOR and ACCOUNTANT only)', async () => {
     for (const role of ['SENIOR', 'HR'] as const) {
       const u = makeUser({ id: `${role}-id`, role })
@@ -290,17 +291,17 @@ describe('UsersAccessService.getViewPermissions', () => {
     }
   })
 
-  // ── task-accountant-self-view-tabs (AC1): ACCOUNTANT self-view allow-list ──
-  it('SELF — ACCOUNTANT sees exactly [overview, requisites, finance] (no projects/team/documents)', async () => {
+  // ── task-accountant-self-no-finance-tab (AC1): ACCOUNTANT self-view allow-list ──
+  it('SELF — ACCOUNTANT sees exactly [overview, requisites] (no finance/projects/team/documents)', async () => {
     const accountant = makeUser({ id: 'acc-self', role: 'ACCOUNTANT' })
     const p = await service.getViewPermissions(accountant, accountant)
-    expect(p.tabs).toEqual(['overview', 'requisites', 'finance'])
+    expect(p.tabs).toEqual(['overview', 'requisites'])
+    expect(p.tabs).not.toContain('finance')
     expect(p.tabs).not.toContain('projects')
     expect(p.tabs).not.toContain('team')
     expect(p.tabs).not.toContain('documents')
     expect(p.tabs).toContain('overview')
     expect(p.tabs).toContain('requisites')
-    expect(p.tabs).toContain('finance')
   })
 
   // ── task-accountant-self-view-tabs (AC2): ACCOUNTANT viewing ANOTHER user unchanged ──
@@ -336,7 +337,7 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.tabs).toContain('finance')
   })
 
-  // ── ACCOUNTANT self — fields unchanged (requisites/finance remain accessible) ──
+  // ── ACCOUNTANT self — fields unchanged (tab removal does not affect field visibility) ──
   it('ACCOUNTANT self — fields.requisites and fields.salary are true (own PII still accessible)', async () => {
     const accountant = makeUser({ id: 'acc-self', role: 'ACCOUNTANT' })
     const p = await service.getViewPermissions(accountant, accountant)

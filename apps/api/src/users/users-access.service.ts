@@ -95,13 +95,17 @@ export class UsersAccessService {
         //   - 'projects' → routing hub (/crm/routing) is the canonical surface.
         tabs.push('overview', 'requisites')
       } else if (isAccountant) {
-        // task-accountant-self-view-tabs: ACCOUNTANT self-view is an explicit
-        // allow-list — overview + requisites + finance ONLY.
+        // task-accountant-self-no-finance-tab: ACCOUNTANT self-view is an
+        // explicit allow-list — overview + requisites ONLY.
+        // 'finance' tab is removed from self-view: the accountant's financial
+        // hub lives at /crm/finance (page-not-tab model), consistent with how
+        // DROP uses /crm/routing and JUNIOR uses /crm/project as their primary
+        // surfaces instead of profile tabs.
         // projects/team/documents are not relevant to the accountant's own
-        // day-to-day self-service (financial routing, requisites) and would
-        // expose team/project internals with no business value on a self-view.
+        // day-to-day self-service and would expose team/project internals with
+        // no business value on a self-view.
         // SENIOR-self and HR-self keep the full surface unchanged.
-        tabs.push('overview', 'requisites', 'finance')
+        tabs.push('overview', 'requisites')
       } else {
         tabs.push('overview', 'projects', 'team', 'requisites', 'documents')
         // SENIOR, HR: finance access (ACCOUNTANT self handled above)
