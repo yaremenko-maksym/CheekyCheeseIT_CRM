@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, ArrowLeftRight, TrendingUp, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 import type { TransactionType } from '@crm/shared'
+import { SALARY_ELIGIBLE_ROLES } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
@@ -173,7 +174,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // Drop role - phase 2. DROP user can only declare income on drop-projects
   // routed through them. Backend enforces this too — UI mirrors the rule.
   const dropProjects = isDrop ? projects.filter((p) => p.dropId === user?.id) : []
-  const salaryTargets = allUsers.filter((u) => ['JUNIOR', 'HR', 'ACCOUNTANT'].includes(u.role))
+  // task-salary-no-admin-receiver: mirror backend allow-list via shared constant —
+  // ADMIN excluded (income via shares); all salaried roles eligible.
+  // SALARY_ELIGIBLE_ROLES is the single source of truth (packages/shared).
+  const salaryTargets = allUsers.filter((u) =>
+    (SALARY_ELIGIBLE_ROLES as ReadonlyArray<string>).includes(u.role),
+  )
   // ADMIN_TRANSFER parties must BOTH be ADMIN. The accountant is never a
   // transfer party, so the sender/receiver pools are the same admin list for
   // both roles; for ADMIN we still exclude self from the receiver pool.

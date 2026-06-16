@@ -23,7 +23,7 @@ import type {
   IncomeComplianceReceiverDto,
   IncomeComplianceRole,
 } from '@crm/shared'
-import { MAKSYM_ID, KOSTYA_ID } from '@crm/shared'
+import { MAKSYM_ID, KOSTYA_ID, SALARY_ELIGIBLE_ROLES } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
   documents,
@@ -1613,9 +1613,12 @@ export class TransactionsService {
   ) {
     // task-accountant-create-transaction. ACCOUNTANT has create-parity with
     // ADMIN for salaries (business doc finance.md: «ACCOUNTANT — …, выплаты»).
-    // senderId = currentUser.id records the payer. The receiver-role allow-list
-    // (JUNIOR/HR/ACCOUNTANT) is unchanged — accountant cannot self-pay a salary
-    // beyond what an ADMIN could already grant.
+    // senderId = currentUser.id records the payer.
+    // task-salary-no-admin-receiver (security-MED #222): ADMIN cannot receive
+    // SALARY — their income comes via admin shares (ADMIN_INCOME / PAYOUT). The
+    // allow-list covers every salaried role: JUNIOR, HR, ACCOUNTANT (nalymed
+    // employees), SENIOR and DROP (project-based contractors who may also
+    // receive a flat salary). Self-pay for ACCOUNTANT remains allowed.
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT')
       throw new ForbiddenException()
 
@@ -1623,8 +1626,17 @@ export class TransactionsService {
       where: eq(users.id, data.receiverId),
     })
     if (!receiver) throw new NotFoundException('User not found')
-    if (!['JUNIOR', 'HR', 'ACCOUNTANT'].includes(receiver.role)) {
-      throw new BadRequestException('Salary can only be created for JUNIOR, HR, or ACCOUNTANT')
+    // Defense-in-depth: explicit ADMIN barrier first (security-MED #222).
+    // SALARY_ELIGIBLE_ROLES allow-list check follows as the general gate.
+    if (receiver.role === 'ADMIN') {
+      throw new BadRequestException(
+        'ADMIN не получает зарплату — доход распределяется через доли (ADMIN_INCOME)',
+      )
+    }
+    if (!(SALARY_ELIGIBLE_ROLES as ReadonlyArray<string>).includes(receiver.role)) {
+      throw new BadRequestException(
+        'Salary can only be created for JUNIOR, HR, ACCOUNTANT, SENIOR, or DROP',
+      )
     }
 
     const [tx] = await this.db.db
