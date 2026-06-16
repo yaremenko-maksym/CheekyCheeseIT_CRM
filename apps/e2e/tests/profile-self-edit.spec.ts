@@ -191,4 +191,70 @@ test.describe('Profile self-edit — debounced autosave', () => {
     await expect(page.getByRole('button', { name: 'Команда', exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Контракт', exact: true })).toHaveCount(0)
   })
+
+  // §2c regression guard: ADMIN self-view must show ONLY overview + requisites.
+  // Backend returns overview/projects/team/requisites/documents for ADMIN, but
+  // the frontend filter (UserProfileShell §2c) reduces to overview+requisites.
+  test('ADMIN self-view: ONLY overview + requisites tabs visible', async ({ asAdmin: page }) => {
+    const API = 'http://localhost:3001/api'
+    await page.route(`${API}/users/me`, (r) =>
+      r.request().method() === 'PATCH'
+        ? r.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(USERS.admin),
+          })
+        : r.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(buildSelfView(USERS.admin)),
+          }),
+    )
+
+    await page.goto('/crm/profile')
+    await expect(page.getByRole('heading', { name: 'Admin User' })).toBeVisible()
+
+    // Allowed tabs
+    await expect(page.getByRole('button', { name: 'Обзор', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Реквизиты', exact: true })).toBeVisible()
+
+    // Hidden by §2c frontend filter
+    await expect(page.getByRole('button', { name: 'Проекты', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Команда', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Документы', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Финансы', exact: true })).toHaveCount(0)
+  })
+
+  // §2c regression guard: SENIOR self-view must show ONLY overview + requisites.
+  // Backend returns overview/projects/team/requisites/documents/finance for SENIOR,
+  // but the frontend filter reduces to overview+requisites.
+  test('SENIOR self-view: ONLY overview + requisites tabs visible', async ({ asSenior: page }) => {
+    const API = 'http://localhost:3001/api'
+    await page.route(`${API}/users/me`, (r) =>
+      r.request().method() === 'PATCH'
+        ? r.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(USERS.senior),
+          })
+        : r.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(buildSelfView(USERS.senior)),
+          }),
+    )
+
+    await page.goto('/crm/profile')
+    await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
+
+    // Allowed tabs
+    await expect(page.getByRole('button', { name: 'Обзор', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Реквизиты', exact: true })).toBeVisible()
+
+    // Hidden by §2c frontend filter
+    await expect(page.getByRole('button', { name: 'Проекты', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Команда', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Документы', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Финансы', exact: true })).toHaveCount(0)
+  })
 })

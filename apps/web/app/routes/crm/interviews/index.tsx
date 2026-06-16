@@ -343,7 +343,7 @@ function InterviewsPage() {
   }
 
   return (
-    <div className="flex flex-col h-full min-h-0 overflow-hidden">
+    <div className="flex flex-col h-full min-h-0 overflow-hidden" data-testid="interviews-page">
       <motion.div
         className="px-6 pt-4 mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between shrink-0"
         initial={{ opacity: 0, y: -12 }}

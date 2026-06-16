@@ -561,7 +561,7 @@ function FinancePage() {
   if (isHr) {
     const mySalaries = transactions.filter((t) => t.type === 'SALARY' && t.receiverId === userId)
     return (
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col h-full" data-testid="finance-page">
         <StickyPageHeader>
           <div />
         </StickyPageHeader>
@@ -647,7 +647,7 @@ function FinancePage() {
     const mySalaries = transactions.filter((t) => t.type === 'SALARY' && t.receiverId === userId)
     return (
       <TooltipProvider>
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full" data-testid="finance-page">
           <StickyPageHeader>
             <div />
           </StickyPageHeader>
@@ -757,7 +757,7 @@ function FinancePage() {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" data-testid="finance-page">
       <StickyPageHeader>
         {/* Header */}
         <div className="flex items-start justify-between">
