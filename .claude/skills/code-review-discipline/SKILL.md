@@ -1,6 +1,14 @@
 ---
 name: code-review-discipline
-description: When code-reviewer or security-reviewer agent готовит PR review для CRM. Содержит DELTA патернов поверх ECC code-reviewer.md / security-reviewer.md — owner==reviewer конфликт (REQUEST_CHANGES запрещён, использовать COMMENT + Verdict: BLOCK first-line), write-then-post resilience (MCP hang recovery), zone-of-write violations → automatic BLOCK. Использовать перед каждым post review, особенно когда выводы блокирующие.
+description: 'When code-reviewer or security-reviewer agent готовит PR review для CRM. Содержит DELTA патернов поверх ECC code-reviewer.md / security-reviewer.md — owner==reviewer конфликт (REQUEST_CHANGES запрещён, использовать COMMENT + Verdict: BLOCK first-line), write-then-post resilience (MCP hang recovery), zone-of-write violations → automatic BLOCK. Использовать перед каждым post review, особенно когда выводы блокирующие.'
+when_to_use: "Use when code-reviewer or security-reviewer formulates a Verdict and posts a PR review for the CRM. Examples: 'постю review на PR', 'нужен Verdict BLOCK', 'owner==reviewer, как ревьюить свой PR', 'zone-of-write нарушение в diff', 'write-then-post чтобы не потерять review при MCP hang'."
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - mcp__github__create_pull_request_review
+  - mcp__github__get_pull_request_files
 ---
 
 # Code Review Discipline (delta vs ECC)

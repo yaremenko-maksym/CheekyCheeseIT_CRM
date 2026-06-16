@@ -133,10 +133,10 @@ ECC patterns могут conflict с нашими project requirements. Hierarchy
 
 1. `CLAUDE.md` (root) — project context, business logic, current tech stack
 2. `.claude/agents/pm.md` — PM orchestrator (current Mode 1-5)
-3. `.claude/agents/CLAUDE-pm.md` — PM operational notes
+3. `.claude/agents/project-state.md` — PM/project operational notes (CLAUDE-pm stub removed 2026-06-16)
 4. `.claude/agents/pm-snippets.md` — current dispatch templates
 5. `.claude/agents/coder.md`, `autotest.md`, `reviewer.md`, `devops.md`, `legal.md` — agent prompts
-6. `.claude/agents/CLAUDE-coder.md`, `CLAUDE-legal.md` — operational notes
+6. `.claude/agents/CLAUDE-legal.md` — Legal operational notes (CLAUDE-coder stub removed 2026-06-16; coder notes live in `coder.md` + `project-state.md`)
 7. `.claude/agents/memory/{pm,coder,reviewer,autotest,devops,legal}/lessons.md` — accumulated lessons (currently ~24 lessons in legal, smaller in others)
 8. `.claude/agents/memory/README.md` — lesson format rules
 9. `docs/architecture/2026-05-23-dev-flow-rca.md` — RCA на C1/C3 + D1-D4 (origin of 3-layer watchdog + Layer 2 ScheduleWakeup)

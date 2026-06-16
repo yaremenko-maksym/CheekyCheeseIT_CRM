@@ -30,6 +30,21 @@
 
 В worktree блокировка снимается — Coder _технически_ может перезаписать что угодно. Но это нарушение zone-of-write → Reviewer выдаст `Verdict: BLOCK`.
 
+### Верифицируй MAIN чист после каждого Coder (MANDATORY)
+
+**Status:** добавлено 2026-06-16 (ADR `docs/architecture/2026-06-16-agent-infra-wisdom-transfer.md` FM-2).
+
+Coder в `isolation=worktree` при первом Write иногда пишет в MAIN-repo по абсолютному пути
+(копирует main-repo-пути из codegraph / task-файла). `block-production-edits.sh` НЕ ловит этот кейс.
+Поэтому PM ОБЯЗАН после КАЖДОГО завершившегося Coder'а проверить, что MAIN-чекаут чист:
+
+```bash
+git -C <main-repo> status --porcelain apps/ packages/   # пусто = OK; есть строки = контаминация, откатить
+```
+
+В dispatch-промпт Coder'а — явный блок: «ВСЕ Edit/Write ВНУТРИ своего worktree; после первого edit
+проверь `git -C <worktree> status`; НЕ писать по main-repo абсолютным путям».
+
 ### Если задача требует выйти за зону
 
 1. Создать `<task>.blocked.md` с описанием почему.

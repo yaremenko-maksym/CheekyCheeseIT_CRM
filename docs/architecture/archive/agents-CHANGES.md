@@ -1,3 +1,5 @@
+> **ARCHIVED 2026-06-16:** исторический changelog агентной инфраструктуры (миграция architecture v2). Сохранён для retrospective. Актуальная история — `.claude/agents/README.md` §История.
+
 # docs/agents/ Changelog
 
 Append-only changelog для multi-agent инфраструктуры.

@@ -49,6 +49,15 @@ Pre-push hook (`.claude/hooks/coder-pre-push.sh`) блокирует `git push` 
 
 Финальный коммит — без `wip:`, с `ac_verified:`.
 
+## Push feature-веток: `DATABASE_URL=` пустой (data-safety)
+
+**Status:** добавлено 2026-06-16 (ADR `docs/architecture/2026-06-16-agent-infra-wisdom-transfer.md` FM-6/FM-7).
+
+ВСЕГДА пушить локальные feature-ветки как `DATABASE_URL= git push` (переменная пустая).
+Pre-push hook гоняет тесты; без скоупа integration-спеки коннектятся в libpq-дефолт (живая `crm_db`!)
+и могут (а) упасть на отсутствующей QA-фикстуре, (б) теоретически тронуть UT-данные USER'а, (в) словить
+CPU-timeout под нагрузкой. Пустой `DATABASE_URL` -> integration-спеки graceful-skip, push безопасен.
+
 ## Conventional commits scopes (для проекта)
 
 Стандартные: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`. Project-scopes: `(api)`, `(web)`, `(shared)`, `(coder)`, `(architect)`, `(pm)`, `(devops)`, `(autotest)`, `(legal)`, `(reviewer)`. Commit message body — на английском (Conventional Commits standard). User-facing assistant ответы — на русском (см. `.claude/rules/common/russian-language.md`).

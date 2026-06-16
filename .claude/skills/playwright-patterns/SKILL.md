@@ -1,6 +1,13 @@
 ---
 name: playwright-patterns
-description: When AutoTest или Coder пишет Playwright E2E / flow тесты для CRM (apps/e2e). Содержит CRM-specific cookbook поверх ECC playwright knowledge: strict-mode resolution, radix-radio async submit, retries policy, testid конвенции, screenshot hygiene. Использовать перед каждым новым spec.ts файлом и при diagnosis flaky тестов.
+description: 'When AutoTest или Coder пишет Playwright E2E / flow тесты для CRM (apps/e2e). Содержит CRM-specific cookbook поверх ECC playwright knowledge: strict-mode resolution, radix-radio async submit, retries policy, testid конвенции, screenshot hygiene. Использовать перед каждым новым spec.ts файлом и при diagnosis flaky тестов.'
+when_to_use: "Use when AutoTest or Coder writes or edits a Playwright .spec.ts in apps/e2e, or diagnoses a flaky E2E. Examples: 'пишу E2E на новую страницу', 'getByRole не находит', 'strict-mode violation', 'radix radio submit флакает', 'тест нестабилен в CI', 'нужен data-testid для спеки'."
+allowed-tools:
+  - Read
+  - Edit
+  - Grep
+  - Glob
+  - mcp__playwright__*
 ---
 
 # Playwright Patterns (CRM)

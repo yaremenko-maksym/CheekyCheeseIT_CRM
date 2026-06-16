@@ -1,6 +1,11 @@
 ---
 name: ua-tax-compliance
 description: When Legal-agent отвечает на UA tax / company structure questions для CRM founder — ФОП режимы, ТОВ-Дія Сіті, CFC rules, hybrid offshore структуры, banking caps, обязательный аудит. UA-specific knowledge не покрытое ECC. Использовать в Mode A (consultation) перед любым company-structure advice + в Mode B (PR-review) когда PR трогает payment/tax-related fields в users/transactions.
+when_to_use: "Use when Legal advises on UA tax or company structure for the founder, or reviews a PR touching payment/tax fields. Examples: 'какой режим ФОП выбрать', 'Дія Сіті vs ФОП', 'CFC правила', 'банковские лимиты на ЄП', 'обязательный аудит ТОВ', 'PR трогает transactions/users tax fields'."
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
 ---
 
 # UA Tax Compliance (Legal knowledge primitive)

@@ -1,3 +1,5 @@
+> **ARCHIVED 2026-06-16:** исторический снимок (inventory + duplicates audit, 2026-06-02). Рефактор ECC-миграции выполнен. Актуальное состояние — `.claude/agents/project-state.md` и `.claude/agents/README.md`.
+
 # Architect Audit — multi-agent docs inventory
 
 **Date:** 2026-06-02
@@ -15,8 +17,8 @@
 
 ### 1.1. Top-level agent docs
 
-| Файл                             | Lines | Size  | Назначение (сейчас)                                                              |
-| -------------------------------- | ----- | ----- | -------------------------------------------------------------------------------- |
+| Файл                                | Lines | Size  | Назначение (сейчас)                                                              |
+| ----------------------------------- | ----- | ----- | -------------------------------------------------------------------------------- |
 | `.claude/agents/coder.md`           | 580   | 34 KB | Полный system prompt Coder: workflow, MCP, skills, watchdog, zone-of-write       |
 | `.claude/agents/pm.md`              | 410   | 24 KB | Полный system prompt PM: 4 режима, Mode 2.A-2.E, dispatch decision, User Testing |
 | `.claude/agents/pm-snippets.md`     | 411   | 20 KB | On-demand сниппеты Agent()/gh/E2E/recovery (загружается через skill)             |
@@ -34,8 +36,8 @@
 
 ### 1.2. Memory (lessons) и meta
 
-| Файл                                     | Lines | Size | Содержание                                                |
-| ---------------------------------------- | ----- | ---- | --------------------------------------------------------- |
+| Файл                                        | Lines | Size | Содержание                                                |
+| ------------------------------------------- | ----- | ---- | --------------------------------------------------------- |
 | `.claude/agents/memory/README.md`           | 79    | 8 KB | Lessons format, priority tags (P0/P1/P2), rotation policy |
 | `.claude/agents/memory/pm/lessons.md`       | 18    | 8 KB | 11 строк уроков PM                                        |
 | `.claude/agents/memory/coder/lessons.md`    | 17    | 8 KB | 10 строк уроков Coder                                     |
