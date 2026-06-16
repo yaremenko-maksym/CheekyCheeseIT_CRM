@@ -913,6 +913,40 @@ export const seniorActiveProjectSchema = z.object({
   sharePercent: z.number().int().min(0).max(100),
 })
 
+// task-senior-stats-block — «Статистика заработка» block on the SENIOR dashboard.
+// One `{ month, amount }` point per recent calendar month for the «Всего
+// заработано» sparkline. `month` is the UTC `YYYY-MM` key (oldest → newest);
+// `amount` is the senior's NET SHARE of PAID SENIOR_INCOME credited that month
+// (same snapshot-share math as `seniorShareIncome` — reuses the same rows). A
+// month with no income contributes a 0 point so the sparkline keeps a stable
+// length / x-axis (no gaps).
+export const seniorMonthlyEarningSchema = z.object({
+  month: z.string(), // 'YYYY-MM' (UTC)
+  amount: z.number(),
+})
+
+// task-senior-stats-block — «Статистика заработка». Self-scoped earnings stats
+// surfaced ALONGSIDE the existing KPI fields (additive — every #234/#235 field
+// is preserved). Intentionally carries NO money "expected" figure: the real
+// arriving amount depends on each company's payment method / ФОП-tax handling /
+// the junior's worked days, so only the per-company arrival PROGRESS (X/N) is
+// reported (USER decision). All figures are the senior's NET share in USD (same
+// `currency: 'USD'` display label as `seniorShareIncome`, no conversion).
+export const seniorEarningsStatsSchema = z.object({
+  // Senior's NET share of PAID SENIOR_INCOME for the PREVIOUS calendar month.
+  lastMonthIncome: z.number(),
+  // ~6-8 most-recent months (oldest → newest) for the «Всего» sparkline.
+  monthlyHistory: z.array(seniorMonthlyEarningSchema),
+  // Per-company arrival progress for the CURRENT month — NOT money. `total` =
+  // active own projects (each = a company paying monthly); `received` = how many
+  // of them ALREADY have ≥1 PAID SENIOR_INCOME dated this month. Render as «X/N
+  // приходов от компаний». `received` ≤ `total`.
+  companyIncomeProgress: z.object({
+    received: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  }),
+})
+
 export const seniorSummarySchema = z.object({
   activeProjects: z.object({
     count: z.number().int().nonnegative(),
@@ -931,7 +965,11 @@ export const seniorSummarySchema = z.object({
   // to the HR dashboard, now including the salary row's own `currency` so the
   // dashboard formats the amount in its real currency (no $-hardcode).
   mySalaryStatus: mySalaryStatusSchema,
+  // task-senior-stats-block — earnings statistics («Статистика заработка»).
+  earningsStats: seniorEarningsStatsSchema,
 })
 
 export type SeniorActiveProjectDto = z.infer<typeof seniorActiveProjectSchema>
+export type SeniorMonthlyEarningDto = z.infer<typeof seniorMonthlyEarningSchema>
+export type SeniorEarningsStatsDto = z.infer<typeof seniorEarningsStatsSchema>
 export type SeniorSummaryDto = z.infer<typeof seniorSummarySchema>

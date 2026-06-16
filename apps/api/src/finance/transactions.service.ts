@@ -2489,6 +2489,11 @@ export class TransactionsService {
     // Current-month boundary (UTC), computed once — matches HR / accountant.
     const now = new Date()
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+    // task-senior-stats-block: PREVIOUS-month window [lastMonthStart, monthStart)
+    // for `lastMonthIncome`. The current-month `YYYY-MM` key (salaryMonth) is also
+    // reused as the per-company arrival bucket so the progress bar and the salary
+    // lookup share one definition of "this month".
+    const lastMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
     const salaryMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
 
     // ── 1. Active own senior-projects + effective share % ──────────────────────
@@ -2535,8 +2540,20 @@ export class TransactionsService {
       ),
     })
 
+    // task-senior-stats-block: derive the «Статистика заработка» figures from the
+    // SAME `paidIncomeRows` (no extra query, no duplicated gate). One pass tallies:
+    //   - incomeTotal / incomeThisMonth (existing KPI),
+    //   - incomeLastMonth (previous calendar month),
+    //   - perMonthShare (YYYY-MM → Σ share) for the sparkline history,
+    //   - companiesWithIncomeThisMonth (set of own projectIds that got ≥1 PAID
+    //     SENIOR_INCOME dated this month) for the arrival-progress bar.
+    const monthKeyOf = (d: Date): string =>
+      `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
     let incomeTotal = 0
     let incomeThisMonth = 0
+    let incomeLastMonth = 0
+    const perMonthShare = new Map<string, number>()
+    const companiesWithIncomeThisMonth = new Set<string>()
     for (const tx of paidIncomeRows) {
       const amt = parseFloat(tx.amount)
       if (!Number.isFinite(amt)) continue
@@ -2544,7 +2561,42 @@ export class TransactionsService {
       const share = amt * (pct / 100)
       incomeTotal += share
       const when = tx.txDate ?? tx.createdAt
-      if (when && new Date(when) >= monthStart) incomeThisMonth += share
+      if (!when) continue
+      const whenDate = new Date(when)
+      // Per-month bucket for the sparkline (keyed by the income's own date).
+      const key = monthKeyOf(whenDate)
+      perMonthShare.set(key, (perMonthShare.get(key) ?? 0) + share)
+      if (whenDate >= monthStart) {
+        incomeThisMonth += share
+        // A project counts toward arrival-progress as soon as ONE of its incomes
+        // lands this month. Self-scoped: receiverId is already === self.
+        if (tx.projectId) companiesWithIncomeThisMonth.add(tx.projectId)
+      } else if (whenDate >= lastMonthStart) {
+        incomeLastMonth += share
+      }
+    }
+
+    // ── 2a. «Статистика заработка» — sparkline history + arrival progress ───────
+    // monthlyHistory: a contiguous run of the LAST `HISTORY_MONTHS` calendar
+    // months (oldest → newest), each carrying its summed share (0 when no income
+    // that month) so the sparkline keeps a fixed length and gap-free x-axis.
+    const HISTORY_MONTHS = 8
+    const monthlyHistory: Array<{ month: string; amount: number }> = []
+    for (let i = HISTORY_MONTHS - 1; i >= 0; i--) {
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1))
+      const key = monthKeyOf(d)
+      monthlyHistory.push({ month: key, amount: perMonthShare.get(key) ?? 0 })
+    }
+
+    // companyIncomeProgress: total = active own projects; received = those that
+    // already have ≥1 PAID SENIOR_INCOME dated this month. received ≤ total
+    // because the set only contains ids drawn from this senior's own incomes,
+    // intersected with the active-project id set (guards against income on a now-
+    // archived project inflating `received` past `total`).
+    const ownActiveProjectIds = new Set(ownProjects.map((p) => p.id))
+    let companyIncomeReceived = 0
+    for (const projectId of companiesWithIncomeThisMonth) {
+      if (ownActiveProjectIds.has(projectId)) companyIncomeReceived += 1
     }
 
     // ── 3. PENDING payout_requests owed/queued by self ─────────────────────────
@@ -2576,6 +2628,16 @@ export class TransactionsService {
         amount: pendingAmount,
       },
       mySalaryStatus,
+      // task-senior-stats-block — «Статистика заработка». No money "expected"
+      // figure (USER): only the per-company arrival PROGRESS for this month.
+      earningsStats: {
+        lastMonthIncome: incomeLastMonth,
+        monthlyHistory,
+        companyIncomeProgress: {
+          received: companyIncomeReceived,
+          total: ownProjects.length,
+        },
+      },
     }
   }
 
