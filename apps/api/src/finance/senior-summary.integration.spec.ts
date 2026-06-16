@@ -1,4 +1,4 @@
-import { Controller, Get, Global, Inject, Module } from '@nestjs/common'
+import { Global, Module } from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
 import { JwtModule, JwtService } from '@nestjs/jwt'
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify'
@@ -12,10 +12,10 @@ import type { SessionUser, SeniorSummaryDto as SeniorSummaryDtoT } from '@crm/sh
 import { seniorSummarySchema } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
-import { CurrentUser } from '../auth/current-user.decorator'
-import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { DatabaseService } from '../database/database.service'
+import { FinanceSummaryController } from './transactions.controller'
+import { NbuCurrencyService } from './nbu-currency.service'
 import { TransactionsService } from './transactions.service'
 import { payoutRequests, projects, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
@@ -26,11 +26,13 @@ import * as schema from '../database/schema'
  *
  * WHY (feedback_mocked_e2e_guards, recurred 3×): mocked E2E gives false
  * confidence for endpoints behind guards — especially a finance endpoint where
- * a scoping bug leaks ANOTHER senior's income. This spec exercises the REAL
- * TransactionsService.getSeniorSummary through a Fastify request with a real
- * JwtAuthGuard + RolesGuard against REAL PostgreSQL so:
- *   - the RBAC gate (SENIOR/ADMIN → 200, everyone else → 403) is enforced
- *     against an actual JWT request, not a unit stub, and
+ * a scoping bug leaks ANOTHER senior's income. This spec mounts the REAL
+ * production `FinanceSummaryController` (not a sentinel mirror — #234 review
+ * MED) and drives `getSeniorSummary` through a Fastify request with a real
+ * JwtAuthGuard + the controller's own @UseGuards(RolesGuard) against REAL
+ * PostgreSQL so:
+ *   - the RBAC gate (SENIOR/ADMIN → 200, everyone else → 403) is enforced by
+ *     the SHIPPING route's @Roles('SENIOR','ADMIN'), not a test-only stub, and
  *   - the self-scoping is PROVEN: SENIOR_A's summary contains ONLY A's
  *     projects/income/payouts and NEVER B's (the central security claim).
  *
@@ -144,19 +146,13 @@ const TEST_TX_IDS = [
 ]
 const TEST_PR_IDS = [PR_A_PENDING_1, PR_A_PENDING_2, PR_A_PAID, PR_B_PENDING]
 
-// ── Sentinel controller — mirrors the real /finance/senior-summary route ──────
-const TX_SERVICE = 'TX_SERVICE_SR_SUM'
-
-@Controller('finance')
-class SentinelFinanceController {
-  constructor(@Inject(TX_SERVICE) private readonly svc: TransactionsService) {}
-
-  @Get('senior-summary')
-  @Roles('SENIOR', 'ADMIN')
-  seniorSummary(@CurrentUser() user: SessionUser) {
-    return this.svc.getSeniorSummary(user)
-  }
-}
+// REAL route under test: the production `FinanceSummaryController` (imported
+// directly, NOT a sentinel mirror). #234 review MED flagged that the prior
+// sentinel only proved the route *as decorated in the test*, not the live
+// controller. Mounting the real controller exercises BOTH its class-level
+// `@UseGuards(RolesGuard)` and the handler-level `@Roles('SENIOR','ADMIN')`, so
+// the 403-for-non-SENIOR gate is verified on the exact code that ships. The
+// service-side ForbiddenException is preserved underneath (defense-in-depth).
 
 // ── TestDatabaseModule (real Pool) ──────────────────────────────────────────
 let _testPool: Pool | null = null
@@ -197,9 +193,16 @@ class TestDatabaseModule {}
     TestDatabaseModule,
     JwtModule.register({ secret: JWT_SECRET, signOptions: { expiresIn: '1h' } }),
   ],
-  controllers: [SentinelFinanceController],
+  // Mount the REAL production controller (FinanceSummaryController). Its
+  // class-level @UseGuards(RolesGuard) is what enforces @Roles here — RolesGuard
+  // is provided below so Nest can instantiate it for the controller.
+  controllers: [FinanceSummaryController],
   providers: [
     Reflector,
+    RolesGuard,
+    // NbuCurrencyService is a constructor dep of FinanceSummaryController
+    // (exchange-rate route) — stubbed; senior-summary never calls it.
+    { provide: NbuCurrencyService, useValue: {} as NbuCurrencyService },
     // InvoicesService / DocumentsService collaborators are stubbed — getSeniorSummary
     // never touches them (read-only aggregate over projects + transactions + payouts).
     {
@@ -207,23 +210,20 @@ class TestDatabaseModule {}
       useFactory: (db: DatabaseService) => new TransactionsService(db, {} as never, {} as never),
       inject: [DatabaseService],
     },
-    { provide: TX_SERVICE, useExisting: TransactionsService },
+    // Only JwtAuthGuard runs globally (populates req.user). The RBAC gate is
+    // enforced by the controller's own @UseGuards(RolesGuard) — exactly as in
+    // production (AppModule does NOT register RolesGuard as a global APP_GUARD).
     {
       provide: APP_GUARD,
       useFactory: (jwtSvc: JwtService, reflector: Reflector) => new JwtAuthGuard(jwtSvc, reflector),
       inject: [JwtService, Reflector],
-    },
-    {
-      provide: APP_GUARD,
-      useFactory: (reflector: Reflector) => new RolesGuard(reflector),
-      inject: [Reflector],
     },
   ],
 })
 class SeniorSummaryTestModule {}
 
 // ── Suite ───────────────────────────────────────────────────────────────────
-describe('senior-summary — real backend integration (real DB, no mocks)', () => {
+describe('senior-summary — REAL FinanceSummaryController route (real DB, no mocks)', () => {
   let app: NestFastifyApplication
   let jwt: JwtService
   let dbSvc: DatabaseService
@@ -400,11 +400,14 @@ describe('senior-summary — real backend integration (real DB, no mocks)', () =
         createdBy: SENIOR_B.id,
       },
       {
+        // task-senior-dashboard-enhance: seed the salary in a NON-USD currency
+        // (UAH) so the mySalaryStatus test proves the salary-currency bug fix —
+        // the DTO must echo the row's real currency, NOT a hard-coded USD.
         id: TX_A_SALARY,
         type: 'SALARY',
         status: 'PENDING',
-        amount: '1200',
-        currency: 'USD',
+        amount: '50000',
+        currency: 'UAH',
         senderId: ADMIN.id,
         senderLabel: 'CheekyCheeseIT',
         receiverId: SENIOR_A.id,
@@ -553,12 +556,15 @@ describe('senior-summary — real backend integration (real DB, no mocks)', () =
     expect(body.pendingPayouts.amount).toBeCloseTo(1000, 6)
   })
 
-  it('mySalaryStatus: own current-month salary', async () => {
+  it('mySalaryStatus: own current-month salary in its REAL currency (UAH, no $-hardcode)', async () => {
     if (!dbAvailable) return
     const body = await summaryAs(SENIOR_A)
     expect(body.mySalaryStatus).not.toBeNull()
-    expect(body.mySalaryStatus!.amount).toBe(1200)
+    expect(body.mySalaryStatus!.amount).toBe(50000)
     expect(body.mySalaryStatus!.status).toBe('PENDING')
+    // The salary-currency bug fix: the DTO echoes the row's real currency (UAH),
+    // NOT a hard-coded USD — so the dashboard can render «50 000,00 UAH».
+    expect(body.mySalaryStatus!.currency).toBe('UAH')
   })
 
   // ── SELF-SCOPING — the central security claim (AC2) ──────────────────────────

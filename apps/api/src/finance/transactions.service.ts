@@ -2603,8 +2603,13 @@ export class TransactionsService {
     const validStatuses: SalaryStatus[] = ['PENDING', 'PAID', 'LOCKED']
     if (!validStatuses.includes(salaryRow.status as SalaryStatus)) return null
 
+    // task-senior-dashboard-enhance: surface the salary row's REAL currency
+    // (USDT / USD / EUR / UAH) so the dashboard formats the amount in its own
+    // currency — fixes the `$`-hardcode that showed a 50 000 UAH salary as
+    // $50 000. No conversion is performed; `amount` stays in `currency`.
     return {
       amount: Number(salaryRow.amount),
+      currency: salaryRow.currency,
       status: salaryRow.status as SalaryStatus,
     }
   }
