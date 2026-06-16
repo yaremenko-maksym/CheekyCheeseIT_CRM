@@ -1,3 +1,5 @@
+> **ARCHIVED 2026-06-16:** исторический снимок (design proposal architecture v2, approved 2026-06-02). Рефактор ECC-миграции выполнен. Актуальное состояние — `.claude/agents/project-state.md` и `.claude/agents/README.md`.
+
 # Architecture v2 — multi-agent docs
 
 **Date:** 2026-06-02
@@ -501,7 +503,7 @@ Layer 1 wakeup (ScheduleWakeup) — НЕ survives.
 
 | Метрика                          | Now    | Target   | Δ        |
 | -------------------------------- | ------ | -------- | -------- |
-| Total .claude/agents/\*\* size      | 228 KB | ~ 130 KB | **-43%** |
+| Total .claude/agents/\*\* size   | 228 KB | ~ 130 KB | **-43%** |
 | Coder dispatch read (compulsory) | 58 KB  | 22 KB    | **-62%** |
 | PM dispatch read (compulsory)    | 48 KB  | 22 KB    | **-54%** |
 

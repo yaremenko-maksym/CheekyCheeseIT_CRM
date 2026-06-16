@@ -257,4 +257,5 @@ PM диспетчит Coder/Reviewer/AutoTest/DevOps **локально** чер
 - `CLAUDE-devops.md` — версии, секреты, pipeline
 - `CLAUDE-autotest.md` — seed users
 
-Все эти места — теперь обновляются здесь и здесь только. Дубликаты в legacy файлах удалены.
+Все эти файлы-стабы **удалены** (CLAUDE-ba — Phase 6 2026-06-03; остальные 6 — wisdom-transfer
+cleanup 2026-06-16). Информация теперь обновляется здесь и здесь только — стабы не нужны.

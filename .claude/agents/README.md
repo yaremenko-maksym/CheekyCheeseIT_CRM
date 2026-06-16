@@ -4,7 +4,7 @@ Multi-agent инфраструктура для CRM Cheeky Cheese IT. Содер
 
 После рефакторинга **2026-06-02** (architecture v2) — единая структура с zero-tolerance golden rules в начале каждого agent doc + single source of truth для cross-cutting concerns.
 
-См. [`CHANGES.md`](CHANGES.md) для миграции и истории.
+См. [`docs/architecture/archive/agents-CHANGES.md`](../../docs/architecture/archive/agents-CHANGES.md) (archived) для истории миграции.
 
 ---
 
@@ -76,22 +76,15 @@ Skills — canonical workflow surface per ECC AGENTS.upstream.md. После Pha
 
 ### Deprecated (redirect stubs, для backward compat)
 
-- [`reviewer.md`](reviewer.md) → `code-reviewer.md` + `security-reviewer.md` (Phase 3b ECC split, 2026-06-03)
-- [`CLAUDE-pm.md`](CLAUDE-pm.md) → `pm.md` + `project-state.md` + `pm-snippets.md`
-- [`CLAUDE-coder.md`](CLAUDE-coder.md) → `coder.md` + `project-state.md`
-- [`CLAUDE-reviewer.md`](CLAUDE-reviewer.md) → `code-reviewer.md` + `security-reviewer.md` + `project-state.md`
-- [`CLAUDE-autotest.md`](CLAUDE-autotest.md) → `autotest.md` + `project-state.md`
-- [`CLAUDE-devops.md`](CLAUDE-devops.md) → `devops.md` + `project-state.md`
-- [`CLAUDE-tools.md`](CLAUDE-tools.md) → `RULES.md` §1 + §3
+- [`reviewer.md`](reviewer.md) → `code-reviewer.md` + `security-reviewer.md` (Phase 3b ECC split, 2026-06-03; удаление — Phase 6 follow-up, см. ADR 2026-06-16)
+- [`CLAUDE-legal.md`](CLAUDE-legal.md) — **active** operational notes (durations / knowledge base structure), не stub; читается из `legal.md` + `pm-snippets.md`.
 
-`CLAUDE-ba.md` removed in Phase 6 (2026-06-03) — BA is a human role with no LLM context-skip prompt to preserve. See `docs/business/roles/ba.md`.
+6 thin redirect-стабов (`CLAUDE-pm/coder/reviewer/autotest/devops/tools.md`) **удалены 2026-06-16** (wisdom-transfer cleanup) — контент давно живёт в `pm.md` / `coder.md` / `code-reviewer.md` + `security-reviewer.md` / `autotest.md` / `devops.md` / `project-state.md` / `RULES.md`. `CLAUDE-ba.md` удалён ещё в Phase 6 (BA = human role).
 
-Сохранены как redirect stubs для архивных workflows (`.github/workflows/archive/*.yml`) и legacy task-файлов.
+### Audit / Design (Phase 1, archived)
 
-### Audit / Design (Phase 1)
-
-- [`architect-audit.md`](architect-audit.md) — inventory + duplicates + противоречия (snapshot 2026-06-02)
-- [`architecture-v2.md`](architecture-v2.md) — design proposal с 14 секциями (approved 2026-06-02)
+- [`docs/architecture/archive/architect-audit.md`](../../docs/architecture/archive/architect-audit.md) — inventory + duplicates + противоречия (snapshot 2026-06-02, **archived 2026-06-16**)
+- [`docs/architecture/archive/architecture-v2.md`](../../docs/architecture/archive/architecture-v2.md) — design proposal с 14 секциями (approved 2026-06-02, **archived 2026-06-16**)
 
 ### Archive (упразднённые агенты)
 
@@ -150,7 +143,8 @@ Reference / snippets / contracts — on-demand, не upfront.
 - **2026-06-03** — Phase 6 ECC migration: cleanup. Удалены deprecated `.claude/hooks/*.sh` (replaced by `.claude/hooks/` в Phase 2.5) + `.claude/hooks-ecc-draft.json`. BA docs перемещены `.claude/agents/ba.md` → `docs/business/roles/ba.md` (ADR Q5 Option B, BA = human role). `CLAUDE-ba.md` удалён. См. [`docs/architecture/2026-06-03-phase6-deliverable.md`](../architecture/2026-06-03-phase6-deliverable.md).
 - **2026-06-03** — Phase 4 ECC migration: skills lift из lessons.md + dev-flow-rca → `.claude/skills/<name>/SKILL.md`. 7 new skills (playwright-patterns, code-review-discipline, dev-flow-resilience, ua-tax/crypto/it-contract, legal-escalation-patterns) + agent mandatory tables update + viability matrix. См. [`docs/architecture/2026-06-03-phase4-deliverable.md`](../architecture/2026-06-03-phase4-deliverable.md).
 - **2026-06-03** — Phase 3e ECC migration: AutoTest + DevOps frontmatter port + ECC `build-error-resolver` / `harness-optimizer` decomposition. См. [`docs/architecture/2026-06-03-phase3e-deliverable.md`](../architecture/2026-06-03-phase3e-deliverable.md).
-- **2026-06-02** — Architecture v2 (этот рефактор). См. [`CHANGES.md`](CHANGES.md).
+- **2026-06-16** — Wisdom-transfer cleanup: `architecture-v2.md` / `architect-audit.md` / `CHANGES.md` → `docs/architecture/archive/`; 6 thin CLAUDE-* стабов удалены. См. [`docs/architecture/2026-06-16-agent-infra-wisdom-transfer.md`](../architecture/2026-06-16-agent-infra-wisdom-transfer.md).
+- **2026-06-02** — Architecture v2 (этот рефактор). См. [`docs/architecture/archive/agents-CHANGES.md`](../architecture/archive/agents-CHANGES.md) (archived).
 - **2026-05-23** — dev-flow RCA (wip-push, intent markers, sentinel).
 - **2026-05-21** — Reviewer Verdict: BLOCK pattern (COMMENT + first-line marker).
 - Ранее — итеративная эволюция в формате CLAUDE-X.md + X.md split.
