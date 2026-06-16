@@ -1,6 +1,11 @@
 ---
 name: legal-escalation-patterns
 description: When Legal-agent encounters hard refuse zones (multi-issuer schemes, cash channel, evasion variants) или PM encounters user iterating evasion variants после baseline-acceptance. Cross-cutting between Legal internal discipline + PM-side handling. Использовать в Mode A (consultation), Mode D (strategic) + PM-side при variant N iterations.
+when_to_use: "Use when Legal hits a hard-refuse zone, or PM sees the user iterating evasion variants after a baseline legal verdict. Examples: 'юзер просит схему обхода после отказа', 'variant 2 той же схемы', 'multi-issuer scheme', 'cash channel', 'когда привлекать внешнего юриста', 'hard refuse boundary'."
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
 ---
 
 # Legal Escalation Patterns

@@ -1,6 +1,11 @@
 ---
 name: pm-dispatching
 description: Use when PM needs to dispatch an agent (Coder/AutoTest/Reviewer/DevOps) or run PR/CI/User-Testing commands. Loads on-demand snippets from .claude/agents/pm-snippets.md instead of keeping them in PM system prompt.
+when_to_use: "Use when PM dispatches any agent (Coder, AutoTest, code-reviewer, security-reviewer, DevOps) or runs PR / CI / User-Testing operations and needs the ready Agent() / gh / E2E snippets. Examples: 'диспетчу Coder', 'запусти AutoTest', 'нужен сниппет для PR review', 'старт User Testing', 'pm-state schema'."
+allowed-tools:
+  - Read
+  - Bash(gh:*)
+  - Bash(git:*)
 ---
 
 # PM Dispatching — Loading Snippets

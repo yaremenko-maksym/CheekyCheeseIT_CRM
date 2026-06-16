@@ -1,6 +1,11 @@
 ---
 name: ua-it-contract
 description: When Legal-agent advises on UA IT-contract structure (SENIOR/JUNIOR/HR contracts, NDA, services agreements, audit rights, IP) или reviews PR-ы трогающие contracts/templates. UA-specific risk patterns — recharacterization трудовые отношения, GDPR/2297-VI consent rules, missing non-circumvention enforceability, IT-corporate lawyer engagement strategy. Использовать в Mode A consultation + Mode C brief check.
+when_to_use: "Use when Legal advises on a UA IT contract (SENIOR/JUNIOR/HR, NDA, services agreement, IP, audit rights) or reviews a PR touching contracts/templates. Examples: 'структура контракта для синьора', 'NDA для джуна', 'риск переквалификации в трудовые', 'non-circumvention пункт', 'GDPR consent в договоре', 'PR трогает contract_templates'."
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
 ---
 
 # UA IT-Contract (Legal knowledge primitive)

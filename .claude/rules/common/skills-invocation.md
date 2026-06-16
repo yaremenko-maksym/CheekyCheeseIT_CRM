@@ -12,6 +12,15 @@
 
 В финальном отчёте — указать какие skills вызывал. PM проверяет.
 
+## `when_to_use` дублируется в самих скиллах
+
+Каждый `.claude/skills/<name>/SKILL.md` теперь несёт `when_to_use:` во frontmatter
+(скиллифай-схема Anthropic: leak `skills/bundled/skillify.ts`). Это поле — отражение
+таблицы ниже, чтобы skill-loader мог авто-инвоукать по trigger-фразам. **Источник истины —
+таблица «Trigger → Skill mapping» в этом файле**; `when_to_use` в скиллах её зеркалит.
+При изменении триггера правь ОБА: строку в таблице и `when_to_use` в скилле
+(см. `docs/architecture/2026-06-16-agent-infra-wisdom-transfer.md` D2).
+
 ## Trigger → Skill mapping
 
 | Trigger                                                              | Skill                                        | Agents                  |

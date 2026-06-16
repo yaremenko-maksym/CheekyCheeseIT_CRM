@@ -3,6 +3,12 @@ name: accessibility
 description: Design, implement, and audit inclusive digital products using WCAG 2.2 Level AA
   standards. Use this skill to generate semantic ARIA for Web and accessibility traits for Web and Native platforms (iOS/Android).
 origin: ECC
+when_to_use: "Use when UI/UX Designer or Coder builds or audits a CRM component/page for accessibility — ARIA roles, focus order, color contrast, target size (WCAG 2.2 AA). Examples: 'добавить ARIA в компонент', 'проверь контраст', 'focus-trap в модалке', 'target size 24px', 'screen-reader не читает', 'a11y аудит страницы'."
+allowed-tools:
+  - Read
+  - Edit
+  - Grep
+  - Glob
 ---
 
 # Accessibility (WCAG 2.2)

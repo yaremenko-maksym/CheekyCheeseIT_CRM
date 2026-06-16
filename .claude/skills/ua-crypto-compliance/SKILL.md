@@ -1,6 +1,11 @@
 ---
 name: ua-crypto-compliance
 description: When Legal-agent advises on USDT / crypto payouts in CRM Phase 8 (smart contracts) or при review PR-ов трогающих wallets/transactions. UA-specific snapshot — Закон 2074-IX status (НЕ введён, ждёт 10225-д), AML thresholds (Закон 361-IX), ДПС-заборона крипто на ЄП. Использовать в Mode A consultation про crypto channel + Mode B PR-review.
+when_to_use: "Use when Legal advises on USDT / crypto payouts (Phase 8 smart contracts) or reviews a PR touching wallets/transactions. Examples: 'можно ли платить в USDT', 'VASP лицензия', 'AML пороги', 'крипто на ЄП запрещено?', 'статус закона 2074-IX', 'PR трогает walletAddress/smart-contract'."
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
 ---
 
 # UA Crypto Compliance (Legal knowledge primitive)
