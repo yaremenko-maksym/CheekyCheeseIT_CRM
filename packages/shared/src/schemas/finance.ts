@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { salaryStatusSchema } from './interviews'
+import { mySalaryStatusSchema } from './interviews'
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -927,12 +927,10 @@ export const seniorSummarySchema = z.object({
     count: z.number().int().nonnegative(),
     amount: z.number(),
   }),
-  mySalaryStatus: z
-    .object({
-      amount: z.number(),
-      status: salaryStatusSchema,
-    })
-    .nullable(),
+  // Reuses the shared `mySalaryStatusSchema` (interviews.ts) — identical shape
+  // to the HR dashboard, now including the salary row's own `currency` so the
+  // dashboard formats the amount in its real currency (no $-hardcode).
+  mySalaryStatus: mySalaryStatusSchema,
 })
 
 export type SeniorActiveProjectDto = z.infer<typeof seniorActiveProjectSchema>
