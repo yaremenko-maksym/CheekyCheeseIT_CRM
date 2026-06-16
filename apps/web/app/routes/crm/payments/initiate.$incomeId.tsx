@@ -87,8 +87,7 @@ function InitiatePaymentPage() {
       <PageHeader>
         <div className="flex items-center gap-2">
           <Link
-            to="/crm/profile/$userId"
-            params={{ userId: user.id }}
+            to="/crm/finance"
             className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
             data-testid="back-button"
           >

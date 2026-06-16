@@ -62,7 +62,7 @@ function AdminTemplatesRoot() {
 
         {/* Tab navigation */}
         <nav
-          className="flex gap-1 rounded-lg border border-border/60 bg-muted/40 p-1 w-fit"
+          className="mt-2 flex gap-1 rounded-lg border border-border/60 bg-muted/40 p-1 w-fit"
           aria-label="Разделы редактора"
         >
           <Link

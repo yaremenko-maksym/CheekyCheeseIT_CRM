@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
 import { TrendingUp } from 'lucide-react'
+import { formatAmount } from '@crm/shared'
 import type { SeniorEarningsStatsDto } from '@crm/shared'
 import { Card, CardContent } from '@/components/ui/card'
 import { EarningsSparkline } from './EarningsSparkline'
@@ -25,15 +26,6 @@ import { EarningsSparkline } from './EarningsSparkline'
 const card = {
   hidden: { opacity: 0, y: 12 },
   show: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] as const } },
-}
-
-function fmtUsd(value: number): string {
-  return value.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
 }
 
 const RU_MONTHS = [
@@ -105,14 +97,14 @@ export function EarningsStatsBlock({
                 className="text-3xl font-bold tracking-tight text-primary tabular-nums sm:text-4xl"
                 data-testid="earnings-total-value"
               >
-                {fmtUsd(totalEarned)}
+                {formatAmount(totalEarned, 'USD')}
               </span>
               {thisMonthEarned > 0 && (
                 <span
                   className="mb-1 rounded bg-green-500/15 px-2 py-0.5 text-xs font-medium text-green-500"
                   data-testid="earnings-total-month-badge"
                 >
-                  +{fmtUsd(thisMonthEarned)} этот месяц
+                  +{formatAmount(thisMonthEarned, 'USD')} этот месяц
                 </span>
               )}
             </div>
@@ -131,7 +123,7 @@ export function EarningsStatsBlock({
               className="text-2xl font-bold tracking-tight tabular-nums"
               data-testid="earnings-last-month-value"
             >
-              {fmtUsd(lastMonthIncome)}
+              {formatAmount(lastMonthIncome, 'USD')}
             </span>
             <p className="text-xs text-muted-foreground">
               {lastMonthKey ? ruMonthYear(lastMonthKey) : '—'}
@@ -153,7 +145,7 @@ export function EarningsStatsBlock({
             className="text-2xl font-bold tracking-tight text-primary tabular-nums"
             data-testid="earnings-this-month-value"
           >
-            {fmtUsd(thisMonthEarned)}
+            {formatAmount(thisMonthEarned, 'USD')}
           </span>
 
           {/* Per-company arrival progress — «X/N приходов от компаний». */}
