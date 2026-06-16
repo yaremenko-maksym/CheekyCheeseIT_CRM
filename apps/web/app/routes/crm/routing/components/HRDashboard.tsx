@@ -1,9 +1,5 @@
 import { motion } from 'framer-motion'
-import { useNavigate } from '@tanstack/react-router'
-import { ArrowRight, CheckCircle2, Clock, KanbanSquare, UserCheck, Wallet } from 'lucide-react'
-import type { SalaryStatus } from '@crm/shared'
-import { formatAmount } from '@/lib/format-amount'
-import { Button } from '@/components/ui/button'
+import { Briefcase, Clock, UserCheck } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { KpiCard } from '@/routes/crm/finance/components/KpiCards'
@@ -15,8 +11,7 @@ import { useHrSummary } from '@/hooks/use-hr-summary'
  *
  * Визуально консистентен с DropDashboard / AccountantDashboard: stagger-grid
  * карточек, переиспользует KpiCard-примитив из finance/components/KpiCards. KPI:
- * открытые собеседования, нанято за месяц, статус своей зарплаты. Главный CTA
- * ведёт на канбан собеседований (/crm/interviews).
+ * открытые собеседования, нанято за месяц, активные проекты (HR-scoped count).
  *
  * Сам компонент роль НЕ проверяет — родитель (dashboard.tsx) отвечает за guard,
  * backend дополнительно отдаёт 403 для не-HR/ADMIN на data-вызове.
@@ -32,31 +27,8 @@ const card = {
   show: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] as const } },
 }
 
-const SALARY_STATUS_LABEL: Record<SalaryStatus, string> = {
-  PENDING: 'Ожидает выплаты',
-  PAID: 'Выплачено',
-  LOCKED: 'Заблокировано',
-}
-
-const SALARY_STATUS_COLOR: Record<SalaryStatus, 'yellow' | 'green' | 'default'> = {
-  PENDING: 'yellow',
-  PAID: 'green',
-  LOCKED: 'default',
-}
-
 export function HRDashboard() {
-  const navigate = useNavigate()
   const { data: summary, isLoading, isError } = useHrSummary()
-
-  const goInterviews = () => void navigate({ to: '/crm/interviews' })
-
-  const salary = summary?.mySalaryStatus ?? null
-  // Salary-currency fix (task-senior-dashboard-enhance): render the salary in
-  // its OWN currency (e.g. «50 000,00 UAH») via the shared currency-aware
-  // `formatAmount` — NOT the old hard-coded `$`. No conversion is performed.
-  const salaryValue = salary ? formatAmount(salary.amount, salary.currency) : '—'
-  const salarySub = salary ? SALARY_STATUS_LABEL[salary.status] : 'Нет начисления за месяц'
-  const salaryColor = salary ? SALARY_STATUS_COLOR[salary.status] : 'default'
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
@@ -112,50 +84,15 @@ export function HRDashboard() {
                 />
               </motion.div>
 
-              <motion.div variants={card} data-testid="kpi-my-salary">
+              <motion.div variants={card} data-testid="kpi-active-projects">
                 <KpiCard
-                  title="Моя зарплата за месяц"
-                  value={salaryValue}
-                  sub={salarySub}
-                  icon={
-                    salary?.status === 'PAID' ? (
-                      <CheckCircle2 className="h-5 w-5" />
-                    ) : (
-                      <Wallet className="h-5 w-5" />
-                    )
-                  }
-                  color={salaryColor}
+                  title="Активные проекты"
+                  value={String(summary.activeProjects)}
+                  sub="Проекты синьоров команд"
+                  icon={<Briefcase className="h-5 w-5" />}
+                  color="default"
                 />
               </motion.div>
-            </motion.div>
-
-            {/* Primary CTA — open the interviews kanban board. */}
-            <motion.div variants={card} initial="hidden" animate="show">
-              <Card className="border-primary/20 bg-primary/[0.03]">
-                <CardContent className="flex flex-col gap-3 py-5 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex items-start gap-3">
-                    <div className="rounded-lg bg-primary/10 p-2 text-primary">
-                      <KanbanSquare className="h-5 w-5" aria-hidden="true" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold">Доска собеседований</p>
-                      <p className="text-xs text-muted-foreground">
-                        {summary.openInterviews > 0
-                          ? `${summary.openInterviews} активных собеседований на вашей доске`
-                          : 'Нет активных собеседований'}
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    onClick={goInterviews}
-                    className="gap-1.5 sm:flex-none"
-                    data-testid="hr-interviews-cta"
-                  >
-                    Открыть канбан
-                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                </CardContent>
-              </Card>
             </motion.div>
           </>
         )}
