@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { salaryStatusSchema } from './interviews'
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -871,3 +872,68 @@ export const accountantSummarySchema = z.object({
   recipientCount: z.number().int().nonnegative(),
 })
 export type AccountantSummaryDto = z.infer<typeof accountantSummarySchema>
+
+// ---------------------------------------------------------------------------
+// Senior summary DTO (SENIOR dashboard / senior хаб-дашборд)
+// ---------------------------------------------------------------------------
+//
+// KPI snapshot for the SENIOR ролевой дашборд (and ADMIN, for debugging — they
+// see the SAME self-scoped figures the SENIOR they impersonate would see; the
+// endpoint is STRICTLY scoped to currentUser.id, so a senior can NEVER read
+// another senior's projects / income / payouts). Surfaced by
+// GET /api/finance/senior-summary — RBAC: SENIOR + ADMIN only; every other role
+// (JUNIOR / HR / ACCOUNTANT / DROP) gets 403.
+//
+// Content chosen by USER (only this — no «команда» / «собеседования»):
+//   1. «Мои проекты + доход»  → activeProjects + seniorShareIncome.
+//   2. «Статус моих выплат»    → pendingPayouts + mySalaryStatus.
+//
+// Fields:
+//   activeProjects     — the caller's OWN active (archivedAt IS NULL) senior-
+//                        projects (seniorId === self), each with the effective
+//                        senior share % resolved from the project override →
+//                        user default. `count` is the list length (convenience
+//                        for the KPI card).
+//   seniorShareIncome  — the caller's senior SHARE of PAID SENIOR_INCOME on
+//                        their own projects (amount * sharePercent/100), summed
+//                        over all time (`total`) and the current calendar month
+//                        (`thisMonth`, by `txDate ?? createdAt`). Mirrors the
+//                        getTotalEarned SENIOR gate (PAID SENIOR_INCOME) but
+//                        reports the senior's NET share, not the gross income.
+//   pendingPayouts     — the caller's own `payout_requests` still in PENDING
+//                        status. { count, amount } where amount = Σ payableAmount
+//                        (what the senior still owes / is queued to settle).
+//   mySalaryStatus     — the caller's OWN SALARY transaction for the current
+//                        month (receiver = self), or null. Same shape/semantics
+//                        as the HR dashboard's mySalaryStatus.
+export const seniorActiveProjectSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  companyName: z.string(),
+  sharePercent: z.number().int().min(0).max(100),
+})
+
+export const seniorSummarySchema = z.object({
+  activeProjects: z.object({
+    count: z.number().int().nonnegative(),
+    items: z.array(seniorActiveProjectSchema),
+  }),
+  seniorShareIncome: z.object({
+    total: z.number(),
+    thisMonth: z.number(),
+    currency: z.literal('USD'),
+  }),
+  pendingPayouts: z.object({
+    count: z.number().int().nonnegative(),
+    amount: z.number(),
+  }),
+  mySalaryStatus: z
+    .object({
+      amount: z.number(),
+      status: salaryStatusSchema,
+    })
+    .nullable(),
+})
+
+export type SeniorActiveProjectDto = z.infer<typeof seniorActiveProjectSchema>
+export type SeniorSummaryDto = z.infer<typeof seniorSummarySchema>

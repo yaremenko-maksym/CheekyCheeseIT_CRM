@@ -216,6 +216,18 @@ export class FinanceSummaryController {
     return this.svc.getAccountantSummary(user)
   }
 
+  // SENIOR dashboard (task-senior-dashboard). Self-scoped KPI snapshot for the
+  // senior ролевой дашборд (SeniorDashboard). GET /api/finance/senior-summary —
+  // SENIOR + ADMIN ONLY; the service throws ForbiddenException for every other
+  // role (JUNIOR / HR / ACCOUNTANT / DROP). STRICTLY scoped to currentUser.id —
+  // there is NO target-user param, so one senior can NEVER read another senior's
+  // projects / income / payouts. Returns `seniorSummarySchema` shape
+  // ({ activeProjects, seniorShareIncome, pendingPayouts, mySalaryStatus }).
+  @Get('senior-summary')
+  getSeniorSummary(@CurrentUser() user: SessionUser) {
+    return this.svc.getSeniorSummary(user)
+  }
+
   // Drop role - phase 1 (task-drop-1-backend). Self-only DROP summary.
   // GET /api/finance/drop/me/summary — DROP role ONLY; the service throws
   // ForbiddenException for every other role (SENIOR / JUNIOR / HR / ACCOUNTANT
