@@ -973,3 +973,92 @@ export type SeniorActiveProjectDto = z.infer<typeof seniorActiveProjectSchema>
 export type SeniorMonthlyEarningDto = z.infer<typeof seniorMonthlyEarningSchema>
 export type SeniorEarningsStatsDto = z.infer<typeof seniorEarningsStatsSchema>
 export type SeniorSummaryDto = z.infer<typeof seniorSummarySchema>
+
+// ---------------------------------------------------------------------------
+// Income compliance overview DTO («Контроль приходов» — task-income-compliance)
+// ---------------------------------------------------------------------------
+//
+// Company-wide control surface for ADMIN + ACCOUNTANT: «кто из получателей
+// дохода ещё НЕ внёс приход за месяц». Surfaced by
+// GET /api/finance/income-compliance?month=YYYY-MM — RBAC: ADMIN + ACCOUNTANT
+// only; every other role (SENIOR / JUNIOR / HR / DROP) gets 403. This is an
+// AGGREGATE over MANY income receivers (NOT self-scoped), so it must never reach
+// a non-privileged caller — both a @Roles gate AND a service-side role check
+// guard it (defense-in-depth, same pattern as getAccountantSummary).
+//
+// Receivers = SENIOR + ADMIN-as-senior (projects.seniorId) AND DROP
+// (projects.dropId). Only receivers with ≥1 active (archivedAt IS NULL) project
+// appear (a drop with no active drop-projects has N=0 → excluded, R5).
+//
+// «Приход внесён по проекту» (owner decision, task-file) = существует ≥1 строка
+// income соответствующего типа (SENIOR_INCOME / ADMIN_INCOME / DROP_INCOME) для
+// проекта со статусом VALIDATED|PAID и `(txDate ?? createdAt)` в границах
+// целевого месяца (UTC). PENDING НЕ считается внесённым — но проекты, у которых
+// есть только PENDING-строка за месяц, помечаются `pendingValidation: true`
+// (мелкий бейдж «на валидации»). REJECTED игнорируется.
+
+// Role label on a receiver row — drives the UI sub-label (senior / admin-as-
+// senior / drop). 'ADMIN_SENIOR' = an ADMIN user who owns projects as their
+// senior (income type ADMIN_INCOME, written PAID immediately).
+export const incomeComplianceRoleSchema = z.enum(['SENIOR', 'ADMIN_SENIOR', 'DROP'])
+export type IncomeComplianceRole = z.infer<typeof incomeComplianceRoleSchema>
+
+// One project under a receiver. `submitted` = has a VALIDATED|PAID income this
+// month. `pendingValidation` = has ONLY a PENDING income this month (counts as
+// NOT submitted, but the UI shows a «на валидации» badge instead of «нет
+// прихода»). A project can never be both `submitted` and `pendingValidation`.
+export const incomeComplianceProjectSchema = z.object({
+  projectId: z.string().uuid(),
+  name: z.string(),
+  companyName: z.string(),
+  submitted: z.boolean(),
+  pendingValidation: z.boolean(),
+})
+export type IncomeComplianceProjectDto = z.infer<typeof incomeComplianceProjectSchema>
+
+// One income receiver. `expected` (N) = active projects; `submitted` (X) =
+// projects with a counted (VALIDATED|PAID) income this month. `missingProjects`
+// = the projects WITHOUT a counted income (for the expand drawer), each flagged
+// whether it is merely pending validation. `pendingCount` = how many of the
+// missing projects are pending (drives the per-receiver «N на валидации» badge).
+export const incomeComplianceReceiverSchema = z.object({
+  userId: z.string().uuid(),
+  displayName: z.string(),
+  role: incomeComplianceRoleSchema,
+  expected: z.number().int().nonnegative(),
+  submitted: z.number().int().nonnegative(),
+  pendingCount: z.number().int().nonnegative(),
+  missingProjects: z.array(incomeComplianceProjectSchema),
+})
+export type IncomeComplianceReceiverDto = z.infer<typeof incomeComplianceReceiverSchema>
+
+// The full overview. `month` is the resolved target month (UTC 'YYYY-MM').
+// `totals` is the company roll-up for the KPI strip. `receivers` is sorted
+// laggards-first (least coverage on top) by the service.
+export const incomeComplianceOverviewSchema = z.object({
+  month: z.string(), // 'YYYY-MM' (UTC)
+  totals: z.object({
+    // Σ expected projects across all receivers (the denominator of «X/N приходов»).
+    expectedProjects: z.number().int().nonnegative(),
+    // Σ submitted (VALIDATED|PAID) projects this month (the numerator).
+    submittedProjects: z.number().int().nonnegative(),
+    // Receivers who have ≥1 missing project (X < N).
+    laggingReceivers: z.number().int().nonnegative(),
+    // Receivers whose every active project has a counted income (X === N).
+    completeReceivers: z.number().int().nonnegative(),
+    // Projects whose only income this month is still PENDING (на валидации).
+    pendingProjects: z.number().int().nonnegative(),
+  }),
+  receivers: z.array(incomeComplianceReceiverSchema),
+})
+export type IncomeComplianceOverviewDto = z.infer<typeof incomeComplianceOverviewSchema>
+
+// Query schema for the optional ?month=YYYY-MM param. Defaults handled in the
+// service (current UTC month) when absent.
+export const incomeComplianceQuerySchema = z.object({
+  month: z
+    .string()
+    .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'month must be YYYY-MM')
+    .optional(),
+})
+export type IncomeComplianceQuery = z.infer<typeof incomeComplianceQuerySchema>

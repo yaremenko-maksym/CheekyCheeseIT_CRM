@@ -1,35 +1,35 @@
 /**
- * stats.test.tsx — role-split rendering for /crm/stats (task-accountant-stats).
+ * stats.test.tsx — role-split rendering for /crm/stats.
  *
- * The page is shared by ADMIN and ACCOUNTANT, but the visible surface differs:
+ * The page is shared by ADMIN and ACCOUNTANT. After task-income-compliance:
  *
  *   ECONOMIC (both ADMIN + ACCOUNTANT): finance KPIs (income / expenses /
  *     salaries / Net), secondary KPIs, the monthly chart — i.e. the P&L.
  *
- *   ADMIN-ONLY: «Балансы участников» (ParticipantsBalancesSection → calls
- *     /api/users, ADMIN/HR-only), the partner-balances settlement card, and the
- *     «Другие разделы» HR/Команда/Проекты placeholders.
+ *   «КОНТРОЛЬ ПРИХОДОВ» (both ADMIN + ACCOUNTANT): the income-compliance section
+ *     (X/N progress per receiver + expand of projects without a counted income).
+ *     The ParticipantsBalancesSection (employee/partner balances) was REMOVED.
  *
- * This pins AC1–AC3: ACCOUNTANT sees the economic section but NONE of the
- * employee/partner-level balances or placeholders; ADMIN sees everything.
+ *   ADMIN-ONLY: the partner-balances settlement card and the «Другие разделы»
+ *     HR/Команда/Проекты placeholders.
+ *
+ * This pins: both roles see the economic + income-compliance sections; the old
+ * participants-balances section is gone for everyone; ADMIN still sees the
+ * partner-balances card + placeholders (no regression), ACCOUNTANT does not.
  *
  * Heavy dependencies (router file-route, query client, recharts, finance api)
- * are mocked so the component renders in isolation — mirrors
- * AccountantDashboard.test.tsx conventions.
+ * are mocked so the component renders in isolation.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import type { FinanceSummaryDto, SessionUser } from '@crm/shared'
+import { render, screen, fireEvent } from '@testing-library/react'
+import type { FinanceSummaryDto, IncomeComplianceOverviewDto, SessionUser } from '@crm/shared'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const navigateMock = vi.fn()
 const useAuthMock = vi.fn()
 const useQueryMock = vi.fn()
-const useQueriesMock = vi.fn()
 
-// createFileRoute(...)(opts) → returns the route object; component is read off it
-// by the router, never by this test (we render StatsPage directly).
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: () => (opts: unknown) => opts,
   useNavigate: () => navigateMock,
@@ -37,7 +37,6 @@ vi.mock('@tanstack/react-router', () => ({
 
 vi.mock('@tanstack/react-query', () => ({
   useQuery: (opts: unknown) => useQueryMock(opts),
-  useQueries: (opts: unknown) => useQueriesMock(opts),
 }))
 
 vi.mock('@/context/auth', () => ({
@@ -61,7 +60,7 @@ vi.mock('recharts', () => {
 })
 
 vi.mock('./finance/api', () => ({
-  financeApi: { getSummary: vi.fn() },
+  financeApi: { getSummary: vi.fn(), getIncomeCompliance: vi.fn() },
 }))
 
 import { StatsPage } from './stats'
@@ -99,18 +98,62 @@ function makeSummary(): FinanceSummaryDto {
   }
 }
 
+function makeCompliance(): IncomeComplianceOverviewDto {
+  return {
+    month: '2026-06',
+    totals: {
+      expectedProjects: 4,
+      submittedProjects: 2,
+      laggingReceivers: 1,
+      completeReceivers: 1,
+      pendingProjects: 1,
+    },
+    receivers: [
+      {
+        userId: 'sr-lag',
+        displayName: 'Senior Lag',
+        role: 'SENIOR',
+        expected: 3,
+        submitted: 1,
+        pendingCount: 1,
+        missingProjects: [
+          {
+            projectId: 'p-pending',
+            name: 'EdNext LMS',
+            companyName: 'EdNext Inc.',
+            submitted: false,
+            pendingValidation: true,
+          },
+          {
+            projectId: 'p-missing',
+            name: 'ShopCore Backend',
+            companyName: 'ShopCore Ltd.',
+            submitted: false,
+            pendingValidation: false,
+          },
+        ],
+      },
+      {
+        userId: 'sr-done',
+        displayName: 'Senior Done',
+        role: 'SENIOR',
+        expected: 1,
+        submitted: 1,
+        pendingCount: 0,
+        missingProjects: [],
+      },
+    ],
+  }
+}
+
 function setup(role: SessionUser['role']) {
   useAuthMock.mockReturnValue({ user: makeUser(role), isLoading: false })
-  // StatsPage uses ONE useQuery (finance summary). ParticipantsBalancesSection
-  // (ADMIN-only) uses its own useQuery + useQueries — return empty so it renders
-  // cleanly if mounted.
   useQueryMock.mockImplementation((opts: { queryKey?: unknown[] }) => {
     const key = opts?.queryKey?.[0]
     if (key === 'finance-summary') return { data: makeSummary(), isLoading: false }
-    if (key === 'stats-participants') return { data: [], isLoading: false }
+    if (key === 'income-compliance') return { data: makeCompliance(), isLoading: false }
     return { data: undefined, isLoading: false }
   })
-  useQueriesMock.mockReturnValue([])
   return render(<StatsPage />)
 }
 
@@ -118,7 +161,6 @@ beforeEach(() => {
   navigateMock.mockReset()
   useAuthMock.mockReset()
   useQueryMock.mockReset()
-  useQueriesMock.mockReset()
 })
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -129,28 +171,86 @@ describe('StatsPage — economic data (both roles)', () => {
     (role) => {
       setup(role)
       expect(screen.getByTestId('stats-finance-section')).toBeInTheDocument()
-      // Core P&L KPI titles are present for both roles.
       expect(screen.getByText('Общий доход')).toBeInTheDocument()
       expect(screen.getByText('Расходы')).toBeInTheDocument()
       expect(screen.getByText('Зарплаты')).toBeInTheDocument()
       expect(screen.getByText('Net balance')).toBeInTheDocument()
-      // Monthly chart (P&L over time) is rendered.
       expect(screen.getByText('Динамика по месяцам')).toBeInTheDocument()
     },
   )
 })
 
-describe('StatsPage — ACCOUNTANT economic-only (AC1, AC2)', () => {
+describe('StatsPage — income-compliance «Контроль приходов» (both roles)', () => {
+  it.each<SessionUser['role']>(['ADMIN', 'ACCOUNTANT'])(
+    '%s sees the income-compliance section + receivers + KPI strip',
+    (role) => {
+      setup(role)
+      expect(screen.getByTestId('income-compliance-section')).toBeInTheDocument()
+      expect(screen.getByText('Контроль приходов')).toBeInTheDocument()
+      // KPI strip
+      expect(screen.getByText('Всего приходов')).toBeInTheDocument()
+      expect(screen.getByText('Закрыты полностью')).toBeInTheDocument()
+      expect(screen.getByText('Отстают')).toBeInTheDocument()
+      // Receiver rows
+      expect(screen.getByTestId('compliance-row-sr-lag')).toBeInTheDocument()
+      expect(screen.getByTestId('compliance-row-sr-done')).toBeInTheDocument()
+      expect(screen.getByText('Senior Lag')).toBeInTheDocument()
+    },
+  )
+
+  it('expands a lagging receiver to reveal missing projects (incl. pending badge)', () => {
+    setup('ADMIN')
+    // Detail drawer hidden initially.
+    expect(screen.queryByTestId('compliance-detail-sr-lag')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('compliance-toggle-sr-lag'))
+    const detail = screen.getByTestId('compliance-detail-sr-lag')
+    expect(detail).toBeInTheDocument()
+    expect(screen.getByText('EdNext LMS')).toBeInTheDocument()
+    expect(screen.getByText('ShopCore Backend')).toBeInTheDocument()
+    // The pending project shows «На валидации» (also the receiver-row badge, so
+    // there are ≥1); the missing one «Нет прихода».
+    expect(screen.getAllByText('На валидации').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('Нет прихода')).toBeInTheDocument()
+  })
+
+  it('does NOT render the removed participants-balances section', () => {
+    setup('ADMIN')
+    expect(screen.queryByTestId('participants-balances-card')).not.toBeInTheDocument()
+    expect(screen.queryByText('Балансы участников')).not.toBeInTheDocument()
+  })
+
+  it('shows an empty state when there are no receivers', () => {
+    useAuthMock.mockReturnValue({ user: makeUser('ADMIN'), isLoading: false })
+    useQueryMock.mockImplementation((opts: { queryKey?: unknown[] }) => {
+      const key = opts?.queryKey?.[0]
+      if (key === 'finance-summary') return { data: makeSummary(), isLoading: false }
+      if (key === 'income-compliance')
+        return {
+          data: {
+            month: '2026-06',
+            totals: {
+              expectedProjects: 0,
+              submittedProjects: 0,
+              laggingReceivers: 0,
+              completeReceivers: 0,
+              pendingProjects: 0,
+            },
+            receivers: [],
+          } satisfies IncomeComplianceOverviewDto,
+          isLoading: false,
+        }
+      return { data: undefined, isLoading: false }
+    })
+    render(<StatsPage />)
+    expect(screen.getByText(/Нет активных проектов-получателей дохода/)).toBeInTheDocument()
+  })
+})
+
+describe('StatsPage — ACCOUNTANT economic-only (no admin-only surface)', () => {
   it('renders the accountant variant root, NOT the admin root', () => {
     setup('ACCOUNTANT')
     expect(screen.getByTestId('stats-page-accountant')).toBeInTheDocument()
     expect(screen.queryByTestId('stats-page-admin')).not.toBeInTheDocument()
-  })
-
-  it('does NOT render the participants-balances section', () => {
-    setup('ACCOUNTANT')
-    expect(screen.queryByTestId('participants-balances-card')).not.toBeInTheDocument()
-    expect(screen.queryByText('Балансы участников')).not.toBeInTheDocument()
   })
 
   it('does NOT render the partner-balances settlement card', () => {
@@ -164,27 +264,13 @@ describe('StatsPage — ACCOUNTANT economic-only (AC1, AC2)', () => {
     expect(screen.queryByText('Другие разделы')).not.toBeInTheDocument()
     expect(screen.queryByText('HR — воронка собеседований')).not.toBeInTheDocument()
   })
-
-  it('does NOT issue the ADMIN-only /users participants query', () => {
-    setup('ACCOUNTANT')
-    // ParticipantsBalancesSection is gated out entirely → its query key never runs.
-    const keys = useQueryMock.mock.calls.map(
-      (c) => (c[0] as { queryKey?: unknown[] })?.queryKey?.[0],
-    )
-    expect(keys).not.toContain('stats-participants')
-  })
 })
 
-describe('StatsPage — ADMIN full surface (AC3 — no regression)', () => {
+describe('StatsPage — ADMIN full surface (no regression)', () => {
   it('renders the admin variant root', () => {
     setup('ADMIN')
     expect(screen.getByTestId('stats-page-admin')).toBeInTheDocument()
     expect(screen.queryByTestId('stats-page-accountant')).not.toBeInTheDocument()
-  })
-
-  it('renders the participants-balances section', () => {
-    setup('ADMIN')
-    expect(screen.getByTestId('participants-balances-card')).toBeInTheDocument()
   })
 
   it('renders the partner-balances settlement card', () => {
@@ -196,13 +282,5 @@ describe('StatsPage — ADMIN full surface (AC3 — no regression)', () => {
     setup('ADMIN')
     expect(screen.getByTestId('stats-placeholders-section')).toBeInTheDocument()
     expect(screen.getByText('Другие разделы')).toBeInTheDocument()
-  })
-
-  it('issues the ADMIN-only participants query', () => {
-    setup('ADMIN')
-    const keys = useQueryMock.mock.calls.map(
-      (c) => (c[0] as { queryKey?: unknown[] })?.queryKey?.[0],
-    )
-    expect(keys).toContain('stats-participants')
   })
 })

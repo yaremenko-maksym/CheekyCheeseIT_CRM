@@ -1,11 +1,12 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { PageHeader } from '@/components/crm/StickyPageHeader'
-import { useQueries, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import {
   ArrowDownLeft,
   ArrowRight,
   BarChart3,
-  Building2,
+  CheckCircle2,
+  ChevronDown,
   Clock,
   DollarSign,
   HelpCircle,
@@ -26,8 +27,11 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import type { BalanceDto, FinanceSummaryDto, UserProfileDto } from '@crm/shared'
-import { api } from '@/lib/axios'
+import type {
+  FinanceSummaryDto,
+  IncomeComplianceOverviewDto,
+  IncomeComplianceReceiverDto,
+} from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { cn } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -566,129 +570,293 @@ function computeExtraStats(summary: FinanceSummaryDto) {
   }
 }
 
-// ── Participants balances list (Phase 4 refactor) ─────────────────────────────
+// ── Income compliance «Контроль приходов» (task-income-compliance) ────────────
 //
-// ADMIN-only (gated by the `isAdmin` check at the call-site in StatsPage —
-// task-accountant-stats: this is employee/partner-level balance data, not part
-// of the accountant's economic surface). It also calls GET /api/users, which is
-// ADMIN/HR-only on the backend, so ACCOUNTANT would 403 here anyway — the FE
-// gate prevents the request entirely. The corporate ТОВ balance card has been
-// removed in the refactor (task-drop-phase4-refactor-remove-tov.md AC5). Only
-// the flat list of admin/senior balances pulled from BalanceService is rendered.
+// ADMIN + ACCOUNTANT see this on /crm/stats: a company-wide list of income
+// receivers (seniors + admin-as-senior + drops with active projects) with an
+// «X/N приходов за месяц» progress bar and an expand drawer of the projects
+// WITHOUT a counted (VALIDATED|PAID) income. Laggards (least coverage) on top.
+// Fed by GET /api/finance/income-compliance — an RBAC-gated aggregate, so this
+// section never renders for a non-privileged viewer (the whole /crm/stats route
+// is already ADMIN/ACCOUNTANT-only). NOT in the persist allow-list (financial
+// data is never written to disk — the query is volatile by default).
 
-function ParticipantsBalancesSection() {
-  const { data: users = [], isLoading: usersLoading } = useQuery({
-    queryKey: ['stats-participants'],
-    queryFn: () => api.get<UserProfileDto[]>('/users').then((r) => r.data),
-    staleTime: 5 * 60_000,
-  })
+const ROLE_LABEL: Record<IncomeComplianceReceiverDto['role'], string> = {
+  SENIOR: 'Senior',
+  ADMIN_SENIOR: 'Admin-Senior',
+  DROP: 'Посредник',
+}
 
-  const admins = users.filter((u) => u.role === 'ADMIN' && !u.archivedAt)
-  const seniors = users.filter((u) => u.role === 'SENIOR' && !u.archivedAt)
+function receiverInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '—'
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase()
+  return (parts[0]![0]! + parts[1]![0]!).toUpperCase()
+}
 
-  const adminQueries = useQueries({
-    queries: admins.map((a) => ({
-      queryKey: ['balance', 'admin', a.id],
-      queryFn: () => api.get<BalanceDto>(`/balances/admin/${a.id}`).then((r) => r.data),
-      enabled: !!a.id,
-    })),
-  })
-  const seniorQueries = useQueries({
-    queries: seniors.map((s) => ({
-      queryKey: ['balance', 'senior', s.id],
-      queryFn: () => api.get<BalanceDto>(`/balances/senior/${s.id}`).then((r) => r.data),
-      enabled: !!s.id,
-    })),
+// Status accent per receiver coverage: complete (green) / has-pending (amber) /
+// lagging-no-pending (red). Drives the left accent bar, dot and badge.
+function receiverStatus(r: IncomeComplianceReceiverDto): 'complete' | 'pending' | 'lagging' {
+  if (r.submitted >= r.expected) return 'complete'
+  if (r.pendingCount > 0 && r.pendingCount >= r.expected - r.submitted) return 'pending'
+  return 'lagging'
+}
+
+function ComplianceKpi({
+  label,
+  value,
+  sub,
+  color,
+}: {
+  label: string
+  value: string
+  sub: string
+  color: 'default' | 'green' | 'red' | 'amber'
+}) {
+  const valueColor: Record<string, string> = {
+    default: 'text-foreground',
+    green: 'text-green-500',
+    red: 'text-red-500',
+    amber: 'text-amber-500',
+  }
+  return (
+    <Card>
+      <CardContent className="pt-4 pb-4">
+        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p>
+        <p className={cn('text-2xl font-bold tabular-nums mt-1', valueColor[color])}>{value}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceiverDto }) {
+  const [open, setOpen] = useState(false)
+  const status = receiverStatus(receiver)
+  const pct =
+    receiver.expected > 0 ? Math.round((receiver.submitted / receiver.expected) * 100) : 100
+  const hasMissing = receiver.missingProjects.length > 0
+
+  const accent: Record<typeof status, string> = {
+    complete: 'border-l-green-500',
+    pending: 'border-l-amber-500',
+    lagging: 'border-l-red-500',
+  }
+  const dot: Record<typeof status, string> = {
+    complete: 'bg-green-500',
+    pending: 'bg-amber-500',
+    lagging: 'bg-red-500',
+  }
+  const bar: Record<typeof status, string> = {
+    complete: 'bg-green-500',
+    pending: 'bg-amber-500',
+    lagging: 'bg-red-500',
+  }
+  const badge =
+    status === 'complete'
+      ? { text: 'Все получены', cls: 'bg-green-500/10 text-green-500' }
+      : receiver.pendingCount > 0
+        ? {
+            text:
+              receiver.pendingCount === 1
+                ? 'На валидации'
+                : `${receiver.pendingCount} на валидации`,
+            cls: 'bg-amber-500/10 text-amber-500',
+          }
+        : {
+            text:
+              receiver.submitted === 0
+                ? 'Нет приходов'
+                : `${receiver.expected - receiver.submitted} без прихода`,
+            cls: 'bg-red-500/10 text-red-500',
+          }
+
+  return (
+    <div
+      className={cn('rounded-lg border border-l-2 bg-card overflow-hidden', accent[status])}
+      data-testid={`compliance-row-${receiver.userId}`}
+    >
+      <button
+        type="button"
+        onClick={() => hasMissing && setOpen((o) => !o)}
+        className={cn(
+          'w-full flex items-center gap-3 px-3 py-2.5 text-left',
+          hasMissing ? 'cursor-pointer hover:bg-muted/30' : 'cursor-default',
+        )}
+        aria-expanded={hasMissing ? open : undefined}
+        data-testid={`compliance-toggle-${receiver.userId}`}
+      >
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold">
+          {receiverInitials(receiver.displayName)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className={cn('h-2 w-2 rounded-full shrink-0', dot[status])} />
+            <span className="font-medium truncate">{receiver.displayName}</span>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {ROLE_LABEL[receiver.role]} · {receiver.expected} актив.{' '}
+            {receiver.expected === 1 ? 'проект' : 'проекта'}
+          </span>
+        </div>
+
+        {/* Progress bar */}
+        <div className="hidden sm:block w-32 shrink-0">
+          <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+            <div
+              className={cn('h-full rounded-full transition-all', bar[status])}
+              style={{ width: `${Math.max(2, pct)}%` }}
+            />
+          </div>
+        </div>
+
+        <span className={cn('rounded px-2 py-0.5 text-[11px] font-medium shrink-0', badge.cls)}>
+          {badge.text}
+        </span>
+        <span className="tabular-nums text-sm font-semibold w-10 text-right shrink-0">
+          {receiver.submitted}/{receiver.expected}
+        </span>
+        {hasMissing ? (
+          <ChevronDown
+            className={cn(
+              'h-4 w-4 text-muted-foreground shrink-0 transition-transform',
+              open && 'rotate-180',
+            )}
+          />
+        ) : (
+          <CheckCircle2 className="h-4 w-4 text-green-500/70 shrink-0" />
+        )}
+      </button>
+
+      {open && hasMissing && (
+        <div
+          className="border-t border-border/60 px-3 py-2.5"
+          data-testid={`compliance-detail-${receiver.userId}`}
+        >
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
+            Проекты без засчитанного прихода
+          </p>
+          <ul className="space-y-1.5">
+            {receiver.missingProjects.map((p) => (
+              <li key={p.projectId} className="flex items-center justify-between gap-2 text-sm">
+                <span className="flex items-center gap-2 min-w-0">
+                  <span
+                    className={cn(
+                      'h-1.5 w-1.5 rounded-full shrink-0',
+                      p.pendingValidation ? 'bg-amber-500' : 'bg-red-500',
+                    )}
+                  />
+                  <span className="truncate font-medium">{p.name}</span>
+                </span>
+                <span className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs text-muted-foreground truncate max-w-32">
+                    {p.companyName}
+                  </span>
+                  <span
+                    className={cn(
+                      'text-xs font-medium',
+                      p.pendingValidation ? 'text-amber-500' : 'text-red-500',
+                    )}
+                  >
+                    {p.pendingValidation ? 'На валидации' : 'Нет прихода'}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function IncomeComplianceSection() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['income-compliance'],
+    queryFn: () => financeApi.getIncomeCompliance(),
   })
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-4" data-testid="income-compliance-section">
       <div className="flex items-center gap-2">
-        <Building2 className="h-4 w-4 text-muted-foreground" />
+        <TrendingUp className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-          Балансы участников
+          Контроль приходов
         </h2>
       </div>
 
-      <Card data-testid="participants-balances-card">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">Балансы участников</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {usersLoading ? (
-            <Skeleton className="h-24 w-full" />
-          ) : (
-            <>
-              <ParticipantList
-                title="Админы"
-                members={admins.map((a, i) => ({
-                  id: a.id,
-                  displayName: a.displayName,
-                  balance: adminQueries[i]?.data?.balance ?? null,
-                  role: 'ADMIN',
-                }))}
-              />
-              <ParticipantList
-                title="Синьоры"
-                members={seniors.map((s, i) => ({
-                  id: s.id,
-                  displayName: s.displayName,
-                  balance: seniorQueries[i]?.data?.balance ?? null,
-                  role: 'SENIOR',
-                }))}
-              />
-            </>
-          )}
-        </CardContent>
-      </Card>
+      {isLoading ? (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-20 rounded-xl" />
+            ))}
+          </div>
+          <Skeleton className="h-40 w-full rounded-xl" />
+        </div>
+      ) : data ? (
+        <IncomeComplianceBody data={data} />
+      ) : null}
     </section>
   )
 }
 
-function ParticipantList({
-  title,
-  members,
-}: {
-  title: string
-  members: { id: string; displayName: string; balance: number | null; role: string }[]
-}) {
-  if (!members.length) return null
+function IncomeComplianceBody({ data }: { data: IncomeComplianceOverviewDto }) {
+  const { totals, receivers, month } = data
+  const coverage =
+    totals.expectedProjects > 0
+      ? Math.round((totals.submittedProjects / totals.expectedProjects) * 100)
+      : 100
+
   return (
-    <div className="space-y-1">
-      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{title}</p>
-      <ul className="divide-y divide-border/40">
-        {members.map((m) => (
-          <li
-            key={m.id}
-            className="flex items-center justify-between py-1.5"
-            data-testid={`participant-row-${m.id}`}
-          >
-            <span className="text-sm truncate min-w-0">
-              {m.displayName}{' '}
-              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                {m.role}
-              </span>
-            </span>
-            <span
-              className={cn(
-                'tabular-nums font-medium text-sm',
-                m.balance === null
-                  ? 'text-muted-foreground'
-                  : m.balance >= 0
-                    ? 'text-foreground'
-                    : 'text-red-400',
-              )}
-            >
-              {m.balance === null
-                ? '—'
-                : `$${m.balance.toLocaleString('en-US', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}`}
-            </span>
-          </li>
-        ))}
-      </ul>
+    <div className="space-y-4">
+      {/* KPI strip */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <ComplianceKpi
+          label="Всего приходов"
+          value={`${totals.submittedProjects} / ${totals.expectedProjects}`}
+          sub={`${coverage}% покрытие · ${month}`}
+          color="default"
+        />
+        <ComplianceKpi
+          label="Закрыты полностью"
+          value={String(totals.completeReceivers)}
+          sub={totals.completeReceivers === 1 ? 'получатель' : 'получателей'}
+          color="green"
+        />
+        <ComplianceKpi
+          label="Отстают"
+          value={String(totals.laggingReceivers)}
+          sub={totals.laggingReceivers === 1 ? 'получатель' : 'получателей'}
+          color="red"
+        />
+        <ComplianceKpi
+          label="На валидации у бухгалтера"
+          value={String(totals.pendingProjects)}
+          sub={totals.pendingProjects === 1 ? 'приход' : 'приходов'}
+          color="amber"
+        />
+      </div>
+
+      {/* Receiver list — laggards first (already sorted by the API) */}
+      {receivers.length === 0 ? (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            Нет активных проектов-получателей дохода за {month}.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2" data-testid="compliance-list">
+          {receivers.map((r) => (
+            <ComplianceReceiverRow key={r.userId} receiver={r} />
+          ))}
+        </div>
+      )}
+
+      <p className="text-[11px] text-muted-foreground/60">
+        Засчитывается приход в статусе «валидирован» или «выплачен» за текущий месяц. Фаза 2: ручные
+        исключения (пауза / отпуск) и автоматические напоминания.
+      </p>
     </div>
   )
 }
@@ -743,10 +911,11 @@ export function StatsPage() {
       </PageHeader>
       <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
         <div className="space-y-8">
-          {/* ── Participants balances (ADMIN-only) ──
-          Employee/partner-level balances are not part of the accountant's
-          economic surface — gated to ADMIN. */}
-          {isAdmin && <ParticipantsBalancesSection />}
+          {/* ── Income compliance «Контроль приходов» (ADMIN + ACCOUNTANT) ──
+          Company-wide tracker of which income receivers have registered a
+          counted income per active project this month. The whole /crm/stats
+          route is already ADMIN/ACCOUNTANT-only, so this needs no extra gate. */}
+          <IncomeComplianceSection />
 
           {/* ── Finance section (economic — ADMIN + ACCOUNTANT) ── */}
           <section className="space-y-4" data-testid="stats-finance-section">
