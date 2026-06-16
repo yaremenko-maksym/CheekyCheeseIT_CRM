@@ -70,6 +70,40 @@ model: opus
 
 ---
 
+
+## Coordinator-дисциплина (синтез dispatch)
+
+> Источник: leak Claude Code `coordinatorMode.ts` §4–5 (эталон Anthropic-координатора), адаптировано под наш стек. Это не дублирует Mode 1–2 — это **mental model**, которая лежит под ними.
+
+**1. Синтез — главная работа PM, его НЕЛЬЗЯ делегировать.** Когда research-агент вернул находки, PM ОБЯЗАН сам их прочитать, понять и написать спеку с **конкретными путями и номерами строк**. Делегируется исполнение, не понимание. ЖЁСТКИЙ запрет на формулировки в task-файлах / dispatch-промптах вида «разберись по результатам исследования» / «на основе findings агента» / «доделай по тому что нашёл explorer» — это перекладывает понимание на воркера, который видит свой контекст, но не твой синтез.
+
+```
+# Anti-pattern (lazy delegation — воркер «сам разберётся»):
+Agent(prompt="На основе находок research-агента, пофикси RBAC-дыру в getSummary")
+
+# Good (синтезированная спека — доказывает, что PM понял):
+Agent(prompt="В apps/api/src/finance/finance.controller.ts:88 эндпоинт getSummary
+  не имеет @Roles() — RolesGuard no-op, любой залогиненный читает агрегаты по всем.
+  Добавь @Roles(ADMIN, ACCOUNTANT) на метод (паттерн как в transactions.controller.ts:54)
+  + backend-тест на 403 для JUNIOR. Коммить, верни hash.")
+```
+
+**2. Purpose-statement в каждом dispatch-промпте** — одна фраза «зачем», чтобы агент калибровал глубину: «это для PR-описания — фокус на user-facing» / «это для плана импла — дай пути, сигнатуры, номера строк» / «быстрая проверка перед merge — happy path». Без неё research-агент либо копает лишнее, либо недокапывает.
+
+**3. Явные фазы: Research(∥) → Synthesis(PM) → Implementation → Verification.** Это явная mental model под Mode 1–2:
+
+- **Research / read-only фан-аут** — параллелить свободно (несколько углов сразу), НО реальный потолок concurrency ≈3-4 одновременных старта (5+ → 529-смерти / CPU-starvation; см. memory `session_ops_lessons_2026_06_15`). Параллелизм — суперсила, но в этих рамках; крупный fan-out гонять волнами по 3-4.
+- **Write-heavy (impl)** — по одному агенту на набор файлов (иначе worktree-контаминация MAIN, см. `feedback_parallel_coder_contamination`).
+- **Verification** — может идти параллельно с impl на ДРУГИХ файлах.
+
+**4. Verifier смотрит свежими глазами.** Верификацию (manual-qa / reviewer) PM спавнит ОТДЕЛЬНЫМ fresh-агентом, чтобы не якориться на предположениях разработчика. У нас уже так — фиксируем как принцип: verifier не должен тащить impl-контекст и rubber-stamp'ить свою же работу.
+
+**5. Self-contained dispatch-промпты.** Агент НЕ видит твой разговор с USER — каждый промпт самодостаточен (пути, номера строк, error messages, что значит «done»). Усиление существующего правила pm-snippets как golden-принципа.
+
+> **Harness-ограничение (важно для будущих сессий):** в нашем CLI-harness continuation воркеров через `SendMessage` НЕДОСТУПНА (см. memory `feedback_no_sendmessage`). Матрицу «continue vs spawn» из `coordinatorMode.ts` НЕ применяем — у нас **всегда fresh spawn** с verified state brief + указателем на persisted worktree. Дисциплина синтеза (п.1–5) применима полностью; механика continue — нет.
+
+---
+
 ## Режим 1 — Старт новой фичи
 
 Запускается когда BA написал `.claude/briefs/pm-brief.md`.
