@@ -313,9 +313,6 @@ function InterviewsPage() {
   if (isJunior) {
     return (
       <div className="flex flex-col h-full px-6 pt-4">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold tracking-tight">Собеседования</h1>
-        </div>
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
           <p className="text-sm font-medium text-muted-foreground">Нет доступа к разделу</p>
         </div>
@@ -326,9 +323,6 @@ function InterviewsPage() {
   if (isSenior && !isTeamLoading && isTeamlessSenior) {
     return (
       <div className="flex flex-col h-full px-6 pt-4">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold tracking-tight">Собеседования</h1>
-        </div>
         <div
           className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center"
           data-testid="interviews-teamless-empty-state"
@@ -356,7 +350,6 @@ function InterviewsPage() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
       >
-        <h1 className="text-2xl font-bold tracking-tight">Собеседования</h1>
         <div className="flex items-center gap-3 flex-wrap">
           {((isAdmin && seniors.length > 0) || isHR) && (
             <div className="flex items-center gap-2">

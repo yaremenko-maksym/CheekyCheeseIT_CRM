@@ -320,9 +320,6 @@ function ProjectsPage() {
   if (user?.role === 'SENIOR' && !isActiveTeamLoading && isTeamlessSenior) {
     return (
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Проекты</h1>
-        </div>
         <div
           className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center"
           data-testid="projects-teamless-empty-state"
@@ -377,15 +374,9 @@ function ProjectsPage() {
   return (
     <div className="flex flex-col h-full">
       <StickyPageHeader>
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Проекты</h1>
-            {/* AC4: non-ADMIN sees "Активные проекты"; ADMIN sees full subtitle */}
-            <p className="text-sm text-muted-foreground">
-              {isAdmin ? 'Активные и завершённые проекты' : 'Активные проекты'}
-            </p>
-          </div>
+        {/* Header — buttons row */}
+        <div className="flex items-center justify-between">
+          <div />
           <div className="flex items-center gap-2">
             {canCreate && (
               <Button size="sm" onClick={() => setShowCreate(true)}>
@@ -412,66 +403,64 @@ function ProjectsPage() {
         )}
 
         {/* ut-43: unified toolbar — search + senior filter (ADMIN) + sort key + direction */}
-        <Card>
-          <CardContent className="flex flex-wrap items-center gap-3 pt-4 pb-4">
-            <div className="relative flex-1 min-w-50">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Поиск по компании, проекту, синьору…"
-                className="pl-8"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                data-testid="projects-search-input"
-              />
-            </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-50">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Поиск по компании, проекту, синьору…"
+              className="pl-8"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              data-testid="projects-search-input"
+            />
+          </div>
 
-            {(isAdmin || isAccountant) && ownerUsers.length > 0 && (
-              <Select value={seniorFilter} onValueChange={setSeniorFilter}>
-                <SelectTrigger className="w-44" data-testid="projects-senior-filter">
-                  <SelectValue placeholder="Все ответственные" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">Все ответственные</SelectItem>
-                  {ownerUsers.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>
-                      {u.displayName}
-                      {u.role === 'ADMIN' ? ' (админ)' : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-
-            <div className="hidden h-6 w-px bg-border sm:block" aria-hidden />
-
-            <Select value={sortKey} onValueChange={(v) => setSortKey(v as ProjectSortKey)}>
-              <SelectTrigger className="w-52" data-testid="projects-sort-key">
-                <SelectValue placeholder="Сортировка" />
+          {(isAdmin || isAccountant) && ownerUsers.length > 0 && (
+            <Select value={seniorFilter} onValueChange={setSeniorFilter}>
+              <SelectTrigger className="w-44" data-testid="projects-senior-filter">
+                <SelectValue placeholder="Все ответственные" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="companyName">По компании</SelectItem>
-                <SelectItem value="rate">По ставке</SelectItem>
-                <SelectItem value="startDate">По дате начала</SelectItem>
+                <SelectItem value="ALL">Все ответственные</SelectItem>
+                {ownerUsers.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.displayName}
+                    {u.role === 'ADMIN' ? ' (админ)' : ''}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
-              aria-label={`Направление сортировки: ${sortDir === 'asc' ? 'По возрастанию' : 'По убыванию'}`}
-              data-testid="projects-sort-direction"
-              data-dir={sortDir}
-              className="h-9 w-9"
-            >
-              {sortDir === 'asc' ? (
-                <ArrowUp className="h-4 w-4" />
-              ) : (
-                <ArrowDown className="h-4 w-4" />
-              )}
-            </Button>
-          </CardContent>
-        </Card>
+          )}
+
+          <div className="hidden h-6 w-px bg-border sm:block" aria-hidden />
+
+          <Select value={sortKey} onValueChange={(v) => setSortKey(v as ProjectSortKey)}>
+            <SelectTrigger className="w-52" data-testid="projects-sort-key">
+              <SelectValue placeholder="Сортировка" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="companyName">По компании</SelectItem>
+              <SelectItem value="rate">По ставке</SelectItem>
+              <SelectItem value="startDate">По дате начала</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+            aria-label={`Направление сортировки: ${sortDir === 'asc' ? 'По возрастанию' : 'По убыванию'}`}
+            data-testid="projects-sort-direction"
+            data-dir={sortDir}
+            className="h-9 w-9"
+          >
+            {sortDir === 'asc' ? (
+              <ArrowUp className="h-4 w-4" />
+            ) : (
+              <ArrowDown className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
       </StickyPageHeader>
 
       <div

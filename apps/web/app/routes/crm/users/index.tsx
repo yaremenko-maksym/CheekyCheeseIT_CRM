@@ -70,9 +70,7 @@ function UsersPage() {
       <div className="flex flex-col h-full">
         <PageHeader>
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">Пользователи</h1>
-            </div>
+            <div />
           </div>
         </PageHeader>
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
@@ -213,14 +211,7 @@ function UsersPageContent({
     <div className="flex flex-col h-full">
       <PageHeader>
         <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Пользователи</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {isLoading ? '...' : `${filtered.length} из ${users?.length ?? 0}`}
-              {currentStatusTab === 'ARCHIVED' && ' · архив'}
-              {currentStatusTab === 'ALL' && ' · все'}
-            </p>
-          </div>
+          <div />
           <div className="flex items-center gap-2">
             {/* DROP creation is now folded into UserDialog (single source of
                 truth for all roles). Picking DROP in the role select swaps

@@ -401,10 +401,7 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   if (availableCategories.length === 0) {
     return (
       <div className="flex flex-col h-full">
-        <div className="px-6 pt-4 pb-3">
-          <h1 className="text-2xl font-bold tracking-tight">Документы</h1>
-          <p className="text-sm text-muted-foreground">Резюме, договора и сканы</p>
-        </div>
+        <div className="px-6 pt-4 pb-3" />
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
           <div
             data-testid="documents-no-access"
@@ -693,14 +690,7 @@ function DocumentsHeader({ viewer, categoryFilter, users }: HeaderProps) {
         transition={{ duration: 0.28 }}
         className="flex flex-wrap items-center justify-between gap-4"
       >
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Документы</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            {viewer.role === 'JUNIOR'
-              ? 'Ваши документы: резюме, договор и сканы'
-              : 'Резюме, договоры и сканы'}
-          </p>
-        </div>
+        <div />
 
         {canShowUploadButton ? (
           <Button onClick={() => setUploadOpen(true)} data-testid="documents-upload-button">

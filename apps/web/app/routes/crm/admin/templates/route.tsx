@@ -30,12 +30,7 @@ function AdminTemplatesRoot() {
     return (
       <div className="flex flex-col h-full">
         <PageHeader>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Редактор шаблонов</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Управление шаблонами контрактов и Terms of Service
-            </p>
-          </div>
+          <div />
         </PageHeader>
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
           <div className="space-y-4">
@@ -53,13 +48,6 @@ function AdminTemplatesRoot() {
   return (
     <div className="flex flex-col h-full">
       <PageHeader>
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Редактор шаблонов</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Управление шаблонами контрактов и Terms of Service
-          </p>
-        </div>
-
         {/* Tab navigation */}
         <nav
           className="mt-2 flex gap-1 rounded-lg border border-border/60 bg-muted/40 p-1 w-fit"

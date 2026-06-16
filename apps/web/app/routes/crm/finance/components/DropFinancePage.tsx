@@ -434,7 +434,6 @@ export function DropFinancePage() {
     <div className="space-y-6" data-testid="drop-finance-page">
       {/* Page header */}
       <div className="flex items-baseline justify-between gap-3 flex-wrap">
-        <h1 className="text-2xl font-bold tracking-tight">Финансы</h1>
         <Button
           variant="outline"
           size="sm"

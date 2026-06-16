@@ -563,10 +563,7 @@ function FinancePage() {
     return (
       <div className="flex flex-col h-full">
         <StickyPageHeader>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Финансы</h1>
-            <p className="text-sm text-muted-foreground">История ваших выплат</p>
-          </div>
+          <div />
         </StickyPageHeader>
         <div
           className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6"
@@ -652,10 +649,7 @@ function FinancePage() {
       <TooltipProvider>
         <div className="flex flex-col h-full">
           <StickyPageHeader>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">Финансы</h1>
-              <p className="text-sm text-muted-foreground">Ваши зарплатные выплаты</p>
-            </div>
+            <div />
           </StickyPageHeader>
           <div
             className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6"
@@ -767,10 +761,7 @@ function FinancePage() {
       <StickyPageHeader>
         {/* Header */}
         <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Финансы</h1>
-            <p className="text-sm text-muted-foreground">Все транзакции</p>
-          </div>
+          <div />
           <div className="flex gap-2">
             {/* feat/finance-payout-flow (#7): SENIOR can batch multiple VALIDATED
               incomes into one payout via the header button. Badge shows count. */}
