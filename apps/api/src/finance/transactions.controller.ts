@@ -22,6 +22,7 @@ import {
   createSeniorIncomeSchema,
   createSalarySchema,
   dropIncomesQuerySchema,
+  incomeComplianceQuerySchema,
   payPayoutRequestSchema,
   paySalarySchema,
   updateProjectFinanceSettingsSchema,
@@ -238,6 +239,25 @@ export class FinanceSummaryController {
   @Get('accountant-summary')
   getAccountantSummary(@CurrentUser() user: SessionUser) {
     return this.svc.getAccountantSummary(user)
+  }
+
+  // «Контроль приходов» (task-income-compliance). Company-wide overview of which
+  // income receivers (SENIOR / ADMIN-as-senior / DROP) have / have NOT registered
+  // a counted (VALIDATED|PAID) income per active project this month. GET
+  // /api/finance/income-compliance?month=YYYY-MM — ADMIN + ACCOUNTANT ONLY.
+  //
+  // This is an AGGREGATE over MANY receivers (NOT self-scoped), so it must never
+  // leak to a non-privileged caller. The @Roles('ADMIN','ACCOUNTANT') gate runs
+  // BEFORE the handler (RolesGuard via the class-level @UseGuards), giving 403 to
+  // every other role (SENIOR / JUNIOR / HR / DROP) at the guard layer, IN ADDITION
+  // to the service-side ForbiddenException (defense-in-depth — kept intentionally,
+  // never replaced). income-compliance.integration.spec.ts pins this against the
+  // REAL route. `month` is validated/coerced via incomeComplianceQuerySchema.
+  @Get('income-compliance')
+  @Roles('ADMIN', 'ACCOUNTANT')
+  getIncomeCompliance(@CurrentUser() user: SessionUser, @Query() query: unknown) {
+    const { month } = incomeComplianceQuerySchema.parse(query ?? {})
+    return this.svc.getIncomeComplianceOverview(user, month)
   }
 
   // SENIOR dashboard (task-senior-dashboard). Self-scoped KPI snapshot for the

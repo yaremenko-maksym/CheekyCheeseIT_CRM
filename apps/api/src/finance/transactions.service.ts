@@ -19,6 +19,9 @@ import type {
   DropPaymentStatus,
   PaginatedDropIncomes,
   SeniorSummaryDto,
+  IncomeComplianceOverviewDto,
+  IncomeComplianceReceiverDto,
+  IncomeComplianceRole,
 } from '@crm/shared'
 import { MAKSYM_ID, KOSTYA_ID } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
@@ -2638,6 +2641,252 @@ export class TransactionsService {
           total: ownProjects.length,
         },
       },
+    }
+  }
+
+  /**
+   * Income compliance overview — «Контроль приходов» (task-income-compliance).
+   *
+   * Company-wide, NOT self-scoped: for EVERY income receiver (SENIOR + ADMIN-as-
+   * senior via projects.seniorId, DROP via projects.dropId) it reports how many
+   * of their active projects already have a COUNTED income this month (X) out of
+   * their active project count (N), plus the list of projects WITHOUT a counted
+   * income for the expand drawer. Sorted laggards-first.
+   *
+   * RBAC: ADMIN + ACCOUNTANT ONLY. Defense-in-depth — the controller's @Roles
+   * gate runs first, and this service-side check throws 403 too (kept
+   * intentionally, never replaced; same belt-and-suspenders as
+   * getAccountantSummary / getSeniorSummary). Because this aggregates MANY
+   * receivers' figures, it must never reach a SENIOR / JUNIOR / HR / DROP.
+   *
+   * «Приход внесён по проекту» (owner decision, task-file) = ≥1 income row of the
+   * receiver's income type for the project with status VALIDATED|PAID and
+   * `(txDate ?? createdAt)` inside the target month (UTC). PENDING does NOT count
+   * (but flags the project as `pendingValidation` for the «на валидации» badge);
+   * REJECTED is ignored. ADMIN_INCOME is written PAID immediately, so an admin-as-
+   * senior's projects count as soon as the income row exists.
+   *
+   * @param month optional 'YYYY-MM' (UTC). Defaults to the current UTC month.
+   */
+  async getIncomeComplianceOverview(
+    currentUser: SessionUser,
+    month?: string,
+  ): Promise<IncomeComplianceOverviewDto> {
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+      throw new ForbiddenException(
+        'Access denied: income compliance overview requires ADMIN or ACCOUNTANT role',
+      )
+    }
+
+    // ── Resolve the target month window [monthStart, nextMonthStart) in UTC ────
+    // Consistent with getAccountantSummary / getSeniorSummary (all UTC). When a
+    // `month` is given it is already validated as YYYY-MM by the controller's Zod
+    // schema; default = current UTC month.
+    const now = new Date()
+    let year: number
+    let monthIdx: number // 0-based
+    if (month) {
+      const [y, m] = month.split('-').map(Number) as [number, number]
+      year = y
+      monthIdx = m - 1
+    } else {
+      year = now.getUTCFullYear()
+      monthIdx = now.getUTCMonth()
+    }
+    const monthStart = new Date(Date.UTC(year, monthIdx, 1))
+    const nextMonthStart = new Date(Date.UTC(year, monthIdx + 1, 1))
+    const targetMonthKey = `${year}-${String(monthIdx + 1).padStart(2, '0')}`
+
+    // ── 1. All active (non-archived) income-bearing projects, with owners ──────
+    // One pass: a project contributes to its SENIOR owner (always) AND to its
+    // DROP owner (when dropId is set). The owner's role decides the income type
+    // we look for (SENIOR_INCOME vs ADMIN_INCOME vs DROP_INCOME).
+    const activeProjects = await this.db.db.query.projects.findMany({
+      where: isNull(projects.archivedAt),
+      columns: { id: true, name: true, companyName: true, seniorId: true, dropId: true },
+    })
+
+    if (activeProjects.length === 0) {
+      return {
+        month: targetMonthKey,
+        totals: {
+          expectedProjects: 0,
+          submittedProjects: 0,
+          laggingReceivers: 0,
+          completeReceivers: 0,
+          pendingProjects: 0,
+        },
+        receivers: [],
+      }
+    }
+
+    // ── 2. Resolve the role of every owner referenced by an active project ─────
+    const ownerIds = Array.from(
+      new Set(
+        activeProjects.flatMap((p) => [p.seniorId, p.dropId].filter((id): id is string => !!id)),
+      ),
+    )
+    const ownerRows = await this.db.db.query.users.findMany({
+      where: inArray(users.id, ownerIds),
+      columns: { id: true, displayName: true, role: true },
+    })
+    const ownerById = new Map(ownerRows.map((u) => [u.id, u]))
+
+    // ── 3. Counted + pending income rows for the month, per (projectId, type) ──
+    // A single aggregating pass over the relevant income rows. We only need to
+    // know, per project + income-type, whether ANY row is VALIDATED|PAID
+    // (counted) and whether ANY row is PENDING (pending-only badge). The dataset
+    // is tiny (units of projects) so JS grouping is cheap and keeps the existing
+    // service-spec mock surface (query.transactions.findMany) intact.
+    const projectIds = activeProjects.map((p) => p.id)
+    const incomeRows = await this.db.db.query.transactions.findMany({
+      where: and(
+        inArray(transactions.type, ['SENIOR_INCOME', 'ADMIN_INCOME', 'DROP_INCOME']),
+        inArray(transactions.status, ['VALIDATED', 'PAID', 'PENDING']),
+        inArray(transactions.projectId, projectIds),
+      ),
+      columns: { type: true, status: true, projectId: true, txDate: true, createdAt: true },
+    })
+
+    // key = `${projectId}|${type}` → { counted, pending } for the target month.
+    const incomeByKey = new Map<string, { counted: boolean; pending: boolean }>()
+    for (const tx of incomeRows) {
+      if (!tx.projectId) continue
+      const when = tx.txDate ?? tx.createdAt
+      if (!when) continue
+      const whenDate = new Date(when)
+      if (whenDate < monthStart || whenDate >= nextMonthStart) continue
+      const key = `${tx.projectId}|${tx.type}`
+      const entry = incomeByKey.get(key) ?? { counted: false, pending: false }
+      if (tx.status === 'VALIDATED' || tx.status === 'PAID') entry.counted = true
+      else if (tx.status === 'PENDING') entry.pending = true
+      incomeByKey.set(key, entry)
+    }
+
+    // Income type expected for a given owner role.
+    const incomeTypeFor = (
+      role: string,
+    ): 'SENIOR_INCOME' | 'ADMIN_INCOME' | 'DROP_INCOME' | null =>
+      role === 'SENIOR'
+        ? 'SENIOR_INCOME'
+        : role === 'ADMIN'
+          ? 'ADMIN_INCOME'
+          : role === 'DROP'
+            ? 'DROP_INCOME'
+            : null
+    const complianceRoleFor = (role: string): IncomeComplianceRole | null =>
+      role === 'SENIOR'
+        ? 'SENIOR'
+        : role === 'ADMIN'
+          ? 'ADMIN_SENIOR'
+          : role === 'DROP'
+            ? 'DROP'
+            : null
+
+    // ── 4. Group projects by receiver (owner). A project belongs to its SENIOR
+    // owner (via seniorId, role SENIOR or ADMIN) AND, if dropId set, to the DROP
+    // owner. Each (receiver, project) pair is evaluated against the receiver's
+    // own income type. ──────────────────────────────────────────────────────
+    type Acc = {
+      userId: string
+      displayName: string
+      role: IncomeComplianceRole
+      incomeType: 'SENIOR_INCOME' | 'ADMIN_INCOME' | 'DROP_INCOME'
+      projects: Array<{ projectId: string; name: string; companyName: string }>
+    }
+    const byReceiver = new Map<string, Acc>()
+    const addPair = (ownerId: string | null, p: (typeof activeProjects)[number]): void => {
+      if (!ownerId) return
+      const owner = ownerById.get(ownerId)
+      if (!owner) return
+      const complianceRole = complianceRoleFor(owner.role)
+      const incomeType = incomeTypeFor(owner.role)
+      if (!complianceRole || !incomeType) return // ignore non-receiver roles defensively
+      let acc = byReceiver.get(ownerId)
+      if (!acc) {
+        acc = {
+          userId: ownerId,
+          displayName: owner.displayName,
+          role: complianceRole,
+          incomeType,
+          projects: [],
+        }
+        byReceiver.set(ownerId, acc)
+      }
+      acc.projects.push({ projectId: p.id, name: p.name, companyName: p.companyName })
+    }
+    for (const p of activeProjects) {
+      addPair(p.seniorId, p)
+      if (p.dropId) addPair(p.dropId, p)
+    }
+
+    // ── 5. Build the receiver DTOs + company totals ────────────────────────────
+    let expectedProjects = 0
+    let submittedProjects = 0
+    let laggingReceivers = 0
+    let completeReceivers = 0
+    let pendingProjects = 0
+
+    const receivers: IncomeComplianceReceiverDto[] = []
+    for (const acc of byReceiver.values()) {
+      const missingProjects: IncomeComplianceReceiverDto['missingProjects'] = []
+      let submitted = 0
+      let pendingCount = 0
+      for (const proj of acc.projects) {
+        const entry = incomeByKey.get(`${proj.projectId}|${acc.incomeType}`)
+        const counted = entry?.counted ?? false
+        const pendingOnly = !counted && (entry?.pending ?? false)
+        if (counted) {
+          submitted += 1
+        } else {
+          if (pendingOnly) pendingCount += 1
+          missingProjects.push({
+            projectId: proj.projectId,
+            name: proj.name,
+            companyName: proj.companyName,
+            submitted: false,
+            pendingValidation: pendingOnly,
+          })
+        }
+      }
+      const expected = acc.projects.length
+      expectedProjects += expected
+      submittedProjects += submitted
+      pendingProjects += pendingCount
+      if (submitted >= expected) completeReceivers += 1
+      else laggingReceivers += 1
+
+      receivers.push({
+        userId: acc.userId,
+        displayName: acc.displayName,
+        role: acc.role,
+        expected,
+        submitted,
+        pendingCount,
+        missingProjects,
+      })
+    }
+
+    // Sort laggards-first: lowest coverage ratio on top; ties → fewer submitted
+    // first, then displayName for stable ordering.
+    receivers.sort((a, b) => {
+      const ra = a.expected > 0 ? a.submitted / a.expected : 1
+      const rb = b.expected > 0 ? b.submitted / b.expected : 1
+      if (ra !== rb) return ra - rb
+      if (a.submitted !== b.submitted) return a.submitted - b.submitted
+      return a.displayName.localeCompare(b.displayName)
+    })
+
+    return {
+      month: targetMonthKey,
+      totals: {
+        expectedProjects,
+        submittedProjects,
+        laggingReceivers,
+        completeReceivers,
+        pendingProjects,
+      },
+      receivers,
     }
   }
 
