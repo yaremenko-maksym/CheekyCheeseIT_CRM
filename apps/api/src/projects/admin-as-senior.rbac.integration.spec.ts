@@ -15,12 +15,10 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 import { Test } from '@nestjs/testing'
 import cookie from '@fastify/cookie'
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { inArray } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
-
-import { eq } from 'drizzle-orm'
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { HrAccessService } from '../common/hr-access.service'
