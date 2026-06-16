@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import type { ProjectDto } from '@crm/shared'
+import type { Role } from '@/lib/route-access'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProjectLogo } from './ProjectLogo'
 import { Badge } from '@/components/ui/badge'
@@ -13,7 +14,7 @@ export type ProjectRowProps = {
    * column — `seniorSharePercentOverride ?? seniorSharePercentDefault`.
    * Omitted / other roles → no change to the existing layout.
    */
-  viewerRole?: string
+  viewerRole?: Role | undefined
 }
 
 function getInitials(name: string) {

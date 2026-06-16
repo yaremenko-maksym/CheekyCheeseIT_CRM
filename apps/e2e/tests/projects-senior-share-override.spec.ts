@@ -102,9 +102,7 @@ test.describe('per-project SENIOR share override', () => {
       await input.fill('30')
 
       const patchReq = page.waitForRequest(
-        (req) =>
-          req.url().includes(`/projects/${PROJECTS[0]!.id}`) &&
-          req.method() === 'PATCH',
+        (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
       )
       await page.getByRole('button', { name: 'Сохранить' }).click()
       const req = await patchReq
@@ -118,7 +116,9 @@ test.describe('per-project SENIOR share override', () => {
   })
 
   test.describe('Scenario B — HR can no longer see the share section', () => {
-    test('HR opens edit dialog, ShareSlider section is fully absent (not just disabled)', async ({ asHr: page }) => {
+    test('HR opens edit dialog, ShareSlider section is fully absent (not just disabled)', async ({
+      asHr: page,
+    }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
 
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
@@ -136,9 +136,7 @@ test.describe('per-project SENIOR share override', () => {
       const dialog = page.getByRole('dialog')
       await dialog.locator('textarea').first().fill('HR comment')
       const patchReq = page.waitForRequest(
-        (req) =>
-          req.url().includes(`/projects/${PROJECTS[0]!.id}`) &&
-          req.method() === 'PATCH',
+        (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
       )
       await page.getByRole('button', { name: 'Сохранить' }).click()
       const req = await patchReq
@@ -162,9 +160,7 @@ test.describe('per-project SENIOR share override', () => {
       await input.fill('35')
 
       const patchReq = page.waitForRequest(
-        (req) =>
-          req.url().includes(`/projects/${PROJECTS[0]!.id}`) &&
-          req.method() === 'PATCH',
+        (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
       )
       await page.getByRole('button', { name: 'Сохранить' }).click()
       const req = await patchReq
@@ -177,7 +173,9 @@ test.describe('per-project SENIOR share override', () => {
   })
 
   test.describe('Scenario D — SENIOR_INCOME row shows snapshot %', () => {
-    test('row "Доля: 30%" pulled from tx.seniorSharePercent snapshot', async ({ asAdmin: page }) => {
+    test('row "Доля: 30%" pulled from tx.seniorSharePercent snapshot', async ({
+      asAdmin: page,
+    }) => {
       const incomeTx = {
         id: 'tx-snapshot-1',
         type: 'SENIOR_INCOME',
@@ -208,7 +206,11 @@ test.describe('per-project SENIOR share override', () => {
         createdBy: USERS.senior.id,
       }
       await page.route('http://localhost:3001/api/transactions', (r) =>
-        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([incomeTx]) }),
+        r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([incomeTx]),
+        }),
       )
 
       await page.goto('/crm/finance')
@@ -255,7 +257,9 @@ test.describe('per-project SENIOR share override', () => {
       await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
     })
 
-    test('ADMIN saves override = 100 → badge shows "100%" + Override', async ({ asAdmin: page }) => {
+    test('ADMIN saves override = 100 → badge shows "100%" + Override', async ({
+      asAdmin: page,
+    }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
@@ -412,75 +416,90 @@ test.describe('per-project SENIOR share override', () => {
     })
   })
 
-  test.describe('Scenario J — MyProjectShares widget (SENIOR-only)', () => {
-    test('SENIOR sees the widget listing all active projects with their effective %', async ({
+  test.describe('Scenario J — SENIOR share % in projects list (task-senior-ui-followups §2b)', () => {
+    // The MyProjectShares widget was removed from /crm/finance (§2a).
+    // Instead, the effective share % appears as an inline badge in each
+    // ProjectRow on /crm/projects (only when viewerRole === 'SENIOR').
+    test('SENIOR does NOT see the old MyProjectShares widget on /crm/finance', async ({
       asSenior: page,
     }) => {
-      // Two active projects: one with override, one without. Plus an archived
-      // project that must be filtered out.
+      await page.goto('/crm/finance')
+      // Widget was removed — must not be present in DOM at all.
+      await expect(page.getByTestId('my-project-shares')).toHaveCount(0)
+    })
+
+    test('ADMIN does not see the SENIOR-only share badge on /crm/projects', async ({
+      asAdmin: page,
+    }) => {
       const projects = [
-        { ...PROJECTS[0]!, id: 'proj-w-override', name: 'OverrideProject', seniorSharePercentOverride: 42, archivedAt: null },
-        { ...PROJECTS[0]!, id: 'proj-default', name: 'DefaultProject', seniorSharePercentOverride: null, archivedAt: null },
-        { ...PROJECTS[0]!, id: 'proj-archived', name: 'ArchivedProject', seniorSharePercentOverride: 99, archivedAt: '2024-01-01T00:00:00.000Z' },
+        {
+          ...PROJECTS[0]!,
+          id: 'proj-admin-view',
+          name: 'AdminProject',
+          seniorSharePercentOverride: 42,
+          seniorSharePercentDefault: 26,
+          archivedAt: null,
+        },
       ]
       await page.route('http://localhost:3001/api/projects**', (r) => {
         if (r.request().method() === 'GET') {
-          const url = new URL(r.request().url())
-          const archived = url.searchParams.get('archived')
-          if (archived === 'true') {
-            return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(projects.filter((p) => p.archivedAt !== null)) })
-          }
-          // Widget queries the cached `['projects']` key which hits `/projects`
-          // without an `archived` param; return only active rows to match RBAC.
-          return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(projects.filter((p) => p.archivedAt === null)) })
+          return r.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(projects),
+          })
         }
         return r.fallback()
       })
-
-      await page.goto('/crm/finance')
-      const widget = page.getByTestId('my-project-shares')
-      await expect(widget).toBeVisible()
-
-      // Override row: shows "42%" + Override badge.
-      const overrideRow = page.getByTestId('my-project-share-proj-w-override')
-      await expect(overrideRow).toBeVisible()
-      await expect(overrideRow).toContainText('42%')
-      await expect(overrideRow).toContainText('Override')
-
-      // Default row: shows the senior's default 26% + "(по умолчанию)".
-      const defaultRow = page.getByTestId('my-project-share-proj-default')
-      await expect(defaultRow).toBeVisible()
-      await expect(defaultRow).toContainText('26%')
-      await expect(defaultRow).toContainText('(по умолчанию)')
-
-      // Archived row must NOT appear.
-      await expect(page.getByTestId('my-project-share-proj-archived')).toHaveCount(0)
+      await page.goto('/crm/projects')
+      // ADMIN viewer — no senior-share badge rendered for ADMIN role
+      await expect(page.getByTestId('project-row-proj-admin-view-senior-share')).toHaveCount(0)
     })
 
-    test('SENIOR with no active projects sees the empty-state copy', async ({ asSenior: page }) => {
+    test('SENIOR sees effective share % badge in each ProjectRow on /crm/projects', async ({
+      asSenior: page,
+    }) => {
+      // One project with override, one using default share.
+      const projects = [
+        {
+          ...PROJECTS[0]!,
+          id: 'proj-w-override',
+          name: 'OverrideProject',
+          seniorSharePercentOverride: 42,
+          seniorSharePercentDefault: 26,
+          archivedAt: null,
+        },
+        {
+          ...PROJECTS[0]!,
+          id: 'proj-default',
+          name: 'DefaultProject',
+          seniorSharePercentOverride: null,
+          seniorSharePercentDefault: 26,
+          archivedAt: null,
+        },
+      ]
       await page.route('http://localhost:3001/api/projects**', (r) => {
         if (r.request().method() === 'GET') {
-          return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
+          return r.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(projects),
+          })
         }
         return r.fallback()
       })
 
-      await page.goto('/crm/finance')
-      const widget = page.getByTestId('my-project-shares')
-      await expect(widget).toBeVisible()
-      await expect(widget).toContainText('У вас пока нет активных проектов.')
-    })
+      await page.goto('/crm/projects')
 
-    test('ADMIN does not see the SENIOR-only widget on /crm/finance', async ({ asAdmin: page }) => {
-      await page.goto('/crm/finance')
-      // The widget is conditionally rendered (`isSenior && <MyProjectShares />`),
-      // so for ADMIN it should not be in the DOM at all.
-      await expect(page.getByTestId('my-project-shares')).toHaveCount(0)
-    })
+      // Project with override: badge shows "42%"
+      const overrideBadge = page.getByTestId('project-row-proj-w-override-senior-share')
+      await expect(overrideBadge).toBeVisible()
+      await expect(overrideBadge).toContainText('42%')
 
-    test('HR does not see the SENIOR-only widget on /crm/finance', async ({ asHr: page }) => {
-      await page.goto('/crm/finance')
-      await expect(page.getByTestId('my-project-shares')).toHaveCount(0)
+      // Project using default: badge shows "26%" (seniorSharePercentDefault)
+      const defaultBadge = page.getByTestId('project-row-proj-default-senior-share')
+      await expect(defaultBadge).toBeVisible()
+      await expect(defaultBadge).toContainText('26%')
     })
   })
 
@@ -624,7 +643,9 @@ test.describe('per-project SENIOR share override', () => {
   })
 
   test.describe('Scenario Q — ADMIN/SENIOR/ACCOUNTANT всё ещё видят финансовые элементы (regression)', () => {
-    test('ADMIN на /crm/projects/:id видит табу «Финансы» + info-row', async ({ asAdmin: page }) => {
+    test('ADMIN на /crm/projects/:id видит табу «Финансы» + info-row', async ({
+      asAdmin: page,
+    }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
 
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
@@ -633,7 +654,9 @@ test.describe('per-project SENIOR share override', () => {
       await expect(page.getByTestId('project-senior-share')).toContainText('30%')
     })
 
-    test('SENIOR на /crm/projects/:id видит табу «Финансы» + info-row', async ({ asSenior: page }) => {
+    test('SENIOR на /crm/projects/:id видит табу «Финансы» + info-row', async ({
+      asSenior: page,
+    }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
 
       await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
@@ -642,7 +665,9 @@ test.describe('per-project SENIOR share override', () => {
       await expect(page.getByTestId('project-senior-share')).toContainText('30%')
     })
 
-    test('ACCOUNTANT на /crm/projects/:id видит табу «Финансы» + info-row + ShareSlider editable', async ({ page }) => {
+    test('ACCOUNTANT на /crm/projects/:id видит табу «Финансы» + info-row + ShareSlider editable', async ({
+      page,
+    }) => {
       await mockAuthAs(page, USERS.accountant)
       await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
 
