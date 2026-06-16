@@ -209,7 +209,10 @@ export function initialCategoryForRole(
   deepLinkCategory: DocumentCategory | undefined,
 ): CategoryFilter {
   if (deepLinkCategory !== undefined) return deepLinkCategory
-  if (role === 'ACCOUNTANT') return 'RECEIPT'
+  // AC3: default = 'ALL' for ALL roles (including ACCOUNTANT).
+  // Previously ACCOUNTANT defaulted to 'RECEIPT'; now every role starts
+  // on "Все категории" and narrows down via the dropdown.
+  void role // role kept in signature for possible future per-role defaults
   return 'ALL'
 }
 
@@ -397,17 +400,19 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   // Empty-access state — no categories at all.
   if (availableCategories.length === 0) {
     return (
-      <div>
-        <div className="mb-6">
+      <div className="flex flex-col h-full">
+        <div className="px-6 pt-4 pb-3">
           <h1 className="text-2xl font-bold tracking-tight">Документы</h1>
           <p className="text-sm text-muted-foreground">Резюме, договора и сканы</p>
         </div>
-        <div
-          data-testid="documents-no-access"
-          className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center"
-        >
-          <Shield className="h-10 w-10 text-muted-foreground/30" />
-          <p className="mt-4 text-sm font-medium">У вас нет доступа к документам</p>
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
+          <div
+            data-testid="documents-no-access"
+            className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center"
+          >
+            <Shield className="h-10 w-10 text-muted-foreground/30" />
+            <p className="mt-4 text-sm font-medium">У вас нет доступа к документам</p>
+          </div>
         </div>
       </div>
     )
@@ -423,38 +428,12 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   ]
 
   return (
-    <div className="flex flex-col gap-0">
-      {pendingCount > 0 ? (
-        // Amber banner — invites the viewer to switch to the INVOICE tab and
-        // sign the documents that are still missing the COUNTERPARTY
-        // signature. Intentionally NOT in the sticky header so it scrolls
-        // away once the user has seen it and navigated to the INVOICE filter.
-        <div
-          className="mx-0 mt-0 flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 p-4"
-          data-testid="documents-pending-signature-banner"
-        >
-          <div className="flex items-center gap-3">
-            <FileSignature className="h-5 w-5 text-amber-400" />
-            <span className="text-sm">{pluralizeInvoicesPending(pendingCount)}</span>
-          </div>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setCategoryFilter('INVOICE')}
-            data-testid="documents-pending-signature-banner-cta"
-          >
-            Перейти
-          </Button>
-        </div>
-      ) : null}
-
+    <div className="flex flex-col h-full">
       <StickyPageHeader>
         <DocumentsHeader viewer={viewer} categoryFilter={categoryFilter} users={users} />
 
         {/* Tri-state status filter — ADMIN-only (UT finding 2026-06-14).
-            Non-admin roles (SENIOR/JUNIOR/HR/ACCOUNTANT/DROP) only ever see
-            their active documents; statusTab stays at 'ACTIVE' (default) and
-            the toggle is hidden entirely so the layout stays clean. */}
+            Non-admin roles only ever see active docs; toggle hidden for them. */}
         {isAdmin && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
@@ -590,37 +569,64 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
         </Card>
       </StickyPageHeader>
 
-      <div className="pt-4 space-y-6">
-        <DocumentsListSection
-          viewer={viewer}
-          categoryFilter={categoryFilter}
-          ownerId={ownerFilter === 'ALL' ? undefined : ownerFilter}
-          includeDeleted={includeDeleted}
-          statusTab={statusTab}
-          onOpen={openDetail}
-          openDocId={search.openDocId}
-          view={view}
-          searchQuery={debouncedSearch}
-          sortKey={sortKey}
-        />
+      <div
+        className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6"
+        style={{ scrollbarGutter: 'stable' }}
+      >
+        {pendingCount > 0 ? (
+          // Amber banner — invites the viewer to switch to the INVOICE tab.
+          // Scrollable: disappears once user has navigated to the INVOICE filter.
+          <div
+            className="mb-4 flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 p-4"
+            data-testid="documents-pending-signature-banner"
+          >
+            <div className="flex items-center gap-3">
+              <FileSignature className="h-5 w-5 text-amber-400" />
+              <span className="text-sm">{pluralizeInvoicesPending(pendingCount)}</span>
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setCategoryFilter('INVOICE')}
+              data-testid="documents-pending-signature-banner-cta"
+            >
+              Перейти
+            </Button>
+          </div>
+        ) : null}
 
-        <DocumentDetailDialog
-          open={detailOpen}
-          onOpenChange={closeDetail}
-          doc={detailDoc}
-          viewer={viewer}
-        />
-        {/* InvoiceDetailDialog — opens for INVOICE documents (signature table +
+        <div className="space-y-6">
+          <DocumentsListSection
+            viewer={viewer}
+            categoryFilter={categoryFilter}
+            ownerId={ownerFilter === 'ALL' ? undefined : ownerFilter}
+            includeDeleted={includeDeleted}
+            statusTab={statusTab}
+            onOpen={openDetail}
+            openDocId={search.openDocId}
+            view={view}
+            searchQuery={debouncedSearch}
+            sortKey={sortKey}
+          />
+
+          <DocumentDetailDialog
+            open={detailOpen}
+            onOpenChange={closeDetail}
+            doc={detailDoc}
+            viewer={viewer}
+          />
+          {/* InvoiceDetailDialog — opens for INVOICE documents (signature table +
           «Подписать» button) and via the `?openTx=<uuid>` deep-link from
           notifications. Replaces the standalone /crm/finance/invoices page. */}
-        <InvoiceDetailDialog
-          open={invoiceOpen}
-          onOpenChange={closeInvoice}
-          transactionId={invoiceTxId}
-          viewer={viewer}
-        />
-        {/* uploadedByDisplayName comes embedded in each doc DTO (API LEFT JOIN),
+          <InvoiceDetailDialog
+            open={invoiceOpen}
+            onOpenChange={closeInvoice}
+            transactionId={invoiceTxId}
+            viewer={viewer}
+          />
+          {/* uploadedByDisplayName comes embedded in each doc DTO (API LEFT JOIN),
           so no /api/users round-trip is needed here. */}
+        </div>
       </div>
     </div>
   )

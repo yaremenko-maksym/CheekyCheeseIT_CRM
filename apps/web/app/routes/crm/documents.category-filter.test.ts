@@ -1,22 +1,21 @@
 /**
  * documents.category-filter.test.ts — unit tests for the pure helper
- * `initialCategoryForRole` (task-accountant-s2-documents-prefilter AC1-AC4).
+ * `initialCategoryForRole` (task-ui-header-scroll-overhaul AC3 update).
  *
  * Tests the pure function in isolation — no React / router dependencies.
  * Covers:
- *   AC1 — ACCOUNTANT without deep-link → RECEIPT
- *   AC2 — ACCOUNTANT with explicit deep-link → deep-link wins
- *   AC3 — Other roles without deep-link → ALL (unchanged behaviour)
- *   AC4 — Guard interaction: RECEIPT is in ACCOUNTANT's availableCategories,
- *          so the reset-to-ALL effect never fires (implicit: RECEIPT is valid).
+ *   AC1 — ALL roles without deep-link → ALL (task-ui-header-scroll-overhaul AC3:
+ *          default = «Все категории» for ALL roles including ACCOUNTANT)
+ *   AC2 — ACCOUNTANT with explicit deep-link → deep-link wins (unchanged)
+ *   AC3 — Other roles unchanged → ALL
  */
 import { describe, expect, it } from 'vitest'
 import { initialCategoryForRole } from './documents'
 
 describe('initialCategoryForRole', () => {
-  // ── AC1: ACCOUNTANT default ────────────────────────────────────────────────
-  it('returns RECEIPT for ACCOUNTANT when no deep-link is provided', () => {
-    expect(initialCategoryForRole('ACCOUNTANT', undefined)).toBe('RECEIPT')
+  // ── AC1: ALL roles default to ALL (task-ui-header-scroll-overhaul AC3) ─────
+  it('returns ALL for ACCOUNTANT when no deep-link is provided', () => {
+    expect(initialCategoryForRole('ACCOUNTANT', undefined)).toBe('ALL')
   })
 
   // ── AC2: deep-link always wins ─────────────────────────────────────────────

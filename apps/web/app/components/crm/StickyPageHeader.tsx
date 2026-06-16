@@ -1,55 +1,67 @@
 /**
- * StickyPageHeader — reusable sticky header pattern for CRM list pages.
+ * PageHeader — compact fixed header for CRM list/detail pages.
  *
- * Layout contract:
- *   • The parent <main> in route.tsx is `overflow-y-auto p-6 flex flex-col`.
- *   • Inside an overflow-y-auto container, `position: sticky; top: 0` sticks
- *     to the TOP of that scroll container (NOT the viewport). The global CRM
- *     top-bar is OUTSIDE <main> so no viewport offset is needed.
- *   • We use negative margins `-mx-6 -mt-6` to break out of <main>'s p-6,
- *     then add our own `px-6 pt-6` so the inner content stays aligned.
+ * Layout contract (new model):
+ *   • The parent page root is `flex flex-col h-full` (fills the <main> area).
+ *   • PageHeader is `flex-none` — always visible, never scrolls.
+ *   • The scrollable content area below is `flex-1 min-h-0 overflow-y-auto`.
+ *   • No negative margins: horizontal padding contained within the header.
+ *   • The global top-bar and <main> (route.tsx) own the outer p-6 — we
+ *     inherit that padding context via `px-6 pt-4 pb-3` here.
  *   • z-index 20 — above content rows/cards, below modals/dropdowns (z-50).
- *   • bg-background is opaque — content must NOT bleed through on scroll.
- *   • pb-3 + a subtle shadow provide visual separation from scrolling content.
+ *   • bg-background is opaque — content does NOT bleed through on scroll.
+ *   • Compact vertical padding keeps more space for content.
  *
  * Usage:
- *   <StickyPageHeader>
- *     <div className="flex items-center justify-between">
- *       <h1>Title</h1>
- *       <Button>Action</Button>
+ *   <div className="flex flex-col h-full">
+ *     <PageHeader>
+ *       <div className="flex items-center justify-between">
+ *         <h1>Title</h1>
+ *         <Button>Action</Button>
+ *       </div>
+ *       <SegmentedToggle ... />
+ *       <Card>...toolbar (search / filters / sort)...</Card>
+ *     </PageHeader>
+ *     <div className="flex-1 min-h-0 overflow-y-auto pt-4 pb-6">
+ *       ...scrollable content...
  *     </div>
- *     <SegmentedToggle ... />
- *     <Card>...toolbar (search / filters / sort)...</Card>
- *   </StickyPageHeader>
- *   <div className="space-y-6">...scrollable content...</div>
+ *   </div>
+ *
+ * StickyPageHeader is kept as an alias for backwards compat.
  */
 
 import { cn } from '@/lib/utils'
 
-interface StickyPageHeaderProps {
+interface PageHeaderProps {
   children: React.ReactNode
-  /** Additional className on the outer sticky wrapper (rarely needed) */
+  /** Additional className on the outer wrapper (rarely needed) */
   className?: string
 }
 
-export function StickyPageHeader({ children, className }: StickyPageHeaderProps) {
+export function PageHeader({ children, className }: PageHeaderProps) {
   return (
     <div
       className={cn(
-        // ── positioning ──────────────────────────────────────────────────────
-        'sticky top-0 z-20',
-        // ── background (opaque) ───────────────────────────────────────────────
+        // ── layout: flex-none so it never scrolls away with content ─────────
+        'flex-none',
+        // ── stacking context: above cards/rows, below modals ─────────────────
+        'relative z-20',
+        // ── background (opaque) ──────────────────────────────────────────────
         'bg-background',
-        // ── spacing: negative margin breaks out of <main>'s p-6, then we
-        //    re-add px-6 + pt-6 so the inner content lines up with the rest
-        //    of the page. Bottom pad is kept small; shadow does the work. ────
-        '-mx-6 -mt-6 px-6 pt-6 pb-3',
-        // ── shadow below header to visually separate sticky from content ──────
+        // ── compact spacing — no negative margins needed ──────────────────────
+        'px-6 pt-4 pb-3',
+        // ── subtle bottom shadow to visually separate header from content ─────
         'shadow-[0_4px_8px_-4px_hsl(var(--border))]',
         className,
       )}
     >
-      <div className="flex flex-col gap-4">{children}</div>
+      <div className="flex flex-col gap-3">{children}</div>
     </div>
   )
 }
+
+/**
+ * @deprecated Use PageHeader instead.
+ * Alias kept so existing import sites compile without changes during migration.
+ */
+export const StickyPageHeader = PageHeader

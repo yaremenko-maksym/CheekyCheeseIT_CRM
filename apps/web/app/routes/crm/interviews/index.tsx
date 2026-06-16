@@ -312,7 +312,7 @@ function InterviewsPage() {
 
   if (isJunior) {
     return (
-      <div className="w-full">
+      <div className="flex flex-col h-full px-6 pt-4">
         <div className="mb-6">
           <h1 className="text-2xl font-bold tracking-tight">Собеседования</h1>
         </div>
@@ -325,7 +325,7 @@ function InterviewsPage() {
 
   if (isSenior && !isTeamLoading && isTeamlessSenior) {
     return (
-      <div className="w-full">
+      <div className="flex flex-col h-full px-6 pt-4">
         <div className="mb-6">
           <h1 className="text-2xl font-bold tracking-tight">Собеседования</h1>
         </div>
@@ -349,9 +349,9 @@ function InterviewsPage() {
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 overflow-hidden -mx-6 px-4">
+    <div className="flex flex-col h-full min-h-0 overflow-hidden">
       <motion.div
-        className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between shrink-0"
+        className="px-6 pt-4 mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between shrink-0"
         initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
@@ -412,7 +412,7 @@ function InterviewsPage() {
             onDragEnd={handleDragEnd}
           >
             <motion.div
-              className="flex gap-3 items-stretch h-full"
+              className="flex gap-3 items-stretch h-full px-6"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.4, delay: 0.1 }}

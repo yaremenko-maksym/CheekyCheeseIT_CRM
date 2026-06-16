@@ -158,7 +158,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
   }
 
   return (
-    <div className="flex flex-col gap-0">
+    <div className="flex flex-col h-full min-h-0">
       <StickyPageHeader>
         <UserProfileHeader
           user={user}
@@ -261,7 +261,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
       {permissions.tabs.length > 0 && (
         /* Content area scrolls naturally via the parent <main> (overflow-y-auto in /crm route).
            No overflow-hidden here — that was blocking the scroll for long tabs. */
-        <div className="pt-4 min-w-0 flex-1">
+        <div className="flex-1 min-h-0 overflow-y-auto pt-4 pb-6 min-w-0">
           {activeTab === 'overview' && permissions.tabs.includes('overview') && (
             <OverviewTab
               user={user}

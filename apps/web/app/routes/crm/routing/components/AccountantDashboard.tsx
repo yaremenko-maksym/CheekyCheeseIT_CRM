@@ -72,8 +72,8 @@ export function AccountantDashboard() {
   }
 
   return (
-    <>
-      <main data-testid="accountant-dashboard-hub" className="space-y-6">
+    <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+      <div data-testid="accountant-dashboard-hub" className="space-y-6">
         {/* Page header */}
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Дашборд</h1>
@@ -178,7 +178,7 @@ export function AccountantDashboard() {
             </motion.div>
           </>
         )}
-      </main>
+      </div>
 
       {/* ValidateDialog — очередь валидации (AC2, AC3) */}
       <ValidateDialog
@@ -187,6 +187,6 @@ export function AccountantDashboard() {
         onClose={() => setValidateTx(null)}
         onAdvance={(nextTx) => setValidateTx(nextTx)}
       />
-    </>
+    </div>
   )
 }

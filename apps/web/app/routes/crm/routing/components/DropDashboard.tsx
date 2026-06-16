@@ -36,56 +36,58 @@ function DropDashboardContent({ onRetrySummary }: { onRetrySummary: () => void }
   const { data: projects, isLoading: projectsLoading } = useDropProjects()
 
   return (
-    <main data-testid="drop-routing-hub" className="space-y-6">
-      {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Дашборд</h1>
-        <p className="text-sm text-muted-foreground">Платёжный хаб</p>
+    <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+      <div data-testid="drop-routing-hub" className="space-y-6">
+        {/* Page header */}
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Дашборд</h1>
+          <p className="text-sm text-muted-foreground">Платёжный хаб</p>
+        </div>
+
+        {/* Grid layout: md:2-col */}
+        <motion.div
+          className="grid grid-cols-1 md:grid-cols-2 gap-4"
+          variants={container}
+          initial="hidden"
+          animate="show"
+        >
+          {/*
+           * Desktop order: BalanceCard (col 1) + ActionRequired (col 2)
+           * Mobile order: ActionRequired first (order-first on mobile), then Balance
+           * Implemented via CSS order utility: on mobile, ActionRequired gets order-first.
+           */}
+
+          {/* DropBalanceCard — desktop col 1, mobile col 2 (order-2) */}
+          <motion.div variants={card} className="order-2 md:order-1">
+            <DropBalanceCard
+              summary={summary}
+              isLoading={summaryLoading}
+              isError={summaryError}
+              onRetry={onRetrySummary}
+              variant="compact"
+            />
+          </motion.div>
+
+          {/* DropActionRequiredBlock — desktop col 2, mobile col 1 (order-1) */}
+          <motion.div variants={card} className="order-1 md:order-2">
+            <DropActionRequiredBlock
+              validatedIncomes={validatedPage?.items}
+              isLoading={validatedLoading}
+            />
+          </motion.div>
+
+          {/* DropProjectsList — full width */}
+          <motion.div variants={card} className="col-span-full order-3">
+            <DropProjectsList projects={projects} isLoading={projectsLoading} />
+          </motion.div>
+
+          {/* DropQuickActions — full width */}
+          <motion.div variants={card} className="col-span-full order-4">
+            <DropQuickActions />
+          </motion.div>
+        </motion.div>
       </div>
-
-      {/* Grid layout: md:2-col */}
-      <motion.div
-        className="grid grid-cols-1 md:grid-cols-2 gap-4"
-        variants={container}
-        initial="hidden"
-        animate="show"
-      >
-        {/*
-         * Desktop order: BalanceCard (col 1) + ActionRequired (col 2)
-         * Mobile order: ActionRequired first (order-first on mobile), then Balance
-         * Implemented via CSS order utility: on mobile, ActionRequired gets order-first.
-         */}
-
-        {/* DropBalanceCard — desktop col 1, mobile col 2 (order-2) */}
-        <motion.div variants={card} className="order-2 md:order-1">
-          <DropBalanceCard
-            summary={summary}
-            isLoading={summaryLoading}
-            isError={summaryError}
-            onRetry={onRetrySummary}
-            variant="compact"
-          />
-        </motion.div>
-
-        {/* DropActionRequiredBlock — desktop col 2, mobile col 1 (order-1) */}
-        <motion.div variants={card} className="order-1 md:order-2">
-          <DropActionRequiredBlock
-            validatedIncomes={validatedPage?.items}
-            isLoading={validatedLoading}
-          />
-        </motion.div>
-
-        {/* DropProjectsList — full width */}
-        <motion.div variants={card} className="col-span-full order-3">
-          <DropProjectsList projects={projects} isLoading={projectsLoading} />
-        </motion.div>
-
-        {/* DropQuickActions — full width */}
-        <motion.div variants={card} className="col-span-full order-4">
-          <DropQuickActions />
-        </motion.div>
-      </motion.div>
-    </main>
+    </div>
   )
 }
 

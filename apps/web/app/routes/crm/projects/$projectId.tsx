@@ -702,164 +702,151 @@ function ProjectDetailPage() {
   })
 
   return (
-    <div className="space-y-5">
-      {/* ── Hero banner ── */}
-      <motion.div
-        className="relative overflow-hidden rounded-2xl border border-border/40 bg-card"
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35 }}
-      >
-        {/* Ambient glow blob */}
-        <div
-          className="pointer-events-none absolute -top-16 -left-16 h-64 w-64 rounded-full opacity-[0.07] blur-3xl"
-          style={{ background: '#f5c542' }}
-        />
-        <div className="relative flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
-          {/* Left: back + logo + title */}
-          <div className="flex items-center gap-4 min-w-0">
-            <Link to="/crm/projects" className="shrink-0">
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-            </Link>
-            <div className="relative shrink-0">
-              <div
-                className="absolute inset-0 rounded-xl opacity-30 blur-md"
-                style={{ background: '#f5c542' }}
-              />
-              <ProjectLogo
-                documentId={project.logoDocumentId}
-                externalUrl={project.logoExternalUrl}
-                companyName={project.companyName}
-                fallback={getInitials(project.companyName)}
-                avatarClassName="relative h-14 w-14 rounded-xl border border-border/60 shadow-lg"
-              />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-2xl font-bold tracking-tight truncate leading-tight">
-                {project.companyName}
-              </h1>
-              <p className="text-sm text-muted-foreground truncate mt-0.5">{project.name}</p>
-              <div className="flex items-center gap-2 mt-2 flex-wrap">
-                {!project.archivedAt && (
-                  <Badge variant="default" className="text-xs">
-                    Активный
-                  </Badge>
-                )}
-                {project.archivedAt && (
-                  <Badge
-                    variant="outline"
-                    className="border-amber-500/30 bg-amber-500/10 text-amber-500 text-xs"
-                    data-testid="project-archived-badge"
-                  >
-                    В архиве
-                  </Badge>
-                )}
-                {/* Drop role - phase 2. Distinct blue/info badge for drop-
+    <div className="flex flex-col h-full min-h-0 overflow-y-auto px-0 pb-6">
+      <div className="space-y-5">
+        {/* ── Hero banner ── */}
+        <motion.div
+          className="relative overflow-hidden rounded-2xl border border-border/40 bg-card"
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35 }}
+        >
+          {/* Ambient glow blob */}
+          <div
+            className="pointer-events-none absolute -top-16 -left-16 h-64 w-64 rounded-full opacity-[0.07] blur-3xl"
+            style={{ background: '#f5c542' }}
+          />
+          <div className="relative flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+            {/* Left: back + logo + title */}
+            <div className="flex items-center gap-4 min-w-0">
+              <Link to="/crm/projects" className="shrink-0">
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+              </Link>
+              <div className="relative shrink-0">
+                <div
+                  className="absolute inset-0 rounded-xl opacity-30 blur-md"
+                  style={{ background: '#f5c542' }}
+                />
+                <ProjectLogo
+                  documentId={project.logoDocumentId}
+                  externalUrl={project.logoExternalUrl}
+                  companyName={project.companyName}
+                  fallback={getInitials(project.companyName)}
+                  avatarClassName="relative h-14 w-14 rounded-xl shadow-lg"
+                />
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-2xl font-bold tracking-tight truncate leading-tight">
+                  {project.companyName}
+                </h1>
+                <p className="text-sm text-muted-foreground truncate mt-0.5">{project.name}</p>
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                  {!project.archivedAt && (
+                    <Badge variant="default" className="text-xs">
+                      Активный
+                    </Badge>
+                  )}
+                  {project.archivedAt && (
+                    <Badge
+                      variant="outline"
+                      className="border-amber-500/30 bg-amber-500/10 text-amber-500 text-xs"
+                      data-testid="project-archived-badge"
+                    >
+                      В архиве
+                    </Badge>
+                  )}
+                  {/* Drop role - phase 2. Distinct blue/info badge for drop-
                     projects so it's obvious at a glance that money flows
                     through a DROP user. Hidden for regular senior-projects.
                     RBAC: only ADMIN/HR/ACCOUNTANT see this badge — JUNIOR
                     must not know the identity behind the legend is a DROP. */}
-                {project.dropId &&
-                  (user?.role === 'ADMIN' ||
-                    user?.role === 'HR' ||
-                    user?.role === 'ACCOUNTANT') && (
-                    <Badge
-                      variant="outline"
-                      className="border-blue-500/30 bg-blue-500/10 text-blue-400 text-xs"
-                      data-testid="project-drop-badge"
-                    >
-                      Drop-проект
-                    </Badge>
-                  )}
-                <Badge variant="outline" className="text-xs">
-                  {project.domain}
-                </Badge>
+                  {project.dropId &&
+                    (user?.role === 'ADMIN' ||
+                      user?.role === 'HR' ||
+                      user?.role === 'ACCOUNTANT') && (
+                      <Badge
+                        variant="outline"
+                        className="border-blue-500/30 bg-blue-500/10 text-blue-400 text-xs"
+                        data-testid="project-drop-badge"
+                      >
+                        Drop-проект
+                      </Badge>
+                    )}
+                  <Badge variant="outline" className="text-xs">
+                    {project.domain}
+                  </Badge>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* ut-28: Explicit Edit + Archive buttons (replaces «Действия» dropdown
+            {/* ut-28: Explicit Edit + Archive buttons (replaces «Действия» dropdown
               and former «Завершить» button). Visible to ADMIN/HR (full edit)
               and ACCOUNTANT (override-only edit). */}
-          <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
-            {canOpenEdit && !project.archivedAt && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={openEdit}
-                className="gap-1.5"
-                data-testid="project-edit-button"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-                Редактировать
-              </Button>
-            )}
-            {isAdmin && !project.archivedAt && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setArchiveDialogOpen(true)}
-                className="gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                data-testid="project-archive-button"
-              >
-                <Archive className="h-3.5 w-3.5" />
-                Архивировать
-              </Button>
-            )}
-            {isAdmin && project.archivedAt && (
-              <ProjectUnarchiveHeaderButton
-                projectId={project.id}
-                projectName={project.name}
-                onCascadeRequired={(entities) => setCascadeEntities(entities)}
-              />
-            )}
+            <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+              {canOpenEdit && !project.archivedAt && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={openEdit}
+                  className="gap-1.5"
+                  data-testid="project-edit-button"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Редактировать
+                </Button>
+              )}
+              {isAdmin && !project.archivedAt && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setArchiveDialogOpen(true)}
+                  className="gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  data-testid="project-archive-button"
+                >
+                  <Archive className="h-3.5 w-3.5" />
+                  Архивировать
+                </Button>
+              )}
+              {isAdmin && project.archivedAt && (
+                <ProjectUnarchiveHeaderButton
+                  projectId={project.id}
+                  projectName={project.name}
+                  onCascadeRequired={(entities) => setCascadeEntities(entities)}
+                />
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Stat chips row */}
-        <div className="flex gap-3 px-6 pb-5 flex-wrap">
-          {/* rate / currency are null for JUNIOR (finance masking, RBAC A01).
+          {/* Stat chips row */}
+          <div className="flex gap-3 px-6 pb-5 flex-wrap">
+            {/* rate / currency are null for JUNIOR (finance masking, RBAC A01).
               Only render the stat chip when finance data is available. */}
-          {project.rate != null && project.currency != null && (
-            <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
-              <DollarSign className="h-4 w-4 text-emerald-400 shrink-0" />
-              <div>
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Ставка</p>
-                <p className="text-sm font-semibold tabular-nums">
-                  {project.rate.toLocaleString()} {project.currency}
-                </p>
-                {rates && project.currency !== 'USD' && project.currency !== 'USDT' && (
-                  <p className="text-[10px] text-muted-foreground tabular-nums">
-                    ≈ {fmtUsd(project.rate, project.currency, rates)}
+            {project.rate != null && project.currency != null && (
+              <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
+                <DollarSign className="h-4 w-4 text-emerald-400 shrink-0" />
+                <div>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                    Ставка
                   </p>
-                )}
+                  <p className="text-sm font-semibold tabular-nums">
+                    {project.rate.toLocaleString()} {project.currency}
+                  </p>
+                  {rates && project.currency !== 'USD' && project.currency !== 'USDT' && (
+                    <p className="text-[10px] text-muted-foreground tabular-nums">
+                      ≈ {fmtUsd(project.rate, project.currency, rates)}
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
-          <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
-            <Calendar className="h-4 w-4 text-blue-400 shrink-0" />
-            <div>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Старт</p>
-              <p className="text-sm font-semibold">
-                {new Date(project.startDate).toLocaleDateString('ru-RU', {
-                  day: '2-digit',
-                  month: '2-digit',
-                  year: 'numeric',
-                })}
-              </p>
-            </div>
-          </div>
-          {project.archivedAt && (
+            )}
             <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
-              <Calendar className="h-4 w-4 text-amber-400 shrink-0" />
+              <Calendar className="h-4 w-4 text-blue-400 shrink-0" />
               <div>
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
-                  Завершён
-                </p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Старт</p>
                 <p className="text-sm font-semibold">
-                  {new Date(project.archivedAt).toLocaleDateString('ru-RU', {
+                  {new Date(project.startDate).toLocaleDateString('ru-RU', {
                     day: '2-digit',
                     month: '2-digit',
                     year: 'numeric',
@@ -867,451 +854,472 @@ function ProjectDetailPage() {
                 </p>
               </div>
             </div>
-          )}
-          <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
-            <Globe className="h-4 w-4 text-violet-400 shrink-0" />
-            <div>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Домен</p>
-              <p className="text-sm font-semibold">{project.domain}</p>
+            {project.archivedAt && (
+              <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
+                <Calendar className="h-4 w-4 text-amber-400 shrink-0" />
+                <div>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                    Завершён
+                  </p>
+                  <p className="text-sm font-semibold">
+                    {new Date(project.archivedAt).toLocaleDateString('ru-RU', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric',
+                    })}
+                  </p>
+                </div>
+              </div>
+            )}
+            <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
+              <Globe className="h-4 w-4 text-violet-400 shrink-0" />
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Домен</p>
+                <p className="text-sm font-semibold">{project.domain}</p>
+              </div>
             </div>
           </div>
-        </div>
-      </motion.div>
+        </motion.div>
 
-      {/* ut-29 + ut-33: project detail tabs — unified through SegmentedToggle
+        {/* ut-29 + ut-33: project detail tabs — unified through SegmentedToggle
           variant="tabs" (same yellow page-level styling as projects list).
           ut-fix-round2: «Финансы» табу видят только не-HR (ADMIN/ACCOUNTANT/
           SENIOR). HR на ?tab=finance — fallback на «Обзор». */}
-      {(() => {
-        type ProjectTab = 'overview' | 'members' | 'finance'
-        const tabOptions: ReadonlyArray<SegmentedToggleOption<ProjectTab>> = [
-          { value: 'overview', label: 'Обзор', testId: 'tab-overview' },
-          { value: 'members', label: 'Состав', testId: 'tab-members' },
-          ...(canSeeProjectFinance
-            ? ([{ value: 'finance', label: 'Финансы', testId: 'tab-finance' }] as const)
-            : []),
-        ]
-        // Fallback: если HR оказался на «finance» табе — переключить на «overview».
-        const safeActiveTab: ProjectTab =
-          activeTab === 'finance' && !canSeeProjectFinance ? 'overview' : (activeTab as ProjectTab)
-        return (
-          <SegmentedToggle<ProjectTab>
-            value={safeActiveTab}
-            onChange={(v) => setActiveTab(v)}
-            options={tabOptions}
-            ariaLabel="Разделы проекта"
-            variant="tabs"
-            size="sm"
-            layoutId={`project-detail-tabs-${projectId}`}
-            className="w-fit"
-            testId={`project-detail-tabs-${projectId}`}
+        {(() => {
+          type ProjectTab = 'overview' | 'members' | 'finance'
+          const tabOptions: ReadonlyArray<SegmentedToggleOption<ProjectTab>> = [
+            { value: 'overview', label: 'Обзор', testId: 'tab-overview' },
+            { value: 'members', label: 'Состав', testId: 'tab-members' },
+            ...(canSeeProjectFinance
+              ? ([{ value: 'finance', label: 'Финансы', testId: 'tab-finance' }] as const)
+              : []),
+          ]
+          // Fallback: если HR оказался на «finance» табе — переключить на «overview».
+          const safeActiveTab: ProjectTab =
+            activeTab === 'finance' && !canSeeProjectFinance
+              ? 'overview'
+              : (activeTab as ProjectTab)
+          return (
+            <SegmentedToggle<ProjectTab>
+              value={safeActiveTab}
+              onChange={(v) => setActiveTab(v)}
+              options={tabOptions}
+              ariaLabel="Разделы проекта"
+              variant="tabs"
+              size="sm"
+              layoutId={`project-detail-tabs-${projectId}`}
+              className="w-fit"
+              testId={`project-detail-tabs-${projectId}`}
+            />
+          )
+        })()}
+
+        {activeTab === 'members' && (
+          <ProjectEffectiveTeamCard
+            project={project}
+            {...(user?.role !== undefined ? { viewerRole: user.role } : {})}
           />
-        )
-      })()}
+        )}
 
-      {activeTab === 'members' && (
-        <ProjectEffectiveTeamCard
-          project={project}
-          {...(user?.role !== undefined ? { viewerRole: user.role } : {})}
-        />
-      )}
-
-      {activeTab === 'overview' && (
-        <motion.div
-          className="grid gap-4 lg:grid-cols-2"
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.08 }}
-        >
-          {/* Details card */}
-          <Card className="border-border/40">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Детали проекта
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-0 divide-y divide-border/40">
-              <InfoRow icon={<Briefcase className="h-3.5 w-3.5" />} label="Стек">
-                {project.techStack ? (
-                  <span className="font-medium">{project.techStack}</span>
-                ) : (
-                  <span className="text-muted-foreground/40 italic">—</span>
-                )}
-              </InfoRow>
-              <InfoRow icon={<Users className="h-3.5 w-3.5" />} label="Команда">
-                {project.teamSize ? (
-                  <span className="font-medium">{project.teamSize}</span>
-                ) : (
-                  <span className="text-muted-foreground/40 italic">—</span>
-                )}
-              </InfoRow>
-              <InfoRow icon={<Building2 className="h-3.5 w-3.5" />} label="Бенефиты">
-                {project.benefits ? (
-                  <span className="font-medium">{project.benefits}</span>
-                ) : (
-                  <span className="text-muted-foreground/40 italic">—</span>
-                )}
-              </InfoRow>
-              <InfoRow icon={<CreditCard className="h-3.5 w-3.5" />} label="Тип оплаты">
-                {project.paymentType ? (
-                  <span className="font-medium">{project.paymentType}</span>
-                ) : (
-                  <span className="text-muted-foreground/40 italic">—</span>
-                )}
-              </InfoRow>
-              <InfoRow icon={<RefreshCw className="h-3.5 w-3.5" />} label="Пересмотр ЗП">
-                {project.salaryReview ? (
-                  <span className="font-medium">{project.salaryReview}</span>
-                ) : (
-                  <span className="text-muted-foreground/40 italic">—</span>
-                )}
-              </InfoRow>
-              <InfoRow icon={<Laptop className="h-3.5 w-3.5" />} label="Корп. техника">
-                {project.corpTech ? (
-                  <span className="font-medium">{project.corpTech}</span>
-                ) : (
-                  <span className="text-muted-foreground/40 italic">—</span>
-                )}
-              </InfoRow>
-              <div className="flex items-start gap-2 py-3 text-sm">
-                <StickyNote className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
-                <div className="min-w-0">
-                  <p className="text-xs text-muted-foreground mb-1">Общие заметки</p>
-                  {project.notesGeneral ? (
-                    <p className="text-sm whitespace-pre-wrap leading-relaxed">
-                      {project.notesGeneral}
-                    </p>
+        {activeTab === 'overview' && (
+          <motion.div
+            className="grid gap-4 lg:grid-cols-2"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.08 }}
+          >
+            {/* Details card */}
+            <Card className="border-border/40">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Детали проекта
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-0 divide-y divide-border/40">
+                <InfoRow icon={<Briefcase className="h-3.5 w-3.5" />} label="Стек">
+                  {project.techStack ? (
+                    <span className="font-medium">{project.techStack}</span>
                   ) : (
                     <span className="text-muted-foreground/40 italic">—</span>
                   )}
+                </InfoRow>
+                <InfoRow icon={<Users className="h-3.5 w-3.5" />} label="Команда">
+                  {project.teamSize ? (
+                    <span className="font-medium">{project.teamSize}</span>
+                  ) : (
+                    <span className="text-muted-foreground/40 italic">—</span>
+                  )}
+                </InfoRow>
+                <InfoRow icon={<Building2 className="h-3.5 w-3.5" />} label="Бенефиты">
+                  {project.benefits ? (
+                    <span className="font-medium">{project.benefits}</span>
+                  ) : (
+                    <span className="text-muted-foreground/40 italic">—</span>
+                  )}
+                </InfoRow>
+                <InfoRow icon={<CreditCard className="h-3.5 w-3.5" />} label="Тип оплаты">
+                  {project.paymentType ? (
+                    <span className="font-medium">{project.paymentType}</span>
+                  ) : (
+                    <span className="text-muted-foreground/40 italic">—</span>
+                  )}
+                </InfoRow>
+                <InfoRow icon={<RefreshCw className="h-3.5 w-3.5" />} label="Пересмотр ЗП">
+                  {project.salaryReview ? (
+                    <span className="font-medium">{project.salaryReview}</span>
+                  ) : (
+                    <span className="text-muted-foreground/40 italic">—</span>
+                  )}
+                </InfoRow>
+                <InfoRow icon={<Laptop className="h-3.5 w-3.5" />} label="Корп. техника">
+                  {project.corpTech ? (
+                    <span className="font-medium">{project.corpTech}</span>
+                  ) : (
+                    <span className="text-muted-foreground/40 italic">—</span>
+                  )}
+                </InfoRow>
+                <div className="flex items-start gap-2 py-3 text-sm">
+                  <StickyNote className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground mb-1">Общие заметки</p>
+                    {project.notesGeneral ? (
+                      <p className="text-sm whitespace-pre-wrap leading-relaxed">
+                        {project.notesGeneral}
+                      </p>
+                    ) : (
+                      <span className="text-muted-foreground/40 italic">—</span>
+                    )}
+                  </div>
                 </div>
-              </div>
-              {/* Per-project SENIOR share — read-only view. Renders the same
+                {/* Per-project SENIOR share — read-only view. Renders the same
                 ProjectShareInfo widget used in the Финансы по проекту section
                 below so the two stay in sync. RBAC enforcement lives at the
                 API layer; UI ut-fix-round2 also hides this row for HR. */}
-              {canSeeProjectFinance && (
-                <InfoRow icon={<Percent className="h-3.5 w-3.5" />} label="Доля синьора">
-                  <ProjectShareInfo project={project} />
-                </InfoRow>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Team card */}
-          <Card className="border-border/40">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Команда
-                </CardTitle>
-                {canManage && !project.archivedAt && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
-                          disabled={availableToAdd.length === 0}
-                          onClick={() => {
-                            setAddedMemberIds(new Set())
-                            setAddMemberOpen(true)
-                          }}
-                        >
-                          <UserPlus className="h-3 w-3" />
-                          Добавить
-                        </Button>
-                      </span>
-                    </TooltipTrigger>
-                    {availableToAdd.length === 0 && (
-                      <TooltipContent>Некого добавлять</TooltipContent>
-                    )}
-                  </Tooltip>
+                {canSeeProjectFinance && (
+                  <InfoRow icon={<Percent className="h-3.5 w-3.5" />} label="Доля синьора">
+                    <ProjectShareInfo project={project} />
+                  </InfoRow>
                 )}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-1 divide-y divide-border/30">
-              {/* Senior row — hidden for JUNIOR viewers (seniorId masked by backend allowlist).
+              </CardContent>
+            </Card>
+
+            {/* Team card */}
+            <Card className="border-border/40">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Команда
+                  </CardTitle>
+                  {canManage && !project.archivedAt && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
+                            disabled={availableToAdd.length === 0}
+                            onClick={() => {
+                              setAddedMemberIds(new Set())
+                              setAddMemberOpen(true)
+                            }}
+                          >
+                            <UserPlus className="h-3 w-3" />
+                            Добавить
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      {availableToAdd.length === 0 && (
+                        <TooltipContent>Некого добавлять</TooltipContent>
+                      )}
+                    </Tooltip>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-1 divide-y divide-border/30">
+                {/* Senior row — hidden for JUNIOR viewers (seniorId masked by backend allowlist).
                   task-admin-as-senior: when seniorId is null but seniorName is set, the senior
                   is an ADMIN and this viewer lacks profile access — render name without link. */}
-              {senior != null && (
-                <div className="pb-3">
-                  {/* senior.userId is null when backend masks it (admin-project + non-privileged viewer).
+                {senior != null && (
+                  <div className="pb-3">
+                    {/* senior.userId is null when backend masks it (admin-project + non-privileged viewer).
                       In that case we render a non-navigable span via ProfileNameLink nonNavigable prop. */}
-                  {/* LOW fix: when nonNavigable=true (seniorId=null → admin-project without access),
+                    {/* LOW fix: when nonNavigable=true (seniorId=null → admin-project without access),
                       userId is not consumed by ProfileNameLink (renders span). Pass it only when
                       navigation is possible (exactOptionalPropertyTypes: conditional spread). */}
-                  <ProfileNameLink
-                    {...(senior.userId != null ? { userId: senior.userId } : {})}
-                    viewerRole={user?.role ?? 'JUNIOR'}
-                    nonNavigable={senior.userId == null}
-                    className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0"
-                  >
-                    <Avatar className="h-8 w-8 shrink-0 ring-2 ring-[#6366f1]/30">
-                      <AvatarFallback className="text-[11px] font-semibold">
-                        {getInitials(senior.displayName)}
-                      </AvatarFallback>
-                    </Avatar>
-                    {/* MED1: no hover:underline — element may be non-navigable (nonNavigable=true)
+                    <ProfileNameLink
+                      {...(senior.userId != null ? { userId: senior.userId } : {})}
+                      viewerRole={user?.role ?? 'JUNIOR'}
+                      nonNavigable={senior.userId == null}
+                      className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0"
+                    >
+                      <Avatar className="h-8 w-8 shrink-0 ring-2 ring-[#6366f1]/30">
+                        <AvatarFallback className="text-[11px] font-semibold">
+                          {getInitials(senior.displayName)}
+                        </AvatarFallback>
+                      </Avatar>
+                      {/* MED1: no hover:underline — element may be non-navigable (nonNavigable=true)
                         when viewer cannot access the admin's profile. A non-clickable span
                         must not show pointer/underline hover styles. */}
-                    <span className="text-sm font-medium truncate text-primary">
-                      {senior.displayName}
-                    </span>
-                    <Badge variant="senior" className="shrink-0 text-[9px] ml-auto">
-                      Синьор
-                    </Badge>
-                  </ProfileNameLink>
+                      <span className="text-sm font-medium truncate text-primary">
+                        {senior.displayName}
+                      </span>
+                      <Badge variant="senior" className="shrink-0 text-[9px] ml-auto">
+                        Синьор
+                      </Badge>
+                    </ProfileNameLink>
+                  </div>
+                )}
+
+                {/* HR */}
+                <div className="pt-3 pb-3">
+                  {activeHRs.length === 0 ? (
+                    <p className="text-xs text-muted-foreground/50 italic">Не назначен</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {activeHRs.map((m) => (
+                        <MemberRow
+                          key={m.id}
+                          member={m}
+                          canManage={canRemoveMembers}
+                          onRemove={() => setRemoveMemberTarget(m)}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
 
-              {/* HR */}
-              <div className="pt-3 pb-3">
-                {activeHRs.length === 0 ? (
-                  <p className="text-xs text-muted-foreground/50 italic">Не назначен</p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {activeHRs.map((m) => (
-                      <MemberRow
-                        key={m.id}
-                        member={m}
-                        canManage={canRemoveMembers}
-                        onRemove={() => setRemoveMemberTarget(m)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
+                {/* Accountants */}
+                <div className="pt-3 pb-3">
+                  {activeAccountants.length === 0 ? (
+                    <p className="text-xs text-muted-foreground/50 italic">Не назначен</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {activeAccountants.map((m) => (
+                        <MemberRow
+                          key={m.id}
+                          member={m}
+                          canManage={canRemoveMembers}
+                          onRemove={() => setRemoveMemberTarget(m)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
 
-              {/* Accountants */}
-              <div className="pt-3 pb-3">
-                {activeAccountants.length === 0 ? (
-                  <p className="text-xs text-muted-foreground/50 italic">Не назначен</p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {activeAccountants.map((m) => (
-                      <MemberRow
-                        key={m.id}
-                        member={m}
-                        canManage={canRemoveMembers}
-                        onRemove={() => setRemoveMemberTarget(m)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Junior */}
-              <div className="pt-3">
-                {activeJuniors.length === 0 ? (
-                  <p className="text-xs text-amber-500/80 font-medium">Джун не назначен</p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {activeJuniors.map((m) => (
-                      <MemberRow
-                        key={m.id}
-                        member={m}
-                        canManage={canRemoveMembers}
-                        onRemove={() => setRemoveMemberTarget(m)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Past members */}
-              {pastMembers.length > 0 && (
+                {/* Junior */}
                 <div className="pt-3">
-                  <p className="text-[10px] font-semibold text-muted-foreground/40 uppercase tracking-wider mb-2">
-                    Покинули проект
-                  </p>
-                  <div className="space-y-1.5 opacity-50">
-                    {pastMembers.map((m) => (
-                      <MemberRow key={m.id} member={m} canManage={false} onRemove={() => {}} />
-                    ))}
-                  </div>
+                  {activeJuniors.length === 0 ? (
+                    <p className="text-xs text-amber-500/80 font-medium">Джун не назначен</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {activeJuniors.map((m) => (
+                        <MemberRow
+                          key={m.id}
+                          member={m}
+                          canManage={canRemoveMembers}
+                          onRemove={() => setRemoveMemberTarget(m)}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
 
-      {/* Legend section — subject (seniorId/dropId) excluded per RBAC contract */}
-      {activeTab === 'overview' && (
-        <ProjectLegendSection projectId={projectId} canAccess={canAccessLegend} />
-      )}
+                {/* Past members */}
+                {pastMembers.length > 0 && (
+                  <div className="pt-3">
+                    <p className="text-[10px] font-semibold text-muted-foreground/40 uppercase tracking-wider mb-2">
+                      Покинули проект
+                    </p>
+                    <div className="space-y-1.5 opacity-50">
+                      {pastMembers.map((m) => (
+                        <MemberRow key={m.id} member={m} canManage={false} onRemove={() => {}} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
 
-      {/* Credentials section — ADMIN/HR managers (self-hides on 403) */}
-      {activeTab === 'overview' && canManageCredentials && (
-        <ProjectCredentialsSection projectId={projectId} canEdit />
-      )}
+        {/* Legend section — subject (seniorId/dropId) excluded per RBAC contract */}
+        {activeTab === 'overview' && (
+          <ProjectLegendSection projectId={projectId} canAccess={canAccessLegend} />
+        )}
 
-      {activeTab === 'finance' && canSeeProjectFinance && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.16 }}
-        >
-          <ProjectTransactions projectId={projectId} project={project} />
-        </motion.div>
-      )}
+        {/* Credentials section — ADMIN/HR managers (self-hides on 403) */}
+        {activeTab === 'overview' && canManageCredentials && (
+          <ProjectCredentialsSection projectId={projectId} canEdit />
+        )}
 
-      {/* ── Edit / Add member dialog ── */}
-      <Dialog open={editOpen} onOpenChange={(v) => !v && setEditOpen(false)}>
-        <CrmDialogContent maxWidth="max-w-lg">
-          <CrmDialogHeader>
-            <DialogTitle>Редактировать — {project.companyName}</DialogTitle>
-            <DialogDescription className="sr-only">
-              Редактирование параметров проекта: ставка, валюта, домен и настройки доли.
-            </DialogDescription>
-          </CrmDialogHeader>
+        {activeTab === 'finance' && canSeeProjectFinance && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.16 }}
+          >
+            <ProjectTransactions projectId={projectId} project={project} />
+          </motion.div>
+        )}
 
-          <CrmDialogBody>
-            <div className="space-y-5">
-              {canOpenEdit && editOpen && (
-                <ProjectEditFields
-                  form={editForm}
-                  mode="info"
-                  canEditOverride={canEditOverride}
-                  defaultSharePercent={project.seniorSharePercentDefault}
-                  viewerRole={user?.role}
-                  projectId={projectId}
-                />
-              )}
-            </div>
-          </CrmDialogBody>
-          {canOpenEdit && (
+        {/* ── Edit / Add member dialog ── */}
+        <Dialog open={editOpen} onOpenChange={(v) => !v && setEditOpen(false)}>
+          <CrmDialogContent maxWidth="max-w-lg">
+            <CrmDialogHeader>
+              <DialogTitle>Редактировать — {project.companyName}</DialogTitle>
+              <DialogDescription className="sr-only">
+                Редактирование параметров проекта: ставка, валюта, домен и настройки доли.
+              </DialogDescription>
+            </CrmDialogHeader>
+
+            <CrmDialogBody>
+              <div className="space-y-5">
+                {canOpenEdit && editOpen && (
+                  <ProjectEditFields
+                    form={editForm}
+                    mode="info"
+                    canEditOverride={canEditOverride}
+                    defaultSharePercent={project.seniorSharePercentDefault}
+                    viewerRole={user?.role}
+                    projectId={projectId}
+                  />
+                )}
+              </div>
+            </CrmDialogBody>
+            {canOpenEdit && (
+              <CrmDialogFooter>
+                <Button variant="outline" onClick={() => setEditOpen(false)}>
+                  Отмена
+                </Button>
+                <Button
+                  onClick={() => void editForm.handleSubmit()}
+                  disabled={editMutation.isPending}
+                >
+                  {editMutation.isPending ? 'Сохранение...' : 'Сохранить'}
+                </Button>
+              </CrmDialogFooter>
+            )}
+          </CrmDialogContent>
+        </Dialog>
+
+        {/* ── Remove member confirm ── */}
+        <Dialog open={!!removeMemberTarget} onOpenChange={(v) => !v && setRemoveMemberTarget(null)}>
+          <CrmDialogContent maxWidth="sm:max-w-sm">
+            <CrmDialogHeader>
+              <DialogTitle>Убрать участника?</DialogTitle>
+              <DialogDescription className="sr-only">
+                Подтверждение удаления участника из проекта.
+              </DialogDescription>
+            </CrmDialogHeader>
+            <CrmDialogBody className="pb-2">
+              <p className="text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">
+                  {removeMemberTarget?.displayName}
+                </span>{' '}
+                будет убран из проекта.
+              </p>
+            </CrmDialogBody>
             <CrmDialogFooter>
-              <Button variant="outline" onClick={() => setEditOpen(false)}>
+              <Button variant="outline" onClick={() => setRemoveMemberTarget(null)}>
                 Отмена
               </Button>
               <Button
-                onClick={() => void editForm.handleSubmit()}
-                disabled={editMutation.isPending}
+                variant="destructive"
+                onClick={() =>
+                  removeMemberTarget && removeMemberMutation.mutate(removeMemberTarget.userId)
+                }
+                disabled={removeMemberMutation.isPending}
               >
-                {editMutation.isPending ? 'Сохранение...' : 'Сохранить'}
+                Убрать
               </Button>
             </CrmDialogFooter>
-          )}
-        </CrmDialogContent>
-      </Dialog>
+          </CrmDialogContent>
+        </Dialog>
 
-      {/* ── Remove member confirm ── */}
-      <Dialog open={!!removeMemberTarget} onOpenChange={(v) => !v && setRemoveMemberTarget(null)}>
-        <CrmDialogContent maxWidth="sm:max-w-sm">
-          <CrmDialogHeader>
-            <DialogTitle>Убрать участника?</DialogTitle>
-            <DialogDescription className="sr-only">
-              Подтверждение удаления участника из проекта.
-            </DialogDescription>
-          </CrmDialogHeader>
-          <CrmDialogBody className="pb-2">
-            <p className="text-sm text-muted-foreground">
-              <span className="font-medium text-foreground">{removeMemberTarget?.displayName}</span>{' '}
-              будет убран из проекта.
-            </p>
-          </CrmDialogBody>
-          <CrmDialogFooter>
-            <Button variant="outline" onClick={() => setRemoveMemberTarget(null)}>
-              Отмена
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() =>
-                removeMemberTarget && removeMemberMutation.mutate(removeMemberTarget.userId)
-              }
-              disabled={removeMemberMutation.isPending}
-            >
-              Убрать
-            </Button>
-          </CrmDialogFooter>
-        </CrmDialogContent>
-      </Dialog>
-
-      {/* ── Add member ── */}
-      <Dialog
-        open={addMemberOpen}
-        onOpenChange={(v) => {
-          if (!v) setAddMemberOpen(false)
-        }}
-      >
-        <CrmDialogContent maxWidth="max-w-sm">
-          <CrmDialogHeader>
-            <DialogTitle>Добавить участника</DialogTitle>
-            <DialogDescription className="sr-only">
-              Выбор дропа для добавления в проект.
-            </DialogDescription>
-          </CrmDialogHeader>
-          <CrmDialogBody>
-            <div className="max-h-72 space-y-1.5 overflow-y-auto">
-              {availableToAdd.length === 0 && (
-                <p className="text-sm text-muted-foreground py-2">Некого добавлять</p>
-              )}
-              {availableToAdd.map((u) => {
-                const isAdded = addedMemberIds.has(u.id)
-                const isPending = pendingMemberIds.has(u.id)
-                return (
-                  <div key={u.id} className="flex items-center gap-2.5 rounded-md px-3 py-2">
-                    <Avatar className="h-7 w-7 shrink-0">
-                      {u.avatarUrl && <AvatarImage src={u.avatarUrl} />}
-                      <AvatarFallback className="text-[10px]">
-                        {getInitials(u.displayName)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{u.displayName}</p>
-                      <p className="truncate text-xs text-muted-foreground">{u.email}</p>
+        {/* ── Add member ── */}
+        <Dialog
+          open={addMemberOpen}
+          onOpenChange={(v) => {
+            if (!v) setAddMemberOpen(false)
+          }}
+        >
+          <CrmDialogContent maxWidth="max-w-sm">
+            <CrmDialogHeader>
+              <DialogTitle>Добавить участника</DialogTitle>
+              <DialogDescription className="sr-only">
+                Выбор дропа для добавления в проект.
+              </DialogDescription>
+            </CrmDialogHeader>
+            <CrmDialogBody>
+              <div className="max-h-72 space-y-1.5 overflow-y-auto">
+                {availableToAdd.length === 0 && (
+                  <p className="text-sm text-muted-foreground py-2">Некого добавлять</p>
+                )}
+                {availableToAdd.map((u) => {
+                  const isAdded = addedMemberIds.has(u.id)
+                  const isPending = pendingMemberIds.has(u.id)
+                  return (
+                    <div key={u.id} className="flex items-center gap-2.5 rounded-md px-3 py-2">
+                      <Avatar className="h-7 w-7 shrink-0">
+                        {u.avatarUrl && <AvatarImage src={u.avatarUrl} />}
+                        <AvatarFallback className="text-[10px]">
+                          {getInitials(u.displayName)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{u.displayName}</p>
+                        <p className="truncate text-xs text-muted-foreground">{u.email}</p>
+                      </div>
+                      <Badge
+                        variant={ROLE_VARIANT[u.role] ?? 'junior'}
+                        className="shrink-0 text-[9px]"
+                      >
+                        {ROLE_LABELS[u.role] ?? u.role}
+                      </Badge>
+                      <Button
+                        size="sm"
+                        variant={isAdded ? 'outline' : 'default'}
+                        className={cn(
+                          'shrink-0 h-7 text-xs px-2.5',
+                          isAdded && 'text-emerald-500 border-emerald-500/40',
+                        )}
+                        disabled={isAdded || isPending}
+                        onClick={() => {
+                          setPendingMemberIds((prev) => new Set(prev).add(u.id))
+                          addMemberMutation.mutate(u.id)
+                        }}
+                      >
+                        {isAdded ? 'Добавлено' : isPending ? '...' : 'Добавить'}
+                      </Button>
                     </div>
-                    <Badge
-                      variant={ROLE_VARIANT[u.role] ?? 'junior'}
-                      className="shrink-0 text-[9px]"
-                    >
-                      {ROLE_LABELS[u.role] ?? u.role}
-                    </Badge>
-                    <Button
-                      size="sm"
-                      variant={isAdded ? 'outline' : 'default'}
-                      className={cn(
-                        'shrink-0 h-7 text-xs px-2.5',
-                        isAdded && 'text-emerald-500 border-emerald-500/40',
-                      )}
-                      disabled={isAdded || isPending}
-                      onClick={() => {
-                        setPendingMemberIds((prev) => new Set(prev).add(u.id))
-                        addMemberMutation.mutate(u.id)
-                      }}
-                    >
-                      {isAdded ? 'Добавлено' : isPending ? '...' : 'Добавить'}
-                    </Button>
-                  </div>
-                )
-              })}
-            </div>
-          </CrmDialogBody>
-        </CrmDialogContent>
-      </Dialog>
+                  )
+                })}
+              </div>
+            </CrmDialogBody>
+          </CrmDialogContent>
+        </Dialog>
 
-      {/* ut-28: Archive confirm dialog — triggered by explicit Archive button. */}
-      {archiveDialogOpen && (
-        <ArchiveConfirmDialog
-          entityType="project"
-          entityId={project.id}
-          entityName={project.name}
-          onClose={() => setArchiveDialogOpen(false)}
-        />
-      )}
+        {/* ut-28: Archive confirm dialog — triggered by explicit Archive button. */}
+        {archiveDialogOpen && (
+          <ArchiveConfirmDialog
+            entityType="project"
+            entityId={project.id}
+            entityName={project.name}
+            onClose={() => setArchiveDialogOpen(false)}
+          />
+        )}
 
-      {/* Cascade unarchive modal — paired senior/team restore. */}
-      {cascadeEntities && (
-        <ProjectCascadeUnarchiveModal
-          projectId={project.id}
-          projectName={project.name}
-          entities={cascadeEntities}
-          onClose={() => setCascadeEntities(null)}
-        />
-      )}
+        {/* Cascade unarchive modal — paired senior/team restore. */}
+        {cascadeEntities && (
+          <ProjectCascadeUnarchiveModal
+            projectId={project.id}
+            projectName={project.name}
+            entities={cascadeEntities}
+            onClose={() => setCascadeEntities(null)}
+          />
+        )}
+      </div>
     </div>
   )
 }

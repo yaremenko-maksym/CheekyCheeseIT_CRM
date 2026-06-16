@@ -375,7 +375,7 @@ function ProjectsPage() {
   ]
 
   return (
-    <div className="flex flex-col gap-0">
+    <div className="flex flex-col h-full">
       <StickyPageHeader>
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
@@ -474,364 +474,375 @@ function ProjectsPage() {
         </Card>
       </StickyPageHeader>
 
-      <div className="pt-4 space-y-6">
-        {/* Empty state */}
-        {filtered.length === 0 && (
-          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
-            <Briefcase className="h-10 w-10 text-muted-foreground/30" />
-            <p className="mt-4 text-sm font-medium">
-              {effectiveIsArchivedView ? 'Архив пуст' : 'Проектов пока нет'}
-            </p>
-            {canManage && !effectiveIsArchivedView && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="mt-4"
-                onClick={() => setShowCreate(true)}
-              >
-                <Plus className="mr-1.5 h-4 w-4" />
-                Создать проект
-              </Button>
-            )}
-          </div>
-        )}
+      <div
+        className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6"
+        style={{ scrollbarGutter: 'stable' }}
+      >
+        <div className="space-y-6">
+          {/* Empty state */}
+          {filtered.length === 0 && (
+            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
+              <Briefcase className="h-10 w-10 text-muted-foreground/30" />
+              <p className="mt-4 text-sm font-medium">
+                {effectiveIsArchivedView ? 'Архив пуст' : 'Проектов пока нет'}
+              </p>
+              {canManage && !effectiveIsArchivedView && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-4"
+                  onClick={() => setShowCreate(true)}
+                >
+                  <Plus className="mr-1.5 h-4 w-4" />
+                  Создать проект
+                </Button>
+              )}
+            </div>
+          )}
 
-        {/* ut-41 + ut-42: row-list layout (was grid cards). Legacy
+          {/* ut-41 + ut-42: row-list layout (was grid cards). Legacy
           `project-card-${id}` testid is preserved on the outer wrapper so
           existing E2E specs keep working; new `project-row-${id}` lives on
           the inner ProjectRow. */}
-        {filtered.length > 0 && (
-          <Card>
-            <CardContent className="p-3">
-              <motion.div className="space-y-1" data-testid="projects-list">
-                <AnimatePresence mode="popLayout" initial={false}>
-                  {filtered.map((project) => {
-                    const isArchived = !!project.archivedAt
-                    return (
-                      <motion.div
-                        key={project.id}
-                        variants={item}
-                        layout="position"
-                        initial={{ opacity: 0, y: -6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.08, ease: 'easeOut' }}
-                        data-testid={`project-card-${project.id}`}
-                        data-archived={isArchived ? 'true' : 'false'}
-                      >
-                        <ProjectRow project={project} />
-                      </motion.div>
-                    )
-                  })}
-                </AnimatePresence>
-              </motion.div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ── Create project dialog ── */}
-        <Dialog
-          open={showCreate}
-          onOpenChange={(open) => {
-            if (!open) {
-              setShowCreate(false)
-              createForm.reset()
-            }
-          }}
-        >
-          <CrmDialogContent maxWidth="max-w-md">
-            <CrmDialogHeader>
-              <DialogTitle>Новый проект</DialogTitle>
-              <DialogDescription className="sr-only">Создание проекта</DialogDescription>
-            </CrmDialogHeader>
-            <CrmDialogBody>
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label>Логотип компании</Label>
-                  <ImageUploadField
-                    value={{
-                      documentId: (createForm.state.values as { logoDocumentId: string | null })
-                        .logoDocumentId,
-                      externalUrl: (createForm.state.values as { logoExternalUrl: string | null })
-                        .logoExternalUrl,
-                    }}
-                    onChange={(v) => {
-                      createForm.setFieldValue('logoDocumentId', v.documentId)
-                      createForm.setFieldValue('logoExternalUrl', v.externalUrl)
-                    }}
-                    category="LOGO"
-                    urlPlaceholder="https://example.com/logo.png"
-                    testId="create-project-logo"
-                  />
-                </div>
-
-                <createForm.Field
-                  name="name"
-                  validators={{
-                    onBlur: ({ value }: { value: string }) => {
-                      const r = createProjectSchema.shape.name.safeParse(value.trim())
-                      return r.success ? undefined : r.error.issues[0]?.message
-                    },
-                  }}
-                >
-                  {(field: AnyField) => {
-                    const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
-                    return (
-                      <div className="space-y-1.5">
-                        <Label className={cn(err && 'text-destructive')}>Название проекта</Label>
-                        <Input
-                          value={field.state.value}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                            field.handleChange(e.target.value)
-                          }
-                          onBlur={field.handleBlur}
-                          placeholder="AI Platform v2"
-                          className={cn(
-                            err && 'border-destructive focus-visible:ring-destructive/30',
-                          )}
-                        />
-                        {err && <p className="text-xs text-destructive">{err}</p>}
-                      </div>
-                    )
-                  }}
-                </createForm.Field>
-
-                <createForm.Field
-                  name="companyName"
-                  validators={{
-                    onBlur: ({ value }: { value: string }) => {
-                      const r = createProjectSchema.shape.companyName.safeParse(value.trim())
-                      return r.success ? undefined : r.error.issues[0]?.message
-                    },
-                  }}
-                >
-                  {(field: AnyField) => {
-                    const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
-                    return (
-                      <div className="space-y-1.5">
-                        <Label className={cn(err && 'text-destructive')}>Компания</Label>
-                        <Input
-                          value={field.state.value}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                            field.handleChange(e.target.value)
-                          }
-                          onBlur={field.handleBlur}
-                          placeholder="TechCorp AI"
-                          className={cn(
-                            err && 'border-destructive focus-visible:ring-destructive/30',
-                          )}
-                        />
-                        {err && <p className="text-xs text-destructive">{err}</p>}
-                      </div>
-                    )
-                  }}
-                </createForm.Field>
-
-                <createForm.Field name="domain">
-                  {(field: AnyField) => (
-                    <div className="space-y-1.5">
-                      <Label>Домен</Label>
-                      <select
-                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
-                        value={field.state.value}
-                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                          field.handleChange(e.target.value as ItDomain)
-                        }
-                      >
-                        {IT_DOMAINS.map((d) => (
-                          <option key={d} value={d}>
-                            {d}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                </createForm.Field>
-
-                <createForm.Field
-                  name="seniorId"
-                  validators={{
-                    onBlur: ({ value }: { value: string }) => {
-                      const r = createProjectSchema.shape.seniorId.safeParse(value)
-                      return r.success ? undefined : 'Выберите синьора'
-                    },
-                  }}
-                >
-                  {(field: AnyField) => {
-                    const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
-                    return (
-                      <div className="space-y-1.5">
-                        <Label className={cn(err && 'text-destructive')}>Синьор</Label>
-                        <select
-                          className={cn(
-                            'w-full rounded-md border bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring',
-                            err ? 'border-destructive' : 'border-input',
-                          )}
-                          value={field.state.value}
-                          onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                            field.handleChange(e.target.value)
-                          }
-                          onBlur={field.handleBlur}
+          {filtered.length > 0 && (
+            <Card>
+              <CardContent className="p-3">
+                <motion.div className="space-y-1" data-testid="projects-list">
+                  <AnimatePresence mode="popLayout" initial={false}>
+                    {filtered.map((project) => {
+                      const isArchived = !!project.archivedAt
+                      return (
+                        <motion.div
+                          key={project.id}
+                          variants={item}
+                          layout="position"
+                          initial={{ opacity: 0, y: -6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ duration: 0.08, ease: 'easeOut' }}
+                          data-testid={`project-card-${project.id}`}
+                          data-archived={isArchived ? 'true' : 'false'}
                         >
-                          <option value="">— выберите синьора —</option>
-                          {seniorUsers.map((u) => (
-                            <option key={u.id} value={u.id}>
-                              {u.displayName}
-                            </option>
-                          ))}
-                        </select>
-                        {err && <p className="text-xs text-destructive">{err}</p>}
-                      </div>
-                    )
-                  }}
-                </createForm.Field>
+                          <ProjectRow project={project} />
+                        </motion.div>
+                      )
+                    })}
+                  </AnimatePresence>
+                </motion.div>
+              </CardContent>
+            </Card>
+          )}
 
-                {/* Drop role - phase 2. Optional Select shown only when at least
-                one DROP user exists. Empty = «не выбран» — regular senior-
-                project (legacy regression path). Otherwise — drop-project. */}
-                {dropUsers.length > 0 && (
-                  <createForm.Field name="dropId">
+          {/* ── Create project dialog ── */}
+          <Dialog
+            open={showCreate}
+            onOpenChange={(open) => {
+              if (!open) {
+                setShowCreate(false)
+                createForm.reset()
+              }
+            }}
+          >
+            <CrmDialogContent maxWidth="max-w-md">
+              <CrmDialogHeader>
+                <DialogTitle>Новый проект</DialogTitle>
+                <DialogDescription className="sr-only">Создание проекта</DialogDescription>
+              </CrmDialogHeader>
+              <CrmDialogBody>
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label>Логотип компании</Label>
+                    <ImageUploadField
+                      value={{
+                        documentId: (createForm.state.values as { logoDocumentId: string | null })
+                          .logoDocumentId,
+                        externalUrl: (createForm.state.values as { logoExternalUrl: string | null })
+                          .logoExternalUrl,
+                      }}
+                      onChange={(v) => {
+                        createForm.setFieldValue('logoDocumentId', v.documentId)
+                        createForm.setFieldValue('logoExternalUrl', v.externalUrl)
+                      }}
+                      category="LOGO"
+                      urlPlaceholder="https://example.com/logo.png"
+                      testId="create-project-logo"
+                    />
+                  </div>
+
+                  <createForm.Field
+                    name="name"
+                    validators={{
+                      onBlur: ({ value }: { value: string }) => {
+                        const r = createProjectSchema.shape.name.safeParse(value.trim())
+                        return r.success ? undefined : r.error.issues[0]?.message
+                      },
+                    }}
+                  >
+                    {(field: AnyField) => {
+                      const err = field.state.meta.isTouched
+                        ? field.state.meta.errors[0]
+                        : undefined
+                      return (
+                        <div className="space-y-1.5">
+                          <Label className={cn(err && 'text-destructive')}>Название проекта</Label>
+                          <Input
+                            value={field.state.value}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                              field.handleChange(e.target.value)
+                            }
+                            onBlur={field.handleBlur}
+                            placeholder="AI Platform v2"
+                            className={cn(
+                              err && 'border-destructive focus-visible:ring-destructive/30',
+                            )}
+                          />
+                          {err && <p className="text-xs text-destructive">{err}</p>}
+                        </div>
+                      )
+                    }}
+                  </createForm.Field>
+
+                  <createForm.Field
+                    name="companyName"
+                    validators={{
+                      onBlur: ({ value }: { value: string }) => {
+                        const r = createProjectSchema.shape.companyName.safeParse(value.trim())
+                        return r.success ? undefined : r.error.issues[0]?.message
+                      },
+                    }}
+                  >
+                    {(field: AnyField) => {
+                      const err = field.state.meta.isTouched
+                        ? field.state.meta.errors[0]
+                        : undefined
+                      return (
+                        <div className="space-y-1.5">
+                          <Label className={cn(err && 'text-destructive')}>Компания</Label>
+                          <Input
+                            value={field.state.value}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                              field.handleChange(e.target.value)
+                            }
+                            onBlur={field.handleBlur}
+                            placeholder="TechCorp AI"
+                            className={cn(
+                              err && 'border-destructive focus-visible:ring-destructive/30',
+                            )}
+                          />
+                          {err && <p className="text-xs text-destructive">{err}</p>}
+                        </div>
+                      )
+                    }}
+                  </createForm.Field>
+
+                  <createForm.Field name="domain">
                     {(field: AnyField) => (
                       <div className="space-y-1.5">
-                        <Label>Дроп (опционально)</Label>
+                        <Label>Домен</Label>
                         <select
-                          data-testid="create-project-drop-select"
                           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
                           value={field.state.value}
                           onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                            field.handleChange(e.target.value)
+                            field.handleChange(e.target.value as ItDomain)
                           }
-                          onBlur={field.handleBlur}
                         >
-                          <option value="">— не выбран —</option>
-                          {dropUsers.map((u) => (
-                            <option key={u.id} value={u.id}>
-                              {u.displayName}
+                          {IT_DOMAINS.map((d) => (
+                            <option key={d} value={d}>
+                              {d}
                             </option>
                           ))}
                         </select>
-                        <p className="text-xs text-muted-foreground">
-                          Если выбран — приходы по проекту пойдут через дропа (доля 5% по
-                          умолчанию).
-                        </p>
                       </div>
                     )}
                   </createForm.Field>
-                )}
 
-                <createForm.Subscribe
-                  selector={(s: { values: { rate: number; currency: string } }) => ({
-                    rate: s.values.rate,
-                    currency: s.values.currency,
-                  })}
-                >
-                  {({ rate, currency }: { rate: number; currency: string }) => (
-                    <AmountCurrencyInput
-                      amount={String(rate ?? '')}
-                      currency={currency as Currency}
-                      onAmountChange={(v) =>
-                        createForm.setFieldValue('rate', Number(v) as unknown as number)
-                      }
-                      onCurrencyChange={(v) =>
-                        createForm.setFieldValue('currency', v as 'USDT' | 'USD' | 'EUR' | 'UAH')
-                      }
-                      label="Ставка"
-                      placeholder="5000"
-                    />
+                  <createForm.Field
+                    name="seniorId"
+                    validators={{
+                      onBlur: ({ value }: { value: string }) => {
+                        const r = createProjectSchema.shape.seniorId.safeParse(value)
+                        return r.success ? undefined : 'Выберите синьора'
+                      },
+                    }}
+                  >
+                    {(field: AnyField) => {
+                      const err = field.state.meta.isTouched
+                        ? field.state.meta.errors[0]
+                        : undefined
+                      return (
+                        <div className="space-y-1.5">
+                          <Label className={cn(err && 'text-destructive')}>Синьор</Label>
+                          <select
+                            className={cn(
+                              'w-full rounded-md border bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring',
+                              err ? 'border-destructive' : 'border-input',
+                            )}
+                            value={field.state.value}
+                            onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                              field.handleChange(e.target.value)
+                            }
+                            onBlur={field.handleBlur}
+                          >
+                            <option value="">— выберите синьора —</option>
+                            {seniorUsers.map((u) => (
+                              <option key={u.id} value={u.id}>
+                                {u.displayName}
+                              </option>
+                            ))}
+                          </select>
+                          {err && <p className="text-xs text-destructive">{err}</p>}
+                        </div>
+                      )
+                    }}
+                  </createForm.Field>
+
+                  {/* Drop role - phase 2. Optional Select shown only when at least
+                one DROP user exists. Empty = «не выбран» — regular senior-
+                project (legacy regression path). Otherwise — drop-project. */}
+                  {dropUsers.length > 0 && (
+                    <createForm.Field name="dropId">
+                      {(field: AnyField) => (
+                        <div className="space-y-1.5">
+                          <Label>Дроп (опционально)</Label>
+                          <select
+                            data-testid="create-project-drop-select"
+                            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+                            value={field.state.value}
+                            onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                              field.handleChange(e.target.value)
+                            }
+                            onBlur={field.handleBlur}
+                          >
+                            <option value="">— не выбран —</option>
+                            {dropUsers.map((u) => (
+                              <option key={u.id} value={u.id}>
+                                {u.displayName}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-muted-foreground">
+                            Если выбран — приходы по проекту пойдут через дропа (доля 5% по
+                            умолчанию).
+                          </p>
+                        </div>
+                      )}
+                    </createForm.Field>
                   )}
-                </createForm.Subscribe>
 
-                <createForm.Field name="startDate">
-                  {(field: AnyField) => (
-                    <div className="space-y-1.5">
-                      <Label>Дата начала</Label>
-                      <Input
-                        type="date"
-                        value={field.state.value}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                          field.handleChange(e.target.value)
+                  <createForm.Subscribe
+                    selector={(s: { values: { rate: number; currency: string } }) => ({
+                      rate: s.values.rate,
+                      currency: s.values.currency,
+                    })}
+                  >
+                    {({ rate, currency }: { rate: number; currency: string }) => (
+                      <AmountCurrencyInput
+                        amount={String(rate ?? '')}
+                        currency={currency as Currency}
+                        onAmountChange={(v) =>
+                          createForm.setFieldValue('rate', Number(v) as unknown as number)
                         }
+                        onCurrencyChange={(v) =>
+                          createForm.setFieldValue('currency', v as 'USDT' | 'USD' | 'EUR' | 'UAH')
+                        }
+                        label="Ставка"
+                        placeholder="5000"
                       />
-                    </div>
-                  )}
-                </createForm.Field>
+                    )}
+                  </createForm.Subscribe>
 
-                <div className="border-t border-border pt-3 space-y-3">
-                  {(
-                    [
-                      'techStack',
-                      'teamSize',
-                      'benefits',
-                      'paymentType',
-                      'salaryReview',
-                      'corpTech',
-                    ] as const
-                  ).map((fieldName) => {
-                    const labels: Record<string, string> = {
-                      techStack: 'Стек технологий',
-                      teamSize: 'Состав команды',
-                      benefits: 'Бенефиты',
-                      paymentType: 'Тип оплаты',
-                      salaryReview: 'Пересмотр ЗП',
-                      corpTech: 'Корп. технологии',
-                    }
-                    return (
-                      <createForm.Field key={fieldName} name={fieldName}>
-                        {(field: AnyField) => (
-                          <div className="space-y-1.5">
-                            <Label>{labels[fieldName]}</Label>
-                            <Input
-                              value={field.state.value as string}
-                              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                                field.handleChange(e.target.value)
-                              }
-                              placeholder=""
-                            />
-                          </div>
-                        )}
-                      </createForm.Field>
-                    )
-                  })}
-                  <createForm.Field name="notesGeneral">
+                  <createForm.Field name="startDate">
                     {(field: AnyField) => (
                       <div className="space-y-1.5">
-                        <Label>Общие заметки</Label>
-                        <textarea
-                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring min-h-20 resize-y"
-                          value={field.state.value as string}
-                          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                        <Label>Дата начала</Label>
+                        <Input
+                          type="date"
+                          value={field.state.value}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                             field.handleChange(e.target.value)
                           }
-                          placeholder=""
                         />
                       </div>
                     )}
                   </createForm.Field>
-                </div>
-              </div>
-            </CrmDialogBody>
-            <CrmDialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowCreate(false)
-                  createForm.reset()
-                }}
-              >
-                Отмена
-              </Button>
-              <Button
-                onClick={() => void createForm.handleSubmit()}
-                disabled={createMutation.isPending}
-              >
-                {createMutation.isPending ? 'Создание...' : 'Создать'}
-              </Button>
-            </CrmDialogFooter>
-          </CrmDialogContent>
-        </Dialog>
 
-        {/* ut-27 + ut-38: Archive + Unarchive (including cascade modal) live on
+                  <div className="border-t border-border pt-3 space-y-3">
+                    {(
+                      [
+                        'techStack',
+                        'teamSize',
+                        'benefits',
+                        'paymentType',
+                        'salaryReview',
+                        'corpTech',
+                      ] as const
+                    ).map((fieldName) => {
+                      const labels: Record<string, string> = {
+                        techStack: 'Стек технологий',
+                        teamSize: 'Состав команды',
+                        benefits: 'Бенефиты',
+                        paymentType: 'Тип оплаты',
+                        salaryReview: 'Пересмотр ЗП',
+                        corpTech: 'Корп. технологии',
+                      }
+                      return (
+                        <createForm.Field key={fieldName} name={fieldName}>
+                          {(field: AnyField) => (
+                            <div className="space-y-1.5">
+                              <Label>{labels[fieldName]}</Label>
+                              <Input
+                                value={field.state.value as string}
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                  field.handleChange(e.target.value)
+                                }
+                                placeholder=""
+                              />
+                            </div>
+                          )}
+                        </createForm.Field>
+                      )
+                    })}
+                    <createForm.Field name="notesGeneral">
+                      {(field: AnyField) => (
+                        <div className="space-y-1.5">
+                          <Label>Общие заметки</Label>
+                          <textarea
+                            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring min-h-20 resize-y"
+                            value={field.state.value as string}
+                            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                              field.handleChange(e.target.value)
+                            }
+                            placeholder=""
+                          />
+                        </div>
+                      )}
+                    </createForm.Field>
+                  </div>
+                </div>
+              </CrmDialogBody>
+              <CrmDialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowCreate(false)
+                    createForm.reset()
+                  }}
+                >
+                  Отмена
+                </Button>
+                <Button
+                  onClick={() => void createForm.handleSubmit()}
+                  disabled={createMutation.isPending}
+                >
+                  {createMutation.isPending ? 'Создание...' : 'Создать'}
+                </Button>
+              </CrmDialogFooter>
+            </CrmDialogContent>
+          </Dialog>
+
+          {/* ut-27 + ut-38: Archive + Unarchive (including cascade modal) live on
             the project detail page header — list cards have no inline actions. */}
+        </div>
       </div>
     </div>
   )
