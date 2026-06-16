@@ -19,7 +19,6 @@ import type {
   DropPaymentStatus,
   PaginatedDropIncomes,
   SeniorSummaryDto,
-  SalaryStatus,
 } from '@crm/shared'
 import { MAKSYM_ID, KOSTYA_ID } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
@@ -37,6 +36,7 @@ import {
 import { InvoicesService } from '../invoices/invoices.service'
 import { DocumentsService } from '../documents/documents.service'
 import { resolveSeniorShare } from './senior-share-resolver'
+import { getOwnSalaryStatus } from './salary-status.helper'
 
 /** Default drop-share percentage when `users.dropSharePercent` is NULL.
  *  Used in both `computeDropDistribution` (write-path) and `getSummary`
@@ -2611,7 +2611,7 @@ export class TransactionsService {
     }, 0)
 
     // ── 4. Own current-month salary status (same shape as HR dashboard) ────────
-    const mySalaryStatus = await this.getOwnSalaryStatus(selfId, salaryMonth)
+    const mySalaryStatus = await getOwnSalaryStatus(this.db.db, selfId, salaryMonth)
 
     return {
       activeProjects: {
@@ -2638,41 +2638,6 @@ export class TransactionsService {
           total: ownProjects.length,
         },
       },
-    }
-  }
-
-  /**
-   * The caller's own SALARY transaction for `salaryMonth` (YYYY-MM), or null if
-   * none exists yet. Mirror of InterviewsService.getOwnSalaryStatus (kept local
-   * to avoid a cross-module dependency from FinanceModule → InterviewsModule for
-   * a 10-line read). Only PENDING / PAID / LOCKED are valid SALARY statuses; any
-   * other status maps to null (defensive — should not occur).
-   */
-  private async getOwnSalaryStatus(
-    userId: string,
-    salaryMonth: string,
-  ): Promise<SeniorSummaryDto['mySalaryStatus']> {
-    const salaryRow = await this.db.db.query.transactions.findFirst({
-      where: and(
-        eq(transactions.type, 'SALARY'),
-        eq(transactions.receiverId, userId),
-        eq(transactions.salaryMonth, salaryMonth),
-      ),
-    })
-
-    if (!salaryRow) return null
-
-    const validStatuses: SalaryStatus[] = ['PENDING', 'PAID', 'LOCKED']
-    if (!validStatuses.includes(salaryRow.status as SalaryStatus)) return null
-
-    // task-senior-dashboard-enhance: surface the salary row's REAL currency
-    // (USDT / USD / EUR / UAH) so the dashboard formats the amount in its own
-    // currency — fixes the `$`-hardcode that showed a 50 000 UAH salary as
-    // $50 000. No conversion is performed; `amount` stays in `currency`.
-    return {
-      amount: Number(salaryRow.amount),
-      currency: salaryRow.currency,
-      status: salaryRow.status as SalaryStatus,
     }
   }
 
