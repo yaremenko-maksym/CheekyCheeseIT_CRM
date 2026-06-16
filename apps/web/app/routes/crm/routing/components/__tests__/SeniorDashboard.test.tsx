@@ -73,6 +73,22 @@ function makeSummary(overrides: Partial<SeniorSummaryDto> = {}): SeniorSummaryDt
     pendingPayouts: { count: 3, amount: 2400 },
     // Salary is now currency-aware — UAH proves the bug fix end-to-end.
     mySalaryStatus: { amount: 50000, currency: 'UAH', status: 'PENDING' },
+    // task-senior-stats-block — «Статистика заработка» (additive). 8-month
+    // history (oldest → newest); newest = «this month», prev = «last month».
+    earningsStats: {
+      lastMonthIncome: 900,
+      monthlyHistory: [
+        { month: '2025-11', amount: 300 },
+        { month: '2025-12', amount: 450 },
+        { month: '2026-01', amount: 0 },
+        { month: '2026-02', amount: 700 },
+        { month: '2026-03', amount: 1100 },
+        { month: '2026-04', amount: 850 },
+        { month: '2026-05', amount: 900 },
+        { month: '2026-06', amount: 1200 },
+      ],
+      companyIncomeProgress: { received: 1, total: 2 },
+    },
     ...overrides,
   }
 }
@@ -249,6 +265,92 @@ describe('SeniorDashboard', () => {
       const status = screen.getByTestId('senior-salary-status')
       expect(status).toHaveTextContent('—')
       expect(status).toHaveTextContent('Нет начисления за месяц')
+    })
+  })
+
+  describe('«Статистика заработка» block (task-senior-stats-block)', () => {
+    function mountWith(overrides: Partial<SeniorSummaryDto> = {}) {
+      useSeniorSummaryMock.mockReturnValue({
+        data: makeSummary(overrides),
+        isLoading: false,
+        isError: false,
+      })
+      renderDashboard()
+    }
+
+    it('renders the stats heading + total tile with sparkline', () => {
+      mountWith()
+      expect(screen.getByTestId('earnings-stats-heading')).toHaveTextContent('Статистика заработка')
+      expect(screen.getByTestId('earnings-total-tile')).toBeInTheDocument()
+      // Total reuses seniorShareIncome.total ($5,500.00).
+      expect(screen.getByTestId('earnings-total-value')).toHaveTextContent('$5,500.00')
+      // Sparkline rendered (non-empty history).
+      expect(screen.getByTestId('earnings-sparkline')).toBeInTheDocument()
+      expect(screen.queryByTestId('earnings-sparkline-empty')).not.toBeInTheDocument()
+    })
+
+    it('shows the «+$X этот месяц» badge when this-month income > 0', () => {
+      mountWith()
+      const badge = screen.getByTestId('earnings-total-month-badge')
+      expect(badge).toHaveTextContent('$1,200.00')
+      expect(badge).toHaveTextContent('этот месяц')
+    })
+
+    it('hides the month badge when this-month income is 0', () => {
+      mountWith({ seniorShareIncome: { total: 5500, thisMonth: 0, currency: 'USD' } })
+      expect(screen.queryByTestId('earnings-total-month-badge')).not.toBeInTheDocument()
+    })
+
+    it('renders «Прошлый месяц» with lastMonthIncome', () => {
+      mountWith()
+      const tile = screen.getByTestId('earnings-last-month-tile')
+      expect(tile).toHaveTextContent('Прошлый месяц')
+      expect(screen.getByTestId('earnings-last-month-value')).toHaveTextContent('$900.00')
+      // Month label derives from the history tail (penultimate = 2026-05).
+      expect(tile).toHaveTextContent('Май 2026')
+    })
+
+    it('renders «Этот месяц» with the X/N arrival progress bar (NO money expected)', () => {
+      mountWith()
+      const tile = screen.getByTestId('earnings-this-month-tile')
+      expect(tile).toHaveTextContent('Этот месяц')
+      expect(tile).toHaveTextContent('Июнь 2026')
+      expect(screen.getByTestId('earnings-this-month-value')).toHaveTextContent('$1,200.00')
+      // Progress: received 1 / total 2 → «1/2 ... 50%».
+      expect(screen.getByTestId('earnings-progress-fraction')).toHaveTextContent('1/2')
+      expect(screen.getByTestId('earnings-company-progress')).toHaveTextContent(
+        'приходов от компаний',
+      )
+      expect(screen.getByTestId('earnings-company-progress')).toHaveTextContent('50%')
+      const bar = screen.getByRole('progressbar', { name: 'Приходы от компаний за этот месяц' })
+      expect(bar).toHaveAttribute('aria-valuenow', '1')
+      expect(bar).toHaveAttribute('aria-valuemax', '2')
+    })
+
+    it('does NOT render any money "ожидается получить" / expected-money figure', () => {
+      mountWith()
+      // The forbidden money-expected wording must never appear in the stats block.
+      expect(screen.queryByText(/ожидается получить/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/ожидается ещё получить/i)).not.toBeInTheDocument()
+    })
+
+    it('empty state: zero income → flat sparkline still rendered, 0/0 progress 0%', () => {
+      mountWith({
+        seniorShareIncome: { total: 0, thisMonth: 0, currency: 'USD' },
+        earningsStats: {
+          lastMonthIncome: 0,
+          monthlyHistory: [
+            { month: '2026-05', amount: 0 },
+            { month: '2026-06', amount: 0 },
+          ],
+          companyIncomeProgress: { received: 0, total: 0 },
+        },
+      })
+      expect(screen.getByTestId('earnings-total-value')).toHaveTextContent('$0.00')
+      // Non-empty array → sparkline (flat), not the empty placeholder.
+      expect(screen.getByTestId('earnings-sparkline')).toBeInTheDocument()
+      expect(screen.getByTestId('earnings-progress-fraction')).toHaveTextContent('0/0')
+      expect(screen.getByTestId('earnings-company-progress')).toHaveTextContent('0%')
     })
   })
 

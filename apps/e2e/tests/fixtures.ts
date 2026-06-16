@@ -1066,7 +1066,25 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
       },
       seniorShareIncome: { total: 8400, thisMonth: 1200, currency: 'USD' },
       pendingPayouts: { count: 1, amount: 600 },
-      mySalaryStatus: { amount: 1200, status: 'PENDING' },
+      mySalaryStatus: { amount: 1200, currency: 'USD', status: 'PENDING' },
+      // task-senior-stats-block — «Статистика заработка» (required in DTO). The
+      // hook .parse()s the response, so this MUST carry the new shape or the
+      // SENIOR dashboard renders the error state. Values keep the dashboard in a
+      // loaded state (non-empty sparkline + a partial X/N arrival progress).
+      earningsStats: {
+        lastMonthIncome: 4200,
+        monthlyHistory: [
+          { month: '2025-11', amount: 2200 },
+          { month: '2025-12', amount: 3100 },
+          { month: '2026-01', amount: 2800 },
+          { month: '2026-02', amount: 3600 },
+          { month: '2026-03', amount: 4100 },
+          { month: '2026-04', amount: 3900 },
+          { month: '2026-05', amount: 4200 },
+          { month: '2026-06', amount: 1200 },
+        ],
+        companyIncomeProgress: { received: 1, total: 2 },
+      },
     }),
   )
   await page.route(new RegExp(`${API_RE}/finance/transactions(\\?.*)?$`), (r) =>
