@@ -1,4 +1,5 @@
 import { api } from '@/lib/axios'
+import { incomeComplianceOverviewSchema, type IncomeComplianceOverviewDto } from '@crm/shared'
 import type {
   FinanceSummaryDto,
   TransactionDto,
@@ -95,6 +96,18 @@ export const financeApi = {
 
   // Summary
   getSummary: () => api.get<FinanceSummaryDto>('/finance/summary').then((r) => r.data),
+
+  // «Контроль приходов» (task-income-compliance) — ADMIN + ACCOUNTANT only.
+  // Company-wide overview of which income receivers have / have not registered a
+  // counted (VALIDATED|PAID) income per active project for the target month.
+  // Response is Zod-validated (`.parse`) — the endpoint sits behind an RBAC gate,
+  // so a non-privileged caller never reaches it (and would 403).
+  getIncomeCompliance: (month?: string): Promise<IncomeComplianceOverviewDto> =>
+    api
+      .get('/finance/income-compliance', {
+        ...(month !== undefined && { params: { month } }),
+      })
+      .then((r) => incomeComplianceOverviewSchema.parse(r.data)),
 
   // NBU exchange rate (date = YYYYMMDD, optional)
   getExchangeRate: (date?: string) =>
