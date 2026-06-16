@@ -771,9 +771,11 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
 }
 
 function IncomeComplianceSection() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['income-compliance'],
     queryFn: () => financeApi.getIncomeCompliance(),
+    // Financial aggregate — avoid refetching on every window focus.
+    staleTime: 60_000,
   })
 
   return (
@@ -794,6 +796,10 @@ function IncomeComplianceSection() {
           </div>
           <Skeleton className="h-40 w-full rounded-xl" />
         </div>
+      ) : isError ? (
+        <p className="text-sm text-muted-foreground" data-testid="income-compliance-error">
+          Не удалось загрузить данные контроля приходов.
+        </p>
       ) : data ? (
         <IncomeComplianceBody data={data} />
       ) : null}

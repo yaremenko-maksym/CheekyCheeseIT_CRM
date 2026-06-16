@@ -75,7 +75,7 @@ export class InterviewsController {
    * explicit ordering keeps it unambiguous.
    *
    * Returns `hrSummarySchema` shape ({ openInterviews, hiredThisMonth,
-   * mySalaryStatus }), parsed at the wire boundary.
+   * activeProjects }), parsed at the wire boundary.
    */
   @Get('hr-summary')
   @Roles('ADMIN', 'HR')

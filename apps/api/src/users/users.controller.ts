@@ -70,10 +70,12 @@ export class UsersController {
     // ADMIN on the finance page. CreateTransactionDialog needs the directory for
     // the admin set — SALARY receiver picker, ADMIN_TRANSFER party picker, and
     // identifying admin-owned projects for ACCOUNTANT-registered ADMIN_INCOME.
-    // The list projection (UserListItem) excludes PII (legalFullName); the
-    // accountant already has company-wide finance read access, so surfacing the
-    // directory is consistent with the role. ACCOUNTANT gets the SAME listing as
-    // ADMIN (incl. admins — required to pick transfer parties / admin owners).
+    // The list projection (UserListItem) excludes PII / finance columns
+    // (legalFullName, bankUah*, wallet*, paymentMethod, monthlySalary,
+    // adminNote — see USER_LIST_PROJECTION in users.service.ts); the accountant
+    // already has company-wide finance read access, so surfacing the directory
+    // is consistent with the role. ACCOUNTANT gets the SAME listing as ADMIN
+    // (incl. admins — required to pick transfer parties / admin owners).
     if (
       currentUser.role !== 'ADMIN' &&
       currentUser.role !== 'HR' &&

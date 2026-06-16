@@ -1036,7 +1036,7 @@ export type IncomeComplianceReceiverDto = z.infer<typeof incomeComplianceReceive
 // `totals` is the company roll-up for the KPI strip. `receivers` is sorted
 // laggards-first (least coverage on top) by the service.
 export const incomeComplianceOverviewSchema = z.object({
-  month: z.string(), // 'YYYY-MM' (UTC)
+  month: z.string().regex(/^\d{4}-\d{2}$/, "Expected 'YYYY-MM' format"), // 'YYYY-MM' (UTC)
   totals: z.object({
     // Σ expected projects across all receivers (the denominator of «X/N приходов»).
     expectedProjects: z.number().int().nonnegative(),

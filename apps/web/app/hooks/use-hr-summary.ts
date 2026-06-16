@@ -7,11 +7,10 @@ import { api } from '@/lib/axios'
  *
  * Namespaced as `['hr', 'summary']` (NOT in PERSISTED_KEY_PREFIXES):
  *   1. Avoids cache collision with general interview/finance queries.
- *   2. Keeps team-scoped recruiting KPI + the caller's own salary status OFF
- *      disk — `'hr'` is NOT in the persist allow-list in __root.tsx, so it is
- *      never written to IndexedDB.
+ *   2. Keeps team-scoped recruiting KPI OFF disk — `'hr'` is NOT in the
+ *      persist allow-list in __root.tsx, so it is never written to IndexedDB.
  *
- * IMPORTANT: Do NOT add `'hr'` to the persist allow-list (salary status / PII).
+ * IMPORTANT: Do NOT add `'hr'` to the persist allow-list (PII / role-scoped data).
  */
 export const HR_SUMMARY_QUERY_KEY = ['hr', 'summary'] as const
 
