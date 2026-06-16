@@ -9,12 +9,18 @@
  * therefore render the name as PLAIN TEXT — no anchor, no navigation. Every other
  * role keeps the profile link exactly as before.
  *
- * Inline contacts (email/phone/telegram) on the team page are unaffected — they
- * are rendered separately and remain visible to DROP. This component governs the
- * *profile navigation* only.
+ * task-senior-ui-followups §3a: SENIOR is added to the plain-text gate. The
+ * backend (users-access.service.ts:183-198) already returns 403 for any
+ * SENIOR→non-self profile request. Surfacing a link would be a dead/forbidden
+ * navigation identical to the DROP case — so we suppress it at the component
+ * level here (single source of truth).
  *
- * Single source of truth so the DROP gate is not duplicated across the team page,
- * document rows/cards and the document detail dialog.
+ * Inline contacts (email/phone/telegram) on the team page are unaffected — they
+ * are rendered separately and remain visible to SENIOR/DROP. This component
+ * governs the *profile navigation* only.
+ *
+ * Single source of truth so the DROP/SENIOR gate is not duplicated across the
+ * team page, document rows/cards and the document detail dialog.
  *
  * task-admin-as-senior: `nonNavigable` prop added for the case where the target
  * user is an ADMIN and the viewer lacks profile access (non-admin viewers on
@@ -40,7 +46,13 @@ interface ProfileNameLinkProps {
    * branch is unreachable when userId is undefined (nonNavigable=true guards it).
    */
   userId?: string
-  /** The CURRENT viewer's role. DROP → plain text; everyone else → link. */
+  /**
+   * The CURRENT viewer's role.
+   * DROP → plain text (backend 403 for DROP→non-self).
+   * SENIOR → plain text (backend 403 for SENIOR→non-self,
+   *   task-senior-ui-followups §3a).
+   * Everyone else → link.
+   */
   viewerRole: Role
   /** Classes applied to the rendered element (link or span) identically. */
   className?: string
@@ -64,9 +76,9 @@ interface ProfileNameLinkProps {
 }
 
 /**
- * Render the user's name. For DROP viewers (or when nonNavigable=true) it is
- * plain, non-navigable text; for all other roles it is a `<Link>` to that
- * user's profile.
+ * Render the user's name. For DROP/SENIOR viewers (or when nonNavigable=true)
+ * it is plain, non-navigable text; for all other roles it is a `<Link>` to
+ * that user's profile.
  */
 export function ProfileNameLink({
   userId,
@@ -78,7 +90,7 @@ export function ProfileNameLink({
   nonNavigable,
   children,
 }: ProfileNameLinkProps) {
-  if (viewerRole === 'DROP' || nonNavigable) {
+  if (viewerRole === 'DROP' || viewerRole === 'SENIOR' || nonNavigable) {
     return (
       <span className={cn(className)} title={title} data-testid={testId}>
         {children}

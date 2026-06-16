@@ -512,7 +512,7 @@ function ProjectsPage() {
                           data-testid={`project-card-${project.id}`}
                           data-archived={isArchived ? 'true' : 'false'}
                         >
-                          <ProjectRow project={project} />
+                          <ProjectRow project={project} viewerRole={user?.role} />
                         </motion.div>
                       )
                     })}

@@ -1,5 +1,6 @@
 /**
- * Unit tests for ProfileNameLink — nonNavigable prop (task-admin-as-senior).
+ * Unit tests for ProfileNameLink — nonNavigable prop (task-admin-as-senior)
+ * and SENIOR plain-text gate (task-senior-ui-followups §3a).
  *
  * Covers:
  *   PNL-1  nonNavigable=true → renders plain <span>, no <a> anchor
@@ -8,11 +9,13 @@
  *   PNL-4  nonNavigable=false + viewerRole='ADMIN' → must NOT render span (would be Link if router present)
  *   PNL-5  className + title + testId forwarded to span when nonNavigable=true
  *   PNL-6  children rendered in span when nonNavigable=true
+ *   PNL-7  viewerRole='SENIOR' → renders plain <span>, no <a> anchor (backend 403 for SENIOR→non-self)
+ *   PNL-8  viewerRole='SENIOR' + className/title/testId forwarded to span
  *
- * Note: The <Link> branch (nonNavigable=false, viewerRole≠'DROP') requires a
+ * Note: The <Link> branch (nonNavigable=false, viewerRole not in DROP/SENIOR) requires a
  * TanStack Router context and is covered by E2E / integration tests. These unit
  * tests focus exclusively on the plain-text (span) render path since that is the
- * security-critical branch (admin-senior masking + DROP lockdown).
+ * security-critical branch (admin-senior masking + DROP/SENIOR lockdown).
  */
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
@@ -84,5 +87,34 @@ describe('ProfileNameLink — nonNavigable prop (task-admin-as-senior)', () => {
     expect(strong.tagName.toLowerCase()).toBe('strong')
     expect(strong.closest('span')).not.toBeNull()
     expect(strong.closest('a')).toBeNull()
+  })
+
+  it('PNL-7. viewerRole="SENIOR" → renders <span>, no <a> anchor (backend 403 for SENIOR→non-self)', () => {
+    render(
+      <ProfileNameLink userId="other-user-id" viewerRole="SENIOR">
+        Teammate Name
+      </ProfileNameLink>,
+    )
+    const el = screen.getByText('Teammate Name')
+    expect(el.tagName.toLowerCase()).toBe('span')
+    expect(el.closest('a')).toBeNull()
+  })
+
+  it('PNL-8. viewerRole="SENIOR" — className, title, testId forwarded to span', () => {
+    render(
+      <ProfileNameLink
+        userId="other-user-id"
+        viewerRole="SENIOR"
+        className="senior-name"
+        title="Profile not accessible"
+        testId="senior-member-name"
+      >
+        Team Member
+      </ProfileNameLink>,
+    )
+    const el = screen.getByTestId('senior-member-name')
+    expect(el.tagName.toLowerCase()).toBe('span')
+    expect(el.className).toContain('senior-name')
+    expect(el.getAttribute('title')).toBe('Profile not accessible')
   })
 })

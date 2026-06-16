@@ -7,6 +7,13 @@ import { cn } from '@/lib/utils'
 
 export type ProjectRowProps = {
   project: ProjectDto
+  /**
+   * task-senior-ui-followups §2b: the current viewer's role.
+   * When `'SENIOR'`, an effective share % badge is rendered in the status
+   * column — `seniorSharePercentOverride ?? seniorSharePercentDefault`.
+   * Omitted / other roles → no change to the existing layout.
+   */
+  viewerRole?: string
 }
 
 function getInitials(name: string) {
@@ -38,8 +45,13 @@ const DATE_FORMAT_OPTS: Intl.DateTimeFormatOptions = {
  *    `project-card-${id}` testid via the wrapper in the parent route so
  *    existing specs don't break.
  */
-export function ProjectRow({ project }: ProjectRowProps) {
+export function ProjectRow({ project, viewerRole }: ProjectRowProps) {
   const isArchived = !!project.archivedAt
+  // §2b: effective share % for SENIOR viewer.
+  const seniorSharePct =
+    viewerRole === 'SENIOR'
+      ? (project.seniorSharePercentOverride ?? project.seniorSharePercentDefault)
+      : null
   const activeMembers = project.members.filter((m) => m.leftAt === null)
   const activeJuniors = activeMembers.filter((m) => m.role === 'JUNIOR')
   const firstJunior = activeJuniors[0]
@@ -216,7 +228,7 @@ export function ProjectRow({ project }: ProjectRowProps) {
         </div>
 
         {/* Status / badges column */}
-        <div className="flex items-center justify-end gap-1.5">
+        <div className="flex flex-col items-end gap-1">
           {isArchived ? (
             <Badge
               variant="outline"
@@ -228,6 +240,15 @@ export function ProjectRow({ project }: ProjectRowProps) {
             <Badge variant="outline" className="text-[10px]">
               {project.domain}
             </Badge>
+          )}
+          {/* §2b: share % badge — visible only for SENIOR viewer. */}
+          {seniorSharePct != null && (
+            <span
+              className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-mono text-primary"
+              data-testid={`project-row-${project.id}-senior-share`}
+            >
+              {seniorSharePct}%
+            </span>
           )}
         </div>
       </div>
