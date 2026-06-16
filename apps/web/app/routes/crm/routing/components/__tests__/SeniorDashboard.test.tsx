@@ -225,46 +225,37 @@ describe('SeniorDashboard', () => {
     })
   })
 
-  describe('«Статус моих выплат» panel (salary currency)', () => {
-    it('shows salary in its OWN currency (UAH, no $-hardcode) + PENDING status', () => {
+  describe('«Статус моих выплат» panel — removed (§3 refactor)', () => {
+    // Panel was removed in §3 detitle/dashboard refactor.
+    // Guard: the panel must NOT appear in the DOM regardless of mySalaryStatus.
+    it('does NOT render the «Статус моих выплат» panel', () => {
       useSeniorSummaryMock.mockReturnValue({
         data: makeSummary(),
         isLoading: false,
         isError: false,
       })
       renderDashboard()
-      const status = screen.getByTestId('senior-salary-status')
-      // ru-RU thin-space grouping + currency suffix — NOT «$50,000.00».
-      expect(status).toHaveTextContent('UAH')
-      expect(status).toHaveTextContent('50')
-      expect(status).not.toHaveTextContent('$')
-      expect(status).toHaveTextContent('Ожидает выплаты')
-      const total = screen.getByTestId('senior-income-total')
-      expect(total).toHaveTextContent('$5,500.00')
+      expect(screen.queryByTestId('senior-salary-status')).not.toBeInTheDocument()
     })
 
-    it('shows a USD salary in USD (no conversion)', () => {
+    it('does NOT render salary panel even with mySalaryStatus data', () => {
       useSeniorSummaryMock.mockReturnValue({
         data: makeSummary({ mySalaryStatus: { amount: 2000, currency: 'USD', status: 'PAID' } }),
         isLoading: false,
         isError: false,
       })
       renderDashboard()
-      const status = screen.getByTestId('senior-salary-status')
-      expect(status).toHaveTextContent('USD')
-      expect(status).toHaveTextContent('Выплачено')
+      expect(screen.queryByTestId('senior-salary-status')).not.toBeInTheDocument()
     })
 
-    it('shows «Нет начисления» when no salary row exists', () => {
+    it('does NOT render salary panel when mySalaryStatus is null', () => {
       useSeniorSummaryMock.mockReturnValue({
         data: makeSummary({ mySalaryStatus: null }),
         isLoading: false,
         isError: false,
       })
       renderDashboard()
-      const status = screen.getByTestId('senior-salary-status')
-      expect(status).toHaveTextContent('—')
-      expect(status).toHaveTextContent('Нет начисления за месяц')
+      expect(screen.queryByTestId('senior-salary-status')).not.toBeInTheDocument()
     })
   })
 
@@ -278,9 +269,10 @@ describe('SeniorDashboard', () => {
       renderDashboard()
     }
 
-    it('renders the stats heading + total tile with sparkline', () => {
+    it('renders total tile with sparkline (no section heading — §3 removed)', () => {
       mountWith()
-      expect(screen.getByTestId('earnings-stats-heading')).toHaveTextContent('Статистика заработка')
+      // «СТАТИСТИКА ЗАРАБОТКА» section-heading was removed in §3 refactor.
+      expect(screen.queryByTestId('earnings-stats-heading')).not.toBeInTheDocument()
       expect(screen.getByTestId('earnings-total-tile')).toBeInTheDocument()
       // Total reuses seniorShareIncome.total ($5,500.00).
       expect(screen.getByTestId('earnings-total-value')).toHaveTextContent('$5,500.00')
@@ -301,13 +293,12 @@ describe('SeniorDashboard', () => {
       expect(screen.queryByTestId('earnings-total-month-badge')).not.toBeInTheDocument()
     })
 
-    it('renders «Прошлый месяц» with lastMonthIncome', () => {
+    it('does NOT render «Прошлый месяц» tile — replaced by projects list (§3 refactor)', () => {
       mountWith()
-      const tile = screen.getByTestId('earnings-last-month-tile')
-      expect(tile).toHaveTextContent('Прошлый месяц')
-      expect(screen.getByTestId('earnings-last-month-value')).toHaveTextContent('$900.00')
-      // Month label derives from the history tail (penultimate = 2026-05).
-      expect(tile).toHaveTextContent('Май 2026')
+      // «Прошлый месяц» tile was removed in §3; projects list is shown instead.
+      expect(screen.queryByTestId('earnings-last-month-tile')).not.toBeInTheDocument()
+      // Projects tile is present instead.
+      expect(screen.getByTestId('earnings-projects-tile')).toBeInTheDocument()
     })
 
     it('renders «Этот месяц» with the X/N arrival progress bar (NO money expected)', () => {
