@@ -140,9 +140,6 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
   }
 
   const { user, permissions, data: viewData } = data
-  const activeTab = permissions.tabs.includes(tab as never)
-    ? tab
-    : (permissions.tabs[0] ?? 'overview')
 
   // ADMIN looking at own profile: hide "registration date" line (matches hidden KPI cards)
   const showCreatedAt =
@@ -150,6 +147,16 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
   // Any SENIOR profile (self or viewed by ADMIN) surfaces the kanban board
   // link in the header — the dedicated 'interviews' tab was removed.
   const showInterviewsLink = user.role === 'SENIOR'
+
+  // §2c: on own profile show only overview + requisites + contract.
+  // view-mode is unchanged (backend permissions govern what's shown there).
+  const SELF_ALLOWED_TABS = ['overview', 'requisites', 'contract'] as const
+  const visibleTabs =
+    mode === 'self'
+      ? permissions.tabs.filter((t) => (SELF_ALLOWED_TABS as readonly string[]).includes(t))
+      : permissions.tabs
+
+  const activeTab = visibleTabs.includes(tab as never) ? tab : (visibleTabs[0] ?? 'overview')
 
   // JUNIOR sees a single project, not a portfolio — relabel tab
   const tabLabel = (t: string): string => {
@@ -176,12 +183,12 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
           }
         />
 
-        {permissions.tabs.length > 0 && (
+        {visibleTabs.length > 0 && (
           // Tab bar: horizontal scroll for many tabs on narrow viewports; pb-1
           // keeps the pill's shadow from being clipped by overflow-x-auto.
           <div className="relative overflow-x-auto pb-1">
             <AnimatedTabs
-              tabs={permissions.tabs.map((t) => ({ value: t, label: tabLabel(t) }))}
+              tabs={visibleTabs.map((t) => ({ value: t, label: tabLabel(t) }))}
               value={activeTab}
               onChange={handleTabChange}
             />
@@ -249,7 +256,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
         </AlertDialogContent>
       </AlertDialog>
 
-      {permissions.tabs.length === 0 && mode === 'view' && (
+      {visibleTabs.length === 0 && mode === 'view' && (
         <div
           className="mt-4 rounded-lg border border-border bg-muted/40 px-6 py-10 text-center"
           data-testid="profile-no-access"
@@ -258,11 +265,12 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
         </div>
       )}
 
-      {permissions.tabs.length > 0 && (
+      {visibleTabs.length > 0 && (
         /* Content area scrolls naturally via the parent <main> (overflow-y-auto in /crm route).
-           No overflow-hidden here — that was blocking the scroll for long tabs. */
-        <div className="flex-1 min-h-0 overflow-y-auto pt-4 pb-6 min-w-0">
-          {activeTab === 'overview' && permissions.tabs.includes('overview') && (
+           No overflow-hidden here — that was blocking the scroll for long tabs.
+           px-6 aligns content with the PageHeader padding (§2b). */
+        <div className="flex-1 min-h-0 overflow-y-auto pt-4 pb-6 min-w-0 px-6">
+          {activeTab === 'overview' && visibleTabs.includes('overview') && (
             <OverviewTab
               user={user}
               data={viewData as Record<string, unknown>}
@@ -271,23 +279,21 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
               onGoToTab={handleTabChange}
             />
           )}
-          {activeTab === 'finance' && permissions.tabs.includes('finance') && (
+          {activeTab === 'finance' && visibleTabs.includes('finance') && (
             <FinanceTab userId={user.id} targetRole={user.role} />
           )}
-          {activeTab === 'projects' && permissions.tabs.includes('projects') && (
+          {activeTab === 'projects' && visibleTabs.includes('projects') && (
             <ProjectsTab userId={user.id} role={user.role} />
           )}
-          {activeTab === 'team' && permissions.tabs.includes('team') && (
-            <TeamTab userId={user.id} />
-          )}
-          {activeTab === 'interviews' && permissions.tabs.includes('interviews') && (
+          {activeTab === 'team' && visibleTabs.includes('team') && <TeamTab userId={user.id} />}
+          {activeTab === 'interviews' && visibleTabs.includes('interviews') && (
             <InterviewsTab seniorId={user.id} />
           )}
-          {activeTab === 'requisites' && permissions.tabs.includes('requisites') && (
+          {activeTab === 'requisites' && visibleTabs.includes('requisites') && (
             <RequisitesTab user={user} mode={mode} />
           )}
-          {activeTab === 'documents' && permissions.tabs.includes('documents') && <DocumentsTab />}
-          {activeTab === 'contract' && permissions.tabs.includes('contract') && (
+          {activeTab === 'documents' && visibleTabs.includes('documents') && <DocumentsTab />}
+          {activeTab === 'contract' && visibleTabs.includes('contract') && (
             <ContractTab
               userId={user.id}
               targetRole={user.role}
