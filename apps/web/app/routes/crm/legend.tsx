@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { PageHeader } from '@/components/crm/StickyPageHeader'
 import { motion } from 'framer-motion'
 import { BookOpen, Loader2, Pencil, Plus, Save, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -60,49 +61,57 @@ function LegendPage() {
   const isLoading = projectsLoading || (!!projectId && legendLoading)
 
   return (
-    <div className="space-y-6" data-testid="legend-page">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Легенда</h1>
-        {activeProject && (
-          <p className="text-sm text-muted-foreground">
-            {activeProject.companyName}
-            {activeProject.seniorName ? ` · ${activeProject.seniorName}` : ''}
-          </p>
-        )}
-      </div>
-
-      {isLoading && (
-        <div className="space-y-4">
-          <Skeleton className="h-40 w-full rounded-lg" />
-          <Skeleton className="h-40 w-full rounded-lg" />
-          <Skeleton className="h-32 w-full rounded-lg" />
-        </div>
-      )}
-
-      {!isLoading && !projectId && (
-        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-          <BookOpen className="h-10 w-10 mb-3 opacity-40" />
-          <p className="text-sm">Вас ещё не добавили в проект.</p>
-        </div>
-      )}
-
-      {!isLoading && projectId && (
-        <motion.div className="space-y-4" variants={container} initial="hidden" animate="show">
-          {/* Desktop ≥1024px: persona | cover story in 2-column grid (spec §4.2) */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <motion.div variants={card}>
-              <LegendPersonaBlock projectId={projectId} legend={legend ?? null} />
-            </motion.div>
-            <motion.div variants={card}>
-              <LegendCoverBlock projectId={projectId} legend={legend ?? null} />
-            </motion.div>
+    <div className="flex flex-col h-full" data-testid="legend-page">
+      <PageHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Легенда</h1>
+            {activeProject && (
+              <p className="text-sm text-muted-foreground">
+                {activeProject.companyName}
+                {activeProject.seniorName ? ` · ${activeProject.seniorName}` : ''}
+              </p>
+            )}
           </div>
-          {/* Journal — full width below the 2-col grid */}
-          <motion.div variants={card}>
-            <LegendJournalBlock projectId={projectId} legend={legend ?? null} />
-          </motion.div>
-        </motion.div>
-      )}
+        </div>
+      </PageHeader>
+
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
+        <div className="space-y-6">
+          {isLoading && (
+            <div className="space-y-4">
+              <Skeleton className="h-40 w-full rounded-lg" />
+              <Skeleton className="h-40 w-full rounded-lg" />
+              <Skeleton className="h-32 w-full rounded-lg" />
+            </div>
+          )}
+
+          {!isLoading && !projectId && (
+            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+              <BookOpen className="h-10 w-10 mb-3 opacity-40" />
+              <p className="text-sm">Вас ещё не добавили в проект.</p>
+            </div>
+          )}
+
+          {!isLoading && projectId && (
+            <motion.div className="space-y-4" variants={container} initial="hidden" animate="show">
+              {/* Desktop ≥1024px: persona | cover story in 2-column grid (spec §4.2) */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <motion.div variants={card}>
+                  <LegendPersonaBlock projectId={projectId} legend={legend ?? null} />
+                </motion.div>
+                <motion.div variants={card}>
+                  <LegendCoverBlock projectId={projectId} legend={legend ?? null} />
+                </motion.div>
+              </div>
+              {/* Journal — full width below the 2-col grid */}
+              <motion.div variants={card}>
+                <LegendJournalBlock projectId={projectId} legend={legend ?? null} />
+              </motion.div>
+            </motion.div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

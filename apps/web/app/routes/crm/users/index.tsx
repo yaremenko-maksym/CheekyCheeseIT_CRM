@@ -31,6 +31,7 @@ import {
 } from '@/components/users/constants'
 import { UnarchiveButton } from '@/components/users/UnarchiveButton'
 import { useRoleGuard } from '@/hooks/use-role-guard'
+import { PageHeader } from '@/components/crm/StickyPageHeader'
 
 // `archived` may arrive as a query-string ("true"/"false") for deep-links —
 // `z.coerce.boolean()` accepts both `boolean` and string forms safely.
@@ -66,14 +67,20 @@ function UsersPage() {
 
   if (me.role !== 'ADMIN') {
     return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Пользователи</h1>
-        </div>
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
-          <p className="text-sm font-medium text-muted-foreground">
-            Доступ только для администратора
-          </p>
+      <div className="flex flex-col h-full">
+        <PageHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Пользователи</h1>
+            </div>
+          </div>
+        </PageHeader>
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
+            <p className="text-sm font-medium text-muted-foreground">
+              Доступ только для администратора
+            </p>
+          </div>
         </div>
       </div>
     )
@@ -203,199 +210,199 @@ function UsersPageContent({
   ]
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.28 }}
-        className="flex items-center justify-between gap-4 flex-wrap"
-      >
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Пользователи</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {isLoading ? '...' : `${filtered.length} из ${users?.length ?? 0}`}
-            {currentStatusTab === 'ARCHIVED' && ' · архив'}
-            {currentStatusTab === 'ALL' && ' · все'}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* DROP creation is now folded into UserDialog (single source of
-              truth for all roles). Picking DROP in the role select swaps
-              in the drop-share slider + mandatory drop-team section and
-              routes submit to POST /api/users/drops. */}
-          <Button
-            ref={createTriggerRef}
-            onClick={() => {
-              setCreateKey((k) => k + 1)
-              setCreateOpen(true)
-            }}
-            data-testid="users-create-button"
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Добавить
-          </Button>
-        </div>
-      </motion.div>
-
-      {/* ut-44: status tabs row — «Все | Активные | Архив». Replaces the
-          legacy «Показать архивных» checkbox; the archive tab keeps the
-          `users-toggle-archived` testid so existing E2E (and admin URL
-          deep-links via ?archived=true) continue to work. */}
-      <SegmentedToggle<StatusTab>
-        value={currentStatusTab}
-        onChange={handleStatusTabChange}
-        options={statusTabs}
-        ariaLabel="Фильтр пользователей"
-        variant="tabs"
-        size="sm"
-        layoutId="users-status-tabs"
-        className="w-fit"
-        testId="users-status-tabs"
-      />
-
-      {/* ut-43: unified toolbar — search + role filter + sort key + direction.
-          Same shape as projects + team toolbars (Search input, per-page
-          filters, sort dropdown + direction toggle button). */}
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.28, delay: 0.05 }}
-      >
-        <Card>
-          <CardContent className="flex flex-wrap items-center gap-3 pt-4 pb-4">
-            <div className="relative flex-1 min-w-50">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Поиск по имени, email, telegram, технологии..."
-                className="pl-8"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-            <Select value={roleFilter} onValueChange={(v) => setRoleFilter(v as Role | 'ALL')}>
-              <SelectTrigger className="w-44">
-                <SelectValue placeholder="Все роли" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">Все роли</SelectItem>
-                {ROLES.map((r) => (
-                  <SelectItem key={r} value={r}>
-                    {ROLE_LABELS[r]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {/* ut-18: sort relocated from column headers. The visual separator
-                keeps "filter" controls (search + role) distinct from "ordering"
-                controls (sort key + direction). */}
-            <div className="hidden h-6 w-px bg-border sm:block" aria-hidden />
-            <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
-              <SelectTrigger className="w-52" data-testid="users-sort-key">
-                <SelectValue placeholder="Сортировка" />
-              </SelectTrigger>
-              <SelectContent>
-                {sortKeyOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+    <div className="flex flex-col h-full">
+      <PageHeader>
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Пользователи</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {isLoading ? '...' : `${filtered.length} из ${users?.length ?? 0}`}
+              {currentStatusTab === 'ARCHIVED' && ' · архив'}
+              {currentStatusTab === 'ALL' && ' · все'}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* DROP creation is now folded into UserDialog (single source of
+                truth for all roles). Picking DROP in the role select swaps
+                in the drop-share slider + mandatory drop-team section and
+                routes submit to POST /api/users/drops. */}
             <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => setSortDir((d: SortDir) => (d === 'asc' ? 'desc' : 'asc'))}
-              aria-label={`Направление сортировки: ${
-                sortDir === 'asc' ? 'По возрастанию' : 'По убыванию'
-              }`}
-              data-testid="users-sort-direction"
-              data-dir={sortDir}
-              className="h-9 w-9"
+              ref={createTriggerRef}
+              onClick={() => {
+                setCreateKey((k) => k + 1)
+                setCreateOpen(true)
+              }}
+              data-testid="users-create-button"
             >
-              {sortDir === 'asc' ? (
-                <ArrowUp className="h-4 w-4" />
-              ) : (
-                <ArrowDown className="h-4 w-4" />
-              )}
+              <Plus className="mr-2 h-4 w-4" />
+              Добавить
             </Button>
-          </CardContent>
-        </Card>
-      </motion.div>
+          </div>
+        </div>
+      </PageHeader>
 
-      {/* Table (sort header + rows) */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.28, delay: 0.1 }}
-      >
-        <Card>
-          <CardContent className="p-3 space-y-2">
-            {/* ut-19: column headers removed — rows are self-describing
-                (avatar / name+email, role badge, дата). Sort controls
-                остаются в filter bar выше. */}
-            {isLoading ? (
-              <div className="space-y-2">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="grid items-center gap-3 px-3 py-3 rounded-md"
-                    style={{ gridTemplateColumns: '64px 3fr 1.4fr' }}
-                  >
-                    <Skeleton className="h-8 w-8 rounded-full mx-auto" />
-                    <div className="space-y-2">
-                      <Skeleton className="h-4 w-36" />
-                      <Skeleton className="h-3 w-48" />
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <Skeleton className="h-5 w-20 rounded-full" />
-                      <Skeleton className="h-3 w-16" />
-                    </div>
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
+        <div className="space-y-4">
+          {/* ut-44: status tabs row — «Все | Активные | Архив». Replaces the
+              legacy «Показать архивных» checkbox; the archive tab keeps the
+              `users-toggle-archived` testid so existing E2E (and admin URL
+              deep-links via ?archived=true) continue to work. */}
+          <SegmentedToggle<StatusTab>
+            value={currentStatusTab}
+            onChange={handleStatusTabChange}
+            options={statusTabs}
+            ariaLabel="Фильтр пользователей"
+            variant="tabs"
+            size="sm"
+            layoutId="users-status-tabs"
+            className="w-fit"
+            testId="users-status-tabs"
+          />
+
+          {/* ut-43: unified toolbar — search + role filter + sort key + direction.
+              Same shape as projects + team toolbars (Search input, per-page
+              filters, sort dropdown + direction toggle button). */}
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.28, delay: 0.05 }}
+          >
+            <Card>
+              <CardContent className="flex flex-wrap items-center gap-3 pt-4 pb-4">
+                <div className="relative flex-1 min-w-50">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Поиск по имени, email, telegram, технологии..."
+                    className="pl-8"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+                <Select value={roleFilter} onValueChange={(v) => setRoleFilter(v as Role | 'ALL')}>
+                  <SelectTrigger className="w-44">
+                    <SelectValue placeholder="Все роли" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">Все роли</SelectItem>
+                    {ROLES.map((r) => (
+                      <SelectItem key={r} value={r}>
+                        {ROLE_LABELS[r]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {/* ut-18: sort relocated from column headers. The visual separator
+                    keeps "filter" controls (search + role) distinct from "ordering"
+                    controls (sort key + direction). */}
+                <div className="hidden h-6 w-px bg-border sm:block" aria-hidden />
+                <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+                  <SelectTrigger className="w-52" data-testid="users-sort-key">
+                    <SelectValue placeholder="Сортировка" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sortKeyOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setSortDir((d: SortDir) => (d === 'asc' ? 'desc' : 'asc'))}
+                  aria-label={`Направление сортировки: ${
+                    sortDir === 'asc' ? 'По возрастанию' : 'По убыванию'
+                  }`}
+                  data-testid="users-sort-direction"
+                  data-dir={sortDir}
+                  className="h-9 w-9"
+                >
+                  {sortDir === 'asc' ? (
+                    <ArrowUp className="h-4 w-4" />
+                  ) : (
+                    <ArrowDown className="h-4 w-4" />
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* Table (sort header + rows) */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.28, delay: 0.1 }}
+          >
+            <Card>
+              <CardContent className="p-3 space-y-2">
+                {/* ut-19: column headers removed — rows are self-describing
+                    (avatar / name+email, role badge, дата). Sort controls
+                    остаются в filter bar выше. */}
+                {isLoading ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 6 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className="grid items-center gap-3 px-3 py-3 rounded-md"
+                        style={{ gridTemplateColumns: '64px 3fr 1.4fr' }}
+                      >
+                        <Skeleton className="h-8 w-8 rounded-full mx-auto" />
+                        <div className="space-y-2">
+                          <Skeleton className="h-4 w-36" />
+                          <Skeleton className="h-3 w-48" />
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          <Skeleton className="h-5 w-20 rounded-full" />
+                          <Skeleton className="h-3 w-16" />
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            ) : filtered.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
-                <Search className="h-8 w-8 opacity-30" />
-                <p className="text-sm">Пользователи не найдены</p>
-              </div>
-            ) : (
-              <motion.div className="space-y-1" data-testid="users-list">
-                {filtered.map((u) => (
-                  <motion.div
-                    key={u.id}
-                    layout="position"
-                    initial={{ opacity: 0, y: -6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.08, ease: 'easeOut' }}
-                  >
-                    {u.archivedAt ? (
-                      <UnarchiveButton
-                        user={u}
-                        isSelf={u.id === meId}
-                        onEdit={() => setEditUser(u)}
-                        onArchive={() => setArchiveUser(u)}
-                      />
-                    ) : (
-                      <UserRow
-                        user={u}
-                        isSelf={u.id === meId}
-                        onEdit={() => setEditUser(u)}
-                        onArchive={() => setArchiveUser(u)}
-                        onUnarchive={() => {
-                          // not used for active rows; only archived rows render UnarchiveButton
-                        }}
-                      />
-                    )}
+                ) : filtered.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
+                    <Search className="h-8 w-8 opacity-30" />
+                    <p className="text-sm">Пользователи не найдены</p>
+                  </div>
+                ) : (
+                  <motion.div className="space-y-1" data-testid="users-list">
+                    {filtered.map((u) => (
+                      <motion.div
+                        key={u.id}
+                        layout="position"
+                        initial={{ opacity: 0, y: -6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.08, ease: 'easeOut' }}
+                      >
+                        {u.archivedAt ? (
+                          <UnarchiveButton
+                            user={u}
+                            isSelf={u.id === meId}
+                            onEdit={() => setEditUser(u)}
+                            onArchive={() => setArchiveUser(u)}
+                          />
+                        ) : (
+                          <UserRow
+                            user={u}
+                            isSelf={u.id === meId}
+                            onEdit={() => setEditUser(u)}
+                            onArchive={() => setArchiveUser(u)}
+                            onUnarchive={() => {
+                              // not used for active rows; only archived rows render UnarchiveButton
+                            }}
+                          />
+                        )}
+                      </motion.div>
+                    ))}
                   </motion.div>
-                ))}
-              </motion.div>
-            )}
-          </CardContent>
-        </Card>
-      </motion.div>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+        </div>
+      </div>
 
       <UserDialog
         mode="create"
