@@ -18,6 +18,8 @@ import type {
   DropPaymentDto,
   DropPaymentStatus,
   PaginatedDropIncomes,
+  SeniorSummaryDto,
+  SalaryStatus,
 } from '@crm/shared'
 import { MAKSYM_ID, KOSTYA_ID } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
@@ -2453,6 +2455,157 @@ export class TransactionsService {
         amount: row?.paidAmount ?? 0,
       },
       recipientCount: row?.recipientCount ?? 0,
+    }
+  }
+
+  /**
+   * SENIOR dashboard KPI snapshot — STRICTLY self-scoped to `currentUser.id`.
+   *
+   * RBAC: SENIOR + ADMIN only (every other role → 403). The figures are ALWAYS
+   * scoped to the caller's own id; there is NO `targetUserId` parameter, so a
+   * senior can never request another senior's projects / income / payouts. ADMIN
+   * gets access for debugging but sees their OWN id's figures (an admin owns
+   * projects via `seniorId === adminId`), never an arbitrary senior's — closing
+   * the data-leak surface that a `:userId` param would open.
+   *
+   * Content (USER selection — only this):
+   *   1. activeProjects    — own active senior-projects + effective share %.
+   *   2. seniorShareIncome — own senior SHARE of PAID SENIOR_INCOME (total +
+   *                          this month), share = amount * sharePercent/100.
+   *   3. pendingPayouts    — own PENDING payout_requests (count + Σ payable).
+   *   4. mySalaryStatus    — own current-month SALARY tx (or null).
+   *
+   * Amounts are summed in the transaction's stored currency without cross-rate
+   * conversion — consistent with getAccountantSummary / HR mySalaryStatus which
+   * also report raw `amount`; the wire `currency` is the USD display label.
+   */
+  async getSeniorSummary(currentUser: SessionUser): Promise<SeniorSummaryDto> {
+    if (currentUser.role !== 'SENIOR' && currentUser.role !== 'ADMIN') {
+      throw new ForbiddenException('Access denied: senior summary requires SENIOR or ADMIN role')
+    }
+
+    const selfId = currentUser.id
+
+    // Current-month boundary (UTC), computed once — matches HR / accountant.
+    const now = new Date()
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+    const salaryMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
+
+    // ── 1. Active own senior-projects + effective share % ──────────────────────
+    // Self-scope at the DB level: only projects where seniorId === self AND not
+    // archived. No other senior's project can ever surface here.
+    const ownProjects = await this.db.db.query.projects.findMany({
+      where: and(eq(projects.seniorId, selfId), isNull(projects.archivedAt)),
+      orderBy: (table, { desc: d }) => [d(table.createdAt)],
+    })
+
+    // Effective share resolution reuses the canonical resolver
+    // (project override → single active team override → user default). One
+    // team-membership lookup serves every project (the senior's team set is the
+    // same regardless of the project).
+    const selfUser = await this.db.db.query.users.findFirst({ where: eq(users.id, selfId) })
+    const applicableTeams = await this.findActiveTeamsForUser(selfId)
+    const seniorSharePercent = selfUser?.seniorSharePercent ?? currentUser.seniorSharePercent ?? 26
+
+    const activeProjectItems = ownProjects.map((p) => {
+      const resolved = resolveSeniorShare(
+        { seniorSharePercentOverride: p.seniorSharePercentOverride },
+        { seniorSharePercent },
+        applicableTeams,
+      )
+      return {
+        id: p.id,
+        name: p.name,
+        companyName: p.companyName,
+        sharePercent: resolved.value,
+      }
+    })
+
+    // ── 2. Senior SHARE of PAID SENIOR_INCOME (total + this month) ─────────────
+    // Only PAID SENIOR_INCOME credited to self counts (same gate as
+    // getTotalEarned SENIOR branch). The senior's NET share uses the snapshot
+    // `seniorSharePercent` written at income-creation time (authoritative
+    // historical value, NOT recomputed). A null snapshot falls back to the
+    // user-level default so legacy rows still contribute.
+    const paidIncomeRows = await this.db.db.query.transactions.findMany({
+      where: and(
+        eq(transactions.type, 'SENIOR_INCOME'),
+        eq(transactions.status, 'PAID'),
+        eq(transactions.receiverId, selfId),
+      ),
+    })
+
+    let incomeTotal = 0
+    let incomeThisMonth = 0
+    for (const tx of paidIncomeRows) {
+      const amt = parseFloat(tx.amount)
+      if (!Number.isFinite(amt)) continue
+      const pct = tx.seniorSharePercent ?? seniorSharePercent
+      const share = amt * (pct / 100)
+      incomeTotal += share
+      const when = tx.txDate ?? tx.createdAt
+      if (when && new Date(when) >= monthStart) incomeThisMonth += share
+    }
+
+    // ── 3. PENDING payout_requests owed/queued by self ─────────────────────────
+    // Self-scoped: payout_requests.seniorId === self. amount = Σ payableAmount of
+    // the PENDING rows (what the senior still has to settle).
+    const pendingRows = await this.db.db.query.payoutRequests.findMany({
+      where: and(eq(payoutRequests.seniorId, selfId), eq(payoutRequests.status, 'PENDING')),
+    })
+    const pendingAmount = pendingRows.reduce((sum, r) => {
+      const v = parseFloat(r.payableAmount)
+      return Number.isFinite(v) ? sum + v : sum
+    }, 0)
+
+    // ── 4. Own current-month salary status (same shape as HR dashboard) ────────
+    const mySalaryStatus = await this.getOwnSalaryStatus(selfId, salaryMonth)
+
+    return {
+      activeProjects: {
+        count: activeProjectItems.length,
+        items: activeProjectItems,
+      },
+      seniorShareIncome: {
+        total: incomeTotal,
+        thisMonth: incomeThisMonth,
+        currency: 'USD',
+      },
+      pendingPayouts: {
+        count: pendingRows.length,
+        amount: pendingAmount,
+      },
+      mySalaryStatus,
+    }
+  }
+
+  /**
+   * The caller's own SALARY transaction for `salaryMonth` (YYYY-MM), or null if
+   * none exists yet. Mirror of InterviewsService.getOwnSalaryStatus (kept local
+   * to avoid a cross-module dependency from FinanceModule → InterviewsModule for
+   * a 10-line read). Only PENDING / PAID / LOCKED are valid SALARY statuses; any
+   * other status maps to null (defensive — should not occur).
+   */
+  private async getOwnSalaryStatus(
+    userId: string,
+    salaryMonth: string,
+  ): Promise<SeniorSummaryDto['mySalaryStatus']> {
+    const salaryRow = await this.db.db.query.transactions.findFirst({
+      where: and(
+        eq(transactions.type, 'SALARY'),
+        eq(transactions.receiverId, userId),
+        eq(transactions.salaryMonth, salaryMonth),
+      ),
+    })
+
+    if (!salaryRow) return null
+
+    const validStatuses: SalaryStatus[] = ['PENDING', 'PAID', 'LOCKED']
+    if (!validStatuses.includes(salaryRow.status as SalaryStatus)) return null
+
+    return {
+      amount: Number(salaryRow.amount),
+      status: salaryRow.status as SalaryStatus,
     }
   }
 

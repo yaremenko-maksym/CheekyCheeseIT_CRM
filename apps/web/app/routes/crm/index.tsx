@@ -8,6 +8,7 @@ import { useAuth } from '@/context/auth'
 import { DropDashboard } from './routing/components/DropDashboard'
 import { AccountantDashboard } from './routing/components/AccountantDashboard'
 import { HRDashboard } from './routing/components/HRDashboard'
+import { SeniorDashboard } from './routing/components/SeniorDashboard'
 
 /**
  * `/crm` — корневая страница авторизованной CRM. Единая точка входа,
@@ -15,8 +16,9 @@ import { HRDashboard } from './routing/components/HRDashboard'
  *   - DROP        → DropDashboard (платёжный хаб)
  *   - ACCOUNTANT  → AccountantDashboard (финансовый хаб + KPI валидации)
  *   - HR          → HRDashboard (рекрутинг хаб + KPI собеседований)
+ *   - SENIOR      → SeniorDashboard (рабочий хаб: мои проекты + доход + выплаты)
  *   - JUNIOR      → редирект на собственный хаб /crm/project
- *   - ADMIN/SENIOR → дженерик-дашборд (проекты/сотрудники/транзакции/собеседования)
+ *   - ADMIN        → дженерик-дашборд (проекты/сотрудники/транзакции/собеседования)
  *
  * `/crm` — fail-open в route-access (доступен всем аутентифицированным ролям, вкл.
  * DROP); per-role контент дашбордов НЕ меняется здесь — только консолидация роутинга.
@@ -71,7 +73,14 @@ function CrmDashboard() {
     return <HRDashboard />
   }
 
-  // ADMIN / SENIOR: дженерик-дашборд.
+  // SENIOR role: рабочий хаб-дашборд (мои проекты + senior-доход + выплаты +
+  // статус зарплаты). Данные отдаёт GET /api/finance/senior-summary —
+  // СТРОГО self-scoped (RBAC SENIOR+ADMIN; синьор не видит данные другого синьора).
+  if (user?.role === 'SENIOR') {
+    return <SeniorDashboard />
+  }
+
+  // ADMIN: дженерик-дашборд.
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
       <div className="space-y-6">
