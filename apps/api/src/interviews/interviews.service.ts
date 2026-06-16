@@ -371,7 +371,7 @@ export class InterviewsService {
       .from(interviews)
       .where(scope)
 
-    const mySalaryStatus = await this.getOwnSalaryStatus(currentUser.id, salaryMonth)
+    const mySalaryStatus = await getOwnSalaryStatus(this.db.db, currentUser.id, salaryMonth)
 
     return {
       openInterviews: row?.openCount ?? 0,
