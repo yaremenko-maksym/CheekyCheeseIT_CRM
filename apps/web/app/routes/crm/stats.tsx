@@ -1,5 +1,4 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { PageHeader } from '@/components/crm/StickyPageHeader'
 import { useQuery } from '@tanstack/react-query'
 import {
   ArrowDownLeft,
@@ -907,11 +906,6 @@ export function StatsPage() {
       className="flex flex-col h-full"
       data-testid={isAdmin ? 'stats-page-admin' : 'stats-page-accountant'}
     >
-      <PageHeader>
-        <div className="flex items-center justify-between">
-          <div />
-        </div>
-      </PageHeader>
       <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
         <div className="space-y-8">
           {/* ── Income compliance «Контроль приходов» (ADMIN + ACCOUNTANT) ──

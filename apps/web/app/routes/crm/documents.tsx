@@ -401,7 +401,6 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   if (availableCategories.length === 0) {
     return (
       <div className="flex flex-col h-full" data-testid="documents-page">
-        <div className="px-6 pt-4 pb-3" />
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
           <div
             data-testid="documents-no-access"

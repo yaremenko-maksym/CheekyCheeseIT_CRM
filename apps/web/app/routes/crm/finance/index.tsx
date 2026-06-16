@@ -562,9 +562,6 @@ function FinancePage() {
     const mySalaries = transactions.filter((t) => t.type === 'SALARY' && t.receiverId === userId)
     return (
       <div className="flex flex-col h-full" data-testid="finance-page">
-        <StickyPageHeader>
-          <div />
-        </StickyPageHeader>
         <div
           className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6"
           style={{ scrollbarGutter: 'stable' }}
@@ -648,9 +645,6 @@ function FinancePage() {
     return (
       <TooltipProvider>
         <div className="flex flex-col h-full" data-testid="finance-page">
-          <StickyPageHeader>
-            <div />
-          </StickyPageHeader>
           <div
             className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6"
             style={{ scrollbarGutter: 'stable' }}

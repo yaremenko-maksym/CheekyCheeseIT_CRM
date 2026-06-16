@@ -29,9 +29,6 @@ function AdminTemplatesRoot() {
   if (isLoading) {
     return (
       <div className="flex flex-col h-full">
-        <PageHeader>
-          <div />
-        </PageHeader>
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
           <div className="space-y-4">
             <Skeleton className="h-8 w-64" />
