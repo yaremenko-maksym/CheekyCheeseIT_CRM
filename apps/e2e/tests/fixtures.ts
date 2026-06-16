@@ -1037,6 +1037,38 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
       recipientCount: 5,
     }),
   )
+  // SENIOR dashboard (#234) — senior хаб KPI snapshot. STRICTLY self-scoped on
+  // the backend (RBAC SENIOR+ADMIN → 200, everyone else → 403). Без этого мока
+  // SeniorDashboard's `useSeniorSummary` (GET /api/finance/senior-summary,
+  // retry: 2) бьёт по реальному backend'у → 401/hang → `networkidle` никогда не
+  // достигается → таймаут навигационных тестов SENIOR (identical failure mode к
+  // drop/me/summary комментарию ниже). Shape = `seniorSummarySchema`; default
+  // non-zero значения, чтобы дашборд рендерил loaded-состояние. Тесты, которым
+  // нужны иные цифры, регистрируют свой handler ПОСЛЕ mockAuthAs (LIFO).
+  await page.route(new RegExp(`${API_RE}/finance/senior-summary(\\?.*)?$`), (r) =>
+    jsonOk(r, {
+      activeProjects: {
+        count: 2,
+        items: [
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            name: 'Mock Project A',
+            companyName: 'Acme Corp',
+            sharePercent: 26,
+          },
+          {
+            id: '22222222-2222-4222-8222-222222222222',
+            name: 'Mock Project B',
+            companyName: 'Globex',
+            sharePercent: 30,
+          },
+        ],
+      },
+      seniorShareIncome: { total: 8400, thisMonth: 1200, currency: 'USD' },
+      pendingPayouts: { count: 1, amount: 600 },
+      mySalaryStatus: { amount: 1200, status: 'PENDING' },
+    }),
+  )
   await page.route(new RegExp(`${API_RE}/finance/transactions(\\?.*)?$`), (r) =>
     r.request().method() === 'POST'
       ? jsonOk(r, { id: 'tx-new', status: 'PENDING' }, 201)

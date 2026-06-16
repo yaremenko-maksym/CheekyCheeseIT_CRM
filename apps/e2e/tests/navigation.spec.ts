@@ -130,19 +130,21 @@ test.describe('SENIOR sidebar navigation', () => {
   for (const route of seniorRoutes) {
     test(`sidebar → ${route.label} stays in CRM`, async ({ asSenior: page }) => {
       await page.goto('/crm')
-      await page.waitForLoadState('networkidle')
+      // Deterministic readiness instead of `networkidle`: the SENIOR `/crm`
+      // дашборд (#234) keeps a self-scoped finance query in flight (retry: 2),
+      // so the network never goes fully idle within the test budget — wait for
+      // the sidebar to render instead (playwright-patterns: avoid networkidle).
+      await page.locator(`aside a[href="${route.href}"]`).first().waitFor({ timeout: 10_000 })
 
       await clickSidebarLink(page, route.href)
 
       // Handle team redirect for SENIOR (single team → detail page)
       if (route.href === '/crm/team') {
         await page.waitForURL('**/crm/team/**', { timeout: 8_000 })
-        await page.waitForLoadState('networkidle')
         await assertStayedInCrm(page, route.href)
         await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 10_000 })
       } else {
         await page.waitForURL(`**${route.href}**`, { timeout: 8_000 })
-        await page.waitForLoadState('networkidle')
         await assertStayedInCrm(page, route.href)
         await expect(page.locator('h1').filter({ hasText: route.heading }).first()).toBeVisible({
           timeout: 10_000,
