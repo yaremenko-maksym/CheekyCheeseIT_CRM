@@ -48,6 +48,13 @@ import { getOwnSalaryStatus } from './salary-status.helper'
 export const DEFAULT_DROP_SHARE_PERCENT = 5
 
 /**
+ * Default senior share percent when no per-user override is set (DB default 26).
+ * Single source of truth — used in computeDropDistribution, getSeniorSummary,
+ * and getSummary to avoid scattering the literal `26` across the service.
+ */
+export const DEFAULT_SENIOR_SHARE_PERCENT = 26
+
+/**
  * Scaled-integer constant used throughout money aggregations to avoid JS
  * float accumulation errors (same scale as the write-path in confirmPayout /
  * payPayoutRequest: 1e6, round to int). Single source of truth so the
@@ -391,7 +398,7 @@ export class TransactionsService {
     dropShare: { amount: number; percent: number }
     partnerShares: { adminId: string; amount: number }[]
   } {
-    const seniorPercent = senior.seniorSharePercent ?? 26
+    const seniorPercent = senior.seniorSharePercent ?? DEFAULT_SENIOR_SHARE_PERCENT
     const dropPercent = drop.dropSharePercent ?? DEFAULT_DROP_SHARE_PERCENT
 
     if (seniorPercent + dropPercent > 100) {
@@ -1777,7 +1784,7 @@ export class TransactionsService {
       for (const tx of lockedRows) {
         // amount is stored as numeric string from Postgres.
         const amountMinor = Math.round(parseFloat(tx.amount) * SCALE)
-        const sharePercent = tx.seniorSharePercent ?? 26
+        const sharePercent = tx.seniorSharePercent ?? DEFAULT_SENIOR_SHARE_PERCENT
         // company's share = 1 - seniorShare/100; use integer arithmetic
         // on the scaled amount to avoid floating-point drift per iteration.
         const companyShareMinor = Math.round((amountMinor * (100 - sharePercent)) / 100)
@@ -2337,7 +2344,7 @@ export class TransactionsService {
     }
 
     const monthly = Array.from(monthMap.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
+      .sort(([a], [b]) => a.localeCompare(b, 'en'))
       .map(([month, v]) => {
         const income = v.incomeScaled / SCALE
         const expenses = v.expensesScaled / SCALE
@@ -2513,7 +2520,8 @@ export class TransactionsService {
     // same regardless of the project).
     const selfUser = await this.db.db.query.users.findFirst({ where: eq(users.id, selfId) })
     const applicableTeams = await this.findActiveTeamsForUser(selfId)
-    const seniorSharePercent = selfUser?.seniorSharePercent ?? currentUser.seniorSharePercent ?? 26
+    const seniorSharePercent =
+      selfUser?.seniorSharePercent ?? currentUser.seniorSharePercent ?? DEFAULT_SENIOR_SHARE_PERCENT
 
     const activeProjectItems = ownProjects.map((p) => {
       const resolved = resolveSeniorShare(
@@ -2874,7 +2882,7 @@ export class TransactionsService {
       const rb = b.expected > 0 ? b.submitted / b.expected : 1
       if (ra !== rb) return ra - rb
       if (a.submitted !== b.submitted) return a.submitted - b.submitted
-      return a.displayName.localeCompare(b.displayName)
+      return a.displayName.localeCompare(b.displayName, 'en')
     })
 
     return {
