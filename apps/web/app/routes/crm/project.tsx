@@ -133,9 +133,6 @@ function JuniorProjectHub() {
   if (projectsLoading) {
     return (
       <div className="flex flex-col h-full" data-testid="junior-hub">
-        <PageHeader>
-          <div />
-        </PageHeader>
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
           <div className="space-y-4">
             <Skeleton className="h-7 w-44" />
@@ -163,9 +160,6 @@ function JuniorProjectHub() {
   if (!projects || projects.length === 0) {
     return (
       <div className="flex flex-col h-full" data-testid="junior-hub">
-        <PageHeader>
-          <div />
-        </PageHeader>
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
             <UserCircle className="h-10 w-10 opacity-30" />

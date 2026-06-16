@@ -68,11 +68,6 @@ function UsersPage() {
   if (me.role !== 'ADMIN') {
     return (
       <div className="flex flex-col h-full">
-        <PageHeader>
-          <div className="flex items-center justify-between">
-            <div />
-          </div>
-        </PageHeader>
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
           <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
             <p className="text-sm font-medium text-muted-foreground">
