@@ -239,7 +239,11 @@ export class TeamsService {
 
     let filtered = allTeams
     if (currentUser.role === 'HR') {
-      filtered = allTeams.filter((t) => this.isHrOfTeam(t, currentUser.id))
+      // task-hr-team-exclude-drop: HR sees only recruiting (SENIOR-type) teams.
+      // DROP-type teams are payment-routing internals and are irrelevant to the
+      // HR recruiting workflow. Filter applied before isHrOfTeam so that even if
+      // an HR is technically a member of a DROP team they don't see it.
+      filtered = allTeams.filter((t) => t.type !== 'DROP' && this.isHrOfTeam(t, currentUser.id))
     } else if (currentUser.role === 'DROP') {
       // Drop role - phase 1 (task-drop-1-backend AC1). EXPLICIT branch: a DROP
       // sees ONLY teams where they are a current static member (their own
