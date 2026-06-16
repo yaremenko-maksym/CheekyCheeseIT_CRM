@@ -1,8 +1,8 @@
 # task-senior-dashboard-enhance — progress
 
-current_milestone: 1/6
-last_commit: (none yet)
-last_push: (none yet)
+current_milestone: 6/6
+last_commit: frontend + backend + tests all green
+last_push: pending final push
 
 ## Milestones
 
