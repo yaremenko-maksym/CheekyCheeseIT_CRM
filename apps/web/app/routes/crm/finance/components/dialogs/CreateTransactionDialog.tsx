@@ -173,7 +173,11 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // Drop role - phase 2. DROP user can only declare income on drop-projects
   // routed through them. Backend enforces this too — UI mirrors the rule.
   const dropProjects = isDrop ? projects.filter((p) => p.dropId === user?.id) : []
-  const salaryTargets = allUsers.filter((u) => ['JUNIOR', 'HR', 'ACCOUNTANT'].includes(u.role))
+  // task-salary-no-admin-receiver: mirror backend allow-list — ADMIN excluded
+  // (income via shares); all salaried roles are eligible.
+  const salaryTargets = allUsers.filter((u) =>
+    ['JUNIOR', 'HR', 'ACCOUNTANT', 'SENIOR', 'DROP'].includes(u.role),
+  )
   // ADMIN_TRANSFER parties must BOTH be ADMIN. The accountant is never a
   // transfer party, so the sender/receiver pools are the same admin list for
   // both roles; for ADMIN we still exclude self from the receiver pool.
