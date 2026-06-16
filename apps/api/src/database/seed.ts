@@ -924,10 +924,10 @@ async function main() {
     })
     .returning()
   const adminProj2 = adminProj2Rows[0]!
-  // Nazar as junior on adminProj2
+  // Oksana as junior on adminProj2 (JUNIOR, distinct from SOFIA on adminProj1 and NeuroEdge)
   await db.insert(schema.projectMembers).values({
     projectId: adminProj2.id,
-    userId: NAZAR_ID,
+    userId: OKSANA_ID,
     joinedAt: d(2026, 4, 1),
   })
   // Legend for adminProj2
