@@ -32,6 +32,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProjectLogo } from '@/components/projects/ProjectLogo'
 import { ProjectCredentialsSection } from '@/components/projects/ProjectCredentialsSection'
+import { PageHeader } from '@/components/crm/StickyPageHeader'
 
 export const Route = createFileRoute('/crm/project')({
   component: JuniorProjectHub,
@@ -131,21 +132,32 @@ function JuniorProjectHub() {
 
   if (projectsLoading) {
     return (
-      <div className="space-y-4" data-testid="junior-hub">
-        <Skeleton className="h-7 w-44" />
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {/* Left stack skeleton */}
-          <div className="lg:col-span-1 flex flex-col gap-4 self-start">
-            <Skeleton className="h-44 rounded-lg" />
-            <Skeleton className="h-28 rounded-lg" />
+      <div className="flex flex-col h-full" data-testid="junior-hub">
+        <PageHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Мой проект</h1>
+            </div>
           </div>
-          {/* Right wide skeleton — flex flex-col matches equal-height strategy */}
-          <div className="lg:col-span-2 flex flex-col">
-            <Skeleton className="flex-1 min-h-[200px] rounded-lg" />
-          </div>
-          {/* Bottom skeleton */}
-          <div className="col-span-full">
-            <Skeleton className="h-32 rounded-lg" />
+        </PageHeader>
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
+          <div className="space-y-4">
+            <Skeleton className="h-7 w-44" />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* Left stack skeleton */}
+              <div className="lg:col-span-1 flex flex-col gap-4 self-start">
+                <Skeleton className="h-44 rounded-lg" />
+                <Skeleton className="h-28 rounded-lg" />
+              </div>
+              {/* Right wide skeleton — flex flex-col matches equal-height strategy */}
+              <div className="lg:col-span-2 flex flex-col">
+                <Skeleton className="flex-1 min-h-[200px] rounded-lg" />
+              </div>
+              {/* Bottom skeleton */}
+              <div className="col-span-full">
+                <Skeleton className="h-32 rounded-lg" />
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -154,32 +166,48 @@ function JuniorProjectHub() {
 
   if (!projects || projects.length === 0) {
     return (
-      <div
-        className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground"
-        data-testid="junior-hub"
-      >
-        <UserCircle className="h-10 w-10 opacity-30" />
-        <p className="text-sm font-medium">Вас ещё не добавили в проект.</p>
-        <p className="text-xs">Свяжитесь с вашим HR для добавления в проект.</p>
+      <div className="flex flex-col h-full" data-testid="junior-hub">
+        <PageHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Мой проект</h1>
+            </div>
+          </div>
+        </PageHeader>
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
+          <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
+            <UserCircle className="h-10 w-10 opacity-30" />
+            <p className="text-sm font-medium">Вас ещё не добавили в проект.</p>
+            <p className="text-xs">Свяжитесь с вашим HR для добавления в проект.</p>
+          </div>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="space-y-4" data-testid="junior-hub">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Мой проект</h1>
-        {activeProject && (
-          <p className="text-sm text-muted-foreground">{activeProject.companyName}</p>
-        )}
+    <div className="flex flex-col h-full" data-testid="junior-hub">
+      <PageHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Мой проект</h1>
+            {activeProject && (
+              <p className="text-sm text-muted-foreground">{activeProject.companyName}</p>
+            )}
+          </div>
+        </div>
+      </PageHeader>
+
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
+        <div className="space-y-4">
+          {/* Project switcher — only when >1 project */}
+          {projects.length > 1 && (
+            <ProjectSwitcher projects={projects} activeIdx={activeIdx} onSelect={setActiveIdx} />
+          )}
+
+          {activeProject && <HubCards project={activeProject} projectId={projectId!} />}
+        </div>
       </div>
-
-      {/* Project switcher — only when >1 project */}
-      {projects.length > 1 && (
-        <ProjectSwitcher projects={projects} activeIdx={activeIdx} onSelect={setActiveIdx} />
-      )}
-
-      {activeProject && <HubCards project={activeProject} projectId={projectId!} />}
     </div>
   )
 }

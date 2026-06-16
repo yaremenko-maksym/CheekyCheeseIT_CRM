@@ -23,6 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { financeApi } from '../finance/api'
+import { PageHeader } from '@/components/crm/StickyPageHeader'
 
 export const Route = createFileRoute('/crm/payments/initiate/$incomeId')({
   component: InitiatePaymentPage,
@@ -82,31 +83,39 @@ function InitiatePaymentPage() {
   if (!user) return null
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      <header className="space-y-2">
-        <Link
-          to="/crm/profile/$userId"
-          params={{ userId: user.id }}
-          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-          data-testid="back-button"
-        >
-          <ArrowLeft className="h-3 w-3" /> Назад
-        </Link>
-        <h1 className="text-2xl font-bold tracking-tight">Платить компании</h1>
-        <p className="text-sm text-muted-foreground">
-          Отправьте USDT на три кошелька: синьору и двум админам. После подтверждения транзакции
-          появятся в реестре.
-        </p>
-      </header>
+    <div className="flex flex-col h-full">
+      <PageHeader>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/crm/profile/$userId"
+            params={{ userId: user.id }}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            data-testid="back-button"
+          >
+            <ArrowLeft className="h-3 w-3" /> Назад
+          </Link>
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Платить компании</h1>
+          <p className="text-sm text-muted-foreground">
+            Отправьте USDT на три кошелька: синьору и двум админам. После подтверждения транзакции
+            появятся в реестре.
+          </p>
+        </div>
+      </PageHeader>
 
-      {incomeLoading || !income ? (
-        <Skeleton className="h-32 w-full" />
-      ) : (
-        <>
-          <IncomeSummary income={income} />
-          <CryptoChannelCard incomeId={incomeId} queryClient={queryClient} />
-        </>
-      )}
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
+        <div className="space-y-6 max-w-3xl">
+          {incomeLoading || !income ? (
+            <Skeleton className="h-32 w-full" />
+          ) : (
+            <>
+              <IncomeSummary income={income} />
+              <CryptoChannelCard incomeId={incomeId} queryClient={queryClient} />
+            </>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
