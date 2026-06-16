@@ -94,13 +94,7 @@ function InitiatePaymentPage() {
             <ArrowLeft className="h-3 w-3" /> Назад
           </Link>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Платить компании</h1>
-          <p className="text-sm text-muted-foreground">
-            Отправьте USDT на три кошелька: синьору и двум админам. После подтверждения транзакции
-            появятся в реестре.
-          </p>
-        </div>
+        <div />
       </PageHeader>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">

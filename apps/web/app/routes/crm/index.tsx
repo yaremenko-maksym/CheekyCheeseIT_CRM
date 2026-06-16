@@ -84,11 +84,6 @@ function CrmDashboard() {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Дашборд</h1>
-          <p className="text-sm text-muted-foreground">Добро пожаловать в CheekyCheeseIT CRM</p>
-        </div>
-
         <motion.div
           className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
           variants={container}

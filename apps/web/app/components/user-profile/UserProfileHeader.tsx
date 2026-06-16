@@ -45,12 +45,12 @@ export function UserProfileHeader({
       avatarDocumentId={user.avatarDocumentId}
       avatarUrl={user.avatarUrl}
       displayName={user.displayName}
-      className="h-32 w-32 shrink-0 text-3xl"
+      className="h-20 w-20 shrink-0 text-2xl"
     />
   )
 
   return (
-    <div className="flex flex-col gap-4 border-b pb-6 md:flex-row md:items-center md:gap-6">
+    <div className="flex flex-col gap-3 border-b pb-4 md:flex-row md:items-center md:gap-4">
       {onAvatarClick ? (
         <button
           type="button"

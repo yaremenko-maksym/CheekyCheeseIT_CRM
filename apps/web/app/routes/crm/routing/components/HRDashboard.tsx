@@ -33,12 +33,6 @@ export function HRDashboard() {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
       <div data-testid="hr-dashboard-hub" className="space-y-6">
-        {/* Page header */}
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Дашборд</h1>
-          <p className="text-sm text-muted-foreground">Рекрутинг хаб HR-менеджера</p>
-        </div>
-
         {isLoading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="hr-kpi-loading">
             {Array.from({ length: 3 }).map((_, i) => (

@@ -134,11 +134,7 @@ function JuniorProjectHub() {
     return (
       <div className="flex flex-col h-full" data-testid="junior-hub">
         <PageHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">Мой проект</h1>
-            </div>
-          </div>
+          <div />
         </PageHeader>
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
           <div className="space-y-4">
@@ -168,11 +164,7 @@ function JuniorProjectHub() {
     return (
       <div className="flex flex-col h-full" data-testid="junior-hub">
         <PageHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">Мой проект</h1>
-            </div>
-          </div>
+          <div />
         </PageHeader>
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
@@ -190,7 +182,6 @@ function JuniorProjectHub() {
       <PageHeader>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Мой проект</h1>
             {activeProject && (
               <p className="text-sm text-muted-foreground">{activeProject.companyName}</p>
             )}

@@ -1,9 +1,8 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Briefcase, CheckCircle2, Clock, Plus, TrendingUp, Wallet } from 'lucide-react'
-import type { SalaryStatus, TransactionDto } from '@crm/shared'
-import { formatAmount } from '@/lib/format-amount'
+import { Briefcase, Clock, Plus, TrendingUp, Wallet } from 'lucide-react'
+import type { TransactionDto } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -22,18 +21,14 @@ import { EarningsStatsBlock } from './EarningsStatsBlock'
  *
  * Визуально консистентен с HRDashboard / AccountantDashboard: stagger-grid
  * карточек, переиспользует KpiCard-примитив из finance/components/KpiCards. KPI:
- * активные проекты, senior-доход за период, ожидают выплаты. Плюс панели:
- *   1. «Мои проекты»          — список own-проектов с долей % (share).
- *   2. «Статус моих выплат»   — senior-доход total/за месяц + статус зарплаты.
- *   3. «Транзакции в работе»  — его SENIOR_INCOME со статусом PENDING/VALIDATED
- *      (НЕ PAID). Тулбар «Добавить приход» (создание SENIOR_INCOME) + «Создать
- *      выплату» (батч VALIDATED-приходов в payout). Все действия self-scoped.
+ * активные проекты, senior-доход за период, ожидают выплаты. Плюс блоки:
+ *   1. EarningsStatsBlock — hero «Всего заработано» + sparkline + список проектов
+ *      + «Этот месяц» с progress bar приходов от компаний.
+ *   2. «Транзакции в работе»  — его SENIOR_INCOME со статусом PENDING/VALIDATED
+ *      (НЕ PAID). Тулбар «Добавить приход» + «Создать выплату».
  *
- * Финансовые действия НЕ дублируются: переиспользуются те же finance-диалоги
- * (CreateTransactionDialog → SENIOR_INCOME-only ветка с обязательным RECEIPT;
- * PayoutDialog → createPayoutRequest), та же self-scoped лента транзакций
- * (financeApi.getTransactions — backend findAll ограничивает SENIOR его
- * собственными строками). Дашборд НЕ ведёт на /crm/finance — действия здесь.
+ * §3 refactor: убраны шапка «Дашборд», панель «Статус моих выплат» и дублирующая
+ * панель «Мои проекты» — список проектов теперь внутри EarningsStatsBlock.
  *
  * Сам компонент роль НЕ проверяет — родитель (crm/index.tsx) отвечает за
  * dispatch, backend дополнительно отдаёт 403 для не-SENIOR/ADMIN на data-вызове.
@@ -53,8 +48,7 @@ const card = {
  * USD-only formatter for the aggregated senior-SHARE income figures. Those are
  * a cross-project sum the backend reports as `currency: 'USD'` (see
  * seniorSummarySchema.seniorShareIncome) — they are NOT a single transaction's
- * amount, so they keep the USD display. The per-employee SALARY amount uses the
- * currency-aware `formatAmount` instead (its real currency, no conversion).
+ * amount, so they keep the USD display.
  */
 function fmtUsd(value: number): string {
   return value.toLocaleString('en-US', {
@@ -63,18 +57,6 @@ function fmtUsd(value: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })
-}
-
-const SALARY_STATUS_LABEL: Record<SalaryStatus, string> = {
-  PENDING: 'Ожидает выплаты',
-  PAID: 'Выплачено',
-  LOCKED: 'Заблокировано',
-}
-
-const SALARY_STATUS_COLOR: Record<SalaryStatus, 'yellow' | 'green' | 'default'> = {
-  PENDING: 'yellow',
-  PAID: 'green',
-  LOCKED: 'default',
 }
 
 // In-progress = the senior's own income still moving through the pipeline:
@@ -135,23 +117,9 @@ export function SeniorDashboard() {
     setPayoutOpen(true)
   }
 
-  const salary = summary?.mySalaryStatus ?? null
-  // Salary-currency fix: render the salary in its OWN currency (e.g. «50 000,00
-  // UAH») via the shared currency-aware `formatAmount` — NOT the old hard-coded
-  // `$`. No conversion is performed.
-  const salaryValue = salary ? formatAmount(salary.amount, salary.currency) : '—'
-  const salarySub = salary ? SALARY_STATUS_LABEL[salary.status] : 'Нет начисления за месяц'
-  const salaryColor = salary ? SALARY_STATUS_COLOR[salary.status] : 'default'
-
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
       <div data-testid="senior-dashboard-hub" className="space-y-6">
-        {/* Page header (layout model #231 — compact fixed header + scroll content). */}
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Дашборд</h1>
-          <p className="text-sm text-muted-foreground">Рабочий хаб синьора</p>
-        </div>
-
         {isLoading ? (
           <div
             className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
@@ -211,119 +179,14 @@ export function SeniorDashboard() {
               </motion.div>
             </motion.div>
 
-            {/* «Статистика заработка» — earnings stats (task-senior-stats-block):
-                hero «Всего» + sparkline, «Прошлый месяц», «Этот месяц» with the
-                per-company arrival progress bar (NO money "expected" figure). */}
+            {/* Earnings stats: hero «Всего» + sparkline + список проектов +
+                «Этот месяц» progress bar. «Прошлый месяц» убран (§3). */}
             <EarningsStatsBlock
               stats={summary.earningsStats}
               totalEarned={summary.seniorShareIncome.total}
               thisMonthEarned={summary.seniorShareIncome.thisMonth}
+              activeProjects={summary.activeProjects.items}
             />
-
-            {/* Two panels: «Мои проекты» + «Статус моих выплат». */}
-            <motion.div
-              className="grid gap-4 lg:grid-cols-2"
-              variants={container}
-              initial="hidden"
-              animate="show"
-            >
-              {/* Мои проекты — own active projects with share %. */}
-              <motion.div variants={card}>
-                <Card data-testid="senior-projects-panel">
-                  <CardContent className="pt-5 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold">Мои проекты</p>
-                      <Briefcase className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                    </div>
-
-                    {summary.activeProjects.items.length === 0 ? (
-                      <p
-                        className="text-xs text-muted-foreground"
-                        data-testid="senior-projects-empty"
-                      >
-                        Нет активных проектов
-                      </p>
-                    ) : (
-                      <ul className="space-y-2">
-                        {summary.activeProjects.items.map((p) => (
-                          <li
-                            key={p.id}
-                            className="flex items-center justify-between gap-2"
-                            data-testid={`senior-project-row-${p.id}`}
-                          >
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium leading-tight truncate">{p.name}</p>
-                              <p className="text-xs text-muted-foreground leading-tight truncate">
-                                {p.companyName}
-                              </p>
-                            </div>
-                            <span
-                              className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-mono text-primary"
-                              data-testid={`senior-project-share-${p.id}`}
-                            >
-                              {p.sharePercent}%
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </CardContent>
-                </Card>
-              </motion.div>
-
-              {/* Статус моих выплат — income total/this-month + salary status. */}
-              <motion.div variants={card}>
-                <Card data-testid="senior-payouts-panel">
-                  <CardContent className="pt-5 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold">Статус моих выплат</p>
-                      <Wallet className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                    </div>
-
-                    <div className="space-y-3">
-                      <div
-                        className="flex items-center justify-between"
-                        data-testid="senior-salary-status"
-                      >
-                        <div className="flex items-center gap-2">
-                          {salary?.status === 'PAID' ? (
-                            <CheckCircle2 className="h-4 w-4 text-green-500" aria-hidden="true" />
-                          ) : (
-                            <Wallet className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                          )}
-                          <div>
-                            <p className="text-sm font-medium leading-tight">Доля за месяц</p>
-                            <p
-                              className={
-                                'text-xs leading-tight ' +
-                                (salaryColor === 'green'
-                                  ? 'text-green-500'
-                                  : salaryColor === 'yellow'
-                                    ? 'text-yellow-500'
-                                    : 'text-muted-foreground')
-                              }
-                            >
-                              {salarySub}
-                            </p>
-                          </div>
-                        </div>
-                        <span className="text-sm font-bold tabular-nums">{salaryValue}</span>
-                      </div>
-
-                      <div
-                        className="flex items-center justify-between border-t pt-3"
-                        data-testid="senior-income-total"
-                      >
-                        <p className="text-sm text-muted-foreground">Senior-доход всего</p>
-                        <span className="text-sm font-bold tabular-nums text-green-500">
-                          {fmtUsd(summary.seniorShareIncome.total)}
-                        </span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            </motion.div>
 
             {/* «Транзакции в работе» — own SENIOR_INCOME PENDING/VALIDATED, with
                 inline finance actions (add income / create payout). */}

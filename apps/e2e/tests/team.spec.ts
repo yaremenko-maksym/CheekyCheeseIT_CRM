@@ -451,9 +451,10 @@ test.describe('Team page', () => {
         r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
       )
       await page.goto('/crm/team')
-      // Scope to <main> heading — sidebar also contains a «Команда» nav label
-      // which causes a strict-mode violation if getByText is used without scope.
-      await expect(page.locator('main').getByRole('heading', { name: 'Команда' })).toBeVisible()
+      // Page-load anchor: the active/archived toggle is part of the persistent
+      // page chrome and renders even with an empty teams list (the page title
+      // h1 was removed in the de-title refactor).
+      await expect(page.getByTestId('toggle-archived-teams')).toBeVisible()
     })
 
     test('API error on rename shows no silent failure (page stays open)', async ({

@@ -118,8 +118,8 @@ test.describe('Projects archive — list page tab', () => {
     await expect(page.getByTestId('projects-status-tabs')).not.toBeVisible()
     // Active project is shown (from active-only API call)
     await expect(page.getByText(activeProject.name)).toBeVisible()
-    // Subtitle shows «Активные проекты», not «Активные и завершённые»
-    await expect(page.getByText('Активные проекты')).toBeVisible()
+    // (Page-title/subtitle removed in de-title refactor — the active-only state
+    // is proven by the hidden tabs + the active project being listed above.)
   })
 
   test('archived project card has data-archived=true and no inline restore button (ut-38)', async ({

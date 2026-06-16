@@ -302,7 +302,7 @@ function TeamDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 px-6 pt-4 pb-6">
         <div className="flex items-center gap-3">
           <Skeleton className="h-9 w-9 rounded-md" />
           <div className="space-y-1.5">
@@ -387,7 +387,12 @@ function TeamDetailPage() {
   // tgUrl / tgDisplay imported from @/lib/tg-url
 
   return (
-    <motion.div className="space-y-6" variants={container} initial="hidden" animate="show">
+    <motion.div
+      className="space-y-6 px-6 pt-4 pb-6"
+      variants={container}
+      initial="hidden"
+      animate="show"
+    >
       {/* Header */}
       <motion.div variants={item} className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">

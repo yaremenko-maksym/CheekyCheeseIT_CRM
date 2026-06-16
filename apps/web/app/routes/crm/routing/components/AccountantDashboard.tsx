@@ -74,12 +74,6 @@ export function AccountantDashboard() {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
       <div data-testid="accountant-dashboard-hub" className="space-y-6">
-        {/* Page header */}
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Дашборд</h1>
-          <p className="text-sm text-muted-foreground">Финансовый хаб бухгалтера</p>
-        </div>
-
         {isLoading ? (
           <div
             className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"

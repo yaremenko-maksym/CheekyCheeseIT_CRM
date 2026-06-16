@@ -1,26 +1,19 @@
+import { Briefcase, TrendingUp } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { TrendingUp } from 'lucide-react'
 import { formatAmount } from '@crm/shared'
 import type { SeniorEarningsStatsDto } from '@crm/shared'
 import { Card, CardContent } from '@/components/ui/card'
 import { EarningsSparkline } from './EarningsSparkline'
 
 /**
- * EarningsStatsBlock — «Статистика заработка» for the SENIOR dashboard
- * (task-senior-stats-block). Design = variant B (editorial / bento) with the
- * variant-C sparkline embedded in the hero «Всего заработано» tile.
+ * EarningsStatsBlock — заработок синьора: hero «Всего заработано» + sparkline,
+ * список активных проектов с долей (вместо «Прошлый месяц»), «Этот месяц» с
+ * progress bar.
  *
- * Tiles:
- *   1. Hero «Всего заработано · всё время» — large gold figure + sparkline of
- *      the last months + a green «+$X этот месяц» badge.
- *   2. «Прошлый месяц» — senior NET share for the previous calendar month.
- *   3. «Этот месяц» — already-earned this month + a PROGRESS BAR «X/N приходов
- *      от компаний за этот месяц» (NOT money — USER decision: no expected-money
- *      figure since the real amount depends on each company's payment method /
- *      ФОП-tax / the junior's worked days).
- *
- * All money is the senior's NET share displayed in USD (same convention as the
- * KPI cards' `fmtUsd`) — no currency conversion.
+ * §3 refactor: убраны «СТАТИСТИКА ЗАРАБОТКА» section-heading и «Прошлый месяц»
+ * tile (неинформативен). Вместо «Прошлый месяц» — список activeProjects с %
+ * доли: данные уже доступны в summary.activeProjects.items (передаются через
+ * новый проп `activeProjects`).
  */
 
 const card = {
@@ -51,37 +44,39 @@ function ruMonthYear(monthKey: string): string {
   return `${RU_MONTHS[mi - 1]} ${y}`
 }
 
+interface ActiveProjectItem {
+  id: string
+  name: string
+  companyName: string
+  sharePercent: number
+}
+
 interface EarningsStatsBlockProps {
   stats: SeniorEarningsStatsDto
   /** Lifetime senior-share total — reused from `seniorShareIncome.total`. */
   totalEarned: number
   /** Already earned this month — reused from `seniorShareIncome.thisMonth`. */
   thisMonthEarned: number
+  /** Active projects with share %, shown instead of «Прошлый месяц». */
+  activeProjects: ActiveProjectItem[]
 }
 
 export function EarningsStatsBlock({
   stats,
   totalEarned,
   thisMonthEarned,
+  activeProjects,
 }: EarningsStatsBlockProps) {
-  const { lastMonthIncome, monthlyHistory, companyIncomeProgress } = stats
+  const { monthlyHistory, companyIncomeProgress } = stats
   const { received, total } = companyIncomeProgress
 
-  // Current/previous month keys derive from the history tail (newest = this).
+  // Current month key derives from the history tail (newest = this).
   const thisMonthKey = monthlyHistory.at(-1)?.month
-  const lastMonthKey = monthlyHistory.at(-2)?.month
 
   const progressPct = total > 0 ? Math.round((received / total) * 100) : 0
 
   return (
     <motion.div variants={card} initial="hidden" animate="show" className="space-y-3">
-      <p
-        className="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
-        data-testid="earnings-stats-heading"
-      >
-        Статистика заработка
-      </p>
-
       <div className="grid gap-4 lg:grid-cols-3" data-testid="earnings-stats-grid">
         {/* ── Hero «Всего заработано» + sparkline (spans 2 cols on lg). ───────── */}
         <Card
@@ -113,21 +108,43 @@ export function EarningsStatsBlock({
           </CardContent>
         </Card>
 
-        {/* ── «Прошлый месяц». ──────────────────────────────────────────────── */}
-        <Card data-testid="earnings-last-month-tile">
-          <CardContent className="flex h-full flex-col justify-between gap-2 pt-5">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Прошлый месяц
-            </p>
-            <span
-              className="text-2xl font-bold tracking-tight tabular-nums"
-              data-testid="earnings-last-month-value"
-            >
-              {formatAmount(lastMonthIncome, 'USD')}
-            </span>
-            <p className="text-xs text-muted-foreground">
-              {lastMonthKey ? ruMonthYear(lastMonthKey) : '—'}
-            </p>
+        {/* ── Список активных проектов с долей (заменяет «Прошлый месяц»). ──── */}
+        <Card data-testid="earnings-projects-tile">
+          <CardContent className="flex h-full flex-col gap-3 pt-5">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Мои проекты
+              </p>
+              <Briefcase className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            </div>
+            {activeProjects.length === 0 ? (
+              <p className="text-xs text-muted-foreground" data-testid="senior-projects-empty">
+                Нет активных проектов
+              </p>
+            ) : (
+              <ul className="space-y-2 flex-1">
+                {activeProjects.map((p) => (
+                  <li
+                    key={p.id}
+                    className="flex items-center justify-between gap-2"
+                    data-testid={`senior-project-row-${p.id}`}
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium leading-tight truncate">{p.name}</p>
+                      <p className="text-xs text-muted-foreground leading-tight truncate">
+                        {p.companyName}
+                      </p>
+                    </div>
+                    <span
+                      className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-mono text-primary"
+                      data-testid={`senior-project-share-${p.id}`}
+                    >
+                      {p.sharePercent}%
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </CardContent>
         </Card>
       </div>

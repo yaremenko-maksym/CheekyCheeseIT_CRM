@@ -38,12 +38,6 @@ function DropDashboardContent({ onRetrySummary }: { onRetrySummary: () => void }
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
       <div data-testid="drop-routing-hub" className="space-y-6">
-        {/* Page header */}
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Дашборд</h1>
-          <p className="text-sm text-muted-foreground">Платёжный хаб</p>
-        </div>
-
         {/* Grid layout: md:2-col */}
         <motion.div
           className="grid grid-cols-1 md:grid-cols-2 gap-4"

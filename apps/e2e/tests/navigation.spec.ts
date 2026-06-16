@@ -15,20 +15,22 @@ import { test, expect } from './fixtures'
 // Routes visible to ALL roles (except JUNIOR for interviews)
 // ---------------------------------------------------------------------------
 
-// Profile page heading is now the user's display name (UserProfileHeader renders
-// `<h1>{user.displayName}</h1>`). The sidebar role-based fixtures set displayName
-// according to the auth fixture, so the regex covers all four fixture personas.
-const PROFILE_HEADING_REGEX = /(Admin User|Senior Dev|Junior Dev|HR Manager|Accountant User)/
-
-const COMMON_ROUTES: { label: string; href: string; heading: RegExp }[] = [
-  // Dashboard consolidated to /crm root (was /crm/dashboard). Nav «Дашборд» → /crm.
-  { label: 'Дашборд', href: '/crm', heading: /дашборд/i },
-  { label: 'Профиль', href: '/crm/profile', heading: PROFILE_HEADING_REGEX },
-  { label: 'Команда', href: '/crm/team', heading: /команд/i },
-  { label: 'Проекты', href: '/crm/projects', heading: /проект/i },
-  // Finance heading renders after API load — match the sidebar text instead
-  { label: 'Финансы', href: '/crm/finance', heading: /финанс/i },
-  { label: 'Документы', href: '/crm/documents', heading: /документ/i },
+// Generic page h1 headings were removed (§1 detitle refactor).
+// Navigation is now verified by URL + page-specific testid anchors where available.
+// Routes without a unique testid rely on URL assertion in assertStayedInCrm.
+const COMMON_ROUTES: { label: string; href: string; testid?: string }[] = [
+  // Dashboard — role-specific component, verified by URL.
+  { label: 'Дашборд', href: '/crm' },
+  // Profile — h1 is user display name (identity, not nav-dup); verified by URL.
+  { label: 'Профиль', href: '/crm/profile' },
+  // Team list — h1 removed; verify by URL (SENIOR redirects to detail with team h1).
+  { label: 'Команда', href: '/crm/team' },
+  // Projects — h1 removed; verify by URL.
+  { label: 'Проекты', href: '/crm/projects' },
+  // Finance — h1 removed; data-testid="finance-page" added.
+  { label: 'Финансы', href: '/crm/finance', testid: 'finance-page' },
+  // Documents — h1 removed; data-testid="documents-page" added.
+  { label: 'Документы', href: '/crm/documents', testid: 'documents-page' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -68,9 +70,10 @@ test.describe('ADMIN sidebar navigation', () => {
       await page.waitForLoadState('networkidle')
 
       await assertStayedInCrm(page, route.href)
-      await expect(page.locator('h1').filter({ hasText: route.heading }).first()).toBeVisible({
-        timeout: 10_000,
-      })
+      // Generic h1 headings removed (§1 detitle); use testid where available, else URL is enough.
+      if (route.testid) {
+        await expect(page.getByTestId(route.testid).first()).toBeVisible({ timeout: 10_000 })
+      }
     })
   }
 
@@ -83,7 +86,7 @@ test.describe('ADMIN sidebar navigation', () => {
     await page.waitForLoadState('networkidle')
 
     await assertStayedInCrm(page, '/crm/interviews')
-    await expect(page.getByRole('heading', { name: /собеседован/i })).toBeVisible()
+    await expect(page.getByTestId('interviews-page')).toBeVisible({ timeout: 10_000 })
   })
 
   // ADMIN round-trip: skip interviews since sidebar link requires auth context to load
@@ -124,7 +127,7 @@ test.describe('ADMIN sidebar navigation', () => {
 
 test.describe('SENIOR sidebar navigation', () => {
   const seniorRoutes = COMMON_ROUTES.concat([
-    { label: 'Собеседования', href: '/crm/interviews', heading: /собеседован/i },
+    { label: 'Собеседования', href: '/crm/interviews', testid: 'interviews-page' },
   ])
 
   for (const route of seniorRoutes) {
@@ -138,7 +141,8 @@ test.describe('SENIOR sidebar navigation', () => {
 
       await clickSidebarLink(page, route.href)
 
-      // Handle team redirect for SENIOR (single team → detail page)
+      // Handle team redirect for SENIOR (single team → detail page).
+      // team h1 = {team.name} (identity, NOT nav-dup) — still a valid anchor.
       if (route.href === '/crm/team') {
         await page.waitForURL('**/crm/team/**', { timeout: 8_000 })
         await assertStayedInCrm(page, route.href)
@@ -146,9 +150,10 @@ test.describe('SENIOR sidebar navigation', () => {
       } else {
         await page.waitForURL(`**${route.href}**`, { timeout: 8_000 })
         await assertStayedInCrm(page, route.href)
-        await expect(page.locator('h1').filter({ hasText: route.heading }).first()).toBeVisible({
-          timeout: 10_000,
-        })
+        // Generic h1 headings removed (§1 detitle); use testid where available.
+        if (route.testid) {
+          await expect(page.getByTestId(route.testid).first()).toBeVisible({ timeout: 10_000 })
+        }
       }
     })
   }
@@ -160,7 +165,7 @@ test.describe('SENIOR sidebar navigation', () => {
 
 test.describe('HR sidebar navigation', () => {
   const hrRoutes = COMMON_ROUTES.concat([
-    { label: 'Собеседования', href: '/crm/interviews', heading: /собеседован/i },
+    { label: 'Собеседования', href: '/crm/interviews', testid: 'interviews-page' },
   ])
 
   for (const route of hrRoutes) {
@@ -173,9 +178,10 @@ test.describe('HR sidebar navigation', () => {
       await page.waitForLoadState('networkidle')
 
       await assertStayedInCrm(page, route.href)
-      await expect(page.locator('h1').filter({ hasText: route.heading }).first()).toBeVisible({
-        timeout: 10_000,
-      })
+      // Generic h1 headings removed (§1 detitle); use testid where available.
+      if (route.testid) {
+        await expect(page.getByTestId(route.testid).first()).toBeVisible({ timeout: 10_000 })
+      }
     })
   }
 })
@@ -187,11 +193,12 @@ test.describe('HR sidebar navigation', () => {
 // ---------------------------------------------------------------------------
 
 // Routes that JUNIOR actually sees in the sidebar (junior-nav testid).
-const JUNIOR_ROUTES: { label: string; href: string; heading: RegExp }[] = [
-  { label: 'Мой проект', href: '/crm/project', heading: /проект/i },
-  { label: 'Профиль', href: '/crm/profile', heading: PROFILE_HEADING_REGEX },
-  { label: 'Финансы', href: '/crm/finance', heading: /финанс/i },
-  { label: 'Документы', href: '/crm/documents', heading: /документ/i },
+// Generic h1 headings removed (§1 detitle); anchors: junior-hub, finance-page, documents-page.
+const JUNIOR_ROUTES: { label: string; href: string; testid?: string }[] = [
+  { label: 'Мой проект', href: '/crm/project', testid: 'junior-hub' },
+  { label: 'Профиль', href: '/crm/profile' },
+  { label: 'Финансы', href: '/crm/finance', testid: 'finance-page' },
+  { label: 'Документы', href: '/crm/documents', testid: 'documents-page' },
 ]
 
 test.describe('JUNIOR sidebar navigation', () => {
@@ -205,9 +212,9 @@ test.describe('JUNIOR sidebar navigation', () => {
       await page.waitForLoadState('networkidle')
 
       await assertStayedInCrm(page, route.href)
-      await expect(page.locator('h1').filter({ hasText: route.heading }).first()).toBeVisible({
-        timeout: 10_000,
-      })
+      if (route.testid) {
+        await expect(page.getByTestId(route.testid).first()).toBeVisible({ timeout: 10_000 })
+      }
     })
   }
 
@@ -233,25 +240,25 @@ test.describe('Regression: interviews navigation bug', () => {
   test('ADMIN: direct URL /crm/interviews loads correctly', async ({ asAdmin: page }) => {
     await page.goto('/crm/interviews')
     await expect(page).toHaveURL(/\/crm\/interviews/)
-    await expect(page.getByRole('heading', { name: /собеседован/i })).toBeVisible()
+    await expect(page.getByTestId('interviews-page')).toBeVisible({ timeout: 10_000 })
   })
 
   test('SENIOR: direct URL /crm/interviews loads correctly', async ({ asSenior: page }) => {
     await page.goto('/crm/interviews')
     await expect(page).toHaveURL(/\/crm\/interviews/)
-    await expect(page.getByRole('heading', { name: /собеседован/i })).toBeVisible()
+    await expect(page.getByTestId('interviews-page')).toBeVisible({ timeout: 10_000 })
   })
 
   test('HR: direct URL /crm/interviews loads correctly', async ({ asHr: page }) => {
     await page.goto('/crm/interviews')
     await expect(page).toHaveURL(/\/crm\/interviews/)
-    await expect(page.getByRole('heading', { name: /собеседован/i })).toBeVisible()
+    await expect(page.getByTestId('interviews-page')).toBeVisible({ timeout: 10_000 })
   })
 
   test('ADMIN: /crm/interviews with ?seniorId param loads correctly', async ({ asAdmin: page }) => {
     await page.goto('/crm/interviews?seniorId=a0000000-0000-4000-8000-000000000002')
     await expect(page).toHaveURL(/\/crm\/interviews/)
-    await expect(page.getByRole('heading', { name: /собеседован/i })).toBeVisible()
+    await expect(page.getByTestId('interviews-page')).toBeVisible({ timeout: 10_000 })
   })
 
   test('no console errors on interviews page load', async ({ asAdmin: page }) => {
@@ -285,7 +292,7 @@ test.describe('Regression: interviews navigation bug', () => {
     await page.waitForURL('**/crm/interviews**', { timeout: 10_000 })
 
     await expect(page).toHaveURL(/\/crm\/interviews/)
-    await expect(page.locator('h1').filter({ hasText: /собеседован/i })).toBeVisible()
+    await expect(page.getByTestId('interviews-page')).toBeVisible({ timeout: 10_000 })
   })
 })
 

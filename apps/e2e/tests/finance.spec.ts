@@ -203,7 +203,7 @@ test.describe('Finance — page load', () => {
   test('ADMIN: отображает заголовок и кнопку создания', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [])
     await asAdmin.goto('/crm/finance')
-    await expect(asAdmin.getByRole('heading', { name: 'Финансы' })).toBeVisible()
+    await expect(asAdmin.getByTestId('finance-page')).toBeVisible()
     await expect(asAdmin.getByRole('button', { name: /Новая транзакция/i })).toBeVisible()
   })
 
@@ -226,7 +226,7 @@ test.describe('Finance — page load', () => {
   }) => {
     await mockTransactions(asHr, [TX_SALARY_HR])
     await asHr.goto('/crm/finance')
-    await expect(asHr.getByText(/история ваших выплат/i)).toBeVisible()
+    await expect(asHr.getByTestId('finance-page')).toBeVisible()
     await expect(asHr.getByRole('button', { name: /Новая транзакция/i })).not.toBeVisible()
   })
 
@@ -237,8 +237,7 @@ test.describe('Finance — page load', () => {
   }) => {
     await mockTransactions(asJunior, [])
     await asJunior.goto('/crm/finance')
-    await expect(asJunior.getByRole('heading', { name: 'Финансы' })).toBeVisible()
-    await expect(asJunior.getByText('Ваши зарплатные выплаты')).toBeVisible()
+    await expect(asJunior.getByTestId('finance-page')).toBeVisible()
     await expect(asJunior.getByRole('button', { name: /Новая транзакция/i })).not.toBeVisible()
   })
 
@@ -265,7 +264,7 @@ test.describe('Finance — page load', () => {
     await mockAuthAs(page, USERS.accountant)
     await mockTransactions(page, [TX_PENDING_SENIOR])
     await page.goto('/crm/finance')
-    await expect(page.getByRole('heading', { name: 'Финансы' })).toBeVisible()
+    await expect(page.getByTestId('finance-page')).toBeVisible()
     await expect(page.getByRole('button', { name: /Новая транзакция/i })).toBeVisible()
   })
 
@@ -732,8 +731,8 @@ test.describe('Finance — RBAC', () => {
     await mockAuthAs(page, USERS.junior)
     await mockTransactions(page, [TX_SALARY_JUNIOR])
     await page.goto('/crm/finance')
-    // Ждём рендер таблицы выплат
-    await expect(page.getByText('Ваши зарплатные выплаты')).toBeVisible()
+    // Ждём рендер страницы финансов
+    await expect(page.getByTestId('finance-page')).toBeVisible()
     // Чужая сумма (HR row) — не видна в JUNIOR-view (бэкенд не вернул её)
     await expect(page.getByText(USERS.hr.displayName)).not.toBeVisible()
     // Нет общей таблицы транзакций — нет других сумм/распределений

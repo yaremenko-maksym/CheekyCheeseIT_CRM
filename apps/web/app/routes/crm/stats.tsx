@@ -909,10 +909,7 @@ export function StatsPage() {
     >
       <PageHeader>
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Статистика</h1>
-            <p className="text-sm text-muted-foreground">Аналитика и метрики компании</p>
-          </div>
+          <div />
         </div>
       </PageHeader>
       <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
