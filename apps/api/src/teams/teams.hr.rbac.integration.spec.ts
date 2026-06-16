@@ -24,12 +24,12 @@ import * as schema from '../database/schema'
  * WHY this test exists (task-hr-team-exclude-drop):
  *   HR on /crm/team was seeing DROP-type teams (payment-routing internals)
  *   mixed with real recruiting (SENIOR-type) teams. This spec verifies:
- *     1. HR findAll returns ZERO DROP-type teams.
+ *     1. HR findAll returns ZERO DROP-type teams (even if HR is a member of a DROP team).
  *     2. HR findAll returns their own SENIOR-type teams.
  *     3. ADMIN findAll still returns ALL teams (including DROP) — regression guard.
  *
- * SEED: isolated rows in beforeAll, cleaned up in afterAll.
- *   Namespace: b1c2d3e4-f5a6-4007-bb00-<seq>
+ * SEED: isolated rows in beforeAll (namespace b1c2d3e4-f5a6-4007-bb00-<seq>),
+ *       cleaned up in afterAll.
  *
  * DB-SKIP-GUARD:
  *   dbAvailable=false when DATABASE_URL unreachable (CI unit job).
@@ -40,7 +40,7 @@ import * as schema from '../database/schema'
 
 const JWT_SECRET = 'teams-hr-rbac-integration-secret-32c'
 
-// ── Namespace: b1c2d3e4-f5a6-4007-bb00-<seq> ──────────────────────────────────
+// ── Test personas — namespace b1c2d3e4-f5a6-4007-bb00-<seq> ──────────────────
 
 /** HR user — member of SENIOR_TEAM, also inserted into DROP_TEAM */
 const HR_USER: SessionUser = {
@@ -64,7 +64,7 @@ const SENIOR_USER: SessionUser = {
   legalFullName: null,
 }
 
-/** ADMIN user — seeds by fixed id to match existing admin seed patterns */
+/** ADMIN user (test-only, not the real seed admin) */
 const ADMIN: SessionUser = {
   id: 'b1c2d3e4-f5a6-4007-bb00-000000000003',
   email: 'admin-hr-rbac-test@test.spec',
@@ -79,7 +79,7 @@ const ADMIN: SessionUser = {
 const SENIOR_TEAM_ID = 'b1c2d3e4-f5a6-4007-bb00-000000000010'
 const DROP_TEAM_ID = 'b1c2d3e4-f5a6-4007-bb00-000000000011'
 
-// ── Sentinel controller ────────────────────────────────────────────────────────
+// ── Sentinel controller — mirrors only findAll route ──────────────────────────
 
 const TEAMS_SERVICE_TOKEN = 'TEAMS_SERVICE_TOKEN_HR_RBAC'
 
@@ -97,23 +97,31 @@ class SentinelTeamsController {
 // ── TestDatabaseModule ────────────────────────────────────────────────────────
 
 let _testPool: Pool | null = null
-
-function getTestPool(): Pool {
-  if (!_testPool) {
-    _testPool = new Pool({ connectionString: process.env.DATABASE_URL })
-  }
-  return _testPool
-}
+let dbAvailable = true
 
 @Global()
 @Module({
   providers: [
     {
       provide: DatabaseService,
-      useFactory: () => {
-        const pool = getTestPool()
-        const db = drizzle(pool, { schema })
-        return { db }
+      useFactory: (): DatabaseService => {
+        _testPool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        const db = drizzle(_testPool, { schema })
+        const instance = Object.create(DatabaseService.prototype) as DatabaseService
+        Object.assign(instance, { pool: _testPool, db })
+        Object.defineProperty(instance, 'onModuleInit', {
+          value: () => Promise.resolve(),
+          writable: false,
+          enumerable: false,
+          configurable: true,
+        })
+        Object.defineProperty(instance, 'onModuleDestroy', {
+          value: () => _testPool?.end() ?? Promise.resolve(),
+          writable: false,
+          enumerable: false,
+          configurable: true,
+        })
+        return instance
       },
     },
   ],
@@ -121,50 +129,39 @@ function getTestPool(): Pool {
 })
 class TestDatabaseModule {}
 
-// ── TeamAuditLogService stub ───────────────────────────────────────────────────
+// ── Test module ───────────────────────────────────────────────────────────────
 
-class TeamAuditLogServiceStub {
-  async log() {}
-  async findByTeam() {
-    return []
-  }
-}
-
-// ── App factory ───────────────────────────────────────────────────────────────
-
-async function buildApp(): Promise<{
-  app: NestFastifyApplication
-  jwt: JwtService
-  dbSvc: DatabaseService
-}> {
-  const moduleRef = await Test.createTestingModule({
-    imports: [TestDatabaseModule, JwtModule.register({ secret: JWT_SECRET })],
-    controllers: [SentinelTeamsController],
-    providers: [
-      {
-        provide: APP_GUARD,
-        useFactory: (r: Reflector) => new JwtAuthGuard(r),
-        inject: [Reflector],
-      },
-      { provide: TeamAuditLogService, useClass: TeamAuditLogServiceStub },
-      { provide: TEAMS_SERVICE_TOKEN, useClass: TeamsService },
-    ],
-  })
-    .overrideProvider(TeamAuditLogService)
-    .useClass(TeamAuditLogServiceStub)
-    .compile()
-
-  const app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-  await app.register(cookie)
-  await app.init()
-  await app.getHttpAdapter().getInstance().ready()
-
-  return {
-    app,
-    jwt: moduleRef.get(JwtService),
-    dbSvc: moduleRef.get(DatabaseService),
-  }
-}
+@Module({
+  imports: [
+    TestDatabaseModule,
+    JwtModule.register({ secret: JWT_SECRET, signOptions: { expiresIn: '1h' } }),
+  ],
+  controllers: [SentinelTeamsController],
+  providers: [
+    Reflector,
+    {
+      provide: TeamAuditLogService,
+      useFactory: (db: DatabaseService) => new TeamAuditLogService(db),
+      inject: [DatabaseService],
+    },
+    {
+      provide: TeamsService,
+      // UsersService is NOT exercised in findAll — pass null stub.
+      useFactory: (db: DatabaseService) => new TeamsService(db, null as never),
+      inject: [DatabaseService],
+    },
+    {
+      provide: TEAMS_SERVICE_TOKEN,
+      useExisting: TeamsService,
+    },
+    {
+      provide: APP_GUARD,
+      useFactory: (jwtSvc: JwtService, reflector: Reflector) => new JwtAuthGuard(jwtSvc, reflector),
+      inject: [JwtService, Reflector],
+    },
+  ],
+})
+class TeamsHrRbacTestModule {}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -178,69 +175,76 @@ describe('Teams HR RBAC — real backend integration (real DB, no mocks)', () =>
   let app: NestFastifyApplication
   let jwt: JwtService
   let dbSvc: DatabaseService
-  let dbAvailable = false
 
   const allTestUserIds = [HR_USER.id, SENIOR_USER.id, ADMIN.id]
   const allTestTeamIds = [SENIOR_TEAM_ID, DROP_TEAM_ID]
 
   beforeAll(async () => {
-    // DB probe
+    // DB availability probe
     try {
-      const pool = getTestPool()
-      await pool.query('SELECT 1')
-      dbAvailable = true
+      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+      await probePool.query('SELECT 1')
+      await probePool.end()
     } catch {
-      console.warn('[HR RBAC integration] DATABASE_URL unreachable — skipping all tests')
+      console.warn(
+        '[teams-hr-rbac integration] SKIPPED — no DB reachable at DATABASE_URL (expected in CI unit job)',
+      )
+      dbAvailable = false
       return
     }
 
-    const built = await buildApp()
-    app = built.app
-    jwt = built.jwt
-    dbSvc = built.dbSvc
+    const moduleRef = await Test.createTestingModule({
+      imports: [TeamsHrRbacTestModule],
+    }).compile()
 
+    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+    await app.register(cookie, { secret: 'teams-hr-rbac-integration-cookie-secret' })
+    app.setGlobalPrefix('api')
+    await app.init()
+    await app.getHttpAdapter().getInstance().ready()
+
+    jwt = moduleRef.get(JwtService)
+    dbSvc = app.get(DatabaseService)
     const db = dbSvc.db
 
     // ── Seed ──────────────────────────────────────────────────────────────────
-    // Insert test users
+
+    // Users
     await db.insert(users).values([
       {
         id: HR_USER.id,
         email: HR_USER.email,
         displayName: HR_USER.displayName,
         role: 'HR',
-        googleId: 'google-hr-rbac-test-001',
-        seniorSharePercent: 0,
+        googleId: `test-google-${HR_USER.id}`,
       },
       {
         id: SENIOR_USER.id,
         email: SENIOR_USER.email,
         displayName: SENIOR_USER.displayName,
         role: 'SENIOR',
-        googleId: 'google-senior-rbac-test-001',
-        seniorSharePercent: 26,
+        googleId: `test-google-${SENIOR_USER.id}`,
       },
       {
         id: ADMIN.id,
         email: ADMIN.email,
         displayName: ADMIN.displayName,
         role: 'ADMIN',
-        googleId: 'google-admin-hr-rbac-test-001',
-        seniorSharePercent: 26,
+        googleId: `test-google-${ADMIN.id}`,
       },
     ])
 
-    // Insert two teams: one SENIOR-type, one DROP-type
+    // Teams: one SENIOR-type, one DROP-type
     await db.insert(teams).values([
       { id: SENIOR_TEAM_ID, name: 'HR RBAC Test — Senior Team', type: 'SENIOR' },
       { id: DROP_TEAM_ID, name: 'HR RBAC Test — Drop Team', type: 'DROP' },
     ])
 
-    // HR is a member of BOTH teams (simulates real scenario: HR in a DROP team too)
-    // SENIOR is a member of SENIOR_TEAM
+    // Memberships: HR in BOTH teams (simulates real scenario); SENIOR in SENIOR_TEAM
     await db.insert(teamMembers).values([
       { teamId: SENIOR_TEAM_ID, userId: HR_USER.id },
       { teamId: SENIOR_TEAM_ID, userId: SENIOR_USER.id },
+      // HR is also a member of the DROP team — must be excluded from HR's view
       { teamId: DROP_TEAM_ID, userId: HR_USER.id },
     ])
   })
@@ -255,12 +259,9 @@ describe('Teams HR RBAC — real backend integration (real DB, no mocks)', () =>
     await db.delete(users).where(inArray(users.id, allTestUserIds))
 
     await app?.close()
-    const pool = getTestPool()
-    await pool.end()
-    _testPool = null
   })
 
-  it('LIST 1. HR sees ONLY SENIOR-type teams (DROP-type excluded)', async () => {
+  it('LIST 1. HR sees ONLY SENIOR-type teams — DROP-type excluded even if member', async () => {
     if (!dbAvailable) return
     const res = await app.inject({
       method: 'GET',
@@ -269,14 +270,12 @@ describe('Teams HR RBAC — real backend integration (real DB, no mocks)', () =>
     })
     expect(res.statusCode).toBe(200)
     const body = res.json() as Array<{ id: string; type: string }>
-    // Must contain the SENIOR team
-    expect(body.some((t) => t.id === SENIOR_TEAM_ID)).toBe(true)
-    // Must NOT contain any DROP team at all
+    // No DROP-type teams at all
     const dropTeams = body.filter((t) => t.type === 'DROP')
     expect(dropTeams).toHaveLength(0)
   })
 
-  it('LIST 2. HR sees their own SENIOR-type team (isHrOfTeam still applies)', async () => {
+  it('LIST 2. HR sees their own SENIOR-type team (isHrOfTeam membership preserved)', async () => {
     if (!dbAvailable) return
     const res = await app.inject({
       method: 'GET',
@@ -286,8 +285,9 @@ describe('Teams HR RBAC — real backend integration (real DB, no mocks)', () =>
     expect(res.statusCode).toBe(200)
     const body = res.json() as Array<{ id: string }>
     const ids = body.map((t) => t.id)
+    // SENIOR team is visible
     expect(ids).toContain(SENIOR_TEAM_ID)
-    // The DROP_TEAM_ID must not appear even though HR is a member
+    // DROP team is not visible — even though HR is a member
     expect(ids).not.toContain(DROP_TEAM_ID)
   })
 
@@ -304,7 +304,7 @@ describe('Teams HR RBAC — real backend integration (real DB, no mocks)', () =>
     // ADMIN must see both test teams
     expect(ids).toContain(SENIOR_TEAM_ID)
     expect(ids).toContain(DROP_TEAM_ID)
-    // Specifically the DROP team is visible to ADMIN
+    // Specifically the DROP team is visible to ADMIN with type='DROP'
     expect(body.some((t) => t.id === DROP_TEAM_ID && t.type === 'DROP')).toBe(true)
   })
 
