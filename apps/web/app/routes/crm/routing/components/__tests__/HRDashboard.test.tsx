@@ -33,7 +33,8 @@ function makeSummary(overrides: Partial<HrSummaryDto> = {}): HrSummaryDto {
   return {
     openInterviews: 7,
     hiredThisMonth: 2,
-    mySalaryStatus: { amount: 1500, status: 'PENDING' },
+    // mySalaryStatus is now currency-aware (task-senior-dashboard-enhance).
+    mySalaryStatus: { amount: 1500, currency: 'USD', status: 'PENDING' },
     ...overrides,
   }
 }
@@ -88,24 +89,28 @@ describe('HRDashboard', () => {
       expect(cardEl).toHaveTextContent('Нанято за месяц')
     })
 
-    it('shows salary amount and PENDING status label', () => {
+    it('shows salary amount (currency-aware) and PENDING status label', () => {
       render(<HRDashboard />)
       const cardEl = screen.getByTestId('kpi-my-salary')
-      expect(cardEl).toHaveTextContent('$1,500.00')
+      // USD salary renders in USD via the shared currency-aware formatter.
+      expect(cardEl).toHaveTextContent('USD')
+      expect(cardEl).toHaveTextContent('1')
       expect(cardEl).toHaveTextContent('Ожидает выплаты')
     })
   })
 
   describe('salary status variants', () => {
-    it('shows PAID label and amount', () => {
+    it('shows PAID label + a UAH salary in UAH (no $-hardcode, no conversion)', () => {
       useHrSummaryMock.mockReturnValue({
-        data: makeSummary({ mySalaryStatus: { amount: 2000, status: 'PAID' } }),
+        data: makeSummary({ mySalaryStatus: { amount: 50000, currency: 'UAH', status: 'PAID' } }),
         isLoading: false,
         isError: false,
       })
       render(<HRDashboard />)
       const cardEl = screen.getByTestId('kpi-my-salary')
-      expect(cardEl).toHaveTextContent('$2,000.00')
+      // The salary-currency bug fix: 50 000 UAH must NOT show as «$50,000».
+      expect(cardEl).toHaveTextContent('UAH')
+      expect(cardEl).not.toHaveTextContent('$')
       expect(cardEl).toHaveTextContent('Выплачено')
     })
 
