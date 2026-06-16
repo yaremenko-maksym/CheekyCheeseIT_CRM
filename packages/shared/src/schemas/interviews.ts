@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { itDomainSchema } from './projects'
+import { currencySchema, itDomainSchema } from './projects'
 
 export const interviewStageSchema = z.enum([
   'HR_SCREEN',
@@ -92,16 +92,31 @@ export type MoveInterviewDto = z.infer<typeof moveInterviewSchema>
 //                     `null` when no salary row exists yet for this month.
 export const salaryStatusSchema = z.enum(['PENDING', 'PAID', 'LOCKED'])
 
+// Single source of truth for the «my salary status» payload, shared by BOTH the
+// HR summary (interviews/hr-summary) and the SENIOR summary (finance/senior-
+// summary) — they surface the SAME current-month SALARY row of the caller.
+//
+// `currency` (task-senior-dashboard-enhance): the salary row carries its own
+// transaction currency (USDT / USD / EUR / UAH). The previous DTO omitted it,
+// so the dashboards hard-coded a `$` and showed e.g. a 50 000 UAH salary as
+// $50 000. Surfacing the real currency lets the client format the amount in its
+// OWN currency with NO conversion (50 000,00 UAH). Defined here (next to
+// `salaryStatusSchema`) so both summary schemas reuse the identical shape and
+// can never drift apart.
+export const mySalaryStatusSchema = z
+  .object({
+    amount: z.number(),
+    currency: currencySchema,
+    status: salaryStatusSchema,
+  })
+  .nullable()
+
 export const hrSummarySchema = z.object({
   openInterviews: z.number().int().nonnegative(),
   hiredThisMonth: z.number().int().nonnegative(),
-  mySalaryStatus: z
-    .object({
-      amount: z.number(),
-      status: salaryStatusSchema,
-    })
-    .nullable(),
+  mySalaryStatus: mySalaryStatusSchema,
 })
 
 export type SalaryStatus = z.infer<typeof salaryStatusSchema>
+export type MySalaryStatusDto = z.infer<typeof mySalaryStatusSchema>
 export type HrSummaryDto = z.infer<typeof hrSummarySchema>

@@ -1,12 +1,19 @@
+import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { useNavigate } from '@tanstack/react-router'
-import { ArrowRight, Briefcase, CheckCircle2, Clock, TrendingUp, Wallet } from 'lucide-react'
-import type { SalaryStatus } from '@crm/shared'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Briefcase, CheckCircle2, Clock, Plus, TrendingUp, Wallet } from 'lucide-react'
+import type { SalaryStatus, TransactionDto } from '@crm/shared'
+import { formatAmount } from '@/lib/format-amount'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { KpiCard } from '@/routes/crm/finance/components/KpiCards'
-import { useSeniorSummary } from '@/hooks/use-senior-summary'
+import { financeApi } from '@/routes/crm/finance/api'
+import { STATUS_COLORS, STATUS_LABELS, fmtAmount, fmtDate } from '@/routes/crm/finance/constants'
+import { CreateTransactionDialog } from '@/routes/crm/finance/components/dialogs/CreateTransactionDialog'
+import { PayoutDialog } from '@/routes/crm/finance/components/dialogs/PayoutDialog'
+import { SENIOR_SUMMARY_QUERY_KEY, useSeniorSummary } from '@/hooks/use-senior-summary'
 
 /**
  * SeniorDashboard — ролевой дашборд для роли SENIOR (и ADMIN, который видит ТУ
@@ -14,10 +21,18 @@ import { useSeniorSummary } from '@/hooks/use-senior-summary'
  *
  * Визуально консистентен с HRDashboard / AccountantDashboard: stagger-grid
  * карточек, переиспользует KpiCard-примитив из finance/components/KpiCards. KPI:
- * активные проекты, senior-доход за период, ожидают выплаты. Плюс две панели
- * (наполнение, выбранное USER — без «команды»/«собеседований»):
- *   1. «Мои проекты»        — список own-проектов с долей % (share).
- *   2. «Статус моих выплат» — senior-доход total/за месяц + статус зарплаты.
+ * активные проекты, senior-доход за период, ожидают выплаты. Плюс панели:
+ *   1. «Мои проекты»          — список own-проектов с долей % (share).
+ *   2. «Статус моих выплат»   — senior-доход total/за месяц + статус зарплаты.
+ *   3. «Транзакции в работе»  — его SENIOR_INCOME со статусом PENDING/VALIDATED
+ *      (НЕ PAID). Тулбар «Добавить приход» (создание SENIOR_INCOME) + «Создать
+ *      выплату» (батч VALIDATED-приходов в payout). Все действия self-scoped.
+ *
+ * Финансовые действия НЕ дублируются: переиспользуются те же finance-диалоги
+ * (CreateTransactionDialog → SENIOR_INCOME-only ветка с обязательным RECEIPT;
+ * PayoutDialog → createPayoutRequest), та же self-scoped лента транзакций
+ * (financeApi.getTransactions — backend findAll ограничивает SENIOR его
+ * собственными строками). Дашборд НЕ ведёт на /crm/finance — действия здесь.
  *
  * Сам компонент роль НЕ проверяет — родитель (crm/index.tsx) отвечает за
  * dispatch, backend дополнительно отдаёт 403 для не-SENIOR/ADMIN на data-вызове.
@@ -33,6 +48,13 @@ const card = {
   show: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] as const } },
 }
 
+/**
+ * USD-only formatter for the aggregated senior-SHARE income figures. Those are
+ * a cross-project sum the backend reports as `currency: 'USD'` (see
+ * seniorSummarySchema.seniorShareIncome) — they are NOT a single transaction's
+ * amount, so they keep the USD display. The per-employee SALARY amount uses the
+ * currency-aware `formatAmount` instead (its real currency, no conversion).
+ */
 function fmtUsd(value: number): string {
   return value.toLocaleString('en-US', {
     style: 'currency',
@@ -54,14 +76,69 @@ const SALARY_STATUS_COLOR: Record<SalaryStatus, 'yellow' | 'green' | 'default'> 
   LOCKED: 'default',
 }
 
+// In-progress = the senior's own income still moving through the pipeline:
+// PENDING (awaiting validation) + VALIDATED (validated, awaiting payout). PAID
+// is terminal («зелёные») and is intentionally excluded.
+const IN_PROGRESS_STATUSES = new Set<TransactionDto['status']>(['PENDING', 'VALIDATED'])
+
 export function SeniorDashboard() {
-  const navigate = useNavigate()
+  const qc = useQueryClient()
   const { data: summary, isLoading, isError } = useSeniorSummary()
 
-  const goFinance = () => void navigate({ to: '/crm/finance' })
+  // Self-scoped transactions feed — reuses the SAME query key the finance page
+  // uses (['transactions']). The backend `findAll` restricts a SENIOR to rows
+  // where they are sender/receiver, so this can never surface another senior's
+  // transactions. NOT in the persist allow-list → never written to disk.
+  const { data: transactions = [] } = useQuery({
+    queryKey: ['transactions'],
+    queryFn: () => financeApi.getTransactions(),
+    staleTime: 30_000,
+  })
+
+  // AC3: «в работе» — own SENIOR_INCOME with status PENDING or VALIDATED (NOT
+  // PAID). Newest first.
+  const inProgress = useMemo(
+    () =>
+      transactions
+        .filter((t) => t.type === 'SENIOR_INCOME' && IN_PROGRESS_STATUSES.has(t.status))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [transactions],
+  )
+
+  // VALIDATED rows (not already attached to a payout) are the ones eligible to
+  // be batched into a new payout request — same gate as the finance page.
+  const validatedSeniorIncomes = useMemo(
+    () => inProgress.filter((t) => t.status === 'VALIDATED' && !t.payoutRequestId),
+    [inProgress],
+  )
+
+  const [showCreate, setShowCreate] = useState(false)
+  const [payoutOpen, setPayoutOpen] = useState(false)
+  const [payoutPreselect, setPayoutPreselect] = useState<string[]>([])
+
+  // The shared finance dialogs already invalidate ['transactions'] /
+  // ['finance-summary'] / ['payout-requests'] on success — that auto-refreshes
+  // the in-progress list. The senior-summary KPI («ожидают выплаты») reads a
+  // separate key, so refresh it too when a dialog closes (cheap, idempotent).
+  function refreshSeniorKpi() {
+    void qc.invalidateQueries({ queryKey: SENIOR_SUMMARY_QUERY_KEY })
+  }
+
+  function openPayoutForTx(txId: string) {
+    setPayoutPreselect([txId])
+    setPayoutOpen(true)
+  }
+
+  function openPayoutBatch() {
+    setPayoutPreselect([])
+    setPayoutOpen(true)
+  }
 
   const salary = summary?.mySalaryStatus ?? null
-  const salaryValue = salary ? fmtUsd(salary.amount) : '—'
+  // Salary-currency fix: render the salary in its OWN currency (e.g. «50 000,00
+  // UAH») via the shared currency-aware `formatAmount` — NOT the old hard-coded
+  // `$`. No conversion is performed.
+  const salaryValue = salary ? formatAmount(salary.amount, salary.currency) : '—'
   const salarySub = salary ? SALARY_STATUS_LABEL[salary.status] : 'Нет начисления за месяц'
   const salaryColor = salary ? SALARY_STATUS_COLOR[salary.status] : 'default'
 
@@ -238,37 +315,118 @@ export function SeniorDashboard() {
               </motion.div>
             </motion.div>
 
-            {/* Primary CTA — open the finance page. */}
+            {/* «Транзакции в работе» — own SENIOR_INCOME PENDING/VALIDATED, with
+                inline finance actions (add income / create payout). */}
             <motion.div variants={card} initial="hidden" animate="show">
-              <Card className="border-primary/20 bg-primary/[0.03]">
-                <CardContent className="flex flex-col gap-3 py-5 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex items-start gap-3">
-                    <div className="rounded-lg bg-primary/10 p-2 text-primary">
-                      <Wallet className="h-5 w-5" aria-hidden="true" />
-                    </div>
+              <Card data-testid="senior-in-progress-panel">
+                <CardContent className="pt-5 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <p className="text-sm font-semibold">Финансы</p>
+                      <p className="text-sm font-semibold">Транзакции в работе</p>
                       <p className="text-xs text-muted-foreground">
-                        {summary.pendingPayouts.count > 0
-                          ? `${summary.pendingPayouts.count} выплат ожидают, доход и доли по проектам`
-                          : 'Доход, доли по проектам и история транзакций'}
+                        Приходы на валидации и ожидающие выплаты
                       </p>
                     </div>
+                    <div className="flex items-center gap-2">
+                      {validatedSeniorIncomes.length > 0 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5"
+                          onClick={openPayoutBatch}
+                          data-testid="senior-create-payout-batch"
+                        >
+                          <Wallet className="h-4 w-4" aria-hidden="true" />
+                          Создать выплату
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        className="gap-1.5"
+                        onClick={() => setShowCreate(true)}
+                        data-testid="senior-add-income"
+                      >
+                        <Plus className="h-4 w-4" aria-hidden="true" />
+                        Добавить приход
+                      </Button>
+                    </div>
                   </div>
-                  <Button
-                    onClick={goFinance}
-                    className="gap-1.5 sm:flex-none"
-                    data-testid="senior-finance-cta"
-                  >
-                    Открыть финансы
-                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                  </Button>
+
+                  {inProgress.length === 0 ? (
+                    <p
+                      className="text-xs text-muted-foreground py-2"
+                      data-testid="senior-in-progress-empty"
+                    >
+                      Нет транзакций в работе. Добавьте приход, чтобы начать.
+                    </p>
+                  ) : (
+                    <ul className="space-y-2" data-testid="senior-in-progress-list">
+                      {inProgress.map((t) => (
+                        <li
+                          key={t.id}
+                          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3"
+                          data-testid={`senior-in-progress-row-${t.id}`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium leading-tight truncate">
+                              {t.projectName ?? '—'}
+                            </p>
+                            <p className="text-xs text-muted-foreground leading-tight">
+                              {fmtDate(t.createdAt)}
+                            </p>
+                          </div>
+                          <span className="text-sm font-medium tabular-nums shrink-0">
+                            {fmtAmount(t.amount, t.currency)}
+                          </span>
+                          <Badge
+                            variant="outline"
+                            className={`shrink-0 text-[11px] ${STATUS_COLORS[t.status]}`}
+                            data-testid={`senior-in-progress-status-${t.id}`}
+                          >
+                            {STATUS_LABELS[t.status]}
+                          </Badge>
+                          {t.status === 'VALIDATED' && !t.payoutRequestId && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="shrink-0 gap-1.5"
+                              onClick={() => openPayoutForTx(t.id)}
+                              data-testid={`senior-in-progress-payout-${t.id}`}
+                            >
+                              <Wallet className="h-3.5 w-3.5" aria-hidden="true" />
+                              Создать выплату
+                            </Button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>
           </>
         )}
       </div>
+
+      {/* Reused finance dialogs — NOT duplicated. CreateTransactionDialog renders
+          the SENIOR_INCOME-only flow for a SENIOR (mandatory RECEIPT preserved);
+          PayoutDialog batches VALIDATED SENIOR_INCOME into a payout request. */}
+      <CreateTransactionDialog
+        open={showCreate}
+        onClose={() => {
+          setShowCreate(false)
+          refreshSeniorKpi()
+        }}
+      />
+      <PayoutDialog
+        open={payoutOpen}
+        onClose={() => {
+          setPayoutOpen(false)
+          refreshSeniorKpi()
+        }}
+        validatedTxs={validatedSeniorIncomes}
+        preselectedTxIds={payoutPreselect}
+      />
     </div>
   )
 }

@@ -13,9 +13,10 @@ import { seniorSummarySchema } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
-import { Roles } from '../common/decorators/roles.decorator'
+import { Roles, ROLES_KEY } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { DatabaseService } from '../database/database.service'
+import { FinanceSummaryController } from './transactions.controller'
 import { TransactionsService } from './transactions.service'
 import { payoutRequests, projects, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
@@ -26,13 +27,24 @@ import * as schema from '../database/schema'
  *
  * WHY (feedback_mocked_e2e_guards, recurred 3×): mocked E2E gives false
  * confidence for endpoints behind guards — especially a finance endpoint where
- * a scoping bug leaks ANOTHER senior's income. This spec exercises the REAL
- * TransactionsService.getSeniorSummary through a Fastify request with a real
+ * a scoping bug leaks ANOTHER senior's income. This spec drives the REAL
+ * `TransactionsService.getSeniorSummary` through a Fastify request with a real
  * JwtAuthGuard + RolesGuard against REAL PostgreSQL so:
  *   - the RBAC gate (SENIOR/ADMIN → 200, everyone else → 403) is enforced
  *     against an actual JWT request, not a unit stub, and
  *   - the self-scoping is PROVEN: SENIOR_A's summary contains ONLY A's
  *     projects/income/payouts and NEVER B's (the central security claim).
+ *
+ * #234 review MED — "bind the REAL route, not a sentinel": the production
+ * `FinanceSummaryController` uses type-based constructor injection, which the
+ * vitest/esbuild transform does NOT emit `design:paramtypes` metadata for (no
+ * SWC plugin) — so the real controller cannot be DI-mounted here (every RBAC
+ * integration spec in this repo uses a sentinel with explicit @Inject for the
+ * same reason). Instead, the FINAL `describe('shipping route carries the gate')`
+ * block asserts DIRECTLY off the production `FinanceSummaryController` that its
+ * `getSeniorSummary` handler ships `@Roles('SENIOR','ADMIN')` and that the class
+ * carries `@UseGuards(RolesGuard)` — proving the gate is on the LIVE code, while
+ * the sentinel exercises the live 403/200 + scoping behaviour through real HTTP.
  *
  * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable OR the
  * `projects` table is absent → every test returns early and stays green (so the
@@ -144,9 +156,22 @@ const TEST_TX_IDS = [
 ]
 const TEST_PR_IDS = [PR_A_PENDING_1, PR_A_PENDING_2, PR_A_PAID, PR_B_PENDING]
 
-// ── Sentinel controller — mirrors the real /finance/senior-summary route ──────
+// ── Sentinel controller — mirrors the live /finance/senior-summary route ─────
+// It re-declares the SAME @Roles('SENIOR','ADMIN') + @UseGuards(RolesGuard) and
+// delegates to the REAL TransactionsService.getSeniorSummary, so the HTTP-level
+// 403/200 + self-scoping behaviour is exercised end-to-end against real
+// Postgres. The vitest/esbuild transform does not emit param-type metadata, so
+// the production controller can't be DI-mounted (it uses type-based injection);
+// the explicit @Inject(TOKEN) here sidesteps that. The FINAL describe block
+// then asserts the LIVE controller carries the identical gate metadata — so we
+// prove BOTH the runtime behaviour AND that the shipping route is decorated.
 const TX_SERVICE = 'TX_SERVICE_SR_SUM'
 
+// The RBAC gate here is enforced by the globally-registered RolesGuard (APP_GUARD
+// in the test module) reading this handler's @Roles — NOT a class-level
+// @UseGuards (which would instantiate RolesGuard standalone without its Reflector
+// under vitest/esbuild and 500). The LIVE controller's class-level
+// @UseGuards(RolesGuard) is asserted separately via metadata in the final block.
 @Controller('finance')
 class SentinelFinanceController {
   constructor(@Inject(TX_SERVICE) private readonly svc: TransactionsService) {}
@@ -199,6 +224,7 @@ class TestDatabaseModule {}
   ],
   controllers: [SentinelFinanceController],
   providers: [
+    // Reflector — RolesGuard reads @Roles() metadata through it.
     Reflector,
     // InvoicesService / DocumentsService collaborators are stubbed — getSeniorSummary
     // never touches them (read-only aggregate over projects + transactions + payouts).
@@ -208,6 +234,11 @@ class TestDatabaseModule {}
       inject: [DatabaseService],
     },
     { provide: TX_SERVICE, useExisting: TransactionsService },
+    // Both guards via APP_GUARD factories (the proven pattern across every RBAC
+    // integration spec). JwtAuthGuard populates req.user; RolesGuard enforces the
+    // sentinel's @Roles('SENIOR','ADMIN') — SENIOR/ADMIN → 200, everyone else →
+    // 403. The sentinel re-declares the EXACT gate the production controller
+    // ships (asserted directly in the final describe block).
     {
       provide: APP_GUARD,
       useFactory: (jwtSvc: JwtService, reflector: Reflector) => new JwtAuthGuard(jwtSvc, reflector),
@@ -400,11 +431,14 @@ describe('senior-summary — real backend integration (real DB, no mocks)', () =
         createdBy: SENIOR_B.id,
       },
       {
+        // task-senior-dashboard-enhance: seed the salary in a NON-USD currency
+        // (UAH) so the mySalaryStatus test proves the salary-currency bug fix —
+        // the DTO must echo the row's real currency, NOT a hard-coded USD.
         id: TX_A_SALARY,
         type: 'SALARY',
         status: 'PENDING',
-        amount: '1200',
-        currency: 'USD',
+        amount: '50000',
+        currency: 'UAH',
         senderId: ADMIN.id,
         senderLabel: 'CheekyCheeseIT',
         receiverId: SENIOR_A.id,
@@ -553,12 +587,15 @@ describe('senior-summary — real backend integration (real DB, no mocks)', () =
     expect(body.pendingPayouts.amount).toBeCloseTo(1000, 6)
   })
 
-  it('mySalaryStatus: own current-month salary', async () => {
+  it('mySalaryStatus: own current-month salary in its REAL currency (UAH, no $-hardcode)', async () => {
     if (!dbAvailable) return
     const body = await summaryAs(SENIOR_A)
     expect(body.mySalaryStatus).not.toBeNull()
-    expect(body.mySalaryStatus!.amount).toBe(1200)
+    expect(body.mySalaryStatus!.amount).toBe(50000)
     expect(body.mySalaryStatus!.status).toBe('PENDING')
+    // The salary-currency bug fix: the DTO echoes the row's real currency (UAH),
+    // NOT a hard-coded USD — so the dashboard can render «50 000,00 UAH».
+    expect(body.mySalaryStatus!.currency).toBe('UAH')
   })
 
   // ── SELF-SCOPING — the central security claim (AC2) ──────────────────────────
@@ -590,5 +627,47 @@ describe('senior-summary — real backend integration (real DB, no mocks)', () =
     expect(b.pendingPayouts.amount).toBeCloseTo(3000, 6)
     // B has no salary row → null.
     expect(b.mySalaryStatus).toBeNull()
+  })
+})
+
+// ── SHIPPING-ROUTE GATE (#234 review MED) ─────────────────────────────────────
+// The block above exercises the live 403/200 + scoping behaviour via a sentinel
+// that re-declares the gate (the production controller can't be DI-mounted under
+// vitest/esbuild — no param-type metadata). To close the review's exact concern
+// — "prove the gate is on the LIVE controller, not just the test's copy" — these
+// assertions read the decorator metadata DIRECTLY off the production
+// `FinanceSummaryController`. They run WITHOUT a DB, so they always execute.
+describe('senior-summary — SHIPPING route carries the RBAC gate (production controller)', () => {
+  const reflector = new Reflector()
+
+  it('getSeniorSummary handler ships @Roles(SENIOR, ADMIN)', () => {
+    const roles = reflector.get<string[]>(
+      ROLES_KEY,
+      FinanceSummaryController.prototype.getSeniorSummary,
+    )
+    expect(roles).toEqual(['SENIOR', 'ADMIN'])
+  })
+
+  it('FinanceSummaryController is guarded by @UseGuards(RolesGuard) at class level', () => {
+    // Nest stores @UseGuards metadata under the '__guards__' key on the class.
+    const guards = Reflect.getMetadata('__guards__', FinanceSummaryController) as
+      | unknown[]
+      | undefined
+    expect(guards).toBeDefined()
+    expect(guards).toContain(RolesGuard)
+  })
+
+  it('open routes (summary / exchange-rate) ship NO @Roles — service-side RBAC unchanged', () => {
+    // The class-level guard must stay inert for the non-@Roles handlers so their
+    // existing service-side RBAC (and public-ish exchange-rate) is untouched.
+    expect(
+      reflector.get<string[] | undefined>(ROLES_KEY, FinanceSummaryController.prototype.getSummary),
+    ).toBeUndefined()
+    expect(
+      reflector.get<string[] | undefined>(
+        ROLES_KEY,
+        FinanceSummaryController.prototype.getExchangeRate,
+      ),
+    ).toBeUndefined()
   })
 })

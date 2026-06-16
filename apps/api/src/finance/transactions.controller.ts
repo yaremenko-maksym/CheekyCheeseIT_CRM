@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
 import {
   adminUpdateTransactionSchema,
@@ -18,6 +29,8 @@ import {
   validateTransactionSchema,
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
+import { Roles } from '../common/decorators/roles.decorator'
+import { RolesGuard } from '../common/guards/roles.guard'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { TransactionsService } from './transactions.service'
 
@@ -193,7 +206,18 @@ export class PayoutRequestsController {
   }
 }
 
+// RolesGuard is NOT a global APP_GUARD (AppModule registers only JwtAuthGuard /
+// OnboardingGuard / ThrottlerGuard) — so @Roles(...) is inert unless the guard
+// is attached here. @UseGuards(RolesGuard) at the class level enforces every
+// @Roles-decorated method below; methods WITHOUT @Roles stay open to any
+// authenticated user (RolesGuard returns true when no metadata is present), so
+// `summary` / `accountant-summary` / `drop/me/*` / `exchange-rate` keep their
+// existing service-side RBAC untouched. This closes the recurring "front-only /
+// service-only gating" gap flagged in the #234 review for the live
+// senior-summary route (the service-side ForbiddenException is KEPT —
+// defense-in-depth, never replaced).
 @Controller('finance')
+@UseGuards(RolesGuard)
 export class FinanceSummaryController {
   constructor(
     private readonly svc: TransactionsService,
@@ -223,7 +247,15 @@ export class FinanceSummaryController {
   // there is NO target-user param, so one senior can NEVER read another senior's
   // projects / income / payouts. Returns `seniorSummarySchema` shape
   // ({ activeProjects, seniorShareIncome, pendingPayouts, mySalaryStatus }).
+  //
+  // #234 review MED (defense-in-depth): the @Roles('SENIOR','ADMIN') gate runs
+  // BEFORE the handler, so every other role (JUNIOR / HR / ACCOUNTANT / DROP)
+  // gets 403 at the guard layer in addition to the service-side
+  // ForbiddenException (kept intentionally — never replaced).
+  // senior-summary.integration.spec.ts pins this against the REAL route (the
+  // production controller, not a sentinel mirror).
   @Get('senior-summary')
+  @Roles('SENIOR', 'ADMIN')
   getSeniorSummary(@CurrentUser() user: SessionUser) {
     return this.svc.getSeniorSummary(user)
   }

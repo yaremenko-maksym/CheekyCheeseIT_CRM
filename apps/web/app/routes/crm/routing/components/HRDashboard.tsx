@@ -2,6 +2,7 @@ import { motion } from 'framer-motion'
 import { useNavigate } from '@tanstack/react-router'
 import { ArrowRight, CheckCircle2, Clock, KanbanSquare, UserCheck, Wallet } from 'lucide-react'
 import type { SalaryStatus } from '@crm/shared'
+import { formatAmount } from '@/lib/format-amount'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -31,15 +32,6 @@ const card = {
   show: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] as const } },
 }
 
-function fmtUsd(value: number): string {
-  return value.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
-}
-
 const SALARY_STATUS_LABEL: Record<SalaryStatus, string> = {
   PENDING: 'Ожидает выплаты',
   PAID: 'Выплачено',
@@ -59,7 +51,10 @@ export function HRDashboard() {
   const goInterviews = () => void navigate({ to: '/crm/interviews' })
 
   const salary = summary?.mySalaryStatus ?? null
-  const salaryValue = salary ? fmtUsd(salary.amount) : '—'
+  // Salary-currency fix (task-senior-dashboard-enhance): render the salary in
+  // its OWN currency (e.g. «50 000,00 UAH») via the shared currency-aware
+  // `formatAmount` — NOT the old hard-coded `$`. No conversion is performed.
+  const salaryValue = salary ? formatAmount(salary.amount, salary.currency) : '—'
   const salarySub = salary ? SALARY_STATUS_LABEL[salary.status] : 'Нет начисления за месяц'
   const salaryColor = salary ? SALARY_STATUS_COLOR[salary.status] : 'default'
 

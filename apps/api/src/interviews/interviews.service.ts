@@ -408,8 +408,12 @@ export class InterviewsService {
     const validStatuses: SalaryStatus[] = ['PENDING', 'PAID', 'LOCKED']
     if (!validStatuses.includes(salaryRow.status as SalaryStatus)) return null
 
+    // task-senior-dashboard-enhance: surface the salary row's REAL currency so
+    // the HR dashboard formats the amount in its own currency (no `$`-hardcode,
+    // no conversion). Mirrors the SENIOR-summary fix in transactions.service.ts.
     return {
       amount: Number(salaryRow.amount),
+      currency: salaryRow.currency,
       status: salaryRow.status as SalaryStatus,
     }
   }
