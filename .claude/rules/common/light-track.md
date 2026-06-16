@@ -39,6 +39,21 @@
    (label `merge-approved`).
 5. UI затронут → playwright-скриншот в PR.
 
+## Параллельный диспатч (потолок concurrency)
+
+**Status:** добавлено 2026-06-16 (ADR `docs/architecture/2026-06-16-agent-infra-wisdom-transfer.md` FM-1/FM-6/FM-7).
+
+При параллельном диспатче агентов (PM или master-сессия):
+
+- **Потолок ≈ 3-4 одновременных старта.** 5+ агентов, запущенных ОДНИМ сообщением (startup-burst
+  первых API-вызовов), -> часть получает `API Error: 529 Overloaded` и умирает на старте (0 tool_uses).
+  Диспатчить волнами по 2-3, стаггерить; 529-убитых просто перезапускать (работы не сделали).
+- **Тяжёлые Coder'ы (каждый бутит vite+api + full Vitest) + live UT-стек** -> CPU-starvation ->
+  pre-push timeout-флаки (НЕ код). Перед push — sweep zombie dev-портов завершившихся агентов:
+  `for p in 3010 3011 3014 3016 3017 3018; do lsof -ti tcp:$p; done` -> kill (сохранив live :3000/:3001).
+- **`DATABASE_URL= git push`** (пустой) для feature-веток — integration-спеки graceful-skip, не бьют
+  live crm_db и не ловят CPU-timeout (см. git-policy.md).
+
 ## Связанные правила
 
 - `.claude/rules/common/zone-of-write.md` — allow-пути zone-хука (worktree / эскейп-хатч).
