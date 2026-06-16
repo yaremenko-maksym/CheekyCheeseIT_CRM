@@ -6,19 +6,13 @@ import type {
   InterviewDto,
   ItDomain,
   MoveInterviewDto,
-  SalaryStatus,
   SessionUser,
   UpdateInterviewDto,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { ProjectsService } from '../projects/projects.service'
-import {
-  interviews,
-  teamMembers,
-  transactions,
-  type Interview,
-  type User,
-} from '../database/schema'
+import { getOwnSalaryStatus } from '../finance/salary-status.helper'
+import { interviews, teamMembers, type Interview, type User } from '../database/schema'
 
 type InterviewWithRelations = Interview & {
   senior: User | null
@@ -359,7 +353,7 @@ export class InterviewsService {
     if (currentUser.role === 'HR') {
       const accessibleSeniorIds = [...(await this.getAccessibleSeniorIds(currentUser))]
       if (accessibleSeniorIds.length === 0) {
-        const mySalaryStatus = await this.getOwnSalaryStatus(currentUser.id, salaryMonth)
+        const mySalaryStatus = await getOwnSalaryStatus(this.db.db, currentUser.id, salaryMonth)
         return { openInterviews: 0, hiredThisMonth: 0, mySalaryStatus }
       }
       scope = inArray(interviews.seniorId, accessibleSeniorIds)
@@ -377,44 +371,12 @@ export class InterviewsService {
       .from(interviews)
       .where(scope)
 
-    const mySalaryStatus = await this.getOwnSalaryStatus(currentUser.id, salaryMonth)
+    const mySalaryStatus = await getOwnSalaryStatus(this.db.db, currentUser.id, salaryMonth)
 
     return {
       openInterviews: row?.openCount ?? 0,
       hiredThisMonth: row?.hiredThisMonthCount ?? 0,
       mySalaryStatus,
-    }
-  }
-
-  /**
-   * The caller's own SALARY transaction for `salaryMonth` (YYYY-MM), or null if
-   * none exists yet. Only PENDING / PAID / LOCKED statuses are valid for a
-   * SALARY row; any other status is mapped to null (defensive — should not occur).
-   */
-  private async getOwnSalaryStatus(
-    userId: string,
-    salaryMonth: string,
-  ): Promise<HrSummaryDto['mySalaryStatus']> {
-    const salaryRow = await this.db.db.query.transactions.findFirst({
-      where: and(
-        eq(transactions.type, 'SALARY'),
-        eq(transactions.receiverId, userId),
-        eq(transactions.salaryMonth, salaryMonth),
-      ),
-    })
-
-    if (!salaryRow) return null
-
-    const validStatuses: SalaryStatus[] = ['PENDING', 'PAID', 'LOCKED']
-    if (!validStatuses.includes(salaryRow.status as SalaryStatus)) return null
-
-    // task-senior-dashboard-enhance: surface the salary row's REAL currency so
-    // the HR dashboard formats the amount in its own currency (no `$`-hardcode,
-    // no conversion). Mirrors the SENIOR-summary fix in transactions.service.ts.
-    return {
-      amount: Number(salaryRow.amount),
-      currency: salaryRow.currency,
-      status: salaryRow.status as SalaryStatus,
     }
   }
 }
