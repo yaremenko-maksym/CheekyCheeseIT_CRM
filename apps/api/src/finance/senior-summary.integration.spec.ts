@@ -598,6 +598,79 @@ describe('senior-summary — real backend integration (real DB, no mocks)', () =
     expect(body.mySalaryStatus!.currency).toBe('UAH')
   })
 
+  // ── «Статистика заработка» (task-senior-stats-block) ──────────────────────────
+  // Seed recap for SENIOR_A:
+  //   TX_A_INCOME_PAID_1 — 1000 @40% = 400, THIS month, project A1.
+  //   TX_A_INCOME_PAID_2 —  500 @30% = 150, LAST month, project A2.
+  //   TX_A_INCOME_PENDING — excluded (not PAID).
+  // So: lastMonthIncome = 150; thisMonth share = 400; total = 550.
+  // companyIncomeProgress: total = 2 active projects (A1, A2); received = 1 (only
+  // A1 has a PAID income dated THIS month — A2's income was LAST month).
+  it('earningsStats.lastMonthIncome: own PAID share dated in the PREVIOUS month', async () => {
+    if (!dbAvailable) return
+    const body = await summaryAs(SENIOR_A)
+    expect(body.earningsStats.lastMonthIncome).toBeCloseTo(150, 6)
+  })
+
+  it('earningsStats.monthlyHistory: fixed-length run, newest=this / prev=last month', async () => {
+    if (!dbAvailable) return
+    const body = await summaryAs(SENIOR_A)
+    const hist = body.earningsStats.monthlyHistory
+    expect(hist.length).toBe(8) // HISTORY_MONTHS
+    // Oldest → newest, contiguous YYYY-MM keys (no gaps).
+    for (let i = 1; i < hist.length; i++) {
+      expect(hist[i]!.month > hist[i - 1]!.month).toBe(true)
+    }
+    const thisKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
+    const lastDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
+    const lastKey = `${lastDate.getUTCFullYear()}-${String(lastDate.getUTCMonth() + 1).padStart(2, '0')}`
+    const newest = hist[hist.length - 1]!
+    const prev = hist[hist.length - 2]!
+    expect(newest.month).toBe(thisKey)
+    expect(newest.amount).toBeCloseTo(400, 6) // A1 income this month
+    expect(prev.month).toBe(lastKey)
+    expect(prev.amount).toBeCloseTo(150, 6) // A2 income last month
+    // Σ of all history points equals the lifetime total (every PAID row falls in
+    // the seeded window).
+    const sum = hist.reduce((s, p) => s + p.amount, 0)
+    expect(sum).toBeCloseTo(550, 6)
+  })
+
+  it('earningsStats.companyIncomeProgress: X/N arrival progress for THIS month (received ≤ total)', async () => {
+    if (!dbAvailable) return
+    const body = await summaryAs(SENIOR_A)
+    // total = 2 active projects; received = 1 (only A1 has income THIS month).
+    expect(body.earningsStats.companyIncomeProgress.total).toBe(2)
+    expect(body.earningsStats.companyIncomeProgress.received).toBe(1)
+    expect(body.earningsStats.companyIncomeProgress.received).toBeLessThanOrEqual(
+      body.earningsStats.companyIncomeProgress.total,
+    )
+  })
+
+  it('earningsStats SCOPING: SENIOR_B stats never leak into SENIOR_A', async () => {
+    if (!dbAvailable) return
+    const a = await summaryAs(SENIOR_A)
+    // B's 9999@50% = 4999.5 income (this month) must not appear in A's history.
+    const aSum = a.earningsStats.monthlyHistory.reduce((s, p) => s + p.amount, 0)
+    expect(aSum).toBeCloseTo(550, 6)
+    expect(aSum).not.toBeCloseTo(550 + 4999.5, 1)
+    // A has 2 own projects; B's single project must not inflate A's progress total.
+    expect(a.earningsStats.companyIncomeProgress.total).toBe(2)
+  })
+
+  it('earningsStats SCOPING: SENIOR_B sees ONLY B stats (mirror)', async () => {
+    if (!dbAvailable) return
+    const b = await summaryAs(SENIOR_B)
+    // B's income is dated THIS month, so lastMonthIncome = 0.
+    expect(b.earningsStats.lastMonthIncome).toBeCloseTo(0, 6)
+    // B has 1 active project, with income THIS month → 1/1 arrival progress.
+    expect(b.earningsStats.companyIncomeProgress.total).toBe(1)
+    expect(b.earningsStats.companyIncomeProgress.received).toBe(1)
+    // Newest history point = B's this-month share (4999.5).
+    const bHist = b.earningsStats.monthlyHistory
+    expect(bHist[bHist.length - 1]!.amount).toBeCloseTo(4999.5, 6)
+  })
+
   // ── SELF-SCOPING — the central security claim (AC2) ──────────────────────────
   it('SCOPING: SENIOR_A NEVER sees SENIOR_B figures', async () => {
     if (!dbAvailable) return

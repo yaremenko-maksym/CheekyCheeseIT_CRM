@@ -14,6 +14,7 @@ import { STATUS_COLORS, STATUS_LABELS, fmtAmount, fmtDate } from '@/routes/crm/f
 import { CreateTransactionDialog } from '@/routes/crm/finance/components/dialogs/CreateTransactionDialog'
 import { PayoutDialog } from '@/routes/crm/finance/components/dialogs/PayoutDialog'
 import { SENIOR_SUMMARY_QUERY_KEY, useSeniorSummary } from '@/hooks/use-senior-summary'
+import { EarningsStatsBlock } from './EarningsStatsBlock'
 
 /**
  * SeniorDashboard — ролевой дашборд для роли SENIOR (и ADMIN, который видит ТУ
@@ -209,6 +210,15 @@ export function SeniorDashboard() {
                 />
               </motion.div>
             </motion.div>
+
+            {/* «Статистика заработка» — earnings stats (task-senior-stats-block):
+                hero «Всего» + sparkline, «Прошлый месяц», «Этот месяц» with the
+                per-company arrival progress bar (NO money "expected" figure). */}
+            <EarningsStatsBlock
+              stats={summary.earningsStats}
+              totalEarned={summary.seniorShareIncome.total}
+              thisMonthEarned={summary.seniorShareIncome.thisMonth}
+            />
 
             {/* Two panels: «Мои проекты» + «Статус моих выплат». */}
             <motion.div

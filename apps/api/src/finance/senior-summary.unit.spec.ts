@@ -111,12 +111,175 @@ describe('getSeniorSummary — empty state maps to zero KPI', () => {
   it('returns zeroed shape when the senior has nothing', async () => {
     const svc = makeService({ selfUser: { seniorSharePercent: 26 } })
     const r = await svc.getSeniorSummary(user('SENIOR'))
-    expect(r).toEqual({
-      activeProjects: { count: 0, items: [] },
-      seniorShareIncome: { total: 0, thisMonth: 0, currency: 'USD' },
-      pendingPayouts: { count: 0, amount: 0 },
-      mySalaryStatus: null,
+    // task-senior-stats-block: earningsStats is part of the shape now. With no
+    // income the history is an all-zero 8-month run and progress is 0/0.
+    expect(r.activeProjects).toEqual({ count: 0, items: [] })
+    expect(r.seniorShareIncome).toEqual({ total: 0, thisMonth: 0, currency: 'USD' })
+    expect(r.pendingPayouts).toEqual({ count: 0, amount: 0 })
+    expect(r.mySalaryStatus).toBeNull()
+    expect(r.earningsStats.lastMonthIncome).toBe(0)
+    expect(r.earningsStats.monthlyHistory).toHaveLength(8)
+    expect(r.earningsStats.monthlyHistory.every((p) => p.amount === 0)).toBe(true)
+    expect(r.earningsStats.companyIncomeProgress).toEqual({ received: 0, total: 0 })
+  })
+})
+
+// task-senior-stats-block — pure month-math + arrival-progress unit coverage.
+describe('getSeniorSummary — earningsStats month math (AC4)', () => {
+  const monthKey = (d: Date): string =>
+    `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+  const thisKey = monthKey(now)
+  const lastKey = monthKey(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)))
+
+  it('lastMonthIncome sums ONLY shares dated in the previous calendar month', async () => {
+    const svc = makeService({
+      selfUser: { seniorSharePercent: 26 },
+      paidIncome: [
+        // this month: 1000 * 0.40 = 400 → NOT in lastMonth
+        {
+          amount: '1000',
+          seniorSharePercent: 40,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          projectId: 'p1',
+        },
+        // last month: 500 * 0.30 = 150 → lastMonthIncome
+        {
+          amount: '500',
+          seniorSharePercent: 30,
+          txDate: lastMonth,
+          createdAt: lastMonth,
+          projectId: 'p2',
+        },
+      ],
     })
+    const r = await svc.getSeniorSummary(user('SENIOR'))
+    expect(r.earningsStats.lastMonthIncome).toBeCloseTo(150, 6)
+  })
+
+  it('monthlyHistory is an 8-month contiguous run, newest=this, prev=last', async () => {
+    const svc = makeService({
+      selfUser: { seniorSharePercent: 26 },
+      paidIncome: [
+        {
+          amount: '1000',
+          seniorSharePercent: 40,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          projectId: 'p1',
+        },
+        {
+          amount: '500',
+          seniorSharePercent: 30,
+          txDate: lastMonth,
+          createdAt: lastMonth,
+          projectId: 'p2',
+        },
+      ],
+    })
+    const r = await svc.getSeniorSummary(user('SENIOR'))
+    const hist = r.earningsStats.monthlyHistory
+    expect(hist).toHaveLength(8)
+    expect(hist[hist.length - 1]!.month).toBe(thisKey)
+    expect(hist[hist.length - 1]!.amount).toBeCloseTo(400, 6)
+    expect(hist[hist.length - 2]!.month).toBe(lastKey)
+    expect(hist[hist.length - 2]!.amount).toBeCloseTo(150, 6)
+    // strictly increasing month keys (no gaps / no dupes)
+    for (let i = 1; i < hist.length; i++) {
+      expect(hist[i]!.month > hist[i - 1]!.month).toBe(true)
+    }
+  })
+
+  it('companyIncomeProgress: received counts ONLY active projects with income THIS month', async () => {
+    const svc = makeService({
+      selfUser: { seniorSharePercent: 26 },
+      projects: [
+        { id: 'p1', name: 'A', companyName: 'Acme', seniorSharePercentOverride: null },
+        { id: 'p2', name: 'B', companyName: 'Globex', seniorSharePercentOverride: null },
+        { id: 'p3', name: 'C', companyName: 'Initech', seniorSharePercentOverride: null },
+      ],
+      paidIncome: [
+        // p1 got income THIS month → counts
+        {
+          amount: '100',
+          seniorSharePercent: 26,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          projectId: 'p1',
+        },
+        // p2 only got income LAST month → does NOT count toward received
+        {
+          amount: '100',
+          seniorSharePercent: 26,
+          txDate: lastMonth,
+          createdAt: lastMonth,
+          projectId: 'p2',
+        },
+        // p3 has no income at all
+      ],
+    })
+    const r = await svc.getSeniorSummary(user('SENIOR'))
+    expect(r.earningsStats.companyIncomeProgress.total).toBe(3)
+    expect(r.earningsStats.companyIncomeProgress.received).toBe(1)
+  })
+
+  it('received never exceeds total: income on a now-archived/non-active project is ignored', async () => {
+    const svc = makeService({
+      selfUser: { seniorSharePercent: 26 },
+      // Only p1 is an active project, but income exists on a stale id `p-old`.
+      projects: [{ id: 'p1', name: 'A', companyName: 'Acme', seniorSharePercentOverride: null }],
+      paidIncome: [
+        {
+          amount: '100',
+          seniorSharePercent: 26,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          projectId: 'p1',
+        },
+        {
+          amount: '100',
+          seniorSharePercent: 26,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          projectId: 'p-old',
+        },
+      ],
+    })
+    const r = await svc.getSeniorSummary(user('SENIOR'))
+    expect(r.earningsStats.companyIncomeProgress.total).toBe(1)
+    expect(r.earningsStats.companyIncomeProgress.received).toBe(1)
+    expect(r.earningsStats.companyIncomeProgress.received).toBeLessThanOrEqual(
+      r.earningsStats.companyIncomeProgress.total,
+    )
+  })
+
+  it('multiple incomes from the SAME project this month count the project ONCE', async () => {
+    const svc = makeService({
+      selfUser: { seniorSharePercent: 26 },
+      projects: [
+        { id: 'p1', name: 'A', companyName: 'Acme', seniorSharePercentOverride: null },
+        { id: 'p2', name: 'B', companyName: 'Globex', seniorSharePercentOverride: null },
+      ],
+      paidIncome: [
+        {
+          amount: '100',
+          seniorSharePercent: 26,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          projectId: 'p1',
+        },
+        {
+          amount: '200',
+          seniorSharePercent: 26,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          projectId: 'p1',
+        },
+      ],
+    })
+    const r = await svc.getSeniorSummary(user('SENIOR'))
+    expect(r.earningsStats.companyIncomeProgress.received).toBe(1)
+    expect(r.earningsStats.companyIncomeProgress.total).toBe(2)
   })
 })
 
