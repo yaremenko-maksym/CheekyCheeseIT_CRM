@@ -434,7 +434,7 @@ test.describe('Projects page', () => {
         r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
       )
       await page.goto('/crm/projects')
-      await expect(page.getByRole('heading', { name: 'Проекты' })).toBeVisible()
+      await expect(page.getByTestId('projects-search-input')).toBeVisible()
     })
 
     test('archive tab shows empty state when no archived projects', async ({ page }) => {

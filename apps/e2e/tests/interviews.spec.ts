@@ -35,7 +35,7 @@ test.describe('Interviews (Kanban) page', () => {
 
     test('SENIOR sees kanban board', async ({ asSenior: page }) => {
       await page.goto('/crm/interviews')
-      await expect(page.getByRole('heading', { name: 'Собеседования' })).toBeVisible()
+      await expect(page.getByTestId('interviews-page')).toBeVisible()
       await expect(page.getByText('HR Screen').first()).toBeVisible()
     })
 
@@ -411,7 +411,7 @@ test.describe('Interviews (Kanban) page', () => {
 
       // Page intact
       await page.keyboard.press('Escape')
-      await expect(page.getByRole('heading', { name: 'Собеседования' })).toBeVisible()
+      await expect(page.getByTestId('interviews-page')).toBeVisible()
     })
   })
 
@@ -635,7 +635,7 @@ test.describe('Interviews (Kanban) page', () => {
       await expect(page.getByTestId('create-project-from-hired-dialog')).not.toBeVisible()
 
       // Page heading still visible — no crash, sheet not blocking
-      await expect(page.getByRole('heading', { name: 'Собеседования' })).toBeVisible()
+      await expect(page.getByTestId('interviews-page')).toBeVisible()
     })
   })
 })
