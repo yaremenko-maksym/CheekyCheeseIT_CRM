@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
-import { and, asc, count, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, asc, count, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm'
 import type {
   CreateInterviewDto,
   HrSummaryDto,
@@ -11,8 +11,7 @@ import type {
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { ProjectsService } from '../projects/projects.service'
-import { getOwnSalaryStatus } from '../finance/salary-status.helper'
-import { interviews, teamMembers, type Interview, type User } from '../database/schema'
+import { interviews, projects, teamMembers, type Interview, type User } from '../database/schema'
 
 type InterviewWithRelations = Interview & {
   senior: User | null
@@ -316,21 +315,17 @@ export class InterviewsService {
    * HR dashboard / HR-хаб KPI snapshot — `GET /api/interviews/hr-summary`.
    *
    * RBAC: HR + ADMIN ONLY. The ForbiddenException is thrown BEFORE any DB
-   * access (mirrors getAccountantSummary), so no team-scoped recruiting figures
-   * nor a foreign salary status ever leak to SENIOR / JUNIOR / ACCOUNTANT / DROP.
+   * access so no team-scoped recruiting figures ever leak to other roles.
    *
-   * KPI (all SQL-aggregated — COUNT with WHERE/FILTER, never findMany-in-memory):
-   *   - openInterviews — active-stage cards (every stage except HIRED / REJECTED
-   *     / ARCHIVED) scoped to the boards the caller can access. HR is restricted
-   *     to its own teams' seniors via getAccessibleSeniorIds; ADMIN sees all.
-   *   - hiredThisMonth — cards in HIRED whose updatedAt falls in the current
-   *     calendar month (UTC boundary, like getAccountantSummary), same scope.
-   *   - mySalaryStatus — the caller's OWN salary row for the current month
-   *     (type=SALARY, receiver=self, salaryMonth=YYYY-MM); null if none yet.
+   * KPI (all SQL-aggregated):
+   *   - openInterviews  — active-stage cards scoped to accessible seniors.
+   *   - hiredThisMonth  — HIRED cards in the current calendar month (UTC),
+   *                       same scope.
+   *   - activeProjects  — non-archived projects whose seniorId ∈ accessible
+   *                       seniors (HR-scoped count; ADMIN sees all).
    *
-   * Team-scope note: for HR with NO accessible seniors the scope set is empty,
-   * so both interview KPI are 0 (we short-circuit instead of emitting an empty
-   * `IN ()` predicate). ADMIN has no seniorId filter.
+   * Team-scope note: for HR with NO accessible seniors all three KPI are 0
+   * (short-circuit avoids empty `IN ()` predicate).
    */
   async getHrSummary(currentUser: SessionUser): Promise<HrSummaryDto> {
     if (currentUser.role !== 'HR' && currentUser.role !== 'ADMIN') {
@@ -340,7 +335,6 @@ export class InterviewsService {
     // Current-month boundary (UTC), computed once — matches getAccountantSummary.
     const now = new Date()
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
-    const salaryMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
 
     // Terminal stages are excluded from openInterviews (anything not actively in
     // the pipeline). Active = every stage that is NOT one of these.
@@ -348,15 +342,20 @@ export class InterviewsService {
 
     // Team-scope predicate. HR → only its accessible seniors' boards; ADMIN →
     // all boards (no scope filter). An HR with no accessible seniors gets 0 for
-    // both interview KPI without issuing an empty `IN ()` predicate.
-    let scope = sql`true`
+    // all KPI without issuing an empty `IN ()` predicate.
+    let scope: SQL = sql`true`
+    let projectScope: SQL | undefined = isNull(projects.archivedAt)
+
     if (currentUser.role === 'HR') {
       const accessibleSeniorIds = [...(await this.getAccessibleSeniorIds(currentUser))]
       if (accessibleSeniorIds.length === 0) {
-        const mySalaryStatus = await getOwnSalaryStatus(this.db.db, currentUser.id, salaryMonth)
-        return { openInterviews: 0, hiredThisMonth: 0, mySalaryStatus }
+        return { openInterviews: 0, hiredThisMonth: 0, activeProjects: 0 }
       }
       scope = inArray(interviews.seniorId, accessibleSeniorIds)
+      projectScope = and(
+        isNull(projects.archivedAt),
+        inArray(projects.seniorId, accessibleSeniorIds),
+      )!
     }
 
     // Single aggregating pass — conditional COUNT via FILTER (WHERE ...).
@@ -371,12 +370,16 @@ export class InterviewsService {
       .from(interviews)
       .where(scope)
 
-    const mySalaryStatus = await getOwnSalaryStatus(this.db.db, currentUser.id, salaryMonth)
+    // Active projects count — non-archived, HR-scoped (seniorId ∈ accessible seniors).
+    const [projectRow] = await this.db.db
+      .select({ cnt: count() })
+      .from(projects)
+      .where(projectScope)
 
     return {
       openInterviews: row?.openCount ?? 0,
       hiredThisMonth: row?.hiredThisMonthCount ?? 0,
-      mySalaryStatus,
+      activeProjects: projectRow?.cnt ?? 0,
     }
   }
 }
