@@ -5,6 +5,22 @@ import { tabKeySchema, actionKeySchema } from './view-permissions'
 
 export const roleSchema = z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
 
+/**
+ * Roles eligible to receive a SALARY transaction.
+ * ADMIN is excluded — admin income flows through shares (ADMIN_INCOME / PAYOUT).
+ * Single source of truth shared by backend (createSalary allow-list) and
+ * frontend (salaryTargets filter in CreateTransactionDialog).
+ *
+ * task-salary-no-admin-receiver (security-MED #222) review finding MED#1.
+ */
+export const SALARY_ELIGIBLE_ROLES = [
+  'JUNIOR',
+  'HR',
+  'ACCOUNTANT',
+  'SENIOR',
+  'DROP',
+] as const satisfies ReadonlyArray<z.infer<typeof roleSchema>>
+
 const telegramSchema = z
   .string()
   .regex(/^@?[a-zA-Z0-9_]{5,32}$/, 'Telegram: 5–32 символа, латиница/цифры/_')

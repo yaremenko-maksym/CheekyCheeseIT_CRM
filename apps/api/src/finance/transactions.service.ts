@@ -23,7 +23,7 @@ import type {
   IncomeComplianceReceiverDto,
   IncomeComplianceRole,
 } from '@crm/shared'
-import { MAKSYM_ID, KOSTYA_ID } from '@crm/shared'
+import { MAKSYM_ID, KOSTYA_ID, SALARY_ELIGIBLE_ROLES } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
   documents,
@@ -1626,10 +1626,14 @@ export class TransactionsService {
       where: eq(users.id, data.receiverId),
     })
     if (!receiver) throw new NotFoundException('User not found')
+    // Defense-in-depth: explicit ADMIN barrier first (security-MED #222).
+    // SALARY_ELIGIBLE_ROLES allow-list check follows as the general gate.
     if (receiver.role === 'ADMIN') {
-      throw new BadRequestException('ADMIN не отримує зарплату — дохід через частки (ADMIN_INCOME)')
+      throw new BadRequestException(
+        'ADMIN не получает зарплату — доход распределяется через доли (ADMIN_INCOME)',
+      )
     }
-    if (!['JUNIOR', 'HR', 'ACCOUNTANT', 'SENIOR', 'DROP'].includes(receiver.role)) {
+    if (!(SALARY_ELIGIBLE_ROLES as ReadonlyArray<string>).includes(receiver.role)) {
       throw new BadRequestException(
         'Salary can only be created for JUNIOR, HR, ACCOUNTANT, SENIOR, or DROP',
       )

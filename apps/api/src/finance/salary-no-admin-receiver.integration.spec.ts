@@ -412,4 +412,44 @@ describe('createSalary — ADMIN receiver guard (real DB, no mocks)', () => {
       expect((json as { type: string }).type).toBe('SALARY')
     })
   })
+
+  // ── Caller RBAC gate — only ADMIN/ACCOUNTANT may create salary ───────────────
+  // code LOW (review MED#1 followup): verify non-privileged callers (SENIOR, JUNIOR, HR)
+  // are blocked at the caller-role guard (ForbiddenException → 403) before receiver
+  // validation even runs. Ensures the caller-gate is not accidentally removed by
+  // refactoring that only touches the receiver allow-list path.
+  describe('caller role gate — SENIOR/JUNIOR/HR → 403', () => {
+    it('SENIOR caller → 403 (caller gate, not receiver check)', async () => {
+      if (!dbAvailable) return
+      const { status } = await postSalary(SENIOR_RECEIVER, {
+        receiverId: JUNIOR_RECEIVER.id,
+        amount: 500,
+        currency: 'USD',
+        salaryMonth: '2025-06',
+      })
+      expect(status).toBe(403)
+    })
+
+    it('JUNIOR caller → 403', async () => {
+      if (!dbAvailable) return
+      const { status } = await postSalary(JUNIOR_RECEIVER, {
+        receiverId: HR_RECEIVER.id,
+        amount: 500,
+        currency: 'USD',
+        salaryMonth: '2025-06',
+      })
+      expect(status).toBe(403)
+    })
+
+    it('HR caller → 403', async () => {
+      if (!dbAvailable) return
+      const { status } = await postSalary(HR_RECEIVER, {
+        receiverId: JUNIOR_RECEIVER.id,
+        amount: 500,
+        currency: 'USD',
+        salaryMonth: '2025-06',
+      })
+      expect(status).toBe(403)
+    })
+  })
 })
