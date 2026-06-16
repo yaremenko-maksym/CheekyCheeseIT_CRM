@@ -57,7 +57,6 @@ import { PayoutDialog } from './components/dialogs/PayoutDialog'
 import { PayoutDetailDialog } from './components/dialogs/PayoutDetailDialog'
 import { TransactionDetailDialog } from './components/dialogs/TransactionDetailDialog'
 import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransactionDialog'
-import { MyProjectShares } from './components/MyProjectShares'
 import { DropFinancePage } from './components/DropFinancePage'
 import { PendingSettlementSeniorCard } from './components/PendingSettlementSeniorCard'
 import { PendingSettlementCompanyCard } from './components/PendingSettlementCompanyCard'
@@ -789,9 +788,6 @@ function FinancePage() {
         style={{ scrollbarGutter: 'stable' }}
       >
         <div className="space-y-6">
-          {/* SENIOR — own projects + effective share % (no impact for other roles). */}
-          {isSenior && <MyProjectShares />}
-
           {/* task-drop-company-debt-and-invoices. Senior IOUs and the
           ADMIN/ACCOUNTANT-only "Долги компании перед синьорами" card.
           DROP no longer holds senior debts — the DropCard was removed. */}
