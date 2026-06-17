@@ -20,8 +20,9 @@ docs/
 └── agents/             # Системные промпты каждого агента
     ├── ../business/roles/ba.md  # Business Analyst (human role, moved out in Phase 6)
     ├── coder.md        # Coder
-    ├── reviewer.md     # Code Reviewer
-    ├── qa.md           # QA Manual Tester
+    ├── code-reviewer.md     # Code Reviewer
+    ├── security-reviewer.md # Security Reviewer
+    ├── manual-qa.md    # QA Manual Tester
     ├── devops.md       # DevOps
     └── autotest.md     # AutoTest
 ```

@@ -27,16 +27,18 @@ Single source of truth для **factual state of the project**: фазы, миг
 - [x] **PHASE 7**: Профили (`/crm/profile`, `/crm/users/:id`, telegram+phone, **фото S3** через `avatarDocumentId`) + Легенда **per-project** (#150 + #164: `legends` с projectId UNIQUE + `legend_entries` журнал; RBAC: видят/редактируют связанные ADMIN/HR/JUNIOR, субъект исключён)
 - [x] **Контракты + Онбординг** (вне исходного 9-фазного плана): `contract_templates`, `employee_contracts`, `signed_contracts`, ToS (`tos_versions`/`tos_acceptances`), система переменных шаблонов, двухколоночный UA|EN PDF, `/crm/onboarding`
 - [x] **DROP роль**: payment-routing (`dropSharePercent`, `payout_requests`, `pending_obligations`)
-- [ ] **PHASE 8**: Смарт-контракти (USDT ERC-20, Ethereum mainnet) ← **СЛЕДУЮЩАЯ**. DB-фундамент готов: `project_finance_settings`, `seniorSharePercent`/`dropSharePercent`, `payout_requests`, USDT-кошельки
-- [ ] **PHASE 9**: Дашборд (сейчас placeholder в `/crm/index.tsx`)
+- [ ] **PHASE 8**: **«Счёт компании» (USDT ERC-20)** ← **СЛЕДУЮЩАЯ** (после process-гейтов). ⚠ **Смарт-контракты ОТМЕНЕНЫ владельцем 2026-06-17** — см. §1.1 + ADR `docs/architecture/2026-06-17-planning-audit-roadmap.md`. DB-фундамент частично переиспользуется (`payout_requests`/`pending_obligations`/share-поля — ревизия в b1)
+- [ ] **PHASE 9**: Дашборд — частично устарел (per-role дашборды уже на `/crm` #223); переопределить = generic ADMIN/SENIOR дашборд (#231 MED-defer) + cross-role аналитика. См. ADR 2026-06-17 Part 3(c)
 
-### 1.1. PHASE 8 — план (компакт; перенесён из CLAUDE.md при context diet 2026-06-11)
+### 1.1. PHASE 8 — план (ПЕРЕОПРЕДЕЛЁН 2026-06-17; смарт-контракты отменены)
 
-- Solidity `PaymentSplitter` (Hardhat для разработки/тестов контракта), деплой один раз или per-project.
-- Принимает USDT ERC-20, распределяет автоматически: JUNIOR — фиксированная сумма (из `project_finance_settings`), остаток 50/50 ADMIN + партнёр. Адреса получателей конфигурируются при деплое.
-- Frontend: ethers.js v6, подпись транзакции через MetaMask/WalletConnect.
-- PDF-инвойс (бэк): проект, период, сумма, адрес контракта, хэш транзакции.
-- Сеть: **Ethereum mainnet** (решение принято; при необходимости — миграция на TRC-20).
+> Полный роадмап + safety-gates + open-вопросы — ADR `docs/architecture/2026-06-17-planning-audit-roadmap.md` (Part 3b, Part 5).
+
+- **НЕ on-chain.** Нет Solidity / Hardhat / mainnet-деплоя / внешнего аудита / multisig. Риск M (не H).
+- **Счёт компании:** единый кошелёк (USDT ERC-20), куда SENIOR'ы и DROP'ы перечисляют деньги.
+- **Подтверждение прихода:** отправитель присылает **ссылку на транзакцию** → бэк верифицирует через `etherscan.service.ts` (уже есть). Confirmed (≥ порог блоков) → credit; pending → **прогресс-бар резолва блоков** в UI. Idempotent по `txHash`.
+- **ADMIN-дивиденды:** вывод со счёта компании как дивиденды (бизнес-логика на странице Финансы); 50/50 между ADMIN'ами сохраняется + **общий счёт компании** на зарплаты/расходы.
+- **Safety:** никакого авто-credit без confirmed; RBAC (вывод только ADMIN); Legal pre-check (UA crypto/AML/налоги); integration guard-тесты (FM-5). Дизайн — Mode A.
 
 ---
 
