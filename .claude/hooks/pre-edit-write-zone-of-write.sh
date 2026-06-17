@@ -73,11 +73,16 @@ fi
 # TARGET (where it writes), so it permitted these stray main writes (~5-6×/session,
 # once flipping the user's live :3000 stack). Block when: cwd is a worktree,
 # FILE_PATH is absolute + in apps/packages, but NOT under this worktree root.
+# Note: lexical `..` is normalized first (else "$WT/../other/apps/x" lexically
+# starts with "$WT/" and would slip through). Symlink-based escape is a residual
+# edge (normpath does not resolve symlinks; realpath needs the file to exist,
+# but Write targets may be new) — acceptable vs the observed abs-path class.
 if echo "$PWD" | grep -q '/\.claude/worktrees/'; then
   WT_ABS=$(echo "$PWD" | sed -E 's#(.*/\.claude/worktrees/[^/]+).*#\1#')
   case "$FILE_PATH" in
     /*)
-      if [ -n "$WT_ABS" ] && [[ "$FILE_PATH" != "$WT_ABS"/* ]]; then
+      NORM=$(python3 -c "import os,sys; print(os.path.normpath(sys.argv[1]))" "$FILE_PATH" 2>/dev/null || echo "$FILE_PATH")
+      if echo "$NORM" | grep -qE '(^|/)(apps|packages)/' && [ -n "$WT_ABS" ] && [[ "$NORM" != "$WT_ABS"/* ]]; then
         python3 -c "
 import json, sys
 file_path, wt = sys.argv[1], sys.argv[2]

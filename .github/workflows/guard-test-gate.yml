@@ -9,20 +9,32 @@
 #   logged-in user). Front-only gating (`enabled: isAdmin`) is UX, not security.
 #
 # WHAT this asserts:
-#   If a PR changes a route handler in a security-sensitive controller
-#   (users / finance / transactions / auth / projects / teams / legends /
-#   documents), the PR must ALSO change a REAL backend test
-#   (apps/api/**/*.spec.ts — unit OR integration, NOT mocked apps/e2e) that
-#   asserts an unauthorized caller gets 403 / Forbidden. The #157/#158 fixes
-#   were proven exactly this way (backend test: caller-without-rights -> 403).
+#   If a PR changes a route handler in a security-sensitive controller, the PR
+#   must ALSO change a REAL backend test (apps/api/**/*.spec.ts — unit OR
+#   integration, NOT mocked apps/e2e) that asserts an unauthorized caller gets
+#   403 / Forbidden. The #157/#158 fixes were proven exactly this way.
 #
 # ESCAPE HATCH (conscious, justified):
-#   Add `guard-test-na: <reason>` to the PR description when the controller
-#   change has no authorization impact (pure refactor, comment, the guard test
-#   already exists and is untouched). The reviewer must accept the stated reason.
+#   Add a line `guard-test-na: <reason>` (reason required, line-start) to the PR
+#   description when the controller change has no authorization impact (pure
+#   refactor, comment, guard test already exists and is untouched). Reviewer
+#   must accept the stated reason.
+#
+# KNOWN LIMITATIONS — a GREEN gate does NOT mean "authz is covered". This is a
+# heuristic tripwire, not a proof. It will NOT catch:
+#   1. Authz outside *.controller.ts (RolesGuard/JwtGuard, service-layer WHERE
+#      filters, resolvers, cron, APP_GUARD in app.module.ts).
+#   2. Sensitive modules outside the allowlist below.
+#   3. A 403 assertion that exists for a DIFFERENT endpoint than the one changed.
+#   4. Removal (vs addition) of a 403 assertion, if another `Forbidden` token
+#      remains in the file.
+#   5. IDOR / horizontal authz leaks (#158-style) that return 200-with-foreign-
+#      data rather than 403.
+#   security-reviewer + Manual QA on the live stack remain mandatory for these.
 #
 # Branch protection has no required checks today, so a red check here is a loud
-# advisory; it future-proofs for when required checks are enabled.
+# advisory; it future-proofs for when required checks are enabled. Fail-closed:
+# `set -euo pipefail` makes any crash fail the step (red job), never silent-pass.
 
 name: Guard-test gate (FM-5)
 
@@ -32,8 +44,7 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
+  issues: write # addLabels / createComment use the issues API (PR == issue)
 
 jobs:
   guard-test:
@@ -51,23 +62,29 @@ jobs:
       - name: Detect sensitive controller change without a guard test
         id: gate
         run: |
-          set -uo pipefail
+          set -euo pipefail
 
           # Three-dot diff: only what this PR branch itself touched (avoids
           # false positives from files changed on main after branch-off —
           # same reasoning as check-no-skip-hooks.yml).
           CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA...$HEAD_SHA" || true)
 
-          # Conscious opt-out marker in PR body.
-          if printf '%s' "${PR_BODY:-}" | grep -qiE 'guard-test-na:'; then
-            echo "Opt-out marker 'guard-test-na:' present in PR body — gate waived."
+          # Conscious opt-out: a line starting with `guard-test-na:` AND a
+          # non-empty reason. Anchored + \S so a casual/quoted mention (e.g.
+          # quoting this gate's own comment) does NOT trip it.
+          if printf '%s\n' "${PR_BODY:-}" | grep -qiE '^[[:space:]]*guard-test-na:[[:space:]]*\S'; then
+            echo "Opt-out marker 'guard-test-na: <reason>' present — gate waived."
             echo "status=waived" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           # Security-sensitive controllers (route handlers behind RBAC/auth guards).
+          # Grow this list when a new sensitive module gets a controller
+          # (e.g. PHASE 8 payouts/wallets). A dir without a controller is a
+          # harmless no-match.
           SENSITIVE=$(printf '%s\n' "$CHANGED" \
-            | grep -E '^apps/api/src/(users|finance|transactions|auth|projects|teams|legends|documents)/.*\.controller\.ts$' || true)
+            | grep -E '^apps/api/src/(users|finance|auth|projects|teams|legends|documents|contracts|credentials|invoices|onboarding|tos|notifications|audit|interviews)/.*\.controller\.ts$' \
+            || true)
 
           if [ -z "$SENSITIVE" ]; then
             echo "No security-sensitive controller changes — gate N/A."
@@ -76,7 +93,7 @@ jobs:
           fi
 
           echo "Security-sensitive controllers changed:"
-          printf '  %s\n' $SENSITIVE
+          printf '%s\n' "$SENSITIVE" | while IFS= read -r f; do [ -n "$f" ] && echo "  $f"; done
 
           # Real backend specs changed by this PR (unit OR integration, in the
           # api package = real guard chain). Mocked apps/e2e is explicitly NOT
@@ -84,13 +101,14 @@ jobs:
           GUARD_SPECS=$(printf '%s\n' "$CHANGED" | grep -E '^apps/api/src/.*\.spec\.ts$' || true)
 
           GUARD_TEST_FOUND=0
-          for f in $GUARD_SPECS; do
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
             [ -f "$f" ] || continue
             if grep -qE '(\b403\b|Forbidden|ForbiddenException)' "$f"; then
               GUARD_TEST_FOUND=1
               echo "Guard-test assertion (403/Forbidden) found in: $f"
             fi
-          done
+          done <<< "$GUARD_SPECS"
 
           if [ "$GUARD_TEST_FOUND" -eq 1 ]; then
             echo "Guard test present — gate satisfied."
@@ -101,7 +119,7 @@ jobs:
           # Missing: emit the sensitive file list for the comment.
           {
             echo "files<<FILES_EOF"
-            printf '%s\n' $SENSITIVE
+            printf '%s\n' "$SENSITIVE"
             echo "FILES_EOF"
           } >> "$GITHUB_OUTPUT"
           echo "status=missing" >> "$GITHUB_OUTPUT"
@@ -143,8 +161,11 @@ jobs:
                 '1. Добавь real-backend тест: caller без прав → `expect(...).rejects` / HTTP 403 / `ForbiddenException`.',
                 '   Unit ИЛИ integration в `apps/api/**` (НЕ mocked `apps/e2e`).',
                 '2. Если изменение контроллера не влияет на авторизацию (рефактор / комментарий /',
-                '   guard-тест уже есть и не тронут) — добавь в описание PR строку',
-                '   `guard-test-na: <причина>`; ревьюер обязан принять обоснование.',
+                '   guard-тест уже есть и не тронут) — добавь в описание PR строку с начала строки',
+                '   `guard-test-na: <причина>` (причина обязательна); ревьюер обязан принять обоснование.',
+                '',
+                '_Замечание: гейт — эвристика. Зелёный ≠ «authz полностью покрыт»; см. KNOWN LIMITATIONS',
+                'в `.github/workflows/guard-test-gate.yml`. security-review + Manual QA остаются обязательны._',
               ].join('\n'),
             })
 
