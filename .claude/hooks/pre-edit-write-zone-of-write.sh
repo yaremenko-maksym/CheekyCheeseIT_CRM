@@ -65,6 +65,38 @@ if ! echo "$FILE_PATH" | grep -qE '(^|/)(apps|packages)/'; then
   exit 0
 fi
 
+# FM-2 guard (2026-06-17, ADR 2026-06-16 follow-up #2): a worktree subagent
+# must write ONLY inside its own worktree. The contamination class: an agent
+# whose cwd is a worktree writes to an ABSOLUTE main-repo path
+# (/…/CheekyCheeseIT_CRM/apps/…) — copied from codegraph output or a task-file
+# main-repo path. Allow #1 below checks cwd (where the agent IS) but never the
+# TARGET (where it writes), so it permitted these stray main writes (~5-6×/session,
+# once flipping the user's live :3000 stack). Block when: cwd is a worktree,
+# FILE_PATH is absolute + in apps/packages, but NOT under this worktree root.
+if echo "$PWD" | grep -q '/\.claude/worktrees/'; then
+  WT_ABS=$(echo "$PWD" | sed -E 's#(.*/\.claude/worktrees/[^/]+).*#\1#')
+  case "$FILE_PATH" in
+    /*)
+      if [ -n "$WT_ABS" ] && [[ "$FILE_PATH" != "$WT_ABS"/* ]]; then
+        python3 -c "
+import json, sys
+file_path, wt = sys.argv[1], sys.argv[2]
+reason = f'''🚫 WORKTREE→MAIN CONTAMINATION BLOCK (FM-2): worktree-агент пишет в {file_path},
+который ВНЕ его worktree ({wt}).
+
+Это класс инцидента FM-2: агент скопировал main-repo абсолютный путь (из codegraph /
+task-файла) и пишет в MAIN-чекаут вместо своего worktree. ВСЕ Edit/Write — ВНУТРИ своего worktree.
+
+Исправь путь: замени префикс на {wt}/… (твой worktree). Проверь cwd: `git -C \"{wt}\" status`.'''
+print(json.dumps({'decision': 'block', 'reason': reason}))
+" "$FILE_PATH" "$WT_ABS" 2>/dev/null
+        echo "[pre:edit-write:zone-of-write] FM-2 BLOCK worktree=$WT_ABS target=$FILE_PATH" >&2
+        exit 2
+      fi
+      ;;
+  esac
+fi
+
 # Allow #1: subagent worktree cwd (primary path).
 if echo "$PWD" | grep -q '/\.claude/worktrees/'; then
   exit 0

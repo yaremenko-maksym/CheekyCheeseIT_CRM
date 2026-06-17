@@ -1,0 +1,172 @@
+# Guard-test gate (FM-5) — require a real backend authz test when a
+# security-sensitive controller changes.
+#
+# WHY (ADR 2026-06-16 FM-5 / ADR 2026-06-17 Part 4 #1):
+#   The costliest recurring incident class. Mocked Playwright E2E returns what
+#   the developer EXPECTS, not what the backend actually returns, so it passes
+#   green even when a global guard is missing. This shipped real OWASP A01 holes
+#   to main 3× (#157 JUNIOR identity-leak to SENIOR, #158 finance-leak to any
+#   logged-in user). Front-only gating (`enabled: isAdmin`) is UX, not security.
+#
+# WHAT this asserts:
+#   If a PR changes a route handler in a security-sensitive controller
+#   (users / finance / transactions / auth / projects / teams / legends /
+#   documents), the PR must ALSO change a REAL backend test
+#   (apps/api/**/*.spec.ts — unit OR integration, NOT mocked apps/e2e) that
+#   asserts an unauthorized caller gets 403 / Forbidden. The #157/#158 fixes
+#   were proven exactly this way (backend test: caller-without-rights -> 403).
+#
+# ESCAPE HATCH (conscious, justified):
+#   Add `guard-test-na: <reason>` to the PR description when the controller
+#   change has no authorization impact (pure refactor, comment, the guard test
+#   already exists and is untouched). The reviewer must accept the stated reason.
+#
+# Branch protection has no required checks today, so a red check here is a loud
+# advisory; it future-proofs for when required checks are enabled.
+
+name: Guard-test gate (FM-5)
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  guard-test:
+    runs-on: ubuntu-latest
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_NUM: ${{ github.event.pull_request.number }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect sensitive controller change without a guard test
+        id: gate
+        run: |
+          set -uo pipefail
+
+          # Three-dot diff: only what this PR branch itself touched (avoids
+          # false positives from files changed on main after branch-off —
+          # same reasoning as check-no-skip-hooks.yml).
+          CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA...$HEAD_SHA" || true)
+
+          # Conscious opt-out marker in PR body.
+          if printf '%s' "${PR_BODY:-}" | grep -qiE 'guard-test-na:'; then
+            echo "Opt-out marker 'guard-test-na:' present in PR body — gate waived."
+            echo "status=waived" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Security-sensitive controllers (route handlers behind RBAC/auth guards).
+          SENSITIVE=$(printf '%s\n' "$CHANGED" \
+            | grep -E '^apps/api/src/(users|finance|transactions|auth|projects|teams|legends|documents)/.*\.controller\.ts$' || true)
+
+          if [ -z "$SENSITIVE" ]; then
+            echo "No security-sensitive controller changes — gate N/A."
+            echo "status=clean" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Security-sensitive controllers changed:"
+          printf '  %s\n' $SENSITIVE
+
+          # Real backend specs changed by this PR (unit OR integration, in the
+          # api package = real guard chain). Mocked apps/e2e is explicitly NOT
+          # accepted (it is the false-confidence source FM-5 is about).
+          GUARD_SPECS=$(printf '%s\n' "$CHANGED" | grep -E '^apps/api/src/.*\.spec\.ts$' || true)
+
+          GUARD_TEST_FOUND=0
+          for f in $GUARD_SPECS; do
+            [ -f "$f" ] || continue
+            if grep -qE '(\b403\b|Forbidden|ForbiddenException)' "$f"; then
+              GUARD_TEST_FOUND=1
+              echo "Guard-test assertion (403/Forbidden) found in: $f"
+            fi
+          done
+
+          if [ "$GUARD_TEST_FOUND" -eq 1 ]; then
+            echo "Guard test present — gate satisfied."
+            echo "status=ok" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Missing: emit the sensitive file list for the comment.
+          {
+            echo "files<<FILES_EOF"
+            printf '%s\n' $SENSITIVE
+            echo "FILES_EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "status=missing" >> "$GITHUB_OUTPUT"
+
+      - name: Flag missing guard test
+        if: steps.gate.outputs.status == 'missing'
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ env.PR_NUM }}
+          SENSITIVE_FILES: ${{ steps.gate.outputs.files }}
+        with:
+          script: |
+            const prNum = parseInt(process.env.PR_NUMBER, 10)
+            const files = (process.env.SENSITIVE_FILES || '').trim().split('\n').filter(Boolean)
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNum,
+              labels: ['needs-guard-test'],
+            })
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNum,
+              body: [
+                '🛡️ **Guard-test gate (FM-5): отсутствует backend-тест авторизации**',
+                '',
+                'Этот PR меняет security-sensitive controller(ы), но не добавляет/не меняет реальный',
+                'backend-тест (`apps/api/**/*.spec.ts`), проверяющий что вызывающий без прав получает',
+                '**403 / Forbidden**:',
+                '',
+                ...files.map((f) => `- \`${f}\``),
+                '',
+                '**Почему это важно:** mocked Playwright E2E возвращает то, что ОЖИДАЕТ разработчик,',
+                'а не то, что отдаёт backend — так в прод 3× уехали реальные дыры доступа (#157, #158).',
+                'Front-only gating (`enabled: isAdmin`) = UX, не security.',
+                '',
+                '**Как закрыть:**',
+                '1. Добавь real-backend тест: caller без прав → `expect(...).rejects` / HTTP 403 / `ForbiddenException`.',
+                '   Unit ИЛИ integration в `apps/api/**` (НЕ mocked `apps/e2e`).',
+                '2. Если изменение контроллера не влияет на авторизацию (рефактор / комментарий /',
+                '   guard-тест уже есть и не тронут) — добавь в описание PR строку',
+                '   `guard-test-na: <причина>`; ревьюер обязан принять обоснование.',
+              ].join('\n'),
+            })
+
+      - name: Clear needs-guard-test label when satisfied
+        if: steps.gate.outputs.status == 'ok' || steps.gate.outputs.status == 'clean' || steps.gate.outputs.status == 'waived'
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ env.PR_NUM }}
+        with:
+          script: |
+            const prNum = parseInt(process.env.PR_NUMBER, 10)
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNum,
+                name: 'needs-guard-test',
+              })
+            } catch (err) {
+              if (err.status !== 404) throw err
+            }
+
+      - name: Fail check if guard test missing
+        if: steps.gate.outputs.status == 'missing'
+        run: exit 1
