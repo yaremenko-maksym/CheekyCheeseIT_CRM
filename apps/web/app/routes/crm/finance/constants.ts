@@ -31,6 +31,11 @@ export const TYPE_LABELS: Record<TransactionType, string> = {
   SENIOR_INCOME_CRYPTO: 'Приход синьора (крипто)',
   DIVIDEND_TO_ADMIN: 'Дивиденды Admin',
   DIVIDEND_TAX: 'Налог на дивиденды',
+  // task-company-account-backend. Minimal label to satisfy the exhaustive
+  // Record<TransactionType, string> contract — the dedicated company-account
+  // FRONTEND task owns the real UI (deposit progress bar, balance card). This
+  // backend phase only adds the enum value; no current web flow renders it.
+  COMPANY_DEPOSIT: 'Пополнение счёта компании',
 }
 
 export const STATUS_LABELS: Record<TransactionStatus, string> = {
@@ -87,6 +92,9 @@ export const TYPE_COLORS: Record<TransactionType, string> = {
   SENIOR_INCOME_CRYPTO: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
   DIVIDEND_TO_ADMIN: 'bg-indigo-500/20 text-indigo-200 border-indigo-500/40',
   DIVIDEND_TAX: 'bg-red-500/15 text-red-300 border-red-500/30',
+  // task-company-account-backend. Placeholder palette (USDT-green tone) until
+  // the company-account frontend task finalizes the UI. See TYPE_LABELS note.
+  COMPANY_DEPOSIT: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
 }
 
 export const EXPENSE_CATEGORIES = ['Оплата сервиса', 'Комиссия', 'Прочее']
