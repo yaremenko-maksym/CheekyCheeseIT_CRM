@@ -98,6 +98,12 @@ export const transactionTypeEnum = pgEnum('transaction_type', [
   'SENIOR_INCOME_CRYPTO',
   'DIVIDEND_TO_ADMIN',
   'DIVIDEND_TAX',
+  // task-company-account-backend. SENIOR/DROP-submitted USDT deposit onto the
+  // shared company wallet, Etherscan-verified. PENDING until confirmations reach
+  // the threshold AND the on-chain recipient matches the company wallet, then
+  // PAID (credits the company-account balance). Must stay LAST for a clean
+  // additive ALTER TYPE ... ADD VALUE.
+  'COMPANY_DEPOSIT',
 ])
 
 // Phase 4-A: pending senior obligations live in their own table so the
@@ -447,8 +453,17 @@ export const transactions = pgTable(
     invoiceDocumentId: uuid('invoice_document_id').references(() => documents.id, {
       onDelete: 'set null',
     }),
-    // Blockchain TX hash (for PAYOUT, PAYOUT_ADMIN)
+    // Blockchain TX hash (for PAYOUT, PAYOUT_ADMIN, COMPANY_DEPOSIT)
     txHash: varchar('tx_hash', { length: 255 }),
+    // task-company-account-backend. Funding source of a SALARY row:
+    //   'COMPANY_ACCOUNT' — paid from the shared company USDT account (debits
+    //                       its derived balance); always USDT.
+    //   'ADMIN_PERSONAL'  — paid from an admin partner's personal account; does
+    //                       NOT touch the company balance.
+    // NULL on every non-SALARY row (and on legacy SALARY rows, treated as
+    // admin-personal for balance purposes). varchar (not a pg enum) to keep the
+    // additive migration push-friendly and the nullable semantics simple.
+    fundingSource: varchar('funding_source', { length: 16 }),
     // Accountant/admin validation fields (for SENIOR_INCOME)
     validatedBy: uuid('validated_by').references(() => users.id, { onDelete: 'set null' }),
     validatedAt: timestamp('validated_at', { withTimezone: true }),
@@ -471,8 +486,35 @@ export const transactions = pgTable(
     uniqueIndex('uq_transactions_receipt_document_id')
       .on(t.receiptDocumentId)
       .where(sql`${t.receiptDocumentId} IS NOT NULL`),
+    // task-company-account-backend. Idempotency for company deposits: a given
+    // on-chain txHash can be submitted at most once as a COMPANY_DEPOSIT. Partial
+    // (WHERE type='COMPANY_DEPOSIT') so PAYOUT/PAYOUT_ADMIN rows that legitimately
+    // reuse a hash (e.g. simulate stubs) are unaffected. A duplicate submit hits
+    // this constraint OR is short-circuited by the service's lookup-first guard.
+    uniqueIndex('uq_transactions_company_deposit_tx_hash')
+      .on(t.txHash)
+      .where(sql`${t.type} = 'COMPANY_DEPOSIT' AND ${t.txHash} IS NOT NULL`),
   ],
 )
+
+// ---------------------------------------------------------------------------
+// Company Account (USDT) — task-company-account-backend
+// ---------------------------------------------------------------------------
+//
+// Single-row table holding the shared company USDT wallet config. The balance
+// itself is NOT stored — it is derived on-demand from the transactions ledger
+// (COMPANY_DEPOSIT − DIVIDEND_TO_ADMIN − company-funded SALARY), keeping the
+// ledger the single source of truth (same philosophy as BalanceService).
+export const companyAccount = pgTable('company_account', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  // Nullable until an admin configures the wallet. Validated as a 0x+40-hex ETH
+  // address at the service/Zod layer before write.
+  walletAddress: varchar('wallet_address', { length: 42 }),
+  // Confirmations required before a deposit flips PENDING → PAID. Default 12.
+  confirmationThreshold: integer('confirmation_threshold').notNull().default(12),
+  updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+})
 
 // ---------------------------------------------------------------------------
 // Pending Obligations (Phase 4-A)
