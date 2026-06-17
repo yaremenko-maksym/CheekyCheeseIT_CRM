@@ -281,7 +281,7 @@ export class CompanyAccountService {
    * the chosen admin (defaults to the caller). Debits the company balance.
    */
   async createDividend(
-    input: { amount: number; adminId?: string },
+    input: { amount: number; adminId?: string | undefined },
     currentUser: SessionUser,
   ): Promise<{ id: string; amount: number; receiverId: string }> {
     if (currentUser.role !== 'ADMIN') {
