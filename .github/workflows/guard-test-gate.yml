@@ -44,7 +44,11 @@ on:
 
 permissions:
   contents: read
-  issues: write # addLabels / createComment use the issues API (PR == issue)
+  # Both needed: label/comment use the issues.* API, but on a PR target GitHub
+  # requires the pull-requests scope too — without it removeLabel/addLabels 403
+  # ("Resource not accessible by integration"). Matches check-no-skip-hooks.yml.
+  pull-requests: write
+  issues: write
 
 jobs:
   guard-test:
