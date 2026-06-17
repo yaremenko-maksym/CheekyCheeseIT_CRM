@@ -200,14 +200,12 @@ describe('company-account deposits — auto-credit invariant + idempotency (real
         .set({ walletAddress: WALLET, confirmationThreshold: THRESHOLD })
         .where(eq(companyAccount.id, existing.id))
     } else {
-      await db
-        .insert(companyAccount)
-        .values({
-          id: ACCOUNT_ID,
-          walletAddress: WALLET,
-          confirmationThreshold: THRESHOLD,
-          updatedBy: ADMIN.id,
-        })
+      await db.insert(companyAccount).values({
+        id: ACCOUNT_ID,
+        walletAddress: WALLET,
+        confirmationThreshold: THRESHOLD,
+        updatedBy: ADMIN.id,
+      })
     }
   }, 30_000)
 

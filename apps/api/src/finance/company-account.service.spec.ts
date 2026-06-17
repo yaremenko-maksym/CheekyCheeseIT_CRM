@@ -121,15 +121,13 @@ describe('CompanyAccountService.submitDeposit — security invariant (AC3 unit)'
       insert: vi.fn(() => ({ values: () => ({ returning: () => Promise.resolve([inserted]) }) })),
     })
     const etherscan = {
-      verifyDeposit: vi
-        .fn()
-        .mockResolvedValue({
-          found: true,
-          toMatches: false,
-          confirmed: false,
-          confirmations: 50,
-          amountUsdt: 999,
-        }),
+      verifyDeposit: vi.fn().mockResolvedValue({
+        found: true,
+        toMatches: false,
+        confirmed: false,
+        confirmations: 50,
+        amountUsdt: 999,
+      }),
     }
     const svc = makeService(db, etherscan)
     const dto = await svc.submitDeposit({ txHashOrLink: '0x' + 'a'.repeat(64) }, SENIOR)
@@ -152,15 +150,13 @@ describe('CompanyAccountService.submitDeposit — security invariant (AC3 unit)'
       insert: vi.fn(() => ({ values: () => ({ returning: () => Promise.resolve([inserted]) }) })),
     })
     const etherscan = {
-      verifyDeposit: vi
-        .fn()
-        .mockResolvedValue({
-          found: true,
-          toMatches: true,
-          confirmed: true,
-          confirmations: 12,
-          amountUsdt: 500,
-        }),
+      verifyDeposit: vi.fn().mockResolvedValue({
+        found: true,
+        toMatches: true,
+        confirmed: true,
+        confirmations: 12,
+        amountUsdt: 500,
+      }),
     }
     const svc = makeService(db, etherscan)
     const dto = await svc.submitDeposit({ txHashOrLink: '0x' + 'b'.repeat(64) }, SENIOR)
@@ -180,14 +176,12 @@ describe('CompanyAccountService.submitDeposit — security invariant (AC3 unit)'
     const db = makeDb({
       query: {
         companyAccount: {
-          findFirst: vi
-            .fn()
-            .mockResolvedValue({
-              id: 'acc-1',
-              walletAddress: WALLET,
-              confirmationThreshold: THRESHOLD,
-              updatedAt: new Date(),
-            }),
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'acc-1',
+            walletAddress: WALLET,
+            confirmationThreshold: THRESHOLD,
+            updatedAt: new Date(),
+          }),
         },
         transactions: { findFirst: vi.fn().mockResolvedValue(existing) },
         users: { findFirst: vi.fn() },
@@ -226,15 +220,13 @@ describe('CompanyAccountService.submitDeposit — security invariant (AC3 unit)'
       status: 'PENDING',
       createdAt: new Date(),
     }
-    const verifyDeposit = vi
-      .fn()
-      .mockResolvedValue({
-        found: true,
-        toMatches: true,
-        confirmed: false,
-        confirmations: 3,
-        amountUsdt: null,
-      })
+    const verifyDeposit = vi.fn().mockResolvedValue({
+      found: true,
+      toMatches: true,
+      confirmed: false,
+      confirmations: 3,
+      amountUsdt: null,
+    })
     const db = makeDb({
       insert: vi.fn(() => ({ values: () => ({ returning: () => Promise.resolve([inserted]) }) })),
     })
@@ -260,14 +252,12 @@ describe('CompanyAccountService.getDepositStatus — flip PENDING→PAID (AC5)',
     const db = makeDb({
       query: {
         companyAccount: {
-          findFirst: vi
-            .fn()
-            .mockResolvedValue({
-              id: 'acc',
-              walletAddress: WALLET,
-              confirmationThreshold: THRESHOLD,
-              updatedAt: new Date(),
-            }),
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'acc',
+            walletAddress: WALLET,
+            confirmationThreshold: THRESHOLD,
+            updatedAt: new Date(),
+          }),
         },
         transactions: { findFirst: vi.fn().mockResolvedValue(pendingDeposit) },
         users: { findFirst: vi.fn() },
@@ -275,15 +265,13 @@ describe('CompanyAccountService.getDepositStatus — flip PENDING→PAID (AC5)',
       update: updateSpy,
     })
     const etherscan = {
-      verifyDeposit: vi
-        .fn()
-        .mockResolvedValue({
-          found: true,
-          toMatches: true,
-          confirmed: false,
-          confirmations: 5,
-          amountUsdt: null,
-        }),
+      verifyDeposit: vi.fn().mockResolvedValue({
+        found: true,
+        toMatches: true,
+        confirmed: false,
+        confirmations: 5,
+        amountUsdt: null,
+      }),
     }
     const svc = makeService(db, etherscan)
     const status = await svc.getDepositStatus('dep-1', SENIOR)
@@ -297,14 +285,12 @@ describe('CompanyAccountService.getDepositStatus — flip PENDING→PAID (AC5)',
     const db = makeDb({
       query: {
         companyAccount: {
-          findFirst: vi
-            .fn()
-            .mockResolvedValue({
-              id: 'acc',
-              walletAddress: WALLET,
-              confirmationThreshold: THRESHOLD,
-              updatedAt: new Date(),
-            }),
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'acc',
+            walletAddress: WALLET,
+            confirmationThreshold: THRESHOLD,
+            updatedAt: new Date(),
+          }),
         },
         transactions: { findFirst: vi.fn().mockResolvedValue(pendingDeposit) },
         users: { findFirst: vi.fn() },
@@ -312,15 +298,13 @@ describe('CompanyAccountService.getDepositStatus — flip PENDING→PAID (AC5)',
       update: updateSpy,
     })
     const etherscan = {
-      verifyDeposit: vi
-        .fn()
-        .mockResolvedValue({
-          found: true,
-          toMatches: true,
-          confirmed: true,
-          confirmations: 12,
-          amountUsdt: 800,
-        }),
+      verifyDeposit: vi.fn().mockResolvedValue({
+        found: true,
+        toMatches: true,
+        confirmed: true,
+        confirmations: 12,
+        amountUsdt: 800,
+      }),
     }
     const svc = makeService(db, etherscan)
     const status = await svc.getDepositStatus('dep-1', SENIOR)

@@ -295,14 +295,12 @@ describe('company-account — real backend RBAC integration (real DB, no mocks)'
         .set({ walletAddress: WALLET })
         .where(inArray(companyAccount.id, [existing.id]))
     } else {
-      await db
-        .insert(companyAccount)
-        .values({
-          id: ACCOUNT_ID,
-          walletAddress: WALLET,
-          confirmationThreshold: 12,
-          updatedBy: ADMIN.id,
-        })
+      await db.insert(companyAccount).values({
+        id: ACCOUNT_ID,
+        walletAddress: WALLET,
+        confirmationThreshold: 12,
+        updatedBy: ADMIN.id,
+      })
     }
   }, 30_000)
 
