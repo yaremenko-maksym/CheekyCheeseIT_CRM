@@ -69,6 +69,14 @@ const ROUTE_ACCESS: ReadonlyArray<{ prefix: string; roles: readonly Role[] }> = 
   // Собеседования — ADMIN/SENIOR/HR.
   { prefix: '/crm/interviews', roles: ['ADMIN', 'SENIOR', 'HR'] },
 
+  // Счёт компании (USDT, Phase 8) — ADMIN/ACCOUNTANT (баланс) + SENIOR/DROP
+  // (депозиты). НЕ JUNIOR/HR. Longest-prefix match сужает родительский /crm/finance
+  // для этого под-роута. Должен идти как отдельная запись (более длинный префикс).
+  {
+    prefix: '/crm/finance/company-account',
+    roles: ['ADMIN', 'SENIOR', 'ACCOUNTANT', 'DROP'],
+  },
+
   // Финансы — все роли.
   { prefix: '/crm/finance', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] },
 

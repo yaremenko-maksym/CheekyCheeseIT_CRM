@@ -24,6 +24,12 @@ import type {
   BalanceDto,
   PendingSettlementListResponseDto,
   SettleObligationResponseDto,
+  CompanyAccountDto,
+  CompanyDepositDto,
+  DepositStatusDto,
+  CreateCompanyDepositDto,
+  CreateDividendDto,
+  UpdateWalletDto,
 } from '@crm/shared'
 
 export const financeApi = {
@@ -159,4 +165,25 @@ export const financeApi = {
     api
       .post<SettleObligationResponseDto>(`/pending-settlements/${id}/settle-company`, {})
       .then((r) => r.data),
+}
+
+// task-company-account-frontend — Company USDT account (Phase 8). Wraps the
+// #249 backend: account/balance, deposit submit + status polling, dividends,
+// wallet config. RBAC is enforced server-side (403 for unauthorized callers).
+export const companyAccountApi = {
+  getAccount: () => api.get<CompanyAccountDto>('/company-account').then((r) => r.data),
+
+  submitDeposit: (data: CreateCompanyDepositDto) =>
+    api.post<CompanyDepositDto>('/company-account/deposits', data).then((r) => r.data),
+
+  getDepositStatus: (id: string) =>
+    api.get<DepositStatusDto>(`/company-account/deposits/${id}/status`).then((r) => r.data),
+
+  createDividend: (data: CreateDividendDto) =>
+    api
+      .post<{ id: string; amount: number; receiverId: string }>('/company-account/dividends', data)
+      .then((r) => r.data),
+
+  updateWallet: (data: UpdateWalletDto) =>
+    api.patch<CompanyAccountDto>('/company-account/wallet', data).then((r) => r.data),
 }
