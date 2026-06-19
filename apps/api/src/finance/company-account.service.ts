@@ -190,27 +190,46 @@ export class CompanyAccountService {
       account.confirmationThreshold,
     )
 
-    // Only credit (PAID + amount) when BOTH recipient matches AND confirmed.
-    const credited = verification.toMatches && verification.confirmed
-    const amount = credited ? (verification.amountUsdt ?? 0) : 0
+    // Credit (PAID + amount) ONLY when recipient matches, confirmed, AND a
+    // positive amount resolved (M4). A confirmed-but-unknown-amount stays
+    // PENDING and is resolved later by getDepositStatus re-polling.
+    const verifiedAmount = verification.amountUsdt ?? 0
+    const credited = verification.toMatches && verification.confirmed && verifiedAmount > 0
+    const amount = credited ? verifiedAmount : 0
 
-    const [tx] = await this.db.db
-      .insert(transactions)
-      .values({
-        type: 'COMPANY_DEPOSIT',
-        status: credited ? 'PAID' : 'PENDING',
-        amount: String(amount),
-        currency: 'USDT',
-        senderId: currentUser.id,
-        senderLabel: currentUser.displayName,
-        receiverId: null,
-        receiverLabel: 'Счёт компании',
-        txHash,
-        createdBy: currentUser.id,
-      })
-      .returning()
+    let tx: typeof transactions.$inferSelect
+    try {
+      const [inserted] = await this.db.db
+        .insert(transactions)
+        .values({
+          type: 'COMPANY_DEPOSIT',
+          status: credited ? 'PAID' : 'PENDING',
+          amount: String(amount),
+          currency: 'USDT',
+          senderId: currentUser.id,
+          senderLabel: currentUser.displayName,
+          receiverId: null,
+          receiverLabel: 'Счёт компании',
+          txHash,
+          createdBy: currentUser.id,
+        })
+        .returning()
+      tx = inserted!
+    } catch (err) {
+      // M3 (idempotency race): a concurrent submit of the same hash can slip
+      // past the lookup above and collide on the partial unique index
+      // (`uq_transactions_company_deposit_tx_hash`, code 23505). Return the row
+      // the winner inserted — idempotent, never a 500.
+      if ((err as { code?: string }).code === '23505') {
+        const winner = await this.db.db.query.transactions.findFirst({
+          where: and(eq(transactions.type, 'COMPANY_DEPOSIT'), eq(transactions.txHash, txHash)),
+        })
+        if (winner) return this.toDepositDto(winner, account.confirmationThreshold)
+      }
+      throw err
+    }
 
-    return this.toDepositDto(tx!, account.confirmationThreshold, verification)
+    return this.toDepositDto(tx, account.confirmationThreshold, verification)
   }
 
   /**
@@ -252,17 +271,18 @@ export class CompanyAccountService {
       threshold,
     )
 
-    if (verification.toMatches && verification.confirmed) {
-      const amount = verification.amountUsdt ?? parseFloat(tx.amount) ?? 0
+    const resolvedAmount = verification.amountUsdt ?? parseFloat(tx.amount)
+    if (verification.toMatches && verification.confirmed && resolvedAmount > 0) {
+      // M4: only credit when a positive amount resolved; otherwise stay PENDING.
       await this.db.db
         .update(transactions)
-        .set({ status: 'PAID', amount: String(amount), updatedAt: new Date() })
+        .set({ status: 'PAID', amount: String(resolvedAmount), updatedAt: new Date() })
         .where(eq(transactions.id, tx.id))
       return {
         status: 'PAID',
         confirmations: verification.confirmations,
         threshold,
-        amountUsdt: amount,
+        amountUsdt: resolvedAmount,
       }
     }
 

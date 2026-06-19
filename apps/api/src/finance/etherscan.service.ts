@@ -50,9 +50,20 @@ const USDT_CONTRACT = '0xdAC17F958D2ee523a2206206994597C13D831ec7'
 export class EtherscanService {
   private readonly logger = new Logger(EtherscanService.name)
   private readonly apiKey: string
+  private readonly isProduction: boolean
 
   constructor(private config: ConfigService) {
     this.apiKey = this.config.get<string>('ETHERSCAN_API_KEY') ?? ''
+    this.isProduction =
+      (this.config.get<string>('NODE_ENV') ?? process.env.NODE_ENV) === 'production'
+    // security (H1): a missing key in production is a misconfiguration that
+    // would otherwise let the keyless path auto-confirm. Surface it loudly; the
+    // verifyDeposit keyless branch fail-closes regardless (never auto-credits).
+    if (this.isProduction && !this.apiKey) {
+      this.logger.error(
+        'ETHERSCAN_API_KEY is NOT set in production — deposit verification will fail-closed (no auto-credit). Configure the key.',
+      )
+    }
   }
 
   /** Verify a USDT ERC-20 transaction by hash.
@@ -118,11 +129,28 @@ export class EtherscanService {
     threshold = 12,
   ): Promise<DepositVerification> {
     if (!this.apiKey) {
-      this.logger.warn('ETHERSCAN_API_KEY not set — keyless deposit verification (dev/test)')
-      // Keyless mode: no chain data. Auto-confirm the happy path so local UT can
-      // exercise the credit flow, but only when a wallet is actually configured
-      // — a null wallet can never "match", preserving the invariant that an
-      // unconfigured account never auto-credits.
+      // security (H1): in PRODUCTION the keyless path must NEVER auto-confirm —
+      // otherwise any submitter could mint a fake PAID company balance without a
+      // real on-chain check. Fail-closed: the deposit stays PENDING (not
+      // credited) until a real key verifies it. The keyless auto-confirm exists
+      // ONLY for local dev/test of the happy flow.
+      if (this.isProduction) {
+        this.logger.error(
+          'ETHERSCAN_API_KEY not set in production — refusing to auto-confirm deposit',
+        )
+        return {
+          found: false,
+          toMatches: false,
+          confirmed: false,
+          confirmations: 0,
+          amountUsdt: null,
+          error: 'Верификация недоступна: ключ Etherscan не настроен',
+        }
+      }
+      this.logger.warn('ETHERSCAN_API_KEY not set — keyless deposit verification (dev/test only)')
+      // Dev/test keyless: auto-confirm the happy path, but only when a wallet is
+      // actually configured — a null wallet can never "match", preserving the
+      // invariant that an unconfigured account never auto-credits.
       if (!expectedToAddress) {
         return {
           found: false,
@@ -187,12 +215,17 @@ export class EtherscanService {
       // and the confirmation threshold. Caller must still gate crediting on
       // `toMatches && confirmed` — we surface both so the progress bar can show
       // confirmations even before the threshold is met.
+      // M4: only surface a sane, positive amount. A negative / NaN / absurdly
+      // large value (malformed `value` field) → null, so the caller never
+      // credits a bogus figure. 1e12 USDT is far above any real deposit.
+      const amountValid = Number.isFinite(amountUsdt) && amountUsdt > 0 && amountUsdt < 1e12
+
       return {
         found: true,
         toMatches,
         confirmed: toMatches && confirmations >= threshold,
         confirmations,
-        amountUsdt: Number.isFinite(amountUsdt) ? amountUsdt : null,
+        amountUsdt: amountValid ? amountUsdt : null,
       }
     } catch (err) {
       // Graceful on fetch error (same as verifyTransaction) so the progress bar

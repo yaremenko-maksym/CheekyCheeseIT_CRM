@@ -1,10 +1,21 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, UseGuards } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Get,
+  Inject,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common'
 import {
   createCompanyDepositSchema,
   createDividendSchema,
   updateWalletSchema,
   type SessionUser,
 } from '@crm/shared'
+import { Throttle } from '@nestjs/throttler'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
@@ -29,7 +40,11 @@ import { CompanyAccountService } from './company-account.service'
 @Controller('company-account')
 @UseGuards(RolesGuard)
 export class CompanyAccountController {
-  constructor(private readonly svc: CompanyAccountService) {}
+  // Explicit @Inject so this REAL controller can be instantiated by Nest's DI in
+  // the vitest/esbuild test env (which does not emit `design:paramtypes`). This
+  // lets the RBAC integration spec exercise THIS controller's guards directly,
+  // not a sentinel copy (green-wash fix H2, #157/#158/#227 class). No-op in prod.
+  constructor(@Inject(CompanyAccountService) private readonly svc: CompanyAccountService) {}
 
   @Get()
   @Roles('ADMIN', 'ACCOUNTANT')
@@ -39,6 +54,7 @@ export class CompanyAccountController {
 
   @Patch('wallet')
   @Roles('ADMIN')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } }) // M2: rare admin op, tighten vs 100/min
   updateWallet(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     const dto = updateWalletSchema.parse(body)
     return this.svc.updateWallet(dto.walletAddress, user)
@@ -46,6 +62,7 @@ export class CompanyAccountController {
 
   @Post('deposits')
   @Roles('SENIOR', 'DROP')
+  @Throttle({ default: { limit: 12, ttl: 60_000 } }) // M2: money-write, tighten vs 100/min
   submitDeposit(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     const dto = createCompanyDepositSchema.parse(body)
     return this.svc.submitDeposit(dto, user)
@@ -62,6 +79,7 @@ export class CompanyAccountController {
 
   @Post('dividends')
   @Roles('ADMIN')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } }) // M2: rare money-out op, tighten vs 100/min
   createDividend(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     const dto = createDividendSchema.parse(body)
     return this.svc.createDividend(dto, user)

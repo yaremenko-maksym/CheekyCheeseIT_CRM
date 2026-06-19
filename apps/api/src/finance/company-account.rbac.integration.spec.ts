@@ -1,16 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Global,
-  Inject,
-  Module,
-  Param,
-  ParseUUIDPipe,
-  Patch,
-  Post,
-  UseGuards,
-} from '@nestjs/common'
+import { Global, Module } from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
 import { JwtModule, JwtService } from '@nestjs/jwt'
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify'
@@ -20,70 +8,23 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import {
-  createCompanyDepositSchema,
-  createDividendSchema,
-  updateWalletSchema,
-  type SessionUser,
-} from '@crm/shared'
+import { type SessionUser } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
-import { CurrentUser } from '../auth/current-user.decorator'
-import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { DatabaseService } from '../database/database.service'
+import { CompanyAccountController } from './company-account.controller'
 import { CompanyAccountService } from './company-account.service'
 import { EtherscanService } from './etherscan.service'
 import { companyAccount, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 
-// ── Sentinel controller ─────────────────────────────────────────────────────
-// esbuild (vitest) does NOT emit `design:paramtypes`, so Nest cannot inject the
-// service into the REAL CompanyAccountController by type. We therefore mirror it
-// with a sentinel that uses `@Inject(token)` for the service but carries the
-// IDENTICAL guard surface (`@UseGuards(RolesGuard)` + the same `@Roles(...)`
-// per route) — so this spec exercises the exact RolesGuard + role-list contract
-// the production controller declares. The route shapes mirror
-// company-account.controller.ts 1:1; drift would be caught by the unit specs +
-// the real controller's own typecheck.
-const SVC = 'CA_SVC'
-
-@Controller('company-account')
-@UseGuards(RolesGuard)
-class SentinelCompanyAccountController {
-  constructor(@Inject(SVC) private readonly svc: CompanyAccountService) {}
-
-  @Get()
-  @Roles('ADMIN', 'ACCOUNTANT')
-  getAccount(@CurrentUser() user: SessionUser) {
-    return this.svc.getAccount(user)
-  }
-
-  @Patch('wallet')
-  @Roles('ADMIN')
-  updateWallet(@Body() body: unknown, @CurrentUser() user: SessionUser) {
-    const dto = updateWalletSchema.parse(body)
-    return this.svc.updateWallet(dto.walletAddress, user)
-  }
-
-  @Post('deposits')
-  @Roles('SENIOR', 'DROP')
-  submitDeposit(@Body() body: unknown, @CurrentUser() user: SessionUser) {
-    return this.svc.submitDeposit(createCompanyDepositSchema.parse(body), user)
-  }
-
-  @Get('deposits/:id/status')
-  @Roles('SENIOR', 'DROP', 'ADMIN', 'ACCOUNTANT')
-  getDepositStatus(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
-    return this.svc.getDepositStatus(id, user)
-  }
-
-  @Post('dividends')
-  @Roles('ADMIN')
-  createDividend(@Body() body: unknown, @CurrentUser() user: SessionUser) {
-    return this.svc.createDividend(createDividendSchema.parse(body), user)
-  }
-}
+// ── REAL controller under test (green-wash fix H2) ──────────────────────────
+// We exercise the PRODUCTION `CompanyAccountController` directly — NOT a sentinel
+// copy. The real controller carries `@Inject(CompanyAccountService)` on its
+// constructor specifically so Nest's DI can instantiate it in the vitest/esbuild
+// env (which omits `design:paramtypes`). Result: dropping `@Roles`/`@UseGuards`
+// from the real controller would now turn THIS spec red — the guarantee is real.
 
 /**
  * task-company-account-backend — real-backend RBAC integration spec (AC2, FM-5).
@@ -200,14 +141,15 @@ class TestDatabaseModule {}
     TestDatabaseModule,
     JwtModule.register({ secret: JWT_SECRET, signOptions: { expiresIn: '1h' } }),
   ],
-  controllers: [SentinelCompanyAccountController],
+  controllers: [CompanyAccountController],
   providers: [
     Reflector,
     // esbuild (vitest) does NOT emit `design:paramtypes` decorator metadata, so
-    // every service is wired via an explicit `useFactory` (same pattern as the
-    // other finance integration specs, e.g. transactions.summary.rbac).
+    // the service is wired via an explicit `useFactory` keyed on the real class
+    // token — which the real controller's `@Inject(CompanyAccountService)`
+    // resolves (same pattern as the other finance integration specs).
     {
-      provide: SVC,
+      provide: CompanyAccountService,
       useFactory: (db: DatabaseService) =>
         new CompanyAccountService(db, new EtherscanService({ get: () => undefined } as never)),
       inject: [DatabaseService],
