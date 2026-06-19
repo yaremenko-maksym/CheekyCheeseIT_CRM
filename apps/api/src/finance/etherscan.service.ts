@@ -161,12 +161,16 @@ export class EtherscanService {
           error: 'Кошелёк компании не настроен',
         }
       }
+      // Dev stub amount so the keyless happy-path actually credits (the M4 gate
+      // requires a positive amount; without it a keyless deposit would sit at
+      // N/N "confirming" forever). Real amounts come from the keyed path in
+      // prod; this only affects local dev/test where no chain data exists.
       return {
         found: true,
         toMatches: true,
         confirmed: true,
         confirmations: threshold,
-        amountUsdt: null,
+        amountUsdt: 1000,
       }
     }
 
