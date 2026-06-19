@@ -49,6 +49,11 @@ export const transactionTypeSchema = z.enum([
   'SENIOR_INCOME_CRYPTO',
   'DIVIDEND_TO_ADMIN',
   'DIVIDEND_TAX',
+  // task-company-account-backend. A SENIOR/DROP-submitted USDT deposit onto the
+  // shared company wallet (Etherscan-verified). PENDING until confirmations
+  // reach the threshold AND the recipient matches the company wallet, then PAID.
+  // Credits the company account balance once PAID.
+  'COMPANY_DEPOSIT',
 ])
 export type TransactionType = z.infer<typeof transactionTypeSchema>
 
@@ -297,19 +302,54 @@ export const createExpenseSchema = z
   .refine(receiptXor, receiptXorMessage)
 export type CreateExpenseDto = z.infer<typeof createExpenseSchema>
 
-// SALARY — admin creates salary transaction for HR/ACCOUNTANT/JUNIOR
-export const createSalarySchema = z.object({
-  receiverId: z.string().uuid(),
-  amount: z.number().positive(),
-  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).default('USDT'),
-  salaryMonth: z.string().regex(/^\d{4}-\d{2}$/, 'Format YYYY-MM'),
-  notes: z.string().max(1000).optional().nullable(),
-  txDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional()
-    .nullable(),
-})
+// task-company-account-backend. Where a salary is funded from:
+//   - COMPANY_ACCOUNT — paid out of the shared company USDT account (decreases
+//     its balance). Currency is forced to USDT server-side regardless of input.
+//   - ADMIN_PERSONAL  — paid from an admin partner's personal account (Maksym or
+//     Kostya). `payerAdminId` chooses whose account; currency may be USDT/UAH.
+// Optional + nullable to keep the contract backward-compatible with callers that
+// do not yet send a funding source (legacy salary = admin-personal by default in
+// the service). See company-account-spec.md.
+export const salaryFundingSourceSchema = z.enum(['COMPANY_ACCOUNT', 'ADMIN_PERSONAL'])
+export type SalaryFundingSource = z.infer<typeof salaryFundingSourceSchema>
+
+// SALARY — admin/accountant creates salary transaction for eligible roles.
+export const createSalarySchema = z
+  .object({
+    receiverId: z.string().uuid(),
+    amount: z.number().positive(),
+    currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).default('USDT'),
+    salaryMonth: z.string().regex(/^\d{4}-\d{2}$/, 'Format YYYY-MM'),
+    notes: z.string().max(1000).optional().nullable(),
+    txDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional()
+      .nullable(),
+    // task-company-account-backend. Funding source for the salary. When absent
+    // the service treats it as ADMIN_PERSONAL (legacy behaviour) with the
+    // calling ADMIN as payer.
+    fundingSource: salaryFundingSourceSchema.optional(),
+    // For ADMIN_PERSONAL — whose personal account funds the payment. Must be an
+    // ADMIN (validated server-side). Defaults to the calling ADMIN when omitted.
+    payerAdminId: z.string().uuid().optional(),
+  })
+  .superRefine((data, ctx) => {
+    // COMPANY_ACCOUNT salaries are always USDT — reject an inconsistent explicit
+    // non-USDT currency early so the client gets a clear error (the service also
+    // forces USDT, but a contradictory input is a client bug worth surfacing).
+    if (
+      data.fundingSource === 'COMPANY_ACCOUNT' &&
+      data.currency !== undefined &&
+      data.currency !== 'USDT'
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Зарплата со счёта компании выплачивается только в USDT',
+        path: ['currency'],
+      })
+    }
+  })
 export type CreateSalaryDto = z.infer<typeof createSalarySchema>
 
 // ADMIN_TRANSFER — balance equalization between Maksym and Kostya
@@ -1061,4 +1101,81 @@ export const incomeComplianceQuerySchema = z.object({
     .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'month must be YYYY-MM')
     .optional(),
 })
+
+// ---------------------------------------------------------------------------
+// Company Account (USDT) — task-company-account-backend
+// ---------------------------------------------------------------------------
+//
+// A single shared company USDT wallet. Replaces the cancelled smart-contract
+// design. Deposits are submitted by SENIOR/DROP (txHash/link), auto-verified
+// against Etherscan (recipient + confirmations), and credited to the company
+// balance only when the recipient matches the company wallet AND confirmations
+// reach the threshold. Dividends and company-funded salaries debit the balance.
+
+// Reused ETH address shape — must match users.walletUsdtErc20 validation.
+const ethAddressSchema = z
+  .string()
+  .regex(/^0x[a-fA-F0-9]{40}$/, 'Адрес кошелька должен начинаться с 0x и содержать 42 символа')
+
+// GET /api/company-account response — wallet config + derived USDT balance.
+export const companyAccountSchema = z.object({
+  walletAddress: z.string().nullable(),
+  confirmationThreshold: z.number().int().positive(),
+  // Derived USDT balance: Σ(COMPANY_DEPOSIT PAID) − Σ(DIVIDEND_TO_ADMIN PAID)
+  //   − Σ(SALARY PAID where fundingSource='COMPANY_ACCOUNT'). Always USDT.
+  balance: z.number(),
+  updatedAt: z.string().datetime().nullable(),
+})
+export type CompanyAccountDto = z.infer<typeof companyAccountSchema>
+
+// PATCH /api/company-account/wallet — ADMIN only.
+export const updateWalletSchema = z.object({
+  walletAddress: ethAddressSchema,
+})
+export type UpdateWalletDto = z.infer<typeof updateWalletSchema>
+
+// POST /api/company-account/deposits — SENIOR/DROP submit a deposit.
+// Accept either a bare txHash (0x + 64 hex) or an Etherscan link containing one
+// — the service extracts the hash via regex. min(10) keeps the message generic
+// while the service does the strict extraction/validation.
+export const createCompanyDepositSchema = z.object({
+  txHashOrLink: z.string().min(10, 'Укажите hash транзакции или ссылку на Etherscan').max(500),
+})
+export type CreateCompanyDepositDto = z.infer<typeof createCompanyDepositSchema>
+
+// Deposit status — used both by the POST response and the polling GET endpoint.
+export const companyDepositStatusSchema = z.enum(['PENDING', 'PAID', 'REJECTED'])
+export type CompanyDepositStatus = z.infer<typeof companyDepositStatusSchema>
+
+export const companyDepositSchema = z.object({
+  id: z.string().uuid(),
+  txHash: z.string(),
+  amountUsdt: z.number().nullable(),
+  status: companyDepositStatusSchema,
+  confirmations: z.number().int().nonnegative(),
+  threshold: z.number().int().positive(),
+  // True only when the on-chain recipient matches the configured company wallet.
+  // A false here is the security invariant that blocks crediting.
+  toMatches: z.boolean(),
+  createdAt: z.string().datetime(),
+})
+export type CompanyDepositDto = z.infer<typeof companyDepositSchema>
+
+// GET /api/company-account/deposits/:id/status — light polling payload.
+export const depositStatusSchema = z.object({
+  status: companyDepositStatusSchema,
+  confirmations: z.number().int().nonnegative(),
+  threshold: z.number().int().positive(),
+  amountUsdt: z.number().nullable(),
+})
+export type DepositStatusDto = z.infer<typeof depositStatusSchema>
+
+// POST /api/company-account/dividends — ADMIN only. Free amount (no balance
+// gate — owner decision). Receiver defaults to the calling admin; `adminId`
+// targets a specific admin partner.
+export const createDividendSchema = z.object({
+  amount: z.number().positive(),
+  adminId: z.string().uuid().optional(),
+})
+export type CreateDividendDto = z.infer<typeof createDividendSchema>
 export type IncomeComplianceQuery = z.infer<typeof incomeComplianceQuerySchema>

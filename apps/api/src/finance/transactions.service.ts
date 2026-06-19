@@ -1600,6 +1600,38 @@ export class TransactionsService {
 
   // ── Create SALARY ─────────────────────────────────────────────────────────
 
+  /**
+   * task-company-account-backend. Derived company-account USDT balance, used by
+   * the COMPANY_ACCOUNT salary funding gate. Mirrors
+   * CompanyAccountService.computeBalance (single definition of the formula would
+   * be ideal, but TransactionsService must not depend on CompanyAccountService
+   * to avoid a circular module reference; both read the same ledger types).
+   *   Σ(COMPANY_DEPOSIT PAID) − Σ(DIVIDEND_TO_ADMIN PAID)
+   *     − Σ(SALARY PAID where fundingSource='COMPANY_ACCOUNT')
+   */
+  private async computeCompanyAccountBalance(): Promise<number> {
+    const sumWhere = async (where: ReturnType<typeof and>): Promise<number> => {
+      const rows = await this.db.db
+        .select({ total: sql<string>`COALESCE(SUM(${transactions.amount}), 0)` })
+        .from(transactions)
+        .where(where)
+      const total = parseFloat(rows[0]?.total ?? '0')
+      return Number.isFinite(total) ? total : 0
+    }
+    const [deposits, dividends, companySalaries] = await Promise.all([
+      sumWhere(and(eq(transactions.type, 'COMPANY_DEPOSIT'), eq(transactions.status, 'PAID'))),
+      sumWhere(and(eq(transactions.type, 'DIVIDEND_TO_ADMIN'), eq(transactions.status, 'PAID'))),
+      sumWhere(
+        and(
+          eq(transactions.type, 'SALARY'),
+          eq(transactions.status, 'PAID'),
+          eq(transactions.fundingSource, 'COMPANY_ACCOUNT'),
+        ),
+      ),
+    ])
+    return deposits - dividends - companySalaries
+  }
+
   async createSalary(
     data: {
       receiverId: string
@@ -1608,6 +1640,11 @@ export class TransactionsService {
       salaryMonth: string
       notes?: string | null | undefined
       txDate?: string | null | undefined
+      // task-company-account-backend. Funding source. Absent → ADMIN_PERSONAL
+      // (legacy behaviour: calling ADMIN as the payer).
+      fundingSource?: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' | undefined
+      // For ADMIN_PERSONAL — whose personal account funds this; must be an ADMIN.
+      payerAdminId?: string | undefined
     },
     currentUser: SessionUser,
   ) {
@@ -1639,18 +1676,63 @@ export class TransactionsService {
       )
     }
 
+    // ── task-company-account-backend. Funding source resolution. ──────────────
+    // BACKWARD COMPATIBILITY: when fundingSource is ABSENT we keep the EXACT
+    // legacy behaviour — senderId = caller (ADMIN or ACCOUNTANT), senderLabel
+    // 'CheekyCheeseIT', no funding_source persisted, currency as supplied. Only
+    // an EXPLICIT fundingSource opts into the new company/admin-personal routing
+    // (so the ACCOUNTANT self-pay path is untouched — regression #222 spec).
+    let senderId: string | null = currentUser.id
+    let senderLabel = 'CheekyCheeseIT'
+    let currency: 'USDT' | 'USD' | 'EUR' | 'UAH' = (data.currency ?? 'USD') as
+      | 'USDT'
+      | 'USD'
+      | 'EUR'
+      | 'UAH'
+    let fundingSource: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' | null = data.fundingSource ?? null
+
+    if (data.fundingSource === 'COMPANY_ACCOUNT') {
+      // Paid from the shared company USDT account: always USDT, no personal
+      // sender (the money leaves the company balance, not a partner's wallet).
+      currency = 'USDT'
+      senderId = null
+      senderLabel = 'Счёт компании'
+      fundingSource = 'COMPANY_ACCOUNT'
+
+      // Balance gate: the company account must hold at least `amount` USDT.
+      const companyBalance = await this.computeCompanyAccountBalance()
+      if (companyBalance < data.amount) {
+        throw new BadRequestException('Недостаточно средств на счёте компании')
+      }
+    } else if (data.fundingSource === 'ADMIN_PERSONAL') {
+      // ADMIN_PERSONAL: paid from an admin partner's personal account. The payer
+      // defaults to the calling user; an explicit payerAdminId must resolve to
+      // an ADMIN (the personal payer is always an admin partner).
+      const payerAdminId = data.payerAdminId ?? currentUser.id
+      const payer = await this.db.db.query.users.findFirst({
+        where: eq(users.id, payerAdminId),
+      })
+      if (!payer || payer.role !== 'ADMIN') {
+        throw new BadRequestException('Личный счёт-плательщик зарплаты должен принадлежать ADMIN')
+      }
+      senderId = payer.id
+      senderLabel = payer.displayName
+      fundingSource = 'ADMIN_PERSONAL'
+    }
+
     const [tx] = await this.db.db
       .insert(transactions)
       .values({
         type: 'SALARY',
         status: 'PAID',
         amount: String(data.amount),
-        currency: (data.currency ?? 'USD') as 'USDT' | 'USD' | 'EUR' | 'UAH',
-        senderId: currentUser.id,
-        senderLabel: 'CheekyCheeseIT',
+        currency,
+        senderId,
+        senderLabel,
         receiverId: data.receiverId,
         salaryMonth: data.salaryMonth,
         notes: data.notes ?? null,
+        fundingSource,
         txDate: this.resolveTxDate(data.txDate),
         createdBy: currentUser.id,
       })

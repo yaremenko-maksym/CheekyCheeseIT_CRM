@@ -6,6 +6,8 @@ import { DocumentsModule } from '../documents/documents.module'
 import { InvoicesModule } from '../invoices/invoices.module'
 import { BalanceController, PendingObligationsController } from './balance.controller'
 import { BalanceService } from './balance.service'
+import { CompanyAccountController } from './company-account.controller'
+import { CompanyAccountService } from './company-account.service'
 import { EtherscanService } from './etherscan.service'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { PaymentChannelController } from './payment-channel.controller'
@@ -49,6 +51,8 @@ import { TransactionsService } from './transactions.service'
     PaymentChannelService,
     // Phase 4-C: pending senior IOU settlement (close TOV/DROP debts).
     PendingSettlementService,
+    // task-company-account-backend: shared company USDT account.
+    CompanyAccountService,
   ],
   controllers: [
     TransactionsController,
@@ -62,7 +66,15 @@ import { TransactionsService } from './transactions.service'
     PaymentChannelController,
     // Phase 4-C: /api/pending-settlements/{senior,drop,tov,:id/settle-*}
     PendingSettlementController,
+    // task-company-account-backend: /api/company-account/*
+    CompanyAccountController,
   ],
-  exports: [TransactionsService, BalanceService, PaymentChannelService, PendingSettlementService],
+  exports: [
+    TransactionsService,
+    BalanceService,
+    PaymentChannelService,
+    PendingSettlementService,
+    CompanyAccountService,
+  ],
 })
 export class FinanceModule {}

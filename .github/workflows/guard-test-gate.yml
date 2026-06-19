@@ -86,6 +86,11 @@ jobs:
           # Grow this list when a new sensitive module gets a controller
           # (e.g. PHASE 8 payouts/wallets). A dir without a controller is a
           # harmless no-match.
+          #
+          # task-company-account-backend: the company-account controller lives
+          # at apps/api/src/finance/company-account.controller.ts, so it is
+          # already covered by the `finance` alternative below (its RBAC is
+          # proven by company-account.rbac.integration.spec.ts — real DB, 403).
           SENSITIVE=$(printf '%s\n' "$CHANGED" \
             | grep -E '^apps/api/src/(users|finance|auth|projects|teams|legends|documents|contracts|credentials|invoices|onboarding|tos|notifications|audit|interviews)/.*\.controller\.ts$' \
             || true)

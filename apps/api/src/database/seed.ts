@@ -1609,6 +1609,15 @@ async function main() {
   await db.insert(schema.userAuditLog).values(salaryAuditRows)
   console.log(`  ✓ ${salaryAuditRows.length} user_audit_log salary-change rows inserted`)
 
+  // ---- Company Account (USDT) — task-company-account-backend ----
+  // Single-row config. walletAddress starts NULL — an ADMIN configures the
+  // shared company wallet in settings (changing it triggers an audit entry).
+  // Threshold defaults to 12 confirmations.
+  await db
+    .insert(schema.companyAccount)
+    .values({ walletAddress: null, confirmationThreshold: 12, updatedBy: MAKSYM_ID })
+  console.log('  ✓ 1 company_account row inserted (wallet unset, threshold 12)')
+
   // ---- 7. Onboarding: ToS + contract templates + signed contracts ----
   console.log('\n[7/8] Inserting onboarding data...')
 
