@@ -348,4 +348,49 @@ describe('company-account — real backend RBAC integration (real DB, no mocks)'
       )
     })
   }
+
+  // ── GET deposits/:id/status — owner-isolation (M1) ──────────────────────────
+  // The @Roles guard admits SENIOR/DROP/ADMIN/ACCOUNTANT; the SERVICE then
+  // enforces owner-vs-privileged. A SENIOR/DROP who is NOT the depositor must
+  // get 403 even though their ROLE is admitted — this is the data-access check
+  // a role-only test would miss. Real controller + real service, real DB.
+  describe('GET deposits/:id/status — owner-isolation', () => {
+    const DEPOSIT_ID = 'ca111111-0000-4000-dd00-000000000001'
+    const url = `/api/company-account/deposits/${DEPOSIT_ID}/status`
+
+    beforeAll(async () => {
+      if (!dbAvailable) return
+      const db = dbSvc.db
+      await db.delete(transactions).where(inArray(transactions.id, [DEPOSIT_ID]))
+      // A PENDING deposit OWNED by SENIOR (senderId = SENIOR.id).
+      await db.insert(transactions).values({
+        id: DEPOSIT_ID,
+        type: 'COMPANY_DEPOSIT',
+        status: 'PENDING',
+        amount: '0',
+        currency: 'USDT',
+        senderId: SENIOR.id,
+        senderLabel: SENIOR.displayName,
+        txHash: '0x' + 'a'.repeat(64),
+        createdBy: SENIOR.id,
+      })
+    }, 15_000)
+
+    it('owner (SENIOR) → 200', async () => {
+      if (!dbAvailable) return
+      expect(await status('GET', url, SENIOR)).toBe(200)
+    })
+    it('non-owner (DROP, role admitted) → 403', async () => {
+      if (!dbAvailable) return
+      expect(await status('GET', url, DROP)).toBe(403)
+    })
+    it('privileged (ADMIN) → 200', async () => {
+      if (!dbAvailable) return
+      expect(await status('GET', url, ADMIN)).toBe(200)
+    })
+    it('privileged (ACCOUNTANT) → 200', async () => {
+      if (!dbAvailable) return
+      expect(await status('GET', url, ACCOUNTANT)).toBe(200)
+    })
+  })
 })
