@@ -7,9 +7,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
-import { TransactionsService } from './transactions.service'
-import { InvoicesService } from '../invoices/invoices.service'
-import { DocumentsService } from '../documents/documents.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
+import type { InvoicesService } from '../invoices/invoices.service'
 import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
@@ -108,13 +107,14 @@ class TestDatabaseModule {}
     {
       provide: TransactionsService,
       useFactory: (db: DatabaseService) =>
-        new TransactionsService(
+        makeTransactionsService({
           db,
           // safeAutoCreateInvoice swallows errors, so a noop stub is enough; we
           // only assert balance/serialization behaviour here.
-          { autoCreateForSalary: () => Promise.resolve() } as unknown as InvoicesService,
-          {} as unknown as DocumentsService,
-        ),
+          invoicesService: {
+            autoCreateForSalary: () => Promise.resolve(),
+          } as unknown as InvoicesService,
+        }),
       inject: [DatabaseService],
     },
   ],

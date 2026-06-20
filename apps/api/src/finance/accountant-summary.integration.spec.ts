@@ -14,7 +14,7 @@ import { accountantSummarySchema } from '@crm/shared'
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { DatabaseService } from '../database/database.service'
-import { TransactionsService } from './transactions.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { projects, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 
@@ -193,7 +193,7 @@ class TestDatabaseModule {}
     // touches them (read-only aggregate over the transactions table).
     {
       provide: TransactionsService,
-      useFactory: (db: DatabaseService) => new TransactionsService(db, {} as never, {} as never),
+      useFactory: (db: DatabaseService) => makeTransactionsService({ db }),
       inject: [DatabaseService],
     },
     { provide: TX_SERVICE, useExisting: TransactionsService },

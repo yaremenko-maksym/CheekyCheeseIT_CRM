@@ -25,7 +25,7 @@ import { dropIncomesQuerySchema } from '@crm/shared'
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { DatabaseService } from '../database/database.service'
-import { TransactionsService } from './transactions.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { PaymentChannelService } from './payment-channel.service'
 import { TeamsService } from '../teams/teams.service'
 import { ProjectsService } from '../projects/projects.service'
@@ -311,7 +311,7 @@ class TestDatabaseModule {}
     // never touch them (they throw 403/404 on the ownership gate first).
     {
       provide: TransactionsService,
-      useFactory: (db: DatabaseService) => new TransactionsService(db, {} as never, {} as never),
+      useFactory: (db: DatabaseService) => makeTransactionsService({ db }),
       inject: [DatabaseService],
     },
     { provide: TX_SERVICE, useExisting: TransactionsService },
