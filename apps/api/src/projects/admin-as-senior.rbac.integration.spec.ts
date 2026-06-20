@@ -693,7 +693,8 @@ describe('Admin-as-Senior RBAC — real DB integration', () => {
     // standing up a full TransactionsModule (would require Redis/PaymentChannel deps).
     // Direct service call is the minimum sufficient proof: if the role guard at line 910
     // fires, we get ForbiddenException — which is what the HTTP layer would surface as 403.
-    const { TransactionsService } = await import('../finance/transactions.service')
+    const { makeTransactionsService } =
+      await import('../finance/__test-helpers__/make-transactions-service')
     const { DatabaseService: DbSvcClass } = await import('../database/database.service')
 
     // Minimal stub: only the DB is needed for the role-check code path (the guard
@@ -701,14 +702,8 @@ describe('Admin-as-Senior RBAC — real DB integration', () => {
     const stubDb = Object.create(DbSvcClass.prototype) as InstanceType<typeof DbSvcClass>
     Object.assign(stubDb, { pool: null, db: dbSvc.db })
 
-    // Instantiate with only the dependencies used before the role-guard fires.
-    // The role check fires before any DB/service access, so other deps can be null stubs.
-    // TransactionsService constructor: (db, invoicesService, documentsService)
-    const txSvc = new TransactionsService(
-      stubDb,
-      null as never, // invoicesService — not reached before role guard
-      null as never, // documentsService — not reached before role guard
-    )
+    // Factory defaults (no-op stubs) are safe — role guard fires before any dep access.
+    const txSvc = makeTransactionsService({ db: stubDb })
 
     const adminCaller: SessionUser = { ...ADMIN }
     // Shape matches createSeniorIncome(data, currentUser): role guard fires at line 910

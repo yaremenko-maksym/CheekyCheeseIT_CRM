@@ -8,6 +8,7 @@ import type { SessionUser } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
 import { TransactionsService } from './transactions.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import type { InvoicesService } from '../invoices/invoices.service'
 import type { EtherscanService } from './etherscan.service'
 import type { NbuCurrencyService } from './nbu-currency.service'
@@ -134,13 +135,12 @@ class TestDatabaseModule {}
     {
       provide: TransactionsService,
       useFactory: (db: DatabaseService) =>
-        new TransactionsService(
+        makeTransactionsService({
           db,
-          stubInvoices,
-          stubDocuments,
-          fakeNbu as NbuCurrencyService,
-          fakeEtherscan as EtherscanService,
-        ),
+          invoicesService: stubInvoices as unknown as InvoicesService,
+          nbuCurrencyService: fakeNbu as NbuCurrencyService,
+          etherscanService: fakeEtherscan as EtherscanService,
+        }),
       inject: [DatabaseService],
     },
   ],
