@@ -41,7 +41,10 @@ import { TransactionsService } from './transactions.service'
 // controllers in this file.
 @Controller('transactions')
 export class TransactionsController {
-  constructor(private readonly svc: TransactionsService) {}
+  // Explicit @Inject so the REAL controller can be instantiated by Nest's DI
+  // in the vitest/esbuild env (which omits `design:paramtypes`) — required by
+  // the pay-salary RBAC integration spec. Mirrors PayoutRequestsController.
+  constructor(@Inject(TransactionsService) private readonly svc: TransactionsService) {}
 
   @Get()
   findAll(
