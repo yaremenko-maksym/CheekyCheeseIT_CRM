@@ -41,7 +41,10 @@ import { TransactionsService } from './transactions.service'
 // controllers in this file.
 @Controller('transactions')
 export class TransactionsController {
-  constructor(private readonly svc: TransactionsService) {}
+  // Explicit @Inject so the REAL controller can be instantiated by Nest's DI
+  // in the vitest/esbuild env (which omits `design:paramtypes`) — required by
+  // the pay-salary RBAC integration spec. Mirrors PayoutRequestsController.
+  constructor(@Inject(TransactionsService) private readonly svc: TransactionsService) {}
 
   @Get()
   findAll(
@@ -158,7 +161,13 @@ export class TransactionsController {
     })
   }
 
+  // Defense-in-depth: the service-side `if (currentUser.role !== 'ADMIN')` guard
+  // is KEPT; this controller-level guard fires first (RolesGuard is not a global
+  // APP_GUARD, so it must be attached explicitly per-method). Pattern mirrors
+  // PayoutRequestsController.manualConfirm (#254 review LOW fix).
   @Patch(':id/pay')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
   paySalary(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.paySalary(id, paySalarySchema.parse(body), user)
   }

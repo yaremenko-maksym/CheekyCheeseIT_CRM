@@ -14,9 +14,8 @@ import type { SessionUser } from '@crm/shared'
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { DatabaseService } from '../database/database.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { TransactionsService } from './transactions.service'
-import { InvoicesService } from '../invoices/invoices.service'
-import { DocumentsService } from '../documents/documents.service'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 
@@ -211,12 +210,7 @@ class TestDatabaseModule {}
     // documents collaborators are never touched, so they are stubbed.
     {
       provide: TransactionsService,
-      useFactory: (db: DatabaseService) =>
-        new TransactionsService(
-          db,
-          {} as unknown as InvoicesService,
-          {} as unknown as DocumentsService,
-        ),
+      useFactory: (db: DatabaseService) => makeTransactionsService({ db }),
       inject: [DatabaseService],
     },
     { provide: TX_SERVICE, useExisting: TransactionsService },

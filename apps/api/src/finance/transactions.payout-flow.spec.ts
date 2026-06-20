@@ -38,7 +38,7 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
-import { TransactionsService } from './transactions.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import type { NbuCurrencyService } from './nbu-currency.service'
 import type { EtherscanService } from './etherscan.service'
 
@@ -236,13 +236,13 @@ function makeService(dbOverrides: Record<string, unknown> = {}) {
     findOne: vi.fn(),
   } as never
 
-  return new TransactionsService(
-    dbStub,
-    invoicesStub,
-    documentsStub,
-    makeNbuStub(),
-    makeEtherscanStub(),
-  )
+  return makeTransactionsService({
+    db: dbStub,
+    invoicesService: invoicesStub,
+    documentsService: documentsStub,
+    nbuCurrencyService: makeNbuStub(),
+    etherscanService: makeEtherscanStub(),
+  })
 }
 
 // Helper: build a service whose db.transaction() executes the callback with a
@@ -290,13 +290,12 @@ function makeServiceWithTransaction(
     autoCreateForIncome: vi.fn().mockResolvedValue(undefined),
   } as never
 
-  const svc = new TransactionsService(
-    dbStub,
-    invoicesStub,
-    {} as never,
-    makeNbuStub(),
-    makeEtherscanStub(),
-  )
+  const svc = makeTransactionsService({
+    db: dbStub,
+    invoicesService: invoicesStub,
+    nbuCurrencyService: makeNbuStub(),
+    etherscanService: makeEtherscanStub(),
+  })
   return { svc, dbStub, mocks }
 }
 
@@ -342,13 +341,13 @@ describe('validateTransaction — SENIOR_INCOME (#7)', () => {
     } as never
     const documentsStub = { findOne: vi.fn() } as never
 
-    const svc = new TransactionsService(
+    const svc = makeTransactionsService({
       db,
-      invoicesStub,
-      documentsStub,
-      makeNbuStub(),
-      makeEtherscanStub(),
-    )
+      invoicesService: invoicesStub,
+      documentsService: documentsStub,
+      nbuCurrencyService: makeNbuStub(),
+      etherscanService: makeEtherscanStub(),
+    })
 
     // Act
     await svc.validateTransaction('tx-1', 'validate', null, ACCOUNTANT_USER)
@@ -373,13 +372,13 @@ describe('validateTransaction — SENIOR_INCOME (#7)', () => {
     const invoicesStub = {} as never
     const documentsStub = {} as never
 
-    const svc = new TransactionsService(
+    const svc = makeTransactionsService({
       db,
-      invoicesStub,
-      documentsStub,
-      makeNbuStub(),
-      makeEtherscanStub(),
-    )
+      invoicesService: invoicesStub,
+      documentsService: documentsStub,
+      nbuCurrencyService: makeNbuStub(),
+      etherscanService: makeEtherscanStub(),
+    })
 
     await expect(
       svc.validateTransaction('tx-1', 'validate', null, ACCOUNTANT_USER),
@@ -388,13 +387,11 @@ describe('validateTransaction — SENIOR_INCOME (#7)', () => {
 
   it('rejects non-ADMIN/ACCOUNTANT actors with ForbiddenException', async () => {
     const db = { db: { query: { transactions: { findFirst: vi.fn() } } } } as never
-    const svc = new TransactionsService(
+    const svc = makeTransactionsService({
       db,
-      {} as never,
-      {} as never,
-      makeNbuStub(),
-      makeEtherscanStub(),
-    )
+      nbuCurrencyService: makeNbuStub(),
+      etherscanService: makeEtherscanStub(),
+    })
 
     await expect(svc.validateTransaction('tx-1', 'validate', null, SENIOR_USER)).rejects.toThrow(
       ForbiddenException,
@@ -462,13 +459,13 @@ describe('validateTransaction — DROP_INCOME still creates payout_request (#7 r
 
     const invoicesStub = { autoCreateForPayout: vi.fn(), autoCreateForIncome: vi.fn() } as never
     const documentsStub = { findOne: vi.fn() } as never
-    const svc = new TransactionsService(
+    const svc = makeTransactionsService({
       db,
-      invoicesStub,
-      documentsStub,
-      makeNbuStub(),
-      makeEtherscanStub(),
-    )
+      invoicesService: invoicesStub,
+      documentsService: documentsStub,
+      nbuCurrencyService: makeNbuStub(),
+      etherscanService: makeEtherscanStub(),
+    })
 
     await svc.validateTransaction('dtx-1', 'validate', null, ACCOUNTANT_USER)
 
@@ -512,13 +509,11 @@ describe('createPayoutRequest (#7)', () => {
         insert: vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue([]) }),
       },
     } as never
-    const svc = new TransactionsService(
+    const svc = makeTransactionsService({
       db,
-      {} as never,
-      {} as never,
-      makeNbuStub(),
-      makeEtherscanStub(),
-    )
+      nbuCurrencyService: makeNbuStub(),
+      etherscanService: makeEtherscanStub(),
+    })
 
     await expect(
       svc.createPayoutRequest(['tx-1', 'tx-already-linked'], SENIOR_USER),
@@ -698,13 +693,11 @@ describe('createPayoutRequest (#7)', () => {
         insert: vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue([]) }),
       },
     } as never
-    const svc = new TransactionsService(
+    const svc = makeTransactionsService({
       db,
-      {} as never,
-      {} as never,
-      makeNbuStub(),
-      makeEtherscanStub(),
-    )
+      nbuCurrencyService: makeNbuStub(),
+      etherscanService: makeEtherscanStub(),
+    })
 
     await expect(svc.createPayoutRequest(['tx-1'], SENIOR_USER)).rejects.toThrow(
       BadRequestException,
@@ -752,13 +745,11 @@ describe('createPayoutRequest — duplicate guard (belt-and-suspenders, #7)', ()
         insert: vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue([]) }),
       },
     } as never
-    const svc = new TransactionsService(
+    const svc = makeTransactionsService({
       db,
-      {} as never,
-      {} as never,
-      makeNbuStub(),
-      makeEtherscanStub(),
-    )
+      nbuCurrencyService: makeNbuStub(),
+      etherscanService: makeEtherscanStub(),
+    })
 
     await expect(svc.createPayoutRequest(['tx-already-in-payout'], SENIOR_USER)).rejects.toThrow(
       BadRequestException,

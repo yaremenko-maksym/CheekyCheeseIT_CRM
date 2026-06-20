@@ -43,7 +43,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
-import { TransactionsService } from './transactions.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { DocumentsService } from '../documents/documents.service'
 import { S3Service } from '../documents/s3.service'
 import { CompressionService } from '../documents/compression.service'
@@ -197,11 +197,9 @@ describe('PR-3 receipt replace-with-delete — real backend integration', () => 
       stubCompression as CompressionService,
     )
 
-    // InvoicesService — stub (we don't test invoice flows here)
-    const invoicesServiceStub = {} as InvoicesService
-
     // TransactionsService — real, wired to spy DocumentsService
-    transactionsService = new TransactionsService(dbSvc, invoicesServiceStub, documentsService)
+    // invoices not exercised here — factory default (no-op stub) is fine
+    transactionsService = makeTransactionsService({ db: dbSvc, documentsService })
 
     // ── Insert test rows ─────────────────────────────────────────────────────
     // Doc A — the OLD receipt (will be deleted on resubmit)

@@ -30,7 +30,7 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
-import { TransactionsService } from './transactions.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 
 // ── Session user factory ────────────────────────────────────────────────────
 
@@ -81,7 +81,7 @@ function makeSvc(self: UserRow | undefined, txs: TxStub[]) {
       },
     },
   }
-  return new TransactionsService(dbStub as never, {} as never, {} as never)
+  return makeTransactionsService({ db: dbStub as never })
 }
 
 const DROP_ID = 'drop-A'

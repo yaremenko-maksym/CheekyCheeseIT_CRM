@@ -42,8 +42,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
-import { TransactionsService } from './transactions.service'
-import { InvoicesService } from '../invoices/invoices.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 
@@ -153,11 +152,8 @@ describe('F3 — JUNIOR findAll: sees only own SALARY rows (real-DB)', () => {
 
     // InvoicesService and DocumentsService are only exercised by write paths
     // (createSalary, validateTransaction, etc.) — findAll does not call them.
-    // Empty stubs are safe here.
-    const invoicesStub = {} as InvoicesService
-    const documentsStub = {} as unknown as import('../documents/documents.service').DocumentsService
-
-    transactionsService = new TransactionsService(dbSvc, invoicesStub, documentsStub)
+    // Factory defaults (no-op stubs) are safe here.
+    transactionsService = makeTransactionsService({ db: dbSvc })
 
     // ── Insert synthetic users ───────────────────────────────────────────────
     await db

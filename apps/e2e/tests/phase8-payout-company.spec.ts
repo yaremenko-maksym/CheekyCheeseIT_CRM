@@ -318,6 +318,250 @@ test.describe('AC4 — DIVIDEND transaction type: ADMIN-only', () => {
 })
 
 // ---------------------------------------------------------------------------
+// AC (deferred #3) — ConfirmPayoutDialog: click-through for COMPANY_ACCOUNT method
+// ---------------------------------------------------------------------------
+//
+// Test-IDs in ConfirmPayoutDialog:
+//   confirm-payout-dialog          — dialog root
+//   confirm-payout-method-crypto   — CRYPTO radio button
+//   confirm-payout-method-cash     — CASH radio button
+//   confirm-payout-method-company_account — COMPANY_ACCOUNT radio button
+//   confirm-payout-company-account-hint   — hint visible only when COMPANY_ACCOUNT
+//   confirm-payout-admin-select    — recipient selector (hidden for COMPANY_ACCOUNT)
+//   confirm-payout-submit          — submit button
+//
+// TransactionRow renders confirm-payout-button-${tx.id} when:
+//   (isAdmin || isAccountant) && tx.type === 'PAYOUT' && tx.status === 'PENDING_PAYMENT'
+//
+// API routing (ConfirmPayoutDialog.tsx):
+//   COMPANY_ACCOUNT → POST /api/payout-requests/:payoutRequestId/manual-confirm
+//   CRYPTO / CASH   → POST /api/transactions/:txId/confirm-payout
+
+const CONFIRM_TX_ID = 'confirm-tx-payout-1'
+const CONFIRM_PR_ID = 'confirm-pr-1'
+
+function makeConfirmPayoutTx(overrides: object = {}) {
+  return {
+    id: CONFIRM_TX_ID,
+    type: 'PAYOUT',
+    status: 'PENDING_PAYMENT',
+    payoutRequestId: CONFIRM_PR_ID,
+    amount: '100',
+    currency: 'USDT',
+    senderId: USERS.senior.id,
+    senderName: USERS.senior.displayName,
+    senderLabel: null,
+    receiverId: null,
+    receiverName: null,
+    receiverLabel: 'CheekyCheeseIT',
+    projectId: null,
+    projectName: null,
+    salaryMonth: null,
+    txDate: null,
+    txHash: null,
+    rejectionReason: null,
+    seniorSharePercent: null,
+    seniorSharePercentSource: null,
+    createdAt: '2026-06-01T10:00:00.000Z',
+    ...overrides,
+  }
+}
+
+/**
+ * Register finance page routes with a single PAYOUT/PENDING_PAYMENT tx so
+ * confirm-payout-button renders for ADMIN/ACCOUNTANT.
+ * Must be called AFTER mockAuthAs() (LIFO ordering).
+ */
+async function mockConfirmPayoutPageRoutes(page: Page, tx = makeConfirmPayoutTx()) {
+  // Transactions list — one PAYOUT row in PENDING_PAYMENT
+  await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) => {
+    if (r.request().method() !== 'GET') return r.fallback()
+    return jsonOk(r, [tx])
+  })
+  // Payout requests — empty list (finance page may fetch)
+  await page.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) => {
+    if (r.request().method() !== 'GET') return r.fallback()
+    return jsonOk(r, [])
+  })
+}
+
+test.describe('Deferred #3 — ConfirmPayoutDialog: COMPANY_ACCOUNT click-through', () => {
+  test('ADMIN: COMPANY_ACCOUNT method — admin-select hidden, hint visible, submits to manual-confirm', async ({
+    asAdmin,
+  }) => {
+    // Intercept the manual-confirm call to verify correct endpoint + payload
+    let manualConfirmCalled = false
+    let capturedPayoutRequestId: string | null = null
+
+    await asAdmin.route(new RegExp(`${API_RE}/payout-requests/([^/?]+)/manual-confirm$`), (r) => {
+      if (r.request().method() !== 'POST') return r.fallback()
+      capturedPayoutRequestId = r.request().url().split('/').slice(-2, -1)[0]
+      manualConfirmCalled = true
+      return jsonOk(r, {
+        id: capturedPayoutRequestId,
+        status: 'PAID',
+        method: 'COMPANY_ACCOUNT',
+        txHash: null,
+      })
+    })
+
+    await mockConfirmPayoutPageRoutes(asAdmin)
+    await asAdmin.goto('/crm/finance')
+    await expect(asAdmin.getByTestId('finance-page')).toBeVisible()
+
+    // Click «Подтвердить оплату» on the PAYOUT row
+    await asAdmin.getByTestId(`confirm-payout-button-${CONFIRM_TX_ID}`).click()
+
+    const dialog = asAdmin.getByTestId('confirm-payout-dialog')
+    await expect(dialog).toBeVisible()
+
+    // Select COMPANY_ACCOUNT method
+    await dialog.getByTestId('confirm-payout-method-company_account').click()
+
+    // Hint must be visible
+    await expect(dialog.getByTestId('confirm-payout-company-account-hint')).toBeVisible()
+
+    // Admin recipient selector must be HIDDEN (no individual admin credited)
+    await expect(dialog.getByTestId('confirm-payout-admin-select')).not.toBeVisible()
+
+    // Submit is enabled (payoutRequestId is set, no other required fields)
+    await expect(dialog.getByTestId('confirm-payout-submit')).not.toBeDisabled()
+
+    // Click submit
+    await dialog.getByTestId('confirm-payout-submit').click()
+
+    // Dialog closes on success
+    await expect(dialog).not.toBeVisible()
+
+    // Verify the correct endpoint was called with the correct payoutRequestId
+    expect(manualConfirmCalled).toBe(true)
+    expect(capturedPayoutRequestId).toBe(CONFIRM_PR_ID)
+  })
+
+  test('ACCOUNTANT: COMPANY_ACCOUNT method — same UX as ADMIN (hint visible, admin-select hidden)', async ({
+    asAccountant,
+  }) => {
+    let manualConfirmCalled = false
+
+    await asAccountant.route(
+      new RegExp(`${API_RE}/payout-requests/([^/?]+)/manual-confirm$`),
+      (r) => {
+        if (r.request().method() !== 'POST') return r.fallback()
+        manualConfirmCalled = true
+        return jsonOk(r, {
+          id: CONFIRM_PR_ID,
+          status: 'PAID',
+          method: 'COMPANY_ACCOUNT',
+          txHash: null,
+        })
+      },
+    )
+
+    await mockConfirmPayoutPageRoutes(asAccountant)
+    await asAccountant.goto('/crm/finance')
+    await expect(asAccountant.getByTestId('finance-page')).toBeVisible()
+
+    await asAccountant.getByTestId(`confirm-payout-button-${CONFIRM_TX_ID}`).click()
+
+    const dialog = asAccountant.getByTestId('confirm-payout-dialog')
+    await expect(dialog).toBeVisible()
+
+    await dialog.getByTestId('confirm-payout-method-company_account').click()
+    await expect(dialog.getByTestId('confirm-payout-company-account-hint')).toBeVisible()
+    await expect(dialog.getByTestId('confirm-payout-admin-select')).not.toBeVisible()
+    await expect(dialog.getByTestId('confirm-payout-submit')).not.toBeDisabled()
+
+    await dialog.getByTestId('confirm-payout-submit').click()
+    await expect(dialog).not.toBeVisible()
+    expect(manualConfirmCalled).toBe(true)
+  })
+
+  test('ADMIN: default CRYPTO method — admin-select IS visible, no company-account hint', async ({
+    asAdmin,
+  }) => {
+    await mockConfirmPayoutPageRoutes(asAdmin)
+    await asAdmin.goto('/crm/finance')
+    await expect(asAdmin.getByTestId('finance-page')).toBeVisible()
+
+    await asAdmin.getByTestId(`confirm-payout-button-${CONFIRM_TX_ID}`).click()
+
+    const dialog = asAdmin.getByTestId('confirm-payout-dialog')
+    await expect(dialog).toBeVisible()
+
+    // Default method is CRYPTO — admin-select must be shown
+    await expect(dialog.getByTestId('confirm-payout-admin-select')).toBeVisible()
+    // No company account hint in CRYPTO mode
+    await expect(dialog.getByTestId('confirm-payout-company-account-hint')).not.toBeVisible()
+  })
+
+  test('ADMIN: CASH method — admin-select IS visible (admin required), no company-account hint', async ({
+    asAdmin,
+  }) => {
+    await mockConfirmPayoutPageRoutes(asAdmin)
+    await asAdmin.goto('/crm/finance')
+    await expect(asAdmin.getByTestId('finance-page')).toBeVisible()
+
+    await asAdmin.getByTestId(`confirm-payout-button-${CONFIRM_TX_ID}`).click()
+
+    const dialog = asAdmin.getByTestId('confirm-payout-dialog')
+    await expect(dialog).toBeVisible()
+
+    await dialog.getByTestId('confirm-payout-method-cash').click()
+
+    // CASH: admin selector visible (someone received cash)
+    await expect(dialog.getByTestId('confirm-payout-admin-select')).toBeVisible()
+    // No company account hint in CASH mode
+    await expect(dialog.getByTestId('confirm-payout-company-account-hint')).not.toBeVisible()
+  })
+
+  test('ADMIN: CRYPTO method submit — routes to /transactions/:id/confirm-payout (NOT manual-confirm)', async ({
+    asAdmin,
+  }) => {
+    let legacyConfirmCalled = false
+    let manualConfirmCalled = false
+
+    // Legacy confirm-payout endpoint (CRYPTO/CASH)
+    await asAdmin.route(new RegExp(`${API_RE}/transactions/([^/?]+)/confirm-payout$`), (r) => {
+      if (r.request().method() !== 'POST') return r.fallback()
+      legacyConfirmCalled = true
+      return jsonOk(r, { id: CONFIRM_TX_ID, status: 'PAID' })
+    })
+    // manual-confirm must NOT be called for CRYPTO
+    await asAdmin.route(new RegExp(`${API_RE}/payout-requests/([^/?]+)/manual-confirm$`), (r) => {
+      if (r.request().method() !== 'POST') return r.fallback()
+      manualConfirmCalled = true
+      return jsonOk(r, { id: CONFIRM_PR_ID, status: 'PAID', method: 'CRYPTO', txHash: null })
+    })
+
+    await mockConfirmPayoutPageRoutes(asAdmin)
+    await asAdmin.goto('/crm/finance')
+    await expect(asAdmin.getByTestId('finance-page')).toBeVisible()
+
+    await asAdmin.getByTestId(`confirm-payout-button-${CONFIRM_TX_ID}`).click()
+    const dialog = asAdmin.getByTestId('confirm-payout-dialog')
+    await expect(dialog).toBeVisible()
+
+    // CRYPTO is default — fill required fields: admin + txHash
+    // Open admin selector
+    await dialog.getByTestId('confirm-payout-admin-select').click()
+    const listbox = asAdmin.locator('[role="listbox"]')
+    await expect(listbox).toBeVisible()
+    await listbox.locator('[role="option"]').first().click()
+
+    // Fill txHash (≥10 chars required for CRYPTO)
+    await dialog.getByTestId('confirm-payout-tx-hash').fill('0xdeadbeef1234567890')
+    await expect(dialog.getByTestId('confirm-payout-submit')).not.toBeDisabled()
+
+    await dialog.getByTestId('confirm-payout-submit').click()
+    await expect(dialog).not.toBeVisible()
+
+    // Verify correct API routing
+    expect(legacyConfirmCalled).toBe(true)
+    expect(manualConfirmCalled).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // AC5 — Company balance KPI on /crm/stats
 // ---------------------------------------------------------------------------
 

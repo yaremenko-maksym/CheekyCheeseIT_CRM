@@ -23,7 +23,7 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { SessionUser } from '@crm/shared'
-import { TransactionsService } from './transactions.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { DatabaseService } from '../database/database.service'
 import { InvoicesService } from '../invoices/invoices.service'
 
@@ -99,7 +99,7 @@ describe('createExpense — receipt-bind ownership guard (п.3 no-op by design)'
     // Document exists, category=RECEIPT, but owned by OTHER_USER not by ADMIN
     const foreignDoc = makeDoc({ ownerId: OTHER_USER_ID })
     const db = makeDbMock(foreignDoc)
-    service = new TransactionsService(db, invoicesService)
+    service = makeTransactionsService({ db, invoicesService })
 
     const payload = {
       amount: 100,
@@ -114,7 +114,7 @@ describe('createExpense — receipt-bind ownership guard (п.3 no-op by design)'
   it('rejects binding a non-RECEIPT category document → BadRequestException', async () => {
     const wrongCategoryDoc = makeDoc({ category: 'SCAN' })
     const db = makeDbMock(wrongCategoryDoc)
-    service = new TransactionsService(db, invoicesService)
+    service = makeTransactionsService({ db, invoicesService })
 
     const payload = {
       amount: 200,
@@ -128,7 +128,7 @@ describe('createExpense — receipt-bind ownership guard (п.3 no-op by design)'
 
   it('rejects binding a missing document → NotFoundException', async () => {
     const db = makeDbMock(null) // document not found
-    service = new TransactionsService(db, invoicesService)
+    service = makeTransactionsService({ db, invoicesService })
 
     const payload = {
       amount: 50,

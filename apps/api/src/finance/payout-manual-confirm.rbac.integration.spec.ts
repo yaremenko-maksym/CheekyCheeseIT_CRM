@@ -15,6 +15,7 @@ import { RolesGuard } from '../common/guards/roles.guard'
 import { DatabaseService } from '../database/database.service'
 import { PayoutRequestsController } from './transactions.controller'
 import { TransactionsService } from './transactions.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import type { EtherscanService } from './etherscan.service'
 import type { NbuCurrencyService } from './nbu-currency.service'
 import { companyAccount, payoutRequests, transactions, users } from '../database/schema'
@@ -171,13 +172,12 @@ class TestDatabaseModule {}
     {
       provide: TransactionsService,
       useFactory: (db: DatabaseService) =>
-        new TransactionsService(
+        makeTransactionsService({
           db,
-          stubInvoices,
-          stubDocuments,
-          fakeNbu as NbuCurrencyService,
-          fakeEtherscan as EtherscanService,
-        ),
+          invoicesService: stubInvoices,
+          nbuCurrencyService: fakeNbu as NbuCurrencyService,
+          etherscanService: fakeEtherscan as EtherscanService,
+        }),
       inject: [DatabaseService],
     },
     // Authentication: global JwtAuthGuard (populates req.user). The

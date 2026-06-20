@@ -8,8 +8,7 @@ import type { SessionUser } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
 import { TransactionsService } from './transactions.service'
-import { InvoicesService } from '../invoices/invoices.service'
-import { DocumentsService } from '../documents/documents.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
@@ -109,12 +108,7 @@ class TestDatabaseModule {}
   providers: [
     {
       provide: TransactionsService,
-      useFactory: (db: DatabaseService) =>
-        new TransactionsService(
-          db,
-          {} as unknown as InvoicesService,
-          {} as unknown as DocumentsService,
-        ),
+      useFactory: (db: DatabaseService) => makeTransactionsService({ db }),
       inject: [DatabaseService],
     },
   ],

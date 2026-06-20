@@ -8,9 +8,10 @@ import type { SessionUser } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
 import { TransactionsService } from './transactions.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { CompanyAccountService } from './company-account.service'
-import { InvoicesService } from '../invoices/invoices.service'
-import { DocumentsService } from '../documents/documents.service'
+import type { InvoicesService } from '../invoices/invoices.service'
+import type { DocumentsService } from '../documents/documents.service'
 import type { EtherscanService } from './etherscan.service'
 import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
 import { companyAccount, projects, transactions, users } from '../database/schema'
@@ -116,7 +117,12 @@ class TestDatabaseModule {}
     {
       provide: TransactionsService,
       useFactory: (db: DatabaseService) =>
-        new TransactionsService(db, stubInvoices, stubDocuments, undefined as never, stubEtherscan),
+        makeTransactionsService({
+          db,
+          invoicesService: stubInvoices,
+          documentsService: stubDocuments,
+          etherscanService: stubEtherscan,
+        }),
       inject: [DatabaseService],
     },
     {

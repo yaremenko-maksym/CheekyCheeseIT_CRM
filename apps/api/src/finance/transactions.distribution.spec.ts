@@ -17,12 +17,10 @@
 import { BadRequestException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import { MAKSYM_ID, KOSTYA_ID } from '@crm/shared'
-import { TransactionsService } from './transactions.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 
-function makeService(): TransactionsService {
-  const db = {} as never
-  const invoicesService = {} as never
-  return new TransactionsService(db, invoicesService)
+function makeService() {
+  return makeTransactionsService({ db: {} as never })
 }
 
 const drop = { id: 'drop-1', dropSharePercent: 5 }
