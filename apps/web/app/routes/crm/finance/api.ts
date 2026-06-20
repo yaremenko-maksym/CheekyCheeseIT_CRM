@@ -14,6 +14,7 @@ import type {
   UpdateSeniorIncomeDto,
   CreatePayoutRequestDto,
   PayPayoutRequestDto,
+  ManualConfirmPayoutDto,
   PaySalaryDto,
   AdminUpdateTransactionDto,
   ConfirmPayoutDto,
@@ -99,6 +100,15 @@ export const financeApi = {
 
   payPayoutRequest: (id: string, data: PayPayoutRequestDto) =>
     api.patch<PayoutRequestDto>(`/payout-requests/${id}/pay`, data).then((r) => r.data),
+
+  // Phase 8 v2 — manual payout confirmation (ADMIN/ACCOUNTANT). Escape hatch for
+  // payouts settled OFF the on-chain happy path. The chosen `method`
+  // (CASH | ADMIN_USDT | COMPANY_ACCOUNT) decides whether the company balance
+  // moves — only COMPANY_ACCOUNT credits it. RBAC enforced server-side (403 for
+  // SENIOR/DROP/JUNIOR/HR). NOTE: this is the NEW endpoint — distinct from
+  // `confirmPayout` (drop-phase-3 admin-partner flow on /transactions/:id).
+  manualConfirmPayout: (id: string, data: ManualConfirmPayoutDto) =>
+    api.post<PayoutRequestDto>(`/payout-requests/${id}/manual-confirm`, data).then((r) => r.data),
 
   // Summary
   getSummary: () => api.get<FinanceSummaryDto>('/finance/summary').then((r) => r.data),

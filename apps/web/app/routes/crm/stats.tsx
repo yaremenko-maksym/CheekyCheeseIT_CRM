@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock,
+  Coins,
   DollarSign,
   HelpCircle,
   Info,
@@ -48,11 +49,53 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { financeApi } from './finance/api'
+import { financeApi, companyAccountApi } from './finance/api'
 
 export const Route = createFileRoute('/crm/stats')({
   component: StatsPage,
 })
+
+// USDT balance formatting + short address — mirrors the (removed) CompanyAccountCard
+// so the company-account KPI reads identically on /crm/stats.
+function fmtUsdt(n: number): string {
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function shortAddress(addr: string): string {
+  return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr
+}
+
+// ── Company account balance KPI (ADMIN + ACCOUNTANT — Phase 8 v2) ──────────────
+// The company USDT account balance moved here from the Финансы page card. The
+// whole /crm/stats route is ADMIN/ACCOUNTANT-only, so no extra gate is needed.
+function CompanyAccountKpi() {
+  const { data: account, isLoading } = useQuery({
+    queryKey: ['company-account'],
+    queryFn: companyAccountApi.getAccount,
+  })
+
+  if (isLoading) {
+    return <Skeleton className="h-28 rounded-xl" />
+  }
+
+  const sub = account
+    ? account.walletAddress
+      ? shortAddress(account.walletAddress)
+      : 'Кошелёк не настроен'
+    : undefined
+
+  return (
+    <StatCard
+      title="Счёт компании · USDT"
+      hint="Накопленный USDT-баланс на счёте компании — пополняется через подтверждённые выплаты (метод «Счёт компании») и уменьшается выводом дивидендов."
+      value={account ? `${fmtUsdt(account.balance)} USDT` : '—'}
+      {...(sub ? { sub } : {})}
+      icon={<Coins className="h-5 w-5" />}
+      color="yellow"
+      testId="stats-company-account-balance"
+    />
+  )
+}
 
 // ── KPI card with tooltip ──────────────────────────────────────────────────────
 
@@ -64,6 +107,7 @@ function StatCard({
   icon,
   color = 'default',
   trend,
+  testId,
 }: {
   title: string
   hint: string
@@ -72,6 +116,7 @@ function StatCard({
   icon: React.ReactNode
   color?: 'default' | 'green' | 'red' | 'blue' | 'yellow' | 'purple' | 'cyan'
   trend?: { value: number; label: string }
+  testId?: string
 }) {
   const colorMap: Record<string, string> = {
     default: 'text-foreground',
@@ -93,7 +138,7 @@ function StatCard({
   }
 
   return (
-    <Card>
+    <Card {...(testId ? { 'data-testid': testId } : {})}>
       <CardContent className="pt-5">
         <div className="flex items-start justify-between gap-2">
           <div className="space-y-1 min-w-0">
@@ -964,6 +1009,9 @@ export function StatsPage() {
                     icon={<Wallet className="h-5 w-5" />}
                     color={summary.netBalance >= 0 ? 'blue' : 'red'}
                   />
+                  {/* Company USDT account balance — moved from the Финансы page
+                  card (Phase 8 v2). ADMIN + ACCOUNTANT (section already gated). */}
+                  <CompanyAccountKpi />
                 </div>
 
                 {/* Secondary KPIs */}

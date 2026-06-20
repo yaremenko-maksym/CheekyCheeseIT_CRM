@@ -1003,6 +1003,22 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   await page.route(new RegExp(`${API_RE}/payout-requests/([^/?]+)/pay$`), (r) =>
     jsonOk(r, { id: r.request().url().split('/').at(-2), status: 'PAID' }),
   )
+  // Phase 8 v2 (PR #253, AC3) — manual-confirm endpoint (ADMIN/ACCOUNTANT only).
+  // Must be registered BEFORE the generic /payout-requests/:id$ route so PATCH
+  // requests to /manual-confirm don't accidentally fall through to the generic
+  // id-handler (LIFO: last-registered wins). Default: 200 success with method echo.
+  await page.route(new RegExp(`${API_RE}/payout-requests/([^/?]+)/manual-confirm$`), (r) => {
+    if (r.request().method() !== 'POST') return r.fallback()
+    const body = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>
+    const payoutId = r.request().url().split('/').slice(-2, -1)[0]
+    return jsonOk(r, {
+      id: payoutId,
+      status: 'PAID',
+      method: body.method ?? 'COMPANY_ACCOUNT',
+      note: body.note ?? null,
+      txHash: body.txHash ?? null,
+    })
+  })
   await page.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) =>
     r.request().method() === 'POST'
       ? jsonOk(r, { id: 'payout-req-new', status: 'PENDING_PAYMENT' }, 201)

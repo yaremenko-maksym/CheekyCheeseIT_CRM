@@ -15,7 +15,10 @@
 import { test as base, expect, type Page, type Route } from '@playwright/test'
 import { USERS, mockAuthAs } from './fixtures'
 
-const API = 'http://localhost:3001/api'
+// Origin-agnostic prefix — matches any host/port (dev proxy on :3000,
+// direct :3001, preview :3010). Mirrors the API_GLOB pattern from fixtures.ts.
+const API_GLOB = '**/api'
+const API_RE = '\\/api'
 
 function jsonOk(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
@@ -62,7 +65,7 @@ const TOS_VERSION = {
 
 async function mockTemplateApis(page: Page) {
   // GET /contracts/templates — returns all active templates list
-  await page.route(`${API}/contracts/templates`, (r) => {
+  await page.route(`${API_GLOB}/contracts/templates`, (r) => {
     if (r.request().method() === 'GET') return jsonOk(r, ALL_CONTRACT_TEMPLATES)
     // POST — publish new version
     return jsonOk(
@@ -73,20 +76,20 @@ async function mockTemplateApis(page: Page) {
   })
 
   // GET /contracts/templates/current/:role
-  await page.route(new RegExp(`${API}/contracts/templates/current/([^/?]+)$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/contracts/templates/current/([^/?]+)$`), (r) => {
     const role = r.request().url().split('/').at(-1)?.toUpperCase()
     const tpl = ALL_CONTRACT_TEMPLATES.find((t) => t.targetRole === role)
     return jsonOk(r, tpl ?? null)
   })
 
   // GET /tos/versions
-  await page.route(`${API}/tos/versions`, (r) => jsonOk(r, [TOS_VERSION]))
+  await page.route(`${API_GLOB}/tos/versions`, (r) => jsonOk(r, [TOS_VERSION]))
 
   // GET /tos/current
-  await page.route(`${API}/tos/current`, (r) => jsonOk(r, TOS_VERSION))
+  await page.route(`${API_GLOB}/tos/current`, (r) => jsonOk(r, TOS_VERSION))
 
   // POST /tos — publish new ToS version
-  await page.route(`${API}/tos`, (r) => {
+  await page.route(`${API_GLOB}/tos`, (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     return jsonOk(r, { ...TOS_VERSION, id: 'tos-v2', version: 2, isActive: true }, 201)
   })
@@ -190,7 +193,7 @@ test('ADMIN publishes new ToS, soft-notify banner visible for onboarded user', a
 
   // Override onboarding/status to return tosUpdateAvailable=true AFTER publish
   // so a fresh page load for an onboarded user shows the soft-notify banner.
-  await page.route(`${API}/onboarding/status`, (r) =>
+  await page.route(`${API_GLOB}/onboarding/status`, (r) =>
     jsonOk(r, {
       requiresContract: false,
       requiresTos: false,
@@ -227,8 +230,11 @@ test('non-ADMIN navigating to /crm/admin/templates is redirected to /crm', async
   // route layout). Anchored so it doesn't match /crm/admin/... sub-paths.
   await expect(page).toHaveURL(/\/crm\/?$/)
 
-  // Error toast should be shown
-  await expect(page.getByText(/только для ADMIN/i)).toBeVisible()
+  // Error toast should be shown — use .first() to handle potential strict-mode
+  // duplicate (toast can render inside the Sonner portal which may produce two
+  // matching nodes when a sidebar label also contains the text; .first() is
+  // safe here because we only assert the toast is visible, not its exact count).
+  await expect(page.getByText(/только для ADMIN/i).first()).toBeVisible()
 })
 
 // ---------------------------------------------------------------------------
@@ -246,7 +252,7 @@ test('ADMIN can preview archived ToS version in history list', async ({ asAdmin:
   const TOS_V1_ARCHIVED = { ...TOS_VERSION, isActive: false }
 
   // Override with 2 versions
-  await page.route(`${API}/tos/versions`, (r) => jsonOk(r, [TOS_V2, TOS_V1_ARCHIVED]))
+  await page.route(`${API_GLOB}/tos/versions`, (r) => jsonOk(r, [TOS_V2, TOS_V1_ARCHIVED]))
 
   await page.goto('/crm/admin/templates/tos')
 

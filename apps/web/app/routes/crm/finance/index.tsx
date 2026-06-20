@@ -60,7 +60,6 @@ import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransa
 import { DropFinancePage } from './components/DropFinancePage'
 import { PendingSettlementSeniorCard } from './components/PendingSettlementSeniorCard'
 import { PendingSettlementCompanyCard } from './components/PendingSettlementCompanyCard'
-import { CompanyAccountCard } from './components/CompanyAccountCard'
 import { LogCashPaymentDialog } from './components/dialogs/LogCashPaymentDialog'
 import { ConfirmPayoutDialog } from '@/components/finance/ConfirmPayoutDialog'
 
@@ -791,8 +790,10 @@ function FinancePage() {
         <div className="space-y-6">
           {/* task-drop-company-debt-and-invoices. Senior IOUs and the
           ADMIN/ACCOUNTANT-only "Долги компании перед синьорами" card.
-          DROP no longer holds senior debts — the DropCard was removed. */}
-          {(isAdmin || isAccountant) && <CompanyAccountCard isAdmin={isAdmin} />}
+          DROP no longer holds senior debts — the DropCard was removed.
+          Phase 8 v2: the CompanyAccountCard was removed — balance moved to
+          /crm/stats, wallet management to /crm/admin/templates/wallet, and
+          dividends became a DIVIDEND option in CreateTransactionDialog. */}
           {(isSenior || isAdmin || role === 'ACCOUNTANT') && <PendingSettlementSeniorCard />}
           {(isAdmin || role === 'ACCOUNTANT') && <PendingSettlementCompanyCard />}
 
