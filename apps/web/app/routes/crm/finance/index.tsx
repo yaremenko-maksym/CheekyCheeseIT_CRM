@@ -60,6 +60,7 @@ import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransa
 import { DropFinancePage } from './components/DropFinancePage'
 import { PendingSettlementSeniorCard } from './components/PendingSettlementSeniorCard'
 import { PendingSettlementCompanyCard } from './components/PendingSettlementCompanyCard'
+import { CompanyAccountCard } from './components/CompanyAccountCard'
 import { LogCashPaymentDialog } from './components/dialogs/LogCashPaymentDialog'
 import { ConfirmPayoutDialog } from '@/components/finance/ConfirmPayoutDialog'
 
@@ -791,6 +792,7 @@ function FinancePage() {
           {/* task-drop-company-debt-and-invoices. Senior IOUs and the
           ADMIN/ACCOUNTANT-only "Долги компании перед синьорами" card.
           DROP no longer holds senior debts — the DropCard was removed. */}
+          {(isAdmin || isAccountant) && <CompanyAccountCard isAdmin={isAdmin} />}
           {(isSenior || isAdmin || role === 'ACCOUNTANT') && <PendingSettlementSeniorCard />}
           {(isAdmin || role === 'ACCOUNTANT') && <PendingSettlementCompanyCard />}
 

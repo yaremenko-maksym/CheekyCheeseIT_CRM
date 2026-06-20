@@ -1137,6 +1137,39 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
     jsonOk(r, { projects: [], users: [] }),
   )
 
+  // Phase 8 — Company USDT account. CompanyAccountCard mounts on /crm/finance
+  // for ADMIN/ACCOUNTANT and fires GET /api/company-account unconditionally
+  // (no `enabled` guard). Without this mock the request hits the real backend →
+  // 401 → axios interceptor → /login redirect, OR the pending network request
+  // prevents `networkidle` / `waitForLoadState('domcontentloaded')` from settling →
+  // downstream navigation tests (navigation.spec.ts:281) time out. Default: a
+  // wallet-not-set, zero-balance stub. Tests that need non-zero balance register
+  // their own handler AFTER mockAuthAs (LIFO).
+  await page.route(new RegExp(`${API_RE}/company-account/dividends$`), (r) => {
+    if (r.request().method() !== 'POST') return r.fallback()
+    return jsonOk(r, { id: 'dividend-new', amount: 0, receiverId: user.id })
+  })
+  await page.route(new RegExp(`${API_RE}/company-account/wallet$`), (r) => {
+    if (r.request().method() !== 'PATCH') return r.fallback()
+    return jsonOk(r, {
+      walletAddress: (JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>)[
+        'walletAddress'
+      ] as string,
+      confirmationThreshold: 12,
+      balance: 0,
+      updatedAt: null,
+    })
+  })
+  await page.route(new RegExp(`${API_RE}/company-account$`), (r) => {
+    if (r.request().method() !== 'GET') return r.fallback()
+    return jsonOk(r, {
+      walletAddress: '0x' + '1'.repeat(40),
+      confirmationThreshold: 12,
+      balance: 0,
+      updatedAt: null,
+    })
+  })
+
   // Onboarding (Phase 6B) — default: fully onboarded, no wizard redirect.
   // Tests that need unboarded state call mockOnboardingApi() AFTER mockAuthAs();
   // Playwright's LIFO route-handler stack ensures the later registration wins.

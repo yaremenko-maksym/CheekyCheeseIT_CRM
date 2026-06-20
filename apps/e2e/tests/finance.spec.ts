@@ -4,7 +4,12 @@ const PROJECT = PROJECTS[0]!
 const PROJECT_ID = PROJECT.id
 const PROJECT_NAME = PROJECT.name
 
-const API = 'http://localhost:3001/api'
+// Origin-agnostic API path prefix — matches any host/port. See fixtures.ts
+// comment (API_GLOB / API_RE) for the rationale: vite dev proxies /api/*
+// through localhost:3000, so the browser URL is http://localhost:3000/api/*.
+// A hardcoded 'http://localhost:3001/api' prefix would NOT match and the
+// mockAuthAs route (which returns []) would win instead.
+const API = '\\/api'
 
 // ── Shared transaction fixtures ────────────────────────────────────────────────
 
@@ -416,14 +421,14 @@ test.describe('Finance — создание транзакции', () => {
 
   test('ADMIN: открывает диалог EXPENSE с категорией', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [])
-    await asAdmin.route(`${API}/projects`, (r) =>
+    await asAdmin.route('**/api/projects', (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify([{ id: PROJECT_ID, name: PROJECT_NAME, seniorId: USERS.senior.id }]),
       }),
     )
-    await asAdmin.route(`${API}/users`, (r) =>
+    await asAdmin.route('**/api/users', (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
