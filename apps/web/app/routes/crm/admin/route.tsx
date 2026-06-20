@@ -5,7 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/crm/StickyPageHeader'
 
-export const Route = createFileRoute('/crm/admin/templates')({
+export const Route = createFileRoute('/crm/admin')({
   component: AdminTemplatesRoot,
 })
 
@@ -51,21 +51,21 @@ function AdminTemplatesRoot() {
           aria-label="Разделы редактора"
         >
           <Link
-            to="/crm/admin/templates/contracts"
+            to="/crm/admin/contracts"
             className="rounded-md px-4 py-1.5 text-sm font-medium transition-colors hover:bg-background hover:text-foreground text-muted-foreground [&.active]:bg-background [&.active]:text-foreground [&.active]:shadow-sm"
             data-testid="admin-templates-tab-contracts"
           >
             Контракты
           </Link>
           <Link
-            to="/crm/admin/templates/tos"
+            to="/crm/admin/tos"
             className="rounded-md px-4 py-1.5 text-sm font-medium transition-colors hover:bg-background hover:text-foreground text-muted-foreground [&.active]:bg-background [&.active]:text-foreground [&.active]:shadow-sm"
             data-testid="admin-templates-tab-tos"
           >
             Terms of Service
           </Link>
           <Link
-            to="/crm/admin/templates/wallet"
+            to="/crm/admin/wallet"
             className="rounded-md px-4 py-1.5 text-sm font-medium transition-colors hover:bg-background hover:text-foreground text-muted-foreground [&.active]:bg-background [&.active]:text-foreground [&.active]:shadow-sm"
             data-testid="admin-templates-tab-wallet"
           >

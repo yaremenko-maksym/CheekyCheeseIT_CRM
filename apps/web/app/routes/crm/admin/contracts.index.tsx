@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Pencil, FileText } from 'lucide-react'
 import { format } from 'date-fns'
 
-export const Route = createFileRoute('/crm/admin/templates/contracts/')({
+export const Route = createFileRoute('/crm/admin/contracts/')({
   component: ContractsListPage,
 })
 
@@ -107,10 +107,7 @@ function ContractsListPage() {
                   className="w-full gap-2"
                   data-testid={`contract-template-edit-${role.toLowerCase()}`}
                 >
-                  <Link
-                    to="/crm/admin/templates/contracts/$role"
-                    params={{ role: role.toLowerCase() }}
-                  >
+                  <Link to="/crm/admin/contracts/$role" params={{ role: role.toLowerCase() }}>
                     <Pencil className="h-3.5 w-3.5" />
                     Редактировать
                   </Link>

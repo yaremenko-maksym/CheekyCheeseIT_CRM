@@ -32,7 +32,7 @@ import { toast } from 'sonner'
 import { AlertTriangle, ChevronLeft } from 'lucide-react'
 import { MarkdownDiff } from '@/components/admin/MarkdownDiff'
 
-export const Route = createFileRoute('/crm/admin/templates/tos/new')({
+export const Route = createFileRoute('/crm/admin/tos/new')({
   component: TosNewPage,
 })
 
@@ -73,7 +73,7 @@ function TosNewPage() {
       void qc.invalidateQueries({ queryKey: ['tos-versions-all'] })
       void qc.invalidateQueries({ queryKey: ['onboarding-status'] })
       setShowConfirm(false)
-      void navigate({ to: '/crm/admin/templates/tos' })
+      void navigate({ to: '/crm/admin/tos' })
     },
     onError: () => {
       toast.error('Ошибка при публикации версии ToS')
@@ -101,7 +101,7 @@ function TosNewPage() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => void navigate({ to: '/crm/admin/templates/tos' })}
+            onClick={() => void navigate({ to: '/crm/admin/tos' })}
             data-testid="back-button"
             aria-label="Назад к ToS"
           >
