@@ -1,10 +1,11 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/axios'
-import { contractTargetRoleSchema } from '@crm/shared'
+import { contractTargetRoleSchema, CONTRACT_VARIABLE_DESCRIPTIONS } from '@crm/shared'
 import type { ContractTargetRole, ContractTemplateRow, CustomVariable } from '@crm/shared'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -21,6 +22,10 @@ import { toast } from 'sonner'
 import { AlertTriangle, ChevronLeft } from 'lucide-react'
 import { MarkdownDiff } from '@/components/admin/MarkdownDiff'
 import { VariablesPanel } from '@/components/contracts/VariablesPanel'
+import {
+  buildTokenHighlightExtension,
+  injectTokenHighlightStyles,
+} from '@/components/contracts/contractTokenHighlight'
 import type { EditorView } from '@uiw/react-codemirror'
 
 export const Route = createFileRoute('/crm/admin/contracts/$role')({
@@ -69,6 +74,157 @@ const ROLE_LABELS: Record<ContractTargetRole, string> = {
   ACCOUNTANT: 'Бухгалтер',
 }
 
+const SYSTEM_KEYS = new Set(Object.keys(CONTRACT_VARIABLE_DESCRIPTIONS))
+const TOKEN_SPLIT_RE = /(\{\{[a-zA-Z0-9_]+\}\})/g
+
+/**
+ * Split a plain-text string on {{...}} tokens and return an array of React
+ * nodes. Custom tokens are replaced with their value text; system and unknown
+ * tokens are wrapped in a safe <mark> element (no dangerouslySetInnerHTML).
+ */
+function renderInlineTokens(text: string, customMap: Map<string, string>): React.ReactNode[] {
+  return text.split(TOKEN_SPLIT_RE).map((seg, i) => {
+    const m = /^\{\{([a-zA-Z0-9_]+)\}\}$/.exec(seg)
+    if (!m) return seg
+    const key = m[1] ?? ''
+    if (customMap.has(key)) {
+      // Custom → substitute with its value (plain text node, no markup)
+      return <span key={i}>{customMap.get(key)}</span>
+    }
+    // System or unknown → coloured badge, no HTML injection
+    const isSystem = SYSTEM_KEYS.has(key)
+    return (
+      <mark
+        key={i}
+        title={key}
+        className={isSystem ? 'preview-token-system' : 'preview-token-unknown'}
+      >
+        {seg}
+      </mark>
+    )
+  })
+}
+
+/**
+ * Preview renderer:
+ *  - Custom variables → substituted with their defaultValue (or key as fallback)
+ *  - System variables → stay as {{key}} but highlighted with a coloured badge
+ *  - Unknown tokens   → stay as {{key}} highlighted amber
+ * Document-style layout — markdown rendered via ReactMarkdown with safe React nodes.
+ */
+function ContractPreview({
+  body,
+  customVariables,
+}: {
+  body: string
+  customVariables: CustomVariable[]
+}) {
+  const customMap = useMemo(
+    () => new Map(customVariables.map((v) => [v.key, v.defaultValue ?? v.key])),
+    [customVariables],
+  )
+
+  // Pre-process: substitute custom tokens in markdown source so ReactMarkdown
+  // receives plain text where custom vars used to be. System/unknown tokens
+  // are left as-is and caught by the inline renderer below.
+  const processedBody = useMemo(() => {
+    return body.replace(TOKEN_SPLIT_RE, (match) => {
+      const m = /^\{\{([a-zA-Z0-9_]+)\}\}$/.exec(match)
+      if (!m) return match
+      const key = m[1] ?? ''
+      return customMap.has(key) ? (customMap.get(key) ?? key) : match
+    })
+  }, [body, customMap])
+
+  return (
+    <>
+      <style>{`
+        .contract-preview mark.preview-token-system {
+          background: rgba(59,130,246,0.15);
+          color: #1d4ed8;
+          border-radius: 3px;
+          padding: 0 3px;
+          font-family: monospace;
+          font-size: 0.85em;
+          font-style: normal;
+        }
+        .contract-preview mark.preview-token-unknown {
+          background: rgba(245,158,11,0.18);
+          color: #b45309;
+          border-radius: 3px;
+          padding: 0 3px;
+          font-family: monospace;
+          font-size: 0.85em;
+          font-style: normal;
+        }
+        .dark .contract-preview mark.preview-token-system  { color: #93c5fd; }
+        .dark .contract-preview mark.preview-token-unknown { color: #fcd34d; }
+        .contract-preview table {
+          border-collapse: collapse;
+          width: 100%;
+          margin: 0.75em 0;
+          font-size: 0.875em;
+        }
+        .contract-preview th,
+        .contract-preview td {
+          border: 1px solid rgba(128,128,128,0.3);
+          padding: 6px 10px;
+          text-align: left;
+          vertical-align: top;
+        }
+        .contract-preview th {
+          background: rgba(128,128,128,0.08);
+          font-weight: 600;
+        }
+        .dark .contract-preview th {
+          background: rgba(255,255,255,0.05);
+        }
+        .dark .contract-preview th,
+        .dark .contract-preview td {
+          border-color: rgba(255,255,255,0.15);
+        }
+      `}</style>
+      <div
+        className="contract-preview prose prose-sm dark:prose-invert max-w-none"
+        data-testid="contract-preview-content"
+      >
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            // Override text renderer to catch remaining {{...}} tokens safely.
+            // ReactMarkdown passes `children` as a string for leaf text nodes.
+            // We split on tokens and return safe React elements.
+            p: ({ children }) => (
+              <p>
+                {typeof children === 'string' ? renderInlineTokens(children, customMap) : children}
+              </p>
+            ),
+            li: ({ children }) => (
+              <li>
+                {typeof children === 'string' ? renderInlineTokens(children, customMap) : children}
+              </li>
+            ),
+            // GFM table cells — apply the same token highlighting so
+            // {{tokens}} inside table cells get the same coloured badges.
+            td: ({ children }) => (
+              <td>
+                {typeof children === 'string' ? renderInlineTokens(children, customMap) : children}
+              </td>
+            ),
+            th: ({ children }) => (
+              <th>
+                {typeof children === 'string' ? renderInlineTokens(children, customMap) : children}
+              </th>
+            ),
+          }}
+        >
+          {processedBody}
+        </ReactMarkdown>
+      </div>
+    </>
+  )
+}
+
 function ContractEditorPage() {
   const { role: roleParam } = Route.useParams()
   const navigate = useNavigate()
@@ -102,6 +258,17 @@ function ContractEditorPage() {
   const [showConfirm, setShowConfirm] = useState(false)
   const [customVariables, setCustomVariables] = useState<CustomVariable[]>([])
   const [rightTab, setRightTab] = useState<'variables' | 'preview'>('variables')
+
+  // Inject CSS classes for token highlight once
+  useEffect(() => {
+    injectTokenHighlightStyles()
+  }, [])
+
+  // Token highlight extension — rebuilds when custom variables change
+  const tokenHighlightExt = useMemo(
+    () => buildTokenHighlightExtension(customVariables),
+    [customVariables],
+  )
 
   // Ref to CodeMirror EditorView for cursor-aware token insertion
   const editorViewRef = useRef<EditorView | null>(null)
@@ -223,6 +390,7 @@ function ContractEditorPage() {
                 value={currentBody}
                 onChange={(val) => setBody(val)}
                 editorViewRef={editorViewRef}
+                extensions={[tokenHighlightExt]}
                 basicSetup={{
                   lineNumbers: true,
                   highlightActiveLineGutter: true,
@@ -289,11 +457,11 @@ function ContractEditorPage() {
 
             <TabsContent
               value="preview"
-              className="flex-1 overflow-auto p-4 prose prose-sm dark:prose-invert max-w-none mt-0"
+              className="flex-1 overflow-auto p-4 mt-0"
               data-testid="contract-editor-preview"
             >
               {currentBody.trim() ? (
-                <ReactMarkdown>{currentBody}</ReactMarkdown>
+                <ContractPreview body={currentBody} customVariables={customVariables} />
               ) : (
                 <p className="text-muted-foreground italic">Начните вводить текст в редакторе…</p>
               )}
@@ -308,11 +476,12 @@ function ContractEditorPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-amber-500" />
-              Опубликовать новую версию?
+              Опубликовать новую версию (v{(template?.version ?? 0) + 1})?
             </DialogTitle>
             <DialogDescription>
-              Шаблон для роли <strong>{ROLE_LABELS[role]}</strong> будет обновлён. Новые сотрудники
-              увидят новый текст при следующем онбординге.
+              Текущая версия шаблона для роли <strong>{ROLE_LABELS[role]}</strong> будет
+              деактивирована (сохранится в истории). Новые сотрудники увидят обновлённый текст при
+              следующем онбординге.
             </DialogDescription>
           </DialogHeader>
           <MarkdownDiff oldText={template?.bodyMarkdown ?? ''} newText={currentBody} />

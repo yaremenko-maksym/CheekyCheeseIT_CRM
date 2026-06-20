@@ -180,17 +180,17 @@ function TosNewPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-amber-500" />
-              Опубликовать новую версию ToS?
+              Опубликовать новую версию ToS (v{(currentTos?.version ?? 0) + 1})?
             </DialogTitle>
             <DialogDescription>
-              Все пользователи, уже прошедшие онбординг, увидят баннер с предложением ознакомиться с
-              новой версией Terms of Service.
+              Текущая версия ToS будет деактивирована (сохранится в истории). Все пользователи
+              должны будут принять новую версию Terms of Service заново.
             </DialogDescription>
           </DialogHeader>
           <MarkdownDiff oldText={currentTos?.bodyMarkdown ?? ''} newText={currentBody} />
           <DialogFooter>
             <Button
-              variant="outline"
+              variant="ghost"
               onClick={() => setShowConfirm(false)}
               data-testid="cancel-button"
             >
