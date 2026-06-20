@@ -938,6 +938,11 @@ export class TransactionsService {
       receiptExternalUrl?: string | null | undefined
       notes?: string | null | undefined
       txDate?: string | null | undefined
+      // task-salary-company-account: optional company-account routing. When
+      // COMPANY_ACCOUNT the income is directed INTO the shared company USDT pool
+      // (credits its balance, USDT-forced) and is EXCLUDED from the admin owner's
+      // personal balance (getSummary). Absent → legacy (credits the admin owner).
+      fundingSource?: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' | undefined
     },
     currentUser: SessionUser,
   ) {
@@ -984,13 +989,24 @@ export class TransactionsService {
       await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
     }
 
+    // task-salary-company-account: company-account routing. When COMPANY_ACCOUNT
+    // the income is directed into the shared company pool — currency forced to
+    // USDT and funding_source persisted. The company balance formula counts
+    // ADMIN_INCOME(COMPANY_ACCOUNT) PAID as a (+) credit; getSummary EXCLUDES
+    // these rows from the admin owner's personal balance (the money went to the
+    // pool, not to the admin). No balance gate — this is an INFLOW. Absent →
+    // legacy (admin-personal income, funding_source NULL, currency as supplied).
+    const isCompanyFunded = data.fundingSource === 'COMPANY_ACCOUNT'
+    const currency = (isCompanyFunded ? 'USDT' : data.currency) as 'USDT' | 'USD' | 'EUR' | 'UAH'
+    const fundingSource: 'COMPANY_ACCOUNT' | null = isCompanyFunded ? 'COMPANY_ACCOUNT' : null
+
     const [tx] = await this.db.db
       .insert(transactions)
       .values({
         type: 'ADMIN_INCOME',
         status: 'PAID',
         amount: String(data.amount),
-        currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
+        currency,
         senderId: null,
         senderLabel: project.companyName,
         receiverId,
@@ -998,6 +1014,7 @@ export class TransactionsService {
         receiptDocumentId: data.receiptDocumentId ?? null,
         receiptExternalUrl: data.receiptExternalUrl ?? null,
         notes: data.notes ?? null,
+        fundingSource,
         txDate: this.resolveTxDate(data.txDate),
         createdBy: currentUser.id,
       })
@@ -1663,6 +1680,10 @@ export class TransactionsService {
       receiptDocumentId?: string | null | undefined
       receiptExternalUrl?: string | null | undefined
       txDate?: string | null | undefined
+      // task-salary-company-account: optional company-account routing. Only
+      // COMPANY_ACCOUNT is meaningful (ADMIN_PERSONAL is implicit/legacy when
+      // absent). Absent → legacy expense (no balance impact, currency as given).
+      fundingSource?: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' | undefined
     },
     currentUser: SessionUser,
   ) {
@@ -1677,18 +1698,42 @@ export class TransactionsService {
       await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
     }
 
+    // task-salary-company-account: company-funded expense path. Pays OUT of the
+    // shared company USDT account → always USDT, no personal sender, gated by the
+    // live company balance, funding_source persisted so the balance formula
+    // debits it. Absent fundingSource = legacy expense (unchanged: caller is
+    // sender, currency as supplied, no balance impact, funding_source NULL).
+    let currency = data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH'
+    let senderId: string | null = currentUser.id
+    let senderLabel: string | null = null
+    let fundingSource: 'COMPANY_ACCOUNT' | null = null
+
+    if (data.fundingSource === 'COMPANY_ACCOUNT') {
+      currency = 'USDT'
+      senderId = null
+      senderLabel = 'Счёт компании'
+      fundingSource = 'COMPANY_ACCOUNT'
+
+      const companyBalance = await this.computeCompanyAccountBalance()
+      if (companyBalance < data.amount) {
+        throw new BadRequestException('Недостаточно средств на счёте компании')
+      }
+    }
+
     const [tx] = await this.db.db
       .insert(transactions)
       .values({
         type: 'EXPENSE',
         status: 'PAID',
         amount: String(data.amount),
-        currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
-        senderId: currentUser.id,
+        currency,
+        senderId,
+        senderLabel,
         receiverLabel: data.category,
         notes: data.notes ?? null,
         receiptDocumentId: data.receiptDocumentId ?? null,
         receiptExternalUrl: data.receiptExternalUrl ?? null,
+        fundingSource,
         txDate: this.resolveTxDate(data.txDate),
         createdBy: currentUser.id,
       })
@@ -1699,15 +1744,6 @@ export class TransactionsService {
 
   // ── Create SALARY ─────────────────────────────────────────────────────────
 
-  /**
-   * task-company-account-backend. Derived company-account USDT balance, used by
-   * the COMPANY_ACCOUNT salary funding gate. Mirrors
-   * CompanyAccountService.computeBalance (single definition of the formula would
-   * be ideal, but TransactionsService must not depend on CompanyAccountService
-   * to avoid a circular module reference; both read the same ledger types).
-   *   Σ(COMPANY_DEPOSIT PAID) − Σ(DIVIDEND_TO_ADMIN PAID)
-   *     − Σ(SALARY PAID where fundingSource='COMPANY_ACCOUNT')
-   */
   // task-salary-company-account RECONCILIATION: the salary/expense balance gate
   // now delegates to the SAME single-source-of-truth used by the display
   // endpoint (GET /company-account). Previously this gate-side copy diverged —
@@ -1726,8 +1762,10 @@ export class TransactionsService {
       salaryMonth: string
       notes?: string | null | undefined
       txDate?: string | null | undefined
-      // task-company-account-backend. Funding source. Absent → ADMIN_PERSONAL
-      // (legacy behaviour: calling ADMIN as the payer).
+      // task-salary-company-account. Funding source. Absent → COMPANY_ACCOUNT
+      // (NEW default — was ADMIN_PERSONAL). COMPANY_ACCOUNT pays from the shared
+      // company USDT account (gated by its balance); ADMIN_PERSONAL pays from an
+      // admin partner's personal account.
       fundingSource?: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' | undefined
       // For ADMIN_PERSONAL — whose personal account funds this; must be an ADMIN.
       payerAdminId?: string | undefined
@@ -1762,12 +1800,13 @@ export class TransactionsService {
       )
     }
 
-    // ── task-company-account-backend. Funding source resolution. ──────────────
-    // BACKWARD COMPATIBILITY: when fundingSource is ABSENT we keep the EXACT
-    // legacy behaviour — senderId = caller (ADMIN or ACCOUNTANT), senderLabel
-    // 'CheekyCheeseIT', no funding_source persisted, currency as supplied. Only
-    // an EXPLICIT fundingSource opts into the new company/admin-personal routing
-    // (so the ACCOUNTANT self-pay path is untouched — regression #222 spec).
+    // ── task-salary-company-account. Funding source resolution. ───────────────
+    // DEFAULT FLIP: an ABSENT fundingSource now resolves to COMPANY_ACCOUNT (was
+    // ADMIN_PERSONAL / legacy caller-as-payer). The shared company USDT account
+    // is the default salary funder; ADMIN_PERSONAL is the explicit opt-out.
+    const effectiveFundingSource: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' =
+      data.fundingSource ?? 'COMPANY_ACCOUNT'
+
     let senderId: string | null = currentUser.id
     let senderLabel = 'CheekyCheeseIT'
     let currency: 'USDT' | 'USD' | 'EUR' | 'UAH' = (data.currency ?? 'USD') as
@@ -1775,9 +1814,9 @@ export class TransactionsService {
       | 'USD'
       | 'EUR'
       | 'UAH'
-    let fundingSource: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' | null = data.fundingSource ?? null
+    let fundingSource: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' = effectiveFundingSource
 
-    if (data.fundingSource === 'COMPANY_ACCOUNT') {
+    if (effectiveFundingSource === 'COMPANY_ACCOUNT') {
       // Paid from the shared company USDT account: always USDT, no personal
       // sender (the money leaves the company balance, not a partner's wallet).
       currency = 'USDT'
@@ -1786,11 +1825,13 @@ export class TransactionsService {
       fundingSource = 'COMPANY_ACCOUNT'
 
       // Balance gate: the company account must hold at least `amount` USDT.
+      // This manual path creates the row PAID, so the company balance is debited
+      // immediately at creation (the balance formula counts PAID company SALARY).
       const companyBalance = await this.computeCompanyAccountBalance()
       if (companyBalance < data.amount) {
         throw new BadRequestException('Недостаточно средств на счёте компании')
       }
-    } else if (data.fundingSource === 'ADMIN_PERSONAL') {
+    } else {
       // ADMIN_PERSONAL: paid from an admin partner's personal account. The payer
       // defaults to the calling user; an explicit payerAdminId must resolve to
       // an ADMIN (the personal payer is always an admin partner).
@@ -2702,7 +2743,12 @@ export class TransactionsService {
               (tx) =>
                 tx.receiverId === admin.id &&
                 (tx.type === 'PAYOUT_ADMIN' ||
-                  tx.type === 'ADMIN_INCOME' ||
+                  // task-salary-company-account: ADMIN_INCOME routed to the
+                  // company account (fundingSource='COMPANY_ACCOUNT') went into
+                  // the shared pool, NOT the admin's personal balance — exclude
+                  // it here. Legacy/admin-personal ADMIN_INCOME (NULL funding)
+                  // still credits the admin as before.
+                  (tx.type === 'ADMIN_INCOME' && tx.fundingSource !== 'COMPANY_ACCOUNT') ||
                   tx.type === 'ADMIN_TRANSFER' ||
                   tx.type === 'PAYOUT_CONFIRMED'),
             )
@@ -3400,12 +3446,28 @@ export class TransactionsService {
     if (tx.type !== 'SALARY') throw new BadRequestException('Can only pay SALARY transactions')
     if (tx.status !== 'PENDING') throw new BadRequestException('Transaction is not PENDING')
 
+    // task-salary-company-account: for a company-funded salary the money leaves
+    // the shared USDT account exactly NOW (at PAID). Gate on the live company
+    // balance BEFORE flipping. The PENDING row is not yet counted by the balance
+    // formula (only PAID company SALARY debits), so `balance >= amount` is the
+    // exact "can the account cover this payout" check.
+    if (tx.fundingSource === 'COMPANY_ACCOUNT') {
+      const companyBalance = await this.computeCompanyAccountBalance()
+      if (companyBalance < parseFloat(tx.amount)) {
+        throw new BadRequestException('Недостаточно средств на счёте компании')
+      }
+    }
+
+    // task-salary-company-account: stamp txDate = pay date (now). The salary was
+    // created (PENDING) on an earlier date, but the business-time of the actual
+    // payment is when an ADMIN pays it.
     await this.db.db
       .update(transactions)
       .set({
         status: 'PAID',
         txHash: data.txHash ?? null,
         notes: data.notes ?? tx.notes,
+        txDate: new Date(),
         updatedAt: new Date(),
       })
       .where(eq(transactions.id, id))

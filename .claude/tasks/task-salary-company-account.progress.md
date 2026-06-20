@@ -1,8 +1,10 @@
 # Progress: task-salary-company-account (BACKEND)
 
-current_milestone: 5/7
-done: 1 (schemas) 2 (shared helper) 3 (reconcile both balance fns) 4 (remove LOCKED + cron COMPANY_ACCOUNT)
+current_milestone: 7/7
+done: 1 (schemas) 2 (shared helper) 3 (reconcile) 4 (remove LOCKED) 5 (createSalary default flip + paySalary txDate+gate) 6 (expense+admin-income COMPANY_ACCOUNT + getSummary exclude)
 note: company-account.service.spec balance block MUST be rewritten (helper now 6 SUM queries, not 4) — M7.
+tests-to-update: salary-funding-source (legacy→NULL now COMPANY_ACCOUNT; seed deposit), salary-no-admin-receiver (201 tests need ADMIN_PERSONAL or seeded deposit), company-account.service.spec (6 SUMs).
+new-tests: company-account-balance unit (6 terms), expense COMPANY_ACCOUNT integ, admin-income COMPANY_ACCOUNT integ (company+personal balance), paySalary txDate+gate integ, cron PENDING.
 branch: feature/salary-company-account
 
 ## Milestones
