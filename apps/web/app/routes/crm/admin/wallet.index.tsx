@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { companyAccountApi } from '../../finance/api'
+import { companyAccountApi } from '../finance/api'
 import { ChangeWalletAddressDialog } from './ChangeWalletAddressDialog'
 
 // /crm/admin/wallet — ADMIN-only management of the company USDT wallet
