@@ -45,7 +45,7 @@ const JWT_SECRET = 'pay-salary-rbac-integration-secret-32chars'
 
 // ── Personas — stable IDs namespaced to THIS spec ───────────────────────────
 const ADMIN: SessionUser = {
-  id: 'ps220000-0000-4000-aa00-000000000001',
+  id: 'aa220000-0000-4000-aa00-000000000001',
   email: 'ps-admin@test.spec',
   displayName: 'PS Admin',
   avatarUrl: null,
@@ -55,14 +55,14 @@ const ADMIN: SessionUser = {
 }
 const ACCOUNTANT: SessionUser = {
   ...ADMIN,
-  id: 'ps220000-0000-4000-aa00-000000000002',
+  id: 'aa220000-0000-4000-aa00-000000000002',
   email: 'ps-acct@test.spec',
   displayName: 'PS Accountant',
   role: 'ACCOUNTANT',
 }
 const SENIOR: SessionUser = {
   ...ADMIN,
-  id: 'ps220000-0000-4000-aa00-000000000003',
+  id: 'aa220000-0000-4000-aa00-000000000003',
   email: 'ps-senior@test.spec',
   displayName: 'PS Senior',
   role: 'SENIOR',
@@ -70,21 +70,21 @@ const SENIOR: SessionUser = {
 }
 const JUNIOR: SessionUser = {
   ...ADMIN,
-  id: 'ps220000-0000-4000-aa00-000000000004',
+  id: 'aa220000-0000-4000-aa00-000000000004',
   email: 'ps-junior@test.spec',
   displayName: 'PS Junior',
   role: 'JUNIOR',
 }
 const HR: SessionUser = {
   ...ADMIN,
-  id: 'ps220000-0000-4000-aa00-000000000005',
+  id: 'aa220000-0000-4000-aa00-000000000005',
   email: 'ps-hr@test.spec',
   displayName: 'PS HR',
   role: 'HR',
 }
 const DROP: SessionUser = {
   ...ADMIN,
-  id: 'ps220000-0000-4000-aa00-000000000006',
+  id: 'aa220000-0000-4000-aa00-000000000006',
   email: 'ps-drop@test.spec',
   displayName: 'PS Drop',
   role: 'DROP',
@@ -292,7 +292,9 @@ describe('pay-salary route — real backend RBAC integration (real DB, no mocks)
       method: 'PATCH',
       url: `/api/transactions/${txId}/pay`,
       cookies: { jwt: tokenFor(user) },
-      payload: { fundingSource: 'ADMIN_PERSONAL', payerAdminId: ADMIN.id },
+      // paySalarySchema requires fundingSource + currency (both mandatory).
+      // ADMIN_PERSONAL path: payerAdminId must be a valid ADMIN in the DB.
+      payload: { fundingSource: 'ADMIN_PERSONAL', payerAdminId: ADMIN.id, currency: 'USDT' },
     })
     return res.statusCode
   }

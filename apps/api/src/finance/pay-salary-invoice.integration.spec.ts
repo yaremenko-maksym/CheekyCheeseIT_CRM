@@ -35,7 +35,7 @@ import { computeCompanyAccountBalanceFromLedger } from './company-account-balanc
  */
 
 const ADMIN: SessionUser = {
-  id: 'si330000-0000-4000-aa00-000000000001',
+  id: 'bb330000-0000-4000-aa00-000000000001',
   email: 'si-admin@test.spec',
   displayName: 'SI Admin',
   avatarUrl: null,
@@ -45,13 +45,13 @@ const ADMIN: SessionUser = {
 }
 const ADMIN2: SessionUser = {
   ...ADMIN,
-  id: 'si330000-0000-4000-aa00-000000000002',
+  id: 'bb330000-0000-4000-aa00-000000000002',
   email: 'si-admin2@test.spec',
   displayName: 'SI Admin Two',
 }
 const JUNIOR: SessionUser = {
   ...ADMIN,
-  id: 'si330000-0000-4000-aa00-000000000003',
+  id: 'bb330000-0000-4000-aa00-000000000003',
   email: 'si-junior@test.spec',
   displayName: 'SI Junior',
   role: 'JUNIOR',
@@ -59,7 +59,7 @@ const JUNIOR: SessionUser = {
 
 const ALL = [ADMIN, ADMIN2, JUNIOR]
 const TEST_USER_IDS = ALL.map((u) => u.id)
-const DEPOSIT_ID = 'si330000-0000-4000-cc00-000000000001'
+const DEPOSIT_ID = 'bb330000-0000-4000-cc00-000000000001'
 
 // ── Stub collaborators ────────────────────────────────────────────────────────
 // The invoicesService stub is a plain object whose `autoCreateForSalary` is a
