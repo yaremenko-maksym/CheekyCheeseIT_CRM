@@ -94,3 +94,30 @@ describe('CreateTransactionDialog — ACCOUNTANT/ADMIN type parity', () => {
     }
   })
 })
+
+// task-payout-company-ui WS3 — DIVIDEND option is ADMIN-only. Dividends are
+// withdrawn by an ADMIN partner; the ACCOUNTANT (despite admin-parity on the
+// other types) must NOT see the dividend withdrawal here.
+describe('CreateTransactionDialog — DIVIDEND option (ADMIN-only, WS3)', () => {
+  beforeEach(() => {
+    currentRole = 'ADMIN'
+  })
+
+  it('ADMIN sees the DIVIDEND type option', () => {
+    currentRole = 'ADMIN'
+    renderDialog()
+    expect(screen.getByTestId('create-transaction-type-dividend')).toBeInTheDocument()
+  })
+
+  it('ACCOUNTANT does NOT see the DIVIDEND type option', () => {
+    currentRole = 'ACCOUNTANT'
+    renderDialog()
+    expect(screen.queryByTestId('create-transaction-type-dividend')).not.toBeInTheDocument()
+  })
+
+  it('SENIOR does NOT see the DIVIDEND type option', () => {
+    currentRole = 'SENIOR'
+    renderDialog()
+    expect(screen.queryByTestId('create-transaction-type-dividend')).not.toBeInTheDocument()
+  })
+})

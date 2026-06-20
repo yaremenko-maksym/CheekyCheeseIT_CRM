@@ -1,8 +1,19 @@
 # Progress: task-payout-company-ui
 
-current_milestone: 6/6 (done)
-last_commit: wip(web) WS5+WS6 admin wallet + CompanyAccountCard removal
-last_push: WS5+WS6
+current_milestone: 6/6 (done + tests + verified)
+last_commit: feat(web) final + RTL tests
+last_push: final
+
+## Verification
+
+- typecheck (web): green. lint (web): green. web tests: 537 passed (57 files).
+- New RTL regression: PayoutDetailDialog.test.tsx (manual-section RBAC ADMIN/ACCOUNTANT vs SENIOR/DROP/JUNIOR/HR + address/payable/tx-hash) + CreateTransactionDialog DIVIDEND gating (ADMIN only).
+- Visual (playwright, worktree :3020, ADMIN dev-login):
+  - WS5 /crm/admin/templates/wallet: new tab + card + ChangeWalletAddressDialog reuse — VERIFIED.
+  - WS4 /crm/stats: stats-company-account-balance KPI (balance + short addr) — VERIFIED.
+  - WS6 /crm/finance: CompanyAccountCard + old testids GONE — VERIFIED.
+  - WS3 create dialog: DIVIDEND option (ADMIN) + balance/receiver/amount fields — VERIFIED.
+- E2E flake: finance-payout-simulate.spec.ts, admin-templates.spec.ts, finance-senior-flow "шаг 5" FAIL IDENTICALLY on MAIN :3000 (isolation proof) — pre-existing live-env/seed issue, NOT this branch. Flagged for AutoTest.
 
 ## Milestones (WS = workstream)
 
