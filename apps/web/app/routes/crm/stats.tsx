@@ -69,10 +69,14 @@ function shortAddress(addr: string): string {
 // The company USDT account balance moved here from the Финансы page card. The
 // whole /crm/stats route is ADMIN/ACCOUNTANT-only, so no extra gate is needed.
 function CompanyAccountKpi() {
-  const { data: account } = useQuery({
+  const { data: account, isLoading } = useQuery({
     queryKey: ['company-account'],
     queryFn: companyAccountApi.getAccount,
   })
+
+  if (isLoading) {
+    return <Skeleton className="h-28 rounded-xl" />
+  }
 
   const sub = account
     ? account.walletAddress
