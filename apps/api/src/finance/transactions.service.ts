@@ -71,6 +71,27 @@ const PAYOUT_TO_COMPANY_ACCOUNT = 'COMPANY_ACCOUNT'
 // `value` from setting the credited figure. Outside the band → NOT PAID.
 const PAYOUT_AMOUNT_TOLERANCE = 0.01
 
+/** Postgres SQLSTATE for a unique-constraint violation. */
+const PG_UNIQUE_VIOLATION = '23505'
+
+/**
+ * True when `err` (or any error in its `.cause` chain) is a Postgres
+ * unique-constraint violation (SQLSTATE 23505). drizzle-orm wraps query
+ * failures in a `DrizzleQueryError`, so the original pg error — the one
+ * carrying `.code` — lives on `.cause`; this walks the chain rather than only
+ * inspecting the top-level error. Used by the NEW-M1 txHash-reuse backstop in
+ * `applyPayoutPaidCascade` to turn an index collision into a clean BadRequest.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  let cur: unknown = err
+  // Bounded walk — guards against a (pathological) self-referential cause chain.
+  for (let depth = 0; cur != null && depth < 8; depth += 1) {
+    if ((cur as { code?: unknown }).code === PG_UNIQUE_VIOLATION) return true
+    cur = (cur as { cause?: unknown }).cause
+  }
+  return false
+}
+
 /** Default drop-share percentage when `users.dropSharePercent` is NULL.
  *  Used in both `computeDropDistribution` (write-path) and `getSummary`
  *  (read-path display). Single source of truth — never duplicate the literal 5.
@@ -2485,7 +2506,11 @@ export class TransactionsService {
       // BadRequest (never a 500) — identical message to the app-level guard — so
       // the company balance is never double-credited for one on-chain transfer.
       // Mirrors the 23505 catch in CompanyAccountService.submitDeposit (#249 M3).
-      if ((err as { code?: string }).code === '23505') {
+      //
+      // drizzle-orm wraps query failures in a DrizzleQueryError, so the pg error
+      // (with `.code`) lives on `.cause` — walk the cause chain to find the
+      // SQLSTATE rather than only reading the top-level error.
+      if (isUniqueViolation(err)) {
         throw new BadRequestException('Этот хеш транзакции уже использован для другой выплаты')
       }
       throw err

@@ -531,6 +531,62 @@ describe('payout → company wallet — on-chain confirm + manual-confirm RBAC (
     expect(pr2?.status).toBe('PENDING')
   })
 
+  // ── NEW-M1: TOCTOU backstop — the DB partial unique index blocks reuse even
+  // when the app-level check-then-act guard is bypassed (the race window). The
+  // app SELECT-guard and the DB index are defense-in-depth; this test proves the
+  // STRUCTURAL layer: a real txHash already on a PAID payout cannot be written to
+  // a SECOND payout's PAID flip — the partial unique index uq_payout_requests_
+  // txhash_paid raises 23505, applyPayoutPaidCascade catches it → BadRequest, the
+  // transaction rolls back (payout stays PENDING), the balance is NOT doubled.
+  //
+  // To exercise the DB layer specifically, we (1) mark the first payout PAID with
+  // the real hash via a DIRECT DB write (no app logic at all), then (2) drive the
+  // second flip through the service in dev-simulate mode — which BYPASSES the
+  // app-level reuse SELECT (it lives only in the on-chain `!isSimulating` branch)
+  // and reaches applyPayoutPaidCascade with the reused hash, hitting the index.
+  it('NEW-M1 SECURITY: DB unique index blocks a reused real txHash on a 2nd PAID flip even past the app-check (23505 → BadRequest, no double credit)', async () => {
+    if (!dbAvailable) return
+    const REAL_HASH = '0x' + 'd'.repeat(64)
+    const before = await balance()
+
+    const first = await seedPayout(SENIOR, '1000')
+    const second = await seedPayout(SENIOR2, '1000')
+
+    // (1) Mark the FIRST payout PAID with the real hash via a direct DB write,
+    // bypassing the service entirely — simulates "this hash already settled a
+    // PAID payout" without going through any app guard. Also flip its placeholder
+    // PAYOUT row so the company balance reflects the credit (one real transfer).
+    await dbSvc.db
+      .update(payoutRequests)
+      .set({ status: 'PAID', txHash: REAL_HASH, updatedAt: new Date() })
+      .where(eq(payoutRequests.id, first.requestId))
+    await dbSvc.db
+      .update(transactions)
+      .set({ status: 'PAID', txHash: REAL_HASH, fundingSource: 'COMPANY_ACCOUNT' })
+      .where(
+        and(eq(transactions.payoutRequestId, first.requestId), eq(transactions.type, 'PAYOUT')),
+      )
+    const afterFirst = await balance()
+    expect(afterFirst).toBeCloseTo(before + first.payable, 6)
+
+    // (2) Drive the SECOND payout's flip-to-PAID through the service in
+    // dev-simulate mode with the SAME real hash. simulateResult='success' skips
+    // the entire on-chain branch — INCLUDING the app-level reuse SELECT — so the
+    // ONLY thing that can stop the double-credit is the DB index. It must:
+    //   → BadRequestException (the 23505 catch in applyPayoutPaidCascade).
+    await expect(
+      svc.payPayoutRequest(second.requestId, REAL_HASH, SENIOR2, 'success'),
+    ).rejects.toBeInstanceOf(BadRequestException)
+
+    // The aborted transaction rolled back: second payout stays PENDING and the
+    // company balance is NOT doubled (still just the first transfer's credit).
+    const pr2 = await dbSvc.db.query.payoutRequests.findFirst({
+      where: eq(payoutRequests.id, second.requestId),
+    })
+    expect(pr2?.status).toBe('PENDING')
+    expect(await balance()).toBeCloseTo(afterFirst, 6)
+  })
+
   // ── H1: synthetic-marker manual confirms are NOT blocked by the reuse guard ──
   // Two manual COMPANY_ACCOUNT confirms WITHOUT a real hash each get a unique
   // random 0xMANUAL marker, so the guard must not false-positive: both succeed
