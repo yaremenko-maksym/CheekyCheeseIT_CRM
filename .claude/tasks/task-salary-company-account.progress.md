@@ -1,6 +1,8 @@
 # Progress: task-salary-company-account (BACKEND)
 
-current_milestone: 7/7
+current_milestone: 7/7 DONE
+result: full @crm/api suite 1752 passed / 105 files / 0 fail against crm_qa. typecheck + lint clean.
+race-fix: company balance is GLOBAL aggregate; parallel spec files collide. Specs now assert persona-SCOPED contribution deltas (deterministic) + gate-trip with +1e6 margin.
 done: 1 (schemas) 2 (shared helper) 3 (reconcile) 4 (remove LOCKED) 5 (createSalary default flip + paySalary txDate+gate) 6 (expense+admin-income COMPANY_ACCOUNT + getSummary exclude)
 note: company-account.service.spec balance block MUST be rewritten (helper now 6 SUM queries, not 4) — M7.
 tests-to-update: salary-funding-source (legacy→NULL now COMPANY_ACCOUNT; seed deposit), salary-no-admin-receiver (201 tests need ADMIN_PERSONAL or seeded deposit), company-account.service.spec (6 SUMs).

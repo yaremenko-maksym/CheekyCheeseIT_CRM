@@ -82,39 +82,53 @@ function selectReturning(totals: string[]) {
 }
 
 describe('CompanyAccountService.getAccount — balance derivation (AC6)', () => {
-  // Phase 8 v2 — sumAmount is called 4× in order:
-  //   [deposits, payouts(fundingSource=COMPANY_ACCOUNT), dividends, company-salary]
-  // balance = deposits + payouts − dividends − company-salary.
-  it('balance = deposits + payouts − dividends − company-funded salaries', async () => {
-    const db = makeDb({ select: selectReturning(['1000', '0', '200', '300']) })
+  // task-salary-company-account — getAccount now delegates to the shared
+  // computeCompanyAccountBalanceFromLedger which runs sumAmount 6× IN ORDER:
+  //   [deposits, payouts(COMPANY), adminIncome(COMPANY), dividends,
+  //    salary(COMPANY), expense(COMPANY)]
+  // balance = deposits + payouts + adminIncome − dividends − salary − expense.
+  it('balance = deposits + payouts + admin-income − dividends − salary − expense', async () => {
+    // 1000 + 0 + 0 − 200 − 300 − 0 = 500
+    const db = makeDb({ select: selectReturning(['1000', '0', '0', '200', '300', '0']) })
     const svc = makeService(db)
     const acc = await svc.getAccount(ADMIN)
-    expect(acc.balance).toBe(1000 + 0 - 200 - 300) // 500
+    expect(acc.balance).toBe(500)
     expect(acc.walletAddress).toBe(WALLET)
     expect(acc.confirmationThreshold).toBe(THRESHOLD)
   })
 
   it('company-funded salary reduces balance; (admin-personal excluded by the WHERE)', async () => {
-    // The 4th sum is ONLY company-funded salary (the WHERE filters fundingSource
-    // = COMPANY_ACCOUNT), so an admin-personal salary never appears here.
-    const db = makeDb({ select: selectReturning(['1000', '0', '0', '400']) })
+    // The salary sum is ONLY company-funded salary (the WHERE filters
+    // fundingSource = COMPANY_ACCOUNT), so an admin-personal salary never
+    // appears here. 1000 − 400 = 600.
+    const db = makeDb({ select: selectReturning(['1000', '0', '0', '0', '400', '0']) })
     const svc = makeService(db)
     const acc = await svc.getAccount(ADMIN)
     expect(acc.balance).toBe(600)
   })
 
-  // Phase 8 v2 (AC4) — a confirmed payout (PAYOUT PAID, fundingSource=
-  // COMPANY_ACCOUNT) CREDITS the company balance by exactly its amount.
+  // A confirmed payout (PAYOUT PAID, fundingSource=COMPANY_ACCOUNT) CREDITS the
+  // company balance by exactly its amount.
   it('confirmed payout credits the company balance (no double count)', async () => {
-    // deposits=0, payouts=740, dividends=0, salaries=0 → balance = 740.
-    const db = makeDb({ select: selectReturning(['0', '740', '0', '0']) })
+    // deposits=0, payouts=740, rest=0 → balance = 740.
+    const db = makeDb({ select: selectReturning(['0', '740', '0', '0', '0', '0']) })
     const svc = makeService(db)
     const acc = await svc.getAccount(ADMIN)
     expect(acc.balance).toBe(740)
   })
 
+  // task-salary-company-account NEW TERMS: admin income (+) and expense (−).
+  it('company-funded admin income credits, company-funded expense debits', async () => {
+    // deposits=0, payouts=0, adminIncome=900, dividends=0, salary=0, expense=250
+    // → 0 + 0 + 900 − 0 − 0 − 250 = 650.
+    const db = makeDb({ select: selectReturning(['0', '0', '900', '0', '0', '250']) })
+    const svc = makeService(db)
+    const acc = await svc.getAccount(ADMIN)
+    expect(acc.balance).toBe(650)
+  })
+
   it('ACCOUNTANT may read; non-privileged role → 403', async () => {
-    const db = makeDb({ select: selectReturning(['0', '0', '0', '0']) })
+    const db = makeDb({ select: selectReturning(['0', '0', '0', '0', '0', '0']) })
     const svc = makeService(db)
     await expect(svc.getAccount(JUNIOR)).rejects.toBeInstanceOf(ForbiddenException)
   })
