@@ -184,8 +184,7 @@ class TestDatabaseModule {}
     // Reflector. Pattern: payout-manual-confirm.rbac.integration.spec.ts.
     {
       provide: APP_GUARD,
-      useFactory: (jwtSvc: JwtService, reflector: Reflector) =>
-        new JwtAuthGuard(jwtSvc, reflector),
+      useFactory: (jwtSvc: JwtService, reflector: Reflector) => new JwtAuthGuard(jwtSvc, reflector),
       inject: [JwtService, Reflector],
     },
   ],
