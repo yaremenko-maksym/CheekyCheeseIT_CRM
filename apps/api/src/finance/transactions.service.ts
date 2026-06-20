@@ -38,13 +38,17 @@ import {
   users,
   type Transaction,
 } from '../database/schema'
+import type { DrizzleTx } from '../database/types'
 import { InvoicesService } from '../invoices/invoices.service'
 import { DocumentsService } from '../documents/documents.service'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { EtherscanService } from './etherscan.service'
 import { resolveSeniorShare } from './senior-share-resolver'
 import { getOwnSalaryStatus } from './salary-status.helper'
-import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
+import {
+  computeCompanyAccountBalanceFromLedger,
+  lockCompanyAccount,
+} from './company-account-balance'
 
 // Phase 8 v2 — payout → company wallet. Marker persisted in
 // transactions.fundingSource on a PAYOUT row whose money landed on the company
@@ -1707,39 +1711,55 @@ export class TransactionsService {
     let senderId: string | null = currentUser.id
     let senderLabel: string | null = null
     let fundingSource: 'COMPANY_ACCOUNT' | null = null
+    const isCompanyFunded = data.fundingSource === 'COMPANY_ACCOUNT'
 
-    if (data.fundingSource === 'COMPANY_ACCOUNT') {
+    if (isCompanyFunded) {
       currency = 'USDT'
       senderId = null
       senderLabel = 'Счёт компании'
       fundingSource = 'COMPANY_ACCOUNT'
-
-      const companyBalance = await this.computeCompanyAccountBalance()
-      if (companyBalance < data.amount) {
-        throw new BadRequestException('Недостаточно средств на счёте компании')
-      }
     }
 
-    const [tx] = await this.db.db
-      .insert(transactions)
-      .values({
-        type: 'EXPENSE',
-        status: 'PAID',
-        amount: String(data.amount),
-        currency,
-        senderId,
-        senderLabel,
-        receiverLabel: data.category,
-        notes: data.notes ?? null,
-        receiptDocumentId: data.receiptDocumentId ?? null,
-        receiptExternalUrl: data.receiptExternalUrl ?? null,
-        fundingSource,
-        txDate: this.resolveTxDate(data.txDate),
-        createdBy: currentUser.id,
-      })
-      .returning()
+    const values = {
+      type: 'EXPENSE' as const,
+      status: 'PAID' as const,
+      amount: String(data.amount),
+      currency,
+      senderId,
+      senderLabel,
+      receiverLabel: data.category,
+      notes: data.notes ?? null,
+      receiptDocumentId: data.receiptDocumentId ?? null,
+      receiptExternalUrl: data.receiptExternalUrl ?? null,
+      fundingSource,
+      txDate: this.resolveTxDate(data.txDate),
+      createdBy: currentUser.id,
+    }
 
-    return this.findOne(tx!.id, currentUser)
+    // MED-1 (TOCTOU): for a company-funded expense the gate-read and the debit
+    // write MUST be serialized — otherwise two concurrent expenses both read the
+    // same balance, both pass the gate, and the account goes negative. Wrap
+    // gate+write in one transaction and acquire the company-account advisory lock
+    // FIRST; the second concurrent debit blocks, re-reads the reduced balance and
+    // correctly fails. Legacy (non-company) expenses have no balance impact → no
+    // lock needed.
+    let txId: string
+    if (isCompanyFunded) {
+      txId = await this.db.db.transaction(async (dbtx) => {
+        await lockCompanyAccount(dbtx)
+        const companyBalance = await this.computeCompanyAccountBalance(dbtx)
+        if (companyBalance < data.amount) {
+          throw new BadRequestException('Недостаточно средств на счёте компании')
+        }
+        const [tx] = await dbtx.insert(transactions).values(values).returning()
+        return tx!.id
+      })
+    } else {
+      const [tx] = await this.db.db.insert(transactions).values(values).returning()
+      txId = tx!.id
+    }
+
+    return this.findOne(txId, currentUser)
   }
 
   // ── Create SALARY ─────────────────────────────────────────────────────────
@@ -1750,8 +1770,12 @@ export class TransactionsService {
   // it was missing the `+PAYOUT(COMPANY_ACCOUNT)` term, so the gate undercounted
   // the real balance. Both paths now call computeCompanyAccountBalanceFromLedger
   // → display and gate are BYTE-FOR-BYTE identical (see company-account-balance.ts).
-  private async computeCompanyAccountBalance(): Promise<number> {
-    return computeCompanyAccountBalanceFromLedger(this.db.db)
+  //
+  // MED-1 (TOCTOU): pass `dbtx` so the balance read runs INSIDE the
+  // advisory-locked transaction of a company-account debit; the consistent,
+  // serialized view guarantees the gate sees concurrent debits already applied.
+  private async computeCompanyAccountBalance(dbtx?: DrizzleTx): Promise<number> {
+    return computeCompanyAccountBalanceFromLedger(dbtx ?? this.db.db)
   }
 
   async createSalary(
@@ -1816,25 +1840,21 @@ export class TransactionsService {
       | 'UAH'
     let fundingSource: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' = effectiveFundingSource
 
-    if (effectiveFundingSource === 'COMPANY_ACCOUNT') {
+    const isCompanyFunded = effectiveFundingSource === 'COMPANY_ACCOUNT'
+
+    if (isCompanyFunded) {
       // Paid from the shared company USDT account: always USDT, no personal
       // sender (the money leaves the company balance, not a partner's wallet).
+      // The balance gate runs inside the locked transaction below.
       currency = 'USDT'
       senderId = null
       senderLabel = 'Счёт компании'
       fundingSource = 'COMPANY_ACCOUNT'
-
-      // Balance gate: the company account must hold at least `amount` USDT.
-      // This manual path creates the row PAID, so the company balance is debited
-      // immediately at creation (the balance formula counts PAID company SALARY).
-      const companyBalance = await this.computeCompanyAccountBalance()
-      if (companyBalance < data.amount) {
-        throw new BadRequestException('Недостаточно средств на счёте компании')
-      }
     } else {
       // ADMIN_PERSONAL: paid from an admin partner's personal account. The payer
       // defaults to the calling user; an explicit payerAdminId must resolve to
-      // an ADMIN (the personal payer is always an admin partner).
+      // an ADMIN (the personal payer is always an admin partner). No company
+      // balance impact → no lock/transaction needed.
       const payerAdminId = data.payerAdminId ?? currentUser.id
       const payer = await this.db.db.query.users.findFirst({
         where: eq(users.id, payerAdminId),
@@ -1847,29 +1867,50 @@ export class TransactionsService {
       fundingSource = 'ADMIN_PERSONAL'
     }
 
-    const [tx] = await this.db.db
-      .insert(transactions)
-      .values({
-        type: 'SALARY',
-        status: 'PAID',
-        amount: String(data.amount),
-        currency,
-        senderId,
-        senderLabel,
-        receiverId: data.receiverId,
-        salaryMonth: data.salaryMonth,
-        notes: data.notes ?? null,
-        fundingSource,
-        txDate: this.resolveTxDate(data.txDate),
-        createdBy: currentUser.id,
+    const values = {
+      type: 'SALARY' as const,
+      status: 'PAID' as const,
+      amount: String(data.amount),
+      currency,
+      senderId,
+      senderLabel,
+      receiverId: data.receiverId,
+      salaryMonth: data.salaryMonth,
+      notes: data.notes ?? null,
+      fundingSource,
+      txDate: this.resolveTxDate(data.txDate),
+      createdBy: currentUser.id,
+    }
+
+    // MED-1 (TOCTOU): a company-funded salary creates the row PAID, so the
+    // balance is debited immediately at creation (the formula counts PAID company
+    // SALARY). The gate-read and the debit write MUST be serialized — otherwise
+    // two concurrent salaries both read the same balance, both pass, and the
+    // account goes negative. Wrap gate+write in one transaction holding the
+    // company-account advisory lock; the second concurrent debit blocks, re-reads
+    // the reduced balance and correctly fails.
+    let txId: string
+    if (isCompanyFunded) {
+      txId = await this.db.db.transaction(async (dbtx) => {
+        await lockCompanyAccount(dbtx)
+        const companyBalance = await this.computeCompanyAccountBalance(dbtx)
+        if (companyBalance < data.amount) {
+          throw new BadRequestException('Недостаточно средств на счёте компании')
+        }
+        const [tx] = await dbtx.insert(transactions).values(values).returning()
+        return tx!.id
       })
-      .returning()
+    } else {
+      const [tx] = await this.db.db.insert(transactions).values(values).returning()
+      txId = tx!.id
+    }
 
     // Trigger 2: invoice auto-create — SALARY rows from this path land
-    // straight in PAID, so the invoice should be generated immediately.
-    await this.safeAutoCreateInvoice('SALARY', tx!.id)
+    // straight in PAID, so the invoice should be generated immediately. Run AFTER
+    // the debit transaction commits (best-effort; must not hold the lock).
+    await this.safeAutoCreateInvoice('SALARY', txId)
 
-    return this.findOne(tx!.id, currentUser)
+    return this.findOne(txId, currentUser)
   }
 
   // ── Create ADMIN_TRANSFER ─────────────────────────────────────────────────
@@ -3446,33 +3487,53 @@ export class TransactionsService {
     if (tx.type !== 'SALARY') throw new BadRequestException('Can only pay SALARY transactions')
     if (tx.status !== 'PENDING') throw new BadRequestException('Transaction is not PENDING')
 
-    // task-salary-company-account: for a company-funded salary the money leaves
-    // the shared USDT account exactly NOW (at PAID). Gate on the live company
-    // balance BEFORE flipping. The PENDING row is not yet counted by the balance
-    // formula (only PAID company SALARY debits), so `balance >= amount` is the
-    // exact "can the account cover this payout" check.
-    if (tx.fundingSource === 'COMPANY_ACCOUNT') {
-      const companyBalance = await this.computeCompanyAccountBalance()
-      if (companyBalance < parseFloat(tx.amount)) {
-        throw new BadRequestException('Недостаточно средств на счёте компании')
-      }
-    }
-
     // task-salary-company-account: stamp txDate = pay date (now). The salary was
     // created (PENDING) on an earlier date, but the business-time of the actual
     // payment is when an ADMIN pays it.
-    await this.db.db
-      .update(transactions)
-      .set({
-        status: 'PAID',
-        txHash: data.txHash ?? null,
-        notes: data.notes ?? tx.notes,
-        txDate: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(transactions.id, id))
+    const paidSet = {
+      status: 'PAID' as const,
+      txHash: data.txHash ?? null,
+      notes: data.notes ?? tx.notes,
+      txDate: new Date(),
+      updatedAt: new Date(),
+    }
 
-    // Trigger 2: invoice auto-create for SALARY → PAID transitions.
+    if (tx.fundingSource === 'COMPANY_ACCOUNT') {
+      // task-salary-company-account: for a company-funded salary the money leaves
+      // the shared USDT account exactly NOW (at PAID). The PENDING row is not yet
+      // counted by the balance formula (only PAID company SALARY debits), so
+      // `balance >= amount` is the exact "can the account cover this payout"
+      // check.
+      //
+      // MED-1 (TOCTOU): the gate-read and the PENDING→PAID flip (which performs
+      // the debit) MUST be serialized. Two concurrent paySalary calls would
+      // otherwise both read the same balance, both pass, and both flip → the
+      // account goes negative. Wrap gate+flip in one transaction holding the
+      // company-account advisory lock; the second concurrent debit blocks,
+      // re-reads the reduced balance and correctly fails. The status re-check
+      // inside the lock guards against a double-flip of the SAME row.
+      const amount = parseFloat(tx.amount)
+      await this.db.db.transaction(async (dbtx) => {
+        await lockCompanyAccount(dbtx)
+        const [fresh] = await dbtx
+          .select({ status: transactions.status })
+          .from(transactions)
+          .where(eq(transactions.id, id))
+        if (!fresh || fresh.status !== 'PENDING') {
+          throw new BadRequestException('Transaction is not PENDING')
+        }
+        const companyBalance = await this.computeCompanyAccountBalance(dbtx)
+        if (companyBalance < amount) {
+          throw new BadRequestException('Недостаточно средств на счёте компании')
+        }
+        await dbtx.update(transactions).set(paidSet).where(eq(transactions.id, id))
+      })
+    } else {
+      await this.db.db.update(transactions).set(paidSet).where(eq(transactions.id, id))
+    }
+
+    // Trigger 2: invoice auto-create for SALARY → PAID transitions. Run AFTER the
+    // debit transaction commits (best-effort; must not hold the lock).
     await this.safeAutoCreateInvoice('SALARY', id)
 
     return this.findOne(id, currentUser)

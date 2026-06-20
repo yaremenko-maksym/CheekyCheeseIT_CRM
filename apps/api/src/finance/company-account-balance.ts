@@ -31,12 +31,48 @@
  */
 import { and, eq, sql } from 'drizzle-orm'
 import type { DatabaseService } from '../database/database.service'
+import type { DrizzleTx } from '../database/types'
 import { transactions } from '../database/schema'
 
-type Db = DatabaseService['db']
+/**
+ * Either the base pool handle (`DatabaseService['db']`) or a transaction handle
+ * (`DrizzleTx`) opened by `db.transaction(...)`. The balance is read through the
+ * SAME query surface from both; the gate paths pass the `DrizzleTx` so the read
+ * runs INSIDE the advisory-locked transaction and sees the consistent view.
+ */
+type Db = DatabaseService['db'] | DrizzleTx
 
 /** Funding-source marker for company-account-routed money movements. */
 const COMPANY_ACCOUNT = 'COMPANY_ACCOUNT'
+
+/**
+ * MED-1 (TOCTOU) — single advisory-lock key that serializes every
+ * balance-mutating debit on the company USDT account.
+ *
+ * The company balance is a GLOBAL ledger aggregate (SUM over many rows), not a
+ * single stored column, so a `SELECT … FOR UPDATE` on one row cannot serialize
+ * the "read balance → check ≥ amount → write debit" sequence. Instead every
+ * debit path wraps that sequence in a DB transaction and acquires this SAME
+ * transaction-scoped advisory lock first (`pg_advisory_xact_lock`). Two
+ * concurrent debits therefore run STRICTLY one-after-the-other: the second
+ * blocks on the lock, then re-reads the already-reduced balance and correctly
+ * fails the gate — the account can never be driven negative.
+ *
+ * MUST be the ONE key shared by createExpense / createSalary / paySalary (and
+ * any future company-account debit). Value is an arbitrary fixed bigint
+ * namespaced to this lock; never reuse it for unrelated advisory locks.
+ */
+export const COMPANY_ACCOUNT_LOCK_KEY = 8841001n
+
+/**
+ * Acquire the company-account advisory lock for the CURRENT transaction. Held
+ * until the transaction commits/rolls back, then auto-released. Call this as the
+ * FIRST statement inside the `db.transaction(...)` block that gates+writes a
+ * company-account debit, BEFORE re-reading the balance.
+ */
+export async function lockCompanyAccount(dbtx: DrizzleTx): Promise<void> {
+  await dbtx.execute(sql`SELECT pg_advisory_xact_lock(${COMPANY_ACCOUNT_LOCK_KEY})`)
+}
 
 /** SUM(amount) over `where`, parsed to a finite number (0 on NULL / NaN). */
 async function sumAmount(db: Db, where: ReturnType<typeof and>): Promise<number> {
