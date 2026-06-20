@@ -87,9 +87,6 @@ function ContractsListPage() {
                 {active ? (
                   <div className="space-y-1 text-sm text-muted-foreground">
                     <p>
-                      Версия: <span className="font-medium text-foreground">v{active.version}</span>
-                    </p>
-                    <p>
                       Обновлён:{' '}
                       <span className="font-medium text-foreground">
                         {format(new Date(active.createdAt), 'dd.MM.yyyy')}

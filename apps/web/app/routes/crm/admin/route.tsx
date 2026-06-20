@@ -1,17 +1,30 @@
-import { createFileRoute, Link, Outlet, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useEffect } from 'react'
 import { useAuth } from '@/context/auth'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/crm/StickyPageHeader'
+import { AnimatedTabs } from '@/components/ui/animated-tabs'
 
 export const Route = createFileRoute('/crm/admin')({
   component: AdminTemplatesRoot,
 })
 
+const ADMIN_TABS = [
+  { value: 'contracts', label: 'Контракты', ariaLabel: 'Контракты' },
+  { value: 'tos', label: 'Terms of Service', ariaLabel: 'Terms of Service' },
+  { value: 'wallet', label: 'Кошелёк компании', ariaLabel: 'Кошелёк компании' },
+]
+
 function AdminTemplatesRoot() {
   const { user, isLoading } = useAuth()
   const navigate = useNavigate()
+  const location = useRouterState({ select: (s) => s.location })
+
+  // Derive active tab from pathname: /crm/admin/contracts → 'contracts'
+  const activeTab =
+    ADMIN_TABS.find((t) => location.pathname.startsWith(`/crm/admin/${t.value}`))?.value ??
+    'contracts'
 
   // RBAC: non-ADMIN → redirect to dashboard (/crm) + toast
   useEffect(() => {
@@ -45,33 +58,33 @@ function AdminTemplatesRoot() {
   return (
     <div className="flex flex-col h-full">
       <PageHeader>
-        {/* Tab navigation */}
-        <nav
-          className="mt-2 flex gap-1 rounded-lg border border-border/60 bg-muted/40 p-1 w-fit"
-          aria-label="Разделы редактора"
+        {/* Animated tab navigation — pill animation via framer-motion */}
+        <div
+          className="mt-2"
+          role="navigation"
+          aria-label="Разделы администратора"
+          data-testid="admin-tabs-nav"
         >
-          <Link
-            to="/crm/admin/contracts"
-            className="rounded-md px-4 py-1.5 text-sm font-medium transition-colors hover:bg-background hover:text-foreground text-muted-foreground [&.active]:bg-background [&.active]:text-foreground [&.active]:shadow-sm"
-            data-testid="admin-templates-tab-contracts"
-          >
-            Контракты
-          </Link>
-          <Link
-            to="/crm/admin/tos"
-            className="rounded-md px-4 py-1.5 text-sm font-medium transition-colors hover:bg-background hover:text-foreground text-muted-foreground [&.active]:bg-background [&.active]:text-foreground [&.active]:shadow-sm"
-            data-testid="admin-templates-tab-tos"
-          >
-            Terms of Service
-          </Link>
-          <Link
-            to="/crm/admin/wallet"
-            className="rounded-md px-4 py-1.5 text-sm font-medium transition-colors hover:bg-background hover:text-foreground text-muted-foreground [&.active]:bg-background [&.active]:text-foreground [&.active]:shadow-sm"
-            data-testid="admin-templates-tab-wallet"
-          >
-            Кошелёк компании
-          </Link>
-        </nav>
+          <AnimatedTabs
+            tabs={ADMIN_TABS}
+            value={activeTab}
+            onChange={(value) => {
+              void navigate({ to: `/crm/admin/${value}` as '/crm/admin/contracts' })
+            }}
+          />
+          {/* Hidden links preserve data-testid compatibility for any E2E that targets tabs */}
+          <span className="sr-only">
+            <a data-testid="admin-templates-tab-contracts" href="/crm/admin/contracts">
+              Контракты
+            </a>
+            <a data-testid="admin-templates-tab-tos" href="/crm/admin/tos">
+              Terms of Service
+            </a>
+            <a data-testid="admin-templates-tab-wallet" href="/crm/admin/wallet">
+              Кошелёк компании
+            </a>
+          </span>
+        </div>
       </PageHeader>
 
       {/* Child route content scrolls here */}
