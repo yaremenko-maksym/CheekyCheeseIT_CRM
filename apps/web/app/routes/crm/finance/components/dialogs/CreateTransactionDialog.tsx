@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, ArrowLeftRight, TrendingUp, Wallet } from 'lucide-react'
+import { AlertCircle, ArrowLeftRight, Coins, TrendingUp, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 import type { TransactionType } from '@crm/shared'
 import { SALARY_ELIGIBLE_ROLES } from '@crm/shared'
@@ -29,9 +29,29 @@ import {
 import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
 import { Textarea } from '@/components/ui/textarea'
 import { DatePickerField } from '@/components/ui/date-picker'
-import { financeApi } from '../../api'
+import { financeApi, companyAccountApi } from '../../api'
 import { EXPENSE_CATEGORIES, TYPE_LABELS } from '../../constants'
 import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptInput'
+
+// UI-level transaction kind for THIS dialog. `DIVIDEND` is a synthetic option —
+// it is NOT a `TransactionType` enum value (the dividend flows through the
+// dedicated company-account endpoint, which books a DIVIDEND_TO_ADMIN row
+// server-side). Keeping it dialog-local avoids churning the shared enum / every
+// exhaustive `Record<TransactionType, …>` in the app.
+type DialogTxType = TransactionType | 'DIVIDEND'
+
+// Label / description for the synthetic DIVIDEND option (TYPE_LABELS is keyed by
+// the real enum and stays untouched).
+const DIVIDEND_LABEL = 'Дивиденд'
+const DIVIDEND_DESCRIPTION = 'Вывод дивидендов с баланса счёта компании'
+
+function typeLabel(t: DialogTxType): string {
+  return t === 'DIVIDEND' ? DIVIDEND_LABEL : TYPE_LABELS[t]
+}
+
+function fmtUsdt(n: number): string {
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
 
 // Drop role - phase 2. Extended with `dropId` so the DROP_INCOME path can
 // filter projects by `project.dropId === user.id`. Backward compatible —
@@ -51,6 +71,7 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
   EXPENSE: <Wallet className="h-4 w-4" />,
   SALARY: <Wallet className="h-4 w-4" />,
   ADMIN_TRANSFER: <ArrowLeftRight className="h-4 w-4" />,
+  DIVIDEND: <Coins className="h-4 w-4" />,
 }
 
 const TYPE_DESCRIPTIONS: Record<string, string> = {
@@ -60,6 +81,7 @@ const TYPE_DESCRIPTIONS: Record<string, string> = {
   EXPENSE: 'Расход компании',
   SALARY: 'Выплата зарплаты сотруднику',
   ADMIN_TRANSFER: 'Перевод между партнёрами',
+  DIVIDEND: DIVIDEND_DESCRIPTION,
 }
 
 function needsConversion(currency: Currency) {
@@ -92,15 +114,20 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   const isAccountant = user?.role === 'ACCOUNTANT'
   const isAdminSet = isAdmin || isAccountant
 
-  const availableTypes: TransactionType[] = isAdminSet
-    ? ['ADMIN_INCOME', 'EXPENSE', 'SALARY', 'ADMIN_TRANSFER']
-    : isSenior
-      ? ['SENIOR_INCOME']
-      : isDrop
-        ? ['DROP_INCOME']
-        : []
+  // DIVIDEND (synthetic option) is ADMIN-only — dividends are withdrawn by an
+  // ADMIN partner, never by the ACCOUNTANT. So the accountant keeps the plain
+  // admin set while ADMIN additionally gets DIVIDEND.
+  const availableTypes: DialogTxType[] = isAdmin
+    ? ['ADMIN_INCOME', 'EXPENSE', 'SALARY', 'ADMIN_TRANSFER', 'DIVIDEND']
+    : isAccountant
+      ? ['ADMIN_INCOME', 'EXPENSE', 'SALARY', 'ADMIN_TRANSFER']
+      : isSenior
+        ? ['SENIOR_INCOME']
+        : isDrop
+          ? ['DROP_INCOME']
+          : []
 
-  const [type, setType] = useState<TransactionType>(availableTypes[0] ?? 'SENIOR_INCOME')
+  const [type, setType] = useState<DialogTxType>(availableTypes[0] ?? 'SENIOR_INCOME')
   const [projectId, setProjectId] = useState('')
   const [receiverId, setReceiverId] = useState('')
   const [transferSenderId, setTransferSenderId] = useState<string>('')
@@ -147,6 +174,16 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     enabled: open && isAdminSet,
   })
 
+  // Company account balance — needed only for the DIVIDEND branch (ADMIN-only)
+  // to display the available USDT and gate the amount. Mirrors the guard that
+  // the now-removed WithdrawDividendsDialog applied.
+  const { data: companyAccount } = useQuery({
+    queryKey: ['company-account'],
+    queryFn: companyAccountApi.getAccount,
+    enabled: open && isAdmin,
+  })
+  const companyBalance = companyAccount?.balance ?? 0
+
   // Fetch NBU rates when non-USD/USDT currency selected, keyed by date
   const needsRate = needsConversion(currency)
   const rateDateParam = txDate.replace(/-/g, '') // YYYY-MM-DD → YYYYMMDD
@@ -184,6 +221,11 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // transfer party, so the sender/receiver pools are the same admin list for
   // both roles; for ADMIN we still exclude self from the receiver pool.
   const adminTargets = isAdmin ? adminUsers.filter((u) => u.id !== user?.id) : adminUsers
+
+  // DIVIDEND receiver pool — any ADMIN partner; defaults to the calling admin.
+  // Reuses the shared `receiverId` state; backend defaults to the caller when
+  // adminId is omitted, but we always send an explicit one for auditability.
+  const dividendReceiverId = receiverId || user?.id || ''
 
   // Default the transfer sender to self for ADMIN; for ACCOUNTANT (not a party)
   // default to the first admin so the transfer always has two ADMIN endpoints.
@@ -223,6 +265,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     }
     if (type === 'ADMIN_TRANSFER') {
       if (!transferReceiverId) errors.receiver = 'Выберите получателя'
+    }
+    if (type === 'DIVIDEND') {
+      if (!dividendReceiverId) errors.receiver = 'Выберите получателя-партнёра'
+      if (!isNaN(amt) && amt > 0 && amt > companyBalance) {
+        errors.amount = 'Сумма превышает баланс счёта компании'
+      }
     }
     return errors
   }
@@ -300,6 +348,15 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           txDate: txDate || null,
         })
       }
+      if (type === 'DIVIDEND') {
+        // Company-account dividend (ADMIN-only). Always USDT; receiver is an
+        // ADMIN partner (adminId). Currency / project / receipt fields are
+        // irrelevant here — the endpoint only needs amount + target admin.
+        return companyAccountApi.createDividend({
+          amount: amt,
+          ...(dividendReceiverId ? { adminId: dividendReceiverId } : {}),
+        })
+      }
       throw new Error('Unknown type')
     },
     onSuccess: () => {
@@ -310,6 +367,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
       // already surface via the table refresh so a toast would be noise.
       if (type === 'DROP_INCOME') {
         toast.success('Приход зарегистрирован, ожидает валидации')
+      }
+      if (type === 'DIVIDEND') {
+        void qc.invalidateQueries({ queryKey: ['company-account'] })
+        toast.success('Дивиденды выведены')
       }
       onClose()
       resetForm()
@@ -396,7 +457,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 >
                   <span className="text-muted-foreground shrink-0">{TYPE_ICONS[t]}</span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium leading-tight">{TYPE_LABELS[t]}</div>
+                    <div className="text-sm font-medium leading-tight">{typeLabel(t)}</div>
                     <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
                       {TYPE_DESCRIPTIONS[t]}
                     </div>
@@ -583,24 +644,115 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             </div>
           )}
 
-          {/* Amount + Currency */}
-          <AmountCurrencyInput
-            amount={amount}
-            currency={currency}
-            onAmountChange={(v) => {
-              setAmount(v)
-              clearFieldError('amount')
-            }}
-            onCurrencyChange={setCurrency}
-            error={fieldErrors.amount}
-            errorTestId="create-transaction-error-amount"
-          />
+          {/* Dividend — balance + receiver + USDT amount (ADMIN-only).
+              Renders its own USDT-only amount input (no currency selector, no
+              date) — the company-account endpoint only needs amount + receiver. */}
+          {type === 'DIVIDEND' && (
+            <div className="space-y-4" data-testid="create-transaction-dividend-fields">
+              {/* Balance summary */}
+              <div className="space-y-1 rounded-lg border border-border bg-muted/30 p-3 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Баланс счёта компании</span>
+                  <span
+                    className="font-bold tabular-nums"
+                    data-testid="create-transaction-dividend-balance"
+                  >
+                    {fmtUsdt(companyBalance)} USDT
+                  </span>
+                </div>
+              </div>
 
-          {/* Date */}
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Дата транзакции</Label>
-            <DatePickerField value={txDate} onChange={setTxDate} className="h-9 text-sm" />
-          </div>
+              {/* Receiver — ADMIN partner */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Получатель (партнёр)</Label>
+                <Select
+                  value={dividendReceiverId}
+                  onValueChange={(v) => {
+                    setReceiverId(v)
+                    clearFieldError('receiver')
+                  }}
+                >
+                  <SelectTrigger
+                    className={cn('h-9 text-sm', fieldErrors.receiver && 'border-destructive')}
+                    data-testid="create-transaction-dividend-receiver-trigger"
+                  >
+                    <SelectValue placeholder="Выберите партнёра" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {adminUsers.map((u) => (
+                      <SelectItem key={u.id} value={u.id} className="text-sm">
+                        {u.displayName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {fieldErrors.receiver && (
+                  <p
+                    className="text-[11px] text-destructive"
+                    data-testid="create-transaction-error-receiver"
+                  >
+                    {fieldErrors.receiver}
+                  </p>
+                )}
+              </div>
+
+              {/* USDT amount */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Сумма (USDT)</Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                    $
+                  </span>
+                  <Input
+                    value={amount}
+                    onChange={(e) => {
+                      setAmount(e.target.value)
+                      clearFieldError('amount')
+                    }}
+                    placeholder="0.00"
+                    inputMode="decimal"
+                    className={cn(
+                      'h-9 pl-7 text-sm tabular-nums',
+                      fieldErrors.amount && 'border-destructive',
+                    )}
+                    aria-label="Сумма дивидендов в USDT"
+                    data-testid="create-transaction-dividend-amount"
+                  />
+                </div>
+                {fieldErrors.amount && (
+                  <p
+                    className="text-[11px] text-destructive"
+                    data-testid="create-transaction-error-amount"
+                  >
+                    {fieldErrors.amount}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Amount + Currency (all non-dividend types) */}
+          {type !== 'DIVIDEND' && (
+            <AmountCurrencyInput
+              amount={amount}
+              currency={currency}
+              onAmountChange={(v) => {
+                setAmount(v)
+                clearFieldError('amount')
+              }}
+              onCurrencyChange={setCurrency}
+              error={fieldErrors.amount}
+              errorTestId="create-transaction-error-amount"
+            />
+          )}
+
+          {/* Date (non-dividend types) */}
+          {type !== 'DIVIDEND' && (
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Дата транзакции</Label>
+              <DatePickerField value={txDate} onChange={setTxDate} className="h-9 text-sm" />
+            </div>
+          )}
 
           {/* Receipt */}
           {showReceipt && (
