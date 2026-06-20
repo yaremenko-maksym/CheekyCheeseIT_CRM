@@ -1786,22 +1786,14 @@ export class TransactionsService {
       salaryMonth: string
       notes?: string | null | undefined
       txDate?: string | null | undefined
-      // task-salary-company-account. Funding source. Absent → COMPANY_ACCOUNT
-      // (NEW default — was ADMIN_PERSONAL). COMPANY_ACCOUNT pays from the shared
-      // company USDT account (gated by its balance); ADMIN_PERSONAL pays from an
-      // admin partner's personal account.
-      fundingSource?: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' | undefined
-      // For ADMIN_PERSONAL — whose personal account funds this; must be an ADMIN.
-      payerAdminId?: string | undefined
     },
     currentUser: SessionUser,
   ) {
     // task-accountant-create-transaction. ACCOUNTANT has create-parity with
     // ADMIN for salaries (business doc finance.md: «ACCOUNTANT — …, выплаты»).
-    // senderId = currentUser.id records the payer.
     // task-salary-no-admin-receiver (security-MED #222): ADMIN cannot receive
     // SALARY — their income comes via admin shares (ADMIN_INCOME / PAYOUT). The
-    // allow-list covers every salaried role: JUNIOR, HR, ACCOUNTANT (nalymed
+    // allow-list covers every salaried role: JUNIOR, HR, ACCOUNTANT (salaried
     // employees), SENIOR and DROP (project-based contractors who may also
     // receive a flat salary). Self-pay for ACCOUNTANT remains allowed.
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT')
@@ -1824,93 +1816,37 @@ export class TransactionsService {
       )
     }
 
-    // ── task-salary-company-account. Funding source resolution. ───────────────
-    // DEFAULT FLIP: an ABSENT fundingSource now resolves to COMPANY_ACCOUNT (was
-    // ADMIN_PERSONAL / legacy caller-as-payer). The shared company USDT account
-    // is the default salary funder; ADMIN_PERSONAL is the explicit opt-out.
-    const effectiveFundingSource: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' =
-      data.fundingSource ?? 'COMPANY_ACCOUNT'
-
-    let senderId: string | null = currentUser.id
-    let senderLabel = 'CheekyCheeseIT'
-    let currency: 'USDT' | 'USD' | 'EUR' | 'UAH' = (data.currency ?? 'USD') as
+    // task-salary-pay-flow: a manually-created salary is a NEUTRAL PENDING
+    // reminder — it does NOT pick a funding source, does NOT touch the company
+    // balance, and is NOT a debit. The funding source (company account vs admin
+    // personal) and the actual payment currency are decided LATER, at pay time
+    // (paySalary). senderId/fundingSource stay null until then; the currency is
+    // the nominal of the reminder (default USD). No advisory lock / balance gate.
+    const currency: 'USDT' | 'USD' | 'EUR' | 'UAH' = (data.currency ?? 'USD') as
       | 'USDT'
       | 'USD'
       | 'EUR'
       | 'UAH'
-    let fundingSource: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' = effectiveFundingSource
 
-    const isCompanyFunded = effectiveFundingSource === 'COMPANY_ACCOUNT'
-
-    if (isCompanyFunded) {
-      // Paid from the shared company USDT account: always USDT, no personal
-      // sender (the money leaves the company balance, not a partner's wallet).
-      // The balance gate runs inside the locked transaction below.
-      currency = 'USDT'
-      senderId = null
-      senderLabel = 'Счёт компании'
-      fundingSource = 'COMPANY_ACCOUNT'
-    } else {
-      // ADMIN_PERSONAL: paid from an admin partner's personal account. The payer
-      // defaults to the calling user; an explicit payerAdminId must resolve to
-      // an ADMIN (the personal payer is always an admin partner). No company
-      // balance impact → no lock/transaction needed.
-      const payerAdminId = data.payerAdminId ?? currentUser.id
-      const payer = await this.db.db.query.users.findFirst({
-        where: eq(users.id, payerAdminId),
+    const [tx] = await this.db.db
+      .insert(transactions)
+      .values({
+        type: 'SALARY' as const,
+        status: 'PENDING' as const,
+        amount: String(data.amount),
+        currency,
+        senderId: null,
+        senderLabel: 'CheekyCheeseIT',
+        receiverId: data.receiverId,
+        salaryMonth: data.salaryMonth,
+        notes: data.notes ?? null,
+        fundingSource: null,
+        txDate: this.resolveTxDate(data.txDate),
+        createdBy: currentUser.id,
       })
-      if (!payer || payer.role !== 'ADMIN') {
-        throw new BadRequestException('Личный счёт-плательщик зарплаты должен принадлежать ADMIN')
-      }
-      senderId = payer.id
-      senderLabel = payer.displayName
-      fundingSource = 'ADMIN_PERSONAL'
-    }
+      .returning()
 
-    const values = {
-      type: 'SALARY' as const,
-      status: 'PAID' as const,
-      amount: String(data.amount),
-      currency,
-      senderId,
-      senderLabel,
-      receiverId: data.receiverId,
-      salaryMonth: data.salaryMonth,
-      notes: data.notes ?? null,
-      fundingSource,
-      txDate: this.resolveTxDate(data.txDate),
-      createdBy: currentUser.id,
-    }
-
-    // MED-1 (TOCTOU): a company-funded salary creates the row PAID, so the
-    // balance is debited immediately at creation (the formula counts PAID company
-    // SALARY). The gate-read and the debit write MUST be serialized — otherwise
-    // two concurrent salaries both read the same balance, both pass, and the
-    // account goes negative. Wrap gate+write in one transaction holding the
-    // company-account advisory lock; the second concurrent debit blocks, re-reads
-    // the reduced balance and correctly fails.
-    let txId: string
-    if (isCompanyFunded) {
-      txId = await this.db.db.transaction(async (dbtx) => {
-        await lockCompanyAccount(dbtx)
-        const companyBalance = await this.computeCompanyAccountBalance(dbtx)
-        if (companyBalance < data.amount) {
-          throw new BadRequestException('Недостаточно средств на счёте компании')
-        }
-        const [tx] = await dbtx.insert(transactions).values(values).returning()
-        return tx!.id
-      })
-    } else {
-      const [tx] = await this.db.db.insert(transactions).values(values).returning()
-      txId = tx!.id
-    }
-
-    // Trigger 2: invoice auto-create — SALARY rows from this path land
-    // straight in PAID, so the invoice should be generated immediately. Run AFTER
-    // the debit transaction commits (best-effort; must not hold the lock).
-    await this.safeAutoCreateInvoice('SALARY', txId)
-
-    return this.findOne(txId, currentUser)
+    return this.findOne(tx!.id, currentUser)
   }
 
   // ── Create ADMIN_TRANSFER ─────────────────────────────────────────────────
@@ -3473,6 +3409,12 @@ export class TransactionsService {
   async paySalary(
     id: string,
     data: {
+      // task-salary-pay-flow: the funding source + currency are chosen HERE (at
+      // pay time), not at creation. The PENDING salary is a neutral reminder.
+      fundingSource: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL'
+      // For ADMIN_PERSONAL — whose personal account pays; must be an ADMIN.
+      payerAdminId?: string | undefined
+      currency: 'USDT' | 'USD' | 'EUR' | 'UAH'
       txHash?: string | null | undefined
       notes?: string | null | undefined
     },
@@ -3487,23 +3429,58 @@ export class TransactionsService {
     if (tx.type !== 'SALARY') throw new BadRequestException('Can only pay SALARY transactions')
     if (tx.status !== 'PENDING') throw new BadRequestException('Transaction is not PENDING')
 
-    // task-salary-company-account: stamp txDate = pay date (now). The salary was
-    // created (PENDING) on an earlier date, but the business-time of the actual
-    // payment is when an ADMIN pays it.
+    const isCompanyFunded = data.fundingSource === 'COMPANY_ACCOUNT'
+
+    // Resolve sender + currency from the pay-time funding choice. The AMOUNT is
+    // never converted — only the currency LABEL changes.
+    let senderId: string | null
+    let senderLabel: string
+    let currency: 'USDT' | 'USD' | 'EUR' | 'UAH'
+
+    if (isCompanyFunded) {
+      // COMPANY_ACCOUNT: money leaves the shared company USDT account. Force USDT
+      // (USDT-only account), no personal sender, labelled «Счёт компании».
+      currency = 'USDT'
+      senderId = null
+      senderLabel = 'Счёт компании'
+    } else {
+      // ADMIN_PERSONAL: paid from an admin partner's personal account. The payer
+      // defaults to the calling (ADMIN) user; an explicit payerAdminId must
+      // resolve to an ADMIN. Currency is the chosen one (any). No company balance
+      // impact → no lock / balance gate.
+      const payerAdminId = data.payerAdminId ?? currentUser.id
+      const payer = await this.db.db.query.users.findFirst({
+        where: eq(users.id, payerAdminId),
+      })
+      if (!payer || payer.role !== 'ADMIN') {
+        throw new BadRequestException('Личный счёт-плательщик зарплаты должен принадлежать ADMIN')
+      }
+      senderId = payer.id
+      senderLabel = payer.displayName
+      currency = data.currency
+    }
+
+    // task-salary-pay-flow: stamp txDate = pay date (now). The salary was created
+    // (PENDING) on an earlier date, but the business-time of the actual payment
+    // is when an ADMIN pays it. The funding source / currency / sender are
+    // finalized on the row HERE.
     const paidSet = {
       status: 'PAID' as const,
+      fundingSource: isCompanyFunded ? ('COMPANY_ACCOUNT' as const) : ('ADMIN_PERSONAL' as const),
+      currency,
+      senderId,
+      senderLabel,
       txHash: data.txHash ?? null,
       notes: data.notes ?? tx.notes,
       txDate: new Date(),
       updatedAt: new Date(),
     }
 
-    if (tx.fundingSource === 'COMPANY_ACCOUNT') {
-      // task-salary-company-account: for a company-funded salary the money leaves
-      // the shared USDT account exactly NOW (at PAID). The PENDING row is not yet
-      // counted by the balance formula (only PAID company SALARY debits), so
-      // `balance >= amount` is the exact "can the account cover this payout"
-      // check.
+    if (isCompanyFunded) {
+      // For a company-funded salary the money leaves the shared USDT account
+      // exactly NOW (at PAID). The PENDING row is not yet counted by the balance
+      // formula (only PAID company SALARY debits), so `balance >= amount` is the
+      // exact "can the account cover this payout" check.
       //
       // MED-1 (TOCTOU): the gate-read and the PENDING→PAID flip (which performs
       // the debit) MUST be serialized. Two concurrent paySalary calls would
@@ -3548,8 +3525,8 @@ export class TransactionsService {
     })
 
     // Find the admin who creates (Maksym by default). Used only as `createdBy`
-    // for audit — the money no longer comes from the admin's personal account
-    // (see fundingSource=COMPANY_ACCOUNT below).
+    // for audit — the cron creates neutral PENDING reminders, no money moves
+    // until an ADMIN pays each one via paySalary (which picks the funding source).
     const admin = await this.db.db.query.users.findFirst({
       where: and(eq(users.role, 'ADMIN'), eq(users.id, MAKSYM_ID)),
     })
@@ -3568,21 +3545,21 @@ export class TransactionsService {
       })
       if (existing) continue
 
-      // task-salary-company-account: monthly salaries default to the shared
-      // company USDT account. Status PENDING (the money leaves the company
-      // balance only when an ADMIN pays it via paySalary — the balance formula
-      // counts only PAID company SALARY). senderId null + 'Счёт компании' label;
-      // `monthlySalary` is now interpreted as USDT.
+      // task-salary-pay-flow: monthly salaries are NEUTRAL PENDING reminders —
+      // no funding source, no currency lock, no balance impact at creation. The
+      // funding source (company account vs admin personal) and the actual
+      // payment currency are chosen at pay time (paySalary). `monthlySalary` is
+      // the USD nominal of the reminder.
       await this.db.db.insert(transactions).values({
         type: 'SALARY',
         status: 'PENDING',
         amount: emp.monthlySalary,
-        currency: 'USDT',
+        currency: 'USD',
         senderId: null,
-        senderLabel: 'Счёт компании',
+        senderLabel: 'CheekyCheeseIT',
         receiverId: emp.id,
         salaryMonth: month,
-        fundingSource: 'COMPANY_ACCOUNT',
+        fundingSource: null,
         createdBy: admin.id,
       })
     }
@@ -3631,13 +3608,13 @@ export class TransactionsService {
         type: 'SALARY',
         status: 'PENDING',
         amount: String(salaryAmount),
-        currency: 'USDT',
+        currency: 'USD',
         senderId: null,
-        senderLabel: 'Счёт компании',
+        senderLabel: 'CheekyCheeseIT',
         receiverId: user.id,
         projectId: project.id,
         salaryMonth: month,
-        fundingSource: 'COMPANY_ACCOUNT',
+        fundingSource: null,
         createdBy: admin.id,
       })
     }
