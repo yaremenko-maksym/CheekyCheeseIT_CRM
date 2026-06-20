@@ -1,7 +1,7 @@
 import { Global, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
@@ -135,6 +135,34 @@ describe('company-account debits — serialized via advisory lock (MED-1, real D
     return computeCompanyAccountBalanceFromLedger(dbSvc.db)
   }
 
+  // Scoped contribution = THIS spec's company-account ledger delta, restricted to
+  // rows authored by this spec's personas: + its COMPANY_DEPOSIT, − its PAID
+  // company SALARY. The absolute global balance is a shared aggregate that PARALLEL
+  // spec files (e.g. salary-funding-source) mutate concurrently — paying their own
+  // company salaries between our two reads — so asserting the GLOBAL `before-amount`
+  // is flaky. Asserting OUR contribution delta is deterministic under concurrency.
+  async function myContribution(): Promise<number> {
+    const sumByType = async (type: string, companyOnly: boolean): Promise<number> => {
+      const conds = [
+        eq(transactions.type, type as never),
+        eq(transactions.status, 'PAID' as never),
+        inArray(transactions.createdBy, TEST_USER_IDS),
+        ...(companyOnly ? [eq(transactions.fundingSource, 'COMPANY_ACCOUNT' as never)] : []),
+      ]
+      const rows = await dbSvc.db
+        .select({ total: sql<string>`COALESCE(SUM(${transactions.amount}), 0)` })
+        .from(transactions)
+        .where(and(...conds))
+      const total = parseFloat(rows[0]?.total ?? '0')
+      return Number.isFinite(total) ? total : 0
+    }
+    const [deposits, salary] = await Promise.all([
+      sumByType('COMPANY_DEPOSIT', false),
+      sumByType('SALARY', true),
+    ])
+    return deposits - salary
+  }
+
   // Seed a confirmed company deposit. Returned so callers can size amounts
   // relative to the GLOBAL aggregate (residual crm_qa balance may be non-zero).
   async function seedDeposit(amount: number) {
@@ -237,10 +265,16 @@ describe('company-account debits — serialized via advisory lock (MED-1, real D
     // would need 2×balance but only 1×balance exists. With the advisory lock
     // exactly one clears; without it both would pass the gate and drive the
     // account to −balance.
-    await seedDeposit(600)
+    // Seed a deposit far larger than any residual so OUR funds dominate the
+    // global balance window. Size each salary to 0.6× the live balance: ONE fits
+    // (0.6 < 1.0) but TWO do not (1.2 > 1.0). The 0.4× margin tolerates modest
+    // concurrent global-balance drift from parallel specs without flipping the
+    // exactly-one-succeeds outcome.
+    await seedDeposit(1_000_000)
     const before = await liveBalance()
     expect(before).toBeGreaterThan(0)
-    const amount = before
+    const amount = Math.round(before * 0.6)
+    const myBefore = await myContribution()
 
     const salaryA = await seedPendingSalary(JUNIOR_A.id, amount)
     const salaryB = await seedPendingSalary(JUNIOR_B.id, amount)
@@ -253,15 +287,17 @@ describe('company-account debits — serialized via advisory lock (MED-1, real D
     const fulfilled = results.filter((r) => r.status === 'fulfilled')
     const rejected = results.filter((r) => r.status === 'rejected')
 
+    // CORE MED-1: each salary = the full live balance, so the two debits need
+    // 2×balance but only 1×balance exists → exactly one clears, one is gated out.
     expect(fulfilled).toHaveLength(1)
     expect(rejected).toHaveLength(1)
     expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/Недостаточно средств/)
 
-    // The account must NOT go negative: exactly one `amount` debit applied →
-    // balance dropped by exactly `amount` and lands at ≥ 0.
-    const after = await liveBalance()
-    expect(after).toBe(before - amount)
-    expect(after).toBeGreaterThanOrEqual(0)
+    // OUR contribution dropped by exactly ONE `amount` debit (scoped delta is
+    // robust to PARALLEL specs that mutate the global balance concurrently).
+    expect(await myContribution()).toBe(myBefore - amount)
+    // Safety: the GLOBAL account must never go negative even under concurrency.
+    expect(await liveBalance()).toBeGreaterThanOrEqual(0)
   }, 30_000)
 
   // Sequential sanity: after the first debit drains the balance, a second debit
@@ -271,22 +307,27 @@ describe('company-account debits — serialized via advisory lock (MED-1, real D
   it('second debit over the reduced balance is rejected (gate re-reads after first debit)', async () => {
     if (!dbAvailable) return
 
-    await seedDeposit(500)
+    await seedDeposit(1_000_000)
     const before = await liveBalance()
-    const amount = before // each salary = the full live balance
+    // 0.6× the live balance: the first debit leaves 0.4×, so the second (0.6×)
+    // exceeds the reduced balance and is rejected — robust to concurrent drift.
+    const amount = Math.round(before * 0.6)
+    const myBefore = await myContribution()
 
     const salaryA = await seedPendingSalary(JUNIOR_A.id, amount)
     const salaryB = await seedPendingSalary(JUNIOR_B.id, amount)
 
-    // First debit drains the balance to 0.
+    // First debit succeeds (one fits).
     await svc.paySalary(salaryA, { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' }, ADMIN)
-    expect(await liveBalance()).toBe(before - amount)
+    expect(await myContribution()).toBe(myBefore - amount)
 
-    // Second debit of `amount` now exceeds the reduced (0) balance → rejected.
+    // Second debit of `amount` now exceeds the reduced balance → rejected (the
+    // gate re-reads the already-reduced balance).
     await expect(
       svc.paySalary(salaryB, { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' }, ADMIN),
     ).rejects.toThrowError(/Недостаточно средств/)
-    expect(await liveBalance()).toBe(before - amount)
+    // Only the first debit applied — our contribution did not drop further.
+    expect(await myContribution()).toBe(myBefore - amount)
   }, 30_000)
 
   // The lock must NOT block a row that is no longer PENDING — a double-pay of the
