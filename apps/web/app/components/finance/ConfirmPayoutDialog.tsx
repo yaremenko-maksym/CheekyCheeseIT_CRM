@@ -89,14 +89,28 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
         // New branch — credits the shared company account. Routed off the
         // payout REQUEST id (not the tx id), matching the #252 backend
         // contract. txHash is optional here; only attach it when populated.
-        await financeApi.manualConfirmPayout(tx!.payoutRequestId!, {
+        //
+        // Explicit guard instead of double-non-null: `canSubmit` already
+        // gates submission when `tx.payoutRequestId` is absent, but a
+        // defensive check here makes the money-path safe against any future
+        // caller that bypasses the form gate (#253 review code MED fix).
+        if (!tx || !tx.payoutRequestId) {
+          throw new Error('Выплата не привязана к запросу на выплату — невозможно подтвердить')
+        }
+        await financeApi.manualConfirmPayout(tx.payoutRequestId, {
           method: 'COMPANY_ACCOUNT',
           ...(trimmed.length > 0 ? { txHash: trimmed } : {}),
         })
         return
       }
       // Legacy CRYPTO/CASH branch — credits the chosen admin partner.
-      await financeApi.confirmPayout(tx!.id, {
+      // `tx` is guaranteed non-null here: `if (!tx) return null` above the
+      // Dialog renders nothing when tx is null, so mutationFn is never called.
+      // The explicit check removes any implicit reliance on `!`-assertion.
+      if (!tx) {
+        throw new Error('Транзакция не выбрана')
+      }
+      await financeApi.confirmPayout(tx.id, {
         recipientAdminId,
         method,
         ...(method === 'CRYPTO' ? { txHash: trimmed } : {}),
