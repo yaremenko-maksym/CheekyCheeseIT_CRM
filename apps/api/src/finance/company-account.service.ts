@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type {
   CompanyAccountDto,
   CompanyDepositDto,
@@ -15,6 +15,7 @@ import type {
 import { DatabaseService } from '../database/database.service'
 import { companyAccount, transactions, userAuditLog, users } from '../database/schema'
 import { EtherscanService } from './etherscan.service'
+import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
 
 /**
  * task-company-account-backend — the shared company USDT account.
@@ -51,56 +52,15 @@ export class CompanyAccountService {
   }
 
   /**
-   * Derived USDT balance:
-   *   Σ(COMPANY_DEPOSIT PAID amount)
-   *   + Σ(PAYOUT PAID amount where fundingSource='COMPANY_ACCOUNT')   ← Phase 8 v2
-   *   − Σ(DIVIDEND_TO_ADMIN PAID amount)
-   *   − Σ(SALARY PAID amount where fundingSource='COMPANY_ACCOUNT')
-   * All company-funded rows are USDT, so no currency conversion is needed.
-   *
-   * Phase 8 v2 — payouts settle onto the company wallet. There is exactly ONE
-   * PAYOUT row per payout_request (created in createPayoutRequest, flipped to
-   * PAID in payPayoutRequest / manualConfirmPayout). It counts toward the
-   * balance ONLY when fundingSource='COMPANY_ACCOUNT' — set on the on-chain
-   * confirmed path and on a manual COMPANY_ACCOUNT confirmation, NOT on
-   * ADMIN_USDT / CASH manual confirmations (money landed off the company
-   * account). Crediting the existing PAYOUT row (no separate ledger entry)
-   * makes double-counting structurally impossible: the same row can be PAID
-   * only once (the status guard blocks re-confirmation).
+   * Derived USDT balance — delegates to the SINGLE SOURCE OF TRUTH
+   * `computeCompanyAccountBalanceFromLedger` shared with the salary/expense
+   * balance gate in TransactionsService. See company-account-balance.ts for the
+   * full 6-term ledger formula. Both display (this endpoint) and gate use the
+   * exact same function so they can never disagree (task-salary-company-account
+   * reconciliation).
    */
   private async computeBalance(): Promise<number> {
-    const [deposits, payouts, dividends, companySalaries] = await Promise.all([
-      this.sumAmount(
-        and(eq(transactions.type, 'COMPANY_DEPOSIT'), eq(transactions.status, 'PAID')),
-      ),
-      this.sumAmount(
-        and(
-          eq(transactions.type, 'PAYOUT'),
-          eq(transactions.status, 'PAID'),
-          eq(transactions.fundingSource, 'COMPANY_ACCOUNT'),
-        ),
-      ),
-      this.sumAmount(
-        and(eq(transactions.type, 'DIVIDEND_TO_ADMIN'), eq(transactions.status, 'PAID')),
-      ),
-      this.sumAmount(
-        and(
-          eq(transactions.type, 'SALARY'),
-          eq(transactions.status, 'PAID'),
-          eq(transactions.fundingSource, 'COMPANY_ACCOUNT'),
-        ),
-      ),
-    ])
-    return deposits + payouts - dividends - companySalaries
-  }
-
-  private async sumAmount(where: ReturnType<typeof and>): Promise<number> {
-    const rows = await this.db.db
-      .select({ total: sql<string>`COALESCE(SUM(${transactions.amount}), 0)` })
-      .from(transactions)
-      .where(where)
-    const total = parseFloat(rows[0]?.total ?? '0')
-    return Number.isFinite(total) ? total : 0
+    return computeCompanyAccountBalanceFromLedger(this.db.db)
   }
 
   /**

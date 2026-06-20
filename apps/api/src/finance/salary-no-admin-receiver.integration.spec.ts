@@ -121,6 +121,13 @@ const ALL_PERSONAS = [
 ]
 const TEST_USER_IDS = ALL_PERSONAS.map((u) => u.id)
 
+// task-salary-pay-flow: createSalary now creates a NEUTRAL PENDING reminder —
+// it no longer picks a funding source and is NOT gated by the company balance
+// (funding is chosen at pay time). This spec asserts the RECEIVER-ROLE guard
+// only; the deposit below is now harmless residual (kept for cleanup symmetry —
+// createSalary no longer reads it). Namespaced id so cleanup is deterministic.
+const NAR_DEPOSIT_ID = '5a110000-0000-4000-cc00-000000000001'
+
 // ── Sentinel controller ────────────────────────────────────────────────────────
 const TX_SERVICE = 'TX_SERVICE_NAR_INTEGRATION'
 
@@ -248,6 +255,7 @@ describe('createSalary — ADMIN receiver guard (real DB, no mocks)', () => {
     // Surgical cleanup before seeding.
     await db.delete(transactions).where(inArray(transactions.receiverId, TEST_USER_IDS))
     await db.delete(transactions).where(inArray(transactions.senderId, TEST_USER_IDS))
+    await db.delete(transactions).where(inArray(transactions.id, [NAR_DEPOSIT_ID]))
     await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
 
     await db
@@ -262,6 +270,19 @@ describe('createSalary — ADMIN receiver guard (real DB, no mocks)', () => {
         })),
       )
       .onConflictDoNothing()
+
+    // task-salary-company-account: large company deposit so company-funded
+    // salaries (the new default) pass the balance gate. The salary amounts in
+    // this suite total well under 1e6.
+    await db.insert(transactions).values({
+      id: NAR_DEPOSIT_ID,
+      type: 'COMPANY_DEPOSIT',
+      status: 'PAID',
+      amount: '1000000',
+      currency: 'USDT',
+      senderId: SENIOR_RECEIVER.id,
+      createdBy: ADMIN_CALLER.id,
+    })
   }, 30_000)
 
   afterAll(async () => {
@@ -271,6 +292,7 @@ describe('createSalary — ADMIN receiver guard (real DB, no mocks)', () => {
       if (createdTxIds.length) {
         await db.delete(transactions).where(inArray(transactions.id, createdTxIds))
       }
+      await db.delete(transactions).where(inArray(transactions.id, [NAR_DEPOSIT_ID]))
       await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
     } catch {
       // non-fatal cleanup

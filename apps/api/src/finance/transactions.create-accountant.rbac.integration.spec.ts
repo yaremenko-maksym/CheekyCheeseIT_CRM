@@ -386,6 +386,10 @@ describe('transactions create — ACCOUNTANT/ADMIN parity RBAC (real DB, no mock
     currency: 'USDT',
     category: 'Прочее',
   })
+  // task-salary-pay-flow: this spec is pure RBAC (who can call the endpoint).
+  // createSalary now creates a NEUTRAL PENDING reminder — no funding source, no
+  // balance gate at creation — so the role assertions (201/403) are deterministic
+  // regardless of the company-account balance. No funding fields needed here.
   const salaryPayload = () => ({
     receiverId: JUNIOR.id,
     amount: 500,

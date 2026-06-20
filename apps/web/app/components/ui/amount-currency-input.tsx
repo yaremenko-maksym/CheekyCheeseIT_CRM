@@ -47,6 +47,7 @@ export function AmountCurrencyInput({
   placeholder = '0.00',
   inputClassName,
   disabled,
+  disableCurrency,
   error,
   errorTestId,
 }: {
@@ -59,6 +60,11 @@ export function AmountCurrencyInput({
   placeholder?: string
   inputClassName?: string
   disabled?: boolean
+  /**
+   * Lock the currency selector only while keeping the amount input editable.
+   * Used when the funding source mandates a fixed currency (e.g. COMPANY_ACCOUNT → USDT).
+   */
+  disableCurrency?: boolean
   /** Inline validation message rendered under the amount input. */
   error?: string | undefined
   /** data-testid for the error <p> (caller-supplied for E2E). */
@@ -106,7 +112,7 @@ export function AmountCurrencyInput({
           <Select
             value={currency}
             onValueChange={(v) => onCurrencyChange(v as Currency)}
-            disabled={disabled ?? false}
+            disabled={(disabled ?? false) || (disableCurrency ?? false)}
           >
             <SelectTrigger className="h-9 text-sm">
               <SelectValue />

@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
+import { AnimatePresence, motion } from 'framer-motion'
 import {
   ArrowDownLeft,
   ArrowRight,
@@ -772,44 +773,55 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
         )}
       </button>
 
-      {open && hasMissing && (
-        <div
-          className="border-t border-border/60 px-3 py-2.5"
-          data-testid={`compliance-detail-${receiver.userId}`}
-        >
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
-            Проекты без засчитанного прихода
-          </p>
-          <ul className="space-y-1.5">
-            {receiver.missingProjects.map((p) => (
-              <li key={p.projectId} className="flex items-center justify-between gap-2 text-sm">
-                <span className="flex items-center gap-2 min-w-0">
-                  <span
-                    className={cn(
-                      'h-1.5 w-1.5 rounded-full shrink-0',
-                      p.pendingValidation ? 'bg-amber-500' : 'bg-red-500',
-                    )}
-                  />
-                  <span className="truncate font-medium">{p.name}</span>
-                </span>
-                <span className="flex items-center gap-2 shrink-0">
-                  <span className="text-xs text-muted-foreground truncate max-w-32">
-                    {p.companyName}
-                  </span>
-                  <span
-                    className={cn(
-                      'text-xs font-medium',
-                      p.pendingValidation ? 'text-amber-500' : 'text-red-500',
-                    )}
-                  >
-                    {p.pendingValidation ? 'На валидации' : 'Нет прихода'}
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <AnimatePresence initial={false}>
+        {open && hasMissing && (
+          <motion.div
+            key="detail"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+            className="overflow-hidden"
+          >
+            <div
+              className="border-t border-border/60 px-3 py-2.5"
+              data-testid={`compliance-detail-${receiver.userId}`}
+            >
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
+                Проекты без засчитанного прихода
+              </p>
+              <ul className="space-y-1.5">
+                {receiver.missingProjects.map((p) => (
+                  <li key={p.projectId} className="flex items-center justify-between gap-2 text-sm">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={cn(
+                          'h-1.5 w-1.5 rounded-full shrink-0',
+                          p.pendingValidation ? 'bg-amber-500' : 'bg-red-500',
+                        )}
+                      />
+                      <span className="truncate font-medium">{p.name}</span>
+                    </span>
+                    <span className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs text-muted-foreground truncate max-w-32">
+                        {p.companyName}
+                      </span>
+                      <span
+                        className={cn(
+                          'text-xs font-medium',
+                          p.pendingValidation ? 'text-amber-500' : 'text-red-500',
+                        )}
+                      >
+                        {p.pendingValidation ? 'На валидации' : 'Нет прихода'}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
@@ -896,7 +908,7 @@ function IncomeComplianceBody({ data }: { data: IncomeComplianceOverviewDto }) {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-2" data-testid="compliance-list">
+        <div className="space-y-2 max-h-96 overflow-y-auto pr-1" data-testid="compliance-list">
           {receivers.map((r) => (
             <ComplianceReceiverRow key={r.userId} receiver={r} />
           ))}
@@ -953,12 +965,6 @@ export function StatsPage() {
     >
       <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
         <div className="space-y-8">
-          {/* ── Income compliance «Контроль приходов» (ADMIN + ACCOUNTANT) ──
-          Company-wide tracker of which income receivers have registered a
-          counted income per active project this month. The whole /crm/stats
-          route is already ADMIN/ACCOUNTANT-only, so this needs no extra gate. */}
-          <IncomeComplianceSection />
-
           {/* ── Finance section (economic — ADMIN + ACCOUNTANT) ── */}
           <section className="space-y-4" data-testid="stats-finance-section">
             <div className="flex items-center gap-2">
@@ -1066,6 +1072,12 @@ export function StatsPage() {
               </>
             ) : null}
           </section>
+
+          {/* ── Income compliance «Контроль приходов» (ADMIN + ACCOUNTANT) ──
+          Company-wide tracker of which income receivers have registered a
+          counted income per active project this month. Placed after the main
+          financial KPIs so the key P&L numbers are seen first. */}
+          <IncomeComplianceSection />
 
           {/* Future sections placeholder (ADMIN-only — HR/Команда/Проекты analytics
           are not part of the accountant's economic surface). */}

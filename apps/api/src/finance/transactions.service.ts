@@ -38,12 +38,17 @@ import {
   users,
   type Transaction,
 } from '../database/schema'
+import type { DrizzleTx } from '../database/types'
 import { InvoicesService } from '../invoices/invoices.service'
 import { DocumentsService } from '../documents/documents.service'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { EtherscanService } from './etherscan.service'
 import { resolveSeniorShare } from './senior-share-resolver'
 import { getOwnSalaryStatus } from './salary-status.helper'
+import {
+  computeCompanyAccountBalanceFromLedger,
+  lockCompanyAccount,
+} from './company-account-balance'
 
 // Phase 8 v2 — payout → company wallet. Marker persisted in
 // transactions.fundingSource on a PAYOUT row whose money landed on the company
@@ -937,6 +942,11 @@ export class TransactionsService {
       receiptExternalUrl?: string | null | undefined
       notes?: string | null | undefined
       txDate?: string | null | undefined
+      // task-salary-company-account: optional company-account routing. When
+      // COMPANY_ACCOUNT the income is directed INTO the shared company USDT pool
+      // (credits its balance, USDT-forced) and is EXCLUDED from the admin owner's
+      // personal balance (getSummary). Absent → legacy (credits the admin owner).
+      fundingSource?: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' | undefined
     },
     currentUser: SessionUser,
   ) {
@@ -983,13 +993,24 @@ export class TransactionsService {
       await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
     }
 
+    // task-salary-company-account: company-account routing. When COMPANY_ACCOUNT
+    // the income is directed into the shared company pool — currency forced to
+    // USDT and funding_source persisted. The company balance formula counts
+    // ADMIN_INCOME(COMPANY_ACCOUNT) PAID as a (+) credit; getSummary EXCLUDES
+    // these rows from the admin owner's personal balance (the money went to the
+    // pool, not to the admin). No balance gate — this is an INFLOW. Absent →
+    // legacy (admin-personal income, funding_source NULL, currency as supplied).
+    const isCompanyFunded = data.fundingSource === 'COMPANY_ACCOUNT'
+    const currency = (isCompanyFunded ? 'USDT' : data.currency) as 'USDT' | 'USD' | 'EUR' | 'UAH'
+    const fundingSource: 'COMPANY_ACCOUNT' | null = isCompanyFunded ? 'COMPANY_ACCOUNT' : null
+
     const [tx] = await this.db.db
       .insert(transactions)
       .values({
         type: 'ADMIN_INCOME',
         status: 'PAID',
         amount: String(data.amount),
-        currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
+        currency,
         senderId: null,
         senderLabel: project.companyName,
         receiverId,
@@ -997,6 +1018,7 @@ export class TransactionsService {
         receiptDocumentId: data.receiptDocumentId ?? null,
         receiptExternalUrl: data.receiptExternalUrl ?? null,
         notes: data.notes ?? null,
+        fundingSource,
         txDate: this.resolveTxDate(data.txDate),
         createdBy: currentUser.id,
       })
@@ -1434,9 +1456,8 @@ export class TransactionsService {
           })
           .where(eq(transactions.id, id))
 
-        // Unlock junior salary for this project's current month if locked.
-        // Best-effort — if it fails the validate still succeeded.
-        await this.unlockJuniorSalaryForProject(tx.projectId, tx)
+        // task-salary-company-account: junior salaries no longer depend on
+        // validated senior/drop income (LOCKED removed) — nothing to unlock here.
       } else {
         // DROP_INCOME: retain the original behaviour — atomically flip to
         // VALIDATED + create payout_request + insert placeholder PAYOUT row.
@@ -1493,8 +1514,7 @@ export class TransactionsService {
           })
         })
 
-        // Unlock junior salary for this project's current month if locked.
-        await this.unlockJuniorSalaryForProject(tx.projectId, tx)
+        // task-salary-company-account: LOCKED junior-salary unlock removed.
       }
     } else {
       if (!rejectionReason) throw new BadRequestException('Rejection reason is required')
@@ -1664,6 +1684,10 @@ export class TransactionsService {
       receiptDocumentId?: string | null | undefined
       receiptExternalUrl?: string | null | undefined
       txDate?: string | null | undefined
+      // task-salary-company-account: optional company-account routing. Only
+      // COMPANY_ACCOUNT is meaningful (ADMIN_PERSONAL is implicit/legacy when
+      // absent). Absent → legacy expense (no balance impact, currency as given).
+      fundingSource?: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' | undefined
     },
     currentUser: SessionUser,
   ) {
@@ -1678,58 +1702,80 @@ export class TransactionsService {
       await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
     }
 
-    const [tx] = await this.db.db
-      .insert(transactions)
-      .values({
-        type: 'EXPENSE',
-        status: 'PAID',
-        amount: String(data.amount),
-        currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
-        senderId: currentUser.id,
-        receiverLabel: data.category,
-        notes: data.notes ?? null,
-        receiptDocumentId: data.receiptDocumentId ?? null,
-        receiptExternalUrl: data.receiptExternalUrl ?? null,
-        txDate: this.resolveTxDate(data.txDate),
-        createdBy: currentUser.id,
-      })
-      .returning()
+    // task-salary-company-account: company-funded expense path. Pays OUT of the
+    // shared company USDT account → always USDT, no personal sender, gated by the
+    // live company balance, funding_source persisted so the balance formula
+    // debits it. Absent fundingSource = legacy expense (unchanged: caller is
+    // sender, currency as supplied, no balance impact, funding_source NULL).
+    let currency = data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH'
+    let senderId: string | null = currentUser.id
+    let senderLabel: string | null = null
+    let fundingSource: 'COMPANY_ACCOUNT' | null = null
+    const isCompanyFunded = data.fundingSource === 'COMPANY_ACCOUNT'
 
-    return this.findOne(tx!.id, currentUser)
+    if (isCompanyFunded) {
+      currency = 'USDT'
+      senderId = null
+      senderLabel = 'Счёт компании'
+      fundingSource = 'COMPANY_ACCOUNT'
+    }
+
+    const values = {
+      type: 'EXPENSE' as const,
+      status: 'PAID' as const,
+      amount: String(data.amount),
+      currency,
+      senderId,
+      senderLabel,
+      receiverLabel: data.category,
+      notes: data.notes ?? null,
+      receiptDocumentId: data.receiptDocumentId ?? null,
+      receiptExternalUrl: data.receiptExternalUrl ?? null,
+      fundingSource,
+      txDate: this.resolveTxDate(data.txDate),
+      createdBy: currentUser.id,
+    }
+
+    // MED-1 (TOCTOU): for a company-funded expense the gate-read and the debit
+    // write MUST be serialized — otherwise two concurrent expenses both read the
+    // same balance, both pass the gate, and the account goes negative. Wrap
+    // gate+write in one transaction and acquire the company-account advisory lock
+    // FIRST; the second concurrent debit blocks, re-reads the reduced balance and
+    // correctly fails. Legacy (non-company) expenses have no balance impact → no
+    // lock needed.
+    let txId: string
+    if (isCompanyFunded) {
+      txId = await this.db.db.transaction(async (dbtx) => {
+        await lockCompanyAccount(dbtx)
+        const companyBalance = await this.computeCompanyAccountBalance(dbtx)
+        if (companyBalance < data.amount) {
+          throw new BadRequestException('Недостаточно средств на счёте компании')
+        }
+        const [tx] = await dbtx.insert(transactions).values(values).returning()
+        return tx!.id
+      })
+    } else {
+      const [tx] = await this.db.db.insert(transactions).values(values).returning()
+      txId = tx!.id
+    }
+
+    return this.findOne(txId, currentUser)
   }
 
   // ── Create SALARY ─────────────────────────────────────────────────────────
 
-  /**
-   * task-company-account-backend. Derived company-account USDT balance, used by
-   * the COMPANY_ACCOUNT salary funding gate. Mirrors
-   * CompanyAccountService.computeBalance (single definition of the formula would
-   * be ideal, but TransactionsService must not depend on CompanyAccountService
-   * to avoid a circular module reference; both read the same ledger types).
-   *   Σ(COMPANY_DEPOSIT PAID) − Σ(DIVIDEND_TO_ADMIN PAID)
-   *     − Σ(SALARY PAID where fundingSource='COMPANY_ACCOUNT')
-   */
-  private async computeCompanyAccountBalance(): Promise<number> {
-    const sumWhere = async (where: ReturnType<typeof and>): Promise<number> => {
-      const rows = await this.db.db
-        .select({ total: sql<string>`COALESCE(SUM(${transactions.amount}), 0)` })
-        .from(transactions)
-        .where(where)
-      const total = parseFloat(rows[0]?.total ?? '0')
-      return Number.isFinite(total) ? total : 0
-    }
-    const [deposits, dividends, companySalaries] = await Promise.all([
-      sumWhere(and(eq(transactions.type, 'COMPANY_DEPOSIT'), eq(transactions.status, 'PAID'))),
-      sumWhere(and(eq(transactions.type, 'DIVIDEND_TO_ADMIN'), eq(transactions.status, 'PAID'))),
-      sumWhere(
-        and(
-          eq(transactions.type, 'SALARY'),
-          eq(transactions.status, 'PAID'),
-          eq(transactions.fundingSource, 'COMPANY_ACCOUNT'),
-        ),
-      ),
-    ])
-    return deposits - dividends - companySalaries
+  // task-salary-company-account RECONCILIATION: the salary/expense balance gate
+  // now delegates to the SAME single-source-of-truth used by the display
+  // endpoint (GET /company-account). Previously this gate-side copy diverged —
+  // it was missing the `+PAYOUT(COMPANY_ACCOUNT)` term, so the gate undercounted
+  // the real balance. Both paths now call computeCompanyAccountBalanceFromLedger
+  // → display and gate are BYTE-FOR-BYTE identical (see company-account-balance.ts).
+  //
+  // MED-1 (TOCTOU): pass `dbtx` so the balance read runs INSIDE the
+  // advisory-locked transaction of a company-account debit; the consistent,
+  // serialized view guarantees the gate sees concurrent debits already applied.
+  private async computeCompanyAccountBalance(dbtx?: DrizzleTx): Promise<number> {
+    return computeCompanyAccountBalanceFromLedger(dbtx ?? this.db.db)
   }
 
   async createSalary(
@@ -1740,20 +1786,14 @@ export class TransactionsService {
       salaryMonth: string
       notes?: string | null | undefined
       txDate?: string | null | undefined
-      // task-company-account-backend. Funding source. Absent → ADMIN_PERSONAL
-      // (legacy behaviour: calling ADMIN as the payer).
-      fundingSource?: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' | undefined
-      // For ADMIN_PERSONAL — whose personal account funds this; must be an ADMIN.
-      payerAdminId?: string | undefined
     },
     currentUser: SessionUser,
   ) {
     // task-accountant-create-transaction. ACCOUNTANT has create-parity with
     // ADMIN for salaries (business doc finance.md: «ACCOUNTANT — …, выплаты»).
-    // senderId = currentUser.id records the payer.
     // task-salary-no-admin-receiver (security-MED #222): ADMIN cannot receive
     // SALARY — their income comes via admin shares (ADMIN_INCOME / PAYOUT). The
-    // allow-list covers every salaried role: JUNIOR, HR, ACCOUNTANT (nalymed
+    // allow-list covers every salaried role: JUNIOR, HR, ACCOUNTANT (salaried
     // employees), SENIOR and DROP (project-based contractors who may also
     // receive a flat salary). Self-pay for ACCOUNTANT remains allowed.
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT')
@@ -1776,71 +1816,35 @@ export class TransactionsService {
       )
     }
 
-    // ── task-company-account-backend. Funding source resolution. ──────────────
-    // BACKWARD COMPATIBILITY: when fundingSource is ABSENT we keep the EXACT
-    // legacy behaviour — senderId = caller (ADMIN or ACCOUNTANT), senderLabel
-    // 'CheekyCheeseIT', no funding_source persisted, currency as supplied. Only
-    // an EXPLICIT fundingSource opts into the new company/admin-personal routing
-    // (so the ACCOUNTANT self-pay path is untouched — regression #222 spec).
-    let senderId: string | null = currentUser.id
-    let senderLabel = 'CheekyCheeseIT'
-    let currency: 'USDT' | 'USD' | 'EUR' | 'UAH' = (data.currency ?? 'USD') as
+    // task-salary-pay-flow: a manually-created salary is a NEUTRAL PENDING
+    // reminder — it does NOT pick a funding source, does NOT touch the company
+    // balance, and is NOT a debit. The funding source (company account vs admin
+    // personal) and the actual payment currency are decided LATER, at pay time
+    // (paySalary). senderId/fundingSource stay null until then; the currency is
+    // the nominal of the reminder (default USD). No advisory lock / balance gate.
+    const currency: 'USDT' | 'USD' | 'EUR' | 'UAH' = (data.currency ?? 'USD') as
       | 'USDT'
       | 'USD'
       | 'EUR'
       | 'UAH'
-    let fundingSource: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' | null = data.fundingSource ?? null
-
-    if (data.fundingSource === 'COMPANY_ACCOUNT') {
-      // Paid from the shared company USDT account: always USDT, no personal
-      // sender (the money leaves the company balance, not a partner's wallet).
-      currency = 'USDT'
-      senderId = null
-      senderLabel = 'Счёт компании'
-      fundingSource = 'COMPANY_ACCOUNT'
-
-      // Balance gate: the company account must hold at least `amount` USDT.
-      const companyBalance = await this.computeCompanyAccountBalance()
-      if (companyBalance < data.amount) {
-        throw new BadRequestException('Недостаточно средств на счёте компании')
-      }
-    } else if (data.fundingSource === 'ADMIN_PERSONAL') {
-      // ADMIN_PERSONAL: paid from an admin partner's personal account. The payer
-      // defaults to the calling user; an explicit payerAdminId must resolve to
-      // an ADMIN (the personal payer is always an admin partner).
-      const payerAdminId = data.payerAdminId ?? currentUser.id
-      const payer = await this.db.db.query.users.findFirst({
-        where: eq(users.id, payerAdminId),
-      })
-      if (!payer || payer.role !== 'ADMIN') {
-        throw new BadRequestException('Личный счёт-плательщик зарплаты должен принадлежать ADMIN')
-      }
-      senderId = payer.id
-      senderLabel = payer.displayName
-      fundingSource = 'ADMIN_PERSONAL'
-    }
 
     const [tx] = await this.db.db
       .insert(transactions)
       .values({
-        type: 'SALARY',
-        status: 'PAID',
+        type: 'SALARY' as const,
+        status: 'PENDING' as const,
         amount: String(data.amount),
         currency,
-        senderId,
-        senderLabel,
+        senderId: null,
+        senderLabel: 'CheekyCheeseIT',
         receiverId: data.receiverId,
         salaryMonth: data.salaryMonth,
         notes: data.notes ?? null,
-        fundingSource,
+        fundingSource: null,
         txDate: this.resolveTxDate(data.txDate),
         createdBy: currentUser.id,
       })
       .returning()
-
-    // Trigger 2: invoice auto-create — SALARY rows from this path land
-    // straight in PAID, so the invoice should be generated immediately.
-    await this.safeAutoCreateInvoice('SALARY', tx!.id)
 
     return this.findOne(tx!.id, currentUser)
   }
@@ -2716,7 +2720,12 @@ export class TransactionsService {
               (tx) =>
                 tx.receiverId === admin.id &&
                 (tx.type === 'PAYOUT_ADMIN' ||
-                  tx.type === 'ADMIN_INCOME' ||
+                  // task-salary-company-account: ADMIN_INCOME routed to the
+                  // company account (fundingSource='COMPANY_ACCOUNT') went into
+                  // the shared pool, NOT the admin's personal balance — exclude
+                  // it here. Legacy/admin-personal ADMIN_INCOME (NULL funding)
+                  // still credits the admin as before.
+                  (tx.type === 'ADMIN_INCOME' && tx.fundingSource !== 'COMPANY_ACCOUNT') ||
                   tx.type === 'ADMIN_TRANSFER' ||
                   tx.type === 'PAYOUT_CONFIRMED'),
             )
@@ -3400,6 +3409,12 @@ export class TransactionsService {
   async paySalary(
     id: string,
     data: {
+      // task-salary-pay-flow: the funding source + currency are chosen HERE (at
+      // pay time), not at creation. The PENDING salary is a neutral reminder.
+      fundingSource: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL'
+      // For ADMIN_PERSONAL — whose personal account pays; must be an ADMIN.
+      payerAdminId?: string | undefined
+      currency: 'USDT' | 'USD' | 'EUR' | 'UAH'
       txHash?: string | null | undefined
       notes?: string | null | undefined
     },
@@ -3414,17 +3429,88 @@ export class TransactionsService {
     if (tx.type !== 'SALARY') throw new BadRequestException('Can only pay SALARY transactions')
     if (tx.status !== 'PENDING') throw new BadRequestException('Transaction is not PENDING')
 
-    await this.db.db
-      .update(transactions)
-      .set({
-        status: 'PAID',
-        txHash: data.txHash ?? null,
-        notes: data.notes ?? tx.notes,
-        updatedAt: new Date(),
-      })
-      .where(eq(transactions.id, id))
+    const isCompanyFunded = data.fundingSource === 'COMPANY_ACCOUNT'
 
-    // Trigger 2: invoice auto-create for SALARY → PAID transitions.
+    // Resolve sender + currency from the pay-time funding choice. The AMOUNT is
+    // never converted — only the currency LABEL changes.
+    let senderId: string | null
+    let senderLabel: string
+    let currency: 'USDT' | 'USD' | 'EUR' | 'UAH'
+
+    if (isCompanyFunded) {
+      // COMPANY_ACCOUNT: money leaves the shared company USDT account. Force USDT
+      // (USDT-only account), no personal sender, labelled «Счёт компании».
+      currency = 'USDT'
+      senderId = null
+      senderLabel = 'Счёт компании'
+    } else {
+      // ADMIN_PERSONAL: paid from an admin partner's personal account. The payer
+      // defaults to the calling (ADMIN) user; an explicit payerAdminId must
+      // resolve to an ADMIN. Currency is the chosen one (any). No company balance
+      // impact → no lock / balance gate.
+      const payerAdminId = data.payerAdminId ?? currentUser.id
+      const payer = await this.db.db.query.users.findFirst({
+        where: eq(users.id, payerAdminId),
+      })
+      if (!payer || payer.role !== 'ADMIN') {
+        throw new BadRequestException('Личный счёт-плательщик зарплаты должен принадлежать ADMIN')
+      }
+      senderId = payer.id
+      senderLabel = payer.displayName
+      currency = data.currency
+    }
+
+    // task-salary-pay-flow: stamp txDate = pay date (now). The salary was created
+    // (PENDING) on an earlier date, but the business-time of the actual payment
+    // is when an ADMIN pays it. The funding source / currency / sender are
+    // finalized on the row HERE.
+    const paidSet = {
+      status: 'PAID' as const,
+      fundingSource: isCompanyFunded ? ('COMPANY_ACCOUNT' as const) : ('ADMIN_PERSONAL' as const),
+      currency,
+      senderId,
+      senderLabel,
+      txHash: data.txHash ?? null,
+      notes: data.notes ?? tx.notes,
+      txDate: new Date(),
+      updatedAt: new Date(),
+    }
+
+    if (isCompanyFunded) {
+      // For a company-funded salary the money leaves the shared USDT account
+      // exactly NOW (at PAID). The PENDING row is not yet counted by the balance
+      // formula (only PAID company SALARY debits), so `balance >= amount` is the
+      // exact "can the account cover this payout" check.
+      //
+      // MED-1 (TOCTOU): the gate-read and the PENDING→PAID flip (which performs
+      // the debit) MUST be serialized. Two concurrent paySalary calls would
+      // otherwise both read the same balance, both pass, and both flip → the
+      // account goes negative. Wrap gate+flip in one transaction holding the
+      // company-account advisory lock; the second concurrent debit blocks,
+      // re-reads the reduced balance and correctly fails. The status re-check
+      // inside the lock guards against a double-flip of the SAME row.
+      const amount = parseFloat(tx.amount)
+      await this.db.db.transaction(async (dbtx) => {
+        await lockCompanyAccount(dbtx)
+        const [fresh] = await dbtx
+          .select({ status: transactions.status })
+          .from(transactions)
+          .where(eq(transactions.id, id))
+        if (!fresh || fresh.status !== 'PENDING') {
+          throw new BadRequestException('Transaction is not PENDING')
+        }
+        const companyBalance = await this.computeCompanyAccountBalance(dbtx)
+        if (companyBalance < amount) {
+          throw new BadRequestException('Недостаточно средств на счёте компании')
+        }
+        await dbtx.update(transactions).set(paidSet).where(eq(transactions.id, id))
+      })
+    } else {
+      await this.db.db.update(transactions).set(paidSet).where(eq(transactions.id, id))
+    }
+
+    // Trigger 2: invoice auto-create for SALARY → PAID transitions. Run AFTER the
+    // debit transaction commits (best-effort; must not hold the lock).
     await this.safeAutoCreateInvoice('SALARY', id)
 
     return this.findOne(id, currentUser)
@@ -3438,7 +3524,9 @@ export class TransactionsService {
       where: or(eq(users.role, 'HR'), eq(users.role, 'ACCOUNTANT')),
     })
 
-    // Find the admin who creates (Maksym by default)
+    // Find the admin who creates (Maksym by default). Used only as `createdBy`
+    // for audit — the cron creates neutral PENDING reminders, no money moves
+    // until an ADMIN pays each one via paySalary (which picks the funding source).
     const admin = await this.db.db.query.users.findFirst({
       where: and(eq(users.role, 'ADMIN'), eq(users.id, MAKSYM_ID)),
     })
@@ -3457,20 +3545,30 @@ export class TransactionsService {
       })
       if (existing) continue
 
+      // task-salary-pay-flow: monthly salaries are NEUTRAL PENDING reminders —
+      // no funding source, no currency lock, no balance impact at creation. The
+      // funding source (company account vs admin personal) and the actual
+      // payment currency are chosen at pay time (paySalary). `monthlySalary` is
+      // the USD nominal of the reminder.
       await this.db.db.insert(transactions).values({
         type: 'SALARY',
         status: 'PENDING',
         amount: emp.monthlySalary,
         currency: 'USD',
-        senderId: admin.id,
+        senderId: null,
         senderLabel: 'CheekyCheeseIT',
         receiverId: emp.id,
         salaryMonth: month,
+        fundingSource: null,
         createdBy: admin.id,
       })
     }
 
-    // Create LOCKED salary for JUNIORs on active projects
+    // Create PENDING salary for JUNIORs on active projects.
+    // task-salary-company-account: the LOCKED-until-validated-income mechanic is
+    // GONE — juniors always get a PENDING salary regardless of whether the
+    // project's senior/drop income has been validated yet. (The
+    // unlockJuniorSalaryForProject method + its callers were removed.)
     const activeMembers = await this.db.db.query.projectMembers.findMany({
       where: isNull(projectMembers.leftAt),
       with: {
@@ -3502,75 +3600,24 @@ export class TransactionsService {
       })
       if (existing) continue
 
-      // Check if project already has a validated income this month → PENDING, else LOCKED
-      const currentMonthStart = new Date(`${month}-01`)
-      const nextMonthStart = new Date(currentMonthStart)
-      nextMonthStart.setMonth(nextMonthStart.getMonth() + 1)
-
-      // Drop role - phase 2 (AC5): drop-projects unlock junior salary on a
-      // validated DROP_INCOME as well — the income side is what matters for
-      // the unlock, not whether the wallet is a SENIOR or a DROP.
-      const hasValidatedIncome = await this.db.db.query.transactions.findFirst({
-        where: and(
-          or(eq(transactions.type, 'SENIOR_INCOME'), eq(transactions.type, 'DROP_INCOME')),
-          eq(transactions.projectId, project.id),
-          eq(transactions.status, 'VALIDATED'),
-        ),
-      })
-
       // Resolve salary: project override → user default
       const salaryAmount = project.financeSettings?.juniorSalaryOverride ?? user.monthlySalary
       if (!salaryAmount) continue
 
       await this.db.db.insert(transactions).values({
         type: 'SALARY',
-        status: hasValidatedIncome ? 'PENDING' : 'LOCKED',
+        status: 'PENDING',
         amount: String(salaryAmount),
         currency: 'USD',
-        senderId: admin.id,
+        senderId: null,
         senderLabel: 'CheekyCheeseIT',
         receiverId: user.id,
         projectId: project.id,
         salaryMonth: month,
+        fundingSource: null,
         createdBy: admin.id,
       })
     }
-  }
-
-  // Unlock LOCKED junior salary when a senior OR drop income is validated.
-  // Drop role - phase 2 (AC5): the trigger condition is "any validated income
-  // on the project" — caller passes the validated row (SENIOR_INCOME or
-  // DROP_INCOME) and we flip the LOCKED salary for the active junior.
-  private async unlockJuniorSalaryForProject(projectId: string | null, incomeTx: Transaction) {
-    if (!projectId) return
-
-    const month = incomeTx.createdAt.toISOString().slice(0, 7)
-
-    // Find the active junior on this project
-    const activeMember = await this.db.db.query.projectMembers.findFirst({
-      where: and(eq(projectMembers.projectId, projectId), isNull(projectMembers.leftAt)),
-      with: { user: true },
-    })
-
-    const juniorUser = (
-      activeMember as (typeof activeMember & { user: typeof users.$inferSelect | null }) | undefined
-    )?.user
-    if (!juniorUser || juniorUser.role !== 'JUNIOR') return
-
-    await this.db.db
-      .update(transactions)
-      .set({
-        status: 'PENDING',
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(transactions.type, 'SALARY'),
-          eq(transactions.receiverId, juniorUser.id),
-          eq(transactions.salaryMonth, month),
-          eq(transactions.status, 'LOCKED'),
-        ),
-      )
   }
 
   // ── Access guard ──────────────────────────────────────────────────────────
