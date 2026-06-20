@@ -19,7 +19,7 @@
 import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
-import { TransactionsService } from './transactions.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 
 function user(role: SessionUser['role'], id = `${role.toLowerCase()}-1`): SessionUser {
   return {
@@ -81,7 +81,7 @@ function makeStub(
       }),
     },
   }
-  return new TransactionsService(dbStub as never, {} as never, {} as never)
+  return makeTransactionsService({ db: dbStub as never })
 }
 
 describe('getAccountantSummary — RBAC guard (AC3)', () => {
@@ -97,7 +97,7 @@ describe('getAccountantSummary — RBAC guard (AC3)', () => {
           },
         },
       }
-      const svc = new TransactionsService(throwingDb as never, {} as never, {} as never)
+      const svc = makeTransactionsService({ db: throwingDb as never })
       await expect(svc.getAccountantSummary(user(role))).rejects.toBeInstanceOf(ForbiddenException)
     })
   }

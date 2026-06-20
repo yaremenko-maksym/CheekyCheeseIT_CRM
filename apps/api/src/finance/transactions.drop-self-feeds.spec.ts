@@ -21,7 +21,7 @@ import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import type { DropIncomesQuery, SessionUser } from '@crm/shared'
 import { dropIncomesQuerySchema } from '@crm/shared'
-import { TransactionsService } from './transactions.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 
 function user(role: SessionUser['role'], id = `${role.toLowerCase()}-1`): SessionUser {
   return {
@@ -61,7 +61,7 @@ function makeSvc(rows: unknown[]) {
       },
     },
   }
-  return new TransactionsService(dbStub as never, {} as never, {} as never)
+  return makeTransactionsService({ db: dbStub as never })
 }
 
 function q(overrides: Partial<DropIncomesQuery> = {}): DropIncomesQuery {

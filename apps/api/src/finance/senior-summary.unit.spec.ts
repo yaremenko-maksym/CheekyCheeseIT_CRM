@@ -21,7 +21,7 @@
 import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
-import { TransactionsService } from './transactions.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 
 function user(role: SessionUser['role'], id = `${role.toLowerCase()}-1`): SessionUser {
   return {
@@ -67,7 +67,7 @@ function makeService(data: StubData = {}): TransactionsService {
       },
     },
   }
-  return new TransactionsService(dbStub as never, {} as never, {} as never)
+  return makeTransactionsService({ db: dbStub as never })
 }
 
 const now = new Date()
@@ -91,7 +91,7 @@ describe('getSeniorSummary — RBAC guard (AC2)', () => {
           },
         },
       }
-      const svc = new TransactionsService(throwingDb as never, {} as never, {} as never)
+      const svc = makeTransactionsService({ db: throwingDb as never })
       await expect(svc.getSeniorSummary(user(role))).rejects.toBeInstanceOf(ForbiddenException)
     })
   }
