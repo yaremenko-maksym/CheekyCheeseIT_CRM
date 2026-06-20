@@ -1,14 +1,16 @@
 /**
- * task-salary-company-account — funding source selector tests.
+ * task-salary-company-account / task-salary-pay-flow — funding source selector tests.
  *
- * Pins the AC:
- * 1. SALARY defaults to COMPANY_ACCOUNT (funding-source section visible,
- *    "Счёт компании" pre-selected, USDT locked).
- * 2. Switching SALARY to ADMIN_PERSONAL shows the payerAdmin selector.
- * 3. EXPENSE defaults to legacy (no company-account selection).
- * 4. Selecting COMPANY_ACCOUNT for EXPENSE shows the balance hint.
- * 5. ADMIN_INCOME defaults to legacy; selecting COMPANY_ACCOUNT shows balance hint.
- * 6. Switching type resets fundingSource to that type's default.
+ * Pins the AC (post-rework):
+ * 1. SALARY no longer shows a funding-source section — a manual salary is a
+ *    neutral PENDING reminder; the funding source + currency are chosen at pay
+ *    time (PaySalaryDialog), NOT at creation.
+ * 2. EXPENSE keeps the funding selector: defaults to legacy; selecting
+ *    COMPANY_ACCOUNT shows the balance hint.
+ * 3. ADMIN_INCOME keeps the funding selector: defaults to legacy; selecting
+ *    COMPANY_ACCOUNT shows the balance hint.
+ * 4. Switching type resets fundingSource to that type's default.
+ * 5. Non-funding types (SENIOR_INCOME, ADMIN_TRANSFER) never show the section.
  *
  * Strategy mirrors CreateTransactionDialog.accountant.test.tsx:
  * mock auth/axios/router and stub TanStack hooks so the component mounts
@@ -54,7 +56,7 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
           error: null,
         }
       }
-      // users-all — return one admin so payerAdmin selector has an option.
+      // users-all — return one admin so the user pools have an option.
       if (Array.isArray(queryKey) && queryKey[0] === 'users-all') {
         return {
           data: [{ id: 'admin-1', displayName: 'Admin User', role: 'ADMIN' }],
@@ -86,66 +88,35 @@ function clickTypeCard(testId: string) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe('CreateTransactionDialog — funding source: SALARY', () => {
+describe('CreateTransactionDialog — SALARY no longer has a funding selector', () => {
   beforeEach(() => {
     currentRole = 'ADMIN'
   })
 
-  it('funding-source section is visible when SALARY is selected', () => {
+  it('SALARY does NOT show the funding-source section (chosen at pay time)', () => {
     renderDialog()
-    // SALARY is the 3rd type button (ADMIN_INCOME, EXPENSE, SALARY…)
     clickTypeCard('create-transaction-type-salary')
-    expect(screen.getByTestId('create-transaction-funding-source-section')).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('create-transaction-funding-source-section'),
+    ).not.toBeInTheDocument()
   })
 
-  it('COMPANY_ACCOUNT is pre-selected by default for SALARY', () => {
+  it('SALARY shows no company balance hint and no payer-admin selector', () => {
     renderDialog()
     clickTypeCard('create-transaction-type-salary')
-    // The COMPANY_ACCOUNT button should be rendered and the dot indicator present.
-    const companyBtn = screen.getByTestId('create-transaction-funding-company')
-    expect(companyBtn).toBeInTheDocument()
-    // The personal button must also exist (two options for SALARY).
-    expect(screen.getByTestId('create-transaction-funding-personal')).toBeInTheDocument()
-  })
-
-  it('SALARY + COMPANY_ACCOUNT shows the company balance hint', () => {
-    renderDialog()
-    clickTypeCard('create-transaction-type-salary')
-    // Balance hint renders when COMPANY_ACCOUNT is selected.
-    expect(screen.getByTestId('create-transaction-company-balance-hint')).toBeInTheDocument()
-  })
-
-  it('switching SALARY to ADMIN_PERSONAL shows the payerAdmin selector', () => {
-    renderDialog()
-    clickTypeCard('create-transaction-type-salary')
-    // Click the ADMIN_PERSONAL option.
-    fireEvent.click(screen.getByTestId('create-transaction-funding-personal'))
-    // payerAdmin selector should appear.
-    expect(screen.getByTestId('create-transaction-payer-admin-section')).toBeInTheDocument()
-    expect(screen.getByTestId('create-transaction-payer-admin-trigger')).toBeInTheDocument()
-  })
-
-  it('switching SALARY to ADMIN_PERSONAL hides the company balance hint', () => {
-    renderDialog()
-    clickTypeCard('create-transaction-type-salary')
-    fireEvent.click(screen.getByTestId('create-transaction-funding-personal'))
-    // Balance hint must be gone.
     expect(screen.queryByTestId('create-transaction-company-balance-hint')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('create-transaction-payer-admin-section')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('create-transaction-funding-personal')).not.toBeInTheDocument()
   })
 
-  it('switching back to COMPANY_ACCOUNT hides the payerAdmin selector', () => {
+  it('SALARY still shows the receiver + month fields (neutral reminder)', () => {
     renderDialog()
     clickTypeCard('create-transaction-type-salary')
-    // Switch to personal first.
-    fireEvent.click(screen.getByTestId('create-transaction-funding-personal'))
-    expect(screen.getByTestId('create-transaction-payer-admin-section')).toBeInTheDocument()
-    // Switch back to company.
-    fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
-    expect(screen.queryByTestId('create-transaction-payer-admin-section')).not.toBeInTheDocument()
+    expect(screen.getByTestId('create-transaction-receiver-trigger')).toBeInTheDocument()
   })
 })
 
-describe('CreateTransactionDialog — funding source: EXPENSE', () => {
+describe('CreateTransactionDialog — funding source: EXPENSE (kept)', () => {
   beforeEach(() => {
     currentRole = 'ADMIN'
   })
@@ -172,15 +143,14 @@ describe('CreateTransactionDialog — funding source: EXPENSE', () => {
   })
 })
 
-describe('CreateTransactionDialog — funding source: ADMIN_INCOME', () => {
+describe('CreateTransactionDialog — funding source: ADMIN_INCOME (kept)', () => {
   beforeEach(() => {
     currentRole = 'ADMIN'
   })
 
   it('funding-source section visible for ADMIN_INCOME', () => {
     renderDialog()
-    // ADMIN_INCOME is the first type in availableTypes for ADMIN.
-    // It is already selected by default.
+    // ADMIN_INCOME is the first type in availableTypes for ADMIN — already selected.
     expect(screen.getByTestId('create-transaction-funding-source-section')).toBeInTheDocument()
   })
 
@@ -201,37 +171,28 @@ describe('CreateTransactionDialog — funding source: type switch resets', () =>
     currentRole = 'ADMIN'
   })
 
-  it('switching from SALARY (COMPANY_ACCOUNT) to EXPENSE resets to legacy', () => {
-    renderDialog()
-    clickTypeCard('create-transaction-type-salary')
-    // SALARY defaults to COMPANY_ACCOUNT — balance hint visible.
-    expect(screen.getByTestId('create-transaction-company-balance-hint')).toBeInTheDocument()
-    // Switch to EXPENSE.
-    clickTypeCard('create-transaction-type-expense')
-    // Should reset to legacy — balance hint gone.
-    expect(screen.queryByTestId('create-transaction-company-balance-hint')).not.toBeInTheDocument()
-  })
-
-  it('switching from EXPENSE (company selected) to SALARY resets to COMPANY_ACCOUNT', () => {
+  it('switching from EXPENSE (company selected) to SALARY hides the section', () => {
     renderDialog()
     clickTypeCard('create-transaction-type-expense')
     fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
     expect(screen.getByTestId('create-transaction-company-balance-hint')).toBeInTheDocument()
-    // Switch to SALARY — should reset to COMPANY_ACCOUNT (already company, so hint still there).
+    // Switch to SALARY — funding section disappears entirely.
     clickTypeCard('create-transaction-type-salary')
-    // Balance hint should still be there (SALARY default = COMPANY_ACCOUNT).
-    expect(screen.getByTestId('create-transaction-company-balance-hint')).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('create-transaction-funding-source-section'),
+    ).not.toBeInTheDocument()
   })
 
-  it('payerAdmin selector is not shown after switching away from SALARY+ADMIN_PERSONAL', () => {
+  it('switching from SALARY to EXPENSE shows the legacy default (no hint)', () => {
     renderDialog()
     clickTypeCard('create-transaction-type-salary')
-    fireEvent.click(screen.getByTestId('create-transaction-funding-personal'))
-    expect(screen.getByTestId('create-transaction-payer-admin-section')).toBeInTheDocument()
-    // Switch to EXPENSE.
+    expect(
+      screen.queryByTestId('create-transaction-funding-source-section'),
+    ).not.toBeInTheDocument()
+    // Switch to EXPENSE — section back, legacy default (no hint).
     clickTypeCard('create-transaction-type-expense')
-    // payerAdmin must be gone.
-    expect(screen.queryByTestId('create-transaction-payer-admin-section')).not.toBeInTheDocument()
+    expect(screen.getByTestId('create-transaction-funding-source-section')).toBeInTheDocument()
+    expect(screen.queryByTestId('create-transaction-company-balance-hint')).not.toBeInTheDocument()
   })
 })
 

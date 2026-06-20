@@ -246,8 +246,8 @@ describe('company-account debits — serialized via advisory lock (MED-1, real D
     const salaryB = await seedPendingSalary(JUNIOR_B.id, amount)
 
     const results = await Promise.allSettled([
-      svc.paySalary(salaryA, {}, ADMIN),
-      svc.paySalary(salaryB, {}, ADMIN),
+      svc.paySalary(salaryA, { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' }, ADMIN),
+      svc.paySalary(salaryB, { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' }, ADMIN),
     ])
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled')
@@ -279,11 +279,13 @@ describe('company-account debits — serialized via advisory lock (MED-1, real D
     const salaryB = await seedPendingSalary(JUNIOR_B.id, amount)
 
     // First debit drains the balance to 0.
-    await svc.paySalary(salaryA, {}, ADMIN)
+    await svc.paySalary(salaryA, { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' }, ADMIN)
     expect(await liveBalance()).toBe(before - amount)
 
     // Second debit of `amount` now exceeds the reduced (0) balance → rejected.
-    await expect(svc.paySalary(salaryB, {}, ADMIN)).rejects.toThrowError(/Недостаточно средств/)
+    await expect(
+      svc.paySalary(salaryB, { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' }, ADMIN),
+    ).rejects.toThrowError(/Недостаточно средств/)
     expect(await liveBalance()).toBe(before - amount)
   }, 30_000)
 
@@ -296,8 +298,8 @@ describe('company-account debits — serialized via advisory lock (MED-1, real D
     const salary = await seedPendingSalary(JUNIOR_A.id, 100)
 
     const [first, second] = await Promise.allSettled([
-      svc.paySalary(salary, {}, ADMIN),
-      svc.paySalary(salary, {}, ADMIN),
+      svc.paySalary(salary, { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' }, ADMIN),
+      svc.paySalary(salary, { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' }, ADMIN),
     ])
 
     const fulfilled = [first, second].filter((r) => r.status === 'fulfilled')

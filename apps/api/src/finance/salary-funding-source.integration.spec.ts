@@ -15,20 +15,17 @@ import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 
 /**
- * task-company-account-backend — AC7: createSalary funding source (real DB).
+ * task-salary-pay-flow — salary funding source moved from CREATE to PAY (real DB).
  *
  * Asserts, against REAL PostgreSQL:
- *   - COMPANY_ACCOUNT → currency forced to USDT, funding_source persisted,
- *     senderId null; balance gate throws when the company account is short.
- *   - With sufficient company balance the salary is created and DEBITS the
- *     company balance (company-funded SALARY counts against it).
- *   - ADMIN_PERSONAL with a non-ADMIN payerAdminId → BadRequest.
- *   - ADMIN_PERSONAL with an ADMIN payer → funding_source set, sender = payer.
- *   - task-salary-company-account DEFAULT FLIP: an ABSENT fundingSource now
- *     resolves to COMPANY_ACCOUNT (USDT, sender null, gated) — NOT the old
- *     ADMIN_PERSONAL/NULL legacy behaviour.
- *   - #222 invariant preserved: ADMIN receiver still rejected regardless of
- *     funding source.
+ *   - createSalary creates a NEUTRAL PENDING reminder: status PENDING,
+ *     funding_source NULL, sender NULL, NO balance gate (no funding at creation).
+ *   - paySalary COMPANY_ACCOUNT → currency forced USDT, funding_source persisted,
+ *     senderLabel «Счёт компании», txDate stamped at pay; balance gate throws
+ *     when the company account is short; with funds it DEBITS the company balance.
+ *   - paySalary ADMIN_PERSONAL → PAID with the CHOSEN currency, sender = payer
+ *     admin, company balance UNCHANGED; a non-ADMIN payerAdminId → BadRequest.
+ *   - #222 invariant preserved: ADMIN receiver still rejected at createSalary.
  *
  * Invoices/documents collaborators are stubbed (salary auto-invoice is
  * best-effort and irrelevant to funding-source logic).
@@ -124,7 +121,7 @@ class TestDatabaseModule {}
 })
 class FundingSourceTestModule {}
 
-describe('createSalary — funding source (real DB, no mocks) — AC7', () => {
+describe('salary funding source: create → pay (real DB, no mocks) — task-salary-pay-flow', () => {
   let svc: TransactionsService
   let dbSvc: DatabaseService
 
@@ -211,47 +208,6 @@ describe('createSalary — funding source (real DB, no mocks) — AC7', () => {
     return computeCompanyAccountBalanceFromLedger(dbSvc.db)
   }
 
-  it('COMPANY_ACCOUNT with insufficient balance → BadRequest', async () => {
-    if (!dbAvailable) return
-    await cleanup()
-    // Ask for FAR more than the live balance so the gate trips deterministically,
-    // even if a concurrent spec deposits funds between our read and the gate.
-    const tooMuch = (await liveBalance()) + 1_000_000
-    await expect(
-      svc.createSalary(
-        {
-          receiverId: JUNIOR.id,
-          amount: tooMuch,
-          salaryMonth: '2026-06',
-          fundingSource: 'COMPANY_ACCOUNT',
-        },
-        ADMIN,
-      ),
-    ).rejects.toThrowError(/Недостаточно средств/)
-  })
-
-  it('COMPANY_ACCOUNT with sufficient balance → USDT forced + funding_source set + sender null', async () => {
-    if (!dbAvailable) return
-    await cleanup()
-    await seedCompanyDeposit(1000)
-    // currency 'UAH' supplied but must be forced to USDT for a company-funded row.
-    const tx = await svc.createSalary(
-      {
-        receiverId: JUNIOR.id,
-        amount: 400,
-        currency: 'UAH',
-        salaryMonth: '2026-06',
-        fundingSource: 'COMPANY_ACCOUNT',
-      },
-      ADMIN,
-    )
-    expect(tx.currency).toBe('USDT')
-    expect(tx.senderId).toBeNull()
-
-    const row = await dbSvc.db.query.transactions.findFirst({ where: eq(transactions.id, tx.id) })
-    expect((row as { fundingSource?: string | null }).fundingSource).toBe('COMPANY_ACCOUNT')
-  })
-
   // Scoped contribution = the 6-term company-account balance restricted to rows
   // authored by THIS spec's personas. Lets us assert balance deltas
   // deterministically even though the underlying balance is a GLOBAL aggregate
@@ -278,104 +234,138 @@ describe('createSalary — funding source (real DB, no mocks) — AC7', () => {
     return deposits - salary
   }
 
-  it('company-funded SALARY DEBITS the company balance (PAID salary counts)', async () => {
+  // ── AC1: createSalary = neutral PENDING reminder ───────────────────────────
+
+  it('createSalary → PENDING reminder: funding_source null, sender null, NO balance gate', async () => {
+    if (!dbAvailable) return
+    await cleanup()
+    // No company deposit seeded — createSalary must NOT gate on the balance now.
+    const tx = await svc.createSalary(
+      { receiverId: JUNIOR.id, amount: 400, currency: 'USD', salaryMonth: '2026-06' },
+      ADMIN,
+    )
+    expect(tx.status).toBe('PENDING')
+    expect(tx.senderId).toBeNull()
+    // Nominal currency is preserved (no USDT-force at creation).
+    expect(tx.currency).toBe('USD')
+    const row = await dbSvc.db.query.transactions.findFirst({ where: eq(transactions.id, tx.id) })
+    expect((row as { fundingSource?: string | null }).fundingSource).toBeNull()
+  })
+
+  it('createSalary does not require company funds even when balance is zero/short', async () => {
+    if (!dbAvailable) return
+    await cleanup()
+    // Far more than the live balance — under the old contract this gated; now it
+    // must succeed (no funding source chosen at creation).
+    const big = (await liveBalance()) + 1_000_000
+    const tx = await svc.createSalary(
+      { receiverId: JUNIOR.id, amount: big, salaryMonth: '2026-06' },
+      ADMIN,
+    )
+    expect(tx.status).toBe('PENDING')
+  })
+
+  // ── AC2: paySalary COMPANY_ACCOUNT ─────────────────────────────────────────
+
+  it('paySalary COMPANY_ACCOUNT → USDT forced, sender label «Счёт компании», debits balance', async () => {
     if (!dbAvailable) return
     await cleanup()
     await seedCompanyDeposit(1000)
-    const before = await myContribution() // +1000 (deposit), 0 salary
-    await svc.createSalary(
-      {
-        receiverId: JUNIOR.id,
-        amount: 600,
-        salaryMonth: '2026-06',
-        fundingSource: 'COMPANY_ACCOUNT',
-      },
+    const before = await myContribution() // +1000 deposit, 0 salary
+    const pending = await svc.createSalary(
+      { receiverId: JUNIOR.id, amount: 600, currency: 'USD', salaryMonth: '2026-06' },
       ADMIN,
     )
+    // Pay it from the company account. A non-USDT currency is overridden to USDT.
+    const paid = await svc.paySalary(
+      pending.id,
+      { fundingSource: 'COMPANY_ACCOUNT', currency: 'UAH' },
+      ADMIN,
+    )
+    expect(paid.status).toBe('PAID')
+    expect(paid.currency).toBe('USDT')
+    expect(paid.senderId).toBeNull()
+    const row = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, pending.id),
+    })
+    expect((row as { fundingSource?: string | null }).fundingSource).toBe('COMPANY_ACCOUNT')
+    expect((row as { senderLabel?: string | null }).senderLabel).toBe('Счёт компании')
+    // txDate is stamped at pay time (non-null).
+    expect((row as { txDate?: Date | null }).txDate).not.toBeNull()
     // The PAID company salary is counted by the balance formula → contribution
     // drops by exactly the salary amount.
     expect(await myContribution()).toBe(before - 600)
   })
 
-  it('ADMIN_PERSONAL with a NON-ADMIN payerAdminId → BadRequest', async () => {
+  it('paySalary COMPANY_ACCOUNT with insufficient balance → BadRequest, stays PENDING', async () => {
     if (!dbAvailable) return
+    await cleanup()
+    // No deposit → ask for far more than the live balance so the gate trips.
+    const tooMuch = (await liveBalance()) + 1_000_000
+    const pending = await svc.createSalary(
+      { receiverId: JUNIOR.id, amount: tooMuch, salaryMonth: '2026-06' },
+      ADMIN,
+    )
     await expect(
-      svc.createSalary(
-        {
-          receiverId: SENIOR.id,
-          amount: 100,
-          salaryMonth: '2026-06',
-          fundingSource: 'ADMIN_PERSONAL',
-          payerAdminId: JUNIOR.id,
-        },
+      svc.paySalary(pending.id, { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' }, ADMIN),
+    ).rejects.toThrowError(/Недостаточно средств/)
+    const row = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, pending.id),
+    })
+    expect((row as { status?: string }).status).toBe('PENDING')
+  })
+
+  // ── AC3: paySalary ADMIN_PERSONAL ──────────────────────────────────────────
+
+  it('paySalary ADMIN_PERSONAL → PAID with chosen currency, sender = payer, company balance UNCHANGED', async () => {
+    if (!dbAvailable) return
+    await cleanup()
+    await seedCompanyDeposit(1000)
+    const before = await myContribution()
+    const pending = await svc.createSalary(
+      { receiverId: SENIOR.id, amount: 100, currency: 'USD', salaryMonth: '2026-06' },
+      ADMIN,
+    )
+    const paid = await svc.paySalary(
+      pending.id,
+      { fundingSource: 'ADMIN_PERSONAL', payerAdminId: ADMIN2.id, currency: 'UAH' },
+      ADMIN,
+    )
+    expect(paid.status).toBe('PAID')
+    expect(paid.senderId).toBe(ADMIN2.id)
+    // ADMIN_PERSONAL preserves the chosen currency (any allowed).
+    expect(paid.currency).toBe('UAH')
+    const row = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, pending.id),
+    })
+    expect((row as { fundingSource?: string | null }).fundingSource).toBe('ADMIN_PERSONAL')
+    // A personal payout NEVER debits the company balance.
+    expect(await myContribution()).toBe(before)
+  })
+
+  it('paySalary ADMIN_PERSONAL with a NON-ADMIN payerAdminId → BadRequest', async () => {
+    if (!dbAvailable) return
+    await cleanup()
+    const pending = await svc.createSalary(
+      { receiverId: SENIOR.id, amount: 100, salaryMonth: '2026-06' },
+      ADMIN,
+    )
+    await expect(
+      svc.paySalary(
+        pending.id,
+        { fundingSource: 'ADMIN_PERSONAL', payerAdminId: JUNIOR.id, currency: 'USD' },
         ADMIN,
       ),
     ).rejects.toThrowError(/ADMIN/)
   })
 
-  it('ADMIN_PERSONAL with an ADMIN payer → funding_source set, sender = payer', async () => {
-    if (!dbAvailable) return
-    const tx = await svc.createSalary(
-      {
-        receiverId: SENIOR.id,
-        amount: 100,
-        currency: 'UAH',
-        salaryMonth: '2026-06',
-        fundingSource: 'ADMIN_PERSONAL',
-        payerAdminId: ADMIN2.id,
-      },
-      ADMIN,
-    )
-    expect(tx.senderId).toBe(ADMIN2.id)
-    // ADMIN_PERSONAL preserves the supplied currency (USDT|UAH allowed).
-    expect(tx.currency).toBe('UAH')
-    const row = await dbSvc.db.query.transactions.findFirst({ where: eq(transactions.id, tx.id) })
-    expect((row as { fundingSource?: string | null }).fundingSource).toBe('ADMIN_PERSONAL')
-  })
+  // ── #222 invariant preserved at creation ───────────────────────────────────
 
-  // task-salary-company-account DEFAULT FLIP: an ABSENT fundingSource now
-  // resolves to COMPANY_ACCOUNT (was ADMIN_PERSONAL/legacy caller-as-payer).
-  // The salary is therefore USDT, sender null, funding_source=COMPANY_ACCOUNT,
-  // and is gated by the company balance — so a deposit must be seeded first.
-  it('absent fundingSource → COMPANY_ACCOUNT default (USDT, sender null, gated)', async () => {
+  it('#222 invariant preserved: ADMIN receiver rejected at createSalary', async () => {
     if (!dbAvailable) return
     await cleanup()
-    await seedCompanyDeposit(1000)
-    const tx = await svc.createSalary(
-      { receiverId: JUNIOR.id, amount: 50, salaryMonth: '2026-06' },
-      ADMIN,
-    )
-    expect(tx.senderId).toBeNull()
-    expect(tx.currency).toBe('USDT')
-    const row = await dbSvc.db.query.transactions.findFirst({ where: eq(transactions.id, tx.id) })
-    expect((row as { fundingSource?: string | null }).fundingSource).toBe('COMPANY_ACCOUNT')
-  })
-
-  it('absent fundingSource over the live balance → BadRequest (default is gated)', async () => {
-    if (!dbAvailable) return
-    await cleanup()
-    // Default (absent) funding is COMPANY_ACCOUNT and gated — ask for more than
-    // the live balance so it trips regardless of the residual crm_qa balance.
-    const tooMuch = (await liveBalance()) + 1_000_000
     await expect(
-      svc.createSalary({ receiverId: JUNIOR.id, amount: tooMuch, salaryMonth: '2026-06' }, ADMIN),
-    ).rejects.toThrowError(/Недостаточно средств/)
-  })
-
-  it('#222 invariant preserved: ADMIN receiver rejected even with COMPANY_ACCOUNT', async () => {
-    if (!dbAvailable) return
-    await cleanup()
-    await seedCompanyDeposit(1000)
-    await expect(
-      svc.createSalary(
-        {
-          receiverId: ADMIN2.id,
-          amount: 100,
-          salaryMonth: '2026-06',
-          fundingSource: 'COMPANY_ACCOUNT',
-        },
-        ADMIN,
-      ),
+      svc.createSalary({ receiverId: ADMIN2.id, amount: 100, salaryMonth: '2026-06' }, ADMIN),
     ).rejects.toThrowError(/ADMIN не получает зарплату/)
   })
 

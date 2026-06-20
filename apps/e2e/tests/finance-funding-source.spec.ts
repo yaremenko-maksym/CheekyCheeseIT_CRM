@@ -1,16 +1,15 @@
 /**
- * finance-funding-source.spec.ts — E2E coverage for PR #254
- * task-salary-company-account: funding-source selector in CreateTransactionDialog
+ * finance-funding-source.spec.ts — E2E coverage for the funding-source selector
+ * in CreateTransactionDialog. Reworked for task-salary-pay-flow: SALARY no longer
+ * has a funding selector at creation (the source + currency are chosen at pay
+ * time, in PaySalaryDialog). EXPENSE / ADMIN_INCOME keep the selector.
  *
  * AC coverage:
- *  AC1 — SALARY: funding-source section visible; default COMPANY_ACCOUNT active;
- *         currency locked to USDT. Switch to ADMIN_PERSONAL → payer-admin section
- *         appears + currency unlocked.
+ *  AC5 — SALARY: NO funding-source section (neutral PENDING reminder); the salary
+ *         POST payload carries NO fundingSource / payerAdminId.
  *  AC2 — EXPENSE: default legacy; switch to COMPANY_ACCOUNT → USDT-lock +
  *         company-balance-hint visible.
  *  AC3 — ADMIN_INCOME: same pattern as EXPENSE (default legacy → company → USDT-lock + hint).
- *  AC4 — Company-funded SALARY submit: payload carries fundingSource='COMPANY_ACCOUNT',
- *         currency='USDT' (intercepted via route.fulfill + request inspection).
  *
  * Strategy:
  *  - All tests are mocked (route.fulfill only, NO route.continue).
@@ -102,116 +101,71 @@ async function openDialog(page: Page) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// AC1 — SALARY type: funding-source selector
+// AC5 — SALARY: no funding-source section (funding chosen at pay time)
 // ═══════════════════════════════════════════════════════════════════════════
 
-test.describe('AC1 — SALARY funding-source selector', () => {
-  test('ADMIN: funding-source section visible after selecting SALARY', async ({ asAdmin }) => {
+test.describe('AC5 — SALARY has NO funding-source selector', () => {
+  test('ADMIN: SALARY does NOT show the funding-source section', async ({ asAdmin }) => {
     await mockAdminDialogRoutes(asAdmin)
     const dialog = await openDialog(asAdmin)
 
     // ADMIN_INCOME is the default type — switch to SALARY.
     await dialog.getByTestId('create-transaction-type-salary').click()
 
-    await expect(dialog.getByTestId('create-transaction-funding-source-section')).toBeVisible()
+    await expect(dialog.getByTestId('create-transaction-funding-source-section')).not.toBeVisible()
   })
 
-  test('ADMIN: SALARY renders both COMPANY_ACCOUNT and ADMIN_PERSONAL buttons', async ({
+  test('ADMIN: SALARY shows no company balance hint and no payer-admin section', async ({
     asAdmin,
   }) => {
     await mockAdminDialogRoutes(asAdmin)
     const dialog = await openDialog(asAdmin)
     await dialog.getByTestId('create-transaction-type-salary').click()
-
-    await expect(dialog.getByTestId('create-transaction-funding-company')).toBeVisible()
-    await expect(dialog.getByTestId('create-transaction-funding-personal')).toBeVisible()
-  })
-
-  test('ADMIN: SALARY + COMPANY_ACCOUNT default → balance hint visible with amount', async ({
-    asAdmin,
-  }) => {
-    await mockAdminDialogRoutes(asAdmin)
-    const dialog = await openDialog(asAdmin)
-    await dialog.getByTestId('create-transaction-type-salary').click()
-
-    // Default is COMPANY_ACCOUNT → balance hint must appear immediately.
-    const hint = dialog.getByTestId('create-transaction-company-balance-hint')
-    await expect(hint).toBeVisible()
-    // Hint must contain recognisable portion of 9876.54.
-    await expect(hint).toContainText(/9[\s,.]?876/)
-  })
-
-  test('ADMIN: switching SALARY to ADMIN_PERSONAL shows payer-admin section', async ({
-    asAdmin,
-  }) => {
-    await mockAdminDialogRoutes(asAdmin)
-    const dialog = await openDialog(asAdmin)
-    await dialog.getByTestId('create-transaction-type-salary').click()
-
-    await dialog.getByTestId('create-transaction-funding-personal').click()
-
-    await expect(dialog.getByTestId('create-transaction-payer-admin-section')).toBeVisible()
-    await expect(dialog.getByTestId('create-transaction-payer-admin-trigger')).toBeVisible()
-  })
-
-  test('ADMIN: switching SALARY to ADMIN_PERSONAL hides balance hint', async ({ asAdmin }) => {
-    await mockAdminDialogRoutes(asAdmin)
-    const dialog = await openDialog(asAdmin)
-    await dialog.getByTestId('create-transaction-type-salary').click()
-
-    // Confirm hint present first (default COMPANY_ACCOUNT).
-    await expect(dialog.getByTestId('create-transaction-company-balance-hint')).toBeVisible()
-
-    await dialog.getByTestId('create-transaction-funding-personal').click()
 
     await expect(dialog.getByTestId('create-transaction-company-balance-hint')).not.toBeVisible()
-  })
-
-  test('ADMIN: switching back from ADMIN_PERSONAL to COMPANY_ACCOUNT hides payer-admin', async ({
-    asAdmin,
-  }) => {
-    await mockAdminDialogRoutes(asAdmin)
-    const dialog = await openDialog(asAdmin)
-    await dialog.getByTestId('create-transaction-type-salary').click()
-
-    // Go to personal first.
-    await dialog.getByTestId('create-transaction-funding-personal').click()
-    await expect(dialog.getByTestId('create-transaction-payer-admin-section')).toBeVisible()
-
-    // Switch back to company.
-    await dialog.getByTestId('create-transaction-funding-company').click()
     await expect(dialog.getByTestId('create-transaction-payer-admin-section')).not.toBeVisible()
+    await expect(dialog.getByTestId('create-transaction-funding-personal')).not.toBeVisible()
   })
 
-  test('ADMIN: SALARY + COMPANY_ACCOUNT — currency select is disabled (USDT locked)', async ({
+  test('ADMIN: submitting SALARY sends NO fundingSource / payerAdminId (neutral reminder)', async ({
     asAdmin,
   }) => {
     await mockAdminDialogRoutes(asAdmin)
+
+    // Intercept salary POST to capture the request body.
+    let capturedBody: Record<string, unknown> | null = null
+    await asAdmin.route(new RegExp(`${API_RE}/transactions/salary$`), (r) => {
+      if (r.request().method() === 'POST') {
+        capturedBody = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>
+        return r.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: 'tx-salary-new', status: 'PENDING' }),
+        })
+      }
+      return r.fallback()
+    })
+
     const dialog = await openDialog(asAdmin)
     await dialog.getByTestId('create-transaction-type-salary').click()
 
-    // AmountCurrencyInput renders a Radix <Select> with the native `disabled` HTML
-    // attribute (not aria-disabled) when disableCurrency=true.
-    // Playwright toBeDisabled() checks both disabled attr and aria-disabled.
-    const currencyTrigger = dialog
-      .getByRole('combobox')
-      .filter({ hasText: /USDT|USD|EUR|UAH/ })
-      .last()
-    await expect(currencyTrigger).toBeDisabled()
-  })
+    // Pick a receiver from the Radix Select dropdown.
+    await dialog.getByTestId('create-transaction-receiver-trigger').click()
+    const listbox = asAdmin.locator('[role="listbox"]')
+    await expect(listbox).toBeVisible()
+    await listbox.getByText(USERS.hr.displayName, { exact: false }).click()
 
-  test('ADMIN: SALARY + ADMIN_PERSONAL — currency select is NOT disabled', async ({ asAdmin }) => {
-    await mockAdminDialogRoutes(asAdmin)
-    const dialog = await openDialog(asAdmin)
-    await dialog.getByTestId('create-transaction-type-salary').click()
-    await dialog.getByTestId('create-transaction-funding-personal').click()
+    const amountInput = dialog.locator('input[type="number"]').first()
+    await amountInput.fill('500')
 
-    // After switching to personal account, currency selector must be free.
-    const currencyTrigger = dialog
-      .getByRole('combobox')
-      .filter({ hasText: /USDT|USD|EUR|UAH/ })
-      .last()
-    await expect(currencyTrigger).not.toBeDisabled()
+    await dialog.getByTestId('create-transaction-submit').click()
+    await expect(dialog).not.toBeVisible()
+
+    // Payload is a neutral reminder — no funding source / payer at creation.
+    expect(capturedBody).not.toBeNull()
+    expect(capturedBody!['fundingSource']).toBeUndefined()
+    expect(capturedBody!['payerAdminId']).toBeUndefined()
+    expect(capturedBody!['amount']).toBe(500)
   })
 })
 
@@ -334,77 +288,11 @@ test.describe('AC3 — ADMIN_INCOME funding-source selector', () => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
-// AC4 — Submit company-funded SALARY: payload inspection
-// ═══════════════════════════════════════════════════════════════════════════
-
-test.describe('AC4 — company-funded SALARY submit payload', () => {
-  test('ADMIN: submitting SALARY + COMPANY_ACCOUNT sends fundingSource=COMPANY_ACCOUNT and currency=USDT', async ({
-    asAdmin,
-  }) => {
-    await mockAdminDialogRoutes(asAdmin)
-
-    // Intercept salary POST to capture the request body.
-    let capturedBody: Record<string, unknown> | null = null
-    await asAdmin.route(new RegExp(`${API_RE}/transactions/salary$`), (r) => {
-      if (r.request().method() === 'POST') {
-        capturedBody = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>
-        return r.fulfill({
-          status: 201,
-          contentType: 'application/json',
-          body: JSON.stringify({ id: 'tx-salary-new', status: 'PENDING' }),
-        })
-      }
-      return r.fallback()
-    })
-
-    const dialog = await openDialog(asAdmin)
-    await dialog.getByTestId('create-transaction-type-salary').click()
-
-    // Pick a receiver from the Radix Select dropdown.
-    await dialog.getByTestId('create-transaction-receiver-trigger').click()
-    const listbox = asAdmin.locator('[role="listbox"]')
-    await expect(listbox).toBeVisible()
-    await listbox.getByText(USERS.hr.displayName, { exact: false }).click()
-
-    // COMPANY_ACCOUNT is already default — fill the amount.
-    const amountInput = dialog.locator('input[type="number"]').first()
-    await amountInput.fill('500')
-
-    await dialog.getByTestId('create-transaction-submit').click()
-
-    // Dialog should close on success.
-    await expect(dialog).not.toBeVisible()
-
-    // Validate captured payload shape.
-    expect(capturedBody).not.toBeNull()
-    expect(capturedBody!['fundingSource']).toBe('COMPANY_ACCOUNT')
-    expect(capturedBody!['currency']).toBe('USDT')
-    expect(capturedBody!['amount']).toBe(500)
-  })
-})
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Type-switch resets funding source to per-type default
+// Type-switch: SALARY hides the section, EXPENSE/ADMIN_INCOME reset to legacy
 // ═══════════════════════════════════════════════════════════════════════════
 
 test.describe('Type-switch resets funding source to per-type default', () => {
-  test('switching from SALARY (COMPANY_ACCOUNT) to EXPENSE resets to legacy', async ({
-    asAdmin,
-  }) => {
-    await mockAdminDialogRoutes(asAdmin)
-    const dialog = await openDialog(asAdmin)
-
-    // Switch to SALARY → balance hint appears (COMPANY_ACCOUNT default).
-    await dialog.getByTestId('create-transaction-type-salary').click()
-    await expect(dialog.getByTestId('create-transaction-company-balance-hint')).toBeVisible()
-
-    // Switch to EXPENSE → must reset to legacy → balance hint gone.
-    await dialog.getByTestId('create-transaction-type-expense').click()
-    await expect(dialog.getByTestId('create-transaction-company-balance-hint')).not.toBeVisible()
-    await expect(dialog.getByTestId('create-transaction-funding-legacy')).toBeVisible()
-  })
-
-  test('switching from EXPENSE (COMPANY_ACCOUNT) to SALARY keeps balance hint (SALARY default = COMPANY)', async ({
+  test('switching from EXPENSE (COMPANY_ACCOUNT) to SALARY hides the section entirely', async ({
     asAdmin,
   }) => {
     await mockAdminDialogRoutes(asAdmin)
@@ -414,24 +302,25 @@ test.describe('Type-switch resets funding source to per-type default', () => {
     await dialog.getByTestId('create-transaction-funding-company').click()
     await expect(dialog.getByTestId('create-transaction-company-balance-hint')).toBeVisible()
 
-    // SALARY default is COMPANY_ACCOUNT — hint should remain.
+    // Switch to SALARY → funding section disappears (chosen at pay time).
     await dialog.getByTestId('create-transaction-type-salary').click()
-    await expect(dialog.getByTestId('create-transaction-company-balance-hint')).toBeVisible()
+    await expect(dialog.getByTestId('create-transaction-funding-source-section')).not.toBeVisible()
   })
 
-  test('payer-admin selector disappears after switching away from SALARY + ADMIN_PERSONAL', async ({
+  test('switching from SALARY to EXPENSE shows the legacy default (no hint)', async ({
     asAdmin,
   }) => {
     await mockAdminDialogRoutes(asAdmin)
     const dialog = await openDialog(asAdmin)
 
     await dialog.getByTestId('create-transaction-type-salary').click()
-    await dialog.getByTestId('create-transaction-funding-personal').click()
-    await expect(dialog.getByTestId('create-transaction-payer-admin-section')).toBeVisible()
+    await expect(dialog.getByTestId('create-transaction-funding-source-section')).not.toBeVisible()
 
-    // Switch to EXPENSE — payer-admin must disappear.
+    // Switch to EXPENSE → section back, legacy default (no hint).
     await dialog.getByTestId('create-transaction-type-expense').click()
-    await expect(dialog.getByTestId('create-transaction-payer-admin-section')).not.toBeVisible()
+    await expect(dialog.getByTestId('create-transaction-funding-source-section')).toBeVisible()
+    await expect(dialog.getByTestId('create-transaction-company-balance-hint')).not.toBeVisible()
+    await expect(dialog.getByTestId('create-transaction-funding-legacy')).toBeVisible()
   })
 })
 

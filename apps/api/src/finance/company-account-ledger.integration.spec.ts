@@ -422,7 +422,9 @@ describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
       // even under concurrent deposits from other specs.
       const tooMuch = (await gateBalance()) + 1_000_000
       const id = await seedPendingCompanySalary(tooMuch)
-      await expect(txSvc.paySalary(id, {}, ADMIN)).rejects.toThrowError(/Недостаточно средств/)
+      await expect(
+        txSvc.paySalary(id, { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' }, ADMIN),
+      ).rejects.toThrowError(/Недостаточно средств/)
     })
 
     it('pays when funded: stamps txDate = pay date and debits the balance', async () => {
@@ -434,7 +436,11 @@ describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
       const startedAt = Date.now() - 1000
       const id = await seedPendingCompanySalary(400)
 
-      const paid = await txSvc.paySalary(id, {}, ADMIN)
+      const paid = await txSvc.paySalary(
+        id,
+        { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' },
+        ADMIN,
+      )
       expect(paid.status).toBe('PAID')
 
       const row = await dbSvc.db.query.transactions.findFirst({ where: eq(transactions.id, id) })

@@ -121,11 +121,11 @@ const ALL_PERSONAS = [
 ]
 const TEST_USER_IDS = ALL_PERSONAS.map((u) => u.id)
 
-// task-salary-company-account DEFAULT FLIP: createSalary with an ABSENT
-// fundingSource now defaults to COMPANY_ACCOUNT and is GATED by the company USDT
-// balance. This spec asserts the RECEIVER-ROLE guard (not funding), so we seed a
-// large company deposit up-front to keep all the "allowed receiver → 201" cases
-// passing the balance gate. Namespaced id so cleanup is deterministic.
+// task-salary-pay-flow: createSalary now creates a NEUTRAL PENDING reminder —
+// it no longer picks a funding source and is NOT gated by the company balance
+// (funding is chosen at pay time). This spec asserts the RECEIVER-ROLE guard
+// only; the deposit below is now harmless residual (kept for cleanup symmetry —
+// createSalary no longer reads it). Namespaced id so cleanup is deterministic.
 const NAR_DEPOSIT_ID = '5a110000-0000-4000-cc00-000000000001'
 
 // ── Sentinel controller ────────────────────────────────────────────────────────

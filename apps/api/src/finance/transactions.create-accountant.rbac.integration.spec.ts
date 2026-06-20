@@ -386,21 +386,15 @@ describe('transactions create — ACCOUNTANT/ADMIN parity RBAC (real DB, no mock
     currency: 'USDT',
     category: 'Прочее',
   })
-  // WHY fundingSource='ADMIN_PERSONAL': this spec is pure RBAC (who can call the
-  // endpoint) — not a funding-source test. createSalary now defaults an absent
-  // fundingSource to COMPANY_ACCOUNT which is gated by the global company
-  // balance (≈0 in a clean CI DB) → 400 instead of 201/403.
-  // Using ADMIN_PERSONAL bypasses the balance gate so the role assertions are
-  // deterministic regardless of the company-account balance state.
-  // payerAdminId = ADMIN.id is required when the caller is ACCOUNTANT (service
-  // validates that the payer resolves to an ADMIN row).
+  // task-salary-pay-flow: this spec is pure RBAC (who can call the endpoint).
+  // createSalary now creates a NEUTRAL PENDING reminder — no funding source, no
+  // balance gate at creation — so the role assertions (201/403) are deterministic
+  // regardless of the company-account balance. No funding fields needed here.
   const salaryPayload = () => ({
     receiverId: JUNIOR.id,
     amount: 500,
     currency: 'USD',
     salaryMonth: '2025-03',
-    fundingSource: 'ADMIN_PERSONAL' as const,
-    payerAdminId: ADMIN.id,
   })
   // ACCOUNTANT must pass an explicit ADMIN sender; ADMIN may omit it (defaults
   // to self). Receiver is always the other admin.
