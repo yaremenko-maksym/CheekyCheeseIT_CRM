@@ -1,6 +1,8 @@
 # Progress: task-salary-company-account (BACKEND)
 
-current_milestone: 1/7
+current_milestone: 5/7
+done: 1 (schemas) 2 (shared helper) 3 (reconcile both balance fns) 4 (remove LOCKED + cron COMPANY_ACCOUNT)
+note: company-account.service.spec balance block MUST be rewritten (helper now 6 SUM queries, not 4) — M7.
 branch: feature/salary-company-account
 
 ## Milestones

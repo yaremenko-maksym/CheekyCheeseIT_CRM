@@ -44,6 +44,7 @@ import { NbuCurrencyService } from './nbu-currency.service'
 import { EtherscanService } from './etherscan.service'
 import { resolveSeniorShare } from './senior-share-resolver'
 import { getOwnSalaryStatus } from './salary-status.helper'
+import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
 
 // Phase 8 v2 — payout → company wallet. Marker persisted in
 // transactions.fundingSource on a PAYOUT row whose money landed on the company
@@ -1434,9 +1435,8 @@ export class TransactionsService {
           })
           .where(eq(transactions.id, id))
 
-        // Unlock junior salary for this project's current month if locked.
-        // Best-effort — if it fails the validate still succeeded.
-        await this.unlockJuniorSalaryForProject(tx.projectId, tx)
+        // task-salary-company-account: junior salaries no longer depend on
+        // validated senior/drop income (LOCKED removed) — nothing to unlock here.
       } else {
         // DROP_INCOME: retain the original behaviour — atomically flip to
         // VALIDATED + create payout_request + insert placeholder PAYOUT row.
@@ -1493,8 +1493,7 @@ export class TransactionsService {
           })
         })
 
-        // Unlock junior salary for this project's current month if locked.
-        await this.unlockJuniorSalaryForProject(tx.projectId, tx)
+        // task-salary-company-account: LOCKED junior-salary unlock removed.
       }
     } else {
       if (!rejectionReason) throw new BadRequestException('Rejection reason is required')
@@ -1709,27 +1708,14 @@ export class TransactionsService {
    *   Σ(COMPANY_DEPOSIT PAID) − Σ(DIVIDEND_TO_ADMIN PAID)
    *     − Σ(SALARY PAID where fundingSource='COMPANY_ACCOUNT')
    */
+  // task-salary-company-account RECONCILIATION: the salary/expense balance gate
+  // now delegates to the SAME single-source-of-truth used by the display
+  // endpoint (GET /company-account). Previously this gate-side copy diverged —
+  // it was missing the `+PAYOUT(COMPANY_ACCOUNT)` term, so the gate undercounted
+  // the real balance. Both paths now call computeCompanyAccountBalanceFromLedger
+  // → display and gate are BYTE-FOR-BYTE identical (see company-account-balance.ts).
   private async computeCompanyAccountBalance(): Promise<number> {
-    const sumWhere = async (where: ReturnType<typeof and>): Promise<number> => {
-      const rows = await this.db.db
-        .select({ total: sql<string>`COALESCE(SUM(${transactions.amount}), 0)` })
-        .from(transactions)
-        .where(where)
-      const total = parseFloat(rows[0]?.total ?? '0')
-      return Number.isFinite(total) ? total : 0
-    }
-    const [deposits, dividends, companySalaries] = await Promise.all([
-      sumWhere(and(eq(transactions.type, 'COMPANY_DEPOSIT'), eq(transactions.status, 'PAID'))),
-      sumWhere(and(eq(transactions.type, 'DIVIDEND_TO_ADMIN'), eq(transactions.status, 'PAID'))),
-      sumWhere(
-        and(
-          eq(transactions.type, 'SALARY'),
-          eq(transactions.status, 'PAID'),
-          eq(transactions.fundingSource, 'COMPANY_ACCOUNT'),
-        ),
-      ),
-    ])
-    return deposits - dividends - companySalaries
+    return computeCompanyAccountBalanceFromLedger(this.db.db)
   }
 
   async createSalary(
@@ -3438,7 +3424,9 @@ export class TransactionsService {
       where: or(eq(users.role, 'HR'), eq(users.role, 'ACCOUNTANT')),
     })
 
-    // Find the admin who creates (Maksym by default)
+    // Find the admin who creates (Maksym by default). Used only as `createdBy`
+    // for audit — the money no longer comes from the admin's personal account
+    // (see fundingSource=COMPANY_ACCOUNT below).
     const admin = await this.db.db.query.users.findFirst({
       where: and(eq(users.role, 'ADMIN'), eq(users.id, MAKSYM_ID)),
     })
@@ -3457,20 +3445,30 @@ export class TransactionsService {
       })
       if (existing) continue
 
+      // task-salary-company-account: monthly salaries default to the shared
+      // company USDT account. Status PENDING (the money leaves the company
+      // balance only when an ADMIN pays it via paySalary — the balance formula
+      // counts only PAID company SALARY). senderId null + 'Счёт компании' label;
+      // `monthlySalary` is now interpreted as USDT.
       await this.db.db.insert(transactions).values({
         type: 'SALARY',
         status: 'PENDING',
         amount: emp.monthlySalary,
-        currency: 'USD',
-        senderId: admin.id,
-        senderLabel: 'CheekyCheeseIT',
+        currency: 'USDT',
+        senderId: null,
+        senderLabel: 'Счёт компании',
         receiverId: emp.id,
         salaryMonth: month,
+        fundingSource: 'COMPANY_ACCOUNT',
         createdBy: admin.id,
       })
     }
 
-    // Create LOCKED salary for JUNIORs on active projects
+    // Create PENDING salary for JUNIORs on active projects.
+    // task-salary-company-account: the LOCKED-until-validated-income mechanic is
+    // GONE — juniors always get a PENDING salary regardless of whether the
+    // project's senior/drop income has been validated yet. (The
+    // unlockJuniorSalaryForProject method + its callers were removed.)
     const activeMembers = await this.db.db.query.projectMembers.findMany({
       where: isNull(projectMembers.leftAt),
       with: {
@@ -3502,75 +3500,24 @@ export class TransactionsService {
       })
       if (existing) continue
 
-      // Check if project already has a validated income this month → PENDING, else LOCKED
-      const currentMonthStart = new Date(`${month}-01`)
-      const nextMonthStart = new Date(currentMonthStart)
-      nextMonthStart.setMonth(nextMonthStart.getMonth() + 1)
-
-      // Drop role - phase 2 (AC5): drop-projects unlock junior salary on a
-      // validated DROP_INCOME as well — the income side is what matters for
-      // the unlock, not whether the wallet is a SENIOR or a DROP.
-      const hasValidatedIncome = await this.db.db.query.transactions.findFirst({
-        where: and(
-          or(eq(transactions.type, 'SENIOR_INCOME'), eq(transactions.type, 'DROP_INCOME')),
-          eq(transactions.projectId, project.id),
-          eq(transactions.status, 'VALIDATED'),
-        ),
-      })
-
       // Resolve salary: project override → user default
       const salaryAmount = project.financeSettings?.juniorSalaryOverride ?? user.monthlySalary
       if (!salaryAmount) continue
 
       await this.db.db.insert(transactions).values({
         type: 'SALARY',
-        status: hasValidatedIncome ? 'PENDING' : 'LOCKED',
+        status: 'PENDING',
         amount: String(salaryAmount),
-        currency: 'USD',
-        senderId: admin.id,
-        senderLabel: 'CheekyCheeseIT',
+        currency: 'USDT',
+        senderId: null,
+        senderLabel: 'Счёт компании',
         receiverId: user.id,
         projectId: project.id,
         salaryMonth: month,
+        fundingSource: 'COMPANY_ACCOUNT',
         createdBy: admin.id,
       })
     }
-  }
-
-  // Unlock LOCKED junior salary when a senior OR drop income is validated.
-  // Drop role - phase 2 (AC5): the trigger condition is "any validated income
-  // on the project" — caller passes the validated row (SENIOR_INCOME or
-  // DROP_INCOME) and we flip the LOCKED salary for the active junior.
-  private async unlockJuniorSalaryForProject(projectId: string | null, incomeTx: Transaction) {
-    if (!projectId) return
-
-    const month = incomeTx.createdAt.toISOString().slice(0, 7)
-
-    // Find the active junior on this project
-    const activeMember = await this.db.db.query.projectMembers.findFirst({
-      where: and(eq(projectMembers.projectId, projectId), isNull(projectMembers.leftAt)),
-      with: { user: true },
-    })
-
-    const juniorUser = (
-      activeMember as (typeof activeMember & { user: typeof users.$inferSelect | null }) | undefined
-    )?.user
-    if (!juniorUser || juniorUser.role !== 'JUNIOR') return
-
-    await this.db.db
-      .update(transactions)
-      .set({
-        status: 'PENDING',
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(transactions.type, 'SALARY'),
-          eq(transactions.receiverId, juniorUser.id),
-          eq(transactions.salaryMonth, month),
-          eq(transactions.status, 'LOCKED'),
-        ),
-      )
   }
 
   // ── Access guard ──────────────────────────────────────────────────────────
