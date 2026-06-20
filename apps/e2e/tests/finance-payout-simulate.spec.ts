@@ -23,7 +23,10 @@
  */
 import { test, expect, USERS, PROJECTS, mockAuthAs } from './fixtures'
 
-const API = 'http://localhost:3001/api'
+// Origin-agnostic prefix — matches any host/port (dev proxy on :3000,
+// direct :3001, preview :3010). Mirrors the API_GLOB pattern from fixtures.ts.
+const API = '**/api'
+const API_RE = '\\/api'
 const PROJECT_ID = PROJECTS[0]!.id
 const PROJECT_NAME = PROJECTS[0]!.name
 
@@ -94,7 +97,9 @@ function makePayoutRow(overrides: object = {}) {
   }
 }
 
-function makePayoutRequest(overrides: { status?: 'PENDING' | 'PAID'; txHash?: string | null } = {}) {
+function makePayoutRequest(
+  overrides: { status?: 'PENDING' | 'PAID'; txHash?: string | null } = {},
+) {
   return {
     id: PAYOUT_ID,
     seniorId: USERS.senior.id,
@@ -123,7 +128,7 @@ function setupPayoutMocks(
 ): { getPayCalls: () => Array<Record<string, unknown>> } {
   const payCalls: Array<Record<string, unknown>> = []
 
-  void page.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
+  void page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -132,7 +137,7 @@ function setupPayoutMocks(
   )
 
   // Single payout GET — fired by PayoutDetailDialog on open.
-  void page.route(new RegExp(`${API}/payout-requests/([^/?]+)$`), (r) =>
+  void page.route(new RegExp(`${API_RE}/payout-requests/([^/?]+)$`), (r) =>
     r.request().method() === 'GET'
       ? r.fulfill({
           status: 200,
@@ -143,7 +148,7 @@ function setupPayoutMocks(
   )
 
   // /pay endpoint — capture body + return success or error per test setup.
-  void page.route(new RegExp(`${API}/payout-requests/([^/?]+)/pay$`), (r) => {
+  void page.route(new RegExp(`${API_RE}/payout-requests/([^/?]+)/pay$`), (r) => {
     try {
       const raw = r.request().postData()
       if (raw) {
@@ -179,7 +184,7 @@ function setupPayoutMocks(
     })
   })
 
-  void page.route(new RegExp(`${API}/payout-requests(\\?.*)?$`), (r) =>
+  void page.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   )
   void page.route(`${API}/projects`, (r) =>
@@ -227,7 +232,9 @@ test.describe('Flow B — Payout payment simulate radio (PR #56)', () => {
     )
 
     // Default radio = real → submit disabled even with no hash typed.
-    const realRadio = dialog.getByTestId('payout-detail-dev-simulate-real').locator('input[type="radio"]')
+    const realRadio = dialog
+      .getByTestId('payout-detail-dev-simulate-real')
+      .locator('input[type="radio"]')
     await expect(realRadio).toBeChecked()
     await expect(dialog.getByTestId('payout-detail-submit')).toBeDisabled()
   })

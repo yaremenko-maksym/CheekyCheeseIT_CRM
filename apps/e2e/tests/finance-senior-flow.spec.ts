@@ -13,7 +13,11 @@
 
 import { test, expect, USERS, PROJECTS, mockAuthAs } from './fixtures'
 
-const API = 'http://localhost:3001/api'
+// Origin-agnostic patterns — Playwright intercepts at the browser layer
+// (http://localhost:3000/api/*). Using '**/api' glob for string routes and
+// '\\/api' path segment for RegExp routes matches regardless of host/port.
+const API = '**/api'
+const API_RE = '\\/api'
 const PROJECT_ID = PROJECTS[0]!.id
 const PROJECT_NAME = PROJECTS[0]!.name
 
@@ -93,22 +97,22 @@ async function setupTransactionMocks(
   listOverride?: object[],
 ) {
   const listBody = JSON.stringify(listOverride ?? [tx])
-  await page.route(new RegExp(`${API}/transactions/senior-income/([^/?]+)$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/transactions/senior-income/([^/?]+)$`), (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ ...tx, status: 'PENDING', rejectionReason: null }),
     }),
   )
-  await page.route(new RegExp(`${API}/transactions/([^/?]+)/(validate|pay|admin-edit)$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/transactions/([^/?]+)/(validate|pay|admin-edit)$`), (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tx) }),
   )
-  await page.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
     r.request().method() === 'POST'
       ? r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(tx) })
       : r.fulfill({ status: 200, contentType: 'application/json', body: listBody }),
   )
-  await page.route(new RegExp(`${API}/payout-requests/([^/?]+)/pay$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/payout-requests/([^/?]+)/pay$`), (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -117,7 +121,7 @@ async function setupTransactionMocks(
   )
   // Single payout GET — used by PayoutDetailDialog when SENIOR opens an
   // existing pending payout from the inline «Оплатить» pill.
-  await page.route(new RegExp(`${API}/payout-requests/([^/?]+)$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/payout-requests/([^/?]+)$`), (r) =>
     r.request().method() === 'GET'
       ? r.fulfill({
           status: 200,
@@ -126,7 +130,7 @@ async function setupTransactionMocks(
         })
       : r.fallback(),
   )
-  await page.route(new RegExp(`${API}/payout-requests(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) =>
     r.request().method() === 'POST'
       ? r.fulfill({
           status: 201,
@@ -319,17 +323,23 @@ test.describe('SENIOR INCOME — шаг 2а: отклонение транзак
 
     const pendingTx = makeTx()
     const rejectedTx = makeTx({ status: 'REJECTED', rejectionReason: 'Чек нечитаем' })
-    await page.route(new RegExp(`${API}/transactions/([^/?]+)/(validate|pay|admin-edit)$`), (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rejectedTx) }),
+    await page.route(
+      new RegExp(`${API_RE}/transactions/([^/?]+)/(validate|pay|admin-edit)$`),
+      (r) =>
+        r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(rejectedTx),
+        }),
     )
-    await page.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify([pendingTx]),
       }),
     )
-    await page.route(new RegExp(`${API}/payout-requests(\\?.*)?$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
     )
 
@@ -430,17 +440,17 @@ test.describe('SENIOR INCOME — шаг 3: повторная валидация
       validatedBy: USERS.accountant.id,
       validatedAt: '2026-05-02T10:00:00.000Z',
     })
-    await page.route(new RegExp(`${API}/transactions/([^/?]+)/validate$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/transactions/([^/?]+)/validate$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(validatedTx),
       }),
     )
-    await page.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([makeTx()]) }),
     )
-    await page.route(new RegExp(`${API}/payout-requests(\\?.*)?$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
     )
 
@@ -794,14 +804,14 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     // === ШАГ 1: SENIOR создаёт транзакцию ===
     const pendingTx = makeTx({ receiptExternalUrl: 'https://drive.google.com/receipt.pdf' })
 
-    await seniorPage.route(new RegExp(`${API}/transactions/senior-income/([^/?]+)$`), (r) =>
+    await seniorPage.route(new RegExp(`${API_RE}/transactions/senior-income/([^/?]+)$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ ...pendingTx, status: 'PENDING', rejectionReason: null }),
       }),
     )
-    await seniorPage.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) => {
+    await seniorPage.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) => {
       if (r.request().method() === 'POST') {
         return r.fulfill({
           status: 201,
@@ -815,7 +825,7 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
         body: JSON.stringify([pendingTx]),
       })
     })
-    await seniorPage.route(new RegExp(`${API}/payout-requests(\\?.*)?$`), (r) =>
+    await seniorPage.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
     )
     await seniorPage.route(`${API}/projects`, (r) =>
@@ -849,7 +859,7 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     })
 
     await accountantPage.route(
-      new RegExp(`${API}/transactions/([^/?]+)/(validate|pay|admin-edit)$`),
+      new RegExp(`${API_RE}/transactions/([^/?]+)/(validate|pay|admin-edit)$`),
       (r) =>
         r.fulfill({
           status: 200,
@@ -857,14 +867,14 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
           body: JSON.stringify(rejectedTx),
         }),
     )
-    await accountantPage.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
+    await accountantPage.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify([pendingTx]),
       }),
     )
-    await accountantPage.route(new RegExp(`${API}/payout-requests(\\?.*)?$`), (r) =>
+    await accountantPage.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
     )
 
@@ -881,14 +891,14 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
       receiptExternalUrl: 'https://drive.google.com/new-receipt.pdf',
     })
 
-    await seniorPage.route(new RegExp(`${API}/transactions/senior-income/([^/?]+)$`), (r) =>
+    await seniorPage.route(new RegExp(`${API_RE}/transactions/senior-income/([^/?]+)$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(correctedTx),
       }),
     )
-    await seniorPage.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
+    await seniorPage.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -915,7 +925,7 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     })
 
     await accountantPage.route(
-      new RegExp(`${API}/transactions/([^/?]+)/(validate|pay|admin-edit)$`),
+      new RegExp(`${API_RE}/transactions/([^/?]+)/(validate|pay|admin-edit)$`),
       (r) =>
         r.fulfill({
           status: 200,
@@ -923,7 +933,7 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
           body: JSON.stringify(validatedTx),
         }),
     )
-    await accountantPage.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
+    await accountantPage.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -962,14 +972,14 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
       payoutRequestId: 'flow-payout-1',
     })
 
-    await seniorPage.route(new RegExp(`${API}/payout-requests/([^/?]+)/pay$`), (r) =>
+    await seniorPage.route(new RegExp(`${API_RE}/payout-requests/([^/?]+)/pay$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(makePayoutRequest({ status: 'PAID', txHash: '0xdeadbeef' })),
       }),
     )
-    await seniorPage.route(new RegExp(`${API}/payout-requests/([^/?]+)$`), (r) =>
+    await seniorPage.route(new RegExp(`${API_RE}/payout-requests/([^/?]+)$`), (r) =>
       r.request().method() === 'GET'
         ? r.fulfill({
             status: 200,
@@ -978,7 +988,7 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
           })
         : r.fallback(),
     )
-    await seniorPage.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
+    await seniorPage.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
