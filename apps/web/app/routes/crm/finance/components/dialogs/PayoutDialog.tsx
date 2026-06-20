@@ -27,6 +27,10 @@ import { fmtAmount } from '../../constants'
  * After creation this dialog closes — the SENIOR pays via PayoutDetailDialog,
  * which is opened from the inline «Оплатить» button on a PENDING_PAYMENT row
  * (where the contract address + tx-hash field live).
+ *
+ * Mixed-currency handling: the backend (#252) converts every income to USDT
+ * via the NBU rate before creating the payout_request, so mixed currencies are
+ * fully supported. The old frontend guard has been removed accordingly.
  */
 export function PayoutDialog({
   open,
@@ -65,16 +69,15 @@ export function PayoutDialog({
   const seniorDefault = user?.seniorSharePercent ?? 26
   const selectedTxs = validatedTxs.filter((t) => selected.has(t.id))
 
-  // Mixed-currency guard: mirror the backend rejection so the SENIOR sees
-  // an inline error before even hitting submit.
   const selectedCurrencies = new Set(selectedTxs.map((t) => t.currency))
+  // When transactions span multiple currencies the backend will convert each
+  // one to USDT via the NBU rate — show a per-currency breakdown instead of
+  // a single (potentially misleading) cross-currency total.
   const hasMixedCurrencies = selectedCurrencies.size > 1
-  // Display currency for totals — only meaningful when all txs share the same
-  // currency (hasMixedCurrencies === false). Falls back to 'USDT' for empty
-  // selection or pre-guard display.
+  // For single-currency batches keep the simple «batchCurrency» display.
   const batchCurrency =
     selectedCurrencies.size === 1 ? ([...selectedCurrencies][0]! as string) : 'USDT'
-  const totalIncome = selectedTxs.reduce((sum, t) => sum + parseFloat(t.amount), 0)
+
   const previewRows = selectedTxs.map((tx) => {
     const snapshot = tx.seniorSharePercent
     const share = snapshot ?? seniorDefault
@@ -87,8 +90,25 @@ export function PayoutDialog({
       payable: amount * (1 - share / 100),
     }
   })
+
+  // For single-currency batches compute the unified total as before.
+  // For mixed batches the per-currency breakdown is shown instead (see JSX).
   const payable = previewRows.reduce((sum, r) => sum + r.payable, 0)
   const totalSenior = previewRows.reduce((sum, r) => sum + r.senior, 0)
+  const totalIncome = selectedTxs.reduce((sum, t) => sum + parseFloat(t.amount), 0)
+
+  // Per-currency breakdown for mixed batches (grouped totals for display only).
+  const perCurrencyBreakdown: Record<string, { income: number; senior: number; payable: number }> =
+    {}
+  for (const row of previewRows) {
+    const cur = row.tx.currency
+    if (!perCurrencyBreakdown[cur]) {
+      perCurrencyBreakdown[cur] = { income: 0, senior: 0, payable: 0 }
+    }
+    perCurrencyBreakdown[cur]!.income += parseFloat(row.tx.amount)
+    perCurrencyBreakdown[cur]!.senior += row.senior
+    perCurrencyBreakdown[cur]!.payable += row.payable
+  }
 
   const createMutation = useMutation({
     mutationFn: () => financeApi.createPayoutRequest({ transactionIds: [...selected] }),
@@ -228,40 +248,68 @@ export function PayoutDialog({
                   )}
                 </div>
 
-                <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Всего выбрано</span>
-                    <span className="font-medium">{selected.size} транз.</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Общая сумма</span>
-                    <span className="font-medium tabular-nums">
-                      {fmtAmount(totalIncome, batchCurrency)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Остаётся вам</span>
-                    <span className="font-medium tabular-nums">
-                      {fmtAmount(totalSenior, batchCurrency)}
-                    </span>
-                  </div>
+                {hasMixedCurrencies ? (
+                  /* Mixed-currency batch: show per-currency breakdown instead of
+                     a misleading cross-currency sum. The backend converts each
+                     income to USDT via the NBU rate — final amount will be in USDT. */
                   <div
-                    className="flex justify-between text-primary"
+                    className="rounded-lg border border-border bg-muted/30 p-3 space-y-2 text-sm"
                     data-testid="payout-preview-total"
                   >
-                    <span>Всего к оплате</span>
-                    <span className="font-bold tabular-nums">
-                      {fmtAmount(payable, batchCurrency)}
-                    </span>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Всего выбрано</span>
+                      <span className="font-medium">{selected.size} транз.</span>
+                    </div>
+                    <div className="h-px bg-border/60" />
+                    <p className="text-xs text-muted-foreground">Разбивка по валютам:</p>
+                    {Object.entries(perCurrencyBreakdown).map(([cur, totals]) => (
+                      <div key={cur} className="space-y-0.5 pl-2 border-l-2 border-border/60">
+                        <div className="flex justify-between font-medium">
+                          <span>{cur}</span>
+                          <span className="tabular-nums">{fmtAmount(totals.income, cur)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>К оплате</span>
+                          <span className="tabular-nums">{fmtAmount(totals.payable, cur)}</span>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="h-px bg-border/60" />
+                    <p className="text-xs text-muted-foreground/70">
+                      Итоговая выплата будет в USDT — конвертация по курсу НБУ на момент создания
+                    </p>
                   </div>
-                </div>
+                ) : (
+                  /* Single-currency batch: show unified total as before. */
+                  <div
+                    className="rounded-lg border border-border bg-muted/30 p-3 space-y-1 text-sm"
+                    data-testid="payout-preview-total"
+                  >
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Всего выбрано</span>
+                      <span className="font-medium">{selected.size} транз.</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Общая сумма</span>
+                      <span className="font-medium tabular-nums">
+                        {fmtAmount(totalIncome, batchCurrency)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Остаётся вам</span>
+                      <span className="font-medium tabular-nums">
+                        {fmtAmount(totalSenior, batchCurrency)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-primary">
+                      <span>Всего к оплате</span>
+                      <span className="font-bold tabular-nums">
+                        {fmtAmount(payable, batchCurrency)}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-
-            {hasMixedCurrencies && (
-              <p className="text-xs text-destructive" data-testid="payout-mixed-currency-error">
-                Нельзя смешивать валюты в одной выплате. Выберите транзакции только одной валюты.
-              </p>
             )}
 
             {createError && <p className="text-xs text-destructive">{createError}</p>}
@@ -274,7 +322,7 @@ export function PayoutDialog({
           </Button>
           <Button
             onClick={() => createMutation.mutate()}
-            disabled={selected.size === 0 || hasMixedCurrencies || createMutation.isPending}
+            disabled={selected.size === 0 || createMutation.isPending}
           >
             {createMutation.isPending ? 'Создание...' : 'Создать выплату'}
           </Button>

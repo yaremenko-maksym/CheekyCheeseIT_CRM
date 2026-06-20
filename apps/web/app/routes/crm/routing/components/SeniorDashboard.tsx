@@ -248,16 +248,6 @@ export function SeniorDashboard() {
                               {fmtDate(t.createdAt)}
                             </p>
                           </div>
-                          <span className="text-sm font-medium tabular-nums shrink-0">
-                            {fmtAmount(t.amount, t.currency)}
-                          </span>
-                          <Badge
-                            variant="outline"
-                            className={`shrink-0 text-[11px] ${STATUS_COLORS[t.status]}`}
-                            data-testid={`senior-in-progress-status-${t.id}`}
-                          >
-                            {STATUS_LABELS[t.status]}
-                          </Badge>
                           {t.status === 'VALIDATED' && !t.payoutRequestId && (
                             <Button
                               variant="outline"
@@ -270,6 +260,16 @@ export function SeniorDashboard() {
                               Создать выплату
                             </Button>
                           )}
+                          <Badge
+                            variant="outline"
+                            className={`shrink-0 text-[11px] ${STATUS_COLORS[t.status]}`}
+                            data-testid={`senior-in-progress-status-${t.id}`}
+                          >
+                            {STATUS_LABELS[t.status]}
+                          </Badge>
+                          <span className="text-sm font-medium tabular-nums shrink-0">
+                            {fmtAmount(t.amount, t.currency)}
+                          </span>
                         </li>
                       ))}
                     </ul>
