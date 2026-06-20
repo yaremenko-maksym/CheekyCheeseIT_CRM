@@ -21,7 +21,7 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
-import { TransactionsService } from './transactions.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 
 const MAKSYM_USER = {
   id: '00000000-0000-0000-0000-000000000001',
@@ -197,7 +197,7 @@ function makeService(initial: Partial<MockState> = {}) {
   }
   const db = { db: drizzleClient } as unknown
 
-  const svc = new TransactionsService(db as never, {} as never)
+  const svc = makeTransactionsService({ db: db as never })
 
   // Stub findOne — confirmPayout tail-calls it twice (PAYOUT + PAYOUT_CONFIRMED).
   // We don't care about the precise DTO here, just that it returns SOMETHING

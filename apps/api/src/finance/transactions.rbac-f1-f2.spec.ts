@@ -14,7 +14,7 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
-import { TransactionsService } from './transactions.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -87,9 +87,8 @@ function makeServiceWithTxs(txs: TxStub[]): TransactionsService {
       },
     },
   }
-  // 2nd ctor arg is DocumentsService — unused by the findAll / findPayoutRequest
-  // RBAC paths under test, so an empty stub is intentional and safe here.
-  return new TransactionsService(dbStub as never, {} as never)
+  // invoices/documents not reached by the findAll / findPayoutRequest RBAC paths.
+  return makeTransactionsService({ db: dbStub as never })
 }
 
 /** Build a stub where findPayoutRequest can return a controlled payout-request row. */
@@ -130,9 +129,8 @@ function makeServiceWithPayoutRequest(
       },
     },
   }
-  // 2nd ctor arg is DocumentsService — unused by the findAll / findPayoutRequest
-  // RBAC paths under test, so an empty stub is intentional and safe here.
-  return new TransactionsService(dbStub as never, {} as never)
+  // invoices/documents not reached by the findAll / findPayoutRequest RBAC paths.
+  return makeTransactionsService({ db: dbStub as never })
 }
 
 // ── F1: HR salary leak ────────────────────────────────────────────────────────
