@@ -1,8 +1,8 @@
 # Progress: task-payout-company-wallet (backend Phase 8 v2)
 
-current_milestone: 5/6 (M2/M3/M5 done; M4 next; M6 tests last)
-last_commit: M1 26bf508 + M2/M3/M5 pending
-last_push: pending
+current_milestone: 6/6 (M1-M5 done; M6 integration tests + push)
+last_commit: M4 manual-confirm pending commit
+last_push: pending (local commits only — pre-push runs full suite)
 
 ## Milestones
 

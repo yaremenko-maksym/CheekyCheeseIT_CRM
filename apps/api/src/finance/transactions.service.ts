@@ -22,6 +22,7 @@ import type {
   IncomeComplianceOverviewDto,
   IncomeComplianceReceiverDto,
   IncomeComplianceRole,
+  ManualPayoutMethod,
 } from '@crm/shared'
 import { MAKSYM_ID, KOSTYA_ID, SALARY_ELIGIBLE_ROLES } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
@@ -2103,6 +2104,88 @@ export class TransactionsService {
       }
     }
 
+    // On-chain (or dev-simulate) settlement landed on the COMPANY wallet → the
+    // PAYOUT row is credited to the company account (fundingSource marker).
+    return this.applyPayoutPaidCascade(
+      req,
+      effectiveTxHash,
+      PAYOUT_TO_COMPANY_ACCOUNT,
+      null,
+      currentUser,
+    )
+  }
+
+  // ── Manual payout confirmation (Phase 8 v2) ──────────────────────────────
+  //
+  // ADMIN/ACCOUNTANT escape hatch for payouts settled OFF the on-chain happy
+  // path. `method` decides whether the company balance moves:
+  //   COMPANY_ACCOUNT → credited (fundingSource marker, same as on-chain).
+  //   ADMIN_USDT / CASH → NOT credited (money landed off the company account);
+  //                       the PAYOUT row keeps fundingSource NULL.
+  // The downstream cascade (linked incomes → PAID, partner splits, invoice) is
+  // identical to payPayoutRequest — only the credit marker + audit note differ.
+  async manualConfirmPayout(
+    requestId: string,
+    method: ManualPayoutMethod,
+    currentUser: SessionUser,
+    options: { note?: string | null; txHash?: string | null } = {},
+  ) {
+    // RBAC: ADMIN/ACCOUNTANT only (NOT SENIOR/DROP). Real 403 enforced here AND
+    // by the controller RolesGuard (defense-in-depth).
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+      throw new ForbiddenException()
+    }
+
+    const req = await this.db.db.query.payoutRequests.findFirst({
+      where: eq(payoutRequests.id, requestId),
+    })
+    if (!req) throw new NotFoundException('Payout request not found')
+    // Idempotency: only a still-PENDING payout can be confirmed; a second
+    // confirmation throws (the cascade already ran, balance already moved).
+    if (req.status !== 'PENDING') {
+      throw new BadRequestException('Payout request is already paid')
+    }
+
+    // Audit hash: use the provided on-chain hash when present, else a manual
+    // marker so the audit trail (txHash column) is never empty. Manual markers
+    // use a 0xMANUAL prefix (distinct from the 0xSIM dev-simulate convention).
+    const noteTxHash = options.txHash?.trim()
+    const effectiveTxHash =
+      noteTxHash && noteTxHash.length >= 10
+        ? noteTxHash
+        : `0xMANUAL${randomBytes(26).toString('hex')}`
+
+    // Only COMPANY_ACCOUNT credits the company balance; ADMIN_USDT / CASH leave
+    // fundingSource NULL so computeBalance ignores this PAYOUT row.
+    const fundingSource = method === 'COMPANY_ACCOUNT' ? PAYOUT_TO_COMPANY_ACCOUNT : null
+    const auditNote = `Manual payout confirmation by ${currentUser.id} at ${new Date().toISOString()} (method=${method})${
+      options.note ? ` — ${options.note}` : ''
+    }`
+
+    return this.applyPayoutPaidCascade(req, effectiveTxHash, fundingSource, auditNote, currentUser)
+  }
+
+  /**
+   * Phase 8 v2 — shared "mark payout PAID + cascade" used by BOTH
+   * payPayoutRequest (on-chain) and manualConfirmPayout (off-chain). Flips the
+   * payout_request + linked incomes + PAYOUT row to PAID, stamps the PAYOUT
+   * row's fundingSource (credit marker), best-effort aggregated invoice, and
+   * the drop/senior partner-split rows. Extracted to keep the two entry points
+   * in lockstep (no ledger drift) — the ONLY differences are the fundingSource
+   * marker and the audit note, both passed in.
+   *
+   * `req` is the already-loaded, validated, still-PENDING payout_request row.
+   * Callers MUST have enforced ownership / RBAC / verification before calling.
+   */
+  private async applyPayoutPaidCascade(
+    req: typeof payoutRequests.$inferSelect,
+    effectiveTxHash: string,
+    fundingSource: string | null,
+    auditNote: string | null,
+    currentUser: SessionUser,
+  ) {
+    const requestId = req.id
+
     // Mark payout request as paid
     await this.db.db
       .update(payoutRequests)
@@ -2140,21 +2223,24 @@ export class TransactionsService {
       )
 
     // Mark the placeholder PAYOUT row (created at createPayoutRequest time)
-    // as PAID + attach the on-chain txHash. We don't INSERT a fresh PAYOUT
-    // here — the row already exists with status PENDING_PAYMENT so the
-    // SENIOR could see «Выплата» in the table before clicking «Оплатить».
+    // as PAID + attach the txHash. We don't INSERT a fresh PAYOUT here — the
+    // row already exists with status PENDING_PAYMENT so the SENIOR could see
+    // «Выплата» in the table before clicking «Оплатить».
     //
-    // Phase 8 v2 — stamp fundingSource='COMPANY_ACCOUNT' so company-account
-    // computeBalance credits this payout to the company balance. This is the
-    // on-chain-confirmed path (the senior really sent USDT to the company
-    // wallet, verified above), so the money DID land on the company account.
+    // Phase 8 v2 — `fundingSource` is the company-account credit marker:
+    //   'COMPANY_ACCOUNT' (on-chain confirm OR manual COMPANY_ACCOUNT) → counted
+    //                     by company-account computeBalance.
+    //   null (manual ADMIN_USDT / CASH) → NOT counted (money landed off the
+    //                     company account). The auditNote records the manual
+    //                     method when present.
     await this.db.db
       .update(transactions)
       .set({
         status: 'PAID',
         txHash: effectiveTxHash,
-        fundingSource: PAYOUT_TO_COMPANY_ACCOUNT,
+        fundingSource,
         updatedAt: new Date(),
+        ...(auditNote ? { notes: auditNote } : {}),
       })
       .where(and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')))
 

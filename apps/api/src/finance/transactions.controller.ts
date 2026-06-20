@@ -23,6 +23,7 @@ import {
   createSalarySchema,
   dropIncomesQuerySchema,
   incomeComplianceQuerySchema,
+  manualConfirmPayoutSchema,
   payPayoutRequestSchema,
   paySalarySchema,
   updateProjectFinanceSettingsSchema,
@@ -204,6 +205,23 @@ export class PayoutRequestsController {
       return this.svc.payPayoutRequest(id, data.txHash, user, data.simulateResult)
     }
     return this.svc.payPayoutRequest(id, data.txHash, user)
+  }
+
+  // Phase 8 v2 — manual payout confirmation. ADMIN/ACCOUNTANT mark a payout PAID
+  // when it was settled OFF the on-chain happy path (COMPANY_ACCOUNT vouched,
+  // ADMIN_USDT to a partner's personal wallet, or CASH). Only COMPANY_ACCOUNT
+  // credits the company balance. RolesGuard enforces RBAC (the @Roles metadata
+  // is inert without it — RolesGuard is NOT a global APP_GUARD); the service
+  // re-checks the role for defense-in-depth.
+  @Post(':id/manual-confirm')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN', 'ACCOUNTANT')
+  manualConfirm(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
+    const data = manualConfirmPayoutSchema.parse(body)
+    return this.svc.manualConfirmPayout(id, data.method, user, {
+      ...(data.note !== undefined && data.note !== null ? { note: data.note } : {}),
+      ...(data.txHash !== undefined && data.txHash !== null ? { txHash: data.txHash } : {}),
+    })
   }
 }
 
