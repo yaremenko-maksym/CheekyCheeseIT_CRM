@@ -224,7 +224,48 @@ const receiptXorMessage = {
   path: ['receiptExternalUrl'],
 }
 
-// ADMIN_INCOME — admin declares project income, no validation needed
+// task-company-account-backend / task-salary-company-account. Where a money
+// movement is funded from:
+//   - COMPANY_ACCOUNT — paid out of (SALARY/EXPENSE) or into (ADMIN_INCOME) the
+//     shared company USDT account. Currency is forced to USDT server-side
+//     regardless of input; the company balance gate applies for outflows.
+//   - ADMIN_PERSONAL  — paid from an admin partner's personal account (Maksym or
+//     Kostya). `payerAdminId` chooses whose account; currency may be USDT/UAH.
+//     (SALARY-only — EXPENSE/ADMIN_INCOME use the enum solely for COMPANY_ACCOUNT.)
+// Optional to keep the contract backward-compatible with callers that do not
+// yet send a funding source. NOTE (task-salary-company-account): for SALARY the
+// service now defaults an ABSENT fundingSource to COMPANY_ACCOUNT (was
+// ADMIN_PERSONAL). For EXPENSE/ADMIN_INCOME absent → legacy behaviour (no
+// company routing). See company-account-spec.md.
+export const salaryFundingSourceSchema = z.enum(['COMPANY_ACCOUNT', 'ADMIN_PERSONAL'])
+export type SalaryFundingSource = z.infer<typeof salaryFundingSourceSchema>
+
+// Shared superRefine guard: when fundingSource = COMPANY_ACCOUNT an explicit
+// non-USDT currency is a client bug (company account is USDT-only). The service
+// also forces USDT, but surfacing the contradiction early gives a clear error.
+// Extracted so SALARY / EXPENSE / ADMIN_INCOME schemas stay byte-for-byte
+// consistent (DRY — single rule, no drift).
+function refineCompanyAccountUsdt(
+  data: { fundingSource?: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' | undefined; currency?: string },
+  ctx: z.RefinementCtx,
+): void {
+  if (
+    data.fundingSource === 'COMPANY_ACCOUNT' &&
+    data.currency !== undefined &&
+    data.currency !== 'USDT'
+  ) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'Операция со счёта компании проводится только в USDT',
+      path: ['currency'],
+    })
+  }
+}
+
+// ADMIN_INCOME — admin declares project income, no validation needed.
+// task-salary-company-account: optional `fundingSource` — when COMPANY_ACCOUNT
+// the income is directed INTO the shared company USDT account (credits its
+// balance) instead of the admin's personal balance. Currency forced to USDT.
 export const createAdminIncomeSchema = z
   .object({
     projectId: z.string().uuid(),
@@ -237,8 +278,12 @@ export const createAdminIncomeSchema = z
       .regex(/^\d{4}-\d{2}-\d{2}$/)
       .optional()
       .nullable(),
+    // Reuse salaryFundingSourceSchema — only COMPANY_ACCOUNT is meaningful here
+    // (ADMIN_PERSONAL is implicit/legacy when absent). Optional → legacy path.
+    fundingSource: salaryFundingSourceSchema.optional(),
   })
   .refine(receiptXor, receiptXorMessage)
+  .superRefine(refineCompanyAccountUsdt)
 export type CreateAdminIncomeDto = z.infer<typeof createAdminIncomeSchema>
 
 // SENIOR_INCOME — senior registers project income, awaits validation
@@ -289,7 +334,10 @@ export const updateSeniorIncomeSchema = z
   .refine(receiptXor, receiptXorMessage)
 export type UpdateSeniorIncomeDto = z.infer<typeof updateSeniorIncomeSchema>
 
-// EXPENSE — admin declares a company expense
+// EXPENSE — admin declares a company expense.
+// task-salary-company-account: optional `fundingSource` — when COMPANY_ACCOUNT
+// the expense is paid OUT of the shared company USDT account (debits its
+// balance, gated by available funds). Currency forced to USDT. Absent → legacy.
 export const createExpenseSchema = z
   .object({
     amount: z.number().positive(),
@@ -302,20 +350,13 @@ export const createExpenseSchema = z
       .regex(/^\d{4}-\d{2}-\d{2}$/)
       .optional()
       .nullable(),
+    // Reuse salaryFundingSourceSchema — only COMPANY_ACCOUNT is meaningful here.
+    // Optional → legacy expense (no company routing, no balance impact).
+    fundingSource: salaryFundingSourceSchema.optional(),
   })
   .refine(receiptXor, receiptXorMessage)
+  .superRefine(refineCompanyAccountUsdt)
 export type CreateExpenseDto = z.infer<typeof createExpenseSchema>
-
-// task-company-account-backend. Where a salary is funded from:
-//   - COMPANY_ACCOUNT — paid out of the shared company USDT account (decreases
-//     its balance). Currency is forced to USDT server-side regardless of input.
-//   - ADMIN_PERSONAL  — paid from an admin partner's personal account (Maksym or
-//     Kostya). `payerAdminId` chooses whose account; currency may be USDT/UAH.
-// Optional + nullable to keep the contract backward-compatible with callers that
-// do not yet send a funding source (legacy salary = admin-personal by default in
-// the service). See company-account-spec.md.
-export const salaryFundingSourceSchema = z.enum(['COMPANY_ACCOUNT', 'ADMIN_PERSONAL'])
-export type SalaryFundingSource = z.infer<typeof salaryFundingSourceSchema>
 
 // SALARY — admin/accountant creates salary transaction for eligible roles.
 export const createSalarySchema = z
@@ -330,30 +371,15 @@ export const createSalarySchema = z
       .regex(/^\d{4}-\d{2}-\d{2}$/)
       .optional()
       .nullable(),
-    // task-company-account-backend. Funding source for the salary. When absent
-    // the service treats it as ADMIN_PERSONAL (legacy behaviour) with the
-    // calling ADMIN as payer.
+    // task-company-account-backend / task-salary-company-account. Funding source
+    // for the salary. When ABSENT the service now defaults to COMPANY_ACCOUNT
+    // (was ADMIN_PERSONAL) — see createSalary in transactions.service.ts.
     fundingSource: salaryFundingSourceSchema.optional(),
     // For ADMIN_PERSONAL — whose personal account funds the payment. Must be an
     // ADMIN (validated server-side). Defaults to the calling ADMIN when omitted.
     payerAdminId: z.string().uuid().optional(),
   })
-  .superRefine((data, ctx) => {
-    // COMPANY_ACCOUNT salaries are always USDT — reject an inconsistent explicit
-    // non-USDT currency early so the client gets a clear error (the service also
-    // forces USDT, but a contradictory input is a client bug worth surfacing).
-    if (
-      data.fundingSource === 'COMPANY_ACCOUNT' &&
-      data.currency !== undefined &&
-      data.currency !== 'USDT'
-    ) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'Зарплата со счёта компании выплачивается только в USDT',
-        path: ['currency'],
-      })
-    }
-  })
+  .superRefine(refineCompanyAccountUsdt)
 export type CreateSalaryDto = z.infer<typeof createSalarySchema>
 
 // ADMIN_TRANSFER — balance equalization between Maksym and Kostya
