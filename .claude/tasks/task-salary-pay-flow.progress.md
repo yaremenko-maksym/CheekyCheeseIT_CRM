@@ -1,8 +1,8 @@
 # Progress: salary-pay-flow (rework #254)
 
-current_milestone: 1/5
-last_commit: e0388bf7
-last_push: e0388bf7
+current_milestone: 5/5 (DONE — pending final push)
+last_commit: 499a858f
+last_push: e0388bf7 (will push final)
 
 ## Milestones
 
