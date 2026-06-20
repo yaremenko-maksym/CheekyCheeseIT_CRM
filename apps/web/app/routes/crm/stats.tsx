@@ -896,7 +896,7 @@ function IncomeComplianceBody({ data }: { data: IncomeComplianceOverviewDto }) {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-2" data-testid="compliance-list">
+        <div className="space-y-2 max-h-96 overflow-y-auto pr-1" data-testid="compliance-list">
           {receivers.map((r) => (
             <ComplianceReceiverRow key={r.userId} receiver={r} />
           ))}
@@ -953,12 +953,6 @@ export function StatsPage() {
     >
       <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
         <div className="space-y-8">
-          {/* ── Income compliance «Контроль приходов» (ADMIN + ACCOUNTANT) ──
-          Company-wide tracker of which income receivers have registered a
-          counted income per active project this month. The whole /crm/stats
-          route is already ADMIN/ACCOUNTANT-only, so this needs no extra gate. */}
-          <IncomeComplianceSection />
-
           {/* ── Finance section (economic — ADMIN + ACCOUNTANT) ── */}
           <section className="space-y-4" data-testid="stats-finance-section">
             <div className="flex items-center gap-2">
@@ -1066,6 +1060,12 @@ export function StatsPage() {
               </>
             ) : null}
           </section>
+
+          {/* ── Income compliance «Контроль приходов» (ADMIN + ACCOUNTANT) ──
+          Company-wide tracker of which income receivers have registered a
+          counted income per active project this month. Placed after the main
+          financial KPIs so the key P&L numbers are seen first. */}
+          <IncomeComplianceSection />
 
           {/* Future sections placeholder (ADMIN-only — HR/Команда/Проекты analytics
           are not part of the accountant's economic surface). */}
