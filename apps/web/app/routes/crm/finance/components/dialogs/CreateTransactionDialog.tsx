@@ -140,19 +140,19 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   const [currency, setCurrency] = useState<Currency>('USDT')
   const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]!)
 
-  // task-salary-company-account: funding source per-type.
-  // SALARY — defaults to COMPANY_ACCOUNT (backend also defaults to this).
-  // EXPENSE / ADMIN_INCOME — defaults to 'legacy' (absent = no company routing).
-  // 'legacy' is a UI-only sentinel meaning "do not send fundingSource in payload".
+  // task-salary-company-account / task-salary-pay-flow: funding source per-type.
+  // EXPENSE / ADMIN_INCOME keep the company-account funding selector. SALARY no
+  // longer picks a funding source HERE — it is created as a neutral PENDING
+  // reminder; the funding source + currency are chosen later, at pay time
+  // (PaySalaryDialog). So SALARY (like every other non-company type) defaults to
+  // 'legacy' = "do not send fundingSource in payload".
   const defaultFundingSource = (t: DialogTxType): FundingSourceUI => {
-    if (t === 'SALARY') return 'COMPANY_ACCOUNT'
+    if (t === 'EXPENSE' || t === 'ADMIN_INCOME') return 'legacy'
     return 'legacy'
   }
   const [fundingSource, setFundingSource] = useState<FundingSourceUI>(
     defaultFundingSource(availableTypes[0] ?? 'SENIOR_INCOME'),
   )
-  // For SALARY + ADMIN_PERSONAL: which admin's personal account funds the payment.
-  const [payerAdminId, setPayerAdminId] = useState<string>('')
   const [salaryMonth, setSalaryMonth] = useState(() => {
     const prev = new Date()
     prev.setMonth(prev.getMonth() - 1)
@@ -204,10 +204,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   const companyBalance = companyAccount?.balance ?? 0
 
   // Derived: is the currency selector locked to USDT?
-  // True when a COMPANY_ACCOUNT funding source is selected for SALARY/EXPENSE/ADMIN_INCOME.
+  // True when a COMPANY_ACCOUNT funding source is selected for EXPENSE/ADMIN_INCOME.
+  // (SALARY no longer carries a funding source here — chosen at pay time.)
   const isUsdtLocked =
-    (type === 'SALARY' || type === 'EXPENSE' || type === 'ADMIN_INCOME') &&
-    fundingSource === 'COMPANY_ACCOUNT'
+    (type === 'EXPENSE' || type === 'ADMIN_INCOME') && fundingSource === 'COMPANY_ACCOUNT'
 
   // Fetch NBU rates when non-USD/USDT currency selected, keyed by date
   const needsRate = needsConversion(currency)
@@ -359,21 +359,16 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
         })
       }
       if (type === 'SALARY') {
-        // SALARY always sends explicit fundingSource (backend default is COMPANY_ACCOUNT,
-        // but sending it explicitly is clearer and prevents future default drift).
-        const effectivePayerAdminId =
-          fundingSource === 'ADMIN_PERSONAL'
-            ? payerAdminId || adminUsers[0]?.id || undefined
-            : undefined
+        // task-salary-pay-flow: a manually-created salary is a NEUTRAL PENDING
+        // reminder — NO funding source / payer / currency-lock here. The funding
+        // source + payment currency are chosen later, at pay time (PaySalaryDialog).
         return financeApi.createSalary({
           receiverId,
           amount: amt,
-          currency: isUsdtLocked ? 'USDT' : currency,
+          currency,
           salaryMonth,
           notes: notes || null,
           txDate: txDate || null,
-          fundingSource: fundingSource === 'legacy' ? undefined : fundingSource,
-          ...(effectivePayerAdminId !== undefined && { payerAdminId: effectivePayerAdminId }),
         })
       }
       if (type === 'ADMIN_TRANSFER') {
@@ -439,7 +434,6 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     setFieldErrors({})
     // Reset funding source to per-type default.
     setFundingSource(defaultFundingSource(type))
-    setPayerAdminId('')
     const now = new Date()
     setTxDate(
       `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`,
@@ -494,16 +488,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     // inside an open dialog never leaves a stale party selected.
                     setTransferSenderId('')
                     setFieldErrors({})
-                    // Reset fundingSource to per-type default and unlock currency.
-                    const nextFunding = defaultFundingSource(t)
-                    setFundingSource(nextFunding)
-                    setPayerAdminId('')
-                    if (nextFunding !== 'COMPANY_ACCOUNT') {
-                      // Restore default currency when leaving a USDT-locked state.
-                      setCurrency('USDT')
-                    } else {
-                      setCurrency('USDT')
-                    }
+                    // Reset fundingSource to per-type default and restore the
+                    // default currency (any USDT-lock is re-derived from funding).
+                    setFundingSource(defaultFundingSource(t))
+                    setCurrency('USDT')
                   }}
                   className={cn(
                     'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
@@ -619,67 +607,13 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             </div>
           )}
 
-          {/* Funding source selector — SALARY / EXPENSE / ADMIN_INCOME only */}
-          {(type === 'SALARY' || type === 'EXPENSE' || type === 'ADMIN_INCOME') && (
+          {/* Funding source selector — EXPENSE / ADMIN_INCOME only.
+              task-salary-pay-flow: SALARY no longer has a funding selector here —
+              the funding source is chosen at pay time (PaySalaryDialog). */}
+          {(type === 'EXPENSE' || type === 'ADMIN_INCOME') && (
             <div className="space-y-2" data-testid="create-transaction-funding-source-section">
               <Label className="text-xs text-muted-foreground">Источник средств</Label>
               <div className="grid grid-cols-1 gap-1.5">
-                {/* Options depend on type */}
-                {type === 'SALARY' && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFundingSource('COMPANY_ACCOUNT')
-                        setCurrency('USDT')
-                        setPayerAdminId('')
-                      }}
-                      className={cn(
-                        'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
-                        fundingSource === 'COMPANY_ACCOUNT'
-                          ? 'border-primary bg-primary/8 text-foreground'
-                          : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
-                      )}
-                      data-testid="create-transaction-funding-company"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium leading-tight">Счёт компании</div>
-                        <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
-                          Спишется со счёта компании (USDT)
-                        </div>
-                      </div>
-                      {fundingSource === 'COMPANY_ACCOUNT' && (
-                        <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFundingSource('ADMIN_PERSONAL')
-                        // Personal account may be USDT or UAH — keep current currency.
-                      }}
-                      className={cn(
-                        'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
-                        fundingSource === 'ADMIN_PERSONAL'
-                          ? 'border-primary bg-primary/8 text-foreground'
-                          : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
-                      )}
-                      data-testid="create-transaction-funding-personal"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium leading-tight">
-                          Личный счёт партнёра
-                        </div>
-                        <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
-                          Из личного счёта выбранного партнёра
-                        </div>
-                      </div>
-                      {fundingSource === 'ADMIN_PERSONAL' && (
-                        <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
-                      )}
-                    </button>
-                  </>
-                )}
                 {(type === 'EXPENSE' || type === 'ADMIN_INCOME') && (
                   <>
                     <button
@@ -747,36 +681,6 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   >
                     {fmtUsdt(companyBalance)} USDT
                   </span>
-                </div>
-              )}
-
-              {/* Payer admin selector — only for SALARY + ADMIN_PERSONAL */}
-              {type === 'SALARY' && fundingSource === 'ADMIN_PERSONAL' && (
-                <div className="space-y-1.5" data-testid="create-transaction-payer-admin-section">
-                  <Label className="text-xs text-muted-foreground">Партнёр-плательщик</Label>
-                  <Select
-                    value={payerAdminId || adminUsers[0]?.id || ''}
-                    onValueChange={setPayerAdminId}
-                  >
-                    <SelectTrigger
-                      className="h-9 text-sm"
-                      data-testid="create-transaction-payer-admin-trigger"
-                    >
-                      <SelectValue placeholder="Выберите партнёра" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {adminUsers.map((u) => (
-                        <SelectItem
-                          key={u.id}
-                          value={u.id}
-                          className="text-sm"
-                          data-testid={`create-transaction-payer-admin-option-${u.id}`}
-                        >
-                          {u.displayName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
                 </div>
               )}
             </div>
