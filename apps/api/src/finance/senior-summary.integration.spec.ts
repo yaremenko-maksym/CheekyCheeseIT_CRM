@@ -18,6 +18,7 @@ import { RolesGuard } from '../common/guards/roles.guard'
 import { DatabaseService } from '../database/database.service'
 import { FinanceSummaryController } from './transactions.controller'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
+import { TransactionsService } from './transactions.service'
 import { payoutRequests, projects, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 

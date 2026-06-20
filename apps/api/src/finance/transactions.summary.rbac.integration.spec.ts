@@ -15,6 +15,7 @@ import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { DatabaseService } from '../database/database.service'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
+import { TransactionsService } from './transactions.service'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 

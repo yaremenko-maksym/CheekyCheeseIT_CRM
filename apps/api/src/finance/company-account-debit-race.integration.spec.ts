@@ -8,6 +8,7 @@ import type { SessionUser } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
+import { TransactionsService } from './transactions.service'
 import type { InvoicesService } from '../invoices/invoices.service'
 import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
 import { transactions, users } from '../database/schema'
