@@ -19,7 +19,8 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
-import { TransactionsService } from './transactions.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
+import type { DocumentsService } from '../documents/documents.service'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -148,7 +149,10 @@ function makeHarness(opts: HarnessOpts = {}) {
     },
   }
 
-  const service = new TransactionsService(db as never, {} as never, documentsService as never)
+  const service = makeTransactionsService({
+    db: db as never,
+    documentsService: documentsService as never as DocumentsService,
+  })
 
   // Stub findOne so updateSeniorIncome can complete
   vi.spyOn(service, 'findOne' as never).mockResolvedValue({
@@ -361,7 +365,10 @@ function makeIdorHarnessV2(opts: {
     },
   }
 
-  const service = new TransactionsService(db as never, {} as never, { deleteS3Keys } as never)
+  const service = makeTransactionsService({
+    db: db as never,
+    documentsService: { deleteS3Keys } as never as DocumentsService,
+  })
   vi.spyOn(service, 'findOne' as never).mockResolvedValue({
     id: 'tx-idor',
     status: 'PENDING',

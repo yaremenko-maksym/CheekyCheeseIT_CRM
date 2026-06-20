@@ -18,7 +18,7 @@ import type { SessionUser } from '@crm/shared'
 import { MAKSYM_ID, KOSTYA_ID } from '@crm/shared'
 import { pendingObligations, transactions } from '../database/schema'
 import { PaymentChannelService } from './payment-channel.service'
-import { TransactionsService } from './transactions.service'
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 
 // ── Test fixtures ───────────────────────────────────────────────────────────
 
@@ -290,7 +290,7 @@ function makeService(initial: Partial<MockState> = {}) {
   }
   const dbStub = { db: drizzleClient } as unknown
 
-  const txService = new TransactionsService(dbStub as never, {} as never)
+  const txService = makeTransactionsService({ db: dbStub as never })
   const svc = new PaymentChannelService(dbStub as never, txService)
   return {
     svc,
