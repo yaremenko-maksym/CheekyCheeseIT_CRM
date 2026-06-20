@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  Inject,
   Param,
   Patch,
   Post,
@@ -176,7 +177,12 @@ export class TransactionsController {
 
 @Controller('payout-requests')
 export class PayoutRequestsController {
-  constructor(private readonly svc: TransactionsService) {}
+  // Explicit @Inject so this REAL controller can be instantiated by Nest's DI in
+  // the vitest/esbuild env (which omits `design:paramtypes`) — required by the
+  // real-controller RBAC integration spec (payout-manual-confirm.rbac.integration
+  // .spec.ts, M2 green-wash fix). Mirrors CompanyAccountController. Dropping
+  // @Roles/@UseGuards from the manual-confirm route turns THAT spec red.
+  constructor(@Inject(TransactionsService) private readonly svc: TransactionsService) {}
 
   @Get()
   findAll(@CurrentUser() user: SessionUser) {

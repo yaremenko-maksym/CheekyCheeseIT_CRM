@@ -23,6 +23,7 @@ import type {
   IncomeComplianceReceiverDto,
   IncomeComplianceRole,
   ManualPayoutMethod,
+  CurrencyEnum,
 } from '@crm/shared'
 import { MAKSYM_ID, KOSTYA_ID, SALARY_ELIGIBLE_ROLES } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
@@ -50,9 +51,24 @@ import { getOwnSalaryStatus } from './salary-status.helper'
 // computeBalance counts ONLY these PAYOUT rows, so ADMIN_USDT/CASH manual
 // confirmations (which leave fundingSource NULL) never inflate the balance.
 const PAYOUT_TO_COMPANY_ACCOUNT = 'COMPANY_ACCOUNT'
-// Tolerance for the on-chain amount vs. the recorded payableAmount. A 1% band
-// absorbs FX drift (NBU rate at create time vs. the senior's actual transfer)
-// and rounding. Outside the band the payout is NOT marked PAID.
+// M4 — Tolerance for the on-chain amount vs. the recorded payableAmount.
+//
+// WHY 1%: the company-share `payableAmount` is computed and frozen at
+// createPayoutRequest time using THAT day's NBU rate (cross-currency incomes →
+// USDT). The senior's actual on-chain transfer happens later, at a slightly
+// different effective rate, minus gas/rounding. The 1% band absorbs this drift
+// so an honest payout is not rejected over a few cents.
+//
+// SYMMETRY (двусторонний): the check uses `Math.abs(onChain - payable)`, so it
+// covers BOTH an on-chain UNDERPAYMENT (senior sent ~1% less) and an
+// OVERPAYMENT (sent ~1% more) within the band — both are accepted as PAID.
+//
+// WHAT WE CREDIT: regardless of the exact on-chain figure (as long as it is
+// within the band), the company account is credited the FROZEN `payableAmount`
+// — the contractual company-share obligation, NOT the on-chain number. This is
+// deliberate: it keeps the ledger deterministic (the PAYOUT row amount == what
+// every report already shows) and prevents a malformed/manipulated on-chain
+// `value` from setting the credited figure. Outside the band → NOT PAID.
 const PAYOUT_AMOUNT_TOLERANCE = 0.01
 
 /** Default drop-share percentage when `users.dropSharePercent` is NULL.
@@ -406,7 +422,13 @@ export class TransactionsService {
    */
   private convertToUsdtMinor(
     amountMinor: number,
-    currency: string,
+    // code-review LOW: strict currency union (canonical `CurrencyEnum` from
+    // @crm/shared = 'USDT' | 'USD' | 'EUR' | 'UAH') instead of bare `string`,
+    // so the switch is exhaustive at compile time and an unsupported currency
+    // is a type error at the call site, not a runtime surprise. The default
+    // branch is kept as a defensive runtime backstop for data that bypasses the
+    // Zod boundary (e.g. a legacy DB row outside the enum).
+    currency: CurrencyEnum,
     rates: { usdUah: number; eurUah: number },
   ): number {
     switch (currency) {
@@ -418,7 +440,9 @@ export class TransactionsService {
       case 'UAH':
         return Math.round(amountMinor / rates.usdUah)
       default:
-        throw new BadRequestException(`Неподдерживаемая валюта для конверсии в USDT: ${currency}`)
+        throw new BadRequestException(
+          `Неподдерживаемая валюта для конверсии в USDT: ${String(currency)}`,
+        )
     }
   }
 
@@ -2011,7 +2035,20 @@ export class TransactionsService {
   }
 
   // ── Pay Payout Request ────────────────────────────────────────────────────
-
+  //
+  // MUTUALLY EXCLUSIVE with manualConfirmPayout (M3): both can mark a payout
+  // PAID, but only the FIRST one to run wins. Both gate on `req.status !==
+  // 'PENDING'` → throw, so once either path flips the payout to PAID the other
+  // can never re-credit it (no balance double-count). Design intent:
+  //   payPayoutRequest    — the on-chain HAPPY PATH (SENIOR/DROP self-service,
+  //                         Etherscan-verified recipient/amount/confirmations).
+  //   manualConfirmPayout — the ADMIN/ACCOUNTANT ESCAPE HATCH for settlements
+  //                         that happened off the on-chain path.
+  // RBAC intent (code-review MED): SENIOR initiates AND pays SENIOR-project
+  // payouts (they own the payout flow). DROP is additionally allowed here for
+  // the drop-project settlement path — in that flow `payout_requests.seniorId`
+  // points at the DROP user (the wallet owner of the off-platform transfer), so
+  // the `req.seniorId === currentUser.id` ownership check below covers both.
   async payPayoutRequest(
     requestId: string,
     txHash: string | undefined,
@@ -2130,6 +2167,11 @@ export class TransactionsService {
   //                       the PAYOUT row keeps fundingSource NULL.
   // The downstream cascade (linked incomes → PAID, partner splits, invoice) is
   // identical to payPayoutRequest — only the credit marker + audit note differ.
+  //
+  // MUTUALLY EXCLUSIVE with payPayoutRequest (M3): see that method's header.
+  // Both gate on `req.status !== 'PENDING'`, so an on-chain-paid payout cannot
+  // also be manual-confirmed (and vice-versa) — the second caller throws and
+  // the balance is never double-credited (cross-path test asserts this).
   async manualConfirmPayout(
     requestId: string,
     method: ManualPayoutMethod,
@@ -2156,14 +2198,36 @@ export class TransactionsService {
     // marker so the audit trail (txHash column) is never empty. Manual markers
     // use a 0xMANUAL prefix (distinct from the 0xSIM dev-simulate convention).
     const noteTxHash = options.txHash?.trim()
-    const effectiveTxHash =
-      noteTxHash && noteTxHash.length >= 10
-        ? noteTxHash
-        : `0xMANUAL${randomBytes(26).toString('hex')}`
+    // A REAL on-chain hash was supplied (vs. a synthesized 0xMANUAL marker).
+    // Only a real hash references an actual on-chain transfer that could be
+    // double-counted; the random 0xMANUAL/0xSIM markers are unique by
+    // construction, so they need no reuse guard.
+    const hasRealTxHash = Boolean(noteTxHash && noteTxHash.length >= 10)
+    const effectiveTxHash = hasRealTxHash
+      ? noteTxHash!
+      : `0xMANUAL${randomBytes(26).toString('hex')}`
 
     // Only COMPANY_ACCOUNT credits the company balance; ADMIN_USDT / CASH leave
     // fundingSource NULL so computeBalance ignores this PAYOUT row.
     const fundingSource = method === 'COMPANY_ACCOUNT' ? PAYOUT_TO_COMPANY_ACCOUNT : null
+
+    // ── SECURITY (H1): txHash-reuse guard — mirrors payPayoutRequest:~2080.
+    // When the manual confirmation CREDITS the company account (COMPANY_ACCOUNT)
+    // and references a REAL on-chain hash, that hash must not already belong to
+    // another PAID payout. Without this, an ADMIN/ACCOUNTANT could manual-confirm
+    // a second payout with a txHash already consumed by a PAID one and credit the
+    // company balance TWICE for a single on-chain transfer (no DB unique index on
+    // payout_requests.txHash backstops this — verified). ADMIN_USDT / CASH never
+    // credit the balance, and synthetic markers are unique, so the guard is
+    // scoped to the only exploitable path. Runs BEFORE any write.
+    if (method === 'COMPANY_ACCOUNT' && hasRealTxHash) {
+      const reused = await this.db.db.query.payoutRequests.findFirst({
+        where: and(eq(payoutRequests.txHash, effectiveTxHash), eq(payoutRequests.status, 'PAID')),
+      })
+      if (reused) {
+        throw new BadRequestException('Этот хеш транзакции уже использован для другой выплаты')
+      }
+    }
     const auditNote = `Manual payout confirmation by ${currentUser.id} at ${new Date().toISOString()} (method=${method})${
       options.note ? ` — ${options.note}` : ''
     }`
@@ -2192,204 +2256,228 @@ export class TransactionsService {
   ) {
     const requestId = req.id
 
-    // Mark payout request as paid
-    await this.db.db
-      .update(payoutRequests)
-      .set({
-        txHash: effectiveTxHash,
-        status: 'PAID',
-        updatedAt: new Date(),
-      })
-      .where(eq(payoutRequests.id, requestId))
-
-    // Mark linked SENIOR_INCOME transactions as PAID
-    await this.db.db
-      .update(transactions)
-      .set({
-        status: 'PAID',
-        updatedAt: new Date(),
-      })
-      .where(eq(transactions.payoutRequestId, requestId))
-
-    // Re-fetch the linked incomes for the drop-vs-senior routing below.
-    // task-aggregate-invoice-per-payout: the per-income invoice trigger that
-    // used to live here has been replaced by a single PAYOUT-trigger fired
-    // AFTER the PAYOUT row flips to PAID (see below) — one invoice that
-    // aggregates all linked SENIOR_INCOME / DROP_INCOME rows.
-    // Drop role - phase 2: DROP_INCOME is included so drop-projects flow
-    // through the same aggregation.
-    const paidIncomeTxs = await this.db.db
-      .select({ id: transactions.id, projectId: transactions.projectId, type: transactions.type })
-      .from(transactions)
-      .where(
-        and(
-          eq(transactions.payoutRequestId, requestId),
-          or(eq(transactions.type, 'SENIOR_INCOME'), eq(transactions.type, 'DROP_INCOME')),
-        ),
-      )
-
-    // Mark the placeholder PAYOUT row (created at createPayoutRequest time)
-    // as PAID + attach the txHash. We don't INSERT a fresh PAYOUT here — the
-    // row already exists with status PENDING_PAYMENT so the SENIOR could see
-    // «Выплата» in the table before clicking «Оплатить».
+    // ── SECURITY (M1): ATOMIC ledger cascade.
+    // Every ledger mutation that flips this payout PAID — the payout_request,
+    // the linked income rows, the PAYOUT row (+ fundingSource credit marker),
+    // and the partner-split inserts (PAYOUT_DROP / PAYOUT_ADMIN) — runs inside
+    // ONE DB transaction. Previously these were sequential `await`s on the bare
+    // connection: a failure midway (e.g. a missing admin row, a DB blip) left a
+    // partially-committed cascade — payout PAID + balance credited but the
+    // partner splits missing, drifting the ledger. The transaction makes the
+    // whole flip all-or-nothing.
     //
-    // Phase 8 v2 — `fundingSource` is the company-account credit marker:
-    //   'COMPANY_ACCOUNT' (on-chain confirm OR manual COMPANY_ACCOUNT) → counted
-    //                     by company-account computeBalance.
-    //   null (manual ADMIN_USDT / CASH) → NOT counted (money landed off the
-    //                     company account). The auditNote records the manual
-    //                     method when present.
-    await this.db.db
-      .update(transactions)
-      .set({
-        status: 'PAID',
-        txHash: effectiveTxHash,
-        fundingSource,
-        updatedAt: new Date(),
-        ...(auditNote ? { notes: auditNote } : {}),
-      })
-      .where(and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')))
-
-    // task-aggregate-invoice-per-payout. ONE aggregated invoice anchored on
-    // the PAYOUT row. Best-effort — see safeAutoCreateInvoice for the
-    // no-rollback contract. We re-fetch the PAYOUT id (the UPDATE above
-    // doesn't return rows in drizzle's current Postgres flavour without
-    // `.returning()` chaining); idempotency is guarded by the PAYOUT row's
-    // own `invoice_document_id` field.
-    const [payoutRow] = await this.db.db
-      .select({ id: transactions.id })
-      .from(transactions)
-      .where(and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')))
-      .limit(1)
-    if (payoutRow) {
-      await this.safeAutoCreateInvoice('PAYOUT', payoutRow.id)
-    }
-
-    // Drop role - phase 2 (AC3). Resolve whether the linked SENIOR_INCOMEs
-    // belong to a drop-project. Senior-projects (project.dropId === null)
-    // keep the legacy 50/50 split untouched — this is the regression-safe
-    // path. Drop-projects route the partner residual through
-    // `computeDropDistribution` and additionally insert PAYOUT_DROP.
-    //
-    // The payout_request groups SENIOR_INCOMEs by senior; in the current
-    // model all of them target the same senior, but they may span multiple
-    // projects. We treat the FIRST linked SENIOR_INCOME's project as the
-    // "primary" project for drop-vs-senior routing. The standing UX is "a
-    // payout = one project" — see PayoutDetailDialog header — so this
-    // assumption matches what the SENIOR sees.
-    const primaryProjectId = paidIncomeTxs[0]?.projectId ?? null
-    const primaryProject = primaryProjectId
-      ? await this.db.db.query.projects.findFirst({
-          where: eq(projects.id, primaryProjectId),
+    // INTENTIONALLY OUTSIDE the transaction: `safeAutoCreateInvoice` (best-effort,
+    // no-rollback contract — see its header). It must NOT abort or roll back the
+    // money cascade if invoice generation fails, so we capture the PAYOUT row id
+    // inside the tx and fire the invoice trigger AFTER the commit. The final
+    // `findPayoutRequest` is a read and likewise runs post-commit.
+    const payoutRowId = await this.db.db.transaction(async (dbtx) => {
+      // Mark payout request as paid
+      await dbtx
+        .update(payoutRequests)
+        .set({
+          txHash: effectiveTxHash,
+          status: 'PAID',
+          updatedAt: new Date(),
         })
-      : null
+        .where(eq(payoutRequests.id, requestId))
 
-    const dropUser = primaryProject?.dropId
-      ? await this.db.db.query.users.findFirst({
-          where: eq(users.id, primaryProject.dropId),
+      // Mark linked SENIOR_INCOME transactions as PAID
+      await dbtx
+        .update(transactions)
+        .set({
+          status: 'PAID',
+          updatedAt: new Date(),
         })
-      : null
+        .where(eq(transactions.payoutRequestId, requestId))
 
-    const payable = parseFloat(req.payableAmount)
+      // Re-fetch the linked incomes for the drop-vs-senior routing below.
+      // task-aggregate-invoice-per-payout: the per-income invoice trigger that
+      // used to live here has been replaced by a single PAYOUT-trigger fired
+      // AFTER the PAYOUT row flips to PAID (see below) — one invoice that
+      // aggregates all linked SENIOR_INCOME / DROP_INCOME rows.
+      // Drop role - phase 2: DROP_INCOME is included so drop-projects flow
+      // through the same aggregation.
+      const paidIncomeTxs = await dbtx
+        .select({ id: transactions.id, projectId: transactions.projectId, type: transactions.type })
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.payoutRequestId, requestId),
+            or(eq(transactions.type, 'SENIOR_INCOME'), eq(transactions.type, 'DROP_INCOME')),
+          ),
+        )
 
-    if (dropUser && primaryProject) {
-      // Drop-project branch.
+      // Mark the placeholder PAYOUT row (created at createPayoutRequest time)
+      // as PAID + attach the txHash. We don't INSERT a fresh PAYOUT here — the
+      // row already exists with status PENDING_PAYMENT so the SENIOR could see
+      // «Выплата» in the table before clicking «Оплатить».
       //
-      // Distribution is computed on the GROSS income, not on `payable`.
-      // `payable` is `income * (1 - dropShare/100)` here (validateTransaction
-      // recorded this when flipping DROP_INCOME→VALIDATED on a drop-project),
-      // and represents what the drop transfers off-platform — the residual
-      // for partners after the drop keeps their slice. In the senior-project
-      // path the same `payable` field means something different (income *
-      // (1 - seniorShare/100)) — context is the project, not the column.
+      // Phase 8 v2 — `fundingSource` is the company-account credit marker:
+      //   'COMPANY_ACCOUNT' (on-chain confirm OR manual COMPANY_ACCOUNT) → counted
+      //                     by company-account computeBalance.
+      //   null (manual ADMIN_USDT / CASH) → NOT counted (money landed off the
+      //                     company account). The auditNote records the manual
+      //                     method when present.
+      await dbtx
+        .update(transactions)
+        .set({
+          status: 'PAID',
+          txHash: effectiveTxHash,
+          fundingSource,
+          updatedAt: new Date(),
+          ...(auditNote ? { notes: auditNote } : {}),
+        })
+        .where(and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')))
+
+      // Re-fetch the PAYOUT id (the UPDATE above doesn't return rows in
+      // drizzle's current Postgres flavour without `.returning()` chaining).
+      // Captured here so the invoice trigger can run AFTER commit (best-effort).
+      const [payoutRow] = await dbtx
+        .select({ id: transactions.id })
+        .from(transactions)
+        .where(and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')))
+        .limit(1)
+
+      // Drop role - phase 2 (AC3). Resolve whether the linked SENIOR_INCOMEs
+      // belong to a drop-project. Senior-projects (project.dropId === null)
+      // keep the legacy 50/50 split untouched — this is the regression-safe
+      // path. Drop-projects route the partner residual through
+      // `computeDropDistribution` and additionally insert PAYOUT_DROP.
       //
-      // The SENIOR share is computed on GROSS, not on payable, so we read
-      // the senior from the project (not from `req.seniorId` — that field
-      // points at the wallet owner, which is the DROP in this flow).
-      const senior = primaryProject.seniorId
-        ? await this.db.db.query.users.findFirst({
-            where: eq(users.id, primaryProject.seniorId),
+      // The payout_request groups SENIOR_INCOMEs by senior; in the current
+      // model all of them target the same senior, but they may span multiple
+      // projects. We treat the FIRST linked SENIOR_INCOME's project as the
+      // "primary" project for drop-vs-senior routing. The standing UX is "a
+      // payout = one project" — see PayoutDetailDialog header — so this
+      // assumption matches what the SENIOR sees.
+      const primaryProjectId = paidIncomeTxs[0]?.projectId ?? null
+      const primaryProject = primaryProjectId
+        ? await dbtx.query.projects.findFirst({
+            where: eq(projects.id, primaryProjectId),
           })
         : null
-      if (!senior) throw new NotFoundException('Senior not found on drop-project')
 
-      const income = parseFloat(req.incomeAmount)
-      const distribution = this.computeDropDistribution(
-        income,
-        { id: primaryProject.id, dropId: primaryProject.dropId },
-        { id: dropUser.id, dropSharePercent: dropUser.dropSharePercent },
-        { id: senior.id, seniorSharePercent: senior.seniorSharePercent },
-      )
-
-      // Drop's slice — visible on the DROP user's balance.
-      // senderId = senior (who initiated the off-platform settlement);
-      // receiverId + recipientId both = drop (explicit semantics — see
-      // schema comment on recipient_id).
-      await this.db.db.insert(transactions).values({
-        type: 'PAYOUT_DROP',
-        status: 'PAID',
-        amount: String(distribution.dropShare.amount),
-        currency: 'USDT',
-        senderId: currentUser.id,
-        receiverId: dropUser.id,
-        recipientId: dropUser.id,
-        projectId: primaryProject.id,
-        payoutRequestId: requestId,
-        txHash: effectiveTxHash,
-        createdBy: currentUser.id,
-      })
-
-      // Partner residual (50/50 split) on the drop-project's remainder.
-      for (const share of distribution.partnerShares) {
-        const admin = await this.db.db.query.users.findFirst({
-          where: eq(users.id, share.adminId),
-        })
-        if (admin) {
-          await this.db.db.insert(transactions).values({
-            type: 'PAYOUT_ADMIN',
-            status: 'PAID',
-            amount: String(share.amount),
-            currency: 'USDT',
-            senderId: currentUser.id,
-            receiverId: share.adminId,
-            projectId: primaryProject.id,
-            payoutRequestId: requestId,
-            txHash: effectiveTxHash,
-            createdBy: currentUser.id,
+      const dropUser = primaryProject?.dropId
+        ? await dbtx.query.users.findFirst({
+            where: eq(users.id, primaryProject.dropId),
           })
+        : null
+
+      const payable = parseFloat(req.payableAmount)
+
+      if (dropUser && primaryProject) {
+        // Drop-project branch.
+        //
+        // Distribution is computed on the GROSS income, not on `payable`.
+        // `payable` is `income * (1 - dropShare/100)` here (validateTransaction
+        // recorded this when flipping DROP_INCOME→VALIDATED on a drop-project),
+        // and represents what the drop transfers off-platform — the residual
+        // for partners after the drop keeps their slice. In the senior-project
+        // path the same `payable` field means something different (income *
+        // (1 - seniorShare/100)) — context is the project, not the column.
+        //
+        // The SENIOR share is computed on GROSS, not on payable, so we read
+        // the senior from the project (not from `req.seniorId` — that field
+        // points at the wallet owner, which is the DROP in this flow).
+        const senior = primaryProject.seniorId
+          ? await dbtx.query.users.findFirst({
+              where: eq(users.id, primaryProject.seniorId),
+            })
+          : null
+        if (!senior) throw new NotFoundException('Senior not found on drop-project')
+
+        const income = parseFloat(req.incomeAmount)
+        // computeDropDistribution is PURE (no DB) — it only calls the equally
+        // pure computePartnersSplit. Safe to run inside the transaction.
+        const distribution = this.computeDropDistribution(
+          income,
+          { id: primaryProject.id, dropId: primaryProject.dropId },
+          { id: dropUser.id, dropSharePercent: dropUser.dropSharePercent },
+          { id: senior.id, seniorSharePercent: senior.seniorSharePercent },
+        )
+
+        // Drop's slice — visible on the DROP user's balance.
+        // senderId = senior (who initiated the off-platform settlement);
+        // receiverId + recipientId both = drop (explicit semantics — see
+        // schema comment on recipient_id).
+        await dbtx.insert(transactions).values({
+          type: 'PAYOUT_DROP',
+          status: 'PAID',
+          amount: String(distribution.dropShare.amount),
+          currency: 'USDT',
+          senderId: currentUser.id,
+          receiverId: dropUser.id,
+          recipientId: dropUser.id,
+          projectId: primaryProject.id,
+          payoutRequestId: requestId,
+          txHash: effectiveTxHash,
+          createdBy: currentUser.id,
+        })
+
+        // Partner residual (50/50 split) on the drop-project's remainder.
+        for (const share of distribution.partnerShares) {
+          const admin = await dbtx.query.users.findFirst({
+            where: eq(users.id, share.adminId),
+          })
+          if (admin) {
+            await dbtx.insert(transactions).values({
+              type: 'PAYOUT_ADMIN',
+              status: 'PAID',
+              amount: String(share.amount),
+              currency: 'USDT',
+              senderId: currentUser.id,
+              receiverId: share.adminId,
+              projectId: primaryProject.id,
+              payoutRequestId: requestId,
+              txHash: effectiveTxHash,
+              createdBy: currentUser.id,
+            })
+          }
+        }
+      } else {
+        // Senior-project branch (legacy split math). `computePartnersSplit(payable)`
+        // returns `[{maksym, payable/2}, {kostya, payable/2}]` — unchanged from
+        // pre-AC1. Backlog AC5: include `projectId` on each PAYOUT_ADMIN insert
+        // so the row is traceable back to the originating project (matches the
+        // drop-branch shape above). `primaryProject` is null only when the
+        // payout has no linked SENIOR_INCOME rows — a degenerate case that
+        // can't actually happen here (the cascade short-circuits earlier on
+        // empty payouts) but we keep the fallback to `null` for safety.
+        const partnerShares = this.computePartnersSplit(payable)
+        const senderProjectId = primaryProject?.id ?? null
+
+        for (const share of partnerShares) {
+          const admin = await dbtx.query.users.findFirst({
+            where: eq(users.id, share.adminId),
+          })
+          if (admin) {
+            await dbtx.insert(transactions).values({
+              type: 'PAYOUT_ADMIN',
+              status: 'PAID',
+              amount: String(share.amount),
+              currency: 'USDT',
+              senderId: currentUser.id,
+              receiverId: share.adminId,
+              projectId: senderProjectId,
+              payoutRequestId: requestId,
+              txHash: effectiveTxHash,
+              createdBy: currentUser.id,
+            })
+          }
         }
       }
-    } else {
-      // Senior-project branch (legacy split math). `computePartnersSplit(payable)`
-      // returns `[{maksym, payable/2}, {kostya, payable/2}]` — unchanged from
-      // pre-AC1. Backlog AC5: include `projectId` on each PAYOUT_ADMIN insert
-      // so the row is traceable back to the originating project (matches the
-      // drop-branch shape above). `primaryProject` is null only when the
-      // payout has no linked SENIOR_INCOME rows — a degenerate case that
-      // can't actually happen here (the cascade short-circuits earlier on
-      // empty payouts) but we keep the fallback to `null` for safety.
-      const partnerShares = this.computePartnersSplit(payable)
-      const senderProjectId = primaryProject?.id ?? null
 
-      for (const share of partnerShares) {
-        const admin = await this.db.db.query.users.findFirst({
-          where: eq(users.id, share.adminId),
-        })
-        if (admin) {
-          await this.db.db.insert(transactions).values({
-            type: 'PAYOUT_ADMIN',
-            status: 'PAID',
-            amount: String(share.amount),
-            currency: 'USDT',
-            senderId: currentUser.id,
-            receiverId: share.adminId,
-            projectId: senderProjectId,
-            payoutRequestId: requestId,
-            txHash: effectiveTxHash,
-            createdBy: currentUser.id,
-          })
-        }
-      }
+      return payoutRow?.id ?? null
+    })
+
+    // ── POST-COMMIT (best-effort, no-rollback): aggregated invoice trigger.
+    // task-aggregate-invoice-per-payout — ONE invoice anchored on the PAYOUT
+    // row. Runs OUTSIDE the transaction so an invoice-generation failure can
+    // never roll back the (already-committed) money cascade. Idempotency is
+    // guarded by the PAYOUT row's own `invoice_document_id` field.
+    if (payoutRowId) {
+      await this.safeAutoCreateInvoice('PAYOUT', payoutRowId)
     }
 
     return this.findPayoutRequest(requestId, currentUser)
