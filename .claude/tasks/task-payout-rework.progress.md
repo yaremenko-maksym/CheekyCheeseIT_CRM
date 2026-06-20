@@ -1,8 +1,18 @@
 # Progress: fix #252 security+code review findings
 
-current_milestone: 4/4
-last_commit: 6b2cbbfa
-last_push: 6b2cbbfa
+current_milestone: 4/4 (COMPLETE)
+last_commit: 5ec27edc
+last_push: 5ec27edc
+
+## Verification
+
+- typecheck @crm/api: green
+- eslint (6 touched files): clean
+- full @crm/api suite vs crm_qa: 103 files / 1731 tests passed
+- payout-company-wallet.integration vs crm_qa: 19 passed (H1 + M3 added)
+- payout-manual-confirm.rbac.integration vs crm_qa: 6 passed (M2)
+- etherscan.verify-deposit unit: 11 passed (H2 URL assertion added)
+- MAIN repo apps/ packages/: clean (no contamination)
 
 ## Findings → status
 
