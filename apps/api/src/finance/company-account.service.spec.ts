@@ -82,27 +82,39 @@ function selectReturning(totals: string[]) {
 }
 
 describe('CompanyAccountService.getAccount — balance derivation (AC6)', () => {
-  it('balance = deposits − dividends − company-funded salaries', async () => {
-    // sumAmount is called 3× in order: deposits, dividends, company-salary.
-    const db = makeDb({ select: selectReturning(['1000', '200', '300']) })
+  // Phase 8 v2 — sumAmount is called 4× in order:
+  //   [deposits, payouts(fundingSource=COMPANY_ACCOUNT), dividends, company-salary]
+  // balance = deposits + payouts − dividends − company-salary.
+  it('balance = deposits + payouts − dividends − company-funded salaries', async () => {
+    const db = makeDb({ select: selectReturning(['1000', '0', '200', '300']) })
     const svc = makeService(db)
     const acc = await svc.getAccount(ADMIN)
-    expect(acc.balance).toBe(1000 - 200 - 300) // 500
+    expect(acc.balance).toBe(1000 + 0 - 200 - 300) // 500
     expect(acc.walletAddress).toBe(WALLET)
     expect(acc.confirmationThreshold).toBe(THRESHOLD)
   })
 
   it('company-funded salary reduces balance; (admin-personal excluded by the WHERE)', async () => {
-    // The 3rd sum is ONLY company-funded salary (the WHERE filters fundingSource
+    // The 4th sum is ONLY company-funded salary (the WHERE filters fundingSource
     // = COMPANY_ACCOUNT), so an admin-personal salary never appears here.
-    const db = makeDb({ select: selectReturning(['1000', '0', '400']) })
+    const db = makeDb({ select: selectReturning(['1000', '0', '0', '400']) })
     const svc = makeService(db)
     const acc = await svc.getAccount(ADMIN)
     expect(acc.balance).toBe(600)
   })
 
+  // Phase 8 v2 (AC4) — a confirmed payout (PAYOUT PAID, fundingSource=
+  // COMPANY_ACCOUNT) CREDITS the company balance by exactly its amount.
+  it('confirmed payout credits the company balance (no double count)', async () => {
+    // deposits=0, payouts=740, dividends=0, salaries=0 → balance = 740.
+    const db = makeDb({ select: selectReturning(['0', '740', '0', '0']) })
+    const svc = makeService(db)
+    const acc = await svc.getAccount(ADMIN)
+    expect(acc.balance).toBe(740)
+  })
+
   it('ACCOUNTANT may read; non-privileged role → 403', async () => {
-    const db = makeDb({ select: selectReturning(['0', '0', '0']) })
+    const db = makeDb({ select: selectReturning(['0', '0', '0', '0']) })
     const svc = makeService(db)
     await expect(svc.getAccount(JUNIOR)).rejects.toBeInstanceOf(ForbiddenException)
   })

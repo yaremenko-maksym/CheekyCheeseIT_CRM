@@ -186,8 +186,17 @@ export class EtherscanService {
     }
 
     try {
+      // security (H2): Etherscan `account/tokentx` REQUIRES `&address=` — it
+      // lists the ERC-20 transfers of THAT account. Without it the endpoint
+      // returns an empty/error result, so `verifyDeposit` would ALWAYS report
+      // "tx not found" in production (fail-closed but non-functional — the
+      // on-chain path could never confirm). `address` + `contractaddress`
+      // together scope the result to USDT transfers touching the company
+      // wallet; we then match the exact txHash and re-assert `tx.to` below.
+      // `expectedToAddress` is guaranteed non-null here (checked at line ~177).
       const url =
         `https://api.etherscan.io/api?module=account&action=tokentx` +
+        `&address=${expectedToAddress}` +
         `&contractaddress=${USDT_CONTRACT}` +
         `&startblock=0&endblock=99999999&sort=desc` +
         `&apikey=${this.apiKey}`

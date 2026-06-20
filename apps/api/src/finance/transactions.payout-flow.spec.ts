@@ -17,13 +17,21 @@
  *   5. createPayoutRequest — multi-tx aggregation with different sharePercent
  *      per tx: payableAmount = Σ (amount_i × (1 - share_i/100)).
  *
- *   6. createPayoutRequest — mixed-currency guard: batch with transactions of
- *      different currencies throws BadRequestException.
+ *   6. createPayoutRequest — Phase 8 v2 (replaces the old mixed-currency guard):
+ *      batch with transactions of different currencies is ACCEPTED and the
+ *      company-shares are converted to a single USDT payable.
  *
- *   7. createPayoutRequest — same-currency batch: PAYOUT row inherits currency
- *      from the transactions (not hardcoded 'USDT').
+ *   7. createPayoutRequest — Phase 8 v2: PAYOUT row + payout_request are ALWAYS
+ *      USDT (settlement with the company is in crypto).
  *
  *   8. createPayoutRequest — atomicity: full path runs inside db.transaction().
+ *
+ * Phase 8 v2 — createPayoutRequest now:
+ *   - fetches the NBU rate snapshot (stubbed NbuCurrencyService) to convert
+ *     cross-currency company-shares into USDT,
+ *   - reads the company wallet from dbtx.query.companyAccount (recipient),
+ *   - throws BadRequest('Кошелёк компании не настроен') when it is unset.
+ * The constructor is now 5-arg: (db, invoices, documents, nbu, etherscan).
  *
  * DB calls are stubbed with vitest vi.fn() — no real Postgres connection.
  */
@@ -31,8 +39,40 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { TransactionsService } from './transactions.service'
+import type { NbuCurrencyService } from './nbu-currency.service'
+import type { EtherscanService } from './etherscan.service'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+const COMPANY_WALLET = '0xC0FFEE0000000000000000000000000000000001'
+
+// Stubbed NBU snapshot. usdtUah === usdUah (USDT pegged 1:1 to USD). Picked
+// round-ish rates so the EUR/UAH→USDT conversions in the assertions are easy to
+// reason about: 1 USD = 40 UAH, 1 EUR = 44 UAH ⇒ 1 EUR = 1.1 USDT.
+function makeNbuStub(): NbuCurrencyService {
+  return {
+    getRates: vi.fn().mockResolvedValue({
+      usdUah: '40.0000',
+      usdtUah: '40.0000',
+      eurUah: '44.0000',
+      date: '20260620',
+    }),
+  } as unknown as NbuCurrencyService
+}
+
+// Default Etherscan stub — happy on-chain confirm (only exercised by
+// payPayoutRequest tests; createPayoutRequest never calls it).
+function makeEtherscanStub(): EtherscanService {
+  return {
+    verifyDeposit: vi.fn().mockResolvedValue({
+      found: true,
+      toMatches: true,
+      confirmed: true,
+      confirmations: 12,
+      amountUsdt: null,
+    }),
+  } as unknown as EtherscanService
+}
 
 const SENIOR_USER: SessionUser = {
   id: 'senior-1',
@@ -102,7 +142,13 @@ function makePayoutRequestRow(id = 'pr-1') {
 // (i.e. the same mock object) until the terminal awaitable is reached.
 // We use a real object with shared mocks so assertions can inspect call args.
 
-function makeDbtxStub(lockedRows: unknown[], prRow: ReturnType<typeof makePayoutRequestRow>) {
+function makeDbtxStub(
+  lockedRows: unknown[],
+  prRow: ReturnType<typeof makePayoutRequestRow>,
+  // Phase 8 v2 — the company wallet the recipient resolves to. null = unset
+  // (createPayoutRequest must then throw 'Кошелёк компании не настроен').
+  walletAddress: string | null = COMPANY_WALLET,
+) {
   // Terminal resolvers
   const forMock = vi.fn().mockResolvedValue(lockedRows) // select chain terminal
   const returningMock = vi.fn().mockResolvedValue([prRow]) // insert PR chain terminal
@@ -132,9 +178,27 @@ function makeDbtxStub(lockedRows: unknown[], prRow: ReturnType<typeof makePayout
     set: vi.fn().mockReturnValue({ where: updateWhereMock }),
   })
 
+  // Phase 8 v2 — dbtx.query.companyAccount.findFirst() resolves the recipient.
+  const companyAccountFindFirst = vi
+    .fn()
+    .mockResolvedValue(walletAddress ? { walletAddress, confirmationThreshold: 12 } : null)
+
   return {
-    dbtx: { select: selectMock, insert: insertMock, update: updateMock },
-    mocks: { selectMock, forMock, insertMock, returningMock, updateMock, insertValuesResolveMock },
+    dbtx: {
+      select: selectMock,
+      insert: insertMock,
+      update: updateMock,
+      query: { companyAccount: { findFirst: companyAccountFindFirst } },
+    },
+    mocks: {
+      selectMock,
+      forMock,
+      insertMock,
+      returningMock,
+      updateMock,
+      insertValuesResolveMock,
+      companyAccountFindFirst,
+    },
   }
 }
 
@@ -172,7 +236,13 @@ function makeService(dbOverrides: Record<string, unknown> = {}) {
     findOne: vi.fn(),
   } as never
 
-  return new TransactionsService(dbStub, invoicesStub, documentsStub)
+  return new TransactionsService(
+    dbStub,
+    invoicesStub,
+    documentsStub,
+    makeNbuStub(),
+    makeEtherscanStub(),
+  )
 }
 
 // Helper: build a service whose db.transaction() executes the callback with a
@@ -220,7 +290,13 @@ function makeServiceWithTransaction(
     autoCreateForIncome: vi.fn().mockResolvedValue(undefined),
   } as never
 
-  const svc = new TransactionsService(dbStub, invoicesStub, {} as never)
+  const svc = new TransactionsService(
+    dbStub,
+    invoicesStub,
+    {} as never,
+    makeNbuStub(),
+    makeEtherscanStub(),
+  )
   return { svc, dbStub, mocks }
 }
 
@@ -266,7 +342,13 @@ describe('validateTransaction — SENIOR_INCOME (#7)', () => {
     } as never
     const documentsStub = { findOne: vi.fn() } as never
 
-    const svc = new TransactionsService(db, invoicesStub, documentsStub)
+    const svc = new TransactionsService(
+      db,
+      invoicesStub,
+      documentsStub,
+      makeNbuStub(),
+      makeEtherscanStub(),
+    )
 
     // Act
     await svc.validateTransaction('tx-1', 'validate', null, ACCOUNTANT_USER)
@@ -291,7 +373,13 @@ describe('validateTransaction — SENIOR_INCOME (#7)', () => {
     const invoicesStub = {} as never
     const documentsStub = {} as never
 
-    const svc = new TransactionsService(db, invoicesStub, documentsStub)
+    const svc = new TransactionsService(
+      db,
+      invoicesStub,
+      documentsStub,
+      makeNbuStub(),
+      makeEtherscanStub(),
+    )
 
     await expect(
       svc.validateTransaction('tx-1', 'validate', null, ACCOUNTANT_USER),
@@ -300,7 +388,13 @@ describe('validateTransaction — SENIOR_INCOME (#7)', () => {
 
   it('rejects non-ADMIN/ACCOUNTANT actors with ForbiddenException', async () => {
     const db = { db: { query: { transactions: { findFirst: vi.fn() } } } } as never
-    const svc = new TransactionsService(db, {} as never, {} as never)
+    const svc = new TransactionsService(
+      db,
+      {} as never,
+      {} as never,
+      makeNbuStub(),
+      makeEtherscanStub(),
+    )
 
     await expect(svc.validateTransaction('tx-1', 'validate', null, SENIOR_USER)).rejects.toThrow(
       ForbiddenException,
@@ -368,7 +462,13 @@ describe('validateTransaction — DROP_INCOME still creates payout_request (#7 r
 
     const invoicesStub = { autoCreateForPayout: vi.fn(), autoCreateForIncome: vi.fn() } as never
     const documentsStub = { findOne: vi.fn() } as never
-    const svc = new TransactionsService(db, invoicesStub, documentsStub)
+    const svc = new TransactionsService(
+      db,
+      invoicesStub,
+      documentsStub,
+      makeNbuStub(),
+      makeEtherscanStub(),
+    )
 
     await svc.validateTransaction('dtx-1', 'validate', null, ACCOUNTANT_USER)
 
@@ -412,7 +512,13 @@ describe('createPayoutRequest (#7)', () => {
         insert: vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue([]) }),
       },
     } as never
-    const svc = new TransactionsService(db, {} as never, {} as never)
+    const svc = new TransactionsService(
+      db,
+      {} as never,
+      {} as never,
+      makeNbuStub(),
+      makeEtherscanStub(),
+    )
 
     await expect(
       svc.createPayoutRequest(['tx-1', 'tx-already-linked'], SENIOR_USER),
@@ -480,9 +586,11 @@ describe('createPayoutRequest (#7)', () => {
     expect(income).toBeCloseTo(5000, 2)
   })
 
-  // ── Security (HIGH) — mixed-currency guard ──────────────────────────────
-  it('throws BadRequestException when selected txs span multiple currencies', async () => {
-    // USDT + USD = mixed → 400
+  // ── Phase 8 v2 (AC2) — mixed currencies ACCEPTED, converted to one USDT payout
+  it('accepts mixed-currency batch and sums company-shares into a single USDT payable', async () => {
+    // USDT 1000 @26% → 740 USDT; USD 500 @26% → 370 USD (=370 USDT, 1:1).
+    // Total payable = 1110 USDT; income = 1500 USDT (1000 + 500). The previous
+    // mixed-currency hard guard (BadRequest) is gone — this is the bug fix.
     const txUsdt = makeTx({
       id: 'tx-usdt',
       currency: 'USDT' as const,
@@ -496,34 +604,33 @@ describe('createPayoutRequest (#7)', () => {
       seniorSharePercent: 26,
     })
     const lockedRows = [txUsdt, txUsd]
-    const prRow = makePayoutRequestRow()
+    const prRow = makePayoutRequestRow('pr-mixed-1')
 
-    const { dbtx } = makeDbtxStub(lockedRows, prRow)
-    const db = {
-      db: {
-        query: {
-          transactions: { findFirst: vi.fn(), findMany: vi.fn() },
-          payoutRequests: { findFirst: vi.fn() },
-        },
-        transaction: vi
-          .fn()
-          .mockImplementation((fn: (tx: unknown) => Promise<unknown>) => fn(dbtx)),
-        update: vi.fn().mockReturnValue({
-          set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
-        }),
-        insert: vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue([]) }),
-      },
-    } as never
-    const svc = new TransactionsService(db, {} as never, {} as never)
+    const { svc, mocks } = makeServiceWithTransaction(lockedRows, prRow)
 
-    await expect(svc.createPayoutRequest(['tx-usdt', 'tx-usd'], SENIOR_USER)).rejects.toThrow(
-      BadRequestException,
-    )
+    // Does NOT throw.
+    await svc.createPayoutRequest(['tx-usdt', 'tx-usd'], SENIOR_USER)
+
+    // payout_request (first insert) carries the USDT-converted sums.
+    const prInsertArg = (
+      mocks.insertMock.mock.results[0]?.value as { values: ReturnType<typeof vi.fn> }
+    ).values.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(parseFloat(prInsertArg['payableAmount'] as string)).toBeCloseTo(1110, 2)
+    expect(parseFloat(prInsertArg['incomeAmount'] as string)).toBeCloseTo(1500, 2)
+
+    // PAYOUT row (second insert) is always USDT and equals the payable.
+    const payoutInsertArg = (
+      mocks.insertMock.mock.results[1]?.value as { values: ReturnType<typeof vi.fn> }
+    ).values.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(payoutInsertArg['currency']).toBe('USDT')
+    expect(parseFloat(payoutInsertArg['amount'] as string)).toBeCloseTo(1110, 2)
   })
 
-  // ── Security (HIGH) — currency inherits from batch, not hardcoded USDT ──
-  it('PAYOUT row currency comes from the batch transactions, not hardcoded USDT', async () => {
-    // EUR batch — PAYOUT row should have currency='EUR'
+  // ── Phase 8 v2 — PAYOUT/payout_request are ALWAYS USDT (EUR converted) ──
+  it('EUR batch is converted to USDT (PAYOUT currency=USDT, not EUR)', async () => {
+    // EUR 1000 @26% → 740 EUR; EUR 500 @26% → 370 EUR. Total share = 1110 EUR.
+    // 1 EUR = eurUah/usdUah = 44/40 = 1.1 USDT ⇒ payable = 1110 * 1.1 = 1221 USDT.
+    // income = 1500 EUR * 1.1 = 1650 USDT.
     const txEur1 = makeTx({
       id: 'tx-eur-1',
       currency: 'EUR' as const,
@@ -543,12 +650,65 @@ describe('createPayoutRequest (#7)', () => {
 
     await svc.createPayoutRequest(['tx-eur-1', 'tx-eur-2'], SENIOR_USER)
 
-    // Second insert is the PAYOUT row — check its currency argument
-    const secondInsertValuesFn = (
+    // payout_request — USDT-converted sums.
+    const prInsertArg = (
+      mocks.insertMock.mock.results[0]?.value as { values: ReturnType<typeof vi.fn> }
+    ).values.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(parseFloat(prInsertArg['payableAmount'] as string)).toBeCloseTo(1221, 2)
+    expect(parseFloat(prInsertArg['incomeAmount'] as string)).toBeCloseTo(1650, 2)
+
+    // PAYOUT row is USDT regardless of the EUR source.
+    const payoutInsertArg = (
       mocks.insertMock.mock.results[1]?.value as { values: ReturnType<typeof vi.fn> }
-    ).values
-    const payoutInsertArg = secondInsertValuesFn.mock.calls[0]?.[0] as Record<string, unknown>
-    expect(payoutInsertArg['currency']).toBe('EUR')
+    ).values.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(payoutInsertArg['currency']).toBe('USDT')
+  })
+
+  // ── Phase 8 v2 — recipient = company wallet; unset wallet rejected ──
+  it('uses the company wallet as recipient (contractAddress)', async () => {
+    const tx = makeTx({ id: 'tx-1', currency: 'USDT' as const, amount: '1000' })
+    const prRow = makePayoutRequestRow('pr-wallet-1')
+    const { svc, mocks } = makeServiceWithTransaction([tx], prRow)
+
+    await svc.createPayoutRequest(['tx-1'], SENIOR_USER)
+
+    const prInsertArg = (
+      mocks.insertMock.mock.results[0]?.value as { values: ReturnType<typeof vi.fn> }
+    ).values.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(prInsertArg['contractAddress']).toBe(COMPANY_WALLET)
+  })
+
+  it('throws BadRequest when the company wallet is not configured', async () => {
+    const tx = makeTx({ id: 'tx-1', currency: 'USDT' as const, amount: '1000' })
+    const prRow = makePayoutRequestRow('pr-nowallet-1')
+    // walletAddress null → recipient unresolved.
+    const { dbtx } = makeDbtxStub([tx], prRow, null)
+    const db = {
+      db: {
+        query: {
+          transactions: { findFirst: vi.fn(), findMany: vi.fn() },
+          payoutRequests: { findFirst: vi.fn() },
+        },
+        transaction: vi
+          .fn()
+          .mockImplementation((fn: (tx: unknown) => Promise<unknown>) => fn(dbtx)),
+        update: vi.fn().mockReturnValue({
+          set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
+        }),
+        insert: vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue([]) }),
+      },
+    } as never
+    const svc = new TransactionsService(
+      db,
+      {} as never,
+      {} as never,
+      makeNbuStub(),
+      makeEtherscanStub(),
+    )
+
+    await expect(svc.createPayoutRequest(['tx-1'], SENIOR_USER)).rejects.toThrow(
+      BadRequestException,
+    )
   })
 
   // ── MED — atomicity: all writes run inside a single db.transaction() ──
@@ -592,7 +752,13 @@ describe('createPayoutRequest — duplicate guard (belt-and-suspenders, #7)', ()
         insert: vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue([]) }),
       },
     } as never
-    const svc = new TransactionsService(db, {} as never, {} as never)
+    const svc = new TransactionsService(
+      db,
+      {} as never,
+      {} as never,
+      makeNbuStub(),
+      makeEtherscanStub(),
+    )
 
     await expect(svc.createPayoutRequest(['tx-already-in-payout'], SENIOR_USER)).rejects.toThrow(
       BadRequestException,

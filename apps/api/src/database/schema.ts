@@ -377,26 +377,46 @@ export const interviews = pgTable('interviews', {
 // ---------------------------------------------------------------------------
 
 // Groups validated SENIOR_INCOME transactions into a single payout obligation
-export const payoutRequests = pgTable('payout_requests', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  seniorId: uuid('senior_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  // Total income amount across all linked SENIOR_INCOME transactions
-  incomeAmount: numeric('income_amount', { precision: 18, scale: 6 }).notNull(),
-  // Amount senior must pay = incomeAmount * (1 - seniorSharePercent/100)
-  payableAmount: numeric('payable_amount', { precision: 18, scale: 6 }).notNull(),
-  // Destination wallet — generated server-side at create time (stub until
-  // PHASE 8 deploys the real PaymentSplitter). Shape-compatible with
-  // Ethereum addresses: '0x' + 40 hex chars. SENIOR copies this and sends
-  // the payable_amount in USDT to it, then submits the tx_hash for
-  // verification.
-  contractAddress: varchar('contract_address', { length: 255 }).notNull(),
-  txHash: varchar('tx_hash', { length: 255 }),
-  status: payoutRequestStatusEnum().notNull().default('PENDING'),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-})
+export const payoutRequests = pgTable(
+  'payout_requests',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    seniorId: uuid('senior_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // Total income amount across all linked SENIOR_INCOME transactions
+    incomeAmount: numeric('income_amount', { precision: 18, scale: 6 }).notNull(),
+    // Amount senior must pay = incomeAmount * (1 - seniorSharePercent/100)
+    payableAmount: numeric('payable_amount', { precision: 18, scale: 6 }).notNull(),
+    // Destination wallet — generated server-side at create time (stub until
+    // PHASE 8 deploys the real PaymentSplitter). Shape-compatible with
+    // Ethereum addresses: '0x' + 40 hex chars. SENIOR copies this and sends
+    // the payable_amount in USDT to it, then submits the tx_hash for
+    // verification.
+    contractAddress: varchar('contract_address', { length: 255 }).notNull(),
+    txHash: varchar('tx_hash', { length: 255 }),
+    status: payoutRequestStatusEnum().notNull().default('PENDING'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // SECURITY (NEW-M1): TOCTOU backstop for the txHash-reuse guard. A given
+    // on-chain txHash may settle at most ONE payout PAID. The app-level
+    // check-then-act guards in payPayoutRequest / manualConfirmPayout race under
+    // concurrency (two PENDING payouts confirmed with the same real hash can both
+    // pass the SELECT before either UPDATE commits → company balance credited
+    // TWICE for one transfer). This partial unique index makes the second flip-to-
+    // PAID fail at the DB (code 23505), caught in applyPayoutPaidCascade.
+    //
+    // Partial (WHERE status='PAID' AND tx_hash IS NOT NULL): PENDING rows carry a
+    // null/placeholder hash and must NOT collide, and synthetic markers
+    // (0xMANUAL… / 0xSIM…) are unique by construction so they never false-positive.
+    // Mirrors uq_transactions_company_deposit_tx_hash (#249 M3).
+    uniqueIndex('uq_payout_requests_txhash_paid')
+      .on(t.txHash)
+      .where(sql`${t.status} = 'PAID' AND ${t.txHash} IS NOT NULL`),
+  ],
+)
 
 export const transactions = pgTable(
   'transactions',

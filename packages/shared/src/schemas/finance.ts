@@ -164,8 +164,12 @@ export const payoutRequestSchema = z.object({
   seniorName: z.string(),
   incomeAmount: z.string(),
   payableAmount: z.string(),
-  // Destination wallet (server-generated stub until PHASE 8). SENIOR copies
-  // this to send their 74% payable_amount in USDT.
+  // Destination wallet = the COMPANY USDT wallet (Phase 8 v2). The
+  // `contract_address` column is reused as the recipient address (schema not
+  // broken): SENIOR/DROP copies it and sends `payable_amount` USDT to the
+  // company wallet, then submits the on-chain txHash for Etherscan
+  // verification. payableAmount is always USDT (cross-currency company-shares
+  // are converted to USDT at create time — see createPayoutRequest).
   contractAddress: z.string(),
   txHash: z.string().nullable(),
   status: payoutRequestStatusSchema,
@@ -380,19 +384,23 @@ export const createPayoutRequestSchema = z.object({
 })
 export type CreatePayoutRequestDto = z.infer<typeof createPayoutRequestSchema>
 
-// Pay payout request (senior submits txHash).
+// Pay payout request (senior/drop submits the on-chain txHash of the USDT
+// transfer they sent to the COMPANY wallet — Phase 8 v2).
 //
-// `simulateResult` is a DEV-only escape hatch: when present and the API is
-// not in production, the backend either skips the etherscan check and runs
-// the success cascade ("success") or throws a deterministic 400 ("error")
-// so the SENIOR can rehearse the error path on User Testing without sending
-// a real on-chain transaction. In production the field is ignored.
+// `txHash` is the hash the backend feeds to `EtherscanService.verifyDeposit`
+// against the configured company wallet: a payout flips to PAID only when the
+// on-chain recipient == company wallet, confirmations reach the threshold, and
+// the transferred amount ≈ payableAmount (see payPayoutRequest). In real mode
+// the SENIOR/DROP MUST paste the on-chain hash (min 10 chars).
 //
-// `txHash` is conditionally required: in real mode the SENIOR must paste the
-// on-chain hash (min 10 chars), but when `simulateResult` is set (dev only)
-// it can be empty — backend synthesizes a stub `0xSIM...` value so the audit
-// row never holds null. `.superRefine` enforces this at the schema layer so
-// the controller doesn't need branch logic.
+// `simulateResult` is a DEV-only escape hatch: when present and the API is not
+// in production, the backend bypasses the Etherscan check and either runs the
+// success cascade ("success") or throws a deterministic 400 ("error") so User
+// Testing can rehearse both branches without a real on-chain transaction. In
+// production the field is ignored — real verification owns the decision. When
+// simulating, txHash can be empty — the backend synthesizes a `0xSIM...` stub
+// so the audit row never holds null. `.superRefine` enforces the conditional
+// requirement at the schema layer so the controller needs no branch logic.
 export const payPayoutRequestSchema = z
   .object({
     txHash: z.string().max(255).optional(),
@@ -411,6 +419,32 @@ export const payPayoutRequestSchema = z
     }
   })
 export type PayPayoutRequestDto = z.infer<typeof payPayoutRequestSchema>
+
+// ---------------------------------------------------------------------------
+// Manual payout confirmation (Phase 8 v2) — ADMIN/ACCOUNTANT only.
+// ---------------------------------------------------------------------------
+//
+// Escape hatch for when a payout was settled OFF the on-chain happy path:
+//   - COMPANY_ACCOUNT — the senior/drop did send USDT to the company wallet but
+//     on-chain verification is unavailable (no Etherscan key / link); ADMIN
+//     vouches for it. CREDITS the company account (same effect as a verified
+//     on-chain confirm).
+//   - ADMIN_USDT — the money was sent to an admin's PERSONAL USDT wallet
+//     instead of the company wallet. Does NOT credit the company account.
+//   - CASH — settled in fiat/cash off-platform. Does NOT credit the company
+//     account.
+// The chosen `method` is persisted on the PAYOUT row (audit) and decides
+// whether the company balance moves (see manualConfirmPayout in
+// transactions.service). RBAC: ADMIN/ACCOUNTANT only (enforced server-side).
+export const manualPayoutMethodSchema = z.enum(['CASH', 'ADMIN_USDT', 'COMPANY_ACCOUNT'])
+export type ManualPayoutMethod = z.infer<typeof manualPayoutMethodSchema>
+
+export const manualConfirmPayoutSchema = z.object({
+  method: manualPayoutMethodSchema,
+  note: z.string().max(1000).optional().nullable(),
+  txHash: z.string().max(255).optional().nullable(),
+})
+export type ManualConfirmPayoutDto = z.infer<typeof manualConfirmPayoutSchema>
 
 // Update project finance settings (ADMIN/ACCOUNTANT)
 export const updateProjectFinanceSettingsSchema = z.object({

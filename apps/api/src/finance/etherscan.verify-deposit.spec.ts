@@ -66,6 +66,22 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
     expect(r.confirmed).toBe(false)
   })
 
+  // ── H2: the keyed tokentx request MUST carry &address= (the company wallet) ──
+  // Etherscan `account/tokentx` REQUIRES `address`; without it the API returns an
+  // empty/error result and verifyDeposit would ALWAYS report "tx not found" in
+  // prod (fail-closed but non-functional). Assert the URL includes both the
+  // wallet `address` and the USDT `contractaddress` filter.
+  it('H2: keyed request URL includes &address=<wallet> and &contractaddress=USDT', async () => {
+    mockChainTx({ to: COMPANY_WALLET, confirmations: '12' })
+    await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const calledUrl = String(fetchMock.mock.calls[0]![0])
+    expect(calledUrl).toContain(`&address=${COMPANY_WALLET}`)
+    expect(calledUrl).toContain('&contractaddress=0xdAC17F958D2ee523a2206206994597C13D831ec7')
+    expect(calledUrl).toContain('action=tokentx')
+  })
+
   it('SECURITY: recipient match but below threshold → pending (confirmed=false)', async () => {
     mockChainTx({ to: COMPANY_WALLET, confirmations: '5' })
     const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
