@@ -1,13 +1,13 @@
 # Progress: task-payout-company-ui
 
-current_milestone: 1/6
-last_commit: (none yet)
-last_push: (none yet)
+current_milestone: 3/6
+last_commit: wip(web) WS2 PayoutDetailDialog
+last_push: WS2
 
 ## Milestones (WS = workstream)
 
-- [ ] WS1 — financeApi.manualConfirmPayout wrapper + ManualConfirmPayoutDto import
-- [ ] WS2 — PayoutDetailDialog redesign (on-chain status machine + manual override ADMIN/ACCOUNTANT)
+- [x] WS1 — financeApi.manualConfirmPayout wrapper + ManualConfirmPayoutDto import
+- [x] WS2 — PayoutDetailDialog redesign (on-chain status machine + manual override ADMIN/ACCOUNTANT)
 - [ ] WS3 — CreateTransactionDialog DIVIDEND type (ADMIN-only) → companyAccountApi.createDividend
 - [ ] WS4 — Company account balance KPI in /crm/stats
 - [ ] WS5 — Admin wallet route/tab + reuse ChangeWalletAddressDialog
