@@ -61,6 +61,8 @@ vi.mock('recharts', () => {
 
 vi.mock('./finance/api', () => ({
   financeApi: { getSummary: vi.fn(), getIncomeCompliance: vi.fn() },
+  // Phase 8 v2: the company-account balance KPI lives on /crm/stats now.
+  companyAccountApi: { getAccount: vi.fn() },
 }))
 
 import { StatsPage } from './stats'
@@ -152,6 +154,16 @@ function setup(role: SessionUser['role']) {
     const key = opts?.queryKey?.[0]
     if (key === 'finance-summary') return { data: makeSummary(), isLoading: false }
     if (key === 'income-compliance') return { data: makeCompliance(), isLoading: false }
+    if (key === 'company-account')
+      return {
+        data: {
+          walletAddress: '0x1234567890abcdef1234567890abcdef12345678',
+          confirmationThreshold: 12,
+          balance: 4200,
+          updatedAt: '2026-06-20T00:00:00.000Z',
+        },
+        isLoading: false,
+      }
     return { data: undefined, isLoading: false }
   })
   return render(<StatsPage />)
@@ -176,6 +188,19 @@ describe('StatsPage — economic data (both roles)', () => {
       expect(screen.getByText('Зарплаты')).toBeInTheDocument()
       expect(screen.getByText('Net balance')).toBeInTheDocument()
       expect(screen.getByText('Динамика по месяцам')).toBeInTheDocument()
+    },
+  )
+
+  // Phase 8 v2: company USDT account balance moved from the Финансы page card to
+  // this KPI strip — both ADMIN and ACCOUNTANT must see it.
+  it.each<SessionUser['role']>(['ADMIN', 'ACCOUNTANT'])(
+    '%s sees the company-account balance KPI',
+    (role) => {
+      setup(role)
+      const kpi = screen.getByTestId('stats-company-account-balance')
+      expect(kpi).toBeInTheDocument()
+      expect(kpi).toHaveTextContent('4,200.00 USDT')
+      expect(screen.getByText('Счёт компании · USDT')).toBeInTheDocument()
     },
   )
 })
