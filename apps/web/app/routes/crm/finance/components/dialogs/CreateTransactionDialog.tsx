@@ -445,6 +445,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     setType(t)
                     setProjectId('')
                     setReceiverId('')
+                    // Also clear the ADMIN_TRANSFER sender so switching the type
+                    // inside an open dialog never leaves a stale party selected.
+                    setTransferSenderId('')
                     setFieldErrors({})
                   }}
                   className={cn(

@@ -1,23 +1,22 @@
 /**
- * ConfirmPayoutDialog — Drop role - phase 3 (spec §8.4),
- * extended in Phase 4 refactor (task-drop-phase4-refactor-remove-tov.md AC10).
- *
- * ADMIN/ACCOUNTANT-only manual confirmation of an off-platform PAYOUT. The
- * accountant picks which admin partner actually received the money AND which
- * payment method was used (crypto vs cash). Backend atomically flips
- * PAYOUT → PAID and inserts a PAYOUT_CONFIRMED row crediting the chosen
- * admin.
- *
- * - Crypto method (default): txHash input shown, etherscan link if entered.
- * - Cash method: txHash hidden, only confirmation needed.
+ * ConfirmPayoutDialog — manual confirmation of an off-platform PAYOUT.
  *
  * Trigger: «Подтвердить оплату» button on a PAYOUT row in PENDING_PAYMENT
  * (see `TransactionRow.tsx`). Amount is read-only — taken from the PAYOUT row.
+ *
+ * Two confirmation mechanisms live side by side here:
+ *   - CRYPTO / CASH → legacy `financeApi.confirmPayout`. Credits one of the
+ *     admin partners (recipientAdmin selector is required). Backend atomically
+ *     flips PAYOUT → PAID and inserts a PAYOUT_CONFIRMED row crediting the
+ *     chosen admin.
+ *   - COMPANY_ACCOUNT → `financeApi.manualConfirmPayout`. Credits the shared
+ *     company USDT account — NOT an individual admin — so the recipient
+ *     selector is hidden. The Statistics company-account balance updates.
  */
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { AxiosError } from 'axios'
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, Coins } from 'lucide-react'
 import { toast } from 'sonner'
 import type { PayoutMethod, TransactionDto } from '@crm/shared'
 import { MAKSYM_ID, KOSTYA_ID } from '@crm/shared'
@@ -53,6 +52,12 @@ const ADMIN_OPTIONS = [
   { id: KOSTYA_ID, name: 'Kostya' },
 ]
 
+// UI method set. CRYPTO/CASH map onto the legacy `confirmPayout` flow
+// (PayoutMethod). COMPANY_ACCOUNT is the new branch that routes to
+// `manualConfirmPayout` and credits the shared company account instead of an
+// admin partner — it is intentionally NOT a member of `PayoutMethod`.
+type UiMethod = PayoutMethod | 'COMPANY_ACCOUNT'
+
 type ConfirmPayoutDialogProps = {
   /** PAYOUT transaction being confirmed. `null` = dialog closed. */
   tx: TransactionDto | null
@@ -64,21 +69,46 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
   const [recipientAdminId, setRecipientAdminId] = useState<string>('')
   // AC10 — Phase 4 refactor. Default = crypto (legacy contract); switching
   // to cash hides the txHash row entirely so the form doesn't surface a
-  // "must fill" field that the backend will ignore.
-  const [method, setMethod] = useState<PayoutMethod>('CRYPTO')
+  // "must fill" field that the backend will ignore. COMPANY_ACCOUNT hides the
+  // recipient selector instead (the company account is credited, not an admin).
+  const [method, setMethod] = useState<UiMethod>('CRYPTO')
   const [txHash, setTxHash] = useState<string>('')
 
+  const isCompanyAccount = method === 'COMPANY_ACCOUNT'
+
+  // Return type is `void` on purpose — the two branches resolve to different
+  // DTOs (`confirmPayout` → {payout, confirmed}; `manualConfirmPayout` →
+  // PayoutRequestDto) and `onSuccess` ignores the payload, so we await + drop
+  // the result to give `useMutation` a single, unambiguous mutationFn type.
   const mutation = useMutation({
-    mutationFn: () =>
-      financeApi.confirmPayout(tx!.id, {
+    mutationFn: async (): Promise<void> => {
+      const trimmed = txHash.trim()
+      // Compare on `method` directly (not the `isCompanyAccount` alias) so TS
+      // narrows `method` to `PayoutMethod` in the else branch below.
+      if (method === 'COMPANY_ACCOUNT') {
+        // New branch — credits the shared company account. Routed off the
+        // payout REQUEST id (not the tx id), matching the #252 backend
+        // contract. txHash is optional here; only attach it when populated.
+        await financeApi.manualConfirmPayout(tx!.payoutRequestId!, {
+          method: 'COMPANY_ACCOUNT',
+          ...(trimmed.length > 0 ? { txHash: trimmed } : {}),
+        })
+        return
+      }
+      // Legacy CRYPTO/CASH branch — credits the chosen admin partner.
+      await financeApi.confirmPayout(tx!.id, {
         recipientAdminId,
         method,
-        ...(method === 'CRYPTO' ? { txHash: txHash.trim() } : {}),
-      }),
+        ...(method === 'CRYPTO' ? { txHash: trimmed } : {}),
+      })
+    },
     onSuccess: () => {
-      toast.success('Оплата подтверждена')
+      toast.success(isCompanyAccount ? 'Оплата зачислена на счёт компании' : 'Оплата подтверждена')
       void qc.invalidateQueries({ queryKey: ['transactions'] })
       void qc.invalidateQueries({ queryKey: ['finance-summary'] })
+      // Company-account balance feeds the Statistics KPI — refresh it so the
+      // balance reflects the new credit immediately.
+      void qc.invalidateQueries({ queryKey: ['company-account'] })
       handleClose()
     },
     onError: (err: unknown) => {
@@ -113,8 +143,16 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
   const amountLabel = fmtAmount(tx.amount, tx.currency)
   const trimmedHash = txHash.trim()
   const cryptoTxHashOk = trimmedHash.length >= 10
+  // Submit gating branches by method:
+  //   - COMPANY_ACCOUNT — no recipient, txHash optional → only the in-flight
+  //     guard applies (plus a present payoutRequestId, asserted below).
+  //   - CRYPTO — recipient required + txHash ≥ 10 chars.
+  //   - CASH — recipient required only.
   const canSubmit =
-    !!recipientAdminId && (method === 'CASH' || cryptoTxHashOk) && !mutation.isPending
+    !mutation.isPending &&
+    (isCompanyAccount
+      ? !!tx.payoutRequestId
+      : !!recipientAdminId && (method === 'CASH' || cryptoTxHashOk))
 
   return (
     <Dialog
@@ -127,7 +165,8 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
         <CrmDialogHeader>
           <DialogTitle>Подтвердить оплату</DialogTitle>
           <DialogDescription className="sr-only">
-            Подтверждение ручной выплаты партнёру с указанием метода и хэша транзакции.
+            Подтверждение ручной выплаты партнёру или зачисление на счёт компании с указанием метода
+            и хэша транзакции.
           </DialogDescription>
         </CrmDialogHeader>
 
@@ -159,61 +198,82 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
             )}
           </div>
 
-          {/* AC10 — payment method radio. */}
+          {/* AC10 — payment method radio. Three options: crypto / cash credit an
+              admin partner; «Счёт компании» credits the shared company account. */}
           <div className="space-y-1.5" data-testid="confirm-payout-method-radio">
             <Label className="text-xs">Метод оплаты</Label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <MethodOption
                 value="CRYPTO"
                 active={method === 'CRYPTO'}
                 onSelect={() => setMethod('CRYPTO')}
-                icon="💎"
+                icon={<span className="text-base">💎</span>}
                 label="Крипта"
               />
               <MethodOption
                 value="CASH"
                 active={method === 'CASH'}
                 onSelect={() => setMethod('CASH')}
-                icon="💵"
+                icon={<span className="text-base">💵</span>}
                 label="Наличка"
               />
+              <MethodOption
+                value="COMPANY_ACCOUNT"
+                active={isCompanyAccount}
+                onSelect={() => setMethod('COMPANY_ACCOUNT')}
+                icon={<Coins className="h-4 w-4" />}
+                label="Счёт компании"
+              />
             </div>
-          </div>
-
-          {/* Recipient selector — required field. Default empty so the user
-              must explicitly choose. */}
-          <div className="space-y-1.5">
-            <Label className="text-xs" htmlFor="confirm-payout-admin-select">
-              Кому пришла оплата
-            </Label>
-            <Select value={recipientAdminId} onValueChange={(v) => setRecipientAdminId(v)}>
-              <SelectTrigger
-                id="confirm-payout-admin-select"
-                data-testid="confirm-payout-admin-select"
-                className="h-9 text-sm"
+            {isCompanyAccount && (
+              <p
+                className="text-[11px] text-muted-foreground"
+                data-testid="confirm-payout-company-account-hint"
               >
-                <SelectValue placeholder="— выберите админа —" />
-              </SelectTrigger>
-              <SelectContent>
-                {ADMIN_OPTIONS.map((admin) => (
-                  <SelectItem
-                    key={admin.id}
-                    value={admin.id}
-                    data-testid={`confirm-payout-admin-option-${admin.id}`}
-                    className="text-sm"
-                  >
-                    {admin.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                Кредитует баланс счёта компании.
+              </p>
+            )}
           </div>
 
-          {/* CRYPTO-only: txHash input + etherscan link. Cash skips this entirely. */}
-          {method === 'CRYPTO' && (
+          {/* Recipient selector — required for CRYPTO/CASH only. Hidden for
+              COMPANY_ACCOUNT (no admin is credited there). Default empty so the
+              user must explicitly choose. */}
+          {!isCompanyAccount && (
+            <div className="space-y-1.5">
+              <Label className="text-xs" htmlFor="confirm-payout-admin-select">
+                Кому пришла оплата
+              </Label>
+              <Select value={recipientAdminId} onValueChange={(v) => setRecipientAdminId(v)}>
+                <SelectTrigger
+                  id="confirm-payout-admin-select"
+                  data-testid="confirm-payout-admin-select"
+                  className="h-9 text-sm"
+                >
+                  <SelectValue placeholder="— выберите админа —" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ADMIN_OPTIONS.map((admin) => (
+                    <SelectItem
+                      key={admin.id}
+                      value={admin.id}
+                      data-testid={`confirm-payout-admin-option-${admin.id}`}
+                      className="text-sm"
+                    >
+                      {admin.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* txHash input — shown for CRYPTO (required ≥ 10) and COMPANY_ACCOUNT
+              (optional). CASH skips it entirely. */}
+          {method !== 'CASH' && (
             <div className="space-y-1.5">
               <Label className="text-xs" htmlFor="confirm-payout-tx-hash">
                 txHash
+                {isCompanyAccount && <span className="text-muted-foreground"> (опционально)</span>}
               </Label>
               <Input
                 id="confirm-payout-tx-hash"
@@ -233,7 +293,9 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
                   Открыть в Etherscan <ExternalLink className="h-3 w-3" />
                 </a>
               )}
-              {!cryptoTxHashOk && txHash.length > 0 && (
+              {/* The min-10 warning only applies to the CRYPTO branch where the
+                  hash is required. For COMPANY_ACCOUNT the hash is optional. */}
+              {method === 'CRYPTO' && !cryptoTxHashOk && txHash.length > 0 && (
                 <p className="text-[11px] text-amber-500">
                   txHash должен содержать минимум 10 символов
                 </p>
@@ -280,10 +342,10 @@ function MethodOption({
   icon,
   label,
 }: {
-  value: PayoutMethod
+  value: UiMethod
   active: boolean
   onSelect: () => void
-  icon: string
+  icon: ReactNode
   label: string
 }) {
   return (
@@ -294,14 +356,14 @@ function MethodOption({
       onClick={onSelect}
       data-testid={`confirm-payout-method-${value.toLowerCase()}`}
       className={cn(
-        'flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors',
+        'flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-sm font-medium transition-colors',
         active
           ? 'border-primary bg-primary/10 text-foreground'
           : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted/60',
       )}
     >
-      <span className="text-base">{icon}</span>
-      <span>{label}</span>
+      <span className="shrink-0">{icon}</span>
+      <span className="truncate">{label}</span>
     </button>
   )
 }
