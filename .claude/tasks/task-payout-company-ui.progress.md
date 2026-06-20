@@ -1,8 +1,8 @@
 # Progress: task-payout-company-ui
 
-current_milestone: 5/6
-last_commit: wip(web) WS4 stats balance KPI
-last_push: WS4
+current_milestone: 6/6 (done)
+last_commit: wip(web) WS5+WS6 admin wallet + CompanyAccountCard removal
+last_push: WS5+WS6
 
 ## Milestones (WS = workstream)
 
@@ -10,8 +10,8 @@ last_push: WS4
 - [x] WS2 — PayoutDetailDialog redesign (on-chain status machine + manual override ADMIN/ACCOUNTANT)
 - [x] WS3 — CreateTransactionDialog DIVIDEND type (ADMIN-only) → companyAccountApi.createDividend
 - [x] WS4 — Company account balance KPI in /crm/stats
-- [ ] WS5 — Admin wallet route/tab + reuse ChangeWalletAddressDialog
-- [ ] WS6 — Remove CompanyAccountCard from finance; delete CompanyAccountCard.tsx + WithdrawDividendsDialog.tsx
+- [x] WS5 — Admin wallet route/tab + reuse ChangeWalletAddressDialog (moved to admin/templates)
+- [x] WS6 — Remove CompanyAccountCard from finance; delete CompanyAccountCard.tsx + WithdrawDividendsDialog.tsx
 
 ## blast_radius
 

@@ -64,6 +64,13 @@ function AdminTemplatesRoot() {
           >
             Terms of Service
           </Link>
+          <Link
+            to="/crm/admin/templates/wallet"
+            className="rounded-md px-4 py-1.5 text-sm font-medium transition-colors hover:bg-background hover:text-foreground text-muted-foreground [&.active]:bg-background [&.active]:text-foreground [&.active]:shadow-sm"
+            data-testid="admin-templates-tab-wallet"
+          >
+            Кошелёк компании
+          </Link>
         </nav>
       </PageHeader>
 
