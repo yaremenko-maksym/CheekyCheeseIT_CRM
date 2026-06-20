@@ -1,8 +1,10 @@
 # Progress: task-payout-company-wallet (backend Phase 8 v2)
 
-current_milestone: 6/6 (M1-M5 done; M6 integration tests + push)
-last_commit: M4 manual-confirm pending commit
-last_push: pending (local commits only — pre-push runs full suite)
+current_milestone: 6/6 DONE — all AC verified
+last_commit: M6 integration + createPayoutRequest commit-visibility fix
+last_push: pending final push
+tests: api full suite 1721 passed (crm_qa); payout-flow 14, company-account.service 16,
+payout-company-wallet.integration 15 (real DB + mock Etherscan, 403 + balance deltas)
 
 ## Milestones
 

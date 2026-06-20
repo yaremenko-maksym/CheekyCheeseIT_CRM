@@ -1892,7 +1892,7 @@ export class TransactionsService {
     // second concurrent read until the first transaction commits; at that point
     // the second re-read finds payoutRequestId IS NOT NULL and the outer
     // count-mismatch guard throws 400.
-    return this.db.db.transaction(async (dbtx) => {
+    const newRequestId = await this.db.db.transaction(async (dbtx) => {
       // Step 1: lock the income rows. Must use the select-builder (not
       // query.findMany) because Drizzle's relational API does not expose
       // .for('update'). Conditions mirror the findMany filter below so that
@@ -2000,8 +2000,14 @@ export class TransactionsService {
         createdBy: currentUser.id,
       })
 
-      return this.findPayoutRequest(req!.id, currentUser)
+      // Return only the id from inside the transaction. The detail read
+      // (findPayoutRequest) MUST run on the base connection AFTER commit — it
+      // uses this.db.db (a separate pooled client) which cannot see this
+      // transaction's uncommitted rows, so reading it here would 404.
+      return req!.id
     })
+
+    return this.findPayoutRequest(newRequestId, currentUser)
   }
 
   // ── Pay Payout Request ────────────────────────────────────────────────────
