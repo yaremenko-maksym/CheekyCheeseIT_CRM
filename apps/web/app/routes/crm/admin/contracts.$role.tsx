@@ -23,7 +23,7 @@ import { MarkdownDiff } from '@/components/admin/MarkdownDiff'
 import { VariablesPanel } from '@/components/contracts/VariablesPanel'
 import type { EditorView } from '@uiw/react-codemirror'
 
-export const Route = createFileRoute('/crm/admin/templates/contracts/$role')({
+export const Route = createFileRoute('/crm/admin/contracts/$role')({
   component: ContractEditorPage,
 })
 
@@ -79,7 +79,7 @@ function ContractEditorPage() {
 
   useEffect(() => {
     if (!parsed.success) {
-      void navigate({ to: '/crm/admin/templates/contracts' })
+      void navigate({ to: '/crm/admin/contracts' })
     }
   }, [parsed.success, navigate])
 
@@ -182,7 +182,7 @@ function ContractEditorPage() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => void navigate({ to: '/crm/admin/templates/contracts' })}
+            onClick={() => void navigate({ to: '/crm/admin/contracts' })}
             data-testid="back-button"
             aria-label="Назад к списку"
           >

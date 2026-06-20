@@ -36,7 +36,7 @@ describe('route-access · isRouteAllowed (JUNIOR lockdown — task §4)', () => 
     '/crm/users',
     '/crm/interviews',
     '/crm/stats',
-    '/crm/admin/templates/contracts',
+    '/crm/admin/contracts',
   ]
   for (const path of juniorForbidden) {
     it(`JUNIOR denied: ${path}`, () => {
@@ -68,7 +68,7 @@ describe('route-access · isRouteAllowed (other roles not broken)', () => {
       '/crm/finance',
       '/crm/interviews',
       '/crm/stats',
-      '/crm/admin/templates/tos/new',
+      '/crm/admin/tos/new',
       '/crm', // consolidated dashboard root
     ]) {
       expect(isRouteAllowed(path, 'ADMIN')).toBe(true)
@@ -245,7 +245,7 @@ describe('route-access · ROUTE_ACCESS coverage invariant (no silent fail-open)'
    * coverage, so dynamic/flat segments collapse to a concrete-ish sample.
    *   crm/stats.tsx                           → /crm/stats
    *   crm/projects/$projectId.tsx             → /crm/projects/sample
-   *   crm/admin/templates/contracts.index.tsx → /crm/admin/templates/contracts
+   *   crm/admin/contracts.index.tsx → /crm/admin/contracts
    *   crm/payments/initiate.$incomeId.tsx     → /crm/payments/initiate/sample
    */
   const toPathname = (rel: string): string => {

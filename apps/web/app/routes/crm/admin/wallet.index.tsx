@@ -9,13 +9,13 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { companyAccountApi } from '../../finance/api'
 import { ChangeWalletAddressDialog } from './ChangeWalletAddressDialog'
 
-// /crm/admin/templates/wallet — ADMIN-only management of the company USDT wallet
+// /crm/admin/wallet — ADMIN-only management of the company USDT wallet
 // (ERC-20). Moved here from the Финансы page CompanyAccountCard (Phase 8 v2).
 // The whole /crm/admin/* subtree is ADMIN-only (route-access + AdminTemplatesRoot
 // guard), so this page needs no extra role gate. The wallet is sensitive
 // payment-routing config — edits go through ChangeWalletAddressDialog (warns
 // about immediate effect + validates the ERC-20 format).
-export const Route = createFileRoute('/crm/admin/templates/wallet/')({
+export const Route = createFileRoute('/crm/admin/wallet/')({
   component: CompanyWalletPage,
 })
 

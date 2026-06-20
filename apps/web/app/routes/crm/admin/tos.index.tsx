@@ -25,7 +25,7 @@ const CodeMirrorViewer = lazy(async () => {
   return { default: LazyViewer }
 })
 
-export const Route = createFileRoute('/crm/admin/templates/tos/')({
+export const Route = createFileRoute('/crm/admin/tos/')({
   component: TosEditorPage,
 })
 
@@ -84,7 +84,7 @@ function TosEditorPage() {
           )}
         </div>
         <Button asChild data-testid="publish-new-tos-button">
-          <Link to="/crm/admin/templates/tos/new">
+          <Link to="/crm/admin/tos/new">
             <Plus className="mr-1.5 h-4 w-4" />
             Новая версия
           </Link>

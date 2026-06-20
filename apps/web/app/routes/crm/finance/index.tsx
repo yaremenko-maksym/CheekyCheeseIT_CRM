@@ -792,7 +792,7 @@ function FinancePage() {
           ADMIN/ACCOUNTANT-only "Долги компании перед синьорами" card.
           DROP no longer holds senior debts — the DropCard was removed.
           Phase 8 v2: the CompanyAccountCard was removed — balance moved to
-          /crm/stats, wallet management to /crm/admin/templates/wallet, and
+          /crm/stats, wallet management to /crm/admin/wallet, and
           dividends became a DIVIDEND option in CreateTransactionDialog. */}
           {(isSenior || isAdmin || role === 'ACCOUNTANT') && <PendingSettlementSeniorCard />}
           {(isAdmin || role === 'ACCOUNTANT') && <PendingSettlementCompanyCard />}
