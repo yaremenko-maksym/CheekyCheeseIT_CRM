@@ -5,6 +5,7 @@ import { api } from '@/lib/axios'
 import { contractTargetRoleSchema, CONTRACT_VARIABLE_DESCRIPTIONS } from '@crm/shared'
 import type { ContractTargetRole, ContractTemplateRow, CustomVariable } from '@crm/shared'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -158,14 +159,39 @@ function ContractPreview({
         }
         .dark .contract-preview mark.preview-token-system  { color: #93c5fd; }
         .dark .contract-preview mark.preview-token-unknown { color: #fcd34d; }
+        .contract-preview table {
+          border-collapse: collapse;
+          width: 100%;
+          margin: 0.75em 0;
+          font-size: 0.875em;
+        }
+        .contract-preview th,
+        .contract-preview td {
+          border: 1px solid rgba(128,128,128,0.3);
+          padding: 6px 10px;
+          text-align: left;
+          vertical-align: top;
+        }
+        .contract-preview th {
+          background: rgba(128,128,128,0.08);
+          font-weight: 600;
+        }
+        .dark .contract-preview th {
+          background: rgba(255,255,255,0.05);
+        }
+        .dark .contract-preview th,
+        .dark .contract-preview td {
+          border-color: rgba(255,255,255,0.15);
+        }
       `}</style>
       <div
         className="contract-preview prose prose-sm dark:prose-invert max-w-none"
         data-testid="contract-preview-content"
       >
         <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
           components={{
-            // Override text renderer to catch remaining {{...}} tokens safely
+            // Override text renderer to catch remaining {{...}} tokens safely.
             // ReactMarkdown passes `children` as a string for leaf text nodes.
             // We split on tokens and return safe React elements.
             p: ({ children }) => (
@@ -177,6 +203,18 @@ function ContractPreview({
               <li>
                 {typeof children === 'string' ? renderInlineTokens(children, customMap) : children}
               </li>
+            ),
+            // GFM table cells — apply the same token highlighting so
+            // {{tokens}} inside table cells get the same coloured badges.
+            td: ({ children }) => (
+              <td>
+                {typeof children === 'string' ? renderInlineTokens(children, customMap) : children}
+              </td>
+            ),
+            th: ({ children }) => (
+              <th>
+                {typeof children === 'string' ? renderInlineTokens(children, customMap) : children}
+              </th>
             ),
           }}
         >

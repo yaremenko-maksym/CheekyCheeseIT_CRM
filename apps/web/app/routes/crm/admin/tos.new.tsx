@@ -190,7 +190,7 @@ function TosNewPage() {
           <MarkdownDiff oldText={currentTos?.bodyMarkdown ?? ''} newText={currentBody} />
           <DialogFooter>
             <Button
-              variant="outline"
+              variant="ghost"
               onClick={() => setShowConfirm(false)}
               data-testid="cancel-button"
             >
