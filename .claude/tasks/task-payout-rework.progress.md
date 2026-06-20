@@ -1,19 +1,19 @@
 # Progress: fix #252 security+code review findings
 
-current_milestone: 1/4
-last_commit: c5d553db
-last_push: (pending)
+current_milestone: 4/4
+last_commit: 6b2cbbfa
+last_push: 6b2cbbfa
 
 ## Findings → status
 
-- H1 txHash-reuse guard in manualConfirmPayout — PENDING
-- H2 Etherscan tokentx &address= — PENDING
-- M1 applyPayoutPaidCascade atomic (db.transaction) — PENDING
-- M2 real-controller RBAC 403 test (manual-confirm) — PENDING
-- M3 two-path mutual-exclusion docs + cross-path test — PENDING
-- M4 PAYOUT_AMOUNT_TOLERANCE doc — PENDING
-- code-review MED SENIOR/DROP intent docs — PENDING
-- code-review LOW convertToUsdtMinor currency union — PENDING
+- H1 txHash-reuse guard in manualConfirmPayout — DONE (service + 2 integration tests, crm_qa green)
+- H2 Etherscan tokentx &address= — DONE (etherscan.service)
+- M1 applyPayoutPaidCascade atomic (db.transaction) — DONE (cascade wrapped, invoice moved post-commit)
+- M2 real-controller RBAC 403 test (manual-confirm) — DONE (new spec, 6 tests crm_qa green)
+- M3 two-path mutual-exclusion docs + cross-path test — DONE (docs + 2 cross-path tests, crm_qa green)
+- M4 PAYOUT_AMOUNT_TOLERANCE doc — DONE
+- code-review MED SENIOR/DROP intent docs — DONE
+- code-review LOW convertToUsdtMinor currency union — DONE (CurrencyEnum from @crm/shared)
 
 ## blast_radius
 

@@ -1,5 +1,5 @@
 import { Global, Module } from '@nestjs/common'
-import { ForbiddenException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { and, eq, inArray } from 'drizzle-orm'
@@ -494,6 +494,105 @@ describe('payout → company wallet — on-chain confirm + manual-confirm RBAC (
 
     await expect(svc.manualConfirmPayout(requestId, 'COMPANY_ACCOUNT', ADMIN)).rejects.toThrow()
     expect(await balance()).toBeCloseTo(afterFirst, 6)
+  })
+
+  // ── H1: txHash-reuse guard on manual-confirm COMPANY_ACCOUNT ─────────────────
+  // The exploit closed: an ADMIN/ACCOUNTANT could manual-confirm a SECOND payout
+  // with method=COMPANY_ACCOUNT + a REAL on-chain hash already consumed by a PAID
+  // payout, crediting the company balance TWICE for one on-chain transfer (no DB
+  // unique index on payout_requests.txHash backstops this). Now → BadRequest, no
+  // double credit. Mirrors the on-chain reuse guard in payPayoutRequest.
+  it('H1 SECURITY: reusing a real txHash on a SECOND manual COMPANY_ACCOUNT confirm → rejected, no double credit', async () => {
+    if (!dbAvailable) return
+    const REAL_HASH = '0x' + 'a'.repeat(64)
+    const before = await balance()
+
+    const first = await seedPayout(SENIOR, '1000')
+    const second = await seedPayout(SENIOR2, '1000')
+
+    // First manual-confirm with the real hash → PAID, balance += payable.
+    const r1 = await svc.manualConfirmPayout(first.requestId, 'COMPANY_ACCOUNT', ADMIN, {
+      txHash: REAL_HASH,
+    })
+    expect(r1.status).toBe('PAID')
+    const afterFirst = await balance()
+    expect(afterFirst).toBeCloseTo(before + first.payable, 6)
+
+    // SAME real hash on a DIFFERENT payout → rejected (the transfer happened once).
+    await expect(
+      svc.manualConfirmPayout(second.requestId, 'COMPANY_ACCOUNT', ADMIN, { txHash: REAL_HASH }),
+    ).rejects.toBeInstanceOf(BadRequestException)
+
+    // Balance unchanged; the second payout stays PENDING.
+    expect(await balance()).toBeCloseTo(afterFirst, 6)
+    const pr2 = await dbSvc.db.query.payoutRequests.findFirst({
+      where: eq(payoutRequests.id, second.requestId),
+    })
+    expect(pr2?.status).toBe('PENDING')
+  })
+
+  // ── H1: synthetic-marker manual confirms are NOT blocked by the reuse guard ──
+  // Two manual COMPANY_ACCOUNT confirms WITHOUT a real hash each get a unique
+  // random 0xMANUAL marker, so the guard must not false-positive: both succeed
+  // and both credit the balance (they are two distinct off-chain settlements).
+  it('H1: two manual COMPANY_ACCOUNT confirms without a real hash both succeed (unique markers)', async () => {
+    if (!dbAvailable) return
+    const before = await balance()
+    const first = await seedPayout(SENIOR, '1000')
+    const second = await seedPayout(SENIOR2, '1000')
+
+    await svc.manualConfirmPayout(first.requestId, 'COMPANY_ACCOUNT', ADMIN)
+    await svc.manualConfirmPayout(second.requestId, 'COMPANY_ACCOUNT', ADMIN)
+
+    expect(await balance()).toBeCloseTo(before + first.payable + second.payable, 6)
+  })
+
+  // ── M3: on-chain and manual confirm are MUTUALLY EXCLUSIVE (PENDING gate) ─────
+  it('M3 cross-path: on-chain PAID payout cannot then be manual-confirmed (throws, no double credit)', async () => {
+    if (!dbAvailable) return
+    const before = await balance()
+    const { requestId, payable } = await seedPayout(SENIOR, '1000')
+    const HASH = '0x' + 'b'.repeat(64)
+    verifyScript.set(HASH, {
+      found: true,
+      toMatches: true,
+      confirmed: true,
+      confirmations: THRESHOLD,
+      amountUsdt: payable,
+    })
+
+    // On-chain happy path → PAID.
+    await svc.payPayoutRequest(requestId, HASH, SENIOR)
+    const afterOnChain = await balance()
+    expect(afterOnChain).toBeCloseTo(before + payable, 6)
+
+    // Manual-confirm of the now-PAID payout → rejected (status !== PENDING gate).
+    await expect(svc.manualConfirmPayout(requestId, 'COMPANY_ACCOUNT', ADMIN)).rejects.toThrow()
+    expect(await balance()).toBeCloseTo(afterOnChain, 6)
+  })
+
+  it('M3 cross-path: manual-PAID payout cannot then be paid on-chain (throws, no double credit)', async () => {
+    if (!dbAvailable) return
+    const before = await balance()
+    const { requestId, payable } = await seedPayout(SENIOR, '1000')
+
+    // Manual COMPANY_ACCOUNT confirm → PAID.
+    await svc.manualConfirmPayout(requestId, 'COMPANY_ACCOUNT', ADMIN)
+    const afterManual = await balance()
+    expect(afterManual).toBeCloseTo(before + payable, 6)
+
+    // payPayoutRequest on the now-PAID payout → rejected (status !== PENDING gate),
+    // even with an otherwise-valid on-chain verification scripted.
+    const HASH = '0x' + 'c'.repeat(64)
+    verifyScript.set(HASH, {
+      found: true,
+      toMatches: true,
+      confirmed: true,
+      confirmations: THRESHOLD,
+      amountUsdt: payable,
+    })
+    await expect(svc.payPayoutRequest(requestId, HASH, SENIOR)).rejects.toThrow()
+    expect(await balance()).toBeCloseTo(afterManual, 6)
   })
 
   // ── AC2 (integration): mixed-currency batch → single USDT payout, no BadRequest ─
