@@ -10,7 +10,7 @@
  * The caller re-creates the extension whenever customVariables change
  * (stable reference via useMemo in the component).
  */
-import { Decoration, MatchDecorator, ViewPlugin } from '@codemirror/view'
+import { Decoration, EditorView, MatchDecorator, ViewPlugin } from '@codemirror/view'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
 import { CONTRACT_VARIABLE_DESCRIPTIONS } from '@crm/shared'
 import type { CustomVariable } from '@crm/shared'
@@ -19,12 +19,22 @@ const TOKEN_RE = /\{\{([a-zA-Z0-9_]+)\}\}/g
 
 const SYSTEM_KEYS = new Set(Object.keys(CONTRACT_VARIABLE_DESCRIPTIONS))
 
+class TokenHighlightPlugin {
+  decorations: DecorationSet
+  constructor(view: EditorView, matcher: MatchDecorator) {
+    this.decorations = matcher.createDeco(view)
+  }
+  update(update: ViewUpdate, matcher: MatchDecorator) {
+    this.decorations = matcher.updateDeco(update, this.decorations)
+  }
+}
+
 export function buildTokenHighlightExtension(customVariables: CustomVariable[]) {
   const customKeys = new Set(customVariables.map((v) => v.key))
 
   const matcher = new MatchDecorator({
     regexp: TOKEN_RE,
-    decoration: (match) => {
+    decoration: (match: RegExpExecArray) => {
       const key = match[1] ?? ''
       let cls: string
       if (customKeys.has(key)) {
@@ -41,14 +51,14 @@ export function buildTokenHighlightExtension(customVariables: CustomVariable[]) 
   return ViewPlugin.fromClass(
     class {
       decorations: DecorationSet
-      constructor(view: Parameters<ConstructorParameters<typeof ViewPlugin.fromClass>[0]>[0]) {
+      constructor(view: EditorView) {
         this.decorations = matcher.createDeco(view)
       }
       update(update: ViewUpdate) {
         this.decorations = matcher.updateDeco(update, this.decorations)
       }
     },
-    { decorations: (v) => v.decorations },
+    { decorations: (v: TokenHighlightPlugin) => v.decorations },
   )
 }
 
