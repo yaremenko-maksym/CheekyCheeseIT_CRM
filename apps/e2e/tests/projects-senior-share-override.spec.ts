@@ -61,7 +61,7 @@ function mockProjectDetail(
   }
   // page.route registered AFTER mockAuthAs takes precedence — Playwright runs
   // route handlers in reverse-registration order.
-  return page.route(`http://localhost:3001/api/projects/${PROJECTS[0]!.id}`, (r) => {
+  return page.route(`**/api/projects/${PROJECTS[0]!.id}`, (r) => {
     if (r.request().method() === 'PATCH') {
       const body = JSON.parse(r.request().postData() ?? '{}') as Partial<typeof detail>
       Object.assign(detail, body)
@@ -205,7 +205,7 @@ test.describe('per-project SENIOR share override', () => {
         updatedAt: '2026-05-10T00:00:00.000Z',
         createdBy: USERS.senior.id,
       }
-      await page.route('http://localhost:3001/api/transactions', (r) =>
+      await page.route('**/api/transactions', (r) =>
         r.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -337,7 +337,7 @@ test.describe('per-project SENIOR share override', () => {
           juniors: [],
         },
       }
-      await page.route(`http://localhost:3001/api/projects/${PROJECTS[0]!.id}`, (r) => {
+      await page.route(`**/api/projects/${PROJECTS[0]!.id}`, (r) => {
         if (r.request().method() === 'PATCH') {
           const body = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>
           // Эмулируем implicit-null detection в backend: если override === default → null.
@@ -441,7 +441,7 @@ test.describe('per-project SENIOR share override', () => {
           archivedAt: null,
         },
       ]
-      await page.route('http://localhost:3001/api/projects**', (r) => {
+      await page.route('**/api/projects**', (r) => {
         if (r.request().method() === 'GET') {
           return r.fulfill({
             status: 200,
@@ -478,7 +478,7 @@ test.describe('per-project SENIOR share override', () => {
           archivedAt: null,
         },
       ]
-      await page.route('http://localhost:3001/api/projects**', (r) => {
+      await page.route('**/api/projects**', (r) => {
         if (r.request().method() === 'GET') {
           return r.fulfill({
             status: 200,
@@ -518,7 +518,7 @@ test.describe('per-project SENIOR share override', () => {
       // возвращаем 403 если поле override присутствует. Frontend для HR
       // больше не имеет секции в DOM — поле никогда не отправляется.
       let receivedOverrideField = false
-      await page.route(`http://localhost:3001/api/projects/${PROJECTS[0]!.id}`, async (route) => {
+      await page.route(`**/api/projects/${PROJECTS[0]!.id}`, async (route) => {
         if (route.request().method() === 'PATCH') {
           const body = JSON.parse(route.request().postData() ?? '{}') as Record<string, unknown>
           if ('seniorSharePercentOverride' in body) {
@@ -570,7 +570,7 @@ test.describe('per-project SENIOR share override', () => {
     }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: 33 })
       // The transactions list is empty, but the header still has to render.
-      await page.route('http://localhost:3001/api/transactions**', (r) =>
+      await page.route('**/api/transactions**', (r) =>
         r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
       )
 
@@ -594,7 +594,7 @@ test.describe('per-project SENIOR share override', () => {
 
     test('without override: row shows "(по умолчанию)" copy (ADMIN)', async ({ asAdmin: page }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
-      await page.route('http://localhost:3001/api/transactions**', (r) =>
+      await page.route('**/api/transactions**', (r) =>
         r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
       )
 
