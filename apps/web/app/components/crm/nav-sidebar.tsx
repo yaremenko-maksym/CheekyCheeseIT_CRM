@@ -5,7 +5,6 @@ import {
   Briefcase,
   ChevronLeft,
   ChevronRight,
-  Coins,
   DollarSign,
   FileText,
   Home,
@@ -71,19 +70,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Пользователи', icon: Users, to: '/crm/users', roles: navRolesFor('/crm/users') },
   { label: 'Команда', icon: UsersRound, to: '/crm/team', roles: navRolesFor('/crm/team') },
   { label: 'Проекты', icon: Briefcase, to: '/crm/projects', roles: navRolesFor('/crm/projects') },
-  {
-    label: 'Финансы',
-    icon: DollarSign,
-    to: '/crm/finance',
-    roles: navRolesFor('/crm/finance'),
-    activeOptions: { exact: true },
-  },
-  {
-    label: 'Счёт компании',
-    icon: Coins,
-    to: '/crm/finance/company-account',
-    roles: navRolesFor('/crm/finance/company-account'),
-  },
+  { label: 'Финансы', icon: DollarSign, to: '/crm/finance', roles: navRolesFor('/crm/finance') },
   { label: 'Статистика', icon: BarChart3, to: '/crm/stats', roles: navRolesFor('/crm/stats') },
   {
     label: 'Собеседования',
