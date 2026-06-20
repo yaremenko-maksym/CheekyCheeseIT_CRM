@@ -53,6 +53,11 @@ function fmtUsdt(n: number): string {
   return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+// task-salary-company-account. UI-only funding source sentinel:
+// 'legacy' = do not send fundingSource in the payload (backward-compat path).
+// 'COMPANY_ACCOUNT' / 'ADMIN_PERSONAL' map directly to the DTO enum.
+type FundingSourceUI = 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' | 'legacy'
+
 // Drop role - phase 2. Extended with `dropId` so the DROP_INCOME path can
 // filter projects by `project.dropId === user.id`. Backward compatible —
 // `dropId` is optional + null for legacy senior-projects.
@@ -134,6 +139,20 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   const [amount, setAmount] = useState('')
   const [currency, setCurrency] = useState<Currency>('USDT')
   const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]!)
+
+  // task-salary-company-account: funding source per-type.
+  // SALARY — defaults to COMPANY_ACCOUNT (backend also defaults to this).
+  // EXPENSE / ADMIN_INCOME — defaults to 'legacy' (absent = no company routing).
+  // 'legacy' is a UI-only sentinel meaning "do not send fundingSource in payload".
+  const defaultFundingSource = (t: DialogTxType): FundingSourceUI => {
+    if (t === 'SALARY') return 'COMPANY_ACCOUNT'
+    return 'legacy'
+  }
+  const [fundingSource, setFundingSource] = useState<FundingSourceUI>(
+    defaultFundingSource(availableTypes[0] ?? 'SENIOR_INCOME'),
+  )
+  // For SALARY + ADMIN_PERSONAL: which admin's personal account funds the payment.
+  const [payerAdminId, setPayerAdminId] = useState<string>('')
   const [salaryMonth, setSalaryMonth] = useState(() => {
     const prev = new Date()
     prev.setMonth(prev.getMonth() - 1)
@@ -174,15 +193,21 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     enabled: open && isAdminSet,
   })
 
-  // Company account balance — needed only for the DIVIDEND branch (ADMIN-only)
-  // to display the available USDT and gate the amount. Mirrors the guard that
-  // the now-removed WithdrawDividendsDialog applied.
+  // Company account balance — needed for DIVIDEND (ADMIN-only) to display
+  // available USDT and gate the amount, AND for the funding-source selector
+  // (ADMIN/ACCOUNTANT) to show a live balance hint when COMPANY_ACCOUNT chosen.
   const { data: companyAccount } = useQuery({
     queryKey: ['company-account'],
     queryFn: companyAccountApi.getAccount,
-    enabled: open && isAdmin,
+    enabled: open && isAdminSet,
   })
   const companyBalance = companyAccount?.balance ?? 0
+
+  // Derived: is the currency selector locked to USDT?
+  // True when a COMPANY_ACCOUNT funding source is selected for SALARY/EXPENSE/ADMIN_INCOME.
+  const isUsdtLocked =
+    (type === 'SALARY' || type === 'EXPENSE' || type === 'ADMIN_INCOME') &&
+    fundingSource === 'COMPANY_ACCOUNT'
 
   // Fetch NBU rates when non-USD/USDT currency selected, keyed by date
   const needsRate = needsConversion(currency)
@@ -286,11 +311,14 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
         return financeApi.createAdminIncome({
           projectId,
           amount: amt,
-          currency,
+          // company-account income is always USDT; send locked currency for clarity.
+          currency: isUsdtLocked ? 'USDT' : currency,
           receiptDocumentId,
           receiptExternalUrl,
           notes: notes || null,
           txDate: txDate || null,
+          // Send COMPANY_ACCOUNT explicitly when chosen; omit for legacy path.
+          ...(fundingSource === 'COMPANY_ACCOUNT' && { fundingSource: 'COMPANY_ACCOUNT' }),
         })
       }
       if (type === 'SENIOR_INCOME') {
@@ -320,22 +348,32 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
       if (type === 'EXPENSE') {
         return financeApi.createExpense({
           amount: amt,
-          currency,
+          currency: isUsdtLocked ? 'USDT' : currency,
           category,
           notes: notes || null,
           receiptDocumentId,
           receiptExternalUrl,
           txDate: txDate || null,
+          // Send COMPANY_ACCOUNT explicitly when chosen; omit for legacy path.
+          ...(fundingSource === 'COMPANY_ACCOUNT' && { fundingSource: 'COMPANY_ACCOUNT' }),
         })
       }
       if (type === 'SALARY') {
+        // SALARY always sends explicit fundingSource (backend default is COMPANY_ACCOUNT,
+        // but sending it explicitly is clearer and prevents future default drift).
+        const effectivePayerAdminId =
+          fundingSource === 'ADMIN_PERSONAL'
+            ? payerAdminId || adminUsers[0]?.id || undefined
+            : undefined
         return financeApi.createSalary({
           receiverId,
           amount: amt,
-          currency,
+          currency: isUsdtLocked ? 'USDT' : currency,
           salaryMonth,
           notes: notes || null,
           txDate: txDate || null,
+          fundingSource: fundingSource === 'legacy' ? undefined : fundingSource,
+          ...(effectivePayerAdminId !== undefined && { payerAdminId: effectivePayerAdminId }),
         })
       }
       if (type === 'ADMIN_TRANSFER') {
@@ -372,6 +410,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
         void qc.invalidateQueries({ queryKey: ['company-account'] })
         toast.success('Дивиденды выведены')
       }
+      // Invalidate company-account balance when any company-account debit/credit succeeds.
+      if (fundingSource === 'COMPANY_ACCOUNT') {
+        void qc.invalidateQueries({ queryKey: ['company-account'] })
+      }
       onClose()
       resetForm()
     },
@@ -395,6 +437,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     setReceipt(emptyReceiptState())
     setNotes('')
     setFieldErrors({})
+    // Reset funding source to per-type default.
+    setFundingSource(defaultFundingSource(type))
+    setPayerAdminId('')
     const now = new Date()
     setTxDate(
       `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`,
@@ -449,6 +494,16 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     // inside an open dialog never leaves a stale party selected.
                     setTransferSenderId('')
                     setFieldErrors({})
+                    // Reset fundingSource to per-type default and unlock currency.
+                    const nextFunding = defaultFundingSource(t)
+                    setFundingSource(nextFunding)
+                    setPayerAdminId('')
+                    if (nextFunding !== 'COMPANY_ACCOUNT') {
+                      // Restore default currency when leaving a USDT-locked state.
+                      setCurrency('USDT')
+                    } else {
+                      setCurrency('USDT')
+                    }
                   }}
                   className={cn(
                     'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
@@ -560,6 +615,169 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 >
                   {fieldErrors.receiver}
                 </p>
+              )}
+            </div>
+          )}
+
+          {/* Funding source selector — SALARY / EXPENSE / ADMIN_INCOME only */}
+          {(type === 'SALARY' || type === 'EXPENSE' || type === 'ADMIN_INCOME') && (
+            <div className="space-y-2" data-testid="create-transaction-funding-source-section">
+              <Label className="text-xs text-muted-foreground">Источник средств</Label>
+              <div className="grid grid-cols-1 gap-1.5">
+                {/* Options depend on type */}
+                {type === 'SALARY' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFundingSource('COMPANY_ACCOUNT')
+                        setCurrency('USDT')
+                        setPayerAdminId('')
+                      }}
+                      className={cn(
+                        'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
+                        fundingSource === 'COMPANY_ACCOUNT'
+                          ? 'border-primary bg-primary/8 text-foreground'
+                          : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
+                      )}
+                      data-testid="create-transaction-funding-company"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium leading-tight">Счёт компании</div>
+                        <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                          Спишется со счёта компании (USDT)
+                        </div>
+                      </div>
+                      {fundingSource === 'COMPANY_ACCOUNT' && (
+                        <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFundingSource('ADMIN_PERSONAL')
+                        // Personal account may be USDT or UAH — keep current currency.
+                      }}
+                      className={cn(
+                        'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
+                        fundingSource === 'ADMIN_PERSONAL'
+                          ? 'border-primary bg-primary/8 text-foreground'
+                          : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
+                      )}
+                      data-testid="create-transaction-funding-personal"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium leading-tight">
+                          Личный счёт партнёра
+                        </div>
+                        <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                          Из личного счёта выбранного партнёра
+                        </div>
+                      </div>
+                      {fundingSource === 'ADMIN_PERSONAL' && (
+                        <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
+                      )}
+                    </button>
+                  </>
+                )}
+                {(type === 'EXPENSE' || type === 'ADMIN_INCOME') && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setFundingSource('legacy')}
+                      className={cn(
+                        'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
+                        fundingSource === 'legacy'
+                          ? 'border-primary bg-primary/8 text-foreground'
+                          : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
+                      )}
+                      data-testid="create-transaction-funding-legacy"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium leading-tight">
+                          {type === 'EXPENSE' ? 'Обычный расход' : 'Личный приход'}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                          {type === 'EXPENSE'
+                            ? 'Стандартный расход, не затрагивает счёт компании'
+                            : 'Личный доход партнёра, не на счёт компании'}
+                        </div>
+                      </div>
+                      {fundingSource === 'legacy' && (
+                        <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFundingSource('COMPANY_ACCOUNT')
+                        setCurrency('USDT')
+                      }}
+                      className={cn(
+                        'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
+                        fundingSource === 'COMPANY_ACCOUNT'
+                          ? 'border-primary bg-primary/8 text-foreground'
+                          : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
+                      )}
+                      data-testid="create-transaction-funding-company"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium leading-tight">Счёт компании</div>
+                        <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                          {type === 'EXPENSE'
+                            ? 'Спишется со счёта компании (USDT)'
+                            : 'Зачислится на счёт компании (USDT)'}
+                        </div>
+                      </div>
+                      {fundingSource === 'COMPANY_ACCOUNT' && (
+                        <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
+                      )}
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* Company account balance hint when COMPANY_ACCOUNT selected */}
+              {fundingSource === 'COMPANY_ACCOUNT' && (
+                <div className="flex items-center justify-between rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-400">
+                  <span>Баланс счёта компании</span>
+                  <span
+                    className="font-bold tabular-nums"
+                    data-testid="create-transaction-company-balance-hint"
+                  >
+                    {fmtUsdt(companyBalance)} USDT
+                  </span>
+                </div>
+              )}
+
+              {/* Payer admin selector — only for SALARY + ADMIN_PERSONAL */}
+              {type === 'SALARY' && fundingSource === 'ADMIN_PERSONAL' && (
+                <div className="space-y-1.5" data-testid="create-transaction-payer-admin-section">
+                  <Label className="text-xs text-muted-foreground">Партнёр-плательщик</Label>
+                  <Select
+                    value={payerAdminId || adminUsers[0]?.id || ''}
+                    onValueChange={setPayerAdminId}
+                  >
+                    <SelectTrigger
+                      className="h-9 text-sm"
+                      data-testid="create-transaction-payer-admin-trigger"
+                    >
+                      <SelectValue placeholder="Выберите партнёра" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {adminUsers.map((u) => (
+                        <SelectItem
+                          key={u.id}
+                          value={u.id}
+                          className="text-sm"
+                          data-testid={`create-transaction-payer-admin-option-${u.id}`}
+                        >
+                          {u.displayName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               )}
             </div>
           )}
@@ -738,12 +956,16 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           {type !== 'DIVIDEND' && (
             <AmountCurrencyInput
               amount={amount}
-              currency={currency}
+              currency={isUsdtLocked ? 'USDT' : currency}
               onAmountChange={(v) => {
                 setAmount(v)
                 clearFieldError('amount')
               }}
-              onCurrencyChange={setCurrency}
+              onCurrencyChange={(v) => {
+                // Guard: when USDT is locked, ignore any currency change attempt.
+                if (!isUsdtLocked) setCurrency(v)
+              }}
+              disableCurrency={isUsdtLocked}
               error={fieldErrors.amount}
               errorTestId="create-transaction-error-amount"
             />
