@@ -53,14 +53,32 @@ export class CompanyAccountService {
   /**
    * Derived USDT balance:
    *   Σ(COMPANY_DEPOSIT PAID amount)
+   *   + Σ(PAYOUT PAID amount where fundingSource='COMPANY_ACCOUNT')   ← Phase 8 v2
    *   − Σ(DIVIDEND_TO_ADMIN PAID amount)
    *   − Σ(SALARY PAID amount where fundingSource='COMPANY_ACCOUNT')
    * All company-funded rows are USDT, so no currency conversion is needed.
+   *
+   * Phase 8 v2 — payouts settle onto the company wallet. There is exactly ONE
+   * PAYOUT row per payout_request (created in createPayoutRequest, flipped to
+   * PAID in payPayoutRequest / manualConfirmPayout). It counts toward the
+   * balance ONLY when fundingSource='COMPANY_ACCOUNT' — set on the on-chain
+   * confirmed path and on a manual COMPANY_ACCOUNT confirmation, NOT on
+   * ADMIN_USDT / CASH manual confirmations (money landed off the company
+   * account). Crediting the existing PAYOUT row (no separate ledger entry)
+   * makes double-counting structurally impossible: the same row can be PAID
+   * only once (the status guard blocks re-confirmation).
    */
   private async computeBalance(): Promise<number> {
-    const [deposits, dividends, companySalaries] = await Promise.all([
+    const [deposits, payouts, dividends, companySalaries] = await Promise.all([
       this.sumAmount(
         and(eq(transactions.type, 'COMPANY_DEPOSIT'), eq(transactions.status, 'PAID')),
+      ),
+      this.sumAmount(
+        and(
+          eq(transactions.type, 'PAYOUT'),
+          eq(transactions.status, 'PAID'),
+          eq(transactions.fundingSource, 'COMPANY_ACCOUNT'),
+        ),
       ),
       this.sumAmount(
         and(eq(transactions.type, 'DIVIDEND_TO_ADMIN'), eq(transactions.status, 'PAID')),
@@ -73,7 +91,7 @@ export class CompanyAccountService {
         ),
       ),
     ])
-    return deposits - dividends - companySalaries
+    return deposits + payouts - dividends - companySalaries
   }
 
   private async sumAmount(where: ReturnType<typeof and>): Promise<number> {

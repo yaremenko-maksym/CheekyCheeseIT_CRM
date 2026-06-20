@@ -38,8 +38,21 @@ import {
 } from '../database/schema'
 import { InvoicesService } from '../invoices/invoices.service'
 import { DocumentsService } from '../documents/documents.service'
+import { NbuCurrencyService } from './nbu-currency.service'
+import { EtherscanService } from './etherscan.service'
 import { resolveSeniorShare } from './senior-share-resolver'
 import { getOwnSalaryStatus } from './salary-status.helper'
+
+// Phase 8 v2 — payout → company wallet. Marker persisted in
+// transactions.fundingSource on a PAYOUT row whose money landed on the company
+// USDT account (on-chain confirm OR manual COMPANY_ACCOUNT). company-account
+// computeBalance counts ONLY these PAYOUT rows, so ADMIN_USDT/CASH manual
+// confirmations (which leave fundingSource NULL) never inflate the balance.
+const PAYOUT_TO_COMPANY_ACCOUNT = 'COMPANY_ACCOUNT'
+// Tolerance for the on-chain amount vs. the recorded payableAmount. A 1% band
+// absorbs FX drift (NBU rate at create time vs. the senior's actual transfer)
+// and rounding. Outside the band the payout is NOT marked PAID.
+const PAYOUT_AMOUNT_TOLERANCE = 0.01
 
 /** Default drop-share percentage when `users.dropSharePercent` is NULL.
  *  Used in both `computeDropDistribution` (write-path) and `getSummary`
@@ -87,6 +100,12 @@ export class TransactionsService {
     private readonly invoicesService: InvoicesService,
     @Inject(forwardRef(() => DocumentsService))
     private readonly documentsService: DocumentsService,
+    // Phase 8 v2 — payout → company wallet. NBU rates convert cross-currency
+    // company-shares into USDT at create time; EtherscanService validates the
+    // on-chain settlement at pay time (recipient = company wallet, confirmed,
+    // amount ≈ payable).
+    private readonly nbuCurrency: NbuCurrencyService,
+    private readonly etherscan: EtherscanService,
   ) {}
 
   /**
@@ -365,6 +384,41 @@ export class TransactionsService {
       { adminId: MAKSYM_ID, amount: half },
       { adminId: KOSTYA_ID, amount: half },
     ]
+  }
+
+  /**
+   * Phase 8 v2 — convert a scaled-integer (minor units, ×1e6) amount in a source
+   * currency into USDT minor units, using NBU UAH cross-rates.
+   *
+   * USDT is pegged 1:1 to USD (NbuCurrencyService returns usdtUah === usdUah),
+   * so:
+   *   - USDT / USD → identity (1 USD == 1 USDT).
+   *   - EUR  → USDT: amount * (eurUah / usdUah)  (EUR→UAH→USD≡USDT).
+   *   - UAH  → USDT: amount / usdUah.
+   *
+   * Integer-domain arithmetic on the scaled minor units (no float accumulation):
+   * we multiply by the rate ratio with a single Math.round, mirroring the
+   * decimal-safe aggregation used elsewhere in createPayoutRequest.
+   *
+   * `rates` is fetched ONCE per payout (today's NBU snapshot) and passed in so
+   * the conversion is deterministic across the whole batch.
+   */
+  private convertToUsdtMinor(
+    amountMinor: number,
+    currency: string,
+    rates: { usdUah: number; eurUah: number },
+  ): number {
+    switch (currency) {
+      case 'USDT':
+      case 'USD':
+        return amountMinor
+      case 'EUR':
+        return Math.round((amountMinor * rates.eurUah) / rates.usdUah)
+      case 'UAH':
+        return Math.round(amountMinor / rates.usdUah)
+      default:
+        throw new BadRequestException(`Неподдерживаемая валюта для конверсии в USDT: ${currency}`)
+    }
   }
 
   /**
@@ -1818,6 +1872,17 @@ export class TransactionsService {
   async createPayoutRequest(transactionIds: string[], currentUser: SessionUser) {
     if (currentUser.role !== 'SENIOR') throw new ForbiddenException()
 
+    // Phase 8 v2 — fetch the NBU snapshot ONCE, BEFORE opening the DB
+    // transaction (it can hit the network) so the cross-currency→USDT
+    // conversion is deterministic across the whole batch and we never hold a
+    // row lock during a network call. getRates never throws (hardcoded
+    // fallback), so this can't break the txn.
+    const rateResult = await this.nbuCurrency.getRates()
+    const rates = {
+      usdUah: parseFloat(rateResult.usdUah),
+      eurUah: parseFloat(rateResult.eurUah),
+    }
+
     // ── SECURITY (HIGH): atomic SELECT-FOR-UPDATE + full mutation inside one
     // DB transaction to prevent TOCTOU race. Two concurrent POST requests on
     // the same SENIOR_INCOME rows would otherwise both pass the isNull() guard
@@ -1853,46 +1918,48 @@ export class TransactionsService {
         throw new BadRequestException('Часть транзакций уже включена в выплату или недоступна')
       }
 
-      // ── SECURITY (HIGH): mixed-currency guard.
-      // Aggregating amounts across different currencies produces a meaningless
-      // sum (e.g. 1000 USD + 500 EUR ≠ 1500 of anything). Reject the batch
-      // if the selected transactions span more than one currency. The PAYOUT
-      // row inherits the currency from the batch — hardcoding 'USDT' was the
-      // original bug that silently coerced USD/EUR incomes into USDT payouts.
-      const currencies = new Set(lockedRows.map((tx) => tx.currency))
-      if (currencies.size > 1) {
-        throw new BadRequestException('Выберите транзакции одной валюты для одной выплаты')
+      // ── Phase 8 v2 — recipient = the COMPANY USDT wallet.
+      // The single company_account row holds the wallet. If it is not
+      // configured the senior has nowhere to send funds → reject the batch.
+      const account = await dbtx.query.companyAccount.findFirst()
+      if (!account?.walletAddress) {
+        throw new BadRequestException('Кошелёк компании не настроен')
       }
-      // Safe: lockedRows.length > 0 guaranteed by the count check above.
-      const batchCurrency = lockedRows[0]!.currency
+      const contractAddress = account.walletAddress
 
-      // ── MED: decimal-safe aggregation.
-      // Postgres numeric(18,6) stores exact decimals; parseFloat() would
-      // introduce IEEE-754 rounding errors on the accumulated sum. We keep
-      // each per-tx payable as a scaled integer (minor units × 1_000_000),
-      // sum those, then divide once at the end — one division ≈ one rounding
-      // event vs. N rounding events for N loop iterations.
+      // ── Phase 8 v2 — cross-currency → USDT conversion (replaces the old
+      // mixed-currency guard). Company-share of EACH income is converted to
+      // USDT (USDT/USD 1:1; EUR/UAH via NBU rates fetched above), then summed.
+      // The PAYOUT row + payout_request are ALWAYS USDT — the senior settles
+      // with the company in crypto, so a single USDT obligation is correct even
+      // when the underlying incomes span currencies (the previous hard guard
+      // blocked legitimate mixed-currency batches — bug fix).
+      //
+      // ── MED: decimal-safe aggregation. Postgres numeric(18,6) stores exact
+      // decimals; parseFloat() on the running sum would drift. We keep each
+      // per-tx payable as scaled integer minor units (×1_000_000), convert that
+      // integer to USDT minor units, sum, then divide once at the end — one
+      // rounding event per income rather than per float op.
       const SCALE = 1_000_000
-      let incomeMinor = 0
-      let payableMinor = 0
+      let incomeUsdtMinor = 0
+      let payableUsdtMinor = 0
       for (const tx of lockedRows) {
         // amount is stored as numeric string from Postgres.
         const amountMinor = Math.round(parseFloat(tx.amount) * SCALE)
         const sharePercent = tx.seniorSharePercent ?? DEFAULT_SENIOR_SHARE_PERCENT
-        // company's share = 1 - seniorShare/100; use integer arithmetic
-        // on the scaled amount to avoid floating-point drift per iteration.
+        // company's share = 1 - seniorShare/100; integer arithmetic on the
+        // scaled amount avoids per-iteration float drift.
         const companyShareMinor = Math.round((amountMinor * (100 - sharePercent)) / 100)
-        incomeMinor += amountMinor
-        payableMinor += companyShareMinor
+        // Convert BOTH the gross income and the company-share to USDT so the
+        // recorded incomeAmount/payableAmount are coherent in one currency.
+        incomeUsdtMinor += this.convertToUsdtMinor(amountMinor, tx.currency, rates)
+        payableUsdtMinor += this.convertToUsdtMinor(companyShareMinor, tx.currency, rates)
       }
-      const incomeAmount = (incomeMinor / SCALE).toFixed(6)
-      const payableAmount = (payableMinor / SCALE).toFixed(6)
-
-      // Stub contract address — Ethereum-shape (0x + 40 hex). Per-payout fresh
-      // address, swapped for the real PaymentSplitter when PHASE 8 ships.
-      const contractAddress = '0x' + randomBytes(20).toString('hex')
+      const incomeAmount = (incomeUsdtMinor / SCALE).toFixed(6)
+      const payableAmount = (payableUsdtMinor / SCALE).toFixed(6)
 
       // Step 3: insert payout_request. All writes are inside the transaction.
+      // contractAddress = company wallet (recipient); amounts are USDT.
       const [req] = await dbtx
         .insert(payoutRequests)
         .values({
@@ -1914,17 +1981,18 @@ export class TransactionsService {
         .set({ payoutRequestId: req!.id, status: 'PENDING_PAYMENT', updatedAt: new Date() })
         .where(inArray(transactions.id, lockedIds))
 
-      // Step 5: create the placeholder PAYOUT row (PENDING_PAYMENT). Currency
-      // comes from the batch, not hardcoded. This row is visible in the
-      // transactions table immediately so the SENIOR can click «Оплатить»
-      // without waiting for the payout_request detail page. The same row
-      // is mutated to PAID in payPayoutRequest (txHash + status flip) — no
+      // Step 5: create the placeholder PAYOUT row (PENDING_PAYMENT). Always
+      // USDT (Phase 8 v2 — settlement with the company is in crypto; amount is
+      // the USDT-converted payable). This row is visible in the transactions
+      // table immediately so the SENIOR can click «Оплатить» without waiting
+      // for the payout_request detail page. The same row is mutated to PAID in
+      // payPayoutRequest (txHash + status flip + fundingSource marker) — no
       // fresh PAYOUT is inserted there.
       await dbtx.insert(transactions).values({
         type: 'PAYOUT',
         status: 'PENDING_PAYMENT',
         amount: payableAmount,
-        currency: batchCurrency,
+        currency: 'USDT',
         senderId: currentUser.id,
         receiverLabel: 'CheekyCheeseIT',
         payoutRequestId: req!.id,
@@ -1961,23 +2029,20 @@ export class TransactionsService {
 
     // DEV-only simulate toggle (see PayPayoutRequestDto.simulateResult).
     // The dev/staging UI surfaces a radio group that lets the SENIOR rehearse
-    // either branch of the etherscan stub without going on-chain. In
-    // production the flag is ignored — real verification logic owns the
-    // decision.
+    // either branch without going on-chain. In production the flag is ignored —
+    // real Etherscan verification owns the decision.
     const isDevMode = process.env['NODE_ENV'] !== 'production'
     const isSimulating = isDevMode && simulateResult !== undefined
     if (isSimulating && simulateResult === 'error') {
       throw new BadRequestException('Симуляция: транзакция не подтверждена')
     }
-    // simulateResult === 'success' falls through to the normal cascade below
-    // (which already short-circuits etherscan today — see EtherscanService
-    // header comment about the missing real-verification call site).
+    // simulateResult === 'success' (dev only) bypasses Etherscan and runs the
+    // success cascade below.
     //
-    // When the SENIOR submits without a real on-chain hash (simulate mode),
-    // we synthesize a deterministic stub hash so the audit trail (txHash
-    // column on payout_requests + linked transactions) is never empty. The
-    // 0xSIM prefix is the convention the UI uses to skip the etherscan link
-    // (see PayoutDetailDialog footer).
+    // When simulating without a real on-chain hash, we synthesize a
+    // deterministic stub hash so the audit trail (txHash column) is never
+    // empty. The 0xSIM prefix is the convention the UI uses to skip the
+    // etherscan link (see PayoutDetailDialog footer).
     const effectiveTxHash =
       txHash && txHash.trim().length >= 10
         ? txHash.trim()
@@ -1986,6 +2051,57 @@ export class TransactionsService {
           : (() => {
               throw new BadRequestException('Хеш транзакции обязателен')
             })()
+
+    // ── Phase 8 v2 — REAL on-chain validation (INVARIANT #1).
+    // Outside dev-simulate, the payout is marked PAID ONLY when the submitted
+    // tx really sent the payable USDT to the COMPANY wallet and is confirmed.
+    // EtherscanService.verifyDeposit asserts recipient + confirmation count;
+    // we additionally gate on the amount being within tolerance of payable.
+    // ANY failure (recipient mismatch / not confirmed / amount off / no wallet)
+    // throws BEFORE the status flip — the payout stays PENDING, nothing is
+    // credited to the company account.
+    if (!isSimulating) {
+      const account = await this.db.db.query.companyAccount.findFirst()
+      if (!account?.walletAddress) {
+        throw new BadRequestException('Кошелёк компании не настроен')
+      }
+
+      // Idempotency: a txHash already consumed by a PAID payout (any request)
+      // must not be reused to mark a second payout PAID. The on-chain transfer
+      // happened once; reusing its hash would double-credit the company
+      // account. Block before any verification/write.
+      const reused = await this.db.db.query.payoutRequests.findFirst({
+        where: and(eq(payoutRequests.txHash, effectiveTxHash), eq(payoutRequests.status, 'PAID')),
+      })
+      if (reused) {
+        throw new BadRequestException('Этот хеш транзакции уже использован для другой выплаты')
+      }
+
+      const verification = await this.etherscan.verifyDeposit(
+        effectiveTxHash,
+        account.walletAddress,
+        account.confirmationThreshold,
+      )
+      if (!verification.toMatches) {
+        throw new BadRequestException('Получатель транзакции не совпадает с кошельком компании')
+      }
+      if (!verification.confirmed) {
+        throw new BadRequestException('Транзакция ещё не подтверждена в сети')
+      }
+      // Amount must be within tolerance of the recorded USDT payable. A null
+      // amount (unresolved / malformed on-chain value) is treated as a
+      // mismatch — never credit a payout whose transferred amount we cannot
+      // verify.
+      const payable = parseFloat(req.payableAmount)
+      const onChain = verification.amountUsdt
+      const withinTolerance =
+        onChain !== null &&
+        payable > 0 &&
+        Math.abs(onChain - payable) <= payable * PAYOUT_AMOUNT_TOLERANCE
+      if (!withinTolerance) {
+        throw new BadRequestException('Сумма on-chain транзакции не соответствует сумме выплаты')
+      }
+    }
 
     // Mark payout request as paid
     await this.db.db
@@ -2027,11 +2143,17 @@ export class TransactionsService {
     // as PAID + attach the on-chain txHash. We don't INSERT a fresh PAYOUT
     // here — the row already exists with status PENDING_PAYMENT so the
     // SENIOR could see «Выплата» in the table before clicking «Оплатить».
+    //
+    // Phase 8 v2 — stamp fundingSource='COMPANY_ACCOUNT' so company-account
+    // computeBalance credits this payout to the company balance. This is the
+    // on-chain-confirmed path (the senior really sent USDT to the company
+    // wallet, verified above), so the money DID land on the company account.
     await this.db.db
       .update(transactions)
       .set({
         status: 'PAID',
         txHash: effectiveTxHash,
+        fundingSource: PAYOUT_TO_COMPANY_ACCOUNT,
         updatedAt: new Date(),
       })
       .where(and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')))
