@@ -37,7 +37,20 @@ vision: ✓ /crm/team, /crm/team/$teamId    # ТОЛЬКО для UI задач 
 - Если часть не сделана — указать сделанные + комментарий: `ac_verified: 1,2,4 (3,5 — blocked, см. .blocked.md)`
 - Если задача без UI — `vision:` строку опустить, `ac_verified:` обязательна.
 
-Pre-push hook (`.claude/hooks/coder-pre-push.sh`) блокирует `git push` если последний commit на ветке `feature/*` / `fix/*` / `infra/*` / `test/*` не содержит `ac_verified:`. Не обходить — доделать AC.
+Pre-push gate (Claude PreToolUse:Bash hook `.claude/hooks/pre-bash-coder-push-gate.sh`, id `pre:bash:coder-push-gate`) блокирует `git push` если последний commit на ветке `feature/*` / `fix/*` / `infra/*` / `test/*` не содержит `ac_verified:`. Не обходить — доделать AC. Энфорс на harness-уровне (PreToolUse), а не через husky: в свежем `isolation=worktree` worktree husky-хуки молча пропускаются (`.husky/_/` gitignored, генерируется только при `pnpm install`).
+
+## Prettier pre-push gate (формат ловим ДО push)
+
+**Status:** добавлено 2026-06-21 (PR `fix(hooks): enforce prettier on pre-push`).
+
+Claude PreToolUse:Bash hook `.claude/hooks/pre-bash-prettier-gate.sh` (id `pre:bash:prettier-gate`)
+блокирует `git push`, если изменённые vs `origin/main` файлы (`ts/tsx/js/jsx/json/md/yml`) не
+прошли `prettier --check` — локальное зеркало CI-гейта `check-no-skip-hooks.yml`. Причина: в свежем
+worktree pre-commit hook (lint-staged → `prettier --write`) молча пропускается (нет husky/node_modules),
+неформатированный код раньше уходил в CI и краснил PR (#259/#261/#263). Hook резолвит prettier
+worktree-safe (локальный `.bin` → MAIN-repo `.bin` через git-common-dir → `pnpm exec`); если prettier
+недостижим — **fail-loud BLOCK** с инструкцией `pnpm install`, а не silent-skip. При блоке выводит точную
+команду фикса `prettier --write <файлы>`.
 
 ## WIP commits & chunking
 
