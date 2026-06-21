@@ -1,0 +1,53 @@
+# ============================================================
+# .dockerignore — root level
+# Applied when Docker build context is the repo root
+# (docker-compose.prod.yml builds all images with context: .)
+# ============================================================
+
+# Dependencies — reinstalled inside image via pnpm install
+**/node_modules/
+
+# Build artifacts — rebuilt inside image
+**/dist/
+**/.output/
+**/.vinxi/
+
+# Git metadata
+.git/
+.gitignore
+.gitattributes
+
+# Claude Code agent files (large, not needed in image)
+.claude/
+
+# Local env files (secrets must not enter image layer)
+.env
+.env.*
+!.env.production.example
+
+# Dev config
+docker-compose.yml
+docker-compose.override.yml
+
+# Tests — not needed in production image
+apps/e2e/
+**/*.spec.ts
+**/*.test.ts
+**/vitest.config.*
+**/playwright.config.*
+
+# Docs
+docs/
+*.md
+!apps/*/README.md
+
+# IDE / OS
+.DS_Store
+**/.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# CI
+.github/

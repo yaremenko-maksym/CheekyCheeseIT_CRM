@@ -22,6 +22,7 @@ apps/web/app/routeTree.gen.ts
 # Environment
 .env
 .env.local
+.env.production
 apps/**/.env
 apps/**/.env.local
 
