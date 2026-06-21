@@ -161,8 +161,14 @@ function makeService(initial: Partial<MockState> = {}) {
     ...initial,
   }
 
+  // Depth 12 (was 6): drizzle's `and(eq(id), eq(status,'PENDING'))` nests the
+  // inner column literals deeper than a bare `eq(id)` — the conditional UPDATE
+  // added by the MED TOCTOU fix (PR #262) needs both the obligation id AND the
+  // literal 'PENDING' to surface so the mock can model the status-guarded flip.
+  // `usedTables` is skipped (drizzle leaks raw table names that would pollute the
+  // `state.obligations.has(...)` / list-filter `includes(...)` lookups).
   const collectStringValues = (obj: unknown, acc: string[] = [], depth = 0): string[] => {
-    if (acc.length > 50 || depth > 6 || obj === null || obj === undefined) return acc
+    if (acc.length > 120 || depth > 12 || obj === null || obj === undefined) return acc
     if (typeof obj === 'string') {
       acc.push(obj)
       return acc
@@ -173,7 +179,8 @@ function makeService(initial: Partial<MockState> = {}) {
       return acc
     }
     for (const [key, val] of Object.entries(obj as Record<string, unknown>)) {
-      if (key === 'table' || key === 'schema' || key === 'enumValues') continue
+      if (key === 'table' || key === 'schema' || key === 'enumValues' || key === 'usedTables')
+        continue
       collectStringValues(val, acc, depth + 1)
     }
     return acc
@@ -204,21 +211,47 @@ function makeService(initial: Partial<MockState> = {}) {
       }),
     }),
     update: (table: unknown) => ({
-      set: (patch: Record<string, unknown>) => ({
-        where: async (predicate: unknown) => {
+      set: (patch: Record<string, unknown>) => {
+        // task-drop-payout-company-account (MED TOCTOU fix, PR #262): the
+        // PENDING→PAID flip is now a CONDITIONAL UPDATE — `.where(and(eq(id),
+        // eq(status,'PENDING'))).returning(...)`. We model both shapes:
+        //   1) Status-guarded flip — predicate contains the literal 'PENDING'.
+        //      Apply + return [{id}] ONLY when the row is still PENDING; else
+        //      return [] (the obligation was already claimed → idempotent loser).
+        //   2) Plain backfill (closingTransactionId) — predicate has only the id.
+        //      Always applies; `.returning()` is unused by the service here.
+        const applyUpdate = (predicate: unknown): Array<{ id: string }> => {
           const values = collectStringValues(predicate)
           const oblId = values.find((v) => state.obligations.has(v)) ?? lastUpdateObligationId
           lastUpdateObligationId = oblId
-          state.updates.push({ table, set: patch, obligationId: oblId })
+          const isStatusGuarded = values.includes('PENDING')
           const existing = state.obligations.get(oblId)
+          if (isStatusGuarded && existing && existing.status !== 'PENDING') {
+            // Conditional UPDATE matched zero rows — already settled/cancelled.
+            return []
+          }
+          state.updates.push({ table, set: patch, obligationId: oblId })
           if (existing) {
             state.obligations.set(oblId, {
               ...existing,
               ...patch,
             } as ReturnType<typeof makeObligation>)
+            return [{ id: oblId }]
           }
-        },
-      }),
+          return []
+        }
+        const where = (predicate: unknown) => {
+          const rows = applyUpdate(predicate)
+          // Awaitable (plain `.where(...)` backfill) AND chainable with
+          // `.returning(...)` (conditional status flip).
+          const result = Promise.resolve(rows) as Promise<Array<{ id: string }>> & {
+            returning: (..._args: unknown[]) => Promise<Array<{ id: string }>>
+          }
+          result.returning = async () => rows
+          return result
+        }
+        return { where }
+      },
     }),
     insert: (table: unknown) => ({
       values: (row: Record<string, unknown>) => {
@@ -325,10 +358,13 @@ describe('PendingSettlementService.settleByCompany', () => {
     // funding marker (the ledger SSOT subtracts it).
     expect(txInserts[0]?.['fundingSource']).toBe('COMPANY_ACCOUNT')
 
+    // MED TOCTOU fix (PR #262): the close is now two scoped writes — (1) the
+    // atomic conditional flip to status=PAID (the money gate), then (2) the
+    // closingTransactionId backfill once the SENIOR_INCOME row id is known.
     const oblUpdates = getUpdatesFor(pendingObligations)
-    expect(oblUpdates).toHaveLength(1)
+    expect(oblUpdates).toHaveLength(2)
     expect(oblUpdates[0]?.['status']).toBe('PAID')
-    expect(oblUpdates[0]?.['closingTransactionId']).toBe('inserted-1')
+    expect(oblUpdates[1]?.['closingTransactionId']).toBe('inserted-1')
 
     expect(result.obligation.status).toBe('PAID')
     expect(result.created).toHaveLength(1)
@@ -346,6 +382,87 @@ describe('PendingSettlementService.settleByCompany', () => {
     const { svc, getInsertsFor } = makeService()
     await svc.settleByCompany(OBLIGATION_COMPANY, adminUser)
     expect(getInsertsFor(transactions)).toHaveLength(1)
+  })
+
+  // ── MONEY-PATH idempotency: end-to-end double-settle (MED, PR #262) ────────
+  // The user-facing guarantee: a double-clicked / repeated settle of ONE
+  // obligation pays the senior EXACTLY ONCE. The SEQUENTIAL second call is caught
+  // by the out-of-transaction status read (a partial mitigation that already
+  // existed), so this test alone is NOT the TOCTOU proof — see the next test for
+  // the concurrent-window negative control that the OLD unconditional UPDATE
+  // failed. This test pins the observable invariant: one SENIOR_INCOME, one PAID
+  // flip, second call → BadRequest. It must never regress.
+  it('repeated settle of one obligation pays the senior exactly once (idempotent)', async () => {
+    const { svc, getInsertsFor, getUpdatesFor, state } = makeService()
+
+    // First settle succeeds: one SENIOR_INCOME, one PAID flip.
+    await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+
+    // Second settle of the SAME obligation must be rejected (already closed) and
+    // must NOT insert another SENIOR_INCOME or debit the company a second time.
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
+      BadRequestException,
+    )
+
+    // EXACTLY ONE company-funded SENIOR_INCOME row total.
+    const seniorIncomeInserts = getInsertsFor(transactions).filter(
+      (r) => r['type'] === 'SENIOR_INCOME',
+    )
+    expect(seniorIncomeInserts).toHaveLength(1)
+    expect(seniorIncomeInserts[0]?.['fundingSource']).toBe('COMPANY_ACCOUNT')
+
+    // EXACTLY ONE status→PAID flip was recorded (the winning conditional UPDATE).
+    const paidFlips = getUpdatesFor(pendingObligations).filter((u) => u['status'] === 'PAID')
+    expect(paidFlips).toHaveLength(1)
+    expect(state.obligations.get(OBLIGATION_COMPANY)?.status).toBe('PAID')
+  })
+
+  // ── TOCTOU negative control (THE bug from PR #262 security-review) ─────────
+  // Proves the IN-TRANSACTION conditional UPDATE — not just the out-of-txn read —
+  // is the money authority. We simulate the concurrent TOCTOU window: the
+  // obligation is read as PENDING by loadObligation (out-of-txn gate passes), but
+  // a concurrent winner flips it to PAID before the conditional UPDATE runs. The
+  // conditional `UPDATE ... WHERE status='PENDING'` then matches zero rows →
+  // BadRequest, and the whole transaction aborts: NO SENIOR_INCOME row, NO
+  // company-account debit.
+  //
+  // VERIFIED RED→GREEN: with the OLD unconditional `UPDATE ... WHERE id=:id`
+  // (git-stash of the service fix), this test FAILS — old code books a
+  // SENIOR_INCOME + debits the company despite the row already being PAID, i.e.
+  // the double-payout. With the conditional-UPDATE fix it PASSES.
+  it('conditional UPDATE matching zero rows aborts the settle with no money write', async () => {
+    const { svc, getInsertsFor, state } = makeService()
+
+    // loadObligation reads via query.pendingObligations.findFirst (mocked off
+    // `state`). Wrap it so the FIRST read (the out-of-txn gate) returns a PENDING
+    // snapshot, then flip the stored row to PAID — modelling a concurrent settle
+    // landing in the TOCTOU window just before our conditional UPDATE executes.
+    type ObligationRow = ReturnType<typeof makeObligation>
+    const query = (
+      svc as unknown as {
+        db: {
+          db: { query: { pendingObligations: { findFirst: (a: unknown) => Promise<unknown> } } }
+        }
+      }
+    ).db.db.query.pendingObligations
+    const baseFindFirst = query.findFirst
+    const pendingSnapshot: ObligationRow = makeObligation({ status: 'PENDING' })
+    let gateRead = true
+    query.findFirst = async (args: unknown) => {
+      if (gateRead) {
+        gateRead = false
+        // A concurrent winner closes the obligation right after our gate read.
+        state.obligations.set(OBLIGATION_COMPANY, makeObligation({ status: 'PAID' }))
+        return pendingSnapshot
+      }
+      return baseFindFirst(args)
+    }
+
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
+      BadRequestException,
+    )
+    // Transaction aborted: no SENIOR_INCOME booked → no double payout.
+    expect(getInsertsFor(transactions)).toHaveLength(0)
   })
 
   it('rejects when company balance is insufficient for the obligation', async () => {
