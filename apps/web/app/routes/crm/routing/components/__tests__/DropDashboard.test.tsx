@@ -1,25 +1,40 @@
 /**
- * DropDashboard.test.tsx — unit tests for the DROP ролевой дашборд (AC2).
+ * DropDashboard.test.tsx — unit tests for the DROP ролевой дашборд.
  *
  * Verifies:
  *   - renders 3 KPI cards (active-projects / balance / pending-incomes)
  *   - loading skeleton state
  *   - error state
- *   - «Транзакции в работе» panel with DROP_INCOME rows (PENDING/VALIDATED)
- *   - PAYOUT PENDING_PAYMENT row shows «Оплатить» button → opens PayoutDetailDialog
- *   - VALIDATED DROP_INCOME without payout → «Создать выплату» button
- *   - «Добавить приход» opens CreateTransactionDialog
- *   - crm/index.tsx routes DROP → DropDashboard (AC3)
+ *   - «Транзакции в работе» panel (mode='drop'):
+ *       - DROP_INCOME rows (PENDING/VALIDATED) are shown; PAID excluded
+ *       - VALIDATED DROP_INCOME → «Платить» button → navigates to /crm/payments/initiate/$incomeId
+ *       - createPayoutRequest / batch «Создать выплату» are NOT shown (SENIOR-only → 403)
+ *       - PayoutDetailDialog / «Оплатить» are NOT shown (drop settles via initiate route)
+ *       - «Добавить приход» opens CreateTransactionDialog
+ *   - SeniorDashboard NOT regressed: senior keeps «Создать выплату» + «Оплатить» actions
  *
  * All hooks and dialogs are mocked so the component renders in isolation.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import type { TransactionDto } from '@crm/shared'
 
-// ── Mock hooks ──────────────────────────────────────────────────────────────
+// ── navigate mock ────────────────────────────────────────────────────────────
+
+const navigateMock = vi.fn()
+
+vi.mock('@tanstack/react-router', async () => {
+  const actual =
+    await vi.importActual<typeof import('@tanstack/react-router')>('@tanstack/react-router')
+  return {
+    ...actual,
+    useNavigate: () => navigateMock,
+  }
+})
+
+// ── Hook mocks ───────────────────────────────────────────────────────────────
 
 const useDropSummaryMock = vi.fn()
 const useDropProjectsMock = vi.fn()
@@ -51,7 +66,7 @@ vi.mock('@/routes/crm/finance/api', () => ({
   },
 }))
 
-// Stub shared finance dialogs — they have their own tests.
+// Stub shared finance dialogs.
 const createDialogSpy = vi.fn()
 const payoutDialogSpy = vi.fn()
 const payoutDetailDialogSpy = vi.fn()
@@ -79,7 +94,7 @@ vi.mock('@/routes/crm/finance/components/dialogs/PayoutDetailDialog', () => ({
 
 import { DropDashboard } from '../DropDashboard'
 
-// ── Fixtures ────────────────────────────────────────────────────────────────
+// ── Fixtures ─────────────────────────────────────────────────────────────────
 
 function makeDropSummary() {
   return {
@@ -139,7 +154,7 @@ function renderDashboard() {
   return render(<DropDashboard />, { wrapper })
 }
 
-// ── Setup ───────────────────────────────────────────────────────────────────
+// ── Setup ─────────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
   useDropSummaryMock.mockReset()
@@ -148,10 +163,11 @@ beforeEach(() => {
   createDialogSpy.mockReset()
   payoutDialogSpy.mockReset()
   payoutDetailDialogSpy.mockReset()
+  navigateMock.mockReset()
   getTransactionsMock.mockResolvedValue([])
 })
 
-// ── Tests ───────────────────────────────────────────────────────────────────
+// ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('DropDashboard', () => {
   it('renders loading skeletons while fetching', () => {
@@ -210,7 +226,7 @@ describe('DropDashboard', () => {
     })
   })
 
-  describe('«Транзакции в работе» panel (InProgressPanel)', () => {
+  describe('«Транзакции в работе» panel (mode=drop) — settlement via payment-channel', () => {
     beforeEach(() => {
       useDropSummaryMock.mockReturnValue({
         data: makeDropSummary(),
@@ -235,56 +251,78 @@ describe('DropDashboard', () => {
       renderDashboard()
       expect(await screen.findByTestId('drop-in-progress-row-pending-1')).toBeInTheDocument()
       expect(screen.getByTestId('drop-in-progress-row-validated-1')).toBeInTheDocument()
+      // PAID is terminal — must not appear.
       expect(screen.queryByTestId('drop-in-progress-row-paid-1')).not.toBeInTheDocument()
     })
 
-    it('renders «Создать выплату» on VALIDATED DROP_INCOME without payout', async () => {
+    it('VALIDATED DROP_INCOME shows «Платить» button (payment-channel route)', async () => {
       getTransactionsMock.mockResolvedValue([
         makeTx({ id: 'validated-1', status: 'VALIDATED', payoutRequestId: null }),
-        makeTx({ id: 'validated-2', status: 'VALIDATED', payoutRequestId: 'pr-existing' }),
-        makeTx({ id: 'pending-1', status: 'PENDING' }),
       ])
       renderDashboard()
       await screen.findByTestId('drop-in-progress-row-validated-1')
-      // Only validated-1 (no payoutRequestId) gets the button
-      expect(screen.getByTestId('drop-in-progress-payout-validated-1')).toBeInTheDocument()
-      expect(screen.queryByTestId('drop-in-progress-payout-validated-2')).not.toBeInTheDocument()
-      expect(screen.queryByTestId('drop-in-progress-payout-pending-1')).not.toBeInTheDocument()
+      const payBtn = screen.getByTestId('drop-in-progress-pay-validated-1')
+      expect(payBtn).toBeInTheDocument()
+      expect(payBtn).toHaveTextContent('Платить')
     })
 
-    it('renders PAYOUT PENDING_PAYMENT rows with «Оплатить» button (AC1 parity)', async () => {
+    it('«Платить» navigates to /crm/payments/initiate/$incomeId', async () => {
       getTransactionsMock.mockResolvedValue([
-        makeTx({
-          id: 'payout-1',
-          type: 'PAYOUT',
-          status: 'PENDING_PAYMENT',
-          payoutRequestId: 'pr-001',
-          projectName: null,
-        }),
+        makeTx({ id: 'validated-1', status: 'VALIDATED', payoutRequestId: null }),
       ])
       renderDashboard()
-      expect(await screen.findByTestId('drop-in-progress-row-payout-1')).toBeInTheDocument()
-      expect(screen.getByTestId('drop-pay-payout-payout-1')).toBeInTheDocument()
-      expect(screen.getByTestId('drop-pay-payout-payout-1')).toHaveTextContent('Оплатить')
-    })
-
-    it('«Оплатить» opens PayoutDetailDialog with correct payoutRequestId', async () => {
-      getTransactionsMock.mockResolvedValue([
-        makeTx({
-          id: 'payout-1',
-          type: 'PAYOUT',
-          status: 'PENDING_PAYMENT',
-          payoutRequestId: 'pr-001',
-          projectName: null,
-        }),
-      ])
-      renderDashboard()
-      const payBtn = await screen.findByTestId('drop-pay-payout-payout-1')
+      const payBtn = await screen.findByTestId('drop-in-progress-pay-validated-1')
       fireEvent.click(payBtn)
-      expect(await screen.findByTestId('mock-payout-detail-dialog')).toBeInTheDocument()
-      await waitFor(() => {
-        expect(payoutDetailDialogSpy).toHaveBeenCalledWith(true, 'pr-001')
+      expect(navigateMock).toHaveBeenCalledWith({
+        to: '/crm/payments/initiate/$incomeId',
+        params: { incomeId: 'validated-1' },
       })
+    })
+
+    it('PENDING DROP_INCOME does NOT have «Платить» (only VALIDATED can pay)', async () => {
+      getTransactionsMock.mockResolvedValue([makeTx({ id: 'pending-1', status: 'PENDING' })])
+      renderDashboard()
+      await screen.findByTestId('drop-in-progress-row-pending-1')
+      expect(screen.queryByTestId('drop-in-progress-pay-pending-1')).not.toBeInTheDocument()
+    })
+
+    it('does NOT render «Создать выплату» row-button for DROP (SENIOR-only endpoint)', async () => {
+      // createPayoutRequest is 403 for DROP — must never appear.
+      getTransactionsMock.mockResolvedValue([
+        makeTx({ id: 'validated-1', status: 'VALIDATED', payoutRequestId: null }),
+      ])
+      renderDashboard()
+      await screen.findByTestId('drop-in-progress-row-validated-1')
+      // Row-level «Создать выплату» testid used by senior mode must be absent.
+      expect(screen.queryByTestId('drop-in-progress-payout-validated-1')).not.toBeInTheDocument()
+    })
+
+    it('does NOT render batch «Создать выплату» toolbar button for DROP', async () => {
+      // Batch createPayoutRequest is 403 for DROP — button must be hidden.
+      getTransactionsMock.mockResolvedValue([
+        makeTx({ id: 'v1', status: 'VALIDATED', payoutRequestId: null }),
+      ])
+      renderDashboard()
+      await screen.findByTestId('drop-in-progress-row-v1')
+      expect(screen.queryByTestId('drop-create-payout-batch')).not.toBeInTheDocument()
+    })
+
+    it('does NOT render «Оплатить»→PayoutDetailDialog for DROP (senior-only pay path)', async () => {
+      // PAYOUT rows are not shown to drop — drop settles via initiate, not PayoutDetailDialog.
+      getTransactionsMock.mockResolvedValue([
+        makeTx({
+          id: 'payout-1',
+          type: 'PAYOUT',
+          status: 'PENDING_PAYMENT',
+          payoutRequestId: 'pr-001',
+          projectName: null,
+        }),
+      ])
+      renderDashboard()
+      // PAYOUT row should not be rendered for drop at all.
+      expect(await screen.findByTestId('drop-in-progress-empty')).toBeInTheDocument()
+      expect(screen.queryByTestId('drop-in-progress-row-payout-1')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('drop-pay-payout-payout-1')).not.toBeInTheDocument()
     })
 
     it('«Добавить приход» opens CreateTransactionDialog', async () => {
@@ -293,27 +331,6 @@ describe('DropDashboard', () => {
       await screen.findByTestId('drop-in-progress-empty')
       fireEvent.click(screen.getByTestId('drop-add-income'))
       expect(await screen.findByTestId('mock-create-dialog')).toBeInTheDocument()
-    })
-
-    it('«Создать выплату» batch button visible when validated incomes exist', async () => {
-      getTransactionsMock.mockResolvedValue([
-        makeTx({ id: 'v1', status: 'VALIDATED', payoutRequestId: null }),
-      ])
-      renderDashboard()
-      expect(await screen.findByTestId('drop-create-payout-batch')).toBeInTheDocument()
-    })
-
-    it('batch «Создать выплату» opens PayoutDialog with no preselection', async () => {
-      getTransactionsMock.mockResolvedValue([
-        makeTx({ id: 'v1', status: 'VALIDATED', payoutRequestId: null }),
-      ])
-      renderDashboard()
-      const batchBtn = await screen.findByTestId('drop-create-payout-batch')
-      fireEvent.click(batchBtn)
-      expect(await screen.findByTestId('mock-payout-dialog')).toBeInTheDocument()
-      await waitFor(() => {
-        expect(payoutDialogSpy).toHaveBeenCalledWith(true, [])
-      })
     })
   })
 })
