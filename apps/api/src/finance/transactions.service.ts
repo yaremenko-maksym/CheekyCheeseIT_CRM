@@ -2395,8 +2395,6 @@ export class TransactionsService {
             })
           : null
 
-        const payable = parseFloat(req.payableAmount)
-
         if (dropUser && primaryProject) {
           // Drop-project branch.
           //
@@ -2446,58 +2444,24 @@ export class TransactionsService {
             createdBy: currentUser.id,
           })
 
-          // Partner residual (50/50 split) on the drop-project's remainder.
-          for (const share of distribution.partnerShares) {
-            const admin = await dbtx.query.users.findFirst({
-              where: eq(users.id, share.adminId),
-            })
-            if (admin) {
-              await dbtx.insert(transactions).values({
-                type: 'PAYOUT_ADMIN',
-                status: 'PAID',
-                amount: String(share.amount),
-                currency: 'USDT',
-                senderId: currentUser.id,
-                receiverId: share.adminId,
-                projectId: primaryProject.id,
-                payoutRequestId: requestId,
-                txHash: effectiveTxHash,
-                createdBy: currentUser.id,
-              })
-            }
-          }
-        } else {
-          // Senior-project branch (legacy split math). `computePartnersSplit(payable)`
-          // returns `[{maksym, payable/2}, {kostya, payable/2}]` — unchanged from
-          // pre-AC1. Backlog AC5: include `projectId` on each PAYOUT_ADMIN insert
-          // so the row is traceable back to the originating project (matches the
-          // drop-branch shape above). `primaryProject` is null only when the
-          // payout has no linked SENIOR_INCOME rows — a degenerate case that
-          // can't actually happen here (the cascade short-circuits earlier on
-          // empty payouts) but we keep the fallback to `null` for safety.
-          const partnerShares = this.computePartnersSplit(payable)
-          const senderProjectId = primaryProject?.id ?? null
-
-          for (const share of partnerShares) {
-            const admin = await dbtx.query.users.findFirst({
-              where: eq(users.id, share.adminId),
-            })
-            if (admin) {
-              await dbtx.insert(transactions).values({
-                type: 'PAYOUT_ADMIN',
-                status: 'PAID',
-                amount: String(share.amount),
-                currency: 'USDT',
-                senderId: currentUser.id,
-                receiverId: share.adminId,
-                projectId: senderProjectId,
-                payoutRequestId: requestId,
-                txHash: effectiveTxHash,
-                createdBy: currentUser.id,
-              })
-            }
-          }
+          // fix/payout-credits-company-account (Variant A): the auto 50/50
+          // PAYOUT_ADMIN partner split that used to run here (and in the
+          // senior-project branch) is REMOVED. The company USDT account is
+          // already credited the full `payable` via the PAYOUT row's
+          // fundingSource='COMPANY_ACCOUNT' marker
+          // (computeCompanyAccountBalanceFromLedger: +Σ PAYOUT(PAID,
+          // COMPANY_ACCOUNT)); the extra 50/50 split onto each admin's personal
+          // balance was a SECOND distribution of the same money on top of that
+          // credit (the two «Доли партнёра» the owner flagged). Admin income is
+          // now a deliberate manual flow (DIVIDEND_TO_ADMIN), so no automatic
+          // partner row is emitted on settlement. The DROP's own PAYOUT_DROP
+          // slice above is unchanged. The historical PAYOUT_ADMIN enum value is
+          // intentionally retained (defensive for legacy rows) — we simply stop
+          // creating new ones.
         }
+        // Senior-project branch: nothing else to write. The PAYOUT row (flipped
+        // PAID + fundingSource credit marker above) is the entire settlement —
+        // no partner-split rows. See the Variant-A comment in the drop branch.
 
         return payoutRow?.id ?? null
       })
