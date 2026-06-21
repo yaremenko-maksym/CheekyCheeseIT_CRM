@@ -285,10 +285,7 @@ test.describe('RBAC matrix smoke — Phase 4 endpoints', () => {
       for (const email of [dropEmail, SEED_EMAILS.seniorA, SEED_EMAILS.juniorA, SEED_EMAILS.hrA]) {
         await loginViaApi(page, email)
         const r = await page.request.post(endpointUrl, settleBody)
-        expect(
-          r.status(),
-          `Expected 403 for ${email} on by-source-transaction settle`,
-        ).toBe(403)
+        expect(r.status(), `Expected 403 for ${email} on by-source-transaction settle`).toBe(403)
       }
 
       // ACCOUNTANT is allowed.

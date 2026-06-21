@@ -2343,9 +2343,7 @@ export async function ensureCompanyWalletViaAPI(page: Page): Promise<void> {
     'PATCH company-account/wallet',
   )
   if (res.status() !== 200 && res.status() !== 201) {
-    throw new Error(
-      `ensureCompanyWalletViaAPI failed: HTTP ${res.status()} — ${await res.text()}`,
-    )
+    throw new Error(`ensureCompanyWalletViaAPI failed: HTTP ${res.status()} — ${await res.text()}`)
   }
 }
 
