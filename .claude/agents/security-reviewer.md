@@ -258,6 +258,8 @@ gh pr edit <N> --repo yaremenko-maksym/CheekyCheeseIT_CRM --add-label "security-
 
 Label `awaiting-pm-review` ставит **code-reviewer** (default reviewer), не ты — иначе race. Если PR проверял только security (без code-reviewer параллельно — редкий случай), тогда ты ставишь `awaiting-pm-review`.
 
+> **🚫 ЗАПРЕТ (P0): НИКОГДА не ставь и не снимай `merge-approved`.** Этот label — ИСКЛЮЧИТЕЛЬНО PM/owner после явного подтверждения; он триггерит `auto-merge-on-label.yml` и мерджит PR немедленно. `Verdict: APPROVE` в твоём ревью означает «нет security-блокеров», а НЕ «мерджить». Ты ставишь ТОЛЬКО `security-noted`. Инцидент 2026-06-21 (#270): reviewer-агент самовольно добавил `merge-approved` → PR смержился до завершения code-review. Не повторяй.
+
 #### COMMENT с Verdict: BLOCK
 
 ```json
