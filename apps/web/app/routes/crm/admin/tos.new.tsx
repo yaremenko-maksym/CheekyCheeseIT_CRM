@@ -3,8 +3,20 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useState } from 'react'
 import { api } from '@/lib/axios'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { toast } from 'sonner'
+import { AlertTriangle, ChevronLeft, Eye } from 'lucide-react'
+import { MarkdownDiff } from '@/components/admin/MarkdownDiff'
 
 // Lazy-load CodeMirror + markdown extension + dark theme — only ADMIN reaches this route.
 const CodeMirrorEditor = lazy(async () => {
@@ -20,17 +32,6 @@ const CodeMirrorEditor = lazy(async () => {
   }
   return { default: LazyEditor }
 })
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { toast } from 'sonner'
-import { AlertTriangle, ChevronLeft } from 'lucide-react'
-import { MarkdownDiff } from '@/components/admin/MarkdownDiff'
 
 export const Route = createFileRoute('/crm/admin/tos/new')({
   component: TosNewPage,
@@ -60,6 +61,7 @@ function TosNewPage() {
 
   const [body, setBody] = useState<string | null>(null)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
 
   const currentBody = body ?? currentTos?.bodyMarkdown ?? ''
 
@@ -85,10 +87,7 @@ function TosNewPage() {
     return (
       <div className="space-y-4">
         <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-2 gap-4">
-          <Skeleton className="h-96" />
-          <Skeleton className="h-96" />
-        </div>
+        <Skeleton className="h-[520px]" />
       </div>
     )
   }
@@ -117,64 +116,105 @@ function TosNewPage() {
           </div>
         </div>
 
-        <Button
-          onClick={() => setShowConfirm(true)}
-          disabled={publishMutation.isPending || currentBody.trim() === ''}
-          data-testid="publish-tos-button"
-        >
-          Опубликовать
-        </Button>
-      </div>
-
-      {/* Split-view editor */}
-      <div className="grid grid-cols-2 gap-4" style={{ minHeight: '480px' }}>
-        {/* Left: CodeMirror */}
-        <div className="flex flex-col rounded-lg border border-border/60 overflow-hidden">
-          <div className="border-b border-border/60 bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
-            Markdown редактор
-          </div>
-          <div className="flex-1 overflow-auto">
-            <Suspense fallback={<Skeleton className="h-72 w-full" />}>
-              <CodeMirrorEditor
-                value={currentBody}
-                onChange={(val) => setBody(val)}
-                basicSetup={{
-                  lineNumbers: true,
-                  highlightActiveLineGutter: true,
-                  foldGutter: false,
-                  drawSelection: true,
-                  syntaxHighlighting: true,
-                  bracketMatching: false,
-                  closeBrackets: false,
-                  autocompletion: false,
-                  searchKeymap: false,
-                }}
-                style={{ height: '100%', fontSize: '13px' }}
-                data-testid="tos-editor-codemirror"
-              />
-            </Suspense>
-          </div>
-        </div>
-
-        {/* Right: preview */}
-        <div className="flex flex-col rounded-lg border border-border/60 overflow-hidden">
-          <div className="border-b border-border/60 bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
-            Предпросмотр
-          </div>
-          <div
-            className="flex-1 overflow-auto p-4 prose prose-sm dark:prose-invert max-w-none"
-            data-testid="tos-editor-preview"
+        <div className="flex items-center gap-2">
+          {/* Preview button → opens modal */}
+          <Button
+            variant="outline"
+            onClick={() => setShowPreview(true)}
+            disabled={currentBody.trim() === ''}
+            data-testid="preview-tos-button"
           >
-            {currentBody.trim() ? (
-              <ReactMarkdown>{currentBody}</ReactMarkdown>
-            ) : (
-              <p className="text-muted-foreground italic">Начните вводить текст в редакторе…</p>
-            )}
-          </div>
+            <Eye className="mr-1.5 h-4 w-4" />
+            Предпросмотр
+          </Button>
+          <Button
+            onClick={() => setShowConfirm(true)}
+            disabled={publishMutation.isPending || currentBody.trim() === ''}
+            data-testid="publish-tos-button"
+          >
+            Опубликовать
+          </Button>
         </div>
       </div>
 
-      {/* Confirmation dialog */}
+      {/* Full-width CodeMirror editor */}
+      <div
+        className="flex flex-col rounded-lg border border-border/60 overflow-hidden"
+        data-testid="tos-editor-wrapper"
+      >
+        <div className="border-b border-border/60 bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+          Markdown редактор
+        </div>
+        <div className="overflow-hidden">
+          <Suspense fallback={<Skeleton className="h-[520px] w-full" />}>
+            <CodeMirrorEditor
+              value={currentBody}
+              onChange={(val) => setBody(val)}
+              basicSetup={{
+                lineNumbers: true,
+                highlightActiveLineGutter: true,
+                foldGutter: false,
+                drawSelection: true,
+                syntaxHighlighting: true,
+                bracketMatching: false,
+                closeBrackets: false,
+                autocompletion: false,
+                searchKeymap: false,
+              }}
+              style={{ height: '520px', fontSize: '13px' }}
+              data-testid="tos-editor-codemirror"
+            />
+          </Suspense>
+        </div>
+      </div>
+
+      {/* Preview modal — GFM-rendered document view */}
+      <Dialog open={showPreview} onOpenChange={setShowPreview}>
+        <DialogContent
+          className="max-w-4xl w-full"
+          style={{ maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
+          data-testid="preview-tos-dialog"
+        >
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="h-4 w-4" />
+              Предпросмотр ToS
+            </DialogTitle>
+            <DialogDescription>
+              Финальный вид документа Terms of Service для пользователей.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Scrollable document container */}
+          <div className="flex-1 overflow-y-auto min-h-0 py-2">
+            <div
+              className="mx-auto bg-white dark:bg-zinc-950 rounded-lg border border-border/40 shadow-sm"
+              style={{ maxWidth: '680px', padding: '56px 64px', minHeight: '900px' }}
+              data-testid="preview-tos-dialog-document"
+            >
+              {currentBody.trim() ? (
+                <div className="prose prose-sm dark:prose-invert max-w-none [&_table]:border-collapse [&_td]:border [&_td]:border-border/60 [&_td]:px-3 [&_td]:py-1.5 [&_th]:border [&_th]:border-border/60 [&_th]:px-3 [&_th]:py-1.5 [&_th]:bg-muted/40">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentBody}</ReactMarkdown>
+                </div>
+              ) : (
+                <p className="text-muted-foreground italic">Редактор пуст.</p>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter className="pt-2 border-t border-border/40">
+            <Button
+              variant="outline"
+              onClick={() => setShowPreview(false)}
+              data-testid="preview-tos-dialog-close"
+            >
+              Закрыть
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Publish confirmation dialog */}
       <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
         <DialogContent data-testid="publish-tos-confirm-dialog">
           <DialogHeader>

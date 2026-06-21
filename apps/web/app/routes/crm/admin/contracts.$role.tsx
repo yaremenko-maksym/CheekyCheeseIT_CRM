@@ -9,7 +9,6 @@ import remarkGfm from 'remark-gfm'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
   DialogContent,
@@ -19,7 +18,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { AlertTriangle, ChevronLeft } from 'lucide-react'
+import { AlertTriangle, ChevronLeft, Eye } from 'lucide-react'
 import { MarkdownDiff } from '@/components/admin/MarkdownDiff'
 import { VariablesPanel } from '@/components/contracts/VariablesPanel'
 import {
@@ -111,8 +110,10 @@ function renderInlineTokens(text: string, customMap: Map<string, string>): React
  *  - System variables → stay as {{key}} but highlighted with a coloured badge
  *  - Unknown tokens   → stay as {{key}} highlighted amber
  * Document-style layout — markdown rendered via ReactMarkdown with safe React nodes.
+ *
+ * Exported for unit testing.
  */
-function ContractPreview({
+export function ContractPreview({
   body,
   customVariables,
 }: {
@@ -256,8 +257,8 @@ function ContractEditorPage() {
 
   const [body, setBody] = useState<string | null>(null)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
   const [customVariables, setCustomVariables] = useState<CustomVariable[]>([])
-  const [rightTab, setRightTab] = useState<'variables' | 'preview'>('variables')
 
   // Inject CSS classes for token highlight once
   useEffect(() => {
@@ -333,10 +334,8 @@ function ContractEditorPage() {
     return (
       <div className="space-y-4">
         <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-2 gap-4">
-          <Skeleton className="h-96" />
-          <Skeleton className="h-96" />
-        </div>
+        <Skeleton className="h-[520px]" />
+        <Skeleton className="h-48" />
       </div>
     )
   }
@@ -367,6 +366,16 @@ function ContractEditorPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Preview button → opens modal */}
+          <Button
+            variant="outline"
+            onClick={() => setShowPreview(true)}
+            disabled={currentBody.trim() === ''}
+            data-testid="preview-template-button"
+          >
+            <Eye className="mr-1.5 h-4 w-4" />
+            Предпросмотр
+          </Button>
           <Button
             onClick={() => setShowConfirm(true)}
             disabled={publishMutation.isPending || currentBody.trim() === ''}
@@ -377,100 +386,112 @@ function ContractEditorPage() {
         </div>
       </div>
 
-      {/* Split-view editor */}
-      <div className="grid grid-cols-2 gap-4" style={{ minHeight: '520px' }}>
-        {/* Left: CodeMirror editor */}
-        <div className="flex flex-col rounded-lg border border-border/60 overflow-hidden">
-          <div className="border-b border-border/60 bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
-            Markdown редактор
-          </div>
-          <div className="flex-1 overflow-auto">
-            <Suspense fallback={<Skeleton className="h-72 w-full" />}>
-              <CodeMirrorEditor
-                value={currentBody}
-                onChange={(val) => setBody(val)}
-                editorViewRef={editorViewRef}
-                extensions={[tokenHighlightExt]}
-                basicSetup={{
-                  lineNumbers: true,
-                  highlightActiveLineGutter: true,
-                  highlightSpecialChars: true,
-                  foldGutter: false,
-                  drawSelection: true,
-                  dropCursor: true,
-                  allowMultipleSelections: false,
-                  indentOnInput: false,
-                  syntaxHighlighting: true,
-                  bracketMatching: false,
-                  closeBrackets: false,
-                  autocompletion: false,
-                  rectangularSelection: false,
-                  crosshairCursor: false,
-                  highlightActiveLine: true,
-                  highlightSelectionMatches: false,
-                  closeBracketsKeymap: false,
-                  searchKeymap: false,
-                }}
-                style={{ height: '100%', fontSize: '13px' }}
-                data-testid="contract-editor-codemirror"
-              />
-            </Suspense>
-          </div>
+      {/* Full-width CodeMirror editor */}
+      <div
+        className="flex flex-col rounded-lg border border-border/60 overflow-hidden"
+        data-testid="contract-editor-wrapper"
+      >
+        <div className="border-b border-border/60 bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+          Markdown редактор
         </div>
+        <div className="overflow-hidden">
+          <Suspense fallback={<Skeleton className="h-[520px] w-full" />}>
+            <CodeMirrorEditor
+              value={currentBody}
+              onChange={(val) => setBody(val)}
+              editorViewRef={editorViewRef}
+              extensions={[tokenHighlightExt]}
+              basicSetup={{
+                lineNumbers: true,
+                highlightActiveLineGutter: true,
+                highlightSpecialChars: true,
+                foldGutter: false,
+                drawSelection: true,
+                dropCursor: true,
+                allowMultipleSelections: false,
+                indentOnInput: false,
+                syntaxHighlighting: true,
+                bracketMatching: false,
+                closeBrackets: false,
+                autocompletion: false,
+                rectangularSelection: false,
+                crosshairCursor: false,
+                highlightActiveLine: true,
+                highlightSelectionMatches: false,
+                closeBracketsKeymap: false,
+                searchKeymap: false,
+              }}
+              style={{ height: '520px', fontSize: '13px' }}
+              data-testid="contract-editor-codemirror"
+            />
+          </Suspense>
+        </div>
+      </div>
 
-        {/* Right: Tabs — Variables | Preview */}
-        <div className="flex flex-col rounded-lg border border-border/60 overflow-hidden">
-          <Tabs
-            value={rightTab}
-            onValueChange={(v) => setRightTab(v as 'variables' | 'preview')}
-            className="flex flex-col flex-1 h-full"
-          >
-            <TabsList className="h-auto rounded-none border-b border-border/60 bg-muted/30 px-2 py-0 justify-start gap-0">
-              <TabsTrigger
-                value="variables"
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-3 py-2 text-xs font-medium"
-                data-testid="tab-variables"
-              >
-                Переменные
-              </TabsTrigger>
-              <TabsTrigger
-                value="preview"
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-3 py-2 text-xs font-medium"
-                data-testid="tab-preview"
-              >
-                Предпросмотр
-              </TabsTrigger>
-            </TabsList>
+      {/* Full-width Variables panel below the editor */}
+      <div
+        className="rounded-lg border border-border/60 overflow-hidden"
+        data-testid="variables-panel-wrapper"
+      >
+        <div className="border-b border-border/60 bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+          Переменные шаблона
+        </div>
+        <div className="p-3">
+          <VariablesPanel
+            body={currentBody}
+            customVariables={customVariables}
+            onCustomVariablesChange={setCustomVariables}
+            onInsertToken={handleInsertToken}
+          />
+        </div>
+      </div>
 
-            <TabsContent
-              value="variables"
-              className="flex-1 overflow-auto p-3 mt-0"
-              data-testid="variables-tab-content"
-            >
-              <VariablesPanel
-                body={currentBody}
-                customVariables={customVariables}
-                onCustomVariablesChange={setCustomVariables}
-                onInsertToken={handleInsertToken}
-              />
-            </TabsContent>
+      {/* Preview modal — document-style render of the final template */}
+      <Dialog open={showPreview} onOpenChange={setShowPreview}>
+        <DialogContent
+          className="max-w-4xl w-full"
+          style={{ maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
+          data-testid="preview-dialog"
+        >
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="h-4 w-4" />
+              Предпросмотр — {ROLE_LABELS[role]}
+            </DialogTitle>
+            <DialogDescription>
+              Кастомные переменные подставлены значениями по умолчанию. Системные токены подсвечены
+              — они заполнятся автоматически при подписании.
+            </DialogDescription>
+          </DialogHeader>
 
-            <TabsContent
-              value="preview"
-              className="flex-1 overflow-auto p-4 mt-0"
-              data-testid="contract-editor-preview"
+          {/* Scrollable document container */}
+          <div className="flex-1 overflow-y-auto min-h-0 py-2">
+            <div
+              className="mx-auto bg-white dark:bg-zinc-950 rounded-lg border border-border/40 shadow-sm"
+              style={{ maxWidth: '680px', padding: '56px 64px', minHeight: '900px' }}
+              data-testid="preview-dialog-document"
             >
               {currentBody.trim() ? (
                 <ContractPreview body={currentBody} customVariables={customVariables} />
               ) : (
-                <p className="text-muted-foreground italic">Начните вводить текст в редакторе…</p>
+                <p className="text-muted-foreground italic">Редактор пуст.</p>
               )}
-            </TabsContent>
-          </Tabs>
-        </div>
-      </div>
+            </div>
+          </div>
 
-      {/* Confirmation dialog */}
+          <DialogFooter className="pt-2 border-t border-border/40">
+            <Button
+              variant="outline"
+              onClick={() => setShowPreview(false)}
+              data-testid="preview-dialog-close"
+            >
+              Закрыть
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Publish confirmation dialog */}
       <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
         <DialogContent data-testid="publish-confirm-dialog">
           <DialogHeader>
