@@ -1,18 +1,36 @@
+import { useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Briefcase, Clock, Wallet } from 'lucide-react'
+import type { TransactionDto } from '@crm/shared'
+import { Card, CardContent } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import { KpiCard } from '@/routes/crm/finance/components/KpiCards'
+import { financeApi } from '@/routes/crm/finance/api'
 import { useDropSummary, DROP_SUMMARY_QUERY_KEY } from '@/hooks/use-drop-summary'
-import { useDropIncomes, useDropProjects } from '@/hooks/use-drop-incomes'
-import { DropBalanceCard } from './DropBalanceCard'
-import { DropActionRequiredBlock } from './DropActionRequiredBlock'
-import { DropProjectsList } from './DropProjectsList'
-import { DropQuickActions } from './DropQuickActions'
+import { useDropProjects } from '@/hooks/use-drop-incomes'
+import { InProgressPanel } from './InProgressPanel'
 
 /**
- * DropDashboard — переиспользуемый контент хаба дропа.
+ * DropDashboard — ролевой дашборд для роли DROP.
  *
- * Вынесен из routing.tsx чтобы его можно было встроить в dashboard.tsx
- * для роль-зависимого рендера: DROP → DropDashboard, остальные → общий дашборд.
- * Сам компонент роль не проверяет — родитель отвечает за guard.
+ * AC2: визуально и функционально как у SeniorDashboard: те же разделы (KPI,
+ * «Транзакции в работе» с приходами + выплатами + кнопками), но на данных дропа.
+ * Переиспользует InProgressPanel (общий с SeniorDashboard), КPI из KpiCard.
+ *
+ * KPI:
+ *   - Активные проекты   → useDropProjects() → count
+ *   - Мой баланс (доля)  → useDropSummary() → balance (USDT)
+ *   - Приходы в работе   → useDropSummary() → pendingIncomesCount
+ *
+ * «Транзакции в работе»:
+ *   - DROP_INCOME (PENDING/VALIDATED) — self-scoped через getTransactions()
+ *   - PAYOUT (PENDING_PAYMENT) — свои выплаты, кнопка «Оплатить» → PayoutDetailDialog
+ *
+ * ВАЖНО: НЕ вызывает useSeniorSummary (вернёт 403 для DROP). Использует только
+ * drop-специфичные эндпоинты.
+ *
+ * Сам компонент роль НЕ проверяет — родитель (crm/index.tsx) отвечает за guard.
  */
 
 const container = {
@@ -25,71 +43,138 @@ const card = {
   show: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] as const } },
 }
 
-function DropDashboardContent({ onRetrySummary }: { onRetrySummary: () => void }) {
-  const { data: summary, isLoading: summaryLoading, isError: summaryError } = useDropSummary()
-
-  const { data: validatedPage, isLoading: validatedLoading } = useDropIncomes({
-    status: 'validated',
-    limit: 10,
+function fmtUsd(value: number): string {
+  return value.toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   })
-
-  const { data: projects, isLoading: projectsLoading } = useDropProjects()
-
-  return (
-    <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
-      <div data-testid="drop-routing-hub" className="space-y-6">
-        {/* Grid layout: md:2-col */}
-        <motion.div
-          className="grid grid-cols-1 md:grid-cols-2 gap-4"
-          variants={container}
-          initial="hidden"
-          animate="show"
-        >
-          {/*
-           * Desktop order: BalanceCard (col 1) + ActionRequired (col 2)
-           * Mobile order: ActionRequired first (order-first on mobile), then Balance
-           * Implemented via CSS order utility: on mobile, ActionRequired gets order-first.
-           */}
-
-          {/* DropBalanceCard — desktop col 1, mobile col 2 (order-2) */}
-          <motion.div variants={card} className="order-2 md:order-1">
-            <DropBalanceCard
-              summary={summary}
-              isLoading={summaryLoading}
-              isError={summaryError}
-              onRetry={onRetrySummary}
-              variant="compact"
-            />
-          </motion.div>
-
-          {/* DropActionRequiredBlock — desktop col 2, mobile col 1 (order-1) */}
-          <motion.div variants={card} className="order-1 md:order-2">
-            <DropActionRequiredBlock
-              validatedIncomes={validatedPage?.items}
-              isLoading={validatedLoading}
-            />
-          </motion.div>
-
-          {/* DropProjectsList — full width */}
-          <motion.div variants={card} className="col-span-full order-3">
-            <DropProjectsList projects={projects} isLoading={projectsLoading} />
-          </motion.div>
-
-          {/* DropQuickActions — full width */}
-          <motion.div variants={card} className="col-span-full order-4">
-            <DropQuickActions />
-          </motion.div>
-        </motion.div>
-      </div>
-    </div>
-  )
 }
+
+// DROP_INCOME in progress: PENDING (awaiting validation) or VALIDATED (awaiting payment).
+const IN_PROGRESS_INCOME_STATUSES = new Set<TransactionDto['status']>(['PENDING', 'VALIDATED'])
 
 export function DropDashboard() {
   const qc = useQueryClient()
+
+  const { data: summary, isLoading: summaryLoading, isError: summaryError } = useDropSummary()
+  const { data: projects, isLoading: projectsLoading } = useDropProjects()
+
+  // Self-scoped transactions — backend restricts DROP to rows where
+  // senderId/receiverId === currentUser.id. Returns DROP_INCOME + PAYOUT rows.
+  // NOT in persist allow-list → never written to disk.
+  const { data: transactions = [] } = useQuery({
+    queryKey: ['transactions'],
+    queryFn: () => financeApi.getTransactions(),
+    staleTime: 30_000,
+  })
+
+  // DROP_INCOME rows in the pipeline. Newest first.
+  const incomeTxs = useMemo(
+    () =>
+      transactions
+        .filter((t) => t.type === 'DROP_INCOME' && IN_PROGRESS_INCOME_STATUSES.has(t.status))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [transactions],
+  )
+
+  // PAYOUT rows in PENDING_PAYMENT — drop needs to submit txHash via PayoutDetailDialog.
+  // Backend self-scopes: returns only rows where senderId === currentUser.id for DROP.
+  const payoutTxs = useMemo(
+    () =>
+      transactions
+        .filter((t) => t.type === 'PAYOUT' && t.status === 'PENDING_PAYMENT')
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [transactions],
+  )
+
+  // VALIDATED DROP_INCOME rows without a payoutRequestId — eligible for a new payout.
+  const validatedIncomes = useMemo(
+    () => incomeTxs.filter((t) => t.status === 'VALIDATED' && !t.payoutRequestId),
+    [incomeTxs],
+  )
+
+  function handleRefresh() {
+    void qc.invalidateQueries({ queryKey: ['transactions'] })
+    void qc.invalidateQueries({ queryKey: ['payout-requests'] })
+    void qc.invalidateQueries({ queryKey: DROP_SUMMARY_QUERY_KEY })
+  }
+
+  const isLoading = summaryLoading || projectsLoading
+  const isError = summaryError
+
   return (
-    <DropDashboardContent
-      onRetrySummary={() => void qc.invalidateQueries({ queryKey: DROP_SUMMARY_QUERY_KEY })}
-    />
+    <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+      <div data-testid="drop-dashboard-hub" className="space-y-6">
+        {isLoading ? (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="drop-kpi-loading">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-28 w-full rounded-lg" />
+            ))}
+          </div>
+        ) : isError || !summary ? (
+          <Card data-testid="drop-kpi-error">
+            <CardContent className="flex flex-col items-center justify-center gap-2 py-10">
+              <p className="text-sm text-destructive">Не удалось загрузить сводку</p>
+              <p className="text-xs text-muted-foreground">
+                Обновите страницу или попробуйте позже
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            {/* KPI grid — 3 cards, consistent with SeniorDashboard/HR/Accountant style. */}
+            <motion.div
+              className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+              variants={container}
+              initial="hidden"
+              animate="show"
+              data-testid="drop-kpi-grid"
+            >
+              <motion.div variants={card} data-testid="drop-kpi-active-projects">
+                <KpiCard
+                  title="Активные проекты"
+                  value={String(projects?.length ?? 0)}
+                  sub="Проекты, где вы дроп"
+                  icon={<Briefcase className="h-5 w-5" />}
+                  color="blue"
+                />
+              </motion.div>
+
+              <motion.div variants={card} data-testid="drop-kpi-balance">
+                <KpiCard
+                  title="Мой баланс (доля)"
+                  value={fmtUsd(summary.balance)}
+                  sub={`Ставка: ${summary.dropSharePercent}%`}
+                  icon={<Wallet className="h-5 w-5" />}
+                  color="green"
+                />
+              </motion.div>
+
+              <motion.div variants={card} data-testid="drop-kpi-pending">
+                <KpiCard
+                  title="Приходы в работе"
+                  value={String(summary.pendingIncomesCount)}
+                  sub="Ожидают валидации"
+                  icon={<Clock className="h-5 w-5" />}
+                  color="yellow"
+                />
+              </motion.div>
+            </motion.div>
+
+            {/* «Транзакции в работе» — DROP_INCOME (PENDING/VALIDATED) + PAYOUT
+                (PENDING_PAYMENT). Shared InProgressPanel (same as SeniorDashboard). */}
+            <InProgressPanel
+              incomeTxs={incomeTxs}
+              payoutTxs={payoutTxs}
+              validatedIncomes={validatedIncomes}
+              onRefresh={handleRefresh}
+              testIdPrefix="drop"
+            />
+          </>
+        )}
+      </div>
+    </div>
   )
 }
