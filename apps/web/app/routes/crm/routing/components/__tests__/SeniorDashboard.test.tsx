@@ -26,6 +26,7 @@ const useSeniorSummaryMock = vi.fn()
 const getTransactionsMock = vi.fn()
 const createDialogSpy = vi.fn()
 const payoutDialogSpy = vi.fn()
+const payoutDetailDialogSpy = vi.fn()
 
 vi.mock('@/hooks/use-senior-summary', async () => {
   const actual = await vi.importActual<typeof import('@/hooks/use-senior-summary')>(
@@ -55,6 +56,12 @@ vi.mock('@/routes/crm/finance/components/dialogs/PayoutDialog', () => ({
   PayoutDialog: ({ open, preselectedTxIds }: { open: boolean; preselectedTxIds?: string[] }) => {
     payoutDialogSpy(open, preselectedTxIds)
     return open ? <div data-testid="mock-payout-dialog" /> : null
+  },
+}))
+vi.mock('@/routes/crm/finance/components/dialogs/PayoutDetailDialog', () => ({
+  PayoutDetailDialog: ({ open, payoutId }: { open: boolean; payoutId: string | null }) => {
+    payoutDetailDialogSpy(open, payoutId)
+    return open ? <div data-testid="mock-payout-detail-dialog" /> : null
   },
 }))
 
@@ -143,6 +150,7 @@ beforeEach(() => {
   getTransactionsMock.mockReset()
   createDialogSpy.mockReset()
   payoutDialogSpy.mockReset()
+  payoutDetailDialogSpy.mockReset()
   getTransactionsMock.mockResolvedValue([])
 })
 
@@ -419,6 +427,52 @@ describe('SeniorDashboard', () => {
       await waitFor(() => {
         expect(payoutDialogSpy).toHaveBeenCalledWith(true, ['validated-1'])
       })
+    })
+
+    // AC1: PAYOUT PENDING_PAYMENT rows appear in the list with «Оплатить».
+    it('renders PAYOUT PENDING_PAYMENT row with «Оплатить» button', async () => {
+      getTransactionsMock.mockResolvedValue([
+        makeTx({
+          id: 'payout-1',
+          type: 'PAYOUT',
+          status: 'PENDING_PAYMENT',
+          payoutRequestId: 'pr-abc',
+          projectName: null,
+        }),
+      ])
+      renderDashboard()
+      expect(await screen.findByTestId('senior-in-progress-row-payout-1')).toBeInTheDocument()
+      expect(screen.getByTestId('senior-pay-payout-payout-1')).toBeInTheDocument()
+      expect(screen.getByTestId('senior-pay-payout-payout-1')).toHaveTextContent('Оплатить')
+    })
+
+    it('«Оплатить» on a PAYOUT row opens PayoutDetailDialog with correct payoutRequestId', async () => {
+      getTransactionsMock.mockResolvedValue([
+        makeTx({
+          id: 'payout-1',
+          type: 'PAYOUT',
+          status: 'PENDING_PAYMENT',
+          payoutRequestId: 'pr-abc',
+          projectName: null,
+        }),
+      ])
+      renderDashboard()
+      const payBtn = await screen.findByTestId('senior-pay-payout-payout-1')
+      fireEvent.click(payBtn)
+      expect(await screen.findByTestId('mock-payout-detail-dialog')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(payoutDetailDialogSpy).toHaveBeenCalledWith(true, 'pr-abc')
+      })
+    })
+
+    it('PAYOUT PAID row does NOT appear in the list', async () => {
+      getTransactionsMock.mockResolvedValue([
+        makeTx({ id: 'payout-paid', type: 'PAYOUT', status: 'PAID', payoutRequestId: 'pr-xyz' }),
+      ])
+      renderDashboard()
+      // Only PENDING_PAYMENT payouts appear; PAID is terminal.
+      expect(await screen.findByTestId('senior-in-progress-empty')).toBeInTheDocument()
+      expect(screen.queryByTestId('senior-in-progress-row-payout-paid')).not.toBeInTheDocument()
     })
   })
 })
