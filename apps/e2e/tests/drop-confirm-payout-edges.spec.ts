@@ -102,8 +102,8 @@ test.describe('Drop confirm-payout — edge cases (AC5)', () => {
       expect(status).toBe(400)
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
-      await page
-        .request.delete(`http://localhost:3001/api/projects/${projectId}`)
+      await page.request
+        .delete(`http://localhost:3001/api/projects/${projectId}`)
         .catch(() => undefined)
     }
   })
@@ -154,11 +154,7 @@ test.describe('Drop confirm-payout — edge cases (AC5)', () => {
       //    UUID that drifts when seed.ts changes.
       const seniorUser = await findUserByEmailViaApi(page, SEED_EMAILS.seniorA)
       expect(seniorUser).not.toBeNull()
-      const wrongRole = await confirmPayoutRawViaAPI(
-        page,
-        payoutTxId,
-        seniorUser!.id,
-      )
+      const wrongRole = await confirmPayoutRawViaAPI(page, payoutTxId, seniorUser!.id)
       expect(wrongRole.status).toBe(400)
 
       // After all three errors the PAYOUT must STILL be PENDING_PAYMENT

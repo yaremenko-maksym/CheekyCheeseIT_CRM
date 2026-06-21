@@ -8,7 +8,7 @@
  *
  * Flow:
  *   1. Create a drop via real API (`createDropViaAPI`).
- *   2. Open /crm/users → Добавить → DROP role → fill in the *same* email.
+ *   2. Open /users → Добавить → DROP role → fill in the *same* email.
  *   3. Submit → backend returns 409 → frontend shows tailored toast
  *      «Пользователь с таким email уже существует».
  *   4. Dialog must stay open (operator can fix the email).
@@ -47,8 +47,8 @@ test.describe('Drop create — duplicate email UI flow (AC3)', () => {
     let secondDropId: string | null = null
 
     try {
-      // Navigate to /crm/users and open the unified Add dialog.
-      await page.goto('/crm/users')
+      // Navigate to /users and open the unified Add dialog.
+      await page.goto('/users')
       await page.getByTestId('users-create-button').click()
 
       const dialog = page.getByTestId('user-dialog')
@@ -100,9 +100,7 @@ test.describe('Drop create — duplicate email UI flow (AC3)', () => {
           resp.status() < 300,
       )
       await dialog.getByTestId('user-dialog-submit').click()
-      const successBody = (await (await successResp).json()) as
-        | { user: { id: string } }
-        | undefined
+      const successBody = (await (await successResp).json()) as { user: { id: string } } | undefined
       if (successBody?.user?.id) secondDropId = successBody.user.id
 
       // Toast «Дроп создан» surfaces — also asserts that the dialog flow

@@ -143,7 +143,7 @@ test.describe('Senior-project distribution regression — real API (AC7)', () =>
     })
 
     try {
-      await page.goto(`/crm/projects/${projectId}`)
+      await page.goto(`/projects/${projectId}`)
 
       // Wait for the detail shell to mount — the Archive button (testid set
       // in $projectId.tsx) is visible to ADMIN on non-archived projects.

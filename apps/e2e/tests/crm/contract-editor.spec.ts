@@ -153,7 +153,7 @@ async function setupAdminViewingSenior(
 test.describe('A3-2: Contract editor tab', () => {
   test('AC1: ADMIN sees "Контракт" tab on employee profile', async ({ page }) => {
     await setupAdminViewingSenior(page, DRAFT_CONTRACT)
-    await page.goto(`/crm/profile/${TARGET_ID}?tab=contract`)
+    await page.goto(`/profile/${TARGET_ID}?tab=contract`)
 
     // Tab label
     await expect(page.getByRole('button', { name: 'Контракт' })).toBeVisible()
@@ -185,7 +185,7 @@ test.describe('A3-2: Contract editor tab', () => {
       }
     })
 
-    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    await page.goto(`/profile/${USERS.junior.id}`)
     // Wait for profile to load
     await expect(page.getByRole('button', { name: 'Обзор' })).toBeVisible()
     // No contract tab
@@ -196,7 +196,7 @@ test.describe('A3-2: Contract editor tab', () => {
     page,
   }) => {
     await setupAdminViewingSenior(page, DRAFT_CONTRACT)
-    await page.goto(`/crm/profile/${TARGET_ID}?tab=contract`)
+    await page.goto(`/profile/${TARGET_ID}?tab=contract`)
 
     await expect(page.getByTestId('contract-tab')).toBeVisible()
     await expect(page.getByTestId('contract-status-badge')).toHaveText('Черновик')
@@ -219,7 +219,7 @@ test.describe('A3-2: Contract editor tab', () => {
 
   test('AC3: Mark Ready transitions status badge to "Готов к подписанию"', async ({ page }) => {
     await setupAdminViewingSenior(page, DRAFT_CONTRACT)
-    await page.goto(`/crm/profile/${TARGET_ID}?tab=contract`)
+    await page.goto(`/profile/${TARGET_ID}?tab=contract`)
 
     await expect(page.getByTestId('contract-tab')).toBeVisible()
     await expect(page.getByTestId('contract-mark-ready-btn')).toBeVisible()
@@ -247,7 +247,7 @@ test.describe('A3-2: Contract editor tab', () => {
 
   test('AC4: READY_TO_SIGN editor is frozen (frozen banner visible)', async ({ page }) => {
     await setupAdminViewingSenior(page, READY_CONTRACT)
-    await page.goto(`/crm/profile/${TARGET_ID}?tab=contract`)
+    await page.goto(`/profile/${TARGET_ID}?tab=contract`)
 
     await expect(page.getByTestId('contract-tab')).toBeVisible()
     await expect(page.getByTestId('contract-status-badge')).toHaveText('Готов к подписанию')
@@ -266,7 +266,7 @@ test.describe('A3-2: Contract editor tab', () => {
       { message: 'No active contract template for role SENIOR' },
       { contractStatus: 404 },
     )
-    await page.goto(`/crm/profile/${TARGET_ID}?tab=contract`)
+    await page.goto(`/profile/${TARGET_ID}?tab=contract`)
 
     await expect(page.getByTestId('contract-tab-no-template')).toBeVisible()
     await expect(page.getByTestId('contract-tab-template-link')).toBeVisible()
@@ -275,7 +275,7 @@ test.describe('A3-2: Contract editor tab', () => {
 
   test('AC5: Revert from READY_TO_SIGN returns contract to DRAFT', async ({ page }) => {
     await setupAdminViewingSenior(page, READY_CONTRACT)
-    await page.goto(`/crm/profile/${TARGET_ID}?tab=contract`)
+    await page.goto(`/profile/${TARGET_ID}?tab=contract`)
 
     await expect(page.getByTestId('contract-tab')).toBeVisible()
     await expect(page.getByTestId('contract-status-badge')).toHaveText('Готов к подписанию')
@@ -309,7 +309,7 @@ test.describe('A3-2: Contract editor tab', () => {
 
   test('AC5: Reset to template restores body in DRAFT state', async ({ page }) => {
     await setupAdminViewingSenior(page, DRAFT_CONTRACT)
-    await page.goto(`/crm/profile/${TARGET_ID}?tab=contract`)
+    await page.goto(`/profile/${TARGET_ID}?tab=contract`)
 
     await expect(page.getByTestId('contract-tab')).toBeVisible()
     await expect(page.getByTestId('contract-status-badge')).toHaveText('Черновик')
@@ -356,7 +356,7 @@ test.describe('A3-2: Contract editor tab', () => {
     }
 
     await setupAdminViewingSenior(page, SIGNED_CONTRACT)
-    await page.goto(`/crm/profile/${TARGET_ID}?tab=contract`)
+    await page.goto(`/profile/${TARGET_ID}?tab=contract`)
 
     await expect(page.getByTestId('contract-tab')).toBeVisible()
     await expect(page.getByTestId('contract-status-badge')).toHaveText('Подписан')
@@ -392,7 +392,7 @@ test.describe('A3-2: Contract editor tab', () => {
 
   test('GAP3: dirty-guard dialog appears on tab switch with unsaved changes', async ({ page }) => {
     await setupAdminViewingSenior(page, DRAFT_CONTRACT)
-    await page.goto(`/crm/profile/${TARGET_ID}?tab=contract`)
+    await page.goto(`/profile/${TARGET_ID}?tab=contract`)
 
     await expect(page.getByTestId('contract-tab')).toBeVisible()
 
@@ -429,7 +429,7 @@ test.describe('A3-2: Contract editor tab', () => {
 
   test('AC6: PDF preview refresh button disabled while editor is dirty', async ({ page }) => {
     await setupAdminViewingSenior(page, DRAFT_CONTRACT)
-    await page.goto(`/crm/profile/${TARGET_ID}?tab=contract`)
+    await page.goto(`/profile/${TARGET_ID}?tab=contract`)
 
     await expect(page.getByTestId('contract-tab')).toBeVisible()
 

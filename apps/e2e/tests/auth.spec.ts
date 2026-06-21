@@ -1,13 +1,6 @@
 import { test, expect } from '@playwright/test'
 
-const PROTECTED_ROUTES = [
-  '/crm',
-  '/crm/team',
-  '/crm/projects',
-  '/crm/interviews',
-  '/crm/profile',
-  '/crm/users',
-]
+const PROTECTED_ROUTES = ['/', '/team', '/projects', '/interviews', '/profile', '/users']
 
 test.describe('Auth flow', () => {
   // ---------------------------------------------------------------------------
@@ -15,7 +8,7 @@ test.describe('Auth flow', () => {
   // ---------------------------------------------------------------------------
 
   test('login page renders correctly', async ({ page }) => {
-    await page.goto('/crm/login')
+    await page.goto('/login')
     // Brand title is the product contract — text assertion stays.
     await expect(page.getByText('CheekyCheeseIT CRM')).toBeVisible()
     await expect(page.getByTestId('login-google-button')).toBeVisible()
@@ -53,13 +46,13 @@ test.describe('Auth flow', () => {
       if (isConnectionRefused) return
       errors.push(text)
     })
-    await page.goto('/crm/login')
+    await page.goto('/login')
     await page.waitForTimeout(1000)
     expect(errors).toHaveLength(0)
   })
 
   test('Google login button has correct href', async ({ page }) => {
-    await page.goto('/crm/login')
+    await page.goto('/login')
     const link = page.getByTestId('login-google-button')
     const href = await link.getAttribute('href')
     // Should point to the API Google OAuth endpoint
@@ -67,17 +60,17 @@ test.describe('Auth flow', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Unauthenticated redirects — all protected routes bounce to /crm/login
+  // Unauthenticated redirects — all protected routes bounce to /login
   // ---------------------------------------------------------------------------
 
   for (const route of PROTECTED_ROUTES) {
-    test(`unauthenticated ${route} redirects to /crm/login`, async ({ page }) => {
+    test(`unauthenticated ${route} redirects to /login`, async ({ page }) => {
       // Stub /auth/me to return 401 so the app knows user is not logged in
       await page.route('http://localhost:3001/api/auth/me', (r) =>
         r.fulfill({ status: 401, body: '{"message":"Unauthorized"}' }),
       )
       await page.goto(route)
-      await expect(page).toHaveURL(/\/crm\/login/)
+      await expect(page).toHaveURL(/\/login/)
     })
   }
 
@@ -86,7 +79,7 @@ test.describe('Auth flow', () => {
   // ---------------------------------------------------------------------------
 
   test('?error=unauthorized shows error message', async ({ page }) => {
-    await page.goto('/crm/login?error=unauthorized')
+    await page.goto('/login?error=unauthorized')
     const banner = page.getByTestId('login-error-message')
     await expect(banner).toBeVisible()
     await expect(banner).toHaveAttribute('data-error-code', 'unauthorized')
@@ -95,7 +88,7 @@ test.describe('Auth flow', () => {
   })
 
   test('?error=google_error shows error message', async ({ page }) => {
-    await page.goto('/crm/login?error=google_error')
+    await page.goto('/login?error=google_error')
     const banner = page.getByTestId('login-error-message')
     await expect(banner).toBeVisible()
     await expect(banner).toHaveAttribute('data-error-code', 'google_error')
@@ -103,7 +96,7 @@ test.describe('Auth flow', () => {
   })
 
   test('?error=invalid_state shows error message', async ({ page }) => {
-    await page.goto('/crm/login?error=invalid_state')
+    await page.goto('/login?error=invalid_state')
     const banner = page.getByTestId('login-error-message')
     await expect(banner).toBeVisible()
     await expect(banner).toHaveAttribute('data-error-code', 'invalid_state')
@@ -115,7 +108,7 @@ test.describe('Auth flow', () => {
   // Already authenticated redirect
   // ---------------------------------------------------------------------------
 
-  test('authenticated user visiting /crm/login is redirected to /crm', async ({ page }) => {
+  test('authenticated user visiting /login is redirected to /', async ({ page }) => {
     // LoginPage uses AuthProvider skip=true so it never calls /auth/me.
     // The redirect only fires when the CRM layout's own AuthContext (without skip)
     // detects a valid user. We use dev-login to plant a real JWT cookie first.
@@ -137,9 +130,9 @@ test.describe('Auth flow', () => {
       res.status() !== 200 && res.status() !== 201,
       'dev-login unavailable in this environment',
     )
-    await page.goto('/crm/login')
+    await page.goto('/login')
     await page.waitForURL((url) => !url.pathname.endsWith('/login'), { timeout: 10000 })
-    expect(page.url()).not.toMatch(/\/crm\/login/)
+    expect(page.url()).not.toMatch(/\/login/)
   })
 
   // ---------------------------------------------------------------------------
@@ -150,7 +143,7 @@ test.describe('Auth flow', () => {
   // have Vite forward to NestJS on :3001. Without the proxy, `/api/auth/me`
   // lands on the SPA fallback (`index.html`) and the AuthContext sees a
   // 200 HTML response instead of JSON, which has historically caused the
-  // user to ping-pong between /crm/login and /crm.
+  // user to ping-pong between /login and /crm.
   //
   // We verify the proxy by hitting `/api/auth/me` through the SPA's own
   // origin and asserting that the response is JSON (or a 401 from the

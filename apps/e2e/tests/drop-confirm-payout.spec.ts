@@ -13,7 +13,7 @@
  *      `payPayoutRequest` — the manual confirmation flow lives BEFORE that
  *      step (DROP hasn't paid yet → ADMIN/ACCOUNTANT records that money
  *      already arrived off-platform).
- *   4. ADMIN opens /crm/finance, clicks «Подтвердить оплату» on the PAYOUT row.
+ *   4. ADMIN opens /finance, clicks «Подтвердить оплату» on the PAYOUT row.
  *   5. Picks Maksym in the recipient select → submits.
  *   6. Asserts:
  *      - DB (via REST): PAYOUT row flipped to PAID + validatedBy/At set.
@@ -119,7 +119,7 @@ test.describe('Drop confirm-payout — manual confirmation happy path (AC2)', ()
       // Use a permissive filter — the table renders many rows on a clean
       // DB, but the Phase 3 button has a unique `confirm-payout-button-<id>`
       // testid so we can target the PAYOUT row directly.
-      await page.goto('/crm/finance')
+      await page.goto('/finance')
       const confirmButton = page.getByTestId(`confirm-payout-button-${payoutTx.id}`)
       await expect(confirmButton).toBeVisible({ timeout: 15_000 })
       await confirmButton.click()
@@ -192,9 +192,7 @@ test.describe('Drop confirm-payout — manual confirmation happy path (AC2)', ()
       await expect(payoutRowAfter).toBeVisible()
       await expect(payoutRowAfter).toContainText(/Оплачено/i)
       // The Phase 3 button should be gone once the PAYOUT flipped to PAID.
-      await expect(
-        page.getByTestId(`confirm-payout-button-${payoutTx.id}`),
-      ).toHaveCount(0)
+      await expect(page.getByTestId(`confirm-payout-button-${payoutTx.id}`)).toHaveCount(0)
 
       // New confirmed row visible in the table.
       const confirmedRowUi = page.getByTestId(`tx-row-${confirmedRow.id}`)

@@ -2,14 +2,14 @@ import type { Page } from '@playwright/test'
 import { test, expect, USERS, mockAuthAs } from '../../fixtures'
 
 /**
- * E2E for /crm/users PR 2 refactor:
+ * E2E for /users PR 2 refactor:
  *  - Roomy carded row layout (variant C-v2): 64px | 3fr | 1.4fr grid
  *  - Hover reveals leading actions (opacity transition)
  *  - Whole row clickable to profile; edit/archive icons stopPropagation
  *  - Sort headers use ChevronUp/Down with active color
  *  - Sectioned dialogs (Identity / Contacts / Profession / Finance / Team)
  *  - Edit SENIOR symmetric: HR multiselect + Accountant editable
- *  - Edit JUNIOR shows read-only projects + link to /crm/projects
+ *  - Edit JUNIOR shows read-only projects + link to /projects
  *  - ArchiveConfirmDialog with role-specific warnings + name confirmation
  *  - Toggle «Показать архивных» with URL state
  *  - Archived rows: opacity-50 + badge + Restore button
@@ -18,14 +18,14 @@ import { test, expect, USERS, mockAuthAs } from '../../fixtures'
 test.describe('Users page refactor (PR 2)', () => {
   test.describe('Roomy C-v2 layout', () => {
     test('renders users-list with row test ids', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await expect(page.getByTestId('users-list')).toBeVisible()
       await expect(page.getByTestId(`user-row-${USERS.senior.id}`)).toBeVisible()
       await expect(page.getByTestId(`user-row-${USERS.junior.id}`)).toBeVisible()
     })
 
     test('row contains user info + relative date', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const row = page.getByTestId(`user-row-${USERS.senior.id}`)
       await expect(row).toBeVisible()
       // Display name visible
@@ -39,7 +39,7 @@ test.describe('Users page refactor (PR 2)', () => {
     test('tech column renders array as individual pills (fix for stringified array bug)', async ({
       asAdmin: page,
     }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const row = page.getByTestId(`user-row-${USERS.senior.id}`)
       // techStack = ['TypeScript', 'React'] should render as 2 pills, not a single
       // bracket-wrapped string. Each tech token visible.
@@ -48,7 +48,7 @@ test.describe('Users page refactor (PR 2)', () => {
     })
 
     test('self-row marked with "Вы" label', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const row = page.getByTestId(`user-row-${USERS.admin.id}`)
       await expect(row.getByText('Вы', { exact: true })).toBeVisible()
     })
@@ -56,13 +56,13 @@ test.describe('Users page refactor (PR 2)', () => {
     test('archive button is disabled on own row (cannot archive self)', async ({
       asAdmin: page,
     }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const button = page.getByTestId(`user-row-archive-${USERS.admin.id}`)
       await expect(button).toBeDisabled()
     })
 
     test('clicking row navigates to profile', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const row = page.getByTestId(`user-row-${USERS.senior.id}`)
       // The row uses an opacity transition (hover-reveal pattern): clicking
       // during the CSS transition can race the React onClick navigation
@@ -73,26 +73,26 @@ test.describe('Users page refactor (PR 2)', () => {
       await row.scrollIntoViewIfNeeded()
       await expect(row).toBeVisible()
       await Promise.all([
-        page.waitForURL(new RegExp(`/crm/profile/${USERS.senior.id}`)),
+        page.waitForURL(new RegExp(`/profile/${USERS.senior.id}`)),
         row.getByText('Senior Dev').click(),
       ])
     })
 
     test('clicking edit icon does NOT navigate (stopPropagation)', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const editBtn = page.getByTestId(`user-row-edit-${USERS.senior.id}`)
       await editBtn.click()
-      // Stays on /crm/users
-      await expect(page).toHaveURL(/\/crm\/users$|\/crm\/users\?/)
+      // Stays on /users
+      await expect(page).toHaveURL(/\/users$|\/users\?/)
       // Edit dialog opened
       await expect(page.getByTestId('user-dialog')).toBeVisible()
     })
 
     test('clicking archive icon does NOT navigate (stopPropagation)', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const archiveBtn = page.getByTestId(`user-row-archive-${USERS.senior.id}`)
       await archiveBtn.click()
-      await expect(page).toHaveURL(/\/crm\/users$|\/crm\/users\?/)
+      await expect(page).toHaveURL(/\/users$|\/users\?/)
       // Archive dialog opened
       await expect(page.getByTestId('archive-confirm-dialog')).toBeVisible()
     })
@@ -101,7 +101,7 @@ test.describe('Users page refactor (PR 2)', () => {
   // ut-18: sort relocated from column headers to filter bar.
   test.describe('Sort indicators', () => {
     test('direction toggle: asc → desc → asc', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const dir = page.getByTestId('users-sort-direction')
       // Default direction is asc.
       await expect(dir).toHaveAttribute('data-dir', 'asc')
@@ -114,7 +114,7 @@ test.describe('Users page refactor (PR 2)', () => {
     })
 
     test('changing sort key in dropdown updates selection', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const sortKey = page.getByTestId('users-sort-key')
       await sortKey.click()
       await page.getByRole('option', { name: 'По роли' }).click()
@@ -124,7 +124,7 @@ test.describe('Users page refactor (PR 2)', () => {
 
   test.describe('Sectioned dialogs', () => {
     test('Create dialog shows all 5 sections', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       const dialog = page.getByTestId('user-dialog')
       await expect(dialog).toBeVisible()
@@ -139,7 +139,7 @@ test.describe('Users page refactor (PR 2)', () => {
     test('Edit dialog email is editable and shows OAuth warning on change (ut-9)', async ({
       asAdmin: page,
     }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId(`user-row-edit-${USERS.senior.id}`).click()
       const emailInput = page.getByTestId('user-dialog-email')
       // Email input is rendered (ut-9 made it editable) and pre-filled with the
@@ -156,7 +156,7 @@ test.describe('Users page refactor (PR 2)', () => {
     test('Create SENIOR shows HR multiselect + Accountant chip (ut-16)', async ({
       asAdmin: page,
     }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       // Switch role to SENIOR
       await page.getByTestId('user-dialog-role-trigger').click()
@@ -170,7 +170,7 @@ test.describe('Users page refactor (PR 2)', () => {
     })
 
     test('Edit SENIOR keeps HR + Accountant editable (symmetric)', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId(`user-row-edit-${USERS.senior.id}`).click()
       await expect(page.getByTestId('user-dialog-hr-multiselect')).toBeVisible()
       const chip = page.getByTestId('user-dialog-accountant-chip')
@@ -179,7 +179,7 @@ test.describe('Users page refactor (PR 2)', () => {
     })
 
     test('Edit SENIOR PATCH includes hrIds + accountantId', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId(`user-row-edit-${USERS.senior.id}`).click()
       // Wait for HR multiselect to load (depends on team data)
       await expect(page.getByTestId('user-dialog-hr-multiselect')).toBeVisible()
@@ -195,7 +195,7 @@ test.describe('Users page refactor (PR 2)', () => {
     })
 
     test('Edit JUNIOR shows read-only projects + manage link', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId(`user-row-edit-${USERS.junior.id}`).click()
       // JUNIOR Edit shows read-only project list
       const projects = page.getByTestId('user-dialog-junior-projects')
@@ -204,7 +204,7 @@ test.describe('Users page refactor (PR 2)', () => {
       if (projectsCount > 0) {
         await expect(projects).toBeVisible()
       }
-      // Link to /crm/projects always present
+      // Link to /projects always present
       await expect(
         page.getByRole('dialog').getByRole('link', { name: /Управлять в Проектах/ }),
       ).toBeVisible()
@@ -215,7 +215,7 @@ test.describe('Users page refactor (PR 2)', () => {
     test('Archive JUNIOR shows warning with projectsCount + name confirmation', async ({
       asAdmin: page,
     }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId(`user-row-archive-${USERS.junior.id}`).click()
       const dlg = page.getByTestId('archive-confirm-dialog')
       await expect(dlg).toBeVisible()
@@ -230,7 +230,7 @@ test.describe('Users page refactor (PR 2)', () => {
     })
 
     test('Archive SENIOR warning mentions team + projects (pair)', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId(`user-row-archive-${USERS.senior.id}`).click()
       const warning = page.getByTestId('archive-warning-senior')
       await expect(warning).toBeVisible()
@@ -239,13 +239,13 @@ test.describe('Users page refactor (PR 2)', () => {
     })
 
     test('Archive HR warning mentions teams count', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId(`user-row-archive-${USERS.hr.id}`).click()
       await expect(page.getByTestId('archive-warning-hr')).toBeVisible()
     })
 
     test('Archive submit sends DELETE request', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId(`user-row-archive-${USERS.junior.id}`).click()
       await page.getByTestId('archive-confirm-name-input').fill('Junior Dev')
 
@@ -257,7 +257,7 @@ test.describe('Users page refactor (PR 2)', () => {
     })
 
     test('Enter in name input submits when name matches', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId(`user-row-archive-${USERS.junior.id}`).click()
       const input = page.getByTestId('archive-confirm-name-input')
       await input.fill('Junior Dev')
@@ -275,13 +275,13 @@ test.describe('Users page refactor (PR 2)', () => {
     // selectors stay valid; switching to Archive still pushes `?archived=true`
     // onto the URL.
     test('clicking Archive tab adds archived=true to URL', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId('users-toggle-archived').click()
       await expect(page).toHaveURL(/archived=true/)
     })
 
     test('switching away from Archive tab removes archived from URL', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users?archived=true')
+      await page.goto('/users?archived=true')
       const archiveTab = page.getByTestId('users-toggle-archived')
       await expect(archiveTab).toHaveAttribute('aria-selected', 'true')
       // Click «Активные» to switch tabs.
@@ -310,7 +310,7 @@ test.describe('Users page refactor (PR 2)', () => {
           body: JSON.stringify([archivedSenior]),
         }),
       )
-      await page.goto('/crm/users?archived=true')
+      await page.goto('/users?archived=true')
       const row = page.getByTestId(`user-row-${USERS.senior.id}`)
       await expect(row).toHaveAttribute('data-archived', 'true')
       await expect(row.getByText('В архиве')).toBeVisible()
@@ -330,7 +330,7 @@ test.describe('Users page refactor (PR 2)', () => {
           body: JSON.stringify([archivedJunior]),
         }),
       )
-      await page.goto('/crm/users?archived=true')
+      await page.goto('/users?archived=true')
       const unarchiveReq = page.waitForRequest(
         (req) =>
           req.url().includes(`/api/users/${USERS.junior.id}/unarchive`) && req.method() === 'POST',
@@ -351,7 +351,7 @@ test.describe('Users page refactor (PR 2)', () => {
     test('Modal Escape closes dialog and returns focus to trigger button', async ({
       asAdmin: page,
     }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const triggerBtn = page.getByTestId('users-create-button')
       // Use keyboard activation so Radix knows the trigger and can later
       // restore focus on close.
@@ -375,7 +375,7 @@ test.describe('Users page refactor (PR 2)', () => {
     test('Tab order traverses sections sequentially in create dialog', async ({
       asAdmin: page,
     }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
@@ -417,7 +417,7 @@ test.describe('Users page refactor (PR 2)', () => {
     test('TechAutocomplete: Escape closes dropdown but NOT the dialog; second Escape closes dialog', async ({
       asAdmin: page,
     }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       const dialog = page.getByRole('dialog')
       await expect(dialog).toBeVisible()
@@ -447,7 +447,7 @@ test.describe('Users page refactor (PR 2)', () => {
     test('TechAutocomplete: ArrowDown navigates and Enter commits a suggestion', async ({
       asAdmin: page,
     }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
@@ -475,7 +475,7 @@ test.describe('Users page refactor (PR 2)', () => {
     })
 
     test('TechAutocomplete: Tab commits the highlighted suggestion', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
@@ -496,7 +496,7 @@ test.describe('Users page refactor (PR 2)', () => {
     })
 
     test('PhoneInput shows inline error on blur for invalid number', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
@@ -522,7 +522,7 @@ test.describe('Users page refactor (PR 2)', () => {
     // (remove) or the searchable "Добавить HR" popover. We assert the
     // popover-driven add flow works end-to-end when ≥2 HRs are seeded.
     test('HR add popover opens and lists remaining HRs (ut-16)', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       // Switch role to SENIOR to surface HR multiselect.
       await page.getByTestId('user-dialog-role-trigger').click()
@@ -537,7 +537,7 @@ test.describe('Users page refactor (PR 2)', () => {
     })
 
     test('Sort direction button toggles via keyboard (ut-18)', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const dir = page.getByTestId('users-sort-direction')
 
       // Default direction is asc.
@@ -598,7 +598,7 @@ test.describe('Users page refactor (PR 2)', () => {
           }),
         }),
       )
-      await page.goto(`/crm/profile/${USERS.junior.id}`)
+      await page.goto(`/profile/${USERS.junior.id}`)
       // Open the actions menu
       await page.getByTestId('admin-actions-trigger').click()
       await expect(page.getByTestId('admin-actions-unarchive')).toBeVisible()

@@ -58,40 +58,38 @@ test.describe('Users management page', () => {
 
   test.describe('Access control', () => {
     test('ADMIN can access users page', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await expect(page.getByText(/пользователи/i).first()).toBeVisible()
       await expect(page.getByText(/доступ только для администратора/i)).not.toBeVisible()
     })
 
-    test('SENIOR accessing /crm/users gets redirected to /crm (route-guard)', async ({
+    test('SENIOR accessing /users gets redirected to /crm (route-guard)', async ({
       asSenior: page,
     }) => {
-      // PR #184 route-guard: /crm/users is ADMIN-only. resolveRoleHome('SENIOR')
-      // = '/crm'. Old in-page «Доступ только для администратора» panel
+      // PR #184 route-guard: /users is ADMIN-only. resolveRoleHome('SENIOR')
+      // = '/'. Old in-page «Доступ только для администратора» panel
       // is no longer rendered — guard redirects before the page mounts.
-      await page.goto('/crm/users')
-      await expect(page).toHaveURL(/\/crm\/?$/, { timeout: 8_000 })
-      await expect(page).not.toHaveURL(/\/crm\/users/)
+      await page.goto('/users')
+      await expect(page).toHaveURL(/\/?$/, { timeout: 8_000 })
+      await expect(page).not.toHaveURL(/\/users/)
     })
 
-    test('HR accessing /crm/users gets redirected to /crm (route-guard)', async ({
-      asHr: page,
-    }) => {
-      // PR #184 route-guard: /crm/users is ADMIN-only. resolveRoleHome('HR')
-      // = '/crm'. Guard redirects before the page mounts.
-      await page.goto('/crm/users')
-      await expect(page).toHaveURL(/\/crm\/?$/, { timeout: 8_000 })
-      await expect(page).not.toHaveURL(/\/crm\/users/)
+    test('HR accessing /users gets redirected to /crm (route-guard)', async ({ asHr: page }) => {
+      // PR #184 route-guard: /users is ADMIN-only. resolveRoleHome('HR')
+      // = '/'. Guard redirects before the page mounts.
+      await page.goto('/users')
+      await expect(page).toHaveURL(/\/?$/, { timeout: 8_000 })
+      await expect(page).not.toHaveURL(/\/users/)
     })
 
-    test('JUNIOR accessing /crm/users gets redirected to /crm/project (route-guard)', async ({
+    test('JUNIOR accessing /users gets redirected to /project (route-guard)', async ({
       asJunior: page,
     }) => {
-      // PR #184 route-guard: /crm/users is ADMIN-only. resolveRoleHome('JUNIOR')
-      // = '/crm/project'. Guard redirects before the page mounts.
-      await page.goto('/crm/users')
-      await expect(page).toHaveURL(/\/crm\/project/, { timeout: 8_000 })
-      await expect(page).not.toHaveURL(/\/crm\/users/)
+      // PR #184 route-guard: /users is ADMIN-only. resolveRoleHome('JUNIOR')
+      // = '/project'. Guard redirects before the page mounts.
+      await page.goto('/users')
+      await expect(page).toHaveURL(/\/project/, { timeout: 8_000 })
+      await expect(page).not.toHaveURL(/\/users/)
     })
   })
 
@@ -101,20 +99,20 @@ test.describe('Users management page', () => {
 
   test.describe('List rendering', () => {
     test('shows all users in the list', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       for (const u of ALL_USERS) {
         await expect(page.getByTestId(`user-row-${u.id}`)).toBeVisible()
       }
     })
 
     test('shows email in row meta', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const seniorRow = page.getByTestId(`user-row-${USERS.senior.id}`)
       await expect(seniorRow.getByText('senior@cheekycheese.dev')).toBeVisible()
     })
 
     test('shows role badge in row', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const adminRow = page.getByTestId(`user-row-${USERS.admin.id}`)
       await expect(adminRow.getByText('Администратор')).toBeVisible()
       const seniorRow = page.getByTestId(`user-row-${USERS.senior.id}`)
@@ -122,26 +120,26 @@ test.describe('Users management page', () => {
     })
 
     test('shows telegram handle inside row meta', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const seniorRow = page.getByTestId(`user-row-${USERS.senior.id}`)
       await expect(seniorRow.getByText('@seniordev')).toBeVisible()
     })
 
     test('marks current user with "Вы" label', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const adminRow = page.getByTestId(`user-row-${USERS.admin.id}`)
       await expect(adminRow.getByText('Вы', { exact: true })).toBeVisible()
     })
 
     test('shows "Добавить" button', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await expect(page.getByTestId('users-create-button')).toBeVisible()
     })
 
     test(`shows total count "${ALL_USERS.length} из ${ALL_USERS.length}" in header`, async ({
       asAdmin: page,
     }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await expect(page.getByText(new RegExp(`из ${ALL_USERS.length}`))).toBeVisible()
     })
   })
@@ -152,27 +150,27 @@ test.describe('Users management page', () => {
 
   test.describe('Search and filter', () => {
     test('search by name filters list', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByPlaceholder(/поиск по имени/i).fill('Senior')
       await expect(page.getByTestId(`user-row-${USERS.senior.id}`)).toBeVisible()
       await expect(page.getByTestId(`user-row-${USERS.junior.id}`)).toHaveCount(0)
     })
 
     test('search by email filters list', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByPlaceholder(/поиск по имени/i).fill('junior@')
       await expect(page.getByTestId(`user-row-${USERS.junior.id}`)).toBeVisible()
       await expect(page.getByTestId(`user-row-${USERS.senior.id}`)).toHaveCount(0)
     })
 
     test('search by telegram filters list', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByPlaceholder(/поиск по имени/i).fill('seniordev')
       await expect(page.getByTestId(`user-row-${USERS.senior.id}`)).toBeVisible()
     })
 
     test('filter by role shows only matching users', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       // Filter combobox shows "Все роли"
       await page.getByRole('combobox').filter({ hasText: 'Все роли' }).click()
       await page.getByRole('option', { name: 'Джун' }).click()
@@ -181,7 +179,7 @@ test.describe('Users management page', () => {
     })
 
     test('clear search shows all users again', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const search = page.getByPlaceholder(/поиск по имени/i)
       await search.fill('Senior')
       await search.clear()
@@ -190,7 +188,7 @@ test.describe('Users management page', () => {
     })
 
     test('no results shows reduced count', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByPlaceholder(/поиск по имени/i).fill('zzznomatch')
       await expect(page.getByText(/0 из/)).toBeVisible()
     })
@@ -202,14 +200,14 @@ test.describe('Users management page', () => {
 
   test.describe('Create user', () => {
     test('opens create dialog with correct title', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       await expect(page.getByTestId('user-dialog')).toBeVisible()
       await expect(page.getByRole('heading', { name: /новый пользователь/i })).toBeVisible()
     })
 
     test('submits POST with all required fields', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
 
       const postReq = page.waitForRequest(
         (req) => req.url().includes('/api/users') && req.method() === 'POST',
@@ -243,7 +241,7 @@ test.describe('Users management page', () => {
     })
 
     test('validation: invalid email shows error on blur', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       const emailInput = page.getByPlaceholder('user@cheekycheese.dev')
       await emailInput.fill('not-an-email')
@@ -252,7 +250,7 @@ test.describe('Users management page', () => {
     })
 
     test('validation: empty display name shows error on blur', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       const nameInput = page.getByTestId('user-dialog-name')
       await nameInput.focus()
@@ -261,7 +259,7 @@ test.describe('Users management page', () => {
     })
 
     test('validation: invalid telegram shows error on blur', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       // Use a value that actually fails the shared telegram regex
       // (`^@?[a-zA-Z0-9_]{5,32}$`). "notelegram" matches it (10 latin chars,
@@ -273,7 +271,7 @@ test.describe('Users management page', () => {
     })
 
     test('can select different role', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
 
       const postReq = page.waitForRequest(
         (req) => req.url().includes('/api/users') && req.method() === 'POST',
@@ -309,7 +307,7 @@ test.describe('Users management page', () => {
         if (req.url().includes('/api/users') && req.method() === 'POST') postCalled = true
       })
 
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       await expect(page.getByTestId('user-dialog')).toBeVisible()
       await page.getByTestId('user-dialog').getByRole('button', { name: 'Отмена' }).click()
@@ -324,7 +322,7 @@ test.describe('Users management page', () => {
 
   test.describe('Edit user', () => {
     test('opens edit dialog with user data pre-filled', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId(`user-row-edit-${USERS.senior.id}`).click()
 
       const dialog = page.getByTestId('user-dialog')
@@ -336,7 +334,7 @@ test.describe('Users management page', () => {
     })
 
     test('edit sends PATCH request with updated data', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId(`user-row-edit-${USERS.senior.id}`).click()
 
       const patchReq = page.waitForRequest(
@@ -360,7 +358,7 @@ test.describe('Users management page', () => {
         if (req.url().includes('/api/users/') && req.method() === 'PATCH') patchCalled = true
       })
 
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId(`user-row-edit-${USERS.senior.id}`).click()
       await page.getByTestId('user-dialog').getByRole('button', { name: 'Отмена' }).click()
       await expect(page.getByTestId('user-dialog')).not.toBeVisible()
@@ -370,7 +368,7 @@ test.describe('Users management page', () => {
     test('cannot archive self from list (archive button disabled for current user)', async ({
       asAdmin: page,
     }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const archiveBtn = page.getByTestId(`user-row-archive-${USERS.admin.id}`)
       await expect(archiveBtn).toBeVisible()
       await expect(archiveBtn).toBeDisabled()
@@ -383,7 +381,7 @@ test.describe('Users management page', () => {
 
   test.describe('Archive user', () => {
     test('opens archive confirm dialog with user name', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId(`user-row-archive-${USERS.senior.id}`).click()
 
       const dialog = page.getByTestId('archive-confirm-dialog')
@@ -394,7 +392,7 @@ test.describe('Users management page', () => {
     })
 
     test('confirm sends DELETE request after name confirmation', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId(`user-row-archive-${USERS.senior.id}`).click()
 
       const deleteReq = page.waitForRequest(
@@ -411,7 +409,7 @@ test.describe('Users management page', () => {
         if (req.url().includes('/api/users/') && req.method() === 'DELETE') deleteCalled = true
       })
 
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId(`user-row-archive-${USERS.senior.id}`).click()
       await page
         .getByTestId('archive-confirm-dialog')
@@ -430,7 +428,7 @@ test.describe('Users management page', () => {
 
   test.describe('Sorting', () => {
     test('clicking sort-direction toggles asc → desc', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const dir = page.getByTestId('users-sort-direction')
       await expect(dir).toBeVisible()
       // Default asc; click → desc
@@ -441,7 +439,7 @@ test.describe('Users management page', () => {
     })
 
     test('selecting "По дате добавления" sorts by date', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const sortKey = page.getByTestId('users-sort-key')
       await sortKey.click()
       await page.getByRole('option', { name: 'По дате добавления' }).click()
@@ -459,7 +457,7 @@ test.describe('Users management page', () => {
       await page.route(/\/api\/users(\?.*)?$/, (r) =>
         r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
       )
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await expect(page.getByText(/пользователи/i).first()).toBeVisible()
     })
 
@@ -479,7 +477,7 @@ test.describe('Users management page', () => {
         })
       })
 
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       await page.getByPlaceholder('user@cheekycheese.dev').fill('existing@cheekycheese.dev')
       await page.getByTestId('user-dialog-name').fill('Existing User')
@@ -496,13 +494,13 @@ test.describe('Users management page', () => {
     })
 
     test('telegram visible in row meta', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const seniorRow = page.getByTestId(`user-row-${USERS.senior.id}`)
       await expect(seniorRow.getByText('@seniordev')).toBeVisible()
     })
 
     test('email visible in row meta', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const seniorRow = page.getByTestId(`user-row-${USERS.senior.id}`)
       await expect(seniorRow.getByText('senior@cheekycheese.dev')).toBeVisible()
     })
@@ -514,7 +512,7 @@ test.describe('Users management page', () => {
 
   test.describe('Create SENIOR — team assignment', () => {
     test('ADMIN: POST includes hrIds array when HR is checked', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const body = await createSeniorViaDialog(page)
       expect(body.role).toBe('SENIOR')
       expect(Array.isArray(body.hrIds)).toBe(true)
@@ -524,20 +522,20 @@ test.describe('Users management page', () => {
     test('ADMIN: POST includes accountantId when accountant auto-selected', async ({
       asAdmin: page,
     }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const body = await createSeniorViaDialog(page)
       expect(body.accountantId).toBeTruthy()
       expect(typeof body.accountantId).toBe('string')
     })
 
     test('ADMIN: POST contains correct hrId from fixtures', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const body = await createSeniorViaDialog(page)
       expect(body.hrIds as string[]).toContain(USERS.hr.id)
     })
 
     test('ADMIN: POST contains correct accountantId from fixtures', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       const body = await createSeniorViaDialog(page)
       expect(body.accountantId).toBe(USERS.accountant.id)
     })
@@ -545,7 +543,7 @@ test.describe('Users management page', () => {
     test('ADMIN: Финансы and Команда sections visible for SENIOR role', async ({
       asAdmin: page,
     }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId('users-create-button').click()
 
       await page.getByTestId('user-dialog-role-trigger').click()
@@ -561,7 +559,7 @@ test.describe('Users management page', () => {
     test('ADMIN: HR chip pre-selected when only one HR exists (ut-16)', async ({
       asAdmin: page,
     }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       await page.getByTestId('user-dialog-role-trigger').click()
       await page.getByRole('option', { name: 'Синьор' }).click()
@@ -575,7 +573,7 @@ test.describe('Users management page', () => {
     })
 
     test('ADMIN: validation error when no HR selected (ut-16)', async ({ asAdmin: page }) => {
-      await page.goto('/crm/users')
+      await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       await page.getByPlaceholder('user@cheekycheese.dev').fill('newsenior2@cheekycheese.dev')
       await page.getByTestId('user-dialog-name').fill('Another Senior')
@@ -595,15 +593,13 @@ test.describe('Users management page', () => {
       await expect(page.getByText(/выберите хотя бы одного HR/i)).toBeVisible()
     })
 
-    test('HR: accessing /crm/users gets redirected to /crm (route-guard)', async ({
-      asHr: page,
-    }) => {
-      // PR #184 route-guard: /crm/users is ADMIN-only. HR is redirected to
-      // resolveRoleHome('HR') = '/crm'. The in-page «Доступ только
+    test('HR: accessing /users gets redirected to /crm (route-guard)', async ({ asHr: page }) => {
+      // PR #184 route-guard: /users is ADMIN-only. HR is redirected to
+      // resolveRoleHome('HR') = '/'. The in-page «Доступ только
       // для администратора» notice is no longer rendered — guard fires first.
-      await page.goto('/crm/users')
-      await expect(page).toHaveURL(/\/crm\/?$/, { timeout: 8_000 })
-      await expect(page).not.toHaveURL(/\/crm\/users/)
+      await page.goto('/users')
+      await expect(page).toHaveURL(/\/?$/, { timeout: 8_000 })
+      await expect(page).not.toHaveURL(/\/users/)
     })
   })
 })

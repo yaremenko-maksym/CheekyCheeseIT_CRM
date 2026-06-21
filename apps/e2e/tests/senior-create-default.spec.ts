@@ -20,7 +20,9 @@ const API = 'http://localhost:3001/api'
 const VALID_USDT_WALLET = '0x' + '0'.repeat(40)
 
 test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
-  test('default radio is «Создать свою команду» and CREATE_NEW HR chip is auto-selected', async ({ asAdmin: page }) => {
+  test('default radio is «Создать свою команду» and CREATE_NEW HR chip is auto-selected', async ({
+    asAdmin: page,
+  }) => {
     // Override teams so only the legacy senior team is present — guarantees
     // no JOIN_DROP_TEAM option is plausible by accident.
     await page.route(new RegExp(`${API}/teams(\\?.*)?$`), (r) =>
@@ -30,7 +32,7 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
         body: JSON.stringify([TEAMS[0]]),
       }),
     )
-    await page.goto('/crm/users')
+    await page.goto('/users')
     await page.getByTestId('users-create-button').click()
 
     await page.getByTestId('user-dialog-role-trigger').click()
@@ -45,7 +47,9 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
     await expect(dialog.getByTestId('user-dialog-drop-team-trigger')).toHaveCount(0)
   })
 
-  test('explicit click on «Создать свою команду» keeps the CREATE_NEW path active', async ({ asAdmin: page }) => {
+  test('explicit click on «Создать свою команду» keeps the CREATE_NEW path active', async ({
+    asAdmin: page,
+  }) => {
     await page.route(new RegExp(`${API}/teams(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
@@ -53,7 +57,7 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
         body: JSON.stringify([TEAMS[0]]),
       }),
     )
-    await page.goto('/crm/users')
+    await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
     await page.getByRole('option', { name: 'Синьор' }).click()
@@ -70,7 +74,9 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
     await expect(dialog.getByTestId('user-dialog-drop-team-trigger')).toHaveCount(0)
   })
 
-  test('SENIOR creation POST omits teamMode/dropTeamId — backend defaults to CREATE_NEW', async ({ asAdmin: page }) => {
+  test('SENIOR creation POST omits teamMode/dropTeamId — backend defaults to CREATE_NEW', async ({
+    asAdmin: page,
+  }) => {
     await page.route(new RegExp(`${API}/teams(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
@@ -78,7 +84,7 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
         body: JSON.stringify([TEAMS[0]]),
       }),
     )
-    await page.goto('/crm/users')
+    await page.goto('/users')
 
     const postReq = page.waitForRequest(
       (req) =>
@@ -110,7 +116,7 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
     })
     // hrIds / accountantId are populated from the auto-selected chip.
     expect(Array.isArray(body.hrIds)).toBe(true)
-    expect((body.hrIds as string[])).toContain(USERS.hr.id)
+    expect(body.hrIds as string[]).toContain(USERS.hr.id)
     expect(body.accountantId).toBe(USERS.accountant.id)
     // Legacy flow → teamMode field is intentionally omitted.
     expect(body.teamMode).toBeUndefined()

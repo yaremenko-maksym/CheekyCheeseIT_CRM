@@ -8,7 +8,7 @@
  *   2. ADMIN creates a drop-project routed through the DROP.
  *
  * UI flow:
- *   3. DROP logs in, navigates to /crm/profile.
+ *   3. DROP logs in, navigates to /profile.
  *   4. Switches to the «Финансы» tab and clicks the
  *      `data-testid="profile-drop-income-button"` («Добавить приход») CTA
  *      surfaced for own-DROP-profile only.
@@ -42,7 +42,7 @@ function uniqueSuffix(): string {
 
 const REAL_API = 'http://localhost:3001/api'
 
-test.describe('Drop income — UI flow on /crm/profile (AC6)', () => {
+test.describe('Drop income — UI flow on /profile (AC6)', () => {
   test('DROP submits DROP_INCOME via profile «Финансы» tab → row appears + backend records PENDING', async ({
     page,
   }) => {
@@ -66,9 +66,9 @@ test.describe('Drop income — UI flow on /crm/profile (AC6)', () => {
         name: `Drop AC6 Project ${suffix}`,
       })
 
-      // 3) Log in as DROP. Land on /crm/profile.
+      // 3) Log in as DROP. Land on /profile.
       await loginViaApi(page, dropEmail)
-      await page.goto('/crm/profile')
+      await page.goto('/profile')
 
       // 4) Switch to the «Финансы» tab. AnimatedTabs renders plain <button>
       // elements with aria-label = tab label.
@@ -90,9 +90,7 @@ test.describe('Drop income — UI flow on /crm/profile (AC6)', () => {
       //    surfaces a Select listing drop-projects only for the DROP user.
       //    The trigger has data-testid="create-transaction-project-trigger".
       await dialog.getByTestId('create-transaction-project-trigger').click()
-      await page
-        .getByRole('option', { name: new RegExp(`Drop AC6 Project ${suffix}`) })
-        .click()
+      await page.getByRole('option', { name: new RegExp(`Drop AC6 Project ${suffix}`) }).click()
 
       // Fill amount — AmountCurrencyInput renders type=number with placeholder
       // "0.00" by default (CreateTransactionDialog passes no override).
@@ -127,13 +125,10 @@ test.describe('Drop income — UI flow on /crm/profile (AC6)', () => {
       await expect(dialog).toBeHidden({ timeout: 8_000 })
 
       const txs = await listTransactionsByProjectViaAPI(page, projectId)
-      const dropIncomeRow = txs.find(
-        (t) => t.type === 'DROP_INCOME' && t.id === created.id,
-      )
+      const dropIncomeRow = txs.find((t) => t.type === 'DROP_INCOME' && t.id === created.id)
       expect(dropIncomeRow).toBeTruthy()
       expect(dropIncomeRow!.status).toBe('PENDING')
       expect(parseFloat(dropIncomeRow!.amount)).toBeCloseTo(incomeAmount, 2)
-
     } finally {
       // Cleanup as ADMIN (DROP can't archive itself).
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)

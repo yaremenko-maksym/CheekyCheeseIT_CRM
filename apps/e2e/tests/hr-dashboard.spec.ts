@@ -4,7 +4,7 @@
  * Coverage (AC3):
  *   A. dashboard.tsx dispatches HR → HRDashboard hub on the /crm root.
  *   B. Hub renders 3 KPI cards with the mocked values.
- *   C. CTA «Открыть канбан» navigates to /crm/interviews.
+ *   C. CTA «Открыть канбан» navigates to /interviews.
  *   D. Non-HR roles do NOT see the HR hub on the /crm root.
  *
  * Mock-based (LIFO route registration via fixtures). Default
@@ -13,14 +13,14 @@
 
 import { test, expect } from './fixtures'
 
-// CRM root, anchored — matches `/crm` (and `/crm/`) but NOT `/crm/team` etc.
-const CRM_ROOT = /\/crm\/?$/
+// CRM root, anchored — matches `/` (and `/`) but NOT `/team` etc.
+const CRM_ROOT = /\/?$/
 
 // ── A. Dispatch + hub render ─────────────────────────────────────────────────
 
 test.describe('A. HR dashboard dispatch', () => {
   test('HR on /crm sees the HR hub (not general dashboard)', async ({ asHr: page }) => {
-    await page.goto('/crm')
+    await page.goto('/')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
 
     const hub = page.getByTestId('hr-dashboard-hub')
@@ -38,7 +38,7 @@ test.describe('A. HR dashboard dispatch', () => {
 
 test.describe('B. HR hub — KPI cards', () => {
   test('renders all 3 KPI cards with mocked values', async ({ asHr: page }) => {
-    await page.goto('/crm')
+    await page.goto('/')
     await expect(page.getByTestId('hr-kpi-grid')).toBeVisible({ timeout: 8_000 })
 
     const open = page.getByTestId('kpi-open-interviews')
@@ -61,8 +61,8 @@ test.describe('B. HR hub — KPI cards', () => {
 // ── C. CTA navigation ────────────────────────────────────────────────────────
 
 test.describe('C. HR hub — interviews CTA', () => {
-  test('CTA «Открыть канбан» navigates to /crm/interviews', async ({ asHr: page }) => {
-    await page.goto('/crm')
+  test('CTA «Открыть канбан» navigates to /interviews', async ({ asHr: page }) => {
+    await page.goto('/')
 
     const cta = page.getByTestId('hr-interviews-cta')
     await expect(cta).toBeVisible({ timeout: 8_000 })
@@ -70,7 +70,7 @@ test.describe('C. HR hub — interviews CTA', () => {
 
     await cta.click()
 
-    await expect(page).toHaveURL(/\/crm\/interviews/, { timeout: 8_000 })
+    await expect(page).toHaveURL(/\/interviews/, { timeout: 8_000 })
   })
 })
 
@@ -78,13 +78,13 @@ test.describe('C. HR hub — interviews CTA', () => {
 
 test.describe('D. RBAC — HR hub is HR-only on /crm root', () => {
   test('ADMIN on /crm does NOT see the HR hub', async ({ asAdmin: page }) => {
-    await page.goto('/crm')
+    await page.goto('/')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
     await expect(page.getByTestId('hr-dashboard-hub')).toHaveCount(0)
   })
 
   test('SENIOR on /crm does NOT see the HR hub', async ({ asSenior: page }) => {
-    await page.goto('/crm')
+    await page.goto('/')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
     await expect(page.getByTestId('hr-dashboard-hub')).toHaveCount(0)
   })

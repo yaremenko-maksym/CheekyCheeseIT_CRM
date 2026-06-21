@@ -98,8 +98,8 @@ test('invoice detail shows real contract number from signed_contracts', async ({
 }) => {
   await mockInvoiceApis(page, INVOICE_WITH_CONTRACT)
 
-  // Navigate to invoices page — the CRM invoice list renders at /crm/finance
-  await page.goto('/crm/finance')
+  // Navigate to invoices page — the CRM invoice list renders at /finance
+  await page.goto('/finance')
 
   // The finance page should load without errors (mocked data)
   await expect(page).not.toHaveURL(/login/)
@@ -126,7 +126,7 @@ test('invoice without signed contract has null contractNumber in API response', 
 }) => {
   await mockInvoiceApis(page, INVOICE_NO_CONTRACT)
 
-  await page.goto('/crm/finance')
+  await page.goto('/finance')
   await expect(page).not.toHaveURL(/login/)
 
   // Verify the mocked response carries null contractNumber
@@ -157,7 +157,7 @@ test('invoice-pdf integration: null contractNumber is correctly bridged from ser
   await mockInvoiceApis(page, INVOICE_NO_CONTRACT)
 
   // Navigate and confirm the route loads without crashing
-  await page.goto('/crm/finance')
+  await page.goto('/finance')
   await expect(page).not.toHaveURL(/login/)
   await expect(page.locator('body')).not.toContainText('Something went wrong')
 })

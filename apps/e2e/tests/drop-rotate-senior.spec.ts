@@ -39,9 +39,11 @@ async function withFullTeamList(page: import('@playwright/test').Page) {
 }
 
 test.describe('Drop rotate-senior — AC4', () => {
-  test('ADMIN sees «Сменить синьора» button on a drop-team with active senior', async ({ asAdmin: page }) => {
+  test('ADMIN sees «Сменить синьора» button on a drop-team with active senior', async ({
+    asAdmin: page,
+  }) => {
     await withFullTeamList(page)
-    await page.goto(`/crm/team/${DROP_TEAM.id}`)
+    await page.goto(`/team/${DROP_TEAM.id}`)
 
     const rotateBtn = page.getByTestId('team-rotate-senior-button')
     await expect(rotateBtn).toBeVisible()
@@ -49,26 +51,32 @@ test.describe('Drop rotate-senior — AC4', () => {
     await expect(rotateBtn).toContainText(/Сменить синьора/i)
   })
 
-  test('Senior-team detail page does NOT render the rotate-senior button', async ({ asAdmin: page }) => {
+  test('Senior-team detail page does NOT render the rotate-senior button', async ({
+    asAdmin: page,
+  }) => {
     await withFullTeamList(page)
-    await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+    await page.goto(`/team/${TEAMS[0]!.id}`)
     // Add/Edit/Archive must still be present — only the rotate affordance
     // is gated behind `team.type === 'DROP'`.
     await expect(page.getByTestId('team-add-member-button')).toBeVisible()
     await expect(page.getByTestId('team-rotate-senior-button')).toHaveCount(0)
   })
 
-  test('Drop-team WITHOUT active senior labels the button «Назначить синьора»', async ({ asAdmin: page }) => {
+  test('Drop-team WITHOUT active senior labels the button «Назначить синьора»', async ({
+    asAdmin: page,
+  }) => {
     await withFullTeamList(page)
-    await page.goto(`/crm/team/${DROP_TEAM_VACANT.id}`)
+    await page.goto(`/team/${DROP_TEAM_VACANT.id}`)
     const rotateBtn = page.getByTestId('team-rotate-senior-button')
     await expect(rotateBtn).toBeVisible()
     await expect(rotateBtn).toContainText(/Назначить синьора/i)
   })
 
-  test('Clicking the rotate button opens a dialog with the vacant-senior dropdown', async ({ asAdmin: page }) => {
+  test('Clicking the rotate button opens a dialog with the vacant-senior dropdown', async ({
+    asAdmin: page,
+  }) => {
     await withFullTeamList(page)
-    await page.goto(`/crm/team/${DROP_TEAM.id}`)
+    await page.goto(`/team/${DROP_TEAM.id}`)
 
     await page.getByTestId('team-rotate-senior-button').click()
 
@@ -82,7 +90,7 @@ test.describe('Drop rotate-senior — AC4', () => {
 
   test('Submit button is disabled until a new senior is picked', async ({ asAdmin: page }) => {
     await withFullTeamList(page)
-    await page.goto(`/crm/team/${DROP_TEAM.id}`)
+    await page.goto(`/team/${DROP_TEAM.id}`)
 
     await page.getByTestId('team-rotate-senior-button').click()
     const dialog = page.getByTestId('team-rotate-senior-dialog')
@@ -92,9 +100,11 @@ test.describe('Drop rotate-senior — AC4', () => {
     await expect(submit).toBeDisabled()
   })
 
-  test('Senior-team URL — no rotate trigger even when ADMIN tries to access the dialog directly', async ({ asAdmin: page }) => {
+  test('Senior-team URL — no rotate trigger even when ADMIN tries to access the dialog directly', async ({
+    asAdmin: page,
+  }) => {
     await withFullTeamList(page)
-    await page.goto(`/crm/team/${TEAMS[0]!.id}`)
+    await page.goto(`/team/${TEAMS[0]!.id}`)
 
     // The dialog is gated behind the button — without the button it cannot
     // be opened from the UI. The test guards against ever rendering the

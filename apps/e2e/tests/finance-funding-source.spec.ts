@@ -92,7 +92,7 @@ async function mockAdminDialogRoutes(page: Page) {
 
 /** Navigate to finance page, open CreateTransactionDialog, return dialog locator. */
 async function openDialog(page: Page) {
-  await page.goto('/crm/finance')
+  await page.goto('/finance')
   await expect(page.getByTestId('finance-page')).toBeVisible()
   await page.getByTestId('finance-create-transaction-button').click()
   const dialog = page.getByTestId('create-transaction-dialog')
@@ -336,7 +336,7 @@ test.describe('RBAC — funding-source section absent for unsupported types', ()
       return jsonOk(r, [])
     })
 
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
     await expect(asSenior.getByTestId('finance-page')).toBeVisible()
     await asSenior.getByTestId('finance-create-transaction-button').click()
 

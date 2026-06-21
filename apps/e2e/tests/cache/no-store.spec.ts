@@ -53,7 +53,7 @@ test.describe('No-Store exclusion from api-cache — AC12', () => {
   test('AC12: PDF endpoint with no-store is NOT cached in api-cache', async ({ page }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     // Double goto: SW must be active controller to intercept the PDF fetch.
-    await navigateWithSWReady(page, '/crm')
+    await navigateWithSWReady(page, '/')
 
     // Verify api-cache is populated (proves SW is caching normal endpoints).
     await expect
@@ -156,7 +156,7 @@ test.describe('No-Store exclusion from api-cache — AC12', () => {
   // ── AC12: Verify employee-contracts PDF path also excluded ───────────────
   test('AC12: employee contracts PDF (no-store) not cached in api-cache', async ({ page }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
-    await navigateWithSWReady(page, '/crm')
+    await navigateWithSWReady(page, '/')
 
     // Wait for api-cache to be populated with regular entries.
     await expect
@@ -216,7 +216,7 @@ test.describe('No-Store exclusion from api-cache — AC12', () => {
     page,
   }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
-    await navigateWithSWReady(page, '/crm/team')
+    await navigateWithSWReady(page, '/team')
 
     // /api/users returns 200 without no-store — should be cached.
     await expect

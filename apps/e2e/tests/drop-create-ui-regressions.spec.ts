@@ -35,7 +35,7 @@ test.describe('Drop create — UI regressions', () => {
   test('slider for DROP role exposes aria-label «Доля дропа в процентах»', async ({
     asAdmin: page,
   }) => {
-    await page.goto('/crm/users')
+    await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
     await page.getByRole('option', { name: 'Дроп' }).click()
@@ -57,7 +57,7 @@ test.describe('Drop create — UI regressions', () => {
     asAdmin: page,
   }) => {
     // Sanity: the role-flip didn't accidentally re-label SENIOR sliders too.
-    await page.goto('/crm/users')
+    await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
     await page.getByRole('option', { name: 'Синьор' }).click()
@@ -85,9 +85,7 @@ test.describe('Drop create — UI regressions', () => {
       return r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(
-          Object.values(USERS).filter((u) => u.role !== 'HR'),
-        ),
+        body: JSON.stringify(Object.values(USERS).filter((u) => u.role !== 'HR')),
       })
     })
 
@@ -104,7 +102,7 @@ test.describe('Drop create — UI regressions', () => {
       })
     })
 
-    await page.goto('/crm/users')
+    await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
     await page.getByRole('option', { name: 'Дроп' }).click()
@@ -124,9 +122,9 @@ test.describe('Drop create — UI regressions', () => {
     // Inline validation surfaces the exact wording from UserDialog.tsx:473/532.
     // Use a broader locator (page, not dialog) — the error renders as a
     // <p class="text-destructive"> sibling to the chip picker.
-    await expect(
-      page.getByText('Выберите минимум одного HR', { exact: false }),
-    ).toBeVisible({ timeout: 5_000 })
+    await expect(page.getByText('Выберите минимум одного HR', { exact: false })).toBeVisible({
+      timeout: 5_000,
+    })
 
     // Dialog MUST stay open — the operator should fix the HR and retry.
     await expect(dialog).toBeVisible()
@@ -155,7 +153,7 @@ test.describe('Drop create — UI regressions', () => {
       }),
     )
 
-    await page.goto('/crm/users')
+    await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
     await page.getByRole('option', { name: 'Дроп' }).click()

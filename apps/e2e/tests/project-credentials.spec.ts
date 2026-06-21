@@ -3,7 +3,7 @@
  *
  * Покрывает AC7 (UI) и AC9 (playwright coverage):
  *
- * JUNIOR /crm/project (хаб):
+ * JUNIOR /project (хаб):
  *   - Карточка «Пароли проекта» видна (credentials-section)
  *   - Empty state: «Нет сохранённых паролей» — кнопка «Добавить» ОТСУТСТВУЕТ
  *   - Список: label/login видны, пароль маской (••••••••), edit/delete ОТСУТСТВУЮТ
@@ -12,7 +12,7 @@
  *   - Reveal error 403 → inline error, plaintext не виден
  *   - 403 на list → секция скрыта, не error-краш
  *
- * ADMIN /crm/projects/$projectId (overview):
+ * ADMIN /projects/$projectId (overview):
  *   - Секция видна, add/edit/delete доступны
  *   - Add-диалог: открывается, cancel закрывает
  *   - Submit add-диалога → диалог закрывается, список обновляется
@@ -37,7 +37,7 @@ const API = 'http://localhost:3001/api'
 // Project IDs — UUID-format (обязательно для Zod-схем)
 // ---------------------------------------------------------------------------
 
-/** Junior hub project ID — используется в /crm/project */
+/** Junior hub project ID — используется в /project */
 const JUNIOR_PROJECT_ID = 'a0000000-0000-4000-8000-000000000099'
 
 /** Admin project detail ID — из PROJECTS[0] в фикстурах */
@@ -298,7 +298,7 @@ async function setupAdminProjectDetail(page: import('@playwright/test').Page, cr
     },
   )
 
-  // Project detail GET — нужен для страницы /crm/projects/$projectId
+  // Project detail GET — нужен для страницы /projects/$projectId
   await page.route(new RegExp(`${API}/projects/${ADMIN_PROJECT_ID}$`), (r) => {
     if (r.request().method() === 'GET') {
       return r.fulfill({
@@ -321,7 +321,7 @@ test.describe('JUNIOR hub — credentials-section empty state', () => {
   }) => {
     await setupJuniorHub(page, [])
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
 
     const section = page.getByTestId('credentials-section')
     await expect(section).toBeVisible()
@@ -345,7 +345,7 @@ test.describe('JUNIOR hub — список credentials', () => {
   }) => {
     await setupJuniorHub(page, [CREDENTIAL_JUNIOR_1, CREDENTIAL_JUNIOR_2])
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
 
     const section = page.getByTestId('credentials-section')
     await expect(section).toBeVisible()
@@ -388,7 +388,7 @@ test.describe('JUNIOR hub — reveal flow', () => {
       body: { password: PLAINTEXT_PASSWORD },
     })
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
 
     const section = page.getByTestId('credentials-section')
     await expect(section).toBeVisible()
@@ -431,7 +431,7 @@ test.describe('JUNIOR hub — reveal flow', () => {
       body: { password: PLAINTEXT_PASSWORD },
     })
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     const section = page.getByTestId('credentials-section')
     const item = section.getByTestId(`credentials-item-${CRED_ID_1}`)
     await expect(item).toBeVisible()
@@ -454,7 +454,7 @@ test.describe('JUNIOR hub — reveal flow', () => {
       body: { message: 'Forbidden' },
     })
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     const section = page.getByTestId('credentials-section')
     const item = section.getByTestId(`credentials-item-${CRED_ID_1}`)
     await expect(item).toBeVisible()
@@ -491,7 +491,7 @@ test.describe('JUNIOR hub — 403 на credentials list', () => {
       return r.fallback()
     })
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
 
     // Хаб загрузился (не упал)
     await expect(page.getByTestId('junior-hub')).toBeVisible()
@@ -502,14 +502,14 @@ test.describe('JUNIOR hub — 403 на credentials list', () => {
 })
 
 // ---------------------------------------------------------------------------
-// ADMIN /crm/projects/$projectId — overview tab
+// ADMIN /projects/$projectId — overview tab
 // ---------------------------------------------------------------------------
 
 test.describe('ADMIN project detail — credentials section', () => {
   test('секция credentials видна на overview tab', async ({ asAdmin: page }) => {
     await setupAdminProjectDetail(page, [CREDENTIAL_ADMIN_1, CREDENTIAL_ADMIN_2])
 
-    await page.goto(`/crm/projects/${ADMIN_PROJECT_ID}`)
+    await page.goto(`/projects/${ADMIN_PROJECT_ID}`)
 
     const section = page.getByTestId('credentials-section')
     await expect(section).toBeVisible()
@@ -522,7 +522,7 @@ test.describe('ADMIN project detail — credentials section', () => {
   test('ADMIN видит кнопки добавить/редактировать/удалить', async ({ asAdmin: page }) => {
     await setupAdminProjectDetail(page, [CREDENTIAL_ADMIN_1])
 
-    await page.goto(`/crm/projects/${ADMIN_PROJECT_ID}`)
+    await page.goto(`/projects/${ADMIN_PROJECT_ID}`)
 
     const section = page.getByTestId('credentials-section')
     await expect(section).toBeVisible()
@@ -538,7 +538,7 @@ test.describe('ADMIN project detail — credentials section', () => {
   test('add-диалог открывается, форма содержит все поля', async ({ asAdmin: page }) => {
     await setupAdminProjectDetail(page, [])
 
-    await page.goto(`/crm/projects/${ADMIN_PROJECT_ID}`)
+    await page.goto(`/projects/${ADMIN_PROJECT_ID}`)
 
     const section = page.getByTestId('credentials-section')
     await expect(section).toBeVisible()
@@ -561,7 +561,7 @@ test.describe('ADMIN project detail — credentials section', () => {
   test('cancel в add-диалоге — диалог закрывается', async ({ asAdmin: page }) => {
     await setupAdminProjectDetail(page, [])
 
-    await page.goto(`/crm/projects/${ADMIN_PROJECT_ID}`)
+    await page.goto(`/projects/${ADMIN_PROJECT_ID}`)
 
     const section = page.getByTestId('credentials-section')
     await expect(section).toBeVisible()
@@ -613,7 +613,7 @@ test.describe('ADMIN project detail — credentials section', () => {
       return r.fallback()
     })
 
-    await page.goto(`/crm/projects/${ADMIN_PROJECT_ID}`)
+    await page.goto(`/projects/${ADMIN_PROJECT_ID}`)
 
     // Ждём загрузки секции (пустой список)
     const section = page.getByTestId('credentials-section')
@@ -666,7 +666,7 @@ test.describe('ADMIN project detail — credentials section', () => {
       },
     )
 
-    await page.goto(`/crm/projects/${ADMIN_PROJECT_ID}`)
+    await page.goto(`/projects/${ADMIN_PROJECT_ID}`)
 
     const section = page.getByTestId('credentials-section')
     await expect(section).toBeVisible()
@@ -694,7 +694,7 @@ test.describe('ADMIN project detail — credentials section', () => {
   test('ADMIN reveal — plaintext виден, повторный клик скрывает', async ({ asAdmin: page }) => {
     await setupAdminProjectDetail(page, [CREDENTIAL_ADMIN_1])
 
-    await page.goto(`/crm/projects/${ADMIN_PROJECT_ID}`)
+    await page.goto(`/projects/${ADMIN_PROJECT_ID}`)
 
     const section = page.getByTestId('credentials-section')
     await expect(section).toBeVisible()
@@ -724,8 +724,8 @@ test.describe('ADMIN project detail — credentials section', () => {
 test.describe('RBAC — SENIOR не имеет доступа к credentials', () => {
   test('SENIOR на project detail → credentials-section отсутствует', async ({ asSenior: page }) => {
     // SENIOR: canManageCredentials = false → компонент не рендерится вообще
-    // (страница /crm/projects/$id проверяет role === ADMIN || HR перед рендером секции)
-    await page.goto(`/crm/projects/${ADMIN_PROJECT_ID}`)
+    // (страница /projects/$id проверяет role === ADMIN || HR перед рендером секции)
+    await page.goto(`/projects/${ADMIN_PROJECT_ID}`)
 
     // Секция credentials не рендерится для SENIOR
     await expect(page.getByTestId('credentials-section')).toHaveCount(0)
@@ -743,7 +743,7 @@ test.describe('Round 3 — credential dialog form reset on reopen', () => {
   }) => {
     await setupAdminProjectDetail(page, [])
 
-    await page.goto(`/crm/projects/${ADMIN_PROJECT_ID}`)
+    await page.goto(`/projects/${ADMIN_PROJECT_ID}`)
 
     const section = page.getByTestId('credentials-section')
     await expect(section).toBeVisible()
@@ -823,7 +823,7 @@ test.describe('Round 3 — credential dialog form reset on reopen', () => {
       return r.fallback()
     })
 
-    await page.goto(`/crm/projects/${ADMIN_PROJECT_ID}`)
+    await page.goto(`/projects/${ADMIN_PROJECT_ID}`)
     const section = page.getByTestId('credentials-section')
     await expect(section).toBeVisible()
 

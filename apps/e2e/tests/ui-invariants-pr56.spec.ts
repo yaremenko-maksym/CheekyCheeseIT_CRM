@@ -32,7 +32,7 @@ test.describe('Flow E1 — Header avatar dropdown', () => {
   test('avatar trigger opens dropdown with «Профиль», «Выйти», role badge', async ({
     asSenior,
   }) => {
-    await asSenior.goto('/crm')
+    await asSenior.goto('/')
 
     const trigger = asSenior.getByTestId('header-user-menu-trigger')
     await expect(trigger).toBeVisible()
@@ -49,7 +49,7 @@ test.describe('Flow E1 — Header avatar dropdown', () => {
   })
 
   test('avatar trigger toggles closed when clicked again', async ({ asSenior }) => {
-    await asSenior.goto('/crm')
+    await asSenior.goto('/')
     const trigger = asSenior.getByTestId('header-user-menu-trigger')
     await trigger.click()
     await expect(asSenior.getByTestId('header-user-menu-profile')).toBeVisible()
@@ -115,7 +115,7 @@ test.describe('Flow E2 — Transaction receipt height capped at max-h-[520px]', 
       r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
     )
 
-    await asAdmin.goto('/crm/finance')
+    await asAdmin.goto('/finance')
     // Open dialog by clicking the row directly — row testid binds to tx.id so
     // a text/copy-change cannot break this trigger.
     await asAdmin.getByTestId(`tx-row-${tx.id}`).click()
@@ -180,7 +180,7 @@ test.describe('Flow E2 — Transaction receipt height capped at max-h-[520px]', 
     await asAdmin.route(new RegExp(`${API}/payout-requests(\\?.*)?$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
     )
-    await asAdmin.goto('/crm/finance')
+    await asAdmin.goto('/finance')
     await asAdmin.getByTestId(`tx-row-${tx.id}`).click()
     const dialog = asAdmin.getByRole('dialog')
     await expect(dialog).toBeVisible()
@@ -240,7 +240,7 @@ test.describe('Flow E3 — DocumentDetailDialog layout', () => {
       return r.fulfill({ status: 200, contentType: 'application/json', body })
     })
 
-    await asSenior.goto(`/crm/documents?openDocId=${docId}`)
+    await asSenior.goto(`/documents?openDocId=${docId}`)
     // Detail dialog auto-opens via the openDocId deep link once the list
     // query resolves and finds the matching row. The page renders multiple
     // SelectTriggers (which Radix exposes via role=combobox) ahead of the
@@ -345,7 +345,7 @@ test.describe('Flow E4 — InvoiceDetailDialog signature cards', () => {
       }),
     )
 
-    await asSenior.goto(`/crm/documents?category=INVOICE&openTx=${TX_ID}`)
+    await asSenior.goto(`/documents?category=INVOICE&openTx=${TX_ID}`)
     const dialog = asSenior.getByTestId('invoice-detail-dialog')
     await expect(dialog).toBeVisible()
 

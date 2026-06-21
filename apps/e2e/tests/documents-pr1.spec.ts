@@ -3,10 +3,10 @@
  *
  * E2E tests for Documents PR-1:
  *   1. Sidebar does not contain "Аудит-журнал" link after removal.
- *   2. Direct navigation to /crm/audit-log is redirected (route gone).
+ *   2. Direct navigation to /audit-log is redirected (route gone).
  *   3. User profile does not have an "audit" tab (tab removed).
  *   4. ToS acceptance marker is visible for ADMIN viewing any user profile.
- *   5. /crm/documents renders in list view by default (data-testid).
+ *   5. /documents renders in list view by default (data-testid).
  *   6. View toggle switches to grid and back to list.
  */
 
@@ -20,7 +20,7 @@ const API = 'http://localhost:3001/api'
 
 test.describe('Sidebar — audit-log link removed', () => {
   test('ADMIN sidebar has no "Аудит-журнал" link', async ({ asAdmin: page }) => {
-    await page.goto('/crm')
+    await page.goto('/')
     await page.waitForLoadState('networkidle')
     // Any link whose text is «Аудит-журнал» must not be in the DOM.
     await expect(page.getByRole('link', { name: /аудит-журнал/i })).toHaveCount(0)
@@ -29,27 +29,27 @@ test.describe('Sidebar — audit-log link removed', () => {
 
   test('ACCOUNTANT sidebar has no "Аудит-журнал" link', async ({ page }) => {
     await mockAuthAs(page, USERS.accountant)
-    await page.goto('/crm')
+    await page.goto('/')
     await page.waitForLoadState('networkidle')
     await expect(page.getByRole('link', { name: /аудит-журнал/i })).toHaveCount(0)
   })
 })
 
 // ---------------------------------------------------------------------------
-// 2. /crm/audit-log route is gone — redirected away
+// 2. /audit-log route is gone — redirected away
 // ---------------------------------------------------------------------------
 
-test.describe('/crm/audit-log route removed', () => {
-  test('ADMIN navigating to /crm/audit-log lands outside the audit-log route', async ({
+test.describe('/audit-log route removed', () => {
+  test('ADMIN navigating to /audit-log lands outside the audit-log route', async ({
     asAdmin: page,
   }) => {
-    await page.goto('/crm/audit-log')
+    await page.goto('/audit-log')
     await page.waitForLoadState('networkidle')
     // The route no longer exists — TanStack Router renders a 404 / redirect.
     // Either the URL changes OR the page renders without the former
     // audit-log-page testid. Both conditions prove the route is gone.
     const hasAuditPage = await page.getByTestId('audit-log-page').count()
-    const urlIsAuditLog = page.url().includes('/crm/audit-log')
+    const urlIsAuditLog = page.url().includes('/audit-log')
     // If URL didn't change AND old testid is present — route still exists → fail.
     expect(hasAuditPage === 0 || !urlIsAuditLog).toBe(true)
   })
@@ -63,7 +63,7 @@ test.describe('User profile — no audit tab', () => {
   test('ADMIN viewing junior profile has no "История" (audit) tab button', async ({
     asAdmin: page,
   }) => {
-    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     // AnimatedTabs renders tab buttons by label text, not by testid.
     // The audit tab was labelled "История" — it must not appear after removal.
@@ -139,7 +139,7 @@ test.describe('ToS acceptance marker on profile overview', () => {
       })
     })
 
-    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     // ToS card must be visible on the Overview tab (default).
@@ -210,7 +210,7 @@ test.describe('ToS acceptance marker on profile overview', () => {
       })
     })
 
-    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     await expect(page.getByTestId('tos-acceptance-card')).toBeVisible()
     await expect(page.getByTestId('tos-not-accepted-text')).toBeVisible()
@@ -218,10 +218,10 @@ test.describe('ToS acceptance marker on profile overview', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 5 & 6. /crm/documents — view toggle list/grid
+// 5 & 6. /documents — view toggle list/grid
 // ---------------------------------------------------------------------------
 
-test.describe('/crm/documents — view toggle', () => {
+test.describe('/documents — view toggle', () => {
   test('default view is list (data-testid documents-view-list is aria-pressed)', async ({
     asAdmin: page,
   }) => {
@@ -229,7 +229,7 @@ test.describe('/crm/documents — view toggle', () => {
     await page.addInitScript(() => {
       localStorage.removeItem('crm.documents.view')
     })
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
     await page.waitForLoadState('networkidle')
 
     // View toggle is present.
@@ -249,7 +249,7 @@ test.describe('/crm/documents — view toggle', () => {
     await page.addInitScript(() => {
       localStorage.removeItem('crm.documents.view')
     })
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
     await page.waitForLoadState('networkidle')
 
     await page.getByTestId('documents-view-grid').click()
@@ -264,14 +264,14 @@ test.describe('/crm/documents — view toggle', () => {
   })
 
   test('?view=list in URL sets list mode', async ({ asAdmin: page }) => {
-    await page.goto('/crm/documents?view=list')
+    await page.goto('/documents?view=list')
     await page.waitForLoadState('networkidle')
 
     await expect(page.getByTestId('documents-view-list')).toHaveAttribute('aria-pressed', 'true')
   })
 
   test('?view=grid in URL sets grid mode', async ({ asAdmin: page }) => {
-    await page.goto('/crm/documents?view=grid')
+    await page.goto('/documents?view=grid')
     await page.waitForLoadState('networkidle')
 
     await expect(page.getByTestId('documents-view-grid')).toHaveAttribute('aria-pressed', 'true')

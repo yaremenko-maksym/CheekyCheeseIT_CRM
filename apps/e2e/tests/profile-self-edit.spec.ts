@@ -1,7 +1,7 @@
 /**
  * profile-self-edit.spec.ts
  *
- * Tests for /crm/profile — self-editing via ProfileEditFields debounced autosave.
+ * Tests for /profile — self-editing via ProfileEditFields debounced autosave.
  *
  * Pattern: mock-based (no live server needed). The profile shell calls
  * GET /users/me → UserWithPermissionsResponse. PATCH /users/me fires after
@@ -25,7 +25,7 @@ test.describe('Profile self-edit — debounced autosave', () => {
     page,
   }) => {
     await mockAuthAs(page, USERS.junior)
-    await page.goto('/crm/profile')
+    await page.goto('/profile')
 
     // Wait for profile shell to render (heading from UserProfileHeader)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
@@ -50,7 +50,7 @@ test.describe('Profile self-edit — debounced autosave', () => {
 
   test('clearing Telegram sends null in PATCH payload', async ({ page }) => {
     await mockAuthAs(page, USERS.senior)
-    await page.goto('/crm/profile')
+    await page.goto('/profile')
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
 
     const patchReq = page.waitForRequest(
@@ -68,7 +68,7 @@ test.describe('Profile self-edit — debounced autosave', () => {
 
   test('editing display name fires PATCH with correct displayName', async ({ page }) => {
     await mockAuthAs(page, USERS.admin)
-    await page.goto('/crm/profile')
+    await page.goto('/profile')
     await expect(page.getByRole('heading', { name: 'Admin User' })).toBeVisible()
 
     const patchReq = page.waitForRequest(
@@ -98,7 +98,7 @@ test.describe('Profile self-edit — debounced autosave', () => {
       })
     })
 
-    await page.goto('/crm/profile')
+    await page.goto('/profile')
     await expect(page.getByRole('heading', { name: 'Admin User' })).toBeVisible()
 
     // Type something to trigger autosave — PhoneInput's input has placeholder
@@ -113,8 +113,8 @@ test.describe('Profile self-edit — debounced autosave', () => {
     await expect(page.getByRole('heading', { name: 'Admin User' })).toBeVisible()
   })
 
-  test('overview tab is visible by default on /crm/profile', async ({ asJunior: page }) => {
-    await page.goto('/crm/profile')
+  test('overview tab is visible by default on /profile', async ({ asJunior: page }) => {
+    await page.goto('/profile')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     // AnimatedTabs renders tabs as plain <button>. The overview tab content
     // ("Технологии" card or "Личные данные" card) is what's visible by default.
@@ -125,7 +125,7 @@ test.describe('Profile self-edit — debounced autosave', () => {
 
   test('requisites tab activates via ?tab=requisites search param', async ({ page }) => {
     await mockAuthAs(page, USERS.junior)
-    await page.goto('/crm/profile?tab=requisites')
+    await page.goto('/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     // Requisites tab content is rendered — RequisitesTab self-mode shows a Card
     // with CardTitle "Реквизиты для выплат" and a CardDescription containing
@@ -146,7 +146,7 @@ test.describe('Profile self-edit — debounced autosave', () => {
   // buildSelfView(USERS.junior) mirrors users-access.service.ts:84 exactly:
   //   tabs.push('overview', 'requisites')
   // 'documents' was removed in round-3 §6a — JUNIOR profile shell does NOT
-  // have a Documents tab (junior accesses /crm/documents via sidebar nav, not
+  // have a Documents tab (junior accesses /documents via sidebar nav, not
   // via a profile tab).
   // -------------------------------------------------------------------------
 
@@ -170,7 +170,7 @@ test.describe('Profile self-edit — debounced autosave', () => {
           }),
     )
 
-    await page.goto('/crm/profile')
+    await page.goto('/profile')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     // Allowed tabs — must be present (EXACTLY these two, per service.ts:84)
@@ -179,7 +179,7 @@ test.describe('Profile self-edit — debounced autosave', () => {
 
     // Forbidden tabs — must be completely absent from DOM (data-privacy allowlist).
     // Each covers a distinct privacy risk for the junior role:
-    //   Документы → profile tab absent (junior accesses docs via /crm/documents nav)
+    //   Документы → profile tab absent (junior accesses docs via /documents nav)
     //   Финансы   → surfaces payment history — privacy boundary for junior
     //   Проект    → surfaces project internals (rate, client, senior identity)
     //   Команда   → surfaces team membership and senior/drop identity
@@ -211,7 +211,7 @@ test.describe('Profile self-edit — debounced autosave', () => {
           }),
     )
 
-    await page.goto('/crm/profile')
+    await page.goto('/profile')
     await expect(page.getByRole('heading', { name: 'Admin User' })).toBeVisible()
 
     // Allowed tabs
@@ -244,7 +244,7 @@ test.describe('Profile self-edit — debounced autosave', () => {
           }),
     )
 
-    await page.goto('/crm/profile')
+    await page.goto('/profile')
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
 
     // Allowed tabs

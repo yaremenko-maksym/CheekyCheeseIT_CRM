@@ -8,7 +8,7 @@
  *   2. SENIOR posts a $1000 SENIOR_INCOME (PENDING).
  *   3. ACCOUNTANT validates → backend creates payout_request +
  *      placeholder PAYOUT row (PENDING_PAYMENT).
- *   4. ACCOUNTANT opens /crm/finance, clicks «Подтвердить оплату» on the
+ *   4. ACCOUNTANT opens /finance, clicks «Подтвердить оплату» on the
  *      PAYOUT row, picks Kostya, submits — Phase 3 manual confirmation
  *      records that money already arrived to Kostya off-platform.
  *   5. Asserts:
@@ -92,8 +92,8 @@ test.describe('Senior confirm-payout — manual confirmation (AC3)', () => {
       const payoutAmount = parseFloat(payoutTx.amount)
       expect(payoutAmount).toBeGreaterThan(0)
 
-      // ── UI: ACCOUNTANT opens /crm/finance and confirms ───────────────
-      await page.goto('/crm/finance')
+      // ── UI: ACCOUNTANT opens /finance and confirms ───────────────
+      await page.goto('/finance')
       const confirmButton = page.getByTestId(`confirm-payout-button-${payoutTx.id}`)
       await expect(confirmButton).toBeVisible({ timeout: 15_000 })
       await confirmButton.click()

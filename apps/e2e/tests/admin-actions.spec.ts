@@ -2,7 +2,7 @@
  * admin-actions.spec.ts
  *
  * Tests for the AdminActionsMenu — "Действия" dropdown visible when ADMIN
- * views any user profile at /crm/profile/:userId.
+ * views any user profile at /profile/:userId.
  *
  * The fixture mock returns buildAdminViewingUser(target) for GET /users/:id,
  * which includes the full actions array. PATCH /users/:id/role is intercepted
@@ -21,13 +21,13 @@ test.describe('Admin actions on user profile', () => {
   // -------------------------------------------------------------------------
 
   test('ADMIN viewing junior — "Действия" button is visible', async ({ asAdmin: page }) => {
-    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     await expect(page.getByRole('button', { name: /Действия/ })).toBeVisible()
   })
 
   test('Действия dropdown lists all admin action items', async ({ asAdmin: page }) => {
-    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     await page.getByRole('button', { name: /Действия/ }).click()
 
@@ -47,7 +47,7 @@ test.describe('Admin actions on user profile', () => {
   test('opening "Изменить роль" shows ChangeRoleDialog with current role selected', async ({
     asAdmin: page,
   }) => {
-    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     await page.getByRole('button', { name: /Действия/ }).click()
     await page.getByRole('menuitem', { name: 'Изменить роль' }).click()
@@ -84,7 +84,7 @@ test.describe('Admin actions on user profile', () => {
       }
     })
 
-    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     await page.getByRole('button', { name: /Действия/ }).click()
     await page.getByRole('menuitem', { name: 'Изменить роль' }).click()
@@ -106,7 +106,7 @@ test.describe('Admin actions on user profile', () => {
       if (req.url().includes('/role') && req.method() === 'PATCH') patched = true
     })
 
-    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     await page.getByRole('button', { name: /Действия/ }).click()
     await page.getByRole('menuitem', { name: 'Изменить роль' }).click()
@@ -149,7 +149,7 @@ test.describe('Admin actions on user profile', () => {
       return r.fulfill({ status: 204, body: '' })
     })
 
-    await page.goto(`/crm/profile/${USERS.senior.id}`)
+    await page.goto(`/profile/${USERS.senior.id}`)
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
     await expect(page.getByRole('button', { name: /Действия/ })).toHaveCount(0)
   })

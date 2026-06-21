@@ -189,7 +189,7 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     })
     await mockTransactions(asSenior, [pendingPaymentIncome])
 
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
     await expect(asSenior.getByTestId('tx-status-badge-pending_payment').first()).toBeVisible()
     // No inline button on the SENIOR_INCOME row — both quick-payout (old) and
     // pay-payout pills are gone for this row type.
@@ -212,7 +212,7 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     const payoutRow = makePayoutRow()
     await mockTransactions(asSenior, [incomeTx, payoutRow])
 
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
 
     const inlinePay = asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`)
     await expect(inlinePay).toBeVisible()
@@ -224,7 +224,7 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     const pendingTx = makeSeniorIncome({ status: 'PENDING', validatedBy: null, validatedAt: null })
     await mockTransactions(asSenior, [pendingTx])
 
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
     await expect(asSenior.getByTestId('tx-status-badge-pending').first()).toBeVisible()
     // SENIOR_INCOME row should not carry any pay-out pill while PENDING.
     await expect(asSenior.getByTestId(`row-pay-payout-${pendingTx.id}`)).not.toBeVisible()
@@ -239,7 +239,7 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     const validatedTx = makeSeniorIncome()
     await mockTransactions(asSenior, [validatedTx])
 
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
     await expect(asSenior.getByTestId('header-payout-button')).not.toBeVisible()
     // Defensive: the testid would still be the canonical anchor — but as a
     // sanity check, no Wallet-pill row-level pay-payout button either.
@@ -256,7 +256,7 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     const payoutRow = makePayoutRow()
     await mockTransactions(asSenior, [incomeTx, payoutRow])
 
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
 
     const inlinePay = asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`)
     await expect(inlinePay).toBeVisible()
@@ -293,7 +293,7 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     })
     await mockTransactions(asSenior, [rejected])
 
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
     await expect(asSenior.getByTestId('tx-status-badge-rejected').first()).toBeVisible()
     // Rejected rows must not surface any pay-related button.
     await expect(asSenior.getByTestId(`row-pay-payout-${rejected.id}`)).not.toBeVisible()
@@ -311,7 +311,7 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
     const payoutRow = makePayoutRow()
     await mockTransactions(page, [incomeTx, payoutRow])
 
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
     await expect(page.getByTestId(`row-pay-payout-${payoutRow.id}`)).not.toBeVisible()
     // Header batch pay-out button is gone — anchor by testid, not text.
     await expect(page.getByTestId('header-payout-button')).not.toBeVisible()
@@ -351,7 +351,7 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
       downloadTriggered = true
     })
 
-    await asAdmin.goto('/crm/finance')
+    await asAdmin.goto('/finance')
 
     // Click the row to open the detail dialog — bind to tx.id testid so a
     // type-label copy change cannot break the trigger.
@@ -385,7 +385,7 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
       downloadTriggered = true
     })
 
-    await asAdmin.goto('/crm/finance')
+    await asAdmin.goto('/finance')
     await asAdmin.getByTestId(`tx-row-${txWithPdfReceipt.id}`).click()
     const dialog = asAdmin.getByRole('dialog')
     await expect(dialog).toBeVisible()
@@ -436,7 +436,7 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
       downloadTriggered = true
     })
 
-    await asAdmin.goto('/crm/finance')
+    await asAdmin.goto('/finance')
     await asAdmin.getByTestId(`tx-row-${txWithUploadedReceipt.id}`).click()
     const dialog = asAdmin.getByRole('dialog')
     await expect(dialog).toBeVisible()

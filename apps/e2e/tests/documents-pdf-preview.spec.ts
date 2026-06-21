@@ -144,7 +144,7 @@ test.describe('AC1: PDF inline preview в диалоге документов', 
       })
     })
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
     await page.waitForLoadState('networkidle')
 
     // Открываем карточку документа — кликаем по preview area или имени
@@ -205,7 +205,7 @@ test.describe('AC2: кнопка «Скачать» использует blob �
       })
     })
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
     await page.waitForLoadState('networkidle')
 
     // Открываем диалог
@@ -303,7 +303,7 @@ test.describe('AC3: виртуальный контракт — PDF превью
       return route.fulfill({ status: 200, contentType: 'application/json', body: 'null' })
     })
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
     await page.waitForLoadState('networkidle')
 
     // Кликаем по карточке контракта

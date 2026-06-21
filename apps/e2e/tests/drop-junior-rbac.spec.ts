@@ -2,7 +2,7 @@
  * drop-junior-rbac.spec.ts — task-expand-drop-e2e-coverage (AC6).
  *
  * Verifies that a JUNIOR cannot view a drop-team via the direct URL
- * `/crm/team/<drop-team-id>` — the backend returns 403 / 404 / empty
+ * `/team/<drop-team-id>` — the backend returns 403 / 404 / empty
  * (depending on how the controller scopes it) and the UI either renders
  * an empty state or redirects to a non-team page.
  *
@@ -27,7 +27,7 @@ function uniqueSuffix(): string {
 }
 
 test.describe('Drop-team direct URL — JUNIOR RBAC (AC6)', () => {
-  test('JUNIOR hitting /crm/team/<drop-team-id> directly sees no drop-team contents', async ({
+  test('JUNIOR hitting /team/<drop-team-id> directly sees no drop-team contents', async ({
     page,
   }) => {
     const suffix = uniqueSuffix()
@@ -46,11 +46,11 @@ test.describe('Drop-team direct URL — JUNIOR RBAC (AC6)', () => {
       await loginViaApi(page, SEED_EMAILS.juniorA)
 
       // Step 3: hit the direct URL.
-      await page.goto(`/crm/team/${teamId}`)
+      await page.goto(`/team/${teamId}`)
 
       // The teams.controller filters by RBAC. A JUNIOR can only see their
       // own team(s) — the drop-team is *not* theirs. Possible UI outcomes:
-      //   (a) The route guard redirects them away from /crm/team.
+      //   (a) The route guard redirects them away from /team.
       //   (b) The page renders with an «empty» / «not found» state.
       //   (c) The API returns 404 and the page surfaces an error toast.
       //

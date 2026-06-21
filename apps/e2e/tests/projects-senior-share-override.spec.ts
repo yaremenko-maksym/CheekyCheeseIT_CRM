@@ -28,7 +28,7 @@
  *   K) Legacy tx без snapshot → "approx" badge в PayoutDialog.
  *   L) Backend RBAC negative path: HR не отправляет override field.
  *   N) Финансы по проекту card renders ProjectShareInfo.
- *   O) HR не видит табу «Финансы» в /crm/projects/:id (новый round-2 scenario).
+ *   O) HR не видит табу «Финансы» в /projects/:id (новый round-2 scenario).
  *   P) HR не видит info-row «Доля синьора» на табе «Обзор» (новый round-2 scenario).
  *   Q) ADMIN/SENIOR всё ещё видят табу «Финансы» + info-row (regression check).
  *
@@ -84,7 +84,7 @@ test.describe('per-project SENIOR share override', () => {
     test('saves new override → badge appears after reload', async ({ asAdmin: page }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       await expect(page.getByTestId('project-senior-share')).toBeVisible()
       await expect(page.getByTestId('project-senior-share')).toContainText('26%')
       await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
@@ -121,7 +121,7 @@ test.describe('per-project SENIOR share override', () => {
     }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
 
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       // HR не видит info-row «Доля синьора» в Обзоре (round-2 scope).
       await expect(page.getByTestId('project-senior-share')).toHaveCount(0)
 
@@ -150,7 +150,7 @@ test.describe('per-project SENIOR share override', () => {
       await mockAuthAs(page, USERS.accountant)
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       await page.getByTestId('project-edit-button').click()
 
       // Слайдер виден всегда, без toggle.
@@ -213,7 +213,7 @@ test.describe('per-project SENIOR share override', () => {
         }),
       )
 
-      await page.goto('/crm/finance')
+      await page.goto('/finance')
       const row = page.getByTestId(`tx-row-senior-share-${incomeTx.id}`)
       await expect(row).toBeVisible()
       await expect(row).toContainText('Доля: 30%')
@@ -240,7 +240,7 @@ test.describe('per-project SENIOR share override', () => {
     test('ADMIN saves override = 0 → badge shows "0%" + Override', async ({ asAdmin: page }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       await page.getByTestId('project-edit-button').click()
       const input = page.getByTestId('project-edit-senior-share-override')
       await input.fill('0')
@@ -262,7 +262,7 @@ test.describe('per-project SENIOR share override', () => {
     }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       await page.getByTestId('project-edit-button').click()
       const input = page.getByTestId('project-edit-senior-share-override')
       await input.fill('100')
@@ -285,7 +285,7 @@ test.describe('per-project SENIOR share override', () => {
     test('value > 100 → clamped to 100, PATCH carries 100', async ({ asAdmin: page }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       await page.getByTestId('project-edit-button').click()
       const input = page.getByTestId('project-edit-senior-share-override')
 
@@ -304,7 +304,7 @@ test.describe('per-project SENIOR share override', () => {
     test('negative value → clamped to 0', async ({ asAdmin: page }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       await page.getByTestId('project-edit-button').click()
       const input = page.getByTestId('project-edit-senior-share-override')
 
@@ -362,7 +362,7 @@ test.describe('per-project SENIOR share override', () => {
         })
       })
 
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       // Sanity — badge изначально виден (override = 30).
       await expect(page.getByTestId('project-senior-share-override-badge')).toBeVisible()
 
@@ -398,7 +398,7 @@ test.describe('per-project SENIOR share override', () => {
       // Project starts with default — no badge.
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
       await expect(page.getByTestId('project-senior-share-override-badge')).toBeHidden()
 
@@ -417,18 +417,18 @@ test.describe('per-project SENIOR share override', () => {
   })
 
   test.describe('Scenario J — SENIOR share % in projects list (task-senior-ui-followups §2b)', () => {
-    // The MyProjectShares widget was removed from /crm/finance (§2a).
+    // The MyProjectShares widget was removed from /finance (§2a).
     // Instead, the effective share % appears as an inline badge in each
-    // ProjectRow on /crm/projects (only when viewerRole === 'SENIOR').
-    test('SENIOR does NOT see the old MyProjectShares widget on /crm/finance', async ({
+    // ProjectRow on /projects (only when viewerRole === 'SENIOR').
+    test('SENIOR does NOT see the old MyProjectShares widget on /finance', async ({
       asSenior: page,
     }) => {
-      await page.goto('/crm/finance')
+      await page.goto('/finance')
       // Widget was removed — must not be present in DOM at all.
       await expect(page.getByTestId('my-project-shares')).toHaveCount(0)
     })
 
-    test('ADMIN does not see the SENIOR-only share badge on /crm/projects', async ({
+    test('ADMIN does not see the SENIOR-only share badge on /projects', async ({
       asAdmin: page,
     }) => {
       const projects = [
@@ -451,12 +451,12 @@ test.describe('per-project SENIOR share override', () => {
         }
         return r.fallback()
       })
-      await page.goto('/crm/projects')
+      await page.goto('/projects')
       // ADMIN viewer — no senior-share badge rendered for ADMIN role
       await expect(page.getByTestId('project-row-proj-admin-view-senior-share')).toHaveCount(0)
     })
 
-    test('SENIOR sees effective share % badge in each ProjectRow on /crm/projects', async ({
+    test('SENIOR sees effective share % badge in each ProjectRow on /projects', async ({
       asSenior: page,
     }) => {
       // One project with override, one using default share.
@@ -489,7 +489,7 @@ test.describe('per-project SENIOR share override', () => {
         return r.fallback()
       })
 
-      await page.goto('/crm/projects')
+      await page.goto('/projects')
 
       // Project with override: badge shows "42%"
       const overrideBadge = page.getByTestId('project-row-proj-w-override-senior-share')
@@ -539,7 +539,7 @@ test.describe('per-project SENIOR share override', () => {
       })
       await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
 
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       await page.getByTestId('project-edit-button').click()
 
       // Sanity — секция отсутствует, override никогда не отправится.
@@ -574,7 +574,7 @@ test.describe('per-project SENIOR share override', () => {
         r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
       )
 
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
 
       // Read-only Info card has its widget (Обзор tab — default).
       await expect(page.getByTestId('project-senior-share')).toContainText('33%')
@@ -598,7 +598,7 @@ test.describe('per-project SENIOR share override', () => {
         r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
       )
 
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       await page.getByRole('tab', { name: 'Финансы' }).click()
 
       const financeRow = page.getByTestId('project-transactions-senior-share')
@@ -615,11 +615,11 @@ test.describe('per-project SENIOR share override', () => {
   // PR #39 round 2 — HR RBAC new scenarios (task-fix-pr39-ui-round2)
   // -------------------------------------------------------------------------
 
-  test.describe('Scenario O — HR не видит табу «Финансы» в /crm/projects/:id', () => {
+  test.describe('Scenario O — HR не видит табу «Финансы» в /projects/:id', () => {
     test('HR opens project detail → tab «Финансы» is absent', async ({ asHr: page }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
 
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       // Табы «Обзор» и «Состав» доступны.
       await expect(page.getByRole('tab', { name: 'Обзор' })).toBeVisible()
       await expect(page.getByRole('tab', { name: 'Состав' })).toBeVisible()
@@ -629,10 +629,10 @@ test.describe('per-project SENIOR share override', () => {
   })
 
   test.describe('Scenario P — HR не видит info-row «Доля синьора» в Обзоре', () => {
-    test('HR на /crm/projects/:id Обзор не видит ProjectShareInfo', async ({ asHr: page }) => {
+    test('HR на /projects/:id Обзор не видит ProjectShareInfo', async ({ asHr: page }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: 33 })
 
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       // Sanity — мы на «Обзоре».
       await expect(page.getByRole('tab', { name: 'Обзор' })).toBeVisible()
       // Виджет project-senior-share полностью отсутствует в DOM для HR.
@@ -643,35 +643,31 @@ test.describe('per-project SENIOR share override', () => {
   })
 
   test.describe('Scenario Q — ADMIN/SENIOR/ACCOUNTANT всё ещё видят финансовые элементы (regression)', () => {
-    test('ADMIN на /crm/projects/:id видит табу «Финансы» + info-row', async ({
-      asAdmin: page,
-    }) => {
+    test('ADMIN на /projects/:id видит табу «Финансы» + info-row', async ({ asAdmin: page }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
 
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       await expect(page.getByRole('tab', { name: 'Финансы' })).toBeVisible()
       await expect(page.getByTestId('project-senior-share')).toBeVisible()
       await expect(page.getByTestId('project-senior-share')).toContainText('30%')
     })
 
-    test('SENIOR на /crm/projects/:id видит табу «Финансы» + info-row', async ({
-      asSenior: page,
-    }) => {
+    test('SENIOR на /projects/:id видит табу «Финансы» + info-row', async ({ asSenior: page }) => {
       await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
 
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       await expect(page.getByRole('tab', { name: 'Финансы' })).toBeVisible()
       await expect(page.getByTestId('project-senior-share')).toBeVisible()
       await expect(page.getByTestId('project-senior-share')).toContainText('30%')
     })
 
-    test('ACCOUNTANT на /crm/projects/:id видит табу «Финансы» + info-row + ShareSlider editable', async ({
+    test('ACCOUNTANT на /projects/:id видит табу «Финансы» + info-row + ShareSlider editable', async ({
       page,
     }) => {
       await mockAuthAs(page, USERS.accountant)
       await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
 
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       await expect(page.getByRole('tab', { name: 'Финансы' })).toBeVisible()
       await expect(page.getByTestId('project-senior-share')).toBeVisible()
 
@@ -686,44 +682,44 @@ test.describe('per-project SENIOR share override', () => {
 // Login auth-guard — Round-1 round-2 PR #39 fix (правка 3).
 // ---------------------------------------------------------------------------
 //
-// Once a user is already authenticated, navigating to /crm/login should
+// Once a user is already authenticated, navigating to /login should
 // auto-redirect them to /crm (the dashboard). Previously broken because
 // <AuthProvider skip> blocked the /auth/me query.
 
 test.describe('login auth-guard', () => {
-  // Wait for the URL to leave /crm/login. The TanStack Router redirect lands
+  // Wait for the URL to leave /login. The TanStack Router redirect lands
   // on /crm (the index dashboard) but we don't want to over-couple to that
   // exact path — any non-/login pathname under /crm counts as "redirected".
   const waitForRedirect = async (page: import('@playwright/test').Page) =>
-    page.waitForURL((url) => new URL(url).pathname !== '/crm/login', {
+    page.waitForURL((url) => new URL(url).pathname !== '/login', {
       timeout: 5_000,
     })
 
-  test('ADMIN visiting /crm/login is redirected to /crm', async ({ asAdmin: page }) => {
+  test('ADMIN visiting /login is redirected to /', async ({ asAdmin: page }) => {
     // The fixture already mocked /api/auth/me to return USERS.admin.
-    await page.goto('/crm/login')
+    await page.goto('/login')
     await waitForRedirect(page)
-    expect(new URL(page.url()).pathname).not.toBe('/crm/login')
-    expect(new URL(page.url()).pathname).toMatch(/^\/crm/)
+    expect(new URL(page.url()).pathname).not.toBe('/login')
+    expect(new URL(page.url()).pathname).toMatch(/^\//)
   })
 
-  test('SENIOR visiting /crm/login is redirected to /crm', async ({ asSenior: page }) => {
-    await page.goto('/crm/login')
+  test('SENIOR visiting /login is redirected to /', async ({ asSenior: page }) => {
+    await page.goto('/login')
     await waitForRedirect(page)
-    expect(new URL(page.url()).pathname).not.toBe('/crm/login')
-    expect(new URL(page.url()).pathname).toMatch(/^\/crm/)
+    expect(new URL(page.url()).pathname).not.toBe('/login')
+    expect(new URL(page.url()).pathname).toMatch(/^\//)
   })
 
-  test('unauthenticated visitor stays on /crm/login', async ({ page }) => {
+  test('unauthenticated visitor stays on /login', async ({ page }) => {
     // No mockAuthAs → /api/auth/me would otherwise hit the real backend. We
     // intercept it to force a 401 so the spec is deterministic.
     await page.route('http://localhost:3001/api/auth/me', (r) =>
       r.fulfill({ status: 401, contentType: 'application/json', body: '{}' }),
     )
-    await page.goto('/crm/login')
+    await page.goto('/login')
     // Give the redirect effect a chance to (not) fire.
     await page.waitForTimeout(500)
-    expect(new URL(page.url()).pathname).toBe('/crm/login')
+    expect(new URL(page.url()).pathname).toBe('/login')
     // The login UI is rendered (header copy serves as a fingerprint).
     await expect(page.getByText('CheekyCheeseIT CRM')).toBeVisible()
   })

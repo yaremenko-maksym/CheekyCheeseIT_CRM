@@ -5,7 +5,7 @@
  * Coverage (AC3 / AC4 / AC5 / AC6):
  *   A. dashboard.tsx dispatches ACCOUNTANT → AccountantDashboard hub on the /crm root.
  *   B. Hub renders 4 KPI cards with the mocked values.
- *   C. CTA «Валидировать ожидающие (N)» navigates to /crm/finance?status=PENDING.
+ *   C. CTA «Валидировать ожидающие (N)» navigates to /finance?status=PENDING.
  *   D. Finance page deep-link (?status=PENDING) is honoured (status select shows
  *      «Ожидают валидации»).
  *   E. Non-ACCOUNTANT roles do NOT see the accountant hub on the /crm root.
@@ -16,8 +16,8 @@
 
 import { test, expect } from './fixtures'
 
-// CRM root, anchored — matches `/crm` (and `/crm/`) but NOT `/crm/team` etc.
-const CRM_ROOT = /\/crm\/?$/
+// CRM root, anchored — matches `/` (and `/`) but NOT `/team` etc.
+const CRM_ROOT = /\/?$/
 
 const _webOrigin =
   (typeof process !== 'undefined' && process.env['PLAYWRIGHT_BASE_URL']) || 'http://localhost:3000'
@@ -29,7 +29,7 @@ test.describe('A. ACCOUNTANT dashboard dispatch', () => {
   test('ACCOUNTANT on /crm sees the accountant hub (not general dashboard)', async ({
     asAccountant: page,
   }) => {
-    await page.goto('/crm')
+    await page.goto('/')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
 
     const hub = page.getByTestId('accountant-dashboard-hub')
@@ -45,7 +45,7 @@ test.describe('A. ACCOUNTANT dashboard dispatch', () => {
 
 test.describe('B. ACCOUNTANT hub — KPI cards', () => {
   test('renders all 4 KPI cards with mocked values', async ({ asAccountant: page }) => {
-    await page.goto('/crm')
+    await page.goto('/')
     await expect(page.getByTestId('accountant-kpi-grid')).toBeVisible({ timeout: 8_000 })
 
     const pending = page.getByTestId('kpi-pending-validation')
@@ -119,7 +119,7 @@ test.describe('C. ACCOUNTANT hub — validate CTA', () => {
       },
     )
 
-    await page.goto('/crm')
+    await page.goto('/')
 
     const cta = page.getByTestId('accountant-validate-cta')
     await expect(cta).toBeVisible({ timeout: 8_000 })
@@ -127,17 +127,17 @@ test.describe('C. ACCOUNTANT hub — validate CTA', () => {
 
     await cta.click()
 
-    // AC3: ValidateDialog opens (modal, not navigation to /crm/finance).
+    // AC3: ValidateDialog opens (modal, not navigation to /finance).
     await expect(page.getByTestId('validate-transaction-dialog')).toBeVisible({ timeout: 8_000 })
     // Page URL stays on dashboard — no navigation happened.
-    await expect(page).toHaveURL(/\/crm\/dashboard/)
+    await expect(page).toHaveURL(/\/dashboard/)
   })
 })
 
 // ── D. Finance deep-link applies the PENDING filter ──────────────────────────
 
 test.describe('D. Finance status deep-link', () => {
-  test('/crm/finance?status=PENDING seeds the status filter to «Ожидают валидации»', async ({
+  test('/finance?status=PENDING seeds the status filter to «Ожидают валидации»', async ({
     asAccountant: page,
   }) => {
     // Seed a couple of transactions so the table + filter render.
@@ -182,8 +182,8 @@ test.describe('D. Finance status deep-link', () => {
         }),
     )
 
-    await page.goto('/crm/finance?status=PENDING')
-    await expect(page).toHaveURL(/\/crm\/finance\?status=PENDING/, { timeout: 8_000 })
+    await page.goto('/finance?status=PENDING')
+    await expect(page).toHaveURL(/\/finance\?status=PENDING/, { timeout: 8_000 })
 
     // The status FilterSelect trigger (Radix combobox) should show the seeded
     // PENDING label «Ожидает» (STATUS_LABELS['PENDING']) as its value — proving
@@ -200,14 +200,14 @@ test.describe('D. Finance status deep-link', () => {
 
 test.describe('E. RBAC — accountant hub is ACCOUNTANT-only on /crm root', () => {
   test('ADMIN on /crm does NOT see the accountant hub', async ({ asAdmin: page }) => {
-    await page.goto('/crm')
+    await page.goto('/')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
     // ADMIN sees the general dashboard, not the accountant hub.
     await expect(page.getByTestId('accountant-dashboard-hub')).toHaveCount(0)
   })
 
   test('SENIOR on /crm does NOT see the accountant hub', async ({ asSenior: page }) => {
-    await page.goto('/crm')
+    await page.goto('/')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
     await expect(page.getByTestId('accountant-dashboard-hub')).toHaveCount(0)
   })

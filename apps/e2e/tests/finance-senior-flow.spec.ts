@@ -185,7 +185,7 @@ test.describe('SENIOR INCOME — шаг 1: регистрация прихода
     asSenior,
   }) => {
     await setupTransactionMocks(asSenior, makeTx())
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
 
     await asSenior.getByTestId('finance-create-transaction-button').click()
     await expect(asSenior.getByTestId('create-transaction-dialog')).toBeVisible()
@@ -201,7 +201,7 @@ test.describe('SENIOR INCOME — шаг 1: регистрация прихода
       asSenior,
       makeTx({ receiptExternalUrl: 'https://drive.google.com/receipt.pdf' }),
     )
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
 
     await asSenior.getByTestId('finance-create-transaction-button').click()
     await fillSeniorIncomeForm(asSenior, { amount: '5000' })
@@ -215,7 +215,7 @@ test.describe('SENIOR INCOME — шаг 1: регистрация прихода
       asSenior,
       makeTx({ receiptExternalUrl: 'https://drive.google.com/receipt.pdf' }),
     )
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
 
     await asSenior.getByTestId('finance-create-transaction-button').click()
     await fillSeniorIncomeForm(asSenior, { amount: '5000' })
@@ -228,7 +228,7 @@ test.describe('SENIOR INCOME — шаг 1: регистрация прихода
     asSenior,
   }) => {
     await setupTransactionMocks(asSenior, makeTx())
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
 
     await asSenior.getByTestId('finance-create-transaction-button').click()
     await fillSeniorIncomeForm(asSenior, { amount: '5000', withReceipt: false })
@@ -245,7 +245,7 @@ test.describe('SENIOR INCOME — шаг 1: регистрация прихода
     asSenior,
   }) => {
     await setupTransactionMocks(asSenior, makeTx())
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
 
     await asSenior.getByTestId('finance-create-transaction-button').click()
     const dialog = asSenior.getByTestId('create-transaction-dialog')
@@ -271,7 +271,7 @@ test.describe('SENIOR INCOME — шаг 2а: отклонение транзак
     await mockAuthAs(page, USERS.accountant)
     const tx = makeTx()
     await setupTransactionMocks(page, tx)
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
 
     await expect(page.getByTestId(`tx-row-${tx.id}`)).toBeVisible()
     await expect(page.getByTestId('tx-status-badge-pending').first()).toBeVisible()
@@ -282,7 +282,7 @@ test.describe('SENIOR INCOME — шаг 2а: отклонение транзак
     await mockAuthAs(page, USERS.accountant)
     const tx = makeTx()
     await setupTransactionMocks(page, tx)
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
 
     await page.getByTestId(`tx-row-${tx.id}`).getByTestId(`tx-row-validate-${tx.id}`).click()
     const dlg = page.getByTestId('validate-transaction-dialog')
@@ -299,7 +299,7 @@ test.describe('SENIOR INCOME — шаг 2а: отклонение транзак
     await mockAuthAs(page, USERS.accountant)
     const tx = makeTx()
     await setupTransactionMocks(page, tx)
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
 
     await page.getByTestId(`tx-row-validate-${tx.id}`).click()
     await expect(page.getByTestId('validate-transaction-reject')).toBeDisabled()
@@ -309,7 +309,7 @@ test.describe('SENIOR INCOME — шаг 2а: отклонение транзак
     await mockAuthAs(page, USERS.accountant)
     const tx = makeTx()
     await setupTransactionMocks(page, tx)
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
 
     await page.getByTestId(`tx-row-validate-${tx.id}`).click()
     // Placeholder copy is part of the form contract for the rejection reason
@@ -343,7 +343,7 @@ test.describe('SENIOR INCOME — шаг 2а: отклонение транзак
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
     )
 
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
     await page.getByTestId(`tx-row-validate-${pendingTx.id}`).click()
     await page.getByPlaceholder('Укажите причину при отклонении...').fill('Чек нечитаем')
     await page.getByTestId('validate-transaction-reject').click()
@@ -360,7 +360,7 @@ test.describe('SENIOR INCOME — шаг 2а: отклонение транзак
       rejectionReason: 'Чек нечитаем',
     })
     await setupTransactionMocks(asSenior, rejectedTx)
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
 
     await expect(asSenior.getByTestId('tx-status-badge-rejected').first()).toBeVisible()
     // Rejection reason text comes from API data — text assertion stays as
@@ -383,7 +383,7 @@ test.describe('SENIOR INCOME — шаг 2б: исправление отклон
       rejectionReason: 'Чек нечитаем',
     })
     await setupTransactionMocks(asSenior, rejectedTx)
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
 
     await expect(asSenior.getByTestId(`tx-row-edit-${rejectedTx.id}`)).toBeVisible()
   })
@@ -395,7 +395,7 @@ test.describe('SENIOR INCOME — шаг 2б: исправление отклон
       rejectionReason: 'Чек нечитаем',
     })
     await setupTransactionMocks(asSenior, rejectedTx)
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
 
     await asSenior.getByTestId(`tx-row-edit-${rejectedTx.id}`).click()
     await expect(asSenior.getByRole('dialog')).toBeVisible()
@@ -412,7 +412,7 @@ test.describe('SENIOR INCOME — шаг 2б: исправление отклон
       rejectionReason: 'Без чека',
     })
     await setupTransactionMocks(asSenior, rejectedTx)
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
 
     await asSenior.getByTestId(`tx-row-edit-${rejectedTx.id}`).click()
 
@@ -454,7 +454,7 @@ test.describe('SENIOR INCOME — шаг 3: повторная валидация
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
     )
 
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
     await page.getByTestId(`tx-row-validate-${makeTx().id}`).click()
     await page.getByTestId('validate-transaction-confirm').click()
     await page.getByTestId('validate-confirm-ok').click()
@@ -489,7 +489,7 @@ test.describe('SENIOR INCOME — шаг 3: повторная валидация
       }),
     }
     await setupTransactionMocks(asSenior, incomeAfterValidate, [], [incomeAfterValidate, payoutRow])
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
 
     await expect(asSenior.getByTestId('tx-status-badge-pending_payment').first()).toBeVisible()
     await expect(asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`)).toBeVisible()
@@ -502,7 +502,7 @@ test.describe('SENIOR INCOME — шаг 3: повторная валидация
   }) => {
     const validatedTx = makeTx({ status: 'PENDING', receiverId: USERS.senior.id })
     await setupTransactionMocks(asSenior, validatedTx)
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
 
     await expect(asSenior.getByTestId(`tx-row-validate-${validatedTx.id}`)).not.toBeVisible()
   })
@@ -539,7 +539,7 @@ test.describe('SENIOR INCOME — шаг 4: «Выплата» появляетс
       payoutRequestId: 'flow-payout-1',
     })
     await setupTransactionMocks(asSenior, incomeAfterValidate, [], [incomeAfterValidate, payoutRow])
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
 
     await expect(asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`)).toBeVisible()
     // SENIOR_INCOME row no longer carries any inline pay-out button.
@@ -551,7 +551,7 @@ test.describe('SENIOR INCOME — шаг 4: «Выплата» появляетс
   }) => {
     const validatedTx = makeTx({ status: 'VALIDATED', receiverId: USERS.senior.id })
     await setupTransactionMocks(asSenior, validatedTx)
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
 
     await expect(asSenior.getByTestId('header-payout-button')).not.toBeVisible()
     // Defensive duplicate — no row-level pay-salary pill either on a
@@ -591,7 +591,7 @@ test.describe('SENIOR INCOME — шаг 5: оплата выплаты (PayoutDe
     const payoutRow = makePayoutRowTx()
     await setupTransactionMocks(asSenior, payoutRow, [], [payoutRow])
 
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
     await asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`).click()
 
     const dialog = asSenior.getByRole('dialog')
@@ -603,7 +603,7 @@ test.describe('SENIOR INCOME — шаг 5: оплата выплаты (PayoutDe
     const payoutRow = makePayoutRowTx()
     await setupTransactionMocks(asSenior, payoutRow, [], [payoutRow])
 
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
     await asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`).click()
 
     const dialog = asSenior.getByRole('dialog')
@@ -630,7 +630,7 @@ test.describe('SENIOR INCOME — шаг 5: оплата выплаты (PayoutDe
     const payoutRow = makePayoutRowTx()
     await setupTransactionMocks(asSenior, payoutRow, [], [payoutRow])
 
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
     await asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`).click()
 
     const dialog = asSenior.getByRole('dialog')
@@ -651,7 +651,7 @@ test.describe('SENIOR INCOME — шаг 5: оплата выплаты (PayoutDe
     const payoutRow = makePayoutRowTx()
     await setupTransactionMocks(asSenior, payoutRow, [], [payoutRow])
 
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
     await asSenior.getByTestId(`row-pay-payout-${payoutRow.id}`).click()
 
     const dialog = asSenior.getByRole('dialog')
@@ -690,7 +690,7 @@ test.describe('SENIOR INCOME — A2: validate idempotency (PR #56)', () => {
       validatedAt: '2026-05-02T10:00:00.000Z',
     })
     await setupTransactionMocks(page, validatedTx)
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
 
     await expect(page.getByTestId('tx-status-badge-validated').first()).toBeVisible()
     await expect(page.getByTestId(`tx-row-validate-${validatedTx.id}`)).not.toBeVisible()
@@ -707,7 +707,7 @@ test.describe('SENIOR INCOME — A2: validate idempotency (PR #56)', () => {
       validatedAt: '2026-05-02T10:00:00.000Z',
     })
     await setupTransactionMocks(page, pendingPaymentTx)
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
 
     await expect(page.getByTestId('tx-status-badge-pending_payment').first()).toBeVisible()
     await expect(page.getByTestId(`tx-row-validate-${pendingPaymentTx.id}`)).not.toBeVisible()
@@ -717,7 +717,7 @@ test.describe('SENIOR INCOME — A2: validate idempotency (PR #56)', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Flow D (task-autotest-strengthen-e2e-pr56-flows): transaction list sort
 //
-// E2E counterpart to the existing unit tests in apps/web/app/routes/crm/finance/
+// E2E counterpart to the existing unit tests in apps/web/app/routes/finance/
 // __tests__/sort.test.ts. The unit test pins the compareTxByDate behaviour;
 // here we verify the integrated outcome — mixed income/payout rows render
 // in the right order in the UI. Regression target: bug bf5dc2e where the
@@ -761,7 +761,7 @@ test.describe('SENIOR INCOME — D: transactions sorted by createdAt DESC (regre
     })
 
     await setupTransactionMocks(asAdmin, incomeLater, [], [incomeLater, payoutEarlier])
-    await asAdmin.goto('/crm/finance')
+    await asAdmin.goto('/finance')
 
     // Wait for both row amounts to render — the finance page lazy-renders
     // the transactions section under a Suspense-like skeleton.
@@ -836,7 +836,7 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
       }),
     )
 
-    await seniorPage.goto('/crm/finance')
+    await seniorPage.goto('/finance')
     await seniorPage.getByTestId('finance-create-transaction-button').click()
     const createDialog = seniorPage.getByTestId('create-transaction-dialog')
     await createDialog.getByRole('combobox').first().click()
@@ -878,7 +878,7 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
     )
 
-    await accountantPage.goto('/crm/finance')
+    await accountantPage.goto('/finance')
     await expect(accountantPage.getByTestId('tx-status-badge-pending').first()).toBeVisible()
     await accountantPage.getByTestId(`tx-row-validate-${pendingTx.id}`).click()
     await accountantPage.getByPlaceholder('Укажите причину при отклонении...').fill('Нет чека')
@@ -906,7 +906,7 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
       }),
     )
 
-    await seniorPage.goto('/crm/finance')
+    await seniorPage.goto('/finance')
     await expect(seniorPage.getByTestId('tx-status-badge-rejected').first()).toBeVisible()
     await seniorPage.getByTestId(`tx-row-edit-${rejectedTx.id}`).click()
     await expect(seniorPage.getByTestId('edit-senior-income-rejection-panel')).toBeVisible()
@@ -941,7 +941,7 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
       }),
     )
 
-    await accountantPage.goto('/crm/finance')
+    await accountantPage.goto('/finance')
     await accountantPage.getByTestId(`tx-row-validate-${correctedTx.id}`).click()
     await accountantPage.getByTestId('validate-transaction-confirm').click()
     await accountantPage.getByTestId('validate-confirm-ok').click()
@@ -951,7 +951,7 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     // task-payout-auto-on-validate collapsed old steps 4 (PayoutDialog) and 5
     // (PayoutDetailDialog) into one. ACCOUNTANT's earlier «Подтвердить»
     // would atomically insert the PAYOUT row, so the SENIOR now arrives at
-    // /crm/finance and sees the «Выплата» row directly.
+    // /finance and sees the «Выплата» row directly.
     const pendingPaymentIncome = {
       ...validatedTx,
       status: 'PENDING_PAYMENT',
@@ -996,7 +996,7 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
       }),
     )
 
-    await seniorPage.goto('/crm/finance')
+    await seniorPage.goto('/finance')
     // Old batch header button must not exist anymore.
     await expect(seniorPage.getByTestId('header-payout-button')).not.toBeVisible()
     // SENIOR opens the auto-created «Выплата» row via its inline pill.

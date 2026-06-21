@@ -144,7 +144,7 @@ test.describe('PR-3 receipt replace — AC1: SENIOR resubmit flow', () => {
   }) => {
     const rejectedTx = makeRejectedTx()
     await setupFinanceMocks(page, [rejectedTx], rejectedTx)
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
     await page.waitForLoadState('networkidle')
 
     // Edit button visible for REJECTED SENIOR_INCOME tx belonging to this SENIOR
@@ -180,7 +180,7 @@ test.describe('PR-3 receipt replace — AC2: edit locked on non-REJECTED tx', ()
   }) => {
     const pendingTx = makePendingTx()
     await setupFinanceMocks(page, [pendingTx], pendingTx)
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
     await page.waitForLoadState('networkidle')
 
     // Edit button must not exist for PENDING tx
@@ -199,7 +199,7 @@ test.describe('PR-3 receipt replace — AC3: RBAC — только SENIOR-пол
     await mockAuthAs(page, USERS.accountant)
     const rejectedTx = makeRejectedTx()
     await setupFinanceMocks(page, [rejectedTx], rejectedTx)
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
     await page.waitForLoadState('networkidle')
 
     // ACCOUNTANT sees no edit button — only SENIOR-receiver can resubmit
@@ -219,7 +219,7 @@ test.describe('PR-3 receipt replace — AC4: причина отклонения
       rejectionReason: 'Нечитаемый чек — загрузите снова',
     })
     await setupFinanceMocks(page, [rejectedTx], rejectedTx)
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
     await page.waitForLoadState('networkidle')
 
     await page.getByTestId(`tx-row-edit-${TX_ID}`).click()
@@ -243,7 +243,7 @@ test.describe('PR-3 receipt replace — AC5: кнопка Отмена закр�
   test('Кнопка Отмена закрывает диалог редактирования без отправки', async ({ asSenior: page }) => {
     const rejectedTx = makeRejectedTx()
     await setupFinanceMocks(page, [rejectedTx], rejectedTx)
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
     await page.waitForLoadState('networkidle')
 
     await page.getByTestId(`tx-row-edit-${TX_ID}`).click()

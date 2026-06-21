@@ -63,7 +63,7 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
       }),
     )
 
-    await page.goto('/crm/users')
+    await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
     await page.getByRole('option', { name: 'Дроп' }).click()
@@ -101,7 +101,7 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
       }),
     )
 
-    await page.goto('/crm/users')
+    await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
     await page.getByRole('option', { name: 'Дроп' }).click()
@@ -138,7 +138,7 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
       }),
     )
 
-    await page.goto('/crm/users')
+    await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
     await page.getByRole('option', { name: 'Дроп' }).click()
@@ -182,7 +182,7 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
       }),
     )
 
-    await page.goto('/crm/users')
+    await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
     await page.getByRole('option', { name: 'Дроп' }).click()

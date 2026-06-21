@@ -153,7 +153,7 @@ test.describe('PR-2: INVOICE status badges', () => {
     await mockAuthAs(page, USERS.admin)
     await mockDocumentsList(page, [DOC_INVOICE_READY])
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
 
     // Wait for the list to render (not loading skeleton)
     const badge = page.getByTestId('document-status-badge').first()
@@ -167,7 +167,7 @@ test.describe('PR-2: INVOICE status badges', () => {
     await mockAuthAs(page, USERS.admin)
     await mockDocumentsList(page, [DOC_INVOICE_SIGNED])
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
 
     const badge = page.getByTestId('document-status-badge').first()
     await expect(badge).toBeVisible()
@@ -188,7 +188,7 @@ test.describe('PR-2: RECEIPT status badges', () => {
     await mockAuthAs(page, USERS.admin)
     await mockDocumentsList(page, [DOC_RECEIPT_PENDING])
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
 
     const badge = page.getByTestId('document-status-badge').first()
     await expect(badge).toBeVisible()
@@ -201,7 +201,7 @@ test.describe('PR-2: RECEIPT status badges', () => {
     await mockAuthAs(page, USERS.admin)
     await mockDocumentsList(page, [DOC_RECEIPT_VALIDATED])
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
 
     const badge = page.getByTestId('document-status-badge').first()
     await expect(badge).toBeVisible()
@@ -220,7 +220,7 @@ test.describe('PR-2: employee_contract virtual entries', () => {
     await mockAuthAs(page, USERS.admin)
     await mockDocumentsList(page, [DOC_CONTRACT_DRAFT])
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
 
     const badge = page.getByTestId('document-status-badge').first()
     await expect(badge).toBeVisible()
@@ -235,7 +235,7 @@ test.describe('PR-2: employee_contract virtual entries', () => {
     await mockAuthAs(page, USERS.admin)
     await mockDocumentsList(page, [DOC_CONTRACT_READY])
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
 
     const badge = page.getByTestId('document-status-badge').first()
     await expect(badge).toBeVisible()
@@ -254,7 +254,7 @@ test.describe('PR-2: RESUME has no status badge', () => {
     await mockAuthAs(page, USERS.admin)
     await mockDocumentsList(page, [DOC_RESUME])
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
 
     // Default view is list — wait for document-row to appear
     await expect(page.getByTestId('document-row').first()).toBeVisible()
@@ -274,7 +274,7 @@ test.describe('PR-2: list view badges', () => {
     await mockAuthAs(page, USERS.admin)
     await mockDocumentsList(page, [DOC_INVOICE_READY])
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
 
     // Switch to list view
     await page.getByTestId('documents-view-list').click()
@@ -294,7 +294,7 @@ test.describe('PR-2: list view badges', () => {
     await mockAuthAs(page, USERS.admin)
     await mockDocumentsList(page, [DOC_RESUME])
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
 
     // Switch to list view
     await page.getByTestId('documents-view-list').click()
@@ -319,7 +319,7 @@ test.describe('PR-2: DRAFT contract hidden from non-ADMIN', () => {
     // This test verifies the frontend correctly renders what the server returns — no DRAFT badge.
     await mockDocumentsList(page, [DOC_CONTRACT_READY])
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
 
     // READY_TO_SIGN contract should be visible
     const badge = page.getByTestId('document-status-badge').first()
@@ -340,7 +340,7 @@ test.describe('PR-2: DRAFT contract hidden from non-ADMIN', () => {
     // Server returns empty list (all contracts are DRAFT, filtered by backend)
     await mockDocumentsList(page, [])
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
 
     // With no documents, the empty-state should appear (no status badges)
     await expect(page.getByTestId('document-status-badge')).not.toBeVisible()
@@ -368,7 +368,7 @@ test.describe('PR-2: category filter', () => {
       })
     })
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
 
     // Default view is list — wait for document-row to appear (7 docs total)
     await expect(page.getByTestId('document-row').first()).toBeVisible()

@@ -7,7 +7,7 @@
  *         hidden for SENIOR / DROP / JUNIOR / HR
  *  AC4 — DIVIDEND option in CreateTransactionDialog visible ADMIN-only,
  *         not present for SENIOR / ACCOUNTANT
- *  AC5 — Company balance KPI (stats-company-account-balance) visible on /crm/stats
+ *  AC5 — Company balance KPI (stats-company-account-balance) visible on /stats
  *         for ADMIN + ACCOUNTANT
  *
  * All tests use Playwright route mocks — no real backend required.
@@ -107,7 +107,7 @@ test.describe('AC2 — PayoutDetailDialog: company wallet address for SENIOR', (
   }) => {
     await mockPayoutDetailRoutes(asSenior)
 
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
     await asSenior.getByTestId(`row-pay-payout-${PAYOUT_ID}`).click()
 
     const dialog = asSenior.getByTestId('payout-detail-dialog')
@@ -119,7 +119,7 @@ test.describe('AC2 — PayoutDetailDialog: company wallet address for SENIOR', (
   test('SENIOR sees payable amount in payout dialog', async ({ asSenior }) => {
     await mockPayoutDetailRoutes(asSenior)
 
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
     await asSenior.getByTestId(`row-pay-payout-${PAYOUT_ID}`).click()
 
     const dialog = asSenior.getByTestId('payout-detail-dialog')
@@ -131,7 +131,7 @@ test.describe('AC2 — PayoutDetailDialog: company wallet address for SENIOR', (
   test('SENIOR sees txHash input; submit disabled without hash', async ({ asSenior }) => {
     await mockPayoutDetailRoutes(asSenior)
 
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
     await asSenior.getByTestId(`row-pay-payout-${PAYOUT_ID}`).click()
 
     const dialog = asSenior.getByTestId('payout-detail-dialog')
@@ -143,7 +143,7 @@ test.describe('AC2 — PayoutDetailDialog: company wallet address for SENIOR', (
   test('SENIOR enters txHash ≥10 chars — submit unlocks', async ({ asSenior }) => {
     await mockPayoutDetailRoutes(asSenior)
 
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
     await asSenior.getByTestId(`row-pay-payout-${PAYOUT_ID}`).click()
 
     const dialog = asSenior.getByTestId('payout-detail-dialog')
@@ -168,7 +168,7 @@ test.describe('AC3 — Manual-confirm section: visible for ADMIN / ACCOUNTANT', 
   test('ADMIN sees manual-confirm section in payout dialog', async ({ asAdmin }) => {
     await mockPayoutDetailRoutes(asAdmin)
 
-    await asAdmin.goto('/crm/finance')
+    await asAdmin.goto('/finance')
     await asAdmin.getByTestId(`row-pay-payout-${PAYOUT_ID}`).click()
 
     const dialog = asAdmin.getByTestId('payout-detail-dialog')
@@ -181,7 +181,7 @@ test.describe('AC3 — Manual-confirm section: visible for ADMIN / ACCOUNTANT', 
   }) => {
     await mockPayoutDetailRoutes(asAdmin)
 
-    await asAdmin.goto('/crm/finance')
+    await asAdmin.goto('/finance')
     await asAdmin.getByTestId(`row-pay-payout-${PAYOUT_ID}`).click()
 
     const dialog = asAdmin.getByTestId('payout-detail-dialog')
@@ -194,7 +194,7 @@ test.describe('AC3 — Manual-confirm section: visible for ADMIN / ACCOUNTANT', 
   test('ADMIN submits manual-confirm with CASH method — dialog closes', async ({ asAdmin }) => {
     await mockPayoutDetailRoutes(asAdmin)
 
-    await asAdmin.goto('/crm/finance')
+    await asAdmin.goto('/finance')
     await asAdmin.getByTestId(`row-pay-payout-${PAYOUT_ID}`).click()
 
     const dialog = asAdmin.getByTestId('payout-detail-dialog')
@@ -210,7 +210,7 @@ test.describe('AC3 — Manual-confirm section: visible for ADMIN / ACCOUNTANT', 
   test('ACCOUNTANT sees manual-confirm section in payout dialog', async ({ asAccountant }) => {
     await mockPayoutDetailRoutes(asAccountant)
 
-    await asAccountant.goto('/crm/finance')
+    await asAccountant.goto('/finance')
     await asAccountant.getByTestId(`row-pay-payout-${PAYOUT_ID}`).click()
 
     const dialog = asAccountant.getByTestId('payout-detail-dialog')
@@ -226,7 +226,7 @@ test.describe('AC3 — Manual-confirm section: visible for ADMIN / ACCOUNTANT', 
 test.describe('AC3 — Manual-confirm section: hidden for non-privileged roles', () => {
   async function assertManualSectionHidden(page: Page) {
     await mockPayoutDetailRoutes(page)
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
     await page.getByTestId(`row-pay-payout-${PAYOUT_ID}`).click()
     const dialog = page.getByTestId('payout-detail-dialog')
     await expect(dialog).toBeVisible()
@@ -284,7 +284,7 @@ test.describe('AC4 — DIVIDEND transaction type: ADMIN-only', () => {
   test('ADMIN sees DIVIDEND option in CreateTransactionDialog', async ({ asAdmin }) => {
     await mockAdminDividendRoutes(asAdmin)
 
-    await asAdmin.goto('/crm/finance')
+    await asAdmin.goto('/finance')
     await asAdmin.getByTestId('finance-create-transaction-button').click()
 
     const dialog = asAdmin.getByTestId('create-transaction-dialog')
@@ -295,7 +295,7 @@ test.describe('AC4 — DIVIDEND transaction type: ADMIN-only', () => {
   test('SENIOR does NOT see DIVIDEND option in CreateTransactionDialog', async ({ asSenior }) => {
     await mockFinanceListRoutes(asSenior)
 
-    await asSenior.goto('/crm/finance')
+    await asSenior.goto('/finance')
     await asSenior.getByTestId('finance-create-transaction-button').click()
 
     const dialog = asSenior.getByTestId('create-transaction-dialog')
@@ -308,7 +308,7 @@ test.describe('AC4 — DIVIDEND transaction type: ADMIN-only', () => {
   }) => {
     await mockFinanceListRoutes(asAccountant)
 
-    await asAccountant.goto('/crm/finance')
+    await asAccountant.goto('/finance')
     await asAccountant.getByTestId('finance-create-transaction-button').click()
 
     const dialog = asAccountant.getByTestId('create-transaction-dialog')
@@ -406,7 +406,7 @@ test.describe('Deferred #3 — ConfirmPayoutDialog: COMPANY_ACCOUNT click-throug
     })
 
     await mockConfirmPayoutPageRoutes(asAdmin)
-    await asAdmin.goto('/crm/finance')
+    await asAdmin.goto('/finance')
     await expect(asAdmin.getByTestId('finance-page')).toBeVisible()
 
     // Click «Подтвердить оплату» on the PAYOUT row
@@ -458,7 +458,7 @@ test.describe('Deferred #3 — ConfirmPayoutDialog: COMPANY_ACCOUNT click-throug
     )
 
     await mockConfirmPayoutPageRoutes(asAccountant)
-    await asAccountant.goto('/crm/finance')
+    await asAccountant.goto('/finance')
     await expect(asAccountant.getByTestId('finance-page')).toBeVisible()
 
     await asAccountant.getByTestId(`confirm-payout-button-${CONFIRM_TX_ID}`).click()
@@ -480,7 +480,7 @@ test.describe('Deferred #3 — ConfirmPayoutDialog: COMPANY_ACCOUNT click-throug
     asAdmin,
   }) => {
     await mockConfirmPayoutPageRoutes(asAdmin)
-    await asAdmin.goto('/crm/finance')
+    await asAdmin.goto('/finance')
     await expect(asAdmin.getByTestId('finance-page')).toBeVisible()
 
     await asAdmin.getByTestId(`confirm-payout-button-${CONFIRM_TX_ID}`).click()
@@ -498,7 +498,7 @@ test.describe('Deferred #3 — ConfirmPayoutDialog: COMPANY_ACCOUNT click-throug
     asAdmin,
   }) => {
     await mockConfirmPayoutPageRoutes(asAdmin)
-    await asAdmin.goto('/crm/finance')
+    await asAdmin.goto('/finance')
     await expect(asAdmin.getByTestId('finance-page')).toBeVisible()
 
     await asAdmin.getByTestId(`confirm-payout-button-${CONFIRM_TX_ID}`).click()
@@ -534,7 +534,7 @@ test.describe('Deferred #3 — ConfirmPayoutDialog: COMPANY_ACCOUNT click-throug
     })
 
     await mockConfirmPayoutPageRoutes(asAdmin)
-    await asAdmin.goto('/crm/finance')
+    await asAdmin.goto('/finance')
     await expect(asAdmin.getByTestId('finance-page')).toBeVisible()
 
     await asAdmin.getByTestId(`confirm-payout-button-${CONFIRM_TX_ID}`).click()
@@ -562,10 +562,10 @@ test.describe('Deferred #3 — ConfirmPayoutDialog: COMPANY_ACCOUNT click-throug
 })
 
 // ---------------------------------------------------------------------------
-// AC5 — Company balance KPI on /crm/stats
+// AC5 — Company balance KPI on /stats
 // ---------------------------------------------------------------------------
 
-test.describe('AC5 — Company balance KPI on /crm/stats', () => {
+test.describe('AC5 — Company balance KPI on /stats', () => {
   /** Override company-account with a recognisable balance for assertion. */
   async function mockStatsRoutes(page: Page, balance = 12345.67) {
     // LIFO — wins over the fixture's default zero-balance company-account mock
@@ -584,20 +584,20 @@ test.describe('AC5 — Company balance KPI on /crm/stats', () => {
     await page.route(`${API_GLOB}/users`, (r) => jsonOk(r, []))
   }
 
-  test('ADMIN sees company balance KPI on /crm/stats', async ({ asAdmin }) => {
+  test('ADMIN sees company balance KPI on /stats', async ({ asAdmin }) => {
     await mockStatsRoutes(asAdmin)
 
-    await asAdmin.goto('/crm/stats')
+    await asAdmin.goto('/stats')
 
     await expect(asAdmin.getByTestId('stats-company-account-balance')).toBeVisible()
     // Balance 12345.67 — any locale format (non-breaking space / comma / dot separators)
     await expect(asAdmin.getByTestId('stats-company-account-balance')).toContainText(/12[\s,.]?345/)
   })
 
-  test('ACCOUNTANT sees company balance KPI on /crm/stats', async ({ asAccountant }) => {
+  test('ACCOUNTANT sees company balance KPI on /stats', async ({ asAccountant }) => {
     await mockStatsRoutes(asAccountant)
 
-    await asAccountant.goto('/crm/stats')
+    await asAccountant.goto('/stats')
 
     await expect(asAccountant.getByTestId('stats-company-account-balance')).toBeVisible()
     await expect(asAccountant.getByTestId('stats-company-account-balance')).toContainText(

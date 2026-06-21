@@ -119,8 +119,8 @@ export const USERS = {
     updatedAt: '2024-01-07T00:00:00.000Z',
   },
   // Drop role - phase 1 (AC5): a SENIOR sitting in no active team. Surfaces
-  // the «У вас нет активной команды» banner on `/crm/profile` and the
-  // empty-state on `/crm/projects` + `/crm/interviews`.
+  // the «У вас нет активной команды» banner on `/profile` and the
+  // empty-state on `/projects` + `/interviews`.
   seniorOrphan: {
     id: 'a0000000-0000-4000-8000-000000000008',
     email: 'senior-orphan@cheekycheese.dev',
@@ -531,7 +531,7 @@ export function buildSelfView(user: (typeof USERS)[keyof typeof USERS]): object 
   // DROP: overview / finance / team / requisites / documents / contract.
   //   Mirrors users-access.service.ts isSelf branch (task-drop-phase3-frontend):
   //     tabs.push('overview', 'finance', 'team', 'requisites', 'documents', 'contract')
-  //   NOTE: 'projects' removed — /crm/routing hub is the canonical project surface
+  //   NOTE: 'projects' removed — /routing hub is the canonical project surface
   //   for DROP. 'contract' added — DROP has a signed employee_contract and must see
   //   it in their own profile (UT finding 3a, drop-phase3-frontend round 2).
   //   Updated 2026-06-13 (PR #198 drop-phase3-frontend).
@@ -598,7 +598,7 @@ export function buildSelfView(user: (typeof USERS)[keyof typeof USERS]): object 
 //   • RegExp routes  → replace `${API_RE}/path` with `/\\/api\\/path/`
 //     which matches the path segment in the full URL string on any origin.
 //
-// NOTE: we deliberately do NOT match Vite page-navigation URLs (/crm/...)
+// NOTE: we deliberately do NOT match Vite page-navigation URLs (/...)
 // because those never contain "/api/" as a path segment.
 //
 // API_GLOB — prefix for string-literal page.route() patterns.
@@ -746,7 +746,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   // Drop role - phase 1 (AC1): POST /api/users/drops creates a DROP user
   // AND atomically provisions a drop-team. Response shape per spec:
   // `{ user, team: { id, ... }, members }` — frontend navigates to
-  // `/crm/team/<team.id>` on success (UserDialog.createDropMutation
+  // `/team/<team.id>` on success (UserDialog.createDropMutation
   // — unified dialog after task-fix-drop-unify-dialog).
   await page.route(new RegExp(`${API_RE}/users/drops$`), (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
@@ -865,7 +865,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   })
 
   // Per-project credentials (PR #178). ProjectCredentialsSection mounts on
-  // /crm/project (JUNIOR hub) and /crm/projects/$id (overview) and fires
+  // /project (JUNIOR hub) and /projects/$id (overview) and fires
   // GET /api/projects/:id/credentials. Unmocked → 401 → axios interceptor →
   // /login (same failure mode as legend/documents mocks above).
   // Default: empty list []. Specs that need real data register their own
@@ -1153,7 +1153,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
     jsonOk(r, { projects: [], users: [] }),
   )
 
-  // Phase 8 — Company USDT account. CompanyAccountCard mounts on /crm/finance
+  // Phase 8 — Company USDT account. CompanyAccountCard mounts on /finance
   // for ADMIN/ACCOUNTANT and fires GET /api/company-account unconditionally
   // (no `enabled` guard). Without this mock the request hits the real backend →
   // 401 → axios interceptor → /login redirect, OR the pending network request
@@ -1201,7 +1201,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   )
 
   // Documents (PHASE 6) — register specific sub-routes before the generic one.
-  // navigation.spec.ts and others click sidebar → /crm/documents which mounts
+  // navigation.spec.ts and others click sidebar → /documents which mounts
   // DocumentsPage → useDocuments() → GET /documents. Without these mocks the
   // request hits the real backend → 401 → axios interceptor → location.href =
   // '/login' → user gets logged out mid-navigation (root cause for PR #48 fails).
@@ -1455,7 +1455,7 @@ export async function dismissDialog(page: Page) {
 //
 // Authentication: `loginViaApi` POSTs to `/api/auth/dev-login` and Playwright's
 // request context shares cookies with the browser, so a subsequent
-// `page.goto('/crm/...')` is authenticated.
+// `page.goto('/...')` is authenticated.
 
 /** Backend HTTP origin used by the real-API helpers. */
 const REAL_API_BASE = 'http://localhost:3001'

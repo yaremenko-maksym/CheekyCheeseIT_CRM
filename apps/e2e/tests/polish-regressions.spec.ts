@@ -13,10 +13,10 @@
  *   AC2 — avatar / project-logo fallback renders INITIALS (Radix Avatar
  *         Fallback text), not a stub «Превью недоступно» icon.
  *   AC3 — console / network assertions (the heart of the task):
- *           • /crm/finance: no «Function components cannot be given refs»
+ *           • /finance: no «Function components cannot be given refs»
  *             (TransactionRow forwardRef regression — fired ~60× per row).
- *           • /crm/team/:id: no validateDOMNesting «<a> … <a>» warning.
- *           • /crm/interviews as SENIOR: no 403 on /api/users (query gated).
+ *           • /team/:id: no validateDOMNesting «<a> … <a>» warning.
+ *           • /interviews as SENIOR: no 403 on /api/users (query gated).
  *   AC4 — canonical spelling «синьора» (NOT «синьера») on the public
  *         invoice verify page.
  *   AC5 — styled 404 empty-state on an unknown route (icon + copy + «На
@@ -124,7 +124,7 @@ async function mockTxList(page: Page, rows: object[]) {
 test.describe('AC1 — money format', () => {
   test('table renders the USD amount with a $ prefix, NOT the ₮ glyph', async ({ asAdmin }) => {
     await mockTxList(asAdmin, [TX_USDT_SENIOR])
-    await asAdmin.goto('/crm/finance')
+    await asAdmin.goto('/finance')
 
     const row = asAdmin.getByTestId(`tx-row-${TX_USDT_SENIOR.id}`)
     await expect(row).toBeVisible()
@@ -139,7 +139,7 @@ test.describe('AC1 — money format', () => {
     asAdmin,
   }) => {
     await mockTxList(asAdmin, [TX_USDT_SENIOR])
-    await asAdmin.goto('/crm/finance')
+    await asAdmin.goto('/finance')
     await asAdmin.getByTestId(`tx-row-${TX_USDT_SENIOR.id}`).click()
 
     const dialog = asAdmin.getByRole('dialog')
@@ -165,7 +165,7 @@ test.describe('AC2 — avatar fallback renders initials', () => {
   // node the avatar emits when no image is present.
   test('header user menu avatar falls back to the user initials', async ({ asSenior }) => {
     // Seed senior has avatarUrl=null + avatarDocumentId=null → initials path.
-    await asSenior.goto('/crm')
+    await asSenior.goto('/')
     const trigger = asSenior.getByTestId('header-user-menu-trigger')
     await expect(trigger).toBeVisible()
 
@@ -215,7 +215,7 @@ test.describe('AC2 — avatar fallback renders initials', () => {
     // «TA» for «TechCorp AI» (page-local getInitials = first char of first two
     // space-split words).
     const expectedInitials = getInitials(PROJECT.companyName)
-    await asAdmin.goto(`/crm/projects/${PROJECT_ID}`)
+    await asAdmin.goto(`/projects/${PROJECT_ID}`)
 
     // project-senior-share testid proves the detail page loaded its header.
     await expect(asAdmin.getByTestId('project-senior-share')).toBeVisible()
@@ -232,12 +232,10 @@ test.describe('AC2 — avatar fallback renders initials', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 test.describe('AC3 — console clean: forwardRef / nested-a / 403', () => {
-  test('/crm/finance: no «Function components cannot be given refs» warning', async ({
-    asAdmin,
-  }) => {
+  test('/finance: no «Function components cannot be given refs» warning', async ({ asAdmin }) => {
     const console_ = collectConsole(asAdmin)
     await mockTxList(asAdmin, [TX_USDT_SENIOR])
-    await asAdmin.goto('/crm/finance')
+    await asAdmin.goto('/finance')
     // Wait for the animated rows to actually mount — the forwardRef warning
     // only fires once framer-motion tries to attach a ref to each <tr>.
     await expect(asAdmin.getByTestId(`tx-row-${TX_USDT_SENIOR.id}`)).toBeVisible()
@@ -246,15 +244,13 @@ test.describe('AC3 — console clean: forwardRef / nested-a / 403', () => {
     const refWarnings = console_.messages.filter((m) =>
       /Function components cannot be given refs/i.test(m),
     )
-    expect(refWarnings, `forwardRef warnings on /crm/finance:\n${refWarnings.join('\n')}`).toEqual(
-      [],
-    )
+    expect(refWarnings, `forwardRef warnings on /finance:\n${refWarnings.join('\n')}`).toEqual([])
   })
 
-  test('/crm/team/:id: no validateDOMNesting «<a> in <a>» warning', async ({ asAdmin }) => {
+  test('/team/:id: no validateDOMNesting «<a> in <a>» warning', async ({ asAdmin }) => {
     const console_ = collectConsole(asAdmin)
     const teamId = 'team-1-id'
-    await asAdmin.goto(`/crm/team/${teamId}`)
+    await asAdmin.goto(`/team/${teamId}`)
     // The member cards are what nest the anchors — wait until they render.
     await expect(asAdmin.getByText('Участники команды')).toBeVisible()
     await expect(asAdmin.getByText(USERS.senior.displayName).first()).toBeVisible()
@@ -269,9 +265,7 @@ test.describe('AC3 — console clean: forwardRef / nested-a / 403', () => {
     ).toEqual([])
   })
 
-  test('/crm/interviews as SENIOR: no request to /api/users (gated → no 403)', async ({
-    asSenior,
-  }) => {
+  test('/interviews as SENIOR: no request to /api/users (gated → no 403)', async ({ asSenior }) => {
     // The board-selector user list is gated to ADMIN/HR. For a SENIOR the
     // query is disabled, so the request must never leave the page — that is
     // what removes the backend 403. We assert at the network layer: zero
@@ -287,7 +281,7 @@ test.describe('AC3 — console clean: forwardRef / nested-a / 403', () => {
       }
     })
 
-    await asSenior.goto('/crm/interviews')
+    await asSenior.goto('/interviews')
     // Board renders the senior's own cards without the selector.
     await expect(asSenior.getByText('Acme Corp').first()).toBeVisible()
     await asSenior.waitForTimeout(300)
@@ -352,14 +346,14 @@ test.describe('AC5 — styled 404 empty-state', () => {
   test('unknown route renders the styled NotFound with a «На главную» link', async ({
     asAdmin,
   }) => {
-    await asAdmin.goto('/crm/nonexistent-xyz')
+    await asAdmin.goto('/nonexistent-xyz')
 
     // The styled empty-state link carries a stable testid and points at /crm
-    // (Button asChild → renders the TanStack <Link> as an <a href="/crm">).
+    // (Button asChild → renders the TanStack <Link> as an <a href="/">).
     const homeLink = asAdmin.getByTestId('not-found-home-link')
     await expect(homeLink).toBeVisible()
     await expect(homeLink).toContainText('На главную')
-    await expect(homeLink).toHaveAttribute('href', '/crm')
+    await expect(homeLink).toHaveAttribute('href', '/')
     // Russian copy + 404 code — proves it's the styled state, not bare text.
     await expect(asAdmin.getByText('Страница не найдена')).toBeVisible()
     await expect(asAdmin.getByText('404')).toBeVisible()
@@ -370,10 +364,10 @@ test.describe('AC5 — styled 404 empty-state', () => {
   test('clicking «На главную» navigates back to the CRM workspace', async ({ asAdmin }) => {
     // asAdmin already mocks every CRM API call (incl. transactions), so the
     // dashboard shell that /crm lands on renders without extra stubs.
-    await asAdmin.goto('/crm/nonexistent-xyz')
+    await asAdmin.goto('/nonexistent-xyz')
     await asAdmin.getByTestId('not-found-home-link').click()
     // /crm redirects into the dashboard shell — assert we left the 404.
     await expect(asAdmin.getByText('Страница не найдена')).toHaveCount(0)
-    await expect(asAdmin).toHaveURL(/\/crm(\/|$)/)
+    await expect(asAdmin).toHaveURL(/\/(\/|$)/)
   })
 })

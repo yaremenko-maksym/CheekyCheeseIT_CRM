@@ -51,15 +51,19 @@ async function withDropTeamFixtures(page: import('@playwright/test').Page) {
 }
 
 test.describe('Drop archive cascade — AC6', () => {
-  test('ADMIN sees the «Архивировать» button on a drop-team detail page', async ({ asAdmin: page }) => {
+  test('ADMIN sees the «Архивировать» button on a drop-team detail page', async ({
+    asAdmin: page,
+  }) => {
     await withDropTeamFixtures(page)
-    await page.goto(`/crm/team/${DROP_TEAM.id}`)
+    await page.goto(`/team/${DROP_TEAM.id}`)
     await expect(page.getByTestId('team-archive-button')).toBeVisible({ timeout: 8_000 })
   })
 
-  test('Clicking «Архивировать» on a drop-team opens the archive confirm dialog with cascade copy', async ({ asAdmin: page }) => {
+  test('Clicking «Архивировать» on a drop-team opens the archive confirm dialog with cascade copy', async ({
+    asAdmin: page,
+  }) => {
     await withDropTeamFixtures(page)
-    await page.goto(`/crm/team/${DROP_TEAM.id}`)
+    await page.goto(`/team/${DROP_TEAM.id}`)
 
     await page.getByTestId('team-archive-button').click()
     // The team-archive variant uses the shared archive ArchiveConfirmDialog
@@ -69,9 +73,9 @@ test.describe('Drop archive cascade — AC6', () => {
     await expect(page.getByTestId('archive-confirm-submit')).toBeVisible()
   })
 
-  test('ADMIN can open archive dialog for DROP user from /crm/users', async ({ asAdmin: page }) => {
+  test('ADMIN can open archive dialog for DROP user from /users', async ({ asAdmin: page }) => {
     await withDropTeamFixtures(page)
-    await page.goto('/crm/users')
+    await page.goto('/users')
 
     // DROP fixture user is included in ALL_USERS — the archive button for
     // their row is the entry point per AC6 (archive дропа = cascade).
@@ -84,16 +88,20 @@ test.describe('Drop archive cascade — AC6', () => {
     await expect(page.getByTestId('archive-confirm-dialog')).toBeVisible({ timeout: 8_000 })
   })
 
-  test('SENIOR cannot trigger drop-team archive (no button rendered)', async ({ asSenior: page }) => {
+  test('SENIOR cannot trigger drop-team archive (no button rendered)', async ({
+    asSenior: page,
+  }) => {
     await withDropTeamFixtures(page)
-    await page.goto(`/crm/team/${DROP_TEAM.id}`)
+    await page.goto(`/team/${DROP_TEAM.id}`)
     // Senior should still see the read-only page but no archive controls.
     await expect(page.getByTestId('team-archive-button')).toHaveCount(0)
   })
 
-  test('Cancel on the archive confirm dialog leaves the drop-team active', async ({ asAdmin: page }) => {
+  test('Cancel on the archive confirm dialog leaves the drop-team active', async ({
+    asAdmin: page,
+  }) => {
     await withDropTeamFixtures(page)
-    await page.goto(`/crm/team/${DROP_TEAM.id}`)
+    await page.goto(`/team/${DROP_TEAM.id}`)
 
     await page.getByTestId('team-archive-button').click()
     // The shared archive dialog doesn't expose a dialog-level testid; gate

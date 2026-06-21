@@ -107,7 +107,7 @@ test.describe('AC1: search field filters document list', () => {
     await mockAuthAs(page, USERS.admin)
     await mockDocumentsList(page, ALL_DOCS)
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
 
     // Default view is list mode — switch to it explicitly for stable row counting
     await page.getByTestId('documents-view-list').click()
@@ -135,7 +135,7 @@ test.describe('AC1: search field filters document list', () => {
     await mockAuthAs(page, USERS.admin)
     await mockDocumentsList(page, ALL_DOCS)
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
     await page.getByTestId('documents-view-list').click()
     await expect(page.getByTestId('documents-counter-ALL')).toBeVisible()
 
@@ -165,7 +165,7 @@ test.describe('AC2: sort select changes document order', () => {
     await mockAuthAs(page, USERS.admin)
     await mockDocumentsList(page, ALL_DOCS)
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
     await page.getByTestId('documents-view-list').click()
     await expect(page.getByTestId('documents-counter-ALL')).toBeVisible()
 
@@ -190,7 +190,7 @@ test.describe('AC2: sort select changes document order', () => {
     // API returns: resume-a(5000) resume-b(1000) scan-x(2500) — unordered by size
     await mockDocumentsList(page, [DOC_RESUME_B, DOC_SCAN, DOC_RESUME_A])
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
     await page.getByTestId('documents-view-list').click()
     await expect(page.getByTestId('documents-counter-ALL')).toBeVisible()
 
@@ -220,7 +220,7 @@ test.describe('AC5: grid/list toggle aria-label + aria-pressed', () => {
     await mockAuthAs(page, USERS.admin)
     await mockDocumentsList(page, [])
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
 
     const listBtn = page.getByTestId('documents-view-list')
     const gridBtn = page.getByTestId('documents-view-grid')
@@ -235,7 +235,7 @@ test.describe('AC5: grid/list toggle aria-label + aria-pressed', () => {
     await mockAuthAs(page, USERS.admin)
     await mockDocumentsList(page, [])
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
 
     await page.getByTestId('documents-view-grid').click()
 

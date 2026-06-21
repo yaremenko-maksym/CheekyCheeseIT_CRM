@@ -5,8 +5,8 @@
  * and the effective-team computed view introduced in PR 3.
  *
  * Routes under test:
- * - GET /crm/projects?archived=true
- * - GET /crm/projects/:projectId (detail with admin actions + tabs)
+ * - GET /projects?archived=true
+ * - GET /projects/:projectId (detail with admin actions + tabs)
  *
  * The effective team dynamism test verifies that HR/Accountant come from the
  * senior's CURRENT team_members snapshot — not frozen at archive time.
@@ -66,24 +66,24 @@ const projectWithEffectiveTeam = {
 test.describe('Projects archive — list page tab', () => {
   // ut-25: «Показать архивных» button replaced with «Архив» tab in tabs row.
   test('ADMIN sees «Архив» tab on projects list', async ({ asAdmin: page }) => {
-    await page.goto('/crm/projects')
+    await page.goto('/projects')
     await expect(page.getByTestId('toggle-archived-projects')).toBeVisible()
   })
 
   // AC1: ADMIN sees the full status tabs row (Все | Активные | Архив).
   test('ADMIN sees full status tabs row on projects list', async ({ asAdmin: page }) => {
-    await page.goto('/crm/projects')
+    await page.goto('/projects')
     await expect(page.getByTestId('projects-status-tabs')).toBeVisible()
   })
 
   test('non-ADMIN does not see «Архив» tab on projects list', async ({ asHr: page }) => {
-    await page.goto('/crm/projects')
+    await page.goto('/projects')
     await expect(page.getByTestId('toggle-archived-projects')).not.toBeVisible()
   })
 
   // AC2: non-ADMIN sees no tabs row at all (not just the «Архив» tab).
   test('non-ADMIN does not see any status tabs row (SENIOR)', async ({ asSenior: page }) => {
-    await page.goto('/crm/projects')
+    await page.goto('/projects')
     await expect(page.getByTestId('projects-status-tabs')).not.toBeVisible()
   })
 
@@ -112,7 +112,7 @@ test.describe('Projects archive — list page tab', () => {
       })
     })
 
-    await page.goto('/crm/projects?archived=true')
+    await page.goto('/projects?archived=true')
 
     // Tabs row must not be visible
     await expect(page.getByTestId('projects-status-tabs')).not.toBeVisible()
@@ -133,7 +133,7 @@ test.describe('Projects archive — list page tab', () => {
       }),
     )
 
-    await page.goto('/crm/projects?archived=true')
+    await page.goto('/projects?archived=true')
     const card = page.getByTestId(`project-card-${archivedProject.id}`)
     await expect(card).toBeVisible()
     await expect(card).toHaveAttribute('data-archived', 'true')
@@ -164,7 +164,7 @@ test.describe('Projects archive — list page tab', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
     )
 
-    await page.goto(`/crm/projects/${archivedProject.id}`)
+    await page.goto(`/projects/${archivedProject.id}`)
     await page.getByTestId('project-unarchive-button').click()
     await unarchived
     // No cascade modal shown
@@ -205,7 +205,7 @@ test.describe('Projects archive — list page tab', () => {
       (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
     )
 
-    await page.goto(`/crm/projects/${archivedProject.id}`)
+    await page.goto(`/projects/${archivedProject.id}`)
     await page.getByTestId('project-unarchive-button').click()
 
     const cascadeBtn = page.getByTestId('cascade-unarchive-confirm')
@@ -230,7 +230,7 @@ test.describe('Project detail page — header actions + tabs', () => {
         body: JSON.stringify(projectWithEffectiveTeam),
       }),
     )
-    await page.goto(`/crm/projects/${activeProject.id}`)
+    await page.goto(`/projects/${activeProject.id}`)
     await expect(page.getByTestId('project-archive-button')).toBeVisible()
   })
 
@@ -242,7 +242,7 @@ test.describe('Project detail page — header actions + tabs', () => {
         body: JSON.stringify(projectWithEffectiveTeam),
       }),
     )
-    await page.goto(`/crm/projects/${activeProject.id}`)
+    await page.goto(`/projects/${activeProject.id}`)
     await expect(page.getByTestId('project-archive-button')).not.toBeVisible()
   })
 
@@ -256,7 +256,7 @@ test.describe('Project detail page — header actions + tabs', () => {
         body: JSON.stringify(projectWithEffectiveTeam),
       }),
     )
-    await page.goto(`/crm/projects/${activeProject.id}`)
+    await page.goto(`/projects/${activeProject.id}`)
     await expect(page.getByTestId('tab-overview')).toBeVisible()
     await expect(page.getByTestId('tab-members')).toBeVisible()
     await expect(page.getByTestId('tab-finance')).toBeVisible()
@@ -273,7 +273,7 @@ test.describe('Project detail page — header actions + tabs', () => {
       }),
     )
 
-    await page.goto(`/crm/projects/${activeProject.id}`)
+    await page.goto(`/projects/${activeProject.id}`)
     await page.getByTestId('tab-members').click()
 
     const card = page.getByTestId('effective-team-card')
@@ -323,7 +323,7 @@ test.describe('Project detail page — header actions + tabs', () => {
       }),
     )
 
-    await page.goto(`/crm/projects/${activeProject.id}`)
+    await page.goto(`/projects/${activeProject.id}`)
     await page.getByTestId('tab-members').click()
 
     const card = page.getByTestId('effective-team-card')
@@ -344,7 +344,7 @@ test.describe('Project detail page — header actions + tabs', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(archived) }),
     )
 
-    await page.goto(`/crm/projects/${archivedProject.id}`)
+    await page.goto(`/projects/${archivedProject.id}`)
     await expect(page.getByTestId('project-archived-badge')).toBeVisible()
     // ut-28: explicit Unarchive button replaces the dropdown's unarchive action.
     await expect(page.getByTestId('project-unarchive-button')).toBeVisible()
