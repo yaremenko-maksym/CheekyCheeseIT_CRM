@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Search, ArrowUpDown, ChevronDown, X, Wallet } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
-import { toast } from 'sonner'
 import type { TransactionDto, TransactionStatus } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
@@ -50,6 +49,7 @@ import { CreateTransactionDialog } from './components/dialogs/CreateTransactionD
 import { ValidateDialog } from './components/dialogs/ValidateDialog'
 import { EditSeniorIncomeDialog } from './components/dialogs/EditSeniorIncomeDialog'
 import { PaySalaryDialog } from './components/dialogs/PaySalaryDialog'
+import { SettleSeniorPayoutDialog } from './components/dialogs/SettleSeniorPayoutDialog'
 // PayoutDialog (batch payout) — re-activated by feat/finance-payout-flow (#7).
 // SENIOR manually creates a payout request by selecting one or more VALIDATED
 // SENIOR_INCOME rows. The old auto-create path on ACCOUNTANT validate has been
@@ -93,18 +93,6 @@ export const Route = createFileRoute('/crm/finance/')({
     return {}
   },
 })
-
-// Pull a human-readable message out of an axios-style error for toasts.
-function extractErrorMessage(err: unknown): string {
-  if (err && typeof err === 'object' && 'response' in err) {
-    const resp = (err as { response?: { data?: { message?: unknown } } }).response
-    const msg = resp?.data?.message
-    if (typeof msg === 'string') return msg
-    if (Array.isArray(msg)) return msg.join(', ')
-  }
-  if (err instanceof Error) return err.message
-  return 'Неизвестная ошибка'
-}
 
 // ── Shared UI primitives ───────────────────────────────────────────────────────
 
@@ -479,6 +467,9 @@ function FinancePage() {
   const [adminEditTx, setAdminEditTx] = useState<TransactionDto | null>(null)
   const [deleteTx, setDeleteTx] = useState<TransactionDto | null>(null)
   const [paySalaryTx, setPaySalaryTx] = useState<TransactionDto | null>(null)
+  // task-senior-settle-owner. SENIOR_PENDING_PAYOUT row whose «Выплатить» funding
+  // dialog is open (ADMIN/ACCOUNTANT). null = closed.
+  const [settleSeniorTx, setSettleSeniorTx] = useState<TransactionDto | null>(null)
   // PayoutDialog state — feat/finance-payout-flow (#7). SENIOR selects one or
   // more VALIDATED SENIOR_INCOME rows → POST /api/payout-requests creates a
   // single payout_request + PAYOUT row (PENDING_PAYMENT).
@@ -521,40 +512,15 @@ function FinancePage() {
     },
   })
 
-  // task-senior-settle-in-tx-row. Pay the senior their drop-project share
-  // directly from the SENIOR_PENDING_PAYOUT row (ADMIN/ACCOUNTANT only). The
-  // backend resolves the linked pending_obligation by source-transaction id and
-  // runs the idempotent settleByCompany cascade (debits the company account,
-  // inserts SENIOR_INCOME, auto-creates the invoice). Mirrors the salary pay
-  // flow but with a simple confirm instead of a funding-source dialog (the
-  // funding source is always the company account for a senior IOU).
-  const settleSeniorPayoutMutation = useMutation({
-    mutationFn: (sourceTransactionId: string) =>
-      financeApi.settleSeniorPayoutFromTransaction(sourceTransactionId),
-    onSuccess: () => {
-      toast.success('Выплата синьору проведена')
-      // Invalidate everything the settlement touches: the transactions list
-      // (the row flips + a new SENIOR_INCOME appears), profile feeds, the
-      // company-account balance / summary, and the auto-generated invoice list.
-      void qc.invalidateQueries({ queryKey: ['transactions'] })
-      void qc.invalidateQueries({ queryKey: ['profile-transactions'] })
-      void qc.invalidateQueries({ queryKey: ['pending-obligations'] })
-      void qc.invalidateQueries({ queryKey: ['finance-summary'] })
-      void qc.invalidateQueries({ queryKey: ['company-account'] })
-      void qc.invalidateQueries({ queryKey: ['invoices'] })
-    },
-    onError: (err) => toast.error(extractErrorMessage(err)),
-  })
-
-  const onSettleSeniorPayout = useCallback(
-    (tx: TransactionDto) => {
-      if (settleSeniorPayoutMutation.isPending) return
-      // Simple confirm — this moves money out of the company account.
-      if (!window.confirm('Выплатить синьору его долю с дроп-проекта?')) return
-      settleSeniorPayoutMutation.mutate(tx.id)
-    },
-    [settleSeniorPayoutMutation],
-  )
+  // task-senior-settle-owner. Pay the senior their drop-project share directly
+  // from the SENIOR_PENDING_PAYOUT row (ADMIN/ACCOUNTANT only). The «Выплатить»
+  // button now opens SettleSeniorPayoutDialog — the SAME funding-source picker as
+  // the SALARY pay flow (Счёт компании vs an admin partner + currency). The
+  // dialog owns the settle mutation + the idempotent backend cascade; here we
+  // just track which row's dialog is open.
+  const onSettleSeniorPayout = useCallback((tx: TransactionDto) => {
+    setSettleSeniorTx(tx)
+  }, [])
 
   const canCreate = isAdmin || isSenior || isDrop || isAccountant
 
@@ -870,6 +836,8 @@ function FinancePage() {
           <EditSeniorIncomeDialog tx={editTx} onClose={() => setEditTx(null)} />
           <AdminEditTransactionDialog tx={adminEditTx} onClose={() => setAdminEditTx(null)} />
           <PaySalaryDialog tx={paySalaryTx} onClose={() => setPaySalaryTx(null)} />
+          {/* task-senior-settle-owner: senior IOU pay dialog (salary-style funding). */}
+          <SettleSeniorPayoutDialog tx={settleSeniorTx} onClose={() => setSettleSeniorTx(null)} />
           {/* feat/finance-payout-flow (#7): PayoutDialog re-activated. SENIOR
           selects one or more VALIDATED SENIOR_INCOME rows → single payout. */}
           <PayoutDialog

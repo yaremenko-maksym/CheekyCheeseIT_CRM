@@ -20,6 +20,7 @@ import type {
   ConfirmPayoutDto,
   BalanceDto,
   SettleObligationResponseDto,
+  SettleSeniorPayoutDto,
   CompanyAccountDto,
   CompanyDepositDto,
   DepositStatusDto,
@@ -155,11 +156,15 @@ export const financeApi = {
   // `listSeniorPendingSettlements` / `listCompanyPendingSettlements` /
   // `settleObligationByCompany` (obligation-id) wrappers were removed with the
   // settlement cards.
-  settleSeniorPayoutFromTransaction: (sourceTransactionId: string) =>
+  // task-senior-settle-owner: the body now carries the pay-time funding choice
+  // (mirrors paySalary) — COMPANY_ACCOUNT (default, USDT) or ADMIN_PERSONAL with
+  // the paying admin + currency. The backend resolves the linked pending
+  // obligation and runs the idempotent, ADMIN/ACCOUNTANT-only settle cascade.
+  settleSeniorPayoutFromTransaction: (sourceTransactionId: string, data: SettleSeniorPayoutDto) =>
     api
       .post<SettleObligationResponseDto>(
         `/pending-settlements/by-source-transaction/${sourceTransactionId}/settle-company`,
-        {},
+        data,
       )
       .then((r) => r.data),
 }
