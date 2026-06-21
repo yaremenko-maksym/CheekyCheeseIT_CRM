@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils'
  *
  * Reference impl (this generalises the pattern):
  *   apps/web/app/components/users/UserDialog.tsx (payment method, PR #33)
- *   apps/web/app/routes/crm/users/index.tsx (users list layout)
+ *   apps/web/app/routes/_authenticated/users/index.tsx (users list layout)
  *
  * Accessibility:
  *   - role="radiogroup" on the container with provided `ariaLabel`

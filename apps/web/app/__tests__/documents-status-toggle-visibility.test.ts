@@ -1,6 +1,6 @@
 /**
  * documents-status-toggle-visibility — unit test for the RBAC rule:
- * the status SegmentedToggle (Все / Активные / Архив) on /crm/documents
+ * the status SegmentedToggle (Все / Активные / Архив) on /documents
  * is rendered ONLY for ADMIN. All other roles see only active documents
  * and the toggle is hidden entirely.
  *

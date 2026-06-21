@@ -1,6 +1,6 @@
 /**
  * documents-filter-sort.ts — pure, side-effect-free helpers for the
- * /crm/documents search and sort toolbar (AC6, task-documents-search-sort).
+ * /documents search and sort toolbar (AC6, task-documents-search-sort).
  *
  * Both functions return a NEW array and never mutate their input.
  * They operate on the already RBAC-filtered list returned by useDocuments()

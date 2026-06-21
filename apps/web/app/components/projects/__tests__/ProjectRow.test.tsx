@@ -2,8 +2,8 @@
  * ProjectRow — inner-link interaction tests.
  *
  * Covers task-fix-pr34-user-testing-round8 acceptance criteria:
- *   AC-1. Senior name renders as <a href="/crm/profile/<seniorId>"> с hover:underline.
- *   AC-2. First active junior name renders as <a href="/crm/profile/<juniorId>"> когда есть джун.
+ *   AC-1. Senior name renders as <a href="/profile/<seniorId>"> с hover:underline.
+ *   AC-2. First active junior name renders as <a href="/profile/<juniorId>"> когда есть джун.
  *   AC-3. Клик по имени синьора/джуна НЕ переходит на детальку проекта (stopPropagation).
  *   AC-4. Когда джунов нет — junior-link отсутствует, отображается «Нет джуна».
  *
@@ -99,24 +99,24 @@ function renderProjectRow(project: ProjectDto) {
 }
 
 describe('ProjectRow — clickable senior/junior names', () => {
-  it('AC-1: renders senior name as a link to /crm/profile/:seniorId', async () => {
+  it('AC-1: renders senior name as a link to /profile/:seniorId', async () => {
     const project = makeProject()
     renderProjectRow(project)
 
     const link = await screen.findByTestId(`project-row-${project.id}-senior-link`)
     expect(link.tagName).toBe('A')
-    expect(link).toHaveAttribute('href', `/crm/profile/${SENIOR_ID}`)
+    expect(link).toHaveAttribute('href', `/profile/${SENIOR_ID}`)
     expect(link).toHaveTextContent('Senior One')
     expect(link.className).toContain('hover:underline')
   })
 
-  it('AC-2: renders first active junior name as a link to /crm/profile/:juniorId', async () => {
+  it('AC-2: renders first active junior name as a link to /profile/:juniorId', async () => {
     const project = makeProject()
     renderProjectRow(project)
 
     const link = await screen.findByTestId(`project-row-${project.id}-junior-link`)
     expect(link.tagName).toBe('A')
-    expect(link).toHaveAttribute('href', `/crm/profile/${JUNIOR_ID}`)
+    expect(link).toHaveAttribute('href', `/profile/${JUNIOR_ID}`)
     expect(link).toHaveTextContent('Junior One')
   })
 
@@ -132,7 +132,7 @@ describe('ProjectRow — clickable senior/junior names', () => {
 
   it('AC-3: senior link onClick stops synthetic React event propagation', async () => {
     // The row's stretched-link uses a ::before overlay tied to the company-name
-    // `<a>` (`/crm/projects/$projectId`). The senior link sits at z-[2] (above
+    // `<a>` (`/projects/$projectId`). The senior link sits at z-[2] (above
     // the overlay's z-[1]) so it captures the click. Additionally, the onClick
     // handler calls `e.stopPropagation()` as defensive protection — verified
     // by listening on a React-synthetic wrapper and asserting it never fires.
@@ -183,7 +183,7 @@ describe('ProjectRow — clickable senior/junior names', () => {
     renderProjectRow(project)
 
     const link = await screen.findByTestId(`project-row-${project.id}-junior-link`)
-    expect(link).toHaveAttribute('href', `/crm/profile/00000000-0000-0000-0000-0000000000c2`)
+    expect(link).toHaveAttribute('href', `/profile/00000000-0000-0000-0000-0000000000c2`)
     expect(link).toHaveTextContent('Junior Two')
   })
 })

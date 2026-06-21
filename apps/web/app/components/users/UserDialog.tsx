@@ -442,7 +442,7 @@ export function UserDialog(props: UserDialogProps) {
       props.onClose()
       const newTeamId = res.data.team?.id
       if (newTeamId) {
-        void navigate({ to: '/crm/team/$teamId', params: { teamId: newTeamId } })
+        void navigate({ to: '/team/$teamId', params: { teamId: newTeamId } })
       }
     },
     onError: (err: AxiosError<{ message?: string }>) => {
@@ -2007,7 +2007,7 @@ export function UserDialog(props: UserDialogProps) {
                             </div>
                           )}
                           <Link
-                            to="/crm/projects"
+                            to="/projects"
                             className="text-xs text-primary hover:underline mt-1 inline-block"
                             onClick={() => props.onClose()}
                           >

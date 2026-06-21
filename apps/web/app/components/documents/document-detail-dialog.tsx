@@ -375,7 +375,7 @@ export function DocumentDetailDialog({
                     label="Проект"
                     value={
                       <Link
-                        to="/crm/projects/$projectId"
+                        to="/projects/$projectId"
                         params={{ projectId: doc.projectId }}
                         className="text-primary hover:underline focus:outline-none focus-visible:underline"
                         data-testid="document-detail-project-link"

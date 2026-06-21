@@ -100,7 +100,7 @@ function ProjectRow({ p }: { p: ProjectListItem }) {
   const isArchived = p.archivedAt !== null
   return (
     <Link
-      to="/crm/projects/$projectId"
+      to="/projects/$projectId"
       params={{ projectId: p.id }}
       className="flex items-center gap-3 rounded border p-3 transition-colors hover:bg-accent"
     >
@@ -125,10 +125,7 @@ function ProjectRow({ p }: { p: ProjectListItem }) {
         <p className="font-mono text-sm">
           {p.rate} {p.currency}
         </p>
-        <Badge
-          variant={isArchived ? 'outline' : 'default'}
-          className="mt-1 text-xs"
-        >
+        <Badge variant={isArchived ? 'outline' : 'default'} className="mt-1 text-xs">
           {isArchived ? 'В архиве' : 'Активен'}
         </Badge>
       </div>

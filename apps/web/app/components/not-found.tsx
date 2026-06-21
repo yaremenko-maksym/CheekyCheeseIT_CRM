@@ -20,7 +20,7 @@ export function NotFound() {
         Возможно, ссылка устарела или страница была перемещена.
       </p>
       <Button asChild className="mt-6" data-testid="not-found-home-link">
-        <Link to="/crm">
+        <Link to="/">
           <Home className="mr-2 h-4 w-4" />
           На главную
         </Link>

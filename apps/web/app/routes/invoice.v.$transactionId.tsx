@@ -10,7 +10,7 @@
  * Implementation notes:
  *   - File path uses TanStack Router's flat-route dot notation:
  *       routes/invoice.v.$transactionId.tsx  →  /invoice/v/:transactionId
- *     This puts it outside the `/crm` layout (no AuthProvider), so there is
+ *     This puts it outside the `/` layout (no AuthProvider), so there is
  *     no redirect-to-login wrapper.
  *   - Uses raw `fetch` instead of the shared `axios` instance — `api` carries
  *     credentials and a 401 interceptor that would push the user to /login.
@@ -21,12 +21,7 @@ import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
-import {
-  AlertCircle,
-  CheckCircle2,
-  FileSignature,
-  ShieldCheck,
-} from 'lucide-react'
+import { AlertCircle, CheckCircle2, FileSignature, ShieldCheck } from 'lucide-react'
 import type { InvoiceVerifyResponse } from '@crm/shared'
 import { BrandMark } from '@/components/brand-mark'
 import { Badge } from '@/components/ui/badge'
@@ -81,7 +76,7 @@ const ROLE_LABEL: Record<InvoiceVerifyResponse['signatures'][number]['role'], st
 
 function fmtDateTime(iso: string): string {
   try {
-    return format(new Date(iso), "d MMM yyyy, HH:mm:ss", { locale: ru })
+    return format(new Date(iso), 'd MMM yyyy, HH:mm:ss', { locale: ru })
   } catch {
     return iso
   }
@@ -119,12 +114,8 @@ function PublicVerifyPage() {
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-4 sm:px-6">
           <BrandMark className="h-9 w-9 text-primary" />
           <div>
-            <h1 className="text-base font-semibold tracking-tight">
-              CheekyCheese IT
-            </h1>
-            <p className="text-xs text-muted-foreground">
-              Публичная верификация инвойса
-            </p>
+            <h1 className="text-base font-semibold tracking-tight">CheekyCheese IT</h1>
+            <p className="text-xs text-muted-foreground">Публичная верификация инвойса</p>
           </div>
         </div>
       </header>
@@ -175,15 +166,12 @@ function ErrorState({ message }: { message: string }) {
       className="flex flex-col items-center justify-center rounded-xl border border-destructive/30 bg-destructive/5 p-12 text-center"
     >
       <AlertCircle className="h-12 w-12 text-destructive" />
-      <h2
-        className="mt-4 text-lg font-semibold"
-        data-testid="invoice-verify-error-message"
-      >
+      <h2 className="mt-4 text-lg font-semibold" data-testid="invoice-verify-error-message">
         {message}
       </h2>
       <p className="mt-2 max-w-md text-sm text-muted-foreground">
-        Проверьте корректность ссылки или QR-кода. Если документ существует —
-        возможно, он ещё не сгенерирован.
+        Проверьте корректность ссылки или QR-кода. Если документ существует — возможно, он ещё не
+        сгенерирован.
       </p>
     </motion.div>
   )
@@ -215,16 +203,10 @@ function VerifiedState({ data }: { data: InvoiceVerifyResponse }) {
         <div
           className={cn(
             'flex h-16 w-16 shrink-0 items-center justify-center rounded-full',
-            isSigned
-              ? 'bg-emerald-500/20 text-emerald-300'
-              : 'bg-amber-500/20 text-amber-300',
+            isSigned ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300',
           )}
         >
-          {isSigned ? (
-            <ShieldCheck className="h-9 w-9" />
-          ) : (
-            <FileSignature className="h-9 w-9" />
-          )}
+          {isSigned ? <ShieldCheck className="h-9 w-9" /> : <FileSignature className="h-9 w-9" />}
         </div>
         <div className="mt-4 sm:mt-0">
           <h2
@@ -287,24 +269,16 @@ function VerifiedState({ data }: { data: InvoiceVerifyResponse }) {
       {/* Signatures */}
       <Card>
         <CardHeader>
-          <CardTitle
-            className="text-base"
-            data-testid="invoice-verify-signatures-count"
-          >
+          <CardTitle className="text-base" data-testid="invoice-verify-signatures-count">
             Подписи ({data.signatures.length} из 2)
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           {data.signatures.length === 0 ? (
-            <p className="px-6 pb-6 text-sm text-muted-foreground">
-              Подписи отсутствуют
-            </p>
+            <p className="px-6 pb-6 text-sm text-muted-foreground">Подписи отсутствуют</p>
           ) : (
             <div className="overflow-x-auto">
-              <table
-                className="w-full text-sm"
-                data-testid="invoice-verify-signatures-table"
-              >
+              <table className="w-full text-sm" data-testid="invoice-verify-signatures-table">
                 <thead>
                   <tr className="border-b border-border/50 text-left text-xs text-muted-foreground">
                     <th className="px-6 py-2 font-medium">Сторона</th>
@@ -315,13 +289,8 @@ function VerifiedState({ data }: { data: InvoiceVerifyResponse }) {
                 </thead>
                 <tbody>
                   {data.signatures.map((s, i) => (
-                    <tr
-                      key={`${s.role}-${i}`}
-                      className="border-b border-border/30 last:border-0"
-                    >
-                      <td className="px-6 py-3 font-medium">
-                        {ROLE_LABEL[s.role]}
-                      </td>
+                    <tr key={`${s.role}-${i}`} className="border-b border-border/30 last:border-0">
+                      <td className="px-6 py-3 font-medium">{ROLE_LABEL[s.role]}</td>
                       <td className="px-6 py-3">{s.signerName}</td>
                       <td className="px-6 py-3 text-xs text-muted-foreground">
                         {fmtDateTime(s.signedAt)}
@@ -343,13 +312,7 @@ function VerifiedState({ data }: { data: InvoiceVerifyResponse }) {
   )
 }
 
-function DetailRow({
-  label,
-  value,
-}: {
-  label: string
-  value: React.ReactNode
-}) {
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/30 pb-2 last:border-0 last:pb-0">
       <span className="text-xs text-muted-foreground">{label}</span>

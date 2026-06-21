@@ -20,7 +20,7 @@ export const JUNIOR_PROJECTS_QUERY_KEY = ['junior', 'projects'] as const
 /**
  * JUNIOR-facing hook for fetching the current user's projects.
  *
- * Used on both /crm/project (hub) and /crm/legend to derive activeProject.
+ * Used on both /project (hub) and /legend to derive activeProject.
  * See query-key comment above for persist-isolation rationale.
  */
 export function useJuniorProjects() {

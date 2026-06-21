@@ -8,7 +8,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
  * (tosUpdateAvailable=true).
  *
  * The banner is NOT dismissible — it persists until the user reads and
- * accepts the new version via /crm/onboarding?step=tos.
+ * accepts the new version via /onboarding?step=tos.
  */
 export function TosUpdateBanner() {
   return (
@@ -20,7 +20,7 @@ export function TosUpdateBanner() {
       <AlertDescription className="flex items-center gap-2 text-sm">
         Опубликована новая версия Terms of Service.{' '}
         <Link
-          to="/crm/onboarding"
+          to="/onboarding"
           search={{ step: 'tos' }}
           className="font-medium text-primary underline-offset-2 hover:underline"
           data-testid="tos-update-banner-link"

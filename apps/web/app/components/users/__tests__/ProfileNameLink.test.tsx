@@ -3,7 +3,7 @@
  *
  * task-drop-profile-lockdown (RBAC, OWASP A01): DROP has NO access to any other
  * user's profile. ProfileNameLink renders the name as PLAIN TEXT (no anchor) for
- * a DROP viewer and as a navigable <Link to="/crm/profile/$userId"> for every
+ * a DROP viewer and as a navigable <Link to="/profile/$userId"> for every
  * other role.
  *
  * task-senior-ui-followups §3a: SENIOR is also in the plain-text gate — the
@@ -64,12 +64,12 @@ describe('ProfileNameLink', () => {
   })
 
   it.each<Role>(['ADMIN', 'HR', 'ACCOUNTANT', 'JUNIOR'])(
-    '%s viewer — renders a profile <Link> to /crm/profile/$userId',
+    '%s viewer — renders a profile <Link> to /profile/$userId',
     async (role) => {
       renderForRole(role)
       const el = await screen.findByTestId('profile-name-link')
       expect(el.tagName).toBe('A')
-      expect(el).toHaveAttribute('href', `/crm/profile/${TARGET_ID}`)
+      expect(el).toHaveAttribute('href', `/profile/${TARGET_ID}`)
       expect(el).toHaveTextContent('Иван Иванов')
     },
   )

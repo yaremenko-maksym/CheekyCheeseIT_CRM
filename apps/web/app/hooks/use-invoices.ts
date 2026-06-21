@@ -121,7 +121,7 @@ export function useInvoice(
  *     either already marked read by the deep link or remains unread; the
  *     refetch keeps the badge in sync)
  *   - invalidate documents (signing creates a new signed PDF and soft-deletes
- *     the unsigned one — `/crm/documents?category=INVOICE` must auto-refresh
+ *     the unsigned one — `/documents?category=INVOICE` must auto-refresh
  *     without a full page reload)
  *
  * The mutation deliberately throws on error so the dialog component can

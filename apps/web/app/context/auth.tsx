@@ -39,7 +39,7 @@ export function AuthProvider({ children, skip }: { children: ReactNode; skip?: b
   // IndexedDB cache.  During this window the ['auth','me'] query has
   // status:'pending'/fetchStatus:'idle' (not yet fetched) — if we treated
   // isLoading=false + data=undefined as "no user", CrmLayout would redirect
-  // to /crm/login before the real /api/auth/me response arrives.
+  // to /login before the real /api/auth/me response arrives.
   //
   // Fix (Option A — centralised): expose isRestoring via isLoading so every
   // consumer (CrmLayout guard, etc.) automatically waits for the restore to

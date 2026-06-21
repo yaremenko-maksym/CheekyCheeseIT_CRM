@@ -33,7 +33,7 @@ const DATE_FORMAT_OPTS: Intl.DateTimeFormatOptions = {
 }
 
 /**
- * Horizontal row-list layout for the /crm/projects page (ut-41 + ut-42).
+ * Horizontal row-list layout for the /projects page (ut-41 + ut-42).
  *
  * Pattern mirrors `UserRow` (apps/web/app/components/users/UserRow.tsx):
  *  - Stretched-link via ::before pseudo-element: the entire row is clickable
@@ -94,7 +94,7 @@ export function ProjectRow({ project, viewerRole }: ProjectRowProps) {
               {/* Stretched-link pattern: ::before fills the row so any click in
                   non-actionable space navigates to the detail page. */}
               <Link
-                to="/crm/projects/$projectId"
+                to="/projects/$projectId"
                 params={{ projectId: project.id }}
                 aria-label={`Открыть проект ${project.companyName}`}
                 className={cn(
@@ -126,7 +126,7 @@ export function ProjectRow({ project, viewerRole }: ProjectRowProps) {
                     stopPropagation страховка на случай если bubbling доберётся до
                     row-level click handler в будущем. */}
                 <Link
-                  to="/crm/profile/$userId"
+                  to="/profile/$userId"
                   params={{ userId: project.seniorId }}
                   onClick={(e) => e.stopPropagation()}
                   data-testid={`project-row-${project.id}-senior-link`}
@@ -166,7 +166,7 @@ export function ProjectRow({ project, viewerRole }: ProjectRowProps) {
                     next to the name when present. */}
                 <div className="text-xs font-medium truncate">
                   <Link
-                    to="/crm/profile/$userId"
+                    to="/profile/$userId"
                     params={{ userId: firstJunior.userId }}
                     onClick={(e) => e.stopPropagation()}
                     data-testid={`project-row-${project.id}-junior-link`}

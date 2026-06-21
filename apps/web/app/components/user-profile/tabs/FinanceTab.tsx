@@ -17,10 +17,14 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/axios'
 import { useAuth } from '@/context/auth'
 import { formatAmount } from '@/lib/format-amount'
-import { financeApi } from '@/routes/crm/finance/api'
-import { STATUS_LABELS, TYPE_LABELS, type ExchangeRates } from '@/routes/crm/finance/constants'
-import { TransactionRow } from '@/routes/crm/finance/components/TransactionRow'
-import { TransactionDetailDialog } from '@/routes/crm/finance/components/dialogs/TransactionDetailDialog'
+import { financeApi } from '@/routes/_authenticated/finance/api'
+import {
+  STATUS_LABELS,
+  TYPE_LABELS,
+  type ExchangeRates,
+} from '@/routes/_authenticated/finance/constants'
+import { TransactionRow } from '@/routes/_authenticated/finance/components/TransactionRow'
+import { TransactionDetailDialog } from '@/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog'
 
 const TYPE_OPTIONS = Object.entries(TYPE_LABELS).map(([value, label]) => ({ value, label }))
 const STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }))
@@ -28,7 +32,7 @@ const STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ 
 /**
  * Finance tab inside the user profile.
  *
- * Reuses the /crm/finance TransactionRow + TransactionDetailDialog so the
+ * Reuses the /finance TransactionRow + TransactionDetailDialog so the
  * list / row layout / detail dialog match the dedicated finance page. We
  * filter the transactions client-side by sender/receiver matching the
  * profile owner so the same component works for any viewer (ADMIN sees
@@ -158,7 +162,7 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
         {earnedCard}
         {/* task-senior-settle-in-tx-row: DROP no longer holds debts to
             seniors — section removed. The company settles the senior IOU from
-            the SENIOR_PENDING_PAYOUT row in the /crm/finance transactions
+            the SENIOR_PENDING_PAYOUT row in the /finance transactions
             list (the dedicated settlement cards were removed). */}
         <Card>
           <CardContent className="py-8 text-center text-sm text-muted-foreground">

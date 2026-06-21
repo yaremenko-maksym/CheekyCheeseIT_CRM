@@ -27,7 +27,7 @@ export function formatAmount(value: string | number, currency: string): string {
  * grouping (1,000.00). Output shape: `$3,500.00 USDT`.
  *
  * Introduced for Phase 4-B round 2 — the FinanceTab «Приходы, ожидающие
- * оплаты компании» list and the pending-cash card on /crm/finance both
+ * оплаты компании» list and the pending-cash card on /finance both
  * surface drop incomes in this shape. We keep the original `formatAmount`
  * (ru-RU locale) untouched so existing invoice / notification surfaces
  * don't change. Non-finite inputs fall back to a raw `"${value} ${currency}"`

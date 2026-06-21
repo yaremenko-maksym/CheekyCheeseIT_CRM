@@ -17,11 +17,11 @@ export type Role = SessionUser['role']
 const ALL_ROLES: readonly Role[] = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
 
 /**
- * Роли, видящие nav-пункт «Дашборд» (ведёт на корень `/crm`).
+ * Роли, видящие nav-пункт «Дашборд» (ведёт на корень `/`).
  *
- * Это НЕ запись route-access: сам `/crm` — fail-open (доступен всем, см. ROUTE_ACCESS),
+ * Это НЕ запись route-access: сам `/` — fail-open (доступен всем, см. ROUTE_ACCESS),
  * а вот пункт меню скрыт для JUNIOR (у них свой хаб «Мой проект»). Набор повторяет
- * роли удалённого роута `/crm/dashboard`. Источник истины для NAV_ITEMS «Дашборд».
+ * роли удалённого роута `/dashboard`. Источник истины для NAV_ITEMS «Дашборд».
  */
 export const DASHBOARD_NAV_ROLES: readonly Role[] = ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'DROP']
 
@@ -30,7 +30,7 @@ export const DASHBOARD_NAV_ROLES: readonly Role[] = ['ADMIN', 'SENIOR', 'HR', 'A
  *
  * Порядок важен: `resolveRouteAccess` берёт САМЫЙ ДЛИННЫЙ совпавший префикс
  * (longest-prefix match), чтобы под-роут мог сузить/переопределить родителя
- * при необходимости. Под-роуты (`/crm/projects/$id`, `/crm/team/$id`)
+ * при необходимости. Под-роуты (`/projects/$id`, `/team/$id`)
  * наследуют доступ родителя через prefix-match — отдельно перечислять не нужно.
  *
  * Источник истины ролей синхронизирован с боковой навигацией: NAV_ITEMS
@@ -38,68 +38,68 @@ export const DASHBOARD_NAV_ROLES: readonly Role[] = ['ADMIN', 'SENIOR', 'HR', 'A
  */
 const ROUTE_ACCESS: ReadonlyArray<{ prefix: string; roles: readonly Role[] }> = [
   // JUNIOR hub + легенда — только JUNIOR.
-  { prefix: '/crm/project', roles: ['JUNIOR'] },
-  { prefix: '/crm/legend', roles: ['JUNIOR'] },
+  { prefix: '/project', roles: ['JUNIOR'] },
+  { prefix: '/legend', roles: ['JUNIOR'] },
 
-  // DROP hub redirect (старый URL — редирект на /crm) — только DROP.
-  { prefix: '/crm/routing', roles: ['DROP'] },
+  // DROP hub redirect (старый URL — редирект на /) — только DROP.
+  { prefix: '/routing', roles: ['DROP'] },
 
-  // Дашборд консолидирован на корень `/crm` (index.tsx): он рендерит роль-зависимый
+  // Дашборд консолидирован на корень `/` (index.tsx): он рендерит роль-зависимый
   // контент (DROP → платёжный хаб, ACCOUNTANT → финхаб, HR → рекрутинг-хаб, ADMIN/
-  // SENIOR → дженерик). `/crm` НЕ заводится записью в карте намеренно: корень — это
-  // fail-open служебный путь (как /crm/login), доступен ВСЕМ аутентифицированным
-  // ролям включая DROP (AC5). JUNIOR на `/crm` редиректится index.tsx → /crm/project.
+  // SENIOR → дженерик). `/` НЕ заводится записью в карте намеренно: корень — это
+  // fail-open служебный путь (как /login), доступен ВСЕМ аутентифицированным
+  // ролям включая DROP (AC5). JUNIOR на `/` редиректится index.tsx → /project.
   // Видимость nav-пункта «Дашборд» задаётся отдельной константой DASHBOARD_NAV_ROLES
-  // (роли != route-access: nav скрыт для JUNIOR, но сам /crm для JUNIOR не 403).
-  // Отдельного роута `/crm/dashboard` больше нет — запись удалена.
+  // (роли != route-access: nav скрыт для JUNIOR, но сам / для JUNIOR не 403).
+  // Отдельного роута `/dashboard` больше нет — запись удалена.
 
   // Пользователи — только ADMIN.
-  { prefix: '/crm/users', roles: ['ADMIN'] },
+  { prefix: '/users', roles: ['ADMIN'] },
   // Статистика — ADMIN (всё) + ACCOUNTANT (только экономическая часть; секции
   // балансов сотрудников и плейсхолдеры HR/Команда/Проекты гейтятся ADMIN-only
   // внутри stats.tsx — route-access лишь открывает раздел бухгалтеру).
-  { prefix: '/crm/stats', roles: ['ADMIN', 'ACCOUNTANT'] },
+  { prefix: '/stats', roles: ['ADMIN', 'ACCOUNTANT'] },
 
   // Команда — ADMIN/SENIOR/HR/ACCOUNTANT/DROP (DROP видит свою команду).
-  { prefix: '/crm/team', roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'DROP'] },
+  { prefix: '/team', roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'DROP'] },
 
   // Проекты (список + деталь $projectId) — без JUNIOR/DROP.
-  { prefix: '/crm/projects', roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'] },
+  { prefix: '/projects', roles: ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'] },
 
   // Собеседования — ADMIN/SENIOR/HR.
-  { prefix: '/crm/interviews', roles: ['ADMIN', 'SENIOR', 'HR'] },
+  { prefix: '/interviews', roles: ['ADMIN', 'SENIOR', 'HR'] },
 
   // Финансы — все роли. (Счёт компании теперь карточка на этой странице для
   // ADMIN/ACCOUNTANT, отдельного роута нет — Phase 8 v2.)
-  { prefix: '/crm/finance', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] },
+  { prefix: '/finance', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] },
 
   // Документы — все роли включая DROP (DROP видит свою страницу документов, не профиль-таб).
-  { prefix: '/crm/documents', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] },
+  { prefix: '/documents', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] },
 
   // Профиль (свой + чужой $userId) — все роли (RBAC видимости решается на backend).
-  { prefix: '/crm/profile', roles: ALL_ROLES },
+  { prefix: '/profile', roles: ALL_ROLES },
 
   // Платежи (инициация выплаты) — те же, кто видит финансы.
-  { prefix: '/crm/payments', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] },
+  { prefix: '/payments', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] },
 
   // Админ-шаблоны (контракты / ToS) — только ADMIN.
-  { prefix: '/crm/admin', roles: ['ADMIN'] },
+  { prefix: '/admin', roles: ['ADMIN'] },
 
   // Онбординг — доступен всем аутентифицированным (гейт по статусу отдельно).
-  { prefix: '/crm/onboarding', roles: ALL_ROLES },
+  { prefix: '/onboarding', roles: ALL_ROLES },
 ]
 
 /**
  * Дом роли — куда редиректим, если роль попала на запрещённый роут.
  * JUNIOR → хаб «Мой проект»; все остальные роли (вкл. DROP/ACCOUNTANT/HR) → корень
- * `/crm`, который рендерит роль-зависимый дашборд (консолидация роутинга).
+ * `/`, который рендерит роль-зависимый дашборд (консолидация роутинга).
  */
 export function resolveRoleHome(role: Role): string {
   switch (role) {
     case 'JUNIOR':
-      return '/crm/project'
+      return '/project'
     default:
-      return '/crm'
+      return '/'
   }
 }
 
@@ -109,7 +109,7 @@ export function resolveRoleHome(role: Role): string {
  * fail-open для незакартированных служебных путей; новые разделы добавлять сюда).
  *
  * Экспортируется для coverage-инварианта (route-access.spec.ts): тест проверяет,
- * что каждый файл-роут под routes/crm/** имеет запись в ROUTE_ACCESS, иначе
+ * что каждый файл-роут под routes/_authenticated/** имеет запись в ROUTE_ACCESS, иначе
  * забытая запись = тихий fail-open (LOW-7). `null` в тесте = красный, а не зелёный.
  */
 export function resolveRouteAccess(pathname: string): readonly Role[] | null {
@@ -125,7 +125,7 @@ export function resolveRouteAccess(pathname: string): readonly Role[] | null {
 
 /**
  * Разрешён ли роль доступ к данному CRM-пути.
- * - Путь вне карты → `true` (fail-open для служебных, напр. /crm/login, /crm root index).
+ * - Путь вне карты → `true` (fail-open для служебных, напр. /login, / root index).
  * - Путь в карте → проверка членства роли.
  */
 export function isRouteAllowed(pathname: string, role: Role): boolean {

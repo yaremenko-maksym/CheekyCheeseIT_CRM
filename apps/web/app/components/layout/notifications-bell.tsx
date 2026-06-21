@@ -95,17 +95,22 @@ export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
     if (item.link) {
       // The notification.link is a relative front-end path stored as a
       // VARCHAR(500). Backend invoice notifications now emit
-      // `/crm/documents?category=INVOICE&openTx=<txId>` — opens the
-      // `/crm/documents` page with the INVOICE category filter active and
+      // `/documents?category=INVOICE&openTx=<txId>` — opens the
+      // `/documents` page with the INVOICE category filter active and
       // the invoice dialog auto-popped via the `openTx` deep-link param.
       //
-      // Legacy compat: older notifications stored before batch 2 still use
-      // `/crm/finance/invoices/<txId>` (path-style). We rewrite both shapes
-      // here so historic rows still navigate to the new page.
+      // Legacy compat (CRM re-root /crm/* → /*): historic rows stored before
+      // the re-root carry a leading `/crm` prefix — strip it so they resolve
+      // against the new root-mounted routes. Even older rows (before batch 2)
+      // use the path-style `/crm/finance/invoices/<txId>`; we rewrite that
+      // shape to the documents deep-link first, then prefix-strip handles the
+      // remaining `/crm/*` links generically.
       let target = item.link
-      const m = target.match(/^\/crm\/finance\/invoices\/([0-9a-f-]{36})$/i)
-      if (m) {
-        target = `/crm/documents?category=INVOICE&openTx=${m[1]}`
+      const legacyInvoice = target.match(/^\/crm\/finance\/invoices\/([0-9a-f-]{36})$/i)
+      if (legacyInvoice) {
+        target = `/documents?category=INVOICE&openTx=${legacyInvoice[1]}`
+      } else if (target === '/crm' || target.startsWith('/crm/')) {
+        target = target.slice('/crm'.length) || '/'
       }
       try {
         // `navigate` accepts `to: string` for non-typed paths.

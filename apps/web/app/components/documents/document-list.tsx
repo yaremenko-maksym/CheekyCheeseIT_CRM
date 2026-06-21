@@ -2,7 +2,7 @@
  * DocumentList — grid of DocumentCard, or skeleton/empty state.
  *
  * Renders the empty state slot supplied by the parent (so the Receipts tab
- * can replace it with a link to /crm/finance). Uploader display names are
+ * can replace it with a link to /finance). Uploader display names are
  * embedded in each document DTO (API LEFT JOIN), so no precomputed map is
  * needed any more.
  */

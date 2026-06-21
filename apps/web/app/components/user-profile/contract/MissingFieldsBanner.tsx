@@ -46,7 +46,7 @@ export function MissingFieldsBanner({ missingVariables, userId }: MissingFieldsB
             ))}
           </ul>
           <a
-            href={`/crm/profile/${userId}?tab=requisites`}
+            href={`/profile/${userId}?tab=requisites`}
             className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-400 underline underline-offset-2 hover:no-underline"
             data-testid="fill-in-profile-link"
           >

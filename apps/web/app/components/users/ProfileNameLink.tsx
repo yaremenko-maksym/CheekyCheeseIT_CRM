@@ -4,7 +4,7 @@
  *
  * task-drop-profile-lockdown (RBAC, OWASP A01): DROP has NO access to any other
  * user's profile (the backend returns 403 for DROP→non-self). Surfacing a
- * `<Link to="/crm/profile/$userId">` for a DROP viewer would be a dead/forbidden
+ * `<Link to="/profile/$userId">` for a DROP viewer would be a dead/forbidden
  * navigation that leaks the existence of a profile surface. For DROP viewers we
  * therefore render the name as PLAIN TEXT — no anchor, no navigation. Every other
  * role keeps the profile link exactly as before.
@@ -35,7 +35,7 @@ import { cn } from '@/lib/utils'
 
 interface ProfileNameLinkProps {
   /**
-   * Target user's id — used for the /crm/profile/$userId link.
+   * Target user's id — used for the /profile/$userId link.
    *
    * LOW fix: when `nonNavigable=true` the component renders a plain `<span>`
    * and `userId` is never used. Callers should omit it (or pass `undefined`)
@@ -100,7 +100,7 @@ export function ProfileNameLink({
 
   return (
     <Link
-      to="/crm/profile/$userId"
+      to="/profile/$userId"
       params={{ userId: userId ?? '' }}
       className={cn(className)}
       title={title}

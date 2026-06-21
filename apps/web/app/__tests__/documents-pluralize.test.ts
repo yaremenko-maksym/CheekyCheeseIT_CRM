@@ -1,12 +1,12 @@
 /**
  * pluralizeInvoicesPending — ru-RU plural helper for the «У вас N инвойсов
- * ожидает подписи» banner at the top of /crm/documents. Verifies the four
+ * ожидает подписи» banner at the top of /documents. Verifies the four
  * branches of the standard Russian plural rules (11–14 always genitive
  * plural; last digit 1 → nominative singular; 2–4 → genitive singular;
  * everything else → genitive plural).
  */
 import { describe, expect, it } from 'vitest'
-import { pluralizeInvoicesPending } from '../routes/crm/documents'
+import { pluralizeInvoicesPending } from '../routes/_authenticated/documents'
 
 describe('pluralizeInvoicesPending', () => {
   it('uses nominative singular for n=1', () => {

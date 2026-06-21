@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
  * task-drop-profile-rbac-r2 (Finding B2) + task-drop-profile-lockdown: a DROP
- * viewer hitting a 403 must be redirected to /crm (consolidated dashboard root)
+ * viewer hitting a 403 must be redirected to / (consolidated dashboard root)
  * instead of seeing the "Нет доступа" screen. Other roles keep the access-denied
  * message.
  *
@@ -68,14 +68,14 @@ describe('UserProfileShell — DROP 403 redirect (Finding B2)', () => {
     vi.clearAllMocks()
   })
 
-  it('DROP + 403 → navigates to /crm and does NOT render "Нет доступа"', () => {
+  it('DROP + 403 → navigates to / and does NOT render "Нет доступа"', () => {
     viewerRole = 'DROP'
     isErrorFlag = true
     queryError = make403()
 
     renderShell()
 
-    expect(navigateMock).toHaveBeenCalledWith({ to: '/crm', replace: true })
+    expect(navigateMock).toHaveBeenCalledWith({ to: '/', replace: true })
     expect(screen.queryByText('Нет доступа')).toBeNull()
   })
 

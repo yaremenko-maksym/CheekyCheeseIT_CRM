@@ -82,7 +82,7 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
                   the profile. Real <a> siblings (mailto/tel/t.me) sit higher
                   in z-stack and intercept their own clicks. */}
               <Link
-                to="/crm/profile/$userId"
+                to="/profile/$userId"
                 params={{ userId: user.id }}
                 aria-label={`Открыть профиль ${user.displayName}`}
                 className={cn(

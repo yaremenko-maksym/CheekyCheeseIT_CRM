@@ -230,7 +230,7 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
 
         {isReceipt && doc.projectId ? (
           <Link
-            to="/crm/finance"
+            to="/finance"
             className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
           >
             <ReceiptIcon className="h-3.5 w-3.5" />К транзакции #{shortId(doc.projectId)}
