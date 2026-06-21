@@ -185,7 +185,12 @@ test.describe('RBAC matrix smoke — Phase 4 endpoints', () => {
       if (!obligationId) {
         // No obligation surfaced — probe forbidden roles using a synthetic UUID
         // to still assert the RBAC gate.
-        for (const email of [dropEmail, SEED_EMAILS.seniorA, SEED_EMAILS.juniorA, SEED_EMAILS.hrA]) {
+        for (const email of [
+          dropEmail,
+          SEED_EMAILS.seniorA,
+          SEED_EMAILS.juniorA,
+          SEED_EMAILS.hrA,
+        ]) {
           await loginViaApi(page, email)
           const ghostId = '11111111-1111-1111-1111-111111111111'
           const r = await page.request.post(
