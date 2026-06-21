@@ -34,13 +34,14 @@ const COMMON_ROUTES: { label: string; href: string; testid?: string }[] = [
 ]
 
 // ---------------------------------------------------------------------------
-// Helper: assert we are NOT on login / landing after navigation
+// Helper: assert we are NOT bounced to login after navigation.
+// (After the /crm re-root the CRM lives at root, so the dashboard IS `/` —
+//  there is no in-app landing to fall back to; the marketing landing moved to
+//  apps/landing. The auth-regression guard is "not redirected to login" plus
+//  "reached the target path".)
 // ---------------------------------------------------------------------------
 async function assertStayedInCrm(page: import('@playwright/test').Page, route: string) {
   const url = page.url()
-  expect(url, `Navigating to ${route} should not redirect to landing`).not.toMatch(
-    /^http:\/\/localhost:3000\/?$/,
-  )
   expect(url, `Navigating to ${route} should not redirect to login`).not.toMatch(/\/login/)
   expect(url, `URL should contain the target path`).toContain(route.replace('/', ''))
 }
@@ -113,9 +114,8 @@ test.describe('ADMIN sidebar navigation', () => {
       await page.waitForLoadState('domcontentloaded')
 
       const url = page.url()
-      expect(url, `${href}: should not redirect to landing`).not.toMatch(
-        /^http:\/\/localhost:3000\/?$/,
-      )
+      // CRM root is the dashboard after the /crm re-root — no in-app landing to
+      // bounce to; only assert we weren't kicked to login.
       expect(url, `${href}: should not redirect to login`).not.toMatch(/\/login/)
     }
   })
