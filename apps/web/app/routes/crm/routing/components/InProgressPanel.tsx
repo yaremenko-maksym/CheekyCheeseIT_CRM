@@ -159,10 +159,7 @@ export function InProgressPanel({
 
                   // SENIOR: «Создать выплату» on eligible VALIDATED income rows
                   const showCreatePayoutBtn =
-                    mode === 'senior' &&
-                    !isPayout &&
-                    t.status === 'VALIDATED' &&
-                    !t.payoutRequestId
+                    mode === 'senior' && !isPayout && t.status === 'VALIDATED' && !t.payoutRequestId
 
                   // SENIOR: «Оплатить» on PAYOUT PENDING_PAYMENT rows → PayoutDetailDialog
                   const showPayPayoutBtn =
@@ -172,8 +169,7 @@ export function InProgressPanel({
                     !!t.payoutRequestId
 
                   // DROP: «Платить» on VALIDATED DROP_INCOME rows → /crm/payments/initiate
-                  const showDropPayBtn =
-                    mode === 'drop' && !isPayout && t.status === 'VALIDATED'
+                  const showDropPayBtn = mode === 'drop' && !isPayout && t.status === 'VALIDATED'
 
                   return (
                     <li

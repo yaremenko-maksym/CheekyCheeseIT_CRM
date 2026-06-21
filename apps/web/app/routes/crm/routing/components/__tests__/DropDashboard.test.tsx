@@ -26,9 +26,8 @@ import type { TransactionDto } from '@crm/shared'
 const navigateMock = vi.fn()
 
 vi.mock('@tanstack/react-router', async () => {
-  const actual = await vi.importActual<typeof import('@tanstack/react-router')>(
-    '@tanstack/react-router',
-  )
+  const actual =
+    await vi.importActual<typeof import('@tanstack/react-router')>('@tanstack/react-router')
   return {
     ...actual,
     useNavigate: () => navigateMock,
@@ -281,9 +280,7 @@ describe('DropDashboard', () => {
     })
 
     it('PENDING DROP_INCOME does NOT have «Платить» (only VALIDATED can pay)', async () => {
-      getTransactionsMock.mockResolvedValue([
-        makeTx({ id: 'pending-1', status: 'PENDING' }),
-      ])
+      getTransactionsMock.mockResolvedValue([makeTx({ id: 'pending-1', status: 'PENDING' })])
       renderDashboard()
       await screen.findByTestId('drop-in-progress-row-pending-1')
       expect(screen.queryByTestId('drop-in-progress-pay-pending-1')).not.toBeInTheDocument()
