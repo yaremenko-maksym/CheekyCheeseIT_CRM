@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Plus, Wallet } from 'lucide-react'
-import { useNavigate } from '@tanstack/react-router'
 import type { TransactionDto } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -15,18 +14,13 @@ import { PayoutDetailDialog } from '@/routes/crm/finance/components/dialogs/Payo
  * InProgressPanel — shared «Транзакции в работе» panel used by both
  * SeniorDashboard and DropDashboard.
  *
- * mode='senior':
- *   - Income rows (SENIOR_INCOME PENDING/VALIDATED): «Создать выплату» on eligible VALIDATED
- *   - PAYOUT rows (PENDING_PAYMENT): «Оплатить» → PayoutDetailDialog
- *   - Toolbar: «Добавить приход» + batch «Создать выплату»
+ * Renders:
+ *   - income rows (PENDING/VALIDATED SENIOR_INCOME or DROP_INCOME) with
+ *     «Создать выплату» on eligible VALIDATED rows (status=VALIDATED, no payout)
+ *   - PAYOUT rows in PENDING_PAYMENT status with «Оплатить» → PayoutDetailDialog
+ *   - toolbar: «Добавить приход» + batch «Создать выплату»
  *
- * mode='drop':
- *   - Income rows (DROP_INCOME PENDING/VALIDATED): «Платить» → /crm/payments/initiate/$incomeId
- *     on VALIDATED rows. createPayoutRequest is SENIOR-only (403 for DROP) — not shown.
- *   - PAYOUT rows (PENDING_PAYMENT): NOT rendered (drop settles via initiate, not PayoutDetailDialog)
- *   - Toolbar: «Добавить приход» only; NO batch «Создать выплату» (403 for DROP)
- *
- * Purely presentational — caller supplies data via props. Caller keeps react-query
+ * Purely presentational — caller supplies data. The caller keeps react-query
  * hooks and passes `onRefresh` to invalidate caches after dialog success.
  */
 
@@ -37,42 +31,33 @@ const card = {
 
 export interface InProgressPanelProps {
   /**
-   * 'senior' — SENIOR_INCOME rows + «Создать выплату» + PayoutDetailDialog for PAYOUT rows.
-   * 'drop'   — DROP_INCOME rows + «Платить»→initiate; PAYOUT rows and createPayout hidden.
-   */
-  mode: 'senior' | 'drop'
-  /**
-   * Income transactions in the pipeline (PENDING/VALIDATED).
-   * For senior: SENIOR_INCOME rows. For drop: DROP_INCOME rows.
+   * Income transactions in the pipeline (PENDING/VALIDATED). Shown as
+   * income rows; VALIDATED rows without a payout get «Создать выплату».
    */
   incomeTxs: TransactionDto[]
   /**
    * PAYOUT rows in PENDING_PAYMENT that belong to the current user.
-   * Shown ONLY for mode='senior' with «Оплатить» → PayoutDetailDialog.
-   * Ignored for mode='drop' (drop settles via payment-channel initiate route).
+   * These get an «Оплатить» button → PayoutDetailDialog.
    */
   payoutTxs: TransactionDto[]
   /**
-   * Subset of incomeTxs: VALIDATED rows without payoutRequestId — eligible
-   * to batch into a new payout request. Used ONLY for mode='senior' toolbar.
-   * Ignored for mode='drop' (createPayoutRequest is SENIOR-only → 403).
+   * Subset of incomeTxs: VALIDATED rows without a payoutRequestId —
+   * eligible to batch into a new payout request.
    */
   validatedIncomes: TransactionDto[]
-  /** Called when react-query caches should be refreshed after dialog closes. */
+  /** Called when react-query caches should be refreshed (e.g. after dialog closes). */
   onRefresh: () => void
-  /** data-testid prefix to namespace testids (e.g. 'senior' or 'drop'). */
+  /** data-testid prefix to namespace testids (e.g. "senior" or "drop"). */
   testIdPrefix: string
 }
 
 export function InProgressPanel({
-  mode,
   incomeTxs,
   payoutTxs,
   validatedIncomes,
   onRefresh,
   testIdPrefix,
 }: InProgressPanelProps) {
-  const navigate = useNavigate()
   const [showCreate, setShowCreate] = useState(false)
   const [payoutOpen, setPayoutOpen] = useState(false)
   const [payoutPreselect, setPayoutPreselect] = useState<string[]>([])
@@ -94,17 +79,11 @@ export function InProgressPanel({
     setPayoutDetailOpen(true)
   }
 
-  // For senior: merge income + payout rows, newest first.
-  // For drop: only income rows (payout rows settled via initiate route, not shown here).
-  const visiblePayoutTxs = mode === 'senior' ? payoutTxs : []
-  const allRows = [...incomeTxs, ...visiblePayoutTxs].sort(
+  const allRows = [...incomeTxs, ...payoutTxs].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   )
 
   const isEmpty = allRows.length === 0
-
-  // Batch «Создать выплату» button: SENIOR-only, shown when eligible incomes exist.
-  const showBatchPayout = mode === 'senior' && validatedIncomes.length > 0
 
   return (
     <>
@@ -120,7 +99,7 @@ export function InProgressPanel({
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                {showBatchPayout && (
+                {validatedIncomes.length > 0 && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -144,7 +123,7 @@ export function InProgressPanel({
               </div>
             </div>
 
-            {/* Transaction rows */}
+            {/* Rows */}
             {isEmpty ? (
               <p
                 className="text-xs text-muted-foreground py-2"
@@ -156,20 +135,10 @@ export function InProgressPanel({
               <ul className="space-y-2" data-testid={`${testIdPrefix}-in-progress-list`}>
                 {allRows.map((t) => {
                   const isPayout = t.type === 'PAYOUT'
-
-                  // SENIOR: «Создать выплату» on eligible VALIDATED income rows
-                  const showCreatePayoutBtn =
-                    mode === 'senior' && !isPayout && t.status === 'VALIDATED' && !t.payoutRequestId
-
-                  // SENIOR: «Оплатить» on PAYOUT PENDING_PAYMENT rows → PayoutDetailDialog
-                  const showPayPayoutBtn =
-                    mode === 'senior' &&
-                    isPayout &&
-                    t.status === 'PENDING_PAYMENT' &&
-                    !!t.payoutRequestId
-
-                  // DROP: «Платить» on VALIDATED DROP_INCOME rows → /crm/payments/initiate
-                  const showDropPayBtn = mode === 'drop' && !isPayout && t.status === 'VALIDATED'
+                  const isEligibleForPayout =
+                    !isPayout && t.status === 'VALIDATED' && !t.payoutRequestId
+                  const showPayBtn =
+                    isPayout && t.status === 'PENDING_PAYMENT' && !!t.payoutRequestId
 
                   return (
                     <li
@@ -196,8 +165,8 @@ export function InProgressPanel({
                         {STATUS_LABELS[t.status]}
                       </Badge>
 
-                      {/* SENIOR: VALIDATED income → «Создать выплату» */}
-                      {showCreatePayoutBtn && (
+                      {/* VALIDATED income → «Создать выплату» */}
+                      {isEligibleForPayout && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -210,8 +179,8 @@ export function InProgressPanel({
                         </Button>
                       )}
 
-                      {/* SENIOR: PAYOUT PENDING_PAYMENT → «Оплатить» → PayoutDetailDialog */}
-                      {showPayPayoutBtn && (
+                      {/* PAYOUT PENDING_PAYMENT → «Оплатить» */}
+                      {showPayBtn && (
                         <Button
                           variant="default"
                           size="sm"
@@ -223,25 +192,6 @@ export function InProgressPanel({
                           Оплатить
                         </Button>
                       )}
-
-                      {/* DROP: VALIDATED DROP_INCOME → «Платить» → /crm/payments/initiate */}
-                      {showDropPayBtn && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="shrink-0"
-                          aria-label={`Оплатить приход от ${t.projectName ?? 'проекта'}`}
-                          data-testid={`${testIdPrefix}-in-progress-pay-${t.id}`}
-                          onClick={() =>
-                            void navigate({
-                              to: '/crm/payments/initiate/$incomeId',
-                              params: { incomeId: t.id },
-                            })
-                          }
-                        >
-                          Платить
-                        </Button>
-                      )}
                     </li>
                   )
                 })}
@@ -251,7 +201,7 @@ export function InProgressPanel({
         </Card>
       </motion.div>
 
-      {/* Finance dialogs */}
+      {/* Shared finance dialogs */}
       <CreateTransactionDialog
         open={showCreate}
         onClose={() => {
