@@ -18,8 +18,6 @@ import type {
   PaySalaryDto,
   AdminUpdateTransactionDto,
   ConfirmPayoutDto,
-  InitiateCryptoPaymentResponseDto,
-  ConfirmCryptoPaymentDto,
   ConfirmCashPaymentDto,
   PaymentChannelCascadeResponseDto,
   BalanceDto,
@@ -152,16 +150,7 @@ export const financeApi = {
       })
       .then((r) => r.data),
 
-  // Phase 4 payment channels (refactor — crypto + admin-initiated cash only).
-  // Bank channel removed; DROP-initiated cash flow + pending-cash list removed.
-  initiateCryptoPayment: (incomeId: string) =>
-    api
-      .post<InitiateCryptoPaymentResponseDto>('/payments/initiate-crypto', { incomeId })
-      .then((r) => r.data),
-  confirmCryptoPayment: (data: ConfirmCryptoPaymentDto) =>
-    api
-      .post<PaymentChannelCascadeResponseDto>('/payments/confirm-crypto', data)
-      .then((r) => r.data),
+  // admin-initiated cash payment (ADMIN/ACCOUNTANT only — used by LogCashPaymentDialog).
   confirmCashPayment: (data: ConfirmCashPaymentDto) =>
     api.post<PaymentChannelCascadeResponseDto>('/payments/confirm-cash', data).then((r) => r.data),
 

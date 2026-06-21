@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Search, Send, Wallet, X } from 'lucide-react'
+import { Search, Wallet, X } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from '@tanstack/react-router'
 import type { Role, TransactionDto, TotalEarnedDto } from '@crm/shared'
 import { totalEarnedSchema } from '@crm/shared'
 import { Button } from '@/components/ui/button'
@@ -17,7 +16,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/axios'
 import { useAuth } from '@/context/auth'
-import { formatAmount, formatAmountUsd } from '@/lib/format-amount'
+import { formatAmount } from '@/lib/format-amount'
 import { financeApi } from '@/routes/crm/finance/api'
 import { STATUS_LABELS, TYPE_LABELS, type ExchangeRates } from '@/routes/crm/finance/constants'
 import { TransactionRow } from '@/routes/crm/finance/components/TransactionRow'
@@ -43,7 +42,6 @@ const EARNED_TARGET_ROLES: ReadonlyArray<Role> = ['SENIOR', 'DROP', 'JUNIOR', 'H
 
 export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?: Role }) {
   const { user: viewer } = useAuth()
-  const navigate = useNavigate()
   const role = viewer?.role ?? ''
   const isPrivileged = role === 'ADMIN' || role === 'ACCOUNTANT'
   // «Всего заработано» is a privileged financial metric: only ADMIN / ACCOUNTANT
@@ -60,16 +58,6 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
     enabled: showTotalEarned,
     staleTime: 60_000,
   })
-  // task-drop-phase3-frontend (Q2 owner decision): «Зарегистрировать приход» CTA
-  // removed from FinanceTab. The canonical trigger is DropQuickActions on /crm/routing,
-  // with a secondary ghost button in DropFinancePage header (/crm/finance).
-  // isOwnDropProfile kept for the «Платить компании» row logic below.
-  const isOwnDropProfile = role === 'DROP' && viewer?.id === userId
-  // Drop role - phase 4-B. «Платить компании» appears on every VALIDATED
-  // DROP_INCOME row of the profile owner — but only the owner-DROP themselves
-  // and privileged ADMIN/ACCOUNTANT see the action.
-  const showInitiatePaymentForDrop =
-    (isOwnDropProfile || isPrivileged) && (role === 'DROP' || isPrivileged)
 
   const { data: transactions = [], isLoading } = useQuery({
     queryKey: ['profile-transactions', userId, role],
@@ -130,39 +118,6 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
 
   const hasActive = search !== '' || typeFilter !== 'all' || statusFilter !== 'all'
 
-  // Drop role - phase 4-B. Surface DROP_INCOME rows awaiting settlement so the
-  // drop / accountant can launch the «Платить компании» flow per row without
-  // hunting through filters first. Only VALIDATED rows (no payment cascade
-  // yet) are actionable.
-  //
-  // Drop role - phase 4 refactor (task-fix-refactor-tov-financetab-filter.md):
-  // exclude DROP_INCOME rows whose payment cascade has already settled. The
-  // cascade is detectable via a PAID PAYOUT row sharing the same
-  // payoutRequestId — produced both by the senior crypto flow (confirmPayout)
-  // and the admin-initiated cash flow (confirmCashPayment). Without this
-  // guard a settled income still showed the «Платить компании» CTA, which
-  // dead-ended at /crm/payments/initiate/:id with a backend 400.
-  const settledPayoutRequestIds = useMemo(() => {
-    const set = new Set<string>()
-    for (const tx of transactions) {
-      if (tx.type === 'PAYOUT' && tx.status === 'PAID' && tx.payoutRequestId) {
-        set.add(tx.payoutRequestId)
-      }
-    }
-    return set
-  }, [transactions])
-
-  const actionableDropIncomes = useMemo(() => {
-    if (!showInitiatePaymentForDrop) return []
-    return transactions.filter(
-      (tx) =>
-        tx.type === 'DROP_INCOME' &&
-        tx.status === 'VALIDATED' &&
-        (tx.recipientId === userId || tx.receiverId === userId) &&
-        !(tx.payoutRequestId && settledPayoutRequestIds.has(tx.payoutRequestId)),
-    )
-  }, [transactions, showInitiatePaymentForDrop, userId, settledPayoutRequestIds])
-
   // «Всего заработано с нами» card — lifetime money the company paid this user.
   // Rendered above the transactions list, visible to ADMIN / ACCOUNTANT only on
   // SENIOR / DROP / JUNIOR / HR profiles (see showTotalEarned). Shown in both the
@@ -216,52 +171,6 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
   return (
     <>
       {earnedCard}
-      {/* task-drop-company-debt-and-invoices: the DROP debts-to-seniors
-          section has been removed. The company is now the debtor and
-          settles centrally on /crm/finance. */}
-      {actionableDropIncomes.length > 0 && (
-        <Card className="mb-3 border-emerald-500/40" data-testid="actionable-drop-incomes-card">
-          <CardContent className="py-3">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
-              Приходы, ожидающие оплаты компании
-            </p>
-            <ul className="space-y-1.5">
-              {actionableDropIncomes.map((tx) => (
-                <li
-                  key={tx.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/30 px-3 py-2"
-                  data-testid={`actionable-drop-income-${tx.id}`}
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">
-                      {tx.projectName ?? tx.senderLabel ?? 'Drop income'}
-                    </p>
-                    <p
-                      className="text-xs text-muted-foreground tabular-nums"
-                      data-testid={`actionable-drop-income-amount-${tx.id}`}
-                    >
-                      {formatAmountUsd(tx.amount, tx.currency)}
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="default"
-                    onClick={() =>
-                      void navigate({
-                        to: '/crm/payments/initiate/$incomeId',
-                        params: { incomeId: tx.id },
-                      })
-                    }
-                    data-testid={`pay-company-button-${tx.id}`}
-                  >
-                    <Send className="h-3.5 w-3.5 mr-1" /> Платить компании
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
       <Card>
         <CardContent className="p-0">
           {/* Filter bar — same look as /finance */}
