@@ -18,10 +18,6 @@ import type {
   PaySalaryDto,
   AdminUpdateTransactionDto,
   ConfirmPayoutDto,
-  InitiateCryptoPaymentResponseDto,
-  ConfirmCryptoPaymentDto,
-  ConfirmCashPaymentDto,
-  PaymentChannelCascadeResponseDto,
   BalanceDto,
   PendingSettlementListResponseDto,
   SettleObligationResponseDto,
@@ -151,19 +147,6 @@ export const financeApi = {
         ...(currency !== undefined && { params: { currency } }),
       })
       .then((r) => r.data),
-
-  // Phase 4 payment channels (refactor — crypto + admin-initiated cash only).
-  // Bank channel removed; DROP-initiated cash flow + pending-cash list removed.
-  initiateCryptoPayment: (incomeId: string) =>
-    api
-      .post<InitiateCryptoPaymentResponseDto>('/payments/initiate-crypto', { incomeId })
-      .then((r) => r.data),
-  confirmCryptoPayment: (data: ConfirmCryptoPaymentDto) =>
-    api
-      .post<PaymentChannelCascadeResponseDto>('/payments/confirm-crypto', data)
-      .then((r) => r.data),
-  confirmCashPayment: (data: ConfirmCashPaymentDto) =>
-    api.post<PaymentChannelCascadeResponseDto>('/payments/confirm-cash', data).then((r) => r.data),
 
   // task-drop-company-debt-and-invoices. Senior IOUs are owed by the
   // company — ADMIN/ACCOUNTANT-only flow.

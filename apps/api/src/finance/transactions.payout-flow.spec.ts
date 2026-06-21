@@ -399,8 +399,13 @@ describe('validateTransaction — SENIOR_INCOME (#7)', () => {
   })
 })
 
-describe('validateTransaction — DROP_INCOME still creates payout_request (#7 regression)', () => {
-  it('DROP_INCOME validate creates payout_request + PAYOUT atomically', async () => {
+describe('validateTransaction — DROP_INCOME flip-only (task-drop-payout-company-account)', () => {
+  // task-drop-payout-company-account: DROP_INCOME validate is now flip-only —
+  // SAME as SENIOR_INCOME. No payout_request and no placeholder PAYOUT are
+  // created at validate time anymore (the legacy auto-payout was a payment-
+  // channel artifact). The DROP later bundles their VALIDATED DROP_INCOME via
+  // createPayoutRequest, exactly like a SENIOR.
+  it('flips DROP_INCOME to VALIDATED without creating payout_request or PAYOUT', async () => {
     const dropTx = makeTx({
       id: 'dtx-1',
       type: 'DROP_INCOME',
@@ -408,24 +413,15 @@ describe('validateTransaction — DROP_INCOME still creates payout_request (#7 r
       receiverId: 'drop-1',
     })
 
-    const insertReturningMock = vi.fn().mockResolvedValue([makePayoutRequestRow('pr-drop-1')])
-    const insertValuesMock = vi.fn().mockReturnValue({ returning: insertReturningMock })
-    const insertIntoMock = vi.fn().mockReturnValue({ values: insertValuesMock })
-
-    // insert is called twice: payoutRequests, then transactions (PAYOUT)
-    let insertCallCount = 0
-    const insertDispatch = vi.fn().mockImplementation(() => {
-      insertCallCount++
-      if (insertCallCount === 1) return { values: insertValuesMock }
-      return { values: vi.fn().mockResolvedValue([]) }
+    const dbInsertMock = vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue([]) })
+    const dbUpdateMock = vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
     })
-
-    const dbTxMock = {
-      insert: insertDispatch,
-      update: vi.fn().mockReturnValue({
-        set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
-      }),
-    }
+    const dbTransactionMock = vi
+      .fn()
+      .mockImplementation((fn: (dbtx: unknown) => Promise<void>) =>
+        fn({ insert: dbInsertMock, update: dbUpdateMock }),
+      )
 
     const db = {
       db: {
@@ -434,7 +430,7 @@ describe('validateTransaction — DROP_INCOME still creates payout_request (#7 r
             findFirst: vi
               .fn()
               .mockResolvedValueOnce(dropTx)
-              .mockResolvedValue({ ...dropTx, status: 'VALIDATED', payoutRequestId: 'pr-drop-1' }),
+              .mockResolvedValue({ ...dropTx, status: 'VALIDATED', payoutRequestId: null }),
             findMany: vi.fn().mockResolvedValue([]),
           },
           users: {
@@ -447,13 +443,9 @@ describe('validateTransaction — DROP_INCOME still creates payout_request (#7 r
           projectMembers: { findFirst: vi.fn().mockResolvedValue(null) },
           juniorPayments: { findFirst: vi.fn().mockResolvedValue(null) },
         },
-        transaction: vi
-          .fn()
-          .mockImplementation((fn: (dbtx: unknown) => Promise<void>) => fn(dbTxMock)),
-        insert: insertIntoMock,
-        update: vi.fn().mockReturnValue({
-          set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
-        }),
+        transaction: dbTransactionMock,
+        insert: dbInsertMock,
+        update: dbUpdateMock,
       },
     } as never
 
@@ -469,9 +461,12 @@ describe('validateTransaction — DROP_INCOME still creates payout_request (#7 r
 
     await svc.validateTransaction('dtx-1', 'validate', null, ACCOUNTANT_USER)
 
-    // db.transaction() MUST have been called (atomic)
-    const { db: innerDb } = db as { db: { transaction: ReturnType<typeof vi.fn> } }
-    expect(innerDb.transaction).toHaveBeenCalledTimes(1)
+    // No payout_request and no PAYOUT row created — insert never called, and the
+    // flip does NOT open a db.transaction (a single bare update like SENIOR).
+    expect(dbInsertMock).not.toHaveBeenCalled()
+    expect(dbTransactionMock).not.toHaveBeenCalled()
+    // Exactly one update — the status flip to VALIDATED.
+    expect(dbUpdateMock).toHaveBeenCalledTimes(1)
   })
 })
 

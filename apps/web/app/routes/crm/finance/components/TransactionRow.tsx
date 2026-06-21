@@ -1,5 +1,5 @@
 import { forwardRef } from 'react'
-import { Edit2, CheckCircle2, ArrowRight, Trash2, Wallet, BadgeCheck, Banknote } from 'lucide-react'
+import { Edit2, CheckCircle2, ArrowRight, Trash2, Wallet, BadgeCheck } from 'lucide-react'
 // NOTE: Wallet icon is still used by the «Оплатить» pill on PAYOUT rows.
 import { Link } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
@@ -186,10 +186,8 @@ type TransactionRowProps = {
   /** Used to scope "Доля: X%" visibility for SENIOR (only own rows). */
   currentUserId?: string | null
   /**
-   * Full list of transactions currently in view — needed to decide whether
-   * the «Cash передан» action is available on a DROP_INCOME row (we hide it
-   * if a payment-channel cascade already exists for that income's
-   * payoutRequestId). Optional; when absent the action assumes "no cascade".
+   * Full list of transactions currently in view — used to scope sibling rows
+   * for display (e.g. payoutRequestId linking). Optional.
    */
   transactions?: TransactionDto[]
   onValidate?: (tx: TransactionDto) => void
@@ -216,13 +214,6 @@ type TransactionRowProps = {
    * new PAYOUT_CONFIRMED credit row for the chosen admin.
    */
   onConfirmPayout?: (tx: TransactionDto) => void
-  /**
-   * Drop role - phase 4 refactor (AC7). Opens LogCashPaymentDialog for an
-   * ADMIN/ACCOUNTANT on VALIDATED DROP_INCOME rows whose payment-channel
-   * cascade has not landed yet (no SENIOR_INCOME_CRYPTO / ADMIN_INCOME_*
-   * rows linked to the same payoutRequestId).
-   */
-  onLogCash?: (tx: TransactionDto) => void
   onClick?: (tx: TransactionDto) => void
 }
 
@@ -247,7 +238,6 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
       onInitiatePayout,
       onOpenPayoutDetail,
       onConfirmPayout,
-      onLogCash,
       onClick,
     },
     ref,
@@ -294,31 +284,6 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
     // off-platform money and flips the PAYOUT to PAID (see ConfirmPayoutDialog).
     const showConfirmPayout =
       (isAdmin || isAccountant) && tx.type === 'PAYOUT' && tx.status === 'PENDING_PAYMENT'
-
-    // Drop role - phase 4 refactor (AC7). ADMIN/ACCOUNTANT see «Cash передан»
-    // on VALIDATED DROP_INCOME rows whose payment-channel cascade has not
-    // landed yet. We sniff the cascade by looking at sibling transactions
-    // sharing the same payoutRequestId — if any of the "after-channel" types
-    // (SENIOR_INCOME_CRYPTO / ADMIN_INCOME_* / SENIOR_PENDING_PAYOUT / TOV_INCOME)
-    // is present, the action is hidden.
-    const hasPayoutCascade =
-      tx.type === 'DROP_INCOME' && tx.payoutRequestId
-        ? (transactions ?? []).some(
-            (t) =>
-              t.id !== tx.id &&
-              t.payoutRequestId === tx.payoutRequestId &&
-              (t.type === 'SENIOR_INCOME_CRYPTO' ||
-                t.type === 'ADMIN_INCOME_CRYPTO' ||
-                t.type === 'ADMIN_INCOME_CASH' ||
-                t.type === 'SENIOR_PENDING_PAYOUT' ||
-                t.type === 'TOV_INCOME'),
-          )
-        : false
-    const showLogCash =
-      (isAdmin || isAccountant) &&
-      tx.type === 'DROP_INCOME' &&
-      tx.status === 'VALIDATED' &&
-      !hasPayoutCascade
 
     return (
       <motion.tr
@@ -487,18 +452,6 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
               >
                 <BadgeCheck className="h-3.5 w-3.5 mr-1" />
                 Подтвердить оплату
-              </Button>
-            )}
-            {showLogCash && onLogCash && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-500/10"
-                onClick={() => onLogCash(tx)}
-                data-testid={`log-cash-button-${tx.id}`}
-              >
-                <Banknote className="h-3.5 w-3.5 mr-1" />
-                Cash передан
               </Button>
             )}
             {canEdit && onEdit && (

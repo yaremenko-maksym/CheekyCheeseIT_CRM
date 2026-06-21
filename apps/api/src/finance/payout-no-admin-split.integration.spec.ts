@@ -14,7 +14,14 @@ import { makeTransactionsService } from './__test-helpers__/make-transactions-se
 import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
 import type { DepositVerification, EtherscanService } from './etherscan.service'
 import type { NbuCurrencyService } from './nbu-currency.service'
-import { companyAccount, payoutRequests, projects, transactions, users } from '../database/schema'
+import {
+  companyAccount,
+  payoutRequests,
+  pendingObligations,
+  projects,
+  transactions,
+  users,
+} from '../database/schema'
 import * as schema from '../database/schema'
 
 /**
@@ -203,6 +210,13 @@ describe('payout settlement — NO redundant 50/50 PAYOUT_ADMIN split (real DB)'
     // row it inserts (incl. any PAYOUT_ADMIN split row received by a seed admin)
     // with senderId = createdBy = the test owner (currentUser = senior/drop), so
     // the test-own createdBy/senderId filters fully cover the split rows too.
+    // task-drop-payout-company-account: the drop cascade now creates a
+    // pending_obligations row (creditor = senior) referencing a
+    // SENIOR_PENDING_PAYOUT tx — delete obligations FIRST so the transactions
+    // delete below does not trip the FK (source_transaction_id → transactions.id).
+    await dbSvc.db
+      .delete(pendingObligations)
+      .where(inArray(pendingObligations.creditorUserId, TEST_OWN_USER_IDS))
     await dbSvc.db.delete(transactions).where(inArray(transactions.createdBy, TEST_OWN_USER_IDS))
     await dbSvc.db.delete(transactions).where(inArray(transactions.senderId, TEST_OWN_USER_IDS))
     await dbSvc.db.delete(transactions).where(inArray(transactions.receiverId, TEST_OWN_USER_IDS))

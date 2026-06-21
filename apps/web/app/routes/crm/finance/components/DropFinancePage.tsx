@@ -10,7 +10,6 @@
  * See design spec docs/design/drop-role-ux.md §4.
  */
 import { useState } from 'react'
-import { useNavigate } from '@tanstack/react-router'
 import { ArrowUpRight, CheckCircle, CircleCheck, Clock, Plus, XCircle } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { DropIncomeDto, DropIncomeStatus, DropPaymentDto } from '@crm/shared'
@@ -144,7 +143,6 @@ function periodToDates(period: Period): { from?: string; to?: string } {
 // ── DropIncomesTable ───────────────────────────────────────────────────────────
 
 function DropIncomesTable() {
-  const navigate = useNavigate()
   const [statusFilter, setStatusFilter] = useState<DropIncomeStatus | 'all'>('all')
   const [periodFilter, setPeriodFilter] = useState<Period>('all')
   const [page, setPage] = useState(1)
@@ -287,25 +285,7 @@ function DropIncomesTable() {
                     <TableCell>
                       <IncomeStatusBadge status={income.status} id={income.id} />
                     </TableCell>
-                    <TableCell>
-                      {income.status === 'validated' && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 min-w-[60px] rounded-md text-xs"
-                          aria-label={`Оплатить приход от ${income.companyName}`}
-                          data-testid={`drop-income-pay-btn-${income.id}`}
-                          onClick={() =>
-                            void navigate({
-                              to: '/crm/payments/initiate/$incomeId',
-                              params: { incomeId: income.id },
-                            })
-                          }
-                        >
-                          Платить
-                        </Button>
-                      )}
-                    </TableCell>
+                    <TableCell />
                   </TableRow>
                 ))}
               </TableBody>
