@@ -1502,10 +1502,34 @@ export const KOSTYA_ID = 'b9e5c4d2-d3f6-4b2e-ac4e-9d8f7a6b5c32'
  * specs must surface that loudly so the suite fails fast instead of
  * silently running unauthenticated.
  */
+/**
+ * Retry a request thunk up to `maxRetries` times on HTTP 429.
+ * The global throttler is 100 req/60 s — local test runs can exhaust it
+ * when multiple specs run back-to-back. Wait 5 s between retries.
+ */
+async function withThrottleRetry(
+  thunk: () => Promise<import('@playwright/test').APIResponse>,
+  label: string,
+  maxRetries = 2,
+): Promise<import('@playwright/test').APIResponse> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const res = await thunk()
+    if (res.status() !== 429) return res
+    if (attempt < maxRetries) {
+      // Global throttler: 100 req/60 s sliding window. Wait 10 s to let
+      // quota partially recover (enough for one more request).
+      await new Promise((r) => setTimeout(r, 10_000))
+    }
+  }
+  // Final attempt — return whatever we got (caller checks status).
+  return thunk()
+}
+
 export async function loginViaApi(page: Page, email: string): Promise<void> {
-  const res = await page.request.post(`${REAL_API_BASE}/api/auth/dev-login`, {
-    data: { email },
-  })
+  const res = await withThrottleRetry(
+    () => page.request.post(`${REAL_API_BASE}/api/auth/dev-login`, { data: { email } }),
+    `dev-login(${email})`,
+  )
   if (res.status() !== 200 && res.status() !== 201) {
     throw new Error(`dev-login failed for ${email}: HTTP ${res.status()} — ${await res.text()}`)
   }
@@ -2298,4 +2322,119 @@ export async function findPendingPayoutsForProjectViaAPI(
     payoutRequestId: string | null
   }>
   return rows.filter((t) => t.type === 'PAYOUT' && t.status === 'PENDING_PAYMENT')
+}
+
+// ---------------------------------------------------------------------------
+// ensureCompanyWalletViaAPI
+// ---------------------------------------------------------------------------
+
+/**
+ * Ensure the company wallet is configured (required for payout-request creation).
+ * The dev seed leaves walletAddress=NULL. Any spec that needs to create a
+ * payout_request (DROP pay flow) must call this first. Idempotent.
+ * Caller must be logged in as ADMIN.
+ */
+export async function ensureCompanyWalletViaAPI(page: Page): Promise<void> {
+  const res = await withThrottleRetry(
+    () =>
+      page.request.patch(`${REAL_API_BASE}/api/company-account/wallet`, {
+        data: { walletAddress: '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' },
+      }),
+    'PATCH company-account/wallet',
+  )
+  if (res.status() !== 200 && res.status() !== 201) {
+    throw new Error(
+      `ensureCompanyWalletViaAPI failed: HTTP ${res.status()} — ${await res.text()}`,
+    )
+  }
+}
+
+// ---------------------------------------------------------------------------
+// onboardDropViaAPI
+// ---------------------------------------------------------------------------
+
+/**
+ * Onboard a DROP user via HTTP so they can call income endpoints.
+ *
+ * Steps:
+ *   1. ADMIN PATCH /api/users/:id {legalFullName} — required for contract signature
+ *   2. ADMIN POST /api/users/:id/contract/ready — WITHOUT Content-Type:json (Fastify quirk)
+ *   3. DROP POST /api/contracts/sign {typedName} — bypass-listed in OnboardingGuard
+ *   4. DROP POST /api/tos/accept — bypass-listed in OnboardingGuard
+ *
+ * Restores ADMIN session on exit.
+ * Safe to call multiple times — onboarding endpoints are idempotent on an
+ * already-onboarded user (they return 200/201 regardless).
+ */
+export async function onboardDropViaAPI(
+  page: Page,
+  opts: { dropId: string; dropEmail: string },
+): Promise<void> {
+  // Step 1: ADMIN sets legalFullName (required for contract PDF generation)
+  const patchRes = await withThrottleRetry(
+    () =>
+      page.request.patch(`${REAL_API_BASE}/api/users/${opts.dropId}`, {
+        data: { legalFullName: 'Test Drop Onboarded Testovych' },
+      }),
+    'PATCH legalFullName',
+  )
+  if (patchRes.status() !== 200) {
+    throw new Error(
+      `onboardDropViaAPI: PATCH legalFullName failed: HTTP ${patchRes.status()} — ${await patchRes.text()}`,
+    )
+  }
+
+  // Step 1b: ADMIN GET /api/users/:id/contract — lazy-creates the DRAFT contract row.
+  // markReady (step 2) requires a non-CANCELLED contract row to already exist.
+  const draftRes = await withThrottleRetry(
+    () => page.request.get(`${REAL_API_BASE}/api/users/${opts.dropId}/contract`),
+    'GET /contract draft',
+  )
+  if (draftRes.status() !== 200 && draftRes.status() !== 201) {
+    throw new Error(
+      `onboardDropViaAPI: GET /contract (draft create) failed: HTTP ${draftRes.status()} — ${await draftRes.text()}`,
+    )
+  }
+
+  // Step 2: ADMIN marks user's contract as ready
+  // IMPORTANT: must NOT send Content-Type: application/json with empty body —
+  // Fastify returns 400 "Body cannot be empty when content-type is set to 'application/json'"
+  const readyRes = await withThrottleRetry(
+    () => page.request.post(`${REAL_API_BASE}/api/users/${opts.dropId}/contract/ready`),
+    'POST /contract/ready',
+  )
+  if (readyRes.status() !== 200 && readyRes.status() !== 201) {
+    throw new Error(
+      `onboardDropViaAPI: POST /contract/ready failed: HTTP ${readyRes.status()} — ${await readyRes.text()}`,
+    )
+  }
+
+  // Step 3 & 4: Switch to DROP session, sign contract and accept ToS
+  await loginViaApi(page, opts.dropEmail)
+
+  const signRes = await withThrottleRetry(
+    () =>
+      page.request.post(`${REAL_API_BASE}/api/contracts/sign`, {
+        data: { typedName: 'Test Drop Onboarded Testovych' },
+      }),
+    'POST /contracts/sign',
+  )
+  if (signRes.status() !== 200 && signRes.status() !== 201) {
+    throw new Error(
+      `onboardDropViaAPI: POST /contracts/sign failed: HTTP ${signRes.status()} — ${await signRes.text()}`,
+    )
+  }
+
+  const tosRes = await withThrottleRetry(
+    () => page.request.post(`${REAL_API_BASE}/api/tos/accept`),
+    'POST /tos/accept',
+  )
+  if (tosRes.status() !== 200 && tosRes.status() !== 201) {
+    throw new Error(
+      `onboardDropViaAPI: POST /tos/accept failed: HTTP ${tosRes.status()} — ${await tosRes.text()}`,
+    )
+  }
+
+  // Restore ADMIN session so subsequent calls use ADMIN credentials
+  await loginViaApi(page, SEED_ADMIN_EMAIL)
 }
