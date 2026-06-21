@@ -4,12 +4,12 @@
 
 Production stack = 4 Docker services behind a single nginx reverse-proxy:
 
-| Service    | Image                      | Exposes         | Domain(s)                              |
-| ---------- | -------------------------- | --------------- | -------------------------------------- |
-| `postgres`  | postgres:16-alpine         | internal only   | —                                      |
-| `redis`     | redis:7-alpine             | internal only   | —                                      |
-| `api`       | Built from apps/api        | internal :3001  | `*/api/*` on both domains              |
-| `nginx`     | Built from nginx/Dockerfile | 80, 443        | cheekycheese.tech + app.cheekycheese.tech |
+| Service    | Image                       | Exposes        | Domain(s)                                 |
+| ---------- | --------------------------- | -------------- | ----------------------------------------- |
+| `postgres` | postgres:16-alpine          | internal only  | —                                         |
+| `redis`    | redis:7-alpine              | internal only  | —                                         |
+| `api`      | Built from apps/api         | internal :3001 | `*/api/*` on both domains                 |
+| `nginx`    | Built from nginx/Dockerfile | 80, 443        | cheekycheese.tech + app.cheekycheese.tech |
 
 Cookie auth is same-origin: CRM (`app.cheekycheese.tech/api/...`) hits nginx `/api/` → api:3001.
 No cross-domain CORS dance needed.
@@ -32,24 +32,24 @@ cp .env.production.example .env.production
 
 Edit `.env.production` — fill every `[REQUIRED]` field:
 
-| Variable             | Notes                                                        |
-| -------------------- | ------------------------------------------------------------ |
-| `DATABASE_URL`       | `postgresql://crm_user:<pw>@postgres:5432/crm_db`           |
-| `POSTGRES_PASSWORD`  | Must match password in `DATABASE_URL`                        |
-| `REDIS_URL`          | `redis://redis:6379`                                         |
-| `GOOGLE_CLIENT_ID`   | From Google Cloud Console → OAuth 2.0 Client                 |
-| `GOOGLE_CLIENT_SECRET` | Same console                                               |
-| `GOOGLE_CALLBACK_URL` | `https://app.cheekycheese.tech/api/auth/google/callback`   |
-| `JWT_SECRET`         | `openssl rand -base64 32`                                    |
-| `SESSION_SECRET`     | `openssl rand -base64 32`                                    |
-| `CREDENTIALS_ENC_KEY` | `openssl rand -base64 32` (must be exactly 32 bytes)        |
-| `FRONTEND_URL`       | `https://app.cheekycheese.tech`                              |
-| `CORS_ORIGINS`       | `https://app.cheekycheese.tech,https://cheekycheese.tech`   |
-| `TRUST_PROXY`        | `true` (behind nginx)                                        |
-| `AWS_ACCESS_KEY_ID`  | IAM key with S3 access                                       |
-| `AWS_SECRET_ACCESS_KEY` | IAM secret                                               |
-| `S3_BUCKET`          | `crm-documents-prod`                                         |
-| `S3_REGION`          | `eu-central-1`                                               |
+| Variable                | Notes                                                     |
+| ----------------------- | --------------------------------------------------------- |
+| `DATABASE_URL`          | `postgresql://crm_user:<pw>@postgres:5432/crm_db`         |
+| `POSTGRES_PASSWORD`     | Must match password in `DATABASE_URL`                     |
+| `REDIS_URL`             | `redis://redis:6379`                                      |
+| `GOOGLE_CLIENT_ID`      | From Google Cloud Console → OAuth 2.0 Client              |
+| `GOOGLE_CLIENT_SECRET`  | Same console                                              |
+| `GOOGLE_CALLBACK_URL`   | `https://app.cheekycheese.tech/api/auth/google/callback`  |
+| `JWT_SECRET`            | `openssl rand -base64 32`                                 |
+| `SESSION_SECRET`        | `openssl rand -base64 32`                                 |
+| `CREDENTIALS_ENC_KEY`   | `openssl rand -base64 32` (must be exactly 32 bytes)      |
+| `FRONTEND_URL`          | `https://app.cheekycheese.tech`                           |
+| `CORS_ORIGINS`          | `https://app.cheekycheese.tech,https://cheekycheese.tech` |
+| `TRUST_PROXY`           | `true` (behind nginx)                                     |
+| `AWS_ACCESS_KEY_ID`     | IAM key with S3 access                                    |
+| `AWS_SECRET_ACCESS_KEY` | IAM secret                                                |
+| `S3_BUCKET`             | `crm-documents-prod`                                      |
+| `S3_REGION`             | `eu-central-1`                                            |
 
 ---
 
@@ -121,14 +121,17 @@ has commented-out `listen 443 ssl` blocks in `nginx/conf.d/landing.conf` and
 To enable TLS when the server is provisioned:
 
 ### Option A — Let's Encrypt (certbot)
+
 ```bash
 # On the host (not in Docker):
 certbot certonly --standalone -d cheekycheese.tech -d www.cheekycheese.tech
 certbot certonly --standalone -d app.cheekycheese.tech
 ```
+
 Mount cert dirs in `docker-compose.prod.yml` nginx `volumes:` (commented block is ready).
 
 ### Option B — Cloudflare-issued certificate
+
 Download origin certs from Cloudflare dashboard → place at the paths in the
 commented nginx blocks.
 
@@ -150,6 +153,7 @@ docker compose -f docker-compose.prod.yml --profile selfhosted-s3 up -d
 ```
 
 Set in `.env.production`:
+
 ```
 S3_ENDPOINT=http://minio:9000
 S3_FORCE_PATH_STYLE=true
