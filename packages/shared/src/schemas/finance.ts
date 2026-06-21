@@ -752,6 +752,20 @@ export const settleObligationParamSchema = z.object({
 })
 export type SettleObligationParamDto = z.infer<typeof settleObligationParamSchema>
 
+// task-senior-settle-in-tx-row: alternative settle entry point keyed on the
+// SOURCE transaction (the SENIOR_PENDING_PAYOUT row) instead of the obligation
+// id. The finance-page transactions list pays a senior IOU directly from its
+// SENIOR_PENDING_PAYOUT row — the row knows the transaction id, not the
+// obligation id. The backend resolves the PENDING obligation linked via
+// `pending_obligations.sourceTransactionId` and delegates to the SAME
+// (idempotent, ADMIN/ACCOUNTANT-only) settleByCompany cascade. Same permissive
+// UUID-like shape as the obligation-id param (seeded users carry version-nibble
+// 0 in their UUIDs).
+export const settleBySourceTransactionParamSchema = z.object({
+  sourceTransactionId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
+})
+export type SettleBySourceTransactionParamDto = z.infer<typeof settleBySourceTransactionParamSchema>
+
 // Response after a successful settle: returns the updated obligation snapshot
 // plus the new SENIOR_PAID transaction. Frontend uses this to invalidate
 // balances / pending lists in one round-trip.

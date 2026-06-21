@@ -267,6 +267,50 @@ export class PendingSettlementService {
     }
   }
 
+  /**
+   * task-senior-settle-in-tx-row: settle a senior IOU keyed on its SOURCE
+   * transaction (the SENIOR_PENDING_PAYOUT row), not the obligation id.
+   *
+   * The finance-page transactions list pays the senior directly from the
+   * SENIOR_PENDING_PAYOUT row's «Выплатить» button — the row carries the
+   * transaction id, but the settle money-gate lives on the linked
+   * `pending_obligations` row (joined via `sourceTransactionId`). We resolve the
+   * single PENDING obligation for that source transaction and delegate to the
+   * existing, audited `settleByCompany` (which performs the atomic + idempotent
+   * PENDING→PAID flip, company-account debit gate, and SENIOR_INCOME + invoice
+   * cascade). RBAC, money gate and double-settle protection are all inherited
+   * verbatim from settleByCompany — this method adds NO new money path.
+   *
+   * RBAC is checked HERE first (ADMIN/ACCOUNTANT only) so a non-privileged
+   * caller gets 403 BEFORE we reveal whether any obligation exists (no
+   * enumeration oracle). settleByCompany re-checks the same gate (defense in
+   * depth).
+   */
+  async settleByCompanySourceTransaction(
+    sourceTransactionId: string,
+    actor: SessionUser,
+  ): Promise<{ obligation: PendingObligationDto; created: TransactionDto[] }> {
+    if (actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') {
+      throw new ForbiddenException('Закрывать долг компании могут только админ или бухгалтер')
+    }
+
+    // Find the single still-open obligation backing this SENIOR_PENDING_PAYOUT
+    // row. Scoping to status=PENDING avoids re-resolving an already-closed
+    // obligation (settleByCompany would 400 on it anyway, but this gives a
+    // precise 404 for «nothing left to pay» and never reuses a stale row).
+    const obligation = await this.db.db.query.pendingObligations.findFirst({
+      where: and(
+        eq(pendingObligations.sourceTransactionId, sourceTransactionId),
+        eq(pendingObligations.status, 'PENDING'),
+      ),
+    })
+    if (!obligation) {
+      throw new NotFoundException('Открытый долг для этой транзакции не найден')
+    }
+
+    return this.settleByCompany(obligation.id, actor)
+  }
+
   // ── Internals ─────────────────────────────────────────────────────────────
 
   private async loadObligation(obligationId: string) {

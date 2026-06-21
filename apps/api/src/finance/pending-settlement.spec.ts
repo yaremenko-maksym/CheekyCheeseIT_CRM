@@ -272,6 +272,28 @@ function makeService(initial: Partial<MockState> = {}) {
       pendingObligations: {
         findFirst: vi.fn(async (args: unknown) => {
           const values = collectStringValues(args)
+          // 2) task-senior-settle-in-tx-row: source-transaction lookup, checked
+          //    FIRST when the predicate is the source-tx form. The
+          //    by-source-transaction settle resolves the PENDING obligation via
+          //    `and(eq(sourceTransactionId, txId), eq(status, 'PENDING'))` — the
+          //    predicate carries the source tx id + the literal 'PENDING' but NOT
+          //    the obligation id, so we must NOT fall through to the obligation-id
+          //    branch (whose `lastUpdateObligationId` fallback would wrongly
+          //    resolve an already-settled row). Match on sourceTransactionId,
+          //    scoped to PENDING; if nothing matches return undefined → the
+          //    service raises 404 (no open debt for this tx).
+          const hasSourceTxPredicate = Array.from(state.obligations.values()).some((r) =>
+            values.includes(r.sourceTransactionId),
+          )
+          if (hasSourceTxPredicate && values.includes('PENDING')) {
+            return (
+              Array.from(state.obligations.values()).find(
+                (r) => r.status === 'PENDING' && values.includes(r.sourceTransactionId),
+              ) ?? undefined
+            )
+          }
+          // 1) Direct obligation-id lookup (loadObligation + the refreshed read
+          //    inside settleByCompany).
           const obl = values.find((v) => state.obligations.has(v)) ?? lastUpdateObligationId
           if (obl && state.obligations.has(obl)) return state.obligations.get(obl)
           return undefined
@@ -532,6 +554,111 @@ describe('PendingSettlementService.settleByCompany', () => {
     await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
       NotFoundException,
     )
+  })
+})
+
+// ── settleByCompanySourceTransaction (task-senior-settle-in-tx-row) ──────────
+// The finance-page transactions list pays the senior directly from the
+// SENIOR_PENDING_PAYOUT row, which knows the SOURCE transaction id (not the
+// obligation id). This wrapper resolves the PENDING obligation by
+// sourceTransactionId and delegates to the audited settleByCompany. It must
+// inherit settleByCompany's money invariants verbatim (single payout, RBAC,
+// idempotency) and add NO new money path.
+describe('PendingSettlementService.settleByCompanySourceTransaction', () => {
+  it('resolves the obligation by source tx id and settles it (one SENIOR_INCOME)', async () => {
+    const { svc, getInsertsFor, getUpdatesFor, state } = makeService()
+    const result = await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser)
+
+    const txInserts = getInsertsFor(transactions)
+    expect(txInserts).toHaveLength(1)
+    expect(txInserts[0]?.['type']).toBe('SENIOR_INCOME')
+    expect(txInserts[0]?.['receiverId']).toBe(SENIOR_ID)
+    expect(txInserts[0]?.['amount']).toBe('560')
+    expect(txInserts[0]?.['status']).toBe('PAID')
+    // Same company-account debit marker as the obligation-id path.
+    expect(txInserts[0]?.['fundingSource']).toBe('COMPANY_ACCOUNT')
+
+    const paidFlips = getUpdatesFor(pendingObligations).filter((u) => u['status'] === 'PAID')
+    expect(paidFlips).toHaveLength(1)
+    expect(result.obligation.status).toBe('PAID')
+    expect(state.obligations.get(OBLIGATION_COMPANY)?.status).toBe('PAID')
+  })
+
+  it('triggers invoice auto-create on the resulting SENIOR_INCOME row', async () => {
+    const { svc, state } = makeService()
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser)
+    expect(state.invoiceCalls).toHaveLength(1)
+    expect(state.invoiceCalls[0]).toBe('inserted-1')
+  })
+
+  it('ADMIN may settle by source tx', async () => {
+    const { svc, getInsertsFor } = makeService()
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, adminUser)
+    expect(getInsertsFor(transactions)).toHaveLength(1)
+  })
+
+  // MONEY-PATH: a double-clicked «Выплатить» on one SENIOR_PENDING_PAYOUT row
+  // pays the senior EXACTLY ONCE. The second call finds NO PENDING obligation
+  // for that source tx (the first flipped it to PAID) → 404, no second payout.
+  it('repeated settle of one source tx pays the senior exactly once', async () => {
+    const { svc, getInsertsFor } = makeService()
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser)
+    await expect(
+      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser),
+    ).rejects.toThrow(NotFoundException)
+
+    const seniorIncomeInserts = getInsertsFor(transactions).filter(
+      (r) => r['type'] === 'SENIOR_INCOME',
+    )
+    expect(seniorIncomeInserts).toHaveLength(1)
+  })
+
+  it('rejects when company balance is insufficient (no money booked)', async () => {
+    const { svc, getInsertsFor } = makeService({ companyBalance: 100 })
+    await expect(
+      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser),
+    ).rejects.toThrow(BadRequestException)
+    expect(getInsertsFor(transactions)).toHaveLength(0)
+  })
+
+  it('SENIOR forbidden → 403 (and no enumeration: gate before lookup)', async () => {
+    const { svc, getInsertsFor } = makeService()
+    await expect(svc.settleByCompanySourceTransaction(SOURCE_TX_ID, seniorUser)).rejects.toThrow(
+      ForbiddenException,
+    )
+    expect(getInsertsFor(transactions)).toHaveLength(0)
+  })
+
+  it('DROP forbidden → 403', async () => {
+    const { svc } = makeService()
+    await expect(svc.settleByCompanySourceTransaction(SOURCE_TX_ID, dropUser)).rejects.toThrow(
+      ForbiddenException,
+    )
+  })
+
+  it('JUNIOR forbidden → 403', async () => {
+    const { svc } = makeService()
+    await expect(svc.settleByCompanySourceTransaction(SOURCE_TX_ID, juniorUser)).rejects.toThrow(
+      ForbiddenException,
+    )
+  })
+
+  it('no open obligation for the source tx → 404', async () => {
+    // Obligation already PAID → the PENDING-scoped lookup finds nothing.
+    const { svc, getInsertsFor } = makeService({
+      obligations: new Map([[OBLIGATION_COMPANY, makeObligation({ status: 'PAID' })]]),
+    })
+    await expect(
+      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser),
+    ).rejects.toThrow(NotFoundException)
+    expect(getInsertsFor(transactions)).toHaveLength(0)
+  })
+
+  it('unknown source tx id → 404', async () => {
+    const { svc } = makeService()
+    await expect(
+      svc.settleByCompanySourceTransaction('ffffffff-ffff-4fff-8fff-ffffffffffff', accountantUser),
+    ).rejects.toThrow(NotFoundException)
   })
 })
 
