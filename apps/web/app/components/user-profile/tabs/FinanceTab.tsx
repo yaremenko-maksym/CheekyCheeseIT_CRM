@@ -156,9 +156,10 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
     return (
       <>
         {earnedCard}
-        {/* task-drop-company-debt-and-invoices: DROP no longer holds
-            debts to seniors — section removed. The company settles via
-            /crm/finance (PendingSettlementCompanyCard). */}
+        {/* task-senior-settle-in-tx-row: DROP no longer holds debts to
+            seniors — section removed. The company settles the senior IOU from
+            the SENIOR_PENDING_PAYOUT row in the /crm/finance transactions
+            list (the dedicated settlement cards were removed). */}
         <Card>
           <CardContent className="py-8 text-center text-sm text-muted-foreground">
             Транзакций пока нет

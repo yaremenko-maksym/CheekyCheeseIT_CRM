@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Search, ArrowUpDown, ChevronDown, X, Wallet } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
+import { toast } from 'sonner'
 import type { TransactionDto, TransactionStatus } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
@@ -58,8 +59,6 @@ import { PayoutDetailDialog } from './components/dialogs/PayoutDetailDialog'
 import { TransactionDetailDialog } from './components/dialogs/TransactionDetailDialog'
 import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransactionDialog'
 import { DropFinancePage } from './components/DropFinancePage'
-import { PendingSettlementSeniorCard } from './components/PendingSettlementSeniorCard'
-import { PendingSettlementCompanyCard } from './components/PendingSettlementCompanyCard'
 import { ConfirmPayoutDialog } from '@/components/finance/ConfirmPayoutDialog'
 
 /**
@@ -94,6 +93,18 @@ export const Route = createFileRoute('/crm/finance/')({
     return {}
   },
 })
+
+// Pull a human-readable message out of an axios-style error for toasts.
+function extractErrorMessage(err: unknown): string {
+  if (err && typeof err === 'object' && 'response' in err) {
+    const resp = (err as { response?: { data?: { message?: unknown } } }).response
+    const msg = resp?.data?.message
+    if (typeof msg === 'string') return msg
+    if (Array.isArray(msg)) return msg.join(', ')
+  }
+  if (err instanceof Error) return err.message
+  return 'Неизвестная ошибка'
+}
 
 // ── Shared UI primitives ───────────────────────────────────────────────────────
 
@@ -229,6 +240,7 @@ function TransactionsTable({
   onAdminEdit,
   onDelete,
   onPaySalary,
+  onSettleSeniorPayout,
   onOpenPayoutDetail,
   onInitiatePayout,
   onConfirmPayout,
@@ -250,6 +262,12 @@ function TransactionsTable({
   onAdminEdit: (tx: TransactionDto) => void
   onDelete: (tx: TransactionDto) => void
   onPaySalary: (tx: TransactionDto) => void
+  /**
+   * task-senior-settle-in-tx-row. ADMIN/ACCOUNTANT clicks «Выплатить» on a
+   * SENIOR_PENDING_PAYOUT row (PENDING_PAYMENT) — settles the senior IOU from
+   * the company account. Passed straight to TransactionRow.
+   */
+  onSettleSeniorPayout: (tx: TransactionDto) => void
   /**
    * Opens PayoutDetailDialog for PENDING_PAYMENT rows. Passed straight to
    * TransactionRow; receives the payout_request id (already resolved by the
@@ -407,6 +425,7 @@ function TransactionsTable({
                     onAdminEdit={onAdminEdit}
                     onDelete={onDelete}
                     onPaySalary={onPaySalary}
+                    onSettleSeniorPayout={onSettleSeniorPayout}
                     onOpenPayoutDetail={onOpenPayoutDetail}
                     {...(onInitiatePayout ? { onInitiatePayout } : {})}
                     onConfirmPayout={onConfirmPayout}
@@ -501,6 +520,41 @@ function FinancePage() {
       setDeleteTx(null)
     },
   })
+
+  // task-senior-settle-in-tx-row. Pay the senior their drop-project share
+  // directly from the SENIOR_PENDING_PAYOUT row (ADMIN/ACCOUNTANT only). The
+  // backend resolves the linked pending_obligation by source-transaction id and
+  // runs the idempotent settleByCompany cascade (debits the company account,
+  // inserts SENIOR_INCOME, auto-creates the invoice). Mirrors the salary pay
+  // flow but with a simple confirm instead of a funding-source dialog (the
+  // funding source is always the company account for a senior IOU).
+  const settleSeniorPayoutMutation = useMutation({
+    mutationFn: (sourceTransactionId: string) =>
+      financeApi.settleSeniorPayoutFromTransaction(sourceTransactionId),
+    onSuccess: () => {
+      toast.success('Выплата синьору проведена')
+      // Invalidate everything the settlement touches: the transactions list
+      // (the row flips + a new SENIOR_INCOME appears), profile feeds, the
+      // company-account balance / summary, and the auto-generated invoice list.
+      void qc.invalidateQueries({ queryKey: ['transactions'] })
+      void qc.invalidateQueries({ queryKey: ['profile-transactions'] })
+      void qc.invalidateQueries({ queryKey: ['pending-obligations'] })
+      void qc.invalidateQueries({ queryKey: ['finance-summary'] })
+      void qc.invalidateQueries({ queryKey: ['company-account'] })
+      void qc.invalidateQueries({ queryKey: ['invoices'] })
+    },
+    onError: (err) => toast.error(extractErrorMessage(err)),
+  })
+
+  const onSettleSeniorPayout = useCallback(
+    (tx: TransactionDto) => {
+      if (settleSeniorPayoutMutation.isPending) return
+      // Simple confirm — this moves money out of the company account.
+      if (!window.confirm('Выплатить синьору его долю с дроп-проекта?')) return
+      settleSeniorPayoutMutation.mutate(tx.id)
+    },
+    [settleSeniorPayoutMutation],
+  )
 
   const canCreate = isAdmin || isSenior || isDrop || isAccountant
 
@@ -774,14 +828,12 @@ function FinancePage() {
         style={{ scrollbarGutter: 'stable' }}
       >
         <div className="space-y-6">
-          {/* task-drop-company-debt-and-invoices. Senior IOUs and the
-          ADMIN/ACCOUNTANT-only "Долги компании перед синьорами" card.
-          DROP no longer holds senior debts — the DropCard was removed.
-          Phase 8 v2: the CompanyAccountCard was removed — balance moved to
-          /crm/stats, wallet management to /crm/admin/wallet, and
-          dividends became a DIVIDEND option in CreateTransactionDialog. */}
-          {(isAdmin || role === 'ACCOUNTANT') && <PendingSettlementSeniorCard />}
-          {(isAdmin || role === 'ACCOUNTANT') && <PendingSettlementCompanyCard />}
+          {/* task-senior-settle-in-tx-row. The two senior-settlement cards
+          («Ожидают зачисления» + «Долги компании перед синьорами») were
+          removed — they carried no info beyond what the transactions table
+          already shows. The senior IOU is now paid straight from its
+          SENIOR_PENDING_PAYOUT row in the table via the «Выплатить» button
+          (ADMIN/ACCOUNTANT only), mirroring the salary pay flow. */}
 
           {/* Transactions table */}
           <Card>
@@ -798,6 +850,7 @@ function FinancePage() {
                 onAdminEdit={setAdminEditTx}
                 onDelete={setDeleteTx}
                 onPaySalary={setPaySalaryTx}
+                onSettleSeniorPayout={onSettleSeniorPayout}
                 onOpenPayoutDetail={openPayoutDetail}
                 {...(isSenior ? { onInitiatePayout: openPayoutDialogForTx } : {})}
                 onConfirmPayout={setConfirmPayoutTx}

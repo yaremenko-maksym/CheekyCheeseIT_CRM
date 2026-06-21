@@ -196,6 +196,13 @@ type TransactionRowProps = {
   onDelete?: (tx: TransactionDto) => void
   onPaySalary?: (tx: TransactionDto) => void
   /**
+   * task-senior-settle-in-tx-row. ADMIN/ACCOUNTANT clicks «Выплатить» on a
+   * SENIOR_PENDING_PAYOUT row (PENDING_PAYMENT) to pay the senior their
+   * drop-project share from the company account. Mirrors the salary pay flow:
+   * an auto-created PENDING row is settled manually from the transactions list.
+   */
+  onSettleSeniorPayout?: (tx: TransactionDto) => void
+  /**
    * feat/finance-payout-flow (#7). SENIOR clicks «Выплатить» on a VALIDATED
    * SENIOR_INCOME row — opens PayoutDialog pre-selecting this tx.
    */
@@ -235,6 +242,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
       onAdminEdit,
       onDelete,
       onPaySalary,
+      onSettleSeniorPayout,
       onInitiatePayout,
       onOpenPayoutDetail,
       onConfirmPayout,
@@ -260,6 +268,16 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
       tx.receiverId === currentUserId
     const canEdit = isSenior && tx.type === 'SENIOR_INCOME' && tx.status === 'REJECTED'
     const canPaySalary = isAdmin && tx.type === 'SALARY' && tx.status === 'PENDING'
+    // task-senior-settle-in-tx-row. ADMIN/ACCOUNTANT see «Выплатить» on a
+    // SENIOR_PENDING_PAYOUT row (the company's IOU to a senior from a
+    // drop-project) while it is still PENDING_PAYMENT. Clicking settles the IOU
+    // from the company account (the senior's auto-created SENIOR_INCOME + invoice
+    // cascade). Hidden for SENIOR/DROP/JUNIOR/HR — settlement is a privileged
+    // money action, enforced again server-side.
+    const canSettleSeniorPayout =
+      (isAdmin || isAccountant) &&
+      tx.type === 'SENIOR_PENDING_PAYOUT' &&
+      tx.status === 'PENDING_PAYMENT'
     const canAdminEdit =
       isAdmin &&
       tx.type !== 'PAYOUT' &&
@@ -473,6 +491,17 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                 className="h-7 px-2 text-xs text-green-400 hover:text-green-300 hover:bg-green-500/10"
                 onClick={() => onPaySalary(tx)}
                 data-testid={`tx-row-pay-salary-${tx.id}`}
+              >
+                Выплатить
+              </Button>
+            )}
+            {canSettleSeniorPayout && onSettleSeniorPayout && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs text-green-400 hover:text-green-300 hover:bg-green-500/10"
+                onClick={() => onSettleSeniorPayout(tx)}
+                data-testid={`tx-row-settle-senior-payout-${tx.id}`}
               >
                 Выплатить
               </Button>
