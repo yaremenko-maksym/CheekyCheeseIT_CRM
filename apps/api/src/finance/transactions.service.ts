@@ -29,6 +29,7 @@ import { MAKSYM_ID, KOSTYA_ID, SALARY_ELIGIBLE_ROLES } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
   documents,
+  pendingObligations,
   projectFinanceSettings,
   projectMembers,
   payoutRequests,
@@ -1437,85 +1438,28 @@ export class TransactionsService {
       throw new BadRequestException('Transaction is not in PENDING status')
 
     if (action === 'validate') {
-      if (tx.type === 'SENIOR_INCOME') {
-        // feat/finance-payout-flow (#7): SENIOR_INCOME validate ONLY flips
-        // status to VALIDATED. No payout_request and no PAYOUT row are created
-        // here. The SENIOR manually creates a payout via POST /api/payout-requests
-        // (createPayoutRequest) which lets them batch multiple VALIDATED incomes
-        // into a single payout. This removes the auto-duplicate-payout bug where
-        // validate created a payout_request and then createPayoutRequest created
-        // a second one on the already-VALIDATED row.
-        const now = new Date()
-        await this.db.db
-          .update(transactions)
-          .set({
-            status: 'VALIDATED',
-            validatedBy: currentUser.id,
-            validatedAt: now,
-            updatedAt: now,
-          })
-          .where(eq(transactions.id, id))
-
-        // task-salary-company-account: junior salaries no longer depend on
-        // validated senior/drop income (LOCKED removed) — nothing to unlock here.
-      } else {
-        // DROP_INCOME: retain the original behaviour — atomically flip to
-        // VALIDATED + create payout_request + insert placeholder PAYOUT row.
-        // The drop-specific distribution math lives in payPayoutRequest.
-        if (!tx.receiverId) {
-          throw new BadRequestException(`${tx.type} has no receiverId — cannot create payout`)
-        }
-        const walletOwner = await this.db.db.query.users.findFirst({
-          where: eq(users.id, tx.receiverId),
+      // task-drop-payout-company-account: SENIOR_INCOME and DROP_INCOME now share
+      // the SAME validate semantics — validate ONLY flips status to VALIDATED. No
+      // payout_request and no PAYOUT row are created here. The recipient (SENIOR
+      // or DROP) later bundles their VALIDATED incomes into a single payout via
+      // POST /api/payout-requests (createPayoutRequest). Previously DROP_INCOME
+      // auto-created a payout_request + placeholder PAYOUT at validate time (a
+      // legacy of the removed payment-channel flow) — that diverged from the
+      // senior path and could double-book a payout against the same income. Both
+      // paths are now identical, removing that drift.
+      const now = new Date()
+      await this.db.db
+        .update(transactions)
+        .set({
+          status: 'VALIDATED',
+          validatedBy: currentUser.id,
+          validatedAt: now,
+          updatedAt: now,
         })
-        if (!walletOwner) throw new NotFoundException('Receiver not found')
+        .where(eq(transactions.id, id))
 
-        // DROP_INCOME: share kept = users.dropSharePercent ?? 5
-        const sharePercent = walletOwner.dropSharePercent ?? 5
-        const incomeAmount = parseFloat(tx.amount)
-        const payableAmount = incomeAmount * (1 - sharePercent / 100)
-
-        const contractAddress = '0x' + randomBytes(20).toString('hex')
-        const now = new Date()
-
-        await this.db.db.transaction(async (dbtx) => {
-          const [req] = await dbtx
-            .insert(payoutRequests)
-            .values({
-              seniorId: tx.receiverId!,
-              incomeAmount: String(incomeAmount),
-              payableAmount: String(payableAmount),
-              contractAddress,
-              status: 'PENDING',
-            })
-            .returning()
-
-          await dbtx
-            .update(transactions)
-            .set({
-              status: 'VALIDATED',
-              payoutRequestId: req!.id,
-              validatedBy: currentUser.id,
-              validatedAt: now,
-              updatedAt: now,
-            })
-            .where(eq(transactions.id, id))
-
-          await dbtx.insert(transactions).values({
-            type: 'PAYOUT',
-            status: 'PENDING_PAYMENT',
-            amount: String(payableAmount),
-            currency: tx.currency,
-            senderId: tx.receiverId!,
-            receiverLabel: 'CheekyCheeseIT',
-            projectId: tx.projectId,
-            payoutRequestId: req!.id,
-            createdBy: currentUser.id,
-          })
-        })
-
-        // task-salary-company-account: LOCKED junior-salary unlock removed.
-      }
+      // task-salary-company-account: junior salaries no longer depend on
+      // validated senior/drop income (LOCKED removed) — nothing to unlock here.
     } else {
       if (!rejectionReason) throw new BadRequestException('Rejection reason is required')
       await this.db.db
@@ -1920,7 +1864,32 @@ export class TransactionsService {
   // ── Create Payout Request ─────────────────────────────────────────────────
 
   async createPayoutRequest(transactionIds: string[], currentUser: SessionUser) {
-    if (currentUser.role !== 'SENIOR') throw new ForbiddenException()
+    // task-drop-payout-company-account. SENIOR and DROP have the SAME payout
+    // flow: bundle one's own VALIDATED incomes into a single payout to the
+    // COMPANY wallet. The ONLY differences are (a) the income row type the
+    // caller may bundle (SENIOR_INCOME vs DROP_INCOME) and (b) the share the
+    // company keeps — `1 - seniorShare%` for a SENIOR, `1 - dropShare%` for a
+    // DROP (the drop keeps their own slice off-platform, the senior share for a
+    // drop-project is settled later as a COMPANY → senior obligation in the
+    // pay cascade). Everything else (USDT conversion, atomic FOR UPDATE lock,
+    // placeholder PAYOUT) is identical.
+    if (currentUser.role !== 'SENIOR' && currentUser.role !== 'DROP') {
+      throw new ForbiddenException()
+    }
+    const isDrop = currentUser.role === 'DROP'
+    const incomeType = isDrop ? 'DROP_INCOME' : 'SENIOR_INCOME'
+
+    // For a DROP caller the company-kept share is `1 - dropSharePercent%`. The
+    // dropSharePercent lives on the user row (not snapshotted per-income like
+    // the senior share), so resolve it once before the batch. SENIOR callers
+    // read the per-income seniorSharePercent snapshot inside the loop below.
+    let dropSharePercent = DEFAULT_DROP_SHARE_PERCENT
+    if (isDrop) {
+      const dropUser = await this.db.db.query.users.findFirst({
+        where: eq(users.id, currentUser.id),
+      })
+      dropSharePercent = dropUser?.dropSharePercent ?? DEFAULT_DROP_SHARE_PERCENT
+    }
 
     // Phase 8 v2 — fetch the NBU snapshot ONCE, BEFORE opening the DB
     // transaction (it can hit the network) so the cross-currency→USDT
@@ -1953,7 +1922,11 @@ export class TransactionsService {
         .where(
           and(
             inArray(transactions.id, transactionIds),
-            eq(transactions.type, 'SENIOR_INCOME'),
+            // task-drop-payout-company-account: DROP_INCOME for a DROP caller,
+            // SENIOR_INCOME for a SENIOR. The receiverId filter still pins the
+            // batch to the caller's OWN incomes, so a DROP can never bundle
+            // another drop's (or a senior's) income — Forbidden by count-mismatch.
+            eq(transactions.type, incomeType),
             eq(transactions.status, 'VALIDATED'),
             eq(transactions.receiverId, currentUser.id),
             isNull(transactions.payoutRequestId),
@@ -1996,8 +1969,18 @@ export class TransactionsService {
       for (const tx of lockedRows) {
         // amount is stored as numeric string from Postgres.
         const amountMinor = Math.round(parseFloat(tx.amount) * SCALE)
-        const sharePercent = tx.seniorSharePercent ?? DEFAULT_SENIOR_SHARE_PERCENT
-        // company's share = 1 - seniorShare/100; integer arithmetic on the
+        // task-drop-payout-company-account: the share the recipient keeps off
+        // the company transfer differs by caller — `seniorSharePercent` (per-
+        // income snapshot) for a SENIOR, `dropSharePercent` (per-user) for a
+        // DROP. The company keeps `1 - keptShare%` in BOTH cases; for a DROP the
+        // senior's slice of the same income is NOT subtracted here — it stays in
+        // the company-transfer and is later booked as a COMPANY → senior
+        // obligation in applyPayoutPaidCascade (so the money is accounted once,
+        // on the company account, then re-distributed to the senior on settle).
+        const sharePercent = isDrop
+          ? dropSharePercent
+          : (tx.seniorSharePercent ?? DEFAULT_SENIOR_SHARE_PERCENT)
+        // company's share = 1 - keptShare/100; integer arithmetic on the
         // scaled amount avoids per-iteration float drift.
         const companyShareMinor = Math.round((amountMinor * (100 - sharePercent)) / 100)
         // Convert BOTH the gross income and the company-share to USDT so the
@@ -2416,14 +2399,25 @@ export class TransactionsService {
             : null
           if (!senior) throw new NotFoundException('Senior not found on drop-project')
 
+          // task-team-senior-share-override. Resolve the senior share WITH its
+          // source (PROJECT / TEAM / USER_DEFAULT) so the SENIOR_PENDING_PAYOUT
+          // + obligation carry the same snapshot the money trail used — keeps the
+          // source badge consistent across the ledger. This reads team
+          // memberships on the base connection (committed data), safe mid-txn.
+          const seniorShareSnapshot = await this.resolveSeniorShareSnapshot(
+            { seniorSharePercentOverride: primaryProject.seniorSharePercentOverride },
+            { id: senior.id, seniorSharePercent: senior.seniorSharePercent },
+          )
+
           const income = parseFloat(req.incomeAmount)
-          // computeDropDistribution is PURE (no DB) — it only calls the equally
-          // pure computePartnersSplit. Safe to run inside the transaction.
+          // computeDropDistribution is PURE (no DB). The senior share uses the
+          // resolved snapshot value (project/team override aware) rather than the
+          // raw user default, so the obligation booked below matches the snapshot.
           const distribution = this.computeDropDistribution(
             income,
             { id: primaryProject.id, dropId: primaryProject.dropId },
             { id: dropUser.id, dropSharePercent: dropUser.dropSharePercent },
-            { id: senior.id, seniorSharePercent: senior.seniorSharePercent },
+            { id: senior.id, seniorSharePercent: seniorShareSnapshot.value },
           )
 
           // Drop's slice — visible on the DROP user's balance.
@@ -2444,20 +2438,50 @@ export class TransactionsService {
             createdBy: currentUser.id,
           })
 
-          // fix/payout-credits-company-account (Variant A): the auto 50/50
-          // PAYOUT_ADMIN partner split that used to run here (and in the
-          // senior-project branch) is REMOVED. The company USDT account is
-          // already credited the full `payable` via the PAYOUT row's
-          // fundingSource='COMPANY_ACCOUNT' marker
-          // (computeCompanyAccountBalanceFromLedger: +Σ PAYOUT(PAID,
-          // COMPANY_ACCOUNT)); the extra 50/50 split onto each admin's personal
-          // balance was a SECOND distribution of the same money on top of that
-          // credit (the two «Доли партнёра» the owner flagged). Admin income is
-          // now a deliberate manual flow (DIVIDEND_TO_ADMIN), so no automatic
-          // partner row is emitted on settlement. The DROP's own PAYOUT_DROP
-          // slice above is unchanged. The historical PAYOUT_ADMIN enum value is
-          // intentionally retained (defensive for legacy rows) — we simply stop
-          // creating new ones.
+          // task-drop-payout-company-account. The senior share of a drop-project
+          // income is owed by the COMPANY (not by the drop). The full `payable`
+          // already landed on the company account via the PAYOUT row's
+          // fundingSource='COMPANY_ACCOUNT' marker; the company now owes the
+          // senior their slice. We book it as:
+          //   1) SENIOR_PENDING_PAYOUT (PENDING_PAYMENT) — a visible IOU row with
+          //      the senior-share snapshot, mirroring the (now-removed) payment-
+          //      channel cascade so reporting/feeds are unchanged.
+          //   2) pending_obligations (creditor=senior, debtorType=COMPANY) — the
+          //      settle-able debt that ADMIN/ACCOUNTANT later closes via
+          //      settleByCompany (→ SENIOR_INCOME, debits the company account).
+          // No PAYOUT_ADMIN is ever emitted (the legacy auto 50/50 partner split
+          // was removed in fix/payout-credits-company-account; admin income is a
+          // deliberate manual DIVIDEND_TO_ADMIN flow). The historical PAYOUT_ADMIN
+          // enum value is retained only for legacy rows — we never create new ones.
+          const [pendingRow] = await dbtx
+            .insert(transactions)
+            .values({
+              type: 'SENIOR_PENDING_PAYOUT',
+              status: 'PENDING_PAYMENT',
+              amount: String(distribution.seniorShare.amount),
+              currency: 'USDT',
+              senderLabel: 'COMPANY',
+              receiverId: senior.id,
+              recipientId: senior.id,
+              projectId: primaryProject.id,
+              payoutRequestId: requestId,
+              seniorSharePercent: seniorShareSnapshot.value,
+              seniorSharePercentSource: seniorShareSnapshot.source,
+              notes: 'Drop payout — senior IOU (debtor=COMPANY)',
+              createdBy: currentUser.id,
+            })
+            .returning()
+          if (pendingRow) {
+            await dbtx.insert(pendingObligations).values({
+              creditorUserId: senior.id,
+              debtorType: 'COMPANY',
+              debtorUserId: null,
+              sourceTransactionId: pendingRow.id,
+              amount: String(distribution.seniorShare.amount),
+              currency: 'USDT',
+              status: 'PENDING',
+            })
+          }
         }
         // Senior-project branch: nothing else to write. The PAYOUT row (flipped
         // PAID + fundingSource credit marker above) is the entire settlement —
