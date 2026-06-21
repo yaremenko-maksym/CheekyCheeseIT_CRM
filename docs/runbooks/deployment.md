@@ -195,3 +195,20 @@ docker compose -f docker-compose.prod.yml down -v
   Example in deploy script: `VITE_BUILD_VERSION=$(git rev-parse --short HEAD) docker compose -f docker-compose.prod.yml build`.
 - Hosting provider: **not yet selected**. Runbook will be updated with VPS/cloud
   provider-specific instructions once decided.
+
+## 9. Client IP / X-Forwarded-For (security)
+
+The API runs with `TRUST_PROXY=true` in production so it reads the real client IP
+from `X-Forwarded-For`. That IP is persisted as **legal proof on contract / ToS
+signatures** and used by rate-limiting — so it must not be spoofable.
+
+- The api container has **no published port** — nginx is the only ingress. Keep it
+  that way (do not add `ports:` to the `api` service in `docker-compose.prod.yml`).
+- nginx **overwrites** `X-Forwarded-For` with `$remote_addr` (the real connection
+  IP), discarding any client-supplied value. This makes `req.ip` un-spoofable in the
+  default single-nginx topology.
+- **If you put an edge CDN/proxy in front of nginx** (e.g. Cloudflare): change the
+  `proxy_set_header X-Forwarded-For` lines in `nginx/conf.d/{crm,landing}.conf` back
+  to `$proxy_add_x_forwarded_for` and add `set_real_ip_from <edge-CIDR>;` so the real
+  client IP (not the edge IP) is recorded. Otherwise every signature/log records the
+  CDN's IP.
