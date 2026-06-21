@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate, useSearch } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import {
   DndContext,
   DragOverlay,
@@ -140,7 +140,7 @@ function InterviewsPage() {
   // ADMIN and HR can create projects from hired candidates
   const canCreateProject = isAdmin || isHR
 
-  const search = useSearch({ from: '/_authenticated/interviews/' })
+  const search = Route.useSearch()
   const navigate = useNavigate()
   const [createOpen, setCreateOpen] = useState(false)
   const [selectedCard, setSelectedCard] = useState<InterviewDto | null>(null)

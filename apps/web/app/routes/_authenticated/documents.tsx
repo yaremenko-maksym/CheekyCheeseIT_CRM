@@ -26,7 +26,7 @@
  * links (Finance → receipts, audit log → archived doc, etc.).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link } from '@tanstack/react-router'
 import { StickyPageHeader } from '@/components/crm/StickyPageHeader'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
@@ -234,7 +234,7 @@ function DocumentsPage() {
 function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   const isAdmin = viewer.role === 'ADMIN'
   const search = Route.useSearch()
-  const navigate = useNavigate({ from: '/_authenticated/documents' })
+  const navigate = Route.useNavigate()
 
   // View mode — list (compact rows, default) or grid (cards).
   // URL param `?view=` takes precedence on first load; falls back to

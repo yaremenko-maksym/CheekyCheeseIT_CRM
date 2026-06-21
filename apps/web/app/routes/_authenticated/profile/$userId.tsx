@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, useParams, useSearch } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useEffect } from 'react'
 import { z } from 'zod'
 import { useAuth } from '@/context/auth'
@@ -25,9 +25,9 @@ export const Route = createFileRoute('/_authenticated/profile/$userId')({
 })
 
 function UserDetailPage() {
-  const { userId } = useParams({ from: '/_authenticated/profile/$userId' })
-  const { tab } = useSearch({ from: '/_authenticated/profile/$userId' })
-  const navigate = useNavigate({ from: '/_authenticated/profile/$userId' })
+  const { userId } = Route.useParams()
+  const { tab } = Route.useSearch()
+  const navigate = Route.useNavigate()
   const { user } = useAuth()
 
   // JUNIOR may only view their own profile. Any attempt to navigate to a

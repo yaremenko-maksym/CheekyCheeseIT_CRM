@@ -69,7 +69,7 @@ export class AuthController {
   ) {
     const storedState = request.cookies?.[STATE_COOKIE]
     if (!storedState || storedState !== state || !code) {
-      await reply.redirect(`${this.frontendUrl}/crm/login?error=invalid_state`, 302)
+      await reply.redirect(`${this.frontendUrl}/login?error=invalid_state`, 302)
       return
     }
 
@@ -81,13 +81,13 @@ export class AuthController {
       googleUser = await this.authService.getGoogleUserInfo(tokens.access_token)
     } catch (err) {
       this.logger.error('Google OAuth callback failed', err)
-      await reply.redirect(`${this.frontendUrl}/crm/login?error=google_error`, 302)
+      await reply.redirect(`${this.frontendUrl}/login?error=google_error`, 302)
       return
     }
 
     const user = await this.usersService.findByEmail(googleUser.email)
     if (!user) {
-      await reply.redirect(`${this.frontendUrl}/crm/login?error=unauthorized`, 302)
+      await reply.redirect(`${this.frontendUrl}/login?error=unauthorized`, 302)
       return
     }
 
@@ -108,7 +108,7 @@ export class AuthController {
       path: '/',
     })
 
-    await reply.redirect(`${this.frontendUrl}/crm`, 302)
+    await reply.redirect(`${this.frontendUrl}/`, 302)
   }
 
   // `/me` requires auth (no @Public) — caller is the global JwtAuthGuard now.
@@ -172,7 +172,7 @@ export class AuthController {
   @Public()
   async logout(@Res() reply: FastifyReply) {
     reply.clearCookie(JWT_COOKIE, { path: '/' })
-    await reply.redirect(`${this.frontendUrl}/crm/login`, 302)
+    await reply.redirect(`${this.frontendUrl}/login`, 302)
   }
 
   // DEV ONLY — быстрый вход по email без Google OAuth

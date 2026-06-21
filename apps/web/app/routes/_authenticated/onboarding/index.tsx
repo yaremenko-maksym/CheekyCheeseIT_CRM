@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, useSearch } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -26,7 +26,7 @@ type OnboardingStep = 'contract' | 'tos' | 'done'
 function OnboardingPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const search = useSearch({ from: '/_authenticated/onboarding/' })
+  const search = Route.useSearch()
 
   const { data: status } = useQuery<OnboardingStatusDto>({
     queryKey: ['onboarding-status'],

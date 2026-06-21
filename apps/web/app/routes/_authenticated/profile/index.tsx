@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, useSearch } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { z } from 'zod'
 import { useAuth } from '@/context/auth'
 import { UserProfileShell } from '@/components/user-profile/UserProfileShell'
@@ -25,7 +25,7 @@ export const Route = createFileRoute('/_authenticated/profile/')({
 
 function ProfilePage() {
   const { user } = useAuth()
-  const { tab } = useSearch({ from: '/_authenticated/profile/' })
+  const { tab } = Route.useSearch()
   const navigate = useNavigate()
   if (!user) return null
   return (

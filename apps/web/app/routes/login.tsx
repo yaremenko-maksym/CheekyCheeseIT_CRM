@@ -3,11 +3,11 @@ import { motion } from 'framer-motion'
 import { AlertCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { z } from 'zod'
-import { AuthProvider, useAuth } from '../../context/auth'
-import { api } from '../../lib/axios'
-import { Badge } from '../../components/ui/badge'
-import { Button } from '../../components/ui/button'
-import { BrandMark } from '../../components/brand-mark'
+import { AuthProvider, useAuth } from '@/context/auth'
+import { api } from '@/lib/axios'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { BrandMark } from '@/components/brand-mark'
 
 const searchSchema = z.object({
   error: z.enum(['unauthorized', 'google_error', 'invalid_state']).optional(),
