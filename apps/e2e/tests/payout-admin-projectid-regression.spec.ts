@@ -1,39 +1,34 @@
 /**
  * payout-admin-projectid-regression.spec.ts — task-e2e-fragile-points-audit.
  *
- * Backlog AC5 regression: PAYOUT_ADMIN rows for senior-projects used to be
- * inserted WITHOUT `projectId`, which meant a `?projectId=` filter missed
- * them. The fix (PR #66) sets `projectId` on every PAYOUT_ADMIN row in both
- * branches (senior + drop) of `payPayoutRequest`.
+ * Originally tested (backlog AC5): PAYOUT_ADMIN rows for both senior-projects
+ * and drop-projects carry a non-null `projectId` matching the originating
+ * project, so that `?projectId=` filters return them correctly.
  *
- * The existing `senior-project-distribution-regression.spec.ts` uses the
- * payoutRequestId-based join helper specifically to dodge the projectId
- * issue. NONE of the specs assert the post-fix invariant: every
- * PAYOUT_ADMIN row carries a non-null `projectId` matching the project
- * that generated it.
+ * fix/payout-credits-company-account (Variant A): the automatic 50/50
+ * PAYOUT_ADMIN partner split has been REMOVED from BOTH cascade branches
+ * (senior + drop). The company USDT account is credited the full `payable`
+ * via the PAYOUT row's fundingSource='COMPANY_ACCOUNT' marker — the
+ * PAYOUT_ADMIN rows were a double-distribution of the same money on top of
+ * that credit. Admin income is now a deliberate manual flow (DIVIDEND_TO_ADMIN).
  *
- * A regression here is silent — no UI crash, just stats / reports that
- * silently drop PAYOUT_ADMIN rows when filtered by project.
+ * This spec is therefore repurposed as a regression guard for the split
+ * removal itself: after payout settlement, NEITHER branch (senior nor drop)
+ * must produce ANY PAYOUT_ADMIN rows. The `?projectId=` filter invariant
+ * (the original AC5 concern) is moot because there are no rows to filter.
  *
- * This spec:
- *   1. Provisions a fresh senior-project (no dropId).
- *   2. Runs the full income → validate → pay flow.
- *   3. Lists transactions via BOTH endpoints:
- *      a) `?payoutRequestId=` (always returns everything linked)
- *      b) `?projectId=` (must now include PAYOUT_ADMIN rows post-fix)
- *   4. Asserts that the projectId-filter results CONTAIN both PAYOUT_ADMIN
- *      rows AND each row's `projectId === projectId`.
+ * Two scenarios to cover both cascade branches independently:
+ *   1. Senior-project: full income → validate → pay flow → assert 0 PAYOUT_ADMIN.
+ *   2. Drop-project:   full income → validate → pay flow → assert 0 PAYOUT_ADMIN.
  *
- * Same regression check for a drop-project (the cascade is different but
- * the projectId invariant must hold on both branches).
+ * A regression here is detectable immediately: if the split is re-introduced,
+ * PAYOUT_ADMIN rows appear where we assert length 0.
  */
 
 import { test, expect } from './fixtures'
 import {
   SEED_ADMIN_EMAIL,
   SEED_EMAILS,
-  MAKSYM_ID,
-  KOSTYA_ID,
   loginViaApi,
   createSeniorProjectViaAPI,
   createSeniorIncomeViaAPI,
@@ -53,14 +48,14 @@ function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 }
 
-test.describe('PAYOUT_ADMIN.projectId regression — both cascade branches', () => {
-  test('senior-project: PAYOUT_ADMIN rows carry projectId after pay', async ({ page }) => {
+test.describe('0 PAYOUT_ADMIN after payout — both cascade branches (Variant-A split removal)', () => {
+  test('senior-project: 0 PAYOUT_ADMIN rows after pay (split removed)', async ({ page }) => {
     const suffix = uniqueSuffix()
 
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     const { projectId } = await createSeniorProjectViaAPI(page, {
       seniorEmail: SEED_EMAILS.seniorA,
-      name: `PR Regression Senior ${suffix}`,
+      name: `No-Split Senior ${suffix}`,
     })
 
     try {
@@ -71,7 +66,6 @@ test.describe('PAYOUT_ADMIN.projectId regression — both cascade branches', () 
         currency: 'USDT',
       })
 
-      // feat/finance-payout-flow (#7): validate only flips to VALIDATED.
       await loginViaApi(page, SEED_EMAILS.accountant)
       await validateTransactionViaAPI(page, txId)
 
@@ -82,46 +76,35 @@ test.describe('PAYOUT_ADMIN.projectId regression — both cascade branches', () 
       const paid = await payPayoutRequestViaAPI(page, payoutRequestId)
       expect(paid.status).toBe('PAID')
 
-      // Fetch via the ?projectId= filter — backlog AC5 fix means
-      // PAYOUT_ADMIN rows MUST surface here.
+      // After Variant-A: no PAYOUT_ADMIN rows on senior-project payout.
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       const projectTxs = await listTransactionsByProjectViaAPI(page, projectId)
-
       const payoutAdmins = projectTxs.filter((t) => t.type === 'PAYOUT_ADMIN')
 
-      // Two PAYOUT_ADMIN rows expected (one per partner).
-      expect(payoutAdmins).toHaveLength(2)
+      expect(
+        payoutAdmins,
+        'Senior-project payout must NOT produce PAYOUT_ADMIN rows (Variant-A split removal)',
+      ).toHaveLength(0)
 
-      // Each row's projectId MUST be set + equal to our project.
-      for (const row of payoutAdmins) {
-        expect(
-          row.projectId,
-          `PAYOUT_ADMIN row ${row.id} missing projectId — backlog AC5 regression`,
-        ).toBe(projectId)
-      }
-
-      // Sanity: both partner rows exist by receiverId.
-      const maksym = payoutAdmins.find((r) => r.receiverId === MAKSYM_ID)
-      const kostya = payoutAdmins.find((r) => r.receiverId === KOSTYA_ID)
-      expect(maksym).toBeTruthy()
-      expect(kostya).toBeTruthy()
+      // Sanity: PAYOUT row was created and is PAID (company account credited).
+      const payouts = projectTxs.filter((t) => t.type === 'PAYOUT')
+      expect(payouts).toHaveLength(1)
+      expect(payouts[0]!.status).toBe('PAID')
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
       await page.request.delete(`${REAL_API}/projects/${projectId}`).catch(() => undefined)
     }
   })
 
-  test('drop-project: PAYOUT_ADMIN rows carry projectId after pay (canary)', async ({ page }) => {
-    // Mirror of the senior path. PR #65 wired projectId on the drop branch
-    // too — without this canary, a future refactor could regress one
-    // branch without the other.
+  test('drop-project: 0 PAYOUT_ADMIN rows after pay (split removed)', async ({ page }) => {
+    // Mirror of the senior path. Tests the drop cascade branch independently.
     const suffix = uniqueSuffix()
-    const dropEmail = `drop-payoutadmin-${suffix}@cheekycheese.dev`
+    const dropEmail = `drop-no-split-${suffix}@cheekycheese.dev`
 
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     const { dropId } = await createDropViaAPI(page, {
       email: dropEmail,
-      displayName: `Drop PayoutAdmin ${suffix}`,
+      displayName: `Drop No Split ${suffix}`,
     })
 
     try {
@@ -140,17 +123,20 @@ test.describe('PAYOUT_ADMIN.projectId regression — both cascade branches', () 
       await loginViaApi(page, dropEmail)
       await payPayoutRequestViaAPI(page, payoutRequestId!)
 
+      // After Variant-A: no PAYOUT_ADMIN rows on drop-project payout.
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       const projectTxs = await listTransactionsByProjectViaAPI(page, projectId)
       const payoutAdmins = projectTxs.filter((t) => t.type === 'PAYOUT_ADMIN')
 
-      // Drop cascade always produces 2 PAYOUT_ADMIN rows.
-      expect(payoutAdmins).toHaveLength(2)
-      for (const row of payoutAdmins) {
-        expect(row.projectId, `Drop-cascade PAYOUT_ADMIN row ${row.id} missing projectId`).toBe(
-          projectId,
-        )
-      }
+      expect(
+        payoutAdmins,
+        'Drop-project payout must NOT produce PAYOUT_ADMIN rows (Variant-A split removal)',
+      ).toHaveLength(0)
+
+      // Sanity: PAYOUT_DROP still created (drop's share is intact).
+      const payoutDrops = projectTxs.filter((t) => t.type === 'PAYOUT_DROP')
+      expect(payoutDrops).toHaveLength(1)
+      expect(payoutDrops[0]!.status).toBe('PAID')
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
       await cleanupDropViaAPI(page, dropId)

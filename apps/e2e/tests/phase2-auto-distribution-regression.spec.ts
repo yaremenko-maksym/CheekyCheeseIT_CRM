@@ -12,10 +12,10 @@
  *
  *   Project A — Phase 2 flow:
  *     DROP_INCOME → validate → payPayoutRequest (simulate=success) →
- *     assert 4 rows (PAYOUT PAID @ $950, PAYOUT_DROP @ $50,
- *     PAYOUT_ADMIN × 2 @ $345 each). Mirrors drop-distribution.spec.ts but
- *     re-runs the assertions here so any Phase 3 regression in the cascade
- *     surfaces in THIS spec too.
+ *     assert 2 distribution rows (PAYOUT PAID @ $950, PAYOUT_DROP @ $50),
+ *     PAYOUT_ADMIN = 0 (removed by fix/payout-credits-company-account).
+ *     Mirrors drop-distribution.spec.ts but re-runs the assertions here so
+ *     any Phase 3 regression in the cascade surfaces in THIS spec too.
  *
  *   Project B — Phase 3 flow:
  *     DROP_INCOME → validate → confirmPayout (Maksym) →
@@ -50,7 +50,7 @@ function uniqueSuffix(): string {
 }
 
 test.describe('Phase 2 distribution still works post-Phase 3 (AC6)', () => {
-  test('cascade emits 4 rows on validate+pay; manual confirm path emits 2 rows; both paths co-exist', async ({
+  test('cascade emits PAYOUT+PAYOUT_DROP on validate+pay (0 PAYOUT_ADMIN); manual confirm path emits 2 rows; both paths co-exist', async ({
     page,
   }) => {
     const suffix = uniqueSuffix()
@@ -83,13 +83,11 @@ test.describe('Phase 2 distribution still works post-Phase 3 (AC6)', () => {
       })
 
       await loginViaApi(page, SEED_EMAILS.accountant)
-      const { payoutRequestId: payoutReqIdA } = await validateTransactionViaAPI(
-        page,
-        incomeTxIdA,
-      )
+      const { payoutRequestId: payoutReqIdA } = await validateTransactionViaAPI(page, incomeTxIdA)
       expect(payoutReqIdA).toBeTruthy()
 
-      // DROP pays → cascade emits PAYOUT_DROP + 2× PAYOUT_ADMIN, flips PAYOUT to PAID.
+      // DROP pays → cascade emits PAYOUT_DROP, flips PAYOUT to PAID.
+      // No PAYOUT_ADMIN rows emitted (removed by fix/payout-credits-company-account).
       await loginViaApi(page, dropAEmail)
       const paid = await payPayoutRequestViaAPI(page, payoutReqIdA!)
       expect(paid.status).toBe('PAID')
@@ -101,22 +99,23 @@ test.describe('Phase 2 distribution still works post-Phase 3 (AC6)', () => {
       const payoutAdminA = txA.filter((t) => t.type === 'PAYOUT_ADMIN')
       const payoutConfirmedA = txA.filter((t) => t.type === 'PAYOUT_CONFIRMED')
 
-      // 4 rows total in the «PAYOUT» group.
+      // PAYOUT placeholder (1 row, $950 = payable after 5% drop share).
       expect(payoutA).toHaveLength(1)
       expect(payoutA[0]!.status).toBe('PAID')
       expect(parseFloat(payoutA[0]!.amount)).toBeCloseTo(950, 2)
 
+      // PAYOUT_DROP (1 row, $50 = drop's 5% share).
       expect(payoutDropA).toHaveLength(1)
       expect(parseFloat(payoutDropA[0]!.amount)).toBeCloseTo(50, 2)
       expect(payoutDropA[0]!.recipientId).toBe(dropIdA)
 
-      expect(payoutAdminA).toHaveLength(2)
-      const maksymRow = payoutAdminA.find((r) => r.receiverId === MAKSYM_ID)
-      const kostyaRow = payoutAdminA.find((r) => r.receiverId === KOSTYA_ID)
-      expect(maksymRow).toBeTruthy()
-      expect(kostyaRow).toBeTruthy()
-      expect(parseFloat(maksymRow!.amount)).toBeCloseTo(345, 2)
-      expect(parseFloat(kostyaRow!.amount)).toBeCloseTo(345, 2)
+      // PAYOUT_ADMIN — 0 rows (regression canary).
+      // fix/payout-credits-company-account removed the automatic 50/50 split.
+      // The company account is credited via PAYOUT.fundingSource='COMPANY_ACCOUNT'.
+      expect(
+        payoutAdminA,
+        'PAYOUT_ADMIN rows must be absent after Variant-A split removal',
+      ).toHaveLength(0)
 
       // No PAYOUT_CONFIRMED on the cascade path — Phase 3 stays orthogonal.
       expect(payoutConfirmedA).toHaveLength(0)
