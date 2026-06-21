@@ -8,37 +8,52 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-// !!!! WARNING: This file is a PLACEHOLDER. Run `pnpm --filter @crm/landing dev` or `pnpm --filter @crm/landing build` to generate the real route tree. !!!!
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as IndexRouteImport } from './routes/index'
 
-import { createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
-
-import { Route as rootRoute } from './routes/__root'
-import { Route as IndexRoute } from './routes/index'
-
-const IndexRouteWithParent = IndexRoute.update({
+const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRoute,
-} as never)
+  getParentRoute: () => rootRouteImport,
+} as any)
 
-export interface FileRoutesByPath {
-  '/': {
-    id: '/'
-    path: '/'
-    fullPath: '/'
-    preLoaderRoute: typeof IndexRoute
-    parentRoute: typeof rootRoute
+export interface FileRoutesByFullPath {
+  '/': typeof IndexRoute
+}
+export interface FileRoutesByTo {
+  '/': typeof IndexRoute
+}
+export interface FileRoutesById {
+  __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
+}
+export interface FileRouteTypes {
+  fileRoutesByFullPath: FileRoutesByFullPath
+  fullPaths: '/'
+  fileRoutesByTo: FileRoutesByTo
+  to: '/'
+  id: '__root__' | '/'
+  fileRoutesById: FileRoutesById
+}
+export interface RootRouteChildren {
+  IndexRoute: typeof IndexRoute
+}
+
+declare module '@tanstack/react-router' {
+  interface FileRoutesByPath {
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
-export interface RootRouteChildren {
-  IndexRoute: typeof IndexRouteWithParent
-}
-
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRouteWithParent,
+  IndexRoute: IndexRoute,
 }
-
-export const routeTree = rootRoute._addFileChildren(rootRouteChildren)._addRouteChildren(
-  rootRouteChildren,
-)
+export const routeTree = rootRouteImport
+  ._addFileChildren(rootRouteChildren)
+  ._addFileTypes<FileRouteTypes>()
