@@ -24,10 +24,22 @@
  *             − Σ(DIVIDEND_TO_ADMIN      PAID)
  *             − Σ(SALARY                 PAID, fundingSource='COMPANY_ACCOUNT')
  *             − Σ(EXPENSE                PAID, fundingSource='COMPANY_ACCOUNT')
+ *             − Σ(SENIOR_INCOME          PAID, fundingSource='COMPANY_ACCOUNT')
  *
  * The two `← НОВОЕ` terms (ADMIN_INCOME +, EXPENSE −) were added in
  * task-salary-company-account: admin income directed into the company pool
  * credits the account, company-funded expenses debit it.
+ *
+ * The SENIOR_INCOME − term (task-drop-payout-company-account) closes the
+ * drop-payout loop: when a DROP settles to the company the FULL payable is
+ * credited (+PAYOUT COMPANY_ACCOUNT), but the senior's share of that payable is
+ * owed by the company. ADMIN/ACCOUNTANT later closes that obligation via
+ * settleByCompany, which pays the senior a SENIOR_INCOME funded from the company
+ * account — so it MUST debit the company balance, else the senior share would be
+ * double-counted (held by the company AND received by the senior). The marker is
+ * stamped ONLY on company-funded SENIOR_INCOME (settleByCompany on a COMPANY
+ * debt); legacy DROP-debt settlements + ordinary senior income leave it NULL and
+ * are correctly ignored here.
  */
 import { and, eq, sql } from 'drizzle-orm'
 import type { DatabaseService } from '../database/database.service'
@@ -44,6 +56,13 @@ type Db = DatabaseService['db'] | DrizzleTx
 
 /** Funding-source marker for company-account-routed money movements. */
 const COMPANY_ACCOUNT = 'COMPANY_ACCOUNT'
+
+/**
+ * Public alias of the funding-source marker so other services (e.g.
+ * PendingSettlementService.settleByCompany) stamp the SAME value the ledger
+ * formula reads — one constant, no drift between the writer and the reader.
+ */
+export const COMPANY_ACCOUNT_FUNDING_SOURCE = COMPANY_ACCOUNT
 
 /**
  * MED-1 (TOCTOU) — single advisory-lock key that serializes every
@@ -90,45 +109,67 @@ async function sumAmount(db: Db, where: ReturnType<typeof and>): Promise<number>
  * function → display and gate can never disagree.
  */
 export async function computeCompanyAccountBalanceFromLedger(db: Db): Promise<number> {
-  const [deposits, payouts, adminIncome, dividends, companySalaries, companyExpenses] =
-    await Promise.all([
-      sumAmount(db, and(eq(transactions.type, 'COMPANY_DEPOSIT'), eq(transactions.status, 'PAID'))),
-      sumAmount(
-        db,
-        and(
-          eq(transactions.type, 'PAYOUT'),
-          eq(transactions.status, 'PAID'),
-          eq(transactions.fundingSource, COMPANY_ACCOUNT),
-        ),
+  const [
+    deposits,
+    payouts,
+    adminIncome,
+    dividends,
+    companySalaries,
+    companyExpenses,
+    companySeniorPayouts,
+  ] = await Promise.all([
+    sumAmount(db, and(eq(transactions.type, 'COMPANY_DEPOSIT'), eq(transactions.status, 'PAID'))),
+    sumAmount(
+      db,
+      and(
+        eq(transactions.type, 'PAYOUT'),
+        eq(transactions.status, 'PAID'),
+        eq(transactions.fundingSource, COMPANY_ACCOUNT),
       ),
-      sumAmount(
-        db,
-        and(
-          eq(transactions.type, 'ADMIN_INCOME'),
-          eq(transactions.status, 'PAID'),
-          eq(transactions.fundingSource, COMPANY_ACCOUNT),
-        ),
+    ),
+    sumAmount(
+      db,
+      and(
+        eq(transactions.type, 'ADMIN_INCOME'),
+        eq(transactions.status, 'PAID'),
+        eq(transactions.fundingSource, COMPANY_ACCOUNT),
       ),
-      sumAmount(
-        db,
-        and(eq(transactions.type, 'DIVIDEND_TO_ADMIN'), eq(transactions.status, 'PAID')),
+    ),
+    sumAmount(db, and(eq(transactions.type, 'DIVIDEND_TO_ADMIN'), eq(transactions.status, 'PAID'))),
+    sumAmount(
+      db,
+      and(
+        eq(transactions.type, 'SALARY'),
+        eq(transactions.status, 'PAID'),
+        eq(transactions.fundingSource, COMPANY_ACCOUNT),
       ),
-      sumAmount(
-        db,
-        and(
-          eq(transactions.type, 'SALARY'),
-          eq(transactions.status, 'PAID'),
-          eq(transactions.fundingSource, COMPANY_ACCOUNT),
-        ),
+    ),
+    sumAmount(
+      db,
+      and(
+        eq(transactions.type, 'EXPENSE'),
+        eq(transactions.status, 'PAID'),
+        eq(transactions.fundingSource, COMPANY_ACCOUNT),
       ),
-      sumAmount(
-        db,
-        and(
-          eq(transactions.type, 'EXPENSE'),
-          eq(transactions.status, 'PAID'),
-          eq(transactions.fundingSource, COMPANY_ACCOUNT),
-        ),
+    ),
+    // task-drop-payout-company-account: company-funded senior IOU settlement
+    // (settleByCompany on a COMPANY debt) debits the company account.
+    sumAmount(
+      db,
+      and(
+        eq(transactions.type, 'SENIOR_INCOME'),
+        eq(transactions.status, 'PAID'),
+        eq(transactions.fundingSource, COMPANY_ACCOUNT),
       ),
-    ])
-  return deposits + payouts + adminIncome - dividends - companySalaries - companyExpenses
+    ),
+  ])
+  return (
+    deposits +
+    payouts +
+    adminIncome -
+    dividends -
+    companySalaries -
+    companyExpenses -
+    companySeniorPayouts
+  )
 }

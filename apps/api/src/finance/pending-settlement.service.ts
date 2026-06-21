@@ -57,6 +57,11 @@ import {
   type Transaction,
 } from '../database/schema'
 import { InvoicesService } from '../invoices/invoices.service'
+import {
+  COMPANY_ACCOUNT_FUNDING_SOURCE,
+  computeCompanyAccountBalanceFromLedger,
+  lockCompanyAccount,
+} from './company-account-balance'
 
 @Injectable()
 export class PendingSettlementService {
@@ -149,8 +154,30 @@ export class PendingSettlementService {
     }
 
     const project = await this.resolveSourceProject(obligation.sourceTransactionId)
+    // task-drop-payout-company-account: a COMPANY-debt settlement pays the senior
+    // FROM the company account, so the closing SENIOR_INCOME row carries the
+    // COMPANY_ACCOUNT funding marker → the ledger debits the company balance for
+    // it (closing the drop-payout loop). Legacy DROP-debt rows are closed without
+    // the marker (the money came from the drop, not the company) so they never
+    // debit the company account.
+    const isCompanyDebt = obligation.debtorType === 'COMPANY'
     const created: Transaction[] = []
     await this.db.db.transaction(async (dbtx) => {
+      // SECURITY (TOCTOU): a company-account DEBIT must serialize against every
+      // other company-account debit (salary / expense / other settlements) via
+      // the SHARED advisory lock, then re-read the balance and refuse to drive
+      // the account negative. Mirrors createSalary / createExpense.
+      if (isCompanyDebt) {
+        await lockCompanyAccount(dbtx)
+        const balance = await computeCompanyAccountBalanceFromLedger(dbtx)
+        const amount = parseFloat(obligation.amount)
+        if (amount > balance) {
+          throw new BadRequestException(
+            'Недостаточно средств на счёте компании для закрытия долга перед синьором',
+          )
+        }
+      }
+
       // task-drop-company-debt-and-invoices. Use SENIOR_INCOME (status=PAID)
       // so InvoicesService.autoCreateForSeniorPayout picks it up — the
       // existing invoice trigger gates on `tx.type === 'SENIOR_INCOME'`.
@@ -162,6 +189,8 @@ export class PendingSettlementService {
           amount: obligation.amount,
           currency: obligation.currency,
           senderLabel: 'COMPANY',
+          // Company-account debit marker — counted by the ledger SSOT.
+          fundingSource: isCompanyDebt ? COMPANY_ACCOUNT_FUNDING_SOURCE : null,
           receiverId: obligation.creditorUserId,
           recipientId: obligation.creditorUserId,
           projectId: project?.id ?? null,

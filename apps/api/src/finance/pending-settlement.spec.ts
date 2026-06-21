@@ -142,6 +142,10 @@ interface MockState {
   inserts: Array<{ table: unknown; row: Record<string, unknown> }>
   updates: Array<{ table: unknown; set: Record<string, unknown>; obligationId: string }>
   invoiceCalls: string[]
+  /** Company-account ledger balance the settleByCompany gate re-reads. */
+  companyBalance?: number
+  /** Counts ledger select() calls so the mock attributes balance to term 1. */
+  ledgerSelectCount?: number
 }
 
 function makeService(initial: Partial<MockState> = {}) {
@@ -178,6 +182,27 @@ function makeService(initial: Partial<MockState> = {}) {
   let lastUpdateObligationId = ''
 
   const mkDbtx = () => ({
+    // task-drop-payout-company-account: settleByCompany on a COMPANY debt now
+    // (1) acquires the company-account advisory lock (pg_advisory_xact_lock via
+    // dbtx.execute) and (2) re-reads the ledger balance via select().from().where().
+    // The mock returns a large balance so the gate passes; `companyBalance` in
+    // overrides lets a test drive the insufficient-funds branch.
+    execute: vi.fn(async () => undefined),
+    select: () => ({
+      from: () => ({
+        // computeCompanyAccountBalanceFromLedger sums N ledger terms (one select
+        // per term, run in a fixed order via Promise.all). The FIRST term is
+        // COMPANY_DEPOSIT (a +credit); attribute the whole balance to it and 0
+        // to every other term so the derived balance equals exactly
+        // `companyBalance` (default 1_000_000 → gate passes).
+        where: async () => {
+          const count = state.ledgerSelectCount ?? 0
+          state.ledgerSelectCount = count + 1
+          const total = count === 0 ? String(state.companyBalance ?? 1_000_000) : '0'
+          return [{ total }]
+        },
+      }),
+    }),
     update: (table: unknown) => ({
       set: (patch: Record<string, unknown>) => ({
         where: async (predicate: unknown) => {
@@ -295,6 +320,10 @@ describe('PendingSettlementService.settleByCompany', () => {
     expect(txInserts[0]?.['receiverId']).toBe(SENIOR_ID)
     expect(txInserts[0]?.['amount']).toBe('560')
     expect(txInserts[0]?.['status']).toBe('PAID')
+    // task-drop-payout-company-account: a COMPANY-debt settlement debits the
+    // company account, so the closing SENIOR_INCOME carries the COMPANY_ACCOUNT
+    // funding marker (the ledger SSOT subtracts it).
+    expect(txInserts[0]?.['fundingSource']).toBe('COMPANY_ACCOUNT')
 
     const oblUpdates = getUpdatesFor(pendingObligations)
     expect(oblUpdates).toHaveLength(1)
@@ -317,6 +346,17 @@ describe('PendingSettlementService.settleByCompany', () => {
     const { svc, getInsertsFor } = makeService()
     await svc.settleByCompany(OBLIGATION_COMPANY, adminUser)
     expect(getInsertsFor(transactions)).toHaveLength(1)
+  })
+
+  it('rejects when company balance is insufficient for the obligation', async () => {
+    // task-drop-payout-company-account: the company-account debit gate refuses to
+    // drive the balance negative. Obligation is 560; balance only 100.
+    const { svc, getInsertsFor } = makeService({ companyBalance: 100 })
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
+      BadRequestException,
+    )
+    // Nothing booked when the gate fails.
+    expect(getInsertsFor(transactions)).toHaveLength(0)
   })
 
   it('DROP forbidden → 403', async () => {
