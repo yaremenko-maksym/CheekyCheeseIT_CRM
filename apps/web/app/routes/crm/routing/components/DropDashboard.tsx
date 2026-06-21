@@ -14,21 +14,23 @@ import { InProgressPanel } from './InProgressPanel'
 /**
  * DropDashboard — ролевой дашборд для роли DROP.
  *
- * AC2: визуально и функционально как у SeniorDashboard: те же разделы (KPI,
- * «Транзакции в работе» с приходами + выплатами + кнопками), но на данных дропа.
- * Переиспользует InProgressPanel (общий с SeniorDashboard), КPI из KpiCard.
+ * Senior-style layout: KPI grid + «Транзакции в работе» (InProgressPanel mode='drop').
  *
  * KPI:
  *   - Активные проекты   → useDropProjects() → count
  *   - Мой баланс (доля)  → useDropSummary() → balance (USDT)
  *   - Приходы в работе   → useDropSummary() → pendingIncomesCount
  *
- * «Транзакции в работе»:
- *   - DROP_INCOME (PENDING/VALIDATED) — self-scoped через getTransactions()
- *   - PAYOUT (PENDING_PAYMENT) — свои выплаты, кнопка «Оплатить» → PayoutDetailDialog
+ * «Транзакции в работе» (mode='drop'):
+ *   - DROP_INCOME PENDING/VALIDATED — self-scoped через getTransactions()
+ *   - VALIDATED DROP_INCOME → кнопка «Платить» → /crm/payments/initiate/$incomeId
+ *     (payment-channel: создаёт SENIOR_PENDING_PAYOUT + pending_obligations).
+ *   - PAYOUT строки НЕ показываются дропу: drop не вызывает payPayoutRequest
+ *     (это senior-only API) — их payment-channel закрывает сам.
+ *   - «Создать выплату» (createPayoutRequest) и batch-кнопка НЕ показываются:
+ *     SENIOR-only endpoint → 403 для DROP.
  *
- * ВАЖНО: НЕ вызывает useSeniorSummary (вернёт 403 для DROP). Использует только
- * drop-специфичные эндпоинты.
+ * ВАЖНО: НЕ вызывает useSeniorSummary (вернёт 403 для DROP).
  *
  * Сам компонент роль НЕ проверяет — родитель (crm/index.tsx) отвечает за guard.
  */
@@ -79,17 +81,9 @@ export function DropDashboard() {
     [transactions],
   )
 
-  // PAYOUT rows in PENDING_PAYMENT — drop needs to submit txHash via PayoutDetailDialog.
-  // Backend self-scopes: returns only rows where senderId === currentUser.id for DROP.
-  const payoutTxs = useMemo(
-    () =>
-      transactions
-        .filter((t) => t.type === 'PAYOUT' && t.status === 'PENDING_PAYMENT')
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-    [transactions],
-  )
-
-  // VALIDATED DROP_INCOME rows without a payoutRequestId — eligible for a new payout.
+  // VALIDATED DROP_INCOME rows without a payoutRequestId. Passed as validatedIncomes
+  // to InProgressPanel but the batch «Создать выплату» button is hidden in mode='drop'
+  // (createPayoutRequest is SENIOR-only → 403). Kept for API shape completeness.
   const validatedIncomes = useMemo(
     () => incomeTxs.filter((t) => t.status === 'VALIDATED' && !t.payoutRequestId),
     [incomeTxs],
@@ -163,11 +157,13 @@ export function DropDashboard() {
               </motion.div>
             </motion.div>
 
-            {/* «Транзакции в работе» — DROP_INCOME (PENDING/VALIDATED) + PAYOUT
-                (PENDING_PAYMENT). Shared InProgressPanel (same as SeniorDashboard). */}
+            {/* «Транзакции в работе» — DROP_INCOME (PENDING/VALIDATED).
+                mode='drop': VALIDATED rows get «Платить»→initiate (payment-channel);
+                createPayoutRequest / PayoutDetailDialog are SENIOR-only and hidden. */}
             <InProgressPanel
+              mode="drop"
               incomeTxs={incomeTxs}
-              payoutTxs={payoutTxs}
+              payoutTxs={[]}
               validatedIncomes={validatedIncomes}
               onRefresh={handleRefresh}
               testIdPrefix="drop"

@@ -179,9 +179,10 @@ export function SeniorDashboard() {
             />
 
             {/* «Транзакции в работе» — SENIOR_INCOME (PENDING/VALIDATED) + PAYOUT
-                (PENDING_PAYMENT). Shared InProgressPanel component (also used by
-                DropDashboard). «Оплатить» → PayoutDetailDialog. */}
+                (PENDING_PAYMENT). mode='senior': VALIDATED income → «Создать выплату»;
+                PAYOUT PENDING_PAYMENT → «Оплатить» → PayoutDetailDialog. */}
             <InProgressPanel
+              mode="senior"
               incomeTxs={incomeTxs}
               payoutTxs={payoutTxs}
               validatedIncomes={validatedSeniorIncomes}
