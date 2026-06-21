@@ -209,4 +209,86 @@ test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
       await cleanupDropViaAPI(page, dropId)
     }
   })
+
+  // task-senior-settle-in-tx-row: the finance-page transactions list pays the
+  // senior directly from the SENIOR_PENDING_PAYOUT row, which knows the SOURCE
+  // transaction id (not the obligation id). The new endpoint resolves the linked
+  // obligation and runs the SAME settleByCompany cascade.
+  test('ADMIN settles by SOURCE transaction id → SENIOR_INCOME inserted; idempotent; SENIOR 403', async ({
+    page,
+  }) => {
+    const { dropId, projectId, seniorId } = await plantCompanyDebt(page)
+
+    try {
+      // Find the SENIOR_PENDING_PAYOUT row (the source tx the finance-page row
+      // carries) for our senior on this project.
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
+      const txs = await listTransactionsByProjectViaAPI(page, projectId)
+      const pendingRow = txs.find(
+        (t) =>
+          t.type === 'SENIOR_PENDING_PAYOUT' &&
+          t.status === 'PENDING_PAYMENT' &&
+          t.receiverId === seniorId,
+      )
+      expect(pendingRow, 'plant step must yield a SENIOR_PENDING_PAYOUT row').toBeTruthy()
+      const sourceTxId = pendingRow!.id
+      const obligationAmount = parseFloat(pendingRow!.amount)
+
+      // RBAC: SENIOR cannot settle their own IOU → 403, before any money moves.
+      await loginViaApi(page, SEED_EMAILS.seniorA)
+      const seniorAttempt = await page.request.post(
+        `${REAL_API}/pending-settlements/by-source-transaction/${sourceTxId}/settle-company`,
+        { data: {} },
+      )
+      expect(seniorAttempt.status()).toBe(403)
+
+      // ADMIN settles via the source-transaction endpoint.
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
+      const settleRes = await page.request.post(
+        `${REAL_API}/pending-settlements/by-source-transaction/${sourceTxId}/settle-company`,
+        { data: {} },
+      )
+      expect(settleRes.status()).toBeLessThan(400)
+
+      // The obligation is gone from /company.
+      const afterRes = await page.request.get(`${REAL_API}/pending-settlements/company`)
+      const afterList = (await afterRes.json()) as Array<{ creditorUserId: string }>
+      expect(afterList.find((o) => o.creditorUserId === seniorId)).toBeFalsy()
+
+      // A matching PAID SENIOR_INCOME was inserted for the senior.
+      const txsAfter = await listTransactionsByProjectViaAPI(page, projectId)
+      const settled = txsAfter.find(
+        (t) =>
+          t.type === 'SENIOR_INCOME' &&
+          t.status === 'PAID' &&
+          t.receiverId === seniorId &&
+          Math.abs(parseFloat(t.amount) - obligationAmount) < 0.01,
+      )
+      expect(settled, `expected a SENIOR_INCOME row at ${obligationAmount}`).toBeTruthy()
+
+      // Idempotent: a second settle of the SAME source tx pays nothing more
+      // (no open obligation left → 4xx, never a second SENIOR_INCOME).
+      const secondAttempt = await page.request.post(
+        `${REAL_API}/pending-settlements/by-source-transaction/${sourceTxId}/settle-company`,
+        { data: {} },
+      )
+      expect(secondAttempt.status()).toBeGreaterThanOrEqual(400)
+
+      const txsFinal = await listTransactionsByProjectViaAPI(page, projectId)
+      const seniorIncomes = txsFinal.filter(
+        (t) =>
+          t.type === 'SENIOR_INCOME' &&
+          t.status === 'PAID' &&
+          t.receiverId === seniorId &&
+          Math.abs(parseFloat(t.amount) - obligationAmount) < 0.01,
+      )
+      expect(
+        seniorIncomes.length,
+        'exactly one SENIOR_INCOME for the senior share — no double payout',
+      ).toBe(1)
+    } finally {
+      await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
+      await cleanupDropViaAPI(page, dropId)
+    }
+  })
 })

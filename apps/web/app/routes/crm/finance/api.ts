@@ -19,8 +19,8 @@ import type {
   AdminUpdateTransactionDto,
   ConfirmPayoutDto,
   BalanceDto,
-  PendingSettlementListResponseDto,
   SettleObligationResponseDto,
+  SettleSeniorPayoutDto,
   CompanyAccountDto,
   CompanyDepositDto,
   DepositStatusDto,
@@ -148,15 +148,24 @@ export const financeApi = {
       })
       .then((r) => r.data),
 
-  // task-drop-company-debt-and-invoices. Senior IOUs are owed by the
-  // company — ADMIN/ACCOUNTANT-only flow.
-  listSeniorPendingSettlements: () =>
-    api.get<PendingSettlementListResponseDto>('/pending-settlements/senior').then((r) => r.data),
-  listCompanyPendingSettlements: () =>
-    api.get<PendingSettlementListResponseDto>('/pending-settlements/company').then((r) => r.data),
-  settleObligationByCompany: (id: string) =>
+  // task-senior-settle-in-tx-row. Senior IOUs from drop-projects are owed by the
+  // company and paid directly from the SENIOR_PENDING_PAYOUT row in the
+  // transactions list (no dedicated card). The row knows the SENIOR_PENDING_PAYOUT
+  // transaction id; the backend resolves the linked pending_obligation and runs
+  // the same idempotent, ADMIN/ACCOUNTANT-only settleByCompany cascade. The old
+  // `listSeniorPendingSettlements` / `listCompanyPendingSettlements` /
+  // `settleObligationByCompany` (obligation-id) wrappers were removed with the
+  // settlement cards.
+  // task-senior-settle-owner: the body now carries the pay-time funding choice
+  // (mirrors paySalary) — COMPANY_ACCOUNT (default, USDT) or ADMIN_PERSONAL with
+  // the paying admin + currency. The backend resolves the linked pending
+  // obligation and runs the idempotent, ADMIN/ACCOUNTANT-only settle cascade.
+  settleSeniorPayoutFromTransaction: (sourceTransactionId: string, data: SettleSeniorPayoutDto) =>
     api
-      .post<SettleObligationResponseDto>(`/pending-settlements/${id}/settle-company`, {})
+      .post<SettleObligationResponseDto>(
+        `/pending-settlements/by-source-transaction/${sourceTransactionId}/settle-company`,
+        data,
+      )
       .then((r) => r.data),
 }
 

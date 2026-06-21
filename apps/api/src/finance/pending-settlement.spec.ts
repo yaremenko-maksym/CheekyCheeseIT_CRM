@@ -133,12 +133,26 @@ function makeDropRow() {
   return { id: DROP_ID, displayName: 'Drop', role: 'DROP' }
 }
 
+// task-senior-settle-owner: admin partners resolvable by id, so an
+// ADMIN_PERSONAL settlement can validate the payer is an ADMIN and stamp
+// senderId/senderLabel from the row.
+const ADMIN_PAYER_ID = 'adm-1'
+const ADMIN_PAYER_2_ID = '99999999-9999-4999-8999-999999999999'
+function makeAdminRows(): Array<{ id: string; displayName: string; role: string }> {
+  return [
+    { id: ADMIN_PAYER_ID, displayName: 'Admin', role: 'ADMIN' },
+    { id: ADMIN_PAYER_2_ID, displayName: 'Kostya', role: 'ADMIN' },
+  ]
+}
+
 interface MockState {
   obligations: Map<string, ReturnType<typeof makeObligation>>
   sourceTxs: Map<string, ReturnType<typeof makeSourceTx>>
   project: ReturnType<typeof makeProject> | null
   senior: ReturnType<typeof makeSeniorRow> | null
   drop: ReturnType<typeof makeDropRow> | null
+  /** Admin partners resolvable by id (ADMIN_PERSONAL payer validation). */
+  admins: Array<{ id: string; displayName: string; role: string }>
   inserts: Array<{ table: unknown; row: Record<string, unknown> }>
   updates: Array<{ table: unknown; set: Record<string, unknown>; obligationId: string }>
   invoiceCalls: string[]
@@ -155,6 +169,7 @@ function makeService(initial: Partial<MockState> = {}) {
     project: makeProject(),
     senior: makeSeniorRow(),
     drop: makeDropRow(),
+    admins: makeAdminRows(),
     inserts: [],
     updates: [],
     invoiceCalls: [],
@@ -272,6 +287,28 @@ function makeService(initial: Partial<MockState> = {}) {
       pendingObligations: {
         findFirst: vi.fn(async (args: unknown) => {
           const values = collectStringValues(args)
+          // 2) task-senior-settle-in-tx-row: source-transaction lookup, checked
+          //    FIRST when the predicate is the source-tx form. The
+          //    by-source-transaction settle resolves the PENDING obligation via
+          //    `and(eq(sourceTransactionId, txId), eq(status, 'PENDING'))` — the
+          //    predicate carries the source tx id + the literal 'PENDING' but NOT
+          //    the obligation id, so we must NOT fall through to the obligation-id
+          //    branch (whose `lastUpdateObligationId` fallback would wrongly
+          //    resolve an already-settled row). Match on sourceTransactionId,
+          //    scoped to PENDING; if nothing matches return undefined → the
+          //    service raises 404 (no open debt for this tx).
+          const hasSourceTxPredicate = Array.from(state.obligations.values()).some((r) =>
+            values.includes(r.sourceTransactionId),
+          )
+          if (hasSourceTxPredicate && values.includes('PENDING')) {
+            return (
+              Array.from(state.obligations.values()).find(
+                (r) => r.status === 'PENDING' && values.includes(r.sourceTransactionId),
+              ) ?? undefined
+            )
+          }
+          // 1) Direct obligation-id lookup (loadObligation + the refreshed read
+          //    inside settleByCompany).
           const obl = values.find((v) => state.obligations.has(v)) ?? lastUpdateObligationId
           if (obl && state.obligations.has(obl)) return state.obligations.get(obl)
           return undefined
@@ -313,6 +350,9 @@ function makeService(initial: Partial<MockState> = {}) {
           const values = collectStringValues(args)
           if (values.includes(SENIOR_ID)) return state.senior ?? undefined
           if (values.includes(DROP_ID)) return state.drop ?? undefined
+          // task-senior-settle-owner: ADMIN_PERSONAL payer lookup by id.
+          const admin = state.admins.find((a) => values.includes(a.id))
+          if (admin) return admin
           return undefined
         }),
       },
@@ -532,6 +572,249 @@ describe('PendingSettlementService.settleByCompany', () => {
     await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
       NotFoundException,
     )
+  })
+})
+
+// ── settleByCompanySourceTransaction (task-senior-settle-in-tx-row) ──────────
+// The finance-page transactions list pays the senior directly from the
+// SENIOR_PENDING_PAYOUT row, which knows the SOURCE transaction id (not the
+// obligation id). This wrapper resolves the PENDING obligation by
+// sourceTransactionId and delegates to the audited settleByCompany. It must
+// inherit settleByCompany's money invariants verbatim (single payout, RBAC,
+// idempotency) and add NO new money path.
+describe('PendingSettlementService.settleByCompanySourceTransaction', () => {
+  it('resolves the obligation by source tx id and settles it (one SENIOR_INCOME)', async () => {
+    const { svc, getInsertsFor, getUpdatesFor, state } = makeService()
+    const result = await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser)
+
+    const txInserts = getInsertsFor(transactions)
+    expect(txInserts).toHaveLength(1)
+    expect(txInserts[0]?.['type']).toBe('SENIOR_INCOME')
+    expect(txInserts[0]?.['receiverId']).toBe(SENIOR_ID)
+    expect(txInserts[0]?.['amount']).toBe('560')
+    expect(txInserts[0]?.['status']).toBe('PAID')
+    // Same company-account debit marker as the obligation-id path.
+    expect(txInserts[0]?.['fundingSource']).toBe('COMPANY_ACCOUNT')
+
+    const paidFlips = getUpdatesFor(pendingObligations).filter((u) => u['status'] === 'PAID')
+    expect(paidFlips).toHaveLength(1)
+    expect(result.obligation.status).toBe('PAID')
+    expect(state.obligations.get(OBLIGATION_COMPANY)?.status).toBe('PAID')
+  })
+
+  it('triggers invoice auto-create on the resulting SENIOR_INCOME row', async () => {
+    const { svc, state } = makeService()
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser)
+    expect(state.invoiceCalls).toHaveLength(1)
+    expect(state.invoiceCalls[0]).toBe('inserted-1')
+  })
+
+  it('ADMIN may settle by source tx', async () => {
+    const { svc, getInsertsFor } = makeService()
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, adminUser)
+    expect(getInsertsFor(transactions)).toHaveLength(1)
+  })
+
+  // MONEY-PATH: a double-clicked «Выплатить» on one SENIOR_PENDING_PAYOUT row
+  // pays the senior EXACTLY ONCE. The second call finds NO PENDING obligation
+  // for that source tx (the first flipped it to PAID) → 404, no second payout.
+  it('repeated settle of one source tx pays the senior exactly once', async () => {
+    const { svc, getInsertsFor } = makeService()
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser)
+    await expect(
+      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser),
+    ).rejects.toThrow(NotFoundException)
+
+    const seniorIncomeInserts = getInsertsFor(transactions).filter(
+      (r) => r['type'] === 'SENIOR_INCOME',
+    )
+    expect(seniorIncomeInserts).toHaveLength(1)
+  })
+
+  it('rejects when company balance is insufficient (no money booked)', async () => {
+    const { svc, getInsertsFor } = makeService({ companyBalance: 100 })
+    await expect(
+      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser),
+    ).rejects.toThrow(BadRequestException)
+    expect(getInsertsFor(transactions)).toHaveLength(0)
+  })
+
+  it('SENIOR forbidden → 403 (and no enumeration: gate before lookup)', async () => {
+    const { svc, getInsertsFor } = makeService()
+    await expect(svc.settleByCompanySourceTransaction(SOURCE_TX_ID, seniorUser)).rejects.toThrow(
+      ForbiddenException,
+    )
+    expect(getInsertsFor(transactions)).toHaveLength(0)
+  })
+
+  it('DROP forbidden → 403', async () => {
+    const { svc } = makeService()
+    await expect(svc.settleByCompanySourceTransaction(SOURCE_TX_ID, dropUser)).rejects.toThrow(
+      ForbiddenException,
+    )
+  })
+
+  it('JUNIOR forbidden → 403', async () => {
+    const { svc } = makeService()
+    await expect(svc.settleByCompanySourceTransaction(SOURCE_TX_ID, juniorUser)).rejects.toThrow(
+      ForbiddenException,
+    )
+  })
+
+  it('no open obligation for the source tx → 404', async () => {
+    // Obligation already PAID → the PENDING-scoped lookup finds nothing.
+    const { svc, getInsertsFor } = makeService({
+      obligations: new Map([[OBLIGATION_COMPANY, makeObligation({ status: 'PAID' })]]),
+    })
+    await expect(
+      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser),
+    ).rejects.toThrow(NotFoundException)
+    expect(getInsertsFor(transactions)).toHaveLength(0)
+  })
+
+  it('unknown source tx id → 404', async () => {
+    const { svc } = makeService()
+    await expect(
+      svc.settleByCompanySourceTransaction('ffffffff-ffff-4fff-8fff-ffffffffffff', accountantUser),
+    ).rejects.toThrow(NotFoundException)
+  })
+})
+
+// ── settle with owner / funding selection (task-senior-settle-owner) ─────────
+// The senior IOU is now paid via the SAME funding selection as a SALARY: the
+// ADMIN/ACCOUNTANT chooses COMPANY_ACCOUNT (default — debits the shared account,
+// USDT) or ADMIN_PERSONAL (paid by a chosen admin partner; the company account
+// is NOT touched). Proven on BOTH settle entry points (obligation-id +
+// source-transaction-id) so neither path drifts.
+describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSONAL)', () => {
+  const COMPANY_FUNDING = { fundingSource: 'COMPANY_ACCOUNT' as const, currency: 'USDT' as const }
+  const ADMIN_FUNDING = {
+    fundingSource: 'ADMIN_PERSONAL' as const,
+    payerAdminId: ADMIN_PAYER_2_ID,
+    currency: 'USD' as const,
+  }
+
+  // ── COMPANY_ACCOUNT (explicit) ──────────────────────────────────────────────
+  it('COMPANY_ACCOUNT (source tx) → SENIOR_INCOME debits company (fundingSource=COMPANY_ACCOUNT, USDT, no sender)', async () => {
+    const { svc, getInsertsFor } = makeService()
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, COMPANY_FUNDING)
+
+    const txInserts = getInsertsFor(transactions)
+    expect(txInserts).toHaveLength(1)
+    const row = txInserts[0]!
+    expect(row['type']).toBe('SENIOR_INCOME')
+    expect(row['fundingSource']).toBe('COMPANY_ACCOUNT')
+    expect(row['currency']).toBe('USDT')
+    expect(row['senderId']).toBeNull()
+    expect(row['senderLabel']).toBe('COMPANY')
+    expect(row['receiverId']).toBe(SENIOR_ID)
+  })
+
+  it('COMPANY_ACCOUNT rejects when company balance is insufficient (no money booked)', async () => {
+    const { svc, getInsertsFor } = makeService({ companyBalance: 100 })
+    await expect(
+      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, COMPANY_FUNDING),
+    ).rejects.toThrow(BadRequestException)
+    expect(getInsertsFor(transactions)).toHaveLength(0)
+  })
+
+  // ── ADMIN_PERSONAL ──────────────────────────────────────────────────────────
+  it('ADMIN_PERSONAL (source tx) → SENIOR_INCOME senderId=payer, no company marker, chosen currency', async () => {
+    const { svc, getInsertsFor } = makeService()
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, ADMIN_FUNDING)
+
+    const txInserts = getInsertsFor(transactions)
+    expect(txInserts).toHaveLength(1)
+    const row = txInserts[0]!
+    expect(row['type']).toBe('SENIOR_INCOME')
+    // No company-account debit marker → the shared balance must not move.
+    expect(row['fundingSource']).toBeNull()
+    // Sender = the paying admin partner; currency follows the choice.
+    expect(row['senderId']).toBe(ADMIN_PAYER_2_ID)
+    expect(row['senderLabel']).toBe('Kostya')
+    expect(row['currency']).toBe('USD')
+    expect(row['receiverId']).toBe(SENIOR_ID)
+  })
+
+  it('ADMIN_PERSONAL does NOT gate the company balance (settles even with empty company account)', async () => {
+    // Company balance is 0, but an ADMIN_PERSONAL payout never touches it → success.
+    const { svc, getInsertsFor } = makeService({ companyBalance: 0 })
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, ADMIN_FUNDING)
+    const row = getInsertsFor(transactions)[0]!
+    expect(row['fundingSource']).toBeNull()
+    expect(row['senderId']).toBe(ADMIN_PAYER_2_ID)
+  })
+
+  it('ADMIN_PERSONAL with a non-ADMIN payerAdminId → 400 (and no money booked)', async () => {
+    const { svc, getInsertsFor } = makeService()
+    await expect(
+      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: SENIOR_ID, // a SENIOR, not an ADMIN
+        currency: 'USD',
+      }),
+    ).rejects.toThrow(BadRequestException)
+    expect(getInsertsFor(transactions)).toHaveLength(0)
+  })
+
+  it('ADMIN_PERSONAL defaults payerAdminId to the calling ADMIN when omitted', async () => {
+    const { svc, getInsertsFor } = makeService()
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, adminUser, {
+      fundingSource: 'ADMIN_PERSONAL',
+      currency: 'EUR',
+    })
+    const row = getInsertsFor(transactions)[0]!
+    // adminUser.id === ADMIN_PAYER_ID; resolves to an ADMIN → sender = caller.
+    expect(row['senderId']).toBe(ADMIN_PAYER_ID)
+    expect(row['currency']).toBe('EUR')
+    expect(row['fundingSource']).toBeNull()
+  })
+
+  // ── idempotency under funding selection ─────────────────────────────────────
+  it('repeated ADMIN_PERSONAL settle of one source tx pays the senior exactly once', async () => {
+    const { svc, getInsertsFor } = makeService()
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, ADMIN_FUNDING)
+    await expect(
+      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, ADMIN_FUNDING),
+    ).rejects.toThrow(NotFoundException)
+    const seniorIncomeInserts = getInsertsFor(transactions).filter(
+      (r) => r['type'] === 'SENIOR_INCOME',
+    )
+    expect(seniorIncomeInserts).toHaveLength(1)
+  })
+
+  // ── RBAC (gate runs before funding is consulted) ────────────────────────────
+  it('SENIOR forbidden even with ADMIN_PERSONAL funding → 403', async () => {
+    const { svc, getInsertsFor } = makeService()
+    await expect(
+      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, seniorUser, ADMIN_FUNDING),
+    ).rejects.toThrow(ForbiddenException)
+    expect(getInsertsFor(transactions)).toHaveLength(0)
+  })
+
+  it('DROP forbidden even with COMPANY_ACCOUNT funding → 403', async () => {
+    const { svc } = makeService()
+    await expect(
+      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, dropUser, COMPANY_FUNDING),
+    ).rejects.toThrow(ForbiddenException)
+  })
+
+  // ── obligation-id entry point honours the same funding selection ────────────
+  it('settleByCompany (obligation id) with ADMIN_PERSONAL → senderId=payer, no company marker', async () => {
+    const { svc, getInsertsFor } = makeService()
+    await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser, ADMIN_FUNDING)
+    const row = getInsertsFor(transactions)[0]!
+    expect(row['senderId']).toBe(ADMIN_PAYER_2_ID)
+    expect(row['fundingSource']).toBeNull()
+    expect(row['currency']).toBe('USD')
+  })
+
+  it('settleByCompany (obligation id) with no funding arg keeps legacy COMPANY_ACCOUNT behaviour', async () => {
+    const { svc, getInsertsFor } = makeService()
+    await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+    const row = getInsertsFor(transactions)[0]!
+    expect(row['fundingSource']).toBe('COMPANY_ACCOUNT')
+    expect(row['senderId']).toBeNull()
   })
 })
 

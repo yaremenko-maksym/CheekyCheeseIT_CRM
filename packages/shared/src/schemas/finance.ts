@@ -752,6 +752,48 @@ export const settleObligationParamSchema = z.object({
 })
 export type SettleObligationParamDto = z.infer<typeof settleObligationParamSchema>
 
+// task-senior-settle-in-tx-row: alternative settle entry point keyed on the
+// SOURCE transaction (the SENIOR_PENDING_PAYOUT row) instead of the obligation
+// id. The finance-page transactions list pays a senior IOU directly from its
+// SENIOR_PENDING_PAYOUT row — the row knows the transaction id, not the
+// obligation id. The backend resolves the PENDING obligation linked via
+// `pending_obligations.sourceTransactionId` and delegates to the SAME
+// (idempotent, ADMIN/ACCOUNTANT-only) settleByCompany cascade. Same permissive
+// UUID-like shape as the obligation-id param (seeded users carry version-nibble
+// 0 in their UUIDs).
+export const settleBySourceTransactionParamSchema = z.object({
+  sourceTransactionId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
+})
+export type SettleBySourceTransactionParamDto = z.infer<typeof settleBySourceTransactionParamSchema>
+
+// task-senior-settle-owner: paying a senior IOU now mirrors the SALARY pay flow —
+// the ADMIN/ACCOUNTANT chooses, AT PAY TIME, which account funds the payout and
+// (for an admin-personal payout) which admin partner actually paid. This is the
+// SAME contract as paySalarySchema (DRY — same funding enum + same
+// COMPANY_ACCOUNT→USDT refine), only the route shape differs.
+//   - COMPANY_ACCOUNT → currency MUST be USDT (USDT-only account; refined here
+//     and forced server-side); the money debits the shared company account
+//     (advisory lock + balance gate). payerAdminId is irrelevant (sender =
+//     company), so the closing SENIOR_INCOME carries fundingSource=COMPANY_ACCOUNT.
+//   - ADMIN_PERSONAL → `payerAdminId` selects whose personal account paid
+//     (validated server-side: must be an ADMIN); currency may be any of the enum.
+//     The company account is NOT touched; the closing SENIOR_INCOME carries
+//     senderId=payer + fundingSource=ADMIN_PERSONAL.
+export const settleSeniorPayoutSchema = z
+  .object({
+    // Reuse salaryFundingSourceSchema — the SAME COMPANY_ACCOUNT | ADMIN_PERSONAL
+    // enum used by salary/expense/admin-income (DRY, single source of truth).
+    fundingSource: salaryFundingSourceSchema,
+    // For ADMIN_PERSONAL — whose personal account funds this payout. Must be an
+    // ADMIN (validated server-side). Ignored for COMPANY_ACCOUNT.
+    payerAdminId: z.string().uuid().optional(),
+    currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+  })
+  // Reuse the shared COMPANY_ACCOUNT→USDT guard (same rule as pay-salary /
+  // create-salary / expense / admin-income): a company-account payout is USDT-only.
+  .superRefine(refineCompanyAccountUsdt)
+export type SettleSeniorPayoutDto = z.infer<typeof settleSeniorPayoutSchema>
+
 // Response after a successful settle: returns the updated obligation snapshot
 // plus the new SENIOR_PAID transaction. Frontend uses this to invalidate
 // balances / pending lists in one round-trip.

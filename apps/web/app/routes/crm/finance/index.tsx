@@ -49,6 +49,7 @@ import { CreateTransactionDialog } from './components/dialogs/CreateTransactionD
 import { ValidateDialog } from './components/dialogs/ValidateDialog'
 import { EditSeniorIncomeDialog } from './components/dialogs/EditSeniorIncomeDialog'
 import { PaySalaryDialog } from './components/dialogs/PaySalaryDialog'
+import { SettleSeniorPayoutDialog } from './components/dialogs/SettleSeniorPayoutDialog'
 // PayoutDialog (batch payout) — re-activated by feat/finance-payout-flow (#7).
 // SENIOR manually creates a payout request by selecting one or more VALIDATED
 // SENIOR_INCOME rows. The old auto-create path on ACCOUNTANT validate has been
@@ -58,8 +59,6 @@ import { PayoutDetailDialog } from './components/dialogs/PayoutDetailDialog'
 import { TransactionDetailDialog } from './components/dialogs/TransactionDetailDialog'
 import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransactionDialog'
 import { DropFinancePage } from './components/DropFinancePage'
-import { PendingSettlementSeniorCard } from './components/PendingSettlementSeniorCard'
-import { PendingSettlementCompanyCard } from './components/PendingSettlementCompanyCard'
 import { ConfirmPayoutDialog } from '@/components/finance/ConfirmPayoutDialog'
 
 /**
@@ -229,6 +228,7 @@ function TransactionsTable({
   onAdminEdit,
   onDelete,
   onPaySalary,
+  onSettleSeniorPayout,
   onOpenPayoutDetail,
   onInitiatePayout,
   onConfirmPayout,
@@ -250,6 +250,12 @@ function TransactionsTable({
   onAdminEdit: (tx: TransactionDto) => void
   onDelete: (tx: TransactionDto) => void
   onPaySalary: (tx: TransactionDto) => void
+  /**
+   * task-senior-settle-in-tx-row. ADMIN/ACCOUNTANT clicks «Выплатить» on a
+   * SENIOR_PENDING_PAYOUT row (PENDING_PAYMENT) — settles the senior IOU from
+   * the company account. Passed straight to TransactionRow.
+   */
+  onSettleSeniorPayout: (tx: TransactionDto) => void
   /**
    * Opens PayoutDetailDialog for PENDING_PAYMENT rows. Passed straight to
    * TransactionRow; receives the payout_request id (already resolved by the
@@ -407,6 +413,7 @@ function TransactionsTable({
                     onAdminEdit={onAdminEdit}
                     onDelete={onDelete}
                     onPaySalary={onPaySalary}
+                    onSettleSeniorPayout={onSettleSeniorPayout}
                     onOpenPayoutDetail={onOpenPayoutDetail}
                     {...(onInitiatePayout ? { onInitiatePayout } : {})}
                     onConfirmPayout={onConfirmPayout}
@@ -460,6 +467,9 @@ function FinancePage() {
   const [adminEditTx, setAdminEditTx] = useState<TransactionDto | null>(null)
   const [deleteTx, setDeleteTx] = useState<TransactionDto | null>(null)
   const [paySalaryTx, setPaySalaryTx] = useState<TransactionDto | null>(null)
+  // task-senior-settle-owner. SENIOR_PENDING_PAYOUT row whose «Выплатить» funding
+  // dialog is open (ADMIN/ACCOUNTANT). null = closed.
+  const [settleSeniorTx, setSettleSeniorTx] = useState<TransactionDto | null>(null)
   // PayoutDialog state — feat/finance-payout-flow (#7). SENIOR selects one or
   // more VALIDATED SENIOR_INCOME rows → POST /api/payout-requests creates a
   // single payout_request + PAYOUT row (PENDING_PAYMENT).
@@ -501,6 +511,16 @@ function FinancePage() {
       setDeleteTx(null)
     },
   })
+
+  // task-senior-settle-owner. Pay the senior their drop-project share directly
+  // from the SENIOR_PENDING_PAYOUT row (ADMIN/ACCOUNTANT only). The «Выплатить»
+  // button now opens SettleSeniorPayoutDialog — the SAME funding-source picker as
+  // the SALARY pay flow (Счёт компании vs an admin partner + currency). The
+  // dialog owns the settle mutation + the idempotent backend cascade; here we
+  // just track which row's dialog is open.
+  const onSettleSeniorPayout = useCallback((tx: TransactionDto) => {
+    setSettleSeniorTx(tx)
+  }, [])
 
   const canCreate = isAdmin || isSenior || isDrop || isAccountant
 
@@ -774,14 +794,12 @@ function FinancePage() {
         style={{ scrollbarGutter: 'stable' }}
       >
         <div className="space-y-6">
-          {/* task-drop-company-debt-and-invoices. Senior IOUs and the
-          ADMIN/ACCOUNTANT-only "Долги компании перед синьорами" card.
-          DROP no longer holds senior debts — the DropCard was removed.
-          Phase 8 v2: the CompanyAccountCard was removed — balance moved to
-          /crm/stats, wallet management to /crm/admin/wallet, and
-          dividends became a DIVIDEND option in CreateTransactionDialog. */}
-          {(isAdmin || role === 'ACCOUNTANT') && <PendingSettlementSeniorCard />}
-          {(isAdmin || role === 'ACCOUNTANT') && <PendingSettlementCompanyCard />}
+          {/* task-senior-settle-in-tx-row. The two senior-settlement cards
+          («Ожидают зачисления» + «Долги компании перед синьорами») were
+          removed — they carried no info beyond what the transactions table
+          already shows. The senior IOU is now paid straight from its
+          SENIOR_PENDING_PAYOUT row in the table via the «Выплатить» button
+          (ADMIN/ACCOUNTANT only), mirroring the salary pay flow. */}
 
           {/* Transactions table */}
           <Card>
@@ -798,6 +816,7 @@ function FinancePage() {
                 onAdminEdit={setAdminEditTx}
                 onDelete={setDeleteTx}
                 onPaySalary={setPaySalaryTx}
+                onSettleSeniorPayout={onSettleSeniorPayout}
                 onOpenPayoutDetail={openPayoutDetail}
                 {...(isSenior ? { onInitiatePayout: openPayoutDialogForTx } : {})}
                 onConfirmPayout={setConfirmPayoutTx}
@@ -817,6 +836,8 @@ function FinancePage() {
           <EditSeniorIncomeDialog tx={editTx} onClose={() => setEditTx(null)} />
           <AdminEditTransactionDialog tx={adminEditTx} onClose={() => setAdminEditTx(null)} />
           <PaySalaryDialog tx={paySalaryTx} onClose={() => setPaySalaryTx(null)} />
+          {/* task-senior-settle-owner: senior IOU pay dialog (salary-style funding). */}
+          <SettleSeniorPayoutDialog tx={settleSeniorTx} onClose={() => setSettleSeniorTx(null)} />
           {/* feat/finance-payout-flow (#7): PayoutDialog re-activated. SENIOR
           selects one or more VALIDATED SENIOR_INCOME rows → single payout. */}
           <PayoutDialog

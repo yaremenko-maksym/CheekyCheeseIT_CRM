@@ -63,6 +63,21 @@ import {
   lockCompanyAccount,
 } from './company-account-balance'
 
+/**
+ * task-senior-settle-owner: the pay-time funding selection for a senior IOU
+ * settlement. Identical contract to paySalary — the ADMIN/ACCOUNTANT picks the
+ * source (shared company account vs an admin partner's personal account) and,
+ * for ADMIN_PERSONAL, which admin paid + in which currency.
+ *   - COMPANY_ACCOUNT → currency forced USDT, debits the shared account.
+ *   - ADMIN_PERSONAL  → payerAdminId (validated ADMIN) is the sender; any
+ *     currency; the company account is untouched.
+ */
+export type SettleFunding = {
+  fundingSource: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL'
+  payerAdminId?: string | undefined
+  currency: 'USDT' | 'USD' | 'EUR' | 'UAH'
+}
+
 @Injectable()
 export class PendingSettlementService {
   constructor(
@@ -136,6 +151,7 @@ export class PendingSettlementService {
   async settleByCompany(
     obligationId: string,
     actor: SessionUser,
+    funding?: SettleFunding,
   ): Promise<{ obligation: PendingObligationDto; created: TransactionDto[] }> {
     if (actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') {
       throw new ForbiddenException('Закрывать долг компании могут только админ или бухгалтер')
@@ -158,13 +174,49 @@ export class PendingSettlementService {
     }
 
     const project = await this.resolveSourceProject(obligation.sourceTransactionId)
-    // task-drop-payout-company-account: a COMPANY-debt settlement pays the senior
-    // FROM the company account, so the closing SENIOR_INCOME row carries the
-    // COMPANY_ACCOUNT funding marker → the ledger debits the company balance for
-    // it (closing the drop-payout loop). Legacy DROP-debt rows are closed without
-    // the marker (the money came from the drop, not the company) so they never
-    // debit the company account.
+
+    // task-senior-settle-owner: the senior IOU is now paid via the SAME funding
+    // selection as a SALARY — the ADMIN/ACCOUNTANT picks AT PAY TIME whether the
+    // money leaves the shared company account (COMPANY_ACCOUNT) or an admin
+    // partner's personal account (ADMIN_PERSONAL). Mirrors paySalary exactly.
+    //
+    // Default (no funding arg → legacy obligation-id `settle-company` route and
+    // pre-existing callers): COMPANY_ACCOUNT for a COMPANY debt, or "no company
+    // marker" for a legacy DROP debt (the money came from the drop, not the
+    // company). This preserves the previous behaviour byte-for-byte.
     const isCompanyDebt = obligation.debtorType === 'COMPANY'
+    // Resolve the funding choice → sender + currency + the SENIOR_INCOME marker.
+    // A legacy DROP debt is never company-funded regardless of the passed source.
+    const useCompanyAccount = funding ? funding.fundingSource === 'COMPANY_ACCOUNT' : isCompanyDebt
+    // Does this settlement debit the shared company account (advisory lock + gate
+    // + COMPANY_ACCOUNT marker)? Only when funded by the company AND it is a
+    // COMPANY debt (legacy DROP debts never touch the company balance).
+    const debitsCompanyAccount = useCompanyAccount && isCompanyDebt
+
+    let senderId: string | null = null
+    let senderLabel = 'COMPANY'
+    let currency = obligation.currency
+    if (funding && funding.fundingSource === 'ADMIN_PERSONAL') {
+      // ADMIN_PERSONAL: paid from an admin partner's personal account. The payer
+      // defaults to the calling (ADMIN/ACCOUNTANT) user only when they are an
+      // ADMIN; an explicit payerAdminId must resolve to an ADMIN. The company
+      // account is NOT touched; currency is the chosen one (any). Mirrors paySalary.
+      const payerAdminId = funding.payerAdminId ?? actor.id
+      const payer = await this.db.db.query.users.findFirst({
+        where: eq(users.id, payerAdminId),
+      })
+      if (!payer || payer.role !== 'ADMIN') {
+        throw new BadRequestException('Личный счёт-плательщик должен принадлежать ADMIN')
+      }
+      senderId = payer.id
+      senderLabel = payer.displayName
+      currency = funding.currency
+    } else if (debitsCompanyAccount) {
+      // COMPANY_ACCOUNT: USDT-only account (the schema refine + this force keep
+      // the currency label consistent with the ledger).
+      currency = 'USDT'
+    }
+
     const created: Transaction[] = []
     await this.db.db.transaction(async (dbtx) => {
       // SECURITY (TOCTOU, MED — PR #262): the PENDING→PAID transition is the
@@ -199,8 +251,10 @@ export class PendingSettlementService {
       // SECURITY (TOCTOU): a company-account DEBIT must serialize against every
       // other company-account debit (salary / expense / other settlements) via
       // the SHARED advisory lock, then re-read the balance and refuse to drive
-      // the account negative. Mirrors createSalary / createExpense.
-      if (isCompanyDebt) {
+      // the account negative. Mirrors createSalary / createExpense. Only runs for
+      // a COMPANY-funded settlement — an ADMIN_PERSONAL payout never touches the
+      // shared account so it needs neither lock nor gate.
+      if (debitsCompanyAccount) {
         await lockCompanyAccount(dbtx)
         const balance = await computeCompanyAccountBalanceFromLedger(dbtx)
         const amount = parseFloat(obligation.amount)
@@ -220,14 +274,22 @@ export class PendingSettlementService {
           type: 'SENIOR_INCOME',
           status: 'PAID',
           amount: obligation.amount,
-          currency: obligation.currency,
-          senderLabel: 'COMPANY',
-          // Company-account debit marker — counted by the ledger SSOT.
-          fundingSource: isCompanyDebt ? COMPANY_ACCOUNT_FUNDING_SOURCE : null,
+          // task-senior-settle-owner: currency follows the funding choice
+          // (COMPANY_ACCOUNT → USDT; ADMIN_PERSONAL → chosen; legacy default →
+          // obligation currency).
+          currency,
+          // ADMIN_PERSONAL → the paying partner is the sender; COMPANY_ACCOUNT /
+          // legacy → no personal sender, label 'COMPANY'.
+          senderId,
+          senderLabel,
+          // Company-account debit marker — counted by the ledger SSOT. Only set
+          // for a company-funded settlement; an ADMIN_PERSONAL payout carries no
+          // marker (the shared balance must not move).
+          fundingSource: debitsCompanyAccount ? COMPANY_ACCOUNT_FUNDING_SOURCE : null,
           receiverId: obligation.creditorUserId,
           recipientId: obligation.creditorUserId,
           projectId: project?.id ?? null,
-          notes: `Выплата компанией senior IOU (obligation ${obligation.id})`,
+          notes: `Выплата senior IOU (obligation ${obligation.id})`,
           createdBy: actor.id,
           validatedBy: actor.id,
           validatedAt: new Date(),
@@ -265,6 +327,51 @@ export class PendingSettlementService {
       obligation: this.toObligationDto(refreshed ?? { ...obligation, status: 'PAID' as const }),
       created: created.map((c) => this.toTransactionDto(c)),
     }
+  }
+
+  /**
+   * task-senior-settle-in-tx-row: settle a senior IOU keyed on its SOURCE
+   * transaction (the SENIOR_PENDING_PAYOUT row), not the obligation id.
+   *
+   * The finance-page transactions list pays the senior directly from the
+   * SENIOR_PENDING_PAYOUT row's «Выплатить» button — the row carries the
+   * transaction id, but the settle money-gate lives on the linked
+   * `pending_obligations` row (joined via `sourceTransactionId`). We resolve the
+   * single PENDING obligation for that source transaction and delegate to the
+   * existing, audited `settleByCompany` (which performs the atomic + idempotent
+   * PENDING→PAID flip, company-account debit gate, and SENIOR_INCOME + invoice
+   * cascade). RBAC, money gate and double-settle protection are all inherited
+   * verbatim from settleByCompany — this method adds NO new money path.
+   *
+   * RBAC is checked HERE first (ADMIN/ACCOUNTANT only) so a non-privileged
+   * caller gets 403 BEFORE we reveal whether any obligation exists (no
+   * enumeration oracle). settleByCompany re-checks the same gate (defense in
+   * depth).
+   */
+  async settleByCompanySourceTransaction(
+    sourceTransactionId: string,
+    actor: SessionUser,
+    funding?: SettleFunding,
+  ): Promise<{ obligation: PendingObligationDto; created: TransactionDto[] }> {
+    if (actor.role !== 'ADMIN' && actor.role !== 'ACCOUNTANT') {
+      throw new ForbiddenException('Закрывать долг компании могут только админ или бухгалтер')
+    }
+
+    // Find the single still-open obligation backing this SENIOR_PENDING_PAYOUT
+    // row. Scoping to status=PENDING avoids re-resolving an already-closed
+    // obligation (settleByCompany would 400 on it anyway, but this gives a
+    // precise 404 for «nothing left to pay» and never reuses a stale row).
+    const obligation = await this.db.db.query.pendingObligations.findFirst({
+      where: and(
+        eq(pendingObligations.sourceTransactionId, sourceTransactionId),
+        eq(pendingObligations.status, 'PENDING'),
+      ),
+    })
+    if (!obligation) {
+      throw new NotFoundException('Открытый долг для этой транзакции не найден')
+    }
+
+    return this.settleByCompany(obligation.id, actor, funding)
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────
