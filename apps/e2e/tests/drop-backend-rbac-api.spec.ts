@@ -91,10 +91,9 @@ test.describe('DROP backend RBAC — direct API regression', () => {
           isParticipant,
           `DROP must not see tx ${tx.id} (type=${tx.type}) — not sender or receiver`,
         ).toBe(true)
-        expect(
-          tx.type,
-          `DROP must NEVER see PAYOUT_ADMIN rows (tx ${tx.id})`,
-        ).not.toBe('PAYOUT_ADMIN')
+        expect(tx.type, `DROP must NEVER see PAYOUT_ADMIN rows (tx ${tx.id})`).not.toBe(
+          'PAYOUT_ADMIN',
+        )
       }
 
       // The DROP's own income MUST be in the list (sanity — not just empty).
@@ -127,7 +126,7 @@ test.describe('DROP backend RBAC — direct API regression', () => {
       await loginViaApi(page, dropEmail)
       const res = await page.request.get(`${REAL_API}/finance/summary`)
       // The endpoint must respond 200 to DROP. Drop role - phase 1: DROP has
-      // /crm/finance access, so the summary endpoint is open to them.
+      // /finance access, so the summary endpoint is open to them.
       expect(res.status()).toBe(200)
       const body = (await res.json()) as {
         totalIncome: number
@@ -185,10 +184,9 @@ test.describe('DROP backend RBAC — direct API regression', () => {
       // drop user's id. The RBAC filter is therefore `seniorId === drop.id`.
       // Each returned PR must belong to our DROP only.
       for (const pr of list) {
-        expect(
-          pr.seniorId,
-          `DROP must not see payout-request ${pr.id} — seniorId mismatch`,
-        ).toBe(dropId)
+        expect(pr.seniorId, `DROP must not see payout-request ${pr.id} — seniorId mismatch`).toBe(
+          dropId,
+        )
       }
 
       // Our own PR is in the list.

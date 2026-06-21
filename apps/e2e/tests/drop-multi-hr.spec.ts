@@ -28,9 +28,7 @@ function uniqueSuffix(): string {
 }
 
 test.describe('Drop create — multi-HR (AC5)', () => {
-  test('creating a drop with 2 HRs persists both as active team_members', async ({
-    page,
-  }) => {
+  test('creating a drop with 2 HRs persists both as active team_members', async ({ page }) => {
     const suffix = uniqueSuffix()
     const dropEmail = `drop-ac5-multihr-${suffix}@cheekycheese.dev`
     const dropDisplayName = `Drop AC5 MultiHR ${suffix}`
@@ -41,9 +39,7 @@ test.describe('Drop create — multi-HR (AC5)', () => {
     const hrA = await findUserByEmailViaApi(page, SEED_EMAILS.hrA)
     const hrB = await findUserByEmailViaApi(page, SEED_EMAILS.hrB)
     if (!hrA || !hrB) {
-      throw new Error(
-        `Seed HR users missing — expected ${SEED_EMAILS.hrA} and ${SEED_EMAILS.hrB}`,
-      )
+      throw new Error(`Seed HR users missing — expected ${SEED_EMAILS.hrA} and ${SEED_EMAILS.hrB}`)
     }
 
     const { dropId, teamId } = await createDropViaAPI(page, {
@@ -62,7 +58,7 @@ test.describe('Drop create — multi-HR (AC5)', () => {
 
       // UI-level assertion: drop-team detail surfaces both HRs in the members
       // grid (each HR row carries the user's display name).
-      await page.goto(`/crm/team/${teamId}`)
+      await page.goto(`/team/${teamId}`)
       // Members section scope — exclude sidebar / header repetitions.
       const main = page.locator('main')
       await expect(main.getByText(hrA.displayName, { exact: false })).toBeVisible({

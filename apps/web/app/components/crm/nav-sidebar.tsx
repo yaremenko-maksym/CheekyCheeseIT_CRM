@@ -43,7 +43,7 @@ interface NavItem {
 // visibilities for ADMIN / SENIOR / HR / ACCOUNTANT are unchanged.
 // Drop role - phase 3 (UT fix): DROP «Дашборд» консолидирован на корень /crm.
 //   Хаб роутинга рендерится роль-зависимо в index.tsx (DROP → DropDashboard).
-//   Отдельный пункт /crm/routing для DROP удалён — теперь единый «Дашборд».
+//   Отдельный пункт /routing для DROP удалён — теперь единый «Дашборд».
 // JUNIOR UX phase 2: JUNIOR gets a dedicated 5-item nav (spec §4.3):
 //   1. Мой проект · 2. Легенда · 3. Финансы · 4. Документы · 5. Профиль.
 //   Дашборд / Команда / Проекты / Собеседования hidden for JUNIOR.
@@ -52,46 +52,46 @@ interface NavItem {
 // roles берутся из единого источника истины lib/route-access (navRolesFor),
 // чтобы карта ролей-по-роуту НЕ дублировалась между меню и route-guard'ом.
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Мой проект', icon: Home, to: '/crm/project', roles: navRolesFor('/crm/project') },
-  { label: 'Легенда', icon: BookOpen, to: '/crm/legend', roles: navRolesFor('/crm/legend') },
+  { label: 'Мой проект', icon: Home, to: '/project', roles: navRolesFor('/project') },
+  { label: 'Легенда', icon: BookOpen, to: '/legend', roles: navRolesFor('/legend') },
   {
     // Единый «Дашборд» для всех ролей кроме JUNIOR.
     // DROP видит роль-зависимый хаб платёжного роутинга на этом же URL.
     // Route-иконка сохранена для позиционирования пункта первым для DROP
     // (ADMIN/SENIOR/HR/ACCOUNTANT используют LayoutDashboard).
     // activeOptions.exact: true — «Дашборд» active ТОЛЬКО на /crm, не на /crm/*.
-    // Без exact TanStack Router матчит /crm как prefix для всех дочерних роутов,
+    // Без exact TanStack Router матчит / как prefix для всех дочерних роутов,
     // что приводит к двойной подсветке (Dashboard + текущий раздел).
     label: 'Дашборд',
     icon: LayoutDashboard,
-    to: '/crm',
+    to: '/',
     roles: DASHBOARD_NAV_ROLES,
     activeOptions: { exact: true },
   },
-  { label: 'Пользователи', icon: Users, to: '/crm/users', roles: navRolesFor('/crm/users') },
-  { label: 'Админ', icon: Settings, to: '/crm/admin', roles: navRolesFor('/crm/admin') },
-  { label: 'Команда', icon: UsersRound, to: '/crm/team', roles: navRolesFor('/crm/team') },
-  { label: 'Проекты', icon: Briefcase, to: '/crm/projects', roles: navRolesFor('/crm/projects') },
-  { label: 'Финансы', icon: DollarSign, to: '/crm/finance', roles: navRolesFor('/crm/finance') },
-  { label: 'Статистика', icon: BarChart3, to: '/crm/stats', roles: navRolesFor('/crm/stats') },
+  { label: 'Пользователи', icon: Users, to: '/users', roles: navRolesFor('/users') },
+  { label: 'Админ', icon: Settings, to: '/admin', roles: navRolesFor('/admin') },
+  { label: 'Команда', icon: UsersRound, to: '/team', roles: navRolesFor('/team') },
+  { label: 'Проекты', icon: Briefcase, to: '/projects', roles: navRolesFor('/projects') },
+  { label: 'Финансы', icon: DollarSign, to: '/finance', roles: navRolesFor('/finance') },
+  { label: 'Статистика', icon: BarChart3, to: '/stats', roles: navRolesFor('/stats') },
   {
     label: 'Собеседования',
     icon: KanbanSquare,
-    to: '/crm/interviews',
-    roles: navRolesFor('/crm/interviews'),
+    to: '/interviews',
+    roles: navRolesFor('/interviews'),
   },
   {
     label: 'Документы',
     icon: FileText,
-    to: '/crm/documents',
-    roles: navRolesFor('/crm/documents'),
+    to: '/documents',
+    roles: navRolesFor('/documents'),
   },
   {
     // Профиль last: JUNIOR sees it at position 5 (spec §4.3).
     label: 'Профиль',
     icon: UserCircle,
-    to: '/crm/profile',
-    roles: navRolesFor('/crm/profile'),
+    to: '/profile',
+    roles: navRolesFor('/profile'),
   },
 ]
 
@@ -118,7 +118,7 @@ export function NavSidebar({
 
   const items = NAV_ITEMS.filter((item) => {
     if (!item.roles.includes(user.role)) return false
-    if (isTeamlessSenior && (item.to === '/crm/projects' || item.to === '/crm/interviews')) {
+    if (isTeamlessSenior && (item.to === '/projects' || item.to === '/interviews')) {
       return false
     }
     return true

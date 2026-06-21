@@ -12,7 +12,7 @@
  *   - `createDropViaAPI` POSTs to /api/users/drops to provision a drop +
  *     drop-team atomically
  *   - `addSeniorToDropTeamViaAPI` attaches a seed SENIOR to the drop-team
- *   - The «Архивировать» button on `/crm/team/<id>` is clicked
+ *   - The «Архивировать» button on `/team/<id>` is clicked
  *   - The shared archive dialog (`ArchiveConfirmDialog` in
  *     `components/archive/`) shows DROP-specific copy: title «Архивировать
  *     команду дропа», impact text contains «дроп», confirm-input prompt
@@ -73,7 +73,7 @@ test.describe('Drop-team archive — real-API (AC1)', () => {
       })
 
       // Step 4: navigate to the drop-team detail and click Архивировать.
-      await page.goto(`/crm/team/${teamId}`)
+      await page.goto(`/team/${teamId}`)
       const archiveBtn = page.getByTestId('team-archive-button')
       await expect(archiveBtn).toBeVisible({ timeout: 10_000 })
       await archiveBtn.click()
@@ -104,7 +104,8 @@ test.describe('Drop-team archive — real-API (AC1)', () => {
       // Wait for the DELETE request to complete so the assertions below
       // run after the transaction is committed.
       const deleteReq = page.waitForResponse(
-        (resp) => resp.url().endsWith(`/api/teams/${teamId}`) && resp.request().method() === 'DELETE',
+        (resp) =>
+          resp.url().endsWith(`/api/teams/${teamId}`) && resp.request().method() === 'DELETE',
       )
       await submit.click()
       const response = await deleteReq
@@ -159,7 +160,7 @@ test.describe('Drop-team archive — real-API (AC1)', () => {
 
     let cleanedUp = false
     try {
-      await page.goto(`/crm/team/${teamId}`)
+      await page.goto(`/team/${teamId}`)
       await expect(page.getByTestId('team-archive-button')).toBeVisible({ timeout: 10_000 })
       await page.getByTestId('team-archive-button').click()
 
@@ -170,7 +171,8 @@ test.describe('Drop-team archive — real-API (AC1)', () => {
 
       await page.getByTestId('archive-confirm-input').fill(dropDisplayName)
       const deleteReq = page.waitForResponse(
-        (resp) => resp.url().endsWith(`/api/teams/${teamId}`) && resp.request().method() === 'DELETE',
+        (resp) =>
+          resp.url().endsWith(`/api/teams/${teamId}`) && resp.request().method() === 'DELETE',
       )
       await page.getByTestId('archive-confirm-submit').click()
       await deleteReq

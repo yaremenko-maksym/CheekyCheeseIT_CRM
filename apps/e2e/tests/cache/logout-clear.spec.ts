@@ -1,7 +1,7 @@
 /**
  * Logout Cache Clear Tests — AC9, AC10, AC11
  *
- * Verifies that handleLogout() in apps/web/app/routes/crm/route.tsx
+ * Verifies that handleLogout() in apps/web/app/routes/route.tsx
  * correctly cleans runtime SW caches on logout:
  *
  * - AC9: After logout, api-cache is deleted from caches.keys()
@@ -46,7 +46,7 @@ test.describe('Logout cache clear — AC9, AC10, AC11', () => {
   async function populateCaches(page: import('@playwright/test').Page): Promise<void> {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     // Double goto: SW must be active controller so requests are intercepted.
-    await navigateWithSWReady(page, '/crm')
+    await navigateWithSWReady(page, '/')
 
     // Wait until api-cache has at least one entry.
     await expect

@@ -330,7 +330,7 @@ export class InvoicesService {
       type: 'INVOICE_SIGN_REQUIRED',
       title: 'Инвойс ожидает вашей подписи',
       body: `Выплата синьора — сумма ${this.formatAmountForNotification(aggregatedAmount, aggregatedCurrency)}`,
-      link: `/crm/documents?category=INVOICE&openTx=${payoutTx.id}`,
+      link: `/documents?category=INVOICE&openTx=${payoutTx.id}`,
     })
 
     this.logger.log(
@@ -480,8 +480,8 @@ export class InvoicesService {
     })
 
     // ---- 5. Notify counterparty ----
-    // The standalone `/crm/finance/invoices` page was removed in batch 2 —
-    // notifications now deep-link into `/crm/documents` with the INVOICE
+    // The standalone `/finance/invoices` page was removed in batch 2 —
+    // notifications now deep-link into `/documents` with the INVOICE
     // category pre-selected and the transaction's invoice dialog auto-
     // opened via `openTx=<id>`.
     await this.notificationsService.create({
@@ -489,7 +489,7 @@ export class InvoicesService {
       type: 'INVOICE_SIGN_REQUIRED',
       title: 'Инвойс ожидает вашей подписи',
       body: `${this.getInvoiceTypeLabel(tx.type)} — сумма ${this.formatAmountForNotification(tx.amount, tx.currency)}`,
-      link: `/crm/documents?category=INVOICE&openTx=${tx.id}`,
+      link: `/documents?category=INVOICE&openTx=${tx.id}`,
     })
 
     this.logger.log(
@@ -842,7 +842,7 @@ export class InvoicesService {
       type: 'INVOICE_SIGNED',
       title: `${counterpartyRow.displayName} подписал инвойс`,
       body: `${this.getInvoiceTypeLabel(tx.type)} — сумма ${this.formatAmountForNotification(tx.amount, tx.currency)}`,
-      link: `/crm/documents?category=INVOICE&openTx=${tx.id}`,
+      link: `/documents?category=INVOICE&openTx=${tx.id}`,
     })
 
     this.logger.log(

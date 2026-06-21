@@ -136,9 +136,7 @@ test.describe('Drop archive-impact contract — real API', () => {
     )
     expect(seniorTeam, 'Expected a seed senior-team for seniorA').toBeTruthy()
 
-    const res = await page.request.get(
-      `${REAL_API}/teams/${seniorTeam!.id}/archive-impact`,
-    )
+    const res = await page.request.get(`${REAL_API}/teams/${seniorTeam!.id}/archive-impact`)
     expect(res.status()).toBe(200)
     const body = (await res.json()) as Record<string, unknown>
 

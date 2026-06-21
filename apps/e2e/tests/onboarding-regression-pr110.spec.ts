@@ -15,7 +15,7 @@
  * Bug #3 (MED) — console 403 noise от NotificationsBell:
  *   Ранее bell делал polling /api/notifications пока пользователь был в wizard
  *   → 403 (onboarding guard блокировал неонбордированного пользователя).
- *   Тест: на странице /crm/onboarding нет 403 ответов на /api/notifications.
+ *   Тест: на странице /onboarding нет 403 ответов на /api/notifications.
  *
  * Bug #4 (LOW) — seed wallet placeholders → valid ETH addresses:
  *   В fixtures: пользователи с USDT_ERC20 имеют валидный 0x... адрес (40 hex).
@@ -362,9 +362,7 @@ const test = base.extend<RegressionFixtures>({
 // ===========================================================================
 
 test.describe('Regression #1 — onboarding/status 200 (admin UUID fix)', () => {
-  test('SENIOR: /crm/onboarding загружается без 400, wizard виден', async ({
-    asSeniorPage: page,
-  }) => {
+  test('SENIOR: /onboarding загружается без 400, wizard виден', async ({ asSeniorPage: page }) => {
     const failedResponses: { url: string; status: number }[] = []
     page.on('response', (resp) => {
       if (resp.url().includes('onboarding/status') && resp.status() >= 400) {
@@ -378,7 +376,7 @@ test.describe('Regression #1 — onboarding/status 200 (admin UUID fix)', () => 
     await mockSignContract(page)
     await mockTosEndpoints(page)
 
-    await page.goto('/crm/onboarding')
+    await page.goto('/onboarding')
 
     await expect(page.getByTestId('onboarding-title')).toBeVisible({ timeout: 8000 })
     await expect(page.getByTestId('onboarding-step-contract')).toBeVisible({ timeout: 6000 })
@@ -403,7 +401,7 @@ test.describe('Regression #1 — onboarding/status 200 (admin UUID fix)', () => 
     await mockSignContract(page)
     await mockTosEndpoints(page)
 
-    await page.goto('/crm/onboarding')
+    await page.goto('/onboarding')
     await expect(page.getByTestId('onboarding-step-contract')).toBeVisible({ timeout: 8000 })
 
     // Все ответы — 200 (не 400)
@@ -411,9 +409,7 @@ test.describe('Regression #1 — onboarding/status 200 (admin UUID fix)', () => 
     expect(statusResponses.length).toBeGreaterThanOrEqual(1)
   })
 
-  test('ADMIN: bypass — не редиректится в wizard, остаётся на /crm', async ({
-    asAdminPage: page,
-  }) => {
+  test('ADMIN: bypass — не редиректится в wizard, остаётся на /', async ({ asAdminPage: page }) => {
     await page.unroute(`${API}/onboarding/status`)
     await page.route(`${API}/onboarding/status`, (r) =>
       r.fulfill({
@@ -423,10 +419,10 @@ test.describe('Regression #1 — onboarding/status 200 (admin UUID fix)', () => 
       }),
     )
 
-    await page.goto('/crm')
+    await page.goto('/')
 
-    await expect(page).not.toHaveURL(/\/crm\/onboarding/, { timeout: 3000 })
-    await expect(page).toHaveURL(/\/crm\/?$/, { timeout: 5000 })
+    await expect(page).not.toHaveURL(/\/onboarding/, { timeout: 3000 })
+    await expect(page).toHaveURL(/\/?$/, { timeout: 5000 })
   })
 })
 
@@ -448,7 +444,7 @@ test.describe('Regression #2 — A3-4 personal contract PDF wired up', () => {
     await mockSignContract(page)
     await mockTosEndpoints(page)
 
-    await page.goto('/crm/onboarding')
+    await page.goto('/onboarding')
     await expect(page.getByTestId('sign-contract-form')).toBeVisible({ timeout: 8000 })
 
     // sign-contract-form visible — wizard not crashed
@@ -477,7 +473,7 @@ test.describe('Regression #2 — A3-4 personal contract PDF wired up', () => {
     await mockSignContract(page)
     await mockTosEndpoints(page)
 
-    await page.goto('/crm/onboarding')
+    await page.goto('/onboarding')
     await expect(page.getByTestId('sign-contract-form')).toBeVisible({ timeout: 8000 })
 
     // Wizard not crashed — error state shows (pdf-error testid)
@@ -492,7 +488,7 @@ test.describe('Regression #2 — A3-4 personal contract PDF wired up', () => {
 // ===========================================================================
 
 test.describe('Regression #3 — NotificationsBell не делает 403 на /notifications в wizard', () => {
-  test('Нет 403 ответов на /api/notifications пока пользователь на /crm/onboarding', async ({
+  test('Нет 403 ответов на /api/notifications пока пользователь на /onboarding', async ({
     asSeniorPage: page,
   }) => {
     const notifResponses: { url: string; status: number }[] = []
@@ -508,7 +504,7 @@ test.describe('Regression #3 — NotificationsBell не делает 403 на /n
     await mockSignContract(page)
     await mockTosEndpoints(page)
 
-    await page.goto('/crm/onboarding')
+    await page.goto('/onboarding')
     await expect(page.getByTestId('onboarding-title')).toBeVisible({ timeout: 8000 })
     await expect(page.getByTestId('onboarding-step-contract')).toBeVisible({ timeout: 6000 })
 
@@ -532,7 +528,7 @@ test.describe('Regression #3 — NotificationsBell не делает 403 на /n
     await mockSignContract(page)
     await mockTosEndpoints(page)
 
-    await page.goto('/crm/onboarding')
+    await page.goto('/onboarding')
     await expect(page.getByTestId('onboarding-step-contract')).toBeVisible({ timeout: 8000 })
 
     expect(notifStatuses).not.toContain(403)
@@ -555,7 +551,7 @@ test.describe('Regression #3 — NotificationsBell не делает 403 на /n
     await mockSignContract(page)
     await mockTosEndpoints(page, USERS.junior.id)
 
-    await page.goto('/crm/onboarding')
+    await page.goto('/onboarding')
     await expect(page.getByTestId('onboarding-title')).toBeVisible({ timeout: 8000 })
 
     expect(forbidden).toHaveLength(0)
@@ -607,8 +603,8 @@ test.describe('Regression #4 — wallet addresses valid ETH format', () => {
     expect(ADMIN_V4_UUID).not.toBe('00000000-0000-0000-0000-000000000001')
     expect(ADMIN_V4_UUID).not.toBe('00000000-0000-0000-0000-000000000002')
 
-    await page.goto('/crm')
-    await expect(page).toHaveURL(/\/crm\/?$/, { timeout: 5000 })
+    await page.goto('/')
+    await expect(page).toHaveURL(/\/?$/, { timeout: 5000 })
   })
 })
 
@@ -617,11 +613,11 @@ test.describe('Regression #4 — wallet addresses valid ETH format', () => {
 // ===========================================================================
 
 test.describe('Sign flow — happy path (regression guard for full wizard)', () => {
-  test('SENIOR: complete wizard → /crm', async ({ asSeniorPage: page }) => {
+  test('SENIOR: complete wizard → /', async ({ asSeniorPage: page }) => {
     await mockFullOnboardingApi(page, { role: 'SENIOR', userId: USERS.senior.id })
 
-    await page.goto('/crm')
-    await expect(page).toHaveURL(/\/crm\/onboarding/, { timeout: 8000 })
+    await page.goto('/')
+    await expect(page).toHaveURL(/\/onboarding/, { timeout: 8000 })
 
     await expect(page.getByTestId('onboarding-step-contract')).toBeVisible({ timeout: 6000 })
     await expect(page.getByTestId('sign-contract-form')).toBeVisible({ timeout: 6000 })
@@ -638,17 +634,17 @@ test.describe('Sign flow — happy path (regression guard for full wizard)', () 
     await expect(page.getByTestId('accept-tos-button')).toBeEnabled()
     await page.getByTestId('accept-tos-button').click()
 
-    await expect(page).toHaveURL(/\/crm\/?$/, { timeout: 8000 })
+    await expect(page).toHaveURL(/\/?$/, { timeout: 8000 })
   })
 
-  test('HR: complete wizard → /crm', async ({ page }) => {
+  test('HR: complete wizard → /', async ({ page }) => {
     // Direct mockAuthAs call — same pattern as onboarding-flow.spec.ts
     // to avoid fixture unroute ordering issues.
     await mockAuthAs(page, USERS.hr)
     await mockFullOnboardingApi(page, { role: 'HR', userId: USERS.hr.id })
 
-    await page.goto('/crm')
-    await expect(page).toHaveURL(/\/crm\/onboarding/, { timeout: 8000 })
+    await page.goto('/')
+    await expect(page).toHaveURL(/\/onboarding/, { timeout: 8000 })
 
     await expect(page.getByTestId('sign-contract-form')).toBeVisible({ timeout: 8000 })
     // A3-4: no typed-name-input — just check confirm checkbox
@@ -660,7 +656,7 @@ test.describe('Sign flow — happy path (regression guard for full wizard)', () 
     await page.getByTestId('accept-tos-checkbox').check()
     await page.getByTestId('accept-tos-button').click()
 
-    await expect(page).toHaveURL(/\/crm\/?$/, { timeout: 8000 })
+    await expect(page).toHaveURL(/\/?$/, { timeout: 8000 })
   })
 
   test('Sign button disabled пока checkbox не отмечен (A3-4 model)', async ({
@@ -679,7 +675,7 @@ test.describe('Sign flow — happy path (regression guard for full wizard)', () 
     await mockSignContract(page)
     await mockTosEndpoints(page)
 
-    await page.goto('/crm/onboarding')
+    await page.goto('/onboarding')
     await expect(page.getByTestId('sign-contract-form')).toBeVisible({ timeout: 8000 })
 
     const signBtn = page.getByTestId('sign-button')
@@ -712,18 +708,18 @@ test.describe('RBAC — onboarding gate', () => {
       }),
     )
 
-    await page.goto('/crm')
-    await expect(page).not.toHaveURL(/\/crm\/onboarding/, { timeout: 3000 })
-    await expect(page).toHaveURL(/\/crm\/?$/, { timeout: 5000 })
+    await page.goto('/')
+    await expect(page).not.toHaveURL(/\/onboarding/, { timeout: 3000 })
+    await expect(page).toHaveURL(/\/?$/, { timeout: 5000 })
   })
 
   test('Onboarded SENIOR: повторный вход → НЕ в wizard (idempotent)', async ({
     asSeniorPage: page,
   }) => {
     // mockAuthAs зарегистрировал fully-onboarded status — не переопределяем
-    await page.goto('/crm')
-    await expect(page).not.toHaveURL(/\/crm\/onboarding/, { timeout: 3000 })
-    await expect(page).toHaveURL(/\/crm\/?$/, { timeout: 5000 })
+    await page.goto('/')
+    await expect(page).not.toHaveURL(/\/onboarding/, { timeout: 3000 })
+    await expect(page).toHaveURL(/\/?$/, { timeout: 5000 })
   })
 
   test('Unboarded JUNIOR: редиректится в wizard', async ({ asJuniorPage: page }) => {
@@ -735,8 +731,8 @@ test.describe('RBAC — onboarding gate', () => {
     await mockContractTemplate(page, { ...CONTRACT_TEMPLATE, targetRole: 'JUNIOR' })
     await mockContractPdf(page)
 
-    await page.goto('/crm')
-    await expect(page).toHaveURL(/\/crm\/onboarding/, { timeout: 8000 })
+    await page.goto('/')
+    await expect(page).toHaveURL(/\/onboarding/, { timeout: 8000 })
     await expect(page.getByTestId('onboarding-title')).toBeVisible({ timeout: 6000 })
   })
 
@@ -751,8 +747,8 @@ test.describe('RBAC — onboarding gate', () => {
     await mockContractTemplate(page, { ...CONTRACT_TEMPLATE, targetRole: 'HR' })
     await mockContractPdf(page)
 
-    await page.goto('/crm')
-    await expect(page).toHaveURL(/\/crm\/onboarding/, { timeout: 8000 })
+    await page.goto('/')
+    await expect(page).toHaveURL(/\/onboarding/, { timeout: 8000 })
     await expect(page.getByTestId('onboarding-title')).toBeVisible({ timeout: 6000 })
   })
 })

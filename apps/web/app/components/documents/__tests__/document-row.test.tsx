@@ -172,11 +172,11 @@ describe('DocumentRow — uploader link gated by viewer role (DROP lockdown)', (
     expect(screen.queryByRole('link')).toBeNull()
   })
 
-  it('ADMIN viewer → uploader name is a profile <Link> to /crm/profile/$uploadedBy', async () => {
+  it('ADMIN viewer → uploader name is a profile <Link> to /profile/$uploadedBy', async () => {
     renderRow(baseDoc(), adminViewer)
     const link = await screen.findByTestId('document-row-uploader-link')
     expect(link.tagName).toBe('A')
-    expect(link).toHaveAttribute('href', `/crm/profile/${OWNER_ID}`)
+    expect(link).toHaveAttribute('href', `/profile/${OWNER_ID}`)
     expect(link).toHaveTextContent('Owner')
   })
 

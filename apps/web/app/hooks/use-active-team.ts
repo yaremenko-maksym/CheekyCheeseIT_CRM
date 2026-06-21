@@ -14,7 +14,7 @@ import { api } from '@/lib/axios'
  * Used to:
  *  - gate sidebar nav (teamless SENIOR loses «Проекты» / «Собеседования»)
  *  - render the «без команды» chip in profile header
- *  - show empty-state on `/crm/projects` and `/crm/interviews` for orphaned senior
+ *  - show empty-state on `/projects` and `/interviews` for orphaned senior
  *
  * Returns:
  *  - `team`: the active team (or `null` if none)

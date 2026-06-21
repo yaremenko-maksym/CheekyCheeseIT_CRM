@@ -109,7 +109,7 @@ test.describe('Anti-stale: UI mutation → fresh data with SW active (NetworkFir
   // ── Scenario 1: Finance — EXPENSE mutation shows fresh row ────────────────
   //
   // Flow:
-  //   1. Login as ADMIN, navigate to /crm/finance (SW becomes active controller)
+  //   1. Login as ADMIN, navigate to /finance (SW becomes active controller)
   //   2. Wait until api-cache is populated (SW intercepted the GET /transactions)
   //   3. Intercept the POST /transactions network request to capture the created ID
   //   4. Click "Новая транзакция" → fill EXPENSE dialog → submit
@@ -123,7 +123,7 @@ test.describe('Anti-stale: UI mutation → fresh data with SW active (NetworkFir
 
     // Double-goto: first navigation registers the SW, second fires requests
     // while the SW is already the active controller.
-    await navigateWithSWReady(page, '/crm/finance')
+    await navigateWithSWReady(page, '/finance')
 
     // Wait for api-cache to be populated — proves SW is caching the initial
     // GET /transactions (NetworkFirst: network response cached by SW).
@@ -244,7 +244,7 @@ test.describe('Anti-stale: UI mutation → fresh data with SW active (NetworkFir
   // ── Scenario 2: Projects — create project shows fresh row ─────────────────
   //
   // Flow:
-  //   1. Login as ADMIN, navigate to /crm/projects (SW active)
+  //   1. Login as ADMIN, navigate to /projects (SW active)
   //   2. Wait until api-cache is populated (GET /projects cached)
   //   3. Intercept POST /projects to capture new project ID
   //   4. Click "Новый проект" → fill dialog → submit
@@ -255,7 +255,7 @@ test.describe('Anti-stale: UI mutation → fresh data with SW active (NetworkFir
   }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
 
-    await navigateWithSWReady(page, '/crm/projects')
+    await navigateWithSWReady(page, '/projects')
 
     // Wait for api-cache to be seeded.
     await expect
@@ -382,7 +382,7 @@ test.describe('Anti-stale: UI mutation → fresh data with SW active (NetworkFir
     page,
   }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
-    await navigateWithSWReady(page, '/crm/finance')
+    await navigateWithSWReady(page, '/finance')
 
     // Verify api-cache IS populated (SW is working, NetworkFirst is caching).
     await expect

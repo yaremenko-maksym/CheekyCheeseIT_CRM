@@ -1,7 +1,7 @@
 /**
  * drop-archive-user-real.spec.ts — task-expand-drop-e2e-coverage (AC2).
  *
- * REAL-API coverage of archiving a DROP user via /crm/users (the row-level
+ * REAL-API coverage of archiving a DROP user via /users (the row-level
  * archive button). The cascade contract for DROP role:
  *   - drop.archivedAt set
  *   - drop-team.archivedAt set (cascade through `archiveDropTeam`)
@@ -35,7 +35,7 @@ function uniqueSuffix(): string {
 }
 
 test.describe('Drop user archive — real-API (AC2)', () => {
-  test('ADMIN archives DROP via /crm/users — cascade detaches senior, archives team', async ({
+  test('ADMIN archives DROP via /users — cascade detaches senior, archives team', async ({
     page,
   }) => {
     const suffix = uniqueSuffix()
@@ -57,8 +57,8 @@ test.describe('Drop user archive — real-API (AC2)', () => {
         seniorEmail: SEED_EMAILS.seniorB,
       })
 
-      // Navigate to /crm/users and locate the drop row's archive button.
-      await page.goto('/crm/users')
+      // Navigate to /users and locate the drop row's archive button.
+      await page.goto('/users')
 
       // Wait for the users list to render. We don't filter on archived
       // status — the freshly-created drop is active, so it surfaces on
@@ -79,7 +79,8 @@ test.describe('Drop user archive — real-API (AC2)', () => {
       await expect(submit).toBeEnabled()
 
       const deleteReq = page.waitForResponse(
-        (resp) => resp.url().endsWith(`/api/users/${dropId}`) && resp.request().method() === 'DELETE',
+        (resp) =>
+          resp.url().endsWith(`/api/users/${dropId}`) && resp.request().method() === 'DELETE',
       )
       await submit.click()
       const resp = await deleteReq

@@ -29,9 +29,7 @@ function uniqueSuffix(): string {
 }
 
 test.describe('Drop-team — SENIOR read-only view (AC7)', () => {
-  test('senior attached to a drop-team sees no edit/archive controls', async ({
-    page,
-  }) => {
+  test('senior attached to a drop-team sees no edit/archive controls', async ({ page }) => {
     const suffix = uniqueSuffix()
     const dropEmail = `drop-ac7-senior-${suffix}@cheekycheese.dev`
     const dropDisplayName = `Drop AC7 Senior ${suffix}`
@@ -49,7 +47,7 @@ test.describe('Drop-team — SENIOR read-only view (AC7)', () => {
 
       // Step 3: re-login as the SENIOR and visit the team page.
       await loginViaApi(page, SEED_EMAILS.seniorB)
-      await page.goto(`/crm/team/${teamId}`)
+      await page.goto(`/team/${teamId}`)
 
       // The page renders — drop's display name visible somewhere (the team
       // header includes the drop name in the member list).

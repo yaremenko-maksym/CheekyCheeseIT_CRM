@@ -2,14 +2,14 @@
  * drop-routing-hub.spec.ts — E2E coverage for Drop phase 2+3 surfaces.
  *
  * PR #189 adds two new DROP-only pages:
- *   1. /crm/routing  — old URL, now permanently redirects to /crm (root).
- *   2. /crm/finance  — DropFinancePage (rendered when user.role === 'DROP')
+ *   1. /routing  — old URL, now permanently redirects to /crm (root).
+ *   2. /finance  — DropFinancePage (rendered when user.role === 'DROP')
  *
- * Dashboard consolidation: the role-dispatch dashboard moved from /crm/dashboard
- * (now DELETED) to the CRM root `/crm` (index.tsx).
- *   - resolveRoleHome('DROP') === '/crm'
+ * Dashboard consolidation: the role-dispatch dashboard moved from /dashboard
+ * (now DELETED) to the CRM root `/` (index.tsx).
+ *   - resolveRoleHome('DROP') === '/'
  *   - /crm root renders DropDashboard for DROP (index.tsx role-branch)
- *   - /crm/routing permanently redirects to /crm (beforeLoad throw redirect)
+ *   - /routing permanently redirects to /crm (beforeLoad throw redirect)
  *
  * Coverage:
  *   A. Hub render: testids, cards, empty/loaded states, QuickActions.
@@ -17,8 +17,8 @@
  *   C. Finance cabinet: DropFinancePage testid, heading, DropBalanceCard,
  *      DropIncomesTable, DropPaymentsHistory.
  *   D. Navigation: DROP sidebar 4 items, click Дашборд → hub, click Финансы → finance.
- *   E. RBAC: non-DROP cannot reach /crm/routing (redirected to own home).
- *   F. Redirect: /crm/routing → /crm (permanent redirect).
+ *   E. RBAC: non-DROP cannot reach /routing (redirected to own home).
+ *   F. Redirect: /routing → /crm (permanent redirect).
  *
  * All tests are mock-based (LIFO route registration). Source of truth:
  *   apps/web/app/lib/route-access.ts + routing.tsx + DropFinancePage.tsx
@@ -33,8 +33,8 @@
 
 import { test, expect } from './fixtures'
 
-// CRM root, anchored — matches `/crm` (and `/crm/`) but NOT `/crm/team` etc.
-const CRM_ROOT = /\/crm\/?$/
+// CRM root, anchored — matches `/` (and `/`) but NOT `/team` etc.
+const CRM_ROOT = /\/?$/
 
 // Derive web origin to match how `API` constant is built in fixtures.ts.
 const _webOrigin =
@@ -155,7 +155,7 @@ const DROP_PAYMENTS = [
 test.describe('A. DROP routing hub — /crm root render', () => {
   test('hub renders with drop-routing-hub testid and page heading', async ({ asDrop: page }) => {
     // Dashboard consolidation: DROP home is the CRM root /crm.
-    await page.goto('/crm')
+    await page.goto('/')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
 
     const main = page.getByTestId('drop-routing-hub')
@@ -175,7 +175,7 @@ test.describe('A. DROP routing hub — /crm root render', () => {
       }),
     )
 
-    await page.goto('/crm')
+    await page.goto('/')
     await expect(page.getByTestId('drop-balance-card')).toBeVisible({ timeout: 8_000 })
 
     // Balance amount rendered
@@ -193,7 +193,7 @@ test.describe('A. DROP routing hub — /crm root render', () => {
     asDrop: page,
   }) => {
     // Default mockAuthAs already returns empty incomes.
-    await page.goto('/crm')
+    await page.goto('/')
 
     const actionBlock = page.getByTestId('drop-action-block')
     await expect(actionBlock).toBeVisible({ timeout: 8_000 })
@@ -203,7 +203,7 @@ test.describe('A. DROP routing hub — /crm root render', () => {
   })
 
   test('hub renders DropProjectsList — empty state', async ({ asDrop: page }) => {
-    await page.goto('/crm')
+    await page.goto('/')
 
     const projectsList = page.getByTestId('drop-projects-list')
     await expect(projectsList).toBeVisible({ timeout: 8_000 })
@@ -212,7 +212,7 @@ test.describe('A. DROP routing hub — /crm root render', () => {
   })
 
   test('hub renders DropQuickActions buttons', async ({ asDrop: page }) => {
-    await page.goto('/crm')
+    await page.goto('/')
 
     // testid renamed drop-quick-register-btn → drop-register-income-btn in PR #198
     await expect(page.getByTestId('drop-register-income-btn')).toBeVisible({ timeout: 8_000 })
@@ -237,7 +237,7 @@ test.describe('B. DROP routing hub — loaded with data', () => {
       }),
     )
 
-    await page.goto('/crm')
+    await page.goto('/')
 
     const actionBlock = page.getByTestId('drop-action-block')
     await expect(actionBlock).toBeVisible({ timeout: 8_000 })
@@ -257,7 +257,7 @@ test.describe('B. DROP routing hub — loaded with data', () => {
       }),
     )
 
-    await page.goto('/crm')
+    await page.goto('/')
 
     const projectsList = page.getByTestId('drop-projects-list')
     await expect(projectsList).toBeVisible({ timeout: 8_000 })
@@ -271,7 +271,7 @@ test.describe('B. DROP routing hub — loaded with data', () => {
     await expect(projectsList.getByText('LearnFast Ltd')).toBeVisible()
   })
 
-  test('pay action on income item navigates to /crm/payments/initiate/:id', async ({
+  test('pay action on income item navigates to /payments/initiate/:id', async ({
     asDrop: page,
   }) => {
     const incomesPattern = new RegExp(
@@ -287,7 +287,7 @@ test.describe('B. DROP routing hub — loaded with data', () => {
 
     // Override /transactions/:id so the initiate-page access-guard can confirm
     // ownership (receiverId === USERS.drop.id). Without this, the guard fires
-    // navigate('/crm') and the URL bounces back immediately.
+    // navigate('/') and the URL bounces back immediately.
     const txPattern = new RegExp(
       `${API_BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/transactions/([^/?]+)$`,
     )
@@ -341,7 +341,7 @@ test.describe('B. DROP routing hub — loaded with data', () => {
       }),
     )
 
-    await page.goto('/crm')
+    await page.goto('/')
 
     // Click pay button for first income
     const payBtn = page.getByTestId(`drop-action-pay-btn-${INCOME_V1_ID}`)
@@ -349,7 +349,7 @@ test.describe('B. DROP routing hub — loaded with data', () => {
     await payBtn.click()
 
     // Should navigate to payments/initiate/<income-v1-uuid> and stay there.
-    await expect(page).toHaveURL(new RegExp(`/crm/payments/initiate/${INCOME_V1_ID}`), {
+    await expect(page).toHaveURL(new RegExp(`/payments/initiate/${INCOME_V1_ID}`), {
       timeout: 8_000,
     })
   })
@@ -357,10 +357,10 @@ test.describe('B. DROP routing hub — loaded with data', () => {
 
 // ── C. Finance cabinet ─────────────────────────────────────────────────────────
 
-test.describe('C. DROP finance cabinet — /crm/finance', () => {
+test.describe('C. DROP finance cabinet — /finance', () => {
   test('finance page renders DropFinancePage testid and heading', async ({ asDrop: page }) => {
-    await page.goto('/crm/finance')
-    await expect(page).toHaveURL(/\/crm\/finance/, { timeout: 8_000 })
+    await page.goto('/finance')
+    await expect(page).toHaveURL(/\/finance/, { timeout: 8_000 })
 
     const finPage = page.getByTestId('drop-finance-page')
     await expect(finPage).toBeVisible({ timeout: 8_000 })
@@ -379,7 +379,7 @@ test.describe('C. DROP finance cabinet — /crm/finance', () => {
       }),
     )
 
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
 
     await expect(page.getByTestId('drop-balance-card')).toBeVisible({ timeout: 8_000 })
     await expect(page.getByTestId('drop-balance-amount')).toContainText('$1,250.50')
@@ -397,7 +397,7 @@ test.describe('C. DROP finance cabinet — /crm/finance', () => {
       }),
     )
 
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
 
     const table = page.getByTestId('drop-incomes-table')
     await expect(table).toBeVisible({ timeout: 8_000 })
@@ -430,7 +430,7 @@ test.describe('C. DROP finance cabinet — /crm/finance', () => {
       }),
     )
 
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
     // Wait for finance page to fully render (payments section loads after incomes).
     await expect(page.getByTestId('drop-finance-page')).toBeVisible({ timeout: 8_000 })
 
@@ -444,7 +444,7 @@ test.describe('C. DROP finance cabinet — /crm/finance', () => {
 
   test('finance cabinet incomes table — empty state text', async ({ asDrop: page }) => {
     // Default mockAuthAs returns empty incomes — use default.
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
 
     const table = page.getByTestId('drop-incomes-table')
     await expect(table).toBeVisible({ timeout: 8_000 })
@@ -452,7 +452,7 @@ test.describe('C. DROP finance cabinet — /crm/finance', () => {
   })
 
   test('finance cabinet filter status select is rendered', async ({ asDrop: page }) => {
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
 
     await expect(page.getByTestId('drop-filter-status')).toBeVisible({ timeout: 8_000 })
     await expect(page.getByTestId('drop-filter-period')).toBeVisible()
@@ -464,7 +464,7 @@ test.describe('C. DROP finance cabinet — /crm/finance', () => {
     // PR #198 (drop-phase3-frontend): «Зарегистрировать приход» action was added to
     // DropFinancePage header with the same testid drop-register-income-btn as in
     // DropQuickActions — canonical CTA available from both hub and finance page.
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
     await expect(page.getByTestId('drop-finance-page')).toBeVisible({ timeout: 8_000 })
     await expect(page.getByTestId('drop-register-income-btn')).toBeVisible({ timeout: 8_000 })
   })
@@ -479,7 +479,7 @@ test.describe('D. DROP sidebar navigation — 5 items', () => {
     // Dashboard consolidation: DROP home is /crm; nav «Дашборд» link also points there.
     // Finding 1 (PR #198): «Документы» link added to drop-nav → 5 items total
     // (kept in sync with drop-rbac.spec, the authoritative nav-count test).
-    await page.goto('/crm')
+    await page.goto('/')
     await expect(page.getByTestId('drop-routing-hub')).toBeVisible({ timeout: 8_000 })
 
     const nav = page.getByTestId('drop-nav')
@@ -487,80 +487,80 @@ test.describe('D. DROP sidebar navigation — 5 items', () => {
     await expect(nav.locator('a')).toHaveCount(5)
 
     // Each expected link present (Дашборд href → /crm root)
-    await expect(nav.locator('a[href="/crm"]')).toBeVisible()
-    await expect(nav.locator('a[href="/crm/finance"]')).toBeVisible()
-    await expect(nav.locator('a[href="/crm/team"]')).toBeVisible()
-    await expect(nav.locator('a[href="/crm/documents"]')).toBeVisible()
-    await expect(nav.locator('a[href="/crm/profile"]')).toBeVisible()
+    await expect(nav.locator('a[href="/"]')).toBeVisible()
+    await expect(nav.locator('a[href="/finance"]')).toBeVisible()
+    await expect(nav.locator('a[href="/team"]')).toBeVisible()
+    await expect(nav.locator('a[href="/documents"]')).toBeVisible()
+    await expect(nav.locator('a[href="/profile"]')).toBeVisible()
   })
 
-  test('clicking Финансы in DROP nav navigates to /crm/finance and renders DropFinancePage', async ({
+  test('clicking Финансы in DROP nav navigates to /finance and renders DropFinancePage', async ({
     asDrop: page,
   }) => {
-    await page.goto('/crm')
+    await page.goto('/')
     await expect(page.getByTestId('drop-routing-hub')).toBeVisible({ timeout: 8_000 })
 
     const nav = page.getByTestId('drop-nav')
-    await nav.locator('a[href="/crm/finance"]').click()
-    await expect(page).toHaveURL(/\/crm\/finance/, { timeout: 8_000 })
+    await nav.locator('a[href="/finance"]').click()
+    await expect(page).toHaveURL(/\/finance/, { timeout: 8_000 })
 
     // DropFinancePage rendered (not the standard FinancePage)
     await expect(page.getByTestId('drop-finance-page')).toBeVisible({ timeout: 8_000 })
   })
 
-  test('clicking Профиль in DROP nav navigates to /crm/profile', async ({ asDrop: page }) => {
-    await page.goto('/crm')
+  test('clicking Профиль in DROP nav navigates to /profile', async ({ asDrop: page }) => {
+    await page.goto('/')
     await expect(page.getByTestId('drop-routing-hub')).toBeVisible({ timeout: 8_000 })
 
     const nav = page.getByTestId('drop-nav')
-    await nav.locator('a[href="/crm/profile"]').click()
-    await expect(page).toHaveURL(/\/crm\/profile/, { timeout: 8_000 })
+    await nav.locator('a[href="/profile"]').click()
+    await expect(page).toHaveURL(/\/profile/, { timeout: 8_000 })
     await expect(page).not.toHaveURL(/\/login/)
   })
 })
 
-// ── E. RBAC — /crm/routing is DROP-only (redirects non-DROP) ──────────────────
+// ── E. RBAC — /routing is DROP-only (redirects non-DROP) ──────────────────
 
-test.describe('E. RBAC — /crm/routing is DROP-only', () => {
-  test('ADMIN on /crm/routing → redirected to /crm', async ({ asAdmin: page }) => {
-    // /crm/routing ROUTE_ACCESS=['DROP']; ADMIN guard fires → resolveRoleHome='/crm'
-    await page.goto('/crm/routing')
+test.describe('E. RBAC — /routing is DROP-only', () => {
+  test('ADMIN on /routing → redirected to /', async ({ asAdmin: page }) => {
+    // /routing ROUTE_ACCESS=['DROP']; ADMIN guard fires → resolveRoleHome='/'
+    await page.goto('/routing')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
   })
 
-  test('SENIOR on /crm/routing → redirected to /crm', async ({ asSenior: page }) => {
-    await page.goto('/crm/routing')
+  test('SENIOR on /routing → redirected to /', async ({ asSenior: page }) => {
+    await page.goto('/routing')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
   })
 
-  test('HR on /crm/routing → redirected to /crm', async ({ asHr: page }) => {
-    await page.goto('/crm/routing')
+  test('HR on /routing → redirected to /', async ({ asHr: page }) => {
+    await page.goto('/routing')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
   })
 
-  test('JUNIOR on /crm/routing → redirected to /crm/project', async ({ asJunior: page }) => {
-    await page.goto('/crm/routing')
-    await expect(page).toHaveURL(/\/crm\/project/, { timeout: 8_000 })
+  test('JUNIOR on /routing → redirected to /project', async ({ asJunior: page }) => {
+    await page.goto('/routing')
+    await expect(page).toHaveURL(/\/project/, { timeout: 8_000 })
   })
 
   test('non-DROP does NOT see «Дашборд» (DROP nav) in sidebar', async ({ asAdmin: page }) => {
-    await page.goto('/crm')
+    await page.goto('/')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
     // No drop-nav testid for ADMIN (only rendered for DROP)
     await expect(page.getByTestId('drop-nav')).toHaveCount(0)
-    // No /crm/routing link in the regular nav (old DROP-only URL)
+    // No /routing link in the regular nav (old DROP-only URL)
     const sidebar = page.locator('nav').first()
-    await expect(sidebar.locator('a[href="/crm/routing"]')).toHaveCount(0)
+    await expect(sidebar.locator('a[href="/routing"]')).toHaveCount(0)
   })
 })
 
-// ── F. Redirect: /crm/routing → /crm (root) ──────────────────────────────────
+// ── F. Redirect: /routing → /crm (root) ──────────────────────────────────
 
-test.describe('F. /crm/routing redirect — permanent redirect to /crm', () => {
-  test('DROP on /crm/routing → URL becomes /crm (redirect works)', async ({ asDrop: page }) => {
-    // routing.tsx beforeLoad throws redirect('/crm').
+test.describe('F. /routing redirect — permanent redirect to /', () => {
+  test('DROP on /routing → URL becomes /crm (redirect works)', async ({ asDrop: page }) => {
+    // routing.tsx beforeLoad throws redirect('/').
     // DROP then lands on /crm and sees the drop hub.
-    await page.goto('/crm/routing')
+    await page.goto('/routing')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
     // Drop hub renders (not a blank redirect loop)
     await expect(page.getByTestId('drop-routing-hub')).toBeVisible({ timeout: 8_000 })
@@ -569,7 +569,7 @@ test.describe('F. /crm/routing redirect — permanent redirect to /crm', () => {
   test('DROP on /crm sees drop hub (not general dashboard)', async ({ asDrop: page }) => {
     // /crm now renders DropDashboard (branch on role=DROP).
     // Non-DROP roles still see the general dashboard.
-    await page.goto('/crm')
+    await page.goto('/')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
     // drop-routing-hub testid is rendered by DropDashboard inside dashboard.tsx
     await expect(page.getByTestId('drop-routing-hub')).toBeVisible({ timeout: 8_000 })
@@ -577,11 +577,11 @@ test.describe('F. /crm/routing redirect — permanent redirect to /crm', () => {
     await expect(page.getByTestId('dashboard-page')).toHaveCount(0)
   })
 
-  test('JUNIOR on /crm → redirected to /crm/project (JUNIOR has own hub)', async ({
+  test('JUNIOR on /crm → redirected to /project (JUNIOR has own hub)', async ({
     asJunior: page,
   }) => {
-    // index.tsx redirects JUNIOR from /crm to their hub /crm/project.
-    await page.goto('/crm')
-    await expect(page).toHaveURL(/\/crm\/project/, { timeout: 8_000 })
+    // index.tsx redirects JUNIOR from /crm to their hub /project.
+    await page.goto('/')
+    await expect(page).toHaveURL(/\/project/, { timeout: 8_000 })
   })
 })

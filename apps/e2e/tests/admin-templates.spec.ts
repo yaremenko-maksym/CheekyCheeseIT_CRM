@@ -2,15 +2,15 @@
  * admin-templates.spec.ts — Phase 6C E2E tests
  *
  * Coverage (AC 6C-8):
- * 1. ADMIN opens /crm/admin/contracts → sees 5 role cards,
+ * 1. ADMIN opens /admin/contracts → sees 5 role cards,
  *    clicks SENIOR editor, edits markdown, publishes new version → toast shown
  * 2. ADMIN publishes new ToS version → onboarding-status invalidated
  *    (soft-notify banner visible for an onboarded user)
- * 3. non-ADMIN (SENIOR) navigates to /crm/admin →
+ * 3. non-ADMIN (SENIOR) navigates to /admin →
  *    redirected to /crm + error toast shown
  *
  * All tests use Playwright route mocks (no real backend required).
- * Route moved: /crm/admin/templates/* → /crm/admin/* (PR #256).
+ * Route moved: /admin/templates/* → /admin/* (PR #256).
  */
 
 import { test as base, expect, type Page, type Route } from '@playwright/test'
@@ -122,7 +122,7 @@ const test = base.extend<LocalFixtures>({
 test('ADMIN sees 5 role cards, edits SENIOR contract, publishes new version', async ({
   asAdmin: page,
 }) => {
-  await page.goto('/crm/admin/contracts')
+  await page.goto('/admin/contracts')
 
   // All 5 role cards should render
   for (const role of ['hr', 'senior', 'junior', 'drop', 'accountant']) {
@@ -131,7 +131,7 @@ test('ADMIN sees 5 role cards, edits SENIOR contract, publishes new version', as
 
   // Click to open SENIOR editor
   await page.getByTestId('contract-template-edit-senior').click()
-  await expect(page).toHaveURL(/\/crm\/admin\/contracts\/senior/)
+  await expect(page).toHaveURL(/\/admin\/contracts\/senior/)
 
   // Variables tab should be visible by default (new UI: Tabs instead of hint toggle)
   await expect(page.getByTestId('tab-variables')).toBeVisible()
@@ -169,7 +169,7 @@ test('ADMIN sees 5 role cards, edits SENIOR contract, publishes new version', as
 test('ADMIN publishes new ToS, soft-notify banner visible for onboarded user', async ({
   asAdmin: page,
 }) => {
-  await page.goto('/crm/admin/tos')
+  await page.goto('/admin/tos')
 
   // Current active ToS should show in viewer
   await expect(page.getByTestId('publish-new-tos-button')).toBeVisible()
@@ -179,7 +179,7 @@ test('ADMIN publishes new ToS, soft-notify banner visible for onboarded user', a
 
   // Navigate to publish new ToS
   await page.getByTestId('publish-new-tos-button').click()
-  await expect(page).toHaveURL(/\/crm\/admin\/tos\/new/)
+  await expect(page).toHaveURL(/\/admin\/tos\/new/)
 
   // Editor and preview visible
   await expect(page.getByTestId('tos-editor-preview')).toBeVisible()
@@ -220,15 +220,15 @@ test('ADMIN publishes new ToS, soft-notify banner visible for onboarded user', a
 })
 
 // ---------------------------------------------------------------------------
-// AC 6C-8 — Scenario 3: non-ADMIN redirected from /crm/admin/templates
+// AC 6C-8 — Scenario 3: non-ADMIN redirected from /admin/templates
 // ---------------------------------------------------------------------------
 
-test('non-ADMIN navigating to /crm/admin is redirected to /crm', async ({ asSenior: page }) => {
-  await page.goto('/crm/admin/contracts')
+test('non-ADMIN navigating to /admin is redirected to /', async ({ asSenior: page }) => {
+  await page.goto('/admin/contracts')
 
   // Should land on the dashboard root /crm (redirect triggered by RBAC guard in
-  // route layout). Anchored so it doesn't match /crm/admin/... sub-paths.
-  await expect(page).toHaveURL(/\/crm\/?$/)
+  // route layout). Anchored so it doesn't match /admin/... sub-paths.
+  await expect(page).toHaveURL(/\/?$/)
 
   // Error toast should be shown — use .first() to handle potential strict-mode
   // duplicate (toast can render inside the Sonner portal which may produce two
@@ -254,7 +254,7 @@ test('ADMIN can preview archived ToS version in history list', async ({ asAdmin:
   // Override with 2 versions
   await page.route(`${API_GLOB}/tos/versions`, (r) => jsonOk(r, [TOS_V2, TOS_V1_ARCHIVED]))
 
-  await page.goto('/crm/admin/tos')
+  await page.goto('/admin/tos')
 
   // History list shows archived v1
   await expect(page.getByTestId('tos-history-list')).toBeVisible()

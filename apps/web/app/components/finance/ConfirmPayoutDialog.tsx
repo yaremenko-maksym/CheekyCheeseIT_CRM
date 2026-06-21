@@ -40,8 +40,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { financeApi } from '@/routes/crm/finance/api'
-import { fmtAmount } from '@/routes/crm/finance/constants'
+import { financeApi } from '@/routes/_authenticated/finance/api'
+import { fmtAmount } from '@/routes/_authenticated/finance/constants'
 
 // Hard-coded list of admin partners. Backend re-validates the recipient is an
 // active ADMIN, so we don't need a /users fetch here (DROP/SENIOR can't reach

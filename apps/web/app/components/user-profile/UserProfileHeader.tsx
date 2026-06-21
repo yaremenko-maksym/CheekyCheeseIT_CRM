@@ -123,7 +123,7 @@ export function UserProfileHeader({
 
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         {showInterviewsLink && (
-          <Link to="/crm/interviews" search={{ seniorId: user.id }}>
+          <Link to="/interviews" search={{ seniorId: user.id }}>
             <Button variant="outline" size="sm" className="gap-2">
               <KanbanSquare className="h-4 w-4" />
               Доска собеседований

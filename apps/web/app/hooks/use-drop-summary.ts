@@ -19,7 +19,7 @@ export const DROP_SUMMARY_QUERY_KEY = ['drop', 'summary'] as const
  * GET /api/finance/drop/me/summary → DropSelfSummaryDto
  *
  * Returns balance, dropSharePercent, pendingIncomesCount, debtToCompany.
- * Used by DropBalanceCard and DropActionRequiredBlock on /crm/routing hub.
+ * Used by DropBalanceCard and DropActionRequiredBlock on /routing hub.
  */
 export function useDropSummary() {
   return useQuery<DropSelfSummaryDto>({

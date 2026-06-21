@@ -152,7 +152,7 @@ test.describe('Manual confirmPayout — method=CASH vs method=CRYPTO', () => {
 
     try {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
-      await page.goto('/crm/finance')
+      await page.goto('/finance')
 
       const button = page.getByTestId(`confirm-payout-button-${payoutTxId}`)
       await expect(button).toBeVisible({ timeout: 15_000 })

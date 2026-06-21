@@ -1,6 +1,6 @@
 /**
  * documents-view-toggle — unit test for the view-toggle localStorage helpers
- * extracted from /crm/documents.
+ * extracted from /documents.
  *
  * Covers Task 4 AC:
  *   AC-1. Default view is 'list' when localStorage has no entry.

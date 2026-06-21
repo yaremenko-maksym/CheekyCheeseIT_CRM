@@ -40,9 +40,11 @@ async function withVacantDropTeam(page: import('@playwright/test').Page) {
 }
 
 test.describe('Drop add-senior flow — AC2', () => {
-  test('SENIOR create dialog exposes a RadioGroup with both team modes', async ({ asAdmin: page }) => {
+  test('SENIOR create dialog exposes a RadioGroup with both team modes', async ({
+    asAdmin: page,
+  }) => {
     await withVacantDropTeam(page)
-    await page.goto('/crm/users')
+    await page.goto('/users')
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
@@ -58,9 +60,11 @@ test.describe('Drop add-senior flow — AC2', () => {
     await expect(dialog.getByText('Добавить в команду дропа')).toBeVisible()
   })
 
-  test('JOIN_DROP_TEAM option is enabled when a vacant drop-team exists', async ({ asAdmin: page }) => {
+  test('JOIN_DROP_TEAM option is enabled when a vacant drop-team exists', async ({
+    asAdmin: page,
+  }) => {
     await withVacantDropTeam(page)
-    await page.goto('/crm/users')
+    await page.goto('/users')
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
@@ -73,7 +77,9 @@ test.describe('Drop add-senior flow — AC2', () => {
     await expect(dialog.getByText(/команда доступна|команд\(ы\) доступно/i)).toBeVisible()
   })
 
-  test('JOIN_DROP_TEAM option is disabled when no vacant drop-team exists', async ({ asAdmin: page }) => {
+  test('JOIN_DROP_TEAM option is disabled when no vacant drop-team exists', async ({
+    asAdmin: page,
+  }) => {
     // Override teams: only the senior team, no drop-team at all.
     await page.route(new RegExp(`${API}/teams(\\?.*)?$`), (r) =>
       r.fulfill({
@@ -82,7 +88,7 @@ test.describe('Drop add-senior flow — AC2', () => {
         body: JSON.stringify([TEAMS[0]]),
       }),
     )
-    await page.goto('/crm/users')
+    await page.goto('/users')
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
@@ -93,9 +99,11 @@ test.describe('Drop add-senior flow — AC2', () => {
     await expect(dialog.getByTestId('user-dialog-team-mode-join-drop')).toBeDisabled()
   })
 
-  test('selecting JOIN_DROP_TEAM swaps HR/accountant pickers for the drop-team dropdown', async ({ asAdmin: page }) => {
+  test('selecting JOIN_DROP_TEAM swaps HR/accountant pickers for the drop-team dropdown', async ({
+    asAdmin: page,
+  }) => {
     await withVacantDropTeam(page)
-    await page.goto('/crm/users')
+    await page.goto('/users')
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
@@ -112,14 +120,16 @@ test.describe('Drop add-senior flow — AC2', () => {
     await expect(dialog.getByTestId(`user-dialog-hr-chip-${USERS.hr.id}`)).toHaveCount(0)
   })
 
-  test('selecting JOIN_DROP_TEAM mode reveals the drop-team picker with the vacant team', async ({ asAdmin: page }) => {
+  test('selecting JOIN_DROP_TEAM mode reveals the drop-team picker with the vacant team', async ({
+    asAdmin: page,
+  }) => {
     // Verifies the UI contract for AC2: opening the create-senior dialog +
     // switching the team-mode radio swaps the HR/Accountant chip pickers
     // for a drop-team <Select> that lists vacant drop-teams from the
     // `/teams` response. The actual POST body shape is covered by
     // backend unit tests (UserDialog onSubmit branch is small).
     await withVacantDropTeam(page)
-    await page.goto('/crm/users')
+    await page.goto('/users')
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
@@ -144,7 +154,7 @@ test.describe('Drop add-senior flow — AC2', () => {
 
   test('CREATE_NEW remains the default (regression safety net)', async ({ asAdmin: page }) => {
     await withVacantDropTeam(page)
-    await page.goto('/crm/users')
+    await page.goto('/users')
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()

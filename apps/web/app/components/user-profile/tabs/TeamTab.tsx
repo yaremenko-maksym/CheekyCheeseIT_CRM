@@ -42,9 +42,12 @@ export function TeamTab({ userId }: { userId: string }) {
   })
 
   if (isLoading) return <Skeleton className="h-64 w-full" />
-  const members = (data ?? []).slice().sort(
-    (a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || a.displayName.localeCompare(b.displayName),
-  )
+  const members = (data ?? [])
+    .slice()
+    .sort(
+      (a, b) =>
+        ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || a.displayName.localeCompare(b.displayName),
+    )
   if (members.length === 0) {
     return (
       <Card>
@@ -60,7 +63,7 @@ export function TeamTab({ userId }: { userId: string }) {
         {members.map((m) => (
           <Link
             key={m.id}
-            to="/crm/profile/$userId"
+            to="/profile/$userId"
             params={{ userId: m.id }}
             className="flex items-center gap-3 rounded border p-3 transition-colors hover:bg-accent"
           >

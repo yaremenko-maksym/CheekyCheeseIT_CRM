@@ -150,7 +150,7 @@ export function ContractTab({
           </p>
         </div>
         <Button size="sm" variant="outline" asChild>
-          <Link to="/crm/admin/contracts" data-testid="contract-tab-template-link">
+          <Link to="/admin/contracts" data-testid="contract-tab-template-link">
             <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
             Перейти к шаблонам
           </Link>

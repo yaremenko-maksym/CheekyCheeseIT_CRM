@@ -4,8 +4,8 @@
  * E2E coverage for the team archive views and pair-unarchive flow added in PR 3.
  *
  * Routes under test:
- * - GET /crm/team?archived=true
- * - GET /crm/team/:teamId (detail page with admin actions + audit log tab)
+ * - GET /team?archived=true
+ * - GET /team/:teamId (detail page with admin actions + audit log tab)
  *
  * Mocks are layered on top of the global fixture routes; specific routes are
  * registered first to override the generic ones from `mockAuthAs`.
@@ -46,7 +46,7 @@ test.describe('Team archive — list page tab', () => {
       }),
     )
 
-    await page.goto('/crm/team')
+    await page.goto('/team')
 
     // ut-25: «Показать архивных» button replaced with «Архив» tab.
     const archiveTab = page.getByTestId('toggle-archived-teams')
@@ -57,7 +57,7 @@ test.describe('Team archive — list page tab', () => {
   })
 
   test('non-ADMIN does not see the «Архив» tab', async ({ asHr: page }) => {
-    await page.goto('/crm/team')
+    await page.goto('/team')
     await expect(page.getByText('Alpha Team')).toBeVisible()
     await expect(page.getByTestId('toggle-archived-teams')).not.toBeVisible()
   })
@@ -73,7 +73,7 @@ test.describe('Team archive — list page tab', () => {
       }),
     )
 
-    await page.goto('/crm/team?archived=true')
+    await page.goto('/team?archived=true')
 
     const card = page.getByTestId(`team-card-${archivedTeam.id}`)
     await expect(card).toBeVisible()
@@ -104,7 +104,7 @@ test.describe('Team archive — list page tab', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
     )
 
-    await page.goto(`/crm/team/${archivedTeam.id}`)
+    await page.goto(`/team/${archivedTeam.id}`)
     await page.getByTestId('team-unarchive-button').click()
     await unarchived
     // Toast confirms pair-unarchive happened
@@ -119,7 +119,7 @@ test.describe('Team detail page — admin actions', () => {
     await page.route(`${API}/teams/${activeTeam.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(activeTeam) }),
     )
-    await page.goto(`/crm/team/${activeTeam.id}`)
+    await page.goto(`/team/${activeTeam.id}`)
     await expect(page.getByRole('heading', { name: activeTeam.name })).toBeVisible()
     await expect(page.getByTestId('team-archive-button')).toBeVisible()
   })
@@ -128,7 +128,7 @@ test.describe('Team detail page — admin actions', () => {
     await page.route(`${API}/teams/${activeTeam.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(activeTeam) }),
     )
-    await page.goto(`/crm/team/${activeTeam.id}`)
+    await page.goto(`/team/${activeTeam.id}`)
     await expect(page.getByRole('heading', { name: activeTeam.name })).toBeVisible()
     await expect(page.getByTestId('team-archive-button')).not.toBeVisible()
   })
@@ -139,7 +139,7 @@ test.describe('Team detail page — admin actions', () => {
     await page.route(`${API}/teams/${activeTeam.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(activeTeam) }),
     )
-    await page.goto(`/crm/team/${activeTeam.id}`)
+    await page.goto(`/team/${activeTeam.id}`)
     await expect(page.getByRole('heading', { name: activeTeam.name })).toBeVisible()
     // Team detail has no tabbed layout — members are shown inline.
     // The "Добавить участника" button is the primary ADMIN affordance on this page.
@@ -166,7 +166,7 @@ test.describe('Team detail page — admin actions', () => {
         }),
       }),
     )
-    await page.goto(`/crm/team/${activeTeam.id}`)
+    await page.goto(`/team/${activeTeam.id}`)
     // ut-39b: explicit Archive button replaces the «Действия» dropdown.
     await page.getByTestId('team-archive-button').click()
 
@@ -203,7 +203,7 @@ test.describe('Team detail page — admin actions', () => {
       { timeout: 5000 },
     )
 
-    await page.goto(`/crm/team/${activeTeam.id}`)
+    await page.goto(`/team/${activeTeam.id}`)
     // ut-39b: explicit Archive button.
     await page.getByTestId('team-archive-button').click()
 
@@ -225,7 +225,7 @@ test.describe('Team detail page — admin actions', () => {
       }),
     )
 
-    await page.goto(`/crm/team/${archivedTeam.id}`)
+    await page.goto(`/team/${archivedTeam.id}`)
     await expect(page.getByTestId('team-archived-badge')).toBeVisible()
 
     // ut-39b: explicit Unarchive button replaces the dropdown action.

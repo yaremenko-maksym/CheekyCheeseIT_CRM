@@ -2,7 +2,7 @@
  * onboarding-logout.spec.ts
  *
  * Verifies that a user trapped on the onboarding screen can log out:
- *  AC1 — [data-testid="onboarding-logout"] button is visible on /crm/onboarding
+ *  AC1 — [data-testid="onboarding-logout"] button is visible on /onboarding
  *  AC2 — user email is shown next to the button (sm+ breakpoint; we use 1280px viewport)
  *  AC3 — clicking the button redirects to /login and clears the session
  *         (subsequent navigation to /crm redirects back to /login)
@@ -63,7 +63,7 @@ test.describe('Onboarding logout', () => {
       }),
     )
 
-    await page.goto('/crm/onboarding')
+    await page.goto('/onboarding')
     // Wait for the page to fully render (brand mark or logout button present)
     await expect(page.getByTestId('onboarding-logout')).toBeVisible({ timeout: 8000 })
   })
@@ -71,7 +71,7 @@ test.describe('Onboarding logout', () => {
   // -------------------------------------------------------------------------
   // AC1: logout button is visible on the onboarding page
   // -------------------------------------------------------------------------
-  test('AC1: logout button is visible on /crm/onboarding', async ({ page }) => {
+  test('AC1: logout button is visible on /onboarding', async ({ page }) => {
     await expect(page.getByTestId('onboarding-logout')).toBeVisible()
     await expect(page.getByTestId('onboarding-logout')).toContainText('Выйти')
   })
@@ -102,7 +102,7 @@ test.describe('Onboarding logout', () => {
     await expect(page).toHaveURL(/\/login/, { timeout: 8000 })
 
     // Guard holds: navigating back to /crm re-redirects to login (no bypass).
-    await page.goto('/crm')
+    await page.goto('/')
     await expect(page).toHaveURL(/\/login/, { timeout: 8000 })
   })
 })

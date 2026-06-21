@@ -5,18 +5,18 @@
  * (task-drop-phase3-frontend, fix commit 74befbe).
  *
  * Finding 1 — DROP documents page access:
- *   Before fix: DROP was absent from ROUTE_ACCESS['/crm/documents'] →
+ *   Before fix: DROP was absent from ROUTE_ACCESS['/documents'] →
  *   useRoleGuard redirected to the DROP home (now /crm root). Backend also had no
  *   ownerId-scoping for DROP in documents.service.ts.
  *
  *   After fix:
- *     - DROP added to ROUTE_ACCESS['/crm/documents'] (route-access.ts).
+ *     - DROP added to ROUTE_ACCESS['/documents'] (route-access.ts).
  *     - documents.tsx useRoleGuard now includes 'DROP'.
  *     - nav-sidebar shows «Документы» in drop-nav (navRolesFor → DROP included).
  *     - documents.service.ts forces ownerId=actor.id for DROP (IDOR fix).
  *
  *   E2E coverage:
- *     F1a — DROP navigates to /crm/documents, page renders (no redirect/403).
+ *     F1a — DROP navigates to /documents, page renders (no redirect/403).
  *     F1b — drop-nav contains «Документы» link.
  *     F1c — GET /api/documents response for DROP contains only own-owner docs
  *           (mock fulfills with ownerId=USERS.drop.id; test verifies rendered row).
@@ -133,14 +133,14 @@ function makeOtherUserDoc() {
 // ---------------------------------------------------------------------------
 
 test.describe('Finding 1 — DROP documents page access (PR #198)', () => {
-  test('F1a: DROP navigates to /crm/documents — page renders, no redirect', async ({
+  test('F1a: DROP navigates to /documents — page renders, no redirect', async ({
     asDrop: page,
   }) => {
-    // ROUTE_ACCESS['/crm/documents'] now includes DROP (Finding 1 fix).
-    // useRoleGuard must NOT fire → URL stays on /crm/documents.
-    await page.goto('/crm/documents')
-    await expect(page).toHaveURL(/\/crm\/documents/, { timeout: 8_000 })
-    await expect(page).not.toHaveURL(/\/crm\/dashboard/)
+    // ROUTE_ACCESS['/documents'] now includes DROP (Finding 1 fix).
+    // useRoleGuard must NOT fire → URL stays on /documents.
+    await page.goto('/documents')
+    await expect(page).toHaveURL(/\/documents/, { timeout: 8_000 })
+    await expect(page).not.toHaveURL(/\/dashboard/)
     await expect(page).not.toHaveURL(/\/login/)
 
     // Page shell renders the «Документы» heading.
@@ -151,18 +151,18 @@ test.describe('Finding 1 — DROP documents page access (PR #198)', () => {
   })
 
   test('F1b: drop-nav contains «Документы» link after Finding 1 fix', async ({ asDrop: page }) => {
-    // nav-sidebar builds items via navRolesFor('/crm/documents') — DROP is now
+    // nav-sidebar builds items via navRolesFor('/documents') — DROP is now
     // included in route-access.ts → link appears in drop-nav.
-    await page.goto('/crm')
+    await page.goto('/')
     await expect(page.getByTestId('drop-routing-hub')).toBeVisible({ timeout: 8_000 })
 
     const nav = page.getByTestId('drop-nav')
     await expect(nav).toBeVisible()
     // «Документы» link must be present.
-    await expect(nav.locator('a[href="/crm/documents"]')).toBeVisible()
+    await expect(nav.locator('a[href="/documents"]')).toBeVisible()
   })
 
-  test('F1c: /crm/documents renders DROP own documents (backend scopes to ownerId=DROP)', async ({
+  test('F1c: /documents renders DROP own documents (backend scopes to ownerId=DROP)', async ({
     asDrop: page,
   }) => {
     // Override the default mockAuthAs documents mock (which returns []) with a
@@ -184,8 +184,8 @@ test.describe('Finding 1 — DROP documents page access (PR #198)', () => {
       return r.fallback()
     })
 
-    await page.goto('/crm/documents')
-    await expect(page).toHaveURL(/\/crm\/documents/, { timeout: 8_000 })
+    await page.goto('/documents')
+    await expect(page).toHaveURL(/\/documents/, { timeout: 8_000 })
 
     // The document row/card for DROP's own file must be visible.
     const main = page.locator('main')
@@ -194,7 +194,7 @@ test.describe('Finding 1 — DROP documents page access (PR #198)', () => {
     })
   })
 
-  test('F1d: /crm/documents does NOT render other users docs (IDOR scope — backend filters)', async ({
+  test('F1d: /documents does NOT render other users docs (IDOR scope — backend filters)', async ({
     asDrop: page,
   }) => {
     // Backend IDOR fix: documents.service.ts forces ownerId=actor.id for DROP.
@@ -214,8 +214,8 @@ test.describe('Finding 1 — DROP documents page access (PR #198)', () => {
       return r.fallback()
     })
 
-    await page.goto('/crm/documents')
-    await expect(page).toHaveURL(/\/crm\/documents/, { timeout: 8_000 })
+    await page.goto('/documents')
+    await expect(page).toHaveURL(/\/documents/, { timeout: 8_000 })
 
     const main = page.locator('main')
     // The senior's doc name must not appear anywhere in main.
@@ -236,7 +236,7 @@ test.describe('Finding 2 — ContractTab read-only for DROP (PR #198)', () => {
     // DROP role → canEdit=false → ContractTab renders data-testid="contract-tab-readonly".
     await mockDropContract(page)
 
-    await page.goto('/crm/profile')
+    await page.goto('/profile')
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Drop User', {
       timeout: 8_000,
     })
@@ -261,7 +261,7 @@ test.describe('Finding 2 — ContractTab read-only for DROP (PR #198)', () => {
     // accidentally defaults to true or the prop is dropped.
     await mockDropContract(page)
 
-    await page.goto('/crm/profile')
+    await page.goto('/profile')
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Drop User', {
       timeout: 8_000,
     })
@@ -284,7 +284,7 @@ test.describe('Finding 2 — ContractTab read-only for DROP (PR #198)', () => {
     await mockDropContract(page)
 
     // ADMIN navigates to the DROP user's profile by userId.
-    await page.goto(`/crm/profile/${USERS.drop.id}`)
+    await page.goto(`/profile/${USERS.drop.id}`)
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Drop User', {
       timeout: 8_000,
     })

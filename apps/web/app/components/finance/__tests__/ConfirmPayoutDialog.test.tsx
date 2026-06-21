@@ -55,7 +55,7 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
 const confirmPayoutMock = vi.fn().mockResolvedValue({ payout: {}, confirmed: null })
 const manualConfirmPayoutMock = vi.fn().mockResolvedValue({ id: 'pr-1' })
 
-vi.mock('@/routes/crm/finance/api', () => ({
+vi.mock('@/routes/_authenticated/finance/api', () => ({
   financeApi: {
     confirmPayout: (...args: unknown[]) => confirmPayoutMock(...args),
     manualConfirmPayout: (...args: unknown[]) => manualConfirmPayoutMock(...args),

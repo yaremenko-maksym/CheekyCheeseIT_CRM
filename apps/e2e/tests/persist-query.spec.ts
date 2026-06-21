@@ -3,7 +3,7 @@
  *
  * AC1 (CRITICAL — race regression): serviceWorkers:'block' (default project) +
  *   empty IndexedDB (fresh per-test context). Authenticated navigation to
- *   /crm/interviews must NOT redirect to /crm/login. The isRestoring-aware auth
+ *   /interviews must NOT redirect to /login. The isRestoring-aware auth
  *   guard holds isLoading=true during PersistQueryClientProvider's restore window.
  *
  * AC2 (persist write): after a persisted (non-excluded) query resolves, the
@@ -65,22 +65,22 @@ async function idbKeyExists(page: Page, key: string): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 test.describe('PersistQueryClient — isRestoring race regression (AC1)', () => {
-  test('authenticated navigation to /crm/interviews stays on target page (no redirect to /crm/login)', async ({
+  test('authenticated navigation to /interviews stays on target page (no redirect to /login)', async ({
     page,
   }) => {
     await setupMocks(page)
 
     // Before the fix: PersistQueryClientProvider restores empty IDB →
     //   isRestoring=false → isPending=true, isFetching=false → isLoading=false →
-    //   user=null → guard redirects to /crm/login.
+    //   user=null → guard redirects to /login.
     // After the fix: isRestoring=true during the restore window → isLoading=true
     //   → guard waits → auth/me resolves → user=ADMIN → stays on the route.
-    await page.goto('/crm/interviews')
+    await page.goto('/interviews')
     await page.waitForLoadState('domcontentloaded')
 
     const url = page.url()
-    expect(url, `Expected to stay on /crm/interviews (isRestoring fix). Got: ${url}`).not.toMatch(
-      /\/crm\/login/,
+    expect(url, `Expected to stay on /interviews (isRestoring fix). Got: ${url}`).not.toMatch(
+      /\/login/,
     )
 
     // The CRM layout rendered (header user-menu is always present once authed) —
@@ -90,17 +90,15 @@ test.describe('PersistQueryClient — isRestoring race regression (AC1)', () => 
     })
   })
 
-  test('unauthenticated request (auth/me → 401) still redirects to /crm/login', async ({
-    page,
-  }) => {
+  test('unauthenticated request (auth/me → 401) still redirects to /login', async ({ page }) => {
     await setupMocks(page)
     // Override auth/me to 401 — registered AFTER mockAuthAs so it wins (LIFO).
     await page.route(`${API}/auth/me`, (r) =>
       r.fulfill({ status: 401, body: '{"message":"Unauthorized"}' }),
     )
 
-    await page.goto('/crm/interviews')
-    await expect(page).toHaveURL(/\/crm\/login/, { timeout: 10_000 })
+    await page.goto('/interviews')
+    await expect(page).toHaveURL(/\/login/, { timeout: 10_000 })
   })
 })
 
@@ -114,7 +112,7 @@ test.describe('PersistQueryClient — IDB persistence (AC2)', () => {
   }) => {
     await setupMocks(page)
 
-    await page.goto('/crm/interviews')
+    await page.goto('/interviews')
     await page.waitForLoadState('domcontentloaded')
 
     // Layout rendered → auth resolved + persisted (non-excluded) queries settled.

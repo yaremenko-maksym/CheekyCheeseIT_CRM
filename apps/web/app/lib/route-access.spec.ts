@@ -11,17 +11,17 @@ import {
 const ALL: Role[] = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
 
 describe('route-access · resolveRoleHome', () => {
-  it('JUNIOR → /crm/project', () => {
-    expect(resolveRoleHome('JUNIOR')).toBe('/crm/project')
+  it('JUNIOR → /project', () => {
+    expect(resolveRoleHome('JUNIOR')).toBe('/project')
   })
   // Dashboard consolidation: home для всех ролей (вкл. DROP/ACCOUNTANT/HR) — корень
-  // /crm, который рендерит роль-зависимый дашборд. Отдельного /crm/dashboard больше нет.
-  it('DROP → /crm', () => {
-    expect(resolveRoleHome('DROP')).toBe('/crm')
+  // /, который рендерит роль-зависимый дашборд. Отдельного /dashboard больше нет.
+  it('DROP → /', () => {
+    expect(resolveRoleHome('DROP')).toBe('/')
   })
-  it('ADMIN/SENIOR/HR/ACCOUNTANT → /crm', () => {
+  it('ADMIN/SENIOR/HR/ACCOUNTANT → /', () => {
     for (const r of ['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT'] as Role[]) {
-      expect(resolveRoleHome(r)).toBe('/crm')
+      expect(resolveRoleHome(r)).toBe('/')
     }
   })
 })
@@ -29,14 +29,14 @@ describe('route-access · resolveRoleHome', () => {
 describe('route-access · isRouteAllowed (JUNIOR lockdown — task §4)', () => {
   // The core security guarantee: JUNIOR by direct URL must be denied these.
   const juniorForbidden = [
-    '/crm/projects',
-    '/crm/projects/abc-123',
-    '/crm/team',
-    '/crm/team/team-1',
-    '/crm/users',
-    '/crm/interviews',
-    '/crm/stats',
-    '/crm/admin/contracts',
+    '/projects',
+    '/projects/abc-123',
+    '/team',
+    '/team/team-1',
+    '/users',
+    '/interviews',
+    '/stats',
+    '/admin/contracts',
   ]
   for (const path of juniorForbidden) {
     it(`JUNIOR denied: ${path}`, () => {
@@ -45,12 +45,12 @@ describe('route-access · isRouteAllowed (JUNIOR lockdown — task §4)', () => 
   }
 
   const juniorAllowed = [
-    '/crm/project',
-    '/crm/legend',
-    '/crm/finance',
-    '/crm/documents',
-    '/crm/profile',
-    '/crm/profile/some-user-id',
+    '/project',
+    '/legend',
+    '/finance',
+    '/documents',
+    '/profile',
+    '/profile/some-user-id',
   ]
   for (const path of juniorAllowed) {
     it(`JUNIOR allowed: ${path}`, () => {
@@ -62,129 +62,123 @@ describe('route-access · isRouteAllowed (JUNIOR lockdown — task §4)', () => 
 describe('route-access · isRouteAllowed (other roles not broken)', () => {
   it('ADMIN allowed everywhere in map', () => {
     for (const path of [
-      '/crm/projects',
-      '/crm/team',
-      '/crm/users',
-      '/crm/finance',
-      '/crm/interviews',
-      '/crm/stats',
-      '/crm/admin/tos/new',
-      '/crm', // consolidated dashboard root
+      '/projects',
+      '/team',
+      '/users',
+      '/finance',
+      '/interviews',
+      '/stats',
+      '/admin/tos/new',
+      '/', // consolidated dashboard root
     ]) {
       expect(isRouteAllowed(path, 'ADMIN')).toBe(true)
     }
   })
 
-  it('SENIOR denied /crm/project (junior hub) and /crm/users/stats', () => {
-    expect(isRouteAllowed('/crm/project', 'SENIOR')).toBe(false)
-    expect(isRouteAllowed('/crm/users', 'SENIOR')).toBe(false)
-    expect(isRouteAllowed('/crm/stats', 'SENIOR')).toBe(false)
+  it('SENIOR denied /project (junior hub) and /users/stats', () => {
+    expect(isRouteAllowed('/project', 'SENIOR')).toBe(false)
+    expect(isRouteAllowed('/users', 'SENIOR')).toBe(false)
+    expect(isRouteAllowed('/stats', 'SENIOR')).toBe(false)
   })
   it('SENIOR allowed projects/team/interviews/finance/documents', () => {
-    for (const path of [
-      '/crm/projects',
-      '/crm/team',
-      '/crm/interviews',
-      '/crm/finance',
-      '/crm/documents',
-    ]) {
+    for (const path of ['/projects', '/team', '/interviews', '/finance', '/documents']) {
       expect(isRouteAllowed(path, 'SENIOR')).toBe(true)
     }
   })
 
   it('DROP allowed root/routing/team/finance/profile/documents, denied projects/interviews', () => {
-    // Dashboard consolidation: DROP home — корень /crm (fail-open, доступен всем).
-    // /crm/routing — deprecated редирект-роут (→ /crm), остаётся DROP-only.
-    // /crm/documents — DROP имеет отдельную страницу документов (page-not-tab model).
-    expect(isRouteAllowed('/crm', 'DROP')).toBe(true)
-    expect(isRouteAllowed('/crm/routing', 'DROP')).toBe(true)
-    expect(isRouteAllowed('/crm/team', 'DROP')).toBe(true)
-    expect(isRouteAllowed('/crm/finance', 'DROP')).toBe(true)
-    expect(isRouteAllowed('/crm/profile', 'DROP')).toBe(true)
-    expect(isRouteAllowed('/crm/documents', 'DROP')).toBe(true)
-    expect(isRouteAllowed('/crm/projects', 'DROP')).toBe(false)
-    expect(isRouteAllowed('/crm/interviews', 'DROP')).toBe(false)
-    // /crm/routing is DROP-only: other roles denied.
-    expect(isRouteAllowed('/crm/routing', 'SENIOR')).toBe(false)
-    expect(isRouteAllowed('/crm/routing', 'ADMIN')).toBe(false)
-    expect(isRouteAllowed('/crm/routing', 'JUNIOR')).toBe(false)
+    // Dashboard consolidation: DROP home — корень / (fail-open, доступен всем).
+    // /routing — deprecated редирект-роут (→ /), остаётся DROP-only.
+    // /documents — DROP имеет отдельную страницу документов (page-not-tab model).
+    expect(isRouteAllowed('/', 'DROP')).toBe(true)
+    expect(isRouteAllowed('/routing', 'DROP')).toBe(true)
+    expect(isRouteAllowed('/team', 'DROP')).toBe(true)
+    expect(isRouteAllowed('/finance', 'DROP')).toBe(true)
+    expect(isRouteAllowed('/profile', 'DROP')).toBe(true)
+    expect(isRouteAllowed('/documents', 'DROP')).toBe(true)
+    expect(isRouteAllowed('/projects', 'DROP')).toBe(false)
+    expect(isRouteAllowed('/interviews', 'DROP')).toBe(false)
+    // /routing is DROP-only: other roles denied.
+    expect(isRouteAllowed('/routing', 'SENIOR')).toBe(false)
+    expect(isRouteAllowed('/routing', 'ADMIN')).toBe(false)
+    expect(isRouteAllowed('/routing', 'JUNIOR')).toBe(false)
   })
 
   it('HR allowed root/team/projects/interviews/finance/documents, denied users/stats/junior-hub', () => {
     for (const path of [
-      '/crm', // consolidated dashboard root
-      '/crm/team',
-      '/crm/projects',
-      '/crm/interviews',
-      '/crm/finance',
-      '/crm/documents',
+      '/', // consolidated dashboard root
+      '/team',
+      '/projects',
+      '/interviews',
+      '/finance',
+      '/documents',
     ]) {
       expect(isRouteAllowed(path, 'HR')).toBe(true)
     }
-    expect(isRouteAllowed('/crm/users', 'HR')).toBe(false)
-    expect(isRouteAllowed('/crm/stats', 'HR')).toBe(false)
-    expect(isRouteAllowed('/crm/project', 'HR')).toBe(false)
+    expect(isRouteAllowed('/users', 'HR')).toBe(false)
+    expect(isRouteAllowed('/stats', 'HR')).toBe(false)
+    expect(isRouteAllowed('/project', 'HR')).toBe(false)
   })
 
   it('ACCOUNTANT allowed root/team/projects/finance/documents/stats, denied users/interviews/junior-hub', () => {
     for (const path of [
-      '/crm', // consolidated dashboard root
-      '/crm/team',
-      '/crm/projects',
-      '/crm/finance',
-      '/crm/documents',
+      '/', // consolidated dashboard root
+      '/team',
+      '/projects',
+      '/finance',
+      '/documents',
       // task-accountant-stats: ACCOUNTANT gets the stats section (economic part
       // only — non-economic sub-sections are gated ADMIN-only inside stats.tsx).
-      '/crm/stats',
+      '/stats',
     ]) {
       expect(isRouteAllowed(path, 'ACCOUNTANT')).toBe(true)
     }
-    expect(isRouteAllowed('/crm/users', 'ACCOUNTANT')).toBe(false)
-    expect(isRouteAllowed('/crm/interviews', 'ACCOUNTANT')).toBe(false)
-    expect(isRouteAllowed('/crm/project', 'ACCOUNTANT')).toBe(false)
+    expect(isRouteAllowed('/users', 'ACCOUNTANT')).toBe(false)
+    expect(isRouteAllowed('/interviews', 'ACCOUNTANT')).toBe(false)
+    expect(isRouteAllowed('/project', 'ACCOUNTANT')).toBe(false)
   })
 })
 
 describe('route-access · uncovered paths fail-open', () => {
-  it('unknown/service paths allowed for everyone (e.g. /crm/login, /crm root index)', () => {
+  it('unknown/service paths allowed for everyone (e.g. /login, / root index)', () => {
     for (const r of ALL) {
-      expect(isRouteAllowed('/crm/login', r)).toBe(true)
-      expect(isRouteAllowed('/crm', r)).toBe(true)
-      // /crm trailing slash root index handled by CrmDashboard component redirect,
+      expect(isRouteAllowed('/login', r)).toBe(true)
+      expect(isRouteAllowed('/', r)).toBe(true)
+      // / trailing slash root index handled by CrmDashboard component redirect,
       // not by the map — fail-open is intentional here.
-      expect(isRouteAllowed('/crm/', r)).toBe(true)
+      expect(isRouteAllowed('/', r)).toBe(true)
     }
   })
 
-  // Dashboard consolidation (AC5): корень /crm — единственная home-страница CRM и
+  // Dashboard consolidation (AC5): корень / — единственная home-страница CRM и
   // рендерит роль-зависимый дашборд. Он ДОЛЖЕН быть доступен ВСЕМ аутентифицированным
   // ролям (вкл. DROP), иначе роль ловит 403/пустую страницу на собственном home.
-  it('AC5: /crm root is allowed for ALL authenticated roles incl DROP', () => {
+  it('AC5: / root is allowed for ALL authenticated roles incl DROP', () => {
     for (const r of ALL) {
-      expect(isRouteAllowed('/crm', r)).toBe(true)
-      expect(isRouteAllowed('/crm/', r)).toBe(true)
+      expect(isRouteAllowed('/', r)).toBe(true)
+      expect(isRouteAllowed('/', r)).toBe(true)
     }
-    expect(isRouteAllowed('/crm', 'DROP')).toBe(true)
+    expect(isRouteAllowed('/', 'DROP')).toBe(true)
   })
 
-  it('longest-prefix: /crm/projects does NOT match /crm/project (junior hub)', () => {
-    // /crm/project (JUNIOR) and /crm/projects (no JUNIOR) must not collide.
-    expect(isRouteAllowed('/crm/projects', 'JUNIOR')).toBe(false)
-    expect(isRouteAllowed('/crm/project', 'JUNIOR')).toBe(true)
+  it('longest-prefix: /projects does NOT match /project (junior hub)', () => {
+    // /project (JUNIOR) and /projects (no JUNIOR) must not collide.
+    expect(isRouteAllowed('/projects', 'JUNIOR')).toBe(false)
+    expect(isRouteAllowed('/project', 'JUNIOR')).toBe(true)
     // SENIOR opposite
-    expect(isRouteAllowed('/crm/projects', 'SENIOR')).toBe(true)
-    expect(isRouteAllowed('/crm/project', 'SENIOR')).toBe(false)
+    expect(isRouteAllowed('/projects', 'SENIOR')).toBe(true)
+    expect(isRouteAllowed('/project', 'SENIOR')).toBe(false)
   })
 })
 
 describe('route-access · navRolesFor (nav sync source-of-truth)', () => {
   it('returns roles for known nav routes', () => {
-    expect(navRolesFor('/crm/project')).toEqual(['JUNIOR'])
-    expect(navRolesFor('/crm/legend')).toEqual(['JUNIOR'])
-    expect(navRolesFor('/crm/users')).toEqual(['ADMIN'])
+    expect(navRolesFor('/project')).toEqual(['JUNIOR'])
+    expect(navRolesFor('/legend')).toEqual(['JUNIOR'])
+    expect(navRolesFor('/users')).toEqual(['ADMIN'])
   })
-  // Dashboard consolidation: nav-пункт «Дашборд» ведёт на корень /crm; его роли —
-  // отдельная константа DASHBOARD_NAV_ROLES (не route-access запись, т.к. /crm —
+  // Dashboard consolidation: nav-пункт «Дашборд» ведёт на корень /; его роли —
+  // отдельная константа DASHBOARD_NAV_ROLES (не route-access запись, т.к. / —
   // fail-open). Пункт виден всем, кроме JUNIOR (у них свой хаб «Мой проект»).
   it('DASHBOARD_NAV_ROLES: «Дашборд» visible to ADMIN+DROP, hidden for JUNIOR', () => {
     expect(DASHBOARD_NAV_ROLES).toContain('ADMIN')
@@ -196,8 +190,8 @@ describe('route-access · navRolesFor (nav sync source-of-truth)', () => {
   })
   // task-accountant-stats: «Статистика» nav item must surface for ACCOUNTANT
   // (so the section is reachable) and ADMIN — and STAY hidden for everyone else.
-  it('/crm/stats nav roles = ADMIN + ACCOUNTANT only', () => {
-    const statsRoles = navRolesFor('/crm/stats')
+  it('/stats nav roles = ADMIN + ACCOUNTANT only', () => {
+    const statsRoles = navRolesFor('/stats')
     expect(statsRoles).toContain('ADMIN')
     expect(statsRoles).toContain('ACCOUNTANT')
     for (const r of ['SENIOR', 'JUNIOR', 'HR', 'DROP'] as Role[]) {
@@ -205,32 +199,35 @@ describe('route-access · navRolesFor (nav sync source-of-truth)', () => {
     }
   })
   it('throws for nav route missing from the map (drift guard)', () => {
-    expect(() => navRolesFor('/crm/does-not-exist')).toThrow(/no access entry/)
+    expect(() => navRolesFor('/does-not-exist')).toThrow(/no access entry/)
   })
 })
 
 // ── LOW-7: ROUTE_ACCESS coverage invariant ──────────────────────────────────
 // Client guard is default-ALLOW for routes with no ROUTE_ACCESS entry
 // (resolveRouteAccess → null → isRouteAllowed → true). That fail-open is fine for
-// service paths (/crm/login, root index) but DANGEROUS for a real CRM section: a
+// service paths (/login, root index) but DANGEROUS for a real CRM section: a
 // forgotten map entry silently exposes the page to every role. This invariant
-// enumerates every route FILE under routes/crm/** and asserts each navigable
-// route is mapped — so a new page without a ROUTE_ACCESS entry turns RED here
-// instead of shipping a silent fail-open.
+// enumerates every route FILE under routes/_authenticated/** and asserts each
+// navigable route is mapped — so a new page without a ROUTE_ACCESS entry turns
+// RED here instead of shipping a silent fail-open.
 describe('route-access · ROUTE_ACCESS coverage invariant (no silent fail-open)', () => {
   // Enumerate route modules at build time (Vite glob). Keys are absolute-ish
-  // module paths under app/routes/crm.
-  const routeFiles = Object.keys(import.meta.glob('../routes/crm/**/*.{ts,tsx}', { eager: false }))
+  // module paths under app/routes/_authenticated (the pathless auth-shell layout
+  // that wraps the whole CRM after the /crm/* → /* re-root).
+  const routeFiles = Object.keys(
+    import.meta.glob('../routes/_authenticated/**/*.{ts,tsx}', { eager: false }),
+  )
 
   // Files that legitimately do NOT need a ROUTE_ACCESS entry:
   //  - `route.tsx`      → pathless layout wrapper, not a navigable leaf
-  //  - `index.tsx` at the crm root → `/crm` role-dispatch dashboard (fail-open by
+  //  - `_authenticated/index.tsx` → `/` role-dispatch dashboard (fail-open by
   //    design — доступен всем аутентифицированным ролям; per-role контент в компоненте)
   //  - non-route modules colocated under routes/ (api/constants/hooks/sort/
   //    components/__tests__) — not navigable routes
   const isExempt = (rel: string): boolean => {
     if (rel.endsWith('/route.tsx')) return true
-    if (rel === 'crm/index.tsx') return true // /crm root role-dispatch dashboard (fail-open)
+    if (rel === '_authenticated/index.tsx') return true // / root role-dispatch dashboard (fail-open)
     if (/\/(components|__tests__)\//.test(rel)) return true
     if (/\.(spec|test)\.tsx?$/.test(rel)) return true
     // Colocated non-route helpers (finance/api.ts, interviews/constants.ts, …).
@@ -241,15 +238,18 @@ describe('route-access · ROUTE_ACCESS coverage invariant (no silent fail-open)'
 
   /**
    * Translate a TanStack file-based route path into a representative URL the
-   * guard would see. We only need the TOP-LEVEL section to assert prefix
-   * coverage, so dynamic/flat segments collapse to a concrete-ish sample.
-   *   crm/stats.tsx                           → /crm/stats
-   *   crm/projects/$projectId.tsx             → /crm/projects/sample
-   *   crm/admin/contracts.index.tsx → /crm/admin/contracts
-   *   crm/payments/initiate.$incomeId.tsx     → /crm/payments/initiate/sample
+   * guard would see. The pathless `_authenticated/` layout segment is stripped
+   * (it never appears in the URL). We only need the TOP-LEVEL section to assert
+   * prefix coverage, so dynamic/flat segments collapse to a concrete-ish sample.
+   *   _authenticated/stats.tsx                    → /stats
+   *   _authenticated/projects/$projectId.tsx      → /projects/sample
+   *   _authenticated/admin/contracts.index.tsx    → /admin/contracts
+   *   _authenticated/payments/initiate.$incomeId.tsx → /payments/initiate/sample
    */
   const toPathname = (rel: string): string => {
-    let p = rel.replace(/\.tsx?$/, '')
+    // Drop the pathless layout segment — it does not contribute a URL part.
+    let p = rel.replace(/^_authenticated\//, '')
+    p = p.replace(/\.tsx?$/, '')
     p = p.replace(/\/index$/, '') // index → parent dir
     // flat-route dots → path separators (contracts.index, initiate.$incomeId)
     p = p.replace(/\./g, '/').replace(/\/index$/, '')
@@ -259,7 +259,7 @@ describe('route-access · ROUTE_ACCESS coverage invariant (no silent fail-open)'
   }
 
   const navigableRoutes = routeFiles
-    .map((f) => f.replace(/^\.\.\/routes\//, '')) // → crm/dashboard.tsx
+    .map((f) => f.replace(/^\.\.\/routes\//, '')) // → _authenticated/stats.tsx
     .filter((rel) => !isExempt(rel))
 
   it('discovers a non-trivial set of crm route files (glob sanity)', () => {

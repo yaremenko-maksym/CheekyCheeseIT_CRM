@@ -3,7 +3,7 @@
  * panel (feat/drop-balances-panel).
  *
  * AC coverage:
- *   1. ADMIN opens /crm/finance → panel «Балансы дропов» is visible with
+ *   1. ADMIN opens /finance → panel «Балансы дропов» is visible with
  *      the drop's displayName, share-% badge, pending badge, balance/«—»,
  *      and the «N дропов» counter in the header.
  *   2. Zero-balance state → amount shows «—» and «нет выплат» sub-label.
@@ -68,7 +68,7 @@ test.describe('Drop Balances Panel — redesigned', () => {
       }),
     )
 
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
 
     // Panel must be visible
     await expect(page.getByTestId('drop-balances-card')).toBeVisible({ timeout: 10_000 })
@@ -102,7 +102,7 @@ test.describe('Drop Balances Panel — redesigned', () => {
       }),
     )
 
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
 
     await expect(page.getByTestId('drop-balances-card')).toBeVisible({ timeout: 10_000 })
 
@@ -125,7 +125,7 @@ test.describe('Drop Balances Panel — redesigned', () => {
       }),
     )
 
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
 
     await expect(page.getByTestId('drop-balances-card')).toBeVisible({ timeout: 10_000 })
 
@@ -154,7 +154,7 @@ test.describe('Drop Balances Panel — redesigned', () => {
     const errors: string[] = []
     page.on('pageerror', (err) => errors.push(err.message))
 
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
 
     // The main finance page heading must still render (no crash)
     await expect(
@@ -165,7 +165,7 @@ test.describe('Drop Balances Panel — redesigned', () => {
     await expect(page.getByTestId('drop-balances-card')).not.toBeVisible()
 
     // No runtime errors
-    expect(errors, `Runtime errors on /crm/finance: ${errors.join(' || ')}`).toEqual([])
+    expect(errors, `Runtime errors on /finance: ${errors.join(' || ')}`).toEqual([])
   })
 
   test('header shows «N дропов» counter with correct count', async ({ asAdmin: page }) => {
@@ -200,7 +200,7 @@ test.describe('Drop Balances Panel — redesigned', () => {
       }),
     )
 
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
 
     await expect(page.getByTestId('drop-balances-card')).toBeVisible({ timeout: 10_000 })
 

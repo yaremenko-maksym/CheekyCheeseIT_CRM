@@ -4,7 +4,7 @@
  * WHY this exists (AC2 / AC «пикеры работают» + non-regression):
  *   GET /api/users (list) is now slim — it no longer carries PII / finance
  *   (bankUah*, wallet*, monthlySalary, registrationAddress, usrRecord, …). The
- *   admin user list (/crm/users) passes a slim list-item into <UserDialog
+ *   admin user list (/users) passes a slim list-item into <UserDialog
  *   mode="edit">. For the edit form to still prefill requisites / salary / FOP
  *   PII, the dialog now fetches the full single-resource profile via
  *   GET /api/users/:id (buildProfileView, RBAC-unmasked for ADMIN) and merges

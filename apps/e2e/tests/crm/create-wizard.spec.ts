@@ -82,9 +82,9 @@ async function mockContractRoutes(page: import('@playwright/test').Page) {
   })
 }
 
-/** Open the «Новый пользователь» dialog from /crm/users page. */
+/** Open the «Новый пользователь» dialog from /users page. */
 async function openCreateDialog(page: import('@playwright/test').Page) {
-  await page.goto('/crm/users')
+  await page.goto('/users')
   await expect(page.getByTestId('users-list')).toBeVisible()
   await page.getByTestId('users-create-button').click()
   await expect(page.getByTestId('user-dialog')).toBeVisible()

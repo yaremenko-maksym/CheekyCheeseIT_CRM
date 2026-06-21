@@ -2,9 +2,9 @@
  * senior-teamless.spec.ts — Drop role - phase 1 (AC5/AC7).
  *
  * Verifies the teamless-senior surfacing across:
- *   - `/crm/profile` → banner + «Создать или выбрать команду» CTA
- *   - `/crm/projects` → full-page empty state with rejoin CTA
- *   - `/crm/interviews` → empty state with rejoin CTA
+ *   - `/profile` → banner + «Создать или выбрать команду» CTA
+ *   - `/projects` → full-page empty state with rejoin CTA
+ *   - `/interviews` → empty state with rejoin CTA
  *   - sidebar — Projects/Interviews entries should disappear for the
  *     teamless senior
  *
@@ -37,8 +37,8 @@ const test = base.extend<{ asTeamlessSenior: import('@playwright/test').Page }>(
 })
 
 test.describe('Senior teamless surfaces — AC5/AC7', () => {
-  test('Profile banner + rejoin CTA visible on /crm/profile', async ({ asTeamlessSenior: page }) => {
-    await page.goto('/crm/profile')
+  test('Profile banner + rejoin CTA visible on /profile', async ({ asTeamlessSenior: page }) => {
+    await page.goto('/profile')
 
     // Banner uses a dedicated testid (UserProfileShell:profile-teamless-banner).
     await expect(page.getByTestId('profile-teamless-banner')).toBeVisible({
@@ -48,8 +48,10 @@ test.describe('Senior teamless surfaces — AC5/AC7', () => {
     await expect(page.getByTestId('profile-rejoin-button')).toBeVisible()
   })
 
-  test('Clicking «Создать или выбрать команду» on profile opens the rejoin dialog', async ({ asTeamlessSenior: page }) => {
-    await page.goto('/crm/profile')
+  test('Clicking «Создать или выбрать команду» on profile opens the rejoin dialog', async ({
+    asTeamlessSenior: page,
+  }) => {
+    await page.goto('/profile')
 
     await expect(page.getByTestId('profile-rejoin-button')).toBeVisible({ timeout: 8_000 })
     await page.getByTestId('profile-rejoin-button').click()
@@ -61,8 +63,10 @@ test.describe('Senior teamless surfaces — AC5/AC7', () => {
     await expect(dialog.getByTestId('rejoin-team-mode-join-drop')).toBeVisible()
   })
 
-  test('/crm/projects shows full-page empty state with rejoin CTA', async ({ asTeamlessSenior: page }) => {
-    await page.goto('/crm/projects')
+  test('/projects shows full-page empty state with rejoin CTA', async ({
+    asTeamlessSenior: page,
+  }) => {
+    await page.goto('/projects')
 
     await expect(page.getByTestId('projects-teamless-empty-state')).toBeVisible({
       timeout: 8_000,
@@ -73,8 +77,8 @@ test.describe('Senior teamless surfaces — AC5/AC7', () => {
     await expect(page.getByTestId('rejoin-team-dialog')).toBeVisible()
   })
 
-  test('/crm/interviews shows empty state with rejoin CTA', async ({ asTeamlessSenior: page }) => {
-    await page.goto('/crm/interviews')
+  test('/interviews shows empty state with rejoin CTA', async ({ asTeamlessSenior: page }) => {
+    await page.goto('/interviews')
 
     await expect(page.getByTestId('interviews-teamless-empty-state')).toBeVisible({
       timeout: 8_000,
@@ -84,19 +88,21 @@ test.describe('Senior teamless surfaces — AC5/AC7', () => {
     await expect(page.getByTestId('rejoin-team-dialog')).toBeVisible()
   })
 
-  test('Sidebar hides «Проекты» and «Собеседования» for the teamless senior', async ({ asTeamlessSenior: page }) => {
-    await page.goto('/crm/profile')
+  test('Sidebar hides «Проекты» and «Собеседования» for the teamless senior', async ({
+    asTeamlessSenior: page,
+  }) => {
+    await page.goto('/profile')
     // Wait for sidebar mount + `useActiveTeam` to resolve. Profile is
     // always present so its sidebar link serves as the anchor.
-    await expect(page.locator('a[href="/crm/profile"]').first()).toBeVisible({ timeout: 8_000 })
+    await expect(page.locator('a[href="/profile"]').first()).toBeVisible({ timeout: 8_000 })
 
     // Projects + interviews links must be hidden — the sidebar gate uses
     // `useActiveTeam.isTeamless` to drop them for SENIOR.
-    await expect(page.locator('a[href="/crm/projects"]')).toHaveCount(0)
-    await expect(page.locator('a[href="/crm/interviews"]')).toHaveCount(0)
+    await expect(page.locator('a[href="/projects"]')).toHaveCount(0)
+    await expect(page.locator('a[href="/interviews"]')).toHaveCount(0)
 
     // Team + Finance entries stay — the gate is scoped to projects/interviews.
-    await expect(page.locator('a[href="/crm/team"]').first()).toBeVisible()
-    await expect(page.locator('a[href="/crm/finance"]').first()).toBeVisible()
+    await expect(page.locator('a[href="/team"]').first()).toBeVisible()
+    await expect(page.locator('a[href="/finance"]').first()).toBeVisible()
   })
 })

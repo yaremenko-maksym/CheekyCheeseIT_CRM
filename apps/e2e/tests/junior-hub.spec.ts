@@ -11,7 +11,7 @@
  *   AC3 — SalarySnapshotCard: rate+currency from salary-meta, changedAt line,
  *          last-3 txs from /transactions?type=SALARY; PAID+VALIDATED→«Выплачено».
  *   AC4 (route guards) — JUNIOR по прямому URL на запрещённые роуты редиректит
- *          на /crm/project; разрешённые открываются.
+ *          на /project; разрешённые открываются.
  *   AC6 — Legend persona edit: icon-only X cancel in header (testid persona-edit-cancel-icon),
  *          text «Отмена» ONLY in footer.
  *   AC6 (credentials) — hub shows add-credential button (canAdd); ProfileCredentialsSection
@@ -282,11 +282,11 @@ async function mockJuniorProjectsAndLegend(
 // AC1 — Hub: all cards render; rate / real identity absent
 // ---------------------------------------------------------------------------
 
-test.describe('AC1 — JUNIOR hub /crm/project', () => {
+test.describe('AC1 — JUNIOR hub /project', () => {
   test('hub renders with all main blocks visible (round 3 layout)', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
 
     await expect(page.getByTestId('junior-hub')).toBeVisible()
 
@@ -309,7 +309,7 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
   }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     await expect(page.getByTestId('project-info-card')).toBeVisible()
 
     const card = page.getByTestId('project-info-card')
@@ -328,7 +328,7 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
   }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     await expect(page.getByTestId('persona-card')).toBeVisible()
 
     const card = page.getByTestId('persona-card')
@@ -339,16 +339,14 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
     await expect(page.getByText(USERS.senior.email, { exact: false })).toHaveCount(0)
   })
 
-  test('persona card "Открыть легенду" button navigates to /crm/legend', async ({
-    asJunior: page,
-  }) => {
+  test('persona card "Открыть легенду" button navigates to /legend', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     await expect(page.getByTestId('persona-card')).toBeVisible()
 
     await page.getByTestId('persona-open-legend-btn').click()
-    await expect(page).toHaveURL('/crm/legend')
+    await expect(page).toHaveURL('/legend')
   })
 
   test('HR contact inline shows name, telegram, phone inside project-info-card (round 3)', async ({
@@ -356,7 +354,7 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
   }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     // HR is now inline in ProjectInfoCard (HrInline component, data-testid="hr-inline")
     await expect(page.getByTestId('hr-inline')).toBeVisible()
 
@@ -374,7 +372,7 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
     // The AvatarFallback (initials) is always rendered as DOM fallback — assert it's present.
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     const hrBlock = page.getByTestId('hr-inline')
     await expect(hrBlock).toBeVisible()
 
@@ -410,7 +408,7 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
     })
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     const hrBlock = page.getByTestId('hr-inline')
     await expect(hrBlock).toBeVisible()
 
@@ -429,7 +427,7 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
   }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     await expect(page.getByTestId('junior-hub')).toBeVisible()
 
     // Bento grid container must be rendered
@@ -458,7 +456,7 @@ test.describe('AC1 — JUNIOR hub /crm/project', () => {
       })
     })
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     await expect(page.getByTestId('junior-hub')).toBeVisible()
     await expect(page.getByText('Вас ещё не добавили в проект.')).toBeVisible()
   })
@@ -474,7 +472,7 @@ test.describe('Round 3 regression — ContractStatusCard absent from hub', () =>
   }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     await expect(page.getByTestId('junior-hub')).toBeVisible()
 
     // ContractStatusCard was removed from the hub in task-junior-ut-round3 §5.
@@ -494,7 +492,7 @@ test.describe('AC3 — Salary snapshot card', () => {
   test('shows rate amount and currency from salary-meta', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     const card = page.getByTestId('salary-snapshot-card')
     await expect(card).toBeVisible()
 
@@ -512,7 +510,7 @@ test.describe('AC3 — Salary snapshot card', () => {
     // The Coder commit cf00988 renders: <p data-testid="salary-changed-at">Изменена 1 марта 2026 г.</p>
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     const card = page.getByTestId('salary-snapshot-card')
     await expect(card).toBeVisible()
 
@@ -533,7 +531,7 @@ test.describe('AC3 — Salary snapshot card', () => {
       },
     })
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     const card = page.getByTestId('salary-snapshot-card')
     await expect(card).toBeVisible()
 
@@ -545,7 +543,7 @@ test.describe('AC3 — Salary snapshot card', () => {
   test('PAID transaction shows badge «Выплачено»', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     const card = page.getByTestId('salary-snapshot-card')
     await expect(card).toBeVisible()
 
@@ -560,7 +558,7 @@ test.describe('AC3 — Salary snapshot card', () => {
   test('VALIDATED transaction also shows badge «Выплачено»', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     const card = page.getByTestId('salary-snapshot-card')
     await expect(card).toBeVisible()
 
@@ -573,7 +571,7 @@ test.describe('AC3 — Salary snapshot card', () => {
   test('PENDING transaction shows badge «Ожидание»', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     const card = page.getByTestId('salary-snapshot-card')
     await expect(card).toBeVisible()
 
@@ -584,7 +582,7 @@ test.describe('AC3 — Salary snapshot card', () => {
   test('shows max 3 last transactions', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     const card = page.getByTestId('salary-snapshot-card')
     await expect(card).toBeVisible()
 
@@ -598,7 +596,7 @@ test.describe('AC3 — Salary snapshot card', () => {
   }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     const card = page.getByTestId('salary-snapshot-card')
     await expect(card).toBeVisible()
 
@@ -626,7 +624,7 @@ test.describe('AC3 — Salary snapshot card', () => {
       },
     })
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     const card = page.getByTestId('salary-snapshot-card')
     await expect(card).toBeVisible()
 
@@ -639,11 +637,11 @@ test.describe('AC3 — Salary snapshot card', () => {
 // AC2 — Legend page: view + edit + journal
 // ---------------------------------------------------------------------------
 
-test.describe('AC2 — JUNIOR /crm/legend', () => {
+test.describe('AC2 — JUNIOR /legend', () => {
   test('legend page renders all 3 blocks', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/legend')
+    await page.goto('/legend')
 
     await expect(page.getByTestId('legend-page')).toBeVisible()
     await expect(page.getByTestId('legend-persona-block')).toBeVisible()
@@ -656,7 +654,7 @@ test.describe('AC2 — JUNIOR /crm/legend', () => {
   }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/legend')
+    await page.goto('/legend')
     const block = page.getByTestId('legend-persona-block')
     await expect(block).toBeVisible()
 
@@ -667,7 +665,7 @@ test.describe('AC2 — JUNIOR /crm/legend', () => {
   test('cover block shows presentedRole and presentedStack', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/legend')
+    await page.goto('/legend')
     const block = page.getByTestId('legend-cover-block')
     await expect(block).toBeVisible()
 
@@ -678,7 +676,7 @@ test.describe('AC2 — JUNIOR /crm/legend', () => {
   test('journal block shows existing entry and add-entry form', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/legend')
+    await page.goto('/legend')
     const block = page.getByTestId('legend-journal-block')
     await expect(block).toBeVisible()
 
@@ -696,7 +694,7 @@ test.describe('AC2 — JUNIOR /crm/legend', () => {
   test('JUNIOR can add journal entry', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/legend')
+    await page.goto('/legend')
     const block = page.getByTestId('legend-journal-block')
     await expect(block).toBeVisible()
 
@@ -711,10 +709,10 @@ test.describe('AC2 — JUNIOR /crm/legend', () => {
     await expect(block.getByTestId('legend-entry-textarea')).not.toBeVisible({ timeout: 3000 })
   })
 
-  test('SENIOR is redirected away from /crm/legend', async ({ asSenior: page }) => {
-    await page.goto('/crm/legend')
+  test('SENIOR is redirected away from /legend', async ({ asSenior: page }) => {
+    await page.goto('/legend')
     await expect(page.getByTestId('legend-page')).not.toBeVisible({ timeout: 3000 })
-    await expect(page).not.toHaveURL('/crm/legend')
+    await expect(page).not.toHaveURL('/legend')
   })
 })
 
@@ -728,7 +726,7 @@ test.describe('AC6 — Legend persona edit form UX', () => {
   }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/legend')
+    await page.goto('/legend')
     const block = page.getByTestId('legend-persona-block')
     await expect(block).toBeVisible()
 
@@ -750,7 +748,7 @@ test.describe('AC6 — Legend persona edit form UX', () => {
   test('footer Отмена resets form and exits edit mode', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/legend')
+    await page.goto('/legend')
     const block = page.getByTestId('legend-persona-block')
 
     await block.getByRole('button', { name: /Редактировать|Создать/ }).click()
@@ -769,7 +767,7 @@ test.describe('AC6 — Legend persona edit form UX', () => {
   test('header X cancel also exits edit mode without saving', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/legend')
+    await page.goto('/legend')
     const block = page.getByTestId('legend-persona-block')
 
     await block.getByRole('button', { name: /Редактировать|Створити|Создать/ }).click()
@@ -794,7 +792,7 @@ test.describe('AC7 — DatePickerField in legend forms', () => {
     const legendNoDob = { ...LEGEND_FIXTURE, dateOfBirth: null }
     await mockJuniorProjectsAndLegend(page, { legend: legendNoDob })
 
-    await page.goto('/crm/legend')
+    await page.goto('/legend')
     const block = page.getByTestId('legend-persona-block')
     await expect(block).toBeVisible()
 
@@ -811,7 +809,7 @@ test.describe('AC7 — DatePickerField in legend forms', () => {
   }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/legend')
+    await page.goto('/legend')
     const block = page.getByTestId('legend-journal-block')
     await expect(block).toBeVisible()
 
@@ -840,7 +838,7 @@ test.describe('AC7 — DatePickerField in legend forms', () => {
 
     await mockJuniorProjectsAndLegend(page, { legend: legendWithEventDate })
 
-    await page.goto('/crm/legend')
+    await page.goto('/legend')
     const block = page.getByTestId('legend-journal-block')
     await expect(block).toBeVisible()
 
@@ -866,7 +864,7 @@ test.describe('AC8 — JUNIOR legend persona form has no prefill (defaults=null)
     }
     await mockJuniorProjectsAndLegend(page, { legend: emptyLegend })
 
-    await page.goto('/crm/legend')
+    await page.goto('/legend')
     const block = page.getByTestId('legend-persona-block')
     await expect(block).toBeVisible()
 
@@ -891,7 +889,7 @@ test.describe('AC3 — JUNIOR sidebar nav', () => {
   test('JUNIOR desktop nav has exactly 5 items', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     await expect(page.getByTestId('junior-hub')).toBeVisible()
 
     const nav = page.getByTestId('junior-nav')
@@ -906,7 +904,7 @@ test.describe('AC3 — JUNIOR sidebar nav', () => {
   }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     await expect(page.getByTestId('junior-hub')).toBeVisible()
 
     const nav = page.getByTestId('junior-nav')
@@ -922,7 +920,7 @@ test.describe('AC3 — JUNIOR sidebar nav', () => {
   }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     await expect(page.getByTestId('junior-hub')).toBeVisible()
 
     const nav = page.getByTestId('junior-nav')
@@ -935,7 +933,7 @@ test.describe('AC3 — JUNIOR sidebar nav', () => {
   test('Regression — ADMIN nav is unaffected (no junior-nav testid, more items visible)', async ({
     asAdmin: page,
   }) => {
-    await page.goto('/crm/team')
+    await page.goto('/team')
 
     await expect(page.getByTestId('junior-nav')).not.toBeVisible()
 
@@ -944,7 +942,7 @@ test.describe('AC3 — JUNIOR sidebar nav', () => {
   })
 
   test('Regression — SENIOR nav is unaffected', async ({ asSenior: page }) => {
-    await page.goto('/crm/profile')
+    await page.goto('/profile')
 
     await expect(page.getByTestId('junior-nav')).not.toBeVisible()
   })
@@ -956,10 +954,10 @@ test.describe('AC3 — JUNIOR sidebar nav', () => {
 
 test.describe('AC4 — Route guards — JUNIOR redirected from forbidden routes', () => {
   // Forbidden routes for JUNIOR (not in ROUTE_ACCESS['JUNIOR'] list)
-  const forbiddenRoutes = ['/crm/projects', '/crm/team', '/crm/users', '/crm/stats']
+  const forbiddenRoutes = ['/projects', '/team', '/users', '/stats']
 
   for (const route of forbiddenRoutes) {
-    test(`JUNIOR on ${route} → redirected to /crm/project`, async ({ asJunior: page }) => {
+    test(`JUNIOR on ${route} → redirected to /project`, async ({ asJunior: page }) => {
       // Need minimal mocks so the hub can render after redirect
       await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) => {
         if (r.request().method() !== 'GET') return r.fallback()
@@ -972,8 +970,8 @@ test.describe('AC4 — Route guards — JUNIOR redirected from forbidden routes'
 
       await page.goto(route)
 
-      // After guard fires: URL changes to /crm/project (role home for JUNIOR)
-      await expect(page).toHaveURL('/crm/project', { timeout: 8000 })
+      // After guard fires: URL changes to /project (role home for JUNIOR)
+      await expect(page).toHaveURL('/project', { timeout: 8000 })
       // The forbidden page must not have rendered its content
       await expect(page).not.toHaveURL(route)
     })
@@ -981,8 +979,8 @@ test.describe('AC4 — Route guards — JUNIOR redirected from forbidden routes'
 
   // Allowed routes for JUNIOR — must open without redirect
   const allowedRoutes = [
-    { path: '/crm/project', testid: 'junior-hub' },
-    { path: '/crm/legend', testid: 'legend-page' },
+    { path: '/project', testid: 'junior-hub' },
+    { path: '/legend', testid: 'legend-page' },
   ]
 
   for (const { path, testid } of allowedRoutes) {
@@ -997,25 +995,23 @@ test.describe('AC4 — Route guards — JUNIOR redirected from forbidden routes'
     })
   }
 
-  test('JUNIOR on /crm/finance → stays on finance page (allowed)', async ({ asJunior: page }) => {
+  test('JUNIOR on /finance → stays on finance page (allowed)', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/finance')
+    await page.goto('/finance')
 
-    // Finance allowed for all roles — must not redirect to /crm/project
-    await expect(page).not.toHaveURL('/crm/project', { timeout: 5000 })
-    await expect(page).toHaveURL('/crm/finance')
+    // Finance allowed for all roles — must not redirect to /project
+    await expect(page).not.toHaveURL('/project', { timeout: 5000 })
+    await expect(page).toHaveURL('/finance')
   })
 
-  test('JUNIOR on /crm/documents → stays on documents page (allowed)', async ({
-    asJunior: page,
-  }) => {
+  test('JUNIOR on /documents → stays on documents page (allowed)', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/documents')
+    await page.goto('/documents')
 
-    await expect(page).not.toHaveURL('/crm/project', { timeout: 5000 })
-    await expect(page).toHaveURL('/crm/documents')
+    await expect(page).not.toHaveURL('/project', { timeout: 5000 })
+    await expect(page).toHaveURL('/documents')
   })
 })
 
@@ -1053,7 +1049,7 @@ test.describe('AC6 — Credentials visibility', () => {
   }) => {
     await mockJuniorProjectsAndLegend(page)
 
-    await page.goto('/crm/project')
+    await page.goto('/project')
     await expect(page.getByTestId('junior-hub-bento')).toBeVisible()
 
     // Round 3: credentials are full-width col-span-full, no hr-credentials-row wrapper.
@@ -1105,8 +1101,8 @@ test.describe('AC6 — Credentials visibility', () => {
     // Mock user-scoped credentials endpoint → returns a credential
     await mockUserCredentials(page, USERS.junior.id, [CREDENTIAL_FIXTURE])
 
-    // Correct route: /crm/profile/$userId (not /crm/users/$userId)
-    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    // Correct route: /profile/$userId (not /users/$userId)
+    await page.goto(`/profile/${USERS.junior.id}`)
 
     await expect(page.getByTestId('profile-credentials-section')).toBeVisible({ timeout: 8000 })
   })
@@ -1135,7 +1131,7 @@ test.describe('AC6 — Credentials visibility', () => {
 
     await mockUserCredentials(page, USERS.junior.id, [CREDENTIAL_FIXTURE])
 
-    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    await page.goto(`/profile/${USERS.junior.id}`)
 
     await expect(page.getByTestId('profile-credentials-section')).toBeVisible({ timeout: 8000 })
   })
@@ -1143,7 +1139,7 @@ test.describe('AC6 — Credentials visibility', () => {
   test('JUNIOR self-view: profile-credentials-section NOT visible', async ({ asJunior: page }) => {
     // Self-view does NOT include projectCredentials permission
     // (the section is only for ADMIN/HR viewers of a junior)
-    await page.goto('/crm/profile')
+    await page.goto('/profile')
 
     // profile-credentials-section should NOT be rendered for self-view
     // (permissions.fields.projectCredentials is absent/false in self-view DTO)
@@ -1159,7 +1155,7 @@ test.describe('Round 3 — JUNIOR profile self-view tabs', () => {
   test('JUNIOR self-view has overview and requisites tabs, documents tab absent', async ({
     asJunior: page,
   }) => {
-    await page.goto('/crm/profile')
+    await page.goto('/profile')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     // overview tab present
@@ -1177,7 +1173,7 @@ test.describe('Round 3 — JUNIOR profile self-view tabs', () => {
     // Backend sets canSeeTos=false for JUNIOR self (task-junior-ut-round3 §6b):
     // tosAcceptedAt is NOT included in data.overview → OverviewTab renders canSeeTos=false
     // → tos-acceptance-card is not rendered.
-    await page.goto('/crm/profile')
+    await page.goto('/profile')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     // tos-acceptance-card must NOT be present

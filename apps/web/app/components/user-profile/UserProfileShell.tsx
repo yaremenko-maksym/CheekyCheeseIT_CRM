@@ -107,7 +107,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
   const shouldRedirectDrop = mode === 'view' && isDropViewer && is403 === true
   useEffect(() => {
     if (shouldRedirectDrop) {
-      void navigate({ to: '/crm', replace: true })
+      void navigate({ to: '/', replace: true })
     }
   }, [shouldRedirectDrop, navigate])
 
@@ -266,7 +266,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
       )}
 
       {visibleTabs.length > 0 && (
-        /* Content area scrolls naturally via the parent <main> (overflow-y-auto in /crm route).
+        /* Content area scrolls naturally via the parent <main> (overflow-y-auto in / route).
            No overflow-hidden here — that was blocking the scroll for long tabs.
            px-6 aligns content with the PageHeader padding (§2b). */
         <div className="flex-1 min-h-0 overflow-y-auto pt-4 pb-6 min-w-0 px-6">

@@ -50,18 +50,18 @@ vi.mock('@crm/shared', () => ({
 
 // financeApi.getTransactions is only used on the non-privileged branch; stub it
 // so it never hits the network.
-vi.mock('@/routes/crm/finance/api', () => ({
+vi.mock('@/routes/_authenticated/finance/api', () => ({
   financeApi: { getTransactions: () => Promise.resolve([]) },
 }))
 
 // Heavy presentational deps — stub to keep the render light + deterministic.
-vi.mock('@/routes/crm/finance/components/TransactionRow', () => ({
+vi.mock('@/routes/_authenticated/finance/components/TransactionRow', () => ({
   TransactionRow: () => null,
 }))
-vi.mock('@/routes/crm/finance/components/dialogs/TransactionDetailDialog', () => ({
+vi.mock('@/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog', () => ({
   TransactionDetailDialog: () => null,
 }))
-vi.mock('@/routes/crm/finance/constants', () => ({
+vi.mock('@/routes/_authenticated/finance/constants', () => ({
   STATUS_LABELS: {},
   TYPE_LABELS: {},
 }))

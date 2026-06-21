@@ -89,21 +89,19 @@ async function setupPendingPayout(page: import('@playwright/test').Page): Promis
 }
 
 test.describe('Drop confirm-payout — RBAC (AC4)', () => {
-  test('DROP → 403 (backend) + button NOT in UI on /crm/finance', async ({ page }) => {
+  test('DROP → 403 (backend) + button NOT in UI on /finance', async ({ page }) => {
     const { dropId, payoutTxId, dropEmail } = await setupPendingPayout(page)
     try {
       // DROP can see their PAYOUT row (it's their own send), but the
       // «Подтвердить оплату» button is ADMIN/ACCOUNTANT-only.
       await loginViaApi(page, dropEmail)
-      await page.goto('/crm/finance')
+      await page.goto('/finance')
       // Sanity: the DROP DOES see the PAYOUT row.
       await expect(page.getByTestId(`tx-row-${payoutTxId}`)).toBeVisible({
         timeout: 15_000,
       })
       // But the Phase 3 button must NOT be rendered.
-      await expect(
-        page.getByTestId(`confirm-payout-button-${payoutTxId}`),
-      ).toHaveCount(0)
+      await expect(page.getByTestId(`confirm-payout-button-${payoutTxId}`)).toHaveCount(0)
 
       // Direct API call → 403.
       const { status } = await confirmPayoutRawViaAPI(page, payoutTxId, MAKSYM_ID)
@@ -150,11 +148,7 @@ test.describe('Drop confirm-payout — RBAC (AC4)', () => {
     const { dropId, payoutTxId } = await setupPendingPayout(page)
     try {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
-      const { payout, confirmed } = await confirmPayoutViaAPI(
-        page,
-        payoutTxId,
-        MAKSYM_ID,
-      )
+      const { payout, confirmed } = await confirmPayoutViaAPI(page, payoutTxId, MAKSYM_ID)
       expect(payout.status).toBe('PAID')
       // `confirmed` may be null if the post-write lookup races the commit,
       // but the controller call returned 200 already (helper throws on

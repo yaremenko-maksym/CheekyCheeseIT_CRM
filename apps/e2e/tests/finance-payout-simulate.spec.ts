@@ -199,7 +199,7 @@ function setupPayoutMocks(
 }
 
 async function openPayoutDialog(page: MockPage) {
-  await page.goto('/crm/finance')
+  await page.goto('/finance')
   const inlinePay = page.getByTestId(`row-pay-payout-${makePayoutRow().id}`)
   await expect(inlinePay).toBeVisible()
   await inlinePay.click()

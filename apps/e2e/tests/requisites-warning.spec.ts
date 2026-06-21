@@ -1,7 +1,7 @@
 /**
  * requisites-warning.spec.ts
  *
- * Tests for the RequisitesEditForm on /crm/profile?tab=requisites.
+ * Tests for the RequisitesEditForm on /profile?tab=requisites.
  *
  * Key behavior:
  * - JUNIOR/HR can choose between USDT ERC-20 and Банк UAH (ФОП)
@@ -32,14 +32,16 @@ test.describe('Requisites edit form', () => {
   // -------------------------------------------------------------------------
 
   test('Реквизиты tab visible for JUNIOR in self view', async ({ asJunior: page }) => {
-    await page.goto('/crm/profile')
+    await page.goto('/profile')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Реквизиты', exact: true })).toBeVisible()
   })
 
-  test('Реквизиты tab visible for HR in self view (all self-viewers get requisites)', async ({ asHr: page }) => {
+  test('Реквизиты tab visible for HR in self view (all self-viewers get requisites)', async ({
+    asHr: page,
+  }) => {
     // Per users-access.service.ts: every self-viewer gets 'requisites' tab.
-    await page.goto('/crm/profile')
+    await page.goto('/profile')
     await expect(page.getByRole('heading', { name: 'HR Manager' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Реквизиты', exact: true })).toBeVisible()
   })
@@ -48,9 +50,11 @@ test.describe('Requisites edit form', () => {
   // Form structure
   // -------------------------------------------------------------------------
 
-  test('JUNIOR sees payment method segmented control (can choose USDT or Bank)', async ({ page }) => {
+  test('JUNIOR sees payment method segmented control (can choose USDT or Bank)', async ({
+    page,
+  }) => {
     await mockAuthAs(page, USERS.junior)
-    await page.goto('/crm/profile?tab=requisites')
+    await page.goto('/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     // RequisitesEditForm renders both method segments when role is NOT SENIOR/ADMIN.
     await expect(page.getByLabel('USDT ERC-20')).toBeVisible()
@@ -70,7 +74,7 @@ test.describe('Requisites edit form', () => {
         body: JSON.stringify(buildSelfView(USERS.senior)),
       })
     })
-    await page.goto('/crm/profile?tab=requisites')
+    await page.goto('/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
     // Bank segment is rendered but disabled for SENIOR — soft-lock with tooltip
     await expect(page.getByLabel('Банк UAH (ФОП)')).toBeDisabled()
@@ -84,7 +88,7 @@ test.describe('Requisites edit form', () => {
 
   test('submitting valid Bank UAH data opens confirmation AlertDialog', async ({ page }) => {
     await mockAuthAs(page, USERS.junior)
-    await page.goto('/crm/profile?tab=requisites')
+    await page.goto('/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     // Select Bank UAH method
@@ -101,10 +105,14 @@ test.describe('Requisites edit form', () => {
 
     // AlertDialog appears with the confirmation text
     await expect(page.getByRole('alertdialog')).toBeVisible()
-    await expect(page.getByText('На основе этих данных будут производиться следующие выплаты')).toBeVisible()
+    await expect(
+      page.getByText('На основе этих данных будут производиться следующие выплаты'),
+    ).toBeVisible()
   })
 
-  test('confirming AlertDialog sends PATCH /users/me/requisites and shows toast', async ({ page }) => {
+  test('confirming AlertDialog sends PATCH /users/me/requisites and shows toast', async ({
+    page,
+  }) => {
     await mockAuthAs(page, USERS.junior)
 
     const patchReq = page.waitForRequest(
@@ -112,7 +120,7 @@ test.describe('Requisites edit form', () => {
       { timeout: 8000 },
     )
 
-    await page.goto('/crm/profile?tab=requisites')
+    await page.goto('/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     await page.getByLabel('Банк UAH (ФОП)').click()
@@ -144,7 +152,7 @@ test.describe('Requisites edit form', () => {
       if (req.url().includes('/users/me/requisites') && req.method() === 'PATCH') patched = true
     })
 
-    await page.goto('/crm/profile?tab=requisites')
+    await page.goto('/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     await page.getByLabel('Банк UAH (ФОП)').click()
@@ -168,7 +176,7 @@ test.describe('Requisites edit form', () => {
 
   test('submitting USDT method with empty wallet shows validation error', async ({ page }) => {
     await mockAuthAs(page, USERS.junior)
-    await page.goto('/crm/profile?tab=requisites')
+    await page.goto('/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     // JUNIOR fixture defaults to BANK_UAH_FOP — switch to USDT first.
@@ -184,7 +192,7 @@ test.describe('Requisites edit form', () => {
 
   test('submitting Bank UAH method with invalid IBAN shows validation error', async ({ page }) => {
     await mockAuthAs(page, USERS.junior)
-    await page.goto('/crm/profile?tab=requisites')
+    await page.goto('/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     await page.getByLabel('Банк UAH (ФОП)').click()

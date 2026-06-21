@@ -7,7 +7,7 @@ test.describe('Projects page', () => {
 
   test.describe('Rendering', () => {
     test('shows project cards with name, company, rate', async ({ asAdmin: page }) => {
-      await page.goto('/crm/projects')
+      await page.goto('/projects')
       await expect(page.getByText('AI Platform v2')).toBeVisible()
       await expect(page.getByText('TechCorp AI')).toBeVisible()
       // Round 5: EdTech Portal is now an archived fixture — hidden from the
@@ -18,19 +18,19 @@ test.describe('Projects page', () => {
     })
 
     test('SENIOR sees projects page (read-only)', async ({ asSenior: page }) => {
-      await page.goto('/crm/projects')
+      await page.goto('/projects')
       await expect(page.getByText('AI Platform v2')).toBeVisible()
       // No create button
       await expect(page.getByRole('button', { name: /новый проект/i })).not.toBeVisible()
     })
 
     test('HR sees create button', async ({ asHr: page }) => {
-      await page.goto('/crm/projects')
+      await page.goto('/projects')
       await expect(page.getByRole('button', { name: /новый проект/i })).toBeVisible()
     })
 
     test('ADMIN sees create and archive buttons', async ({ asAdmin: page }) => {
-      await page.goto('/crm/projects')
+      await page.goto('/projects')
       await expect(page.getByRole('button', { name: /новый проект/i })).toBeVisible()
       // ut-27 (PR 34 round 1) removed the inline trash/archive icon button from cards.
       // The archive action lives on the project detail header now. The list page only
@@ -48,7 +48,7 @@ test.describe('Projects page', () => {
     // contract state is gone — archived projects are hidden by default and
     // only surface under the «Архив» tab (ADMIN-only).
     test('"Активные" tab shows only non-archived projects', async ({ asAdmin: page }) => {
-      await page.goto('/crm/projects')
+      await page.goto('/projects')
       await page.getByRole('tab', { name: 'Активные' }).click()
       await expect(page.getByText('AI Platform v2')).toBeVisible()
       // Archived fixture project is excluded by the API (?archived=false).
@@ -56,7 +56,7 @@ test.describe('Projects page', () => {
     })
 
     test('"Все" tab shows non-archived projects', async ({ asAdmin: page }) => {
-      await page.goto('/crm/projects')
+      await page.goto('/projects')
       // Move away and back to «Все» to verify the toggle re-fetches.
       await page.getByRole('tab', { name: 'Активные' }).click()
       await page.getByRole('tab', { name: 'Все' }).click()
@@ -64,7 +64,7 @@ test.describe('Projects page', () => {
     })
 
     test('"Архив" tab shows only archived projects', async ({ asAdmin: page }) => {
-      await page.goto('/crm/projects')
+      await page.goto('/projects')
       await page.getByTestId('toggle-archived-projects').click()
       // Card itself is the most reliable target — the inner <p> may briefly be
       // hidden during the AnimatePresence exit/enter animation, but the card
@@ -81,7 +81,7 @@ test.describe('Projects page', () => {
 
   test.describe('Create project', () => {
     test('opens dialog with correct title', async ({ asAdmin: page }) => {
-      await page.goto('/crm/projects')
+      await page.goto('/projects')
       await page.getByRole('button', { name: /новый проект/i }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
       await expect(page.getByRole('heading', { name: 'Новый проект' })).toBeVisible()
@@ -92,7 +92,7 @@ test.describe('Projects page', () => {
         (req) => req.url().includes('/projects') && req.method() === 'POST',
       )
 
-      await page.goto('/crm/projects')
+      await page.goto('/projects')
       await page.getByRole('button', { name: /новый проект/i }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
@@ -124,7 +124,7 @@ test.describe('Projects page', () => {
     })
 
     test('validation: empty required fields show errors on blur', async ({ asAdmin: page }) => {
-      await page.goto('/crm/projects')
+      await page.goto('/projects')
       await page.getByRole('button', { name: /новый проект/i }).click()
 
       const nameInput = page.getByPlaceholder('AI Platform v2')
@@ -140,7 +140,7 @@ test.describe('Projects page', () => {
         if (req.url().includes('/projects') && req.method() === 'POST') postCalled = true
       })
 
-      await page.goto('/crm/projects')
+      await page.goto('/projects')
       await page.getByRole('button', { name: /новый проект/i }).click()
       await page.getByRole('button', { name: 'Отмена' }).click()
       await expect(page.getByRole('dialog')).not.toBeVisible()
@@ -149,7 +149,7 @@ test.describe('Projects page', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Project archive / unarchive — see tests/crm/projects/projects-archive.spec.ts
+  // Project archive / unarchive — see tests/projects/projects-archive.spec.ts
   //
   // Round 5 (drop status enum) removed the close/reopen flow: project
   // lifecycle is now binary (ACTIVE ↔ ARCHIVED) with archive/unarchive
@@ -163,13 +163,13 @@ test.describe('Projects page', () => {
 
   test.describe('Project members', () => {
     test('detail page shows team section with senior', async ({ asAdmin: page }) => {
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       // Team section with senior name
       await expect(page.getByText('Senior Dev')).toBeVisible()
     })
 
     test('ADMIN sees "Добавить" button on active project detail', async ({ asAdmin: page }) => {
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       // PR #178 added a second «Добавить» button in the credentials section
       // (data-testid="credentials-add-btn" sits ON the button — .filter({hasNot})
       // checks descendants only, so intersect with :not() instead).
@@ -180,7 +180,7 @@ test.describe('Projects page', () => {
     })
 
     test('"Добавить" opens edit dialog', async ({ asAdmin: page }) => {
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       const membersAddBtn = page
         .getByRole('button', { name: /добавить/i })
         .and(page.locator(':not([data-testid="credentials-add-btn"])'))
@@ -189,7 +189,7 @@ test.describe('Projects page', () => {
     })
 
     test('cancel closes dialog', async ({ asAdmin: page }) => {
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
       const membersAddBtn = page
         .getByRole('button', { name: /добавить/i })
         .and(page.locator(':not([data-testid="credentials-add-btn"])'))
@@ -211,7 +211,7 @@ test.describe('Projects page', () => {
 
   test.describe('Project metadata fields', () => {
     test('create dialog shows new metadata fields', async ({ asAdmin: page }) => {
-      await page.goto('/crm/projects')
+      await page.goto('/projects')
       await page.getByRole('button', { name: /новый проект/i }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
@@ -228,7 +228,7 @@ test.describe('Projects page', () => {
         (req) => req.url().includes('/projects') && req.method() === 'POST',
       )
 
-      await page.goto('/crm/projects')
+      await page.goto('/projects')
       await page.getByRole('button', { name: /новый проект/i }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
@@ -322,7 +322,7 @@ test.describe('Projects page', () => {
         })
       })
 
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
 
       // Look for edit button (could be "Редактировать" or an edit icon)
       const editButton = page
@@ -354,7 +354,7 @@ test.describe('Projects page', () => {
     test('metadata fields respect character limits (varchar constraints)', async ({
       asAdmin: page,
     }) => {
-      await page.goto('/crm/projects')
+      await page.goto('/projects')
       await page.getByRole('button', { name: /новый проект/i }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
@@ -410,7 +410,7 @@ test.describe('Projects page', () => {
         return r.continue()
       })
 
-      await page.goto(`/crm/projects/${PROJECTS[0]!.id}`)
+      await page.goto(`/projects/${PROJECTS[0]!.id}`)
 
       // Check if metadata is displayed somewhere on the page
       await expect(page.getByText('React, Node.js, PostgreSQL')).toBeVisible()
@@ -433,7 +433,7 @@ test.describe('Projects page', () => {
       await page.route('http://localhost:3001/api/projects', (r) =>
         r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
       )
-      await page.goto('/crm/projects')
+      await page.goto('/projects')
       await expect(page.getByTestId('projects-search-input')).toBeVisible()
     })
 
@@ -444,18 +444,18 @@ test.describe('Projects page', () => {
       await page.route(/\/api\/projects(\?.*)?$/, (r) =>
         r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
       )
-      await page.goto('/crm/projects')
+      await page.goto('/projects')
       await page.getByTestId('toggle-archived-projects').click()
       await expect(page.getByText('AI Platform v2')).not.toBeVisible()
       await expect(page.getByText('Архив пуст')).toBeVisible()
     })
 
-    test('JUNIOR on /crm/projects → redirected to /crm/project (route-guard PR #184)', async ({
+    test('JUNIOR on /projects → redirected to /project (route-guard PR #184)', async ({
       asJunior: page,
     }) => {
       // PR #184 introduced a declarative route-guard in CrmLayout: JUNIOR is
-      // not in the allowed roles for /crm/projects, so the guard fires a
-      // beforeLoad redirect to the JUNIOR role-home (/crm/project) before
+      // not in the allowed roles for /projects, so the guard fires a
+      // beforeLoad redirect to the JUNIOR role-home (/project) before
       // the projects page ever renders. The old behaviour (JUNIOR saw the
       // list with management controls hidden) is replaced by a hard redirect.
       await page.route(/\/api\/projects(\?.*)?$/, (r) => {
@@ -466,9 +466,9 @@ test.describe('Projects page', () => {
           body: JSON.stringify([]),
         })
       })
-      await page.goto('/crm/projects')
-      await expect(page).toHaveURL('/crm/project', { timeout: 8000 })
-      await expect(page).not.toHaveURL('/crm/projects')
+      await page.goto('/projects')
+      await expect(page).toHaveURL('/project', { timeout: 8000 })
+      await expect(page).not.toHaveURL('/projects')
     })
   })
 })

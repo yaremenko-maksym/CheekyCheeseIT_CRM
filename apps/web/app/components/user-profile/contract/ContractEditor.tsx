@@ -5,7 +5,7 @@ import { CONTRACT_VARIABLE_DESCRIPTIONS_BRACED } from '@crm/shared'
 import { cn } from '@/lib/utils'
 
 // Lazy-load CodeMirror + markdown extension + dark theme — heavy deps (~500 KB gzip).
-// Reuses the same loader pattern as apps/web/app/routes/crm/admin/contracts.$role.tsx
+// Reuses the same loader pattern as apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 const CodeMirrorEditor = lazy(async () => {
   const [{ default: CodeMirror }, { markdown }, { oneDark }] = await Promise.all([
     import('@uiw/react-codemirror'),

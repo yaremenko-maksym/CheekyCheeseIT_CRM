@@ -7,7 +7,7 @@
  * translated to Russian in PR #66.
  *
  * Dashboard consolidation: the role-dispatch dashboard now lives ONLY at the
- * CRM root `/crm` (index.tsx); the separate `/crm/dashboard` route and the old
+ * CRM root `/` (index.tsx); the separate `/dashboard` route and the old
  * generic candidates/vacancies placeholder were removed. ADMIN/SENIOR see the
  * generic dashboard; HR sees HRDashboard; DROP/ACCOUNTANT/JUNIOR have their own
  * surfaces and are excluded here (DROP/JUNIOR redirect off /crm; ACCOUNTANT hub
@@ -17,7 +17,7 @@
  * must be Russian. A reverted translation slips silently because the
  * placeholder cards render fine — only a human spot-check catches it.
  *
- * This spec asserts, for each covered role on `/crm`:
+ * This spec asserts, for each covered role on `/`:
  *   1. The Russian dashboard labels are present.
  *   2. None of the pages contain «Active Candidates», «Recent Candidates»,
  *      «Connect DB», or other English leftovers.
@@ -69,7 +69,7 @@ const RU_HR_DASHBOARD_TOKENS = [
  * leftover from the blocklist appears in the dashboard <main>.
  */
 async function assertDashboardRu(page: Page, role: string, expectedTokens: string[]) {
-  await page.goto('/crm')
+  await page.goto('/')
   // HRDashboard renders its own nested <main data-testid="hr-dashboard-hub">,
   // so scope to the OUTER layout <main> (.first()) — it contains the hub too.
   const main = page.locator('main').first()

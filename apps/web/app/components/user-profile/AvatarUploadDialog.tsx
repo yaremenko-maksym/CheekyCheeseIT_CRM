@@ -3,7 +3,7 @@
  * uploads the result as an AVATAR-category document, and patches the user
  * profile to point at that document. Reverting (clearing back to the Google
  * fallback) sends a null update — old document rows are NOT auto-deleted;
- * ADMIN cleanup of orphans is handled out-of-band through /crm/documents.
+ * ADMIN cleanup of orphans is handled out-of-band through /documents.
  *
  * Compared to the pre-PHASE 6 flow this dialog no longer stores the avatar
  * as a base64 blob on users.avatar_override. Instead the cropped JPEG is
@@ -32,7 +32,13 @@ import { cn } from '@/lib/utils'
 import { getCroppedDataUrl } from './cropImage'
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024 // 5 MB raw input — the cropper re-encodes
-const ALLOWED_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'])
+const ALLOWED_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/gif',
+  'image/webp',
+])
 
 const OUTPUT_SIZE = 512
 const MIN_ZOOM = 1
@@ -225,7 +231,12 @@ export function AvatarUploadDialog({
   const hasOverride = avatarDocumentId !== null
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) handleClose()
+      }}
+    >
       <DialogContent
         className="max-w-md"
         onDrop={handleDrop}
@@ -246,90 +257,97 @@ export function AvatarUploadDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {!isCropStep && (() => {
-          type SourceTab = 'file' | 'url'
-          const sourceTabs: ReadonlyArray<SegmentedToggleOption<SourceTab>> = [
-            { value: 'file', label: 'Файл', icon: Upload },
-            { value: 'url', label: 'Ссылка', icon: Link2 },
-          ]
-          return (
-          <>
-            <SegmentedToggle<SourceTab>
-              value={tab}
-              onChange={(v) => { setTab(v); setError(null) }}
-              options={sourceTabs}
-              ariaLabel="Источник изображения"
-              variant="tabs"
-              size="sm"
-              layoutId="avatar-source-tabs"
-              testId="avatar-source-tabs"
-            />
-
-            {tab === 'file' && (
-              <div className="space-y-3 pt-3">
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/gif,image/webp"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0]
-                    if (file) handleFile(file)
-                    e.target.value = ''
+        {!isCropStep &&
+          (() => {
+            type SourceTab = 'file' | 'url'
+            const sourceTabs: ReadonlyArray<SegmentedToggleOption<SourceTab>> = [
+              { value: 'file', label: 'Файл', icon: Upload },
+              { value: 'url', label: 'Ссылка', icon: Link2 },
+            ]
+            return (
+              <>
+                <SegmentedToggle<SourceTab>
+                  value={tab}
+                  onChange={(v) => {
+                    setTab(v)
+                    setError(null)
                   }}
+                  options={sourceTabs}
+                  ariaLabel="Источник изображения"
+                  variant="tabs"
+                  size="sm"
+                  layoutId="avatar-source-tabs"
+                  testId="avatar-source-tabs"
                 />
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full gap-2"
-                  onClick={() => fileRef.current?.click()}
-                >
-                  <ImagePlus className="h-4 w-4" />
-                  Выбрать изображение
-                </Button>
-                <p className="text-xs text-muted-foreground">
-                  Перетащите файл в окно или нажмите кнопку выше.
-                </p>
-              </div>
-            )}
 
-            {tab === 'url' && (
-              <div className="space-y-3 pt-3">
-                <Input
-                  type="url"
-                  placeholder="https://example.com/avatar.png"
-                  value={url}
-                  onChange={(e) => { setUrl(e.target.value); setError(null) }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault()
-                      handleUrlContinue()
-                    }
-                  }}
-                />
-                <Button
-                  type="button"
-                  className="w-full"
-                  onClick={handleUrlContinue}
-                  disabled={!url.trim()}
-                >
-                  Продолжить
-                </Button>
-              </div>
-            )}
+                {tab === 'file' && (
+                  <div className="space-y-3 pt-3">
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/gif,image/webp"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) handleFile(file)
+                        e.target.value = ''
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full gap-2"
+                      onClick={() => fileRef.current?.click()}
+                    >
+                      <ImagePlus className="h-4 w-4" />
+                      Выбрать изображение
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      Перетащите файл в окно или нажмите кнопку выше.
+                    </p>
+                  </div>
+                )}
 
-            {avatarUrl && !hasOverride && (
-              <div className="flex justify-center rounded-md border bg-muted/20 p-3">
-                <img
-                  src={avatarUrl}
-                  alt="Текущий аватар"
-                  className="max-h-32 w-auto rounded-full object-cover opacity-70"
-                />
-              </div>
-            )}
-          </>
-          )
-        })()}
+                {tab === 'url' && (
+                  <div className="space-y-3 pt-3">
+                    <Input
+                      type="url"
+                      placeholder="https://example.com/avatar.png"
+                      value={url}
+                      onChange={(e) => {
+                        setUrl(e.target.value)
+                        setError(null)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          handleUrlContinue()
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      className="w-full"
+                      onClick={handleUrlContinue}
+                      disabled={!url.trim()}
+                    >
+                      Продолжить
+                    </Button>
+                  </div>
+                )}
+
+                {avatarUrl && !hasOverride && (
+                  <div className="flex justify-center rounded-md border bg-muted/20 p-3">
+                    <img
+                      src={avatarUrl}
+                      alt="Текущий аватар"
+                      className="max-h-32 w-auto rounded-full object-cover opacity-70"
+                    />
+                  </div>
+                )}
+              </>
+            )
+          })()}
 
         {isCropStep && sourceImage && (
           <div className="space-y-3">
@@ -375,7 +393,9 @@ export function AvatarUploadDialog({
           </p>
         )}
 
-        <DialogFooter className={cn('gap-2 sm:gap-2', hasOverride && !isCropStep && 'sm:justify-between')}>
+        <DialogFooter
+          className={cn('gap-2 sm:gap-2', hasOverride && !isCropStep && 'sm:justify-between')}
+        >
           {!isCropStep && hasOverride && (
             <Button
               type="button"
@@ -395,7 +415,10 @@ export function AvatarUploadDialog({
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => { setStep('source'); setSourceImage(null) }}
+                  onClick={() => {
+                    setStep('source')
+                    setSourceImage(null)
+                  }}
                   disabled={isPending}
                   className="gap-1.5"
                 >
@@ -411,12 +434,7 @@ export function AvatarUploadDialog({
                 </Button>
               </>
             ) : (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleClose}
-                disabled={isPending}
-              >
+              <Button type="button" variant="outline" onClick={handleClose} disabled={isPending}>
                 Отмена
               </Button>
             )}

@@ -4,9 +4,9 @@
  * Tests for SENIOR Legend feature — RBAC reversal 2026-06-09.
  *
  * NEW RULES (subject excluded, view==edit):
- *   /crm/profile/:id  — ADMIN / linked-HR / linked-JUNIOR:
+ *   /profile/:id  — ADMIN / linked-HR / linked-JUNIOR:
  *                       see legend section + can EDIT it (canEdit=true for all)
- *   /crm/profile      — SENIOR/DROP self: legend section NOT shown
+ *   /profile      — SENIOR/DROP self: legend section NOT shown
  *   ACCOUNTANT        — no legend section (fields.legend absent → not rendered)
  *
  * Pattern: mock-based (no live server needed). Uses typed fixtures (asAdmin,
@@ -106,19 +106,19 @@ async function mockUserGet(page: import('@playwright/test').Page, userId: string
 // ---------------------------------------------------------------------------
 
 test.describe('SENIOR self-profile — legend section hidden (subject excluded)', () => {
-  test('SENIOR does NOT see legend section on own /crm/profile', async ({ asSenior: page }) => {
+  test('SENIOR does NOT see legend section on own /profile', async ({ asSenior: page }) => {
     // Even if the GET would succeed, mode='self' prevents LegendSection mounting
     await mockLegendGet(page, USERS.senior.id, 'found')
-    await page.goto('/crm/profile')
+    await page.goto('/profile')
 
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
     // Self-view: mode='self' → OverviewTab condition `mode === 'view'` false → no legend-section
     await expect(page.getByTestId('legend-section')).not.toBeVisible({ timeout: 2000 })
   })
 
-  test('DROP does NOT see legend section on own /crm/profile', async ({ asDrop: page }) => {
+  test('DROP does NOT see legend section on own /profile', async ({ asDrop: page }) => {
     await mockLegendGet(page, USERS.drop.id, 'found')
-    await page.goto('/crm/profile')
+    await page.goto('/profile')
 
     await expect(page.getByRole('heading', { name: 'Drop User' })).toBeVisible()
     await expect(page.getByTestId('legend-section')).not.toBeVisible({ timeout: 2000 })
@@ -136,7 +136,7 @@ test.describe('ADMIN viewing senior profile — editable legend', () => {
     await mockLegendGet(page, USERS.senior.id, 'found')
     await mockUserGet(page, USERS.senior.id, buildAdminViewingUser(USERS.senior))
 
-    await page.goto(`/crm/profile/${USERS.senior.id}`)
+    await page.goto(`/profile/${USERS.senior.id}`)
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
 
     await expect(page.getByTestId('legend-section')).toBeVisible()
@@ -151,7 +151,7 @@ test.describe('ADMIN viewing senior profile — editable legend', () => {
     await mockLegendGet(page, USERS.senior.id, 'not-found')
     await mockUserGet(page, USERS.senior.id, buildAdminViewingUser(USERS.senior))
 
-    await page.goto(`/crm/profile/${USERS.senior.id}`)
+    await page.goto(`/profile/${USERS.senior.id}`)
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
 
     await expect(page.getByTestId('legend-section')).toBeVisible()
@@ -180,7 +180,7 @@ test.describe('ADMIN viewing senior profile — editable legend', () => {
     })
     await mockUserGet(page, USERS.senior.id, buildAdminViewingUser(USERS.senior))
 
-    await page.goto(`/crm/profile/${USERS.senior.id}`)
+    await page.goto(`/profile/${USERS.senior.id}`)
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
 
     // Open edit form
@@ -198,7 +198,7 @@ test.describe('ADMIN viewing senior profile — editable legend', () => {
     await mockLegendGet(page, USERS.senior.id, 'found')
     await mockUserGet(page, USERS.senior.id, buildAdminViewingUser(USERS.senior))
 
-    await page.goto(`/crm/profile/${USERS.senior.id}`)
+    await page.goto(`/profile/${USERS.senior.id}`)
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
 
     await page.getByTestId('legend-edit-button').click()
@@ -214,7 +214,7 @@ test.describe('ADMIN viewing senior profile — editable legend', () => {
   }) => {
     await mockUserGet(page, USERS.junior.id, buildAdminViewingUser(USERS.junior))
 
-    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     // user.role === 'JUNIOR' → legend condition false → section absent
@@ -231,7 +231,7 @@ test.describe('HR viewing senior profile — editable legend (view==edit)', () =
     await mockLegendGet(page, USERS.senior.id, 'found')
     await mockUserGet(page, USERS.senior.id, buildHrViewingSenior(USERS.senior))
 
-    await page.goto(`/crm/profile/${USERS.senior.id}`)
+    await page.goto(`/profile/${USERS.senior.id}`)
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
 
     await expect(page.getByTestId('legend-section')).toBeVisible()
@@ -244,7 +244,7 @@ test.describe('HR viewing senior profile — editable legend (view==edit)', () =
     await mockLegendGet(page, USERS.senior.id, 'found')
     await mockUserGet(page, USERS.senior.id, buildHrViewingSenior(USERS.senior))
 
-    await page.goto(`/crm/profile/${USERS.senior.id}`)
+    await page.goto(`/profile/${USERS.senior.id}`)
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
 
     await page.getByTestId('legend-edit-button').click()
@@ -267,7 +267,7 @@ test.describe('JUNIOR viewing senior profile — editable legend (view==edit)', 
     await mockLegendGet(page, USERS.senior.id, 'found')
     await mockUserGet(page, USERS.senior.id, buildJuniorViewingSenior(USERS.senior))
 
-    await page.goto(`/crm/profile/${USERS.senior.id}`)
+    await page.goto(`/profile/${USERS.senior.id}`)
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
 
     await expect(page.getByTestId('legend-section')).toBeVisible()
@@ -298,7 +298,7 @@ test.describe('ACCOUNTANT — legend section not shown', () => {
       data: {},
     })
 
-    await page.goto(`/crm/profile/${USERS.senior.id}`)
+    await page.goto(`/profile/${USERS.senior.id}`)
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
 
     // fields.legend not true → OverviewTab never mounts LegendSection
@@ -314,7 +314,7 @@ test.describe('Non-SENIOR/DROP target — no legend section', () => {
   test('ADMIN viewing JUNIOR profile does NOT see legend section', async ({ asAdmin: page }) => {
     await mockUserGet(page, USERS.junior.id, buildAdminViewingUser(USERS.junior))
 
-    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     // user.role === 'JUNIOR' → condition `user.role === 'SENIOR' || user.role === 'DROP'` false
@@ -332,7 +332,7 @@ test.describe('Non-SENIOR/DROP target — no legend section', () => {
       data: {},
     })
 
-    await page.goto(`/crm/profile/${USERS.junior.id}`)
+    await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     await expect(page.getByTestId('legend-section')).not.toBeVisible({ timeout: 2000 })
   })

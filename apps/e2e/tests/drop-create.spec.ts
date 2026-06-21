@@ -2,7 +2,7 @@
  * drop-create.spec.ts — Drop role - phase 1 (AC1).
  *
  * Verifies the ADMIN flow for creating a DROP user via the unified
- * UserDialog on `/crm/users`. Picking the DROP role in the role select
+ * UserDialog on `/users`. Picking the DROP role in the role select
  * swaps in the drop-share slider + mandatory drop-team section and the
  * submit hits `POST /api/users/drops`, which atomically provisions both
  * the DROP user and the paired drop-team (`type='DROP'`).
@@ -19,22 +19,26 @@ import { test, expect, USERS } from './fixtures'
 const VALID_USDT_WALLET = '0x' + '0'.repeat(40)
 
 test.describe('Drop creation — AC1 (unified UserDialog)', () => {
-  test('ADMIN sees a single «Добавить» button — no dedicated drop button', async ({ asAdmin: page }) => {
-    await page.goto('/crm/users')
+  test('ADMIN sees a single «Добавить» button — no dedicated drop button', async ({
+    asAdmin: page,
+  }) => {
+    await page.goto('/users')
     await expect(page.getByTestId('users-create-button')).toBeVisible()
     // UX fix: legacy «Создать дропа» button removed.
     await expect(page.getByTestId('users-create-drop-button')).toHaveCount(0)
   })
 
-  test('non-ADMIN does not see the «Добавить» button (access denied page)', async ({ asSenior: page }) => {
-    await page.goto('/crm/users')
+  test('non-ADMIN does not see the «Добавить» button (access denied page)', async ({
+    asSenior: page,
+  }) => {
+    await page.goto('/users')
     // SENIOR lands on the access-denied notice — neither button surfaces.
     await expect(page.getByText(/доступ только для администратора/i)).toBeVisible()
     await expect(page.getByTestId('users-create-button')).toHaveCount(0)
   })
 
   test('DROP role is selectable in the role picker', async ({ asAdmin: page }) => {
-    await page.goto('/crm/users')
+    await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     const dialog = page.getByTestId('user-dialog')
     await expect(dialog).toBeVisible()
@@ -42,8 +46,10 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
     await expect(page.getByRole('option', { name: 'Дроп' })).toBeVisible()
   })
 
-  test('picking DROP reveals drop-share slider (default 5%) and the team section', async ({ asAdmin: page }) => {
-    await page.goto('/crm/users')
+  test('picking DROP reveals drop-share slider (default 5%) and the team section', async ({
+    asAdmin: page,
+  }) => {
+    await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
     await page.getByRole('option', { name: 'Дроп' }).click()
@@ -60,8 +66,10 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
     await expect(dialog.getByTestId('user-dialog-team-mode')).toHaveCount(0)
   })
 
-  test('submits POST /users/drops with expected payload — DROP role, dropSharePercent', async ({ asAdmin: page }) => {
-    await page.goto('/crm/users')
+  test('submits POST /users/drops with expected payload — DROP role, dropSharePercent', async ({
+    asAdmin: page,
+  }) => {
+    await page.goto('/users')
 
     // Wait for the POST so we can assert the payload shape per AC1.
     const postReq = page.waitForRequest(
@@ -80,7 +88,7 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
     // Slider — type a custom share via the number input. Falls back to
     // default 5 if the number input isn't surfaced.
     const sliderNumber = dialog.locator('input[type="number"]').first()
-    if (await sliderNumber.count() > 0) {
+    if ((await sliderNumber.count()) > 0) {
       await sliderNumber.fill('7')
       await sliderNumber.blur()
     }
@@ -110,7 +118,7 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
     // and single-accountant fixtures both fields are auto-populated.
     expect(Array.isArray(body.hrIds)).toBe(true)
     expect((body.hrIds as string[]).length).toBeGreaterThan(0)
-    expect((body.hrIds as string[])).toContain(USERS.hr.id)
+    expect(body.hrIds as string[]).toContain(USERS.hr.id)
     expect(body.accountantId).toBe(USERS.accountant.id)
 
     expect(typeof body.dropSharePercent).toBe('number')
@@ -119,7 +127,7 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
   })
 
   test('cancel closes the dialog without firing a POST', async ({ asAdmin: page }) => {
-    await page.goto('/crm/users')
+    await page.goto('/users')
 
     let postCalled = false
     page.on('request', (req) => {
@@ -140,7 +148,7 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
   })
 
   test('switching to Bank UAH (ФОП) reveals UA-IBAN + РНОКПП fields', async ({ asAdmin: page }) => {
-    await page.goto('/crm/users')
+    await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
     await page.getByRole('option', { name: 'Дроп' }).click()

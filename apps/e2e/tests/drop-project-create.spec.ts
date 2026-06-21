@@ -1,11 +1,11 @@
 /**
  * drop-project-create.spec.ts — task-drop-phase2-e2e (AC5).
  *
- * REAL-API UI flow: ADMIN creates a drop-project through `/crm/projects`.
+ * REAL-API UI flow: ADMIN creates a drop-project through `/projects`.
  *
  *   1. Pre-step: provision a fresh DROP user (so the drop Select has at
  *      least one option). Backend test endpoint creates DROP + drop-team.
- *   2. UI flow: ADMIN navigates to /crm/projects → «Новый проект» dialog.
+ *   2. UI flow: ADMIN navigates to /projects → «Новый проект» dialog.
  *   3. Fill the form: name, company, domain stays default, choose senior
  *      from Select, choose the drop user from the new «Дроп» Select
  *      (data-testid="create-project-drop-select"), set rate.
@@ -54,14 +54,11 @@ test.describe('Drop-project create — UI flow (AC5)', () => {
     })
 
     try {
-      // ADMIN is already logged in. Land on /crm/projects.
-      await page.goto('/crm/projects')
+      // ADMIN is already logged in. Land on /projects.
+      await page.goto('/projects')
 
       // Open «Новый проект» dialog.
-      await page
-        .getByRole('button', { name: 'Новый проект' })
-        .first()
-        .click()
+      await page.getByRole('button', { name: 'Новый проект' }).first().click()
 
       const dialog = page.getByRole('dialog')
       await expect(dialog).toBeVisible({ timeout: 10_000 })
@@ -94,8 +91,7 @@ test.describe('Drop-project create — UI flow (AC5)', () => {
       // Intercept the POST so we can read the created project id immediately
       // (the dialog doesn't auto-navigate to the new detail page).
       const postPromise = page.waitForResponse(
-        (resp) =>
-          resp.url().endsWith('/api/projects') && resp.request().method() === 'POST',
+        (resp) => resp.url().endsWith('/api/projects') && resp.request().method() === 'POST',
       )
       await createButtonInDialog.click()
       const postResp = await postPromise
@@ -109,7 +105,7 @@ test.describe('Drop-project create — UI flow (AC5)', () => {
       await expect(dialog).toBeHidden({ timeout: 5_000 })
 
       // Navigate to detail and verify badges + breakdown.
-      await page.goto(`/crm/projects/${created.id}`)
+      await page.goto(`/projects/${created.id}`)
       await expect(page.getByTestId('project-drop-badge')).toBeVisible({ timeout: 10_000 })
       await expect(page.getByText('Drop-проект', { exact: false })).toBeVisible()
 
@@ -132,7 +128,6 @@ test.describe('Drop-project create — UI flow (AC5)', () => {
       expect(projectRes.status()).toBe(200)
       const projectDto = (await projectRes.json()) as { dropId: string | null }
       expect(projectDto.dropId).toBe(dropId)
-
     } finally {
       await cleanupDropViaAPI(page, dropId)
     }

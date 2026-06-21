@@ -3,7 +3,7 @@
  *
  * Coverage (AC #8):
  * - 5 non-ADMIN roles (HR, SENIOR, JUNIOR, DROP, ACCOUNTANT): unboarded user
- *   → lands on /crm/onboarding → signs contract → accepts ToS → reaches /crm
+ *   → lands on /onboarding → signs contract → accepts ToS → reaches /crm
  * - ADMIN: logs in → NOT redirected to onboarding (gate bypass)
  * - Onboarded user: logs in → NOT redirected to onboarding (idempotent)
  * - Soft-notify banner: shows when tosUpdateAvailable=true AND requiresTos=false
@@ -252,36 +252,36 @@ test.describe('Onboarding flow', () => {
     await mockAuthAs(page, USERS.senior)
     await mockOnboardingApi(page, { initialStatus: statusUnboarded('SENIOR') })
 
-    await page.goto('/crm')
+    await page.goto('/')
 
     // Gate redirects to onboarding
-    await expect(page).toHaveURL(/\/crm\/onboarding/, { timeout: 8000 })
+    await expect(page).toHaveURL(/\/onboarding/, { timeout: 8000 })
 
     // Complete wizard
     await completeOnboarding(page)
 
     // After accept → dashboard
-    await expect(page).toHaveURL(/\/crm\/?$/, { timeout: 8000 })
+    await expect(page).toHaveURL(/\/?$/, { timeout: 8000 })
   })
 
   test('HR: unboarded user → onboarding wizard → dashboard', async ({ page }) => {
     await mockAuthAs(page, USERS.hr)
     await mockOnboardingApi(page, { initialStatus: statusUnboarded('HR') })
 
-    await page.goto('/crm')
-    await expect(page).toHaveURL(/\/crm\/onboarding/, { timeout: 8000 })
+    await page.goto('/')
+    await expect(page).toHaveURL(/\/onboarding/, { timeout: 8000 })
     await completeOnboarding(page)
-    await expect(page).toHaveURL(/\/crm\/?$/, { timeout: 8000 })
+    await expect(page).toHaveURL(/\/?$/, { timeout: 8000 })
   })
 
   test('JUNIOR: unboarded user → onboarding wizard → dashboard', async ({ page }) => {
     await mockAuthAs(page, USERS.junior)
     await mockOnboardingApi(page, { initialStatus: statusUnboarded('JUNIOR') })
 
-    await page.goto('/crm')
-    await expect(page).toHaveURL(/\/crm\/onboarding/, { timeout: 8000 })
+    await page.goto('/')
+    await expect(page).toHaveURL(/\/onboarding/, { timeout: 8000 })
     await completeOnboarding(page)
-    await expect(page).toHaveURL(/\/crm\/?$/, { timeout: 8000 })
+    await expect(page).toHaveURL(/\/?$/, { timeout: 8000 })
   })
 
   test('DROP: unboarded user → onboarding wizard → profile (DROP has no dashboard)', async ({
@@ -290,11 +290,11 @@ test.describe('Onboarding flow', () => {
     await mockAuthAs(page, USERS.drop)
     await mockOnboardingApi(page, { initialStatus: statusUnboarded('DROP') })
 
-    await page.goto('/crm')
-    await expect(page).toHaveURL(/\/crm\/onboarding/, { timeout: 8000 })
+    await page.goto('/')
+    await expect(page).toHaveURL(/\/onboarding/, { timeout: 8000 })
     await completeOnboarding(page)
-    // DROP role has no dashboard — dashboard.tsx redirects DROP to /crm/profile
-    await expect(page).toHaveURL(/\/crm\/profile/, { timeout: 8000 })
+    // DROP role has no dashboard — dashboard.tsx redirects DROP to /profile
+    await expect(page).toHaveURL(/\/profile/, { timeout: 8000 })
   })
 
   test('ACCOUNTANT: unboarded user → onboarding wizard → dashboard', async ({
@@ -302,10 +302,10 @@ test.describe('Onboarding flow', () => {
   }) => {
     await mockOnboardingApi(page, { initialStatus: statusUnboarded('ACCOUNTANT') })
 
-    await page.goto('/crm')
-    await expect(page).toHaveURL(/\/crm\/onboarding/, { timeout: 8000 })
+    await page.goto('/')
+    await expect(page).toHaveURL(/\/onboarding/, { timeout: 8000 })
     await completeOnboarding(page)
-    await expect(page).toHaveURL(/\/crm\/?$/, { timeout: 8000 })
+    await expect(page).toHaveURL(/\/?$/, { timeout: 8000 })
   })
 
   // -------------------------------------------------------------------------
@@ -324,11 +324,11 @@ test.describe('Onboarding flow', () => {
       }),
     )
 
-    await page.goto('/crm')
+    await page.goto('/')
 
     // Should NOT redirect to onboarding
-    await expect(page).not.toHaveURL(/\/crm\/onboarding/, { timeout: 3000 })
-    await expect(page).toHaveURL(/\/crm\/?$/, { timeout: 5000 })
+    await expect(page).not.toHaveURL(/\/onboarding/, { timeout: 3000 })
+    await expect(page).toHaveURL(/\/?$/, { timeout: 5000 })
   })
 
   // -------------------------------------------------------------------------
@@ -347,11 +347,11 @@ test.describe('Onboarding flow', () => {
       }),
     )
 
-    await page.goto('/crm')
+    await page.goto('/')
 
     // Should stay on dashboard
-    await expect(page).not.toHaveURL(/\/crm\/onboarding/, { timeout: 3000 })
-    await expect(page).toHaveURL(/\/crm\/?$/, { timeout: 5000 })
+    await expect(page).not.toHaveURL(/\/onboarding/, { timeout: 3000 })
+    await expect(page).toHaveURL(/\/?$/, { timeout: 5000 })
   })
 
   // -------------------------------------------------------------------------
@@ -371,17 +371,17 @@ test.describe('Onboarding flow', () => {
       }),
     )
 
-    await page.goto('/crm')
-    await expect(page).toHaveURL(/\/crm\/?$/, { timeout: 5000 })
+    await page.goto('/')
+    await expect(page).toHaveURL(/\/?$/, { timeout: 5000 })
 
     // Banner should be visible
     await expect(page.getByTestId('tos-update-banner')).toBeVisible({ timeout: 5000 })
 
-    // Banner link points to /crm/onboarding with step=tos
+    // Banner link points to /onboarding with step=tos
     const bannerLink = page.getByTestId('tos-update-banner-link')
     await expect(bannerLink).toBeVisible()
     const href = await bannerLink.getAttribute('href')
-    expect(href).toContain('/crm/onboarding')
+    expect(href).toContain('/onboarding')
   })
 
   // -------------------------------------------------------------------------
@@ -400,7 +400,7 @@ test.describe('Onboarding flow', () => {
       },
     })
 
-    await page.goto('/crm/onboarding?step=tos')
+    await page.goto('/onboarding?step=tos')
 
     // Should show ToS step, not contract step
     await expect(page.getByTestId('onboarding-step-tos')).toBeVisible({ timeout: 6000 })
@@ -426,7 +426,7 @@ test.describe('Onboarding flow', () => {
 
     await mockOnboardingApi(page, { initialStatus: waitStatus })
 
-    await page.goto('/crm/onboarding')
+    await page.goto('/onboarding')
     await expect(page.getByTestId('onboarding-step-contract')).toBeVisible({ timeout: 8000 })
 
     // ContractWaitScreen should be shown, NOT SignContractStep form
@@ -444,7 +444,7 @@ test.describe('Onboarding flow', () => {
     await mockAuthAs(page, USERS.senior)
     await mockOnboardingApi(page, { initialStatus: statusUnboarded('SENIOR') })
 
-    await page.goto('/crm/onboarding')
+    await page.goto('/onboarding')
     await expect(page.getByTestId('sign-contract-form')).toBeVisible({ timeout: 6000 })
 
     const signBtn = page.getByTestId('sign-button')

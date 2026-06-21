@@ -1,5 +1,5 @@
 /**
- * DocumentRow — compact list-view row for /crm/documents?view=list.
+ * DocumentRow — compact list-view row for /documents?view=list.
  *
  * Renders a single document as a horizontal row with:
  *   - category icon + filename (truncated)

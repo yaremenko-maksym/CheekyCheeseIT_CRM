@@ -7,7 +7,7 @@
  * Architecture under test:
  *   - PAYOUT PAID → backend auto-signs COMPANY side (Maksym ADMIN), creates
  *     INVOICE Document, drops INVOICE_SIGN_REQUIRED notification for SENIOR.
- *   - SENIOR opens /crm/documents?category=INVOICE → clicks invoice card →
+ *   - SENIOR opens /documents?category=INVOICE → clicks invoice card →
  *     InvoiceDetailDialog opens → click «Подписать инвойс» → checkbox →
  *     submit.
  *   - Backend re-generates PDF with both signatures → soft-deletes old PDF
@@ -17,7 +17,7 @@
  *
  * Verified invariants:
  *   C1: Notification «INVOICE_SIGN_REQUIRED» bell badge ≥ 1, dropdown shows
- *       it, click navigates to /crm/documents?category=INVOICE&openTx=<txId>.
+ *       it, click navigates to /documents?category=INVOICE&openTx=<txId>.
  *   C2: InvoiceDetailDialog renders COMPANY signature (method=Авто), empty
  *       COUNTERPARTY row («Ожидает подписи»), «Подписать инвойс» button.
  *   C3: Confirm AlertDialog gates submit on the checkbox.
@@ -126,7 +126,7 @@ function makeSignRequiredNotification(): object {
     type: 'INVOICE_SIGN_REQUIRED',
     title: 'Требуется подпись инвойса',
     body: 'AI Platform v2 — ' + (3700).toFixed(2) + ' USDT',
-    link: '/crm/documents?category=INVOICE&openTx=' + TX_ID,
+    link: '/documents?category=INVOICE&openTx=' + TX_ID,
     readAt: null,
     createdAt: '2026-05-10T12:05:00.000Z',
   }
@@ -252,7 +252,7 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
     asSenior,
   }) => {
     mockInvoiceFlow(asSenior)
-    await asSenior.goto('/crm')
+    await asSenior.goto('/')
 
     // Bell badge — `unreadCount` from the mocked /notifications endpoint.
     const bell = asSenior.getByTestId('notifications-bell-trigger')
@@ -269,7 +269,7 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
     asSenior,
   }) => {
     mockInvoiceFlow(asSenior)
-    await asSenior.goto(`/crm/documents?category=INVOICE&openTx=${TX_ID}`)
+    await asSenior.goto(`/documents?category=INVOICE&openTx=${TX_ID}`)
 
     const dialog = asSenior.getByTestId('invoice-detail-dialog')
     await expect(dialog).toBeVisible()
@@ -285,7 +285,7 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
 
   test('C3: confirm dialog gates submit on checkbox', async ({ asSenior }) => {
     mockInvoiceFlow(asSenior)
-    await asSenior.goto(`/crm/documents?category=INVOICE&openTx=${TX_ID}`)
+    await asSenior.goto(`/documents?category=INVOICE&openTx=${TX_ID}`)
 
     await asSenior.getByTestId('invoice-detail-sign-button').click()
     await expect(asSenior.getByTestId('invoice-sign-confirm-dialog')).toBeVisible()
@@ -302,7 +302,7 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
     asSenior,
   }) => {
     const { getSignCalls } = mockInvoiceFlow(asSenior)
-    await asSenior.goto(`/crm/documents?category=INVOICE&openTx=${TX_ID}`)
+    await asSenior.goto(`/documents?category=INVOICE&openTx=${TX_ID}`)
 
     await asSenior.getByTestId('invoice-detail-sign-button').click()
     await asSenior.getByTestId('invoice-sign-agree-checkbox').check()
@@ -324,7 +324,7 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
     // Defensive: dialog must not re-render the sign button after the row is
     // signed (would let the same user sign twice).
     mockInvoiceFlow(asSenior, { state: 'signed' })
-    await asSenior.goto(`/crm/documents?category=INVOICE&openTx=${TX_ID}`)
+    await asSenior.goto(`/documents?category=INVOICE&openTx=${TX_ID}`)
 
     await expect(asSenior.getByTestId('invoice-detail-dialog')).toBeVisible()
     await expect(asSenior.getByTestId('invoice-detail-sign-button')).not.toBeVisible()
@@ -338,7 +338,7 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
     // counterparty in this fixture) sees an explanatory chip in place of
     // the button.
     mockInvoiceFlow(asHr)
-    await asHr.goto(`/crm/documents?category=INVOICE&openTx=${TX_ID}`)
+    await asHr.goto(`/documents?category=INVOICE&openTx=${TX_ID}`)
     await expect(asHr.getByTestId('invoice-detail-dialog')).toBeVisible()
     await expect(asHr.getByTestId('invoice-detail-sign-button')).not.toBeVisible()
     await expect(asHr.getByTestId('invoice-detail-counterparty-only-badge')).toBeVisible()
@@ -453,7 +453,7 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
     // dialog still opens through the deep link (notification reuse case).
     await mockAuthAs(page, USERS.admin)
     mockInvoiceFlow(page)
-    await page.goto(`/crm/documents?category=INVOICE&openTx=${TX_ID}`)
+    await page.goto(`/documents?category=INVOICE&openTx=${TX_ID}`)
     await expect(page.getByTestId('invoice-detail-dialog')).toBeVisible()
     // ADMIN is not the counterparty (SENIOR is) — no sign button.
     await expect(page.getByTestId('invoice-detail-sign-button')).not.toBeVisible()
