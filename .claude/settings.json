@@ -41,6 +41,17 @@
         "id": "pre:bash:coder-push-gate"
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/pre-bash-prettier-gate.sh"
+          }
+        ],
+        "description": "Prettier push gate — block git push when PR-changed files are not prettier-formatted (local mirror of CI check-formatting; worktree-safe, fail-loud)",
+        "id": "pre:bash:prettier-gate"
+      },
+      {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
           {
