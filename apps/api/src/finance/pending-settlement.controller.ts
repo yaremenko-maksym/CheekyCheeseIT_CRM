@@ -23,10 +23,16 @@
  * holds debts to seniors — the senior share is owed by the company itself
  * and closed by ADMIN/ACCOUNTANT only.
  */
-import { Body, Controller, Get, Param, Post } from '@nestjs/common'
-import { settleObligationParamSchema, settleBySourceTransactionParamSchema } from '@crm/shared'
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common'
+import {
+  settleObligationParamSchema,
+  settleBySourceTransactionParamSchema,
+  settleSeniorPayoutSchema,
+} from '@crm/shared'
 import type { SessionUser } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
+import { Roles } from '../common/decorators/roles.decorator'
+import { RolesGuard } from '../common/guards/roles.guard'
 import { PendingSettlementService } from './pending-settlement.service'
 
 // Auth enforced by global JwtAuthGuard (see AppModule APP_GUARD).
@@ -50,17 +56,29 @@ export class PendingSettlementController {
     return this.svc.settleByCompany(data.id, user)
   }
 
-  // task-senior-settle-in-tx-row: settle from the finance-page transactions
-  // list, where the row carries the SENIOR_PENDING_PAYOUT transaction id (not
-  // the obligation id). 3-segment path → no overlap with the 2-segment
-  // `:id/settle-company` route above. RBAC + money gate enforced in the service.
+  // task-senior-settle-in-tx-row / task-senior-settle-owner: settle from the
+  // finance-page transactions list, where the row carries the
+  // SENIOR_PENDING_PAYOUT transaction id (not the obligation id). 3-segment path
+  // → no overlap with the 2-segment `:id/settle-company` route above.
+  //
+  // The body now mirrors the SALARY pay flow: the ADMIN/ACCOUNTANT selects the
+  // funding source (shared company account vs an admin partner's personal
+  // account), the paying admin (for ADMIN_PERSONAL) and the currency. RBAC is
+  // enforced HERE (RolesGuard — @Roles is inert without it since RolesGuard is
+  // NOT a global APP_GUARD) AND re-checked in the service (defense in depth); the
+  // money gate / idempotency / company-account debit live in the service.
   @Post('by-source-transaction/:sourceTransactionId/settle-company')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN', 'ACCOUNTANT')
   settleCompanyBySourceTransaction(
     @Param('sourceTransactionId') sourceTransactionId: string,
-    @Body() _body: unknown,
+    @Body() body: unknown,
     @CurrentUser() user: SessionUser,
   ) {
-    const data = settleBySourceTransactionParamSchema.parse({ sourceTransactionId })
-    return this.svc.settleByCompanySourceTransaction(data.sourceTransactionId, user)
+    const { sourceTransactionId: id } = settleBySourceTransactionParamSchema.parse({
+      sourceTransactionId,
+    })
+    const funding = settleSeniorPayoutSchema.parse(body)
+    return this.svc.settleByCompanySourceTransaction(id, user, funding)
   }
 }
