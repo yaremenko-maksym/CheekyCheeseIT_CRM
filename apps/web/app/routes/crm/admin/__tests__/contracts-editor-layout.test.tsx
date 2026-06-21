@@ -30,13 +30,7 @@ import type { CustomVariable } from '@crm/shared'
 
 // CodeMirror — heavy lazy dep, replace with simple textarea
 vi.mock('@uiw/react-codemirror', () => ({
-  default: ({
-    value,
-    onChange,
-  }: {
-    value: string
-    onChange?: (val: string) => void
-  }) => (
+  default: ({ value, onChange }: { value: string; onChange?: (val: string) => void }) => (
     <textarea
       data-testid="mock-codemirror"
       value={value}
@@ -55,9 +49,7 @@ vi.mock('@/components/contracts/contractTokenHighlight', () => ({
 
 // VariablesPanel — lightweight stub (we test integration of position, not panel internals)
 vi.mock('@/components/contracts/VariablesPanel', () => ({
-  VariablesPanel: () => (
-    <div data-testid="variables-panel-stub">VariablesPanel</div>
-  ),
+  VariablesPanel: () => <div data-testid="variables-panel-stub">VariablesPanel</div>,
 }))
 
 // MarkdownDiff — stub to avoid heavy diffing in unit tests
@@ -263,8 +255,7 @@ describe('ContractEditorPage layout', () => {
 
     // variables-panel-wrapper must come AFTER contract-editor-wrapper in DOM
     const position =
-      editorWrapper.compareDocumentPosition(varsWrapper) &
-      Node.DOCUMENT_POSITION_FOLLOWING
+      editorWrapper.compareDocumentPosition(varsWrapper) & Node.DOCUMENT_POSITION_FOLLOWING
     expect(position).toBeTruthy()
   })
 
