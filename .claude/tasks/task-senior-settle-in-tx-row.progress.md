@@ -1,6 +1,10 @@
 # Progress: task-senior-settle-in-tx-row (owner-clarification follow-up, PR #265)
 
-current_milestone: 1/6
+current_milestone: 6/6 (verify)
+m1_schema: DONE m2_service: DONE m3_controller: DONE m4_frontend: DONE m5_tests: DONE
+api_unit: 44 pass (pending-settlement.spec, +11) integration: 6 pass (senior-settle-owner real-DB, crm_qa)
+blast: drop-payout-company-account INV2 green (legacy 2-arg settleByCompany unchanged)
+web: PaySalaryDialog refactor (FundingSourceFields) + SettleSeniorPayoutDialog + TransactionRow.settle-senior = 20 pass
 branch: feat/senior-settle-in-tx-row
 base: origin/feat/senior-settle-in-tx-row (HEAD 91278e1a)
 
