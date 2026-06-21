@@ -2,13 +2,22 @@ import { describe, expect, it } from 'vitest'
 import { validateEnv } from './env'
 
 /**
- * Unit tests for validateEnv — focus on CREDENTIALS_ENC_KEY fail-closed behaviour
- * in production (MED-1 security finding from PR #178 review).
+ * Unit tests for validateEnv:
  *
- * Three cases per the task spec:
+ * Section A — CREDENTIALS_ENC_KEY fail-closed (MED-1 security, PR #178):
  *   1. placeholder prefix ("change_me…") in production → throw
  *   2. placeholder prefix in development → ok
  *   3. valid hex key in production → ok
+ *
+ * Section B — CORS_ORIGINS env schema (PR3b):
+ *   4. CORS_ORIGINS optional — omitted → ok, field undefined
+ *   5. CORS_ORIGINS provided as string → ok, stored as-is (parsing is in cors.ts)
+ *
+ * Section C — TRUST_PROXY boolean preprocess (PR3b):
+ *   6. 'true' string → parsed as boolean true
+ *   7. 'false' string → parsed as boolean false
+ *   8. omitted → defaults to false
+ *   9. boolean true (direct) → kept as true
  */
 
 const BASE_DEV = {
@@ -64,5 +73,47 @@ describe('validateEnv — CREDENTIALS_ENC_KEY fail-closed', () => {
         CREDENTIALS_ENC_KEY: VALID_HEX_KEY,
       }),
     ).not.toThrow()
+  })
+})
+
+describe('validateEnv — CORS_ORIGINS (optional string)', () => {
+  it('accepts config without CORS_ORIGINS (field becomes undefined)', () => {
+    const env = validateEnv({ ...BASE_DEV })
+    expect(env.CORS_ORIGINS).toBeUndefined()
+  })
+
+  it('accepts CORS_ORIGINS as a comma-separated string and stores it as-is', () => {
+    const env = validateEnv({
+      ...BASE_DEV,
+      CORS_ORIGINS: 'https://app.cheekycheese.tech,https://cheekycheese.tech',
+    })
+    expect(env.CORS_ORIGINS).toBe('https://app.cheekycheese.tech,https://cheekycheese.tech')
+  })
+})
+
+describe('validateEnv — TRUST_PROXY boolean preprocess', () => {
+  it("parses string 'true' as boolean true", () => {
+    const env = validateEnv({ ...BASE_DEV, TRUST_PROXY: 'true' })
+    expect(env.TRUST_PROXY).toBe(true)
+  })
+
+  it("parses string 'false' as boolean false", () => {
+    const env = validateEnv({ ...BASE_DEV, TRUST_PROXY: 'false' })
+    expect(env.TRUST_PROXY).toBe(false)
+  })
+
+  it("parses string 'TRUE' (uppercase) as boolean true", () => {
+    const env = validateEnv({ ...BASE_DEV, TRUST_PROXY: 'TRUE' })
+    expect(env.TRUST_PROXY).toBe(true)
+  })
+
+  it('defaults TRUST_PROXY to false when omitted', () => {
+    const env = validateEnv({ ...BASE_DEV })
+    expect(env.TRUST_PROXY).toBe(false)
+  })
+
+  it('accepts boolean true directly (non-string env scenario)', () => {
+    const env = validateEnv({ ...BASE_DEV, TRUST_PROXY: true })
+    expect(env.TRUST_PROXY).toBe(true)
   })
 })

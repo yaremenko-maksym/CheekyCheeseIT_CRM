@@ -24,6 +24,21 @@ const envSchema = z
     // явно через env (см. refine ниже — пустой default + NODE_ENV=production → ошибка).
     FRONTEND_URL: z.string().min(1).default('http://localhost:3000'),
 
+    // CORS_ORIGINS: comma-separated list of exact allowed origins for CORS.
+    // E.g. "https://app.cheekycheese.tech,https://cheekycheese.tech"
+    // If unset, falls back to [FRONTEND_URL]. Dev-tunnel regexes (serveo.net)
+    // are appended automatically in non-production when this is unset.
+    // See parseCorsOrigins() in config/cors.ts for full allowlist build logic.
+    CORS_ORIGINS: z.string().optional(),
+
+    // TRUST_PROXY: when true, Fastify trusts X-Forwarded-* headers from the
+    // reverse proxy (nginx). Required behind nginx TLS-termination so that
+    // rate-limiters and logs see the real client IP (X-Forwarded-For) and
+    // the correct protocol (X-Forwarded-Proto). Set to "true" in production.
+    TRUST_PROXY: z
+      .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
+      .default(false),
+
     // S3 / MinIO (PHASE 6 — Documents). Dev defaults point to local MinIO.
     // AWS_* defaults to 'minioadmin' for local convenience; production safety
     // enforced via refine() below (NODE_ENV=production + minioadmin → throw).

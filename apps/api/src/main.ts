@@ -6,14 +6,22 @@ import helmet from '@fastify/helmet'
 import multipart from '@fastify/multipart'
 import { AppModule } from './app.module'
 import { ZodExceptionFilter } from './zod-exception.filter'
+import { parseCorsOrigins } from './config/cors'
 
 async function bootstrap() {
+  const isProd = process.env['NODE_ENV'] === 'production'
+  const trustProxy = process.env['TRUST_PROXY'] === 'true'
+
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ logger: process.env['NODE_ENV'] !== 'test' }),
+    new FastifyAdapter({
+      logger: process.env['NODE_ENV'] !== 'test',
+      // When behind nginx TLS-termination, trust X-Forwarded-For/X-Forwarded-Proto
+      // so rate-limiters and logs see the real client IP and protocol.
+      // Set TRUST_PROXY=true in production (reverse-proxy deployment).
+      trustProxy,
+    }),
   )
-
-  const isProd = process.env['NODE_ENV'] === 'production'
 
   await app.register(helmet, {
     // In development CSP is disabled for easier debugging (hot-reload, devtools).
@@ -56,12 +64,18 @@ async function bootstrap() {
     },
   })
 
+  // Build CORS origin allowlist from env:
+  //  - CORS_ORIGINS set → use as exact multi-origin allowlist (no dev-tunnel regexes)
+  //  - CORS_ORIGINS unset → fallback to [FRONTEND_URL]
+  //  - In non-production without CORS_ORIGINS → also append serveo.net dev-tunnel regexes
+  const corsOrigins = parseCorsOrigins({
+    corsOrigins: process.env['CORS_ORIGINS'],
+    frontendUrl: process.env['FRONTEND_URL'] ?? 'http://localhost:3000',
+    isProduction: isProd,
+  })
+
   app.enableCors({
-    origin: [
-      process.env['FRONTEND_URL'] ?? 'http://localhost:3000',
-      /\.serveo\.net$/,
-      /\.serveousercontent\.com$/,
-    ],
+    origin: corsOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
