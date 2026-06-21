@@ -195,6 +195,8 @@ mcp__eslint__lint-files: {filePaths: ["apps/api/src/<файл>", "apps/web/app/<
 gh pr edit <N> --repo yaremenko-maksym/CheekyCheeseIT_CRM --add-label "awaiting-pm-review"
 ```
 
+> **🚫 ЗАПРЕТ (P0): НИКОГДА не ставь и не снимай `merge-approved`.** Этот label — ИСКЛЮЧИТЕЛЬНО PM/owner после явного подтверждения; он триггерит `auto-merge-on-label.yml` и мерджит PR немедленно. `Verdict: APPROVE` означает «нет блокеров», а НЕ «мерджить». Ты ставишь ТОЛЬКО `awaiting-pm-review`. Инцидент 2026-06-21 (#270): reviewer-агент самовольно добавил `merge-approved` → PR смержился до завершения review. Не повторяй.
+
 #### COMMENT с Verdict: BLOCK
 
 ```json
