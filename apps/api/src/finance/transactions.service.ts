@@ -25,7 +25,7 @@ import type {
   ManualPayoutMethod,
   CurrencyEnum,
 } from '@crm/shared'
-import { MAKSYM_ID, KOSTYA_ID, SALARY_ELIGIBLE_ROLES } from '@crm/shared'
+import { MAKSYM_ID, SALARY_ELIGIBLE_ROLES } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
   documents,
@@ -406,29 +406,11 @@ export class TransactionsService {
   // ── Distribution helpers (Drop role - phase 2) ───────────────────────────
   //
   // Pure helpers — no DB writes, no side-effects. The drop-project flow
-  // branches on `project.dropId` and calls `computeDropDistribution`, while
-  // the senior-project flow keeps calling `computePartnersSplit` directly.
-  // Senior path math is byte-for-byte identical to pre-phase-2 behavior:
-  // `computePartnersSplit(payable)` returns `[{ MAKSYM_ID, payable/2 }, …]`
-  // which is what the legacy inline loop produced.
-
-  /**
-   * Split a payable amount 50/50 between the two hard-coded admin partners
-   * (Maksym + Kostya). Used by:
-   *   - senior-project `payPayoutRequest` (pre-phase-2 path, unchanged result)
-   *   - `computeDropDistribution` for the residual after senior + drop cuts
-   *
-   * Returns an array (length=2) so callers can iterate without caring about
-   * the admin identities — keeps the test surface small and future-proofs
-   * for an N-partner split if the model ever changes.
-   */
-  computePartnersSplit(payableAmount: number): { adminId: string; amount: number }[] {
-    const half = payableAmount / 2
-    return [
-      { adminId: MAKSYM_ID, amount: half },
-      { adminId: KOSTYA_ID, amount: half },
-    ]
-  }
+  // branches on `project.dropId` and calls `computeDropDistribution` to split
+  // a drop-project income into the senior + drop slices. The remainder
+  // (income − senior − drop) is NOT split here — it stays on the company
+  // account (task-drop-payout-company-account; the legacy 50/50 partner split
+  // helper `computePartnersSplit` was removed with the payment-channel flow).
 
   /**
    * Phase 8 v2 — convert a scaled-integer (minor units, ×1e6) amount in a source
@@ -502,7 +484,6 @@ export class TransactionsService {
   ): {
     seniorShare: { amount: number; percent: number }
     dropShare: { amount: number; percent: number }
-    partnerShares: { adminId: string; amount: number }[]
   } {
     const seniorPercent = senior.seniorSharePercent ?? DEFAULT_SENIOR_SHARE_PERCENT
     const dropPercent = drop.dropSharePercent ?? DEFAULT_DROP_SHARE_PERCENT
@@ -513,12 +494,16 @@ export class TransactionsService {
 
     const seniorAmount = (income * seniorPercent) / 100
     const dropAmount = (income * dropPercent) / 100
-    const remainder = income - seniorAmount - dropAmount
 
+    // task-drop-payout-company-account: `partnerShares` (the old 50/50
+    // remainder split into PAYOUT_ADMIN) is removed. The remainder
+    // (income − senior − drop) now stays on the COMPANY account (credited via
+    // the PAYOUT row's fundingSource marker); admin income is a deliberate
+    // manual DIVIDEND_TO_ADMIN flow, not an auto split. Only the senior and
+    // drop slices are returned.
     return {
       seniorShare: { amount: seniorAmount, percent: seniorPercent },
       dropShare: { amount: dropAmount, percent: dropPercent },
-      partnerShares: this.computePartnersSplit(remainder),
     }
   }
 
@@ -2410,9 +2395,10 @@ export class TransactionsService {
           )
 
           const income = parseFloat(req.incomeAmount)
-          // computeDropDistribution is PURE (no DB). The senior share uses the
-          // resolved snapshot value (project/team override aware) rather than the
-          // raw user default, so the obligation booked below matches the snapshot.
+          // computeDropDistribution is PURE (no DB) — safe inside the txn. The
+          // senior share uses the resolved snapshot value (project/team override
+          // aware) rather than the raw user default, so the obligation booked
+          // below matches the snapshot.
           const distribution = this.computeDropDistribution(
             income,
             { id: primaryProject.id, dropId: primaryProject.dropId },

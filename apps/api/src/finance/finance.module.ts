@@ -10,8 +10,6 @@ import { CompanyAccountController } from './company-account.controller'
 import { CompanyAccountService } from './company-account.service'
 import { EtherscanService } from './etherscan.service'
 import { NbuCurrencyService } from './nbu-currency.service'
-import { PaymentChannelController } from './payment-channel.controller'
-import { PaymentChannelService } from './payment-channel.service'
 import { PendingSettlementController } from './pending-settlement.controller'
 import { PendingSettlementService } from './pending-settlement.service'
 import { SalaryCronService } from './salary-cron.service'
@@ -47,9 +45,10 @@ import { TransactionsService } from './transactions.service'
     NbuCurrencyService,
     // Phase 4-A: balance pipeline runs alongside the legacy getSummary.
     BalanceService,
-    // Phase 4-B: drop-project payment channels (crypto/bank/cash).
-    PaymentChannelService,
-    // Phase 4-C: pending senior IOU settlement (close TOV/DROP debts).
+    // task-drop-payout-company-account: legacy PaymentChannelService removed —
+    // drop now settles via the same createPayoutRequest → payPayoutRequest flow
+    // as a senior (company account + COMPANY → senior obligation in the cascade).
+    // Phase 4-C: pending senior IOU settlement (close company debts to seniors).
     PendingSettlementService,
     // task-company-account-backend: shared company USDT account.
     CompanyAccountService,
@@ -62,19 +61,11 @@ import { TransactionsService } from './transactions.service'
     // Phase 4-A: /api/balances/{tov,admin,senior} + /api/pending-obligations
     BalanceController,
     PendingObligationsController,
-    // Phase 4-B: /api/payments/{initiate,confirm}-{crypto,bank,cash}
-    PaymentChannelController,
-    // Phase 4-C: /api/pending-settlements/{senior,drop,tov,:id/settle-*}
+    // Phase 4-C: /api/pending-settlements/{senior,company,:id/settle-company}
     PendingSettlementController,
     // task-company-account-backend: /api/company-account/*
     CompanyAccountController,
   ],
-  exports: [
-    TransactionsService,
-    BalanceService,
-    PaymentChannelService,
-    PendingSettlementService,
-    CompanyAccountService,
-  ],
+  exports: [TransactionsService, BalanceService, PendingSettlementService, CompanyAccountService],
 })
 export class FinanceModule {}

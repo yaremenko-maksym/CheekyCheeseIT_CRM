@@ -1,5 +1,4 @@
 import {
-  Body,
   Controller,
   Get,
   Global,
@@ -7,7 +6,6 @@ import {
   Module,
   Param,
   ParseUUIDPipe,
-  Post,
   Query,
 } from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
@@ -27,7 +25,6 @@ import { CurrentUser } from '../auth/current-user.decorator'
 import { DatabaseService } from '../database/database.service'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { TransactionsService } from './transactions.service'
-import { PaymentChannelService } from './payment-channel.service'
 import { TeamsService } from '../teams/teams.service'
 import { ProjectsService } from '../projects/projects.service'
 import { ProjectAuditLogService } from '../projects/project-audit-log.service'
@@ -48,7 +45,7 @@ import * as schema from '../database/schema'
  *
  * WHY (feedback_mocked_e2e_guards, recurred 3×): mocked E2E gives false
  * confidence for endpoints behind guards. This spec exercises the REAL
- * TransactionsService / PaymentChannelService / TeamsService against REAL
+ * TransactionsService / TeamsService against REAL
  * PostgreSQL so the DROP ownership SQL is actually enforced. It pins the
  * IDOR / cross-drop data-leak class that mocked tests miss.
  *
@@ -170,7 +167,6 @@ const TEST_USER_IDS = [SENIOR.id, JUNIOR.id, HR.id, ACCOUNTANT.id, DROP_A.id, DR
 
 // ── Sentinel controllers — mirror the real routes under test ────────────────
 const TX_SERVICE = 'TX_SERVICE_DROP_RBAC'
-const PC_SERVICE = 'PC_SERVICE_DROP_RBAC'
 const TEAMS_SERVICE = 'TEAMS_SERVICE_DROP_RBAC'
 const PROJECTS_SERVICE = 'PROJECTS_SERVICE_DROP_RBAC'
 
@@ -223,24 +219,6 @@ class SentinelTransactionsController {
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: SessionUser) {
     return this.svc.findOne(id, user)
-  }
-}
-
-@Controller('payments')
-class SentinelPaymentsController {
-  constructor(@Inject(PC_SERVICE) private readonly svc: PaymentChannelService) {}
-
-  @Post('initiate-crypto')
-  initiate(@Body() body: { incomeId: string }, @CurrentUser() user: SessionUser) {
-    return this.svc.initiateCryptoPayment(body.incomeId, user)
-  }
-
-  @Post('confirm-crypto')
-  confirm(
-    @Body() body: { incomeId: string; txHashes: string[] },
-    @CurrentUser() user: SessionUser,
-  ) {
-    return this.svc.confirmCryptoPayment(body.incomeId, body.txHashes, user)
   }
 }
 
@@ -301,7 +279,6 @@ class TestDatabaseModule {}
   controllers: [
     SentinelFinanceController,
     SentinelTransactionsController,
-    SentinelPaymentsController,
     SentinelTeamsController,
     SentinelProjectsController,
   ],
@@ -316,13 +293,6 @@ class TestDatabaseModule {}
       inject: [DatabaseService],
     },
     { provide: TX_SERVICE, useExisting: TransactionsService },
-    {
-      provide: PaymentChannelService,
-      useFactory: (db: DatabaseService, tx: TransactionsService) =>
-        new PaymentChannelService(db, tx),
-      inject: [DatabaseService, TransactionsService],
-    },
-    { provide: PC_SERVICE, useExisting: PaymentChannelService },
     // TeamsService: UsersService collaborator stubbed — findAll/findOne never
     // call back into it.
     {
@@ -892,44 +862,11 @@ describe('DROP RBAC — real backend integration (real DB, no mocks)', () => {
     expect(res.statusCode).toBe(200)
   })
 
-  // ── payment-channel ownership (AC6 / AC5) ────────────────────────────────────
-
-  it("POST /payments/initiate-crypto with Drop B's incomeId → 403 for Drop A", async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/initiate-crypto',
-      cookies: { jwt: tokenFor(DROP_A) },
-      payload: { incomeId: INCOME_B_ID },
-    })
-    expect(res.statusCode).toBe(403)
-  })
-
-  it("POST /payments/confirm-crypto with Drop B's incomeId → 403 for Drop A", async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/confirm-crypto',
-      cookies: { jwt: tokenFor(DROP_A) },
-      payload: { incomeId: INCOME_B_ID, txHashes: ['0x' + 'a'.repeat(64)] },
-    })
-    expect(res.statusCode).toBe(403)
-  })
-
-  it('POST /payments/initiate-crypto with OWN incomeId → 201 for Drop B (proves the guard allows the owner)', async () => {
-    if (!dbAvailable) return
-    // NestJS @Post() defaults to 201 Created on success. The point of this
-    // positive case is that Drop B (the owner) is NOT forbidden — contrast
-    // with the 403 Drop A receives for the same income above.
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/initiate-crypto',
-      cookies: { jwt: tokenFor(DROP_B) },
-      payload: { incomeId: INCOME_B_ID },
-    })
-    expect(res.statusCode).toBe(201)
-    // And the recipients are the 2 admin partners (sanity on the happy path).
-    const body = res.json() as { recipients: Array<{ role: string }> }
-    expect(body.recipients.length).toBeGreaterThan(0)
-  })
+  // task-drop-payout-company-account: the legacy payment-channel (/api/payments/*)
+  // is removed — the DROP now settles via the same payout-request flow as a
+  // SENIOR (createPayoutRequest → payPayoutRequest), whose ownership is covered
+  // by the createPayoutRequest count-mismatch guard + payPayoutRequest's
+  // `req.seniorId === currentUser.id` check (see transactions.payout-flow.spec +
+  // the drop integration in this PR). The old /payments/* ownership tests are
+  // therefore gone with the endpoints they covered.
 })
