@@ -110,8 +110,10 @@ function renderInlineTokens(text: string, customMap: Map<string, string>): React
  *  - System variables → stay as {{key}} but highlighted with a coloured badge
  *  - Unknown tokens   → stay as {{key}} highlighted amber
  * Document-style layout — markdown rendered via ReactMarkdown with safe React nodes.
+ *
+ * Exported for unit testing.
  */
-function ContractPreview({
+export function ContractPreview({
   body,
   customVariables,
 }: {
