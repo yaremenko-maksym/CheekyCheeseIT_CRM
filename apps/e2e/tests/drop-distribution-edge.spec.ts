@@ -3,14 +3,15 @@
  *
  * Edge cases for the Phase 2 distribution math (§8.1):
  *
- *   - senior 50% + drop 50% → remainder = $0, partners [$0, $0].
- *     4 rows still created (PAYOUT placeholder + PAYOUT_DROP + 2×PAYOUT_ADMIN),
- *     but the two PAYOUT_ADMIN amounts are 0.
+ *   - senior 50% + drop 50% → remainder = $0, 0 PAYOUT_ADMIN rows.
+ *     fix/payout-credits-company-account: the 50/50 partner split is removed.
+ *     Only PAYOUT placeholder + PAYOUT_DROP still created; company account
+ *     credited via PAYOUT.fundingSource='COMPANY_ACCOUNT'.
  *   - senior 60% + drop 50% → backend 400 BadRequest at pay-time
  *     ("Sum of senior+drop shares exceeds 100%"). The income lives PENDING /
  *     VALIDATED but the payout never completes.
- *   - senior 0% + drop 0% → partners 500 / 500 (full residual). Spec edge
- *     for "all to partners".
+ *   - senior 0% + drop 0% → 0 PAYOUT_ADMIN rows; full payable ($1000) credits
+ *     company account. PAYOUT_DROP $0 still emitted (drop's 0% slice).
  *
  * To avoid mutating the seed seniors across parallel runs each scenario
  * creates a *fresh* drop user with the appropriate `dropSharePercent`
@@ -27,8 +28,6 @@ import { test, expect } from './fixtures'
 import {
   SEED_ADMIN_EMAIL,
   SEED_EMAILS,
-  MAKSYM_ID,
-  KOSTYA_ID,
   loginViaApi,
   createDropViaAPI,
   cleanupDropViaAPI,
@@ -50,7 +49,7 @@ const SEED_DEFAULT_SHARE = 26
 test.describe.configure({ mode: 'serial' })
 
 test.describe('Drop distribution edge cases — real API (AC3)', () => {
-  test('senior 50% + drop 50% → remainder 0, partners [0, 0] (4 rows still created)', async ({
+  test('senior 50% + drop 50% → remainder 0, 0 PAYOUT_ADMIN (company account credited via PAYOUT)', async ({
     page,
   }) => {
     const suffix = uniqueSuffix()
@@ -103,16 +102,16 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
       expect(payoutDrops).toHaveLength(1)
       expect(parseFloat(payoutDrops[0]!.amount)).toBeCloseTo(500, 2)
 
-      // PAYOUT_ADMIN = remainder/2 each; remainder = 1000 − 500 − 500 = 0.
-      expect(payoutAdmins).toHaveLength(2)
-      for (const row of payoutAdmins) {
-        expect(parseFloat(row.amount)).toBeCloseTo(0, 2)
-      }
-      const maksym = payoutAdmins.find((r) => r.receiverId === MAKSYM_ID)
-      const kostya = payoutAdmins.find((r) => r.receiverId === KOSTYA_ID)
-      expect(maksym).toBeTruthy()
-      expect(kostya).toBeTruthy()
-
+      // PAYOUT_ADMIN — 0 rows (regression canary).
+      // The automatic 50/50 partner split was removed in
+      // fix/payout-credits-company-account: company account is credited the
+      // full payable via PAYOUT.fundingSource='COMPANY_ACCOUNT'.
+      // (Previously, with remainder=0, two $0-amount rows were emitted; now
+      // no rows are emitted at all regardless of the remainder amount.)
+      expect(
+        payoutAdmins,
+        'PAYOUT_ADMIN rows must be absent after Variant-A split removal',
+      ).toHaveLength(0)
     } finally {
       // Restore seed senior% to default + cascade-archive the drop.
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
@@ -174,7 +173,6 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
       const txs = await listTransactionsByProjectViaAPI(page, projectId)
       expect(txs.filter((t) => t.type === 'PAYOUT_DROP')).toHaveLength(0)
       expect(txs.filter((t) => t.type === 'PAYOUT_ADMIN')).toHaveLength(0)
-
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
       await patchUserSharePercentViaAPI(page, senior.id, {
@@ -184,7 +182,9 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
     }
   })
 
-  test('senior 0% + drop 0% → partners 500 / 500 (all residual to partners)', async ({ page }) => {
+  test('senior 0% + drop 0% → 0 PAYOUT_ADMIN, PAYOUT_DROP $0, PAYOUT $1000 credits company account', async ({
+    page,
+  }) => {
     const suffix = uniqueSuffix()
     const dropEmail = `drop-edge-0-0-${suffix}@cheekycheese.dev`
 
@@ -221,17 +221,20 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
       const payoutDrops = txs.filter((t) => t.type === 'PAYOUT_DROP')
       const payoutAdmins = txs.filter((t) => t.type === 'PAYOUT_ADMIN')
 
-      // PAYOUT_DROP = 0 (drop kept 0%).
+      // PAYOUT_DROP = $0 (drop kept 0% share).
       expect(payoutDrops).toHaveLength(1)
       expect(parseFloat(payoutDrops[0]!.amount)).toBeCloseTo(0, 2)
 
-      // PAYOUT_ADMIN = 500 / 500.
-      expect(payoutAdmins).toHaveLength(2)
-      const maksym = payoutAdmins.find((r) => r.receiverId === MAKSYM_ID)
-      const kostya = payoutAdmins.find((r) => r.receiverId === KOSTYA_ID)
-      expect(parseFloat(maksym!.amount)).toBeCloseTo(500, 2)
-      expect(parseFloat(kostya!.amount)).toBeCloseTo(500, 2)
-
+      // PAYOUT_ADMIN — 0 rows (regression canary).
+      // The automatic 50/50 partner split was removed in
+      // fix/payout-credits-company-account: company account is credited the
+      // full payable ($1000 when both shares are 0%) via the PAYOUT row's
+      // fundingSource='COMPANY_ACCOUNT' marker. Previously $500/$500 rows
+      // were emitted; now no PAYOUT_ADMIN rows are emitted at all.
+      expect(
+        payoutAdmins,
+        'PAYOUT_ADMIN rows must be absent after Variant-A split removal',
+      ).toHaveLength(0)
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
       await patchUserSharePercentViaAPI(page, senior.id, {

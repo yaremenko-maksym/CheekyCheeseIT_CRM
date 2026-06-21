@@ -13,17 +13,17 @@
  *   2. ACCOUNTANT validates → PENDING_PAYMENT placeholder PAYOUT row
  *      with amount = 1000 * (1 − 0.26) = $740.
  *   3. SENIOR pays the payout_request (simulate=success) → backend
- *      runs the **legacy** 50/50 split for senior-only projects.
+ *      settles the PAYOUT row (PAID, fundingSource='COMPANY_ACCOUNT').
+ *      fix/payout-credits-company-account: the 50/50 PAYOUT_ADMIN split
+ *      has been REMOVED. Company account is credited via PAYOUT directly.
  *
  * Backend assertions:
- *   - 3 distribution-relevant transactions exist for the project:
+ *   - 2 distribution-relevant transactions exist for the project:
  *       1× SENIOR_INCOME (PAID, $1000),
- *       1× PAYOUT       (PAID, $740 — the placeholder),
- *       2× PAYOUT_ADMIN (PAID, $370 each — Maksym + Kostya).
+ *       1× PAYOUT       (PAID, $740 — the placeholder, credits company account).
+ *   - **0 PAYOUT_ADMIN rows** — regression canary for the split removal.
  *   - **NO PAYOUT_DROP rows** — this is the canary the regression must
  *     catch if a future change ever wires drop math to senior flow.
- *   - Sum of distribution buckets (PAYOUT_ADMIN both) = $740 — matches
- *     payable; combined with the senior's $260 keep that's $1000 gross.
  *
  * UI assertion (mocked, separate test):
  *   - On a senior-project detail page the distribution breakdown card
@@ -36,8 +36,6 @@ import { test, expect } from './fixtures'
 import {
   SEED_ADMIN_EMAIL,
   SEED_EMAILS,
-  MAKSYM_ID,
-  KOSTYA_ID,
   loginViaApi,
   createSeniorProjectViaAPI,
   createSeniorIncomeViaAPI,
@@ -54,7 +52,7 @@ function uniqueSuffix(): string {
 const REAL_API = 'http://localhost:3001/api'
 
 test.describe('Senior-project distribution regression — real API (AC7)', () => {
-  test('senior pays $1000 income → 2× PAYOUT_ADMIN at $370 each, NO PAYOUT_DROP', async ({
+  test('senior pays $1000 income → 0 PAYOUT_ADMIN (company account credited via PAYOUT $740), NO PAYOUT_DROP', async ({
     page,
   }) => {
     const suffix = uniqueSuffix()
@@ -90,11 +88,8 @@ test.describe('Senior-project distribution regression — real API (AC7)', () =>
       expect(paid.status).toBe('PAID')
 
       // 5) Full ledger via ADMIN read — fetch ALL transactions linked to
-      //    the payout_request. After backlog AC5 the senior-path
-      //    PAYOUT_ADMIN rows DO carry projectId (both branches now do), but
-      //    we still use the payout_request_id-based helper because it
-      //    returns rows in a deterministic order suitable for the
-      //    assertions below.
+      //    the payout_request. Using payout_request_id-based helper for
+      //    deterministic ordering of the assertions below.
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       const txs = await listPayoutRequestTransactionsViaAPI(page, payoutRequestId!)
 
@@ -113,22 +108,19 @@ test.describe('Senior-project distribution regression — real API (AC7)', () =>
       expect(payouts[0]!.status).toBe('PAID')
       expect(parseFloat(payouts[0]!.amount)).toBeCloseTo(740, 2)
 
-      expect(payoutAdmins).toHaveLength(2)
-      const maksym = payoutAdmins.find((r) => r.receiverId === MAKSYM_ID)
-      const kostya = payoutAdmins.find((r) => r.receiverId === KOSTYA_ID)
-      expect(maksym).toBeTruthy()
-      expect(kostya).toBeTruthy()
-      // Legacy split: $740 / 2 = $370.
-      expect(parseFloat(maksym!.amount)).toBeCloseTo(370, 2)
-      expect(parseFloat(kostya!.amount)).toBeCloseTo(370, 2)
+      // PAYOUT_ADMIN — 0 rows (regression canary).
+      // fix/payout-credits-company-account removed the automatic 50/50 split.
+      // The company account is credited the full $740 payable via the PAYOUT
+      // row's fundingSource='COMPANY_ACCOUNT' marker. No separate distribution
+      // rows are emitted on settlement.
+      expect(
+        payoutAdmins,
+        'PAYOUT_ADMIN rows must be absent after Variant-A split removal',
+      ).toHaveLength(0)
 
-      // CANARY.
+      // CANARY: senior-project must never produce drop-related rows.
       expect(payoutDrops, 'Senior-project must NEVER produce PAYOUT_DROP').toHaveLength(0)
       expect(dropIncomes, 'Senior-project must NEVER produce DROP_INCOME').toHaveLength(0)
-
-      // Conservation: partner buckets sum to payable.
-      const partnersTotal = parseFloat(maksym!.amount) + parseFloat(kostya!.amount)
-      expect(partnersTotal).toBeCloseTo(740, 2)
     } finally {
       // Archive the project — no drop to cascade-archive.
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)

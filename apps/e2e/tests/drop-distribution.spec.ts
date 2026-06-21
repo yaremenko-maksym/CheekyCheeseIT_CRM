@@ -2,7 +2,15 @@
  * drop-distribution.spec.ts — task-drop-phase2-e2e (AC2).
  *
  * REAL-API coverage of the Phase 2 distribution math (§8.1 of the spec):
- *   income $1000, senior 26%, drop 5% → senior=$260, drop=$50, partners=[$345, $345].
+ *   income $1000, senior 26%, drop 5% → senior=$260, drop=$50.
+ *
+ * fix/payout-credits-company-account (Variant A): the automatic 50/50
+ * PAYOUT_ADMIN partner split has been REMOVED from the cascade. The company
+ * USDT account is credited the full `payable` via the PAYOUT row's
+ * fundingSource='COMPANY_ACCOUNT' marker — inserting separate PAYOUT_ADMIN
+ * rows on top was a double-distribution of the same money. Admin income is
+ * now a deliberate manual flow (DIVIDEND_TO_ADMIN). This spec reflects the
+ * updated invariant: 0 PAYOUT_ADMIN rows after payment.
  *
  * This spec exercises the full backend cascade end-to-end on the live
  * NestJS instance (no Playwright route mocks). Steps:
@@ -12,21 +20,12 @@
  *   3. DROP logs in and posts a $1000 DROP_INCOME (PENDING).
  *   4. ACCOUNTANT validates the income → backend creates the
  *      payout_request + placeholder PAYOUT row (PENDING_PAYMENT).
- *   5. DROP pays the payout_request (simulate=success) → backend
- *      runs `computeDropDistribution` and inserts:
+ *   5. DROP pays the payout_request (simulate=success) → backend inserts:
  *        * PAYOUT (placeholder, mutated to PAID with payable=950)
  *        * PAYOUT_DROP ($50, recipient = drop)
- *        * 2× PAYOUT_ADMIN ($345 to Maksym + $345 to Kostya)
- *   6. Assert via REST: 4 distinct rows (PAYOUT + PAYOUT_DROP + 2× PAYOUT_ADMIN),
- *      sum-of-distribution = $1000 ($260 senior keep + $50 drop + $345+$345 partners).
- *
- * The "senior keep" portion lives implicitly on the SENIOR — the backend
- * does NOT insert a separate PAYOUT for the senior's slice (the senior
- * was already paid off-platform by the DROP). We assert this gap by
- * confirming the PAYOUT_DROP + PAYOUT_ADMIN rows sum to exactly $740
- * (= 1000 − 260) and the PAYOUT placeholder row (which represents the
- * total transferred off-platform = payable amount) matches the validate
- * step's recorded payable.
+ *        * NO PAYOUT_ADMIN rows (removed — company account credited via PAYOUT)
+ *   6. Assert via REST: 2 distribution rows (PAYOUT + PAYOUT_DROP),
+ *      PAYOUT_ADMIN count = 0 (regression canary for the split removal).
  *
  * Cleanup: each test calls `cleanupDropViaAPI` to roll the drop user back
  * to archived state — cascades to the drop-team + project + transactions.
@@ -36,8 +35,6 @@ import { test, expect } from './fixtures'
 import {
   SEED_ADMIN_EMAIL,
   SEED_EMAILS,
-  MAKSYM_ID,
-  KOSTYA_ID,
   loginViaApi,
   createDropViaAPI,
   cleanupDropViaAPI,
@@ -49,15 +46,14 @@ import {
   getTransactionViaAPI,
 } from './fixtures'
 
-// MAKSYM_ID / KOSTYA_ID are re-exported from fixtures.ts (synced with the
-// backend's `@crm/shared` constants — same UUIDs the seed writes).
-
 function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 }
 
 test.describe('Drop distribution math — real API (AC2)', () => {
-  test('$1000 → senior $260 / drop $50 / partners $345 + $345 (spec §8.1)', async ({ page }) => {
+  test('$1000 → senior $260 / drop $50 / 0 PAYOUT_ADMIN (company account credited via PAYOUT)', async ({
+    page,
+  }) => {
     const suffix = uniqueSuffix()
     const dropEmail = `drop-dist-${suffix}@cheekycheese.dev`
 
@@ -99,8 +95,9 @@ test.describe('Drop distribution math — real API (AC2)', () => {
       expect(payoutRequestId).toBeTruthy()
 
       // Step 5: DROP pays the payout_request → triggers the distribution
-      // cascade (insert PAYOUT_DROP + 2× PAYOUT_ADMIN, mutate the
-      // placeholder PAYOUT to PAID).
+      // cascade (insert PAYOUT_DROP, mutate the placeholder PAYOUT to PAID).
+      // No PAYOUT_ADMIN rows are emitted — the company account is credited
+      // via PAYOUT.fundingSource='COMPANY_ACCOUNT' (Variant A).
       // NOTE: backend returns 403 to the DROP caller because the post-pay
       // `findPayoutRequest` response read blocks DROP — the helper papers
       // over this (see `payPayoutRequestViaAPI` jsdoc) and re-reads as
@@ -150,26 +147,21 @@ test.describe('Drop distribution math — real API (AC2)', () => {
       // PAYOUT_DROP — must match the drop user id.
       expect(payoutDropRows[0]!.recipientId).toBe(dropId)
 
-      // PAYOUT_ADMIN (2 rows, $345 each, one Maksym + one Kostya).
-      expect(payoutAdminRows).toHaveLength(2)
-      const maksymRow = payoutAdminRows.find((r) => r.receiverId === MAKSYM_ID)
-      const kostyaRow = payoutAdminRows.find((r) => r.receiverId === KOSTYA_ID)
-      expect(maksymRow).toBeTruthy()
-      expect(kostyaRow).toBeTruthy()
-      expect(parseFloat(maksymRow!.amount)).toBeCloseTo(345, 2)
-      expect(parseFloat(kostyaRow!.amount)).toBeCloseTo(345, 2)
-      expect(maksymRow!.status).toBe('PAID')
-      expect(kostyaRow!.status).toBe('PAID')
+      // PAYOUT_ADMIN — 0 rows (regression canary).
+      // The automatic 50/50 partner split was removed in
+      // fix/payout-credits-company-account: the company USDT account is
+      // already credited the full payable ($950) via the PAYOUT row's
+      // fundingSource='COMPANY_ACCOUNT' marker. Emitting additional
+      // PAYOUT_ADMIN rows on top was a double-distribution of the same funds.
+      expect(
+        payoutAdminRows,
+        'PAYOUT_ADMIN rows must be absent after Variant-A split removal',
+      ).toHaveLength(0)
 
-      // Conservation: distribution buckets (drop + partners) total the
-      // residual after the senior keeps 26% off-platform.
-      // 50 + 345 + 345 = 740 = 1000 − 260 ✓.
-      const distributionTotal =
-        parseFloat(payoutDropRows[0]!.amount) +
-        parseFloat(maksymRow!.amount) +
-        parseFloat(kostyaRow!.amount)
-      expect(distributionTotal).toBeCloseTo(740, 2)
-
+      // Conservation note: PAYOUT_DROP ($50) = drop's 5% share.
+      // The senior keeps $260 off-platform. The remaining $950 credits the
+      // company account via PAYOUT.fundingSource='COMPANY_ACCOUNT' —
+      // no separate PAYOUT_ADMIN distribution row is needed or emitted.
     } finally {
       // Cascade-archive the drop (cleans up team + project + transactions).
       await cleanupDropViaAPI(page, dropId)
