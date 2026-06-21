@@ -8,17 +8,18 @@
  *   GET  /api/pending-settlements/company  — admin / accountant only.
  *   POST /api/pending-settlements/:id/settle-company
  *                                         — closes the COMPANY debt, inserts SENIOR_INCOME.
+ *   POST /api/pending-settlements/by-source-transaction/:sourceTransactionId/settle-company
+ *                                         — same cascade, resolved via SENIOR_PENDING_PAYOUT tx.
  *
- * Real-API.
+ * Real-API. Backend must be running at http://localhost:3001.
  *
- * Scenarios:
- *   1. After confirm-cash, a COMPANY-debt obligation surfaces in both
- *      /senior (senior self-view) and /company (admin view).
- *   2. DROP cannot read either list (403).
- *   3. ADMIN settles → SENIOR_INCOME row inserted, obligation marked PAID,
- *      both lists drop the row.
- *   4. After settle the senior's pending list is empty (or doesn't include
- *      that obligation) — drop legacy debts NOT created.
+ * Reworked (PR #262 + #265): plantCompanyDebt now uses the new DROP-income cascade
+ * (createDropIncome → validate → createPayoutRequest → pay) instead of the
+ * deleted confirm-cash endpoint. Settle body updated to include fundingSource +
+ * payerAdminId + currency as required by settleSeniorPayoutSchema.
+ *
+ * /company response shape (from DTO):
+ *   { obligationId, sourceTransactionId, debtorType, seniorId, amount, currency, ... }
  */
 
 import { test, expect } from './fixtures'
@@ -32,8 +33,12 @@ import {
   createDropProjectViaAPI,
   createDropIncomeViaAPI,
   validateTransactionViaAPI,
+  createPayoutRequestViaAPI,
+  payPayoutRequestViaAPI,
   listTransactionsByProjectViaAPI,
   findUserByEmailViaApi,
+  ensureCompanyWalletViaAPI,
+  onboardDropViaAPI,
 } from './fixtures'
 
 const REAL_API = 'http://localhost:3001/api'
@@ -42,7 +47,31 @@ function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 }
 
-/** Plant a single COMPANY-debt obligation via the cash channel. */
+/** Shape returned by GET /api/pending-settlements/company */
+interface CompanyObligationDto {
+  obligationId: string
+  sourceTransactionId: string
+  debtorType: string
+  seniorId: string
+  amount: string
+  currency: string
+}
+
+/**
+ * Plant a single COMPANY-debt obligation via the new DROP-income cascade:
+ *   1. Create DROP + onboard
+ *   2. Ensure company wallet (required for payout_request)
+ *   3. Create DROP project
+ *   4. DROP posts income → ACCOUNTANT validates → payout_request created → DROP pays
+ *
+ * The pay step books:
+ *   - SENIOR_PENDING_PAYOUT (PENDING_PAYMENT) — the COMPANY debt obligation source tx
+ *   - PAYOUT_DROP (PAID)
+ *   - DROP_INCOME (PAID)
+ *
+ * Returns dropId, projectId, incomeTxId, seniorId so callers can probe
+ * the pending-settlements endpoints and clean up.
+ */
 async function plantCompanyDebt(page: import('@playwright/test').Page): Promise<{
   dropId: string
   projectId: string
@@ -52,33 +81,51 @@ async function plantCompanyDebt(page: import('@playwright/test').Page): Promise<
   const suffix = uniqueSuffix()
   const dropEmail = `pending-${suffix}@cheekycheese.dev`
 
+  // Step 1: create DROP as ADMIN
   await loginViaApi(page, SEED_ADMIN_EMAIL)
   const { dropId } = await createDropViaAPI(page, {
     email: dropEmail,
     displayName: `Pending Settlement ${suffix}`,
   })
 
+  // Step 2: onboard DROP so income endpoints are accessible
+  await onboardDropViaAPI(page, { dropId, dropEmail })
+
+  // Step 3: ensure company wallet (seed leaves walletAddress=NULL, payout_request needs it)
+  await loginViaApi(page, SEED_ADMIN_EMAIL)
+  await ensureCompanyWalletViaAPI(page)
+
+  // Step 4: create DROP project (attaches seniorA as senior)
   const { projectId } = await createDropProjectViaAPI(page, {
     dropId,
     seniorEmail: SEED_EMAILS.seniorA,
   })
 
+  // Step 5: DROP posts income
   await loginViaApi(page, dropEmail)
   const { txId: incomeTxId } = await createDropIncomeViaAPI(page, {
     projectId,
     amount: 1000,
   })
 
+  // Step 6: ACCOUNTANT validates → get payoutRequestId
   await loginViaApi(page, SEED_EMAILS.accountant)
-  await validateTransactionViaAPI(page, incomeTxId)
+  const { payoutRequestId } = await validateTransactionViaAPI(page, incomeTxId)
 
-  // Cash channel — inserts SENIOR_PENDING_PAYOUT (debtorType=COMPANY).
-  const cashRes = await page.request.post(`${REAL_API}/payments/confirm-cash`, {
-    data: { incomeId: incomeTxId, recipientAdminId: MAKSYM_ID },
-  })
-  if (cashRes.status() !== 200 && cashRes.status() !== 201) {
-    throw new Error(`confirm-cash failed: ${cashRes.status()} — ${await cashRes.text()}`)
+  // Step 7: if validate didn't auto-create payout_request, create it explicitly
+  let prId = payoutRequestId
+  if (!prId) {
+    await loginViaApi(page, dropEmail)
+    const created = await createPayoutRequestViaAPI(page, [incomeTxId])
+    prId = created.payoutRequestId
   }
+
+  // Step 8: DROP pays → cascade books SENIOR_PENDING_PAYOUT + PAYOUT_DROP
+  await loginViaApi(page, dropEmail)
+  await payPayoutRequestViaAPI(page, prId!)
+
+  // Restore ADMIN session for callers
+  await loginViaApi(page, SEED_ADMIN_EMAIL)
 
   const senior = await findUserByEmailViaApi(page, SEED_EMAILS.seniorA)
   if (!senior) throw new Error('Seed senior A not found')
@@ -87,7 +134,9 @@ async function plantCompanyDebt(page: import('@playwright/test').Page): Promise<
 }
 
 test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
-  test('after confirm-cash → /senior surfaces the obligation for the senior', async ({ page }) => {
+  test('after drop-income cascade → /senior surfaces the obligation for the senior', async ({
+    page,
+  }) => {
     const { dropId } = await plantCompanyDebt(page)
 
     try {
@@ -111,22 +160,20 @@ test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
     }
   })
 
-  test('after confirm-cash → /company surfaces the obligation for ADMIN', async ({ page }) => {
+  test('after drop-income cascade → /company surfaces the obligation for ADMIN', async ({
+    page,
+  }) => {
     const { dropId, seniorId } = await plantCompanyDebt(page)
 
     try {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       const res = await page.request.get(`${REAL_API}/pending-settlements/company`)
       expect(res.status()).toBe(200)
-      const list = (await res.json()) as Array<{
-        debtorType: string
-        creditorUserId: string
-        status?: string
-      }>
+      const list = (await res.json()) as CompanyObligationDto[]
 
-      // The newly-planted row credits our senior. (Status filter is enforced
-      // server-side: only PENDING surfaces here, so we don't double-check it.)
-      const row = list.find((o) => o.creditorUserId === seniorId)
+      // The newly-planted row credits our senior.
+      // /company only returns PENDING obligations (server-side filter).
+      const row = list.find((o) => o.seniorId === seniorId)
       expect(row, 'company list must include our senior as creditor').toBeTruthy()
       expect(row!.debtorType).toBe('COMPANY')
     } finally {
@@ -136,8 +183,6 @@ test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
   })
 
   test('DROP cannot read /senior nor /company — 403', async ({ page }) => {
-    // Plant the obligation via the helper, then probe with the drop's own
-    // credentials. The drop should be locked out of BOTH endpoints.
     const suffix = uniqueSuffix()
     const dropEmail = `pending-drop-${suffix}@cheekycheese.dev`
 
@@ -170,26 +215,30 @@ test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
       // Capture the obligation row.
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       const beforeRes = await page.request.get(`${REAL_API}/pending-settlements/company`)
-      const beforeList = (await beforeRes.json()) as Array<{
-        id: string
-        creditorUserId: string
-        amount: string
-      }>
-      const row = beforeList.find((o) => o.creditorUserId === seniorId)
-      expect(row, 'plant step must yield an obligation').toBeTruthy()
+      const beforeList = (await beforeRes.json()) as CompanyObligationDto[]
+      const row = beforeList.find((o) => o.seniorId === seniorId)
+      expect(row, 'plant step must yield an obligation for our senior').toBeTruthy()
       const obligationAmount = parseFloat(row!.amount)
+      const obligationId = row!.obligationId
 
-      // Settle.
+      // Settle via old obligation-id endpoint (still valid, PR #265 only adds
+      // the by-source-transaction variant alongside it).
       const settleRes = await page.request.post(
-        `${REAL_API}/pending-settlements/${row!.id}/settle-company`,
-        { data: {} },
+        `${REAL_API}/pending-settlements/${obligationId}/settle-company`,
+        {
+          data: {
+            fundingSource: 'ADMIN_PERSONAL',
+            payerAdminId: MAKSYM_ID,
+            currency: 'USDT',
+          },
+        },
       )
       expect(settleRes.status()).toBeLessThan(400)
 
       // /company no longer contains our row.
       const afterRes = await page.request.get(`${REAL_API}/pending-settlements/company`)
-      const afterList = (await afterRes.json()) as Array<{ id: string }>
-      expect(afterList.find((o) => o.id === row!.id)).toBeFalsy()
+      const afterList = (await afterRes.json()) as CompanyObligationDto[]
+      expect(afterList.find((o) => o.obligationId === obligationId)).toBeFalsy()
 
       // SENIOR_INCOME row was inserted on the project.
       const txs = await listTransactionsByProjectViaAPI(page, projectId)
@@ -238,7 +287,13 @@ test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
       await loginViaApi(page, SEED_EMAILS.seniorA)
       const seniorAttempt = await page.request.post(
         `${REAL_API}/pending-settlements/by-source-transaction/${sourceTxId}/settle-company`,
-        { data: {} },
+        {
+          data: {
+            fundingSource: 'ADMIN_PERSONAL',
+            payerAdminId: MAKSYM_ID,
+            currency: 'USDT',
+          },
+        },
       )
       expect(seniorAttempt.status()).toBe(403)
 
@@ -246,14 +301,22 @@ test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       const settleRes = await page.request.post(
         `${REAL_API}/pending-settlements/by-source-transaction/${sourceTxId}/settle-company`,
-        { data: {} },
+        {
+          data: {
+            fundingSource: 'ADMIN_PERSONAL',
+            payerAdminId: MAKSYM_ID,
+            currency: 'USDT',
+          },
+        },
       )
       expect(settleRes.status()).toBeLessThan(400)
 
-      // The obligation is gone from /company.
+      // The specific obligation (identified by sourceTransactionId) is gone from /company.
+      // Note: seniorId alone is too broad — other tests may have left obligations
+      // for the same seed senior. Use sourceTransactionId for a precise match.
       const afterRes = await page.request.get(`${REAL_API}/pending-settlements/company`)
-      const afterList = (await afterRes.json()) as Array<{ creditorUserId: string }>
-      expect(afterList.find((o) => o.creditorUserId === seniorId)).toBeFalsy()
+      const afterList = (await afterRes.json()) as CompanyObligationDto[]
+      expect(afterList.find((o) => o.sourceTransactionId === sourceTxId)).toBeFalsy()
 
       // A matching PAID SENIOR_INCOME was inserted for the senior.
       const txsAfter = await listTransactionsByProjectViaAPI(page, projectId)
@@ -270,7 +333,13 @@ test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
       // (no open obligation left → 4xx, never a second SENIOR_INCOME).
       const secondAttempt = await page.request.post(
         `${REAL_API}/pending-settlements/by-source-transaction/${sourceTxId}/settle-company`,
-        { data: {} },
+        {
+          data: {
+            fundingSource: 'ADMIN_PERSONAL',
+            payerAdminId: MAKSYM_ID,
+            currency: 'USDT',
+          },
+        },
       )
       expect(secondAttempt.status()).toBeGreaterThanOrEqual(400)
 
