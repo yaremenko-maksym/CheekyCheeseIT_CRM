@@ -704,27 +704,6 @@ export const initiateCryptoPaymentSchema = z.object({
 })
 export type InitiateCryptoPaymentDto = z.infer<typeof initiateCryptoPaymentSchema>
 
-// Cash channel — drop→company cash flow (post Phase 4 refactor + task
-// task-drop-company-debt-and-invoices). The DROP no longer has any UI to
-// initiate cash; instead, ACCOUNTANT/ADMIN sees the VALIDATED DROP_INCOME
-// row on /crm/finance and triggers `/confirm-cash` directly from the table.
-// The endpoint creates ADMIN_INCOME_CASH + SENIOR_PENDING_PAYOUT
-// (debtorType=COMPANY) and closes the placeholder PAYOUT row. The senior
-// share is now a debt of the **company**, not the drop personally.
-export const confirmCashPaymentSchema = z.object({
-  incomeId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
-  recipientAdminId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
-})
-export type ConfirmCashPaymentDto = z.infer<typeof confirmCashPaymentSchema>
-
-// Wire response for the crypto + cash confirm flows — returns the list of
-// transactions created so the UI can refresh without a second round-trip.
-export const paymentChannelCascadeResponseSchema = z.object({
-  income: transactionSchema,
-  created: z.array(transactionSchema),
-})
-export type PaymentChannelCascadeResponseDto = z.infer<typeof paymentChannelCascadeResponseSchema>
-
 // ---------------------------------------------------------------------------
 // Phase 4-C — Pending senior settlement (post task-drop-company-debt-and-invoices)
 // ---------------------------------------------------------------------------

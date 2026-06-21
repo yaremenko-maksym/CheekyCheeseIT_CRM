@@ -18,8 +18,6 @@ import type {
   PaySalaryDto,
   AdminUpdateTransactionDto,
   ConfirmPayoutDto,
-  ConfirmCashPaymentDto,
-  PaymentChannelCascadeResponseDto,
   BalanceDto,
   PendingSettlementListResponseDto,
   SettleObligationResponseDto,
@@ -149,10 +147,6 @@ export const financeApi = {
         ...(currency !== undefined && { params: { currency } }),
       })
       .then((r) => r.data),
-
-  // admin-initiated cash payment (ADMIN/ACCOUNTANT only — used by LogCashPaymentDialog).
-  confirmCashPayment: (data: ConfirmCashPaymentDto) =>
-    api.post<PaymentChannelCascadeResponseDto>('/payments/confirm-cash', data).then((r) => r.data),
 
   // task-drop-company-debt-and-invoices. Senior IOUs are owed by the
   // company — ADMIN/ACCOUNTANT-only flow.
