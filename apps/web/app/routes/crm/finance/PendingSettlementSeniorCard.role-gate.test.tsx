@@ -87,26 +87,20 @@ describe('PendingSettlementSeniorCard component', () => {
       isLoading: false,
     })
     render(<PendingSettlementSeniorCard />)
-    expect(
-      screen.getByTestId('pending-settlement-senior-card'),
-    ).toBeInTheDocument()
+    expect(screen.getByTestId('pending-settlement-senior-card')).toBeInTheDocument()
   })
 
   it('renders nothing (returns null) when the list is empty', () => {
     useQueryMock.mockReturnValue({ data: [], isLoading: false })
     const { container } = render(<PendingSettlementSeniorCard />)
     expect(container.firstChild).toBeNull()
-    expect(
-      screen.queryByTestId('pending-settlement-senior-card'),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByTestId('pending-settlement-senior-card')).not.toBeInTheDocument()
   })
 
   it('renders a loading placeholder when isLoading is true', () => {
     useQueryMock.mockReturnValue({ data: [], isLoading: true })
     render(<PendingSettlementSeniorCard />)
     // Component renders the card skeleton while loading (even with empty data)
-    expect(
-      screen.getByTestId('pending-settlement-senior-card'),
-    ).toBeInTheDocument()
+    expect(screen.getByTestId('pending-settlement-senior-card')).toBeInTheDocument()
   })
 })
