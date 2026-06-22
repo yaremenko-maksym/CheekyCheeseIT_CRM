@@ -1,6 +1,6 @@
 # CRM Redesign — Foundation (визуальный язык)
 
-> **Status:** draft (Phase 0) — финализируется после генерации north-star (Phase 0 plan Task 4).
+> **Status:** approved direction (Phase 0, владелец 2026-06-23) — north-star app-shell = `screens/_foundation/app-shell.md` (Вариант А «сдержанный», плоская навигация). Язык подтверждён генерацией; правок направления не потребовалось.
 > **Applies to:** все фазы редизайна (`docs/superpowers/specs/2026-06-22-crm-redesign-program.md`).
 > **Источник токенов:** `apps/web/app/styles/globals.css` (single source) + `docs/design/assets/_design-system/inventory.md`.
 > **Правило:** этот файл — единый визуальный язык. Каждый экран следует ему → консистентность.

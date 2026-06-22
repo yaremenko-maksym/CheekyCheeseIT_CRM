@@ -20,17 +20,17 @@
 
 ## Дорожная карта фаз
 
-| Phase | Scope                                                          | Статус фазы                     |
-| ----- | -------------------------------------------------------------- | ------------------------------- |
-| **0** | Foundation / direction + app-shell (nav-sidebar/header/chrome) | **in progress**                 |
-| **1** | Interviews (канбан + 5 модалок)                                | pending (референс снят)         |
-| **2** | Team & Users                                                   | pending                         |
-| **3** | Projects                                                       | pending                         |
-| **4** | Finance / Invoices / Accountant                                | pending                         |
-| **5** | Documents / Contracts / Onboarding                             | pending                         |
-| **6** | Profiles                                                       | pending                         |
-| **7** | Dashboards (admin / HR / role)                                 | ADMIN сделан вне реестра (#280) |
-| **8** | Auth/login, empty/404/error, финальный polish                  | pending                         |
+| Phase | Scope                                                          | Статус фазы                         |
+| ----- | -------------------------------------------------------------- | ----------------------------------- |
+| **0** | Foundation / direction + app-shell (nav-sidebar/header/chrome) | **direction approved** (2026-06-23) |
+| **1** | Interviews (канбан + 5 модалок)                                | pending (референс снят)             |
+| **2** | Team & Users                                                   | pending                             |
+| **3** | Projects                                                       | pending                             |
+| **4** | Finance / Invoices / Accountant                                | pending                             |
+| **5** | Documents / Contracts / Onboarding                             | pending                             |
+| **6** | Profiles                                                       | pending                             |
+| **7** | Dashboards (admin / HR / role)                                 | ADMIN сделан вне реестра (#280)     |
+| **8** | Auth/login, empty/404/error, финальный polish                  | pending                             |
 
 Phase 0 гейтит фазы 1–8 (направление утверждается владельцем на north-star экранах).
 
@@ -38,14 +38,15 @@ Phase 0 гейтит фазы 1–8 (направление утверждает
 
 Источник направления: `docs/design/foundation.md`. Артефакты: `docs/design/screens/_foundation/assets/`.
 
-| Surface                               | Артефакт                                        | Claude Design URL | Status    | Last synced |
-| ------------------------------------- | ----------------------------------------------- | ----------------- | --------- | ----------- |
-| App-shell (nav-sidebar+header+chrome) | `docs/design/screens/_foundation/app-shell.md`  | —                 | `pending` | —           |
-| Dense data-table (north-star, опц.)   | `docs/design/screens/_foundation/data-table.md` | —                 | `pending` | —           |
-| Key dialog/form (north-star, опц.)    | `docs/design/screens/_foundation/dialog.md`     | —                 | `pending` | —           |
+| Surface                               | Артефакт                                                  | Claude Design URL                                                                        | Status     | Last synced |
+| ------------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ---------- | ----------- |
+| App-shell (nav-sidebar+header+chrome) | `docs/design/screens/_foundation/app-shell.md`            | [CRM глобальный каркас](https://claude.ai/design/p/cb5277cf-5b56-44ff-9a6a-4404d8c92cea) | `approved` | `86d72c32`  |
+| Dense data-table (north-star)         | покрыт showcase в `app-shell.md` (таблица «Пользователи») | —                                                                                        | `n/a`      | —           |
+| Key dialog/form (north-star, опц.)    | отложен — генерится on-demand при доменных фазах          | —                                                                                        | `n/a`      | —           |
 
-> Dashboard north-star де-факто закрыт смерженным ADMIN-дашбордом (#280, designer-first цикл) —
-> отдельный макет в `_foundation/` не дублируем.
+> **Вариант А «сдержанный» + плоская навигация одобрены владельцем 2026-06-23.** Dashboard north-star
+> де-факто закрыт смерженным ADMIN-дашбордом (#280); dense-таблица показана внутри showcase app-shell;
+> отдельные data-table/dialog north-star макеты не дублируем (домены генерятся on-demand далее).
 
 ## Сделано вне реестра (pre-registry)
 
