@@ -19,31 +19,21 @@ import { TransactionRow } from './TransactionRow'
  */
 
 /**
- * Map the dashboard payment-rail currency back onto a display currency the
- * shared `fmtUsd` / `fmtAmount` helpers understand:
- *   - USDT_ERC20   → 'USDT'
- *   - BANK_UAH_FOP → 'UAH'
- */
-function railToDisplayCurrency(
-  currency: AdminActiveTransaction['currency'],
-): TransactionDto['currency'] {
-  return currency === 'BANK_UAH_FOP' ? 'UAH' : 'USDT'
-}
-
-/**
  * Adapt an `AdminActiveTransaction` into the `TransactionDto` shape consumed by
  * `TransactionRow`. Only the fields the row reads for these (active) statuses are
  * meaningful — everything else is filled with safe null/empty defaults so the
- * row renders identically without inventing data. Raw `type` / `status` strings
- * are passed straight through (they are the same DB enums the row maps to labels).
+ * row renders identically without inventing data. `type` / `status` / `currency`
+ * already share the SAME finance Zod enums (`transactionType` / `transactionStatus`
+ * / `currencyEnum`), so they assign straight through with no cast — and the real
+ * transaction currency is shown identically to the Финансы page.
  */
 function toTransactionDto(t: AdminActiveTransaction): TransactionDto {
   return {
     id: t.id,
-    type: t.type as TransactionDto['type'],
-    status: t.status as TransactionDto['status'],
+    type: t.type,
+    status: t.status,
     amount: t.amount,
-    currency: railToDisplayCurrency(t.currency),
+    currency: t.currency,
     senderId: null,
     senderLabel: t.senderLabel,
     senderName: null,
@@ -66,6 +56,10 @@ function toTransactionDto(t: AdminActiveTransaction): TransactionDto {
     salaryMonth: null,
     txDate: t.txDate,
     recipientId: null,
+    // `TransactionDto.createdBy` is a non-nullable string (creator user id) — it
+    // is NOT part of the slim `AdminActiveTransaction` payload and `TransactionRow`
+    // never reads it for these read-only dashboard rows. Empty-string placeholder
+    // keeps the type satisfied without inventing a fake id; `null` is not allowed.
     createdBy: '',
     createdAt: t.txDate,
     updatedAt: t.txDate,

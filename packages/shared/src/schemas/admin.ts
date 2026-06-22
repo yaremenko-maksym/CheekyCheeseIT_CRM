@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { currencyEnumSchema } from './payment-requisites'
+import { transactionStatusSchema, transactionTypeSchema } from './finance'
 
 /**
  * ADMIN dashboard summary DTO — the data behind the «центр действий» dashboard
@@ -10,36 +12,33 @@ import { z } from 'zod'
  *                            in-flight statuses), rendered in a finance-style table.
  *
  * The `activeTransactions` shape is intentionally a SLIM projection of the
- * finance transaction row: it carries raw enum strings for `type` / `status`
- * (the web client maps them to the SAME finance labels/colours via the shared
- * `TYPE_LABELS` / `STATUS_LABELS`), resolved party labels, and a `canPay` flag
- * the row uses to show the «Выплатить» action — so the admin table reuses the
- * exact finance `TransactionRow` look without re-deriving any of this on the client.
+ * finance transaction row: it reuses the SAME `transactionType` / `transactionStatus`
+ * / `currencyEnum` shared schemas the finance `TransactionDto` uses (the web client
+ * maps them to the SAME finance labels/colours via `TYPE_LABELS` / `STATUS_LABELS`
+ * and formats the amount with the SAME `fmtUsd`/`fmtAmount` helpers), resolved party
+ * labels, and a `canPay` flag the row uses to show the «Выплатить» action — so the
+ * admin table reuses the exact finance `TransactionRow` look (incl. the real
+ * transaction currency, identical to the Финансы page) without re-deriving anything
+ * on the client.
  */
-
-/**
- * Payment-method classification for an active transaction's money. Mirrors the
- * `paymentMethod` taxonomy used across requisites / payouts:
- *   - `USDT_ERC20`   — on-chain USDT (ERC-20).
- *   - `BANK_UAH_FOP` — Ukrainian bank transfer (ФОП, UAH).
- */
-export const adminTransactionCurrencySchema = z.enum(['USDT_ERC20', 'BANK_UAH_FOP'])
-export type AdminTransactionCurrency = z.infer<typeof adminTransactionCurrencySchema>
 
 /**
  * One actionable transaction in the admin dashboard pipeline. `type` / `status`
- * are RAW DB enum strings (transaction_type / transaction_status) so the client
- * renders them with the existing finance label/colour maps.
+ * reuse the shared finance enums (transaction_type / transaction_status) and
+ * `currency` is the REAL DB transaction currency (`currencyEnumSchema` =
+ * 'USDT' | 'USD' | 'EUR' | 'UAH', exactly `TransactionDto['currency']`) — NOT a
+ * lossy payment-rail bucket — so the dashboard displays the same currency as the
+ * Финансы page.
  */
 export const adminActiveTransactionSchema = z.object({
   id: z.string().uuid(),
-  type: z.string(), // raw transaction_type enum value
-  status: z.string(), // raw transaction_status enum value
+  type: transactionTypeSchema, // shared transaction_type enum
+  status: transactionStatusSchema, // shared transaction_status enum
   senderLabel: z.string().nullable(),
   receiverLabel: z.string().nullable(),
   projectName: z.string().nullable(),
   amount: z.string(), // numeric string from DB
-  currency: adminTransactionCurrencySchema,
+  currency: currencyEnumSchema, // real DB currency — same as TransactionDto['currency']
   txDate: z.string().datetime(), // ISO 8601
   /** True when the row is ready for an admin payout action (status PENDING_PAYMENT). */
   canPay: z.boolean(),

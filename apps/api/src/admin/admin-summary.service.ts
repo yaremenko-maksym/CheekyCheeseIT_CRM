@@ -1,6 +1,6 @@
 import { ForbiddenException, Inject, Injectable } from '@nestjs/common'
 import { desc, sql } from 'drizzle-orm'
-import type { SessionUser, AdminSummary, AdminTransactionCurrency } from '@crm/shared'
+import type { SessionUser, AdminSummary } from '@crm/shared'
 import { adminSummarySchema } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { interviews, projects, transactions, users } from '../database/schema'
@@ -12,20 +12,6 @@ import { interviews, projects, transactions, users } from '../database/schema'
  * still carry it. Single source of truth for both the query filter and the spec.
  */
 const ACTIVE_TX_STATUSES = ['PENDING', 'PENDING_PAYMENT', 'PENDING_CASH_CONFIRM'] as const
-
-/**
- * Map the DB `currency` enum (USDT / USD / EUR / UAH) onto the dashboard's
- * payment-rail classification:
- *   - USDT / USD → `USDT_ERC20`   (crypto rail — USD figures are USDT-pegged)
- *   - UAH / EUR  → `BANK_UAH_FOP` (fiat bank rail — settled to the ФОП account)
- *
- * Defaults to the crypto rail for any unexpected value so the row never fails
- * the `adminTransactionCurrencySchema` enum on the wire.
- */
-function toPaymentRail(currency: string): AdminTransactionCurrency {
-  if (currency === 'UAH' || currency === 'EUR') return 'BANK_UAH_FOP'
-  return 'USDT_ERC20'
-}
 
 @Injectable()
 export class AdminSummaryService {
@@ -124,7 +110,10 @@ export class AdminSummaryService {
       receiverLabel: r.receiverLabel ?? r.receiver?.displayName ?? null,
       projectName: r.project?.name ?? null,
       amount: r.amount,
-      currency: toPaymentRail(r.currency),
+      // Real DB transaction currency, passed straight through (validated against
+      // `currencyEnumSchema` by the `adminSummarySchema.parse` below). Identical to
+      // the Финансы page — no lossy payment-rail mapping.
+      currency: r.currency,
       txDate: (r.txDate ?? r.createdAt).toISOString(),
       canPay: r.status === 'PENDING_PAYMENT',
     }))
