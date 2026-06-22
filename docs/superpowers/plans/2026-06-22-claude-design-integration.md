@@ -39,7 +39,7 @@
 
 **Files:** none created in repo by the sync itself (the design system lives in Claude Design, server-side). Source read by `/design-sync`: `apps/web/app/styles/globals.css` + `apps/web/app/components/**`.
 
-- [ ] **Step 1: Confirm CLI version in a fresh shell**
+- [x] **Step 1: Confirm CLI version in a fresh shell**
 
 Run: `claude --version`
 Expected: `2.1.185 (Claude Code)` or higher. (If lower: `claude update`.)
@@ -106,7 +106,7 @@ git commit -m "docs(design): record CRM design system synced to Claude Design"
 
 - Create: `.claude/rules/common/design-gate.md`
 
-- [ ] **Step 1: Write `.claude/rules/common/design-gate.md`**
+- [x] **Step 1: Write `.claude/rules/common/design-gate.md`**
 
 Content (concrete, mirrors spec §4.7 + §4.8):
 
@@ -122,7 +122,7 @@ Content (concrete, mirrors spec §4.7 + §4.8):
 - **Fallback (degraded):** if Claude Design unavailable/over-limit → ui-ux-designer Mode A textual spec; PR body notes `design-gate: degraded`.
 - **Связанные правила:** link `zone-of-write.md`, `light-track.md`, `skills-invocation.md`.
 
-- [ ] **Step 2: Lint-check the markdown & commit**
+- [x] **Step 2: Lint-check the markdown & commit**
 
 Run: `git add .claude/rules/common/design-gate.md && git commit -m "feat(rules): add 3-tier Claude Design mandatory UI gate"`
 Expected: prettier pre-commit passes (md formatted).
@@ -139,7 +139,7 @@ Expected: prettier pre-commit passes (md formatted).
 
 - Modify: `.claude/agents/ui-ux-designer.md` (Workflow по режимам section; Mandatory skill table)
 
-- [ ] **Step 1: Add Mode E to the "Workflow по режимам" section**
+- [x] **Step 1: Add Mode E to the "Workflow по режимам" section**
 
 Insert a `### Mode E — Reconciliation (Claude Design → coder spec)` block:
 
@@ -149,15 +149,15 @@ Insert a `### Mode E — Reconciliation (Claude Design → coder spec)` block:
 - Output: `docs/design/<slug>.md` coder-ready spec (extends existing `docs/design/` convention). Explicitly instruct: coder builds with our components, does NOT paste Claude Design's raw HTML.
 - This mode is **headless** (file-based; no browser).
 
-- [ ] **Step 2: Strengthen Mode B (fidelity audit)**
+- [x] **Step 2: Strengthen Mode B (fidelity audit)**
 
 In the existing `### Mode B` block, add: when a `docs/design/assets/<slug>/design.png` reference exists, compare the live Playwright screenshot against it (spacing rhythm, hierarchy, token usage); `BLOCK` on visible drift, in addition to the existing 10-dimension score.
 
-- [ ] **Step 3: Update the Mandatory skill table**
+- [x] **Step 3: Update the Mandatory skill table**
 
 Add a row: `| Mode E — Claude Design reconciliation | claude-design-workflow |`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Run: `git add .claude/agents/ui-ux-designer.md && git commit -m "feat(agents): ui-ux-designer Mode E (Claude Design reconciliation) + reference fidelity audit"`
 
@@ -174,7 +174,7 @@ Run: `git add .claude/agents/ui-ux-designer.md && git commit -m "feat(agents): u
 - Create: `.claude/skills/claude-design-workflow/SKILL.md`
 - Modify: `.claude/rules/common/skills-invocation.md`
 
-- [ ] **Step 1: Write `.claude/skills/claude-design-workflow/SKILL.md`**
+- [x] **Step 1: Write `.claude/skills/claude-design-workflow/SKILL.md`**
 
 Frontmatter `name`, `description`, `when_to_use` (mirrors the skills-invocation trigger). Body cookbook:
 
@@ -185,11 +185,11 @@ Frontmatter `name`, `description`, `when_to_use` (mirrors the skills-invocation 
 - **Fallback:** if driving is fragile/slow → produce brief, USER refines in browser + exports; orchestrator picks up artifact from `docs/design/assets/<slug>/`.
 - **Handoff:** dispatch ui-ux-designer Mode E (T3) → coder.
 
-- [ ] **Step 2: Register the trigger in `skills-invocation.md`**
+- [x] **Step 2: Register the trigger in `skills-invocation.md`**
 
 Add a row to the project-local skills table: `| claude-design-workflow | Orchestrator drives Claude Design for a UI task / handoff artifact | Master, PM, ui-ux-designer |`.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 Run: `git add .claude/skills/claude-design-workflow/ .claude/rules/common/skills-invocation.md && git commit -m "feat(skills): claude-design-workflow cookbook + trigger registration"`
 
@@ -206,15 +206,15 @@ Run: `git add .claude/skills/claude-design-workflow/ .claude/rules/common/skills
 - Modify: `.claude/agents/pm-snippets.md`
 - Modify: `.claude/agents/code-reviewer.md`
 
-- [ ] **Step 1: pm-snippets — add design-gate dispatch flow**
+- [x] **Step 1: pm-snippets — add design-gate dispatch flow**
 
 Add a snippet: before dispatching a Coder on a UI task, PM verifies a `docs/design/<slug>.md` artifact (Tier 1/2) or records a Tier-3 conformance note; the Coder dispatch prompt includes the artifact path + "build with our shadcn/ui components, match design.png; do NOT paste raw exported HTML."
 
-- [ ] **Step 2: code-reviewer — add artifact presence check**
+- [x] **Step 2: code-reviewer — add artifact presence check**
 
 Add to code-reviewer.md: on a PR touching `apps/web/**` or `apps/landing/**` visual surface, verify a design artifact (`docs/design/<slug>.md`) + a Mode B fidelity audit comment exist; if absent and tier ≠ 3 → `Verdict: BLOCK` with the design-gate citation. Reviewer must NOT set `merge-approved` (existing P0 guard).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 Run: `git add .claude/agents/pm-snippets.md .claude/agents/code-reviewer.md && git commit -m "feat(agents): enforce design-gate at PM dispatch + code review"`
 
@@ -231,15 +231,15 @@ Run: `git add .claude/agents/pm-snippets.md .claude/agents/code-reviewer.md && g
 - Modify: `docs/architecture/2026-06-22-claude-design-integration.md`
 - Modify: `CLAUDE.md`
 
-- [ ] **Step 1: Update the spec for native commands**
+- [x] **Step 1: Update the spec for native commands**
 
 In §2 add a row: «CLI upgraded 2.1.143 → 2.1.185 (2026-06-22) → native `/design-login` `/design-sync` `/design` present (verified in binary)». In §4.3/§4.4 replace "create project commands" with "use native commands; project value-add = gate + skill + Mode E". Update §9 deliverables to match this plan.
 
-- [ ] **Step 2: Update CLAUDE.md pointer map**
+- [x] **Step 2: Update CLAUDE.md pointer map**
 
 Add a row to the «Карта указателей» table: `| Claude Design UI-гейт + workflow | .claude/rules/common/design-gate.md + .claude/skills/claude-design-workflow/ |`. Add `design-gate` to the «Сессионный минимум» rules reminder line.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 Run: `git add docs/architecture/2026-06-22-claude-design-integration.md CLAUDE.md && git commit -m "docs: reconcile Claude Design spec with native commands; CLAUDE.md pointer"`
 
