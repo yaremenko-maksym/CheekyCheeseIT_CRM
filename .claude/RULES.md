@@ -165,6 +165,7 @@ Phase 4 (см. `docs/architecture/2026-06-03-phase4-deliverable.md`) лифтн�
 
 - **Russian language for user-facing output** — **[`.claude/rules/common/russian-language.md`](../../rules/common/russian-language.md)** (Phase 2.5 / ADR Q7 Option C). Все агенты общаются с user на русском; код / commits / variable names — английский.
 - **ESLint MCP-first** — **[`.claude/rules/common/eslint-mcp-first.md`](../../rules/common/eslint-mcp-first.md)** (Phase 2.5 supersedes post-edit hook). Перед Edit / Write на `.ts` / `.tsx` → `mcp__eslint__lint-files`.
+- **Orchestration routing (агент vs воркфлоу vs light-track)** — **[`.claude/rules/common/orchestration-routing.md`](../../rules/common/orchestration-routing.md)** (2026-06-22). Master / PM выбирает степень параллелизма: single-pipeline vs wave-fanout vs read-only audit-fanout. Cost-of-error (`pm.md`) + light-track + тир модели (`model-routing.md`) НЕ дублируются — отрабатывают раньше. Энфорсмент процедурный (judgment, как `design-gate`).
 
 ---
 
