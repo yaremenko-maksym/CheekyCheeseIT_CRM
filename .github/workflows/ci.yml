@@ -100,6 +100,13 @@ jobs:
         if: steps.filter.outputs.code == 'true'
         run: pnpm --filter @crm/shared --filter @crm/api --filter @crm/web test
 
+      # FM-5 guard: every apps/e2e/tests/**/*.spec.ts must be either in a CI shard
+      # or explicitly listed as debt in KNOWN_UNSHARDED. Pure Python parse — no stack
+      # required. Fails with a list of uncovered files + fix instructions.
+      - name: E2E shard coverage guard
+        if: steps.filter.outputs.code == 'true'
+        run: python3 scripts/devops/check-e2e-shard-coverage.py
+
       - name: Docs-only short-circuit
         if: steps.filter.outputs.code != 'true'
         run: echo "Docs-only PR — skipping quality work, satisfying required status."
