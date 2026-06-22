@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from '@nestjs/common'
+import { ForbiddenException, Inject, Injectable } from '@nestjs/common'
 import { desc, sql } from 'drizzle-orm'
 import type { SessionUser, AdminSummary, AdminTransactionCurrency } from '@crm/shared'
 import { adminSummarySchema } from '@crm/shared'
@@ -29,7 +29,10 @@ function toPaymentRail(currency: string): AdminTransactionCurrency {
 
 @Injectable()
 export class AdminSummaryService {
-  constructor(private readonly db: DatabaseService) {}
+  // Explicit @Inject so the service can be instantiated by Nest's DI in the
+  // vitest/esbuild env (which omits `design:paramtypes`) — required by the
+  // admin-summary RBAC integration spec. Mirrors TransactionsService.
+  constructor(@Inject(DatabaseService) private readonly db: DatabaseService) {}
 
   /**
    * ADMIN dashboard «центр действий» snapshot — KPI counters + the actionable
