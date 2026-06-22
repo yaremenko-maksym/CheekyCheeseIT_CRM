@@ -52,6 +52,13 @@ export const adminActiveTransactionSchema = z.object({
   amount: z.string(), // numeric string from DB
   currency: currencyEnumSchema, // real DB currency — same as TransactionDto['currency']
   txDate: z.string().datetime(), // ISO 8601
+  /**
+   * Linked payout_request id (PAYOUT rows). Projected so the ADMIN dashboard can
+   * open the SAME finance ConfirmPayoutDialog ON the dashboard — its
+   * COMPANY_ACCOUNT branch confirms off the payout REQUEST id (not the tx id),
+   * exactly like the Финансы page. Null for non-payout rows.
+   */
+  payoutRequestId: z.string().uuid().nullable(),
   /** True when the row is ready for an admin payout action (status PENDING_PAYMENT). */
   canPay: z.boolean(),
 })

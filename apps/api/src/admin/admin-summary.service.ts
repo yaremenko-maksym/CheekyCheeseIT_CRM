@@ -125,6 +125,10 @@ export class AdminSummaryService {
       // the Финансы page — no lossy payment-rail mapping.
       currency: r.currency,
       txDate: (r.txDate ?? r.createdAt).toISOString(),
+      // Linked payout_request id (PAYOUT rows) — lets the dashboard open the SAME
+      // finance ConfirmPayoutDialog (its COMPANY_ACCOUNT branch confirms off the
+      // payout request id). Null for non-payout rows.
+      payoutRequestId: r.payoutRequestId ?? null,
       canPay: r.status === 'PENDING_PAYMENT',
     }))
 

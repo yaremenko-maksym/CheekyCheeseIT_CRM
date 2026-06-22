@@ -1,13 +1,17 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Briefcase, CalendarClock, Clock, Users } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { TransactionDto } from '@crm/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/context/auth'
-import { useAdminSummary } from '@/hooks/use-admin-summary'
+import { useAdminSummary, ADMIN_SUMMARY_QUERY_KEY } from '@/hooks/use-admin-summary'
+import { useQueryClient } from '@tanstack/react-query'
 import { KpiCard } from './finance/components/KpiCards'
 import { ActiveTransactionsTable } from './finance/components/ActiveTransactionsTable'
+import { SettleSeniorPayoutDialog } from './finance/components/dialogs/SettleSeniorPayoutDialog'
+import { PaySalaryDialog } from './finance/components/dialogs/PaySalaryDialog'
+import { ConfirmPayoutDialog } from '@/components/finance/ConfirmPayoutDialog'
 import { DropDashboard } from './routing/components/DropDashboard'
 import { AccountantDashboard } from './routing/components/AccountantDashboard'
 import { HRDashboard } from './routing/components/HRDashboard'
@@ -91,16 +95,50 @@ function CrmDashboard() {
  *
  * Данные отдаёт GET /api/admin/summary (useAdminSummary, AdminSummary). RBAC на
  * бэкенде — ADMIN→200, иначе 403; этот компонент монтируется только для ADMIN
- * (диспетч в CrmDashboard). Клик по строке/действию ведёт на /finance, где живёт
- * полный flow выплат — дашборд не дублирует диалоги.
+ * (диспетч в CrmDashboard).
+ *
+ * UT-feedback (PR #280): клик по экшн-кнопке строки больше НЕ ведёт на /finance —
+ * он открывает ТУ ЖЕ модалку оплаты, что и страница Финансы, прямо на дашборде, и
+ * выполняет ТУ ЖЕ мутацию (диалоги переиспользуются 1:1, ничего не дублируется):
+ *   - SENIOR_PENDING_PAYOUT «Выплатить»  → SettleSeniorPayoutDialog
+ *   - PAYOUT «Подтвердить оплату»         → ConfirmPayoutDialog
+ *   - SALARY «Выплатить»                  → PaySalaryDialog
+ * Каждый диалог сам инвалидирует свои query-ключи (['transactions'],
+ * ['finance-summary'], ['company-account'] …). Здесь мы дополнительно
+ * инвалидируем ['admin','summary'] на закрытии диалога, чтобы строка дашборда
+ * обновилась после успешной оплаты.
  */
 function AdminDashboard() {
-  const navigate = useNavigate()
+  const qc = useQueryClient()
   const { data: summary, isLoading, isError } = useAdminSummary()
 
-  // Any row interaction routes the admin to the finance page (full payout flow).
-  const goToFinance = (_tx: TransactionDto) => {
-    void navigate({ to: '/finance' })
+  // One row-action dialog open at a time. Each holds the TransactionDto adapted
+  // from the slim admin-summary row (ActiveTransactionsTable builds it). The
+  // reused finance dialogs operate on tx.id / tx.payoutRequestId — both are
+  // present on the adapted DTO (the backend now projects payoutRequestId).
+  const [settleSeniorTx, setSettleSeniorTx] = useState<TransactionDto | null>(null)
+  const [confirmPayoutTx, setConfirmPayoutTx] = useState<TransactionDto | null>(null)
+  const [paySalaryTx, setPaySalaryTx] = useState<TransactionDto | null>(null)
+
+  // After any dialog closes (incl. a successful pay), refresh the admin summary
+  // so the just-settled row drops out of «Активные транзакции». The dialogs
+  // already invalidate the finance query-keys; this only adds the dashboard's
+  // own ['admin','summary'] key (the finance page keeps working untouched).
+  const refreshSummary = () => {
+    void qc.invalidateQueries({ queryKey: ADMIN_SUMMARY_QUERY_KEY })
+  }
+
+  const closeSettleSenior = () => {
+    setSettleSeniorTx(null)
+    refreshSummary()
+  }
+  const closeConfirmPayout = () => {
+    setConfirmPayoutTx(null)
+    refreshSummary()
+  }
+  const closePaySalary = () => {
+    setPaySalaryTx(null)
+    refreshSummary()
   }
 
   const kpis = summary?.kpis
@@ -108,7 +146,9 @@ function AdminDashboard() {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
       <div data-testid="admin-dashboard-hub" className="space-y-6">
-        {/* KPI grid — 4 одинаковые нейтральные карточки. */}
+        {/* KPI grid — 4 одинаковые нейтральные карточки. `items-stretch` + KpiCard
+            `h-full` делают ВСЕ карточки одной высоты, даже если заголовок
+            «Проектов не оплачено в этом месяце» переносится на 2 строки. */}
         {isLoading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" data-testid="admin-kpi-loading">
             {Array.from({ length: 4 }).map((_, i) => (
@@ -126,42 +166,46 @@ function AdminDashboard() {
           </Card>
         ) : (
           <motion.div
-            className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
+            className="grid items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-4"
             variants={container}
             initial="hidden"
             animate="show"
             data-testid="admin-kpi-grid"
           >
-            <motion.div variants={item} data-testid="kpi-active-projects">
+            <motion.div variants={item} className="h-full" data-testid="kpi-active-projects">
               <KpiCard
                 title="Активных проектов"
                 value={String(kpis.activeProjects)}
                 icon={<Briefcase className="h-5 w-5" />}
                 color="default"
+                className="h-full"
               />
             </motion.div>
-            <motion.div variants={item} data-testid="kpi-employees">
+            <motion.div variants={item} className="h-full" data-testid="kpi-employees">
               <KpiCard
                 title="Сотрудников"
                 value={String(kpis.employees)}
                 icon={<Users className="h-5 w-5" />}
                 color="default"
+                className="h-full"
               />
             </motion.div>
-            <motion.div variants={item} data-testid="kpi-projects-unpaid">
+            <motion.div variants={item} className="h-full" data-testid="kpi-projects-unpaid">
               <KpiCard
                 title="Проектов не оплачено в этом месяце"
                 value={String(kpis.projectsUnpaidThisMonth)}
                 icon={<CalendarClock className="h-5 w-5" />}
                 color="default"
+                className="h-full"
               />
             </motion.div>
-            <motion.div variants={item} data-testid="kpi-active-interviews">
+            <motion.div variants={item} className="h-full" data-testid="kpi-active-interviews">
               <KpiCard
                 title="Собеседований"
                 value={String(kpis.activeInterviews)}
                 icon={<Clock className="h-5 w-5" />}
                 color="default"
+                className="h-full"
               />
             </motion.div>
           </motion.div>
@@ -181,12 +225,21 @@ function AdminDashboard() {
               <ActiveTransactionsTable
                 transactions={summary?.activeTransactions ?? []}
                 loading={isLoading}
-                onRowClick={goToFinance}
+                onConfirmPayout={setConfirmPayoutTx}
+                onSettleSeniorPayout={setSettleSeniorTx}
+                onPaySalary={setPaySalaryTx}
               />
             </CardContent>
           </Card>
         </motion.div>
       </div>
+
+      {/* Reused finance pay dialogs — mounted ON the dashboard so an admin
+          completes the payout right here (same dialogs, same mutations, same
+          receipt/txHash fields as the Финансы page; no flow duplicated). */}
+      <SettleSeniorPayoutDialog tx={settleSeniorTx} onClose={closeSettleSenior} />
+      <ConfirmPayoutDialog tx={confirmPayoutTx} onClose={closeConfirmPayout} />
+      <PaySalaryDialog tx={paySalaryTx} onClose={closePaySalary} />
     </div>
   )
 }

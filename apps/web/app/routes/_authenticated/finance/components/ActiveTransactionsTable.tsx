@@ -12,10 +12,14 @@ import { TransactionRow } from './TransactionRow'
  *
  * It accepts the SLIM `AdminActiveTransaction` shape from GET /api/admin/summary
  * and adapts each item into the `TransactionDto` contract `TransactionRow`
- * expects. Action handlers are optional: when omitted (admin dashboard), the row
- * shows no inline action buttons and an `onRowClick` (e.g. navigate to /finance)
- * carries the admin to the full action flow. This keeps the dashboard read-only
- * while leaving the finance page's own behaviour untouched.
+ * expects.
+ *
+ * UT-feedback (PR #280): the inline action buttons now open the SAME finance pay
+ * dialogs ON the dashboard (the parent mounts SettleSeniorPayoutDialog /
+ * ConfirmPayoutDialog / PaySalaryDialog and passes their open-handlers here),
+ * instead of routing to /finance. The handlers receive the adapted
+ * `TransactionDto` (incl. `id` + `payoutRequestId`) the dialogs operate on. All
+ * handlers are optional — omit them for a purely read-only table.
  */
 
 /**
@@ -45,7 +49,10 @@ function toTransactionDto(t: AdminActiveTransaction): TransactionDto {
     receiverName: t.receiverName,
     projectId: t.projectId,
     projectName: t.projectName,
-    payoutRequestId: null,
+    // Carried through from the summary projection so ConfirmPayoutDialog's
+    // COMPANY_ACCOUNT branch (which confirms off the payout REQUEST id, not the
+    // tx id) works identically to the Финансы page when opened on the dashboard.
+    payoutRequestId: t.payoutRequestId,
     payoutRequest: null,
     seniorSharePercent: null,
     seniorSharePercentSource: null,
@@ -73,15 +80,27 @@ type ActiveTransactionsTableProps = {
   transactions: AdminActiveTransaction[]
   loading: boolean
   /**
-   * Row / action click handler. The admin dashboard passes a navigate-to-finance
-   * callback so any interaction routes to the finance page where the full payout
-   * flow (dialogs / mutations) lives — the dashboard never re-implements that
-   * stack. Wired to BOTH the row click AND the inline «Выплатить» /
-   * «Подтвердить оплату» affordances surfaced for PENDING_PAYMENT rows, so a
-   * canPay row shows its action button and that button takes the admin to
-   * finance to complete it. Optional — omit for a purely static table.
+   * Optional row-body click handler (opens a detail view). The admin dashboard
+   * no longer passes this — interactions happen through the explicit action
+   * buttons below — but it's kept for any read-only consumer that wants a
+   * row-click affordance.
    */
   onRowClick?: (tx: TransactionDto) => void
+  /**
+   * «Подтвердить оплату» on a PAYOUT row (PENDING_PAYMENT). The dashboard opens
+   * the reused ConfirmPayoutDialog with this tx.
+   */
+  onConfirmPayout?: (tx: TransactionDto) => void
+  /**
+   * «Выплатить» on a SENIOR_PENDING_PAYOUT row (PENDING_PAYMENT). The dashboard
+   * opens the reused SettleSeniorPayoutDialog with this tx.
+   */
+  onSettleSeniorPayout?: (tx: TransactionDto) => void
+  /**
+   * «Выплатить» on a SALARY row (PENDING). The dashboard opens the reused
+   * PaySalaryDialog with this tx.
+   */
+  onPaySalary?: (tx: TransactionDto) => void
   emptyMessage?: string
 }
 
@@ -89,6 +108,9 @@ export function ActiveTransactionsTable({
   transactions,
   loading,
   onRowClick,
+  onConfirmPayout,
+  onSettleSeniorPayout,
+  onPaySalary,
   emptyMessage = 'Нет активных транзакций',
 }: ActiveTransactionsTableProps) {
   if (loading) {
@@ -135,18 +157,10 @@ export function ActiveTransactionsTable({
                 tx={tx}
                 role="ADMIN"
                 rates={undefined}
-                {...(onRowClick
-                  ? {
-                      onClick: onRowClick,
-                      // Surface the row's inline payout affordances for
-                      // PENDING_PAYMENT rows and route them to the finance page
-                      // (no dialogs re-implemented here). «Подтвердить оплату»
-                      // (PAYOUT) and «Выплатить» (SENIOR_PENDING_PAYOUT) both go
-                      // through the same navigate callback.
-                      onConfirmPayout: onRowClick,
-                      onSettleSeniorPayout: onRowClick,
-                    }
-                  : {})}
+                {...(onRowClick ? { onClick: onRowClick } : {})}
+                {...(onConfirmPayout ? { onConfirmPayout } : {})}
+                {...(onSettleSeniorPayout ? { onSettleSeniorPayout } : {})}
+                {...(onPaySalary ? { onPaySalary } : {})}
               />
             ))}
           </AnimatePresence>
