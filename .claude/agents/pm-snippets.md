@@ -990,6 +990,7 @@ cat .claude/tasks/<task>.progress.md
 - `review_timeout` — `{ at, type, pr, agent: "code-reviewer"|"security-reviewer", dispatched_at, timeout_at }` — reviewer не вернул verdict за 2× expected duration (Mode 2.F)
 - `review_rejected` — `{ at, type, pr, rounds }` (от внешних non-AI reviewer-ов через REQUEST_CHANGES)
 - `autotest_skipped` — `{ at, type, reason }` — skip без записи запрещён
+- `routing_decision` — `{ at, type, track: "wave-fanout"|"audit-fanout", reason }` — оркестратор выбрал нестандартный трек параллелизма (`orchestration-routing.md`). `single-pipeline` / `light-track` = дефолт, не логируется (как и не-skip агенты)
 - `worktree_isolation_warning` — `{ at, type, files: [...] }`
 - `e2e_started` — `{ at, type, run_id }`
 - `e2e_passed` — `{ at, type, run_id }`

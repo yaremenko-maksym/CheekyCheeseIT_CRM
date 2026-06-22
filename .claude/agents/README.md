@@ -72,6 +72,7 @@ Skills — canonical workflow surface per ECC AGENTS.upstream.md. После Pha
 | `design-system`             | `.claude/skills/design-system/SKILL.md`                                                      | UI/UX Designer Mode B / C: 10-dimension visual audit + AI-slop detection (ECC adopt) |
 | `make-interfaces-feel-better` | `.claude/skills/make-interfaces-feel-better/SKILL.md`                                      | UI/UX Designer Mode D / Coder polish: concentric radius / tabular-nums / motion / hit areas (ECC adopt) |
 | `claude-design-workflow`    | `.claude/skills/claude-design-workflow/SKILL.md`                                            | Оркестратор (Master / PM / ui-ux-designer) драйвит Claude Design для UI-задачи + handoff-артефакт (design-gate Tier 1/2, добавлен 2026-06-22) |
+| `codebase-audit`            | `.claude/skills/codebase-audit/SKILL.md`                                                    | Master / PM: read-only breadth-first аудит ≥3 независимых модулей (fan-out N×haiku → opus synth), Решение 2 orchestration-routing (2026-06-22) |
 
 См. `docs/architecture/2026-06-03-phase4-deliverable.md` для full inventory + skipped candidates + cross-skill dependency graph.
 
