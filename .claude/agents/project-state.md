@@ -27,10 +27,11 @@ Single source of truth для **factual state of the project**: фазы, миг
 - [x] **PHASE 7**: Профили (`/crm/profile`, `/crm/users/:id`, telegram+phone, **фото S3** через `avatarDocumentId`) + Легенда **per-project** (#150 + #164: `legends` с projectId UNIQUE + `legend_entries` журнал; RBAC: видят/редактируют связанные ADMIN/HR/JUNIOR, субъект исключён)
 - [x] **Контракты + Онбординг** (вне исходного 9-фазного плана): `contract_templates`, `employee_contracts`, `signed_contracts`, ToS (`tos_versions`/`tos_acceptances`), система переменных шаблонов, двухколоночный UA|EN PDF, `/crm/onboarding`
 - [x] **DROP роль**: payment-routing (`dropSharePercent`, `payout_requests`, `pending_obligations`)
-- [ ] **PHASE 8**: **«Счёт компании» (USDT ERC-20)** ← **СЛЕДУЮЩАЯ** (после process-гейтов). ⚠ **Смарт-контракты ОТМЕНЕНЫ владельцем 2026-06-17** — см. §1.1 + ADR `docs/architecture/2026-06-17-planning-audit-roadmap.md`. DB-фундамент частично переиспользуется (`payout_requests`/`pending_obligations`/share-поля — ревизия в b1)
-- [ ] **PHASE 9**: Дашборд — частично устарел (per-role дашборды уже на `/crm` #223); переопределить = generic ADMIN/SENIOR дашборд (#231 MED-defer) + cross-role аналитика. См. ADR 2026-06-17 Part 3(c)
+- [x] **PHASE 8**: **«Счёт компании» (USDT ERC-20)** ✅ closed — единый кошелёк; верификация прихода по ссылке на tx (etherscan + прогресс-бар блоков, idempotent по `txHash`); ADMIN-дивиденды; salary/expense/admin-income + drop-payout через счёт компании. **НЕ on-chain** (смарт-контракты отменены владельцем 2026-06-17). PR #249–#265 (+ #277 throttle). Детали — §1.1
+- [ ] **PHASE 9**: Дашборд — частично устарел (per-role дашборды уже в корне `/` #223); переопределить = generic ADMIN/SENIOR дашборд (#231 MED-defer) + cross-role аналитика. См. ADR 2026-06-17 Part 3(c)
+- **Текущий фокус (2026-06-22):** плавная миграция дизайна в **Claude Design** (design-gate Tier 1/2, экран за экраном; пилот — HR-дашборд). Cross-cutting UI, не нумерованная фаза. Затем PHASE 9.
 
-### 1.1. PHASE 8 — план (ПЕРЕОПРЕДЕЛЁН 2026-06-17; смарт-контракты отменены)
+### 1.1. PHASE 8 — реализовано ✅ (ПЕРЕОПРЕДЕЛЕНО 2026-06-17; смарт-контракты отменены)
 
 > Полный роадмап + safety-gates + open-вопросы — ADR `docs/architecture/2026-06-17-planning-audit-roadmap.md` (Part 3b, Part 5).
 
