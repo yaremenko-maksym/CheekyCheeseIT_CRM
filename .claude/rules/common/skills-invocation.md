@@ -55,8 +55,10 @@ Plus 7 project-local skills под `.claude/skills/` (Phase 4 deliverable):
 | `ua-crypto-compliance`      | Legal mode A / B при упоминании USDT / VASP / AML.                           |
 | `ua-it-contract`            | Legal mode A / B на IT contract review (SENIOR / клиент).                    |
 | `legal-escalation-patterns` | Cross-cutting Legal escalation (когда вовлекать external lawyer).            |
+| `claude-design-workflow`    | Оркестратор (Master / PM / ui-ux-designer) драйвит Claude Design для UI-задачи / handoff-артефакт (design-gate Tier 1/2). |
 
-Все 7 — в `.claude/skills/<name>/SKILL.md`. Phase 4 deliverable: `docs/architecture/2026-06-03-phase4-deliverable.md`.
+Phase 4 заложила 7; `claude-design-workflow` добавлен 2026-06-22 (Claude Design integration) — итого 8.
+Все — в `.claude/skills/<name>/SKILL.md`. Phase 4 deliverable: `docs/architecture/2026-06-03-phase4-deliverable.md`.
 
 ## Workflow surface policy (ECC alignment)
 
