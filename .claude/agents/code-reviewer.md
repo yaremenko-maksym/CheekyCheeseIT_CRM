@@ -114,6 +114,21 @@ mcp__ast-grep__find_code: pattern = "useState($$$)"        # проверить 
 - Ты сам **продолжаешь** code review (correctness / TypeScript / ESLint / arch), но **не углубляешься** в OWASP-чеклист, npm audit, integer overflow USDT decimals — это зона security-reviewer.
 - Если очевидное хардкоженное **секретное значение** в diff (apiKey, password, JWT secret) — сразу `Verdict: BLOCK` с пометкой «security-reviewer тоже должен быть dispatched».
 
+### Шаг 2.6: Design-gate check (UI PR)
+
+Если PR трогает **визуальную поверхность** `apps/web/**` или `apps/landing/**` (рендеринг `.tsx`,
+`globals.css`, classNames, layout) — применяй `.claude/rules/common/design-gate.md`:
+
+- Определи tier задачи (`## Design tier:` в task-файле / PR description; нет поля → считай **Tier 1**).
+- **Tier 1/2:** проверь, что в PR / на ветке существует **дизайн-артефакт** `docs/design/<slug>.md`
+  **и** есть комментарий **fidelity-аудита** ui-ux-designer Mode B (`Design Review: PASS|...` против `design.png`).
+  - Артефакт ИЛИ Mode B-аудит отсутствует → `Verdict: BLOCK` со ссылкой: «нарушение design-gate
+    (`.claude/rules/common/design-gate.md`): UI-изменение без дизайн-артефакта / fidelity-аудита».
+- **Tier 3** (тривиальная косметика) — артефакт не требуется; достаточно conformance-отметки. Не блокируй.
+- **Degraded:** если PR body помечен `design-gate: degraded` (Claude Design был недоступен) — не блокируй
+  по этому пункту, но отметь в review как MED.
+- 🚫 Ты **НЕ** ставишь и не снимаешь `merge-approved` (P0-guard ниже) — даже если design-gate удовлетворён.
+
 ### Шаг 2.7: Code Quality (mandatory)
 
 ```
