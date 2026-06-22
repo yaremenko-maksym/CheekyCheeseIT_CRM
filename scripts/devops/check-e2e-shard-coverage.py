@@ -73,13 +73,10 @@ KNOWN_UNSHARDED = {
     "tests/drop-routing-hub.spec.ts",             # debt: not gated, migrate to drop shard later
     "tests/drop-senior-readonly.spec.ts",         # debt: not gated, migrate to drop shard later
     "tests/drop-share-slider.spec.ts",            # debt: not gated, migrate to drop shard later
-    # --- money-path (FM-5 blocker): PATCH /company-account/wallet has hardcoded inline
-    # @Throttle({ limit: 5, ttl: 60_000 }) — NOT covered by THROTTLE_RELAXED env flag.
-    # Coder task: replace with @AdminWriteThrottle() in company-account.controller.ts.
-    # After that fix: remove from KNOWN_UNSHARDED and re-enable drop-finance shard.
-    "tests/drop-role-end-to-end.spec.ts",         # debt: PATCH /wallet hardcoded throttle (limit:5) — Coder fix needed
-    "tests/pending-settlement.spec.ts",           # debt: same — blocked by rbac-matrix-smoke in same shard
-    "tests/rbac-matrix-smoke.spec.ts",            # debt: ensureCompanyWalletViaAPI→PATCH /wallet→HTTP 429 (hardcoded limit:5, not env-aware)
+    # --- money-path (FM-5 complete): all 3 specs now gated in drop-finance shard.
+    # company-account throttle is env-relaxable via RelaxableThrottle (#275/#277).
+    # THROTTLE_RELAXED=true + THROTTLER_LIMIT=2000 set in E2E job env (#276).
+    # pending-settlement, drop-role-end-to-end, rbac-matrix-smoke → drop-finance shard.
     # --- finance extras ---
     "tests/finance-funding-source.spec.ts",       # debt: not gated, migrate to finance shard later
     "tests/finance-payout-simulate.spec.ts",      # debt: not gated, migrate to finance shard later
