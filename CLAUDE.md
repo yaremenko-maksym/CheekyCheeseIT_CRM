@@ -18,20 +18,21 @@ CRM для рекрутинговых воркспейсов (outsource/outstaff
 
 ## Карта указателей (где живёт правда)
 
-| Что нужно                                                                               | Где                                                                              |
-| --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Фазы и статус, RBAC-матрица, бизнес-правила, миграции, схемы, auth, tech gotchas        | `.claude/agents/project-state.md`                                                |
-| Cross-agent правила — точка входа (TOC)                                                 | `.claude/RULES.md`                                                               |
-| Конкретные правила: MCP-first, git-policy, zone-of-write, версии, язык, skills-триггеры | `.claude/rules/common/*.md` (auto-loaded)                                        |
-| Лёгкий vs полный трек разработки                                                        | `.claude/rules/common/light-track.md`                                            |
-| Claude Design UI-гейт + workflow                                                        | `.claude/rules/common/design-gate.md` + `.claude/skills/claude-design-workflow/` |
-| Системные промпты агентов (старт — README)                                              | `.claude/agents/<agent>.md`                                                      |
-| Cross-agent state machine                                                               | `.claude/agents/contracts.md`                                                    |
-| Активные task-файлы                                                                     | `.claude/tasks/`                                                                 |
-| ADR, deliverables, RCA                                                                  | `docs/architecture/`                                                             |
-| Бизнес-доки (BA)                                                                        | `docs/business/`                                                                 |
-| Юр. драфты контрактов                                                                   | `docs/legal/`                                                                    |
-| Уроки агентов                                                                           | `.claude/agents/memory/<agent>/lessons.md`                                       |
+| Что нужно                                                                               | Где                                                                                |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Фазы и статус, RBAC-матрица, бизнес-правила, миграции, схемы, auth, tech gotchas        | `.claude/agents/project-state.md`                                                  |
+| Cross-agent правила — точка входа (TOC)                                                 | `.claude/RULES.md`                                                                 |
+| Конкретные правила: MCP-first, git-policy, zone-of-write, версии, язык, skills-триггеры | `.claude/rules/common/*.md` (auto-loaded)                                          |
+| Лёгкий vs полный трек разработки                                                        | `.claude/rules/common/light-track.md`                                              |
+| Claude Design UI-гейт + workflow                                                        | `.claude/rules/common/design-gate.md` + `.claude/skills/claude-design-workflow/`   |
+| Воркфлоу/fan-out vs агент vs light-track (степень параллелизма) + codebase-audit        | `.claude/rules/common/orchestration-routing.md` + `.claude/skills/codebase-audit/` |
+| Системные промпты агентов (старт — README)                                              | `.claude/agents/<agent>.md`                                                        |
+| Cross-agent state machine                                                               | `.claude/agents/contracts.md`                                                      |
+| Активные task-файлы                                                                     | `.claude/tasks/`                                                                   |
+| ADR, deliverables, RCA                                                                  | `docs/architecture/`                                                               |
+| Бизнес-доки (BA)                                                                        | `docs/business/`                                                                   |
+| Юр. драфты контрактов                                                                   | `docs/legal/`                                                                      |
+| Уроки агентов                                                                           | `.claude/agents/memory/<agent>/lessons.md`                                         |
 
 ## Стек (сводка)
 
@@ -93,7 +94,7 @@ label `merge-approved` → CI squash-merge.
 
 Правила ниже auto-loaded из `.claude/rules/common/` — здесь только напоминание, что они существуют:
 MCP-first · git-policy (no `--no-verify`, явные `git add`, `ac_verified:`) · русский язык ·
-zone-of-write · skills-триггеры · version-pins · light-track · design-gate (любое UI → дизайнер-в-контуре) · model-routing (какой тир модели какому агенту/задаче).
+zone-of-write · skills-триггеры · version-pins · light-track · design-gate (любое UI → дизайнер-в-контуре) · model-routing (какой тир модели какому агенту/задаче) · orchestration-routing (агент vs воркфлоу vs light-track — степень параллелизма).
 
 Сверх правил: E2E локально перед push кода (docs-only diff освобождён — см. light-track);
 merge PR — **только** по явному подтверждению USER в чате.

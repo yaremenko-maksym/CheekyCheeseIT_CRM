@@ -44,7 +44,7 @@
 
 ## Project-local skills (Phase 4 lift)
 
-Project-local + импортированные skills под `.claude/skills/` (13 на диске; Phase 4 заложила 7):
+Project-local + импортированные skills под `.claude/skills/` (14 на диске; Phase 4 заложила 7):
 
 | Skill                         | Trigger                                                                                                                   |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
@@ -61,12 +61,14 @@ Project-local + импортированные skills под `.claude/skills/` (
 | `design-system`               | UI/UX Designer Mode B / C: 10-dimension visual audit + AI-slop detection. **(origin: ECC)**                               |
 | `frontend-design-direction`   | UI/UX Designer Mode A: purpose / audience / tone / memorable detail. **(origin: community)**                              |
 | `make-interfaces-feel-better` | UI/UX Designer Mode D / Coder polish: concentric radius / tabular-nums / motion / hit areas. **(origin: community)**      |
+| `codebase-audit`              | Master / PM: read-only breadth-first аудит ≥3 независимых модулей (fan-out → synth). **(project-local, 2026-06-22)**      |
 
 Phase 4 заложила 7 (`playwright-patterns` … `legal-escalation-patterns`); далее добавлены/импортированы:
 `pm-dispatching` (project-local snippet-loader), `claude-design-workflow` (2026-06-22) и 4 дизайн/a11y-скилла
 (`accessibility`/`design-system` — origin ECC; `frontend-design-direction`/`make-interfaces-feel-better` —
-origin community). **Итого 13 на диске** (`ls .claude/skills/`); таблица выше — источник истины. Каждый —
-в `.claude/skills/<name>/SKILL.md`. Phase 4 deliverable: `docs/architecture/2026-06-03-phase4-deliverable.md`.
+origin community); `codebase-audit` (project-local, 2026-06-22 — read-only audit-fanout, см.
+`orchestration-routing.md` Решение 2). **Итого 14 на диске** (`ls .claude/skills/`); таблица выше —
+источник истины. Каждый — в `.claude/skills/<name>/SKILL.md`. Phase 4 deliverable: `docs/architecture/2026-06-03-phase4-deliverable.md`.
 
 ## Workflow surface policy (ECC alignment)
 
