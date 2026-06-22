@@ -1,10 +1,17 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { BarChart3, Briefcase, Clock, TrendingUp, Users } from 'lucide-react'
+import { Briefcase, CalendarClock, Clock, Users } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import type { TransactionDto } from '@crm/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/context/auth'
+import { useAdminSummary, ADMIN_SUMMARY_QUERY_KEY } from '@/hooks/use-admin-summary'
+import { useQueryClient } from '@tanstack/react-query'
+import { KpiCard } from './finance/components/KpiCards'
+import { ActiveTransactionsTable } from './finance/components/ActiveTransactionsTable'
+import { SettleSeniorPayoutDialog } from './finance/components/dialogs/SettleSeniorPayoutDialog'
+import { PaySalaryDialog } from './finance/components/dialogs/PaySalaryDialog'
+import { ConfirmPayoutDialog } from '@/components/finance/ConfirmPayoutDialog'
 import { DropDashboard } from './routing/components/DropDashboard'
 import { AccountantDashboard } from './routing/components/AccountantDashboard'
 import { HRDashboard } from './routing/components/HRDashboard'
@@ -18,7 +25,7 @@ import { SeniorDashboard } from './routing/components/SeniorDashboard'
  *   - HR          → HRDashboard (рекрутинг хаб + KPI собеседований)
  *   - SENIOR      → SeniorDashboard (рабочий хаб: мои проекты + доход + выплаты)
  *   - JUNIOR      → редирект на собственный хаб /project
- *   - ADMIN        → дженерик-дашборд (проекты/сотрудники/транзакции/собеседования)
+ *   - ADMIN       → AdminDashboard («центр действий»: 4 KPI + активные транзакции)
  *
  * `/` — fail-open в route-access (доступен всем аутентифицированным ролям, вкл.
  * DROP); per-role контент дашбордов НЕ меняется здесь — только консолидация роутинга.
@@ -26,13 +33,6 @@ import { SeniorDashboard } from './routing/components/SeniorDashboard'
 export const Route = createFileRoute('/_authenticated/')({
   component: CrmDashboard,
 })
-
-const stats = [
-  { label: 'Активных проектов', value: '—', icon: Briefcase, hint: 'Нет данных' },
-  { label: 'Сотрудников', value: '—', icon: Users, hint: 'Нет данных' },
-  { label: 'Транзакций', value: '—', icon: TrendingUp, hint: 'Нет данных' },
-  { label: 'Собеседований', value: '—', icon: Clock, hint: 'Нет данных' },
-]
 
 const container = {
   hidden: { opacity: 0 },
@@ -80,85 +80,166 @@ function CrmDashboard() {
     return <SeniorDashboard />
   }
 
-  // ADMIN: дженерик-дашборд.
+  // ADMIN role: «центр действий» — рабочий дашборд с реальными данными
+  // (GET /api/admin/summary, RBAC ADMIN-only). 4 нейтральных KPI + таблица
+  // «Активные транзакции» в стиле страницы Финансы (переиспользует TransactionRow).
+  return <AdminDashboard />
+}
+
+/**
+ * AdminDashboard — «центр действий» для роли ADMIN.
+ *
+ * 4 одинаковые нейтральные KPI-карточки (KpiCard, color="default") + панель
+ * «Активные транзакции», переиспользующая финансовый TransactionRow через
+ * ActiveTransactionsTable (строки выглядят идентично странице Финансы).
+ *
+ * Данные отдаёт GET /api/admin/summary (useAdminSummary, AdminSummary). RBAC на
+ * бэкенде — ADMIN→200, иначе 403; этот компонент монтируется только для ADMIN
+ * (диспетч в CrmDashboard).
+ *
+ * UT-feedback (PR #280): клик по экшн-кнопке строки больше НЕ ведёт на /finance —
+ * он открывает ТУ ЖЕ модалку оплаты, что и страница Финансы, прямо на дашборде, и
+ * выполняет ТУ ЖЕ мутацию (диалоги переиспользуются 1:1, ничего не дублируется):
+ *   - SENIOR_PENDING_PAYOUT «Выплатить»  → SettleSeniorPayoutDialog
+ *   - PAYOUT «Подтвердить оплату»         → ConfirmPayoutDialog
+ *   - SALARY «Выплатить»                  → PaySalaryDialog
+ * Каждый диалог сам инвалидирует свои query-ключи (['transactions'],
+ * ['finance-summary'], ['company-account'] …). Здесь мы дополнительно
+ * инвалидируем ['admin','summary'] на закрытии диалога, чтобы строка дашборда
+ * обновилась после успешной оплаты.
+ */
+function AdminDashboard() {
+  const qc = useQueryClient()
+  const { data: summary, isLoading, isError } = useAdminSummary()
+
+  // One row-action dialog open at a time. Each holds the TransactionDto adapted
+  // from the slim admin-summary row (ActiveTransactionsTable builds it). The
+  // reused finance dialogs operate on tx.id / tx.payoutRequestId — both are
+  // present on the adapted DTO (the backend now projects payoutRequestId).
+  const [settleSeniorTx, setSettleSeniorTx] = useState<TransactionDto | null>(null)
+  const [confirmPayoutTx, setConfirmPayoutTx] = useState<TransactionDto | null>(null)
+  const [paySalaryTx, setPaySalaryTx] = useState<TransactionDto | null>(null)
+
+  // After any dialog closes (incl. a successful pay), refresh the admin summary
+  // so the just-settled row drops out of «Активные транзакции». The dialogs
+  // already invalidate the finance query-keys; this only adds the dashboard's
+  // own ['admin','summary'] key (the finance page keeps working untouched).
+  const refreshSummary = () => {
+    void qc.invalidateQueries({ queryKey: ADMIN_SUMMARY_QUERY_KEY })
+  }
+
+  const closeSettleSenior = () => {
+    setSettleSeniorTx(null)
+    refreshSummary()
+  }
+  const closeConfirmPayout = () => {
+    setConfirmPayoutTx(null)
+    refreshSummary()
+  }
+  const closePaySalary = () => {
+    setPaySalaryTx(null)
+    refreshSummary()
+  }
+
+  const kpis = summary?.kpis
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
-      <div className="space-y-6">
-        <motion.div
-          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
-          variants={container}
-          initial="hidden"
-          animate="show"
-          layout
-        >
-          {stats.map((stat) => (
-            <motion.div key={stat.label} variants={item} layout>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">
-                    {stat.label}
-                  </CardTitle>
-                  <stat.icon className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-bold tracking-tight">{stat.value}</div>
-                  <p className="mt-1 text-xs text-muted-foreground">{stat.hint}</p>
-                </CardContent>
-              </Card>
+      <div data-testid="admin-dashboard-hub" className="space-y-6">
+        {/* KPI grid — 4 одинаковые нейтральные карточки. `items-stretch` + KpiCard
+            `h-full` делают ВСЕ карточки одной высоты, даже если заголовок
+            «Проектов не оплачено в этом месяце» переносится на 2 строки. */}
+        {isLoading ? (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" data-testid="admin-kpi-loading">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-28 w-full animate-pulse rounded-lg bg-muted" />
+            ))}
+          </div>
+        ) : isError || !kpis ? (
+          <Card data-testid="admin-kpi-error">
+            <CardContent className="flex flex-col items-center justify-center gap-2 py-10">
+              <p className="text-sm text-destructive">Не удалось загрузить сводку</p>
+              <p className="text-xs text-muted-foreground">
+                Обновите страницу или попробуйте позже
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <motion.div
+            className="grid items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-4"
+            variants={container}
+            initial="hidden"
+            animate="show"
+            data-testid="admin-kpi-grid"
+          >
+            <motion.div variants={item} className="h-full" data-testid="kpi-active-projects">
+              <KpiCard
+                title="Активных проектов"
+                value={String(kpis.activeProjects)}
+                icon={<Briefcase className="h-5 w-5" />}
+                color="default"
+                className="h-full"
+              />
             </motion.div>
-          ))}
-        </motion.div>
-
-        <motion.div
-          className="grid gap-4 lg:grid-cols-2"
-          variants={container}
-          initial="hidden"
-          animate="show"
-          layout
-        >
-          <motion.div variants={item} layout>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-base">Последние транзакции</CardTitle>
-                <BarChart3 className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="flex items-center gap-3">
-                    <Skeleton className="h-8 w-8 rounded-full" />
-                    <div className="flex-1 space-y-1.5">
-                      <Skeleton className="h-3 w-28" />
-                      <Skeleton className="h-3 w-20" />
-                    </div>
-                    <Skeleton className="h-5 w-14 rounded-md" />
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
+            <motion.div variants={item} className="h-full" data-testid="kpi-employees">
+              <KpiCard
+                title="Сотрудников"
+                value={String(kpis.employees)}
+                icon={<Users className="h-5 w-5" />}
+                color="default"
+                className="h-full"
+              />
+            </motion.div>
+            <motion.div variants={item} className="h-full" data-testid="kpi-projects-unpaid">
+              <KpiCard
+                title="Проектов не оплачено в этом месяце"
+                value={String(kpis.projectsUnpaidThisMonth)}
+                icon={<CalendarClock className="h-5 w-5" />}
+                color="default"
+                className="h-full"
+              />
+            </motion.div>
+            <motion.div variants={item} className="h-full" data-testid="kpi-active-interviews">
+              <KpiCard
+                title="Собеседований"
+                value={String(kpis.activeInterviews)}
+                icon={<Clock className="h-5 w-5" />}
+                color="default"
+                className="h-full"
+              />
+            </motion.div>
           </motion.div>
+        )}
 
-          <motion.div variants={item} layout>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-base">Ближайшие собеседования</CardTitle>
-                <Clock className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="flex items-center gap-3">
-                    <Skeleton className="h-8 w-8 rounded-full" />
-                    <div className="flex-1 space-y-1.5">
-                      <Skeleton className="h-3 w-32" />
-                      <Skeleton className="h-3 w-24" />
-                    </div>
-                    <Skeleton className="h-5 w-16 rounded-md" />
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          </motion.div>
+        {/* Активные транзакции — таблица в стиле страницы Финансы. Self-contained
+            fade-up: this card is a SIBLING of the KPI grid (not a child of the
+            `container` variant), so it animates with the SAME transition as `item`
+            via explicit initial/animate (no reliance on parent variant propagation,
+            which would never fire here and leave the table un-animated). */}
+        <motion.div initial={item.hidden} animate={item.show}>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Активные транзакции</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <ActiveTransactionsTable
+                transactions={summary?.activeTransactions ?? []}
+                loading={isLoading}
+                onConfirmPayout={setConfirmPayoutTx}
+                onSettleSeniorPayout={setSettleSeniorTx}
+                onPaySalary={setPaySalaryTx}
+              />
+            </CardContent>
+          </Card>
         </motion.div>
       </div>
+
+      {/* Reused finance pay dialogs — mounted ON the dashboard so an admin
+          completes the payout right here (same dialogs, same mutations, same
+          receipt/txHash fields as the Финансы page; no flow duplicated). */}
+      <SettleSeniorPayoutDialog tx={settleSeniorTx} onClose={closeSettleSenior} />
+      <ConfirmPayoutDialog tx={confirmPayoutTx} onClose={closeConfirmPayout} />
+      <PaySalaryDialog tx={paySalaryTx} onClose={closePaySalary} />
     </div>
   )
 }

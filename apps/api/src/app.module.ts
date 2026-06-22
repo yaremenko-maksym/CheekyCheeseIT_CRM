@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { ConfigModule, ConfigService } from '@nestjs/config'
 import { APP_GUARD } from '@nestjs/core'
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
+import { AdminModule } from './admin/admin.module'
 import { AuthModule } from './auth/auth.module'
 import { JwtAuthGuard } from './auth/jwt.guard'
 import { OnboardingGuard } from './auth/onboarding.guard'
@@ -70,6 +71,8 @@ import { LegendsModule } from './legends/legends.module'
     HealthModule,
     LegendsModule,
     CredentialsModule,
+    // ADMIN dashboard «центр действий» — KPI + active-transactions aggregate.
+    AdminModule,
   ],
   providers: [
     // ORDER MATTERS — NestJS executes APP_GUARD providers in registration order

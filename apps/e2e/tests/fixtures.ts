@@ -976,10 +976,14 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
   // swallow the literal `hr-summary` segment and return an interview row
   // (hrSummarySchema.parse would then throw → HRDashboard error-state).
   await page.route(new RegExp(`${API_RE}/interviews/hr-summary(\\?.*)?$`), (r) =>
+    // Shape MUST match `hrSummarySchema` ({ openInterviews, hiredThisMonth,
+    // activeProjects }) — the hook .parse()s the response, so a drifting shape
+    // (e.g. the obsolete `mySalaryStatus` field + missing `activeProjects`) makes
+    // HRDashboard render its error state and the RU KPI tokens never appear.
     jsonOk(r, {
       openInterviews: 3,
       hiredThisMonth: 1,
-      mySalaryStatus: { amount: 1500, status: 'PENDING' },
+      activeProjects: 2,
     }),
   )
 
@@ -1051,6 +1055,60 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
       validatedThisMonth: { count: 2, amount: 3500 },
       paidThisMonth: { amount: 12000 },
       recipientCount: 5,
+    }),
+  )
+  // ADMIN dashboard «центр действий» — KPI snapshot + active-transactions feed
+  // (GET /api/admin/summary, RBAC ADMIN-only). Без этого мока AdminDashboard's
+  // `useAdminSummary` (retry: 2) бьёт по реальному backend'у → 401/hang →
+  // дашборд застревает в loading/error и KPI-токены не рендерятся. Shape =
+  // `adminSummarySchema`; default non-zero values так дашборд в loaded-состоянии.
+  // Тесты, которым нужны иные данные, регистрируют свой handler ПОСЛЕ mockAuthAs.
+  await page.route(new RegExp(`${API_RE}/admin/summary(\\?.*)?$`), (r) =>
+    jsonOk(r, {
+      kpis: {
+        activeProjects: 8,
+        employees: 21,
+        projectsUnpaidThisMonth: 3,
+        activeInterviews: 2,
+      },
+      activeTransactions: [
+        {
+          id: '33333333-3333-4333-8333-333333333333',
+          type: 'SENIOR_INCOME',
+          status: 'PENDING',
+          senderId: null,
+          senderName: null,
+          senderLabel: 'Acme Corp',
+          receiverId: '33333333-3333-4333-8333-3333333330aa',
+          receiverName: 'Mock Senior',
+          receiverLabel: 'Mock Senior',
+          projectId: '33333333-3333-4333-8333-3333333330bb',
+          projectName: 'Mock Project A',
+          amount: '4500.000000',
+          currency: 'USDT',
+          txDate: '2026-05-05T10:00:00.000Z',
+          payoutRequestId: null,
+          canPay: false,
+        },
+        {
+          id: '44444444-4444-4444-8444-444444444444',
+          type: 'PAYOUT',
+          status: 'PENDING_PAYMENT',
+          senderId: '44444444-4444-4444-8444-4444444440aa',
+          senderName: 'Mock Senior',
+          senderLabel: 'Mock Senior',
+          receiverId: null,
+          receiverName: null,
+          receiverLabel: 'CheekyCheeseIT',
+          projectId: '44444444-4444-4444-8444-4444444440bb',
+          projectName: 'Mock Project B',
+          amount: '600.000000',
+          currency: 'USDT',
+          txDate: '2026-05-01T10:00:00.000Z',
+          payoutRequestId: null,
+          canPay: true,
+        },
+      ],
     }),
   )
   // SENIOR dashboard (#234) — senior хаб KPI snapshot. STRICTLY self-scoped on
