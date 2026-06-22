@@ -72,8 +72,8 @@ lint is red).
 
 ## Migration notes
 
-- Old `.claude/hooks/eslint-feedback.sh` retained on disk as fallback
-  artifact (marked DEPRECATED in the header). Will be deleted in Phase 6
-  cleanup once we have 1 month of clean operation under the new flow.
+- Old `.claude/hooks/eslint-feedback.sh` was **deleted** in the Phase 6
+  hooks cleanup (2026-06-03) — it is no longer on disk. The eslint MCP flow
+  above fully supersedes it.
 - Rollback: re-add the entry to `.claude/settings.json` PostToolUse
   matchers. See `docs/architecture/2026-06-03-phase2.5-deliverable.md`.

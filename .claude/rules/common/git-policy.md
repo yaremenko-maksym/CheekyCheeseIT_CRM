@@ -79,7 +79,7 @@ CPU-timeout под нагрузкой. Пустой `DATABASE_URL` -> integratio
 
 - `.claude/rules/common/zone-of-write.md` — какой агент может писать какие пути (Reviewer выдаёт BLOCK на нарушения).
 - `.claude/rules/common/russian-language.md` — assistant outputs русский, commits английский.
-- Phase 2.5 hook activation: `docs/architecture/2026-06-03-phase2.5-deliverable.md` (live `coder-pre-push.sh`).
+- Phase 2.5 hook activation: `docs/architecture/2026-06-03-phase2.5-deliverable.md` (live `pre-bash-coder-push-gate.sh`).
 
 ## Источники
 
