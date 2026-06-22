@@ -34,8 +34,20 @@ export const adminActiveTransactionSchema = z.object({
   id: z.string().uuid(),
   type: transactionTypeSchema, // shared transaction_type enum
   status: transactionStatusSchema, // shared transaction_status enum
+  // Raw party / project ids + resolved user display names sit alongside the
+  // explicit labels so the web client's shared `TransactionRow` `FromTo` can
+  // render a clickable participant (e.g. SENIOR_PENDING_PAYOUT / DROP_INCOME)
+  // instead of «—». They map 1:1 onto `TransactionDto`'s
+  // senderId/senderName/receiverId/receiverName/projectId (all uuid-or-null,
+  // names resolved from the linked user) so the adapter passes them straight
+  // through with no re-derivation.
+  senderId: z.string().uuid().nullable(),
+  senderName: z.string().nullable(), // resolved from the linked sender user
   senderLabel: z.string().nullable(),
+  receiverId: z.string().uuid().nullable(),
+  receiverName: z.string().nullable(), // resolved from the linked receiver user
   receiverLabel: z.string().nullable(),
+  projectId: z.string().uuid().nullable(),
   projectName: z.string().nullable(),
   amount: z.string(), // numeric string from DB
   currency: currencyEnumSchema, // real DB currency — same as TransactionDto['currency']

@@ -106,8 +106,18 @@ export class AdminSummaryService {
       id: r.id,
       type: r.type,
       status: r.status,
+      // Raw ids + resolved user display names mirror TransactionsService.findAll
+      // (senderName/receiverName = the linked user's displayName). The existing
+      // *Label fields keep their resolved-label semantics; the new id/name fields
+      // let the shared TransactionRow `FromTo` render a clickable participant for
+      // SENIOR_PENDING_PAYOUT / DROP_INCOME instead of «—».
+      senderId: r.senderId ?? null,
+      senderName: r.sender?.displayName ?? null,
       senderLabel: r.senderLabel ?? r.sender?.displayName ?? null,
+      receiverId: r.receiverId ?? null,
+      receiverName: r.receiver?.displayName ?? null,
       receiverLabel: r.receiverLabel ?? r.receiver?.displayName ?? null,
+      projectId: r.projectId ?? null,
       projectName: r.project?.name ?? null,
       amount: r.amount,
       // Real DB transaction currency, passed straight through (validated against
