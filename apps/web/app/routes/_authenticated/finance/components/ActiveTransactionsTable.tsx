@@ -34,13 +34,16 @@ function toTransactionDto(t: AdminActiveTransaction): TransactionDto {
     status: t.status,
     amount: t.amount,
     currency: t.currency,
-    senderId: null,
+    // Pass the real party ids + resolved names straight through so the shared
+    // `FromTo` renders a clickable participant (e.g. SENIOR_PENDING_PAYOUT /
+    // DROP_INCOME) instead of «—», identical to the Финансы page.
+    senderId: t.senderId,
     senderLabel: t.senderLabel,
-    senderName: null,
-    receiverId: null,
+    senderName: t.senderName,
+    receiverId: t.receiverId,
     receiverLabel: t.receiverLabel,
-    receiverName: null,
-    projectId: null,
+    receiverName: t.receiverName,
+    projectId: t.projectId,
     projectName: t.projectName,
     payoutRequestId: null,
     payoutRequest: null,

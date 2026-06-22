@@ -112,6 +112,10 @@ const TX_INCOME_THIS_MONTH = 'ad111111-0000-4000-8c00-000000000005' // ADMIN_INC
 const TX_PENDING_USD = 'ad111111-0000-4000-8c00-000000000006' // SENIOR_INCOME PENDING (USD) → active
 const TX_PENDING_EUR = 'ad111111-0000-4000-8c00-000000000007' // SENIOR_INCOME PENDING (EUR) → active
 const TX_PENDING_UAH = 'ad111111-0000-4000-8c00-000000000008' // SENIOR_INCOME PENDING (UAH) → active
+// DROP_INCOME PENDING (client company → drop): receiverId = DROP, projectId set
+// → proves the new senderId/receiverId/projectId + resolved names are surfaced
+// so the shared `FromTo` can render the participant instead of «—».
+const TX_DROP_INCOME = 'ad111111-0000-4000-8c00-000000000009'
 
 // Interview IDs.
 const INT_ACTIVE = 'ad111111-0000-4000-8d00-000000000001' // TECH_INTERVIEW → active
@@ -128,6 +132,7 @@ const TEST_TX_IDS = [
   TX_PENDING_USD,
   TX_PENDING_EUR,
   TX_PENDING_UAH,
+  TX_DROP_INCOME,
 ]
 const TEST_INT_IDS = [INT_ACTIVE, INT_HIRED]
 
@@ -411,6 +416,24 @@ describe('admin-summary — real backend integration (real DB, no mocks)', () =>
         createdAt: thisMonth,
         createdBy: SENIOR.id,
       },
+      // DROP_INCOME: client company → drop. senderLabel = client name (no
+      // senderId), receiverId = the drop. Surfaces the new receiverId +
+      // resolved receiverName + projectId so the feed can render the participant.
+      {
+        id: TX_DROP_INCOME,
+        type: 'DROP_INCOME',
+        status: 'PENDING',
+        amount: '1200',
+        currency: 'USDT',
+        senderId: null,
+        senderLabel: 'Drop Client Co',
+        receiverId: DROP.id,
+        recipientId: DROP.id,
+        projectId: PROJ_ACTIVE,
+        txDate: thisMonth,
+        createdAt: thisMonth,
+        createdBy: DROP.id,
+      },
     ])
   }, 30_000)
 
@@ -551,6 +574,44 @@ describe('admin-summary — real backend integration (real DB, no mocks)', () =>
     for (const [id, expected] of cases) {
       expect(byId(id)?.currency).toBe(expected)
     }
+  })
+
+  it('surfaces raw party/project ids + resolved user display names for the feed', async () => {
+    if (!dbAvailable) return
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/admin/summary',
+      cookies: { jwt: tokenFor(ADMIN) },
+    })
+    const body = adminSummarySchema.parse(res.json())
+    const byId = (id: string) => body.activeTransactions.find((t) => t.id === id)
+
+    // Every active row exposes the new id/name keys (nullable) so the shared
+    // `FromTo` no longer falls back to «—» for types that key off ids/names.
+    for (const tx of body.activeTransactions) {
+      expect(tx).toHaveProperty('senderId')
+      expect(tx).toHaveProperty('senderName')
+      expect(tx).toHaveProperty('receiverId')
+      expect(tx).toHaveProperty('receiverName')
+      expect(tx).toHaveProperty('projectId')
+    }
+
+    // SENIOR_INCOME (TX_PENDING): senderId = the senior + resolved senderName,
+    // projectId = the active project (proves sender side + project are surfaced).
+    const seniorIncome = byId(TX_PENDING)
+    expect(seniorIncome?.senderId).toBe(SENIOR.id)
+    expect(seniorIncome?.senderName).toBe(SENIOR.displayName)
+    expect(seniorIncome?.projectId).toBe(PROJ_ACTIVE)
+
+    // DROP_INCOME (TX_DROP_INCOME): client company → drop. No senderId (client
+    // alias only), receiverId = the drop + resolved receiverName, projectId set
+    // (proves the receiver side is surfaced — previously rendered «—»).
+    const dropIncome = byId(TX_DROP_INCOME)
+    expect(dropIncome?.senderId).toBeNull()
+    expect(dropIncome?.senderLabel).toBe('Drop Client Co')
+    expect(dropIncome?.receiverId).toBe(DROP.id)
+    expect(dropIncome?.receiverName).toBe(DROP.displayName)
+    expect(dropIncome?.projectId).toBe(PROJ_ACTIVE)
   })
 
   // ── KPI correctness (AC1) ──────────────────────────────────────────────────
