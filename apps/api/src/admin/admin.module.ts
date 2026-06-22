@@ -12,6 +12,5 @@ import { AdminSummaryService } from './admin-summary.service'
   imports: [DatabaseModule],
   controllers: [AdminController],
   providers: [AdminSummaryService],
-  exports: [AdminSummaryService],
 })
 export class AdminModule {}

@@ -1087,6 +1087,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
           amount: '4500.000000',
           currency: 'USDT',
           txDate: '2026-05-05T10:00:00.000Z',
+          payoutRequestId: null,
           canPay: false,
         },
         {
@@ -1104,6 +1105,7 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
           amount: '600.000000',
           currency: 'USDT',
           txDate: '2026-05-01T10:00:00.000Z',
+          payoutRequestId: null,
           canPay: true,
         },
       ],

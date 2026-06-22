@@ -262,7 +262,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
       role,
       rates,
       currentUserId,
-      transactions,
+      transactions: _transactions,
       onValidate,
       onEdit,
       onAdminEdit,

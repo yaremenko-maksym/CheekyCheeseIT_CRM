@@ -68,9 +68,10 @@ function toTransactionDto(t: AdminActiveTransaction): TransactionDto {
     recipientId: null,
     // `TransactionDto.createdBy` is a non-nullable string (creator user id) — it
     // is NOT part of the slim `AdminActiveTransaction` payload and `TransactionRow`
-    // never reads it for these read-only dashboard rows. Empty-string placeholder
-    // keeps the type satisfied without inventing a fake id; `null` is not allowed.
-    createdBy: '',
+    // never reads it for these read-only dashboard rows. Nil-UUID placeholder is
+    // a valid uuid-shaped value (unlike empty string which fails uuid format); the
+    // row never renders or routes on createdBy so the value is opaque.
+    createdBy: '00000000-0000-0000-0000-000000000000',
     createdAt: t.txDate,
     updatedAt: t.txDate,
   }
