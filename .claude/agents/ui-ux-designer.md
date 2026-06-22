@@ -63,6 +63,7 @@ model: sonnet
 | Перед claim "проверено / соответствует"                | `superpowers:verification-before-completion`                           |
 | Frontend visual regression / E2E selector concerns     | `playwright-patterns` (CRM-specific cookbook)                          |
 | Получение review feedback от code-reviewer на UI patch | `superpowers:receiving-code-review`                                    |
+| Mode E — reconciliation (Claude Design экспорт → coder-spec) | `claude-design-workflow` |
 
 ---
 
@@ -97,13 +98,14 @@ Trigger: PR трогает `apps/web/**`, PM dispatch'ит после code-revie
 
 1. `mcp__github__get_pull_request_files` — список изменённых файлов.
 2. Если в diff есть новые route'ы / экраны — `browser_navigate` + `browser_take_screenshot` каждого ключевого экрана из PR.
+   2.5. **Fidelity-аудит против дизайн-референса (Claude Design):** если для задачи существует `docs/design/assets/<slug>/design.png` (Tier 1/2 артефакт из design-gate) — сравни live Playwright-скриншот с `design.png` по: **spacing rhythm**, **визуальная иерархия**, **использование токенов** (цвета / радиусы / типографика), **плотность**. Это жёсткий критерий **поверх** 10-dimension score (не заменяет его): видимый дрейф → `Design Review: BLOCK`. В отчёте укажи, какие элементы дрейфнули (с `file:line` компонента + сравнением). Если `design.png` отсутствует (Tier 3 / degraded) — fidelity-аудит пропускается, идёшь по 10-dimension score.
 3. Invoke `design-system` skill Mode 2: пройди по 10 dimensions, score каждая 0-10 с конкретными file:line examples.
 4. Invoke `make-interfaces-feel-better` skill: для каждого изменённого компонента — review по checklist (concentric radius / tabular-nums / transition scope / hit areas / motion).
 5. Invoke `accessibility` skill: spot-check WCAG 2.2 SC 2.4.11 (focus), SC 2.5.8 (target size), SC 1.4.3 (контраст).
 6. Постить PR comment через `mcp__github__add_issue_comment` с **первой строкой `Design Review: PASS|POLISH-REQUESTED|BLOCK`**:
    - `PASS` — score ≥ 8/10 average, нет HIGH issues → APPROVE-equivalent.
    - `POLISH-REQUESTED` — score 6-8/10, есть LOW/MED suggestions → можно мерджить, но создать follow-up task.
-   - `BLOCK` — score <6/10 ИЛИ есть generic AI pattern (Mode C trigger) ИЛИ WCAG fail на critical path → PM создаёт `task-fix-pr-N.md`.
+   - `BLOCK` — score <6/10 ИЛИ есть generic AI pattern (Mode C trigger) ИЛИ WCAG fail на critical path ИЛИ видимый дрейф vs `design.png` (шаг 2.5) → PM создаёт `task-fix-pr-N.md`.
 7. Use `superpowers:requesting-code-review` skill для дисциплины (write-then-post pattern — собрать report в файл `/tmp/designer-<runid>/review.md`, потом постить).
 
 ### Mode C — AI-slop check (быстрый санитайз)
@@ -128,6 +130,28 @@ Trigger: PM или Manual QA попросил cosmetic fix; ИЛИ ты в Mode 
 3. `mcp__eslint__lint-files <changed-files>` — обязательно ДО commit.
 4. Re-verify: `browser_navigate` + `browser_take_screenshot` — сравни до/после.
 5. Commit с conventional format: `style(web): <что polished>` + `ac_verified: 1` (если task-driven) или WIP-push без ac_verified.
+
+### Mode E — Reconciliation (Claude Design экспорт → coder-spec)
+
+Trigger: PM dispatch'ит после того как в репо появился Claude Design артефакт в `docs/design/assets/<slug>/` (Tier 1/2 по `design-gate.md`). Это **headless-режим** — работаешь с файлами, браузер НЕ нужен.
+
+**Вход:** `docs/design/assets/<slug>/design.html` (экспортированный standalone HTML) + `*.png` (скриншоты состояний) + design-brief (в `docs/design/<slug>.md` или промпте PM).
+
+**Зачем:** экспорт Claude Design — **generic-разметка** (divs, инлайн-стили, иногда сырой hex / градиенты), НЕ наши компоненты. Твоя работа — перевести визуальный замысел в spec на НАШИХ shadcn/ui + Tailwind v4 токенах, чтобы кодер строил по нему, а не копировал чужой HTML.
+
+**Шаги:**
+
+1. Прочитай `design.html` + скриншоты + brief. Зафиксируй визуальный замысел: layout, иерархия, состояния.
+2. **Маппинг компонентов:** для каждого визуального блока подбери существующий примитив/композит из инвентаря (`apps/web/app/components/ui/` — 36 примитивов + композиты): `Button` / `Card` (+ `CardHeader`/`CardContent`) / `Badge` / `CrmDialog` / `Dialog` / `AnimatedTabs` / `KpiCard` / `SegmentedToggle` / `AmountCurrencyInput` / `ShareSlider` / финанс-диалоги и т.п. Проверяй наличие через `mcp__ast-grep__find_code` / `Grep` по `apps/web/app/components/**`.
+3. **Флаг новых компонентов:** то, для чего НЕТ аналога — явно помечай «НОВЫЙ компонент» с обоснованием (почему существующий не подходит) и эскизом API (props). Минимизируй новые — переиспользуй.
+4. **Token-map:** замени любой сырой hex / generic-градиент из экспорта на наши токены из `apps/web/app/styles/globals.css` (`var(--color-…)`, `--radius`, типографика Inter). **Никакого raw hex / purple-gradient AI-slop в spec.** Если цвета в экспорте нет среди токенов — выбери ближайший токен или пометь как кандидата на расширение токен-системы (с обсуждением).
+5. **A11y (WCAG 2.2):** target-size ≥ 24×24px (SC 2.5.8), focus order + видимый focus (SC 2.4.11), контраст 4.5:1 / 3:1 (SC 1.4.3), aria-label для icon-only, focus-trap + Escape для модалок. Invoke `accessibility` skill.
+6. **Responsive:** поведение на 320 / 768 / 1024 / 1440 (что схлопывается, что скроллится).
+7. **Edge-cases:** empty / loading (skeleton) / error / overflow (длинные строки, много элементов).
+
+**Выход:** `docs/design/<slug>.md` — coder-ready spec (расширяет существующую `docs/design/` конвенцию): brief + ссылка на Claude Design проект + token-map + список компонентов (существующие + новые) + motion/a11y/responsive + edge-cases + путь к `design.png` (fidelity-референс для Mode B). **Явно укажи кодеру:** «строй НАШИМИ компонентами по этому spec; `design.html` — визуальный референс, НЕ код для вставки; НЕ копируй сырой HTML».
+
+После Mode E — PM диспатчит кодера (см. `design-gate.md` энфорсмент), затем замыкает контур Mode B fidelity-аудитом.
 
 ---
 
