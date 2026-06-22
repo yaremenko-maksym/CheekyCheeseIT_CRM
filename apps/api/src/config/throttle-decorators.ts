@@ -163,7 +163,10 @@ function globalTtl(): number {
  * @param prodLimit  Hard cap that applies unconditionally in production.
  * @param ttlMs      Sliding-window duration in ms (default: GLOBAL_TTL_DEFAULT_MS = 60_000).
  */
-export function RelaxableThrottle(prodLimit: number, ttlMs: number = GLOBAL_TTL_DEFAULT_MS): MethodDecorator {
+export function RelaxableThrottle(
+  prodLimit: number,
+  ttlMs: number = GLOBAL_TTL_DEFAULT_MS,
+): MethodDecorator {
   return Throttle({
     default: {
       limit: () => (isRelaxed() ? globalLimit() : prodLimit),
