@@ -44,7 +44,7 @@
 Run: `claude --version`
 Expected: `2.1.185 (Claude Code)` or higher. (If lower: `claude update`.)
 
-- [ ] **Step 2: Authenticate Claude Design from the CLI (USER, fresh session)**
+- [x] **Step 2: Authenticate Claude Design from the CLI (USER, fresh session)**
 
 ```bash
 cd /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM
@@ -54,18 +54,18 @@ claude            # fresh session on 2.1.185
 In that session type: `/design-login`
 Expected: a browser/OAuth confirmation that Claude Code is connected to Claude Design (same Anthropic account «M», Max plan — already logged into claude.ai/design).
 
-- [ ] **Step 3: Point at the design-system package**
+- [x] **Step 3: Point at the design-system package**
 
 Our design system source = `apps/web` (tokens in `app/styles/globals.css`; components in `app/components/ui/` (36 primitives) + `app/components/**` + `app/routes/**/components/` (composites + all dialogs)).
 In the fresh `claude` session: `cd apps/web` (or stay at repo root — `/design-sync` discovers the package; prefer `apps/web` for a tight scope).
 
-- [ ] **Step 4: Run the native sync (USER)**
+- [x] **Step 4: Run the native sync (USER)**
 
 Type: `/design-sync`
 Expected: Claude Code reads tokens + React components and creates a design system in Claude Design. When it finishes, per the Claude Design UI: «your system appears under Design systems for everyone in your org.» Name it (or accept default) — record the exact name, e.g. `CheekyCheeseIT CRM`.
 If `/design-sync` prompts create-new vs update-existing → choose **create new** (first run).
 
-- [ ] **Step 5: Orchestrator verifies the result (Chrome MCP)**
+- [x] **Step 5: Orchestrator verifies the result (Chrome MCP)**
 
 Orchestrator (this session) navigates the connected browser:
 
@@ -73,19 +73,19 @@ Orchestrator (this session) navigates the connected browser:
 - Open it → screenshot. Confirm captured: **tokens** (brand yellow primary oklch hue 85.3, dark-as-default, light/dark parity, `--radius` 0.625rem, Inter font) and **components** (Button, Card, Badge, CrmDialog, Dialog, AnimatedTabs, KpiCard, SegmentedToggle, AmountCurrencyInput, ShareSlider, finance dialogs, etc.).
 - Save screenshots to `/tmp/design-sync-verify/` and (curated) to `docs/design/assets/_design-system/`.
 
-- [ ] **Step 6: Coverage check vs inventory**
+- [x] **Step 6: Coverage check vs inventory**
 
 Compare what Claude Design captured against the inventory's component list (36 primitives + ~70 composites) and the ~45 dialogs/modals. Note any gaps in a short list. Acceptance: tokens fully captured + all 36 ui/ primitives + the dominant composites (Card family, KpiCard, CrmDialog, the finance dialog family, nav-sidebar). Screen _compositions_ need NOT all pre-exist as static designs — they are generated on demand via `/design` using this system (Step note, not a gap).
 
-- [ ] **Step 7: (Decision) Landing design system**
+- [x] **Step 7: (Decision) Landing design system**
 
 `apps/landing` ships a near-identical token copy (own `globals.css`) but only Button/Badge/BrandMark/cn. Decide: (a) skip for now (CRM-first), or (b) a second `cd apps/landing && /design-sync` → system `CheekyCheeseIT Landing`. Default: **(a) skip** — revisit when public-module/landing redesign is scheduled. Record the decision.
 
-- [ ] **Step 8: Record design-system identity for downstream use**
+- [x] **Step 8: Record design-system identity for downstream use**
 
 Append to `docs/architecture/2026-06-22-claude-design-integration.md` (§ new "Synced design systems"): the design-system name(s), date synced, source dir, and what was captured. This is what the workflow skill (T4) and per-feature `/design` runs reference.
 
-- [ ] **Step 9: Commit the doc updates**
+- [x] **Step 9: Commit the doc updates**
 
 ```bash
 git add docs/architecture/2026-06-22-claude-design-integration.md docs/design/assets/_design-system/
