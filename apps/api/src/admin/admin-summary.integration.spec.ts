@@ -102,11 +102,16 @@ const PROJ_ACTIVE = 'ad111111-0000-4000-8b00-000000000001'
 const PROJ_ARCHIVED = 'ad111111-0000-4000-8b00-000000000002'
 
 // Spec-namespaced transaction IDs so cleanup is surgical.
-const TX_PENDING = 'ad111111-0000-4000-8c00-000000000001' // SENIOR_INCOME PENDING → active
-const TX_PENDING_PAYMENT = 'ad111111-0000-4000-8c00-000000000002' // PAYOUT PENDING_PAYMENT → active + canPay
+const TX_PENDING = 'ad111111-0000-4000-8c00-000000000001' // SENIOR_INCOME PENDING (USDT) → active
+const TX_PENDING_PAYMENT = 'ad111111-0000-4000-8c00-000000000002' // PAYOUT PENDING_PAYMENT (USDT) → active + canPay
 const TX_PAID = 'ad111111-0000-4000-8c00-000000000003' // ADMIN_INCOME PAID → NOT active
 const TX_VALIDATED = 'ad111111-0000-4000-8c00-000000000004' // SENIOR_INCOME VALIDATED → NOT active
 const TX_INCOME_THIS_MONTH = 'ad111111-0000-4000-8c00-000000000005' // ADMIN_INCOME this month → PROJ_ACTIVE "paid"
+// Active rows in each non-USDT DB currency, so the feed proves the REAL currency
+// is passed straight through (no lossy payment-rail bucketing).
+const TX_PENDING_USD = 'ad111111-0000-4000-8c00-000000000006' // SENIOR_INCOME PENDING (USD) → active
+const TX_PENDING_EUR = 'ad111111-0000-4000-8c00-000000000007' // SENIOR_INCOME PENDING (EUR) → active
+const TX_PENDING_UAH = 'ad111111-0000-4000-8c00-000000000008' // SENIOR_INCOME PENDING (UAH) → active
 
 // Interview IDs.
 const INT_ACTIVE = 'ad111111-0000-4000-8d00-000000000001' // TECH_INTERVIEW → active
@@ -114,7 +119,16 @@ const INT_HIRED = 'ad111111-0000-4000-8d00-000000000002' // HIRED → terminal, 
 
 const TEST_USER_IDS = [ADMIN.id, SENIOR.id, HR.id, ACCOUNTANT.id, JUNIOR.id, DROP.id]
 const TEST_PROJ_IDS = [PROJ_ACTIVE, PROJ_ARCHIVED]
-const TEST_TX_IDS = [TX_PENDING, TX_PENDING_PAYMENT, TX_PAID, TX_VALIDATED, TX_INCOME_THIS_MONTH]
+const TEST_TX_IDS = [
+  TX_PENDING,
+  TX_PENDING_PAYMENT,
+  TX_PAID,
+  TX_VALIDATED,
+  TX_INCOME_THIS_MONTH,
+  TX_PENDING_USD,
+  TX_PENDING_EUR,
+  TX_PENDING_UAH,
+]
 const TEST_INT_IDS = [INT_ACTIVE, INT_HIRED]
 
 // ── TestDatabaseModule (real Pool) ──────────────────────────────────────────
@@ -359,6 +373,44 @@ describe('admin-summary — real backend integration (real DB, no mocks)', () =>
         createdAt: thisMonth,
         createdBy: ADMIN.id,
       },
+      // Active rows in each non-USDT DB currency — they MUST appear in the feed
+      // carrying their REAL currency (no payment-rail mapping).
+      {
+        id: TX_PENDING_USD,
+        type: 'SENIOR_INCOME',
+        status: 'PENDING',
+        amount: '700',
+        currency: 'USD',
+        senderId: SENIOR.id,
+        projectId: PROJ_ACTIVE,
+        txDate: thisMonth,
+        createdAt: thisMonth,
+        createdBy: SENIOR.id,
+      },
+      {
+        id: TX_PENDING_EUR,
+        type: 'SENIOR_INCOME',
+        status: 'PENDING',
+        amount: '650',
+        currency: 'EUR',
+        senderId: SENIOR.id,
+        projectId: PROJ_ACTIVE,
+        txDate: thisMonth,
+        createdAt: thisMonth,
+        createdBy: SENIOR.id,
+      },
+      {
+        id: TX_PENDING_UAH,
+        type: 'SENIOR_INCOME',
+        status: 'PENDING',
+        amount: '25000',
+        currency: 'UAH',
+        senderId: SENIOR.id,
+        projectId: PROJ_ACTIVE,
+        txDate: thisMonth,
+        createdAt: thisMonth,
+        createdBy: SENIOR.id,
+      },
     ])
   }, 30_000)
 
@@ -477,7 +529,7 @@ describe('admin-summary — real backend integration (real DB, no mocks)', () =>
     expect(pending?.canPay).toBe(false)
   })
 
-  it('maps the DB currency onto the payment-rail union (USDT→USDT_ERC20)', async () => {
+  it('passes the REAL DB currency straight through for every currency (USDT/USD/EUR/UAH)', async () => {
     if (!dbAvailable) return
     const res = await app.inject({
       method: 'GET',
@@ -485,9 +537,20 @@ describe('admin-summary — real backend integration (real DB, no mocks)', () =>
       cookies: { jwt: tokenFor(ADMIN) },
     })
     const body = adminSummarySchema.parse(res.json())
-    const usdtRow = body.activeTransactions.find((t) => t.id === TX_PENDING)
-    // TX_PENDING is currency USDT → crypto rail.
-    expect(usdtRow?.currency).toBe('USDT_ERC20')
+
+    // Each active row keeps its real DB currency — NOT a lossy payment-rail bucket
+    // (regression: USD/EUR used to be folded into USDT_ERC20 / BANK_UAH_FOP). This
+    // is the exact `TransactionDto['currency']` union the Финансы page shows.
+    const byId = (id: string) => body.activeTransactions.find((t) => t.id === id)
+    const cases: Array<[string, 'USDT' | 'USD' | 'EUR' | 'UAH']> = [
+      [TX_PENDING, 'USDT'],
+      [TX_PENDING_USD, 'USD'],
+      [TX_PENDING_EUR, 'EUR'],
+      [TX_PENDING_UAH, 'UAH'],
+    ]
+    for (const [id, expected] of cases) {
+      expect(byId(id)?.currency).toBe(expected)
+    }
   })
 
   // ── KPI correctness (AC1) ──────────────────────────────────────────────────
