@@ -412,6 +412,11 @@ jobs:
       S3_USE_SSE: 'false'
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
+      # Throttler: raise limits in E2E CI so money-path specs (drop-finance shard)
+      # don't get 429. THROTTLE_RELAXED is only honoured in non-production (guardrail
+      # in env.ts). THROTTLER_LIMIT=2000 is enough for the heaviest rbac-matrix-smoke.
+      THROTTLE_RELAXED: 'true'
+      THROTTLER_LIMIT: '2000'
 
     steps:
       - uses: actions/checkout@v4

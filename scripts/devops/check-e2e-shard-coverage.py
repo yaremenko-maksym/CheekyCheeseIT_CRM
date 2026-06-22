@@ -73,6 +73,13 @@ KNOWN_UNSHARDED = {
     "tests/drop-routing-hub.spec.ts",             # debt: not gated, migrate to drop shard later
     "tests/drop-senior-readonly.spec.ts",         # debt: not gated, migrate to drop shard later
     "tests/drop-share-slider.spec.ts",            # debt: not gated, migrate to drop shard later
+    # --- money-path (FM-5 blocker): PATCH /company-account/wallet has hardcoded inline
+    # @Throttle({ limit: 5, ttl: 60_000 }) — NOT covered by THROTTLE_RELAXED env flag.
+    # Coder task: replace with @AdminWriteThrottle() in company-account.controller.ts.
+    # After that fix: remove from KNOWN_UNSHARDED and re-enable drop-finance shard.
+    "tests/drop-role-end-to-end.spec.ts",         # debt: PATCH /wallet hardcoded throttle (limit:5) — Coder fix needed
+    "tests/pending-settlement.spec.ts",           # debt: same — blocked by rbac-matrix-smoke in same shard
+    "tests/rbac-matrix-smoke.spec.ts",            # debt: ensureCompanyWalletViaAPI→PATCH /wallet→HTTP 429 (hardcoded limit:5, not env-aware)
     # --- finance extras ---
     "tests/finance-funding-source.spec.ts",       # debt: not gated, migrate to finance shard later
     "tests/finance-payout-simulate.spec.ts",      # debt: not gated, migrate to finance shard later
@@ -117,15 +124,7 @@ KNOWN_UNSHARDED = {
     "tests/team-share-override.spec.ts",          # debt: not gated, migrate to team-users shard later
     # --- ui ---
     "tests/ui-invariants-pr56.spec.ts",           # debt: not gated, migrate to misc shard later
-    # --- money-path (reworked in #272): throttler fix needed before gating ---
-    # drop-role-end-to-end and pending-settlement passed CI against real backend.
-    # rbac-matrix-smoke fails because plantObligationForRbac() calls
-    # ensureCompanyWalletViaAPI() directly without withThrottleRetry → HTTP 429.
-    # AutoTest follow-up: wrap ensureCompanyWalletViaAPI in withThrottleRetry, OR
-    # make ThrottlerModule limit env-configurable (Coder task) so E2E env can raise it.
-    "tests/drop-role-end-to-end.spec.ts",         # debt: throttler fix needed; passed CI but blocked by rbac-matrix-smoke in same shard
-    "tests/pending-settlement.spec.ts",           # debt: throttler fix needed; passed CI but blocked by rbac-matrix-smoke in same shard
-    "tests/rbac-matrix-smoke.spec.ts",            # debt: plantObligationForRbac→ensureCompanyWalletViaAPI not wrapped in withThrottleRetry → 429
+
 }
 
 
