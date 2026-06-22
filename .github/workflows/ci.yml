@@ -364,6 +364,8 @@ jobs:
             files: tests/finance.spec.ts tests/finance-senior-flow.spec.ts
           - name: misc
             files: tests/interviews.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/onboarding-logout.spec.ts tests/documents-pdf-preview.spec.ts tests/persist-query.spec.ts tests/crm
+          - name: drop-finance
+            files: tests/pending-settlement.spec.ts tests/drop-role-end-to-end.spec.ts tests/rbac-matrix-smoke.spec.ts
     services:
       postgres:
         image: postgres:16-alpine
@@ -412,6 +414,11 @@ jobs:
       S3_USE_SSE: 'false'
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
+      # Throttler: raise limits in E2E CI so money-path specs (drop-finance shard)
+      # don't get 429. THROTTLE_RELAXED is only honoured in non-production (guardrail
+      # in env.ts). THROTTLER_LIMIT=2000 is enough for the heaviest rbac-matrix-smoke.
+      THROTTLE_RELAXED: 'true'
+      THROTTLER_LIMIT: '2000'
 
     steps:
       - uses: actions/checkout@v4

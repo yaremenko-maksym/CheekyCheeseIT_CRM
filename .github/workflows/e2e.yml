@@ -43,6 +43,10 @@ jobs:
       S3_USE_SSE: 'false'
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
+      # Throttler: raise limits so full-suite manual run does not get 429 on drop-finance specs.
+      # THROTTLE_RELAXED is only honoured in non-production (guardrail in env.ts).
+      THROTTLE_RELAXED: 'true'
+      THROTTLER_LIMIT: '2000'
 
     services:
       postgres:
