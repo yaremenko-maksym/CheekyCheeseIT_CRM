@@ -24,6 +24,7 @@ CRM для рекрутинговых воркспейсов (outsource/outstaff
 | Cross-agent правила — точка входа (TOC)                                                 | `.claude/RULES.md`                         |
 | Конкретные правила: MCP-first, git-policy, zone-of-write, версии, язык, skills-триггеры | `.claude/rules/common/*.md` (auto-loaded)  |
 | Лёгкий vs полный трек разработки                                                        | `.claude/rules/common/light-track.md`      |
+| Claude Design UI-гейт + workflow                                                         | `.claude/rules/common/design-gate.md` + `.claude/skills/claude-design-workflow/` |
 | Системные промпты агентов (старт — README)                                              | `.claude/agents/<agent>.md`                |
 | Cross-agent state machine                                                               | `.claude/agents/contracts.md`              |
 | Активные task-файлы                                                                     | `.claude/tasks/`                           |
@@ -92,7 +93,7 @@ label `merge-approved` → CI squash-merge.
 
 Правила ниже auto-loaded из `.claude/rules/common/` — здесь только напоминание, что они существуют:
 MCP-first · git-policy (no `--no-verify`, явные `git add`, `ac_verified:`) · русский язык ·
-zone-of-write · skills-триггеры · version-pins · light-track · model-routing (какой тир модели какому агенту/задаче).
+zone-of-write · skills-триггеры · version-pins · light-track · design-gate (любое UI → дизайнер-в-контуре) · model-routing (какой тир модели какому агенту/задаче).
 
 Сверх правил: E2E локально перед push кода (docs-only diff освобождён — см. light-track);
 merge PR — **только** по явному подтверждению USER в чате.
