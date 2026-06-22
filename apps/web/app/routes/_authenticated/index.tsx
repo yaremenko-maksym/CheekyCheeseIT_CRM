@@ -167,8 +167,12 @@ function AdminDashboard() {
           </motion.div>
         )}
 
-        {/* Активные транзакции — таблица в стиле страницы Финансы. */}
-        <motion.div variants={item} initial="hidden" animate="show">
+        {/* Активные транзакции — таблица в стиле страницы Финансы. Self-contained
+            fade-up: this card is a SIBLING of the KPI grid (not a child of the
+            `container` variant), so it animates with the SAME transition as `item`
+            via explicit initial/animate (no reliance on parent variant propagation,
+            which would never fire here and leave the table un-animated). */}
+        <motion.div initial={item.hidden} animate={item.show}>
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Активные транзакции</CardTitle>
