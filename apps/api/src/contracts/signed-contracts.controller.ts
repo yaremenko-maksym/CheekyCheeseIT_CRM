@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import { Throttle } from '@nestjs/throttler'
 
 import { signContractSchema, type SessionUser } from '@crm/shared'
+import { SensitiveWriteThrottle } from '../config/throttle-decorators'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { SignedContractsService } from './signed-contracts.service'
 import { ContractPdfService } from './contract-pdf.service'
@@ -40,8 +41,10 @@ export class SignedContractsController {
 
   // Signing a contract is a one-time user action — 10 req/min prevents
   // automated replay without breaking real onboarding retries.
+  // In non-production with THROTTLE_RELAXED=true the limit is raised to the
+  // global ceiling (see apps/api/src/config/throttle-decorators.ts).
   @Post('sign')
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @SensitiveWriteThrottle()
   sign(@Body() body: unknown, @CurrentUser() user: SessionUser, @Req() request: FastifyRequest) {
     const { typedName } = signContractSchema.parse(body)
     const ip = (request.ip as string | undefined) ?? null

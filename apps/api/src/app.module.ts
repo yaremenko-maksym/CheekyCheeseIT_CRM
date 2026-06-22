@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common'
-import { ConfigModule } from '@nestjs/config'
+import { ConfigModule, ConfigService } from '@nestjs/config'
 import { APP_GUARD } from '@nestjs/core'
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
 import { AuthModule } from './auth/auth.module'
@@ -7,6 +7,7 @@ import { JwtAuthGuard } from './auth/jwt.guard'
 import { OnboardingGuard } from './auth/onboarding.guard'
 import { CommonModule } from './common/common.module'
 import { validateEnv } from './config/env'
+import type { Env } from './config/env'
 import { ContractsModule } from './contracts/contracts.module'
 import { CredentialsModule } from './credentials/credentials.module'
 import { DatabaseModule } from './database/database.module'
@@ -29,13 +30,24 @@ import { LegendsModule } from './legends/legends.module'
       isGlobal: true,
       validate: validateEnv,
     }),
-    ThrottlerModule.forRoot([
-      {
-        name: 'default',
-        ttl: 60_000,
-        limit: 100,
-      },
-    ]),
+    // Global rate-limiter — values are env-configurable so CI/test can raise
+    // the ceiling without touching production defaults.
+    //
+    // THROTTLER_TTL_MS  — sliding window in ms.   Default: 60 000 (prod).
+    // THROTTLER_LIMIT   — max requests per window. Default: 100    (prod).
+    //
+    // If neither var is set the behaviour is byte-for-byte identical to the
+    // previous forRoot([{ ttl: 60_000, limit: 100 }]) call, so prod is safe.
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env>) => [
+        {
+          name: 'default',
+          ttl: config.get('THROTTLER_TTL_MS', { infer: true })!,
+          limit: config.get('THROTTLER_LIMIT', { infer: true })!,
+        },
+      ],
+    }),
     DatabaseModule,
     // Global cross-cutting providers (HrAccessService). Imported early so it is
     // available to feature modules below (it is @Global, order is belt-and-braces).
