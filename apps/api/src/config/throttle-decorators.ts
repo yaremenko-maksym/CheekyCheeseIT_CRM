@@ -5,18 +5,24 @@ import { Throttle } from '@nestjs/throttler'
  *
  * ── Prod-safety contract ───────────────────────────────────────────────────
  *
- * These helpers read THROTTLE_RELAXED and NODE_ENV from process.env at
- * *request time* (not module init), so they reflect the runtime value of the
- * flag without DI complexity.
+ * These helpers use the Resolvable<number> form of @Throttle() — the limit
+ * callback is invoked on EVERY request (not once at module init), so the
+ * env variables are read at request time. This means:
  *
- * SECURITY GUARDRAIL:
- *   - When NODE_ENV === 'production', THROTTLE_RELAXED is SILENTLY IGNORED.
- *     The hardened prod limits (10 / 5 req/min) are always applied in prod
- *     regardless of what the flag is set to.
- *   - In non-production (development, test) THROTTLE_RELAXED=true raises
+ *   - In production: NODE_ENV==='production' is checked per-request, and
+ *     THROTTLE_RELAXED is SILENTLY IGNORED — the hardened prod limits
+ *     (10 / 5 req/min) always apply.
+ *   - In non-production (development, test): THROTTLE_RELAXED=true raises
  *     per-endpoint limits to the global ceiling (THROTTLER_LIMIT, default 100).
  *   - No env combination can lower limits BELOW the prod hardened value; the
  *     flag only *raises* limits and only *outside* production.
+ *
+ * ── Why Resolvable instead of static evaluation ────────────────────────────
+ *
+ * @Throttle({ default: { limit: <function>, ttl: <function> } }) calls the
+ * function on each request, so the env read happens at runtime. This makes
+ * the decorator testable — tests can set process.env before calling the
+ * endpoint, and the decorator will pick up the new value.
  *
  * ── Usage ──────────────────────────────────────────────────────────────────
  *
@@ -30,7 +36,10 @@ import { Throttle } from '@nestjs/throttler'
  *   @AdminWriteThrottle()
  */
 
-/** Returns true only when running outside production with the relaxed flag set. */
+/**
+ * Returns true only when running outside production with the relaxed flag set.
+ * Called per-request so env changes in tests are picked up immediately.
+ */
 function isRelaxed(): boolean {
   if (process.env.NODE_ENV === 'production') return false
   return process.env.THROTTLE_RELAXED === 'true'
@@ -39,6 +48,7 @@ function isRelaxed(): boolean {
 /**
  * Global limit ceiling — mirrors THROTTLER_LIMIT env var with the same default
  * as ThrottlerModule (100 req/min). Used as the relaxed cap.
+ * Called per-request.
  */
 function globalLimit(): number {
   const raw = process.env.THROTTLER_LIMIT
@@ -50,6 +60,7 @@ function globalLimit(): number {
 /**
  * Global TTL — mirrors THROTTLER_TTL_MS env var with the same default as
  * ThrottlerModule (60 000 ms). Used alongside the relaxed cap.
+ * Called per-request.
  */
 function globalTtl(): number {
   const raw = process.env.THROTTLER_TTL_MS
@@ -63,11 +74,17 @@ function globalTtl(): number {
  *
  * For sensitive user-facing write endpoints (POST /contracts/sign, POST /tos/accept).
  * Hardened prod limit: 10 req/min. Relaxed (non-prod + THROTTLE_RELAXED=true): global limit.
+ *
+ * The limit and ttl are Resolvable functions — evaluated per-request so that
+ * THROTTLE_RELAXED changes in test environments are reflected immediately.
  */
 export function SensitiveWriteThrottle(): MethodDecorator {
-  const limit = isRelaxed() ? globalLimit() : 10
-  const ttl = isRelaxed() ? globalTtl() : 60_000
-  return Throttle({ default: { limit, ttl } })
+  return Throttle({
+    default: {
+      limit: () => (isRelaxed() ? globalLimit() : 10),
+      ttl: () => (isRelaxed() ? globalTtl() : 60_000),
+    },
+  })
 }
 
 /**
@@ -75,9 +92,14 @@ export function SensitiveWriteThrottle(): MethodDecorator {
  *
  * For admin write endpoints (POST /contracts/templates, POST /tos (publish)).
  * Hardened prod limit: 5 req/min. Relaxed (non-prod + THROTTLE_RELAXED=true): global limit.
+ *
+ * The limit and ttl are Resolvable functions — evaluated per-request.
  */
 export function AdminWriteThrottle(): MethodDecorator {
-  const limit = isRelaxed() ? globalLimit() : 5
-  const ttl = isRelaxed() ? globalTtl() : 60_000
-  return Throttle({ default: { limit, ttl } })
+  return Throttle({
+    default: {
+      limit: () => (isRelaxed() ? globalLimit() : 5),
+      ttl: () => (isRelaxed() ? globalTtl() : 60_000),
+    },
+  })
 }
