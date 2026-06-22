@@ -15,10 +15,15 @@ import {
   updateWalletSchema,
   type SessionUser,
 } from '@crm/shared'
-import { Throttle } from '@nestjs/throttler'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
+import {
+  RelaxableThrottle,
+  WALLET_UPDATE_LIMIT,
+  DEPOSIT_LIMIT,
+  DIVIDEND_LIMIT,
+} from '../config/throttle-decorators'
 import { CompanyAccountService } from './company-account.service'
 
 /**
@@ -54,7 +59,7 @@ export class CompanyAccountController {
 
   @Patch('wallet')
   @Roles('ADMIN')
-  @Throttle({ default: { limit: 5, ttl: 60_000 } }) // M2: rare admin op, tighten vs 100/min
+  @RelaxableThrottle(WALLET_UPDATE_LIMIT) // M2: rare admin op — WALLET_UPDATE_LIMIT req/min in prod, relaxable in non-prod
   updateWallet(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     const dto = updateWalletSchema.parse(body)
     return this.svc.updateWallet(dto.walletAddress, user)
@@ -62,7 +67,7 @@ export class CompanyAccountController {
 
   @Post('deposits')
   @Roles('SENIOR', 'DROP')
-  @Throttle({ default: { limit: 12, ttl: 60_000 } }) // M2: money-write, tighten vs 100/min
+  @RelaxableThrottle(DEPOSIT_LIMIT) // M2: money-write — DEPOSIT_LIMIT req/min in prod, relaxable in non-prod
   submitDeposit(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     const dto = createCompanyDepositSchema.parse(body)
     return this.svc.submitDeposit(dto, user)
@@ -79,7 +84,7 @@ export class CompanyAccountController {
 
   @Post('dividends')
   @Roles('ADMIN')
-  @Throttle({ default: { limit: 5, ttl: 60_000 } }) // M2: rare money-out op, tighten vs 100/min
+  @RelaxableThrottle(DIVIDEND_LIMIT) // M2: rare money-out op — DIVIDEND_LIMIT req/min in prod, relaxable in non-prod
   createDividend(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     const dto = createDividendSchema.parse(body)
     return this.svc.createDividend(dto, user)

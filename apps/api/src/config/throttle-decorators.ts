@@ -14,11 +14,14 @@ import { Throttle } from '@nestjs/throttler'
  * ── Why certain routes carry strict per-endpoint limits ─────────────────────
  *
  * The following write routes are sensitive to automated abuse:
- *   • POST /api/contracts/sign       — SENSITIVE_WRITE_LIMIT req/min
- *   • POST /api/tos/accept           — SENSITIVE_WRITE_LIMIT req/min
- *   • POST /api/contracts/templates  — ADMIN_WRITE_LIMIT req/min
- *   • POST /api/tos (publish)        — ADMIN_WRITE_LIMIT req/min
- *   • POST /api/users/:id/contract/ready — falls back to global
+ *   • POST /api/contracts/sign              — SENSITIVE_WRITE_LIMIT req/min
+ *   • POST /api/tos/accept                  — SENSITIVE_WRITE_LIMIT req/min
+ *   • POST /api/contracts/templates         — ADMIN_WRITE_LIMIT req/min
+ *   • POST /api/tos (publish)               — ADMIN_WRITE_LIMIT req/min
+ *   • PATCH /api/company-account/wallet     — WALLET_UPDATE_LIMIT req/min  (M2: rare admin op)
+ *   • POST  /api/company-account/deposits   — DEPOSIT_LIMIT req/min        (M2: money-write)
+ *   • POST  /api/company-account/dividends  — DIVIDEND_LIMIT req/min       (M2: rare money-out op)
+ *   • POST /api/users/:id/contract/ready    — falls back to global
  *
  * In CI E2E suites (rbac-matrix-smoke, drop-role-end-to-end,
  * pending-settlement) each test onboards one or more DROP users, each
@@ -33,7 +36,7 @@ import { Throttle } from '@nestjs/throttler'
  *
  *   - In production: NODE_ENV==='production' is checked per-request, and
  *     THROTTLE_RELAXED is SILENTLY IGNORED — the hardened prod limits
- *     (SENSITIVE_WRITE_LIMIT / ADMIN_WRITE_LIMIT req/min) always apply.
+ *     always apply.
  *   - In non-production (development, test): THROTTLE_RELAXED=true raises
  *     per-endpoint limits to the global ceiling (THROTTLER_LIMIT, default
  *     GLOBAL_LIMIT_DEFAULT).
@@ -60,14 +63,13 @@ import { Throttle } from '@nestjs/throttler'
  *
  * ── Usage ──────────────────────────────────────────────────────────────────
  *
- *   // Before (hard-coded):
+ *   // Before (hard-coded, NOT env-aware):
  *   @Throttle({ default: { limit: 10, ttl: 60_000 } })
  *
- *   // After (env-aware):
- *   @SensitiveWriteThrottle()
- *
- *   // Admin writes (ADMIN_WRITE_LIMIT req/min hardened):
- *   @AdminWriteThrottle()
+ *   // After (env-aware, DRY — all via RelaxableThrottle):
+ *   @SensitiveWriteThrottle()       // SENSITIVE_WRITE_LIMIT prod cap
+ *   @AdminWriteThrottle()           // ADMIN_WRITE_LIMIT prod cap
+ *   @RelaxableThrottle(5)           // custom prod cap, same guardrail
  */
 
 // ── Prod-hardened limits (named constants — never magic numbers) ─────────────
@@ -77,6 +79,24 @@ export const SENSITIVE_WRITE_LIMIT = 10
 
 /** Prod cap for admin write operations (publish template / tos). Hardcoded — never lowerable via env. */
 export const ADMIN_WRITE_LIMIT = 5
+
+/**
+ * Prod cap for wallet address update (PATCH /company-account/wallet).
+ * M2: rare admin op — tighten vs global 100/min. Never lowerable via env.
+ */
+export const WALLET_UPDATE_LIMIT = 5
+
+/**
+ * Prod cap for company deposit submissions (POST /company-account/deposits).
+ * M2: money-write op — tighten vs global 100/min. Never lowerable via env.
+ */
+export const DEPOSIT_LIMIT = 12
+
+/**
+ * Prod cap for dividend creation (POST /company-account/dividends).
+ * M2: rare money-out op — tighten vs global 100/min. Never lowerable via env.
+ */
+export const DIVIDEND_LIMIT = 5
 
 /** Default global request cap when THROTTLER_LIMIT is unset. Mirrors ThrottlerModule default in app.module.ts. */
 export const GLOBAL_LIMIT_DEFAULT = 100
@@ -91,9 +111,9 @@ export const GLOBAL_TTL_DEFAULT_MS = 60_000
  * Called per-request so env changes in tests are picked up immediately.
  *
  * SECURITY GUARDRAIL: returns false unconditionally when NODE_ENV==='production'.
- * This is the SINGLE authoritative relax-check — both SensitiveWriteThrottle
- * and AdminWriteThrottle delegate here.  There is no other implementation of
- * this logic in the codebase.
+ * This is the SINGLE authoritative relax-check — ALL throttle factories in this
+ * file delegate here.  There is no other implementation of this logic in the
+ * codebase.
  */
 function isRelaxed(): boolean {
   if (process.env.NODE_ENV === 'production') return false
@@ -127,21 +147,41 @@ function globalTtl(): number {
 // ── Exported decorator factories ────────────────────────────────────────────
 
 /**
+ * @RelaxableThrottle(prodLimit, ttlMs?)
+ *
+ * Parametric env-aware throttle factory — the single shared mechanism behind
+ * all per-endpoint limit decorators.  Apply directly when neither
+ * SensitiveWriteThrottle nor AdminWriteThrottle captures the semantic.
+ *
+ * Prod-safety contract (same as all other factories in this file):
+ *   - prodLimit is ALWAYS applied when NODE_ENV==='production', regardless of
+ *     THROTTLE_RELAXED.
+ *   - Outside production with THROTTLE_RELAXED=true: limit is raised to
+ *     globalLimit() (THROTTLER_LIMIT env var, default GLOBAL_LIMIT_DEFAULT).
+ *   - No env combination can lower the limit below prodLimit.
+ *
+ * @param prodLimit  Hard cap that applies unconditionally in production.
+ * @param ttlMs      Sliding-window duration in ms (default: GLOBAL_TTL_DEFAULT_MS = 60_000).
+ */
+export function RelaxableThrottle(prodLimit: number, ttlMs: number = GLOBAL_TTL_DEFAULT_MS): MethodDecorator {
+  return Throttle({
+    default: {
+      limit: () => (isRelaxed() ? globalLimit() : prodLimit),
+      ttl: () => (isRelaxed() ? globalTtl() : ttlMs),
+    },
+  })
+}
+
+/**
  * @SensitiveWriteThrottle()
  *
  * For sensitive user-facing write endpoints (POST /contracts/sign, POST /tos/accept).
  * Hardened prod limit: SENSITIVE_WRITE_LIMIT req/min. Relaxed (non-prod + THROTTLE_RELAXED=true): global limit.
  *
- * The limit and ttl are Resolvable functions — evaluated per-request so that
- * THROTTLE_RELAXED changes in test environments are reflected immediately.
+ * Implemented via RelaxableThrottle — single source for the relax guardrail.
  */
 export function SensitiveWriteThrottle(): MethodDecorator {
-  return Throttle({
-    default: {
-      limit: () => (isRelaxed() ? globalLimit() : SENSITIVE_WRITE_LIMIT),
-      ttl: () => (isRelaxed() ? globalTtl() : GLOBAL_TTL_DEFAULT_MS),
-    },
-  })
+  return RelaxableThrottle(SENSITIVE_WRITE_LIMIT)
 }
 
 /**
@@ -150,13 +190,8 @@ export function SensitiveWriteThrottle(): MethodDecorator {
  * For admin write endpoints (POST /contracts/templates, POST /tos (publish)).
  * Hardened prod limit: ADMIN_WRITE_LIMIT req/min. Relaxed (non-prod + THROTTLE_RELAXED=true): global limit.
  *
- * The limit and ttl are Resolvable functions — evaluated per-request.
+ * Implemented via RelaxableThrottle — single source for the relax guardrail.
  */
 export function AdminWriteThrottle(): MethodDecorator {
-  return Throttle({
-    default: {
-      limit: () => (isRelaxed() ? globalLimit() : ADMIN_WRITE_LIMIT),
-      ttl: () => (isRelaxed() ? globalTtl() : GLOBAL_TTL_DEFAULT_MS),
-    },
-  })
+  return RelaxableThrottle(ADMIN_WRITE_LIMIT)
 }
