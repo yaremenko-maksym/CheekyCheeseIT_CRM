@@ -18,8 +18,10 @@
 ## Fidelity reference
 
 - **Claude Design проект:** `https://claude.ai/design/p/cb5277cf-5b56-44ff-9a6a-4404d8c92cea` (система `CheekyCheeseIT CRM`, Opus 4.8; проект «CRM глобальный каркас»).
-- **Экспорт:** `assets/app-shell/design.html` (standalone-экспорт). Рендерится в dc-runtime Claude Design; sibling `AppShell.dc.html` фетчится в рантайме → в vanilla-браузере НЕ самодостаточен. Это визуальный/структурный референс, **НЕ код для вставки** (кодер строит нашими компонентами по spec ниже).
-- **`design.png`** (главный fidelity-референс для Mode B) — кадр Варианта А; снимается владельцем из открытого макета. Автоматическая растеризация рендера CD недоступна: Chrome MCP `save_to_disk` не создаёт файл, served-print URL виснет в Playwright (heavy). См. примечание в PR.
+- **`design.png`** — главный fidelity-референс для Mode B: кадр **Варианта А** (хедер + плоский сайдбар + плотная таблица «Пользователи»), faithful server-рендер Claude Design.
+- **`design-states.png`** — все 4 состояния в одном кадре: default (Вариант А) · сайдбар свёрнут · уведомления открыты · мобайл-overlay.
+- **Кодер строит НАШИМИ shadcn/ui компонентами** по spec ниже, сверяясь визуально с `design.png`. Сырые исходники Claude Design (generic CD-классы, не наши компоненты) в репо **НЕ коммитим** — во избежание копипасты + лишнего веса (3 МБ runtime-бандл); при нужде полный Project-archive экспортируется из CD-проекта по URL выше.
+- _Как получен `design.png`:_ `/design` → Export → **Project archive** → распаковка (`ditto`, юникод-имена) → локальный `http.server` → Playwright рендер showcase-страницы (sibling резолвится) → кроп Варианта А. Прямая растеризация рендера CD недоступна (Chrome MCP `save_to_disk` не пишет файл; print-URL виснет в Playwright) — archive-путь надёжен и автономен, **без ручного скриншота владельца**.
 - **Решение владельца 2026-06-23:** ведём **Вариант А «сдержанный»**; навигация — **ПЛОСКИЙ список** (группировка по секциям РАБОЧЕЕ ПРОСТРАНСТВО/УПРАВЛЕНИЕ/ЛИЧНОЕ отклонена). Остальное одобрено.
 
 ## Реальные блоки (1:1 — НИЧЕГО не добавлять, не удалять)
@@ -63,16 +65,17 @@
 
 ## Состояния
 
-| Состояние     | Скриншот (эталон)                    | Заметки                                                                |
-| ------------- | ------------------------------------ | ---------------------------------------------------------------------- |
-| default       | `assets/app-shell/default.png`       | ADMIN, развёрнутый sidebar, desktop                                    |
-| collapsed     | `assets/app-shell/collapsed.png`     | sidebar `w-14`, иконки + tooltips                                      |
-| role-junior   | `assets/app-shell/role-junior.png`   | 5-пунктовый JUNIOR-nav (Мой проект/Легенда/Финансы/Документы/Профиль)  |
-| mobile        | `assets/app-shell/mobile.png`        | ≤768: бургер + Sheet-overlay sidebar                                   |
-| loading       | `assets/app-shell/loading.png`       | skeleton header + sidebar + KPI-grid (см. `isLoading` ветку route.tsx) |
-| notifications | `assets/app-shell/notifications.png` | открытый bell-dropdown (список + empty + unread-бейдж)                 |
+| Состояние     | Эталон                                         | Заметки                                                                                 |
+| ------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------- |
+| default       | `assets/app-shell/design.png`                  | Вариант А: ADMIN, развёрнутый sidebar, desktop 1360px (главный референс)                |
+| collapsed     | `assets/app-shell/design-states.png` (фрейм 2) | sidebar `w-14`, иконки + tooltips                                                       |
+| notifications | `assets/app-shell/design-states.png` (фрейм 3) | открытый bell-dropdown (список + unread-бейдж)                                          |
+| mobile        | `assets/app-shell/design-states.png` (фрейм 4) | ≤768: бургер + Sheet-overlay sidebar (плоский список)                                   |
+| role-junior   | — (не сгенерён)                                | механически: nav-фильтр `navRolesFor` → 5 пунктов JUNIOR (как в текущем коде) + рестайл |
+| loading       | — (не сгенерён)                                | сохранить существующий skeleton (`isLoading` ветка route.tsx), рестайл наследуется      |
 
-> Скриншоты «до» (baseline) снимаются оркестратором на live-стеке; если не сняты — причина указывается здесь.
+> Сгенерённые состояния — в `design-states.png` (один кадр, 4 фрейма) + `design.png` (default крупно).
+> `role-junior` и `loading` дизайн не генерил: выводятся из существующего кода (role-фильтр nav + skeleton) — сохранить, рестайл наследуется от каркаса.
 
 ---
 
