@@ -588,13 +588,22 @@ describe('admin-summary — real backend integration (real DB, no mocks)', () =>
 
     // Every active row exposes the new id/name keys (nullable) so the shared
     // `FromTo` no longer falls back to «—» for types that key off ids/names.
+    // `payoutRequestId` is projected too (UT-feedback #280) so the dashboard can
+    // open the SAME ConfirmPayoutDialog whose company-account branch confirms off
+    // the payout request id.
     for (const tx of body.activeTransactions) {
       expect(tx).toHaveProperty('senderId')
       expect(tx).toHaveProperty('senderName')
       expect(tx).toHaveProperty('receiverId')
       expect(tx).toHaveProperty('receiverName')
       expect(tx).toHaveProperty('projectId')
+      expect(tx).toHaveProperty('payoutRequestId')
     }
+
+    // The PAYOUT fixture (TX_PENDING_PAYMENT) carries no linked payout_request,
+    // so its projected payoutRequestId is null (not undefined / absent) — the
+    // field is always present in the contract.
+    expect(byId(TX_PENDING_PAYMENT)?.payoutRequestId).toBeNull()
 
     // SENIOR_INCOME (TX_PENDING): senderId = the senior + resolved senderName,
     // projectId = the active project (proves sender side + project are surfaced).
