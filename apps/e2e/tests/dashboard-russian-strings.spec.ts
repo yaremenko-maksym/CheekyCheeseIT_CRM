@@ -46,23 +46,30 @@ const ENGLISH_BLOCKLIST = [
   /Welcome to/i, // catches «Welcome to CheekyCheeseIT»
 ]
 
-const RU_DASHBOARD_TOKENS = [
+// NOTE: tokens below must live INSIDE the page <main> (the assertion scopes to
+// `main.first()`). The sidebar «Дашборд» nav link is a SIBLING of <main> (not a
+// child), so it is intentionally NOT asserted here — scoping it to <main> was a
+// latent bug that passed only while the sidebar briefly lived inside <main>.
+
+// ADMIN renders AdminDashboard («центр действий») on /crm — 4 neutral KPI cards
+// + «Активные транзакции» panel. The old generic placeholder («Транзакций»,
+// «Последние транзакции») was replaced by the real-data dashboard, so assert its
+// current RU labels instead.
+const RU_ADMIN_DASHBOARD_TOKENS = [
   'Активных проектов',
   'Сотрудников',
-  'Транзакций',
+  'Проектов не оплачено в этом месяце',
   'Собеседований',
-  'Дашборд',
+  'Активные транзакции',
 ]
+
+// SENIOR renders SeniorDashboard (рабочий хаб) on /crm — its own RU copy.
+const RU_SENIOR_DASHBOARD_TOKENS = ['Активные проекты', 'Доход за месяц', 'Ожидают выплаты']
 
 // HR renders HRDashboard (рекрутинг хаб) on /crm instead of the generic
 // dashboard — assert its own RU copy. Russian-only + checked against the same
 // English blocklist below.
-const RU_HR_DASHBOARD_TOKENS = [
-  'Дашборд',
-  'Рекрутинг хаб HR-менеджера',
-  'Открытые собеседования',
-  'Нанято за месяц',
-]
+const RU_HR_DASHBOARD_TOKENS = ['Открытые собеседования', 'Нанято за месяц', 'Активные проекты']
 
 /**
  * Navigate to /crm, assert all expected RU tokens are visible and no English
@@ -95,11 +102,11 @@ async function assertDashboardRu(page: Page, role: string, expectedTokens: strin
 
 test.describe('Dashboard — Russian-only copy (consolidated /crm root)', () => {
   test('/crm for ADMIN has Russian copy and NO English leftovers', async ({ asAdmin: page }) => {
-    await assertDashboardRu(page, 'ADMIN', RU_DASHBOARD_TOKENS)
+    await assertDashboardRu(page, 'ADMIN', RU_ADMIN_DASHBOARD_TOKENS)
   })
 
   test('/crm for SENIOR has Russian copy and NO English leftovers', async ({ asSenior: page }) => {
-    await assertDashboardRu(page, 'SENIOR', RU_DASHBOARD_TOKENS)
+    await assertDashboardRu(page, 'SENIOR', RU_SENIOR_DASHBOARD_TOKENS)
   })
 
   test('/crm for HR has Russian copy and NO English leftovers', async ({ asHr: page }) => {
