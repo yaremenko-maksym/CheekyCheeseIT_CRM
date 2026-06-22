@@ -22,7 +22,7 @@ Single source of truth для правил, применимых ко всем �
 
 **Резюме:** Zero-tolerance forbidden: `--no-verify`, `git add .`, push в main напрямую, force-push в main, `--admin` merge. Commit format: `<type>(<scope>): <subject>` + `ac_verified: 1,2,3` + опционально `vision:` для UI. WIP chunking: push после 2 файлов / 5 минут / перед операцией > 1 мин.
 
-CI hard-блок: `check-no-skip-hooks.yml` падает на любой `--no-verify` в diff. Pre-push hook (`coder-pre-push.sh`) требует `ac_verified:` на не-`wip:` коммитах.
+CI hard-блок: `check-no-skip-hooks.yml` падает на любой `--no-verify` в diff. Pre-push hook (`pre-bash-coder-push-gate.sh`) требует `ac_verified:` на не-`wip:` коммитах.
 
 См. полный список forbidden patterns + commit format + chunking: **[`.claude/rules/common/git-policy.md`](../../rules/common/git-policy.md)**.
 
@@ -86,7 +86,7 @@ PM использует два слоя для cross-session waits.
 
 ## 5. Zone-of-write — `.claude/rules/common/zone-of-write.md`
 
-**Резюме:** Каждый агент пишет ТОЛЬКО в свою зону. Reviewer выдаёт `Verdict: BLOCK` на cross-zone diffs. Active hook `.claude/hooks/block-production-edits.sh` блокирует Coder из main repo при попытке `apps/**` / `packages/**` без PM-разрешения (live с Phase 2.5).
+**Резюме:** Каждый агент пишет ТОЛЬКО в свою зону. Reviewer выдаёт `Verdict: BLOCK` на cross-zone diffs. Active hook `.claude/hooks/pre-edit-write-zone-of-write.sh` блокирует Coder из main repo при попытке `apps/**` / `packages/**` без PM-разрешения (live с Phase 2.5).
 
 **Zone highlights:**
 

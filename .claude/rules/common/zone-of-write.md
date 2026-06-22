@@ -2,7 +2,7 @@
 
 **Status:** Always-on (enforced by hook + Reviewer)
 **Applies to:** All write-agents (Coder, AutoTest, DevOps, PM, BA, Architect).
-**Source:** Project hard requirement (CLAUDE.md zones + `.claude/agents/architect.md` Zone-of-write) + Phase 2.5 hook activation (`block-production-edits.sh` live).
+**Source:** Project hard requirement (CLAUDE.md zones + `.claude/agents/architect.md` Zone-of-write) + Phase 2.5 hook activation (`pre-edit-write-zone-of-write.sh` live).
 
 ---
 
@@ -24,7 +24,7 @@
 
 ### Active hook
 
-`.claude/hooks/block-production-edits.sh` (live с Phase 2.5) блокирует Coder из main repo при попытке `Edit` / `Write` / `MultiEdit` / `NotebookEdit` в `apps/**` / `packages/**` если PM не разрешил.
+`.claude/hooks/pre-edit-write-zone-of-write.sh` (live с Phase 2.5) блокирует Coder из main repo при попытке `Edit` / `Write` / `MultiEdit` / `NotebookEdit` в `apps/**` / `packages/**` если PM не разрешил.
 
 ### Worktree caveat
 
@@ -35,7 +35,7 @@
 **Status:** добавлено 2026-06-16 (ADR `docs/architecture/2026-06-16-agent-infra-wisdom-transfer.md` FM-2).
 
 Coder в `isolation=worktree` при первом Write иногда пишет в MAIN-repo по абсолютному пути
-(копирует main-repo-пути из codegraph / task-файла). `block-production-edits.sh` НЕ ловит этот кейс.
+(копирует main-repo-пути из codegraph / task-файла). `pre-edit-write-zone-of-write.sh` НЕ ловит этот кейс.
 Поэтому PM ОБЯЗАН после КАЖДОГО завершившегося Coder'а проверить, что MAIN-чекаут чист:
 
 ```bash
@@ -69,5 +69,5 @@ git -C <main-repo> status --porcelain apps/ packages/   # пусто = OK; ес�
 
 - CLAUDE.md "Multi-Agent команда" + zone hints в каждом agent doc.
 - `.claude/agents/architect.md` Zone-of-write section.
-- Phase 2.5 deliverable: `docs/architecture/2026-06-03-phase2.5-deliverable.md` (live `block-production-edits.sh`).
+- Phase 2.5 deliverable: `docs/architecture/2026-06-03-phase2.5-deliverable.md` (live `pre-edit-write-zone-of-write.sh`).
 - ADR `docs/architecture/2026-05-31-ecc-migration-design.md` §2.2.2 (zone-of-write hook).

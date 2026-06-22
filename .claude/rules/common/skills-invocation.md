@@ -44,21 +44,29 @@
 
 ## Project-local skills (Phase 4 lift)
 
-Plus 7 project-local skills под `.claude/skills/` (Phase 4 deliverable):
+Project-local + импортированные skills под `.claude/skills/` (13 на диске; Phase 4 заложила 7):
 
-| Skill                       | Trigger                                                                                                                   |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `playwright-patterns`       | Coder / AutoTest пишут `.spec.ts` — strict-mode / Radix / retries / testids.                                              |
-| `code-review-discipline`    | Reviewer формулирует Verdict / postит review.                                                                             |
-| `dev-flow-resilience`       | Long-running ops / MCP > 5s / silent termination / cross-session waits.                                                   |
-| `ua-tax-compliance`         | Legal mode A / B / C по теме ФОП / Дія Сіті / CFC / банковские caps.                                                      |
-| `ua-crypto-compliance`      | Legal mode A / B при упоминании USDT / VASP / AML.                                                                        |
-| `ua-it-contract`            | Legal mode A / B на IT contract review (SENIOR / клиент).                                                                 |
-| `legal-escalation-patterns` | Cross-cutting Legal escalation (когда вовлекать external lawyer).                                                         |
-| `claude-design-workflow`    | Оркестратор (Master / PM / ui-ux-designer) драйвит Claude Design для UI-задачи / handoff-артефакт (design-gate Tier 1/2). |
+| Skill                         | Trigger                                                                                                                   |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `playwright-patterns`         | Coder / AutoTest пишут `.spec.ts` — strict-mode / Radix / retries / testids.                                              |
+| `code-review-discipline`      | Reviewer формулирует Verdict / postит review.                                                                             |
+| `dev-flow-resilience`         | Long-running ops / MCP > 5s / silent termination / cross-session waits.                                                   |
+| `ua-tax-compliance`           | Legal mode A / B / C по теме ФОП / Дія Сіті / CFC / банковские caps.                                                      |
+| `ua-crypto-compliance`        | Legal mode A / B при упоминании USDT / VASP / AML.                                                                        |
+| `ua-it-contract`              | Legal mode A / B на IT contract review (SENIOR / клиент).                                                                 |
+| `legal-escalation-patterns`   | Cross-cutting Legal escalation (когда вовлекать external lawyer).                                                         |
+| `claude-design-workflow`      | Оркестратор (Master / PM / ui-ux-designer) драйвит Claude Design для UI-задачи / handoff-артефакт (design-gate Tier 1/2). |
+| `pm-dispatching`              | PM диспатчит агента / запускает PR / CI / User Testing — загрузка `pm-snippets.md`. **(project-local)**                   |
+| `accessibility`               | UI/UX Designer / Coder: WCAG 2.2 AA — ARIA / focus / contrast / target size. **(origin: ECC)**                            |
+| `design-system`               | UI/UX Designer Mode B / C: 10-dimension visual audit + AI-slop detection. **(origin: ECC)**                               |
+| `frontend-design-direction`   | UI/UX Designer Mode A: purpose / audience / tone / memorable detail. **(origin: community)**                              |
+| `make-interfaces-feel-better` | UI/UX Designer Mode D / Coder polish: concentric radius / tabular-nums / motion / hit areas. **(origin: community)**      |
 
-Phase 4 заложила 7; `claude-design-workflow` добавлен 2026-06-22 (Claude Design integration) — итого 8.
-Все — в `.claude/skills/<name>/SKILL.md`. Phase 4 deliverable: `docs/architecture/2026-06-03-phase4-deliverable.md`.
+Phase 4 заложила 7 (`playwright-patterns` … `legal-escalation-patterns`); далее добавлены/импортированы:
+`pm-dispatching` (project-local snippet-loader), `claude-design-workflow` (2026-06-22) и 4 дизайн/a11y-скилла
+(`accessibility`/`design-system` — origin ECC; `frontend-design-direction`/`make-interfaces-feel-better` —
+origin community). **Итого 13 на диске** (`ls .claude/skills/`); таблица выше — источник истины. Каждый —
+в `.claude/skills/<name>/SKILL.md`. Phase 4 deliverable: `docs/architecture/2026-06-03-phase4-deliverable.md`.
 
 ## Workflow surface policy (ECC alignment)
 

@@ -33,7 +33,7 @@ Multi-agent инфраструктура для CRM Cheeky Cheese IT. Содер
 | **UI/UX Designer**    | [`ui-ux-designer.md`](ui-ux-designer.md)       | Design direction (Mode A pre-feature) / visual audit (Mode B post-impl) / AI-slop check (Mode C) / polish pass (Mode D cosmetic). ECC skills: accessibility / frontend-design-direction / design-system / make-interfaces-feel-better |
 | **DevOps**            | [`devops.md`](devops.md)                       | CI/CD, workflows, branch protection + ECC build-error-resolver / harness-optimizer delegation (Phase 3e) |
 
-**Reviewer split (Phase 3b ECC migration, 2026-06-03):** монолитный `reviewer.md` → split на `code-reviewer.md` + `security-reviewer.md` per ADR § 2.1.5. `reviewer.md` остался как **deprecated shim** (redirect) во время Phase 3c PM dispatch transition. См. [`docs/architecture/2026-06-03-phase3b-deliverable.md`](../architecture/2026-06-03-phase3b-deliverable.md).
+**Reviewer split (Phase 3b ECC migration, 2026-06-03):** монолитный `reviewer.md` → split на `code-reviewer.md` + `security-reviewer.md` per ADR § 2.1.5. `reviewer.md` **удалён** — контент полностью живёт в `code-reviewer.md` + `security-reviewer.md`. См. [`docs/architecture/2026-06-03-phase3b-deliverable.md`](../architecture/2026-06-03-phase3b-deliverable.md).
 
 ### Human roles (not LLM agents)
 
@@ -71,12 +71,13 @@ Skills — canonical workflow surface per ECC AGENTS.upstream.md. После Pha
 | `frontend-design-direction` | `.claude/skills/frontend-design-direction/SKILL.md`                                          | UI/UX Designer Mode A: выбор purpose / audience / tone / memorable detail (ECC adopt) |
 | `design-system`             | `.claude/skills/design-system/SKILL.md`                                                      | UI/UX Designer Mode B / C: 10-dimension visual audit + AI-slop detection (ECC adopt) |
 | `make-interfaces-feel-better` | `.claude/skills/make-interfaces-feel-better/SKILL.md`                                      | UI/UX Designer Mode D / Coder polish: concentric radius / tabular-nums / motion / hit areas (ECC adopt) |
+| `claude-design-workflow`    | `.claude/skills/claude-design-workflow/SKILL.md`                                            | Оркестратор (Master / PM / ui-ux-designer) драйвит Claude Design для UI-задачи + handoff-артефакт (design-gate Tier 1/2, добавлен 2026-06-22) |
 
 См. `docs/architecture/2026-06-03-phase4-deliverable.md` для full inventory + skipped candidates + cross-skill dependency graph.
 
 ### Deprecated (redirect stubs, для backward compat)
 
-- [`reviewer.md`](reviewer.md) → `code-reviewer.md` + `security-reviewer.md` (Phase 3b ECC split, 2026-06-03; удаление — Phase 6 follow-up, см. ADR 2026-06-16)
+- `reviewer.md` — **удалён** (Phase 3b ECC split 2026-06-03 → `code-reviewer.md` + `security-reviewer.md`; shim убран в последующем cleanup). Контент в `code-reviewer.md` + `security-reviewer.md`.
 - [`CLAUDE-legal.md`](CLAUDE-legal.md) — **active** operational notes (durations / knowledge base structure), не stub; читается из `legal.md` + `pm-snippets.md`.
 
 6 thin redirect-стабов (`CLAUDE-pm/coder/reviewer/autotest/devops/tools.md`) **удалены 2026-06-16** (wisdom-transfer cleanup) — контент давно живёт в `pm.md` / `coder.md` / `code-reviewer.md` + `security-reviewer.md` / `autotest.md` / `devops.md` / `project-state.md` / `RULES.md`. `CLAUDE-ba.md` удалён ещё в Phase 6 (BA = human role).
