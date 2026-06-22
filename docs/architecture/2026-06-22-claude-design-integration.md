@@ -5,6 +5,12 @@
 **Автор:** Master-сессия (PM-оркестратор)
 **Связано:** [[ui-ux-designer.md]], `.claude/rules/common/light-track.md`, `.claude/rules/common/zone-of-write.md`, [[feedback_reviewer_self_merge_incident]]
 
+> **UPDATE 2026-06-22 (post-upgrade):** CLI обновлён 2.1.143 → **2.1.185**, который **несёт нативные**
+> `/design-login`, `/design-sync`, `/design` (verified в бинаре: design-sync ×262, /design ×67,
+> /design-login ×14). Поэтому §4.3/§4.4 «создать проектные команды» **отменены** — опираемся на
+> нативные команды; проектная ценность = гейт + Mode E reconciliation + skill + энфорсмент.
+> Implementation-план: `docs/superpowers/plans/2026-06-22-claude-design-integration.md`.
+
 ---
 
 ## 1. Цель
