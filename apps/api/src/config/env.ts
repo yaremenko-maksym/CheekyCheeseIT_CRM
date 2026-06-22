@@ -39,6 +39,32 @@ const envSchema = z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(false),
 
+    // ── Rate-limiting (NestJS ThrottlerModule) ────────────────────────────────
+    //
+    // THROTTLER_TTL_MS: sliding window length in milliseconds for the global
+    //   ThrottlerGuard. Default = 60 000 ms (1 minute) — production value.
+    //   Increase in CI/test to widen the window (e.g. 3 600 000 = 1 hour).
+    //
+    // THROTTLER_LIMIT: maximum request count per IP within THROTTLER_TTL_MS.
+    //   Default = 100 — production value.  Increase in CI/test (e.g. 2 000).
+    //
+    // THROTTLE_RELAXED: when "true" AND NODE_ENV !== "production", per-endpoint
+    //   @Throttle() overrides on sensitive write routes (POST /contracts/sign,
+    //   POST /tos/accept, POST /contracts/templates, POST /tos,
+    //   POST /users/:id/contract/ready) are lifted to match the global limit,
+    //   preventing 429 during E2E test suites that onboard many DROP users in
+    //   a single 60-second window.
+    //
+    //   SECURITY GUARDRAIL: THROTTLE_RELAXED is silently ignored when
+    //   NODE_ENV === "production" — ThrottlerConfigService enforces this.
+    //   Prod operators cannot accidentally weaken rate limits via this flag.
+    //   Default = false (strict per-endpoint limits active everywhere).
+    THROTTLER_TTL_MS: z.coerce.number().int().min(1_000).default(60_000),
+    THROTTLER_LIMIT: z.coerce.number().int().min(1).default(100),
+    THROTTLE_RELAXED: z
+      .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
+      .default(false),
+
     // S3 / MinIO (PHASE 6 — Documents). Dev defaults point to local MinIO.
     // AWS_* defaults to 'minioadmin' for local convenience; production safety
     // enforced via refine() below (NODE_ENV=production + minioadmin → throw).

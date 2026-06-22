@@ -1,8 +1,8 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, UseGuards } from '@nestjs/common'
 import type { FastifyRequest } from 'fastify'
-import { Throttle } from '@nestjs/throttler'
 
 import { createTosVersionSchema, type SessionUser } from '@crm/shared'
+import { AdminWriteThrottle, SensitiveWriteThrottle } from '../config/throttle-decorators'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
@@ -41,9 +41,10 @@ export class TosController {
   }
 
   // Publishing a new ToS version is a sensitive admin write — 5 req/min.
+  // Raised to global limit in non-prod when THROTTLE_RELAXED=true.
   @Post()
   @Roles('ADMIN')
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @AdminWriteThrottle()
   publish(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     const { bodyMarkdown } = createTosVersionSchema.parse(body)
     return this.service.publish({ bodyMarkdown, createdByUserId: user.id })
@@ -51,9 +52,10 @@ export class TosController {
 
   // ToS acceptance is a user action during onboarding — 10 req/min allows
   // retry after network errors without enabling replay attacks.
+  // Raised to global limit in non-prod when THROTTLE_RELAXED=true.
   @Post('accept')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @SensitiveWriteThrottle()
   accept(@CurrentUser() user: SessionUser, @Req() request: FastifyRequest) {
     const ip = (request.ip as string | undefined) ?? null
     const userAgent = (request.headers['user-agent'] as string | undefined)?.slice(0, 1000) ?? null

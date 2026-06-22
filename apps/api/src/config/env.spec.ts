@@ -18,6 +18,16 @@ import { validateEnv } from './env'
  *   7. 'false' string → parsed as boolean false
  *   8. omitted → defaults to false
  *   9. boolean true (direct) → kept as true
+ *
+ * Section D — Throttler env-config (env-config PR):
+ *   10. THROTTLER_TTL_MS — omitted → default 60_000
+ *   11. THROTTLER_TTL_MS — provided as numeric string → coerced to number
+ *   12. THROTTLER_TTL_MS — below min 1_000 → throw
+ *   13. THROTTLER_LIMIT — omitted → default 100
+ *   14. THROTTLER_LIMIT — provided as numeric string → coerced to number
+ *   15. THROTTLE_RELAXED — omitted → default false
+ *   16. THROTTLE_RELAXED — 'true' string → boolean true
+ *   17. THROTTLE_RELAXED — 'false' string → boolean false
  */
 
 const BASE_DEV = {
@@ -115,5 +125,46 @@ describe('validateEnv — TRUST_PROXY boolean preprocess', () => {
   it('accepts boolean true directly (non-string env scenario)', () => {
     const env = validateEnv({ ...BASE_DEV, TRUST_PROXY: true })
     expect(env.TRUST_PROXY).toBe(true)
+  })
+})
+
+describe('validateEnv — Throttler env-config (Section D)', () => {
+  it('THROTTLER_TTL_MS defaults to 60_000 when omitted', () => {
+    const env = validateEnv({ ...BASE_DEV })
+    expect(env.THROTTLER_TTL_MS).toBe(60_000)
+  })
+
+  it('THROTTLER_TTL_MS coerces numeric string to number', () => {
+    const env = validateEnv({ ...BASE_DEV, THROTTLER_TTL_MS: '3600000' })
+    expect(env.THROTTLER_TTL_MS).toBe(3_600_000)
+  })
+
+  it('THROTTLER_TTL_MS below minimum (1_000) throws', () => {
+    expect(() => validateEnv({ ...BASE_DEV, THROTTLER_TTL_MS: '500' })).toThrow()
+  })
+
+  it('THROTTLER_LIMIT defaults to 100 when omitted', () => {
+    const env = validateEnv({ ...BASE_DEV })
+    expect(env.THROTTLER_LIMIT).toBe(100)
+  })
+
+  it('THROTTLER_LIMIT coerces numeric string to number', () => {
+    const env = validateEnv({ ...BASE_DEV, THROTTLER_LIMIT: '2000' })
+    expect(env.THROTTLER_LIMIT).toBe(2000)
+  })
+
+  it('THROTTLE_RELAXED defaults to false when omitted', () => {
+    const env = validateEnv({ ...BASE_DEV })
+    expect(env.THROTTLE_RELAXED).toBe(false)
+  })
+
+  it("THROTTLE_RELAXED parses string 'true' as boolean true", () => {
+    const env = validateEnv({ ...BASE_DEV, THROTTLE_RELAXED: 'true' })
+    expect(env.THROTTLE_RELAXED).toBe(true)
+  })
+
+  it("THROTTLE_RELAXED parses string 'false' as boolean false", () => {
+    const env = validateEnv({ ...BASE_DEV, THROTTLE_RELAXED: 'false' })
+    expect(env.THROTTLE_RELAXED).toBe(false)
   })
 })
