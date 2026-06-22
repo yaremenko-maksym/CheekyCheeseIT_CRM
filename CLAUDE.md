@@ -18,20 +18,20 @@ CRM для рекрутинговых воркспейсов (outsource/outstaff
 
 ## Карта указателей (где живёт правда)
 
-| Что нужно                                                                               | Где                                        |
-| --------------------------------------------------------------------------------------- | ------------------------------------------ |
-| Фазы и статус, RBAC-матрица, бизнес-правила, миграции, схемы, auth, tech gotchas        | `.claude/agents/project-state.md`          |
-| Cross-agent правила — точка входа (TOC)                                                 | `.claude/RULES.md`                         |
-| Конкретные правила: MCP-first, git-policy, zone-of-write, версии, язык, skills-триггеры | `.claude/rules/common/*.md` (auto-loaded)  |
-| Лёгкий vs полный трек разработки                                                        | `.claude/rules/common/light-track.md`      |
-| Claude Design UI-гейт + workflow                                                         | `.claude/rules/common/design-gate.md` + `.claude/skills/claude-design-workflow/` |
-| Системные промпты агентов (старт — README)                                              | `.claude/agents/<agent>.md`                |
-| Cross-agent state machine                                                               | `.claude/agents/contracts.md`              |
-| Активные task-файлы                                                                     | `.claude/tasks/`                           |
-| ADR, deliverables, RCA                                                                  | `docs/architecture/`                       |
-| Бизнес-доки (BA)                                                                        | `docs/business/`                           |
-| Юр. драфты контрактов                                                                   | `docs/legal/`                              |
-| Уроки агентов                                                                           | `.claude/agents/memory/<agent>/lessons.md` |
+| Что нужно                                                                               | Где                                                                              |
+| --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Фазы и статус, RBAC-матрица, бизнес-правила, миграции, схемы, auth, tech gotchas        | `.claude/agents/project-state.md`                                                |
+| Cross-agent правила — точка входа (TOC)                                                 | `.claude/RULES.md`                                                               |
+| Конкретные правила: MCP-first, git-policy, zone-of-write, версии, язык, skills-триггеры | `.claude/rules/common/*.md` (auto-loaded)                                        |
+| Лёгкий vs полный трек разработки                                                        | `.claude/rules/common/light-track.md`                                            |
+| Claude Design UI-гейт + workflow                                                        | `.claude/rules/common/design-gate.md` + `.claude/skills/claude-design-workflow/` |
+| Системные промпты агентов (старт — README)                                              | `.claude/agents/<agent>.md`                                                      |
+| Cross-agent state machine                                                               | `.claude/agents/contracts.md`                                                    |
+| Активные task-файлы                                                                     | `.claude/tasks/`                                                                 |
+| ADR, deliverables, RCA                                                                  | `docs/architecture/`                                                             |
+| Бизнес-доки (BA)                                                                        | `docs/business/`                                                                 |
+| Юр. драфты контрактов                                                                   | `docs/legal/`                                                                    |
+| Уроки агентов                                                                           | `.claude/agents/memory/<agent>/lessons.md`                                       |
 
 ## Стек (сводка)
 
