@@ -216,6 +216,8 @@ ls .claude/tasks/*.blocked.md 2>/dev/null
 
 Когда PM запустил ≥1 reviewer-агента — собирает verdicts из событий `code_review_done` и (опционально) `security_review_done`. Aggregate verdict:
 
+> **Источник истины (anti-rasync):** dispatch-матрицы «кого / когда запускать» — канон в `contracts.md` §5 / §5.1 / §5.2 (pm.md на них ссылается, НЕ копирует). Эта секция — PM-runtime агрегация их verdict-событий: early-exit (BLOCK от любого reviewer → aggregate BLOCK, не ждём второй) + `review_rounds ≥ 3` circuit-breaker — это PM-owned логика, в `contracts.md` не дублируется.
+
 | code-reviewer    | security-reviewer | Aggregate                  | PM действие                                                                |
 | ---------------- | ----------------- | -------------------------- | -------------------------------------------------------------------------- |
 | APPROVE          | (не dispatched)   | APPROVE                    | label `awaiting-pm-review` → Mode 2.B                                      |

@@ -12,8 +12,8 @@ CRM для рекрутинговых воркспейсов (outsource/outstaff
 **Цель:** максимальная типобезопасность, скорость, профессиональный UX.
 **Язык:** UI и общение с пользователем — русский; код, коммиты, PR — английский.
 
-- `/` — публичный лендинг компании (без ссылок на CRM)
-- `/crm` — защищённое рабочее пространство: Google SSO only (ручной OAuth, JWT HttpOnly cookie)
+- **Лендинг** — отдельное приложение `apps/landing` (целевой домен `cheekycheese.tech`), без ссылок на CRM
+- **CRM** — `apps/web` (целевой `app.cheekycheese.tech`): защищённое рабочее пространство в корне `/` (роут-префикс `/crm` убран при domain-split 2026-06-21), Google SSO only (ручной OAuth, JWT HttpOnly cookie)
 - 5 ролей RBAC: `ADMIN | SENIOR | JUNIOR | HR | ACCOUNTANT` (+ DROP payment-routing поверх)
 
 ## Карта указателей (где живёт правда)
@@ -87,7 +87,7 @@ label `merge-approved` → CI squash-merge.
   (рефактор → `payout_requests`/`pending_obligations`) · Документы (S3/MinIO) ·
   Профили + Легенда per-project (#150, #164)
 - **Контракты + Онбординг ✅** · **DROP-роль ✅** (вне исходного 9-фазного плана)
-- **Дальше:** PHASE 8 — смарт-контракты USDT ERC-20 (DB-фундамент готов; план — `project-state.md` §1.1) → PHASE 9 — дашборд
+- **Дальше:** PHASE 8 — **«Счёт компании»** (USDT ERC-20; смарт-контракты **отменены** владельцем 2026-06-17 → верификация tx по ссылке + дивиденды ADMIN + общий счёт; план — `project-state.md` §1.1) → PHASE 9 — дашборд
 - Детальный чеклист фаз — `project-state.md` §1
 
 ## Сессионный минимум
