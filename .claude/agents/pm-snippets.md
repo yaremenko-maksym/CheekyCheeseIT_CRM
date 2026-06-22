@@ -49,6 +49,34 @@ target_branch: <pr_branch>
 
 **Phase 3d.2 (ECC) — для bugfix:** `tdd-guide` НЕ диспатчится (это для новых фич). Coder использует `superpowers:systematic-debugging` skill (см. coder.md §1.5). `typescript-reviewer` self-review остаётся обязательным для milestones с TS/TSX изменениями.
 
+### Design-gate — UI-задача (артефакт ПЕРЕД кодером)
+
+**Источник:** `.claude/rules/common/design-gate.md`. Применяется к любой задаче, чей diff трогает
+визуальную поверхность `apps/web/**` / `apps/landing/**`.
+
+**PM-гейт перед диспетчем UI-кодера:**
+
+1. Определи `## Design tier:` задачи (1 новый экран / 2 правка / 3 косметика). Если поля нет на UI-задаче — дефолт **Tier 1**.
+2. **Tier 1/2:** убедись, что существует артефакт `docs/design/<slug>.md` (+ `docs/design/assets/<slug>/design.png`).
+   Нет артефакта → СНАЧАЛА запусти дизайн-флоу (skill `claude-design-workflow` → ui-ux-designer Mode E),
+   и только потом диспатчи кодера. **НЕ диспатчить UI-кодера без артефакта.**
+3. **Tier 3:** артефакт не нужен, но запиши conformance-отметку (ui-ux-designer проверил соответствие
+   синхронизированной дизайн-системе) — в task-файле / pr-state.
+
+**Dispatch-промпт UI-кодера ОБЯЗАН содержать (Tier 1/2):**
+
+```
+Design tier: <1|2>
+Design артефакт: docs/design/<slug>.md  (spec) + docs/design/assets/<slug>/design.png (референс)
+Правило: строй НАШИМИ shadcn/ui компонентами + токенами globals.css по spec; соответствуй design.png;
+         НЕ вставляй сырой экспортированный HTML из design.html (это визуальный референс, не код).
+После реализации задача уйдёт на ui-ux-designer Mode B fidelity-аудит (live vs design.png).
+```
+
+**После пуша UI-кодера:** диспатчи ui-ux-designer **Mode B** (fidelity-аудит vs `design.png`) параллельно
+с code-reviewer. code-reviewer выдаст `Verdict: BLOCK`, если на `apps/web`/`apps/landing` PR нет
+дизайн-артефакта + Mode B-аудита (tier ≠ 3). `merge-approved` ставит ТОЛЬКО PM/owner по «мерджим».
+
 ### AutoTest — post-approval тесты
 
 ```
