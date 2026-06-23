@@ -95,7 +95,7 @@ label `merge-approved` → CI squash-merge.
 
 Правила ниже auto-loaded из `.claude/rules/common/` — здесь только напоминание, что они существуют:
 MCP-first · git-policy (no `--no-verify`, явные `git add`, `ac_verified:`) · русский язык ·
-zone-of-write · skills-триггеры · version-pins · light-track · design-gate (любое UI → дизайнер-в-контуре) · model-routing (какой тир модели какому агенту/задаче) · orchestration-routing (агент vs воркфлоу vs light-track — степень параллелизма).
+zone-of-write · skills-триггеры · version-pins · light-track · design-gate (любое UI → дизайнер-в-контуре) · responsive-design (адаптив mobile/tablet/laptop/large — hard-гейт, любой UI) · model-routing (какой тир модели какому агенту/задаче) · orchestration-routing (агент vs воркфлоу vs light-track — степень параллелизма).
 
 Сверх правил: E2E локально перед push кода (docs-only diff освобождён — см. light-track);
 merge PR — **только** по явному подтверждению USER в чате.

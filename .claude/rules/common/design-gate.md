@@ -64,6 +64,7 @@
 - `.claude/rules/common/zone-of-write.md` — `apps/web/**` = Coder/Designer зона; артефакты в `docs/design/**`.
 - `.claude/rules/common/light-track.md` — косметика UI (Tier 3) допустима лёгким треком, но conformance-проверка обязательна.
 - `.claude/rules/common/skills-invocation.md` — триггер → `claude-design-workflow` skill.
+- `.claude/rules/common/responsive-design.md` — адаптив на 4 классах устройств (hard-гейт); Mode B аудитит ВСЕ классы, генерация запрашивает фреймы для всех.
 
 ## Источники
 
