@@ -16,8 +16,12 @@
  * cache + immutable Cache-Control means a single real S3 GET per document
  * per browser session per day.
  *
- * SSE: AWS S3 SSE-S3 (AES-256, free) is enabled by default in prod. In dev
- * (MinIO) we still send the header — MinIO ignores it gracefully.
+ * SSE: Controlled by S3_USE_SSE env flag (default false).
+ *   S3_USE_SSE=true  — AWS S3: sends ServerSideEncryption: AES256 on every PutObject.
+ *   S3_USE_SSE=false — MinIO (dev) and Cloudflare R2 (prod): header is omitted.
+ *     MinIO ignores SSE-S3 without a KMS backend; R2 rejects the header entirely
+ *     because it does not implement the SSE-S3 protocol. Both providers encrypt
+ *     data at rest by default, so omitting the header is safe and correct.
  */
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'

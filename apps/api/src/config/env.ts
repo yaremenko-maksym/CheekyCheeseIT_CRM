@@ -65,21 +65,38 @@ const envSchema = z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(false),
 
-    // S3 / MinIO (PHASE 6 — Documents). Dev defaults point to local MinIO.
+    // S3 / MinIO / Cloudflare R2 (PHASE 6 — Documents).
+    // Dev defaults point to local MinIO.
     // AWS_* defaults to 'minioadmin' for local convenience; production safety
     // enforced via refine() below (NODE_ENV=production + minioadmin → throw).
+    //
+    // Provider matrix:
+    //   MinIO (dev)          — endpoint=http://localhost:9000, force-path-style=true,  SSE=false
+    //   AWS S3 (prod)        — endpoint omit (AWS default),   force-path-style=false, SSE=true
+    //   Cloudflare R2 (prod) — endpoint=https://<id>.r2.cloudflarestorage.com,
+    //                          force-path-style=false, SSE=false
+    //                          R2 encrypts all data at rest by default (AES-256 managed by
+    //                          Cloudflare) without a client-side ServerSideEncryption header —
+    //                          setting SSE=false with R2 is correct and does NOT reduce security.
+    //
     // Prod: see docs/runbooks/s3-storage.md.
     S3_ENDPOINT: z.string().url().default('http://localhost:9000'),
+    // S3_FORCE_PATH_STYLE: true for local MinIO (path-style URLs like
+    // http://localhost:9000/bucket/key). AWS S3 and Cloudflare R2 use
+    // virtual-hosted style (bucket.host/key) → set to false in prod.
     S3_FORCE_PATH_STYLE: z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(true),
     S3_REGION: z.string().default('us-east-1'),
     S3_BUCKET: z.string().default('crm-documents'),
-    // Default false: matches dev/MinIO (no SSE-S3 support — MinIO returns
-    // `NotImplemented: KMS not configured` when `AES256` is requested without
-    // a configured KMS backend). Production must explicitly set
-    // `S3_USE_SSE=true` to enable SSE-S3 against an AWS S3 bucket. See
-    // `docs/runbooks/s3-storage.md`.
+    // S3_USE_SSE: controls whether PutObject carries the SSE-S3 (AES256) header.
+    //   true  — AWS S3: enables server-side encryption via SDK header (free tier).
+    //   false — MinIO (dev): MinIO returns `NotImplemented: KMS not configured`
+    //           when AES256 is requested without a KMS backend.
+    //         — Cloudflare R2 (prod): R2 does not support the SSE-S3 protocol
+    //           header and returns an error when it is present. R2 encrypts data
+    //           at rest by default, so omitting this header is correct for R2.
+    // Default false — safe for both dev/MinIO and R2 prod. Set true only for AWS S3.
     S3_USE_SSE: z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(false),
