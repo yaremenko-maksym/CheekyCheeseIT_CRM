@@ -162,9 +162,7 @@ test.describe('Interviews (Kanban) page', () => {
       const sheet = page.getByTestId('interview-detail-sheet')
       await expect(sheet).toBeVisible()
 
-      const stageMoveBtn = sheet
-        .getByRole('button', { name: /english|tech|final|client/i })
-        .first()
+      const stageMoveBtn = sheet.getByRole('button', { name: /english|tech|final|client/i }).first()
       await expect(stageMoveBtn).toBeVisible()
 
       const moveReq = page.waitForRequest(
