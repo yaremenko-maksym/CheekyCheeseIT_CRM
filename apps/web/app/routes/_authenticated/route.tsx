@@ -233,12 +233,12 @@ function CrmLayout() {
       </div>
 
       <header className="shrink-0 sticky top-0 z-40 border-b border-border/60 bg-background/80 px-4 py-2.5 backdrop-blur-md sm:px-6">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
+        <div className="flex items-center justify-between gap-2 sm:gap-3">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
             <Button
               variant="ghost"
               size="icon"
-              className="md:hidden cursor-pointer"
+              className="h-11 w-11 shrink-0 cursor-pointer md:hidden"
               aria-label="Открыть меню"
               onClick={() => setMobileOpen(true)}
             >
@@ -246,25 +246,51 @@ function CrmLayout() {
             </Button>
             <Link
               to="/"
-              className="flex items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="flex min-w-0 items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               <BrandMark className="h-7 w-7 shrink-0 text-primary" />
-              <span className="font-semibold tracking-tight">CheekyCheeseIT</span>
+              <span className="truncate font-semibold tracking-tight">CheekyCheeseIT</span>
             </Link>
             <Badge
               variant="outline"
-              className="hidden border-border/70 text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:flex"
+              className="hidden shrink-0 border-border/70 text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:flex"
             >
               CRM
             </Badge>
           </div>
 
-          <div className="flex items-center gap-0.5 sm:gap-1">
-            <Button variant="ghost" size="icon" aria-label="Поиск" className="cursor-pointer">
+          <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Поиск"
+              className="h-11 w-11 cursor-pointer sm:h-9 sm:w-9"
+            >
               <Search className="h-4 w-4" />
             </Button>
 
             <NotificationsBell enabled={onboardingComplete} />
+
+            {/* Identity block (name + email) — visible only on desktop ≥lg,
+                faithful to design.png (text right-aligned, to the left of the
+                avatar). Hidden on mobile/tablet to keep the header compact;
+                the same displayName + email remain reachable inside the
+                user-menu dropdown below (so identity is never unreachable).
+                NOTE: this renders email a SECOND time in the DOM (the first
+                is the dropdown label) — owner-approved per app-shell.md /
+                design.png. The ui-invariants-pr56 E1 spec asserts a single
+                email node and is expected to be updated by AutoTest. */}
+            <div
+              data-testid="header-user-identity"
+              className="ml-1 hidden min-w-0 flex-col items-end leading-tight lg:flex"
+            >
+              <span className="max-w-[12rem] truncate text-sm font-medium text-foreground">
+                {user.displayName}
+              </span>
+              <span className="max-w-[12rem] truncate text-xs text-muted-foreground">
+                {user.email}
+              </span>
+            </div>
 
             <DropdownMenu>
               {/* `asChild` forwards the trigger's ref and onClick into the
@@ -279,13 +305,11 @@ function CrmLayout() {
                   type="button"
                   aria-label="Меню пользователя"
                   data-testid="header-user-menu-trigger"
-                  className="ml-1 inline-flex cursor-pointer items-center rounded-full transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                  className="ml-1 inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-full transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:h-8 sm:w-8"
                 >
-                  {/* Avatar-only trigger — displayName + email live in the
-                      dropdown label (revealed on open). Kept avatar-only to
-                      preserve the 1:1 functional contract and the existing
-                      header invariant (identity text appears once, in the
-                      dropdown — see ui-invariants-pr56.spec). */}
+                  {/* Avatar trigger. displayName + email also appear in the
+                      desktop identity block above (≥lg) and always in the
+                      dropdown label (revealed on open). */}
                   <UserAvatar
                     // Suppress the thumbnail query while onboarding is
                     // incomplete: /api/documents/:id/thumbnail is blocked by
