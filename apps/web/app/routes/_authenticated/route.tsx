@@ -279,8 +279,13 @@ function CrmLayout() {
                   type="button"
                   aria-label="Меню пользователя"
                   data-testid="header-user-menu-trigger"
-                  className="ml-1 inline-flex cursor-pointer items-center gap-2 rounded-full py-0.5 pl-0.5 transition-colors hover:bg-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background lg:rounded-md lg:pr-2"
+                  className="ml-1 inline-flex cursor-pointer items-center rounded-full transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 >
+                  {/* Avatar-only trigger — displayName + email live in the
+                      dropdown label (revealed on open). Kept avatar-only to
+                      preserve the 1:1 functional contract and the existing
+                      header invariant (identity text appears once, in the
+                      dropdown — see ui-invariants-pr56.spec). */}
                   <UserAvatar
                     // Suppress the thumbnail query while onboarding is
                     // incomplete: /api/documents/:id/thumbnail is blocked by
@@ -289,18 +294,8 @@ function CrmLayout() {
                     avatarDocumentId={onboardingComplete ? (user.avatarDocumentId ?? null) : null}
                     avatarUrl={user.avatarUrl}
                     displayName={user.displayName}
-                    className="h-8 w-8 shrink-0 [&_[data-slot=avatar-fallback]]:bg-primary/20 [&_[data-slot=avatar-fallback]]:text-xs [&_[data-slot=avatar-fallback]]:text-primary"
+                    className="h-8 w-8 shrink-0 ring-1 ring-border/60 [&_[data-slot=avatar-fallback]]:bg-primary/20 [&_[data-slot=avatar-fallback]]:text-xs [&_[data-slot=avatar-fallback]]:font-medium [&_[data-slot=avatar-fallback]]:text-primary"
                   />
-                  {/* Identity block — re-presents the displayName + email
-                      already shown in the dropdown label, on roomy viewports
-                      only (matches design.png). Hidden ≤lg to keep the header
-                      compact on narrow screens. */}
-                  <span className="hidden min-w-0 flex-col text-left leading-tight lg:flex">
-                    <span className="truncate text-sm font-medium text-foreground">
-                      {user.displayName}
-                    </span>
-                    <span className="truncate text-xs text-muted-foreground">{user.email}</span>
-                  </span>
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-52">

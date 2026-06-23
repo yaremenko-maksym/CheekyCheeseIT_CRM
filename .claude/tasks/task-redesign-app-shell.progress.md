@@ -7,8 +7,25 @@ last_push: d6fc9a78 (origin/feature/redesign-app-shell)
 ## Milestones
 
 - [x] M1 — restyle nav-sidebar.tsx (desktop aside + mobile Sheet) → flat, active warm bg + left primary border + primary icon, dense rhythm. eslint clean.
-- [x] M2 — restyle route.tsx CrmLayout (glassy header, brand, search/bell/user-menu identity block, ambient harmonized to brand + prefers-reduced-motion, loading skeleton, dense content chrome). notifications-bell already spec-compliant — left unchanged. eslint + web typecheck clean.
-- [ ] M3 — verify: eslint + typecheck + E2E green + playwright visual fidelity (Mode B) at 320/768/1024/1440.
+- [x] M2 — restyle route.tsx CrmLayout (glassy header, brand, search/bell/user-menu, ambient harmonized to brand + prefers-reduced-motion, loading skeleton, dense content chrome). notifications-bell already spec-compliant — left unchanged. eslint + web typecheck clean.
+- [x] M3 — verified: eslint clean, web typecheck clean, Mode B visual fidelity PASS at 320/768/1024/1440 + collapsed + mobile-sheet + notifications + JUNIOR role-filter (playwright captures). E2E zero-regression proven (see below).
+
+## E2E regression proof (zero-flaky discipline)
+
+Ran full `@crm/e2e` against a dedicated `vite dev` server on :3021 (live UT stack
+occupied :3000/:3001). Bulk failures are PRE-EXISTING env failures (specs need full
+CI stack: prod build via `vite preview` + real NestJS API + real DB; plus `[cache]`
+project needs SW which is disabled in dev). PROVEN by isolation diff vs base `71833dc9`:
+
+- contract-editor/accountant-dashboard/admin-templates: feature 14 failed == base 14 failed (IDENTICAL set).
+- shell-touching specs (ui-invariants-pr56/polish-regressions/persist-query/drop-rbac/drop-routing-hub):
+  `comm -23 feature base` = exactly ONE feature-only failure → `ui-invariants-pr56:32`
+  (my identity-block added a 2nd visible email → strict-mode dup). FIXED by reverting to
+  avatar-only trigger. Re-run: `:32` PASSES; remaining 4 ui-invariants failures == base (tx-row/real-data).
+- Shell-direct specs ALL GREEN: navigation.spec (40 ran, 0 fail, all roles/routes),
+  auth.spec, team.spec, junior-hub.spec — 0 failures.
+
+Net: my branch == base on E2E failure set (pre-existing env only). Zero regression introduced.
 
 files_done:
 
