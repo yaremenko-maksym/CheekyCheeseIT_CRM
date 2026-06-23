@@ -197,7 +197,7 @@ export function NavSidebar({
                   to={item.to}
                   {...(item.activeOptions ? { activeOptions: item.activeOptions } : {})}
                   onClick={onMobileClose}
-                  className="group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background data-[status=active]:bg-accent data-[status=active]:text-accent-foreground data-[status=active]:font-semibold data-[status=active]:border-l-2 data-[status=active]:border-primary data-[status=active]:pl-2.5"
+                  className="nav-active-accent group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background data-[status=active]:bg-accent data-[status=active]:text-accent-foreground data-[status=active]:font-semibold data-[status=active]:border-l-2 data-[status=active]:pl-2.5"
                 >
                   <item.icon className="h-4 w-4 shrink-0 transition-colors group-data-[status=active]:text-primary" />
                   <span className="truncate">{item.label}</span>
@@ -224,7 +224,7 @@ function DesktopNavLink({ item, collapsed }: { item: NavItem; collapsed: boolean
         'data-[status=active]:bg-accent data-[status=active]:text-accent-foreground data-[status=active]:font-semibold',
         collapsed
           ? 'justify-center px-0 w-10 mx-auto data-[status=active]:ring-1 data-[status=active]:ring-inset data-[status=active]:ring-primary/60'
-          : 'px-3 data-[status=active]:border-l-2 data-[status=active]:border-primary data-[status=active]:pl-2.5',
+          : 'nav-active-accent px-3 data-[status=active]:border-l-2 data-[status=active]:pl-2.5',
       )}
     >
       <item.icon className="h-4 w-4 shrink-0 transition-colors group-data-[status=active]:text-primary" />

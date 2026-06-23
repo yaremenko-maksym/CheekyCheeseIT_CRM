@@ -180,3 +180,21 @@ input[type='number'] {
     animation-timing-function: step-end;
   }
 }
+
+/*
+ * Nav-sidebar active item: left accent border in brand primary colour.
+ * Tailwind v4 data-attribute variant border-color rules compete with the
+ * global `* { border-color: var(--border) }` base rule — the cascade
+ * resolution inside CSS nesting does not guarantee the utility wins in all
+ * Chromium builds. An explicit @layer utilities rule with the full selector
+ * is the reliable fix (no !important needed — @layer utilities > @layer base).
+ */
+@layer utilities {
+  /* The global `* { border-color: var(--border) }` rule is unlayered CSS,
+     which wins over any @layer per the CSS cascade. !important is the correct
+     and minimal override to restore the design-spec brand-yellow left stripe
+     on the active nav item without restructuring the base reset. */
+  .nav-active-accent[data-status='active'] {
+    border-left-color: var(--primary) !important;
+  }
+}
