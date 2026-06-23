@@ -127,6 +127,39 @@ chmod 600 ~/.ssh/authorized_keys
 > Код уже поддерживает оба провайдера через флаг `S3_USE_SSE` (см. PR #292: `s3.service.ts`
 > отправляет SSE-заголовок только при `S3_USE_SSE=true`). Доработки кода не требуется.
 
+### 1.6 Host-firewall — впуск на :80/:443 ТОЛЬКО с Cloudflare (ОБЯЗАТЕЛЬНО)
+
+> **Зачем (security-critical):** nginx доверяет заголовку `CF-Connecting-IP` от Cloudflare-диапазонов
+> и восстанавливает из него реальный IP клиента. Этот IP пишется как **юридическое доказательство**
+> при подписании контрактов и ToS. Если кто-то обратится к origin-IP VPS **напрямую, минуя Cloudflare**
+> (origin-IP часто утекает), он попадёт на тот же nginx и сможет прислать **поддельный** `CF-Connecting-IP`
+> → подделка юр-IP. Поэтому origin ДОЛЖЕН принимать HTTP(S) только от Cloudflare.
+
+**Вариант A (проще): host-firewall `ufw` — разрешить :80/:443 только с Cloudflare CIDR.**
+
+```bash
+# На VPS. SSH (порт 22) — оставить открытым (лучше ограничить своим IP отдельно).
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow 22/tcp                       # SSH (рассмотреть `ufw allow from <ваш-IP> to any port 22`)
+# Разрешить 80/443 ТОЛЬКО с актуальных Cloudflare-диапазонов:
+for cidr in $(curl -s https://www.cloudflare.com/ips-v4) $(curl -s https://www.cloudflare.com/ips-v6); do
+  ufw allow from "$cidr" to any port 80  proto tcp
+  ufw allow from "$cidr" to any port 443 proto tcp
+done
+ufw enable
+ufw status numbered
+```
+
+> Список CF-диапазонов меняется редко — при изменении (см. §11) пере-прогнать цикл и удалить старые правила.
+
+**Вариант Б (надёжнее): Cloudflare Authenticated Origin Pulls (mTLS)** — origin принимает TLS только
+от Cloudflare по клиентскому сертификату CF. Включается в Cloudflare → SSL/TLS → Origin Server →
+Authenticated Origin Pulls + `ssl_client_certificate`/`ssl_verify_client on` в nginx. Применять, если
+firewall-локдаун недостаточен (например, динамичный набор исходящих IP).
+
+> Без §1.6 real-IP restore (§11) обходится → не считать IP-доказательство достоверным до локдауна.
+
 ---
 
 ## 2. Установка Docker на VPS
@@ -150,6 +183,11 @@ usermod -aG docker $USER
 # Проверить:
 docker compose version   # должно показать Compose plugin v2.x
 ```
+
+> **Требуется Compose ≥ v2.22** — `docker-compose.ghcr.yml` использует `build: !reset null` для
+> сброса `build:`-директивы из базового compose (синтаксис появился в Compose v2.22). На свежей
+> установке `docker-compose-plugin` из официального репо (выше) версия современная — но при проблеме
+> «`!reset` not recognized» обновите плагин: `apt update && apt install --only-upgrade docker-compose-plugin`.
 
 ---
 
@@ -196,6 +234,12 @@ openssl rand -base64 32   # CREDENTIALS_ENC_KEY, POSTGRES_PASSWORD
 
 Origin Certificate выпускается в Cloudflare Dashboard (§1.2, шаг 6) и действует 15 лет.
 Cloudflare → Full (strict) завершает TLS на edge и устанавливает новое TLS-соединение до VPS.
+
+> **Порядок ВАЖЕН (избегаем plaintext-окна CF→origin):** подними 443 на origin (origin-cert +
+> раскомментированные `listen 443 ssl`) и переключи Cloudflare в **Full (strict)** ДО того, как
+> включишь Proxied / переключишь NS на боевой трафик. Если включить Proxied при ещё-`Flexible`/только-:80
+> origin, плечо CF→origin пойдёт по HTTP. После валидного origin-cert сразу раскомментируй HSTS в
+> `security-headers.conf`.
 
 ```bash
 # На VPS — создать директорию для сертов:
@@ -464,6 +508,11 @@ IP Cloudflare, а не реального клиента. Nginx настроен
 Это критично: IP записывается как юридическое доказательство при подписании контрактов
 и ToS, а также используется rate-limiter'ом NestJS.
 
+> **Без host-firewall (§1.6) этот механизм обходится:** прямое обращение к origin-IP минуя Cloudflare
+> позволяет подделать `CF-Connecting-IP`, т.к. nginx доверяет CF-диапазонам. Локдаун origin на
+> Cloudflare (§1.6) — обязательное условие достоверности IP-доказательства. `set_real_ip_from`
+> доверяет ТОЛЬКО CF-CIDR (не `0.0.0.0/0`) — проверь это при обновлении CF-диапазонов.
+
 Список CF CIDR нужно обновлять при изменении Cloudflare (редко, но бывает):
 
 - IPv4: https://www.cloudflare.com/ips-v4
@@ -490,3 +539,10 @@ IP Cloudflare, а не реального клиента. Nginx настроен
 - TLS / Cloudflare Full (strict) handshake с origin-cert на nginx.
 - Реальный smoke-test через `https://app.cheekycheese.tech/api/health`.
 - `set_real_ip_from` CF CIDR — корректность real-IP restore под Cloudflare proxied.
+- Host-firewall (§1.6) — что origin реально недостижим напрямую минуя Cloudflare
+  (проверить: запрос на origin-IP в обход CF должен таймаутиться/отклоняться).
+- `pg-backup.sh` retention-prune — что старые бэкапы реально удаляются (epoch-сравнение).
+- `ngx_http_realip_module` присутствует в nginx-образе (в `nginx:alpine` есть по умолчанию;
+  убедиться, что кастомный nginx Dockerfile его не выпиливает).
+- `deploy.yml` `permissions:` least-privilege — что job'ы успешно работают с урезанным токеном
+  (build: packages:write, deploy: packages:read, остальные: contents:read).

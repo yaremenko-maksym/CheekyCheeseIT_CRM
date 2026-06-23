@@ -89,10 +89,14 @@ rm -f "${BACKUP_PATH}"
 echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] Local temp file removed"
 
 # ── Prune old backups from S3 (older than RETENTION_DAYS) ────────────────
-CUTOFF_DATE=$(date -u -d "-${RETENTION_DAYS} days" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
-  || date -u -v "-${RETENTION_DAYS}d" +"%Y-%m-%dT%H:%M:%SZ")  # macOS fallback
+# Compare as epoch seconds (numeric). The earlier string-compare approach was
+# broken: the cutoff used `-`/`:` separators while the object timestamp was
+# normalised to all-`:`, so the lexical compare was always false and nothing
+# was ever pruned (backups accumulated forever).
+CUTOFF_EPOCH=$(date -u -d "-${RETENTION_DAYS} days" +%s 2>/dev/null \
+  || date -u -v "-${RETENTION_DAYS}d" +%s)  # macOS fallback
 
-echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] Pruning backups older than ${RETENTION_DAYS} days (before ${CUTOFF_DATE})"
+echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] Pruning backups older than ${RETENTION_DAYS} days (cutoff epoch ${CUTOFF_EPOCH})"
 
 AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
 AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
@@ -101,8 +105,14 @@ aws s3 ls "s3://${S3_BUCKET}/backups/" \
   "${AWS_EXTRA_ARGS[@]+"${AWS_EXTRA_ARGS[@]}"}" \
 | awk '{print $4}' \
 | while read -r obj; do
-    OBJ_DATE=$(echo "${obj}" | grep -oP '\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z' | tr '-' ':' | sed 's/T/:/')
-    if [ -n "${OBJ_DATE}" ] && [[ "${OBJ_DATE}" < "${CUTOFF_DATE}" ]]; then
+    # Filename: crm-db-2026-06-23T15-30-00Z.sql.gz → ts=2026-06-23T15-30-00Z
+    ts=$(echo "${obj}" | grep -oP '\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z')
+    [ -z "${ts}" ] && continue
+    # Rebuild ISO-8601: keep date dashes, convert time dashes → colons.
+    iso="${ts%T*}T$(echo "${ts#*T}" | sed 's/-/:/g')"   # 2026-06-23T15:30:00Z
+    obj_epoch=$(date -u -d "${iso}" +%s 2>/dev/null \
+      || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "${iso}" +%s 2>/dev/null || echo "")
+    if [ -n "${obj_epoch}" ] && [ "${obj_epoch}" -lt "${CUTOFF_EPOCH}" ]; then
       echo "  Deleting old backup: ${obj}"
       AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
       AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \

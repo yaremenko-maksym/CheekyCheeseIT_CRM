@@ -29,6 +29,12 @@ env:
   IMAGE_OWNER: yaremenko-maksym
   REPO_SLUG: cheekycheeseit-crm
 
+# Default-deny: every job inherits read-only `contents` and nothing else.
+# Jobs that need more (build → packages:write, deploy → packages:read) override
+# this explicitly. Least-privilege for the GITHUB_TOKEN across the whole deploy.
+permissions:
+  contents: read
+
 jobs:
   # ── 1. Build & push images to GHCR ───────────────────────────────────────
   build:
@@ -104,6 +110,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     environment: production
+    # No repo/package access needed — only SSHes to the VPS.
+    permissions:
+      contents: read
     # UNTESTED: requires a real VPS with all secrets set.
     # See docs/runbooks/deployment.md §3 for provisioning checklist.
 
@@ -179,6 +188,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     environment: production
+    # Checks out the repo (compose files) then SCPs them — read-only on contents.
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout (for compose files)
@@ -199,6 +211,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build, write-env, copy-compose]
     environment: production
+    # Pulls images from GHCR on the VPS → needs packages:read (not write).
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - name: Pull, up, migrate, health-check via SSH
@@ -206,8 +222,8 @@ jobs:
         env:
           IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
           GH_ACTOR: ${{ github.actor }}
-          # GITHUB_TOKEN is available as a secret for `docker login ghcr.io`.
-          # It is scoped to packages:read for the deploy actor.
+          # GITHUB_TOKEN for `docker login ghcr.io`. The job-level `permissions:`
+          # block above scopes it to packages:read (pull only) + contents:read.
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ secrets.VPS_HOST }}
