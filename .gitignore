@@ -88,3 +88,9 @@ apps/web/vite.qa.config.ts
 !apps/web/public/**/*.png
 !apps/web/public/**/*.jpg
 !apps/web/public/**/*.jpeg
+
+# Claude Design sync workspace + bundle output (regenerable via /design-sync;
+# CLI scaffolding with its own node_modules — NEVER commit). See
+# .claude/skills/claude-design-workflow/.
+.ds-sync/
+ds-bundle/
