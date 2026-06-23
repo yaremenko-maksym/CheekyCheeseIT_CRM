@@ -94,6 +94,26 @@ function CrmLayout() {
     return () => document.removeEventListener('visibilitychange', handler)
   }, [])
 
+  // A11y (foundation.md §7): respect prefers-reduced-motion — when the user
+  // opts out of motion we freeze the ambient blobs on their static frame
+  // (no keyframe loop) instead of drifting.
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
+    typeof window !== 'undefined' && 'matchMedia' in window
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false,
+  )
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('matchMedia' in window)) return
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const handler = () => setPrefersReducedMotion(mq.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+
+  // Ambient animation runs only when the tab is visible AND the user has not
+  // opted out of motion. Otherwise blobs render their static initial frame.
+  const ambientActive = tabVisible && !prefersReducedMotion
+
   useEffect(() => {
     if (!isLoading && !user) {
       void navigate({ to: '/login' })
@@ -125,27 +145,28 @@ function CrmLayout() {
   if (isLoading) {
     return (
       <div className="flex h-screen flex-col bg-background">
-        <header className="shrink-0 border-b border-border/60 px-6 py-3">
-          <div className="flex items-center justify-between">
-            <Skeleton className="h-7 w-40" />
-            <div className="flex items-center gap-2">
+        <header className="shrink-0 border-b border-border/60 px-4 py-2.5 sm:px-6">
+          <div className="flex items-center justify-between gap-3">
+            <Skeleton className="h-7 w-40 rounded-md" />
+            <div className="flex items-center gap-1">
               <Skeleton className="h-8 w-8 rounded-full" />
               <Skeleton className="h-8 w-8 rounded-full" />
-              <Skeleton className="h-8 w-8 rounded-full" />
+              <Skeleton className="ml-1 hidden h-8 w-36 rounded-md lg:block" />
+              <Skeleton className="h-8 w-8 rounded-full lg:hidden" />
             </div>
           </div>
         </header>
         <div className="flex flex-1 overflow-hidden">
-          <div className="hidden w-52 shrink-0 border-r border-border/60 p-2 md:block">
-            <div className="flex flex-col gap-1">
+          <div className="hidden w-52 shrink-0 border-r border-border/60 p-2 pt-3 md:block">
+            <div className="flex flex-col gap-0.5">
               {Array.from({ length: 8 }).map((_, i) => (
                 <Skeleton key={i} className="h-9 rounded-md" />
               ))}
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
             <div className="space-y-4">
-              <Skeleton className="h-8 w-48" />
+              <Skeleton className="h-8 w-48 rounded-md" />
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 {Array.from({ length: 4 }).map((_, i) => (
                   <Skeleton key={i} className="h-32 rounded-xl" />
@@ -175,57 +196,70 @@ function CrmLayout() {
           static initial frame (no array → no keyframe loop) and set
           `repeat: 0` — framer-motion releases the rAF schedule, so the
           background uses zero CPU until the tab is focused again. */}
+      {/* Ambient depth — harmonized to the brand-warm direction (foundation.md:
+          quiet by default, amber-undertone, NO purple/AI-slop). Three faint
+          primary/amber blobs drift slowly; paused while the tab is hidden and
+          respecting prefers-reduced-motion via the `prefersReducedMotion`
+          guard, which feeds the static initial frame so the compositor releases
+          the rAF schedule (zero CPU). transform/scale only — compositor-safe. */}
       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
         <motion.div
-          className="absolute -left-[10%] top-[10%] h-[520px] w-[520px] rounded-full bg-primary/[0.05] blur-[120px]"
+          className="absolute -left-[10%] top-[10%] h-[520px] w-[520px] rounded-full bg-primary/[0.04] blur-[120px]"
           animate={
-            tabVisible
+            ambientActive
               ? { x: [0, 80, -40, 0], y: [0, -60, 40, 0], scale: [1, 1.1, 0.95, 1] }
               : { x: 0, y: 0, scale: 1 }
           }
-          transition={{ duration: 24, repeat: tabVisible ? Infinity : 0, ease: 'easeInOut' }}
+          transition={{ duration: 24, repeat: ambientActive ? Infinity : 0, ease: 'easeInOut' }}
         />
         <motion.div
-          className="absolute -right-[8%] bottom-[8%] h-[420px] w-[420px] rounded-full bg-violet-500/[0.05] blur-[110px]"
+          className="absolute -right-[8%] bottom-[8%] h-[420px] w-[420px] rounded-full bg-amber-500/[0.03] blur-[110px]"
           animate={
-            tabVisible
+            ambientActive
               ? { x: [0, -70, 50, 0], y: [0, 50, -40, 0], scale: [1, 0.9, 1.08, 1] }
               : { x: 0, y: 0, scale: 1 }
           }
-          transition={{ duration: 30, repeat: tabVisible ? Infinity : 0, ease: 'easeInOut' }}
+          transition={{ duration: 30, repeat: ambientActive ? Infinity : 0, ease: 'easeInOut' }}
         />
         <motion.div
-          className="absolute left-1/3 top-1/2 h-[340px] w-[340px] rounded-full bg-amber-500/[0.035] blur-[100px]"
+          className="absolute left-1/3 top-1/2 h-[340px] w-[340px] rounded-full bg-primary/[0.025] blur-[100px]"
           animate={
-            tabVisible
+            ambientActive
               ? { x: [0, 50, -40, 0], y: [0, -40, 30, 0], scale: [1, 1.06, 0.94, 1] }
               : { x: 0, y: 0, scale: 1 }
           }
-          transition={{ duration: 36, repeat: tabVisible ? Infinity : 0, ease: 'easeInOut' }}
+          transition={{ duration: 36, repeat: ambientActive ? Infinity : 0, ease: 'easeInOut' }}
         />
       </div>
 
-      <header className="shrink-0 sticky top-0 z-40 border-b border-border/60 bg-background/80 px-6 py-3 backdrop-blur-md">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+      <header className="shrink-0 sticky top-0 z-40 border-b border-border/60 bg-background/80 px-4 py-2.5 backdrop-blur-md sm:px-6">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
             <Button
               variant="ghost"
               size="icon"
               className="md:hidden cursor-pointer"
+              aria-label="Открыть меню"
               onClick={() => setMobileOpen(true)}
             >
               <Menu />
             </Button>
-            <Link to="/" className="flex items-center gap-2">
-              <BrandMark className="h-7 w-7 text-primary" />
+            <Link
+              to="/"
+              className="flex items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              <BrandMark className="h-7 w-7 shrink-0 text-primary" />
               <span className="font-semibold tracking-tight">CheekyCheeseIT</span>
             </Link>
-            <Badge variant="outline" className="hidden text-xs sm:flex">
+            <Badge
+              variant="outline"
+              className="hidden border-border/70 text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:flex"
+            >
               CRM
             </Badge>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5 sm:gap-1">
             <Button variant="ghost" size="icon" aria-label="Поиск" className="cursor-pointer">
               <Search className="h-4 w-4" />
             </Button>
@@ -245,7 +279,7 @@ function CrmLayout() {
                   type="button"
                   aria-label="Меню пользователя"
                   data-testid="header-user-menu-trigger"
-                  className="ml-1 inline-flex cursor-pointer items-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                  className="ml-1 inline-flex cursor-pointer items-center gap-2 rounded-full py-0.5 pl-0.5 transition-colors hover:bg-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background lg:rounded-md lg:pr-2"
                 >
                   <UserAvatar
                     // Suppress the thumbnail query while onboarding is
@@ -255,8 +289,18 @@ function CrmLayout() {
                     avatarDocumentId={onboardingComplete ? (user.avatarDocumentId ?? null) : null}
                     avatarUrl={user.avatarUrl}
                     displayName={user.displayName}
-                    className="h-8 w-8 [&_[data-slot=avatar-fallback]]:bg-primary/20 [&_[data-slot=avatar-fallback]]:text-xs [&_[data-slot=avatar-fallback]]:text-primary"
+                    className="h-8 w-8 shrink-0 [&_[data-slot=avatar-fallback]]:bg-primary/20 [&_[data-slot=avatar-fallback]]:text-xs [&_[data-slot=avatar-fallback]]:text-primary"
                   />
+                  {/* Identity block — re-presents the displayName + email
+                      already shown in the dropdown label, on roomy viewports
+                      only (matches design.png). Hidden ≤lg to keep the header
+                      compact on narrow screens. */}
+                  <span className="hidden min-w-0 flex-col text-left leading-tight lg:flex">
+                    <span className="truncate text-sm font-medium text-foreground">
+                      {user.displayName}
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">{user.email}</span>
+                  </span>
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-52">
@@ -325,7 +369,7 @@ function CrmLayout() {
           onMobileClose={() => setMobileOpen(false)}
         />
         <main
-          className="flex-1 min-h-0 flex flex-col overflow-hidden"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background/40"
           style={{ scrollbarGutter: 'stable' }}
         >
           <Outlet />

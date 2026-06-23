@@ -1,17 +1,20 @@
 # Progress: task-redesign-app-shell
 
-current_milestone: 1/3
-last_commit: (none yet)
-last_push: (none yet)
+current_milestone: 3/3
+last_commit: d6fc9a78 (M1) — M2 pending commit
+last_push: d6fc9a78 (origin/feature/redesign-app-shell)
 
 ## Milestones
 
-- [ ] M1 — restyle nav-sidebar.tsx (desktop aside + mobile Sheet) → flat, active warm bg + left primary border + primary icon, dense rhythm.
-- [ ] M2 — restyle route.tsx CrmLayout (glassy header, brand, search/bell/user-menu, ambient harmonize, loading skeleton, dense content chrome) + notifications-bell visual polish.
+- [x] M1 — restyle nav-sidebar.tsx (desktop aside + mobile Sheet) → flat, active warm bg + left primary border + primary icon, dense rhythm. eslint clean.
+- [x] M2 — restyle route.tsx CrmLayout (glassy header, brand, search/bell/user-menu identity block, ambient harmonized to brand + prefers-reduced-motion, loading skeleton, dense content chrome). notifications-bell already spec-compliant — left unchanged. eslint + web typecheck clean.
 - [ ] M3 — verify: eslint + typecheck + E2E green + playwright visual fidelity (Mode B) at 320/768/1024/1440.
 
-files_done: []
-files_pending:
+files_done:
+
+- apps/web/app/components/crm/nav-sidebar.tsx
+- apps/web/app/routes/\_authenticated/route.tsx
+  files_pending:
 
 - apps/web/app/components/crm/nav-sidebar.tsx
 - apps/web/app/routes/\_authenticated/route.tsx
