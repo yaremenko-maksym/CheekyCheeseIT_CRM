@@ -48,7 +48,9 @@
   Сниппет — `.claude/agents/pm-snippets.md`.
 - **Reviewer-чек:** на PR, трогающем `apps/web/**` / `apps/landing/**` визуальную поверхность,
   code-reviewer проверяет наличие дизайн-артефакта (`docs/design/<slug>.md`) **и** комментария
-  fidelity-аудита (Mode B). Если отсутствуют и tier ≠ 3 → `Verdict: BLOCK` со ссылкой на это правило.
+  fidelity-аудита (Mode B), **покрывающего ВСЕ классы устройств** (`Fidelity: PASS|ISSUES|BLOCK` —
+  см. `.claude/rules/common/design-fidelity-review.md`). Отсутствует / частичен (desktop-only) и
+  tier ≠ 3 → `Verdict: BLOCK` со ссылкой на правило.
 - **`merge-approved` — без изменений:** ставит ТОЛЬКО PM / owner по явному «мерджим» владельца.
   Reviewer / любой агент `merge-approved` НЕ трогает (см. [[feedback_reviewer_self_merge_incident]]).
 
@@ -65,6 +67,7 @@
 - `.claude/rules/common/light-track.md` — косметика UI (Tier 3) допустима лёгким треком, но conformance-проверка обязательна.
 - `.claude/rules/common/skills-invocation.md` — триггер → `claude-design-workflow` skill.
 - `.claude/rules/common/responsive-design.md` — адаптив на 4 классах устройств (hard-гейт); Mode B аудитит ВСЕ классы, генерация запрашивает фреймы для всех.
+- `.claude/rules/common/design-fidelity-review.md` — post-impl fidelity-diff макет↔localhost на всех классах = обязательный гейт перед merge (этот файл — гейт ДО кода, fidelity-review — ПОСЛЕ).
 
 ## Источники
 
