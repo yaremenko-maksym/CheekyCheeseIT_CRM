@@ -1,0 +1,342 @@
+name: Deploy
+
+# ── Trigger ────────────────────────────────────────────────────────────────
+# IMPORTANT: auto-trigger is DISABLED until the first successful manual deploy.
+# After a successful `workflow_dispatch` run on the VPS:
+#   1. Verify the stack is healthy (smoke-test checklist in docs/runbooks/deployment.md).
+#   2. Uncomment the `push:` block below.
+#   3. Commit + push the change.
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Docker image tag to deploy (default: git SHA of HEAD)'
+        required: false
+        default: ''
+  # ── Enable after first successful manual deploy ──────────────────────────
+  # push:
+  #   branches: [main]
+
+concurrency:
+  # One deploy at a time. If a new push arrives while deploying, cancel the
+  # in-progress run so the latest image lands (not an intermediate one).
+  group: deploy-production
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  # Repository owner must be lowercase for GHCR image names.
+  IMAGE_OWNER: yaremenko-maksym
+  REPO_SLUG: cheekycheeseit-crm
+
+# Default-deny: every job inherits read-only `contents` and nothing else.
+# Jobs that need more (build → packages:write, deploy → packages:read) override
+# this explicitly. Least-privilege for the GITHUB_TOKEN across the whole deploy.
+permissions:
+  contents: read
+
+jobs:
+  # ── 1. Build & push images to GHCR ───────────────────────────────────────
+  build:
+    name: Build & Push to GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve image tag
+        id: meta
+        run: |
+          # Use explicit input tag if provided; otherwise git SHA (short).
+          INPUT_TAG="${{ inputs.image_tag }}"
+          if [ -n "$INPUT_TAG" ]; then
+            echo "image_tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
+          else
+            SHA=$(git rev-parse --short HEAD)
+            echo "image_tag=${SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Build API image ─────────────────────────────────────────────────
+      - name: Build & push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-api:${{ steps.meta.outputs.image_tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-api:main
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      # ── Build nginx image (includes Landing + CRM SPA) ──────────────────
+      - name: Build & push nginx image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: nginx/Dockerfile
+          push: true
+          build-args: |
+            VITE_API_URL=/api
+            VITE_BUILD_VERSION=${{ steps.meta.outputs.image_tag }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:${{ steps.meta.outputs.image_tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:main
+          cache-from: type=gha,scope=nginx
+          cache-to: type=gha,mode=max,scope=nginx
+
+  # ── 2. Write env file on VPS ──────────────────────────────────────────────
+  # Separate step: secrets are passed as SSH envs (encrypted channel), never
+  # interpolated into the YAML run: script string (injection prevention).
+  write-env:
+    name: Write .env.production on VPS
+    runs-on: ubuntu-latest
+    needs: build
+    environment: production
+    # No repo/package access needed — only SSHes to the VPS.
+    permissions:
+      contents: read
+    # UNTESTED: requires a real VPS with all secrets set.
+    # See docs/runbooks/deployment.md §3 for provisioning checklist.
+
+    steps:
+      - name: Write .env.production via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          # All values are passed as SSH environment variables — they travel
+          # over the encrypted SSH channel, never substituted into the YAML string.
+          # On the VPS they arrive as $VAR_NAME and are written by the script.
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          CREDENTIALS_ENC_KEY: ${{ secrets.CREDENTIALS_ENC_KEY }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          S3_FORCE_PATH_STYLE: ${{ secrets.S3_FORCE_PATH_STYLE }}
+          S3_REGION: ${{ secrets.S3_REGION }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          GH_ACTOR: ${{ github.actor }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          # Pass env vars declared above into the remote shell.
+          envs: IMAGE_TAG,POSTGRES_PASSWORD,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,JWT_SECRET,SESSION_SECRET,CREDENTIALS_ENC_KEY,S3_ENDPOINT,S3_FORCE_PATH_STYLE,S3_REGION,S3_BUCKET,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,GH_ACTOR
+          script: |
+            set -euo pipefail
+            mkdir -p /opt/crm
+            # All variables below come from the envs: list above (SSH env channel).
+            # No ${{ secrets.* }} interpolation happens here — safe from injection.
+            cat > /opt/crm/.env.production << 'ENVEOF'
+            NODE_ENV=production
+            API_PORT=3001
+            ENVEOF
+            # Append secret values safely via printf (no heredoc variable expansion issue).
+            printf 'DATABASE_URL=postgresql://crm_user:%s@postgres:5432/crm_db\n' "$POSTGRES_PASSWORD" >> /opt/crm/.env.production
+            printf 'POSTGRES_DB=crm_db\n'                              >> /opt/crm/.env.production
+            printf 'POSTGRES_USER=crm_user\n'                          >> /opt/crm/.env.production
+            printf 'POSTGRES_PASSWORD=%s\n'       "$POSTGRES_PASSWORD" >> /opt/crm/.env.production
+            printf 'REDIS_URL=redis://redis:6379\n'                    >> /opt/crm/.env.production
+            printf 'GOOGLE_CLIENT_ID=%s\n'        "$GOOGLE_CLIENT_ID"  >> /opt/crm/.env.production
+            printf 'GOOGLE_CLIENT_SECRET=%s\n'    "$GOOGLE_CLIENT_SECRET" >> /opt/crm/.env.production
+            printf 'GOOGLE_CALLBACK_URL=https://app.cheekycheese.tech/api/auth/google/callback\n' >> /opt/crm/.env.production
+            printf 'JWT_SECRET=%s\n'              "$JWT_SECRET"        >> /opt/crm/.env.production
+            printf 'SESSION_SECRET=%s\n'          "$SESSION_SECRET"    >> /opt/crm/.env.production
+            printf 'CREDENTIALS_ENC_KEY=%s\n'     "$CREDENTIALS_ENC_KEY" >> /opt/crm/.env.production
+            printf 'FRONTEND_URL=https://app.cheekycheese.tech\n'     >> /opt/crm/.env.production
+            printf 'CORS_ORIGINS=https://app.cheekycheese.tech,https://cheekycheese.tech\n' >> /opt/crm/.env.production
+            printf 'TRUST_PROXY=true\n'                                >> /opt/crm/.env.production
+            printf 'S3_ENDPOINT=%s\n'             "$S3_ENDPOINT"       >> /opt/crm/.env.production
+            printf 'S3_FORCE_PATH_STYLE=%s\n'     "$S3_FORCE_PATH_STYLE" >> /opt/crm/.env.production
+            printf 'S3_REGION=%s\n'               "$S3_REGION"         >> /opt/crm/.env.production
+            printf 'S3_BUCKET=%s\n'               "$S3_BUCKET"         >> /opt/crm/.env.production
+            # S3_USE_SSE=false — Cloudflare R2 (our prod provider) does NOT support
+            # the SSE-S3 protocol header and rejects PutObject when it is present.
+            # R2 encrypts all data at rest by default, so omitting the header is
+            # both required for R2 and safe. Set to true ONLY if migrating to AWS S3.
+            printf 'S3_USE_SSE=false\n'                                >> /opt/crm/.env.production
+            printf 'AWS_ACCESS_KEY_ID=%s\n'       "$AWS_ACCESS_KEY_ID" >> /opt/crm/.env.production
+            printf 'AWS_SECRET_ACCESS_KEY=%s\n'   "$AWS_SECRET_ACCESS_KEY" >> /opt/crm/.env.production
+            printf 'IMAGE_TAG=%s\n'               "$IMAGE_TAG"         >> /opt/crm/.env.production
+            chmod 600 /opt/crm/.env.production
+            echo "==> .env.production written (mode 600)"
+
+  # ── 3. Copy compose files to VPS ─────────────────────────────────────────
+  copy-compose:
+    name: Copy compose files to VPS
+    runs-on: ubuntu-latest
+    needs: build
+    environment: production
+    # Checks out the repo (compose files) then SCPs them — read-only on contents.
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout (for compose files)
+        uses: actions/checkout@v4
+
+      - name: Copy compose files via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'docker-compose.prod.yml,docker-compose.ghcr.yml'
+          target: '/opt/crm'
+
+  # ── 4. Pull images + up + migrate + health-check ─────────────────────────
+  deploy:
+    name: Deploy Stack on VPS
+    runs-on: ubuntu-latest
+    needs: [build, write-env, copy-compose]
+    environment: production
+    # Pulls images from GHCR on the VPS → needs packages:read (not write).
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Pull, up, migrate, health-check via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          GH_ACTOR: ${{ github.actor }}
+          # GITHUB_TOKEN for `docker login ghcr.io`. The job-level `permissions:`
+          # block above scopes it to packages:read (pull only) + contents:read.
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: IMAGE_TAG,GH_ACTOR,GHCR_TOKEN
+          script: |
+            set -euo pipefail
+            cd /opt/crm
+
+            echo "==> Logging in to GHCR"
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
+
+            echo "==> Pulling new images (IMAGE_TAG=${IMAGE_TAG})"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              pull api nginx
+
+            echo "==> Starting / updating stack (no-rebuild — GHCR images)"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              up -d --remove-orphans
+
+            echo "==> Waiting for postgres to be healthy"
+            for i in $(seq 1 30); do
+              if docker compose \
+                   -f docker-compose.prod.yml \
+                   -f docker-compose.ghcr.yml \
+                   --env-file .env.production \
+                   exec -T postgres \
+                   pg_isready -U crm_user -d crm_db 2>/dev/null; then
+                echo "Postgres healthy after ${i}x checks"
+                break
+              fi
+              if [ "$i" -eq 30 ]; then
+                echo "ERROR: postgres did not become healthy in 60s"
+                docker compose \
+                  -f docker-compose.prod.yml \
+                  -f docker-compose.ghcr.yml \
+                  --env-file .env.production \
+                  logs --tail=30 postgres
+                exit 1
+              fi
+              sleep 2
+            done
+
+            echo "==> Running Drizzle schema push (idempotent, NO seed)"
+            # drizzle-kit is a dev dependency — not in the prod API image.
+            # We run schema sync from a temporary container with the source files,
+            # or via the pre-built migrate script if present in dist/.
+            # Strategy: run a one-shot drizzle-kit container with the same DATABASE_URL.
+            #
+            # NOTE [UNTESTED]: if the prod API image does not include drizzle-kit,
+            # adjust this step to use a dedicated migration runner image or ship
+            # drizzle migrations as SQL files (see runbook §5 for alternatives).
+            docker run --rm \
+              --network "$(docker compose \
+                -f docker-compose.prod.yml \
+                -f docker-compose.ghcr.yml \
+                --env-file .env.production \
+                ps -q postgres | xargs docker inspect \
+                  --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' \
+                2>/dev/null | head -1 || echo crm_backend)" \
+              --env-file .env.production \
+              ghcr.io/yaremenko-maksym/cheekycheeseit-crm-api:"${IMAGE_TAG}" \
+              sh -c 'node -e "console.log(\"Migration placeholder — see runbook §5\")"' 2>/dev/null || true
+
+            # Practical fallback: run db:push via the running api container if drizzle-kit
+            # is available there (it is in dev builds; verify in prod image first).
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T api \
+              sh -c 'command -v drizzle-kit && drizzle-kit push || echo "drizzle-kit not in image — run manually per runbook §5"' || true
+
+            echo "==> Health check — waiting for API container"
+            for i in $(seq 1 20); do
+              if docker compose \
+                   -f docker-compose.prod.yml \
+                   -f docker-compose.ghcr.yml \
+                   --env-file .env.production \
+                   exec -T api \
+                   wget -qO- http://localhost:3001/api/health 2>/dev/null; then
+                echo ""
+                echo "API healthy after ${i}x checks"
+                break
+              fi
+              if [ "$i" -eq 20 ]; then
+                echo "ERROR: API did not become healthy within 40s"
+                docker compose \
+                  -f docker-compose.prod.yml \
+                  -f docker-compose.ghcr.yml \
+                  --env-file .env.production \
+                  logs --tail=50 api
+                exit 1
+              fi
+              sleep 2
+            done
+
+            echo "==> Smoke test — external HTTP check"
+            if curl -sf --max-time 15 https://app.cheekycheese.tech/api/health; then
+              echo "External health check PASSED"
+            else
+              echo "WARNING: external check failed (Cloudflare/TLS may not be configured yet)"
+              echo "Internal API is healthy — stack is running correctly"
+            fi
+
+            echo "==> Cleaning dangling images"
+            docker image prune -f || true
+
+            echo "==> Deploy complete. IMAGE_TAG=${IMAGE_TAG}"

@@ -1,0 +1,40 @@
+# ============================================================
+# docker-compose.ghcr.yml — GHCR image override
+#
+# Purpose: replace build: directives with pre-built GHCR images.
+# On the VPS only `docker compose pull && up -d` is needed — no
+# source code, no pnpm, no build tools required on the host.
+#
+# Usage (on VPS or in CI):
+#   docker compose \
+#     -f docker-compose.prod.yml \
+#     -f docker-compose.ghcr.yml \
+#     pull
+#
+#   docker compose \
+#     -f docker-compose.prod.yml \
+#     -f docker-compose.ghcr.yml \
+#     up -d
+#
+# Image names:
+#   ghcr.io/yaremenko-maksym/cheekycheeseit-crm-api:<tag>
+#   ghcr.io/yaremenko-maksym/cheekycheeseit-crm-nginx:<tag>
+#
+# Tags:
+#   main       — latest build from the main branch (rolling)
+#   <git-sha>  — pinned immutable build (for rollbacks)
+#
+# NEVER build images on the VPS — always pull from GHCR.
+# ============================================================
+
+services:
+  api:
+    # Override the build: directive from docker-compose.prod.yml.
+    # IMAGE_TAG is set by the deploy workflow (git SHA or 'main').
+    image: ghcr.io/yaremenko-maksym/cheekycheeseit-crm-api:${IMAGE_TAG:-main}
+    build: !reset null
+
+  nginx:
+    # Override the build: directive from docker-compose.prod.yml.
+    image: ghcr.io/yaremenko-maksym/cheekycheeseit-crm-nginx:${IMAGE_TAG:-main}
+    build: !reset null
