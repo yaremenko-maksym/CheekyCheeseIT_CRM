@@ -111,14 +111,21 @@ chmod 600 ~/.ssh/authorized_keys
    - Запомнить: Access Key ID, Secret Access Key.
 3. Endpoint R2 выглядит так: `https://<account-id>.r2.cloudflarestorage.com`
 
-> **Замечание по env-валидатору (`apps/api/src/config/env.ts`):**
-> Текущий валидатор ожидает `S3_ENDPOINT` как валидный URL (`.string().url()`).
-> Для Cloudflare R2 это `https://<account-id>.r2.cloudflarestorage.com` — валидный URL.
-> **Проблема:** `S3_USE_SSE=true` отправляет заголовок `ServerSideEncryption: AES256`,
-> который R2 **не поддерживает** (вернёт ошибку). Установите `S3_USE_SSE=false` для R2.
-> Если `S3_FORCE_PATH_STYLE=true` нужен для R2 — проверьте поведение клиента AWS SDK
-> с R2-endpoint (обычно R2 работает с path-style). **Задача для Coder:** при проблемах
-> с R2 — правка `S3_USE_SSE` логики в `apps/api/src/s3/s3.service.ts` для автоопределения.
+> **Правильные значения S3-env для Cloudflare R2 (наш прод-провайдер):**
+> Валидатор (`apps/api/src/config/env.ts`) ожидает `S3_ENDPOINT` как валидный URL
+> (`.string().url()`) — R2-endpoint `https://<account-id>.r2.cloudflarestorage.com` ему
+> соответствует. Для R2:
+>
+> - `S3_USE_SSE=false` — R2 **не поддерживает** заголовок SSE-S3 (`ServerSideEncryption: AES256`)
+>   и отвергает PutObject, если он присутствует. R2 шифрует данные at-rest сам (AES-256), поэтому
+>   отсутствие заголовка — корректно и безопасно. В `deploy.yml` это значение **захардкожено `false`**
+>   (не секрет). `true` ставить только при миграции на AWS S3.
+> - `S3_FORCE_PATH_STYLE=false` — R2 (как и AWS S3) использует virtual-hosted-style URL
+>   (`bucket.host/key`). `true` — **только** для локального MinIO (path-style `host/bucket/key`).
+> - `S3_REGION=auto` для R2 (`eu-central-1` — это для AWS S3).
+>
+> Код уже поддерживает оба провайдера через флаг `S3_USE_SSE` (см. PR #292: `s3.service.ts`
+> отправляет SSE-заголовок только при `S3_USE_SSE=true`). Доработки кода не требуется.
 
 ---
 
@@ -165,11 +172,14 @@ docker compose version   # должно показать Compose plugin v2.x
 | `S3_ENDPOINT`           | R2: `https://<account-id>.r2.cloudflarestorage.com`; AWS S3: оставить пустым (SDK использует дефолтный endpoint) |
 | `S3_REGION`             | R2: `auto`; AWS S3 Frankfurt: `eu-central-1`                                                                     |
 | `S3_BUCKET`             | `crm-documents-prod`                                                                                             |
-| `S3_FORCE_PATH_STYLE`   | R2: `true`; AWS S3: `false`                                                                                      |
+| `S3_FORCE_PATH_STYLE`   | R2: `false`; AWS S3: `false` (virtual-hosted style). `true` — только локальный MinIO                             |
 | `AWS_ACCESS_KEY_ID`     | R2 API Token Access Key ID (§1.5) или AWS IAM ключ                                                               |
 | `AWS_SECRET_ACCESS_KEY` | R2 API Token Secret или AWS IAM секрет                                                                           |
 
 > `GITHUB_TOKEN` (для GHCR login в deploy) генерируется GHA автоматически — добавлять не нужно.
+>
+> `S3_USE_SSE` **не входит** в список секретов — оно захардкожено `false` прямо в `deploy.yml`
+> (write-env шаг), т.к. наш прод-провайдер — Cloudflare R2 (см. §1.5). Менять только при миграции на AWS S3.
 
 **Команды генерации секретов:**
 
@@ -295,35 +305,17 @@ docker compose -f /opt/crm/docker-compose.prod.yml \
                --env-file /opt/crm/.env.production \
                exec postgres psql -U crm_user -d crm_db
 
--- Вставить двух ADMIN-пользователей (заменить email на реальные Google-аккаунты):
-INSERT INTO users (
-  id,
-  email,
-  display_name,
-  legal_full_name,
-  role,
-  senior_share_percent,
-  created_at,
-  updated_at
-) VALUES
-  (
-    gen_random_uuid(),
-    'admin1@gmail.com',         -- ← реальный Google email владельца 1
-    'Admin One',
-    'Ім''я По-Батькові Прізвище',
-    'ADMIN',
-    NULL,
-    NOW(), NOW()
-  ),
-  (
-    gen_random_uuid(),
-    'admin2@gmail.com',         -- ← реальный Google email владельца 2 (если нужен)
-    'Admin Two',
-    'Ім''я По-Батькові Прізвище',
-    'ADMIN',
-    NULL,
-    NOW(), NOW()
-  )
+-- Вставить двух ADMIN-пользователей.
+-- Только email + display_name + role. Все остальные колонки берут дефолты схемы:
+--   id=gen_random_uuid(), created_at/updated_at=now(), senior_share_percent=26,
+--   legal_full_name=NULL, google_id=NULL (заполнится при первом входе через Google SSO).
+-- НЕ вписывать legal_full_name здесь — юр. ФИО задаётся отдельно при работе с контрактами.
+-- НЕ вписывать senior_share_percent=NULL — колонка NOT NULL (упадёт); опускаем → дефолт 26
+--   (для ADMIN доля 50/50 считается отдельно, это поле к нему не применяется).
+-- Email'ы заменить на реальные Google-аккаунты В МОМЕНТ bootstrap (НЕ коммитить в репо):
+INSERT INTO users (email, display_name, role) VALUES
+  ('<email-konstantin>', 'Константин', 'ADMIN'),   -- ← реальный Google email владельца 1
+  ('<email-maksym>',     'Максим',     'ADMIN')     -- ← реальный Google email владельца 2
 ON CONFLICT (email) DO NOTHING;
 
 \q

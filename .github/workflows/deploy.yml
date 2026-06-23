@@ -162,7 +162,11 @@ jobs:
             printf 'S3_FORCE_PATH_STYLE=%s\n'     "$S3_FORCE_PATH_STYLE" >> /opt/crm/.env.production
             printf 'S3_REGION=%s\n'               "$S3_REGION"         >> /opt/crm/.env.production
             printf 'S3_BUCKET=%s\n'               "$S3_BUCKET"         >> /opt/crm/.env.production
-            printf 'S3_USE_SSE=true\n'                                 >> /opt/crm/.env.production
+            # S3_USE_SSE=false — Cloudflare R2 (our prod provider) does NOT support
+            # the SSE-S3 protocol header and rejects PutObject when it is present.
+            # R2 encrypts all data at rest by default, so omitting the header is
+            # both required for R2 and safe. Set to true ONLY if migrating to AWS S3.
+            printf 'S3_USE_SSE=false\n'                                >> /opt/crm/.env.production
             printf 'AWS_ACCESS_KEY_ID=%s\n'       "$AWS_ACCESS_KEY_ID" >> /opt/crm/.env.production
             printf 'AWS_SECRET_ACCESS_KEY=%s\n'   "$AWS_SECRET_ACCESS_KEY" >> /opt/crm/.env.production
             printf 'IMAGE_TAG=%s\n'               "$IMAGE_TAG"         >> /opt/crm/.env.production
