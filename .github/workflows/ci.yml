@@ -355,7 +355,7 @@ jobs:
       matrix:
         shard:
           - name: auth-nav
-            files: tests/auth.spec.ts tests/navigation.spec.ts tests/debug.spec.ts tests/mock_test.spec.ts
+            files: tests/auth.spec.ts tests/navigation.spec.ts tests/debug.spec.ts tests/mock_test.spec.ts tests/app-shell-responsive.spec.ts
           - name: team-users
             files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/rbac-junior-on-other.spec.ts
           - name: projects
