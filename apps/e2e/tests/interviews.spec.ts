@@ -600,26 +600,75 @@ test.describe('Interviews (Kanban) page', () => {
       const card = page.getByRole('button').filter({ hasText: 'Acme Corp' }).first()
       await card.focus()
 
-      // Space — activate KeyboardSensor drag.
-      // KeyboardSensor attaches its keydown listener via setTimeout(), so a brief
-      // wait after focus ensures the sensor is ready before the first keypress.
+      // Space — activate the KeyboardSensor drag. The sensor attaches its
+      // keydown listener via setTimeout(), so the non-empty live-region
+      // assertion below (auto-retrying) is the readiness gate before the first
+      // ArrowRight — no fixed sleep.
       await page.keyboard.press('Space')
-      // Wait for dnd-kit DndLiveRegion to announce drag start.
-      // We use the scoped selector `[aria-live]:not([aria-label])` to target
-      // dnd-kit's live region and skip the Notifications section which has
-      // aria-label="Notifications alt+T". This avoids the original flakiness
-      // where `.first()` landed on the wrong element in CI.
-      await expect(page.locator('[aria-live]:not([aria-label])').first()).not.toBeEmpty({
-        timeout: 5000,
-      })
+      // dnd-kit's DndLiveRegion announces drag progress here. Scope to
+      // `[aria-live]:not([aria-label])` to target dnd-kit's region and skip the
+      // Notifications section (which carries aria-label="Notifications alt+T").
+      // Wait for ANY announcement (drag started) — the «Picked up draggable
+      // item …» phrase is transient and is replaced by the first «moved over …»
+      // announcement almost immediately, so anchoring on it is itself racy.
+      const liveRegion = page.locator('[aria-live]:not([aria-label])').first()
+      await expect(liveRegion).not.toBeEmpty({ timeout: 5000 })
 
-      // ArrowRight × 6: column-by-column via kanbanKeyboardCoordinateGetter.
-      // HR_SCREEN(0) → ENGLISH_CHECK(1) → TECH(2) → FINAL(3) → CLIENT(4)
-      // → OFFER(5) → HIRED(6). 200 ms between presses ensures dnd-kit updates
-      // currentCoordinates and registers each ArrowRight before the next press.
-      for (let i = 0; i < 6; i++) {
-        await page.keyboard.press('ArrowRight')
-        await page.waitForTimeout(200)
+      // Navigate column-by-column to HIRED via kanbanKeyboardCoordinateGetter.
+      //
+      // ROOT CAUSE OF THE PRE-FIX CI-ONLY FLAKE (deflake 2026-06-23):
+      //   The old loop pressed ArrowRight exactly 6× with a fixed
+      //   `waitForTimeout(200)` between presses. As test #41 in the sequential
+      //   `misc` shard (workers:1, prod `vite preview` build) the JS event loop
+      //   is warm/fast, so dnd-kit had not committed `currentCoordinates` to a
+      //   column when a press fired. Captured live from the dnd-kit live region:
+      //     press 1 -> "droppable area interview-1-id"  (swallowed: card's own
+      //                                                   sortable, NOT a column)
+      //     press 2 -> "interview-1-id"                 (still uncommitted)
+      //     press 3 -> "TECH_INTERVIEW"
+      //     press 4..10 -> "TECH_INTERVIEW"             (permanently stuck)
+      //   so 6 presses reached only OFFER_RECEIVED (or got stuck), the drop
+      //   landed off HIRED, and CreateProjectFromHiredDialog never opened. With
+      //   --trace=on or in isolation the loop ran slow enough to settle each
+      //   coordinate, so it passed — a textbook speed-dependent race that fixed
+      //   sleeps could not paper over.
+      //
+      // DETERMINISTIC FIX (no fixed sleeps):
+      //   Step through each expected column. For every target, press ArrowRight
+      //   and wait — via auto-retrying `expect.poll` on the live-region text —
+      //   for the announcement to *settle on that exact column*. If a press is
+      //   swallowed (still on the card droppable) or the coordinate is stuck on
+      //   the previous column, re-issue the press (bounded to 4 attempts) until
+      //   the column advances. We never drop until HIRED is confirmed, so the
+      //   outcome is independent of execution speed.
+      const columnOf = async () =>
+        ((await liveRegion.textContent()) ?? '').match(/droppable area ([A-Za-z0-9_-]+)/)?.[1] ??
+        null
+      // HR_SCREEN → ENGLISH_CHECK → TECH → FINAL → CLIENT → OFFER → HIRED.
+      const stageSequence = [
+        'ENGLISH_CHECK',
+        'TECH_INTERVIEW',
+        'FINAL_INTERVIEW',
+        'CLIENT_INTERVIEW',
+        'OFFER_RECEIVED',
+        'HIRED',
+      ] as const
+      for (const targetStage of stageSequence) {
+        let landed = false
+        for (let attempt = 0; attempt < 4 && !landed; attempt++) {
+          await page.keyboard.press('ArrowRight')
+          try {
+            await expect
+              .poll(columnOf, { timeout: 2000, intervals: [100, 150, 200, 300] })
+              .toBe(targetStage)
+            landed = true
+          } catch {
+            // Press swallowed or coordinate stuck on the previous column — the
+            // loop re-presses. (catch is required so a non-advancing press
+            // doesn't abort the test before the retry.)
+          }
+        }
+        expect(landed, `keyboard DnD should advance to ${targetStage}`).toBe(true)
       }
 
       // Space — drop into HIRED; move mock fires and returns HIRED stage
