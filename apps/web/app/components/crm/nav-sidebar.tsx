@@ -138,6 +138,7 @@ export function NavSidebar({
           <ScrollArea className="flex-1">
             <nav
               className="flex flex-col gap-0.5 p-2 pt-3"
+              aria-label="Основная навигация"
               data-testid={
                 user.role === 'JUNIOR'
                   ? 'junior-nav'
@@ -159,7 +160,8 @@ export function NavSidebar({
                   variant="ghost"
                   size="icon"
                   onClick={onToggle}
-                  className="h-8 w-full cursor-pointer"
+                  aria-label={collapsed ? 'Развернуть' : 'Свернуть'}
+                  className="h-8 w-full cursor-pointer text-muted-foreground hover:text-foreground"
                 >
                   {collapsed ? (
                     <ChevronRight className="h-4 w-4" />
@@ -188,17 +190,17 @@ export function NavSidebar({
             </div>
           </div>
           <ScrollArea className="flex-1">
-            <nav className="flex flex-col gap-0.5 p-2 pt-3">
+            <nav className="flex flex-col gap-0.5 p-2 pt-3" aria-label="Основная навигация">
               {items.map((item) => (
                 <Link
                   key={item.to}
                   to={item.to}
                   {...(item.activeOptions ? { activeOptions: item.activeOptions } : {})}
                   onClick={onMobileClose}
-                  className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground data-[status=active]:bg-accent data-[status=active]:text-accent-foreground data-[status=active]:border-l-2 data-[status=active]:border-primary data-[status=active]:pl-2.5"
+                  className="group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background data-[status=active]:bg-accent data-[status=active]:text-accent-foreground data-[status=active]:font-semibold data-[status=active]:border-l-2 data-[status=active]:border-primary data-[status=active]:pl-2.5"
                 >
-                  <item.icon className="h-4 w-4 shrink-0" />
-                  <span>{item.label}</span>
+                  <item.icon className="h-4 w-4 shrink-0 transition-colors group-data-[status=active]:text-primary" />
+                  <span className="truncate">{item.label}</span>
                 </Link>
               ))}
             </nav>
@@ -215,16 +217,18 @@ function DesktopNavLink({ item, collapsed }: { item: NavItem; collapsed: boolean
       to={item.to}
       {...(item.activeOptions ? { activeOptions: item.activeOptions } : {})}
       className={cn(
-        'group flex items-center gap-3 rounded-md py-2 text-sm font-medium text-muted-foreground',
-        'transition-colors hover:bg-accent hover:text-accent-foreground',
-        'data-[status=active]:bg-accent data-[status=active]:text-accent-foreground',
+        'group relative flex items-center gap-3 rounded-md py-2 text-sm font-medium text-muted-foreground',
+        'transition-colors duration-150',
+        'hover:bg-accent/60 hover:text-foreground',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+        'data-[status=active]:bg-accent data-[status=active]:text-accent-foreground data-[status=active]:font-semibold',
         collapsed
-          ? 'justify-center px-0 w-10 mx-auto data-[status=active]:ring-1 data-[status=active]:ring-primary/60'
+          ? 'justify-center px-0 w-10 mx-auto data-[status=active]:ring-1 data-[status=active]:ring-inset data-[status=active]:ring-primary/60'
           : 'px-3 data-[status=active]:border-l-2 data-[status=active]:border-primary data-[status=active]:pl-2.5',
       )}
     >
-      <item.icon className="h-4 w-4 shrink-0 group-data-[status=active]:text-primary" />
-      {!collapsed && <span>{item.label}</span>}
+      <item.icon className="h-4 w-4 shrink-0 transition-colors group-data-[status=active]:text-primary" />
+      {!collapsed && <span className="truncate">{item.label}</span>}
     </Link>
   )
 
