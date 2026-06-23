@@ -144,22 +144,36 @@ test.describe('Interviews (Kanban) page', () => {
 
     test('move interview through CLIENT_INTERVIEW stage', async ({ asSenior: page }) => {
       await page.goto('/interviews')
+
+      // For SENIOR canDrag=false so the card has aria-disabled="true" (useSortable
+      // disabled prop). Use force:true to click through aria-disabled. Also wait
+      // for the board to render before clicking — CI workers:1 prod-build may not
+      // have painted the kanban cards yet.
+      await expect(page.getByText('HR Screen').first()).toBeVisible()
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
 
-      // Simulate moving from HR_SCREEN → ... → FINAL_INTERVIEW → CLIENT_INTERVIEW
+      // Stage-move buttons live inside InterviewDetailSheet. Scope the locator to
+      // the sheet container to avoid matching same-named Kanban column headers
+      // (e.g. "English" column header is also a button with aria-disabled="true"
+      // from useSortable — .first() would resolve to the column header instead of
+      // the move button, then fail actionability because aria-disabled prevents
+      // click without force).
+      // Wait for sheet before scoping — auto-retrying assertion is the readiness gate.
+      const sheet = page.getByTestId('interview-detail-sheet')
+      await expect(sheet).toBeVisible()
+
+      const stageMoveBtn = sheet
+        .getByRole('button', { name: /english|tech|final|client/i })
+        .first()
+      await expect(stageMoveBtn).toBeVisible()
+
       const moveReq = page.waitForRequest(
         (req) => req.url().includes('/move') && req.method() === 'PATCH',
       )
 
-      // Click next stage button repeatedly to reach CLIENT_INTERVIEW
-      // The exact button text depends on current stage, but we're testing the CLIENT_INTERVIEW stage functionality
-      await page
-        .getByRole('button', { name: /english|tech|final|client/i })
-        .first()
-        .click()
+      await stageMoveBtn.click()
       const req = await moveReq
 
-      // Verify the request uses PATCH method and contains stage data
       expect(req.method()).toBe('PATCH')
       const body = JSON.parse(req.postData() ?? '{}')
       expect(body).toHaveProperty('stage')
@@ -167,14 +181,23 @@ test.describe('Interviews (Kanban) page', () => {
 
     test('move to next stage sends PATCH /move request', async ({ asSenior: page }) => {
       await page.goto('/interviews')
+
+      await expect(page.getByText('HR Screen').first()).toBeVisible()
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
+
+      // Scope to sheet to avoid matching the "English" Kanban column header button
+      // (aria-disabled="true" for SENIOR who has canDrag=false).
+      const sheet = page.getByTestId('interview-detail-sheet')
+      await expect(sheet).toBeVisible()
+
+      const englishBtn = sheet.getByRole('button', { name: /english/i })
+      await expect(englishBtn).toBeVisible()
 
       const moveReq = page.waitForRequest(
         (req) => req.url().includes('/move') && req.method() === 'PATCH',
       )
 
-      // Move to next stage (from HR_SCREEN to ENGLISH_CHECK)
-      await page.getByRole('button', { name: /english/i }).click()
+      await englishBtn.click()
       const req = await moveReq
 
       expect(req.method()).toBe('PATCH')
@@ -202,18 +225,32 @@ test.describe('Interviews (Kanban) page', () => {
       await page.goto('/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
       // From HR_SCREEN next is ENGLISH_CHECK → button label "English →"
-      await expect(page.getByRole('button', { name: /english/i })).toBeVisible()
+      // Scope to sheet to avoid matching Kanban column header "English" (aria-disabled).
+      const sheet = page.getByTestId('interview-detail-sheet')
+      await expect(sheet).toBeVisible()
+      await expect(sheet.getByRole('button', { name: /english/i })).toBeVisible()
     })
 
     test('move to next stage sends PATCH /move request', async ({ asSenior: page }) => {
       await page.goto('/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
 
+      // Scope to sheet to avoid matching the Kanban column header "English"
+      // (aria-disabled="true" for SENIOR with canDrag=false — Playwright blocks
+      // click without force on aria-disabled elements).
+      // Wait for sheet first (auto-retrying assertion = readiness gate), then
+      // wait for the specific button before registering waitForRequest to
+      // eliminate the race where PATCH fires before the listener attaches.
+      const sheet = page.getByTestId('interview-detail-sheet')
+      await expect(sheet).toBeVisible()
+      const englishBtn = sheet.getByRole('button', { name: /english/i })
+      await expect(englishBtn).toBeVisible()
+
       const moveReq = page.waitForRequest(
         (req) => req.url().includes('/move') && req.method() === 'PATCH',
       )
 
-      await page.getByRole('button', { name: /english/i }).click()
+      await englishBtn.click()
       await moveReq
     })
 
@@ -228,6 +265,9 @@ test.describe('Interviews (Kanban) page', () => {
     test('move interview through CLIENT_INTERVIEW stage', async ({ asSenior: page }) => {
       await page.goto('/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
+
+      // Wait for detail sheet content before clicking stage buttons inside it.
+      await expect(page.getByTestId('interview-detail-sheet')).toBeVisible()
 
       const clientMoveBtn = page.getByRole('button', { name: /client/i })
       if (await clientMoveBtn.isVisible()) {
@@ -246,6 +286,9 @@ test.describe('Interviews (Kanban) page', () => {
       await page.goto('/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
 
+      // Wait for sheet to open and its content (stage action buttons) to render.
+      await expect(page.getByTestId('interview-detail-sheet')).toBeVisible()
+
       await expect(page.getByRole('button', { name: 'Нанят' })).toBeVisible()
       await expect(page.getByRole('button', { name: 'Отказ' })).toBeVisible()
       await expect(page.getByRole('button', { name: 'Архив' })).toBeVisible()
@@ -255,11 +298,18 @@ test.describe('Interviews (Kanban) page', () => {
       await page.goto('/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
 
+      // Scope to sheet to avoid potential strict-mode conflicts with same-label
+      // elements elsewhere on the page. Wait for button before waitForRequest.
+      const sheet = page.getByTestId('interview-detail-sheet')
+      await expect(sheet).toBeVisible()
+      const hiredBtn = sheet.getByRole('button', { name: 'Нанят' })
+      await expect(hiredBtn).toBeVisible()
+
       const moveReq = page.waitForRequest(
         (req) => req.url().includes('/move') && req.method() === 'PATCH',
       )
 
-      await page.getByRole('button', { name: 'Нанят' }).click()
+      await hiredBtn.click()
       const req = await moveReq
       expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ stage: 'HIRED' })
     })
@@ -268,11 +318,18 @@ test.describe('Interviews (Kanban) page', () => {
       await page.goto('/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
 
+      // Scope to sheet to avoid potential strict-mode conflicts with same-label
+      // elements elsewhere on the page. Wait for button before waitForRequest.
+      const sheet = page.getByTestId('interview-detail-sheet')
+      await expect(sheet).toBeVisible()
+      const rejectedBtn = sheet.getByRole('button', { name: 'Отказ' })
+      await expect(rejectedBtn).toBeVisible()
+
       const moveReq = page.waitForRequest(
         (req) => req.url().includes('/move') && req.method() === 'PATCH',
       )
 
-      await page.getByRole('button', { name: 'Отказ' }).click()
+      await rejectedBtn.click()
       const req = await moveReq
       expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ stage: 'REJECTED' })
     })
@@ -280,6 +337,14 @@ test.describe('Interviews (Kanban) page', () => {
     test('SENIOR can edit notes and save', async ({ asSenior: page }) => {
       await page.goto('/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
+
+      // Wait for sheet to be fully open so the form inputs are mounted.
+      // CI workers:1 + prod-build: React state + sheet animation is async;
+      // getByPlaceholder('React, Node.js, AWS') is inside the sheet and may not
+      // exist in DOM until sheet content renders completely.
+      await expect(page.getByTestId('interview-detail-sheet')).toBeVisible()
+      // Additionally gate on the placeholder being interactive before fill().
+      await expect(page.getByPlaceholder('React, Node.js, AWS')).toBeVisible()
 
       const patchReq = page.waitForRequest(
         (req) =>
@@ -303,12 +368,14 @@ test.describe('Interviews (Kanban) page', () => {
     }) => {
       await page.goto('/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
+      await expect(page.getByTestId('interview-detail-sheet')).toBeVisible()
       await expect(page.getByTitle('Удалить карточку')).toBeVisible()
     })
 
     test('SENIOR does not see delete button (no canDelete)', async ({ asSenior: page }) => {
       await page.goto('/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
+      await expect(page.getByTestId('interview-detail-sheet')).toBeVisible()
       await expect(page.getByTitle('Удалить карточку')).not.toBeVisible()
     })
   })
@@ -321,6 +388,8 @@ test.describe('Interviews (Kanban) page', () => {
     test('ADMIN: clicking delete opens confirm dialog', async ({ asAdmin: page }) => {
       await page.goto('/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
+      // Wait for sheet to be open so delete button inside it is accessible.
+      await expect(page.getByTestId('interview-detail-sheet')).toBeVisible()
       await page.getByTitle('Удалить карточку').click()
       await expect(page.getByText('Удалить карточку?')).toBeVisible()
     })
@@ -328,6 +397,9 @@ test.describe('Interviews (Kanban) page', () => {
     test('ADMIN: confirm delete sends DELETE request', async ({ asAdmin: page }) => {
       await page.goto('/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
+
+      // Wait for sheet to be open so delete button inside it is accessible.
+      await expect(page.getByTestId('interview-detail-sheet')).toBeVisible()
 
       const deleteReq = page.waitForRequest(
         (req) =>
@@ -360,12 +432,17 @@ test.describe('Interviews (Kanban) page', () => {
         .first()
         .click({ force: true })
 
+      // Wait for the Client button to be visible before registering waitForRequest.
+      // Eliminates race: PATCH /move could fire before listener attaches if we
+      // only waited for the sheet container and not the specific button.
+      const clientBtn = page.getByRole('button', { name: /client/i })
+      await expect(clientBtn).toBeVisible()
+
       const moveReq = page.waitForRequest(
         (req) => req.url().includes('/move') && req.method() === 'PATCH',
       )
 
-      // Нажимаем кнопку для перехода к CLIENT_INTERVIEW
-      await page.getByRole('button', { name: /client/i }).click({ force: true })
+      await clientBtn.click({ force: true })
       const req = await moveReq
       expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ stage: 'CLIENT_INTERVIEW' })
     })
@@ -466,6 +543,8 @@ test.describe('Interviews (Kanban) page', () => {
     test('BUG1: delete confirm dialog closes cleanly via Cancel', async ({ asAdmin: page }) => {
       await page.goto('/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
+      // Wait for sheet before interacting with delete button inside it.
+      await expect(page.getByTestId('interview-detail-sheet')).toBeVisible()
       await page.getByTitle('Удалить карточку').click()
       // Delete confirm dialog should appear
       await expect(page.getByTestId('confirm-delete-dialog')).toBeVisible()
@@ -499,10 +578,17 @@ test.describe('Interviews (Kanban) page', () => {
 
       await page.goto('/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
-      await expect(page.getByTestId('interview-detail-sheet')).toBeVisible()
+      // Scope all lookups to the sheet to avoid strict-mode conflicts and
+      // aria-disabled kanban-column elements with matching labels.
+      const sheet = page.getByTestId('interview-detail-sheet')
+      await expect(sheet).toBeVisible()
+      // Gate on the "Нанят" button being rendered inside the sheet before clicking.
+      // CI workers:1 + prod-build: stage action buttons render after sheet content mounts.
+      const hiredBtnAdmin = sheet.getByRole('button', { name: 'Нанят' })
+      await expect(hiredBtnAdmin).toBeVisible()
 
       // Click the "Нанят" button inside the sheet
-      await page.getByRole('button', { name: 'Нанят' }).click()
+      await hiredBtnAdmin.click()
 
       // Should show create-project confirmation dialog
       await expect(page.getByTestId('confirm-create-project-dialog')).toBeVisible()
@@ -522,7 +608,12 @@ test.describe('Interviews (Kanban) page', () => {
 
       await page.goto('/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
-      await page.getByRole('button', { name: 'Нанят' }).click()
+      // Scope to sheet to avoid kanban column header buttons with aria-disabled.
+      const sheet = page.getByTestId('interview-detail-sheet')
+      await expect(sheet).toBeVisible()
+      const hiredBtnSenior = sheet.getByRole('button', { name: 'Нанят' })
+      await expect(hiredBtnSenior).toBeVisible()
+      await hiredBtnSenior.click()
 
       // SENIOR: canCreateProject = false — no dialog should appear
       await expect(page.getByTestId('confirm-create-project-dialog')).not.toBeVisible()
@@ -548,7 +639,12 @@ test.describe('Interviews (Kanban) page', () => {
 
       await page.goto('/interviews')
       await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
-      await page.getByRole('button', { name: 'Нанят' }).click()
+      // Scope to sheet to avoid strict-mode conflicts with kanban column elements.
+      const sheetBug3 = page.getByTestId('interview-detail-sheet')
+      await expect(sheetBug3).toBeVisible()
+      const hiredBtnBug3 = sheetBug3.getByRole('button', { name: 'Нанят' })
+      await expect(hiredBtnBug3).toBeVisible()
+      await hiredBtnBug3.click()
 
       // Confirm-create-project dialog is visible
       await expect(page.getByTestId('confirm-create-project-dialog')).toBeVisible()
