@@ -38,9 +38,19 @@ test.describe('Flow E1 — Header avatar dropdown', () => {
     await expect(trigger).toBeVisible()
     await trigger.click()
 
-    // Dropdown content — three signature items appear simultaneously.
-    // Email is dynamic per-user data — text-based assertion is the contract.
-    await expect(asSenior.getByText(USERS.senior.email)).toBeVisible()
+    // After PR #287 the identity block (data-testid="header-user-identity") renders
+    // the user's email as a visible <span> on desktop ≥lg (default Playwright viewport
+    // 1280px). getByText(email) without scope resolves to TWO nodes — the identity block
+    // span AND the DropdownMenuLabel span — triggering strict-mode violation.
+    //
+    // Fix: scope the email assertion to the open DropdownMenuContent ([role="menu"]).
+    // This preserves the invaraint's intent: "email is accessible to the user in the
+    // dropdown", while remaining immune to the duplicate rendered by the identity block.
+    const dropdownMenu = asSenior.getByRole('menu')
+    await expect(dropdownMenu).toBeVisible()
+    await expect(dropdownMenu.getByText(USERS.senior.email, { exact: true })).toBeVisible()
+    // Bonus assertion: identity block is visible at desktop width (≥lg).
+    await expect(asSenior.getByTestId('header-user-identity')).toBeVisible()
     await expect(asSenior.getByTestId('header-user-menu-role-badge')).toContainText(
       USERS.senior.role,
     )
