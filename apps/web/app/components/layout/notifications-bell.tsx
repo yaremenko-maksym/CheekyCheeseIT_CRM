@@ -127,7 +127,7 @@ export function NotificationsBell({ enabled = true }: NotificationsBellProps) {
         <Button
           variant="ghost"
           size="icon"
-          className="relative cursor-pointer"
+          className="relative h-11 w-11 cursor-pointer sm:h-9 sm:w-9"
           aria-label="Уведомления"
           data-testid="notifications-bell-trigger"
         >
