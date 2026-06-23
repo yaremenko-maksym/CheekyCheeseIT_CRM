@@ -76,6 +76,39 @@ describe('S3Service.upload', () => {
     const cmd = sendSpy.mock.calls[0]![0] as PutObjectCommand
     expect(cmd.input.ServerSideEncryption).toBeUndefined()
   })
+
+  it('omits SSE when S3_USE_SSE=false (Cloudflare R2 prod path — R2 rejects SSE-S3 header)', async () => {
+    // Cloudflare R2 does not implement the SSE-S3 protocol. Sending
+    // ServerSideEncryption: 'AES256' to R2 results in an API error.
+    // R2 encrypts all data at rest by default, so omitting the header
+    // is both required for R2 compatibility and safe from a security standpoint.
+    const service = new S3Service(
+      makeConfig({
+        S3_USE_SSE: false,
+        S3_ENDPOINT: 'https://abc123.r2.cloudflarestorage.com',
+        S3_FORCE_PATH_STYLE: false,
+      }),
+    )
+    sendSpy.mockResolvedValue(undefined)
+
+    await service.upload('documents/RESUME/x/y.pdf', Buffer.from('pdf'), 'application/pdf')
+
+    const cmd = sendSpy.mock.calls[0]![0] as PutObjectCommand
+    expect(cmd.input.ServerSideEncryption).toBeUndefined()
+    // Cache-Control must still be set regardless of SSE mode
+    expect(cmd.input.CacheControl).toBe('public, max-age=31536000, immutable')
+  })
+
+  it('sends SSE AES256 when S3_USE_SSE=true (AWS S3 prod path)', async () => {
+    const service = new S3Service(makeConfig({ S3_USE_SSE: true }))
+    sendSpy.mockResolvedValue(undefined)
+
+    await service.upload('documents/CONTRACT/x/y.pdf', Buffer.from('pdf'), 'application/pdf')
+
+    const cmd = sendSpy.mock.calls[0]![0] as PutObjectCommand
+    expect(cmd.input.ServerSideEncryption).toBe('AES256')
+    expect(cmd.input.CacheControl).toBe('public, max-age=31536000, immutable')
+  })
 })
 
 describe('S3Service.getPresignedDownloadUrl', () => {
