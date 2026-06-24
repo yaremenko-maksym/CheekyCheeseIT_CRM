@@ -1,4 +1,5 @@
 import { test, expect, INTERVIEWS, USERS, mockAuthAs } from './fixtures'
+import type { Page } from '@playwright/test'
 
 // ---------------------------------------------------------------------------
 // Stage labels — отражают реальные значения из constants.ts:
@@ -7,6 +8,79 @@ import { test, expect, INTERVIEWS, USERS, mockAuthAs } from './fixtures'
 //   HIRED → 'Нанят', REJECTED → 'Отказ', ARCHIVED → 'Архив'.
 // OFFER_RECEIVED больше не входит в ACTIVE_STAGES (заменён на CLIENT_INTERVIEW).
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// SHARED hydration-safe helpers — apply to EVERY test that opens the detail
+// sheet or otherwise interacts with the Kanban board.
+//
+// Root cause of the recurring BUG2 sheet flake (CI prod-build, workers:1),
+// confirmed via repeat-each=20 reproduction on this branch:
+//   page.goto('/interviews') resolves once the HTML document is received, but
+//   React hydration + TanStack Query data fetch + Framer Motion column
+//   animations (the cards container: opacity 0→1 duration 0.4 + delay 0.1, and
+//   each column: opacity/y duration 0.3 + delay idx*0.05) all continue
+//   asynchronously AFTER goto resolves.  The InterviewCard's onClick
+//   (= onCardClick → setSelectedCard) only fires once the card div is mounted
+//   AND its Framer Motion wrapper has finished the opacity transition (until
+//   then the parent has opacity:0 and pointer-events are effectively inert).
+//   A bare `.click({ force:true })` immediately after goto therefore lands
+//   before the handler is live → setSelectedCard() is never called →
+//   `interview-detail-sheet` never mounts → `expect(sheet).toBeVisible()`
+//   times out.  The window is widened under prod-build + workers:1 (warm,
+//   single-threaded event loop) and for asAdmin (extra API fixtures —
+//   senior-summary, admin/summary, users list — mount and resolve
+//   concurrently, lengthening the hydration window).
+//
+// Fix strategy (deterministic, NO waitForTimeout / NO retry-count masking of
+// timing — the retry below is a single bounded fallback for the documented
+// Framer-Motion pointer-suspension frame, not a sleep):
+//   1. Wait for the `interviews-page` testid → isLoading=false, the board
+//      (DndContext + columns) is rendered (not the skeleton branch).
+//   2. Wait for the target card itself toBeVisible → its Framer Motion column
+//      wrapper finished the opacity 0→1 transition, so pointer events land.
+//   3. click({ force:true }) — still required because useSortable sets
+//      aria-disabled="true" when canDrag=false (SENIOR); Playwright's
+//      actionability check rejects aria-disabled elements without force.
+//   4. If the sheet is not visible within 3 s, retry the click once. Covers
+//      the rare frame where the pointer event arrives while Framer Motion has
+//      pointer-events momentarily suspended mid-transition.
+// ---------------------------------------------------------------------------
+
+/** Wait until the Kanban board has hydrated and finished its entry animation. */
+async function waitForBoardReady(page: Page) {
+  // Gate 1: board finished loading (isLoading=false → DndContext + columns
+  // rendered instead of the <Skeleton> branch).
+  await expect(page.getByTestId('interviews-page')).toBeVisible()
+  // Gate 2: a stage header is painted → the column motion.div opacity 0→1 has
+  // started resolving and the board is interactive.
+  await expect(page.getByText('HR Screen').first()).toBeVisible()
+}
+
+/**
+ * Open the InterviewDetailSheet for the card with the given company name,
+ * defending against the hydration/animation race (see block comment above).
+ */
+async function openInterviewSheet(page: Page, companyName: string) {
+  await waitForBoardReady(page)
+  // The card is a useSortable div that dnd-kit decorates with role="button"
+  // (via spread {...attributes}); .filter({ hasText }) scopes to the company.
+  const card = page.getByRole('button').filter({ hasText: companyName }).first()
+  // Gate: card visible → its Framer Motion column wrapper opacity transition is
+  // complete, pointer-events are active.
+  await expect(card).toBeVisible()
+  // force:true: useSortable sets aria-disabled when canDrag=false (SENIOR).
+  await card.click({ force: true })
+  const sheet = page.getByTestId('interview-detail-sheet')
+  try {
+    await expect(sheet).toBeVisible({ timeout: 3000 })
+  } catch {
+    // Single bounded fallback: the pointer event landed in a Framer Motion
+    // frame with pointer-events suspended. Re-issue the click once.
+    await card.click({ force: true })
+    await expect(sheet).toBeVisible({ timeout: 8000 })
+  }
+  return sheet
+}
 
 test.describe('Interviews (Kanban) page', () => {
   // -------------------------------------------------------------------------
@@ -94,6 +168,7 @@ test.describe('Interviews (Kanban) page', () => {
   test.describe('Create interview', () => {
     test('SENIOR can open create dialog', async ({ asSenior: page }) => {
       await page.goto('/interviews')
+      await waitForBoardReady(page)
       await page.getByRole('button', { name: /новая карточка/i }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
       await expect(page.getByRole('heading', { name: 'Новая карточка' })).toBeVisible()
@@ -101,6 +176,7 @@ test.describe('Interviews (Kanban) page', () => {
 
     test('HR sees senior selector when creating interview', async ({ asHr: page }) => {
       await page.goto('/interviews')
+      await waitForBoardReady(page)
       await page.getByRole('button', { name: /новая карточка/i }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
     })
@@ -112,16 +188,13 @@ test.describe('Interviews (Kanban) page', () => {
       })
 
       await page.goto('/interviews')
+      await waitForBoardReady(page)
       await page.getByRole('button', { name: /новая карточка/i }).click()
       await page.getByRole('button', { name: /отмена/i }).click()
       await expect(page.getByRole('dialog')).not.toBeVisible()
       expect(postCalled).toBe(false)
     })
   })
-
-  // -------------------------------------------------------------------------
-  // Interview detail sheet
-  // -------------------------------------------------------------------------
 
   // -------------------------------------------------------------------------
   // CLIENT_INTERVIEW stage functionality
@@ -146,11 +219,9 @@ test.describe('Interviews (Kanban) page', () => {
       await page.goto('/interviews')
 
       // For SENIOR canDrag=false so the card has aria-disabled="true" (useSortable
-      // disabled prop). Use force:true to click through aria-disabled. Also wait
-      // for the board to render before clicking — CI workers:1 prod-build may not
-      // have painted the kanban cards yet.
-      await expect(page.getByText('HR Screen').first()).toBeVisible()
-      await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
+      // disabled prop). The shared helper gates on board-ready + card-visible
+      // before clicking and retries the click once if the sheet does not open.
+      const sheet = await openInterviewSheet(page, 'Acme Corp')
 
       // Stage-move buttons live inside InterviewDetailSheet. Scope the locator to
       // the sheet container to avoid matching same-named Kanban column headers
@@ -158,10 +229,6 @@ test.describe('Interviews (Kanban) page', () => {
       // from useSortable — .first() would resolve to the column header instead of
       // the move button, then fail actionability because aria-disabled prevents
       // click without force).
-      // Wait for sheet before scoping — auto-retrying assertion is the readiness gate.
-      const sheet = page.getByTestId('interview-detail-sheet')
-      await expect(sheet).toBeVisible()
-
       const stageMoveBtn = sheet.getByRole('button', { name: /english|tech|final|client/i }).first()
       await expect(stageMoveBtn).toBeVisible()
 
@@ -180,14 +247,10 @@ test.describe('Interviews (Kanban) page', () => {
     test('move to next stage sends PATCH /move request', async ({ asSenior: page }) => {
       await page.goto('/interviews')
 
-      await expect(page.getByText('HR Screen').first()).toBeVisible()
-      await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
+      const sheet = await openInterviewSheet(page, 'Acme Corp')
 
       // Scope to sheet to avoid matching the "English" Kanban column header button
       // (aria-disabled="true" for SENIOR who has canDrag=false).
-      const sheet = page.getByTestId('interview-detail-sheet')
-      await expect(sheet).toBeVisible()
-
       const englishBtn = sheet.getByRole('button', { name: /english/i })
       await expect(englishBtn).toBeVisible()
 
@@ -210,8 +273,9 @@ test.describe('Interviews (Kanban) page', () => {
   test.describe('Interview detail sheet', () => {
     test('opens detail sheet on card click', async ({ asSenior: page }) => {
       await page.goto('/interviews')
-      await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
-      // Sheet/dialog should appear with company name in heading area
+      // openInterviewSheet already asserts the sheet (testid) is visible; this
+      // test additionally confirms the dialog/complementary role is present.
+      await openInterviewSheet(page, 'Acme Corp')
       await expect(
         page.getByRole('dialog').or(page.locator('[role="complementary"]')),
       ).toBeVisible()
@@ -221,26 +285,21 @@ test.describe('Interviews (Kanban) page', () => {
       asSenior: page,
     }) => {
       await page.goto('/interviews')
-      await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
+      const sheet = await openInterviewSheet(page, 'Acme Corp')
       // From HR_SCREEN next is ENGLISH_CHECK → button label "English →"
       // Scope to sheet to avoid matching Kanban column header "English" (aria-disabled).
-      const sheet = page.getByTestId('interview-detail-sheet')
-      await expect(sheet).toBeVisible()
       await expect(sheet.getByRole('button', { name: /english/i })).toBeVisible()
     })
 
     test('move to next stage sends PATCH /move request', async ({ asSenior: page }) => {
       await page.goto('/interviews')
-      await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
+      const sheet = await openInterviewSheet(page, 'Acme Corp')
 
       // Scope to sheet to avoid matching the Kanban column header "English"
       // (aria-disabled="true" for SENIOR with canDrag=false — Playwright blocks
       // click without force on aria-disabled elements).
-      // Wait for sheet first (auto-retrying assertion = readiness gate), then
-      // wait for the specific button before registering waitForRequest to
+      // Wait for the specific button before registering waitForRequest to
       // eliminate the race where PATCH fires before the listener attaches.
-      const sheet = page.getByTestId('interview-detail-sheet')
-      await expect(sheet).toBeVisible()
       const englishBtn = sheet.getByRole('button', { name: /english/i })
       await expect(englishBtn).toBeVisible()
 
@@ -262,12 +321,11 @@ test.describe('Interviews (Kanban) page', () => {
 
     test('move interview through CLIENT_INTERVIEW stage', async ({ asSenior: page }) => {
       await page.goto('/interviews')
-      await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
+      const sheet = await openInterviewSheet(page, 'Acme Corp')
 
-      // Wait for detail sheet content before clicking stage buttons inside it.
-      await expect(page.getByTestId('interview-detail-sheet')).toBeVisible()
-
-      const clientMoveBtn = page.getByRole('button', { name: /client/i })
+      // Scope to the sheet so the /client/i match resolves to the in-sheet
+      // stage-move button, not a same-named Kanban column header.
+      const clientMoveBtn = sheet.getByRole('button', { name: /client/i })
       if (await clientMoveBtn.isVisible()) {
         const moveReq = page.waitForRequest(
           (req) => req.url().includes('/move') && req.method() === 'PATCH',
@@ -282,24 +340,19 @@ test.describe('Interviews (Kanban) page', () => {
       asSenior: page,
     }) => {
       await page.goto('/interviews')
-      await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
+      const sheet = await openInterviewSheet(page, 'Acme Corp')
 
-      // Wait for sheet to open and its content (stage action buttons) to render.
-      await expect(page.getByTestId('interview-detail-sheet')).toBeVisible()
-
-      await expect(page.getByRole('button', { name: 'Нанят' })).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Отказ' })).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Архив' })).toBeVisible()
+      await expect(sheet.getByRole('button', { name: 'Нанят' })).toBeVisible()
+      await expect(sheet.getByRole('button', { name: 'Отказ' })).toBeVisible()
+      await expect(sheet.getByRole('button', { name: 'Архив' })).toBeVisible()
     })
 
     test('clicking "Нанят" sends move request with HIRED stage', async ({ asSenior: page }) => {
       await page.goto('/interviews')
-      await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
+      const sheet = await openInterviewSheet(page, 'Acme Corp')
 
       // Scope to sheet to avoid potential strict-mode conflicts with same-label
       // elements elsewhere on the page. Wait for button before waitForRequest.
-      const sheet = page.getByTestId('interview-detail-sheet')
-      await expect(sheet).toBeVisible()
       const hiredBtn = sheet.getByRole('button', { name: 'Нанят' })
       await expect(hiredBtn).toBeVisible()
 
@@ -314,12 +367,10 @@ test.describe('Interviews (Kanban) page', () => {
 
     test('clicking "Отказ" sends move request with REJECTED stage', async ({ asSenior: page }) => {
       await page.goto('/interviews')
-      await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
+      const sheet = await openInterviewSheet(page, 'Acme Corp')
 
       // Scope to sheet to avoid potential strict-mode conflicts with same-label
       // elements elsewhere on the page. Wait for button before waitForRequest.
-      const sheet = page.getByTestId('interview-detail-sheet')
-      await expect(sheet).toBeVisible()
       const rejectedBtn = sheet.getByRole('button', { name: 'Отказ' })
       await expect(rejectedBtn).toBeVisible()
 
@@ -334,13 +385,9 @@ test.describe('Interviews (Kanban) page', () => {
 
     test('SENIOR can edit notes and save', async ({ asSenior: page }) => {
       await page.goto('/interviews')
-      await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
-
-      // Wait for sheet to be fully open so the form inputs are mounted.
-      // CI workers:1 + prod-build: React state + sheet animation is async;
-      // getByPlaceholder('React, Node.js, AWS') is inside the sheet and may not
-      // exist in DOM until sheet content renders completely.
-      await expect(page.getByTestId('interview-detail-sheet')).toBeVisible()
+      // openInterviewSheet gates on the sheet being open so the form inputs are
+      // mounted before we touch them.
+      await openInterviewSheet(page, 'Acme Corp')
       // Additionally gate on the placeholder being interactive before fill().
       await expect(page.getByPlaceholder('React, Node.js, AWS')).toBeVisible()
 
@@ -365,15 +412,13 @@ test.describe('Interviews (Kanban) page', () => {
       asAdmin: page,
     }) => {
       await page.goto('/interviews')
-      await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
-      await expect(page.getByTestId('interview-detail-sheet')).toBeVisible()
+      await openInterviewSheet(page, 'Acme Corp')
       await expect(page.getByTitle('Удалить карточку')).toBeVisible()
     })
 
     test('SENIOR does not see delete button (no canDelete)', async ({ asSenior: page }) => {
       await page.goto('/interviews')
-      await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
-      await expect(page.getByTestId('interview-detail-sheet')).toBeVisible()
+      await openInterviewSheet(page, 'Acme Corp')
       await expect(page.getByTitle('Удалить карточку')).not.toBeVisible()
     })
   })
@@ -385,19 +430,14 @@ test.describe('Interviews (Kanban) page', () => {
   test.describe('Delete interview', () => {
     test('ADMIN: clicking delete opens confirm dialog', async ({ asAdmin: page }) => {
       await page.goto('/interviews')
-      await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
-      // Wait for sheet to be open so delete button inside it is accessible.
-      await expect(page.getByTestId('interview-detail-sheet')).toBeVisible()
+      await openInterviewSheet(page, 'Acme Corp')
       await page.getByTitle('Удалить карточку').click()
       await expect(page.getByText('Удалить карточку?')).toBeVisible()
     })
 
     test('ADMIN: confirm delete sends DELETE request', async ({ asAdmin: page }) => {
       await page.goto('/interviews')
-      await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
-
-      // Wait for sheet to be open so delete button inside it is accessible.
-      await expect(page.getByTestId('interview-detail-sheet')).toBeVisible()
+      await openInterviewSheet(page, 'Acme Corp')
 
       const deleteReq = page.waitForRequest(
         (req) =>
@@ -424,23 +464,22 @@ test.describe('Interviews (Kanban) page', () => {
       asSenior: page,
     }) => {
       await page.goto('/interviews')
-      await page
-        .getByRole('button')
-        .filter({ hasText: 'Final Stage Corp' })
-        .first()
-        .click({ force: true })
+      // Final Stage Corp lives in the FINAL_INTERVIEW column → next stage is
+      // CLIENT_INTERVIEW, so its sheet exposes a "Client →" move button.
+      const sheet = await openInterviewSheet(page, 'Final Stage Corp')
 
-      // Wait for the Client button to be visible before registering waitForRequest.
-      // Eliminates race: PATCH /move could fire before listener attaches if we
-      // only waited for the sheet container and not the specific button.
-      const clientBtn = page.getByRole('button', { name: /client/i })
+      // Scope to the sheet so the Client button resolves inside the detail sheet,
+      // not the Kanban column header. Wait for it before registering
+      // waitForRequest — eliminates the race where PATCH /move fires before the
+      // listener attaches.
+      const clientBtn = sheet.getByRole('button', { name: /client/i })
       await expect(clientBtn).toBeVisible()
 
       const moveReq = page.waitForRequest(
         (req) => req.url().includes('/move') && req.method() === 'PATCH',
       )
 
-      await clientBtn.click({ force: true })
+      await clientBtn.click()
       const req = await moveReq
       expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ stage: 'CLIENT_INTERVIEW' })
     })
@@ -480,9 +519,9 @@ test.describe('Interviews (Kanban) page', () => {
       )
 
       await page.goto('/interviews')
-      await page.getByRole('button').filter({ hasText: 'Acme Corp' }).first().click({ force: true })
+      const sheet = await openInterviewSheet(page, 'Acme Corp')
       // Try to move with terminal button (Архив) — error suppressed by query invalidation
-      await page.getByRole('button', { name: 'Архив' }).click()
+      await sheet.getByRole('button', { name: 'Архив' }).click()
 
       // Page intact
       await page.keyboard.press('Escape')
@@ -496,55 +535,12 @@ test.describe('Interviews (Kanban) page', () => {
 
   test.describe('Bug fixes regression', () => {
     // -----------------------------------------------------------------------
-    // Shared helper: open the InterviewDetailSheet for the "Acme Corp" card.
-    //
-    // Root cause of BUG2 repeated flake (CI prod-build, workers:1):
-    //   page.goto('/interviews') resolves once HTML is received, but React
-    //   hydration + TanStack Query data fetch + Framer Motion column animations
-    //   (duration:0.4 + delay: idx*0.05 per column) continue asynchronously.
-    //   A bare click({ force:true }) immediately after goto fires before the
-    //   board's onCardClick handler is active → setSelectedCard() is never
-    //   called → sheet never opens.  The race is amplified for asAdmin because
-    //   additional API fixtures (senior-summary, finance, etc.) mount and
-    //   resolve concurrently, lengthening the hydration window.
-    //
-    // Fix strategy (no waitForTimeout, no retry-count hacks):
-    //   1. Wait for interviews-page testid → isLoading=false, data rendered.
-    //   2. Wait for the card itself toBeVisible → Framer Motion opacity 0→1
-    //      complete (pointer-events active).
-    //   3. click({ force:true }) — still required because useSortable sets
-    //      aria-disabled="true" when canDrag=false; Playwright's actionability
-    //      check rejects aria-disabled elements without force.
-    //   4. If sheet not visible within 3 s → retry click once. Handles the
-    //      rare case where the pointer event lands in a Framer Motion frame
-    //      where pointer-events are still suspended.
-    // -----------------------------------------------------------------------
-    async function openInterviewSheetForAcme(page: import('@playwright/test').Page) {
-      // Gate 1: board finished loading (isLoading=false → KanbanColumn cards rendered).
-      await expect(page.getByTestId('interviews-page')).toBeVisible()
-      // Gate 2: the card itself is visible → Framer Motion column animation done,
-      // pointer-events are active.
-      const card = page.getByRole('button').filter({ hasText: 'Acme Corp' }).first()
-      await expect(card).toBeVisible()
-      // Click. force:true needed for aria-disabled (dnd-kit disabled=true prop).
-      await card.click({ force: true })
-      // Gate 3: sheet opens — if not within 3 s, retry the click once.
-      const sheet = page.getByTestId('interview-detail-sheet')
-      try {
-        await expect(sheet).toBeVisible({ timeout: 3000 })
-      } catch {
-        await card.click({ force: true })
-        await expect(sheet).toBeVisible({ timeout: 8000 })
-      }
-    }
-
-    // -----------------------------------------------------------------------
     // Bug 1: Sheet modal dialogs must close cleanly in all ways
     // -----------------------------------------------------------------------
 
     test('BUG1: detail sheet closes via Escape key', async ({ asSenior: page }) => {
       await page.goto('/interviews')
-      await openInterviewSheetForAcme(page)
+      await openInterviewSheet(page, 'Acme Corp')
       // Close via Escape — no dirty form, so should close immediately
       await page.keyboard.press('Escape')
       await expect(page.getByTestId('interview-detail-sheet')).not.toBeVisible()
@@ -552,7 +548,7 @@ test.describe('Interviews (Kanban) page', () => {
 
     test('BUG1: detail sheet closes via cross (X) button', async ({ asSenior: page }) => {
       await page.goto('/interviews')
-      await openInterviewSheetForAcme(page)
+      await openInterviewSheet(page, 'Acme Corp')
       // SheetContent renders a close button with sr-only "Close" text
       await page.getByRole('button', { name: 'Close' }).click()
       await expect(page.getByTestId('interview-detail-sheet')).not.toBeVisible()
@@ -562,7 +558,7 @@ test.describe('Interviews (Kanban) page', () => {
       asSenior: page,
     }) => {
       await page.goto('/interviews')
-      await openInterviewSheetForAcme(page)
+      await openInterviewSheet(page, 'Acme Corp')
 
       // Make the form dirty
       await page.getByPlaceholder('Название компании').fill('Changed Corp')
@@ -579,7 +575,7 @@ test.describe('Interviews (Kanban) page', () => {
 
     test('BUG1: delete confirm dialog closes cleanly via Cancel', async ({ asAdmin: page }) => {
       await page.goto('/interviews')
-      await openInterviewSheetForAcme(page)
+      await openInterviewSheet(page, 'Acme Corp')
       await page.getByTitle('Удалить карточку').click()
       // Delete confirm dialog should appear
       await expect(page.getByTestId('confirm-delete-dialog')).toBeVisible()
@@ -612,13 +608,11 @@ test.describe('Interviews (Kanban) page', () => {
       )
 
       await page.goto('/interviews')
-      await openInterviewSheetForAcme(page)
+      const sheet = await openInterviewSheet(page, 'Acme Corp')
 
       // Scope lookups to the sheet — avoids strict-mode conflicts with
       // aria-disabled kanban-column buttons that share the same label.
-      const sheet = page.getByTestId('interview-detail-sheet')
       // Gate: "Нанят" button must be rendered inside the sheet before clicking.
-      // CI workers:1 + prod-build: stage action buttons render after sheet mounts.
       const hiredBtnAdmin = sheet.getByRole('button', { name: 'Нанят' })
       await expect(hiredBtnAdmin).toBeVisible()
 
@@ -641,10 +635,9 @@ test.describe('Interviews (Kanban) page', () => {
       )
 
       await page.goto('/interviews')
-      await openInterviewSheetForAcme(page)
+      const sheet = await openInterviewSheet(page, 'Acme Corp')
 
       // Scope to sheet to avoid kanban column header buttons with aria-disabled.
-      const sheet = page.getByTestId('interview-detail-sheet')
       const hiredBtnSenior = sheet.getByRole('button', { name: 'Нанят' })
       await expect(hiredBtnSenior).toBeVisible()
       await hiredBtnSenior.click()
@@ -672,10 +665,9 @@ test.describe('Interviews (Kanban) page', () => {
       )
 
       await page.goto('/interviews')
-      await openInterviewSheetForAcme(page)
+      const sheetBug3 = await openInterviewSheet(page, 'Acme Corp')
 
       // Scope to sheet to avoid strict-mode conflicts with kanban column elements.
-      const sheetBug3 = page.getByTestId('interview-detail-sheet')
       const hiredBtnBug3 = sheetBug3.getByRole('button', { name: 'Нанят' })
       await expect(hiredBtnBug3).toBeVisible()
       await hiredBtnBug3.click()
@@ -722,12 +714,13 @@ test.describe('Interviews (Kanban) page', () => {
 
       await page.goto('/interviews')
       // Wait for board to be fully rendered before interacting.
-      await expect(page.getByText('HR Screen').first()).toBeVisible()
+      await waitForBoardReady(page)
 
       // Locate the Acme Corp card (HR_SCREEN column, position 0) and focus it.
       // useSortable spreads {attributes, listeners} onto the div which includes
       // tabIndex=0 and role="button" so the card is keyboard-focusable.
       const card = page.getByRole('button').filter({ hasText: 'Acme Corp' }).first()
+      await expect(card).toBeVisible()
       await card.focus()
 
       // Space — activate the KeyboardSensor drag. The sensor attaches its
