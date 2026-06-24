@@ -97,11 +97,12 @@ services:
     ports:
       - '80:80'
       - '443:443'
-    # TLS certs: mount the directory containing your certificates.
-    # Uncomment when TLS is active (certs provisioned via Let's Encrypt or CF):
-    # volumes:
-    #   - /etc/letsencrypt/live/cheekycheese.tech:/etc/nginx/certs/cheekycheese.tech:ro
-    #   - /etc/letsencrypt/live/app.cheekycheese.tech:/etc/nginx/certs/app.cheekycheese.tech:ro
+    # TLS certs: Cloudflare Origin certificate (covers cheekycheese.tech +
+    # *.cheekycheese.tech) placed on the host at /etc/nginx/certs. Mounted
+    # read-only; nginx confs reference cheekycheese.tech.{crt,key} and
+    # app.cheekycheese.tech.{crt,key} inside this directory.
+    volumes:
+      - /etc/nginx/certs:/etc/nginx/certs:ro
     depends_on:
       api:
         condition: service_healthy
