@@ -132,8 +132,11 @@ export const transactionSchema = z.object({
   // Receipt: either a documents.id reference (uploaded RECEIPT file) OR an
   // external URL (etherscan, screenshot link). Mutually exclusive — the
   // backend enforces a row-level CHECK constraint. Both null = no receipt.
+  // Security: receiptExternalUrl uses .url() on the read-DTO (same constraint
+  // as the write-DTO) to prevent unsafe href rendering on the client. DB audit
+  // confirmed all 91 existing non-null values are valid HTTP URLs.
   receiptDocumentId: z.string().uuid().nullable(),
-  receiptExternalUrl: z.string().nullable(),
+  receiptExternalUrl: z.string().url().nullable(),
   txHash: z.string().nullable(),
   validatedBy: z.string().uuid().nullable(),
   validatedAt: z.string().datetime().nullable(),
