@@ -30,6 +30,36 @@ import type { SessionUser } from '@crm/shared'
 import { DocumentsService } from './documents.service'
 
 // -----------------------------------------------------------------------------
+// Magic-byte buffers for upload tests.
+//
+// The magic-byte MIME detection (added in hardening PR) runs BEFORE RBAC and
+// size checks. All tests that exercise RBAC / size / other validations on the
+// upload() path must pass a buffer whose magic bytes match the declared MIME,
+// otherwise the test hits the 415 magic-byte gate instead of the intended error.
+//
+// Tests for the whitelist-rejection path (e.g. 'text/csv') still use a dummy
+// buffer because they never reach magic-byte detection.
+// -----------------------------------------------------------------------------
+
+/** Minimal PDF magic bytes (%PDF header). Matches 'application/pdf'. */
+const PDF_MAGIC_BUF = Buffer.from('%PDF-1.4 stub-content-for-testing')
+
+/** Minimal PNG magic bytes (89 50 4E 47 0D 0A 1A 0A). Matches 'image/png'. */
+const PNG_MAGIC_BUF = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+])
+
+/**
+ * Build a big (>10 MB) buffer that still passes magic-byte detection as PDF.
+ * The first bytes are %PDF; the rest is zero-padded to exceed the size limit.
+ */
+function bigPdfBuf(sizeMb = 11): Buffer {
+  const buf = Buffer.alloc(sizeMb * 1024 * 1024, 0)
+  PDF_MAGIC_BUF.copy(buf)
+  return buf
+}
+
+// -----------------------------------------------------------------------------
 // User fixtures
 // -----------------------------------------------------------------------------
 
@@ -289,11 +319,10 @@ describe('DocumentsService.upload — MIME / size validation', () => {
 
   it('rejects payload > 10 MB (413)', async () => {
     const h = makeHarness()
-    const big = Buffer.alloc(11 * 1024 * 1024, 0)
     await expect(
       h.service.upload(
         ADMIN,
-        { buffer: big, mimetype: 'application/pdf', originalname: 'big.pdf' },
+        { buffer: bigPdfBuf(), mimetype: 'application/pdf', originalname: 'big.pdf' },
         { category: 'RESUME' },
       ),
     ).rejects.toBeInstanceOf(PayloadTooLargeException)
@@ -304,7 +333,7 @@ describe('DocumentsService.upload — MIME / size validation', () => {
     await expect(
       h.service.upload(
         ADMIN,
-        { buffer: Buffer.from('x'), mimetype: 'application/pdf', originalname: 'c.pdf' },
+        { buffer: PDF_MAGIC_BUF, mimetype: 'application/pdf', originalname: 'c.pdf' },
         { category: 'CONTRACT' },
       ),
     ).rejects.toBeInstanceOf(BadRequestException)
@@ -317,7 +346,7 @@ describe('DocumentsService.upload — MIME / size validation', () => {
 
 describe('DocumentsService.upload — RBAC by category', () => {
   const pdfFile = {
-    buffer: Buffer.from('pdf-bytes'),
+    buffer: PDF_MAGIC_BUF,
     mimetype: 'application/pdf',
     originalname: 'a.pdf',
   }
@@ -486,7 +515,7 @@ describe('DocumentsService.upload — compensation on S3 failure', () => {
     await expect(
       h.service.upload(
         ADMIN,
-        { buffer: Buffer.from('x'), mimetype: 'application/pdf', originalname: 'a.pdf' },
+        { buffer: PDF_MAGIC_BUF, mimetype: 'application/pdf', originalname: 'a.pdf' },
         { category: 'RESUME' },
       ),
     ).rejects.toThrow('S3 down')
@@ -499,7 +528,7 @@ describe('DocumentsService.upload — S3 contract', () => {
     const h = makeHarness()
     await h.service.upload(
       ADMIN,
-      { buffer: Buffer.from('png'), mimetype: 'image/png', originalname: 'My file.png' },
+      { buffer: PNG_MAGIC_BUF, mimetype: 'image/png', originalname: 'My file.png' },
       { category: 'RESUME' },
     )
     expect(h.compression.compress).toHaveBeenCalledTimes(1)
@@ -642,7 +671,7 @@ describe('DocumentsService.upload — DTO shape', () => {
     const h = makeHarness()
     const doc = await h.service.upload(
       ADMIN,
-      { buffer: Buffer.from('pdf'), mimetype: 'application/pdf', originalname: 'cv.pdf' },
+      { buffer: PDF_MAGIC_BUF, mimetype: 'application/pdf', originalname: 'cv.pdf' },
       { category: 'RESUME' },
     )
     expect(doc.uploadedByDisplayName).toBe(ADMIN.displayName)
@@ -1406,7 +1435,7 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
       await expect(
         h.service.upload(
           DROP,
-          { buffer: Buffer.alloc(10), mimetype: 'application/pdf', originalname: 'cv.pdf' },
+          { buffer: PDF_MAGIC_BUF, mimetype: 'application/pdf', originalname: 'cv.pdf' },
           { category: 'RESUME', ownerId: DROP.id },
         ),
       ).resolves.toBeDefined()
@@ -1417,7 +1446,7 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
       await expect(
         h.service.upload(
           DROP,
-          { buffer: Buffer.alloc(10), mimetype: 'application/pdf', originalname: 'cv.pdf' },
+          { buffer: PDF_MAGIC_BUF, mimetype: 'application/pdf', originalname: 'cv.pdf' },
           { category: 'RESUME', ownerId: DROP2.id },
         ),
       ).rejects.toBeInstanceOf(ForbiddenException)
@@ -1428,7 +1457,7 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
       await expect(
         h.service.upload(
           DROP,
-          { buffer: Buffer.alloc(10), mimetype: 'application/pdf', originalname: 'scan.pdf' },
+          { buffer: PDF_MAGIC_BUF, mimetype: 'application/pdf', originalname: 'scan.pdf' },
           { category: 'SCAN', ownerId: DROP.id },
         ),
       ).resolves.toBeDefined()
@@ -1439,7 +1468,7 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
       await expect(
         h.service.upload(
           DROP,
-          { buffer: Buffer.alloc(10), mimetype: 'application/pdf', originalname: 'scan.pdf' },
+          { buffer: PDF_MAGIC_BUF, mimetype: 'application/pdf', originalname: 'scan.pdf' },
           { category: 'SCAN', ownerId: DROP2.id },
         ),
       ).rejects.toBeInstanceOf(ForbiddenException)
@@ -1450,7 +1479,7 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
       await expect(
         h.service.upload(
           DROP,
-          { buffer: Buffer.alloc(10), mimetype: 'application/pdf', originalname: 'contract.pdf' },
+          { buffer: PDF_MAGIC_BUF, mimetype: 'application/pdf', originalname: 'contract.pdf' },
           { category: 'CONTRACT', ownerId: DROP.id, projectId: 'proj-uuid' },
         ),
       ).resolves.toBeDefined()
@@ -1461,7 +1490,7 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
       await expect(
         h.service.upload(
           DROP,
-          { buffer: Buffer.alloc(10), mimetype: 'application/pdf', originalname: 'contract.pdf' },
+          { buffer: PDF_MAGIC_BUF, mimetype: 'application/pdf', originalname: 'contract.pdf' },
           { category: 'CONTRACT', ownerId: DROP2.id, projectId: 'proj-uuid' },
         ),
       ).rejects.toBeInstanceOf(ForbiddenException)
@@ -1472,7 +1501,7 @@ describe('DocumentsService — DROP IDOR self-scope', () => {
       await expect(
         h.service.upload(
           DROP,
-          { buffer: Buffer.alloc(10), mimetype: 'application/pdf', originalname: 'receipt.pdf' },
+          { buffer: PDF_MAGIC_BUF, mimetype: 'application/pdf', originalname: 'receipt.pdf' },
           { category: 'RECEIPT', ownerId: DROP.id },
         ),
       ).rejects.toBeInstanceOf(ForbiddenException)
