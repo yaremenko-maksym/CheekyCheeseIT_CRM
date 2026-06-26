@@ -514,6 +514,17 @@ export const transactions = pgTable(
     uniqueIndex('uq_transactions_company_deposit_tx_hash')
       .on(t.txHash)
       .where(sql`${t.type} = 'COMPANY_DEPOSIT' AND ${t.txHash} IS NOT NULL`),
+    // Audit 2026-06-27 (LOW #5). Idempotency for the monthly salary cron: a given
+    // (receiver, salaryMonth) can hold at most ONE SALARY row. Without it the cron
+    // had a find-then-insert gap (TOCTOU) — a concurrent / re-run cron could
+    // create duplicate salary reminders for the same employee+month. Partial
+    // (WHERE type='SALARY' AND salaryMonth IS NOT NULL) so non-salary rows and
+    // legacy salary rows with no month are unaffected. The cron now inserts with
+    // `onConflictDoNothing` targeting this index — the DB is the single source of
+    // truth for "already created", closing the gap.
+    uniqueIndex('uq_transactions_salary_receiver_month')
+      .on(t.receiverId, t.salaryMonth)
+      .where(sql`${t.type} = 'SALARY' AND ${t.salaryMonth} IS NOT NULL`),
   ],
 )
 

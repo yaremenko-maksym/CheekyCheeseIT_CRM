@@ -3521,33 +3521,40 @@ export class TransactionsService {
     for (const emp of employees) {
       if (!emp.monthlySalary) continue
 
-      // Skip if already created for this month
-      const existing = await this.db.db.query.transactions.findFirst({
-        where: and(
-          eq(transactions.type, 'SALARY'),
-          eq(transactions.receiverId, emp.id),
-          eq(transactions.salaryMonth, month),
-        ),
-      })
-      if (existing) continue
-
       // task-salary-pay-flow: monthly salaries are NEUTRAL PENDING reminders —
       // no funding source, no currency lock, no balance impact at creation. The
       // funding source (company account vs admin personal) and the actual
       // payment currency are chosen at pay time (paySalary). `monthlySalary` is
       // the USD nominal of the reminder.
-      await this.db.db.insert(transactions).values({
-        type: 'SALARY',
-        status: 'PENDING',
-        amount: emp.monthlySalary,
-        currency: 'USD',
-        senderId: null,
-        senderLabel: 'CheekyCheeseIT',
-        receiverId: emp.id,
-        salaryMonth: month,
-        fundingSource: null,
-        createdBy: admin.id,
-      })
+      //
+      // Audit 2026-06-27 (LOW #5): the previous find-then-insert "skip if exists"
+      // had a TOCTOU gap — a concurrent / re-run cron could insert a duplicate
+      // salary for the same (receiver, month). The DB is now the single source of
+      // truth: INSERT … ON CONFLICT DO NOTHING against the partial unique index
+      // `uq_transactions_salary_receiver_month` (WHERE type='SALARY' AND
+      // salary_month IS NOT NULL). A duplicate is silently ignored — idempotent,
+      // race-free, no read round-trip per employee (also kills the N+1).
+      await this.db.db
+        .insert(transactions)
+        .values({
+          type: 'SALARY',
+          status: 'PENDING',
+          amount: emp.monthlySalary,
+          currency: 'USD',
+          senderId: null,
+          senderLabel: 'CheekyCheeseIT',
+          receiverId: emp.id,
+          salaryMonth: month,
+          fundingSource: null,
+          createdBy: admin.id,
+        })
+        .onConflictDoNothing({
+          target: [transactions.receiverId, transactions.salaryMonth],
+          // `where` (NOT targetWhere) — drizzle-orm 0.36 onConflictDoNothing emits
+          // this as the conflict-target predicate, matching the partial index's
+          // WHERE. Must match `uq_transactions_salary_receiver_month` exactly.
+          where: sql`${transactions.type} = 'SALARY' AND ${transactions.salaryMonth} IS NOT NULL`,
+        })
     }
 
     // Create PENDING salary for JUNIORs on active projects.
@@ -3577,32 +3584,35 @@ export class TransactionsService {
 
       if (!user || user.role !== 'JUNIOR' || !project) continue
 
-      const existing = await this.db.db.query.transactions.findFirst({
-        where: and(
-          eq(transactions.type, 'SALARY'),
-          eq(transactions.receiverId, user.id),
-          eq(transactions.salaryMonth, month),
-        ),
-      })
-      if (existing) continue
-
       // Resolve salary: project override → user default
       const salaryAmount = project.financeSettings?.juniorSalaryOverride ?? user.monthlySalary
       if (!salaryAmount) continue
 
-      await this.db.db.insert(transactions).values({
-        type: 'SALARY',
-        status: 'PENDING',
-        amount: String(salaryAmount),
-        currency: 'USD',
-        senderId: null,
-        senderLabel: 'CheekyCheeseIT',
-        receiverId: user.id,
-        projectId: project.id,
-        salaryMonth: month,
-        fundingSource: null,
-        createdBy: admin.id,
-      })
+      // Audit 2026-06-27 (LOW #5): idempotent, race-free salary creation — see the
+      // HR/ACCOUNTANT loop above. ON CONFLICT DO NOTHING against the partial
+      // unique index replaces the find-then-insert TOCTOU + N+1 read.
+      await this.db.db
+        .insert(transactions)
+        .values({
+          type: 'SALARY',
+          status: 'PENDING',
+          amount: String(salaryAmount),
+          currency: 'USD',
+          senderId: null,
+          senderLabel: 'CheekyCheeseIT',
+          receiverId: user.id,
+          projectId: project.id,
+          salaryMonth: month,
+          fundingSource: null,
+          createdBy: admin.id,
+        })
+        .onConflictDoNothing({
+          target: [transactions.receiverId, transactions.salaryMonth],
+          // `where` (NOT targetWhere) — drizzle-orm 0.36 onConflictDoNothing emits
+          // this as the conflict-target predicate, matching the partial index's
+          // WHERE. Must match `uq_transactions_salary_receiver_month` exactly.
+          where: sql`${transactions.type} = 'SALARY' AND ${transactions.salaryMonth} IS NOT NULL`,
+        })
     }
   }
 
