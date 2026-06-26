@@ -33,15 +33,48 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import type { DocumentCategory } from '@crm/shared'
 import type { Env } from '../config/env'
 
 /**
- * Default presigned URL TTL. 24 hours (86400 sec) — paired with the immutable
- * Cache-Control header above, this gives the browser a full day before it
- * needs a fresh signed URL. TanStack Query is configured with a 4h staleTime
- * for the download-url query so the round-trip is rare.
+ * Default presigned URL TTL. 24 hours (86400 sec) — used for non-sensitive
+ * categories (AVATAR, LOGO). TanStack Query is configured with a 4h staleTime
+ * for download-url queries so the round-trip is rare.
  */
 export const DEFAULT_PRESIGN_TTL_SEC = 24 * 60 * 60
+
+/**
+ * Short TTL (30 minutes) for sensitive document categories.
+ * Applied to: CONTRACT, RECEIPT, INVOICE, RESUME, SCAN.
+ * AVATAR and LOGO are low-sensitivity (no PII beyond the image itself) and
+ * keep the default 24h TTL for a smoother UX (profile pictures, project logos).
+ */
+export const SENSITIVE_PRESIGN_TTL_SEC = 30 * 60
+
+/**
+ * Categories that require a short presigned URL TTL for security reasons.
+ * These contain PII or financial data that should not remain accessible
+ * via a link for more than 30 minutes.
+ */
+const SENSITIVE_CATEGORIES = new Set<DocumentCategory>([
+  'CONTRACT',
+  'RECEIPT',
+  'INVOICE',
+  'RESUME',
+  'SCAN',
+])
+
+/**
+ * Returns the presigned URL TTL in seconds for the given document category.
+ * Sensitive categories use SENSITIVE_PRESIGN_TTL_SEC (30 min); others use
+ * DEFAULT_PRESIGN_TTL_SEC (24h).
+ */
+export function presignTtlForCategory(category: DocumentCategory | null | undefined): number {
+  if (category && SENSITIVE_CATEGORIES.has(category)) {
+    return SENSITIVE_PRESIGN_TTL_SEC
+  }
+  return DEFAULT_PRESIGN_TTL_SEC
+}
 
 export interface PresignedDownloadResult {
   url: string

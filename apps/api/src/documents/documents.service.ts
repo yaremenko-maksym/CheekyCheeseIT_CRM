@@ -46,8 +46,8 @@ import {
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { documents, invoiceSignatures, teamMembers, transactions, users } from '../database/schema'
-import { S3Service } from './s3.service'
-import { CompressionService } from './compression.service'
+import { S3Service, presignTtlForCategory } from './s3.service'
+import { CompressionService, CompressionError, detectMimeFromBuffer } from './compression.service'
 
 /** What the controller hands us after parsing the multipart request. */
 export interface UploadFileInput {
@@ -75,10 +75,25 @@ export class DocumentsService {
     file: UploadFileInput,
     meta: CreateDocumentMetadata,
   ): Promise<DocumentDto> {
-    // ---- 1. Validate MIME ----
+    // ---- 1. Validate MIME — two-stage: client Content-Type whitelist + magic-byte confirmation ----
     if (!(DOCUMENT_MIME_WHITELIST as readonly string[]).includes(file.mimetype)) {
       throw new UnsupportedMediaTypeException(
         `MIME type "${file.mimetype}" не разрешён. Разрешены: ${DOCUMENT_MIME_WHITELIST.join(', ')}`,
+      )
+    }
+    // Magic-byte check: detect real content type from buffer signatures.
+    // Guards against clients sending a false Content-Type (e.g. "image/jpeg"
+    // for a PDF or arbitrary binary). We reject if the detected type differs
+    // from the declared type OR if we cannot identify the buffer at all.
+    const detectedMime = detectMimeFromBuffer(file.buffer)
+    if (!detectedMime) {
+      throw new UnsupportedMediaTypeException(
+        `Содержимое файла не соответствует ни одному разрешённому формату (magic-byte не распознан)`,
+      )
+    }
+    if (detectedMime !== file.mimetype) {
+      throw new UnsupportedMediaTypeException(
+        `Содержимое файла не соответствует заявленному типу: заявлен "${file.mimetype}", обнаружен "${detectedMime}"`,
       )
     }
 
@@ -101,7 +116,18 @@ export class DocumentsService {
     }
 
     // ---- 6. Compression (always — backend handles all formats) ----
-    const compressed = await this.compression.compress(file.buffer, file.mimetype)
+    // CompressionError is thrown when sharp/pdf-lib rejects the buffer (corrupt
+    // file, misidentified content). Surface as 415 — the client must provide a
+    // valid, processable file rather than getting a silent raw-byte passthrough.
+    let compressed: Awaited<ReturnType<CompressionService['compress']>>
+    try {
+      compressed = await this.compression.compress(file.buffer, file.mimetype)
+    } catch (err) {
+      if (err instanceof CompressionError) {
+        throw new UnsupportedMediaTypeException(err.message)
+      }
+      throw err
+    }
 
     // ---- 7. Generate s3 key + sanitize filename ----
     // Variant 3 (hybrid): the original filename is kept intact in
@@ -605,7 +631,10 @@ export class DocumentsService {
     // available, falling back to the sanitized ASCII `name` for legacy rows
     // that pre-date migration 0011.
     const downloadAs = doc.originalName ?? doc.name
-    return this.s3.getPresignedDownloadUrl(doc.s3Key, undefined, downloadAs)
+    // Use category-based TTL: sensitive categories (CONTRACT/RECEIPT/INVOICE/
+    // RESUME/SCAN) get 30 min; AVATAR/LOGO keep 24h default.
+    const ttl = presignTtlForCategory(doc.category as DocumentCategory)
+    return this.s3.getPresignedDownloadUrl(doc.s3Key, ttl, downloadAs)
   }
 
   // -------------------------------------------------------------------------
@@ -1205,7 +1234,10 @@ export class DocumentsService {
   async getThumbnailUrl(actor: SessionUser, docId: string): Promise<PresignedDownload | null> {
     const doc = await this.findActiveOrThrow(docId, actor)
     if (!doc.thumbnailS3Key) return null
-    return this.s3.getPresignedDownloadUrl(doc.thumbnailS3Key)
+    // Thumbnails inherit the same TTL as the main document for consistency:
+    // a leaked thumbnail URL should expire at the same time as the full file.
+    const ttl = presignTtlForCategory(doc.category as DocumentCategory)
+    return this.s3.getPresignedDownloadUrl(doc.thumbnailS3Key, ttl)
   }
 }
 

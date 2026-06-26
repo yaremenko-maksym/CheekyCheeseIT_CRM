@@ -177,6 +177,8 @@ export class DocumentsController {
   // ---------------------------------------------------------------------------
 
   @Post(':id/restore')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
   restore(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
     return this.documentsService.restore(user, id)
   }
@@ -187,6 +189,8 @@ export class DocumentsController {
 
   @Delete(':id/hard')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
   async hardDelete(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: SessionUser,
