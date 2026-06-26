@@ -23,7 +23,7 @@
  * holds debts to seniors — the senior share is owed by the company itself
  * and closed by ADMIN/ACCOUNTANT only.
  */
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Inject, Param, Post, UseGuards } from '@nestjs/common'
 import {
   settleObligationParamSchema,
   settleBySourceTransactionParamSchema,
@@ -47,7 +47,11 @@ import { PendingSettlementService } from './pending-settlement.service'
 @Controller('pending-settlements')
 @UseGuards(RolesGuard)
 export class PendingSettlementController {
-  constructor(private readonly svc: PendingSettlementService) {}
+  // Explicit @Inject so the REAL controller can be instantiated by Nest's DI in
+  // the vitest/esbuild env (which omits `design:paramtypes`) — required by the
+  // finance-controller-guards RBAC integration spec. Mirrors TransactionsController
+  // / PayoutRequestsController.
+  constructor(@Inject(PendingSettlementService) private readonly svc: PendingSettlementService) {}
 
   // Senior IOU list: SENIOR (own) + ADMIN/ACCOUNTANT (all). Matches
   // PendingSettlementService.listSeniorObligations.
