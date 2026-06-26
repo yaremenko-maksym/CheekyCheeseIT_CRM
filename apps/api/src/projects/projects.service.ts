@@ -36,6 +36,7 @@ import {
 import { ProjectAuditLogService } from './project-audit-log.service'
 import { UsersService } from '../users/users.service'
 import { resolveSeniorShare } from '../finance/senior-share-resolver'
+import type { DrizzleTx } from '../database/types'
 
 type ProjectWithRelations = Project & {
   senior: User | null
@@ -1144,13 +1145,25 @@ export class ProjectsService {
       .where(eq(projectMembers.id, activeMember.id))
   }
 
+  /**
+   * Create a project from a HIRED interview.
+   *
+   * Audit (HIGH): accepts an optional `tx` so the caller (`InterviewsService.move`)
+   * can run this INSIDE the same transaction that flips the interview to HIRED.
+   * Without it, the interview stage update committed before this insert, so a
+   * failure here orphaned the interview in HIRED with no project. With `tx`
+   * threaded through every write, a failure rolls the stage change back too.
+   * When `tx` is omitted, behaviour is unchanged (`this.db.db`).
+   */
   async createFromInterview(
     interview: Interview & { senior: User | null },
     _currentUser: SessionUser,
+    tx?: DrizzleTx,
   ) {
+    const conn = tx ?? this.db.db
     const domain = interview.notesDomain ?? 'Other'
 
-    const [project] = await this.db.db
+    const [project] = await conn
       .insert(projects)
       .values({
         name: interview.companyName,
@@ -1175,14 +1188,14 @@ export class ProjectsService {
     if (!project) return project
 
     // Find all teams where this senior is a member
-    const seniorTeamMemberships = await this.db.db.query.teamMembers.findMany({
+    const seniorTeamMemberships = await conn.query.teamMembers.findMany({
       where: eq(teamMembers.userId, interview.seniorId),
     })
     const teamIds = seniorTeamMemberships.map((m) => m.teamId)
 
     if (teamIds.length > 0) {
       // Find all members of those teams with their user roles
-      const teammates = await this.db.db.query.teamMembers.findMany({
+      const teammates = await conn.query.teamMembers.findMany({
         where: inArray(teamMembers.teamId, teamIds),
         with: { user: { columns: { id: true, role: true } } },
       })
@@ -1194,7 +1207,7 @@ export class ProjectsService {
         if (u.role !== 'HR' && u.role !== 'ACCOUNTANT') continue
         if (addedUserIds.has(u.id)) continue
         addedUserIds.add(u.id)
-        await this.db.db.insert(projectMembers).values({
+        await conn.insert(projectMembers).values({
           projectId: project.id,
           userId: u.id,
         })
