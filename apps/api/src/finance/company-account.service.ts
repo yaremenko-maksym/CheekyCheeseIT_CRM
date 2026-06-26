@@ -15,7 +15,10 @@ import type {
 import { DatabaseService } from '../database/database.service'
 import { companyAccount, transactions, userAuditLog, users } from '../database/schema'
 import { EtherscanService } from './etherscan.service'
-import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
+import {
+  computeCompanyAccountBalanceFromLedger,
+  lockCompanyAccount,
+} from './company-account-balance'
 
 /**
  * task-company-account-backend — the shared company USDT account.
@@ -274,9 +277,20 @@ export class CompanyAccountService {
   }
 
   /**
-   * POST /api/company-account/dividends — ADMIN only. Free amount (no available-
-   * balance gate — owner decision). Inserts a PAID DIVIDEND_TO_ADMIN crediting
-   * the chosen admin (defaults to the caller). Debits the company balance.
+   * POST /api/company-account/dividends — ADMIN only. Inserts a PAID
+   * DIVIDEND_TO_ADMIN crediting the chosen admin (defaults to the caller).
+   * Debits the company balance.
+   *
+   * MED (audit 2026-06-27) — BALANCE GATE + TOCTOU. A dividend is a company-
+   * account DEBIT (the ledger formula subtracts every PAID DIVIDEND_TO_ADMIN),
+   * yet this path previously inserted UNCONDITIONALLY — overdrawing the shared
+   * account into a negative balance. Mirrors the createExpense / paySalary /
+   * settleByCompany debit pattern: wrap gate-read + debit-write in ONE DB
+   * transaction and acquire the SHARED company-account advisory lock FIRST, so
+   * two concurrent dividends serialize — the second blocks, re-reads the
+   * already-reduced balance and is correctly refused. The lock entry also folds
+   * the dividend into the same advisory-lock serialization ring as every other
+   * company-account debit (closes the TOCTOU vs. concurrent salary/expense).
    */
   async createDividend(
     input: { amount: number; adminId?: string | undefined },
@@ -300,22 +314,36 @@ export class CompanyAccountService {
       throw new BadRequestException('Дивиденды можно вывести только на счёт админа')
     }
 
-    const [tx] = await this.db.db
-      .insert(transactions)
-      .values({
-        type: 'DIVIDEND_TO_ADMIN',
-        status: 'PAID',
-        amount: String(input.amount),
-        currency: 'USDT',
-        senderId: null,
-        senderLabel: 'Счёт компании',
-        receiverId,
-        recipientId: receiverId,
-        createdBy: currentUser.id,
-      })
-      .returning()
+    // MED (TOCTOU + overdraw): gate-read + debit-write serialized under the
+    // shared company-account advisory lock. Acquire the lock FIRST, then re-read
+    // the live ledger balance INSIDE the transaction and refuse to drive the
+    // account negative. Identical structure to TransactionsService.createExpense.
+    const tx = await this.db.db.transaction(async (dbtx) => {
+      await lockCompanyAccount(dbtx)
+      const balance = await computeCompanyAccountBalanceFromLedger(dbtx)
+      if (input.amount > balance) {
+        throw new BadRequestException(
+          'Недостаточно средств на счёте компании для вывода дивидендов',
+        )
+      }
+      const [row] = await dbtx
+        .insert(transactions)
+        .values({
+          type: 'DIVIDEND_TO_ADMIN',
+          status: 'PAID',
+          amount: String(input.amount),
+          currency: 'USDT',
+          senderId: null,
+          senderLabel: 'Счёт компании',
+          receiverId,
+          recipientId: receiverId,
+          createdBy: currentUser.id,
+        })
+        .returning()
+      return row!
+    })
 
-    return { id: tx!.id, amount: input.amount, receiverId }
+    return { id: tx.id, amount: input.amount, receiverId }
   }
 
   // ── Mapping helpers ─────────────────────────────────────────────────────────
