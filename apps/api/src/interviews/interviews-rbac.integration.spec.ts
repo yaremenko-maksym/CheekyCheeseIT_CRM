@@ -211,6 +211,21 @@ const HR_A: SessionUser = {
   legalFullName: null,
 }
 
+/**
+ * HR_LEFT — audit (MEDIUM): an ex-HR who WAS in TEAM_A with SENIOR_A but has
+ * left (teamMembers.leftAt set). Must NOT retain access to SENIOR_A's board —
+ * getAccessibleSeniorIds filters out left memberships.
+ */
+const HR_LEFT: SessionUser = {
+  id: 'c1d2e3f4-0a1b-4c2d-aa00-000000000009',
+  email: 'iv-rbac-hr-left@test.spec',
+  displayName: 'IV RBAC HR Left',
+  avatarUrl: null,
+  role: 'HR',
+  seniorSharePercent: 0,
+  legalFullName: null,
+}
+
 /** SENIOR_C — has NO active team membership (teamless) → blocked by assertSeniorHasActiveTeam. */
 const SENIOR_C: SessionUser = {
   id: 'c1d2e3f4-0a1b-4c2d-aa00-000000000005',
@@ -264,6 +279,7 @@ const TEST_USER_IDS = [
   SENIOR_A.id,
   SENIOR_B.id,
   HR_A.id,
+  HR_LEFT.id,
   SENIOR_C.id,
   JUNIOR.id,
   ACCOUNTANT.id,
@@ -420,6 +436,13 @@ describe('Interviews RBAC — real backend integration (real DB, no mocks)', () 
           googleId: `test-iv-${HR_A.id}`,
         },
         {
+          id: HR_LEFT.id,
+          email: HR_LEFT.email,
+          displayName: HR_LEFT.displayName,
+          role: 'HR',
+          googleId: `test-iv-${HR_LEFT.id}`,
+        },
+        {
           id: SENIOR_C.id,
           email: SENIOR_C.email,
           displayName: SENIOR_C.displayName,
@@ -467,6 +490,9 @@ describe('Interviews RBAC — real backend integration (real DB, no mocks)', () 
         { teamId: TEAM_A_ID, userId: SENIOR_A.id },
         { teamId: TEAM_A_ID, userId: HR_A.id },
         { teamId: TEAM_B_ID, userId: SENIOR_B.id },
+        // Audit (MEDIUM): HR_LEFT was in TEAM_A with SENIOR_A but has LEFT
+        // (leftAt set). getAccessibleSeniorIds must exclude this membership.
+        { teamId: TEAM_A_ID, userId: HR_LEFT.id, leftAt: new Date('2025-01-01T00:00:00Z') },
       ])
       .onConflictDoNothing()
 
@@ -642,6 +668,21 @@ describe('Interviews RBAC — real backend integration (real DB, no mocks)', () 
       method: 'GET',
       url: `/api/interviews`,
       cookies: { jwt: tokenFor(ACCOUNTANT) },
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  // ── ex-HR access revocation (audit MEDIUM) ───────────────────────────────────
+  // HR_LEFT used to be in TEAM_A with SENIOR_A but left (teamMembers.leftAt set).
+  // getAccessibleSeniorIds now filters left memberships, so SENIOR_A is no longer
+  // accessible → 403 (same as a cross-team HR). Before the fix this returned 200.
+
+  it('LIST 13. ex-HR (left team) → 403 for former team-senior (was 200 before fix)', async () => {
+    if (!dbAvailable) return
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/interviews?seniorId=${SENIOR_A.id}`,
+      cookies: { jwt: tokenFor(HR_LEFT) },
     })
     expect(res.statusCode).toBe(403)
   })
@@ -835,6 +876,52 @@ describe('Interviews RBAC — real backend integration (real DB, no mocks)', () 
       payload: { companyName: 'Drop Update' },
     })
     expect(res.statusCode).toBe(403)
+  })
+
+  it('UPDATE 26b. ex-HR (left team) → 403 on former team-senior card (CARD_A)', async () => {
+    if (!dbAvailable) return
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/interviews/${CARD_A_ID}`,
+      cookies: { jwt: tokenFor(HR_LEFT) },
+      payload: { companyName: 'Ex-HR Update' },
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  // ── stage cannot be changed via PATCH /:id (audit HIGH) ───────────────────────
+  // `updateInterviewSchema` no longer carries `stage`; Zod strips the stray key,
+  // so even an ADMIN PATCHing { stage: 'HIRED' } leaves the stage untouched.
+  // Stage transitions are owned exclusively by PATCH /:id/move. This pins that a
+  // client can never set HIRED (bypassing project creation) or roll back a
+  // terminal stage through the plain update endpoint.
+
+  it('UPDATE 26c. ADMIN PATCH { stage: HIRED } → 200 but stage UNCHANGED (stripped by Zod)', async () => {
+    if (!dbAvailable) return
+    // Ensure a known starting stage on CARD_B.
+    await dbSvc.db
+      .update(interviews)
+      .set({ stage: 'HR_SCREEN' })
+      .where(inArray(interviews.id, [CARD_B_ID]))
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/interviews/${CARD_B_ID}`,
+      cookies: { jwt: tokenFor(ADMIN) },
+      payload: { companyName: 'Stage Hijack Attempt', stage: 'HIRED' },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { stage: string; companyName: string }
+    // The legitimate field was applied…
+    expect(body.companyName).toBe('Stage Hijack Attempt')
+    // …but the smuggled stage was ignored — still HR_SCREEN, never HIRED.
+    expect(body.stage).toBe('HR_SCREEN')
+
+    // Confirm at the DB level too (no side-effect / no project created).
+    const row = await dbSvc.db.query.interviews.findFirst({
+      where: inArray(interviews.id, [CARD_B_ID]),
+    })
+    expect(row?.stage).toBe('HR_SCREEN')
   })
 
   // ════════════════════════════════════════════════════════════════════════════

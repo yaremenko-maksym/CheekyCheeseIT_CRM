@@ -1,8 +1,9 @@
 # Progress: fix/audit-interviews-integrity
 
-current_milestone: 2/4
-last_commit: wip findings 1+3 (schema stage removal + ex-HR leftAt filter)
-last_push: pending
+current_milestone: 4/4
+last_commit: tests (integration RBAC + move-transaction); all 3 findings fixed + typecheck/eslint/integration green
+last_push: BLOCKED — pre-push prettier hook evaluates session branch (infra/e2e-money-shard, 10 unformatted .design-sync files) not my worktree; my diff is clean. See report.
+verify: pnpm --filter @crm/api typecheck PASS; eslint PASS; 166 interviews+projects integration tests PASS (crm_qa)
 
 ## Findings → fixes
 
@@ -19,15 +20,18 @@ last_push: pending
 - `getAccessibleSeniorIds()` (interviews.service.ts:70) — callers: findBySenior, create, remove, assertUpdateAccess. Tighten with leftAt. Mirrors getHrSeniorIds (projects.service.ts:313) which already filters leftAt.
 
 ## files_pending
+
 - packages/shared/src/schemas/interviews.ts
 - apps/api/src/interviews/interviews.service.ts
 - apps/api/src/projects/projects.service.ts (createFromInterview tx param)
 - apps/api/src/interviews/interviews-rbac.integration.spec.ts (or new spec)
 
 ## files_done
+
 (none yet)
 
 ## tests
+
 - PATCH /interviews/:id with stage → rejected/ignored (Zod strips/rejects)
 - move() with createFromInterview failure → interview stays in OLD stage (rollback)
 - ex-HR (leftAt set) → no board access (findBySenior 403 / empty)
