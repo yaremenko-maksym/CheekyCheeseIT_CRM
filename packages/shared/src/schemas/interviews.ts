@@ -44,11 +44,17 @@ export const createInterviewSchema = z.object({
   callUrl: z.string().url().nullable().optional(),
 })
 
+// Audit (HIGH): `stage` is intentionally NOT updatable through this schema.
+// Stage transitions are owned exclusively by `move()` (PATCH /interviews/:id/move),
+// which holds the transition logic + the HIRED → auto-create-project side-effect.
+// Allowing `stage` here let a client set HIRED directly (bypassing project
+// creation) or roll back a terminal HIRED. Zod strips the unknown `stage` key on
+// `.parse()`, so a stray `stage` in an update payload is silently dropped, never
+// written. Pinned by interviews-rbac.integration.spec.ts (PATCH stage → ignored).
 export const updateInterviewSchema = z.object({
   companyName: z.string().min(1).max(255).optional(),
   vacancyUrl: z.string().url().nullable().optional(),
   callUrl: z.string().url().nullable().optional(),
-  stage: interviewStageSchema.optional(),
   notesDomain: itDomainSchema.nullable().optional(),
   notesTechStack: z.string().max(500).nullable().optional(),
   notesTeamSize: z.string().max(100).nullable().optional(),

@@ -68,15 +68,20 @@ export class InterviewsService {
   }
 
   private async getAccessibleSeniorIds(currentUser: SessionUser): Promise<Set<string>> {
+    // Audit (MEDIUM): only ACTIVE HR memberships grant board access. An HR who
+    // has left the team (teamMembers.leftAt set) must NOT retain access to that
+    // team's seniors' boards — mirrors ProjectsService.getHrSeniorIds /
+    // DocumentsService.getHrSeniorIds, which already pin the leftAt predicate.
     const hrTeamMemberships = await this.db.db.query.teamMembers.findMany({
-      where: eq(teamMembers.userId, currentUser.id),
+      where: and(eq(teamMembers.userId, currentUser.id), isNull(teamMembers.leftAt)),
       with: { team: { with: { members: { with: { user: true } } } } },
     })
 
     const accessibleSeniorIds = new Set<string>()
     for (const tm of hrTeamMemberships) {
       for (const m of tm.team.members) {
-        if (m.user?.role === 'SENIOR') accessibleSeniorIds.add(m.userId)
+        // ...and only seniors who are themselves still ACTIVE in that team.
+        if (m.user?.role === 'SENIOR' && m.leftAt === null) accessibleSeniorIds.add(m.userId)
       }
     }
     return accessibleSeniorIds
@@ -189,7 +194,10 @@ export class InterviewsService {
     if (dto.companyName !== undefined) updateData.companyName = dto.companyName
     if (dto.vacancyUrl !== undefined) updateData.vacancyUrl = dto.vacancyUrl ?? null
     if (dto.callUrl !== undefined) updateData.callUrl = dto.callUrl ?? null
-    if (dto.stage !== undefined) updateData.stage = dto.stage
+    // Audit (HIGH): stage is NEVER written here — `updateInterviewSchema` no
+    // longer carries `stage`, and stage transitions are owned exclusively by
+    // `move()` (which holds transition rules + the HIRED side-effect). Any stray
+    // `stage` in the payload is already stripped by Zod at the controller.
     if (dto.notesDomain !== undefined) updateData.notesDomain = dto.notesDomain ?? null
     if (dto.notesTechStack !== undefined) updateData.notesTechStack = dto.notesTechStack ?? null
     if (dto.notesTeamSize !== undefined) updateData.notesTeamSize = dto.notesTeamSize ?? null
