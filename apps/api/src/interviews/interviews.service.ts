@@ -233,49 +233,59 @@ export class InterviewsService {
     const newStage = dto.stage
     const newPosition = dto.position
 
-    // Update this card
-    await this.db.db
-      .update(interviews)
-      .set({ stage: newStage, position: newPosition, updatedAt: new Date() })
-      .where(eq(interviews.id, id))
+    // Audit (HIGH): the stage flip, BOTH position-renormalization loops AND the
+    // HIRED → createFromInterview side-effect run in ONE transaction. Previously
+    // the stage UPDATE committed before createFromInterview, so a failure there
+    // orphaned the interview in HIRED with no project. Threading `tx` everywhere
+    // makes the whole transition atomic — any throw rolls the stage back too.
+    const { updated, createdProjectId } = await this.db.db.transaction(async (tx) => {
+      // Update this card
+      await tx
+        .update(interviews)
+        .set({ stage: newStage, position: newPosition, updatedAt: new Date() })
+        .where(eq(interviews.id, id))
 
-    // Renormalize positions in old column (if stage changed)
-    if (oldStage !== newStage) {
-      const cardsInOldColumn = await this.db.db.query.interviews.findMany({
-        where: and(eq(interviews.seniorId, interview.seniorId), eq(interviews.stage, oldStage)),
+      // Renormalize positions in old column (if stage changed)
+      if (oldStage !== newStage) {
+        const cardsInOldColumn = await tx.query.interviews.findMany({
+          where: and(eq(interviews.seniorId, interview.seniorId), eq(interviews.stage, oldStage)),
+          orderBy: [asc(interviews.position)],
+        })
+        for (let i = 0; i < cardsInOldColumn.length; i++) {
+          await tx
+            .update(interviews)
+            .set({ position: i })
+            .where(eq(interviews.id, cardsInOldColumn[i]!.id))
+        }
+      }
+
+      // Renormalize positions in new column
+      const cardsInNewColumn = await tx.query.interviews.findMany({
+        where: and(eq(interviews.seniorId, interview.seniorId), eq(interviews.stage, newStage)),
         orderBy: [asc(interviews.position)],
       })
-      for (let i = 0; i < cardsInOldColumn.length; i++) {
-        await this.db.db
+      for (let i = 0; i < cardsInNewColumn.length; i++) {
+        await tx
           .update(interviews)
           .set({ position: i })
-          .where(eq(interviews.id, cardsInOldColumn[i]!.id))
+          .where(eq(interviews.id, cardsInNewColumn[i]!.id))
       }
-    }
 
-    // Renormalize positions in new column
-    const cardsInNewColumn = await this.db.db.query.interviews.findMany({
-      where: and(eq(interviews.seniorId, interview.seniorId), eq(interviews.stage, newStage)),
-      orderBy: [asc(interviews.position)],
+      const refreshed = (await tx.query.interviews.findFirst({
+        where: eq(interviews.id, id),
+        with: { senior: true, hr: true },
+      })) as InterviewWithRelations
+
+      // Auto-create project when moved to HIRED — inside the SAME tx, so a
+      // failure rolls the stage change back (no orphaned HIRED interview).
+      let projectId: string | null = null
+      if (newStage === 'HIRED' && oldStage !== 'HIRED') {
+        const project = await this.projects.createFromInterview(refreshed, currentUser, tx)
+        projectId = project?.id ?? null
+      }
+
+      return { updated: refreshed, createdProjectId: projectId }
     })
-    for (let i = 0; i < cardsInNewColumn.length; i++) {
-      await this.db.db
-        .update(interviews)
-        .set({ position: i })
-        .where(eq(interviews.id, cardsInNewColumn[i]!.id))
-    }
-
-    const updated = (await this.db.db.query.interviews.findFirst({
-      where: eq(interviews.id, id),
-      with: { senior: true, hr: true },
-    })) as InterviewWithRelations
-
-    // Auto-create project when moved to HIRED
-    let createdProjectId: string | null = null
-    if (newStage === 'HIRED' && oldStage !== 'HIRED') {
-      const project = await this.projects.createFromInterview(updated, currentUser)
-      createdProjectId = project?.id ?? null
-    }
 
     return { ...this.mapInterview(updated), createdProjectId }
   }
