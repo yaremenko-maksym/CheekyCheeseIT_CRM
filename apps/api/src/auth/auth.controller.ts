@@ -97,7 +97,8 @@ export class AuthController {
       // Audit LOW #3: the email is already bound to a DIFFERENT Google `sub`.
       // Refuse rather than silently honouring the existing binding — protects
       // against account-takeover via email reuse / re-issued Google accounts.
-      this.logger.warn(`Google account mismatch for ${user.email}`)
+      // MED (security-review): log user.id only — never raw email (PII).
+      this.logger.warn(`Google account mismatch (OAuth callback) for user id=${user.id}`)
       await reply.redirect(`${this.frontendUrl}/login?error=account_mismatch`, 302)
       return
     }
@@ -161,7 +162,8 @@ export class AuthController {
     } else if (user.googleId !== googleUser.sub) {
       // Audit LOW #3: incoming Google `sub` differs from the one already bound
       // to this email — reject instead of ignoring the mismatch.
-      this.logger.warn(`Google account mismatch (one-tap) for ${user.email}`)
+      // MED (security-review): log user.id only — never raw email (PII).
+      this.logger.warn(`Google account mismatch (one-tap) for user id=${user.id}`)
       throw new UnauthorizedException('Google account mismatch')
     }
 
