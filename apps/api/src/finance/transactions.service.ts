@@ -492,8 +492,20 @@ export class TransactionsService {
       throw new BadRequestException('Sum of senior+drop shares exceeds 100%')
     }
 
-    const seniorAmount = (income * seniorPercent) / 100
-    const dropAmount = (income * dropPercent) / 100
+    // Audit 2026-06-27 (LOW): decimal-safe share math. `(income * percent) / 100`
+    // accumulates IEEE-754 float drift (e.g. 0.1 + 0.2 ≠ 0.3), so two shares of
+    // the same income could fail to reconcile against the gross at the 6th
+    // decimal. Mirror createPayoutRequest: scale to integer minor units
+    // (MONEY_SCALE = 1e6), round once, then divide back and fix to 6 decimals —
+    // the same precision the `numeric(18,6)` amount column persists. Pure-number
+    // result is unchanged for clean inputs; only the lossy tail is removed.
+    const roundShare = (percent: number): number => {
+      const incomeMinor = Math.round(income * MONEY_SCALE)
+      const shareMinor = Math.round((incomeMinor * percent) / 100)
+      return Number((shareMinor / MONEY_SCALE).toFixed(6))
+    }
+    const seniorAmount = roundShare(seniorPercent)
+    const dropAmount = roundShare(dropPercent)
 
     // task-drop-payout-company-account: `partnerShares` (the old 50/50
     // remainder split into PAYOUT_ADMIN) is removed. The remainder

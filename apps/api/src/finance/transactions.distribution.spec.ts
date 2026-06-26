@@ -91,4 +91,42 @@ describe('computeDropDistribution (spec §8.1 — no partner split)', () => {
     expect(result.dropShare.amount).toBeCloseTo(50, 6)
     expect(result.dropShare.percent).toBe(5)
   })
+
+  // Audit 2026-06-27 (LOW #4): decimal-safe share math (SCALE=1e6 + Math.round +
+  // toFixed(6)). Naive `(income * percent) / 100` accumulates IEEE-754 drift; the
+  // rounded helper must emit values clean at the 6-decimal `numeric(18,6)`
+  // precision the amount column stores — never a 0.30000000000000004-style tail.
+  it('rounds shares to 6-decimal precision (no float drift) for awkward inputs', () => {
+    const svc = makeService()
+    // 1000.10 income at 26% / 5% → naive math gives 260.026 / 50.005 but with a
+    // trailing binary tail; the SCALE math returns exact 6-decimal numbers.
+    const result = svc.computeDropDistribution(
+      1000.1,
+      project,
+      { ...drop, dropSharePercent: 5 },
+      { ...senior, seniorSharePercent: 26 },
+    )
+    expect(result.seniorShare.amount).toBe(260.026)
+    expect(result.dropShare.amount).toBe(50.005)
+    // Each amount, re-stringified to 6 decimals, round-trips exactly (the value
+    // the `String(amount)` insert persists has NO lossy tail).
+    expect(Number(result.seniorShare.amount.toFixed(6))).toBe(result.seniorShare.amount)
+    expect(Number(result.dropShare.amount.toFixed(6))).toBe(result.dropShare.amount)
+  })
+
+  it('classic 0.1+0.2 float case: 0.3 income at 100% senior → exactly 0.3', () => {
+    const svc = makeService()
+    // income 0.3 at senior 100% / drop 0%: naive `(0.3 * 100) / 100` is fine, but
+    // an income that itself carries drift (0.1 + 0.2 = 0.30000000000000004) is
+    // normalised by the scale-round so the persisted amount is exactly 0.3.
+    const drifty = 0.1 + 0.2 // 0.30000000000000004
+    const result = svc.computeDropDistribution(
+      drifty,
+      project,
+      { ...drop, dropSharePercent: 0 },
+      { ...senior, seniorSharePercent: 100 },
+    )
+    expect(result.seniorShare.amount).toBe(0.3)
+    expect(result.dropShare.amount).toBe(0)
+  })
 })
