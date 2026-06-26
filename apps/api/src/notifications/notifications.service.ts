@@ -17,7 +17,7 @@
  * notification types only requires appending to the enum + a single emitter
  * call site.
  */
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import type {
   Notification as NotificationDto,
@@ -25,6 +25,7 @@ import type {
   NotificationType,
   NotificationsListResponse,
 } from '@crm/shared'
+import { safeNotificationLinkSchema } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { notifications } from '../database/schema'
 
@@ -36,6 +37,10 @@ export class NotificationsService {
    * Insert a new notification row. The schema enum is the single source of
    * truth for `type` values; callers should reference the shared
    * `NotificationType` so a typo at the emitter site fails at compile time.
+   *
+   * Security: link is validated server-side against safeNotificationLinkSchema
+   * (relative path only, no '://' or 'javascript:') before insert to prevent
+   * storing open-redirect or XSS payloads.
    */
   async create(input: {
     userId: string
@@ -44,6 +49,17 @@ export class NotificationsService {
     body?: string | null
     link?: string | null
   }): Promise<NotificationDto> {
+    // Validate link server-side before insert (defence-in-depth: shared schema
+    // also validates on the DTO layer, but the service is the last gate before DB).
+    if (input.link != null) {
+      const result = safeNotificationLinkSchema.safeParse(input.link)
+      if (!result.success) {
+        throw new BadRequestException(
+          `Invalid notification link: ${result.error.issues[0]?.message ?? 'invalid'}`,
+        )
+      }
+    }
+
     const [row] = await this.db.db
       .insert(notifications)
       .values({

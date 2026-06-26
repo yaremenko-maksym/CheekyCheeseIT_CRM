@@ -24,8 +24,31 @@ export type NotificationType = z.infer<typeof notificationTypeSchema>
 // ---------------------------------------------------------------------------
 
 /**
+ * Safe relative-path validator for notification links.
+ *
+ * Must start with '/' (relative path only) and must NOT contain '://'
+ * or 'javascript:' to prevent open-redirect / XSS via stored links.
+ * Null is allowed (no link).
+ *
+ * Security rationale: notification links are stored verbatim and rendered
+ * as <a href={link}> in the header dropdown. Without this guard an attacker
+ * who can create a notification (server-side emitter) could store an external
+ * redirect or javascript: URI.
+ */
+export const safeNotificationLinkSchema = z
+  .string()
+  .max(500)
+  .refine(
+    (v) => v.startsWith('/') && !v.includes('://') && !/javascript:/i.test(v),
+    {
+      message: "Link must be a relative path starting with '/' (no external URLs or javascript:)",
+    },
+  )
+  .nullable()
+
+/**
  * Notification as returned by `GET /api/notifications`. `link` is a
- * relative front-end path (e.g. `/crm/finance/invoices/<id>`) — clicking
+ * relative front-end path (e.g. `/finance/invoices/<id>`) — clicking
  * the row in the header dropdown navigates to it AND marks the row as
  * read (single round-trip via the PATCH endpoint).
  */
@@ -34,7 +57,7 @@ export const notificationSchema = z.object({
   type: notificationTypeSchema,
   title: z.string().min(1).max(255),
   body: z.string().nullable(),
-  link: z.string().max(500).nullable(),
+  link: safeNotificationLinkSchema,
   readAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
 })

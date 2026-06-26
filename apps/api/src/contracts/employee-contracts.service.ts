@@ -393,6 +393,10 @@ export class EmployeeContractsService {
    * Save admin-supplied custom variable values.
    * Only allowed in DRAFT status (same gate as updateBody).
    * 409 CONTRACT_NOT_EDITABLE if status is not DRAFT.
+   *
+   * Security hardening: cross-validates keys against the template's declared
+   * customVariables — arbitrary keys not declared in the template are rejected
+   * with 400 to prevent storing unconstrained data.
    */
   async updateCustomValues(
     userId: string,
@@ -403,6 +407,20 @@ export class EmployeeContractsService {
 
     if (contract.status !== 'DRAFT') {
       throw new ConflictException('CONTRACT_NOT_EDITABLE')
+    }
+
+    // Cross-validate keys against the template's declared customVariables.
+    // Unknown keys are rejected to prevent storing arbitrary payloads.
+    const template = await this.db.db.query.contractTemplates.findFirst({
+      where: eq(contractTemplates.id, contract.sourceTemplateId),
+    })
+    const declared = template?.customVariables as CustomVariable[] | null | undefined
+    const allowedKeys = new Set((declared ?? []).map((v) => v.key))
+    const unknownKeys = Object.keys(customValues).filter((k) => !allowedKeys.has(k))
+    if (unknownKeys.length > 0) {
+      throw new BadRequestException(
+        `Неизвестные ключи кастомных переменных: ${unknownKeys.join(', ')}`,
+      )
     }
 
     const [updated] = await this.db.db
