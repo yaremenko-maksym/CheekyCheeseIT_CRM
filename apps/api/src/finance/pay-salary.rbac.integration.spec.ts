@@ -119,7 +119,6 @@ const stubInvoices = {
   autoCreateForSeniorPayout: () => Promise.resolve(),
   autoCreateForSalary: () => Promise.resolve(),
 } as never
-const stubDocuments = {} as never
 
 // ── TestDatabaseModule (real Pool) ──────────────────────────────────────────
 let _testPool: Pool | null = null
@@ -269,8 +268,20 @@ describe('pay-salary route — real backend RBAC integration (real DB, no mocks)
 
   const tokenFor = (u: SessionUser) => jwt.sign(u)
 
-  /** Seed a fresh PENDING SALARY tx authored by ADMIN, return its id. */
+  // Audit 2026-06-27 (LOW #5): the partial unique index
+  // `uq_transactions_salary_receiver_month` allows at most ONE SALARY per
+  // (receiver, month). Each test seeds its own fresh PENDING salary, so the
+  // month MUST be unique per seed — otherwise the 2nd seed would hit the unique
+  // constraint. A monotonic month counter keeps every seeded row distinct.
+  let salaryMonthSeq = 0
+  /** Seed a fresh PENDING SALARY tx authored by ADMIN (unique month), return id. */
   async function seedPendingSalary(): Promise<string> {
+    salaryMonthSeq += 1
+    // 2030-01 .. 2030-12 .. then wrap into 2031 — always a valid YYYY-MM, always
+    // unique within a run and far from any live/seed salary data.
+    const year = 2030 + Math.floor(salaryMonthSeq / 12)
+    const monthNum = (salaryMonthSeq % 12) + 1
+    const salaryMonth = `${year}-${String(monthNum).padStart(2, '0')}`
     const [tx] = await dbSvc.db
       .insert(transactions)
       .values({
@@ -280,7 +291,7 @@ describe('pay-salary route — real backend RBAC integration (real DB, no mocks)
         currency: 'USDT',
         receiverId: JUNIOR.id,
         createdBy: ADMIN.id,
-        salaryMonth: '2026-06',
+        salaryMonth,
       })
       .returning()
     return tx!.id

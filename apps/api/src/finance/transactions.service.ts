@@ -9,7 +9,7 @@ import {
   Inject,
 } from '@nestjs/common'
 
-import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm'
 import type {
   SessionUser,
   DropIncomeDto,
@@ -492,8 +492,20 @@ export class TransactionsService {
       throw new BadRequestException('Sum of senior+drop shares exceeds 100%')
     }
 
-    const seniorAmount = (income * seniorPercent) / 100
-    const dropAmount = (income * dropPercent) / 100
+    // Audit 2026-06-27 (LOW): decimal-safe share math. `(income * percent) / 100`
+    // accumulates IEEE-754 float drift (e.g. 0.1 + 0.2 ≠ 0.3), so two shares of
+    // the same income could fail to reconcile against the gross at the 6th
+    // decimal. Mirror createPayoutRequest: scale to integer minor units
+    // (MONEY_SCALE = 1e6), round once, then divide back and fix to 6 decimals —
+    // the same precision the `numeric(18,6)` amount column persists. Pure-number
+    // result is unchanged for clean inputs; only the lossy tail is removed.
+    const roundShare = (percent: number): number => {
+      const incomeMinor = Math.round(income * MONEY_SCALE)
+      const shareMinor = Math.round((incomeMinor * percent) / 100)
+      return Number((shareMinor / MONEY_SCALE).toFixed(6))
+    }
+    const seniorAmount = roundShare(seniorPercent)
+    const dropAmount = roundShare(dropPercent)
 
     // task-drop-payout-company-account: `partnerShares` (the old 50/50
     // remainder split into PAYOUT_ADMIN) is removed. The remainder
@@ -1757,23 +1769,40 @@ export class TransactionsService {
       | 'EUR'
       | 'UAH'
 
-    const [tx] = await this.db.db
-      .insert(transactions)
-      .values({
-        type: 'SALARY' as const,
-        status: 'PENDING' as const,
-        amount: String(data.amount),
-        currency,
-        senderId: null,
-        senderLabel: 'CheekyCheeseIT',
-        receiverId: data.receiverId,
-        salaryMonth: data.salaryMonth,
-        notes: data.notes ?? null,
-        fundingSource: null,
-        txDate: this.resolveTxDate(data.txDate),
-        createdBy: currentUser.id,
-      })
-      .returning()
+    // Audit 2026-06-27 (LOW #5 side-effect): the partial unique index
+    // `uq_transactions_salary_receiver_month` now enforces ONE SALARY per
+    // (receiver, month) for the manual endpoint too — a legitimate invariant (an
+    // employee is never paid two salaries for the same month). A duplicate raises
+    // SQLSTATE 23505; translate it into a clean 400 instead of a raw 500 so the
+    // UI shows a friendly message. (The cron uses ON CONFLICT DO NOTHING; the
+    // manual path surfaces the conflict to the operator who explicitly asked.)
+    let tx: typeof transactions.$inferSelect | undefined
+    try {
+      ;[tx] = await this.db.db
+        .insert(transactions)
+        .values({
+          type: 'SALARY' as const,
+          status: 'PENDING' as const,
+          amount: String(data.amount),
+          currency,
+          senderId: null,
+          senderLabel: 'CheekyCheeseIT',
+          receiverId: data.receiverId,
+          salaryMonth: data.salaryMonth,
+          notes: data.notes ?? null,
+          fundingSource: null,
+          txDate: this.resolveTxDate(data.txDate),
+          createdBy: currentUser.id,
+        })
+        .returning()
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new BadRequestException(
+          'Зарплата для этого сотрудника за выбранный месяц уже создана',
+        )
+      }
+      throw err
+    }
 
     return this.findOne(tx!.id, currentUser)
   }
@@ -2204,16 +2233,23 @@ export class TransactionsService {
     // fundingSource NULL so computeBalance ignores this PAYOUT row.
     const fundingSource = method === 'COMPANY_ACCOUNT' ? PAYOUT_TO_COMPANY_ACCOUNT : null
 
-    // ── SECURITY (H1): txHash-reuse guard — mirrors payPayoutRequest:~2080.
+    // ── SECURITY (H1 + LOW #6): txHash-reuse guard, now TWO layers.
     // When the manual confirmation CREDITS the company account (COMPANY_ACCOUNT)
     // and references a REAL on-chain hash, that hash must not already belong to
-    // another PAID payout. Without this, an ADMIN/ACCOUNTANT could manual-confirm
-    // a second payout with a txHash already consumed by a PAID one and credit the
-    // company balance TWICE for a single on-chain transfer (no DB unique index on
-    // payout_requests.txHash backstops this — verified). ADMIN_USDT / CASH never
-    // credit the balance, and synthetic markers are unique, so the guard is
-    // scoped to the only exploitable path. Runs BEFORE any write.
-    if (method === 'COMPANY_ACCOUNT' && hasRealTxHash) {
+    // another PAID payout — otherwise an ADMIN/ACCOUNTANT could credit the company
+    // balance TWICE for a single on-chain transfer (no DB unique index on
+    // payout_requests.txHash backstops this).
+    //   Layer 1 (here, pre-transaction): a fast-fail UX gate so the user gets the
+    //     clean error before any work. NOT authoritative on its own (TOCTOU — the
+    //     read can go stale before the credit).
+    //   Layer 2 (applyPayoutPaidCascade, in-transaction): `guardTxHashReuse=true`
+    //     re-runs the SAME check INSIDE the serialized PENDING→PAID flip, after the
+    //     row-locked claim, so a concurrent confirm with the same hash loses. This
+    //     is the authoritative, TOCTOU-safe guard (audit 2026-06-27 #6).
+    // ADMIN_USDT / CASH never credit the balance and synthetic markers are unique,
+    // so the guard is scoped to the only exploitable path.
+    const needsReuseGuard = method === 'COMPANY_ACCOUNT' && hasRealTxHash
+    if (needsReuseGuard) {
       const reused = await this.db.db.query.payoutRequests.findFirst({
         where: and(eq(payoutRequests.txHash, effectiveTxHash), eq(payoutRequests.status, 'PAID')),
       })
@@ -2225,7 +2261,14 @@ export class TransactionsService {
       options.note ? ` — ${options.note}` : ''
     }`
 
-    return this.applyPayoutPaidCascade(req, effectiveTxHash, fundingSource, auditNote, currentUser)
+    return this.applyPayoutPaidCascade(
+      req,
+      effectiveTxHash,
+      fundingSource,
+      auditNote,
+      currentUser,
+      needsReuseGuard,
+    )
   }
 
   /**
@@ -2246,6 +2289,14 @@ export class TransactionsService {
     fundingSource: string | null,
     auditNote: string | null,
     currentUser: SessionUser,
+    // Audit 2026-06-27 (LOW #6, defense-in-depth). When true, re-check INSIDE the
+    // transaction that `effectiveTxHash` is not already consumed by another PAID
+    // payout — used by manualConfirmPayout's COMPANY_ACCOUNT path where a real
+    // on-chain hash credits the company balance. Running the guard inside the
+    // serialized flip (below) closes the TOCTOU the previous out-of-transaction
+    // SELECT left open. payPayoutRequest passes false (it runs its own pre-check;
+    // the unique index uq_payout_requests_txhash_paid remains the hard backstop).
+    guardTxHashReuse = false,
   ) {
     const requestId = req.id
 
@@ -2267,15 +2318,49 @@ export class TransactionsService {
     let payoutRowId: string | null
     try {
       payoutRowId = await this.db.db.transaction(async (dbtx) => {
-        // Mark payout request as paid
-        await dbtx
+        // ── SECURITY (LOW #6, TOCTOU): serialize the PENDING→PAID flip.
+        // The conditional UPDATE flips the payout to PAID ONLY WHERE it is still
+        // PENDING and RETURNS the affected rows. The UPDATE takes a row lock and
+        // re-evaluates `status='PENDING'` against the committed row, so two
+        // concurrent / repeated confirms (a double-clicked manual-confirm, or
+        // payPayoutRequest racing manualConfirmPayout) can never both win — the
+        // loser sees 0 rows and bails out BEFORE any income/PAYOUT/partner write
+        // or company-account credit happens (the whole tx rolls back). Previously
+        // the flip was an unconditional UPDATE preceded by an out-of-transaction
+        // status read — that read could go stale between check and write.
+        const claimed = await dbtx
           .update(payoutRequests)
           .set({
             txHash: effectiveTxHash,
             status: 'PAID',
             updatedAt: new Date(),
           })
-          .where(eq(payoutRequests.id, requestId))
+          .where(and(eq(payoutRequests.id, requestId), eq(payoutRequests.status, 'PENDING')))
+          .returning({ id: payoutRequests.id })
+        if (claimed.length === 0) {
+          // A concurrent / repeated confirm already flipped this payout.
+          throw new BadRequestException('Payout request is already paid')
+        }
+
+        // ── SECURITY (LOW #6, defense-in-depth): in-transaction txHash-reuse guard.
+        // For the manual COMPANY_ACCOUNT path the on-chain hash credits the company
+        // balance, so a hash already consumed by another PAID payout must be
+        // rejected. Running this SELECT INSIDE the serialized flip (after the claim,
+        // before any credit) closes the TOCTOU the previous pre-transaction SELECT
+        // left open; the unique index uq_payout_requests_txhash_paid is the hard
+        // backstop. Exclude THIS request (just flipped to PAID above) from the scan.
+        if (guardTxHashReuse) {
+          const reused = await dbtx.query.payoutRequests.findFirst({
+            where: and(
+              eq(payoutRequests.txHash, effectiveTxHash),
+              eq(payoutRequests.status, 'PAID'),
+              ne(payoutRequests.id, requestId),
+            ),
+          })
+          if (reused) {
+            throw new BadRequestException('Этот хеш транзакции уже использован для другой выплаты')
+          }
+        }
 
         // Mark linked SENIOR_INCOME transactions as PAID
         await dbtx
@@ -3509,33 +3594,40 @@ export class TransactionsService {
     for (const emp of employees) {
       if (!emp.monthlySalary) continue
 
-      // Skip if already created for this month
-      const existing = await this.db.db.query.transactions.findFirst({
-        where: and(
-          eq(transactions.type, 'SALARY'),
-          eq(transactions.receiverId, emp.id),
-          eq(transactions.salaryMonth, month),
-        ),
-      })
-      if (existing) continue
-
       // task-salary-pay-flow: monthly salaries are NEUTRAL PENDING reminders —
       // no funding source, no currency lock, no balance impact at creation. The
       // funding source (company account vs admin personal) and the actual
       // payment currency are chosen at pay time (paySalary). `monthlySalary` is
       // the USD nominal of the reminder.
-      await this.db.db.insert(transactions).values({
-        type: 'SALARY',
-        status: 'PENDING',
-        amount: emp.monthlySalary,
-        currency: 'USD',
-        senderId: null,
-        senderLabel: 'CheekyCheeseIT',
-        receiverId: emp.id,
-        salaryMonth: month,
-        fundingSource: null,
-        createdBy: admin.id,
-      })
+      //
+      // Audit 2026-06-27 (LOW #5): the previous find-then-insert "skip if exists"
+      // had a TOCTOU gap — a concurrent / re-run cron could insert a duplicate
+      // salary for the same (receiver, month). The DB is now the single source of
+      // truth: INSERT … ON CONFLICT DO NOTHING against the partial unique index
+      // `uq_transactions_salary_receiver_month` (WHERE type='SALARY' AND
+      // salary_month IS NOT NULL). A duplicate is silently ignored — idempotent,
+      // race-free, no read round-trip per employee (also kills the N+1).
+      await this.db.db
+        .insert(transactions)
+        .values({
+          type: 'SALARY',
+          status: 'PENDING',
+          amount: emp.monthlySalary,
+          currency: 'USD',
+          senderId: null,
+          senderLabel: 'CheekyCheeseIT',
+          receiverId: emp.id,
+          salaryMonth: month,
+          fundingSource: null,
+          createdBy: admin.id,
+        })
+        .onConflictDoNothing({
+          target: [transactions.receiverId, transactions.salaryMonth],
+          // `where` (NOT targetWhere) — drizzle-orm 0.36 onConflictDoNothing emits
+          // this as the conflict-target predicate, matching the partial index's
+          // WHERE. Must match `uq_transactions_salary_receiver_month` exactly.
+          where: sql`${transactions.type} = 'SALARY' AND ${transactions.salaryMonth} IS NOT NULL`,
+        })
     }
 
     // Create PENDING salary for JUNIORs on active projects.
@@ -3565,32 +3657,35 @@ export class TransactionsService {
 
       if (!user || user.role !== 'JUNIOR' || !project) continue
 
-      const existing = await this.db.db.query.transactions.findFirst({
-        where: and(
-          eq(transactions.type, 'SALARY'),
-          eq(transactions.receiverId, user.id),
-          eq(transactions.salaryMonth, month),
-        ),
-      })
-      if (existing) continue
-
       // Resolve salary: project override → user default
       const salaryAmount = project.financeSettings?.juniorSalaryOverride ?? user.monthlySalary
       if (!salaryAmount) continue
 
-      await this.db.db.insert(transactions).values({
-        type: 'SALARY',
-        status: 'PENDING',
-        amount: String(salaryAmount),
-        currency: 'USD',
-        senderId: null,
-        senderLabel: 'CheekyCheeseIT',
-        receiverId: user.id,
-        projectId: project.id,
-        salaryMonth: month,
-        fundingSource: null,
-        createdBy: admin.id,
-      })
+      // Audit 2026-06-27 (LOW #5): idempotent, race-free salary creation — see the
+      // HR/ACCOUNTANT loop above. ON CONFLICT DO NOTHING against the partial
+      // unique index replaces the find-then-insert TOCTOU + N+1 read.
+      await this.db.db
+        .insert(transactions)
+        .values({
+          type: 'SALARY',
+          status: 'PENDING',
+          amount: String(salaryAmount),
+          currency: 'USD',
+          senderId: null,
+          senderLabel: 'CheekyCheeseIT',
+          receiverId: user.id,
+          projectId: project.id,
+          salaryMonth: month,
+          fundingSource: null,
+          createdBy: admin.id,
+        })
+        .onConflictDoNothing({
+          target: [transactions.receiverId, transactions.salaryMonth],
+          // `where` (NOT targetWhere) — drizzle-orm 0.36 onConflictDoNothing emits
+          // this as the conflict-target predicate, matching the partial index's
+          // WHERE. Must match `uq_transactions_salary_receiver_month` exactly.
+          where: sql`${transactions.type} = 'SALARY' AND ${transactions.salaryMonth} IS NOT NULL`,
+        })
     }
   }
 

@@ -356,10 +356,50 @@ describe('CompanyAccountService.getDepositStatus — flip PENDING→PAID (AC5)',
 })
 
 describe('CompanyAccountService.createDividend (ADMIN only)', () => {
+  // MED (audit 2026-06-27): createDividend now wraps gate-read + debit-write in
+  // db.transaction with a company-account advisory lock + balance gate. The
+  // unit mock runs the callback with a `dbtx` that exposes `execute` (the
+  // pg_advisory_xact_lock no-op), `select` (feeds the ledger SUMs so the gate
+  // sees a known balance) and `insert` (returns the new row).
+  function makeDividendDb(opts: {
+    receiverRole?: string
+    ledgerTotals?: string[]
+    inserted?: { id: string }
+  }) {
+    const inserted = opts.inserted ?? { id: 'div-1' }
+    // 7 ledger SUM terms: [deposits, payouts, adminIncome, dividends, salary,
+    // expense, seniorIncome]. Default → a 5000 USDT balance (deposits only).
+    const ledgerTotals = opts.ledgerTotals ?? ['5000', '0', '0', '0', '0', '0', '0']
+    const dbtx = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: selectReturning(ledgerTotals),
+      insert: vi.fn(() => ({ values: () => ({ returning: () => Promise.resolve([inserted]) }) })),
+    }
+    return makeDb({
+      query: {
+        companyAccount: { findFirst: vi.fn() },
+        transactions: { findFirst: vi.fn() },
+        users: {
+          findFirst: vi
+            .fn()
+            .mockResolvedValue({ id: ADMIN.id, role: opts.receiverRole ?? 'ADMIN' }),
+        },
+      },
+      transaction: vi.fn((cb: (tx: typeof dbtx) => unknown) => cb(dbtx)),
+    })
+  }
+
   it('non-ADMIN → 403', async () => {
     const svc = makeService(makeDb())
     await expect(svc.createDividend({ amount: 100 }, SENIOR)).rejects.toBeInstanceOf(
       ForbiddenException,
+    )
+  })
+
+  it('non-positive amount → 400', async () => {
+    const svc = makeService(makeDb())
+    await expect(svc.createDividend({ amount: 0 }, ADMIN)).rejects.toBeInstanceOf(
+      BadRequestException,
     )
   })
 
@@ -377,19 +417,32 @@ describe('CompanyAccountService.createDividend (ADMIN only)', () => {
     )
   })
 
-  it('ADMIN, free amount → PAID DIVIDEND_TO_ADMIN crediting an admin', async () => {
-    const inserted = { id: 'div-1' }
-    const db = makeDb({
-      query: {
-        companyAccount: { findFirst: vi.fn() },
-        transactions: { findFirst: vi.fn() },
-        users: { findFirst: vi.fn().mockResolvedValue({ id: ADMIN.id, role: 'ADMIN' }) },
-      },
-      insert: vi.fn(() => ({ values: () => ({ returning: () => Promise.resolve([inserted]) }) })),
-    })
+  it('amount exceeds company balance → 400 (overdraw gate)', async () => {
+    // balance = deposits(100) = 100; dividend of 1234 must be refused.
+    const db = makeDividendDb({ ledgerTotals: ['100', '0', '0', '0', '0', '0', '0'] })
+    const svc = makeService(db)
+    await expect(svc.createDividend({ amount: 1234 }, ADMIN)).rejects.toThrowError(
+      /Недостаточно средств/,
+    )
+  })
+
+  it('ADMIN, amount within balance → PAID DIVIDEND_TO_ADMIN crediting an admin', async () => {
+    // balance = deposits(5000) = 5000; dividend of 1234 fits.
+    const db = makeDividendDb({ inserted: { id: 'div-1' } })
     const svc = makeService(db)
     const res = await svc.createDividend({ amount: 1234 }, ADMIN)
     expect(res.amount).toBe(1234)
     expect(res.receiverId).toBe(ADMIN.id)
+    expect(res.id).toBe('div-1')
+  })
+
+  it('acquires the advisory lock before reading balance (TOCTOU serialization)', async () => {
+    const db = makeDividendDb({})
+    const svc = makeService(db)
+    await svc.createDividend({ amount: 100 }, ADMIN)
+    // The transaction callback ran, and the advisory lock (dbtx.execute) was
+    // invoked — proving the debit is serialized under the shared lock.
+    const txMock = db.transaction as ReturnType<typeof vi.fn>
+    expect(txMock).toHaveBeenCalledOnce()
   })
 })

@@ -38,8 +38,20 @@ import { NbuCurrencyService } from './nbu-currency.service'
 import { TransactionsService } from './transactions.service'
 
 // Auth enforced by global JwtAuthGuard (see AppModule APP_GUARD) for all
-// controllers in this file.
+// controllers in this file. RBAC is NOT global — RolesGuard must be attached
+// explicitly. Audit 2026-06-27 (LOW): the financial write endpoints below
+// previously had NO controller-level guard (only paySalary carried a method
+// guard), so every @Roles was inert and these money endpoints relied solely on
+// the service-side check. @UseGuards(RolesGuard) at the class level enforces
+// every @Roles-decorated method at the guard layer (403 BEFORE the handler), in
+// ADDITION to the service-side checks which are KEPT as defense-in-depth. Each
+// per-method @Roles below matches its service-side `currentUser.role` check
+// EXACTLY (verified against transactions.service.ts). Methods gated by OWNERSHIP
+// rather than role (updateSeniorIncome: `tx.receiverId === currentUser.id`)
+// carry NO @Roles — RolesGuard returns true when no metadata is present, leaving
+// the service-side ownership check authoritative.
 @Controller('transactions')
+@UseGuards(RolesGuard)
 export class TransactionsController {
   // Explicit @Inject so the REAL controller can be instantiated by Nest's DI
   // in the vitest/esbuild env (which omits `design:paramtypes`) — required by
@@ -70,6 +82,7 @@ export class TransactionsController {
   }
 
   @Post('admin-income')
+  @Roles('ADMIN', 'ACCOUNTANT')
   createAdminIncome(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.createAdminIncome(
       createAdminIncomeSchema.parse(body) as Parameters<
@@ -80,6 +93,7 @@ export class TransactionsController {
   }
 
   @Post('senior-income')
+  @Roles('SENIOR')
   createSeniorIncome(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.createSeniorIncome(
       createSeniorIncomeSchema.parse(body) as Parameters<
@@ -93,6 +107,7 @@ export class TransactionsController {
   // enforces RBAC (DROP role + project.dropId === caller.id). The frontend
   // can call the same shape as senior-income.
   @Post('drop-income')
+  @Roles('DROP')
   createDropIncome(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.createDropIncome(
       createDropIncomeSchema.parse(body) as Parameters<TransactionsService['createDropIncome']>[0],
@@ -116,6 +131,7 @@ export class TransactionsController {
   }
 
   @Post('expense')
+  @Roles('ADMIN', 'ACCOUNTANT')
   createExpense(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.createExpense(
       createExpenseSchema.parse(body) as Parameters<TransactionsService['createExpense']>[0],
@@ -124,6 +140,7 @@ export class TransactionsController {
   }
 
   @Post('salary')
+  @Roles('ADMIN', 'ACCOUNTANT')
   createSalary(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.createSalary(
       createSalarySchema.parse(body) as Parameters<TransactionsService['createSalary']>[0],
@@ -132,6 +149,7 @@ export class TransactionsController {
   }
 
   @Post('admin-transfer')
+  @Roles('ADMIN', 'ACCOUNTANT')
   createAdminTransfer(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.createAdminTransfer(
       createAdminTransferSchema.parse(body) as Parameters<
@@ -142,6 +160,7 @@ export class TransactionsController {
   }
 
   @Patch(':id/validate')
+  @Roles('ADMIN', 'ACCOUNTANT')
   validate(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     const data = validateTransactionSchema.parse(body)
     return this.svc.validateTransaction(id, data.action, data.rejectionReason, user)
@@ -153,6 +172,7 @@ export class TransactionsController {
   // PAID + new PAYOUT_CONFIRMED row crediting the chosen admin). See
   // `confirmPayout` in transactions.service.ts for the full contract.
   @Post(':id/confirm-payout')
+  @Roles('ADMIN', 'ACCOUNTANT')
   confirmPayout(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     const data = confirmPayoutSchema.parse(body)
     return this.svc.confirmPayout(id, data.recipientAdminId, user, {
@@ -162,22 +182,23 @@ export class TransactionsController {
   }
 
   // Defense-in-depth: the service-side `if (currentUser.role !== 'ADMIN')` guard
-  // is KEPT; this controller-level guard fires first (RolesGuard is not a global
-  // APP_GUARD, so it must be attached explicitly per-method). Pattern mirrors
-  // PayoutRequestsController.manualConfirm (#254 review LOW fix).
+  // is KEPT; the class-level RolesGuard now enforces this @Roles (the previous
+  // method-level @UseGuards(RolesGuard) is redundant and was removed — audit
+  // 2026-06-27).
   @Patch(':id/pay')
-  @UseGuards(RolesGuard)
   @Roles('ADMIN')
   paySalary(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.paySalary(id, paySalarySchema.parse(body), user)
   }
 
   @Patch(':id/admin-edit')
+  @Roles('ADMIN')
   adminEdit(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.adminUpdateTransaction(id, adminUpdateTransactionSchema.parse(body), user)
   }
 
   @Delete(':id')
+  @Roles('ADMIN')
   @HttpCode(200)
   adminDelete(@Param('id') id: string, @CurrentUser() user: SessionUser) {
     return this.svc.adminDeleteTransaction(id, user)
