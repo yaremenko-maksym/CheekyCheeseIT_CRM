@@ -8,7 +8,7 @@ import {
   forwardRef,
 } from '@nestjs/common'
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
-import type { ArchiveImpact, SessionUser } from '@crm/shared'
+import type { ArchiveImpact, AuditChange, SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
   documents,
@@ -25,7 +25,7 @@ import { TeamAuditLogService } from '../teams/team-audit-log.service'
 import { TeamsService } from '../teams/teams.service'
 import { ProjectAuditLogService } from '../projects/project-audit-log.service'
 import { TosService } from '../tos/tos.service'
-import { AuditLogService } from './audit-log.service'
+import { AuditLogService, REDACTED_TOKEN } from './audit-log.service'
 import { UsersAccessService } from './users-access.service'
 
 export type AppRole = 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
@@ -1484,14 +1484,37 @@ export class UsersService {
       // Tech stack
       techStack: permissions.fields.techStack ? (target.techStack ?? null) : null,
 
-      // Payment requisites
+      // Payment requisites.
+      // `requisitesExcludeWallet` (pre-deploy MEDIUM): an ACCOUNTANT viewing an
+      // ADMIN gets the requisites surface EXCEPT the payout destination
+      // (wallet/IBAN/recipient/RNOKPP/bank) — admins are not on payroll, so the
+      // accountant has no business need for another admin's payout details.
+      // `paymentMethod` (the method type, no destination) stays visible.
       paymentMethod: permissions.fields.requisites ? (target.paymentMethod ?? null) : null,
-      walletUsdtErc20: permissions.fields.requisites ? (target.walletUsdtErc20 ?? null) : null,
-      walletUsdtLabel: permissions.fields.requisites ? (target.walletUsdtLabel ?? null) : null,
-      bankUahRecipient: permissions.fields.requisites ? (target.bankUahRecipient ?? null) : null,
-      bankUahIban: permissions.fields.requisites ? (target.bankUahIban ?? null) : null,
-      bankUahRnokpp: permissions.fields.requisites ? (target.bankUahRnokpp ?? null) : null,
-      bankUahBankName: permissions.fields.requisites ? (target.bankUahBankName ?? null) : null,
+      walletUsdtErc20:
+        permissions.fields.requisites && !permissions.fields.requisitesExcludeWallet
+          ? (target.walletUsdtErc20 ?? null)
+          : null,
+      walletUsdtLabel:
+        permissions.fields.requisites && !permissions.fields.requisitesExcludeWallet
+          ? (target.walletUsdtLabel ?? null)
+          : null,
+      bankUahRecipient:
+        permissions.fields.requisites && !permissions.fields.requisitesExcludeWallet
+          ? (target.bankUahRecipient ?? null)
+          : null,
+      bankUahIban:
+        permissions.fields.requisites && !permissions.fields.requisitesExcludeWallet
+          ? (target.bankUahIban ?? null)
+          : null,
+      bankUahRnokpp:
+        permissions.fields.requisites && !permissions.fields.requisitesExcludeWallet
+          ? (target.bankUahRnokpp ?? null)
+          : null,
+      bankUahBankName:
+        permissions.fields.requisites && !permissions.fields.requisitesExcludeWallet
+          ? (target.bankUahBankName ?? null)
+          : null,
     }
 
     const data: Record<string, unknown> = {}
@@ -1516,6 +1539,41 @@ export class UsersService {
       }
     }
     // Other tabs (finance, projects, team, interviews, requisites) — wired in later tasks
+
+    // Pre-deploy MEDIUM: read-access audit for the ACCOUNTANT requisites scope.
+    // The base audit log only tracked *writes*; an ACCOUNTANT can read the
+    // payout requisites (RNOKPP / IBAN / wallet) of any user company-wide for
+    // payroll. Record a `requisites_read` event when an accountant (never self)
+    // actually receives requisites, so the read is attributable. Values are NOT
+    // logged (it is a read of existing data, not a change) — `changes` records
+    // only WHICH fields were exposed, with redacted markers, mirroring how the
+    // write-audit redacts SENSITIVE_FIELDS.
+    if (viewer.role === 'ACCOUNTANT' && viewer.id !== target.id && permissions.fields.requisites) {
+      const exposedFields = (
+        [
+          'paymentMethod',
+          'walletUsdtErc20',
+          'walletUsdtLabel',
+          'bankUahRecipient',
+          'bankUahIban',
+          'bankUahRnokpp',
+          'bankUahBankName',
+        ] as const
+      ).filter((f) => (filteredUser as Record<string, unknown>)[f] != null)
+      if (exposedFields.length > 0) {
+        const changes: Record<string, AuditChange> = {}
+        for (const f of exposedFields) {
+          // Read-audit: record THAT the field was read, never its plaintext value.
+          changes[f] = { before: REDACTED_TOKEN, after: REDACTED_TOKEN }
+        }
+        await this.auditLogService.record({
+          actorId: viewer.id,
+          targetId: target.id,
+          action: 'requisites_read',
+          changes,
+        })
+      }
+    }
 
     return { user: filteredUser, permissions, data }
   }

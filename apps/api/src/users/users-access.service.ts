@@ -136,6 +136,12 @@ export class UsersAccessService {
       fields.registrationDate = true
       fields.techStack = targetHasTechStack
       fields.requisites = true
+      // Pre-deploy MEDIUM: the ACCOUNTANT payroll scope is company-wide, but an
+      // ADMIN is paid via the 50/50 partner split — NOT payroll — so the
+      // accountant has no business need for another ADMIN's payout wallet/IBAN.
+      // Mask the wallet/bank requisites for ADMIN targets while keeping the rest
+      // of the requisites surface (paymentMethod) so the projection is explicit.
+      fields.requisitesExcludeWallet = target.role === 'ADMIN'
       // adminNote — ACCOUNTANT does not see admin notes
       fields.adminNote = false
       // FOP PII — ACCOUNTANT does not see registrationAddress/usrRecord
