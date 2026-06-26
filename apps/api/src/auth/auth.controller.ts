@@ -93,6 +93,13 @@ export class AuthController {
 
     if (!user.googleId) {
       await this.usersService.updateGoogleId(user.id, googleUser.id)
+    } else if (user.googleId !== googleUser.id) {
+      // Audit LOW #3: the email is already bound to a DIFFERENT Google `sub`.
+      // Refuse rather than silently honouring the existing binding — protects
+      // against account-takeover via email reuse / re-issued Google accounts.
+      this.logger.warn(`Google account mismatch for ${user.email}`)
+      await reply.redirect(`${this.frontendUrl}/login?error=account_mismatch`, 302)
+      return
     }
 
     // MED #2: JWT cookie stores only minimal identity (no PII).
@@ -151,6 +158,11 @@ export class AuthController {
 
     if (!user.googleId) {
       await this.usersService.updateGoogleId(user.id, googleUser.sub)
+    } else if (user.googleId !== googleUser.sub) {
+      // Audit LOW #3: incoming Google `sub` differs from the one already bound
+      // to this email — reject instead of ignoring the mismatch.
+      this.logger.warn(`Google account mismatch (one-tap) for ${user.email}`)
+      throw new UnauthorizedException('Google account mismatch')
     }
 
     // MED #2: JWT cookie stores only minimal identity (no PII).
