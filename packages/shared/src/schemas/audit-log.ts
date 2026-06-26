@@ -4,6 +4,10 @@ export const auditActionSchema = z.enum([
   'profile_created',
   'profile_edit',
   'requisites_edit',
+  // Read-access audit: an ACCOUNTANT viewed another user's payment requisites
+  // (RNOKPP / IBAN / wallet). The base audit log only tracked *writes*; this
+  // closes the gap for the company-wide payroll read scope (pre-deploy MEDIUM).
+  'requisites_read',
   'role_change',
   'salary_change',
   'note_set',
