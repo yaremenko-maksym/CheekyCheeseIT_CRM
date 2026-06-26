@@ -1769,23 +1769,40 @@ export class TransactionsService {
       | 'EUR'
       | 'UAH'
 
-    const [tx] = await this.db.db
-      .insert(transactions)
-      .values({
-        type: 'SALARY' as const,
-        status: 'PENDING' as const,
-        amount: String(data.amount),
-        currency,
-        senderId: null,
-        senderLabel: 'CheekyCheeseIT',
-        receiverId: data.receiverId,
-        salaryMonth: data.salaryMonth,
-        notes: data.notes ?? null,
-        fundingSource: null,
-        txDate: this.resolveTxDate(data.txDate),
-        createdBy: currentUser.id,
-      })
-      .returning()
+    // Audit 2026-06-27 (LOW #5 side-effect): the partial unique index
+    // `uq_transactions_salary_receiver_month` now enforces ONE SALARY per
+    // (receiver, month) for the manual endpoint too — a legitimate invariant (an
+    // employee is never paid two salaries for the same month). A duplicate raises
+    // SQLSTATE 23505; translate it into a clean 400 instead of a raw 500 so the
+    // UI shows a friendly message. (The cron uses ON CONFLICT DO NOTHING; the
+    // manual path surfaces the conflict to the operator who explicitly asked.)
+    let tx: typeof transactions.$inferSelect | undefined
+    try {
+      ;[tx] = await this.db.db
+        .insert(transactions)
+        .values({
+          type: 'SALARY' as const,
+          status: 'PENDING' as const,
+          amount: String(data.amount),
+          currency,
+          senderId: null,
+          senderLabel: 'CheekyCheeseIT',
+          receiverId: data.receiverId,
+          salaryMonth: data.salaryMonth,
+          notes: data.notes ?? null,
+          fundingSource: null,
+          txDate: this.resolveTxDate(data.txDate),
+          createdBy: currentUser.id,
+        })
+        .returning()
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new BadRequestException(
+          'Зарплата для этого сотрудника за выбранный месяц уже создана',
+        )
+      }
+      throw err
+    }
 
     return this.findOne(tx!.id, currentUser)
   }

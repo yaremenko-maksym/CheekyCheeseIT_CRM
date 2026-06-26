@@ -389,11 +389,17 @@ describe('transactions create — ACCOUNTANT/ADMIN parity RBAC (real DB, no mock
   // createSalary now creates a NEUTRAL PENDING reminder — no funding source, no
   // balance gate at creation — so the role assertions (201/403) are deterministic
   // regardless of the company-account balance. No funding fields needed here.
-  const salaryPayload = () => ({
+  // Audit 2026-06-27 (LOW #5): the partial unique index
+  // `uq_transactions_salary_receiver_month` now allows at most ONE SALARY per
+  // (receiver, month). The two success cases (ACCOUNTANT + ADMIN) must therefore
+  // target DISTINCT months — otherwise the second would correctly hit the unique
+  // constraint (400). RBAC parity is unchanged: both privileged roles get 201,
+  // forbidden roles get 403 (they never reach the insert, so month is irrelevant).
+  const salaryPayload = (salaryMonth = '2025-03') => ({
     receiverId: JUNIOR.id,
     amount: 500,
     currency: 'USD',
-    salaryMonth: '2025-03',
+    salaryMonth,
   })
   // ACCOUNTANT must pass an explicit ADMIN sender; ADMIN may omit it (defaults
   // to self). Receiver is always the other admin.
@@ -479,15 +485,33 @@ describe('transactions create — ACCOUNTANT/ADMIN parity RBAC (real DB, no mock
   describe('POST /transactions/salary', () => {
     it('ACCOUNTANT → 201', async () => {
       if (!dbAvailable) return
-      const { status, json } = await post('/api/transactions/salary', ACCOUNTANT, salaryPayload())
+      // Distinct month from the ADMIN case so both 201 under the (receiver,month)
+      // unique index (audit #5). '2025-03' window namespaced to ACCOUNTANT.
+      const { status, json } = await post(
+        '/api/transactions/salary',
+        ACCOUNTANT,
+        salaryPayload('2025-03'),
+      )
       expect(status).toBe(201)
       expect((json as { type: string }).type).toBe('SALARY')
     })
 
     it('ADMIN → 201 (regression)', async () => {
       if (!dbAvailable) return
-      const { status } = await post('/api/transactions/salary', ADMIN, salaryPayload())
+      // Distinct month from the ACCOUNTANT case (unique index, audit #5).
+      const { status } = await post('/api/transactions/salary', ADMIN, salaryPayload('2025-04'))
       expect(status).toBe(201)
+    })
+
+    it('duplicate (receiver, month) → 400 (unique index, audit #5)', async () => {
+      if (!dbAvailable) return
+      // First create for a fresh month succeeds; a second create for the SAME
+      // (receiver, month) is rejected with a clean 400 (not a raw 500).
+      const dupMonth = '2025-05'
+      const first = await post('/api/transactions/salary', ADMIN, salaryPayload(dupMonth))
+      expect(first.status).toBe(201)
+      const second = await post('/api/transactions/salary', ADMIN, salaryPayload(dupMonth))
+      expect(second.status).toBe(400)
     })
 
     for (const [label, persona] of FORBIDDEN) {

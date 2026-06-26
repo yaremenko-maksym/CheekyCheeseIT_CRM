@@ -40,7 +40,10 @@ const MONTH = '2099-12' // far-future month so no live cron data collides
 
 const HR_EMP_ID = 'fc600000-0000-4000-aa00-000000000002'
 const ACCT_ID = 'fc600000-0000-4000-aa00-000000000003'
-const TEST_USER_IDS = [MAKSYM_ID, HR_EMP_ID, ACCT_ID]
+// MAKSYM_ID is the SHARED canonical admin id (other specs / seed reference it,
+// e.g. contract_templates.created_by) — we only UPSERT it, NEVER delete it.
+// MY_USER_IDS are this spec's own throwaway users, safe to delete.
+const MY_USER_IDS = [HR_EMP_ID, ACCT_ID]
 
 const stubInvoices = {
   autoCreateForSalary: () => Promise.resolve(),
@@ -96,9 +99,16 @@ describe('salary cron — idempotency via partial unique index (LOW #5, real DB)
   let svc: TransactionsService
   let dbSvc: DatabaseService
 
+  // Scope cleanup to salaries RECEIVED by this spec's own users for the test
+  // month. We must NOT delete by `createdBy = MAKSYM_ID` — the cron stamps EVERY
+  // salary (incl. other specs' employees on the shared crm_qa) with MAKSYM_ID as
+  // author, so a broad createdBy delete would wipe unrelated rows.
   async function cleanup() {
-    await dbSvc.db.delete(transactions).where(inArray(transactions.receiverId, TEST_USER_IDS))
-    await dbSvc.db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
+    await dbSvc.db
+      .delete(transactions)
+      .where(
+        and(eq(transactions.salaryMonth, MONTH), inArray(transactions.receiverId, MY_USER_IDS)),
+      )
   }
 
   async function countSalaries(receiverId: string): Promise<number> {
@@ -143,17 +153,31 @@ describe('salary cron — idempotency via partial unique index (LOW #5, real DB)
 
     const db = dbSvc.db
     await cleanup()
-    await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+    // Only delete THIS spec's throwaway users — never MAKSYM_ID (shared canonical
+    // id referenced by seed/other specs, e.g. contract_templates.created_by).
+    await db.delete(users).where(inArray(users.id, MY_USER_IDS))
+
+    // Ensure the canonical MAKSYM_ID admin exists AND is an active ADMIN (the cron
+    // gates on `role='ADMIN' AND id=MAKSYM_ID`). Upsert so a pre-seeded crm_qa row
+    // is normalised to ADMIN/unarchived without deleting it.
+    await db
+      .insert(users)
+      .values({
+        id: MAKSYM_ID,
+        email: 'cron-maksym@test.spec',
+        displayName: 'Cron Maksym',
+        role: 'ADMIN',
+        googleId: `test-google-${MAKSYM_ID}`,
+      })
+      .onConflictDoUpdate({
+        target: users.id,
+        set: { role: 'ADMIN', archivedAt: null },
+      })
+
+    // This spec's own salaried employees.
     await db
       .insert(users)
       .values([
-        {
-          id: MAKSYM_ID,
-          email: 'cron-maksym@test.spec',
-          displayName: 'Cron Maksym',
-          role: 'ADMIN',
-          googleId: `test-google-${MAKSYM_ID}`,
-        },
         {
           id: HR_EMP_ID,
           email: 'cron-hr@test.spec',
@@ -178,7 +202,8 @@ describe('salary cron — idempotency via partial unique index (LOW #5, real DB)
     if (!dbAvailable) return
     try {
       await cleanup()
-      await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      // Only delete this spec's throwaway users; leave MAKSYM_ID intact.
+      await dbSvc.db.delete(users).where(inArray(users.id, MY_USER_IDS))
     } catch {
       // non-fatal
     }
