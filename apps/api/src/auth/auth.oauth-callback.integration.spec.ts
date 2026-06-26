@@ -385,6 +385,10 @@ describe('AuthController.googleCallback — real DB integration (audit MED)', ()
 
     expect(res.statusCode).toBe(302)
     expect(res.headers['location']).toBe(`${FRONTEND_URL}/login?error=unauthorized`)
-    expect(res.headers['set-cookie']).toBeUndefined()
+
+    // No JWT session must be set — controller may clear oauth_state cookie (Max-Age=0), that is fine.
+    const setCookie = res.headers['set-cookie']
+    const cookieStr = Array.isArray(setCookie) ? setCookie.join(';') : (setCookie ?? '')
+    expect(cookieStr).not.toContain('jwt=')
   })
 })
