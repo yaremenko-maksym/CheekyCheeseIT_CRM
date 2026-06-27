@@ -34,21 +34,13 @@ function LoginRoot() {
 //   • running `pnpm dev` (import.meta.env.DEV === true), or
 //   • building with VITE_DEV_LOGIN=true for User Testing through tunnel
 //     (Google OAuth fails on phone via tunnel — redirect_uri_mismatch).
-// In real production builds both are false → section is hidden.
+// In real production builds both are false → section is hidden AND tree-shaken.
 const SHOW_DEV_LOGIN = import.meta.env.DEV || import.meta.env['VITE_DEV_LOGIN'] === 'true'
 
-const DEV_USERS = [
-  { email: 'yaremenkomaksym99@gmail.com', label: 'Maksym Yaremenko — ADMIN' },
-  { email: 'kostya@cheekycheeseit.com', label: 'Kostya — ADMIN' },
-  { email: 'oleksiy.kovalenko@cheekycheese.dev', label: 'Oleksiy Kovalenko — SENIOR' },
-  { email: 'dmytro.marchenko@cheekycheese.dev', label: 'Dmytro Marchenko — SENIOR' },
-  { email: 'sofia.bondarenko@cheekycheese.dev', label: 'Sofia Bondarenko — JUNIOR' },
-  { email: 'ivan.petrenko@cheekycheese.dev', label: 'Ivan Petrenko — JUNIOR' },
-  { email: 'anna.lysenko@cheekycheese.dev', label: 'Anna Lysenko — HR' },
-  { email: 'kateryna.shevchenko@cheekycheese.dev', label: 'Kateryna Shevchenko — HR' },
-  { email: 'mykola.savchenko@cheekycheese.dev', label: 'Mykola Savchenko — ACCOUNTANT' },
-  { email: 'viktor.drop@cheekycheese.dev', label: 'Дрожжин Віктор — DROP' },
-]
+// Security: DEV_USERS is defined inside the SHOW_DEV_LOGIN branch (see DevLoginSection)
+// so that Vite's tree-shaker can eliminate it from production bundles when
+// VITE_DEV_LOGIN is not set. Keeping real emails outside that branch would embed
+// them as string literals in every build regardless of the flag.
 
 const ERROR_MESSAGES: Record<string, string> = {
   unauthorized: 'Ваш email не авторизован. Обратитесь к администратору.',
@@ -78,6 +70,77 @@ function GoogleIcon() {
         fill="#EA4335"
       />
     </svg>
+  )
+}
+
+// DEV_USERS is defined inside DevLoginSection (not at module top-level) so that
+// Vite's tree-shaker can drop this entire component — including the email
+// literals — when SHOW_DEV_LOGIN is false (production build without the flag).
+// If defined at module scope, the array would be a static string constant that
+// bundlers include unconditionally regardless of the conditional render above.
+function DevLoginSection({
+  devLoading,
+  setDevLoading,
+}: {
+  devLoading: string | null
+  setDevLoading: (v: string | null) => void
+}) {
+  // Email addresses are dev/staging placeholders that map to seeded DB accounts.
+  // Keeping them here (not at module scope) prevents them from being bundled into
+  // production output when VITE_DEV_LOGIN is not set.
+  const DEV_USERS = [
+    { email: 'admin@example.dev', label: 'Admin 1 — ADMIN' },
+    { email: 'admin2@example.dev', label: 'Admin 2 — ADMIN' },
+    { email: 'senior1@example.dev', label: 'Senior 1 — SENIOR' },
+    { email: 'senior2@example.dev', label: 'Senior 2 — SENIOR' },
+    { email: 'junior1@example.dev', label: 'Junior 1 — JUNIOR' },
+    { email: 'junior2@example.dev', label: 'Junior 2 — JUNIOR' },
+    { email: 'hr1@example.dev', label: 'HR 1 — HR' },
+    { email: 'hr2@example.dev', label: 'HR 2 — HR' },
+    { email: 'accountant@example.dev', label: 'Accountant — ACCOUNTANT' },
+    { email: 'drop@example.dev', label: 'Drop — DROP' },
+  ]
+
+  return (
+    <div
+      className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4"
+      data-testid="dev-login-section"
+    >
+      <div className="mb-3 flex items-center gap-2">
+        <span className="text-amber-400" aria-hidden="true">
+          🔧
+        </span>
+        <h3 className="text-sm font-medium text-amber-400">Dev Login (только для тестирования)</h3>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {DEV_USERS.map((u) => (
+          <button
+            key={u.email}
+            type="button"
+            data-testid={`dev-login-${u.email}`}
+            disabled={devLoading !== null}
+            onClick={async () => {
+              setDevLoading(u.email)
+              try {
+                await api.post('/auth/dev-login', { email: u.email })
+                window.location.href = '/'
+              } catch {
+                setDevLoading(null)
+              }
+            }}
+            className="flex w-full items-center gap-2 rounded-md border border-amber-500/20 bg-background/60 px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-foreground disabled:opacity-50"
+          >
+            <span className="flex-1">{u.label}</span>
+            {devLoading === u.email && (
+              <span
+                className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent"
+                aria-hidden="true"
+              />
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -157,47 +220,10 @@ function LoginPage() {
         </Button>
 
         {SHOW_DEV_LOGIN && (
-          <div
-            className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4"
-            data-testid="dev-login-section"
-          >
-            <div className="mb-3 flex items-center gap-2">
-              <span className="text-amber-400" aria-hidden="true">
-                🔧
-              </span>
-              <h3 className="text-sm font-medium text-amber-400">
-                Dev Login (только для тестирования)
-              </h3>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              {DEV_USERS.map((u) => (
-                <button
-                  key={u.email}
-                  type="button"
-                  data-testid={`dev-login-${u.email}`}
-                  disabled={devLoading !== null}
-                  onClick={async () => {
-                    setDevLoading(u.email)
-                    try {
-                      await api.post('/auth/dev-login', { email: u.email })
-                      window.location.href = '/'
-                    } catch {
-                      setDevLoading(null)
-                    }
-                  }}
-                  className="flex w-full items-center gap-2 rounded-md border border-amber-500/20 bg-background/60 px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-foreground disabled:opacity-50"
-                >
-                  <span className="flex-1">{u.label}</span>
-                  {devLoading === u.email && (
-                    <span
-                      className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent"
-                      aria-hidden="true"
-                    />
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
+          // DevLoginSection is rendered (and its DEV_USERS array instantiated) only
+          // when SHOW_DEV_LOGIN is truthy — keeping the email literals inside this
+          // branch ensures they are tree-shaken out of production builds.
+          <DevLoginSection devLoading={devLoading} setDevLoading={setDevLoading} />
         )}
 
         <p className="mt-6 text-center text-xs text-muted-foreground">

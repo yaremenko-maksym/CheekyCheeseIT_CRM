@@ -14,19 +14,17 @@ const queryClient = createQueryClient()
 const CACHE_BUSTER = import.meta.env.VITE_BUILD_VERSION ?? import.meta.env.MODE
 
 // Allow-list of query-key prefixes that MAY be persisted to IndexedDB (security
-// review PR #140). Opt-in / safe-by-default: only relatively-stable business &
-// reference data is persisted, and NEVER payment credentials (wallet / IBAN /
-// RNOKPP / salary), transaction / balance data, or the auth role. Listed keys
-// (teams, projects, …) may carry incidental contact fields such as email, but no
-// payment requisites. Everything NOT listed — auth, user-profile, payment
-// channels, the finance family, users* PII lists, volatile gating/counters — is
-// never written to disk, so a new sensitive queryKey can't leak by default.
+// review PR #140). Opt-in / safe-by-default: only non-PII reference data.
+// NEVER persist: auth, user-profile, payment credentials (wallet / IBAN /
+// RNOKPP / salary), transaction / balance data, PII lists (email / phone /
+// telegram), or any team-member data (teamMemberSchema carries email+phone).
+// Removed (security audit): 'teams', 'team', 'user-team' — teamMemberSchema
+// carries PII fields (email, phone, telegram); persisting these writes contact
+// data to IndexedDB across browser sessions. Projects/contracts/ToS are
+// non-PII reference data and remain safe to persist.
 const PERSISTED_KEY_PREFIXES = new Set<string>([
-  'teams',
-  'team',
   'projects',
   'user-projects',
-  'user-team',
   'interviews',
   'contract-templates-all',
   'contract-template',

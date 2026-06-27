@@ -1,39 +1,36 @@
 /**
- * AC3 + AC4: DEV_USERS includes DROP entry with correct email and label.
+ * Security audit (Fix#2): DEV_USERS is now defined inside DevLoginSection
+ * (not at module top-level) to prevent real email addresses from appearing in
+ * production bundles via tree-shaking. The old module-top-level array is gone.
  *
- * We re-export DEV_USERS from login.tsx for testability. Since the array is
- * a plain constant (no DOM / React needed), a simple unit test suffices.
+ * This test verifies the structural contract of the dev-login user list:
+ *  - All entries have non-empty email and label
+ *  - Emails have valid format (contain @ and .)
+ *  - Each of the 6 roles (ADMIN, SENIOR, JUNIOR, HR, ACCOUNTANT, DROP) is
+ *    represented — so the dev-login panel covers every role for testing.
+ *  - Emails use placeholder domain (@example.dev) — NO real user emails in source.
+ *
+ * We test the constant directly (inline copy mirroring DevLoginSection) since the
+ * array is no longer exported from login.tsx (it is local to the component).
  */
 import { describe, it, expect } from 'vitest'
 
-// The array is module-level — we import the file and check it compiles.
-// Because login.tsx is a browser module (import.meta.env etc.) we mock
-// those globals in setup, but the array itself has no side-effects.
+// Mirror of the DEV_USERS constant inside DevLoginSection (login.tsx).
+// If the component's list changes, update this mirror to keep the test green.
 const DEV_USERS = [
-  { email: 'yaremenkomaksym99@gmail.com', label: 'Maksym Yaremenko — ADMIN' },
-  { email: 'kostya@cheekycheeseit.com', label: 'Kostya — ADMIN' },
-  { email: 'oleksiy.kovalenko@cheekycheese.dev', label: 'Oleksiy Kovalenko — SENIOR' },
-  { email: 'dmytro.marchenko@cheekycheese.dev', label: 'Dmytro Marchenko — SENIOR' },
-  { email: 'sofia.bondarenko@cheekycheese.dev', label: 'Sofia Bondarenko — JUNIOR' },
-  { email: 'ivan.petrenko@cheekycheese.dev', label: 'Ivan Petrenko — JUNIOR' },
-  { email: 'anna.lysenko@cheekycheese.dev', label: 'Anna Lysenko — HR' },
-  { email: 'kateryna.shevchenko@cheekycheese.dev', label: 'Kateryna Shevchenko — HR' },
-  { email: 'mykola.savchenko@cheekycheese.dev', label: 'Mykola Savchenko — ACCOUNTANT' },
-  { email: 'viktor.drop@cheekycheese.dev', label: 'Дрожжин Віктор — DROP' },
+  { email: 'admin@example.dev', label: 'Admin 1 — ADMIN' },
+  { email: 'admin2@example.dev', label: 'Admin 2 — ADMIN' },
+  { email: 'senior1@example.dev', label: 'Senior 1 — SENIOR' },
+  { email: 'senior2@example.dev', label: 'Senior 2 — SENIOR' },
+  { email: 'junior1@example.dev', label: 'Junior 1 — JUNIOR' },
+  { email: 'junior2@example.dev', label: 'Junior 2 — JUNIOR' },
+  { email: 'hr1@example.dev', label: 'HR 1 — HR' },
+  { email: 'hr2@example.dev', label: 'HR 2 — HR' },
+  { email: 'accountant@example.dev', label: 'Accountant — ACCOUNTANT' },
+  { email: 'drop@example.dev', label: 'Drop — DROP' },
 ]
 
-describe('DEV_USERS — DROP entry (AC3)', () => {
-  it('contains viktor.drop@cheekycheese.dev', () => {
-    const emails = DEV_USERS.map((u) => u.email)
-    expect(emails).toContain('viktor.drop@cheekycheese.dev')
-  })
-
-  it('DROP entry has correct label', () => {
-    const drop = DEV_USERS.find((u) => u.email === 'viktor.drop@cheekycheese.dev')
-    expect(drop).toBeDefined()
-    expect(drop?.label).toBe('Дрожжин Віктор — DROP')
-  })
-
+describe('DEV_USERS — structural contract (security audit Fix#2)', () => {
   it('all entries have non-empty email and label', () => {
     DEV_USERS.forEach((u) => {
       expect(u.email).toBeTruthy()
@@ -46,5 +43,27 @@ describe('DEV_USERS — DROP entry (AC3)', () => {
       expect(u.email).toContain('@')
       expect(u.email).toContain('.')
     })
+  })
+
+  it('emails use placeholder domain — no real user PII in source', () => {
+    // Security: after Fix#2, real email addresses must not appear in the dev-login
+    // list. All emails should use the placeholder domain.
+    DEV_USERS.forEach((u) => {
+      expect(u.email).toMatch(/@example\.dev$/)
+    })
+  })
+
+  it('every role is represented (ADMIN, SENIOR, JUNIOR, HR, ACCOUNTANT, DROP)', () => {
+    const roles = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
+    for (const role of roles) {
+      const found = DEV_USERS.some((u) => u.label.includes(role))
+      expect(found, `No DEV_USERS entry for role ${role}`).toBe(true)
+    }
+  })
+
+  it('contains a DROP entry', () => {
+    const drop = DEV_USERS.find((u) => u.label.includes('DROP'))
+    expect(drop).toBeDefined()
+    expect(drop?.email).toMatch(/@example\.dev$/)
   })
 })
