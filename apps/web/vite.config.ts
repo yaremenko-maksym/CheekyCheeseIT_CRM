@@ -170,6 +170,11 @@ export default defineConfig({
     TanStackRouterVite({
       routesDirectory: './app/routes',
       generatedRouteTree: './app/routeTree.gen.ts',
+      // Auto-split each route's component/loader into its own lazy chunk so the
+      // entry graph no longer statically imports all 30 routes (which pulled
+      // codemirror/recharts/markdown/etc. into the eager modulepreload set →
+      // ~3.2 MB parsed on first paint → 9 s dashboard + main-thread jank).
+      autoCodeSplitting: true,
     }),
     react(),
     tailwindcss(),
