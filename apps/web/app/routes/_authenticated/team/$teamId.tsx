@@ -300,6 +300,25 @@ function TeamDetailPage() {
         )
       : activeProjects
 
+  // Pre-compute members grouped by role once per team.members change. MUST be
+  // ABOVE the early returns below — Rules of Hooks: an unconditional hook call.
+  // Placing it after `if (isLoading)` changed the hook count between the loading
+  // and loaded renders -> "Rendered more hooks than during the previous render"
+  // crash on every navigation to /team/$teamId.
+  // (Also avoids the prior O(N²) per-member reduce inside the JSX .map().)
+  const membersByRole = useMemo(
+    () =>
+      (team?.members ?? []).reduce(
+        (acc, m) => {
+          if (!acc[m.role]) acc[m.role] = []
+          acc[m.role]!.push(m)
+          return acc
+        },
+        {} as Record<string, NonNullable<typeof team>['members']>,
+      ),
+    [team?.members],
+  )
+
   if (isLoading) {
     return (
       <div className="space-y-6 px-6 pt-4 pb-6">
@@ -312,7 +331,15 @@ function TeamDetailPage() {
         </div>
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-4">
-            <Skeleton className="h-48 rounded-xl" />
+            {/* Members card skeleton — matches real grid gap-2 sm:grid-cols-2 */}
+            <div className="rounded-xl border border-border p-4 space-y-3">
+              <Skeleton className="h-5 w-36" />
+              <div className="grid gap-2 sm:grid-cols-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-14 rounded-lg" />
+                ))}
+              </div>
+            </div>
           </div>
           <div className="space-y-4">
             <Skeleton className="h-32 rounded-xl" />
@@ -686,15 +713,7 @@ function TeamDetailPage() {
                           </div>
                           {canManage &&
                             (() => {
-                              const membersByRole = team.members.reduce(
-                                (acc, m) => {
-                                  if (!acc[m.role]) acc[m.role] = []
-                                  acc[m.role]!.push(m)
-                                  return acc
-                                },
-                                {} as Record<string, typeof team.members>,
-                              )
-
+                              // membersByRole is pre-computed above via useMemo([team.members])
                               const isSenior = member.role === 'SENIOR'
                               const isJunior = member.role === 'JUNIOR'
                               const isLastHr =
