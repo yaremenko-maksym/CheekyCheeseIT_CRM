@@ -192,14 +192,16 @@ beforeEach(() => {
 describe('StatsPage — economic data (both roles)', () => {
   it.each<SessionUser['role']>(['ADMIN', 'ACCOUNTANT'])(
     '%s sees the economic finance section + core KPIs',
-    (role) => {
+    async (role) => {
       setup(role)
       expect(screen.getByTestId('stats-finance-section')).toBeInTheDocument()
       expect(screen.getByText('Общий доход')).toBeInTheDocument()
       expect(screen.getByText('Расходы')).toBeInTheDocument()
       expect(screen.getByText('Зарплаты')).toBeInTheDocument()
       expect(screen.getByText('Net balance')).toBeInTheDocument()
-      expect(screen.getByText('Динамика по месяцам')).toBeInTheDocument()
+      // FinanceChart is now lazy (React.lazy + Suspense) — its title resolves on
+      // the next microtask even with the module mocked, so assert async.
+      expect(await screen.findByText('Динамика по месяцам')).toBeInTheDocument()
     },
   )
 
