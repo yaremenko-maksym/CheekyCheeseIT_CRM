@@ -300,6 +300,25 @@ function TeamDetailPage() {
         )
       : activeProjects
 
+  // Pre-compute members grouped by role once per team.members change. MUST be
+  // ABOVE the early returns below — Rules of Hooks: an unconditional hook call.
+  // Placing it after `if (isLoading)` changed the hook count between the loading
+  // and loaded renders -> "Rendered more hooks than during the previous render"
+  // crash on every navigation to /team/$teamId.
+  // (Also avoids the prior O(N²) per-member reduce inside the JSX .map().)
+  const membersByRole = useMemo(
+    () =>
+      (team?.members ?? []).reduce(
+        (acc, m) => {
+          if (!acc[m.role]) acc[m.role] = []
+          acc[m.role]!.push(m)
+          return acc
+        },
+        {} as Record<string, NonNullable<typeof team>['members']>,
+      ),
+    [team?.members],
+  )
+
   if (isLoading) {
     return (
       <div className="space-y-6 px-6 pt-4 pb-6">
@@ -350,21 +369,6 @@ function TeamDetailPage() {
       </div>
     )
   }
-
-  // Pre-compute members grouped by role once per team.members change.
-  // Previously recomputed per-member inside JSX .map() → O(N²) reduce per render.
-  const membersByRole = useMemo(
-    () =>
-      (team?.members ?? []).reduce(
-        (acc, m) => {
-          if (!acc[m.role]) acc[m.role] = []
-          acc[m.role]!.push(m)
-          return acc
-        },
-        {} as Record<string, NonNullable<typeof team>['members']>,
-      ),
-    [team?.members],
-  )
 
   // Add member dialog filtering logic
   const memberUserIds = new Set(team?.members.map((m) => m.userId) ?? [])
