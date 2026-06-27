@@ -516,6 +516,17 @@ function TeamPage() {
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<'name' | 'members' | 'projects'>('name')
 
+  // Pre-compute active project count per team (one pass) to avoid O(N²) in sort comparator.
+  const activeProjectCountByTeamSenior = useMemo<Map<string, number>>(() => {
+    const map = new Map<string, number>()
+    if (!projects) return map
+    for (const p of projects) {
+      if (p.archivedAt !== null || !p.seniorId) continue
+      map.set(p.seniorId, (map.get(p.seniorId) ?? 0) + 1)
+    }
+    return map
+  }, [projects])
+
   // Filtered and sorted teams
   const filteredTeams = useMemo(() => {
     if (!teams) return []
@@ -530,45 +541,17 @@ function TeamPage() {
       if (sortBy === 'name') return a.name.localeCompare(b.name)
       if (sortBy === 'members') return b.members.length - a.members.length
       if (sortBy === 'projects') {
-        const aProjects = projects
-          ? projects.filter(
-              (p) =>
-                p.archivedAt === null &&
-                a.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
-            ).length
-          : 0
-        const bProjects = projects
-          ? projects.filter(
-              (p) =>
-                p.archivedAt === null &&
-                b.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
-            ).length
-          : 0
-        return bProjects - aProjects
+        const seniorA = a.members.find((m) => m.role === 'SENIOR')
+        const seniorB = b.members.find((m) => m.role === 'SENIOR')
+        const aCount = seniorA ? (activeProjectCountByTeamSenior.get(seniorA.userId) ?? 0) : 0
+        const bCount = seniorB ? (activeProjectCountByTeamSenior.get(seniorB.userId) ?? 0) : 0
+        return bCount - aCount
       }
       return 0
     })
 
     return result
-  }, [teams, projects, search, sortBy])
-
-  if (isLoading) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="space-y-1.5">
-            <Skeleton className="h-7 w-32" />
-            <Skeleton className="h-4 w-52" />
-          </div>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-52 rounded-xl" />
-          ))}
-        </div>
-      </div>
-    )
-  }
+  }, [teams, activeProjectCountByTeamSenior, search, sortBy])
 
   // ut-25 + ut-33 + ut-44: tabs for teams page — «Все | Активные | Архив»
   // for ADMIN, unified through SegmentedToggle so the gold-pill animation
@@ -627,7 +610,7 @@ function TeamPage() {
           />
         )}
 
-        {teams && teams.length > 0 && (
+        {(isLoading || (teams && teams.length > 0)) && (
           <div className="flex gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -657,7 +640,7 @@ function TeamPage() {
         style={{ scrollbarGutter: 'stable' }}
       >
         <div className="space-y-6">
-          {teams && teams.length === 0 && (
+          {!isLoading && teams && teams.length === 0 && (
             <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
               <Users className="h-10 w-10 text-muted-foreground/30" />
               <p className="mt-4 text-sm font-medium">Команд пока нет</p>
@@ -675,7 +658,11 @@ function TeamPage() {
             initial="hidden"
             animate="show"
           >
-            {filteredTeams.length === 0 && (teams?.length ?? 0) > 0 && (
+            {isLoading &&
+              Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-14 rounded-lg" />
+              ))}
+            {!isLoading && filteredTeams.length === 0 && (teams?.length ?? 0) > 0 && (
               <p className="py-8 text-center text-sm text-muted-foreground">Ничего не найдено</p>
             )}
             {filteredTeams.map((team) => {
@@ -683,12 +670,9 @@ function TeamPage() {
               // performed from the detail page header. No need for per-team
               // RBAC computation here.
               const hrMembers = team.members.filter((m) => m.role === 'HR')
-              const activeProjects = projects
-                ? projects.filter(
-                    (p) =>
-                      p.archivedAt === null &&
-                      team.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
-                  ).length
+              const seniorMember = team.members.find((m) => m.role === 'SENIOR')
+              const activeProjects = seniorMember
+                ? (activeProjectCountByTeamSenior.get(seniorMember.userId) ?? 0)
                 : 0
               const isArchived = !!team.archivedAt
 

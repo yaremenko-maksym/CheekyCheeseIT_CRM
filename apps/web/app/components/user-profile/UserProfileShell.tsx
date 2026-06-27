@@ -111,17 +111,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
     }
   }, [shouldRedirectDrop, navigate])
 
-  if (isLoading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-32 w-full" />
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    )
-  }
-
-  if (isError || !data) {
+  if (!isLoading && (isError || !data)) {
     // DROP viewer + 403 → redirect (effect above). Render nothing while it
     // fires so the "Нет доступа" screen never flashes for a DROP. Other roles
     // keep the access-denied / not-found message unchanged.
@@ -139,20 +129,27 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
     )
   }
 
-  const { user, permissions, data: viewData } = data
+  // Derive display values — all undefined while loading (data is undefined).
+  const profileUser = data?.user
+  const permissions = data?.permissions
+  const viewData = data?.data
 
   // ADMIN looking at own profile: hide "registration date" line (matches hidden KPI cards)
   const showCreatedAt =
-    permissions.fields.registrationDate !== false && !(mode === 'self' && user.role === 'ADMIN')
+    !!permissions &&
+    !!profileUser &&
+    permissions.fields.registrationDate !== false &&
+    !(mode === 'self' && profileUser.role === 'ADMIN')
   // Any SENIOR profile (self or viewed by ADMIN) surfaces the kanban board
   // link in the header — the dedicated 'interviews' tab was removed.
-  const showInterviewsLink = user.role === 'SENIOR'
+  const showInterviewsLink = profileUser?.role === 'SENIOR' ?? false
 
   // §2c: on own profile show only overview + requisites + contract.
   // view-mode is unchanged (backend permissions govern what's shown there).
   const SELF_ALLOWED_TABS = ['overview', 'requisites', 'contract'] as const
-  const visibleTabs =
-    mode === 'self'
+  const visibleTabs = !permissions
+    ? []
+    : mode === 'self'
       ? permissions.tabs.filter((t) => (SELF_ALLOWED_TABS as readonly string[]).includes(t))
       : permissions.tabs
 
@@ -160,58 +157,78 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
 
   // JUNIOR sees a single project, not a portfolio — relabel tab
   const tabLabel = (t: string): string => {
-    if (t === 'projects' && user.role === 'JUNIOR') return 'Проект'
+    if (t === 'projects' && profileUser?.role === 'JUNIOR') return 'Проект'
     return TAB_LABELS[t] ?? t
   }
 
   return (
     <div className="flex flex-col h-full min-h-0">
       <StickyPageHeader>
-        <UserProfileHeader
-          user={user}
-          showCreatedAt={showCreatedAt}
-          showInterviewsLink={showInterviewsLink}
-          onAvatarClick={mode === 'self' ? () => setAvatarOpen(true) : undefined}
-          actionsSlot={
-            permissions.actions.length > 0 ? (
-              <AdminActionsMenu
-                userId={userId}
-                user={user}
-                actions={permissions.actions as import('@crm/shared').ActionKey[]}
-              />
-            ) : null
-          }
-        />
-
-        {visibleTabs.length > 0 && (
-          // Tab bar: horizontal scroll for many tabs on narrow viewports; pb-1
-          // keeps the pill's shadow from being clipped by overflow-x-auto.
-          <div className="relative overflow-x-auto pb-1">
-            <AnimatedTabs
-              tabs={visibleTabs.map((t) => ({ value: t, label: tabLabel(t) }))}
-              value={activeTab}
-              onChange={handleTabChange}
-            />
+        {/* Header: skeleton avatar+name while loading, real header when data arrives */}
+        {isLoading ? (
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-16 w-16 rounded-full shrink-0" />
+            <div className="space-y-1.5">
+              <Skeleton className="h-6 w-40" />
+              <Skeleton className="h-4 w-28" />
+            </div>
           </div>
+        ) : profileUser ? (
+          <UserProfileHeader
+            user={profileUser}
+            showCreatedAt={showCreatedAt}
+            showInterviewsLink={showInterviewsLink}
+            onAvatarClick={mode === 'self' ? () => setAvatarOpen(true) : undefined}
+            actionsSlot={
+              permissions && permissions.actions.length > 0 ? (
+                <AdminActionsMenu
+                  userId={userId}
+                  user={profileUser}
+                  actions={permissions.actions as import('@crm/shared').ActionKey[]}
+                />
+              ) : null
+            }
+          />
+        ) : null}
+
+        {/* Tab bar: skeleton pills while loading, real tabs when data arrives */}
+        {isLoading ? (
+          <div className="flex gap-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-8 w-20 rounded-full" />
+            ))}
+          </div>
+        ) : (
+          visibleTabs.length > 0 && (
+            // Tab bar: horizontal scroll for many tabs on narrow viewports; pb-1
+            // keeps the pill's shadow from being clipped by overflow-x-auto.
+            <div className="relative overflow-x-auto pb-1">
+              <AnimatedTabs
+                tabs={visibleTabs.map((t) => ({ value: t, label: tabLabel(t) }))}
+                value={activeTab}
+                onChange={handleTabChange}
+              />
+            </div>
+          )
         )}
       </StickyPageHeader>
 
       {/* ── Off-sticky content ─────────────────────────────────────────────── */}
 
       {/* Avatar upload dialog — rendered via portal, position doesn't matter */}
-      {mode === 'self' && (
+      {mode === 'self' && profileUser && (
         <AvatarUploadDialog
           open={avatarOpen}
           onClose={() => setAvatarOpen(false)}
-          userId={user.id}
-          avatarDocumentId={user.avatarDocumentId ?? null}
-          avatarUrl={user.avatarUrl}
+          userId={profileUser.id}
+          avatarDocumentId={profileUser.avatarDocumentId ?? null}
+          avatarUrl={profileUser.avatarUrl}
         />
       )}
 
       {/* Drop role - phase 1 (AC7): teamless SENIOR banner.
           Intentionally scrollable (not sticky) — it's a notification. */}
-      {mode === 'self' && user.role === 'SENIOR' && isTeamlessSenior && (
+      {mode === 'self' && profileUser?.role === 'SENIOR' && isTeamlessSenior && (
         <div
           className="mt-4 flex flex-col gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 sm:flex-row sm:items-center sm:justify-between"
           data-testid="profile-teamless-banner"
@@ -256,7 +273,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
         </AlertDialogContent>
       </AlertDialog>
 
-      {visibleTabs.length === 0 && mode === 'view' && (
+      {!isLoading && visibleTabs.length === 0 && mode === 'view' && (
         <div
           className="mt-4 rounded-lg border border-border bg-muted/40 px-6 py-10 text-center"
           data-testid="profile-no-access"
@@ -265,44 +282,51 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
         </div>
       )}
 
-      {visibleTabs.length > 0 && (
-        /* Content area scrolls naturally via the parent <main> (overflow-y-auto in / route).
-           No overflow-hidden here — that was blocking the scroll for long tabs.
-           px-6 aligns content with the PageHeader padding (§2b). */
-        <div className="flex-1 min-h-0 overflow-y-auto pt-4 pb-6 min-w-0 px-6">
-          {activeTab === 'overview' && visibleTabs.includes('overview') && (
-            <OverviewTab
-              user={user}
-              data={viewData as Record<string, unknown>}
-              permissions={permissions}
-              mode={mode}
-              onGoToTab={handleTabChange}
-            />
-          )}
-          {activeTab === 'finance' && visibleTabs.includes('finance') && (
-            <FinanceTab userId={user.id} targetRole={user.role} />
-          )}
-          {activeTab === 'projects' && visibleTabs.includes('projects') && (
-            <ProjectsTab userId={user.id} role={user.role} />
-          )}
-          {activeTab === 'team' && visibleTabs.includes('team') && <TeamTab userId={user.id} />}
-          {activeTab === 'interviews' && visibleTabs.includes('interviews') && (
-            <InterviewsTab seniorId={user.id} />
-          )}
-          {activeTab === 'requisites' && visibleTabs.includes('requisites') && (
-            <RequisitesTab user={user} mode={mode} />
-          )}
-          {activeTab === 'documents' && visibleTabs.includes('documents') && <DocumentsTab />}
-          {activeTab === 'contract' && visibleTabs.includes('contract') && (
-            <ContractTab
-              userId={user.id}
-              targetRole={user.role}
-              canEdit={viewer?.role === 'ADMIN'}
-              onDirtyChange={handleContractDirtyChange}
-            />
-          )}
-        </div>
-      )}
+      {/* Content area: skeleton while loading, real tabs when data arrives */}
+      <div className="flex-1 min-h-0 overflow-y-auto pt-4 pb-6 min-w-0 px-6">
+        {isLoading ? (
+          <Skeleton className="h-64 w-full" />
+        ) : (
+          visibleTabs.length > 0 &&
+          profileUser && (
+            <>
+              {activeTab === 'overview' && visibleTabs.includes('overview') && (
+                <OverviewTab
+                  user={profileUser}
+                  data={viewData as Record<string, unknown>}
+                  permissions={permissions!}
+                  mode={mode}
+                  onGoToTab={handleTabChange}
+                />
+              )}
+              {activeTab === 'finance' && visibleTabs.includes('finance') && (
+                <FinanceTab userId={profileUser.id} targetRole={profileUser.role} />
+              )}
+              {activeTab === 'projects' && visibleTabs.includes('projects') && (
+                <ProjectsTab userId={profileUser.id} role={profileUser.role} />
+              )}
+              {activeTab === 'team' && visibleTabs.includes('team') && (
+                <TeamTab userId={profileUser.id} />
+              )}
+              {activeTab === 'interviews' && visibleTabs.includes('interviews') && (
+                <InterviewsTab seniorId={profileUser.id} />
+              )}
+              {activeTab === 'requisites' && visibleTabs.includes('requisites') && (
+                <RequisitesTab user={profileUser} mode={mode} />
+              )}
+              {activeTab === 'documents' && visibleTabs.includes('documents') && <DocumentsTab />}
+              {activeTab === 'contract' && visibleTabs.includes('contract') && (
+                <ContractTab
+                  userId={profileUser.id}
+                  targetRole={profileUser.role}
+                  canEdit={viewer?.role === 'ADMIN'}
+                  onDirtyChange={handleContractDirtyChange}
+                />
+              )}
+            </>
+          )
+        )}
+      </div>
     </div>
   )
 }
