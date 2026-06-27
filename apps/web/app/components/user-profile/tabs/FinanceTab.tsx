@@ -92,9 +92,20 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
   const [statusFilter, setStatusFilter] = useState('all')
   const [detailTx, setDetailTx] = useState<TransactionDto | null>(null)
 
+  // Pre-parse timestamps once per transactions change — avoids two `new Date()`
+  // calls per comparison during sort (O(N log N) date-parsing overhead removed).
+  const txWithTime = useMemo(
+    () =>
+      transactions.map((tx) => ({
+        tx,
+        time: new Date(tx.txDate ?? tx.createdAt).getTime(),
+      })),
+    [transactions],
+  )
+
   const filtered = useMemo(() => {
-    return transactions
-      .filter((tx) => {
+    return txWithTime
+      .filter(({ tx }) => {
         if (typeFilter !== 'all' && tx.type !== typeFilter) return false
         if (statusFilter !== 'all' && tx.status !== statusFilter) return false
         if (search) {
@@ -114,11 +125,9 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
         }
         return true
       })
-      .sort(
-        (a, b) =>
-          new Date(b.txDate ?? b.createdAt).getTime() - new Date(a.txDate ?? a.createdAt).getTime(),
-      )
-  }, [transactions, search, typeFilter, statusFilter])
+      .sort((a, b) => b.time - a.time)
+      .map(({ tx }) => tx)
+  }, [txWithTime, search, typeFilter, statusFilter])
 
   const hasActive = search !== '' || typeFilter !== 'all' || statusFilter !== 'all'
 
@@ -154,7 +163,49 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
       </Card>
     ) : null
 
-  if (isLoading) return <Skeleton className="h-64 w-full" />
+  // chrome-in-place: show earnedCard (independent query — already may have data)
+  // + filter-bar skeleton + thead while transactions are loading.
+  if (isLoading) {
+    return (
+      <>
+        {earnedCard}
+        <Card>
+          <CardContent className="p-0">
+            {/* Filter bar — always visible */}
+            <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-border">
+              <Skeleton className="h-8 flex-1 min-w-40 rounded-md" />
+              <Skeleton className="h-8 w-32 rounded-md" />
+              <Skeleton className="h-8 w-32 rounded-md" />
+            </div>
+            {/* Skeleton rows in tbody position */}
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border text-xs text-muted-foreground">
+                    <th className="py-3 px-4 text-left font-medium">Тип</th>
+                    <th className="py-3 px-4 text-left font-medium">Участник / Проект</th>
+                    <th className="py-3 px-4 text-left font-medium">Сумма</th>
+                    <th className="py-3 px-4 text-left font-medium">Дата</th>
+                    <th className="py-3 px-4 text-left font-medium">Статус</th>
+                    <th className="py-3 px-4 text-left font-medium">Действия</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <tr key={i} className="border-b border-border/50">
+                      <td className="py-3 px-4" colSpan={6}>
+                        <Skeleton className="h-4 w-full rounded" />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </>
+    )
+  }
 
   if (transactions.length === 0) {
     return (
