@@ -59,6 +59,18 @@ vi.mock('recharts', () => {
   }
 })
 
+// FinanceChart is now lazy (React.lazy + Suspense). Mock the module so the
+// component resolves synchronously in the test environment — avoids the need
+// for act()/waitFor() wrappers in existing synchronous assertions.
+vi.mock('@/components/stats/FinanceChart', () => ({
+  FinanceChart: ({ summary }: { summary: { monthly: unknown[] } }) => (
+    <div data-testid="finance-chart-stub">
+      <span>Динамика по месяцам</span>
+      <span data-testid="chart-month-count">{summary.monthly.length}</span>
+    </div>
+  ),
+}))
+
 vi.mock('./finance/api', () => ({
   financeApi: { getSummary: vi.fn(), getIncomeCompliance: vi.fn() },
   // Phase 8 v2: the company-account balance KPI lives on /stats now.
@@ -180,14 +192,16 @@ beforeEach(() => {
 describe('StatsPage — economic data (both roles)', () => {
   it.each<SessionUser['role']>(['ADMIN', 'ACCOUNTANT'])(
     '%s sees the economic finance section + core KPIs',
-    (role) => {
+    async (role) => {
       setup(role)
       expect(screen.getByTestId('stats-finance-section')).toBeInTheDocument()
       expect(screen.getByText('Общий доход')).toBeInTheDocument()
       expect(screen.getByText('Расходы')).toBeInTheDocument()
       expect(screen.getByText('Зарплаты')).toBeInTheDocument()
       expect(screen.getByText('Net balance')).toBeInTheDocument()
-      expect(screen.getByText('Динамика по месяцам')).toBeInTheDocument()
+      // FinanceChart is now lazy (React.lazy + Suspense) — its title resolves on
+      // the next microtask even with the module mocked, so assert async.
+      expect(await screen.findByText('Динамика по месяцам')).toBeInTheDocument()
     },
   )
 
