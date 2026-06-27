@@ -2,24 +2,11 @@
  * Security audit Fix#1: persisted IndexedDB query-key prefixes must NOT include
  * team-related keys that carry PII (email, phone, telegram via teamMemberSchema).
  *
- * PERSISTED_KEY_PREFIXES is not exported from __root.tsx — we assert the contract
- * by checking which query key strings are safe vs forbidden per the security policy
- * documented in __root.tsx. The actual runtime enforcement is in dehydrateOptions
- * (shouldDehydrateQuery). This test documents and verifies the policy.
+ * PERSISTED_KEY_PREFIXES is exported from __root.tsx — we import the real constant
+ * so any change to the allow-list is caught immediately (no stale mirror drift).
  */
 import { describe, it, expect } from 'vitest'
-
-// Canonical allow-list — mirrors PERSISTED_KEY_PREFIXES in __root.tsx.
-// If you add/remove a prefix there, update this mirror to keep the test green.
-const PERSISTED_KEY_PREFIXES = new Set<string>([
-  'projects',
-  'user-projects',
-  'interviews',
-  'contract-templates-all',
-  'contract-template',
-  'tos-current',
-  'tos-versions-all',
-])
+import { PERSISTED_KEY_PREFIXES } from '../routes/__root'
 
 // PII-bearing keys that were removed in the security audit and must NEVER return.
 const FORBIDDEN_PII_PREFIXES = ['teams', 'team', 'user-team'] as const

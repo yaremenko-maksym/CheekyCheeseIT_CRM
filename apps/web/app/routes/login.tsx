@@ -30,17 +30,18 @@ function LoginRoot() {
   )
 }
 
-// Show Dev Login section when:
-//   • running `pnpm dev` (import.meta.env.DEV === true), or
-//   • building with VITE_DEV_LOGIN=true for User Testing through tunnel
-//     (Google OAuth fails on phone via tunnel — redirect_uri_mismatch).
-// In real production builds both are false → section is hidden AND tree-shaken.
-const SHOW_DEV_LOGIN = import.meta.env.DEV || import.meta.env['VITE_DEV_LOGIN'] === 'true'
+// Dev-login visibility gate: import.meta.env.PROD is a static boolean that
+// Vite replaces at build time (true in prod, false in dev). Using PROD (not DEV
+// or bracket-access VITE_DEV_LOGIN) guarantees Rollup dead-code-eliminates the
+// entire DevLoginSection — including email literals — from production bundles.
+// import.meta.env['VITE_DEV_LOGIN'] (bracket access) is NOT statically foldable
+// by Vite/Rollup and keeps the component in the bundle even when the flag is unset.
+const SHOW_DEV_LOGIN = !import.meta.env.PROD
 
-// Security: DEV_USERS is defined inside the SHOW_DEV_LOGIN branch (see DevLoginSection)
-// so that Vite's tree-shaker can eliminate it from production bundles when
-// VITE_DEV_LOGIN is not set. Keeping real emails outside that branch would embed
-// them as string literals in every build regardless of the flag.
+// Security: DEV_USERS is defined at module scope (exported for unit tests — Fix#3).
+// Rollup eliminates it from prod bundles alongside DevLoginSection because
+// SHOW_DEV_LOGIN = !import.meta.env.PROD is statically false in prod builds,
+// making all references inside DevLoginSection unreachable dead code.
 
 const ERROR_MESSAGES: Record<string, string> = {
   unauthorized: 'Ваш email не авторизован. Обратитесь к администратору.',
@@ -73,11 +74,24 @@ function GoogleIcon() {
   )
 }
 
-// DEV_USERS is defined inside DevLoginSection (not at module top-level) so that
-// Vite's tree-shaker can drop this entire component — including the email
-// literals — when SHOW_DEV_LOGIN is false (production build without the flag).
-// If defined at module scope, the array would be a static string constant that
-// bundlers include unconditionally regardless of the conditional render above.
+// DEV_USERS is exported for unit tests (Fix#3) so tests import the real constant
+// instead of an inline mirror. Rollup eliminates this array from production bundles
+// alongside DevLoginSection — both are only reachable when SHOW_DEV_LOGIN is true
+// (!import.meta.env.PROD), which Rollup statically folds to false in prod builds,
+// marking all code paths through DevLoginSection as dead code.
+export const DEV_USERS = [
+  { email: 'yaremenkomaksym99@gmail.com', label: 'Admin 1 — ADMIN (Maksym)' },
+  { email: 'kostya@cheekycheeseit.com', label: 'Admin 2 — ADMIN (Kostya)' },
+  { email: 'oleksiy.kovalenko@cheekycheese.dev', label: 'Senior 1 — SENIOR (Oleksiy)' },
+  { email: 'dmytro.marchenko@cheekycheese.dev', label: 'Senior 2 — SENIOR (Dmytro)' },
+  { email: 'sofia.bondarenko@cheekycheese.dev', label: 'Junior 1 — JUNIOR (Sofia)' },
+  { email: 'ivan.petrenko@cheekycheese.dev', label: 'Junior 2 — JUNIOR (Ivan)' },
+  { email: 'anna.lysenko@cheekycheese.dev', label: 'HR 1 — HR (Anna)' },
+  { email: 'kateryna.shevchenko@cheekycheese.dev', label: 'HR 2 — HR (Kateryna)' },
+  { email: 'mykola.savchenko@cheekycheese.dev', label: 'Accountant — ACCOUNTANT (Mykola)' },
+  { email: 'viktor.drop@cheekycheese.dev', label: 'Drop — DROP (Viktor)' },
+]
+
 function DevLoginSection({
   devLoading,
   setDevLoading,
@@ -85,21 +99,10 @@ function DevLoginSection({
   devLoading: string | null
   setDevLoading: (v: string | null) => void
 }) {
-  // Email addresses are dev/staging placeholders that map to seeded DB accounts.
-  // Keeping them here (not at module scope) prevents them from being bundled into
-  // production output when VITE_DEV_LOGIN is not set.
-  const DEV_USERS = [
-    { email: 'admin@example.dev', label: 'Admin 1 — ADMIN' },
-    { email: 'admin2@example.dev', label: 'Admin 2 — ADMIN' },
-    { email: 'senior1@example.dev', label: 'Senior 1 — SENIOR' },
-    { email: 'senior2@example.dev', label: 'Senior 2 — SENIOR' },
-    { email: 'junior1@example.dev', label: 'Junior 1 — JUNIOR' },
-    { email: 'junior2@example.dev', label: 'Junior 2 — JUNIOR' },
-    { email: 'hr1@example.dev', label: 'HR 1 — HR' },
-    { email: 'hr2@example.dev', label: 'HR 2 — HR' },
-    { email: 'accountant@example.dev', label: 'Accountant — ACCOUNTANT' },
-    { email: 'drop@example.dev', label: 'Drop — DROP' },
-  ]
+  // DEV_USERS is defined at module scope (exported for unit tests — Fix#3).
+  // It is only used inside this component; Rollup eliminates it from prod bundles
+  // together with DevLoginSection because SHOW_DEV_LOGIN = !import.meta.env.PROD
+  // is statically false in production, making this component unreachable dead code.
 
   return (
     <div

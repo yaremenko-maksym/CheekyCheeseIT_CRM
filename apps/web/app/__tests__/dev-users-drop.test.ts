@@ -1,36 +1,20 @@
 /**
- * Security audit (Fix#2): DEV_USERS is now defined inside DevLoginSection
- * (not at module top-level) to prevent real email addresses from appearing in
- * production bundles via tree-shaking. The old module-top-level array is gone.
+ * Security audit (Fix#2 + Fix#3): DEV_USERS is exported from login.tsx at module
+ * scope so unit tests import the real constant — no inline mirror that can drift.
  *
  * This test verifies the structural contract of the dev-login user list:
  *  - All entries have non-empty email and label
  *  - Emails have valid format (contain @ and .)
  *  - Each of the 6 roles (ADMIN, SENIOR, JUNIOR, HR, ACCOUNTANT, DROP) is
  *    represented — so the dev-login panel covers every role for testing.
- *  - Emails use placeholder domain (@example.dev) — NO real user emails in source.
- *
- * We test the constant directly (inline copy mirroring DevLoginSection) since the
- * array is no longer exported from login.tsx (it is local to the component).
+ *  - All emails match actual seeded DB accounts (apps/api/src/database/seed.ts):
+ *    @cheekycheese.dev for devs, real Gmail/domain for admins.
+ *  - A DROP entry is present with a real *.drop@cheekycheese.dev address.
  */
 import { describe, it, expect } from 'vitest'
+import { DEV_USERS } from '../routes/login'
 
-// Mirror of the DEV_USERS constant inside DevLoginSection (login.tsx).
-// If the component's list changes, update this mirror to keep the test green.
-const DEV_USERS = [
-  { email: 'admin@example.dev', label: 'Admin 1 — ADMIN' },
-  { email: 'admin2@example.dev', label: 'Admin 2 — ADMIN' },
-  { email: 'senior1@example.dev', label: 'Senior 1 — SENIOR' },
-  { email: 'senior2@example.dev', label: 'Senior 2 — SENIOR' },
-  { email: 'junior1@example.dev', label: 'Junior 1 — JUNIOR' },
-  { email: 'junior2@example.dev', label: 'Junior 2 — JUNIOR' },
-  { email: 'hr1@example.dev', label: 'HR 1 — HR' },
-  { email: 'hr2@example.dev', label: 'HR 2 — HR' },
-  { email: 'accountant@example.dev', label: 'Accountant — ACCOUNTANT' },
-  { email: 'drop@example.dev', label: 'Drop — DROP' },
-]
-
-describe('DEV_USERS — structural contract (security audit Fix#2)', () => {
+describe('DEV_USERS — structural contract (security audit Fix#2 + Fix#3)', () => {
   it('all entries have non-empty email and label', () => {
     DEV_USERS.forEach((u) => {
       expect(u.email).toBeTruthy()
@@ -45,11 +29,12 @@ describe('DEV_USERS — structural contract (security audit Fix#2)', () => {
     })
   })
 
-  it('emails use placeholder domain — no real user PII in source', () => {
-    // Security: after Fix#2, real email addresses must not appear in the dev-login
-    // list. All emails should use the placeholder domain.
+  it('emails map to real seeded DB accounts — no placeholder @example.dev', () => {
+    // Security Fix#1: emails must match actual seed.ts accounts so dev-login
+    // findByEmail succeeds. Placeholder @example.dev addresses do not exist in
+    // the DB and would cause a 401 on every click.
     DEV_USERS.forEach((u) => {
-      expect(u.email).toMatch(/@example\.dev$/)
+      expect(u.email).not.toMatch(/@example\.dev$/)
     })
   })
 
@@ -61,9 +46,25 @@ describe('DEV_USERS — structural contract (security audit Fix#2)', () => {
     }
   })
 
-  it('contains a DROP entry', () => {
+  it('contains a DROP entry with a real drop seed email', () => {
     const drop = DEV_USERS.find((u) => u.label.includes('DROP'))
     expect(drop).toBeDefined()
-    expect(drop?.email).toMatch(/@example\.dev$/)
+    expect(drop?.email).toMatch(/\.drop@cheekycheese\.dev$/)
+  })
+
+  it('admin entries use real admin account emails from seed.ts', () => {
+    const admins = DEV_USERS.filter((u) => u.label.includes('ADMIN'))
+    expect(admins).toHaveLength(2)
+    // Must be exactly the two seeded admin emails
+    const adminEmails = admins.map((u) => u.email)
+    expect(adminEmails).toContain('yaremenkomaksym99@gmail.com')
+    expect(adminEmails).toContain('kostya@cheekycheeseit.com')
+  })
+
+  it('dev users (non-admin) use @cheekycheese.dev domain', () => {
+    const nonAdmins = DEV_USERS.filter((u) => !u.label.includes('ADMIN'))
+    nonAdmins.forEach((u) => {
+      expect(u.email).toMatch(/@cheekycheese\.dev$/)
+    })
   })
 })

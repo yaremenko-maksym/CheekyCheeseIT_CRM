@@ -22,7 +22,7 @@ const CACHE_BUSTER = import.meta.env.VITE_BUILD_VERSION ?? import.meta.env.MODE
 // carries PII fields (email, phone, telegram); persisting these writes contact
 // data to IndexedDB across browser sessions. Projects/contracts/ToS are
 // non-PII reference data and remain safe to persist.
-const PERSISTED_KEY_PREFIXES = new Set<string>([
+export const PERSISTED_KEY_PREFIXES = new Set<string>([
   'projects',
   'user-projects',
   'interviews',
