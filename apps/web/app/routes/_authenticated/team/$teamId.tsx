@@ -312,7 +312,15 @@ function TeamDetailPage() {
         </div>
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-4">
-            <Skeleton className="h-48 rounded-xl" />
+            {/* Members card skeleton — matches real grid gap-2 sm:grid-cols-2 */}
+            <div className="rounded-xl border border-border p-4 space-y-3">
+              <Skeleton className="h-5 w-36" />
+              <div className="grid gap-2 sm:grid-cols-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-14 rounded-lg" />
+                ))}
+              </div>
+            </div>
           </div>
           <div className="space-y-4">
             <Skeleton className="h-32 rounded-xl" />
@@ -342,6 +350,21 @@ function TeamDetailPage() {
       </div>
     )
   }
+
+  // Pre-compute members grouped by role once per team.members change.
+  // Previously recomputed per-member inside JSX .map() → O(N²) reduce per render.
+  const membersByRole = useMemo(
+    () =>
+      (team?.members ?? []).reduce(
+        (acc, m) => {
+          if (!acc[m.role]) acc[m.role] = []
+          acc[m.role]!.push(m)
+          return acc
+        },
+        {} as Record<string, NonNullable<typeof team>['members']>,
+      ),
+    [team?.members],
+  )
 
   // Add member dialog filtering logic
   const memberUserIds = new Set(team?.members.map((m) => m.userId) ?? [])
@@ -686,15 +709,7 @@ function TeamDetailPage() {
                           </div>
                           {canManage &&
                             (() => {
-                              const membersByRole = team.members.reduce(
-                                (acc, m) => {
-                                  if (!acc[m.role]) acc[m.role] = []
-                                  acc[m.role]!.push(m)
-                                  return acc
-                                },
-                                {} as Record<string, typeof team.members>,
-                              )
-
+                              // membersByRole is pre-computed above via useMemo([team.members])
                               const isSenior = member.role === 'SENIOR'
                               const isJunior = member.role === 'JUNIOR'
                               const isLastHr =

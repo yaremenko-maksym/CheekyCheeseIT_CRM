@@ -92,9 +92,20 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
   const [statusFilter, setStatusFilter] = useState('all')
   const [detailTx, setDetailTx] = useState<TransactionDto | null>(null)
 
+  // Pre-parse timestamps once per transactions change — avoids constructing new
+  // Date objects on every comparison in sort (O(N log N) × 2 Date() → O(N) once).
+  const txWithTimestamp = useMemo(
+    () =>
+      transactions.map((tx) => ({
+        tx,
+        ts: new Date(tx.txDate ?? tx.createdAt).getTime(),
+      })),
+    [transactions],
+  )
+
   const filtered = useMemo(() => {
-    return transactions
-      .filter((tx) => {
+    return txWithTimestamp
+      .filter(({ tx }) => {
         if (typeFilter !== 'all' && tx.type !== typeFilter) return false
         if (statusFilter !== 'all' && tx.status !== statusFilter) return false
         if (search) {
@@ -114,11 +125,9 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
         }
         return true
       })
-      .sort(
-        (a, b) =>
-          new Date(b.txDate ?? b.createdAt).getTime() - new Date(a.txDate ?? a.createdAt).getTime(),
-      )
-  }, [transactions, search, typeFilter, statusFilter])
+      .sort((a, b) => b.ts - a.ts)
+      .map(({ tx }) => tx)
+  }, [txWithTimestamp, search, typeFilter, statusFilter])
 
   const hasActive = search !== '' || typeFilter !== 'all' || statusFilter !== 'all'
 
@@ -154,31 +163,12 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
       </Card>
     ) : null
 
-  if (isLoading) return <Skeleton className="h-64 w-full" />
-
-  if (transactions.length === 0) {
-    return (
-      <>
-        {earnedCard}
-        {/* task-senior-settle-in-tx-row: DROP no longer holds debts to
-            seniors — section removed. The company settles the senior IOU from
-            the SENIOR_PENDING_PAYOUT row in the /finance transactions
-            list (the dedicated settlement cards were removed). */}
-        <Card>
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            Транзакций пока нет
-          </CardContent>
-        </Card>
-      </>
-    )
-  }
-
   return (
     <>
       {earnedCard}
       <Card>
         <CardContent className="p-0">
-          {/* Filter bar — same look as /finance */}
+          {/* Filter bar — same look as /finance; always visible (chrome-in-place) */}
           <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-border">
             <div className="relative flex-1 min-w-40">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -187,9 +177,10 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
                 placeholder="Поиск…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                disabled={isLoading}
               />
             </div>
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <Select value={typeFilter} onValueChange={setTypeFilter} disabled={isLoading}>
               <SelectTrigger className="h-8 text-xs w-auto min-w-32 max-w-44">
                 <SelectValue placeholder="Все типы" />
               </SelectTrigger>
@@ -202,7 +193,7 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
                 ))}
               </SelectContent>
             </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={statusFilter} onValueChange={setStatusFilter} disabled={isLoading}>
               <SelectTrigger className="h-8 text-xs w-auto min-w-32 max-w-44">
                 <SelectValue placeholder="Все статусы" />
               </SelectTrigger>
@@ -215,7 +206,7 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
                 ))}
               </SelectContent>
             </Select>
-            {hasActive && (
+            {hasActive && !isLoading && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -231,7 +222,35 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
             )}
           </div>
 
-          {filtered.length === 0 ? (
+          {isLoading ? (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border text-xs text-muted-foreground">
+                    <th className="py-3 px-4 text-left font-medium">Тип</th>
+                    <th className="py-3 px-4 text-left font-medium">Участник / Проект</th>
+                    <th className="py-3 px-4 text-left font-medium">Сумма</th>
+                    <th className="py-3 px-4 text-left font-medium">Дата</th>
+                    <th className="py-3 px-4 text-left font-medium">Статус</th>
+                    <th className="py-3 px-4 text-left font-medium">Действия</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <tr key={i} className="border-b border-border/50">
+                      <td className="py-3 px-4" colSpan={6}>
+                        <Skeleton className="h-5 w-full" />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : !isLoading && transactions.length === 0 ? (
+            <CardContent className="py-8 text-center text-sm text-muted-foreground">
+              Транзакций пока нет
+            </CardContent>
+          ) : filtered.length === 0 ? (
             <div className="py-14 text-center text-sm text-muted-foreground">
               {hasActive ? 'Ничего не найдено' : 'Нет данных'}
             </div>

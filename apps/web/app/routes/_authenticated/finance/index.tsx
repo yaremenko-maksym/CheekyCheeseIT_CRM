@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { StickyPageHeader } from '@/components/crm/StickyPageHeader'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Search, ArrowUpDown, ChevronDown, X, Wallet } from 'lucide-react'
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import type { TransactionDto, TransactionStatus } from '@crm/shared'
 import { useAuth } from '@/context/auth'
@@ -333,18 +333,9 @@ function TransactionsTable({
     setStatusFilter('all')
   }
 
-  if (loading) {
-    return (
-      <div className="p-6 space-y-3">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-12 rounded-lg" />
-        ))}
-      </div>
-    )
-  }
-
   return (
     <>
+      {/* FilterBar always visible — chrome-in-place */}
       <FilterBar
         search={search}
         onSearch={setSearch}
@@ -383,7 +374,32 @@ function TransactionsTable({
         onClear={onClear}
         hasActive={hasActive}
       />
-      {paged.length === 0 ? (
+      {loading ? (
+        /* Skeleton rows inside table — thead stays, only data rows replaced */
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border text-xs text-muted-foreground">
+                <th className="py-3 px-4 text-left font-medium">Тип</th>
+                <th className="py-3 px-4 text-left font-medium">Участник / Проект</th>
+                <th className="py-3 px-4 text-left font-medium">Сумма</th>
+                <th className="py-3 px-4 text-left font-medium">Дата</th>
+                <th className="py-3 px-4 text-left font-medium">Статус</th>
+                <th className="py-3 px-4 text-left font-medium">Действия</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <tr key={i} className="border-b border-border/50">
+                  <td className="py-3 px-4" colSpan={6}>
+                    <Skeleton className="h-5 w-full" />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : paged.length === 0 ? (
         <EmptyState filtered={hasActive} />
       ) : (
         <div className="overflow-x-auto">
@@ -425,13 +441,15 @@ function TransactionsTable({
           </table>
         </div>
       )}
-      <Pagination
-        page={page}
-        totalPages={totalPages}
-        totalItems={totalItems}
-        pageSize={pageSize}
-        onPage={setPage}
-      />
+      {!loading && (
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          totalItems={totalItems}
+          pageSize={pageSize}
+          onPage={setPage}
+        />
+      )}
     </>
   )
 }
@@ -546,14 +564,23 @@ function FinancePage() {
   // AC2 / AC3: validatable pending-транзакции — SENIOR_INCOME и DROP_INCOME со
   // статусом PENDING. Это те же строки, что считает дашборд «ожидают валидации».
   // Используются для очереди в ValidateDialog.
-  const validateQueue = transactions.filter(
-    (t) => (t.type === 'SENIOR_INCOME' || t.type === 'DROP_INCOME') && t.status === 'PENDING',
+  // useMemo: filters run once when transactions change, not on every render.
+  const validateQueue = useMemo(
+    () =>
+      transactions.filter(
+        (t) => (t.type === 'SENIOR_INCOME' || t.type === 'DROP_INCOME') && t.status === 'PENDING',
+      ),
+    [transactions],
   )
 
   // VALIDATED SENIOR_INCOME rows available for batching into a new payout.
   // Used by PayoutDialog to populate the multi-select list.
-  const validatedSeniorIncomes = transactions.filter(
-    (t) => t.type === 'SENIOR_INCOME' && t.status === 'VALIDATED' && !t.payoutRequestId,
+  const validatedSeniorIncomes = useMemo(
+    () =>
+      transactions.filter(
+        (t) => t.type === 'SENIOR_INCOME' && t.status === 'VALIDATED' && !t.payoutRequestId,
+      ),
+    [transactions],
   )
 
   // Drop role - phase 2. DROP gets their own dedicated finance cabinet that
