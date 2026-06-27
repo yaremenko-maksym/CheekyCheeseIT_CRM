@@ -50,6 +50,8 @@ function makeDb(overrides: Record<string, unknown> = {}) {
       query: {
         users: { findFirst: vi.fn() },
         employeeContracts: { findFirst: vi.fn() },
+        // LOW-1: template lookup for custom-values cross-validation
+        contractTemplates: { findFirst: vi.fn() },
       },
       insert: vi.fn().mockReturnValue({
         values: vi.fn().mockReturnValue({
@@ -572,6 +574,11 @@ describe('EmployeeContractsService', () => {
       const { service, db } = makeService()
 
       db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      // LOW-1: template must declare the key used in customValues
+      db.db.query.contractTemplates.findFirst.mockResolvedValue({
+        id: 'template-uuid',
+        customVariables: [{ key: 'projectName', label: 'Project Name', required: false }],
+      })
       db.db.update.mockReturnValue({
         set: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
@@ -587,6 +594,46 @@ describe('EmployeeContractsService', () => {
       )
 
       expect(result.customValues).toEqual({ projectName: 'ACME' })
+    })
+
+    it('LOW-1: rejects unknown key not declared in template customVariables', async () => {
+      const contract = makeContract({ status: 'DRAFT' })
+      const { service, db } = makeService()
+
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      // Template declares only 'projectName' — 'arbitraryKey' is unknown
+      db.db.query.contractTemplates.findFirst.mockResolvedValue({
+        id: 'template-uuid',
+        customVariables: [{ key: 'projectName', label: 'Project Name', required: false }],
+      })
+
+      await expect(
+        service.updateCustomValues('user-uuid', { arbitraryKey: 'value' }, mockViewer),
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('LOW-1: allows all keys when template has no declared variables (null/empty)', async () => {
+      // When template has no customVariables (empty array), no keys are unknown.
+      // This handles templates that predate the customVariables feature.
+      const contract = makeContract({ status: 'DRAFT' })
+      const updated = makeContract({ customValues: {} })
+      const { service, db } = makeService()
+
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      db.db.query.contractTemplates.findFirst.mockResolvedValue({
+        id: 'template-uuid',
+        customVariables: [],
+      })
+      db.db.update.mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([updated]),
+          }),
+        }),
+      })
+
+      // Empty customValues passes when template has no declared vars
+      await expect(service.updateCustomValues('user-uuid', {}, mockViewer)).resolves.toBeDefined()
     })
 
     it('throws 409 CONTRACT_NOT_EDITABLE when status is READY_TO_SIGN', async () => {

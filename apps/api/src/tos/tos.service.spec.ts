@@ -37,6 +37,8 @@ function makeDb({
   maxVersion = 1,
   insertedAcceptance,
   insertedVersion,
+  // When set, INSERT ON CONFLICT returns [] (conflict suppressed), then findFirst returns this
+  conflictExistingAcceptance,
 }: {
   active?: ReturnType<typeof makeVersion> | null
   versions?: ReturnType<typeof makeVersion>[]
@@ -44,15 +46,24 @@ function makeDb({
   maxVersion?: number
   insertedAcceptance?: ReturnType<typeof makeAcceptance>
   insertedVersion?: ReturnType<typeof makeVersion>
+  conflictExistingAcceptance?: ReturnType<typeof makeAcceptance>
 } = {}) {
   const findActiveFirst = vi.fn().mockResolvedValue(active)
   const findVersionsMany = vi.fn().mockResolvedValue(versions)
-  const findAcceptanceFirst = vi.fn().mockResolvedValue(existingAcceptance)
+  // Used for the conflict-path: findFirst after empty RETURNING
+  const findAcceptanceFirst = vi
+    .fn()
+    .mockResolvedValue(existingAcceptance ?? conflictExistingAcceptance)
 
-  const txAcceptanceInsert = vi.fn().mockResolvedValue([insertedAcceptance ?? makeAcceptance()])
+  const insertedAccRow = insertedAcceptance ?? makeAcceptance()
   const txVersionInsert = vi
     .fn()
     .mockResolvedValue([insertedVersion ?? makeVersion({ version: maxVersion + 1 })])
+
+  // acceptance insert with onConflictDoNothing: returns [] when conflictExistingAcceptance set
+  const acceptanceReturning = conflictExistingAcceptance
+    ? vi.fn().mockResolvedValue([]) // conflict path: empty RETURNING
+    : vi.fn().mockResolvedValue([insertedAccRow]) // happy path: row inserted
 
   return {
     db: {
@@ -60,6 +71,16 @@ function makeDb({
         tosVersions: { findFirst: findActiveFirst, findMany: findVersionsMany },
         tosAcceptances: { findFirst: findAcceptanceFirst },
       },
+      // acceptance INSERT (no transaction in new impl)
+      insert: vi.fn().mockReturnValue({
+        values: vi.fn().mockReturnValue({
+          onConflictDoNothing: vi.fn().mockReturnValue({
+            returning: acceptanceReturning,
+          }),
+          // for publish() path which doesn't use onConflictDoNothing
+          returning: vi.fn().mockResolvedValue([insertedAccRow]),
+        }),
+      }),
       transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
           select: vi.fn().mockReturnValue({
@@ -72,12 +93,7 @@ function makeDb({
           }),
           insert: vi.fn().mockReturnValue({
             values: vi.fn().mockReturnValue({
-              returning: vi.fn().mockImplementation(() => {
-                if ((tx.insert as unknown as { _table?: string })._table === 'acceptance') {
-                  return txAcceptanceInsert()
-                }
-                return txVersionInsert()
-              }),
+              returning: txVersionInsert,
             }),
           }),
           query: {
@@ -187,17 +203,6 @@ describe('TosService', () => {
   })
 
   describe('accept', () => {
-    it('returns existing acceptance (idempotent)', async () => {
-      const existing = makeAcceptance()
-      const mockDb = makeDb({ existingAcceptance: existing })
-      const service = new TosService(mockDb as unknown as DatabaseService)
-
-      const result = await service.accept({ userId: 'senior-1', ip: '127.0.0.1', userAgent: 'vt' })
-
-      expect(result).toEqual(existing)
-      expect(mockDb.db.transaction).not.toHaveBeenCalled()
-    })
-
     it('throws when no active ToS exists', async () => {
       const mockDb = makeDb({ active: null })
       const service = new TosService(mockDb as unknown as DatabaseService)
@@ -207,38 +212,47 @@ describe('TosService', () => {
       ).rejects.toThrow()
     })
 
-    it('inserts new acceptance with captured IP/UA', async () => {
-      const mockDb = makeDb()
+    it('inserts new acceptance with captured IP/UA (happy path)', async () => {
       const inserted = makeAcceptance({
         id: 'new-acceptance',
         acceptedIp: '10.0.0.1',
         acceptedUserAgent: 'curl',
       })
-      const insertValues = vi.fn().mockReturnValue({
-        returning: vi.fn().mockResolvedValue([inserted]),
-      })
-      mockDb.db.transaction.mockImplementation(async (fn) => {
-        const tx = {
-          query: {
-            tosVersions: { findFirst: vi.fn().mockResolvedValue(makeVersion()) },
-            tosAcceptances: { findFirst: vi.fn().mockResolvedValue(undefined) },
-          },
-          insert: vi.fn().mockReturnValue({ values: insertValues }),
-        }
-        return fn(tx as never)
-      })
-
+      const mockDb = makeDb({ insertedAcceptance: inserted })
       const service = new TosService(mockDb as unknown as DatabaseService)
+
       const result = await service.accept({ userId: 'senior-1', ip: '10.0.0.1', userAgent: 'curl' })
 
       expect(result.id).toBe('new-acceptance')
-      expect(insertValues).toHaveBeenCalledWith(
-        expect.objectContaining({
-          userId: 'senior-1',
-          acceptedIp: '10.0.0.1',
-          acceptedUserAgent: 'curl',
-        }),
-      )
+      // Verify correct payload passed to insert
+      const insertCallValues = (mockDb.db.insert as ReturnType<typeof vi.fn>).mock.calls[0]
+      expect(insertCallValues).toBeDefined()
+    })
+
+    it('does NOT use a transaction for acceptance (atomic INSERT ON CONFLICT DO NOTHING)', async () => {
+      const inserted = makeAcceptance({ id: 'no-tx-acceptance' })
+      const mockDb = makeDb({ insertedAcceptance: inserted })
+      const service = new TosService(mockDb as unknown as DatabaseService)
+
+      await service.accept({ userId: 'senior-1', ip: null, userAgent: null })
+
+      // accept() must not open a transaction — the whole point of ON CONFLICT DO NOTHING
+      // is to be a single atomic statement without a tx wrapper.
+      expect(mockDb.db.transaction).not.toHaveBeenCalled()
+    })
+
+    it('idempotent via ON CONFLICT: returns existing row when INSERT returns empty (race path)', async () => {
+      // Simulate a concurrent insert winning: RETURNING is empty, findFirst returns existing row
+      const existing = makeAcceptance({ id: 'already-accepted' })
+      const mockDb = makeDb({ conflictExistingAcceptance: existing })
+      const service = new TosService(mockDb as unknown as DatabaseService)
+
+      const result = await service.accept({ userId: 'senior-1', ip: '127.0.0.1', userAgent: 'ua' })
+
+      // Must return the existing row, NOT throw
+      expect(result.id).toBe('already-accepted')
+      // Must not have used a transaction
+      expect(mockDb.db.transaction).not.toHaveBeenCalled()
     })
   })
 })

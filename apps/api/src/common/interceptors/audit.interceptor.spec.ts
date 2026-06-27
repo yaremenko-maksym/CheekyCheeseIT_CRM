@@ -153,6 +153,33 @@ describe('AuditInterceptor — legal_name_change (п.2)', () => {
     expect(recordSpy).not.toHaveBeenCalled()
   })
 
+  // ── LOW-5: warn log when @AuditLog set but targetId unresolvable ──────────
+
+  it('LOW-5: logs a warning when @AuditLog action is set but targetId cannot be resolved', async () => {
+    // Route has @AuditLog decorator but params.id is missing and actor is absent —
+    // simulates a misconfigured handler (e.g. route missing :id param).
+    const request = {
+      user: undefined as undefined,
+      params: {} as Record<string, string>,
+    }
+    const ctx = {
+      switchToHttp: () => ({ getRequest: () => request }),
+      getHandler: () => ({}),
+    } as unknown as ExecutionContext
+
+    const warnSpy = vi.spyOn(interceptor['logger'], 'warn').mockImplementation(() => {})
+
+    const observable = await interceptor.intercept(ctx, makeCallHandler())
+    await lastValueFrom(observable)
+
+    // Must have logged a warning about misconfiguration
+    expect(warnSpy).toHaveBeenCalledOnce()
+    expect(warnSpy.mock.calls[0]![0]).toContain('@AuditLog')
+    expect(warnSpy.mock.calls[0]![0]).toContain('targetId could not be resolved')
+    // record() must not have been called — audit skip
+    expect(recordSpy).not.toHaveBeenCalled()
+  })
+
   it('legal_name_change entry contains ONLY legalFullName in its changes map', async () => {
     const before = makeUser({ legalFullName: 'Іваненко Іван', displayName: 'Same' })
     const after = makeUser({ legalFullName: 'Петренко Петро', displayName: 'Same' })

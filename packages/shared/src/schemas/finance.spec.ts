@@ -8,7 +8,7 @@
  * the client. The «accepts null» test has been replaced with a rejection test.
  */
 import { describe, expect, it } from 'vitest'
-import { financeSummarySchema } from './finance'
+import { financeSummarySchema, transactionSchema } from './finance'
 
 const baseSummary = {
   totalIncome: 50000,
@@ -137,6 +137,61 @@ describe('financeSummarySchema.dropBalances — new fields', () => {
     expect(result.dropBalances).toHaveLength(2)
     expect(result.dropBalances[1]!.dropSharePercent).toBe(10)
     expect(result.dropBalances[1]!.pendingCount).toBe(3)
+  })
+})
+
+// ── transactionSchema.receiptExternalUrl — read-DTO hardening ────────────────
+
+describe('transactionSchema.receiptExternalUrl', () => {
+  const baseTx = {
+    id: 'a0000000-0000-4000-8000-000000000001',
+    type: 'SENIOR_INCOME',
+    status: 'VALIDATED',
+    amount: '1000.00',
+    currency: 'USDT',
+    senderId: null,
+    senderLabel: null,
+    senderName: null,
+    receiverId: null,
+    receiverLabel: null,
+    receiverName: null,
+    projectId: null,
+    projectName: null,
+    payoutRequestId: null,
+    seniorSharePercent: null,
+    receiptDocumentId: null,
+    receiptExternalUrl: null,
+    txHash: null,
+    validatedBy: null,
+    validatedAt: null,
+    rejectionReason: null,
+    notes: null,
+    salaryMonth: null,
+    txDate: null,
+    createdBy: 'a0000000-0000-4000-8000-000000000002',
+    createdAt: '2026-06-01T10:00:00.000Z',
+    updatedAt: '2026-06-01T10:00:00.000Z',
+  }
+
+  it('accepts null receiptExternalUrl', () => {
+    expect(() => transactionSchema.parse({ ...baseTx, receiptExternalUrl: null })).not.toThrow()
+  })
+
+  it('accepts a valid HTTPS URL', () => {
+    expect(() =>
+      transactionSchema.parse({
+        ...baseTx,
+        receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
+      }),
+    ).not.toThrow()
+  })
+
+  it('rejects a plain string that is not a URL (prevents unsafe href)', () => {
+    expect(() => transactionSchema.parse({ ...baseTx, receiptExternalUrl: 'not-a-url' })).toThrow()
+  })
+
+  it('rejects an empty string (not a URL)', () => {
+    expect(() => transactionSchema.parse({ ...baseTx, receiptExternalUrl: '' })).toThrow()
   })
 })
 
