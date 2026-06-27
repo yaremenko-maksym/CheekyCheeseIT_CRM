@@ -311,7 +311,7 @@ jobs:
                    -f docker-compose.ghcr.yml \
                    --env-file .env.production \
                    exec -T api \
-                   wget -qO- http://localhost:3001/api/health 2>/dev/null; then
+                   wget -qO- http://127.0.0.1:3001/api/health 2>/dev/null; then
                 echo ""
                 echo "API healthy after ${i}x checks"
                 break
