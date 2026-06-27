@@ -4,6 +4,7 @@ import {
   notificationSchema,
   notificationTypeSchema,
   notificationsListResponseSchema,
+  safeNotificationLinkSchema,
 } from './notifications'
 
 const uuid = '123e4567-e89b-12d3-a456-426614174000'
@@ -51,9 +52,34 @@ describe('notificationSchema', () => {
   })
 
   it('rejects link longer than 500 chars', () => {
+    // 501 'a' chars: fails both the max(500) and the relative-path refine
     expect(() =>
       notificationSchema.parse({ ...validNotification, link: 'a'.repeat(501) }),
     ).toThrow()
+  })
+
+  it('rejects external http link (open-redirect risk)', () => {
+    expect(() =>
+      notificationSchema.parse({ ...validNotification, link: 'http://evil.com/phish' }),
+    ).toThrow()
+  })
+
+  it('rejects link with javascript: scheme (XSS risk)', () => {
+    expect(() =>
+      notificationSchema.parse({ ...validNotification, link: 'javascript:alert(1)' }),
+    ).toThrow()
+  })
+
+  it('rejects link without leading slash', () => {
+    expect(() =>
+      notificationSchema.parse({ ...validNotification, link: 'finance/invoices/123' }),
+    ).toThrow()
+  })
+
+  it('accepts valid relative link starting with /', () => {
+    expect(() =>
+      notificationSchema.parse({ ...validNotification, link: '/finance/invoices/abc' }),
+    ).not.toThrow()
   })
 
   it('rejects unknown type', () => {
@@ -89,6 +115,65 @@ describe('notificationsListResponseSchema', () => {
     expect(() => notificationsListResponseSchema.parse({ items: [], unreadCount: 1.5 })).toThrow()
   })
 })
+
+// ── safeNotificationLinkSchema ────────────────────────────────────────────────
+
+describe('safeNotificationLinkSchema', () => {
+  it('accepts null', () => {
+    expect(() => safeNotificationLinkSchema.parse(null)).not.toThrow()
+  })
+
+  it('accepts a relative path starting with /', () => {
+    expect(() => safeNotificationLinkSchema.parse('/finance/invoices/abc')).not.toThrow()
+  })
+
+  it('accepts a deeply nested relative path', () => {
+    expect(() => safeNotificationLinkSchema.parse('/admin/users/some-uuid/contract')).not.toThrow()
+  })
+
+  it('rejects http:// external URL', () => {
+    expect(() => safeNotificationLinkSchema.parse('http://evil.com')).toThrow()
+  })
+
+  it('rejects https:// external URL', () => {
+    expect(() => safeNotificationLinkSchema.parse('https://evil.com')).toThrow()
+  })
+
+  it('rejects javascript: URI', () => {
+    expect(() => safeNotificationLinkSchema.parse('javascript:alert(1)')).toThrow()
+  })
+
+  it('rejects JAVASCRIPT: URI (case-insensitive)', () => {
+    expect(() => safeNotificationLinkSchema.parse('JAVASCRIPT:void(0)')).toThrow()
+  })
+
+  it('rejects path without leading slash', () => {
+    expect(() => safeNotificationLinkSchema.parse('finance/invoices')).toThrow()
+  })
+
+  it('rejects link exceeding 500 chars', () => {
+    expect(() => safeNotificationLinkSchema.parse('/' + 'a'.repeat(500))).toThrow()
+  })
+
+  // MED-1: protocol-relative and backslash open-redirect vectors
+  it('MED-1: rejects protocol-relative URL //evil.com (open-redirect)', () => {
+    expect(() => safeNotificationLinkSchema.parse('//evil.com')).toThrow()
+  })
+
+  it('MED-1: rejects backslash-relative /\\evil.com (IE/Edge normalise to //)', () => {
+    expect(() => safeNotificationLinkSchema.parse('/\\evil.com')).toThrow()
+  })
+
+  it('MED-1: accepts a true internal path /valid/path (single slash)', () => {
+    expect(() => safeNotificationLinkSchema.parse('/valid/path')).not.toThrow()
+  })
+
+  it('MED-1: still rejects javascript: scheme', () => {
+    expect(() => safeNotificationLinkSchema.parse('javascript:alert(1)')).toThrow()
+  })
+})
+
+// ── notificationListFiltersSchema ─────────────────────────────────────────────
 
 describe('notificationListFiltersSchema', () => {
   it('defaults unreadOnly=false and limit=10', () => {

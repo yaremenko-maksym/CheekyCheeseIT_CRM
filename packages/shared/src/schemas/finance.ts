@@ -132,8 +132,19 @@ export const transactionSchema = z.object({
   // Receipt: either a documents.id reference (uploaded RECEIPT file) OR an
   // external URL (etherscan, screenshot link). Mutually exclusive — the
   // backend enforces a row-level CHECK constraint. Both null = no receipt.
+  // Security: receiptExternalUrl is scheme-restricted to http(s) only — .url()
+  // alone allows javascript:/data: URIs in some runtimes; the refine enforces
+  // an explicit allow-list. DB audit confirmed all 91 existing non-null values
+  // are valid HTTP(S) URLs — no data loss from hardening.
+  // MED-2 fix: ^https?:// refine on read-DTO blocks javascript:/data: XSS.
   receiptDocumentId: z.string().uuid().nullable(),
-  receiptExternalUrl: z.string().nullable(),
+  receiptExternalUrl: z
+    .string()
+    .url()
+    .refine((v) => /^https?:\/\//i.test(v), {
+      message: 'Receipt URL must use http or https scheme',
+    })
+    .nullable(),
   txHash: z.string().nullable(),
   validatedBy: z.string().uuid().nullable(),
   validatedAt: z.string().datetime().nullable(),
@@ -208,10 +219,21 @@ export type ProjectFinanceSettingsDto = z.infer<typeof projectFinanceSettingsSch
  * Both fields are optional + nullable so the same shape can be reused for
  * Create (where the caller may omit receipt entirely) and Patch (where
  * undefined = "leave unchanged" and null = "clear field").
+ *
+ * MED-2 fix: receiptExternalUrl is scheme-restricted to http(s) only via an
+ * explicit refine on top of .url() — blocks javascript:/data: XSS vectors
+ * that .url() alone does not reject in all Zod versions.
  */
 const receiptFields = {
   receiptDocumentId: z.string().uuid().optional().nullable(),
-  receiptExternalUrl: z.string().url().optional().nullable(),
+  receiptExternalUrl: z
+    .string()
+    .url()
+    .refine((v) => /^https?:\/\//i.test(v), {
+      message: 'Receipt URL must use http or https scheme',
+    })
+    .optional()
+    .nullable(),
 }
 
 const receiptXor = (data: {

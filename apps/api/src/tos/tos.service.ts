@@ -1,8 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import { DatabaseService } from '../database/database.service'
 import { tosAcceptances, tosVersions } from '../database/schema'
-import type { DrizzleTx } from '../database/types'
+import type { DrizzleTx } from '../database/types' // still used by publish()
 
 /**
  * Onboarding Phase 6A — Terms of Service.
@@ -11,8 +11,10 @@ import type { DrizzleTx } from '../database/types'
  * `publish` atomically deactivates the previous active row and inserts a new
  * row with `version = max + 1`, `isActive = true`.
  *
- * `accept` is idempotent: if user already has an acceptance for the active
- * version, returns it without insert (no UNIQUE-violation race).
+ * `accept` is idempotent via `INSERT … ON CONFLICT (user_id, tos_version_id) DO NOTHING`.
+ * This is race-safe: even if two concurrent requests pass the pre-check simultaneously,
+ * only one INSERT wins and the other gets an empty RETURNING — we then fetch the
+ * existing row. The UNIQUE constraint on (user_id, tos_version_id) is the source of truth.
  */
 @Injectable()
 export class TosService {
@@ -99,32 +101,28 @@ export class TosService {
     const active = await this.getCurrent()
     if (!active) throw new NotFoundException('No active ToS version')
 
-    // Pre-check existing acceptance to avoid UNIQUE-violation on race & to
-    // keep the flow idempotent (UI may double-tap the accept button).
-    const existing = await this.db.db.query.tosAcceptances.findFirst({
-      where: (tbl, { eq, and }) => and(eq(tbl.userId, userId), eq(tbl.tosVersionId, active.id)),
-    })
-    if (existing) return existing
-
-    return this.db.db.transaction(async (tx: DrizzleTx) => {
-      // Re-check inside tx (read-your-writes safety on concurrent submissions).
-      const reCheck = await tx.query.tosAcceptances.findFirst({
-        where: (tbl, { eq, and }) => and(eq(tbl.userId, userId), eq(tbl.tosVersionId, active.id)),
+    // Atomic idempotent upsert: INSERT … ON CONFLICT (user_id, tos_version_id) DO NOTHING.
+    // Race-safe: concurrent requests compete at the DB level; the UNIQUE constraint
+    // guarantees only one row is ever inserted. If RETURNING is empty, the row already
+    // existed — fetch it explicitly.
+    const [inserted] = await this.db.db
+      .insert(tosAcceptances)
+      .values({
+        userId,
+        tosVersionId: active.id,
+        acceptedIp: ip,
+        acceptedUserAgent: userAgent,
       })
-      if (reCheck) return reCheck
+      .onConflictDoNothing()
+      .returning()
 
-      const [inserted] = await tx
-        .insert(tosAcceptances)
-        .values({
-          userId,
-          tosVersionId: active.id,
-          acceptedIp: ip,
-          acceptedUserAgent: userAgent,
-        })
-        .returning()
+    if (inserted) return inserted
 
-      if (!inserted) throw new Error('Failed to insert ToS acceptance')
-      return inserted
+    // Row already existed (conflict suppressed) — return the existing acceptance.
+    const existing = await this.db.db.query.tosAcceptances.findFirst({
+      where: and(eq(tosAcceptances.userId, userId), eq(tosAcceptances.tosVersionId, active.id)),
     })
+    if (!existing) throw new Error('Failed to resolve ToS acceptance after conflict')
+    return existing
   }
 }

@@ -21,6 +21,25 @@ export const employeeContractStatusSchema = z.enum([
   'CANCELLED',
 ])
 
+/**
+ * Bounded custom-values record: max 50 keys, key max 100 chars, value max 2000 chars.
+ * Keys must match the regex of customVariableSchema (Latin, starts with letter).
+ * Consistent with customVariableSchema.key constraint in contracts.ts.
+ */
+export const boundedCustomValuesSchema = z
+  .record(
+    z
+      .string()
+      .regex(
+        /^[a-zA-Z][a-zA-Z0-9_]{0,49}$/,
+        'Ключ: только латиница, начинается с буквы, макс 50 символов',
+      ),
+    z.string().max(2000, 'Значение переменной не может превышать 2000 символов'),
+  )
+  .refine((rec) => Object.keys(rec).length <= 50, {
+    message: 'Не более 50 кастомных переменных',
+  })
+
 export const employeeContractSchema = z.object({
   id: z.string().uuid(),
   userId: z.string().uuid(),
@@ -29,7 +48,7 @@ export const employeeContractSchema = z.object({
   status: employeeContractStatusSchema,
   signedContractId: z.string().uuid().nullable(),
   createdByUserId: z.string().uuid(),
-  customValues: z.record(z.string(), z.string()).default({}),
+  customValues: boundedCustomValuesSchema.default({}),
   createdAt: z.string().or(z.date()),
   updatedAt: z.string().or(z.date()),
 })
@@ -45,15 +64,26 @@ export const updateEmployeeContractSchema = z.object({
 export type EmployeeContractStatus = z.infer<typeof employeeContractStatusSchema>
 export type EmployeeContractDto = z.infer<typeof employeeContractSchema>
 export type UpdateEmployeeContractDto = z.infer<typeof updateEmployeeContractSchema>
+export type BoundedCustomValues = z.infer<typeof boundedCustomValuesSchema>
 
 // ─── Screen 2: variable fill form ─────────────────────────────────────────────
 
 /**
  * PATCH /api/users/:id/contract/custom-values
  * Body: { customValues: Record<string, string> }
+ *
+ * Uses boundedCustomValuesSchema so the controller layer enforces:
+ *   - max 50 keys
+ *   - key: Latin, starts with letter, max 50 chars (same as customVariableSchema)
+ *   - value: max 2000 chars
+ *
+ * Cross-validation against the template's declared customVariables (rejecting
+ * arbitrary keys not in the template) is enforced at the service layer in
+ * employee-contracts.service.ts::updateCustomValues, where the template row
+ * is available.
  */
 export const updateCustomValuesSchema = z.object({
-  customValues: z.record(z.string(), z.string()),
+  customValues: boundedCustomValuesSchema,
 })
 
 export type UpdateCustomValuesDto = z.infer<typeof updateCustomValuesSchema>

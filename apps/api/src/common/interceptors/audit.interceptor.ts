@@ -25,7 +25,15 @@ export class AuditInterceptor implements NestInterceptor {
       .getRequest<{ user?: SessionUser; params: Record<string, string> }>()
     const actor = req.user
     const targetId = req.params.id ?? actor?.id
-    if (!targetId) return next.handle()
+    if (!targetId) {
+      // @AuditLog decorator is set but we cannot resolve a targetId — this is
+      // a misconfiguration (e.g. route missing :id param). Log a warning so it
+      // surfaces in dev and ops monitoring without breaking the request.
+      this.logger.warn(
+        `[AuditInterceptor] @AuditLog(${action}) is set on handler but targetId could not be resolved (params.id=${String(req.params.id)}, actor.id=${String(actor?.id)}). Audit skipped — check route configuration.`,
+      )
+      return next.handle()
+    }
 
     const before = await this.usersService.findById(targetId)
 

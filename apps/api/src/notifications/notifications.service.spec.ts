@@ -188,6 +188,69 @@ describe('NotificationsService', () => {
       expect(result.readAt).toBeNull()
       expect(result.type).toBe('INVOICE_SIGN_REQUIRED')
     })
+
+    it('accepts null link (no-link notification)', async () => {
+      const { db } = makeHarness()
+      const svc = new NotificationsService(db)
+      const result = await svc.create({
+        userId: 'u-1',
+        type: 'INVOICE_SIGN_REQUIRED',
+        title: 'No link',
+        link: null,
+      })
+      expect(result.link).toBeNull()
+    })
+
+    it('accepts a valid relative link starting with /', async () => {
+      const { db } = makeHarness()
+      const svc = new NotificationsService(db)
+      const result = await svc.create({
+        userId: 'u-1',
+        type: 'INVOICE_SIGNED',
+        title: 'Signed',
+        link: '/finance/invoices/abc',
+      })
+      expect(result.link).toBe('/finance/invoices/abc')
+    })
+
+    it('rejects an external http link (open-redirect risk)', async () => {
+      const { db } = makeHarness()
+      const svc = new NotificationsService(db)
+      await expect(
+        svc.create({
+          userId: 'u-1',
+          type: 'INVOICE_SIGN_REQUIRED',
+          title: 'Phish',
+          link: 'http://evil.com',
+        }),
+      ).rejects.toThrow('Invalid notification link')
+    })
+
+    it('rejects a javascript: link (XSS risk)', async () => {
+      const { db } = makeHarness()
+      const svc = new NotificationsService(db)
+      await expect(
+        svc.create({
+          userId: 'u-1',
+          type: 'INVOICE_SIGN_REQUIRED',
+          title: 'XSS',
+          link: 'javascript:alert(1)',
+        }),
+      ).rejects.toThrow('Invalid notification link')
+    })
+
+    it('rejects a link without leading slash', async () => {
+      const { db } = makeHarness()
+      const svc = new NotificationsService(db)
+      await expect(
+        svc.create({
+          userId: 'u-1',
+          type: 'INVOICE_SIGN_REQUIRED',
+          title: 'Bad',
+          link: 'finance/invoices/123',
+        }),
+      ).rejects.toThrow('Invalid notification link')
+    })
   })
 
   describe('listForUser', () => {
