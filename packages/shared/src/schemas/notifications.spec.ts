@@ -154,6 +154,23 @@ describe('safeNotificationLinkSchema', () => {
   it('rejects link exceeding 500 chars', () => {
     expect(() => safeNotificationLinkSchema.parse('/' + 'a'.repeat(500))).toThrow()
   })
+
+  // MED-1: protocol-relative and backslash open-redirect vectors
+  it('MED-1: rejects protocol-relative URL //evil.com (open-redirect)', () => {
+    expect(() => safeNotificationLinkSchema.parse('//evil.com')).toThrow()
+  })
+
+  it('MED-1: rejects backslash-relative /\\evil.com (IE/Edge normalise to //)', () => {
+    expect(() => safeNotificationLinkSchema.parse('/\\evil.com')).toThrow()
+  })
+
+  it('MED-1: accepts a true internal path /valid/path (single slash)', () => {
+    expect(() => safeNotificationLinkSchema.parse('/valid/path')).not.toThrow()
+  })
+
+  it('MED-1: still rejects javascript: scheme', () => {
+    expect(() => safeNotificationLinkSchema.parse('javascript:alert(1)')).toThrow()
+  })
 })
 
 // ── notificationListFiltersSchema ─────────────────────────────────────────────

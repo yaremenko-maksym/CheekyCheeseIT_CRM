@@ -193,6 +193,37 @@ describe('transactionSchema.receiptExternalUrl', () => {
   it('rejects an empty string (not a URL)', () => {
     expect(() => transactionSchema.parse({ ...baseTx, receiptExternalUrl: '' })).toThrow()
   })
+
+  // MED-2: scheme allow-list — javascript:/data: must be rejected even if .url() passes
+  it('MED-2: rejects javascript: scheme (XSS via href)', () => {
+    expect(() =>
+      transactionSchema.parse({ ...baseTx, receiptExternalUrl: 'javascript:alert(1)' }),
+    ).toThrow()
+  })
+
+  it('MED-2: rejects data: URI', () => {
+    expect(() =>
+      transactionSchema.parse({
+        ...baseTx,
+        receiptExternalUrl: 'data:text/html,<script>alert(1)</script>',
+      }),
+    ).toThrow()
+  })
+
+  it('MED-2: accepts valid http:// URL', () => {
+    expect(() =>
+      transactionSchema.parse({ ...baseTx, receiptExternalUrl: 'http://etherscan.io/tx/0xabc' }),
+    ).not.toThrow()
+  })
+
+  it('MED-2: accepts valid https:// URL', () => {
+    expect(() =>
+      transactionSchema.parse({
+        ...baseTx,
+        receiptExternalUrl: 'https://etherscan.io/tx/0xabc123def456',
+      }),
+    ).not.toThrow()
+  })
 })
 
 // ── Drop self-view DTOs (task-drop-2-backend) ───────────────────────────────

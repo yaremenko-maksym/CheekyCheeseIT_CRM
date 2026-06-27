@@ -411,10 +411,16 @@ export class EmployeeContractsService {
 
     // Cross-validate keys against the template's declared customVariables.
     // Unknown keys are rejected to prevent storing arbitrary payloads.
+    // LOW-1 fix: if sourceTemplateId is orphaned (template deleted), throw 404
+    // before proceeding — a missing template means we cannot determine the
+    // allowed key set, so a 400 "unknown keys" is misleading and incorrect.
     const template = await this.db.db.query.contractTemplates.findFirst({
       where: eq(contractTemplates.id, contract.sourceTemplateId),
     })
-    const declared = template?.customVariables as CustomVariable[] | null | undefined
+    if (!template) {
+      throw new NotFoundException('CONTRACT_TEMPLATE_NOT_FOUND')
+    }
+    const declared = template.customVariables as CustomVariable[] | null | undefined
     const allowedKeys = new Set((declared ?? []).map((v) => v.key))
     const unknownKeys = Object.keys(customValues).filter((k) => !allowedKeys.has(k))
     if (unknownKeys.length > 0) {

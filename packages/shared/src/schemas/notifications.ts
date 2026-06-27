@@ -26,22 +26,34 @@ export type NotificationType = z.infer<typeof notificationTypeSchema>
 /**
  * Safe relative-path validator for notification links.
  *
- * Must start with '/' (relative path only) and must NOT contain '://'
- * or 'javascript:' to prevent open-redirect / XSS via stored links.
+ * Must start with a single '/' (true relative path) and must NOT be:
+ *   - Protocol-relative: '//evil.com'  (browsers treat as scheme-inherit → open-redirect)
+ *   - Backslash-relative: '/\evil.com' (IE/Edge normalise to '//evil.com')
+ *   - External URL: contains '://'
+ *   - XSS URI: contains 'javascript:' (case-insensitive)
  * Null is allowed (no link).
  *
  * Security rationale: notification links are stored verbatim and rendered
  * as <a href={link}> in the header dropdown. Without this guard an attacker
  * who can create a notification (server-side emitter) could store an external
  * redirect or javascript: URI.
+ *
+ * MED-1 fix: added rejection of protocol-relative ('//') and backslash
+ * ('/\') prefixes — both bypass the simple startsWith('/') check.
  */
 export const safeNotificationLinkSchema = z
   .string()
   .max(500)
   .refine(
-    (v) => v.startsWith('/') && !v.includes('://') && !/javascript:/i.test(v),
+    (v) =>
+      v.startsWith('/') &&
+      !v.startsWith('//') &&
+      !v.startsWith('/\\') &&
+      !v.includes('://') &&
+      !/javascript:/i.test(v),
     {
-      message: "Link must be a relative path starting with '/' (no external URLs or javascript:)",
+      message:
+        "Link must be a true relative path starting with '/' (no protocol-relative '//…', backslash '/\\…', external URLs, or javascript:)",
     },
   )
   .nullable()

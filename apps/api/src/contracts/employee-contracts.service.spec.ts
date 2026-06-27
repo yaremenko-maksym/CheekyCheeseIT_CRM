@@ -664,6 +664,27 @@ describe('EmployeeContractsService', () => {
         service.updateCustomValues('user-uuid', { key: 'val' }, mockViewer),
       ).rejects.toThrow(NotFoundException)
     })
+
+    it('LOW-1: throws 404 CONTRACT_TEMPLATE_NOT_FOUND when sourceTemplateId is orphaned', async () => {
+      // Simulates the case where the contract's sourceTemplateId points to a
+      // deleted template. Before the fix this produced a misleading 400
+      // ("unknown keys") because the allowed-key set was empty. After the fix
+      // it throws NotFoundException with the correct code so the caller knows
+      // the data is inconsistent, not that the submitted keys are wrong.
+      const contract = makeContract({ status: 'DRAFT', sourceTemplateId: 'deleted-template-uuid' })
+      const { service, db } = makeService()
+
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      // Orphaned: contractTemplates.findFirst returns null
+      db.db.query.contractTemplates.findFirst.mockResolvedValue(null)
+
+      const err = await service
+        .updateCustomValues('user-uuid', { anyKey: 'value' }, mockViewer)
+        .catch((e) => e)
+
+      expect(err).toBeInstanceOf(NotFoundException)
+      expect((err as NotFoundException).message).toBe('CONTRACT_TEMPLATE_NOT_FOUND')
+    })
   })
 
   // ─── fix(bug-4): sharePercent must NOT block gate for non-SENIOR/DROP roles ──
