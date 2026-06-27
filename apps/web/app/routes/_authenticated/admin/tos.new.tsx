@@ -16,7 +16,9 @@ import {
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { AlertTriangle, ChevronLeft, Eye } from 'lucide-react'
-import { MarkdownDiff } from '@/components/admin/MarkdownDiff'
+const MarkdownDiff = lazy(() =>
+  import('@/components/admin/MarkdownDiff').then((m) => ({ default: m.MarkdownDiff })),
+)
 
 // Lazy-load CodeMirror + markdown extension + dark theme — only ADMIN reaches this route.
 const CodeMirrorEditor = lazy(async () => {
@@ -227,7 +229,9 @@ function TosNewPage() {
               должны будут принять новую версию Terms of Service заново.
             </DialogDescription>
           </DialogHeader>
-          <MarkdownDiff oldText={currentTos?.bodyMarkdown ?? ''} newText={currentBody} />
+          <Suspense fallback={<Skeleton className="h-20 w-full rounded-md" />}>
+            <MarkdownDiff oldText={currentTos?.bodyMarkdown ?? ''} newText={currentBody} />
+          </Suspense>
           <DialogFooter>
             <Button
               variant="ghost"

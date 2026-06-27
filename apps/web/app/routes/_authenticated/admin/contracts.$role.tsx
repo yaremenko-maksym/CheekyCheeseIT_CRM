@@ -19,7 +19,9 @@ import {
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { AlertTriangle, ChevronLeft, Eye } from 'lucide-react'
-import { MarkdownDiff } from '@/components/admin/MarkdownDiff'
+const MarkdownDiff = lazy(() =>
+  import('@/components/admin/MarkdownDiff').then((m) => ({ default: m.MarkdownDiff })),
+)
 import { VariablesPanel } from '@/components/contracts/VariablesPanel'
 import {
   buildTokenHighlightExtension,
@@ -505,7 +507,9 @@ function ContractEditorPage() {
               следующем онбординге.
             </DialogDescription>
           </DialogHeader>
-          <MarkdownDiff oldText={template?.bodyMarkdown ?? ''} newText={currentBody} />
+          <Suspense fallback={<Skeleton className="h-20 w-full rounded-md" />}>
+            <MarkdownDiff oldText={template?.bodyMarkdown ?? ''} newText={currentBody} />
+          </Suspense>
           <DialogFooter>
             <Button
               variant="outline"
