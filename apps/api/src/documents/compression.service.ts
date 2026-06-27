@@ -46,6 +46,74 @@ export interface CompressionResult {
   sizeBytes: number
 }
 
+/**
+ * Thrown by CompressionService.compress() when the pipeline fails for a
+ * known/whitelisted MIME type (corrupt image, malformed PDF, etc.).
+ * DocumentsService catches this and converts it to a 415 UnsupportedMediaType.
+ */
+export class CompressionError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'CompressionError'
+  }
+}
+
+/**
+ * Detect the actual MIME type of a buffer by inspecting its magic bytes.
+ *
+ * Why not `file-type` npm package: it is ESM-only since v17 and this codebase
+ * compiles to CommonJS (tsconfig `"module": "CommonJS"`). We support exactly
+ * the five types in DOCUMENT_MIME_WHITELIST, so a small inline detector is
+ * simpler and has zero extra dependencies.
+ *
+ * Returns the detected MIME string, or null when the signature is unknown
+ * (caller treats null as "unrecognized binary").
+ */
+export function detectMimeFromBuffer(buf: Buffer): string | null {
+  // Need at least 12 bytes for HEIC/AVIF detection
+  if (buf.length < 4) return null
+
+  // JPEG: FF D8 FF
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg'
+
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png'
+
+  // WebP: RIFF????WEBP (bytes 0-3 = "RIFF", bytes 8-11 = "WEBP")
+  if (
+    buf.length >= 12 &&
+    buf[0] === 0x52 &&
+    buf[1] === 0x49 &&
+    buf[2] === 0x46 &&
+    buf[3] === 0x46 &&
+    buf[8] === 0x57 &&
+    buf[9] === 0x45 &&
+    buf[10] === 0x42 &&
+    buf[11] === 0x50
+  )
+    return 'image/webp'
+
+  // PDF: %PDF
+  if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46)
+    return 'application/pdf'
+
+  // HEIC / HEIF: ftyp box at offset 4 (bytes 4-7), brand at 8-11.
+  // Common brands: heic, heix, hevc, hevx, mif1, msf1, avif.
+  // The ftyp box major-brand starts at byte 8 and is 4 ASCII chars.
+  if (
+    buf.length >= 12 &&
+    buf[4] === 0x66 &&
+    buf[5] === 0x74 &&
+    buf[6] === 0x79 &&
+    buf[7] === 0x70
+  ) {
+    const brand = buf.subarray(8, 12).toString('ascii')
+    if (/^(heic|heix|hevc|hevx|mif1|msf1|avif)/.test(brand)) return 'image/heic'
+  }
+
+  return null
+}
+
 @Injectable()
 export class CompressionService {
   private readonly logger = new Logger(CompressionService.name)
@@ -95,7 +163,9 @@ export class CompressionService {
       } else {
         // Unknown MIME — pass through. The DocumentsService MIME whitelist
         // should already have rejected it; this branch is defensive.
-        this.logger.warn(`compress() called with unsupported mime "${mimeType}" — returning original`)
+        this.logger.warn(
+          `compress() called with unsupported mime "${mimeType}" — returning original`,
+        )
         return {
           buffer: original,
           finalMimeType: mimeType,
@@ -124,16 +194,19 @@ export class CompressionService {
         }
       }
     } catch (err) {
-      // Any pipeline failure → return original. We log so ops can spot
-      // recurring sharp/pdf-lib breakage but never block the upload.
+      // Compression pipeline failure for a known/validated MIME type.
+      // Re-throw so the caller (DocumentsService) can surface a 415 instead of
+      // silently storing corrupted/unprocessed content under the declared MIME.
+      // The only way we reach here is with a MIME that passed the whitelist
+      // check — so the buffer was claimed to be a valid image/PDF but
+      // sharp/pdf-lib/heic-convert rejected it (corrupt file, misidentified
+      // magic bytes, etc.).
       this.logger.error(
-        `compression failed for mime="${mimeType}": ${(err as Error).message} — returning original`,
+        `compression failed for mime="${mimeType}": ${(err as Error).message} — rejecting upload`,
       )
-      return {
-        buffer: original,
-        finalMimeType: mimeType,
-        sizeBytes: original.length,
-      }
+      throw new CompressionError(
+        `Не удалось обработать файл типа "${mimeType}": ${(err as Error).message}`,
+      )
     }
 
     // ----- Anti-bloat guard -----
