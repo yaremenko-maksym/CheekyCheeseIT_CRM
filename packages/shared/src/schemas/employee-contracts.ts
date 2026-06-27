@@ -28,7 +28,12 @@ export const employeeContractStatusSchema = z.enum([
  */
 export const boundedCustomValuesSchema = z
   .record(
-    z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,49}$/, 'Ключ: только латиница, начинается с буквы, макс 50 символов'),
+    z
+      .string()
+      .regex(
+        /^[a-zA-Z][a-zA-Z0-9_]{0,49}$/,
+        'Ключ: только латиница, начинается с буквы, макс 50 символов',
+      ),
     z.string().max(2000, 'Значение переменной не может превышать 2000 символов'),
   )
   .refine((rec) => Object.keys(rec).length <= 50, {

@@ -17,7 +17,12 @@
  * notification types only requires appending to the enum + a single emitter
  * call site.
  */
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import type {
   Notification as NotificationDto,
