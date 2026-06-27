@@ -564,6 +564,25 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.fields.realContacts).toBe(true)
   })
 
+  // ── Pre-deploy MEDIUM: ACCOUNTANT must not see another ADMIN's payout wallet ──
+  it('ACCOUNTANT viewing a non-ADMIN — requisites visible, wallet NOT excluded', async () => {
+    const viewer = makeUser({ id: 'acc1', role: 'ACCOUNTANT' })
+    const target = makeUser({ id: 'sr1', role: 'SENIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.fields.requisites).toBe(true)
+    // Non-ADMIN target: the accountant keeps full payroll requisites access.
+    expect(p.fields.requisitesExcludeWallet).toBe(false)
+  })
+
+  it('ACCOUNTANT viewing an ADMIN — requisites surface kept but wallet EXCLUDED', async () => {
+    const viewer = makeUser({ id: 'acc1', role: 'ACCOUNTANT' })
+    const target = makeUser({ id: 'admin1', role: 'ADMIN' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.fields.requisites).toBe(true)
+    // ADMIN target: payout wallet/IBAN masked — admins are not on payroll.
+    expect(p.fields.requisitesExcludeWallet).toBe(true)
+  })
+
   it('HR viewing SENIOR in own team — fopPii false, adminNote false, realContacts true', async () => {
     ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
       .fn()

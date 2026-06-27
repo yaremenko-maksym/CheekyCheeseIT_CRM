@@ -901,6 +901,15 @@ describe('UsersService.buildProfileView — legalFullName masking', () => {
     target: ReturnType<typeof makeUser>,
     permissions: { tabs: string[]; actions: string[]; fields: Record<string, boolean> },
   ): UsersService {
+    return makeServiceForProfileViewWithAudit(target, permissions).service
+  }
+
+  // Variant that also returns the audit-log spy so read-audit tests can assert
+  // on `auditLogService.record(...)`.
+  function makeServiceForProfileViewWithAudit(
+    target: ReturnType<typeof makeUser>,
+    permissions: { tabs: string[]; actions: string[]; fields: Record<string, boolean> },
+  ): { service: UsersService; auditRecord: ReturnType<typeof vi.fn> } {
     const db = {
       db: {
         select: vi.fn().mockReturnThis(),
@@ -916,10 +925,17 @@ describe('UsersService.buildProfileView — legalFullName masking', () => {
       getViewPermissions: vi.fn().mockResolvedValue(permissions),
     } as unknown as import('./users-access.service').UsersAccessService
 
-    const auditService = makeAuditLogService()
+    const auditRecord = vi.fn().mockResolvedValue(undefined)
+    const auditService = { record: auditRecord } as unknown as AuditLogService
     const tosService = makeTosService()
 
-    return new UsersService(db as never, accessService as never, auditService as never, tosService)
+    const service = new UsersService(
+      db as never,
+      accessService as never,
+      auditService as never,
+      tosService,
+    )
+    return { service, auditRecord }
   }
 
   const targetWithLegalName = makeUser({
@@ -988,6 +1004,134 @@ describe('UsersService.buildProfileView — legalFullName masking', () => {
     const service = makeServiceForProfileView(targetWithLegalName, permissions)
     const result = await service.buildProfileView(viewer as never, 'target-id')
     expect((result.user as Record<string, unknown>).legalFullName).toBeNull()
+  })
+
+  // ── Pre-deploy MEDIUM #1: ACCOUNTANT requisites — wallet exclusion + read-audit ──
+
+  const targetWithRequisites = makeUser({
+    id: 'target-id',
+    role: 'ADMIN',
+    paymentMethod: 'USDT_ERC20',
+    walletUsdtErc20: '0xADMINWALLET',
+    walletUsdtLabel: 'admin wallet',
+    bankUahRecipient: 'Admin FOP',
+    bankUahIban: 'UA000000000000000000000000001',
+    bankUahRnokpp: '1234567890',
+    bankUahBankName: 'PrivatBank',
+  } as Record<string, unknown>)
+
+  it('ACCOUNTANT viewing an ADMIN — wallet/IBAN/RNOKPP masked (requisitesExcludeWallet)', async () => {
+    const viewer = makeUser({ id: 'acc-id', role: 'ACCOUNTANT' })
+    const permissions = {
+      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
+      actions: [],
+      // mirrors what UsersAccessService emits for ACCOUNTANT → ADMIN
+      fields: { requisites: true, requisitesExcludeWallet: true, techStack: true },
+    }
+    const service = makeServiceForProfileView(targetWithRequisites, permissions)
+    const result = await service.buildProfileView(viewer as never, 'target-id')
+    const u = result.user as Record<string, unknown>
+    // Payout destination fields are excluded for the admin target…
+    expect(u.walletUsdtErc20).toBeNull()
+    expect(u.walletUsdtLabel).toBeNull()
+    expect(u.bankUahRecipient).toBeNull()
+    expect(u.bankUahIban).toBeNull()
+    expect(u.bankUahRnokpp).toBeNull()
+    expect(u.bankUahBankName).toBeNull()
+    // …but the method type (no destination) is still surfaced.
+    expect(u.paymentMethod).toBe('USDT_ERC20')
+  })
+
+  it('ACCOUNTANT viewing a non-ADMIN — wallet/IBAN visible (no exclusion)', async () => {
+    const seniorTarget = makeUser({
+      id: 'target-id',
+      role: 'SENIOR',
+      paymentMethod: 'BANK_UAH_FOP',
+      walletUsdtErc20: '0xSENIORWALLET',
+      bankUahIban: 'UA000000000000000000000000002',
+      bankUahRnokpp: '9876543210',
+    } as Record<string, unknown>)
+    const viewer = makeUser({ id: 'acc-id', role: 'ACCOUNTANT' })
+    const permissions = {
+      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
+      actions: [],
+      fields: { requisites: true, requisitesExcludeWallet: false, techStack: true },
+    }
+    const service = makeServiceForProfileView(seniorTarget, permissions)
+    const result = await service.buildProfileView(viewer as never, 'target-id')
+    const u = result.user as Record<string, unknown>
+    expect(u.walletUsdtErc20).toBe('0xSENIORWALLET')
+    expect(u.bankUahIban).toBe('UA000000000000000000000000002')
+    expect(u.bankUahRnokpp).toBe('9876543210')
+  })
+
+  it('ACCOUNTANT reading requisites writes a requisites_read audit (redacted, actor=accountant)', async () => {
+    const seniorTarget = makeUser({
+      id: 'target-id',
+      role: 'SENIOR',
+      paymentMethod: 'BANK_UAH_FOP',
+      bankUahIban: 'UA000000000000000000000000002',
+      bankUahRnokpp: '9876543210',
+    } as Record<string, unknown>)
+    const viewer = makeUser({ id: 'acc-id', role: 'ACCOUNTANT' })
+    const permissions = {
+      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
+      actions: [],
+      fields: { requisites: true, techStack: true },
+    }
+    const { service, auditRecord } = makeServiceForProfileViewWithAudit(seniorTarget, permissions)
+    await service.buildProfileView(viewer as never, 'target-id')
+    expect(auditRecord).toHaveBeenCalledTimes(1)
+    const entry = auditRecord.mock.calls[0]![0] as {
+      actorId: string
+      targetId: string
+      action: string
+      changes: Record<string, { before: unknown; after: unknown }>
+    }
+    expect(entry.action).toBe('requisites_read')
+    expect(entry.actorId).toBe('acc-id')
+    expect(entry.targetId).toBe('target-id')
+    // Read-audit records WHICH fields were read but never their plaintext values.
+    expect(Object.keys(entry.changes)).toContain('bankUahIban')
+    expect(Object.keys(entry.changes)).toContain('bankUahRnokpp')
+    expect(entry.changes.bankUahIban.before).toBe('[redacted]')
+    expect(entry.changes.bankUahIban.after).toBe('[redacted]')
+  })
+
+  it('ACCOUNTANT viewing SELF does NOT write a requisites_read audit', async () => {
+    const selfTarget = makeUser({
+      id: 'acc-self',
+      role: 'ACCOUNTANT',
+      paymentMethod: 'BANK_UAH_FOP',
+      bankUahIban: 'UA000000000000000000000000003',
+    } as Record<string, unknown>)
+    const viewer = makeUser({ id: 'acc-self', role: 'ACCOUNTANT' })
+    const permissions = {
+      tabs: ['overview', 'requisites'],
+      actions: [],
+      fields: { requisites: true, techStack: true },
+    }
+    const { service, auditRecord } = makeServiceForProfileViewWithAudit(selfTarget, permissions)
+    await service.buildProfileView(viewer as never, 'acc-self')
+    expect(auditRecord).not.toHaveBeenCalled()
+  })
+
+  it('ADMIN reading requisites does NOT write a requisites_read audit (accountant-only)', async () => {
+    const seniorTarget = makeUser({
+      id: 'target-id',
+      role: 'SENIOR',
+      paymentMethod: 'BANK_UAH_FOP',
+      bankUahIban: 'UA000000000000000000000000004',
+    } as Record<string, unknown>)
+    const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
+    const permissions = {
+      tabs: ['overview', 'finance', 'requisites'],
+      actions: [],
+      fields: { requisites: true, techStack: true },
+    }
+    const { service, auditRecord } = makeServiceForProfileViewWithAudit(seniorTarget, permissions)
+    await service.buildProfileView(viewer as never, 'target-id')
+    expect(auditRecord).not.toHaveBeenCalled()
   })
 })
 

@@ -12,6 +12,7 @@ import { DatabaseService } from '../database/database.service'
 import { projectMembers, projects, teamMembers, teams, users } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { UsersService } from '../users/users.service'
+import { TeamAuditLogService } from './team-audit-log.service'
 
 type TeamWithMembers = typeof teams.$inferSelect & {
   members: Array<typeof teamMembers.$inferSelect & { user: typeof users.$inferSelect | null }>
@@ -27,6 +28,7 @@ export class TeamsService {
     private db: DatabaseService,
     @Inject(forwardRef(() => UsersService))
     private usersService: UsersService,
+    private teamAuditLogService: TeamAuditLogService,
   ) {}
 
   private mapTeam(
@@ -549,10 +551,24 @@ export class TeamsService {
       if (hasActiveProject) throw new BadRequestException('Junior already has an active project')
     }
 
+    // Re-add semantics after the soft-delete change to removeMember: a removed
+    // member leaves a soft-deleted row (leftAt != null). Reject only ACTIVE
+    // duplicates; reactivate a soft-deleted row instead of inserting a second
+    // one (mirrors UsersService.upsertTeamMemberTx). Without this, re-adding a
+    // previously removed member would 400 ("User is already a member").
     const existing = await this.db.db.query.teamMembers.findFirst({
       where: and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)),
     })
-    if (existing) throw new BadRequestException('User is already a member')
+    if (existing) {
+      if (existing.leftAt === null) {
+        throw new BadRequestException('User is already a member')
+      }
+      await this.db.db
+        .update(teamMembers)
+        .set({ leftAt: null })
+        .where(eq(teamMembers.id, existing.id))
+      return
+    }
 
     await this.db.db.insert(teamMembers).values({ teamId, userId })
   }
@@ -572,7 +588,14 @@ export class TeamsService {
       throw new ForbiddenException()
     }
 
-    const memberToRemove = team.members.find((m) => m.userId === userId)
+    // The `members` relation returns ALL rows including soft-deleted ones
+    // (leftAt != null). Since removeMember now soft-deletes, every check below
+    // must consider only ACTIVE members — otherwise a previously-removed row
+    // would (a) be re-"found" as removable, and (b) inflate the HR/ACCOUNTANT
+    // minimum-count guards.
+    const activeMembers = team.members.filter((m) => m.leftAt === null)
+
+    const memberToRemove = activeMembers.find((m) => m.userId === userId)
     if (!memberToRemove) throw new NotFoundException('Member not found in team')
 
     const removedRole = memberToRemove.user?.role
@@ -583,22 +606,49 @@ export class TeamsService {
     }
 
     if (removedRole === 'HR') {
-      const hrCount = team.members.filter((m) => m.user?.role === 'HR').length
+      const hrCount = activeMembers.filter((m) => m.user?.role === 'HR').length
       if (hrCount <= 1) {
         throw new BadRequestException('Team must have at least one HR')
       }
     }
 
     if (removedRole === 'ACCOUNTANT') {
-      const accountantCount = team.members.filter((m) => m.user?.role === 'ACCOUNTANT').length
+      const accountantCount = activeMembers.filter((m) => m.user?.role === 'ACCOUNTANT').length
       if (accountantCount <= 1) {
         throw new BadRequestException('Team must have at least one accountant')
       }
     }
 
-    await this.db.db
-      .delete(teamMembers)
-      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
+    // Soft-delete the membership (set leftAt=now) instead of a physical DELETE,
+    // so the row survives for audit/history — consistent with every other exit
+    // path (archiveDropTeam, rotateSenior). A physical delete erased the
+    // membership entirely and skipped the audit trail (pre-deploy MEDIUM).
+    // The audit insert is part of the same transaction: a rollback discards both.
+    const now = new Date()
+    await this.db.db.transaction(async (tx) => {
+      await tx
+        .update(teamMembers)
+        .set({ leftAt: now })
+        .where(
+          and(
+            eq(teamMembers.teamId, teamId),
+            eq(teamMembers.userId, userId),
+            isNull(teamMembers.leftAt),
+          ),
+        )
+      await this.teamAuditLogService.record(
+        {
+          actorId: currentUser.id,
+          targetId: teamId,
+          action: 'team_member_removed',
+          changes: {
+            userId: { before: userId, after: null },
+            role: { before: removedRole ?? null, after: null },
+          },
+        },
+        tx,
+      )
+    })
   }
 
   private assertAccess(
