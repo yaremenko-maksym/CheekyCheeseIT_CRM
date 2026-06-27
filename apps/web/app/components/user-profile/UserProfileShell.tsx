@@ -142,7 +142,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
     !(mode === 'self' && profileUser.role === 'ADMIN')
   // Any SENIOR profile (self or viewed by ADMIN) surfaces the kanban board
   // link in the header — the dedicated 'interviews' tab was removed.
-  const showInterviewsLink = profileUser?.role === 'SENIOR' ?? false
+  const showInterviewsLink = profileUser?.role === 'SENIOR'
 
   // §2c: on own profile show only overview + requisites + contract.
   // view-mode is unchanged (backend permissions govern what's shown there).
