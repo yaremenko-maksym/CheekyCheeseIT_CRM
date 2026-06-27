@@ -139,14 +139,24 @@ describe('route-access · isRouteAllowed (other roles not broken)', () => {
   })
 })
 
-describe('route-access · uncovered paths fail-open', () => {
-  it('unknown/service paths allowed for everyone (e.g. /login, / root index)', () => {
+describe('route-access · uncovered paths — fail-open for service, fail-closed for CRM', () => {
+  it('service paths / and /login remain fail-open for all roles', () => {
     for (const r of ALL) {
+      // /login — pre-auth page outside _authenticated layout.
       expect(isRouteAllowed('/login', r)).toBe(true)
+      // / root — role-dispatch dashboard; intentionally not in ROUTE_ACCESS
+      // (accessible to all authenticated roles; per-role content in component).
       expect(isRouteAllowed('/', r)).toBe(true)
-      // / trailing slash root index handled by CrmDashboard component redirect,
-      // not by the map — fail-open is intentional here.
-      expect(isRouteAllowed('/', r)).toBe(true)
+    }
+  })
+
+  it('unknown CRM path not in ROUTE_ACCESS is fail-CLOSED (security hardening)', () => {
+    // Security fix (audit): previously any unmapped path returned `true` (fail-open).
+    // Now: only explicit service paths (/ and /login) are exempted.
+    // A forgotten ROUTE_ACCESS entry → denied at runtime, not silently opened.
+    for (const r of ALL) {
+      expect(isRouteAllowed('/unknown-crm-section', r)).toBe(false)
+      expect(isRouteAllowed('/some/nested/path', r)).toBe(false)
     }
   })
 
@@ -203,14 +213,14 @@ describe('route-access · navRolesFor (nav sync source-of-truth)', () => {
   })
 })
 
-// ── LOW-7: ROUTE_ACCESS coverage invariant ──────────────────────────────────
-// Client guard is default-ALLOW for routes with no ROUTE_ACCESS entry
-// (resolveRouteAccess → null → isRouteAllowed → true). That fail-open is fine for
-// service paths (/login, root index) but DANGEROUS for a real CRM section: a
-// forgotten map entry silently exposes the page to every role. This invariant
-// enumerates every route FILE under routes/_authenticated/** and asserts each
-// navigable route is mapped — so a new page without a ROUTE_ACCESS entry turns
-// RED here instead of shipping a silent fail-open.
+// ── LOW-7 / Security-hardening: ROUTE_ACCESS coverage invariant ─────────────
+// After the fail-closed fix (audit), unmapped routes return false at runtime.
+// This invariant catches the mapping gap at test time (before push), while the
+// runtime guard catches it in production: a forgotten map entry now denies the
+// page instead of silently opening it to every role. Both layers are needed:
+// tests give a clear "Add an entry to ROUTE_ACCESS" message; runtime denies if
+// tests weren't run. This invariant enumerates every route FILE under
+// routes/_authenticated/** and asserts each navigable route is mapped.
 describe('route-access · ROUTE_ACCESS coverage invariant (no silent fail-open)', () => {
   // Enumerate route modules at build time (Vite glob). Keys are absolute-ish
   // module paths under app/routes/_authenticated (the pathless auth-shell layout
@@ -241,10 +251,10 @@ describe('route-access · ROUTE_ACCESS coverage invariant (no silent fail-open)'
    * guard would see. The pathless `_authenticated/` layout segment is stripped
    * (it never appears in the URL). We only need the TOP-LEVEL section to assert
    * prefix coverage, so dynamic/flat segments collapse to a concrete-ish sample.
-   *   _authenticated/stats.tsx                    → /stats
-   *   _authenticated/projects/$projectId.tsx      → /projects/sample
-   *   _authenticated/admin/contracts.index.tsx    → /admin/contracts
-   *   _authenticated/payments/initiate.$incomeId.tsx → /payments/initiate/sample
+   *   _authenticated/stats.tsx                → /stats
+   *   _authenticated/projects/$projectId.tsx  → /projects/sample
+   *   _authenticated/admin/contracts.index.tsx → /admin/contracts
+   *   _authenticated/team/$teamId.tsx         → /team/sample
    */
   const toPathname = (rel: string): string => {
     // Drop the pathless layout segment — it does not contribute a URL part.

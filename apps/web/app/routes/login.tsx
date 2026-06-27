@@ -30,25 +30,18 @@ function LoginRoot() {
   )
 }
 
-// Show Dev Login section when:
-//   • running `pnpm dev` (import.meta.env.DEV === true), or
-//   • building with VITE_DEV_LOGIN=true for User Testing through tunnel
-//     (Google OAuth fails on phone via tunnel — redirect_uri_mismatch).
-// In real production builds both are false → section is hidden.
-const SHOW_DEV_LOGIN = import.meta.env.DEV || import.meta.env['VITE_DEV_LOGIN'] === 'true'
+// Dev-login visibility gate: import.meta.env.PROD is a static boolean that
+// Vite replaces at build time (true in prod, false in dev). Using PROD (not DEV
+// or bracket-access VITE_DEV_LOGIN) guarantees Rollup dead-code-eliminates the
+// entire DevLoginSection — including email literals — from production bundles.
+// import.meta.env['VITE_DEV_LOGIN'] (bracket access) is NOT statically foldable
+// by Vite/Rollup and keeps the component in the bundle even when the flag is unset.
+const SHOW_DEV_LOGIN = !import.meta.env.PROD
 
-const DEV_USERS = [
-  { email: 'yaremenkomaksym99@gmail.com', label: 'Maksym Yaremenko — ADMIN' },
-  { email: 'kostya@cheekycheeseit.com', label: 'Kostya — ADMIN' },
-  { email: 'oleksiy.kovalenko@cheekycheese.dev', label: 'Oleksiy Kovalenko — SENIOR' },
-  { email: 'dmytro.marchenko@cheekycheese.dev', label: 'Dmytro Marchenko — SENIOR' },
-  { email: 'sofia.bondarenko@cheekycheese.dev', label: 'Sofia Bondarenko — JUNIOR' },
-  { email: 'ivan.petrenko@cheekycheese.dev', label: 'Ivan Petrenko — JUNIOR' },
-  { email: 'anna.lysenko@cheekycheese.dev', label: 'Anna Lysenko — HR' },
-  { email: 'kateryna.shevchenko@cheekycheese.dev', label: 'Kateryna Shevchenko — HR' },
-  { email: 'mykola.savchenko@cheekycheese.dev', label: 'Mykola Savchenko — ACCOUNTANT' },
-  { email: 'viktor.drop@cheekycheese.dev', label: 'Дрожжин Віктор — DROP' },
-]
+// Security: DEV_USERS is defined at module scope (exported for unit tests — Fix#3).
+// Rollup eliminates it from prod bundles alongside DevLoginSection because
+// SHOW_DEV_LOGIN = !import.meta.env.PROD is statically false in prod builds,
+// making all references inside DevLoginSection unreachable dead code.
 
 const ERROR_MESSAGES: Record<string, string> = {
   unauthorized: 'Ваш email не авторизован. Обратитесь к администратору.',
@@ -78,6 +71,79 @@ function GoogleIcon() {
         fill="#EA4335"
       />
     </svg>
+  )
+}
+
+// DEV_USERS is exported for unit tests (Fix#3) so tests import the real constant
+// instead of an inline mirror. Rollup eliminates this array from production bundles
+// alongside DevLoginSection — both are only reachable when SHOW_DEV_LOGIN is true
+// (!import.meta.env.PROD), which Rollup statically folds to false in prod builds,
+// marking all code paths through DevLoginSection as dead code.
+export const DEV_USERS = [
+  { email: 'yaremenkomaksym99@gmail.com', label: 'Admin 1 — ADMIN (Maksym)' },
+  { email: 'kostya@cheekycheeseit.com', label: 'Admin 2 — ADMIN (Kostya)' },
+  { email: 'oleksiy.kovalenko@cheekycheese.dev', label: 'Senior 1 — SENIOR (Oleksiy)' },
+  { email: 'dmytro.marchenko@cheekycheese.dev', label: 'Senior 2 — SENIOR (Dmytro)' },
+  { email: 'sofia.bondarenko@cheekycheese.dev', label: 'Junior 1 — JUNIOR (Sofia)' },
+  { email: 'ivan.petrenko@cheekycheese.dev', label: 'Junior 2 — JUNIOR (Ivan)' },
+  { email: 'anna.lysenko@cheekycheese.dev', label: 'HR 1 — HR (Anna)' },
+  { email: 'kateryna.shevchenko@cheekycheese.dev', label: 'HR 2 — HR (Kateryna)' },
+  { email: 'mykola.savchenko@cheekycheese.dev', label: 'Accountant — ACCOUNTANT (Mykola)' },
+  { email: 'viktor.drop@cheekycheese.dev', label: 'Drop — DROP (Viktor)' },
+]
+
+function DevLoginSection({
+  devLoading,
+  setDevLoading,
+}: {
+  devLoading: string | null
+  setDevLoading: (v: string | null) => void
+}) {
+  // DEV_USERS is defined at module scope (exported for unit tests — Fix#3).
+  // It is only used inside this component; Rollup eliminates it from prod bundles
+  // together with DevLoginSection because SHOW_DEV_LOGIN = !import.meta.env.PROD
+  // is statically false in production, making this component unreachable dead code.
+
+  return (
+    <div
+      className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4"
+      data-testid="dev-login-section"
+    >
+      <div className="mb-3 flex items-center gap-2">
+        <span className="text-amber-400" aria-hidden="true">
+          🔧
+        </span>
+        <h3 className="text-sm font-medium text-amber-400">Dev Login (только для тестирования)</h3>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {DEV_USERS.map((u) => (
+          <button
+            key={u.email}
+            type="button"
+            data-testid={`dev-login-${u.email}`}
+            disabled={devLoading !== null}
+            onClick={async () => {
+              setDevLoading(u.email)
+              try {
+                await api.post('/auth/dev-login', { email: u.email })
+                window.location.href = '/'
+              } catch {
+                setDevLoading(null)
+              }
+            }}
+            className="flex w-full items-center gap-2 rounded-md border border-amber-500/20 bg-background/60 px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-foreground disabled:opacity-50"
+          >
+            <span className="flex-1">{u.label}</span>
+            {devLoading === u.email && (
+              <span
+                className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent"
+                aria-hidden="true"
+              />
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -157,47 +223,10 @@ function LoginPage() {
         </Button>
 
         {SHOW_DEV_LOGIN && (
-          <div
-            className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4"
-            data-testid="dev-login-section"
-          >
-            <div className="mb-3 flex items-center gap-2">
-              <span className="text-amber-400" aria-hidden="true">
-                🔧
-              </span>
-              <h3 className="text-sm font-medium text-amber-400">
-                Dev Login (только для тестирования)
-              </h3>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              {DEV_USERS.map((u) => (
-                <button
-                  key={u.email}
-                  type="button"
-                  data-testid={`dev-login-${u.email}`}
-                  disabled={devLoading !== null}
-                  onClick={async () => {
-                    setDevLoading(u.email)
-                    try {
-                      await api.post('/auth/dev-login', { email: u.email })
-                      window.location.href = '/'
-                    } catch {
-                      setDevLoading(null)
-                    }
-                  }}
-                  className="flex w-full items-center gap-2 rounded-md border border-amber-500/20 bg-background/60 px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-foreground disabled:opacity-50"
-                >
-                  <span className="flex-1">{u.label}</span>
-                  {devLoading === u.email && (
-                    <span
-                      className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent"
-                      aria-hidden="true"
-                    />
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
+          // DevLoginSection is rendered (and its DEV_USERS array instantiated) only
+          // when SHOW_DEV_LOGIN is truthy — keeping the email literals inside this
+          // branch ensures they are tree-shaken out of production builds.
+          <DevLoginSection devLoading={devLoading} setDevLoading={setDevLoading} />
         )}
 
         <p className="mt-6 text-center text-xs text-muted-foreground">

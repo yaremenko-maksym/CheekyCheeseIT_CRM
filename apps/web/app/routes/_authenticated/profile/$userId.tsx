@@ -3,6 +3,11 @@ import { useEffect } from 'react'
 import { z } from 'zod'
 import { useAuth } from '@/context/auth'
 import { UserProfileShell } from '@/components/user-profile/UserProfileShell'
+// Security note: the synchronous guard below (before <UserProfileShell>) is a
+// client-side defence-in-depth layer. The backend MUST enforce its own RBAC:
+// any GET /api/users/:id or profile data endpoint must return 403 for JUNIOR
+// accessing another user's data — the frontend guard is UX-only, not the real
+// security boundary.
 
 const searchSchema = z.object({
   tab: z

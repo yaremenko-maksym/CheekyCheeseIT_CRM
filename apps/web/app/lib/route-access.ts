@@ -79,8 +79,9 @@ const ROUTE_ACCESS: ReadonlyArray<{ prefix: string; roles: readonly Role[] }> = 
   // Профиль (свой + чужой $userId) — все роли (RBAC видимости решается на backend).
   { prefix: '/profile', roles: ALL_ROLES },
 
-  // Платежи (инициация выплаты) — те же, кто видит финансы.
-  { prefix: '/payments', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] },
+  // /payments: removed — no route file exists under routes/_authenticated/payments/**
+  // (dead entry; was used for payment initiation which was merged into /finance).
+  // Keeping it would silently allow any future /payments/* route for all roles.
 
   // Админ-шаблоны (контракты / ToS) — только ADMIN.
   { prefix: '/admin', roles: ['ADMIN'] },
@@ -124,13 +125,29 @@ export function resolveRouteAccess(pathname: string): readonly Role[] | null {
 }
 
 /**
+ * Service-level paths that live OUTSIDE the `/_authenticated/` layout and are
+ * intentionally fail-open. The root `/` is the role-dispatch dashboard (all
+ * authenticated roles land here; per-role content rendered in component) and is
+ * not a ROUTE_ACCESS entry by design — see the comment block above.
+ * `/login` and `/` are the only unauthenticated/service-level paths the guard
+ * ever sees; everything else that lacks a ROUTE_ACCESS entry is a missing mapping
+ * and should be treated as denied (fail-closed).
+ */
+const OPEN_SERVICE_PATHS = new Set(['/', '/login'])
+
+/**
  * Разрешён ли роль доступ к данному CRM-пути.
- * - Путь вне карты → `true` (fail-open для служебных, напр. /login, / root index).
- * - Путь в карте → проверка членства роли.
+ *
+ * Security: fail-closed for unmapped paths.
+ * - Explicitly exempted service paths (/ root index, /login) → `true` (fail-open).
+ * - Path in the map → role membership check.
+ * - Path NOT in the map and NOT a service path → `false` (fail-closed).
+ *   Any new CRM section that forgets an entry in ROUTE_ACCESS is denied by
+ *   default, not silently opened. Add the entry to ROUTE_ACCESS to fix.
  */
 export function isRouteAllowed(pathname: string, role: Role): boolean {
   const allowed = resolveRouteAccess(pathname)
-  if (allowed === null) return true
+  if (allowed === null) return OPEN_SERVICE_PATHS.has(pathname)
   return allowed.includes(role)
 }
 
