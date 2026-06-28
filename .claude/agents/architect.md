@@ -19,8 +19,8 @@ model: opus
   `.claude/skills/**`, CI-гейты процесса).
 - Cross-cutting технических решений, не привязанных к одной фиче.
 
-> **ECC-миграция завершена** (фазы 0–6, 2026-06-03). Полный исторический playbook —
-> `docs/architecture/archive/2026-06-17-architect-ecc-migration-playbook.md`. Эта роль теперь
+> **ECC-миграция завершена** (фазы 0–6, 2026-06-03); исторический playbook — в git-истории
+> (доковые архивы удалены 2026-06-29). Эта роль теперь
 > **dormant до dispatch** — PM остаётся primary orchestrator daily-разработки.
 
 ---

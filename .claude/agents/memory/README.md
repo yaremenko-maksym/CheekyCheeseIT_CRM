@@ -7,28 +7,18 @@
 ```
 .claude/agents/memory/
 ├── README.md          (этот файл)
-├── coder/
-│   ├── lessons.md          (active, ≤ 20 строк)
-│   └── lessons.archive.md  (historical, full record)
-├── autotest/
-│   ├── lessons.md
-│   └── lessons.archive.md
-├── reviewer/
-│   ├── lessons.md
-│   └── lessons.archive.md
-├── devops/
-│   ├── lessons.md
-│   └── lessons.archive.md
-└── pm/
-    ├── lessons.md
-    └── lessons.archive.md
+├── coder/lessons.md
+├── autotest/lessons.md
+├── reviewer/lessons.md
+├── devops/lessons.md
+└── pm/lessons.md       (active, ≤ 20 строк; архивных файлов НЕТ)
 ```
 
-Per-agent archive structure (User answer #6) — каждый агент имеет свой `lessons.archive.md` в той же папке.
+Механизм архивации `.md` удалён (2026-06-29) — `lessons.archive.md` больше нет; устаревшие уроки удаляются при консолидации, история восстановима из git.
 
 ## Когда читать
 
-Каждый агент читает свой `lessons.md` при старте — это часть обязательного чтения (см. `.claude/agents/<self>.md` секция «Session-recovery»). Архив **НЕ читается upfront** — только для retrospective.
+Каждый агент читает свой `lessons.md` при старте — это часть обязательного чтения (см. `.claude/agents/<self>.md` секция «Session-recovery»).
 
 ## Когда писать
 
@@ -37,15 +27,13 @@ Per-agent archive structure (User answer #6) — каждый агент име�
 После каждого **merged PR** PM ОБЯЗАН:
 
 1. Append 1-3 урока в `.claude/agents/memory/<agent>/lessons.md` соответствующего агента (тот кто делал основную работу).
-2. Вызвать skill `anthropic-skills:consolidate-memory` при достижении threshold:
-   - `lessons.md` ≥ **20 строк**, ИЛИ
-   - после batch merged PRs (по выбору PM).
-
-Skill анализирует duplicates / упрощает / выделяет паттерны → promotion levels:
+2. Консолидировать при достижении threshold (`lessons.md` ≥ **20 строк** ИЛИ после batch merged PRs): дедуп / упрощение / выделение паттернов → promote-and-prune (**без архива**):
 
 - **P0 (5+ повторений)** → promote в Golden rules соответствующего agent doc (`<agent>.md`).
-- **P1** → consolidate в `.claude/RULES.md` (если cross-agent) или `<agent>.md` (если agent-specific).
-- **P2** → archive в `.claude/agents/memory/<agent>/lessons.archive.md`.
+- **P1** → consolidate в `rules/common/<topic>.md` (если cross-agent) или `<agent>.md` (если agent-specific).
+- **Остальное (одноразовое / поглощённое промоутом)** → **удалить** (не архивировать; история в git).
+
+> Это отдельная операция PM над in-repo `lessons.md`, НЕ скилл `anthropic-skills:consolidate-memory` (тот дедупит личную user-memory `~/.claude`).
 
 Это «levelling-up» урока: персональный case → общее правило → enforced rule.
 
@@ -94,7 +82,7 @@ Skill анализирует duplicates / упрощает / выделяет п
 1. **Один урок = одна строка.** Не размазывать на абзац.
 2. **Конкретность.** «Layout regression потому что X» лучше чем «осторожнее с layout».
 3. **Применимость.** Урок должен помочь следующему агенту в похожей ситуации.
-4. **Лимит.** Active `lessons.md` ≤ 20 строк. Достигли — вызвать `anthropic-skills:consolidate-memory`.
+4. **Лимит.** Active `lessons.md` ≤ 20 строк. Достигли — PM консолидирует (promote-and-prune, см. «Когда писать»).
 
 ## Где жил этот файл раньше
 

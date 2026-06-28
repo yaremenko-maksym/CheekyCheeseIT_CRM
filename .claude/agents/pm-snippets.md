@@ -882,10 +882,8 @@ cat .claude/tasks/<task>.progress.md
 ├── task-<slug>.md            # активная задача
 ├── task-<slug>.blocked.md    # блокер от агента
 ├── task-<slug>.progress.md   # sentinel Coder для крупных задач (>4 файлов)
-├── templates/
-│   └── task.md.tpl
-└── archive/
-    └── <date>-<slug>.md      # завершённые задачи
+└── templates/
+    └── task.md.tpl
 ```
 
 ### Правила именования task-файлов
