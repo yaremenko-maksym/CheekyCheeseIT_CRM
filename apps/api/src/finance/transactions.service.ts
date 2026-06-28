@@ -42,7 +42,8 @@ import {
 import type { DrizzleTx } from '../database/types'
 import { InvoicesService } from '../invoices/invoices.service'
 import { DocumentsService } from '../documents/documents.service'
-import { NbuCurrencyService } from './nbu-currency.service'
+import { NbuCurrencyService, type ExchangeRateResult } from './nbu-currency.service'
+import { convertToBase, type BalanceCurrency } from './balance.service'
 import { EtherscanService } from './etherscan.service'
 import { resolveSeniorShare } from './senior-share-resolver'
 import { getOwnSalaryStatus } from './salary-status.helper'
@@ -555,9 +556,18 @@ export class TransactionsService {
       type: string
       status: string
       amount: string
+      // Audit 2026-06-28 (#4): the row currency is required so the balance is
+      // aggregated in a single base. Optional for older callers/stubs that pass
+      // USD/USDT-only ledgers; absent → treated as USD (identity). The admin
+      // summary + drop self-summary now always pass it.
+      currency?: string
       senderId: string | null
       receiverId: string | null
     }>,
+    // NBU rate snapshot for the cross-currency → USD conversion. Optional so a
+    // single-currency (prod USDT/USD) caller can omit it; convertToBase short-
+    // circuits USD/USDT to identity, so omitting rates only affects EUR/UAH rows.
+    rates?: ExchangeRateResult,
   ): {
     userId: string
     displayName: string
@@ -568,12 +578,24 @@ export class TransactionsService {
   } {
     const paid = allTxs.filter((tx) => tx.status === 'PAID')
 
+    // Audit 2026-06-28 (#4): convert each amount to base (USD) BEFORE scaling so a
+    // mixed-currency drop ledger sums coherently. USD/USDT → byte-exact identity.
+    const baseAmount = (tx: { amount: string; currency?: string }): number =>
+      rates
+        ? convertToBase(
+            parseFloat(tx.amount),
+            (tx.currency ?? 'USD') as BalanceCurrency,
+            'USD',
+            rates,
+          )
+        : parseFloat(tx.amount)
+
     const receivedScaled = paid
       .filter((tx) => tx.receiverId === drop.id && tx.type === 'PAYOUT_DROP')
-      .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * MONEY_SCALE), 0)
+      .reduce((sum, tx) => sum + Math.round(baseAmount(tx) * MONEY_SCALE), 0)
     const sentScaled = paid
       .filter((tx) => tx.senderId === drop.id && tx.type === 'PAYOUT_DROP')
-      .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * MONEY_SCALE), 0)
+      .reduce((sum, tx) => sum + Math.round(baseAmount(tx) * MONEY_SCALE), 0)
 
     // pendingCount: DROP_INCOME rows for this drop still awaiting validation.
     // createDropIncome sets receiverId = drop.id (drop is the recipient),
@@ -591,7 +613,7 @@ export class TransactionsService {
       .filter(
         (tx) => tx.type === 'PAYOUT' && tx.senderId === drop.id && tx.status === 'PENDING_PAYMENT',
       )
-      .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * MONEY_SCALE), 0)
+      .reduce((sum, tx) => sum + Math.round(baseAmount(tx) * MONEY_SCALE), 0)
 
     return {
       userId: drop.id,
@@ -631,13 +653,18 @@ export class TransactionsService {
       type: string
       status: string
       amount: string
+      currency?: string
       senderId: string | null
       receiverId: string | null
     }>
 
+    // Audit 2026-06-28 (#4): pass the NBU snapshot so a mixed-currency drop ledger
+    // aggregates in one base. USD/USDT short-circuits to identity in convertToBase.
+    const rates = await this.nbuCurrency.getRates()
     const aggregate = this.computeDropAggregate(
       { id: self.id, displayName: self.displayName, dropSharePercent: self.dropSharePercent },
       allTxs,
+      rates,
     )
 
     return {
@@ -2716,6 +2743,16 @@ export class TransactionsService {
     // never drift apart on the rounding scale.
     const SCALE = MONEY_SCALE
 
+    // Audit 2026-06-28 (#4): aggregate every money figure in a single base
+    // currency (USD). Rows may carry mixed currencies (USDT/USD/EUR/UAH); summing
+    // their raw `amount` strings would add apples to oranges. Fetch the NBU
+    // snapshot ONCE and convert each row BEFORE the scaled-integer accumulation.
+    // USD ⇄ USDT is a byte-exact identity in convertToBase (peg short-circuit),
+    // so the prod USDT/USD ledger totals are unchanged to the cent.
+    const rates = await this.nbuCurrency.getRates()
+    const toBase = (tx: { amount: string; currency: string }): number =>
+      convertToBase(parseFloat(tx.amount), tx.currency as BalanceCurrency, 'USD', rates)
+
     const allTxs = (await this.db.db.query.transactions.findMany({
       with: {
         sender: { columns: { displayName: true } },
@@ -2735,24 +2772,30 @@ export class TransactionsService {
           .filter(
             (tx) =>
               tx.type === 'ADMIN_INCOME' ||
-              tx.type === 'SENIOR_INCOME' ||
+              // Audit 2026-06-28 (#1): a company-funded SENIOR_INCOME is the
+              // internal company→senior settlement of a drop IOU — the gross of
+              // that money already counts here as the linked DROP_INCOME. Counting
+              // the company-funded slice too double-counts. Mirrors adminBalances,
+              // which already excludes company-funded ADMIN_INCOME. NON-company-
+              // funded SENIOR_INCOME (real external income) is still counted.
+              (tx.type === 'SENIOR_INCOME' && tx.fundingSource !== 'COMPANY_ACCOUNT') ||
               tx.type === 'DROP_INCOME',
           )
-          .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0),
+          .reduce((sum, tx) => sum + Math.round(toBase(tx) * SCALE), 0),
       ) / SCALE
 
     const totalExpenses =
       Math.round(
         paid
           .filter((tx) => tx.type === 'EXPENSE')
-          .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0),
+          .reduce((sum, tx) => sum + Math.round(toBase(tx) * SCALE), 0),
       ) / SCALE
 
     const totalSalaries =
       Math.round(
         paid
           .filter((tx) => tx.type === 'SALARY')
-          .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0),
+          .reduce((sum, tx) => sum + Math.round(toBase(tx) * SCALE), 0),
       ) / SCALE
 
     // Admin balances (HOLDING model): all received − all spent.
@@ -2792,12 +2835,14 @@ export class TransactionsService {
                   tx.type === 'ADMIN_TRANSFER' ||
                   tx.type === 'PAYOUT_CONFIRMED'),
             )
-            .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0)
+            // Audit 2026-06-28 (#4): convert to base before scaling (mixed-currency
+            // safe). USD/USDT → identity, so prod balances stay byte-exact.
+            .reduce((sum, tx) => sum + Math.round(toBase(tx) * SCALE), 0)
           // HOLDING model: debit = ALL paid transactions sent by this admin
           // (SALARY, EXPENSE, ADMIN_TRANSFER, etc.), not only ADMIN_TRANSFER.
           const sentScaled = paid
             .filter((tx) => tx.senderId === admin.id)
-            .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0)
+            .reduce((sum, tx) => sum + Math.round(toBase(tx) * SCALE), 0)
           return {
             userId: admin.id,
             displayName: admin.displayName,
@@ -2829,6 +2874,7 @@ export class TransactionsService {
           const aggregate = this.computeDropAggregate(
             { id: drop.id, displayName: drop.displayName, dropSharePercent: drop.dropSharePercent },
             allTxs,
+            rates,
           )
           return {
             userId: aggregate.userId,
@@ -2846,13 +2892,24 @@ export class TransactionsService {
     >()
 
     for (const tx of paid) {
-      const month = tx.createdAt.toISOString().slice(0, 7) // YYYY-MM
+      // Audit 2026-06-28 (#9): bucket by the business date (txDate) when present,
+      // falling back to createdAt. Aligns with getIncomeComplianceOverview. Prod
+      // data has txDate == createdAt so the existing totals / graph are unchanged.
+      const when = tx.txDate ?? tx.createdAt
+      const month = when.toISOString().slice(0, 7) // YYYY-MM
       if (!monthMap.has(month))
         monthMap.set(month, { incomeScaled: 0, expensesScaled: 0, salariesScaled: 0 })
       const entry = monthMap.get(month)!
-      const amtScaled = Math.round(parseFloat(tx.amount) * SCALE)
+      // Audit 2026-06-28 (#4): convert to base before scaling (mixed-currency safe).
+      const amtScaled = Math.round(toBase(tx) * SCALE)
 
-      if (tx.type === 'ADMIN_INCOME' || tx.type === 'SENIOR_INCOME' || tx.type === 'DROP_INCOME') {
+      if (
+        tx.type === 'ADMIN_INCOME' ||
+        // Audit 2026-06-28 (#1): exclude company-funded SENIOR_INCOME from the
+        // monthly income series too — keep it consistent with totalIncome above.
+        (tx.type === 'SENIOR_INCOME' && tx.fundingSource !== 'COMPANY_ACCOUNT') ||
+        tx.type === 'DROP_INCOME'
+      ) {
         entry.incomeScaled += amtScaled
       } else if (tx.type === 'EXPENSE') entry.expensesScaled += amtScaled
       else if (tx.type === 'SALARY') entry.salariesScaled += amtScaled
