@@ -64,7 +64,13 @@ function ChartTooltip(props: Record<string, unknown>) {
   )
 }
 
-export function FinanceChart({ summary }: { summary: FinanceSummaryDto }) {
+export function FinanceChart({
+  summary,
+  className,
+}: {
+  summary: FinanceSummaryDto
+  className?: string
+}) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [mode, setMode] = useState<ChartMode>('income')
 
@@ -170,7 +176,7 @@ export function FinanceChart({ summary }: { summary: FinanceSummaryDto }) {
     : [0, Math.ceil(maxVal + yPad)]
 
   return (
-    <Card>
+    <Card className={className}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
