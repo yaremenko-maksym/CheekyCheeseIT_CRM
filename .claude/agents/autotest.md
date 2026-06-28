@@ -99,7 +99,7 @@ import { test, expect } from '../fixtures'
 
 test.describe('<Module> — <RoleName>', () => {
   test('<что тестируем>', async ({ asSenior }) => {
-    await asSenior.goto('/crm/<module>')
+    await asSenior.goto('/<module>')
     await asSenior.getByRole('button', { name: '...' }).click()
     await expect(asSenior.getByRole('dialog')).toBeVisible()
     // ...
@@ -294,7 +294,7 @@ await expect(main.getByText('Статистика')).toBeVisible()
 
 ```typescript
 // НЕПРАВИЛЬНО — может найти 2+ элементов (sidebar + content)
-await page.locator('a[href="/crm/team"]').click()
+await page.locator('a[href="/team"]').click()
 
 // ПРАВИЛЬНО — data-testid
 await page.locator('[data-testid="back-button"]').click()

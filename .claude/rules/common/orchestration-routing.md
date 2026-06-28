@@ -12,7 +12,7 @@
 
 Две уже существующие оси решения здесь **НЕ дублируются** (их перечитывание = тот самый «третий источник правды», которого избегаем) — они отрабатывают раньше как есть:
 
-- **Cost-of-error** (auth / finance / RBAC / wallets / transactions / Drizzle-миграции / smart-contracts → FULL PIPELINE + **ОБЯЗАТЕЛЬНЫЙ** security-reviewer) — живёт в `pm.md` «Critical-path trigger zones». Срабатывает ПЕРВОЙ и бьёт всё ниже.
+- **Cost-of-error** (auth / finance / RBAC / wallets / transactions / Drizzle-миграции / company-account (USDT) → FULL PIPELINE + **ОБЯЗАТЕЛЬНЫЙ** security-reviewer) — живёт в `pm.md` «Critical-path trigger zones». Срабатывает ПЕРВОЙ и бьёт всё ниже.
 - **Тривиальность / обратимость** (docs / cosmetic / ≤30 LOC / 1 файл без бизнес-логики и без security-поверхности → light-track single-pass) — живёт в `light-track.md`.
 - **Тир модели** (haiku / sonnet / opus + триггеры эскалации) — ортогонально, `model-routing.md` (тир ≠ трек).
 

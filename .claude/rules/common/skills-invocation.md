@@ -31,7 +31,7 @@
 | Любая feature / fix — перед implementation                           | `superpowers:test-driven-development`        | Coder                   |
 | Баг / test failure / unexpected behavior                             | `superpowers:systematic-debugging`           | All                     |
 | Перед PR / completion claim                                          | `superpowers:verification-before-completion` | Coder, AutoTest, DevOps |
-| PR трогает auth / finance / wallets / transactions / smart-contracts | `superpowers:security-review`                | Coder, Reviewer         |
+| PR трогает auth / finance / wallets / transactions / company-account | `superpowers:security-review`                | Coder, Reviewer         |
 | Начало каждого review                                                | `superpowers:requesting-code-review`         | Reviewer                |
 | Получение review feedback                                            | `superpowers:receiving-code-review`          | Coder                   |
 | После написания кода (cleanup)                                       | `superpowers:simplify`                       | Coder                   |

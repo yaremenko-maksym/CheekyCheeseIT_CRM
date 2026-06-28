@@ -82,7 +82,7 @@ PM → Coder: Agent(prompt="task-X.md", isolation="worktree", run_in_background=
   Coder → PR: wip-push milestone 1/N
   Coder → PR: wip-push milestone 2/N
   ...
-  Coder → PR: final commit с `ac_verified: 1,2,3` + `vision: ✓ /crm/X`
+  Coder → PR: final commit с `ac_verified: 1,2,3` + `vision: ✓ /X`
 PM → Reviewer: Agent(prompt="PR #N")
   Reviewer → mcp__github__create_pull_request_review (APPROVE)
   Reviewer → label: awaiting-pm-review

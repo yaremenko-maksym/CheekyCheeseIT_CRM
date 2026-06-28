@@ -351,7 +351,7 @@ Bash(
 
 **Env overrides**: `SKIP_TUNNEL=1`, `SKIP_UNIT_TESTS=1`, `POSTGRES_*`.
 
-**OAuth через tunnel НЕ работает** — User Testing использует Dev Login (кнопка в `/crm/login` отправляет email на `POST /api/auth/dev-login`).
+**OAuth через tunnel НЕ работает** — User Testing использует Dev Login (кнопка в `/login` отправляет email на `POST /api/auth/dev-login`).
 
 Если exit code != 0 (упал до `wait`) — НЕ показывать USER. Логи в `/tmp/pm-{api,web}.log` или Serveo лог → классифицировать (build/DB/tunnel/port-clash) → fix-task. Troubleshooting — `docs/runbooks/user-testing-tunnel.md`.
 
@@ -364,7 +364,7 @@ Bash(
 
 **Что реализовано:** <конкретно>
 
-**Где смотреть:** Sidebar → "<раздел>" (URL: /crm/<path>)
+**Где смотреть:** Sidebar → "<раздел>" (URL: /<path>)
 
 **Что проверить:**
 1. <сценарий для ROLE>
