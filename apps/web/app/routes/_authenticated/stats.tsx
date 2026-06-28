@@ -168,47 +168,49 @@ function CompanyAndPartnersCard({
   return (
     <Card className="overflow-hidden flex flex-col" data-testid="stats-company-partners-card">
       {/* ── Секция 1: Счёт компании (USDT) ── */}
-      <CardHeader className="pb-2 pt-4 px-4">
-        <div className="flex items-center gap-2">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <Coins className="h-4 w-4 text-yellow-500" aria-hidden="true" />
-            Счёт компании
-          </CardTitle>
-          <TooltipProvider delayDuration={200}>
-            <UITooltip>
-              <TooltipTrigger asChild>
-                <HelpCircle className="h-3.5 w-3.5 text-muted-foreground/40 cursor-help" />
-              </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-60 text-xs leading-relaxed">
-                Накопленный USDT-баланс на счёте компании — пополняется через подтверждённые выплаты
-                (метод «Счёт компании») и уменьшается выводом дивидендов.
-              </TooltipContent>
-            </UITooltip>
-          </TooltipProvider>
-        </div>
-      </CardHeader>
-      <CardContent className="px-4 pb-4" data-testid="stats-company-account-balance">
-        {accountLoading ? (
-          <div className="space-y-1.5">
-            <div className="h-7 w-32 rounded-md bg-muted animate-pulse" />
-            <div className="h-3.5 w-24 rounded bg-muted animate-pulse" />
+      <div data-testid="stats-company-account-balance">
+        <CardHeader className="pb-2 pt-4 px-4">
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <Coins className="h-4 w-4 text-yellow-500" aria-hidden="true" />
+              Счёт компании · USDT
+            </CardTitle>
+            <TooltipProvider delayDuration={200}>
+              <UITooltip>
+                <TooltipTrigger asChild>
+                  <HelpCircle className="h-3.5 w-3.5 text-muted-foreground/40 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-60 text-xs leading-relaxed">
+                  Накопленный USDT-баланс на счёте компании — пополняется через подтверждённые
+                  выплаты (метод «Счёт компании») и уменьшается выводом дивидендов.
+                </TooltipContent>
+              </UITooltip>
+            </TooltipProvider>
           </div>
-        ) : (
-          <div className="space-y-0.5">
-            <p className="text-2xl font-bold tabular-nums text-yellow-500">
-              {account ? `${fmtUsdt(account.balance)} USDT` : '—'}
-            </p>
-            {account?.walletAddress && (
-              <p className="text-xs text-muted-foreground font-mono">
-                {shortAddress(account.walletAddress)}
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          {accountLoading ? (
+            <div className="space-y-1.5">
+              <div className="h-7 w-32 rounded-md bg-muted animate-pulse" />
+              <div className="h-3.5 w-24 rounded bg-muted animate-pulse" />
+            </div>
+          ) : (
+            <div className="space-y-0.5">
+              <p className="text-2xl font-bold tabular-nums text-yellow-500">
+                {account ? `${fmtUsdt(account.balance)} USDT` : '—'}
               </p>
-            )}
-            {!account?.walletAddress && (
-              <p className="text-xs text-muted-foreground">Кошелёк не настроен</p>
-            )}
-          </div>
-        )}
-      </CardContent>
+              {account?.walletAddress && (
+                <p className="text-xs text-muted-foreground font-mono">
+                  {shortAddress(account.walletAddress)}
+                </p>
+              )}
+              {!account?.walletAddress && (
+                <p className="text-xs text-muted-foreground">Кошелёк не настроен</p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </div>
 
       {/* ── Секция 2: Балансы партнёров (только ADMIN) ── */}
       {isAdmin && sorted.length > 0 && (
