@@ -127,6 +127,29 @@ const dropUserStub: UserStub = {
   dropSharePercent: 7,
 }
 
+// ── Rich fixture helpers for the income / currency / txDate fixes ──────────────
+// A fuller transaction shape — getSummary reads currency / fundingSource / txDate
+// / receiverId / senderId. Defaults model a clean USD, today-dated, PAID row.
+function tx(overrides: Partial<TxStub> & { type: string }): TxStub {
+  return {
+    id: `tx-${Math.random().toString(36).slice(2)}`,
+    status: 'PAID',
+    amount: '0',
+    senderId: null,
+    receiverId: null,
+    createdAt: new Date('2026-06-01T00:00:00Z'),
+    currency: 'USD',
+    fundingSource: null,
+    txDate: null,
+    recipientId: null,
+    ...overrides,
+  }
+}
+
+function adminUser(id: string, displayName: string): UserStub {
+  return { id, role: 'ADMIN', displayName, dropSharePercent: null }
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('getSummary — HIGH#1: RBAC guard', () => {
@@ -189,5 +212,162 @@ describe('getSummary — HIGH#2: pendingCount correctness', () => {
     const result = await svc.getSummary(user('ADMIN'))
     const dropEntry = result.dropBalances.find((d) => d.userId === DROP_ID)
     expect(dropEntry!.pendingCount).toBe(0)
+  })
+})
+
+// ── Audit 2026-06-28 (#1): company-funded SENIOR_INCOME excluded from income ──
+describe('getSummary — #1: company-funded SENIOR_INCOME not double-counted', () => {
+  it('PAID DROP_INCOME gross + company-funded SENIOR_INCOME slice → totalIncome counts the gross once', async () => {
+    const svc = makeStub([
+      tx({ type: 'DROP_INCOME', amount: '1000', receiverId: DROP_ID }),
+      // Company→senior settlement of the drop IOU — already represented by the gross.
+      tx({
+        type: 'SENIOR_INCOME',
+        amount: '260',
+        fundingSource: 'COMPANY_ACCOUNT',
+        receiverId: 'sr',
+      }),
+    ])
+    const result = await svc.getSummary(user('ADMIN'))
+    // 1000 gross only — the 260 company-funded slice is excluded.
+    expect(result.totalIncome).toBeCloseTo(1000, 6)
+  })
+
+  it('NON-company-funded SENIOR_INCOME is still counted', async () => {
+    const svc = makeStub([
+      tx({ type: 'SENIOR_INCOME', amount: '740', fundingSource: null, receiverId: 'sr' }),
+    ])
+    const result = await svc.getSummary(user('ADMIN'))
+    expect(result.totalIncome).toBeCloseTo(740, 6)
+  })
+
+  it('monthly income series also excludes company-funded SENIOR_INCOME', async () => {
+    const svc = makeStub([
+      tx({ type: 'DROP_INCOME', amount: '1000', receiverId: DROP_ID }),
+      tx({
+        type: 'SENIOR_INCOME',
+        amount: '260',
+        fundingSource: 'COMPANY_ACCOUNT',
+        receiverId: 'sr',
+      }),
+    ])
+    const result = await svc.getSummary(user('ADMIN'))
+    const month = result.monthly.find((m) => m.month === '2026-06')
+    expect(month!.income).toBeCloseTo(1000, 6)
+  })
+})
+
+// ── Audit 2026-06-28 (#9): monthly buckets keyed by txDate, not createdAt ─────
+describe('getSummary — #9: monthly buckets by txDate', () => {
+  it('a back-dated row (txDate month ≠ createdAt month) lands in the txDate month', async () => {
+    const svc = makeStub([
+      tx({
+        type: 'ADMIN_INCOME',
+        amount: '500',
+        createdAt: new Date('2026-06-15T00:00:00Z'),
+        txDate: new Date('2026-03-10T00:00:00Z'),
+        receiverId: 'admin-x',
+      }),
+    ])
+    const result = await svc.getSummary(user('ADMIN'))
+    expect(result.monthly.find((m) => m.month === '2026-03')?.income).toBeCloseTo(500, 6)
+    expect(result.monthly.find((m) => m.month === '2026-06')).toBeUndefined()
+  })
+
+  it('falls back to createdAt when txDate is null', async () => {
+    const svc = makeStub([
+      tx({
+        type: 'ADMIN_INCOME',
+        amount: '500',
+        createdAt: new Date('2026-06-15T00:00:00Z'),
+        txDate: null,
+        receiverId: 'admin-x',
+      }),
+    ])
+    const result = await svc.getSummary(user('ADMIN'))
+    expect(result.monthly.find((m) => m.month === '2026-06')?.income).toBeCloseTo(500, 6)
+  })
+})
+
+// ── Audit 2026-06-28 (#4): mixed-currency conversion + REGRESSION GATE ─────────
+describe('getSummary — #4: currency conversion + USDT/USD regression gate', () => {
+  const MAKSYM = 'admin-maksym'
+  const KOSTYA = 'admin-kostya'
+
+  // HARD REGRESSION GATE: a USDT/USD-only ledger MUST yield byte-exact partner
+  // balances. We build a fixture whose HOLDING model (received − ALL sent) gives
+  // Максим 78238.34 and Константин 93205.82 (DEBT = |Δ|/2 = 7483.74), mixing USD
+  // and USDT rows, and assert the numbers are EXACT — the conversion (#4) must be
+  // a no-op for the peg pair.
+  function regressionLedger(): TxStub[] {
+    return [
+      // Максим received 78238.34 across a USD + a USDT row, sent nothing.
+      tx({ type: 'PAYOUT_ADMIN', amount: '40000.00', currency: 'USD', receiverId: MAKSYM }),
+      tx({ type: 'ADMIN_INCOME', amount: '38238.34', currency: 'USDT', receiverId: MAKSYM }),
+      // Константин received 93205.82 (USDT) and sent nothing.
+      tx({ type: 'PAYOUT_ADMIN', amount: '93205.82', currency: 'USDT', receiverId: KOSTYA }),
+    ]
+  }
+
+  it('USDT/USD-only fixture → partner balances are BYTE-EXACT (regression gate)', async () => {
+    const svc = makeStub(
+      regressionLedger(),
+      [],
+      [adminUser(MAKSYM, 'Максим'), adminUser(KOSTYA, 'Константин')],
+    )
+    const result = await svc.getSummary(user('ADMIN'))
+    const m = result.adminBalances.find((b) => b.userId === MAKSYM)!
+    const k = result.adminBalances.find((b) => b.userId === KOSTYA)!
+    // EXACT equality on the partner balances — not toBeCloseTo. Any sub-cent
+    // drift from #4 fails here. (The DEBT = |Δ|/2 is a plain JS subtraction of two
+    // exact balances done in the UI, so it carries the usual IEEE-754 tail — we
+    // assert it to the cent rather than byte-exact.)
+    expect(m.balance).toBe(78238.34)
+    expect(k.balance).toBe(93205.82)
+    expect(Math.abs(m.balance - k.balance) / 2).toBeCloseTo(7483.74, 6)
+  })
+
+  it('USDT/USD balances stay byte-exact regardless of the NBU rate (peg short-circuit)', async () => {
+    // A wildly different rate must NOT shift USD/USDT totals — they are pegged.
+    const oddRates = {
+      getRates: () =>
+        Promise.resolve({
+          usdUah: '37.1234',
+          usdtUah: '37.1234',
+          eurUah: '50.9',
+          date: '2026-06-28',
+        }),
+    }
+    const svc = makeStub(
+      regressionLedger(),
+      [],
+      [adminUser(MAKSYM, 'Максим'), adminUser(KOSTYA, 'Константин')],
+    )
+    // Swap in the odd-rate NBU stub.
+    ;(svc as unknown as { nbuCurrency: typeof oddRates }).nbuCurrency = oddRates
+    const result = await svc.getSummary(user('ADMIN'))
+    expect(result.adminBalances.find((b) => b.userId === MAKSYM)!.balance).toBe(78238.34)
+    expect(result.adminBalances.find((b) => b.userId === KOSTYA)!.balance).toBe(93205.82)
+  })
+
+  it('a UAH income row is converted to USD by the NBU rate', async () => {
+    // Default stub rate: usdUah = 41.50. 4150 UAH / 41.50 = 100 USD.
+    const svc = makeStub([
+      tx({ type: 'ADMIN_INCOME', amount: '4150', currency: 'UAH', receiverId: 'a' }),
+    ])
+    const result = await svc.getSummary(user('ADMIN'))
+    expect(result.totalIncome).toBeCloseTo(100, 4)
+  })
+
+  it('drop balance is mixed-currency safe (USDT slices summed in base)', async () => {
+    const svc = makeStub(
+      [
+        tx({ type: 'PAYOUT_DROP', amount: '50', currency: 'USDT', receiverId: DROP_ID }),
+        tx({ type: 'PAYOUT_DROP', amount: '30', currency: 'USD', receiverId: DROP_ID }),
+      ],
+      [dropUserStub],
+    )
+    const result = await svc.getSummary(user('ADMIN'))
+    expect(result.dropBalances.find((d) => d.userId === DROP_ID)!.balance).toBeCloseTo(80, 6)
   })
 })

@@ -28,8 +28,11 @@ import * as schema from '../database/schema'
  *   2. Re-running the cron for the SAME month creates NO duplicates (idempotent).
  *   3. Two concurrent cron runs for the same month → still exactly one row each.
  *
- * The cron only proceeds when an ADMIN with the canonical MAKSYM_ID exists (it is
- * the `createdBy` author), so we seed that admin id (imported from @crm/shared).
+ * The cron proceeds when ANY ADMIN exists (audit 2026-06-28 #7 — it no longer
+ * requires the canonical MAKSYM_ID; the resolved admin is only the `createdBy`
+ * author). We seed MAKSYM_ID as an ADMIN here so the cron has an author; the
+ * "non-MAKSYM admin still works" + "no admin → no-op" paths are pinned by the
+ * unit spec transactions.finance-audit.spec.ts.
  *
  * Run against the scratch DB:
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa \
@@ -157,9 +160,10 @@ describe('salary cron — idempotency via partial unique index (LOW #5, real DB)
     // id referenced by seed/other specs, e.g. contract_templates.created_by).
     await db.delete(users).where(inArray(users.id, MY_USER_IDS))
 
-    // Ensure the canonical MAKSYM_ID admin exists AND is an active ADMIN (the cron
-    // gates on `role='ADMIN' AND id=MAKSYM_ID`). Upsert so a pre-seeded crm_qa row
-    // is normalised to ADMIN/unarchived without deleting it.
+    // Ensure an active ADMIN exists so the cron has a `createdBy` author (audit
+    // 2026-06-28 #7: it resolves ANY admin now, not specifically MAKSYM_ID). We
+    // upsert MAKSYM_ID as that admin so a pre-seeded crm_qa row is normalised to
+    // ADMIN/unarchived without deleting it.
     await db
       .insert(users)
       .values({

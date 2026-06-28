@@ -273,3 +273,40 @@ describe('getDropSelfSummary — balance & pendingIncomesCount', () => {
     expect(res.dropSharePercent).toBe(5)
   })
 })
+
+// ── Audit 2026-06-28 (#3): PAYOUT_DROP must NOT be a self-loop ─────────────────
+describe('getDropSelfSummary — #3: PAYOUT_DROP self-loop regression', () => {
+  it('company-funded PAYOUT_DROP (senderId=null, receiverId=drop) → balance = the slice', async () => {
+    // The FIX: the payout cascade now books PAYOUT_DROP with senderId=null
+    // (sender = COMPANY) and receiverId=drop, so the drop is purely the receiver.
+    const svc = makeSvc(selfRow, [
+      {
+        id: 'slice',
+        type: 'PAYOUT_DROP',
+        status: 'PAID',
+        amount: '50',
+        senderId: null,
+        receiverId: DROP_ID,
+      },
+    ])
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.balance).toBe(50) // credited, NOT cancelled to 0
+  })
+
+  it('OLD BUG shape (sender == receiver == drop) self-loops to 0 — the regression we fixed', async () => {
+    // Documents the broken pre-fix row: when senderId == receiverId == drop the
+    // received and sent legs cancel → 0. The cascade no longer produces this.
+    const svc = makeSvc(selfRow, [
+      {
+        id: 'self-loop',
+        type: 'PAYOUT_DROP',
+        status: 'PAID',
+        amount: '50',
+        senderId: DROP_ID,
+        receiverId: DROP_ID,
+      },
+    ])
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.balance).toBe(0)
+  })
+})
