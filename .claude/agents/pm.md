@@ -491,7 +491,7 @@ Legal возвращает `.claude/briefs/pm-brief-legal-check.md` с recommend
 | ------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | Привязан к конкретной фиче / PR | да                                                                        | нет                                                                                 |
 | Live task в pipeline            | да                                                                        | нет                                                                                 |
-| Lifecycle файла                 | как другие task (archive после)                                           | permanent log                                                                       |
+| Lifecycle файла                 | как другие task (удаляется после завершения)                                           | permanent log                                                                       |
 | Контекст в вопросе              | feature-specific                                                          | бизнес-стратегический                                                               |
 | Пример                          | «Можно ли S3 без encryption для passport?» (привязан к Documents feature) | «Можно ли перейти всех SENIOR на ФОП 2 группу?» (strategic, нет конкретной feature) |
 
@@ -518,11 +518,11 @@ Legal возвращает `.claude/briefs/pm-brief-legal-check.md` с recommend
 
 См. `RULES.md` §6 + `memory/README.md`. **Не optional** — это step из workflow Mode 2.A (completed).
 
-Skill `anthropic-skills:consolidate-memory` — при threshold 20 строк ИЛИ после batch merged PRs:
+Консолидация — при threshold 20 строк ИЛИ после batch merged PRs (promote-and-prune, **без архива**; in-repo операция PM, НЕ скилл `anthropic-skills:consolidate-memory`, который дедупит личную user-memory):
 
 - P0 (5+ повторений) → promote в Golden rules agent doc.
-- P1 → consolidate в `RULES.md`.
-- P2 → archive в `memory/<agent>/lessons.archive.md`.
+- P1 → consolidate в `rules/common/<topic>.md` или `<agent>.md`.
+- Остальное (одноразовое / поглощённое промоутом) → удалить (история в git).
 
 ---
 

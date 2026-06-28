@@ -180,7 +180,7 @@ Skills принцип: `When to Activate` / `Workflow` / `Tested examples` — �
 ## Architecture Patterns
 
 - **Monorepo:** Turborepo + pnpm 7.32.4, Node 20 LTS
-- **Frontend:** Vite SPA + TanStack Router 1.168 + React + Tailwind v4 + shadcn/ui + Framer Motion
+- **Frontend:** Vite SPA + TanStack Router 1.170.15 + React + Tailwind v4 + shadcn/ui + Framer Motion
 - **Backend:** NestJS 11 + Fastify + Drizzle ORM (PostgreSQL) + Redis
 - **Validation:** Zod v4 везде (request/response через `.parse()`)
 - **Shared:** `packages/shared` — single source of truth для types + Zod schemas

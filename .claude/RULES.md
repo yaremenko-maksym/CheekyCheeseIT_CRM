@@ -14,7 +14,7 @@ Single source of truth для правил, применимых ко всем �
 
 **Catalog highlights:** `ast-grep` для поиска по AST, `postgres query` вместо чтения `schema.ts`, `context7` для NestJS / TanStack / Zod / Drizzle, `eslint lint-files` вместо post-edit hook'а (см. также `.claude/rules/common/eslint-mcp-first.md` для деталей Phase 2.5), `playwright browser_snapshot` перед getByRole, `github` MCP для PR review.
 
-См. полный catalog + конкретные mandatory правила: **[`.claude/rules/common/mcp-first.md`](../../rules/common/mcp-first.md)**.
+См. полный catalog + конкретные mandatory правила: **[`.claude/rules/common/mcp-first.md`](rules/common/mcp-first.md)**.
 
 ---
 
@@ -24,7 +24,7 @@ Single source of truth для правил, применимых ко всем �
 
 CI hard-блок: `check-no-skip-hooks.yml` падает на любой `--no-verify` в diff. Pre-push hook (`pre-bash-coder-push-gate.sh`) требует `ac_verified:` на не-`wip:` коммитах.
 
-См. полный список forbidden patterns + commit format + chunking: **[`.claude/rules/common/git-policy.md`](../../rules/common/git-policy.md)**.
+См. полный список forbidden patterns + commit format + chunking: **[`.claude/rules/common/git-policy.md`](rules/common/git-policy.md)**.
 
 ---
 
@@ -34,7 +34,7 @@ CI hard-блок: `check-no-skip-hooks.yml` падает на любой `--no-v
 
 **Trigger highlights:** session start → `superpowers:using-superpowers`; creative task → `superpowers:brainstorming`; feature/fix → `superpowers:test-driven-development`; long-running ops → `dev-flow-resilience`; review → `code-review-discipline`; security PR → `superpowers:security-review`; .spec.ts → `playwright-patterns`; Legal mode → `ua-tax-compliance` / `ua-crypto-compliance` / `ua-it-contract` / `legal-escalation-patterns`.
 
-См. полный trigger → skill mapping (superpowers + project-local Phase 4 lift + ECC workflow surface policy): **[`.claude/rules/common/skills-invocation.md`](../../rules/common/skills-invocation.md)**.
+См. полный trigger → skill mapping (superpowers + project-local Phase 4 lift + ECC workflow surface policy): **[`.claude/rules/common/skills-invocation.md`](rules/common/skills-invocation.md)**.
 
 ---
 
@@ -97,7 +97,7 @@ PM использует два слоя для cross-session waits.
 - **BA** → `docs/business/`, `.claude/briefs/pm-brief.md`
 - **Architect** → `docs/architecture/**`, `rules/**`, `.claude/hooks/**`, `.claude/skills/**`, `<agent>.md` frontmatter + golden rules при ECC migration
 
-См. полную матрицу + enforcement + worktree caveat + Architect-specific notes: **[`.claude/rules/common/zone-of-write.md`](../../rules/common/zone-of-write.md)**.
+См. полную матрицу + enforcement + worktree caveat + Architect-specific notes: **[`.claude/rules/common/zone-of-write.md`](rules/common/zone-of-write.md)**.
 
 ---
 
@@ -126,24 +126,26 @@ PM использует два слоя для cross-session waits.
 - **P1** — важное (rework, замедление пайплайна). Должен учитывать.
 - **P2** — nice-to-know. Помогает оптимизировать.
 
-### 6.4 Rotation (consolidate via skill)
+### 6.4 Consolidation (promote-and-prune, БЕЗ архива)
 
-Когда `lessons.md` достигает **20 строк** (или после каждого batch merged PRs) PM вызывает `anthropic-skills:consolidate-memory`:
+Когда `lessons.md` достигает **20 строк** ИЛИ после batch merged PRs PM консолидирует (дедуп → промоут → прун; **архивных файлов нет — история живёт в git**):
 
-1. Skill анализирует duplicates / упрощает / выделяет паттерны.
-2. **P0 lessons (5+ повторений)** → promote в Golden rules соответствующего agent doc.
-3. **P1 lessons** → consolidate в общие правила в `.claude/rules/common/<topic>.md` (после Phase 5 — extracted topic files, не в этом RULES.md).
-4. **P2 lessons** → archive в `.claude/agents/memory/<agent>/lessons.archive.md`.
+1. Дедуп / упрощение / выделение паттернов.
+2. **P0 (5+ повторений)** → promote в Golden rules соответствующего `<agent>.md`.
+3. **P1** → consolidate в `rules/common/<topic>.md` (cross-agent) или `<agent>.md` (agent-specific).
+4. **Остальное (одноразовое / поглощённое промоутом)** → **удалить** (не архивировать).
 
-### 6.5 Archive structure
+> In-repo консолидация `lessons.md` — отдельная операция PM, НЕ скилл `anthropic-skills:consolidate-memory` (тот дедупит личную user-memory `~/.claude`, другое дерево).
+> **Чтобы не ржавело:** structure-conformance плечо воркфлоу #10 ловит любой over-cap `lessons.md` и выносит как action-item каждый прогон.
+
+### 6.5 Структура
 
 ```
 .claude/agents/memory/<agent>/
-├── lessons.md          (active, ≤ 20 строк)
-├── lessons.archive.md  (historical, full record)
+└── lessons.md          (active, ≤ 20 строк; архивных файлов НЕТ)
 ```
 
-Agents читают только `lessons.md`, не `archive.md`. Archive для retrospective.
+Механизм архивации `.md` удалён (2026-06-29) — устаревшее удаляется, история восстановима из git.
 
 ### 6.6 Phase 4 substantive lift
 
@@ -157,15 +159,20 @@ Phase 4 (см. `docs/architecture/2026-06-03-phase4-deliverable.md`) лифтн�
 
 **Forbidden overrides:** `@tanstack/router-*` в pnpm.overrides, Vite 7.x, Node major change без DevOps task.
 
-См. полный список с rationale + forbidden overrides: **[`.claude/rules/common/version-pins.md`](../../rules/common/version-pins.md)**.
+См. полный список с rationale + forbidden overrides: **[`.claude/rules/common/version-pins.md`](rules/common/version-pins.md)**.
 
 ---
 
 ## 8. Other extracted rules (Phase 2.5 + earlier)
 
-- **Russian language for user-facing output** — **[`.claude/rules/common/russian-language.md`](../../rules/common/russian-language.md)** (Phase 2.5 / ADR Q7 Option C). Все агенты общаются с user на русском; код / commits / variable names — английский.
-- **ESLint MCP-first** — **[`.claude/rules/common/eslint-mcp-first.md`](../../rules/common/eslint-mcp-first.md)** (Phase 2.5 supersedes post-edit hook). Перед Edit / Write на `.ts` / `.tsx` → `mcp__eslint__lint-files`.
-- **Orchestration routing (агент vs воркфлоу vs light-track)** — **[`.claude/rules/common/orchestration-routing.md`](../../rules/common/orchestration-routing.md)** (2026-06-22). Master / PM выбирает степень параллелизма: single-pipeline vs wave-fanout vs read-only audit-fanout. Cost-of-error (`pm.md`) + light-track + тир модели (`model-routing.md`) НЕ дублируются — отрабатывают раньше. Энфорсмент процедурный (judgment, как `design-gate`).
+- **Russian language for user-facing output** — **[`.claude/rules/common/russian-language.md`](rules/common/russian-language.md)** (Phase 2.5 / ADR Q7 Option C). Все агенты общаются с user на русском; код / commits / variable names — английский.
+- **ESLint MCP-first** — **[`.claude/rules/common/eslint-mcp-first.md`](rules/common/eslint-mcp-first.md)** (Phase 2.5 supersedes post-edit hook). Перед Edit / Write на `.ts` / `.tsx` → `mcp__eslint__lint-files`.
+- **Orchestration routing (агент vs воркфлоу vs light-track)** — **[`.claude/rules/common/orchestration-routing.md`](rules/common/orchestration-routing.md)** (2026-06-22). Master / PM выбирает степень параллелизма: single-pipeline vs wave-fanout vs read-only audit-fanout. Cost-of-error (`pm.md`) + light-track + тир модели (`model-routing.md`) НЕ дублируются — отрабатывают раньше. Энфорсмент процедурный (judgment, как `design-gate`).
+- **Model routing (тир модели на задачу)** — **[`rules/common/model-routing.md`](rules/common/model-routing.md)** (2026-06-11). Самая дешёвая достаточная модель; эскалация по триггеру.
+- **Light-track (лёгкий трек master-сессии)** — **[`rules/common/light-track.md`](rules/common/light-track.md)**. Мелкие правки без PM-церемонии + потолок concurrency ≈ 3-4.
+- **Design-gate (дизайнер-в-контуре для ЛЮБОГО UI)** — **[`rules/common/design-gate.md`](rules/common/design-gate.md)** (2026-06-22). До кода — генерация / conformance (tier 1/2/3).
+- **Responsive design (4 класса устройств)** — **[`rules/common/responsive-design.md`](rules/common/responsive-design.md)** (2026-06-23). Любой UI пригоден на mobile / tablet / laptop / large; hard-гейт.
+- **Design-fidelity review (макет ↔ localhost на всех экранах)** — **[`rules/common/design-fidelity-review.md`](rules/common/design-fidelity-review.md)** (2026-06-23). Обязательный гейт перед merge UI.
 
 ---
 

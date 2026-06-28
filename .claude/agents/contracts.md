@@ -92,7 +92,7 @@ USER → PM: "апрув"
 PM → label: merge-approved (CI auto-merge-on-label)
 CI → squash-merge
 PM → memory/coder/lessons.md (append 1-3 lessons)
-PM → archive task to .claude/tasks/archive/
+PM → удалить отработанный task-файл (история в git)
 PM → mcp__scheduled-tasks для следующего checkpoint если нужно
 ```
 

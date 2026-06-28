@@ -26,7 +26,7 @@ Single source of truth для версий. **Не дублировать в age
 
 - **NestJS:** 11 (current LTS).
 - **Fastify:** `^5.8.5` — форсирован через `pnpm.overrides` (конфликт с `@fastify/helmet`).
-- **Drizzle ORM:** `^0.36` + Drizzle Kit совместимая.
+- **Drizzle ORM:** `^0.45.0` + Drizzle Kit совместимая.
 - **Zod:** v4 (НЕ v3 — синтаксис `.transform` / `.parse` различается).
 
 ### Infra
