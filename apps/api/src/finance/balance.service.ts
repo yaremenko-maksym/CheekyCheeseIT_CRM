@@ -53,6 +53,18 @@ export function convertToBase(
   rates: ExchangeRateResult,
 ): number {
   if (fromCurrency === toCurrency) return amount
+  // USD ⇄ USDT are pegged 1:1 (NBU returns usdtUah === usdUah). Short-circuit
+  // the pair to a BYTE-EXACT identity so the prod USDT/USD ledger never picks up
+  // sub-cent float drift from the UAH round-trip below (audit 2026-06-28 #4 —
+  // a `× usdUah / usdUah` round-trip is NOT guaranteed identity in IEEE-754).
+  // Any fix that shifts the partner HOLDING balances is wrong; this guard pins
+  // the peg pair to a no-op.
+  if (
+    (fromCurrency === 'USD' || fromCurrency === 'USDT') &&
+    (toCurrency === 'USD' || toCurrency === 'USDT')
+  ) {
+    return amount
+  }
   // First, normalize to UAH via the NBU rate, then to the target currency.
   // USDT is pegged 1:1 to USD so its UAH rate matches usdUah.
   const usdUah = parseFloat(rates.usdUah)
@@ -148,6 +160,7 @@ export class BalanceService {
 
     let cryptoIncome = 0
     let paidIncome = 0
+    let platformIncome = 0
     let expenses = 0
     for (const tx of allTxs) {
       const amt = parseFloat(tx.amount)
@@ -158,18 +171,28 @@ export class BalanceService {
         cryptoIncome += converted
       } else if (tx.type === 'SENIOR_PAID' && recipient === seniorId) {
         paidIncome += converted
+      } else if (tx.type === 'SENIOR_INCOME' && tx.status === 'PAID' && recipient === seniorId) {
+        // Audit 2026-06-28 (#10): SENIOR_INCOME is the senior's REAL platform
+        // earnings (the only senior-credit type actually emitted today — the
+        // SENIOR_PAID / SENIOR_INCOME_CRYPTO branches above are never produced in
+        // the current data). It was previously ignored, so a senior's balance
+        // omitted their actual income. Count PAID SENIOR_INCOME, consistent with
+        // getTotalEarned.income. The never-emitted branches are kept untouched so
+        // there is no double-count (SENIOR_INCOME is a distinct type).
+        platformIncome += converted
       } else if (tx.type === 'EXPENSE' && tx.senderId === seniorId) {
         expenses += converted
       }
     }
 
-    const balance = cryptoIncome + paidIncome - expenses
+    const balance = cryptoIncome + paidIncome + platformIncome - expenses
     return {
       balance,
       currency,
       breakdown: {
         crypto_income: cryptoIncome,
         paid_income: paidIncome,
+        platform_income: platformIncome,
         expenses,
       },
     }
@@ -257,7 +280,18 @@ export class BalanceService {
       } else if (role === 'DROP') {
         if (tx.type === 'PAYOUT_DROP' && recipient === targetUserId) {
           add('payout', converted)
-        } else if (tx.type === 'DROP_INCOME' && recipient === targetUserId) {
+        } else if (
+          tx.type === 'DROP_INCOME' &&
+          recipient === targetUserId &&
+          // Audit 2026-06-28 (#2): the normal-flow gross DROP_INCOME is created
+          // with senderId = null (external client; see createDropIncome) and the
+          // drop's REAL slice is the linked PAYOUT_DROP — so counting BOTH the
+          // gross AND the slice double-counts the drop's income. Count gross
+          // DROP_INCOME ONLY when it is a DIRECT payment to the drop (senderId set
+          // — e.g. Сергей's GamingTec admin→drop comp), where there is no linked
+          // PAYOUT_DROP slice and the income would otherwise be lost.
+          tx.senderId != null
+        ) {
           add('income', converted)
         }
       } else if (role === 'ADMIN') {

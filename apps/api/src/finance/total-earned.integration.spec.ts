@@ -113,8 +113,14 @@ const TX_HR_SALARY_PAID = 'fe111111-0000-4000-cc00-000000000004' // SALARY PAID 
 const TX_SENIOR_INCOME_PAID = 'fe111111-0000-4000-cc00-000000000005' // SENIOR_INCOME PAID 3000 → senior
 const TX_SENIOR_INCOME_VALIDATED = 'fe111111-0000-4000-cc00-000000000006' // SENIOR_INCOME VALIDATED 4444 → excluded
 const TX_DROP_PAYOUT_PAID = 'fe111111-0000-4000-cc00-000000000007' // PAYOUT_DROP PAID 1500 → drop
-const TX_DROP_INCOME_PAID = 'fe111111-0000-4000-cc00-000000000008' // DROP_INCOME PAID 250 → drop
+// Audit 2026-06-28 (#2): a gross DROP_INCOME (senderId=null, external client) is
+// NO LONGER counted toward totalEarned — its real slice is the linked PAYOUT_DROP,
+// so counting both double-counts. Kept in the fixture to prove it is excluded.
+const TX_DROP_INCOME_GROSS = 'fe111111-0000-4000-cc00-000000000008' // DROP_INCOME PAID 250 senderId=null → EXCLUDED
 const TX_DROP_INCOME_PENDING = 'fe111111-0000-4000-cc00-000000000009' // DROP_INCOME PENDING 999 → excluded
+// A DIRECT admin→drop DROP_INCOME (senderId set, no PAYOUT_DROP slice) — Сергей's
+// GamingTec-style comp. This one IS still counted (its income would otherwise be lost).
+const TX_DROP_INCOME_DIRECT = 'fe111111-0000-4000-cc00-00000000000a' // DROP_INCOME PAID 400 senderId=admin → COUNTED
 
 const TEST_USER_IDS = [ACCOUNTANT.id, ADMIN.id, SENIOR.id, JUNIOR.id, HR.id, DROP.id]
 const TEST_TX_IDS = [
@@ -125,8 +131,9 @@ const TEST_TX_IDS = [
   TX_SENIOR_INCOME_PAID,
   TX_SENIOR_INCOME_VALIDATED,
   TX_DROP_PAYOUT_PAID,
-  TX_DROP_INCOME_PAID,
+  TX_DROP_INCOME_GROSS,
   TX_DROP_INCOME_PENDING,
+  TX_DROP_INCOME_DIRECT,
 ]
 
 // ── Sentinel controller — mirrors the real /balances/total-earned/:id route ──
@@ -297,8 +304,9 @@ describe('total-earned — real backend integration (real DB, no mocks)', () => 
     // JUNIOR earned = 1000 + 500 = 1500 (SALARY PAID). PENDING salary excluded.
     // HR earned = 2000 (SALARY PAID).
     // SENIOR earned = 3000 (SENIOR_INCOME PAID). VALIDATED (not PAID) excluded.
-    // DROP earned = 1500 (PAYOUT_DROP PAID) + 250 (DROP_INCOME PAID) = 1750.
-    //   PENDING drop income excluded.
+    // DROP earned = 1500 (PAYOUT_DROP PAID) + 400 (DIRECT DROP_INCOME, senderId set)
+    //   = 1900. The GROSS DROP_INCOME (250, senderId=null) is EXCLUDED (audit #2 —
+    //   its slice is the PAYOUT_DROP); the PENDING drop income is excluded too.
     await db.insert(transactions).values([
       {
         id: TX_JUNIOR_SALARY_PAID,
@@ -377,11 +385,13 @@ describe('total-earned — real backend integration (real DB, no mocks)', () => 
         createdBy: SENIOR.id,
       },
       {
-        id: TX_DROP_INCOME_PAID,
+        // GROSS DROP_INCOME — senderId=null (external client). EXCLUDED by #2.
+        id: TX_DROP_INCOME_GROSS,
         type: 'DROP_INCOME',
         status: 'PAID',
         amount: '250',
         currency: 'USD',
+        senderId: null,
         receiverId: DROP.id,
         recipientId: DROP.id,
         projectId: PROJ_ID,
@@ -397,6 +407,19 @@ describe('total-earned — real backend integration (real DB, no mocks)', () => 
         recipientId: DROP.id,
         projectId: PROJ_ID,
         createdBy: DROP.id,
+      },
+      {
+        // DIRECT admin→drop DROP_INCOME — senderId set, no PAYOUT_DROP slice. COUNTED.
+        id: TX_DROP_INCOME_DIRECT,
+        type: 'DROP_INCOME',
+        status: 'PAID',
+        amount: '400',
+        currency: 'USD',
+        senderId: ADMIN.id,
+        receiverId: DROP.id,
+        recipientId: DROP.id,
+        projectId: PROJ_ID,
+        createdBy: ADMIN.id,
       },
     ])
   }, 30_000)
@@ -487,13 +510,16 @@ describe('total-earned — real backend integration (real DB, no mocks)', () => 
     expect(Math.round((body.breakdown['income'] ?? 0) * 100) / 100).toBe(3000)
   })
 
-  it('DROP totalEarned = PAID PAYOUT_DROP + PAID DROP_INCOME (excludes PENDING)', async () => {
+  it('DROP totalEarned = PAID PAYOUT_DROP + DIRECT DROP_INCOME (excludes gross + PENDING) (#2)', async () => {
     if (!dbAvailable) return
     const body = totalEarnedSchema.parse((await earnedFor(ACCOUNTANT, DROP.id)).json())
-    // 1500 payout + 250 income PAID; 999 PENDING excluded.
-    expect(Math.round(body.totalEarned * 100) / 100).toBe(1750)
+    // 1500 PAYOUT_DROP + 400 DIRECT DROP_INCOME (senderId set). The 250 GROSS
+    // DROP_INCOME (senderId=null) is excluded by #2 (its slice IS the PAYOUT_DROP),
+    // and the 999 PENDING is excluded. Total = 1900.
+    expect(Math.round(body.totalEarned * 100) / 100).toBe(1900)
     expect(Math.round((body.breakdown['payout'] ?? 0) * 100) / 100).toBe(1500)
-    expect(Math.round((body.breakdown['income'] ?? 0) * 100) / 100).toBe(250)
+    // Only the DIRECT income (400) lands in the income bucket — NOT the 250 gross.
+    expect(Math.round((body.breakdown['income'] ?? 0) * 100) / 100).toBe(400)
   })
 
   it('amounts are always finite numbers (no NULL/NaN leak)', async () => {

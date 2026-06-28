@@ -58,15 +58,21 @@ function makeDefaultDocumentsStub(): DocumentsService {
   } as unknown as DocumentsService
 }
 
-/** Default no-op stub for NbuCurrencyService.
- *  Tests that exercise currency conversion MUST supply their own stub. */
+/** Default stub for NbuCurrencyService.
+ *  Returns a deterministic NBU snapshot (USD/UAH 41.50, EUR/UAH 44.80) so paths
+ *  that aggregate in a base currency (getSummary / getDropSelfSummary, audit
+ *  2026-06-28 #4) resolve without each spec wiring rates. USD ⇄ USDT is a
+ *  byte-exact identity in convertToBase regardless of the rate, so single-
+ *  currency (USDT/USD) fixtures are unaffected. Tests that need a SPECIFIC
+ *  cross-rate (EUR/UAH conversion assertions) MUST still pass their own stub. */
 function makeDefaultNbuStub(): NbuCurrencyService {
   return {
-    getRates: vi
-      .fn()
-      .mockRejectedValue(
-        new Error('NbuCurrencyService not stubbed — pass nbuCurrencyService override'),
-      ),
+    getRates: vi.fn().mockResolvedValue({
+      usdUah: '41.50',
+      usdtUah: '41.50',
+      eurUah: '44.80',
+      date: '2026-06-28',
+    }),
   } as unknown as NbuCurrencyService
 }
 
