@@ -166,7 +166,10 @@ function CompanyAndPartnersCard({
   const isSettled = debt <= 0.01
 
   return (
-    <Card className="overflow-hidden flex flex-col" data-testid="stats-company-partners-card">
+    <Card
+      className="overflow-hidden flex flex-col h-full"
+      data-testid="stats-company-partners-card"
+    >
       {/* ── Секция 1: Счёт компании (USDT) ── */}
       <div data-testid="stats-company-account-balance">
         <CardHeader className="pb-2 pt-4 px-4">
@@ -838,13 +841,15 @@ export function StatsPage() {
                 USDT company balance (all privileged viewers) + partner balances
                 (ADMIN-only) are unified in one sidebar card next to the chart.
                 Chart is always lg:col-span-2. */}
-                <div className="grid gap-4 lg:grid-cols-3">
-                  <div className="lg:col-span-2">
+                <div className="grid items-stretch gap-4 lg:grid-cols-3">
+                  <div className="lg:col-span-2 h-full">
                     <Suspense fallback={<Skeleton className="h-72 w-full rounded-xl" />}>
-                      <FinanceChart summary={summary} />
+                      <FinanceChart summary={summary} className="h-full" />
                     </Suspense>
                   </div>
-                  <CompanyAndPartnersCard summary={summary} isAdmin={isAdmin} />
+                  <div className="h-full">
+                    <CompanyAndPartnersCard summary={summary} isAdmin={isAdmin} />
+                  </div>
                 </div>
               </>
             ) : null}
