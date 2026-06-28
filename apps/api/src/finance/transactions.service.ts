@@ -2755,7 +2755,11 @@ export class TransactionsService {
           .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0),
       ) / SCALE
 
-    // Admin balances: sum of PAYOUT_ADMIN received + ADMIN_INCOME - ADMIN_TRANSFER sent.
+    // Admin balances (HOLDING model): all received − all spent.
+    //   received: PAYOUT_ADMIN + ADMIN_INCOME (excl. COMPANY_ACCOUNT) +
+    //             ADMIN_TRANSFER + PAYOUT_CONFIRMED (see filter below — unchanged).
+    //   sent:     ALL PAID transactions where senderId = admin.id (any type:
+    //             SALARY, EXPENSE, ADMIN_TRANSFER, etc.) — the full HOLDING debit.
     // Drop role - phase 3 (spec §8.4): PAYOUT_CONFIRMED — the row inserted by
     // `confirmPayout` when ACCOUNTANT/ADMIN manually confirms an off-platform
     // payout — also credits the chosen admin's balance. Phase 2 PAYOUT_ADMIN
@@ -2789,8 +2793,10 @@ export class TransactionsService {
                   tx.type === 'PAYOUT_CONFIRMED'),
             )
             .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0)
+          // HOLDING model: debit = ALL paid transactions sent by this admin
+          // (SALARY, EXPENSE, ADMIN_TRANSFER, etc.), not only ADMIN_TRANSFER.
           const sentScaled = paid
-            .filter((tx) => tx.senderId === admin.id && tx.type === 'ADMIN_TRANSFER')
+            .filter((tx) => tx.senderId === admin.id)
             .reduce((sum, tx) => sum + Math.round(parseFloat(tx.amount) * SCALE), 0)
           return {
             userId: admin.id,
