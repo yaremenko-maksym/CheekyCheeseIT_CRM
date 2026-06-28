@@ -78,6 +78,7 @@
 - `.claude/rules/common/model-routing.md` — тир модели (ортогональная ось) + middle-path эскалация.
 - `.claude/agents/contracts.md` §5 — dispatch-матрицы (КАКОЙ агент); это правило — КАКАЯ степень параллелизма.
 - `.claude/skills/codebase-audit/SKILL.md` — механика audit-fanout (Решение 2).
+- `.claude/agents/workflow-registry.md` — каталог 10 read-only воркфлоу + триггеры + дисциплина запуска (default-deny / опт-ин / лог `routing_decision`).
 
 ## Источники
 
