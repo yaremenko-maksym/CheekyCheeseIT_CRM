@@ -25,7 +25,7 @@ import type {
   ManualPayoutMethod,
   CurrencyEnum,
 } from '@crm/shared'
-import { MAKSYM_ID, SALARY_ELIGIBLE_ROLES } from '@crm/shared'
+import { SALARY_ELIGIBLE_ROLES } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
   documents,
@@ -1360,6 +1360,24 @@ export class TransactionsService {
       throw new BadRequestException('Cannot edit a transaction linked to a payout request')
     }
 
+    // Audit 2026-06-28 (#6): a PAID company-funded debit (SALARY / EXPENSE /
+    // SENIOR_INCOME settled from the shared company account) has ALREADY moved
+    // money off that account. Editing its amount / currency / salaryMonth after
+    // the fact would silently desync the company-account balance from the ledger
+    // it was computed against. Lock those money-defining fields once the row is a
+    // settled company-funded debit; metadata edits (notes / receipt / category)
+    // and edits to non-company-funded or still-PENDING rows stay allowed.
+    const isSettledCompanyFunded =
+      tx.status === 'PAID' &&
+      tx.fundingSource === 'COMPANY_ACCOUNT' &&
+      (tx.type === 'SALARY' || tx.type === 'EXPENSE' || tx.type === 'SENIOR_INCOME')
+    if (
+      isSettledCompanyFunded &&
+      (data.amount !== undefined || data.currency !== undefined || data.salaryMonth !== undefined)
+    ) {
+      throw new BadRequestException('Cannot edit a settled company-funded transaction')
+    }
+
     // Resolve XOR before write (same logic as updateSeniorIncome). Either
     // field provided as defined wipes the other to satisfy the CHECK.
     const receiptDocChanged = data.receiptDocumentId !== undefined
@@ -1982,6 +2000,21 @@ export class TransactionsService {
         throw new BadRequestException('Часть транзакций уже включена в выплату или недоступна')
       }
 
+      // Audit 2026-06-28 (#5): a DROP payout must bundle incomes from a SINGLE
+      // project. The pay cascade (applyPayoutPaidCascade) reads the FIRST linked
+      // income's project as the "primary" and applies THAT project's drop/senior
+      // share split to the WHOLE batch — so a batch spanning two drop-projects
+      // would settle the second project's slice at the first project's percent.
+      // Enforce «one payout = one project» for DROP callers (the standing UX —
+      // see PayoutDetailDialog header). SENIOR batches are unaffected (their
+      // share is per-income snapshotted, not project-derived).
+      if (isDrop) {
+        const distinctProjects = new Set(lockedRows.map((tx) => tx.projectId))
+        if (distinctProjects.size > 1) {
+          throw new BadRequestException('Выплата должна охватывать только один проект')
+        }
+      }
+
       // ── Phase 8 v2 — recipient = the COMPANY USDT wallet.
       // The single company_account row holds the wallet. If it is not
       // configured the senior has nowhere to send funds → reject the batch.
@@ -2519,15 +2552,23 @@ export class TransactionsService {
           )
 
           // Drop's slice — visible on the DROP user's balance.
-          // senderId = senior (who initiated the off-platform settlement);
-          // receiverId + recipientId both = drop (explicit semantics — see
-          // schema comment on recipient_id).
+          //
+          // Audit 2026-06-28 (#3): the drop is ONLY the RECEIVER of this slice —
+          // the money comes FROM the company (the senior/company funds the
+          // distribution), never from the drop itself. Previously senderId was set
+          // to `currentUser.id`; in the DROP self-service payout path currentUser
+          // IS the drop, so the row was a self-loop (sender == receiver == drop)
+          // and computeDropAggregate (received − sent) cancelled to 0 — the drop
+          // balance was ALWAYS 0. Set senderId = null + senderLabel = 'COMPANY' so
+          // the drop is purely the receiver and the slice credits their balance.
+          // (sender_id is nullable; PROD has 0 PAYOUT_DROP rows → no backfill.)
           await dbtx.insert(transactions).values({
             type: 'PAYOUT_DROP',
             status: 'PAID',
             amount: String(distribution.dropShare.amount),
             currency: 'USDT',
-            senderId: currentUser.id,
+            senderId: null,
+            senderLabel: 'COMPANY',
             receiverId: dropUser.id,
             recipientId: dropUser.id,
             projectId: primaryProject.id,
@@ -3628,11 +3669,28 @@ export class TransactionsService {
         await dbtx.update(transactions).set(paidSet).where(eq(transactions.id, id))
       })
     } else {
-      await this.db.db.update(transactions).set(paidSet).where(eq(transactions.id, id))
+      // Audit 2026-06-28 (#11): make the ADMIN_PERSONAL PENDING→PAID flip ATOMIC.
+      // The pre-read status check above (line ~3495) is a TOCTOU window — two
+      // concurrent paySalary calls both read PENDING and both flip + both fire
+      // safeAutoCreateInvoice → a DUPLICATE invoice for one salary. Add the
+      // status guard to the UPDATE itself (the COMPANY_ACCOUNT path already
+      // serialises via the lock + status re-check) and only fire the invoice when
+      // THIS call actually performed the flip (exactly one row updated).
+      const flipped = await this.db.db
+        .update(transactions)
+        .set(paidSet)
+        .where(and(eq(transactions.id, id), eq(transactions.status, 'PENDING')))
+        .returning({ id: transactions.id })
+      if (flipped.length !== 1) {
+        // A concurrent paySalary already flipped this row — no second invoice.
+        throw new BadRequestException('Transaction is not PENDING')
+      }
     }
 
     // Trigger 2: invoice auto-create for SALARY → PAID transitions. Run AFTER the
-    // debit transaction commits (best-effort; must not hold the lock).
+    // debit transaction commits (best-effort; must not hold the lock). Reached
+    // only when THIS call performed the flip (the ADMIN_PERSONAL guard above and
+    // the company-account status re-check both throw on a lost race).
     await this.safeAutoCreateInvoice('SALARY', id)
 
     return this.findOne(id, currentUser)
@@ -3646,13 +3704,24 @@ export class TransactionsService {
       where: or(eq(users.role, 'HR'), eq(users.role, 'ACCOUNTANT')),
     })
 
-    // Find the admin who creates (Maksym by default). Used only as `createdBy`
-    // for audit — the cron creates neutral PENDING reminders, no money moves
-    // until an ADMIN pays each one via paySalary (which picks the funding source).
+    // Find the admin who creates the rows. Used ONLY as `createdBy` for audit —
+    // the cron creates neutral PENDING reminders, no money moves until an ADMIN
+    // pays each one via paySalary (which picks the funding source).
+    //
+    // Audit 2026-06-28 (#7): resolve ANY admin (was hardcoded to MAKSYM_ID). On a
+    // prod DB whose admin ids differ from the dev seed, the MAKSYM_ID lookup
+    // returned undefined → the cron silently returned, creating ZERO salary
+    // reminders every month with no signal. If no admin exists at all, log an
+    // error so the misconfiguration surfaces instead of failing silently.
     const admin = await this.db.db.query.users.findFirst({
-      where: and(eq(users.role, 'ADMIN'), eq(users.id, MAKSYM_ID)),
+      where: eq(users.role, 'ADMIN'),
     })
-    if (!admin) return
+    if (!admin) {
+      this.logger.error(
+        'createMonthlySalaries: no ADMIN user found — cannot create salary reminders (skipping)',
+      )
+      return
+    }
 
     for (const emp of employees) {
       if (!emp.monthlySalary) continue

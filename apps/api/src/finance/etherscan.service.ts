@@ -54,8 +54,14 @@ export class EtherscanService {
 
   constructor(private config: ConfigService) {
     this.apiKey = this.config.get<string>('ETHERSCAN_API_KEY') ?? ''
-    this.isProduction =
-      (this.config.get<string>('NODE_ENV') ?? process.env.NODE_ENV) === 'production'
+    // Audit 2026-06-28 (#13): FAIL-CLOSED by default. The keyless verifyDeposit
+    // branch auto-credits ONLY when `!isProduction`. Treating "anything not
+    // exactly 'production'" as non-prod meant an UNSET / typo'd / 'staging'
+    // NODE_ENV opened the keyless auto-credit path in a real deployment. Invert
+    // the default: only an explicit 'development' or 'test' is non-prod; every
+    // other value (incl. unset) is treated as production → keyless fails closed.
+    const nodeEnv = this.config.get<string>('NODE_ENV') ?? process.env.NODE_ENV
+    this.isProduction = nodeEnv !== 'development' && nodeEnv !== 'test'
     // security (H1): a missing key in production is a misconfiguration that
     // would otherwise let the keyless path auto-confirm. Surface it loudly; the
     // verifyDeposit keyless branch fail-closes regardless (never auto-credits).
@@ -204,9 +210,18 @@ export class EtherscanService {
       const res = await fetch(url)
       const data = (await res.json()) as EtherscanTxResult
 
-      const tx = data.result?.find((t) => t.hash.toLowerCase() === txHash.toLowerCase())
+      const rows = data.result ?? []
+      // Audit 2026-06-28 (#12): a single on-chain tx can emit MORE THAN ONE USDT
+      // Transfer event to the same recipient (batched / split transfers all share
+      // the tx hash). Previously only the FIRST matching row was counted, so a
+      // multi-transfer deposit was UNDER-credited. Collect EVERY row for this hash
+      // and SUM the transfers that landed on the company wallet via the USDT
+      // contract; `toMatches` is true when at least one such incoming transfer
+      // exists. `&address=`+`&contractaddress=` already scope the result, but we
+      // re-assert `to` + the USDT contract per row for defence-in-depth.
+      const hashRows = rows.filter((t) => t.hash.toLowerCase() === txHash.toLowerCase())
 
-      if (!tx) {
+      if (hashRows.length === 0) {
         return {
           found: false,
           toMatches: false,
@@ -217,12 +232,27 @@ export class EtherscanService {
         }
       }
 
-      const toMatches = tx.to.toLowerCase() === expectedToAddress.toLowerCase()
-      const confirmations = Number.isNaN(parseInt(tx.confirmations, 10))
+      const incomingRows = hashRows.filter(
+        (t) =>
+          t.to.toLowerCase() === expectedToAddress.toLowerCase() &&
+          // contractAddress is empty on some Etherscan rows; when present it must
+          // be the USDT contract (the query already scopes by it, this re-asserts).
+          (!t.contractAddress || t.contractAddress.toLowerCase() === USDT_CONTRACT.toLowerCase()),
+      )
+
+      const toMatches = incomingRows.length > 0
+      // confirmations are identical across rows of the same tx — read from the
+      // first hash row (a matched incoming row when present, else any hash row).
+      const confSource = incomingRows[0] ?? hashRows[0]!
+      const confirmations = Number.isNaN(parseInt(confSource.confirmations, 10))
         ? 0
-        : parseInt(tx.confirmations, 10)
-      const decimals = parseInt(tx.tokenDecimal || '6', 10)
-      const amountUsdt = parseInt(tx.value, 10) / Math.pow(10, decimals)
+        : parseInt(confSource.confirmations, 10)
+
+      // Sum every matching incoming USDT transfer for this hash.
+      const amountUsdt = incomingRows.reduce((sum, t) => {
+        const decimals = parseInt(t.tokenDecimal || '6', 10)
+        return sum + parseInt(t.value, 10) / Math.pow(10, decimals)
+      }, 0)
 
       // Security invariant inputs: confirmed requires BOTH the recipient match
       // and the confirmation threshold. Caller must still gate crediting on

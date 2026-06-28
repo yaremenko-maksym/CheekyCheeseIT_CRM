@@ -163,6 +163,11 @@ function CompanyAndPartnersCard({
   const debt =
     rich && poor && rich.userId !== poor.userId ? Math.abs(rich.balance - poor.balance) / 2 : 0
   const total = sorted.reduce((s, b) => s + b.balance, 0)
+  // Audit 2026-06-28 (#14): the share % must be computed over the sum of ABSOLUTE
+  // balances. A partner with a negative HOLDING balance (or a net total ≤ 0) made
+  // `balance / total` render a negative / garbled percentage. `absTotal` keeps the
+  // denominator positive; a negative balance renders «—» instead of a bogus %.
+  const absTotal = sorted.reduce((s, b) => s + Math.abs(b.balance), 0)
   const isSettled = debt <= 0.01
 
   return (
@@ -251,7 +256,14 @@ function CompanyAndPartnersCard({
             {/* Balance bars */}
             <div className="space-y-2.5">
               {sorted.map((ab, i) => {
-                const pct = total > 0 ? Math.round((ab.balance / total) * 100) : 50
+                // Audit 2026-06-28 (#14): share over Σ|balance| so the % can never
+                // go negative/garbled; a negative balance shows «—» (its dollar
+                // figure already styles red below). The bar still uses a positive
+                // magnitude width clamped to ≥2%.
+                const hasShare = absTotal > 0 && ab.balance >= 0
+                const pct = hasShare ? Math.round((ab.balance / absTotal) * 100) : 0
+                const barPct =
+                  absTotal > 0 ? Math.round((Math.abs(ab.balance) / absTotal) * 100) : 0
                 const isLeading = i === 0
                 return (
                   <div key={ab.userId} className="space-y-1">
@@ -266,7 +278,9 @@ function CompanyAndPartnersCard({
                         <span className="font-medium">{ab.displayName}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">{pct}%</span>
+                        <span className="text-xs text-muted-foreground">
+                          {hasShare ? `${pct}%` : '—'}
+                        </span>
                         <span
                           className={cn(
                             'font-bold tabular-nums',
@@ -287,7 +301,7 @@ function CompanyAndPartnersCard({
                           'h-full rounded-full transition-all',
                           isLeading ? 'bg-violet-500' : 'bg-sky-500',
                         )}
-                        style={{ width: `${Math.max(2, pct)}%` }}
+                        style={{ width: `${Math.max(2, barPct)}%` }}
                       />
                     </div>
                   </div>
