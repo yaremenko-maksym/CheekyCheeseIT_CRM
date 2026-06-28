@@ -476,6 +476,188 @@ describe('BalanceService.getSeniorBalance', () => {
   })
 })
 
+// ── Audit 2026-06-28 (#10): getSeniorBalance counts PAID SENIOR_INCOME ────────
+describe('BalanceService.getSeniorBalance — SENIOR_INCOME (#10)', () => {
+  const SENIOR_A = 'senior-a-id'
+
+  it('counts PAID SENIOR_INCOME as real platform income', async () => {
+    const svc = makeService({
+      transactions: [
+        makeTx({
+          type: 'SENIOR_INCOME',
+          status: 'PAID',
+          amount: '740',
+          currency: 'USD',
+          receiverId: SENIOR_A,
+        }),
+      ],
+    })
+    const result = await svc.getSeniorBalance(SENIOR_A, 'USD')
+    expect(result.balance).toBeCloseTo(740, 6)
+    expect(result.breakdown.platform_income).toBeCloseTo(740, 6)
+  })
+
+  it('ignores NON-PAID SENIOR_INCOME (only settled money counts)', async () => {
+    const svc = makeService({
+      transactions: [
+        makeTx({
+          type: 'SENIOR_INCOME',
+          status: 'VALIDATED',
+          amount: '500',
+          currency: 'USD',
+          receiverId: SENIOR_A,
+        }),
+      ],
+    })
+    const result = await svc.getSeniorBalance(SENIOR_A, 'USD')
+    expect(result.balance).toBe(0)
+    expect(result.breakdown.platform_income).toBe(0)
+  })
+
+  it('does NOT double-count: SENIOR_INCOME stacks with SENIOR_PAID but is a distinct credit', async () => {
+    const svc = makeService({
+      transactions: [
+        makeTx({
+          type: 'SENIOR_INCOME',
+          status: 'PAID',
+          amount: '300',
+          currency: 'USD',
+          receiverId: SENIOR_A,
+        }),
+        makeTx({
+          type: 'SENIOR_PAID',
+          status: 'PAID',
+          amount: '200',
+          currency: 'USD',
+          recipientId: SENIOR_A,
+        }),
+      ],
+    })
+    const result = await svc.getSeniorBalance(SENIOR_A, 'USD')
+    // 300 platform + 200 paid = 500 — each counted once.
+    expect(result.balance).toBeCloseTo(500, 6)
+    expect(result.breakdown.platform_income).toBeCloseTo(300, 6)
+    expect(result.breakdown.paid_income).toBeCloseTo(200, 6)
+  })
+
+  it("does not leak another senior's SENIOR_INCOME", async () => {
+    const svc = makeService({
+      transactions: [
+        makeTx({
+          type: 'SENIOR_INCOME',
+          status: 'PAID',
+          amount: '999',
+          currency: 'USD',
+          receiverId: 'senior-b-id',
+        }),
+      ],
+    })
+    const result = await svc.getSeniorBalance(SENIOR_A, 'USD')
+    expect(result.balance).toBe(0)
+  })
+})
+
+// ── Audit 2026-06-28 (#2): getTotalEarned drop income double-count ────────────
+describe('BalanceService.getTotalEarned — DROP income (#2)', () => {
+  const DROP_ID = 'drop-user-1'
+  const ADMIN_ID = 'admin-1'
+
+  // getTotalEarned reads the target user row first; stub users.findFirst.
+  function makeDropEarnedSvc(transactions: MockTransactionRow[]): BalanceService {
+    const drizzleClient = {
+      query: {
+        users: {
+          findFirst: async () => ({ id: DROP_ID, role: 'DROP', displayName: 'Drop' }),
+        },
+        transactions: {
+          findMany: async () => transactions,
+        },
+      },
+    }
+    const db = { db: drizzleClient } as never
+    const nbu = { getRates: async () => makeRates() } as never
+    return new BalanceService(db, nbu)
+  }
+
+  it('gross DROP_INCOME (senderId=null) + linked PAYOUT_DROP slice → totalEarned = slice only', async () => {
+    const svc = makeDropEarnedSvc([
+      // External-client gross income lands on the drop with senderId=null.
+      makeTx({
+        type: 'DROP_INCOME',
+        status: 'PAID',
+        amount: '1000',
+        currency: 'USDT',
+        senderId: null,
+        receiverId: DROP_ID,
+        recipientId: DROP_ID,
+      }),
+      // The drop's REAL slice — counted.
+      makeTx({
+        type: 'PAYOUT_DROP',
+        status: 'PAID',
+        amount: '50',
+        currency: 'USDT',
+        senderId: null,
+        receiverId: DROP_ID,
+        recipientId: DROP_ID,
+      }),
+    ])
+    const result = await svc.getTotalEarned(DROP_ID, 'USD')
+    // Only the 50 slice — the 1000 gross is NOT double-counted.
+    expect(result.totalEarned).toBeCloseTo(50, 6)
+    expect(result.breakdown.payout).toBeCloseTo(50, 6)
+    expect(result.breakdown.income ?? 0).toBe(0)
+  })
+
+  it('DIRECT admin→drop DROP_INCOME (senderId set, no PAYOUT_DROP) → counts that amount', async () => {
+    // Сергей's GamingTec comp: a direct payment to the drop, senderId = admin.
+    const svc = makeDropEarnedSvc([
+      makeTx({
+        type: 'DROP_INCOME',
+        status: 'PAID',
+        amount: '300',
+        currency: 'USDT',
+        senderId: ADMIN_ID,
+        receiverId: DROP_ID,
+        recipientId: DROP_ID,
+      }),
+    ])
+    const result = await svc.getTotalEarned(DROP_ID, 'USD')
+    expect(result.totalEarned).toBeCloseTo(300, 6)
+    expect(result.breakdown.income).toBeCloseTo(300, 6)
+  })
+
+  it('mixed: gross (excluded) + slice + direct income → slice + direct only', async () => {
+    const svc = makeDropEarnedSvc([
+      makeTx({
+        type: 'DROP_INCOME',
+        status: 'PAID',
+        amount: '1000',
+        currency: 'USDT',
+        senderId: null,
+        receiverId: DROP_ID,
+      }),
+      makeTx({
+        type: 'PAYOUT_DROP',
+        status: 'PAID',
+        amount: '50',
+        currency: 'USDT',
+        receiverId: DROP_ID,
+      }),
+      makeTx({
+        type: 'DROP_INCOME',
+        status: 'PAID',
+        amount: '300',
+        currency: 'USDT',
+        senderId: ADMIN_ID,
+        receiverId: DROP_ID,
+      }),
+    ])
+    const result = await svc.getTotalEarned(DROP_ID, 'USD')
+    expect(result.totalEarned).toBeCloseTo(350, 6) // 50 slice + 300 direct
+  })
+})
+
 describe('BalanceService multi-currency conversion (admin balance)', () => {
   const MAKSYM = '00000000-0000-0000-0000-000000000001'
 
