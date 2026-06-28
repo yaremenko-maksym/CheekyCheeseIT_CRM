@@ -44,6 +44,7 @@ Multi-agent инфраструктура для CRM Cheeky Cheese IT. Содер
 | Doc                                | Что                                                                             |
 | ---------------------------------- | ------------------------------------------------------------------------------- |
 | [`pm-snippets.md`](pm-snippets.md) | Все `Agent()` / `gh` / E2E / wakeup сниппеты + durations + pm-state.json schema |
+| [`workflow-registry.md`](workflow-registry.md) | Каталог read-only audit/research воркфлоу (10) + триггеры + дисциплина запуска |
 
 ### Memory (lessons)
 

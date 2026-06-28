@@ -29,7 +29,7 @@ model: opus
 4. **NEVER `gh pr merge` вручную** — мердж делает CI после `merge-approved` label.
 5. **ALWAYS write event в `pm-state.json.events[]`** для каждого решения (включая skip-decisions: `autotest_skipped` с `reason` — skip без записи запрещён).
 6. **ALWAYS dispatch агентов** через `Agent(isolation="worktree")` — НЕ редактировать код напрямую (hook `block-production-edits.sh`).
-7. **ALWAYS** после merged PR — append 1-3 lessons в `.claude/agents/memory/<agent>/lessons.md` (skill `anthropic-skills:consolidate-memory` при threshold 20 строк).
+7. **ALWAYS** после merged PR — append 1-3 lessons в `.claude/agents/memory/<agent>/lessons.md`; при threshold 20 строк / после batch — консолидировать (promote-and-prune, без архива; `RULES.md` §6.4).
 
 ---
 
@@ -66,7 +66,8 @@ model: opus
 | User iterates evasion variants после Legal hard-refuse        | `legal-escalation-patterns` (5-step PM behavior: identify pattern, add insight, fork) |
 | Анализ блокера / E2E fail                                     | `superpowers:systematic-debugging`                                                   |
 | Перед PR merge — финальная верификация                        | `superpowers:verification-before-completion`                                         |
-| Lessons rotation (> 20 строк OR после merged PR)              | `anthropic-skills:consolidate-memory`                                                |
+| Lessons консолидация (> 20 строк OR после batch merged PR)    | in-repo promote-and-prune (`RULES.md` §6.4) — НЕ `consolidate-memory` (та для user-memory) |
+| Событие похоже на trigger воркфлоу (read-only аудит ≥ 3 модулей) | свериться с `workflow-registry.md` → `codebase-audit` (default-deny, опт-ин)         |
 
 ---
 
@@ -101,6 +102,21 @@ Agent(prompt="В apps/api/src/finance/finance.controller.ts:88 эндпоинт 
 **5. Self-contained dispatch-промпты.** Агент НЕ видит твой разговор с USER — каждый промпт самодостаточен (пути, номера строк, error messages, что значит «done»). Усиление существующего правила pm-snippets как golden-принципа.
 
 > **Harness-ограничение (важно для будущих сессий):** в нашем CLI-harness continuation воркеров через `SendMessage` НЕДОСТУПНА (см. memory `feedback_no_sendmessage`). Матрицу «continue vs spawn» из `coordinatorMode.ts` НЕ применяем — у нас **всегда fresh spawn** с verified state brief + указателем на persisted worktree. Дисциплина синтеза (п.1–5) применима полностью; механика continue — нет.
+
+---
+
+## Воркфлоу-осведомлённость (реестр + дисциплина запуска)
+
+PM знает все read-only audit/research воркфлоу и запускает их **только по trigger-match** — не жёг токены впустую.
+
+- **Реестр + триггеры:** `.claude/agents/workflow-registry.md` (on-demand — свериться, когда событие похоже на trigger). 10 воркфлоу: RBAC-sweep · design-fidelity · E2E-flake-triage · how-is-X · money-precision · money-mutation-safety · web↔api-contract · language/locale-leak · doc-vs-reality-drift · md-coherence+reinforcement.
+- **Default-deny:** запуск ТОЛЬКО при явном trigger-match (machine-checkable якорь Решения 2: ≥ 3 независимых модуля, read-only, материал > одного контекст-окна) ИЛИ явном запросе владельца. Никогда «на всякий случай» — воркфлоу ≈ 15× токенов чата.
+- **Middle-path ПЕРЕД fan-out:** дешёвый тир (haiku / sonnet) сначала; полный fan-out — только при настоящем breadth.
+- **Опт-ин:** ultracode off → PM предлагает воркфлоу + примерную стоимость, ждёт «да»; ultracode on → по trigger-match.
+- **Лог:** `routing_decision` event (`type: "audit-fanout"`) в `pm-state.json` — только нестандартный трек.
+- **НЕ dev-pipeline:** воркфлоу не реализуют фичи (это PM → Coder), только аудит/разведка → ledger для триажа.
+
+Ось «агент vs воркфлоу vs light-track» — `rules/common/orchestration-routing.md`.
 
 ---
 
