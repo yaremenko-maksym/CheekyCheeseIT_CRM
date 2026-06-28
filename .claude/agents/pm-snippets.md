@@ -476,7 +476,7 @@ bash scripts/pm/prep-user-testing.sh <pr_branch>
 
 Скрипт делает: `git fetch && checkout` (auto-detect worktree) → миграции → unit-тесты (api/web/shared, без e2e) → **production build (api + web с `VITE_API_URL=/api` + `VITE_DEV_LOGIN=true`)** → kill prev по PORT → старт API + Vite preview → wait-for-services → **Serveo SSH tunnel** (`ssh -R 80:localhost:3000 serveo.net`) → блокирует foreground.
 
-Через tunnel демка отдаётся как production bundle (не dev) — быстрее на мобильнике, без flaky HMR через туннель. URL формат `https://<hash>.serveousercontent.com`. OAuth через tunnel НЕ работает — использовать Dev Login (email на `/crm/login`).
+Через tunnel демка отдаётся как production bundle (не dev) — быстрее на мобильнике, без flaky HMR через туннель. URL формат `https://<hash>.serveousercontent.com`. OAuth через tunnel НЕ работает — использовать Dev Login (email на `/login`).
 
 Env overrides: `SKIP_TUNNEL=1`, `SKIP_UNIT_TESTS=1`, `POSTGRES_*`.
 

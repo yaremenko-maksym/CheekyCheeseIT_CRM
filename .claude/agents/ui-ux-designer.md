@@ -253,7 +253,7 @@ curl -c /tmp/cookies.txt -X POST http://localhost:3001/api/auth/dev-login \
 # ADMIN: SELECT email FROM users WHERE role='ADMIN' LIMIT 1 (mcp__postgres__query)
 
 # Открыть страницу в Playwright MCP браузере
-mcp__playwright__browser_navigate http://localhost:3000/crm/...
+mcp__playwright__browser_navigate http://localhost:3000/...
 mcp__playwright__browser_snapshot   # a11y tree
 mcp__playwright__browser_take_screenshot
 mcp__playwright__browser_resize 320 568   # mobile

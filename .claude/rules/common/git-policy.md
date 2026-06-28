@@ -30,7 +30,7 @@ CI hard-блок: `.github/workflows/check-no-skip-hooks.yml` падает на 
 <optional body>
 
 ac_verified: 1,2,3,4,5        # номера AC из task-файла, разделённые запятой
-vision: ✓ /crm/team, /crm/team/$teamId    # ТОЛЬКО для UI задач — затронутые роуты
+vision: ✓ /team, /team/$teamId    # ТОЛЬКО для UI задач — затронутые роуты
 ```
 
 - Если все AC выполнены — перечислить все номера: `ac_verified: 1,2,3,4,5`

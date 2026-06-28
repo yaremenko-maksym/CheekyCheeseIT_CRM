@@ -24,8 +24,8 @@ Single source of truth для **factual state of the project**: фазы, миг
 - [x] **PHASE 4**: Собеседования (Interviews Kanban, dnd-kit)
 - [x] **PHASE 5**: Финансы (transactions, NBU rates, PDF, etherscan; финмодель рефакторена → payout_requests + pending_obligations)
 - [x] **PHASE 6**: Документы (S3/MinIO, `documents` table, PDF inline preview, search/sort, receipt lifecycle)
-- [x] **PHASE 7**: Профили (`/crm/profile`, `/crm/users/:id`, telegram+phone, **фото S3** через `avatarDocumentId`) + Легенда **per-project** (#150 + #164: `legends` с projectId UNIQUE + `legend_entries` журнал; RBAC: видят/редактируют связанные ADMIN/HR/JUNIOR, субъект исключён)
-- [x] **Контракты + Онбординг** (вне исходного 9-фазного плана): `contract_templates`, `employee_contracts`, `signed_contracts`, ToS (`tos_versions`/`tos_acceptances`), система переменных шаблонов, двухколоночный UA|EN PDF, `/crm/onboarding`
+- [x] **PHASE 7**: Профили (`/profile`, `/users/:id`, telegram+phone, **фото S3** через `avatarDocumentId`) + Легенда **per-project** (#150 + #164: `legends` с projectId UNIQUE + `legend_entries` журнал; RBAC: видят/редактируют связанные ADMIN/HR/JUNIOR, субъект исключён)
+- [x] **Контракты + Онбординг** (вне исходного 9-фазного плана): `contract_templates`, `employee_contracts`, `signed_contracts`, ToS (`tos_versions`/`tos_acceptances`), система переменных шаблонов, двухколоночный UA|EN PDF, `/onboarding`
 - [x] **DROP роль**: payment-routing (`dropSharePercent`, `payout_requests`, `pending_obligations`)
 - [x] **PHASE 8**: **«Счёт компании» (USDT ERC-20)** ✅ closed — единый кошелёк; верификация прихода по ссылке на tx (etherscan + прогресс-бар блоков, idempotent по `txHash`); ADMIN-дивиденды; salary/expense/admin-income + drop-payout через счёт компании. **НЕ on-chain** (смарт-контракты отменены владельцем 2026-06-17). PR #249–#265 (+ #277 throttle). Детали — §1.1
 - [ ] **PHASE 9**: Дашборд — частично устарел (per-role дашборды уже в корне `/` #223); переопределить = generic ADMIN/SENIOR дашборд (#231 MED-defer) + cross-role аналитика. См. ADR 2026-06-17 Part 3(c)

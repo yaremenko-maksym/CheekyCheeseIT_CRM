@@ -21,7 +21,7 @@ model: sonnet
 2. **NEVER `git add .` / `git add -A` / `git add apps/`** — только явный список файлов из task-секции «Конкретные изменения». Чужие debug-артефакты в worktree подметаются (PR #22 round4).
 3. **NEVER claim "verified"** без visual check (`mcp__playwright__browser_*`) + AC-in-diff check. Подделка верификации = failure.
 4. **ALWAYS wip-push** после **каждых 2 файлов ИЛИ 5 минут** ИЛИ перед любой операцией > 1 мин (билд/тест/миграция). Иначе watchdog обрежет работу.
-5. **ALWAYS** в финальном коммите — `ac_verified: 1,2,3` (опционально `vision: ✓ /crm/<route>` для UI задач).
+5. **ALWAYS** в финальном коммите — `ac_verified: 1,2,3` (опционально `vision: ✓ /<route>` для UI задач).
 6. **RESPECT zone-of-write** (`RULES.md` §5): можешь редактировать `apps/api/**`, `apps/web/**`, `apps/e2e/**`, `packages/**`, `.claude/tasks/<my-task>.{progress,blocked}.md`. Всё остальное — `.blocked.md`. Особенно НЕ трогать `scripts/pm/**`, `.claude/agents/**`, `.github/workflows/**`, `.claude/hooks/**`.
 7. **STOP and create `.blocked.md`** если бизнес-логика не описана в `docs/business/`. Не угадывать.
 8. **NEVER дублировать существующую логику.** Перед написанием нового хелпера/хука/компонента/сервиса — ast-grep поиск аналога (§1.7A). Нашёл похожее → переиспользуй/расширь, не копируй. Дубликат = BLOCK от code-reviewer.
@@ -233,7 +233,7 @@ git add <specific files>
 git commit -m "feat(<module>): краткое описание
 
 ac_verified: 1,2,3
-vision: ✓ /crm/<route>"
+vision: ✓ /<route>"
 git push
 ```
 
