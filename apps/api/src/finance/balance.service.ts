@@ -69,8 +69,20 @@ export function convertToBase(
   // USDT is pegged 1:1 to USD so its UAH rate matches usdUah.
   const usdUah = parseFloat(rates.usdUah)
   const eurUah = parseFloat(rates.eurUah)
-  if (!Number.isFinite(usdUah) || usdUah <= 0) return amount
-  if (!Number.isFinite(eurUah) || eurUah <= 0) return amount
+  // NOTE: these guards are UNREACHABLE for USD↔USDT (the peg short-circuit
+  // above returns before this point). They only fire for a genuine EUR/UAH
+  // conversion with a broken NBU feed — at which point returning the raw
+  // `amount` would silently produce a wrong total in the base currency.
+  // Throwing loudly is safer: a rate outage on non-USD/USDT rows should
+  // surface as an error, not as a silent mis-total in the finance ledger.
+  if (!Number.isFinite(usdUah) || usdUah <= 0)
+    throw new Error(
+      `convertToBase: NBU rate unavailable for ${fromCurrency}→${toCurrency} (usdUah=${rates.usdUah}, eurUah=${rates.eurUah})`,
+    )
+  if (!Number.isFinite(eurUah) || eurUah <= 0)
+    throw new Error(
+      `convertToBase: NBU rate unavailable for ${fromCurrency}→${toCurrency} (usdUah=${rates.usdUah}, eurUah=${rates.eurUah})`,
+    )
 
   const inUah = (() => {
     if (fromCurrency === 'UAH') return amount

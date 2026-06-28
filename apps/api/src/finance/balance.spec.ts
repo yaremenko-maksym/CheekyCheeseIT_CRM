@@ -126,6 +126,31 @@ describe('convertToBase', () => {
     // 100 EUR → 100 * 44 UAH = 4400 UAH → 4400 / 40 = 110 USD
     expect(convertToBase(100, 'EUR', 'USD', makeRates('40.0000', '44.0000'))).toBeCloseTo(110, 6)
   })
+
+  // ── LOW-2: fail-loud on missing NBU rate ────────────────────────────────────
+  // These guards are UNREACHABLE for USD↔USDT (peg short-circuit above returns
+  // first), so prod balances are unaffected. The throw fires only for a genuine
+  // EUR/UAH conversion with a broken NBU feed — where returning `amount` would
+  // silently produce a wrong total.
+
+  it('throws when usdUah rate is invalid (EUR→USD with broken feed)', () => {
+    const invalidRates = makeRates('0', '44.0000') // usdUah=0 → invalid
+    expect(() => convertToBase(100, 'EUR', 'USD', invalidRates)).toThrow(
+      /convertToBase: NBU rate unavailable/,
+    )
+  })
+
+  it('USD→USDT still returns 100 even with invalid rates (peg short-circuit)', () => {
+    // This path returns BEFORE the rate guards — the throw is never reached.
+    const invalidRates = makeRates('0', '0')
+    expect(convertToBase(100, 'USD', 'USDT', invalidRates)).toBe(100)
+  })
+
+  it('valid EUR→USD conversion still converts correctly', () => {
+    // Regression: the throw must not break the happy path.
+    // 100 EUR → 100 * 44 / 40 = 110 USD
+    expect(convertToBase(100, 'EUR', 'USD', makeRates('40.0000', '44.0000'))).toBeCloseTo(110, 6)
+  })
 })
 
 // Phase 4 refactor: BalanceService.getTOVBalance removed (see
@@ -493,8 +518,8 @@ describe('BalanceService.getSeniorBalance — SENIOR_INCOME (#10)', () => {
       ],
     })
     const result = await svc.getSeniorBalance(SENIOR_A, 'USD')
-    expect(result.balance).toBeCloseTo(740, 6)
-    expect(result.breakdown.platform_income).toBeCloseTo(740, 6)
+    expect(result.balance).toBe(740)
+    expect(result.breakdown.platform_income).toBe(740)
   })
 
   it('ignores NON-PAID SENIOR_INCOME (only settled money counts)', async () => {
@@ -535,9 +560,9 @@ describe('BalanceService.getSeniorBalance — SENIOR_INCOME (#10)', () => {
     })
     const result = await svc.getSeniorBalance(SENIOR_A, 'USD')
     // 300 platform + 200 paid = 500 — each counted once.
-    expect(result.balance).toBeCloseTo(500, 6)
-    expect(result.breakdown.platform_income).toBeCloseTo(300, 6)
-    expect(result.breakdown.paid_income).toBeCloseTo(200, 6)
+    expect(result.balance).toBe(500)
+    expect(result.breakdown.platform_income).toBe(300)
+    expect(result.breakdown.paid_income).toBe(200)
   })
 
   it("does not leak another senior's SENIOR_INCOME", async () => {
@@ -604,8 +629,8 @@ describe('BalanceService.getTotalEarned — DROP income (#2)', () => {
     ])
     const result = await svc.getTotalEarned(DROP_ID, 'USD')
     // Only the 50 slice — the 1000 gross is NOT double-counted.
-    expect(result.totalEarned).toBeCloseTo(50, 6)
-    expect(result.breakdown.payout).toBeCloseTo(50, 6)
+    expect(result.totalEarned).toBe(50)
+    expect(result.breakdown.payout).toBe(50)
     expect(result.breakdown.income ?? 0).toBe(0)
   })
 
@@ -623,8 +648,8 @@ describe('BalanceService.getTotalEarned — DROP income (#2)', () => {
       }),
     ])
     const result = await svc.getTotalEarned(DROP_ID, 'USD')
-    expect(result.totalEarned).toBeCloseTo(300, 6)
-    expect(result.breakdown.income).toBeCloseTo(300, 6)
+    expect(result.totalEarned).toBe(300)
+    expect(result.breakdown.income).toBe(300)
   })
 
   it('mixed: gross (excluded) + slice + direct income → slice + direct only', async () => {
@@ -654,7 +679,7 @@ describe('BalanceService.getTotalEarned — DROP income (#2)', () => {
       }),
     ])
     const result = await svc.getTotalEarned(DROP_ID, 'USD')
-    expect(result.totalEarned).toBeCloseTo(350, 6) // 50 slice + 300 direct
+    expect(result.totalEarned).toBe(350) // 50 slice + 300 direct
   })
 })
 
