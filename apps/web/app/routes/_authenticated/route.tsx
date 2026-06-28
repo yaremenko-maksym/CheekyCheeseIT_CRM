@@ -254,11 +254,11 @@ function CrmLayout() {
                   />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuContent align="end" className="w-64">
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col gap-0.5">
                     <span className="font-medium">{user.displayName}</span>
-                    <span className="text-xs text-muted-foreground">{user.email}</span>
+                    <span className="text-xs text-muted-foreground break-all">{user.email}</span>
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
