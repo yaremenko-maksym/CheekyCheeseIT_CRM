@@ -55,38 +55,6 @@ function shortAddress(addr: string): string {
   return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr
 }
 
-// ── Company account balance KPI (ADMIN + ACCOUNTANT — Phase 8 v2) ──────────────
-// The company USDT account balance moved here from the Финансы page card. The
-// whole /stats route is ADMIN/ACCOUNTANT-only, so no extra gate is needed.
-function CompanyAccountKpi() {
-  const { data: account, isLoading } = useQuery({
-    queryKey: ['company-account'],
-    queryFn: companyAccountApi.getAccount,
-  })
-
-  if (isLoading) {
-    return <Skeleton className="h-28 rounded-xl" />
-  }
-
-  const sub = account
-    ? account.walletAddress
-      ? shortAddress(account.walletAddress)
-      : 'Кошелёк не настроен'
-    : undefined
-
-  return (
-    <StatCard
-      title="Счёт компании · USDT"
-      hint="Накопленный USDT-баланс на счёте компании — пополняется через подтверждённые выплаты (метод «Счёт компании») и уменьшается выводом дивидендов."
-      value={account ? `${fmtUsdt(account.balance)} USDT` : '—'}
-      {...(sub ? { sub } : {})}
-      icon={<Coins className="h-5 w-5" />}
-      color="yellow"
-      testId="stats-company-account-balance"
-    />
-  )
-}
-
 // ── KPI card with tooltip ──────────────────────────────────────────────────────
 
 function StatCard({
@@ -170,162 +138,224 @@ function StatCard({
     </Card>
   )
 }
+// ── Combined Company + Partners balance card ──────────────────────────────────
+// Merges CompanyAccountKpi (USDT счёт компании) and PartnerBalancesCard into
+// one Card with two sections separated by a divider. Shown for both ADMIN and
+// ACCOUNTANT; the partner-balances section renders only for ADMIN.
 
-// ── Partner balance card ───────────────────────────────────────────────────────
+function CompanyAndPartnersCard({
+  summary,
+  isAdmin,
+}: {
+  summary: FinanceSummaryDto
+  isAdmin: boolean
+}) {
+  const { data: account, isLoading: accountLoading } = useQuery({
+    queryKey: ['company-account'],
+    queryFn: companyAccountApi.getAccount,
+  })
 
-function PartnerBalancesCard({ summary }: { summary: FinanceSummaryDto }) {
-  if (!summary.adminBalances.length) return null
-
-  const sorted = [...summary.adminBalances].sort((a, b) => b.balance - a.balance)
-  const [rich, poor] = [sorted[0], sorted[sorted.length - 1]]
+  const partnerData = isAdmin && summary.adminBalances.length > 0 ? summary : null
+  const sorted = partnerData
+    ? [...partnerData.adminBalances].sort((a, b) => b.balance - a.balance)
+    : []
+  const [rich, poor] = sorted.length >= 2 ? [sorted[0]!, sorted[sorted.length - 1]!] : [null, null]
   const debt =
     rich && poor && rich.userId !== poor.userId ? Math.abs(rich.balance - poor.balance) / 2 : 0
   const total = sorted.reduce((s, b) => s + b.balance, 0)
   const isSettled = debt <= 0.01
 
   return (
-    <Card className="overflow-hidden">
-      <CardHeader className="pb-2 pt-4 px-4">
-        <div className="flex items-center justify-between">
+    <Card className="overflow-hidden flex flex-col" data-testid="stats-company-partners-card">
+      {/* ── Секция 1: Счёт компании (USDT) ── */}
+      <div data-testid="stats-company-account-balance">
+        <CardHeader className="pb-2 pt-4 px-4">
           <div className="flex items-center gap-2">
-            <CardTitle className="text-sm font-semibold">Балансы партнёров</CardTitle>
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <Coins className="h-4 w-4 text-yellow-500" aria-hidden="true" />
+              Счёт компании · USDT
+            </CardTitle>
             <TooltipProvider delayDuration={200}>
               <UITooltip>
                 <TooltipTrigger asChild>
                   <HelpCircle className="h-3.5 w-3.5 text-muted-foreground/40 cursor-help" />
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-60 text-xs leading-relaxed">
-                  Накопленный баланс каждого партнёра: входящие PAYOUT_ADMIN + ADMIN_INCOME минус
-                  исходящие ADMIN_TRANSFER (все со статусом PAID).
+                  Накопленный USDT-баланс на счёте компании — пополняется через подтверждённые
+                  выплаты (метод «Счёт компании») и уменьшается выводом дивидендов.
                 </TooltipContent>
               </UITooltip>
             </TooltipProvider>
           </div>
-          <span className="text-xs text-muted-foreground">
-            Итого:{' '}
-            <span className="font-semibold text-foreground">
-              $
-              {total.toLocaleString('en-US', {
-                minimumFractionDigits: 0,
-                maximumFractionDigits: 0,
-              })}
-            </span>
-          </span>
-        </div>
-      </CardHeader>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          {accountLoading ? (
+            <div className="space-y-1.5">
+              <div className="h-7 w-32 rounded-md bg-muted animate-pulse" />
+              <div className="h-3.5 w-24 rounded bg-muted animate-pulse" />
+            </div>
+          ) : (
+            <div className="space-y-0.5">
+              <p className="text-2xl font-bold tabular-nums text-yellow-500">
+                {account ? `${fmtUsdt(account.balance)} USDT` : '—'}
+              </p>
+              {account?.walletAddress && (
+                <p className="text-xs text-muted-foreground font-mono">
+                  {shortAddress(account.walletAddress)}
+                </p>
+              )}
+              {!account?.walletAddress && (
+                <p className="text-xs text-muted-foreground">Кошелёк не настроен</p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </div>
 
-      <CardContent className="px-4 pb-4 space-y-3">
-        {/* Balance bars */}
-        <div className="space-y-2.5">
-          {sorted.map((ab, i) => {
-            const pct = total > 0 ? Math.round((ab.balance / total) * 100) : 50
-            const isLeading = i === 0
-            return (
-              <div key={ab.userId} className="space-y-1">
-                <div className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2">
-                    <div
-                      className={cn(
-                        'h-2.5 w-2.5 rounded-full shrink-0',
-                        isLeading ? 'bg-violet-500' : 'bg-sky-500',
-                      )}
-                    />
-                    <span className="font-medium">{ab.displayName}</span>
+      {/* ── Секция 2: Балансы партнёров (только ADMIN) ── */}
+      {isAdmin && sorted.length > 0 && (
+        <>
+          <div className="h-px bg-border/60 mx-4" />
+          <CardHeader className="pb-2 pt-3 px-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-sm font-semibold">Балансы партнёров</CardTitle>
+                <TooltipProvider delayDuration={200}>
+                  <UITooltip>
+                    <TooltipTrigger asChild>
+                      <HelpCircle className="h-3.5 w-3.5 text-muted-foreground/40 cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-60 text-xs leading-relaxed">
+                      Накопленный баланс каждого партнёра: входящие PAYOUT_ADMIN + ADMIN_INCOME
+                      минус исходящие ADMIN_TRANSFER (все со статусом PAID).
+                    </TooltipContent>
+                  </UITooltip>
+                </TooltipProvider>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                Итого:{' '}
+                <span className="font-semibold text-foreground">
+                  $
+                  {total.toLocaleString('en-US', {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 0,
+                  })}
+                </span>
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 space-y-3" data-testid="stats-partner-balances">
+            {/* Balance bars */}
+            <div className="space-y-2.5">
+              {sorted.map((ab, i) => {
+                const pct = total > 0 ? Math.round((ab.balance / total) * 100) : 50
+                const isLeading = i === 0
+                return (
+                  <div key={ab.userId} className="space-y-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={cn(
+                            'h-2.5 w-2.5 rounded-full shrink-0',
+                            isLeading ? 'bg-violet-500' : 'bg-sky-500',
+                          )}
+                        />
+                        <span className="font-medium">{ab.displayName}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">{pct}%</span>
+                        <span
+                          className={cn(
+                            'font-bold tabular-nums',
+                            ab.balance >= 0 ? 'text-foreground' : 'text-red-400',
+                          )}
+                        >
+                          $
+                          {ab.balance.toLocaleString('en-US', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                      <div
+                        className={cn(
+                          'h-full rounded-full transition-all',
+                          isLeading ? 'bg-violet-500' : 'bg-sky-500',
+                        )}
+                        style={{ width: `${Math.max(2, pct)}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">{pct}%</span>
-                    <span
-                      className={cn(
-                        'font-bold tabular-nums',
-                        ab.balance >= 0 ? 'text-foreground' : 'text-red-400',
-                      )}
-                    >
+                )
+              })}
+            </div>
+
+            <div className="h-px bg-border/60" />
+
+            {/* Settlement block */}
+            {isSettled ? (
+              <div className="flex items-center gap-2 rounded-lg bg-emerald-500/8 border border-emerald-500/20 px-3 py-2.5">
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/15 shrink-0">
+                  <span className="text-sm">✓</span>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-emerald-400">Балансы выровнены</div>
+                  <div className="text-[10px] text-muted-foreground">Никто никому не должен</div>
+                </div>
+              </div>
+            ) : rich && poor ? (
+              <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 overflow-hidden">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-amber-500/10">
+                  <Info className="h-3 w-3 text-amber-400/70 shrink-0" />
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">
+                    Для выравнивания
+                  </span>
+                </div>
+                <div className="px-3 py-3 flex items-center gap-3">
+                  {/* Sender */}
+                  <div className="flex flex-col items-center gap-1 min-w-0 flex-1">
+                    <div className="h-8 w-8 rounded-full bg-violet-500/15 flex items-center justify-center text-xs font-bold text-violet-400">
+                      {rich.displayName.charAt(0)}
+                    </div>
+                    <span className="text-[11px] font-medium text-center leading-tight truncate w-full text-center">
+                      {rich.displayName}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">отправляет</span>
+                  </div>
+                  {/* Arrow + amount */}
+                  <div className="flex flex-col items-center gap-0.5 shrink-0">
+                    <span className="text-lg font-black tabular-nums text-amber-400">
                       $
-                      {ab.balance.toLocaleString('en-US', {
+                      {debt.toLocaleString('en-US', {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
                       })}
                     </span>
+                    <div className="flex items-center gap-0.5 text-amber-500/60">
+                      <div className="h-px w-6 bg-amber-500/40" />
+                      <ArrowRight className="h-3.5 w-3.5" />
+                      <div className="h-px w-6 bg-amber-500/40" />
+                    </div>
+                    <span className="text-[10px] text-muted-foreground">USDT</span>
+                  </div>
+                  {/* Receiver */}
+                  <div className="flex flex-col items-center gap-1 min-w-0 flex-1">
+                    <div className="h-8 w-8 rounded-full bg-sky-500/15 flex items-center justify-center text-xs font-bold text-sky-400">
+                      {poor.displayName.charAt(0)}
+                    </div>
+                    <span className="text-[11px] font-medium text-center leading-tight truncate w-full text-center">
+                      {poor.displayName}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">получает</span>
                   </div>
                 </div>
-                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-                  <div
-                    className={cn(
-                      'h-full rounded-full transition-all',
-                      isLeading ? 'bg-violet-500' : 'bg-sky-500',
-                    )}
-                    style={{ width: `${Math.max(2, pct)}%` }}
-                  />
-                </div>
               </div>
-            )
-          })}
-        </div>
-
-        <div className="h-px bg-border/60" />
-
-        {/* Settlement block */}
-        {isSettled ? (
-          <div className="flex items-center gap-2 rounded-lg bg-emerald-500/8 border border-emerald-500/20 px-3 py-2.5">
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/15 shrink-0">
-              <span className="text-sm">✓</span>
-            </div>
-            <div>
-              <div className="text-xs font-medium text-emerald-400">Балансы выровнены</div>
-              <div className="text-[10px] text-muted-foreground">Никто никому не должен</div>
-            </div>
-          </div>
-        ) : rich && poor ? (
-          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 overflow-hidden">
-            <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-amber-500/10">
-              <Info className="h-3 w-3 text-amber-400/70 shrink-0" />
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">
-                Для выравнивания
-              </span>
-            </div>
-            <div className="px-3 py-3 flex items-center gap-3">
-              {/* Sender */}
-              <div className="flex flex-col items-center gap-1 min-w-0 flex-1">
-                <div className="h-8 w-8 rounded-full bg-violet-500/15 flex items-center justify-center text-xs font-bold text-violet-400">
-                  {rich.displayName.charAt(0)}
-                </div>
-                <span className="text-[11px] font-medium text-center leading-tight truncate w-full text-center">
-                  {rich.displayName}
-                </span>
-                <span className="text-[10px] text-muted-foreground">отправляет</span>
-              </div>
-
-              {/* Arrow + amount */}
-              <div className="flex flex-col items-center gap-0.5 shrink-0">
-                <span className="text-lg font-black tabular-nums text-amber-400">
-                  $
-                  {debt.toLocaleString('en-US', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </span>
-                <div className="flex items-center gap-0.5 text-amber-500/60">
-                  <div className="h-px w-6 bg-amber-500/40" />
-                  <ArrowRight className="h-3.5 w-3.5" />
-                  <div className="h-px w-6 bg-amber-500/40" />
-                </div>
-                <span className="text-[10px] text-muted-foreground">USDT</span>
-              </div>
-
-              {/* Receiver */}
-              <div className="flex flex-col items-center gap-1 min-w-0 flex-1">
-                <div className="h-8 w-8 rounded-full bg-sky-500/15 flex items-center justify-center text-xs font-bold text-sky-400">
-                  {poor.displayName.charAt(0)}
-                </div>
-                <span className="text-[11px] font-medium text-center leading-tight truncate w-full text-center">
-                  {poor.displayName}
-                </span>
-                <span className="text-[10px] text-muted-foreground">получает</span>
-              </div>
-            </div>
-          </div>
-        ) : null}
-      </CardContent>
+            ) : null}
+          </CardContent>
+        </>
+      )}
     </Card>
   )
 }
@@ -762,9 +792,6 @@ export function StatsPage() {
                     icon={<Wallet className="h-5 w-5" />}
                     color={summary.netBalance >= 0 ? 'blue' : 'red'}
                   />
-                  {/* Company USDT account balance — moved from the Финансы page
-                  card (Phase 8 v2). ADMIN + ACCOUNTANT (section already gated). */}
-                  <CompanyAccountKpi />
                 </div>
 
                 {/* Secondary KPIs */}
@@ -807,16 +834,17 @@ export function StatsPage() {
                   </div>
                 )}
 
-                {/* Chart + Partner balances.
-                Partner-balances card is employee/partner-level → ADMIN-only.
-                For ACCOUNTANT the chart spans the full width. */}
+                {/* Chart + Company & Partners balance block (combined card).
+                USDT company balance (all privileged viewers) + partner balances
+                (ADMIN-only) are unified in one sidebar card next to the chart.
+                Chart is always lg:col-span-2. */}
                 <div className="grid gap-4 lg:grid-cols-3">
-                  <div className={isAdmin ? 'lg:col-span-2' : 'lg:col-span-3'}>
+                  <div className="lg:col-span-2">
                     <Suspense fallback={<Skeleton className="h-72 w-full rounded-xl" />}>
                       <FinanceChart summary={summary} />
                     </Suspense>
                   </div>
-                  {isAdmin && <PartnerBalancesCard summary={summary} />}
+                  <CompanyAndPartnersCard summary={summary} isAdmin={isAdmin} />
                 </div>
               </>
             ) : null}
