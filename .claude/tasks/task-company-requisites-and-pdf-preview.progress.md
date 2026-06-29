@@ -1,9 +1,9 @@
 # Progress: feat/company-requisites-and-pdf-preview
 
-current_milestone: 1/6
+current_milestone: 6/6 — all parts done + verified (typecheck/lint/tests green, Playwright visual + responsive checks done)
 branch: feat/company-requisites-and-pdf-preview
-last_commit: (pending)
-last_push: (pending)
+last_commit: 43cab914 (Part 4); final ac_verified commit pending
+last_push: origin/feat/company-requisites-and-pdf-preview (PR #324)
 
 ## Milestones
 
