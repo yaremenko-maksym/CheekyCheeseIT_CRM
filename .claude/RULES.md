@@ -136,7 +136,7 @@ PM использует два слоя для cross-session waits.
 4. **Остальное (одноразовое / поглощённое промоутом)** → **удалить** (не архивировать).
 
 > In-repo консолидация `lessons.md` — отдельная операция PM, НЕ скилл `anthropic-skills:consolidate-memory` (тот дедупит личную user-memory `~/.claude`, другое дерево).
-> **Чтобы не ржавело:** structure-conformance плечо воркфлоу #10 ловит любой over-cap `lessons.md` и выносит как action-item каждый прогон.
+> **Чтобы не ржавело:** non-blocking warn в `.husky/pre-push` (`scripts/check-lessons-cap.sh`) флагует over-cap `lessons.md` на каждом push; плюс structure-conformance плечо воркфлоу #10 ловит их при аудите. CI-аннотацию можно добавить отдельно (нужен workflow-scope токен — DevOps).
 
 ### 6.5 Структура
 

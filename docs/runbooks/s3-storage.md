@@ -1,13 +1,15 @@
 # S3 Storage — Documents (PHASE 6)
 
-Хранилище документов для CRM. **Dev: MinIO** (docker-compose), **Prod: AWS S3** в `eu-central-1` (Frankfurt — ~30ms latency для Украины).
+Хранилище документов для CRM. **Dev: MinIO** (docker-compose), **Prod: Cloudflare R2** (S3-совместимый API).
 
 ## Обзор
 
-| Среда | Backend | Endpoint | Region | Bucket |
-|---|---|---|---|---|
-| Dev | MinIO (Docker) | `http://localhost:9000` | `us-east-1` (MinIO default) | `crm-documents` |
-| Prod | AWS S3 | (default AWS endpoint) | `eu-central-1` | `crm-documents-prod` |
+| Среда | Backend                           | Endpoint                | Region                      | Bucket               |
+| ----- | --------------------------------- | ----------------------- | --------------------------- | -------------------- |
+| Dev   | MinIO (Docker)                    | `http://localhost:9000` | `us-east-1` (MinIO default) | `crm-documents`      |
+| Prod  | **Cloudflare R2** (S3-совместимо) | R2 S3-endpoint          | —                           | `crm-documents-prod` |
+
+> ⚠️ **Прод = Cloudflare R2** (миграция с AWS S3). Раздел «Production setup (AWS S3)» ниже — **legacy-референс** для S3-совместимого API; R2-специфичная настройка (R2 dashboard / wrangler / R2 API-токены) + проверка `ServerSideEncryption: AES256` на R2 (R2 шифрует at-rest сам) — **TBD, отдельная задача**.
 
 **Шифрование:** SSE-S3 (AES-256, managed by AWS, бесплатно) — включается by default на prod bucket (см. ниже). На dev MinIO `S3_USE_SSE=false` (MinIO не требует).
 
@@ -95,14 +97,13 @@ aws s3api put-bucket-cors \
 ```json
 {
   "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:ListBucket"],
-    "Resource": [
-      "arn:aws:s3:::crm-documents-prod",
-      "arn:aws:s3:::crm-documents-prod/*"
-    ]
-  }]
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:ListBucket"],
+      "Resource": ["arn:aws:s3:::crm-documents-prod", "arn:aws:s3:::crm-documents-prod/*"]
+    }
+  ]
 }
 ```
 
@@ -112,12 +113,12 @@ aws s3api put-bucket-cors \
 
 Добавить в `Settings → Secrets and variables → Actions` (Repository secrets):
 
-| Secret | Значение |
-|---|---|
-| `AWS_ACCESS_KEY_ID_PROD` | Access key из IAM user `crm-api-prod` |
+| Secret                       | Значение                              |
+| ---------------------------- | ------------------------------------- |
+| `AWS_ACCESS_KEY_ID_PROD`     | Access key из IAM user `crm-api-prod` |
 | `AWS_SECRET_ACCESS_KEY_PROD` | Secret key из IAM user `crm-api-prod` |
-| `S3_BUCKET_PROD` | `crm-documents-prod` |
-| `S3_REGION_PROD` | `eu-central-1` |
+| `S3_BUCKET_PROD`             | `crm-documents-prod`                  |
+| `S3_REGION_PROD`             | `eu-central-1`                        |
 
 **Dev secrets НЕ нужны** — в CI workflows прописаны dummy creds (`minioadmin/minioadmin`), которые работают с MinIO service запущенным рядом с postgres/redis.
 
