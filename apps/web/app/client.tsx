@@ -8,6 +8,7 @@ import {
   PRELOAD_RELOAD_RESET_MS,
   PRELOAD_RELOAD_TS_KEY,
 } from './lib/preload-reload'
+import { shouldReloadOnControllerChange } from './lib/sw-reload'
 
 // Service Worker регистрируется плагином vite-plugin-pwa автоматически
 // через injectRegister: 'script' — плагин генерирует registerSW.js и
@@ -49,6 +50,53 @@ if (typeof window !== 'undefined') {
     event.preventDefault()
     window.location.reload()
   })
+}
+
+// Форс-перезагрузка открытых вкладок при редеплое (новый SW берёт управление).
+//
+// VitePWA (autoUpdate + skipWaiting + clientsClaim) устанавливает новый SW в фоне,
+// но открытая вкладка продолжает работать на старом JS-бандле в памяти.
+// Чтобы пользователь сразу получал свежую версию:
+//   1. controllerchange — стреляет когда новый SW становится контроллером страницы.
+//      Перезагружаем страницу один раз (guard: только если контроллер уже был).
+//   2. registration.update() каждые 60 с — idle-вкладки иначе не узнают о редеплое
+//      (браузер проверяет SW только при навигации или раз в 24 ч).
+//      update() → браузер скачивает новый SW → skipWaiting+clientsClaim →
+//      controllerchange → reload (п.1).
+//
+// Решение форс-reload принято владельцем осознанно: «больших / длинных форм нет».
+// Логика guard'а — в ./lib/sw-reload (покрыта unit-тестами).
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  try {
+    const hadControllerAtLoad = navigator.serviceWorker.controller !== null
+    let alreadyReloading = false
+
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (shouldReloadOnControllerChange({ hadControllerAtLoad, alreadyReloading })) {
+        alreadyReloading = true
+        window.location.reload()
+      }
+    })
+
+    // Периодический poll чтобы idle-вкладки замечали редеплой.
+    navigator.serviceWorker.ready
+      .then((registration) => {
+        setInterval(
+          () => {
+            registration.update().catch(() => {
+              // update() может упасть в offline — игнорируем.
+            })
+          },
+          60 * 1000, // 60 секунд
+        )
+      })
+      .catch(() => {
+        // serviceWorker.ready отклоняется только при аномальных состояниях браузера.
+      })
+  } catch {
+    // Safari private mode и некоторые браузеры выбрасывают SecurityError при
+    // обращении к serviceWorker — молча пропускаем, чтобы не ломать загрузку.
+  }
 }
 
 const router = createRouter()

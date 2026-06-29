@@ -183,7 +183,8 @@ function CompanyWalletPage() {
                     closeBrackets: false,
                     searchKeymap: false,
                   }}
-                  style={{ height: '220px', fontSize: '13px' }}
+                  height="220px"
+                  style={{ fontSize: '13px' }}
                   data-testid="admin-company-requisites-codemirror"
                 />
               </Suspense>

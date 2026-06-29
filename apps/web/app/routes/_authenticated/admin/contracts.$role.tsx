@@ -487,7 +487,8 @@ function ContractEditorPage() {
                 closeBracketsKeymap: false,
                 searchKeymap: false,
               }}
-              style={{ height: '520px', fontSize: '13px' }}
+              height="520px"
+              style={{ fontSize: '13px' }}
               data-testid="contract-editor-codemirror"
             />
           </Suspense>
