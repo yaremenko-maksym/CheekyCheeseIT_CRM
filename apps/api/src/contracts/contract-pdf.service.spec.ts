@@ -239,6 +239,32 @@ describe('ContractPdfService', () => {
       const second = await service.generateContractPdf(makePreviewParams())
       expect(first.sha256Hash).toBe(second.sha256Hash)
     })
+
+    // Part 3 — template editor preview: {{tokens}} stay VISIBLE (the body is
+    // passed AS-IS, NOT through renderContractTemplate), and the appended
+    // «Реквизиты компании» section renders. The unsigned signature block shows
+    // «Требуется подпись участника».
+    it('renders {{tokens}} VISIBLY (no substitution) in the preview body', async () => {
+      const texts = await drawnTexts({
+        contractNumber: '',
+        bodyMarkdown:
+          '# Контракт\n\nИмя: {{employeeName}}\nUSDT: {{walletUsdt}}\n\n' +
+          '## Реквизиты компании\n\nООО «Тест»',
+        signedTypedName: '',
+        signedAt: new Date('2026-06-29T00:00:00Z'),
+        verifyUrl: '',
+      })
+      // The literal token braces survive into the drawn text (visible to admin).
+      // Paragraphs are drawn token-by-token (whitespace-split), so assert on the
+      // individual tokens rather than the whole line.
+      const joined = texts.join('\n')
+      expect(joined).toContain('{{employeeName}}')
+      expect(joined).toContain('{{walletUsdt}}')
+      // The appended requisites heading is drawn (its words appear as tokens).
+      expect(texts).toContain('Реквизиты')
+      // Unsigned signature affordance present.
+      expect(texts.some((t) => t.includes('Требуется подпись'))).toBe(true)
+    })
   })
 
   // ---------------------------------------------------------------------------
