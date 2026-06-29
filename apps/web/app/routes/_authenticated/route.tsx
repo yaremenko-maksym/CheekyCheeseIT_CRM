@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { AuthProvider } from '@/context/auth'
 import { NotificationsProvider } from '@/context/notifications'
 import { useOnboardingGate } from '@/context/onboarding'
-import { LogOut, Menu, Search, UserCircle } from 'lucide-react'
+import { LogOut, Menu, UserCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
@@ -192,15 +192,6 @@ function CrmLayout() {
           </div>
 
           <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Поиск"
-              className="h-11 w-11 cursor-pointer sm:h-9 sm:w-9"
-            >
-              <Search className="h-4 w-4" />
-            </Button>
-
             <NotificationsBell enabled={onboardingComplete} />
 
             {/* Identity block (name + email) — visible only on desktop ≥lg,
@@ -216,12 +207,10 @@ function CrmLayout() {
               data-testid="header-user-identity"
               className="ml-1 hidden min-w-0 flex-col items-end leading-tight lg:flex"
             >
-              <span className="max-w-[12rem] truncate text-sm font-medium text-foreground">
+              <span className="truncate text-sm font-medium text-foreground">
                 {user.displayName}
               </span>
-              <span className="max-w-[12rem] truncate text-xs text-muted-foreground">
-                {user.email}
-              </span>
+              <span className="truncate text-xs text-muted-foreground">{user.email}</span>
             </div>
 
             <DropdownMenu>
