@@ -27,6 +27,7 @@ import {
   buildTokenHighlightExtension,
   injectTokenHighlightStyles,
 } from '@/components/contracts/contractTokenHighlight'
+import { PdfPreview } from '@/components/documents/pdf-preview'
 import type { EditorView } from '@uiw/react-codemirror'
 
 export const Route = createFileRoute('/_authenticated/admin/contracts/$role')({
@@ -276,6 +277,16 @@ function ContractEditorPage() {
   // Ref to CodeMirror EditorView for cursor-aware token insertion
   const editorViewRef = useRef<EditorView | null>(null)
 
+  // ── PDF preview state (Part 3) ──────────────────────────────────────────────
+  // The «Предпросмотр» dialog now renders the contract as a real PDF (tokens
+  // stay visible, company requisites appended) instead of an HTML mock. The PDF
+  // is generated server-side from the CURRENT editor markdown.
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null)
+  const [pdfLoading, setPdfLoading] = useState(false)
+  const [pdfError, setPdfError] = useState(false)
+  // Holds the object URL to revoke (avoids leaking blob URLs across previews).
+  const pdfUrlRef = useRef<string | null>(null)
+
   // On first load, init editor from template
   const currentBody = body ?? template?.bodyMarkdown ?? ''
 
@@ -331,6 +342,59 @@ function ContractEditorPage() {
     },
     [currentBody],
   )
+
+  // Revoke any held blob URL (called on close / new fetch / unmount).
+  const revokePdfUrl = useCallback(() => {
+    if (pdfUrlRef.current) {
+      URL.revokeObjectURL(pdfUrlRef.current)
+      pdfUrlRef.current = null
+    }
+  }, [])
+
+  // Generate the preview PDF from the CURRENT editor markdown. POSTs the body +
+  // role; tokens stay visible (no substitution) and the company requisites
+  // section is appended server-side. Guards against races by ignoring stale
+  // responses when the dialog has been closed / re-opened.
+  const generatePreview = useCallback(async () => {
+    const markdown = currentBody
+    if (markdown.trim() === '') return
+    setPdfLoading(true)
+    setPdfError(false)
+    revokePdfUrl()
+    setPdfBlobUrl(null)
+    try {
+      const res = await api.post<Blob>(
+        '/contracts/templates/preview-pdf',
+        { bodyMarkdown: markdown, role },
+        { responseType: 'blob' },
+      )
+      const url = URL.createObjectURL(res.data)
+      pdfUrlRef.current = url
+      setPdfBlobUrl(url)
+    } catch {
+      setPdfError(true)
+    } finally {
+      setPdfLoading(false)
+    }
+  }, [currentBody, role, revokePdfUrl])
+
+  // Fetch the PDF whenever the preview dialog opens; revoke on close.
+  useEffect(() => {
+    if (showPreview) {
+      void generatePreview()
+    } else {
+      revokePdfUrl()
+      setPdfBlobUrl(null)
+      setPdfError(false)
+      setPdfLoading(false)
+    }
+    // Intentionally keyed on `showPreview` only: the PDF is generated when the
+    // modal OPENS (and via the «Обновить» button), reflecting the markdown at
+    // that moment — NOT re-fetched on every keystroke while open.
+  }, [showPreview])
+
+  // Revoke on unmount.
+  useEffect(() => revokePdfUrl, [revokePdfUrl])
 
   if (isLoading) {
     return (
@@ -458,30 +522,39 @@ function ContractEditorPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Eye className="h-4 w-4" />
-              Предпросмотр — {ROLE_LABELS[role]}
+              Предпросмотр PDF — {ROLE_LABELS[role]}
             </DialogTitle>
             <DialogDescription>
-              Кастомные переменные подставлены значениями по умолчанию. Системные токены подсвечены
-              — они заполнятся автоматически при подписании.
+              Так контракт будет выглядеть в PDF. Токены вида {'{{...}}'} остаются видимыми — они
+              подставятся автоматически при подписании. Блок «Реквизиты компании» добавляется в
+              конце.
             </DialogDescription>
           </DialogHeader>
 
-          {/* Scrollable document container */}
-          <div className="flex-1 overflow-y-auto min-h-0 py-2">
-            <div
-              className="mx-auto bg-white dark:bg-zinc-950 rounded-lg border border-border/40 shadow-sm"
-              style={{ maxWidth: '680px', padding: '56px 64px', minHeight: '900px' }}
-              data-testid="preview-dialog-document"
-            >
-              {currentBody.trim() ? (
-                <ContractPreview body={currentBody} customVariables={customVariables} />
-              ) : (
-                <p className="text-muted-foreground italic">Редактор пуст.</p>
-              )}
-            </div>
+          {/* PDF document preview (rendered server-side from the current editor markdown) */}
+          <div
+            className="flex-1 overflow-hidden min-h-0 py-2"
+            data-testid="preview-dialog-document"
+          >
+            <PdfPreview
+              blobUrl={pdfBlobUrl}
+              isLoading={pdfLoading}
+              hasError={pdfError}
+              filename={`contract-preview-${role}.pdf`}
+              className="h-[70vh]"
+              testId="contract-preview-pdf"
+            />
           </div>
 
           <DialogFooter className="pt-2 border-t border-border/40">
+            <Button
+              variant="outline"
+              onClick={() => void generatePreview()}
+              disabled={pdfLoading}
+              data-testid="preview-dialog-refresh"
+            >
+              Обновить
+            </Button>
             <Button
               variant="outline"
               onClick={() => setShowPreview(false)}

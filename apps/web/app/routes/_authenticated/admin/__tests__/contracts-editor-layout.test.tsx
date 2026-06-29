@@ -98,10 +98,23 @@ vi.mock('@tanstack/react-query', async (importActual) => {
   }
 })
 
-// axios API — not needed for layout tests
+// axios API — the contracts editor preview now POSTs to /preview-pdf and renders
+// the returned PDF blob via PdfPreview. Default the mock to resolve a blob so the
+// preview flow succeeds; individual tests can override.
+const apiPostMock = vi.fn()
 vi.mock('@/lib/axios', () => ({
-  api: { get: vi.fn(), post: vi.fn() },
+  api: { get: vi.fn(), post: (...args: unknown[]) => apiPostMock(...args) },
 }))
+
+// URL.createObjectURL / revokeObjectURL are not in happy-dom — stub them so the
+// PdfPreview blob flow works in tests.
+const FAKE_BLOB_URL = 'blob:preview-pdf'
+beforeEach(() => {
+  apiPostMock.mockReset()
+  apiPostMock.mockResolvedValue({ data: new Blob(['%PDF-1.4'], { type: 'application/pdf' }) })
+  URL.createObjectURL = vi.fn(() => FAKE_BLOB_URL)
+  URL.revokeObjectURL = vi.fn()
+})
 
 // ─── Imports after mocks ──────────────────────────────────────────────────────
 
@@ -284,6 +297,30 @@ describe('ContractEditorPage layout', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('preview-dialog-document')).toBeInTheDocument()
+    })
+  })
+
+  it('preview drives the PDF flow: POSTs to /preview-pdf and renders PdfPreview (not HTML mock)', async () => {
+    const user = userEvent.setup()
+    await renderContractEditor()
+    await resolveFlushPromises()
+
+    await user.click(screen.getByTestId('preview-template-button'))
+
+    // The dialog now contains the PdfPreview component (PDF iframe), not the old
+    // ReactMarkdown HTML document (contract-preview-content).
+    await waitFor(() => {
+      expect(screen.getByTestId('contract-preview-pdf')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('contract-preview-content')).not.toBeInTheDocument()
+
+    // It fetched the PDF from the new endpoint with the editor markdown + role.
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith(
+        '/contracts/templates/preview-pdf',
+        expect.objectContaining({ role: 'SENIOR' }),
+        expect.objectContaining({ responseType: 'blob' }),
+      )
     })
   })
 
