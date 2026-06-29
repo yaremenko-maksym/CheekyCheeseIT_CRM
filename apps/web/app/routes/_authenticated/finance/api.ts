@@ -27,6 +27,7 @@ import type {
   CreateCompanyDepositDto,
   CreateDividendDto,
   UpdateWalletDto,
+  UpdateRequisitesDto,
 } from '@crm/shared'
 
 export const financeApi = {
@@ -188,4 +189,8 @@ export const companyAccountApi = {
 
   updateWallet: (data: UpdateWalletDto) =>
     api.patch<CompanyAccountDto>('/company-account/wallet', data).then((r) => r.data),
+
+  // ADMIN-only — company requisites markdown auto-appended to NEW contracts.
+  updateRequisites: (data: UpdateRequisitesDto) =>
+    api.patch<CompanyAccountDto>('/company-account/requisites', data).then((r) => r.data),
 }
