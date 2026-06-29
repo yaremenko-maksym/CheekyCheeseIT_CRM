@@ -13,7 +13,11 @@ import { DatabaseService } from '../database/database.service'
 import { signedContracts, type User } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { ContractPdfService, type GenerateContractPdfParams } from './contract-pdf.service'
-import { renderContractTemplate, type ContractRenderUserContext } from './contract-rendering'
+import {
+  appendCompanyRequisitesSection,
+  renderContractTemplate,
+  type ContractRenderUserContext,
+} from './contract-rendering'
 import { EmployeeContractsService } from './employee-contracts.service'
 
 /**
@@ -109,12 +113,19 @@ export class SignedContractsService {
       // Pass customValues so admin-filled custom variables are baked into the
       // signed snapshot (Screen 2).
       const customValues = (employeeContract.customValues as Record<string, string> | null) ?? {}
-      const { body, variables } = renderContractTemplate(
+      const { body: renderedBody, variables } = renderContractTemplate(
         employeeContract.bodyMarkdown,
         user,
         signedAt,
         customValues,
       )
+
+      // Auto-append the «Реквизиты компании» section using the value CURRENT at
+      // signing time → baked immutably into this snapshot. Empty requisites add
+      // no section. Existing signed rows are never re-appended (only new
+      // signings flow through here), preserving their byte-immutability.
+      const companyRow = await tx.query.companyAccount.findFirst()
+      const body = appendCompanyRequisitesSection(renderedBody, companyRow?.requisitesMarkdown)
 
       // T4: generate CHK-<6 uppercase hex> (e.g. CHK-7F3A9C).
       // 3 random bytes → 6 hex chars → 16^6 = 16 777 216 possible values;
