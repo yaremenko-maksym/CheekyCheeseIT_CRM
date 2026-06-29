@@ -1237,6 +1237,11 @@ const ethAddressSchema = z
   .string()
   .regex(/^0x[a-fA-F0-9]{40}$/, 'Адрес кошелька должен начинаться с 0x и содержать 42 символа')
 
+// Company requisites markdown — payment/legal block auto-appended to NEW
+// contracts (see appendCompanyRequisitesSection). ADMIN-edited; capped to keep
+// the contract PDF body bounded and the audit payload reasonable.
+export const COMPANY_REQUISITES_MAX = 10000
+
 // GET /api/company-account response — wallet config + derived USDT balance.
 export const companyAccountSchema = z.object({
   walletAddress: z.string().nullable(),
@@ -1244,6 +1249,9 @@ export const companyAccountSchema = z.object({
   // Derived USDT balance: Σ(COMPANY_DEPOSIT PAID) − Σ(DIVIDEND_TO_ADMIN PAID)
   //   − Σ(SALARY PAID where fundingSource='COMPANY_ACCOUNT'). Always USDT.
   balance: z.number(),
+  // Company requisites markdown (nullable until ADMIN sets it). Appended to the
+  // END of every NEW contract at sign time (immutable in the resulting snapshot).
+  requisitesMarkdown: z.string().nullable(),
   updatedAt: z.string().datetime().nullable(),
 })
 export type CompanyAccountDto = z.infer<typeof companyAccountSchema>
@@ -1253,6 +1261,19 @@ export const updateWalletSchema = z.object({
   walletAddress: ethAddressSchema,
 })
 export type UpdateWalletDto = z.infer<typeof updateWalletSchema>
+
+// PATCH /api/company-account/requisites — ADMIN only. Empty string is allowed
+// (clears the section); coerced to null at the service so an empty block never
+// appends a heading-only section. max() guards the contract-body/audit size.
+export const updateRequisitesSchema = z.object({
+  requisitesMarkdown: z
+    .string()
+    .max(
+      COMPANY_REQUISITES_MAX,
+      `Реквизиты не должны превышать ${COMPANY_REQUISITES_MAX} символов`,
+    ),
+})
+export type UpdateRequisitesDto = z.infer<typeof updateRequisitesSchema>
 
 // POST /api/company-account/deposits — SENIOR/DROP submit a deposit.
 // Accept either a bare txHash (0x + 64 hex) or an Etherscan link containing one

@@ -160,18 +160,24 @@ interface MockDb {
 function makeDb({
   userRow = makeUser(),
   insertedRow,
+  companyRequisites = null,
 }: {
   userRow?: ReturnType<typeof makeUser>
   // nextSeq removed: T4 uses crypto.randomBytes instead of sequence
   insertedRow?: ReturnType<typeof makeSignedContract>
-} = {}): MockDb {
+  // Part 2: the company_account.requisitesMarkdown current at sign time.
+  companyRequisites?: string | null
+} = {}): MockDb & { lastInsertValues: () => Record<string, unknown> | undefined } {
   // T4: findFirst for uniqueness check must return undefined (= candidate is free)
   // so generateUniqueContractNumber succeeds on the first attempt.
   const findSignedFirst = vi.fn().mockResolvedValue(undefined)
   const findSignedMany = vi.fn().mockResolvedValue([])
   const findUser = vi.fn().mockResolvedValue(userRow)
+  // Capture the values() payload of the signed_contracts INSERT so tests can
+  // assert on bodyMarkdownSnapshot (Part 2 append).
+  const insertValuesSpy = vi.fn()
 
-  return {
+  const mock: MockDb = {
     db: {
       query: {
         signedContracts: { findFirst: findSignedFirst, findMany: findSignedMany },
@@ -179,18 +185,35 @@ function makeDb({
       },
       transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
         const txInsertReturning = vi.fn().mockResolvedValue([insertedRow ?? makeSignedContract()])
-        const txInsertValues = vi.fn().mockReturnValue({ returning: txInsertReturning })
+        const txInsertValues = vi.fn().mockImplementation((vals: Record<string, unknown>) => {
+          insertValuesSpy(vals)
+          return { returning: txInsertReturning }
+        })
         const tx = {
           insert: vi.fn().mockReturnValue({ values: txInsertValues }),
           query: {
             // T4: uniqueness check — always return undefined (free candidate)
             signedContracts: { findFirst: vi.fn().mockResolvedValue(undefined) },
             users: { findFirst: findUser },
+            // Part 2: requisites read INSIDE the tx, current at sign time.
+            companyAccount: {
+              findFirst: vi.fn().mockResolvedValue({
+                id: 'acc-1',
+                walletAddress: '0x' + '0'.repeat(40),
+                confirmationThreshold: 12,
+                requisitesMarkdown: companyRequisites,
+              }),
+            },
           },
         }
         return fn(tx as never)
       }),
     },
+  }
+  return {
+    ...mock,
+    lastInsertValues: () =>
+      insertValuesSpy.mock.calls.at(-1)?.[0] as Record<string, unknown> | undefined,
   }
 }
 
@@ -567,6 +590,55 @@ describe('SignedContractsService', () => {
       expect(empSvc.getReadyForSigning).toHaveBeenCalledWith('senior-1', expect.anything())
     })
 
+    // ── Part 2: auto-append «Реквизиты компании» into the immutable snapshot ──
+    it('appends the «Реквизиты компании» section to the snapshot when company requisites are set', async () => {
+      const requisites = 'ООО «Тест»\n\nIBAN: UA00 0000 0000'
+      const mockDb = makeDb({ insertedRow: makeSignedContract(), companyRequisites: requisites })
+      const empSvc = makeEmployeeContractsSvc()
+      const service = new SignedContractsService(
+        mockDb as unknown as DatabaseService,
+        empSvc,
+        makePdfSvc(),
+      )
+
+      await service.sign({
+        userId: seniorUser.id,
+        userRole: 'SENIOR',
+        typedName: '',
+        ip: null,
+        userAgent: null,
+      })
+
+      const stored = mockDb.lastInsertValues()
+      const snapshot = stored?.['bodyMarkdownSnapshot'] as string
+      expect(snapshot).toContain('## Реквизиты компании')
+      expect(snapshot).toContain(requisites)
+      // The section is at the END (requisites are the trailing content).
+      expect(snapshot.endsWith(requisites)).toBe(true)
+    })
+
+    it('does NOT add a requisites section when company requisites are empty/null', async () => {
+      const mockDb = makeDb({ insertedRow: makeSignedContract(), companyRequisites: null })
+      const empSvc = makeEmployeeContractsSvc()
+      const service = new SignedContractsService(
+        mockDb as unknown as DatabaseService,
+        empSvc,
+        makePdfSvc(),
+      )
+
+      await service.sign({
+        userId: seniorUser.id,
+        userRole: 'SENIOR',
+        typedName: '',
+        ip: null,
+        userAgent: null,
+      })
+
+      const stored = mockDb.lastInsertValues()
+      const snapshot = stored?.['bodyMarkdownSnapshot'] as string
+      expect(snapshot).not.toContain('## Реквизиты компании')
+    })
+
     it('MED#1/MED#2: getReadyForSigning is called with tx (locking read path)', async () => {
       // Verifies that sign() passes the transaction handle to getReadyForSigning
       // so that EmployeeContractsService executes SELECT...FOR UPDATE inside the
@@ -615,6 +687,8 @@ describe('SignedContractsService', () => {
             // T4: uniqueness check returns undefined = candidate is free
             signedContracts: { findFirst: vi.fn().mockResolvedValue(undefined) },
             users: { findFirst: vi.fn().mockResolvedValue(makeUser()) },
+            // Part 2: requisites read inside the tx (no requisites → null).
+            companyAccount: { findFirst: vi.fn().mockResolvedValue({ requisitesMarkdown: null }) },
           },
         }
         return cb(tx)

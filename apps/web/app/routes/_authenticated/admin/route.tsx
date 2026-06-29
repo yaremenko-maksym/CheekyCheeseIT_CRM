@@ -13,7 +13,9 @@ export const Route = createFileRoute('/_authenticated/admin')({
 const ADMIN_TABS = [
   { value: 'contracts', label: 'Контракты', ariaLabel: 'Контракты' },
   { value: 'tos', label: 'Terms of Service', ariaLabel: 'Terms of Service' },
-  { value: 'wallet', label: 'Кошелёк компании', ariaLabel: 'Кошелёк компании' },
+  // Route key stays `wallet` (avoids route churn); the tab now covers the whole
+  // company config — wallet + requisites — so its label is «Компания».
+  { value: 'wallet', label: 'Компания', ariaLabel: 'Компания' },
 ]
 
 function AdminTemplatesRoot() {
@@ -80,7 +82,7 @@ function AdminTemplatesRoot() {
               Terms of Service
             </a>
             <a data-testid="admin-templates-tab-wallet" href="/admin/wallet">
-              Кошелёк компании
+              Компания
             </a>
           </span>
         </div>

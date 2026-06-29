@@ -63,6 +63,23 @@ export const createContractTemplateSchema = z.object({
   customVariables: z.array(customVariableSchema).default([]),
 })
 
+/**
+ * Body for `POST /api/contracts/templates/preview-pdf` (ADMIN-only).
+ *
+ * Accepts the editor's CURRENT markdown so unsaved edits can be previewed
+ * (no saved templateId required). The PDF preview deliberately leaves
+ * `{{tokens}}` VISIBLE (no standard-variable substitution) and appends the
+ * company requisites section — matching what a signed contract will look like.
+ * `role` is accepted for parity with the editor (which tracks a target role)
+ * and to keep the audit/telemetry shape consistent; it does not change the
+ * unsigned-preview rendering.
+ */
+export const previewContractPdfSchema = z.object({
+  bodyMarkdown: z.string().min(1, 'Тело контракта не может быть пустым').max(100_000),
+  role: contractTargetRoleSchema,
+})
+export type PreviewContractPdfDto = z.infer<typeof previewContractPdfSchema>
+
 export const signedContractSchema = z.object({
   id: z.string().uuid(),
   userId: z.string().uuid(),

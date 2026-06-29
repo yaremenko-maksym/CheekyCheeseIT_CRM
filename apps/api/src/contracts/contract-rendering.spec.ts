@@ -9,7 +9,12 @@
  * of the extracted helper.
  */
 import { describe, expect, it } from 'vitest'
-import { renderContractTemplate, type ContractRenderUserContext } from './contract-rendering'
+import {
+  appendCompanyRequisitesSection,
+  COMPANY_REQUISITES_HEADING,
+  renderContractTemplate,
+  type ContractRenderUserContext,
+} from './contract-rendering'
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -723,5 +728,50 @@ describe('renderContractTemplate', () => {
       )
       expect(body).toBe('first / second / Charlie')
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// appendCompanyRequisitesSection — Part 2 auto-section helper
+// ---------------------------------------------------------------------------
+describe('appendCompanyRequisitesSection', () => {
+  const BODY = '# Contract\n\nSome clauses.'
+
+  it('appends a «Реквизиты компании» section at the END for non-empty requisites', () => {
+    const requisites = 'ООО «Тест»\n\n- IBAN: UA00\n- РНОКПП: 1234567890'
+    const out = appendCompanyRequisitesSection(BODY, requisites)
+    expect(out).toBe(`${BODY}\n\n${COMPANY_REQUISITES_HEADING}\n\n${requisites}`)
+    // The original body is a strict prefix → nothing in the contract is mutated,
+    // requisites are strictly appended after it.
+    expect(out.startsWith(BODY)).toBe(true)
+    expect(out.endsWith(requisites)).toBe(true)
+  })
+
+  it('returns the body UNCHANGED for null requisites (no heading-only section)', () => {
+    expect(appendCompanyRequisitesSection(BODY, null)).toBe(BODY)
+  })
+
+  it('returns the body UNCHANGED for undefined requisites', () => {
+    expect(appendCompanyRequisitesSection(BODY, undefined)).toBe(BODY)
+  })
+
+  it('returns the body UNCHANGED for empty-string requisites', () => {
+    expect(appendCompanyRequisitesSection(BODY, '')).toBe(BODY)
+  })
+
+  it('returns the body UNCHANGED for whitespace-only requisites', () => {
+    expect(appendCompanyRequisitesSection(BODY, '   \n\t  ')).toBe(BODY)
+    expect(appendCompanyRequisitesSection(BODY, '   \n\t  ')).not.toContain(
+      COMPANY_REQUISITES_HEADING,
+    )
+  })
+
+  it('preserves requisites markdown verbatim (tables / headings / lists not interpolated)', () => {
+    const requisites = '| UA | EN |\n| --- | --- |\n| Назва | Name |\n\n### Підрозділ\n\n- a\n- b'
+    const out = appendCompanyRequisitesSection(BODY, requisites)
+    expect(out).toContain(requisites)
+    // No {{token}} substitution happens here — a token in requisites stays literal.
+    const withToken = appendCompanyRequisitesSection(BODY, 'IBAN {{companyBank}}')
+    expect(withToken).toContain('IBAN {{companyBank}}')
   })
 })

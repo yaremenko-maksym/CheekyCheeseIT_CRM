@@ -543,6 +543,11 @@ export const companyAccount = pgTable('company_account', {
   walletAddress: varchar('wallet_address', { length: 42 }),
   // Confirmations required before a deposit flips PENDING → PAID. Default 12.
   confirmationThreshold: integer('confirmation_threshold').notNull().default(12),
+  // Company requisites markdown (nullable until ADMIN configures it). Auto-appended
+  // as a «Реквизиты компании» section at the END of every NEW contract at sign
+  // time → baked immutably into signed_contracts.body_markdown_snapshot. Editing
+  // it later affects ONLY future signings (existing snapshots are never rewritten).
+  requisitesMarkdown: text('requisites_markdown'),
   updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })

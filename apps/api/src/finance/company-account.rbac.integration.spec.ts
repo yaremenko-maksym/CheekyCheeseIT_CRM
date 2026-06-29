@@ -12,6 +12,7 @@ import { type SessionUser } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { RolesGuard } from '../common/guards/roles.guard'
+import { ZodExceptionFilter } from '../zod-exception.filter'
 import { DatabaseService } from '../database/database.service'
 import { CompanyAccountController } from './company-account.controller'
 import { CompanyAccountService } from './company-account.service'
@@ -203,6 +204,9 @@ describe('company-account — real backend RBAC integration (real DB, no mocks)'
     app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
     await app.register(cookie, { secret: 'company-account-rbac-cookie-secret' })
     app.setGlobalPrefix('api')
+    // Mirror prod (main.ts): map ZodError → 400 so schema-validation failures
+    // (e.g. requisites over the length cap) return 400, not a raw 500.
+    app.useGlobalFilters(new ZodExceptionFilter())
     await app.init()
     await app.getHttpAdapter().getInstance().ready()
 
@@ -307,6 +311,46 @@ describe('company-account — real backend RBAC integration (real DB, no mocks)'
       ).toBe(403)
     })
   }
+
+  // ── PATCH /company-account/requisites — ADMIN only ──────────────────────────
+  it('PATCH requisites — ADMIN → 200', async () => {
+    if (!dbAvailable) return
+    expect(
+      await status('PATCH', '/api/company-account/requisites', ADMIN, {
+        requisitesMarkdown: '## Реквизиты\n\nООО «Тест»',
+      }),
+    ).toBe(200)
+  })
+  for (const persona of [ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]) {
+    it(`PATCH requisites — ${persona.role} → 403`, async () => {
+      if (!dbAvailable) return
+      expect(
+        await status('PATCH', '/api/company-account/requisites', persona, {
+          requisitesMarkdown: 'x',
+        }),
+      ).toBe(403)
+    })
+  }
+  it('PATCH requisites — ADMIN, body over the length cap → 400', async () => {
+    if (!dbAvailable) return
+    expect(
+      await status('PATCH', '/api/company-account/requisites', ADMIN, {
+        requisitesMarkdown: 'a'.repeat(10001),
+      }),
+    ).toBe(400)
+  })
+  it('GET /company-account returns the requisitesMarkdown set by ADMIN', async () => {
+    if (!dbAvailable) return
+    const marker = '## Реквизиты\n\nIBAN UA00 0000 — round-trip marker'
+    await status('PATCH', '/api/company-account/requisites', ADMIN, { requisitesMarkdown: marker })
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/company-account',
+      cookies: { jwt: tokenFor(ADMIN) },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).requisitesMarkdown).toBe(marker)
+  })
 
   // ── POST /company-account/deposits — SENIOR/DROP only ───────────────────────
   it('POST deposits — SENIOR → 201/200', async () => {

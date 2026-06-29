@@ -193,3 +193,40 @@ export function renderContractTemplate(
 
   return { body, variables }
 }
+
+/** Heading prepended to the auto-appended company requisites section. */
+export const COMPANY_REQUISITES_HEADING = '## Реквизиты компании'
+
+/**
+ * Append the company requisites as a «Реквизиты компании» section at the END of
+ * a contract body.
+ *
+ * Owner decision: requisites are an auto-section at the end of every NEW
+ * contract — templates are NOT edited. This keeps the requisites out of the
+ * authored template (so an admin can change them centrally) while baking the
+ * value current at sign time into the immutable snapshot.
+ *
+ * Behavior:
+ *   - `requisitesMarkdown` null / empty / whitespace-only → return `body`
+ *     unchanged (NO heading-only section).
+ *   - otherwise → `body` + blank line + `## Реквизиты компании` + blank line +
+ *     the requisites markdown (verbatim — already authored markdown, NOT token-
+ *     interpolated, matching the «tokens stay visible» preview semantics).
+ *
+ * Pure + idempotent at the call sites that use it once (sign + preview). It does
+ * NOT itself guard against double-append; callers append exactly once.
+ *
+ * @param body              Rendered (or raw) contract body.
+ * @param requisitesMarkdown Company requisites markdown, or null.
+ * @returns                 Body with the requisites section appended, or the
+ *                          original body when there are no requisites.
+ */
+export function appendCompanyRequisitesSection(
+  body: string,
+  requisitesMarkdown: string | null | undefined,
+): string {
+  if (!requisitesMarkdown || requisitesMarkdown.trim() === '') {
+    return body
+  }
+  return `${body}\n\n${COMPANY_REQUISITES_HEADING}\n\n${requisitesMarkdown}`
+}

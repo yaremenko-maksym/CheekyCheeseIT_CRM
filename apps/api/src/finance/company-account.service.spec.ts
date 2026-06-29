@@ -446,3 +446,91 @@ describe('CompanyAccountService.createDividend (ADMIN only)', () => {
     expect(txMock).toHaveBeenCalledOnce()
   })
 })
+
+describe('CompanyAccountService.updateRequisites (ADMIN only)', () => {
+  // A db whose company_account row starts with `requisitesBefore`, and whose
+  // transaction() runs the callback against a tx that records the .set() payload
+  // and audit-log insert. getAccount() (called at the end) reads the SAME
+  // findFirst mock, which we flip to reflect the post-update value.
+  function makeRequisitesDb(requisitesBefore: string | null) {
+    const setSpy = vi.fn(() => ({ where: () => Promise.resolve() }))
+    const auditInsertSpy = vi.fn(() => ({ values: () => Promise.resolve() }))
+    // Current row value — getAccount reads this after the tx; tests assert on it
+    // indirectly via the audit insert payload + the returned DTO.
+    let current: string | null = requisitesBefore
+    const findFirst = vi.fn().mockImplementation(() =>
+      Promise.resolve({
+        id: 'acc-1',
+        walletAddress: WALLET,
+        confirmationThreshold: THRESHOLD,
+        requisitesMarkdown: current,
+        updatedAt: new Date('2026-06-29T00:00:00Z'),
+      }),
+    )
+    const dbtx = {
+      update: vi.fn(() => ({ set: setSpy })),
+      insert: auditInsertSpy,
+    }
+    const db = makeDb({
+      query: {
+        companyAccount: { findFirst },
+        transactions: { findFirst: vi.fn() },
+        users: { findFirst: vi.fn() },
+      },
+      // getAccount computes balance via select() — feed zeros so it returns 0.
+      select: selectReturning(['0', '0', '0', '0', '0', '0']),
+      transaction: vi.fn(async (cb: (tx: typeof dbtx) => unknown) => {
+        const r = await cb(dbtx)
+        // Reflect the write so the trailing getAccount() returns the new value.
+        const payload = setSpy.mock.calls[0]?.[0] as { requisitesMarkdown?: string | null }
+        if (payload && 'requisitesMarkdown' in payload) current = payload.requisitesMarkdown ?? null
+        return r
+      }),
+    })
+    return { db, setSpy, auditInsertSpy }
+  }
+
+  it('non-ADMIN → 403', async () => {
+    const { db } = makeRequisitesDb(null)
+    const svc = makeService(db)
+    await expect(svc.updateRequisites('x', SENIOR)).rejects.toBeInstanceOf(ForbiddenException)
+  })
+
+  it('body over the 10000-char cap → 400', async () => {
+    const { db } = makeRequisitesDb(null)
+    const svc = makeService(db)
+    await expect(svc.updateRequisites('a'.repeat(10001), ADMIN)).rejects.toBeInstanceOf(
+      BadRequestException,
+    )
+  })
+
+  it('ADMIN sets non-empty requisites → persisted verbatim + DTO reflects it', async () => {
+    const md = '## Реквизиты\n\nООО «Тест», IBAN UA00'
+    const { db, setSpy, auditInsertSpy } = makeRequisitesDb(null)
+    const svc = makeService(db)
+    const dto = await svc.updateRequisites(md, ADMIN)
+    // Stored verbatim (not trimmed/normalized away).
+    const setArg = setSpy.mock.calls[0]?.[0] as { requisitesMarkdown?: string | null }
+    expect(setArg.requisitesMarkdown).toBe(md)
+    // Audit row written (distinct action) since before(null) !== after(md).
+    expect(auditInsertSpy).toHaveBeenCalledOnce()
+    expect(dto.requisitesMarkdown).toBe(md)
+  })
+
+  it('empty / whitespace-only input is coerced to NULL (no heading-only section)', async () => {
+    const { db, setSpy } = makeRequisitesDb('## Реквизиты\n\nold value')
+    const svc = makeService(db)
+    const dto = await svc.updateRequisites('   \n  ', ADMIN)
+    const setArg = setSpy.mock.calls[0]?.[0] as { requisitesMarkdown?: string | null }
+    expect(setArg.requisitesMarkdown).toBeNull()
+    expect(dto.requisitesMarkdown).toBeNull()
+  })
+
+  it('no-op when value is unchanged → no audit row', async () => {
+    const same = '## Реквизиты\n\nunchanged'
+    const { db, auditInsertSpy } = makeRequisitesDb(same)
+    const svc = makeService(db)
+    await svc.updateRequisites(same, ADMIN)
+    expect(auditInsertSpy).not.toHaveBeenCalled()
+  })
+})
