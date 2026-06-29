@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
+import { COMPANY_REQUISITES_MAX } from '@crm/shared'
 import type {
   CompanyAccountDto,
   CompanyDepositDto,
@@ -80,6 +81,7 @@ export class CompanyAccountService {
       walletAddress: row.walletAddress,
       confirmationThreshold: row.confirmationThreshold,
       balance,
+      requisitesMarkdown: row.requisitesMarkdown,
       updatedAt: row.updatedAt ? row.updatedAt.toISOString() : null,
     }
   }
@@ -116,6 +118,65 @@ export class CompanyAccountService {
           targetId: currentUser.id,
           action: 'company_account.wallet_changed',
           changes: { walletAddress: { before: '[redacted]', after: '[redacted]' } },
+        })
+      }
+    })
+
+    return this.getAccount(currentUser)
+  }
+
+  /**
+   * PATCH /api/company-account/requisites — ADMIN only. Stores the company
+   * requisites markdown that gets auto-appended as a «Реквизиты компании»
+   * section at the END of every NEW contract at sign time.
+   *
+   * - Empty / whitespace-only input is coerced to NULL so a blank value never
+   *   produces a heading-only section in future contracts.
+   * - Length is capped (defensively re-checked here; the Zod schema already
+   *   enforces COMPANY_REQUISITES_MAX at the controller boundary).
+   * - Audited under a DISTINCT action (`company_account.requisites_changed`) so
+   *   wallet vs requisites edits are separable in the audit log. The body is
+   *   business config (not a secret like the wallet), so we record presence +
+   *   length rather than redacting — enough to audit without bloating the log.
+   * - Uses a transaction + WHERE on the single row id so a concurrent wallet
+   *   edit cannot clobber this write (each UPDATE sets only its own column).
+   */
+  async updateRequisites(
+    requisitesMarkdown: string,
+    currentUser: SessionUser,
+  ): Promise<CompanyAccountDto> {
+    if (currentUser.role !== 'ADMIN') {
+      throw new ForbiddenException('Менять реквизиты компании может только ADMIN')
+    }
+    if (requisitesMarkdown.length > COMPANY_REQUISITES_MAX) {
+      throw new BadRequestException(
+        `Реквизиты не должны превышать ${COMPANY_REQUISITES_MAX} символов`,
+      )
+    }
+
+    // Coerce empty / whitespace-only to NULL (no heading-only section later).
+    const normalized = requisitesMarkdown.trim() === '' ? null : requisitesMarkdown
+
+    const row = await this.getRow()
+    const before = row.requisitesMarkdown
+
+    await this.db.db.transaction(async (tx) => {
+      await tx
+        .update(companyAccount)
+        .set({ requisitesMarkdown: normalized, updatedBy: currentUser.id, updatedAt: new Date() })
+        .where(eq(companyAccount.id, row.id))
+
+      if (before !== normalized) {
+        await tx.insert(userAuditLog).values({
+          actorId: currentUser.id,
+          targetId: currentUser.id,
+          action: 'company_account.requisites_changed',
+          changes: {
+            requisitesMarkdown: {
+              beforeLength: before?.length ?? 0,
+              afterLength: normalized?.length ?? 0,
+            },
+          },
         })
       }
     })

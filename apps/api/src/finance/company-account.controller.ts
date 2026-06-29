@@ -12,6 +12,7 @@ import {
 import {
   createCompanyDepositSchema,
   createDividendSchema,
+  updateRequisitesSchema,
   updateWalletSchema,
   type SessionUser,
 } from '@crm/shared'
@@ -38,6 +39,7 @@ import { CompanyAccountService } from './company-account.service'
  * Route → allowed roles:
  *   GET    /company-account              ADMIN | ACCOUNTANT
  *   PATCH  /company-account/wallet       ADMIN
+ *   PATCH  /company-account/requisites   ADMIN
  *   POST   /company-account/deposits     SENIOR | DROP
  *   GET    /company-account/deposits/:id/status   SENIOR | DROP | ADMIN | ACCOUNTANT (owner|priv — service)
  *   POST   /company-account/dividends    ADMIN
@@ -63,6 +65,17 @@ export class CompanyAccountController {
   updateWallet(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     const dto = updateWalletSchema.parse(body)
     return this.svc.updateWallet(dto.walletAddress, user)
+  }
+
+  // Company requisites markdown — auto-appended to NEW contracts. Rare ADMIN
+  // edit; reuse the wallet-update rate limit (same blast radius, relaxable in
+  // non-prod). Zod enforces the length cap before the handler runs.
+  @Patch('requisites')
+  @Roles('ADMIN')
+  @RelaxableThrottle(WALLET_UPDATE_LIMIT)
+  updateRequisites(@Body() body: unknown, @CurrentUser() user: SessionUser) {
+    const dto = updateRequisitesSchema.parse(body)
+    return this.svc.updateRequisites(dto.requisitesMarkdown, user)
   }
 
   @Post('deposits')
