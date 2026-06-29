@@ -38,7 +38,7 @@
 PM прочитал и принял BA brief, готов к decomposition.
 
 ```json
-{ "at": "...", "type": "brief_approved", "brief": ".claude/briefs/pm-brief.md" }
+{ "at": "...", "type": "brief_approved", "brief": ".claude/briefs/pm-brief-<slug>.md" }
 ```
 
 ### `task_file_created`
@@ -353,7 +353,7 @@ Mode C: Legal вернул pre-feature brief check с recommendations для AC.
 {
   "at": "...",
   "type": "legal_pre_feature_done",
-  "brief": ".claude/briefs/pm-brief.md",
+  "brief": ".claude/briefs/pm-brief-<slug>.md",
   "recommendations_count": 3
 }
 ```

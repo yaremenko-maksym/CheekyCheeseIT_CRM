@@ -50,7 +50,7 @@ model: opus
 8. **Контекст консультации:**
    - Mode A (consult): `.claude/tasks/task-legal-<slug>.md`
    - Mode B (pr-review): PR diff через `mcp__github__get_pull_request_files`
-   - Mode C (brief-check): `.claude/briefs/pm-brief.md`
+   - Mode C (brief-check): `.claude/briefs/pm-brief-<slug>.md`
    - Mode D (strategic): `.claude/knowledge/legal-consultations/<file>.md`
 9. **CLAUDE.md** (root) — общий бизнес-контекст компании
 
@@ -92,14 +92,14 @@ PM передаёт `mode=<consult|pr-review|brief-check|strategic>` в пром
 
 ### Mode C — `brief-check`
 
-Вход: путь к `.claude/briefs/pm-brief.md`.
+Вход: путь к `.claude/briefs/pm-brief-<slug>.md`.
 Действия:
 
 1. Прочитать brief
 2. Определить legal touchpoints (финансы / payments / user data / contracts / crypto / third-party integration / hiring)
 3. Прочитать relevant `.claude/knowledge/legal/<topic>/*.md`
 4. Вернуть структурированный output с акцентом на **Recommendations для AC** (e.g., «add encrypted-at-rest требование в storage AC», «GDPR Art.13 — consent flow в registration AC»)
-5. Пишет ответ в `.claude/briefs/pm-brief-legal-check.md` (рядом с pm-brief.md). PM читает и включает в task decomposition.
+5. Пишет ответ в `.claude/briefs/pm-brief-legal-check.md` (рядом с pm-brief-<slug>.md). PM читает и включает в task decomposition.
 
 ### Mode D — `strategic`
 

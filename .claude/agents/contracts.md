@@ -11,7 +11,7 @@
 ```mermaid
 flowchart TD
     USER([USER]) -->|brief / фича| BA[BA]
-    BA -->|.claude/briefs/pm-brief.md| PM[PM]
+    BA -->|.claude/briefs/pm-brief-<slug>.md| PM[PM]
     PM -->|UI-heavy brief — Designer Mode A| DESIGNER[UI/UX Designer]
     DESIGNER -->|docs/design/&lt;slug&gt;.md spec| PM
     PM -->|task-*.md + Agent isolation=worktree| CODER[Coder]
@@ -77,7 +77,7 @@ stateDiagram-v2
 
 ```
 USER → BA: "сделай Phase X"
-BA → PM: .claude/briefs/pm-brief.md (commit + push)
+BA → PM: .claude/briefs/pm-brief-<slug>.md (commit + push)
 PM → Coder: Agent(prompt="task-X.md", isolation="worktree", run_in_background=True)
   Coder → PR: wip-push milestone 1/N
   Coder → PR: wip-push milestone 2/N

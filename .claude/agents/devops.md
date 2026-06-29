@@ -142,13 +142,6 @@ Label `ai-review-ready` для Reviewer.
 | `e2e-watchdog.yml`        | scheduled                            | Контроль E2E                                      |
 | `labels-sync.yml`         | scheduled                            | Sync labels                                       |
 
-**Архивные** (НЕ запускаются, PM диспетчит локально через `Agent`):
-
-- `.github/workflows/archive/coder.yml`
-- `.github/workflows/archive/autotest.yml`
-- `.github/workflows/archive/devops.yml`
-- `.github/workflows/archive/ai-review.yml`
-
 ### 6.3. Concurrency паттерн
 
 ```yaml
@@ -377,16 +370,6 @@ ECC sub-agents — _augmentation_ для build / harness tuning. DevOps оста
 - ECC `build-error-resolver` — `docs/architecture/ecc-reference/AGENTS.upstream.md` line 24 + § Performance "Build troubleshooting".
 - ECC `harness-optimizer` — `docs/architecture/ecc-reference/AGENTS.upstream.md` line 43 + § Agent Orchestration "Harness config reliability and cost".
 - Phase 3e deliverable: `docs/architecture/2026-06-03-phase3e-deliverable.md` — что adapted, что preserved, где invocation matrix.
-
-### claude-code-action@beta — критичные правила (legacy archive workflows)
-
-Если работаешь с archived `.github/workflows/archive/*.yml`:
-
-- Надёжный триггер: ТОЛЬКО `workflow_dispatch`. `pull_request: ready_for_review` / `labeled` дают "No trigger found, skipping" — Claude не запускается.
-- `mode: agent` обязателен для `workflow_dispatch`.
-- `github_token: ${{ github.token }}` обязателен на всех Claude шагах.
-- `allowed_bots: '*'` нужен чтобы бот-PR'ы тоже тригерили review.
-- **workflow_dispatch inputs**: только `string`, `boolean`, `choice`, `environment` — `type: number` невалидный (HTTP 422 на `gh workflow run`).
 
 ### Установленные плагины (user scope)
 

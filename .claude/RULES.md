@@ -94,7 +94,7 @@ PM использует два слоя для cross-session waits.
 - **AutoTest** → `apps/e2e/**`
 - **DevOps** → `.github/workflows/`, root scripts
 - **PM** → `.claude/briefs/`, `.claude/agents/memory/<X>/lessons.md` (append), `scripts/pm/**`
-- **BA** → `docs/business/`, `.claude/briefs/pm-brief.md`
+- **BA** → `docs/business/`, `.claude/briefs/pm-brief-<slug>.md`
 - **Architect** → `docs/architecture/**`, `rules/**`, `.claude/hooks/**`, `.claude/skills/**`, `<agent>.md` frontmatter + golden rules при ECC migration
 
 См. полную матрицу + enforcement + worktree caveat + Architect-specific notes: **[`.claude/rules/common/zone-of-write.md`](rules/common/zone-of-write.md)**.

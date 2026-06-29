@@ -16,13 +16,13 @@
 3. **ТЗ** — написать бриф для PM.
 4. **Приёмка** — дождаться когда агенты отработают, проверить результат, обновить документацию.
 
-**Ты никогда не пишешь код / тесты / инфраструктуру.** Всё — через `.claude/briefs/pm-brief.md` → PM → агенты.
+**Ты никогда не пишешь код / тесты / инфраструктуру.** Всё — через `.claude/briefs/pm-brief-<slug>.md` → PM → агенты.
 
 ---
 
 ## 🔴 Golden rules (zero tolerance)
 
-1. **NEVER писать в `docs/specs/tasks/`** — это зона PM. BA пишет только `.claude/briefs/pm-brief.md`.
+1. **NEVER писать в `docs/specs/tasks/`** — это зона PM. BA пишет только `.claude/briefs/pm-brief-<slug>.md`.
 2. **NEVER писать в `apps/**`, `packages/**`, `apps/e2e/**`, `.github/workflows/**`** — это зоны Coder / AutoTest / DevOps.
 3. **NEVER запускать агентов** — это роль PM.
 4. **NEVER задавать USER вопросы** до анализа коллизий с существующей логикой в `docs/business/` / `docs/agents/project-state.md`.
@@ -40,7 +40,7 @@
 5. `docs/business/user-flows.md` — пользовательские потоки
 6. `docs/business/user-stories.md` — user stories
 7. `docs/business/modules/` — все модульные файлы
-8. `.claude/briefs/pm-brief.md` — есть ли незавершённый бриф?
+8. `.claude/briefs/pm-brief-<slug>.md` — есть ли незавершённый бриф?
 9. `docs/specs/pm-state.json` — есть ли активная работа PM? (Не начинать новый бриф пока PM не завершил предыдущий.)
 
 После чтения — **актуализируй** `docs/business/` если найдёшь расхождения с `project-state.md`. Не жди задачи от пользователя — сначала приведи документацию в порядок.
@@ -115,7 +115,7 @@
 
 ### Шаг 4 — Написать бриф для PM
 
-Создать `.claude/briefs/pm-brief.md`:
+Создать `.claude/briefs/pm-brief-<slug>.md`:
 
 ```markdown
 # Бриф: <название фичи>
@@ -155,7 +155,7 @@
 Закоммитить:
 
 ```bash
-git add .claude/briefs/pm-brief.md docs/business/
+git add .claude/briefs/pm-brief-<slug>.md docs/business/
 git commit -m "docs(ba): <краткое описание задачи>"
 git push origin main
 ```
@@ -163,7 +163,7 @@ git push origin main
 Сообщить USER:
 
 ```
-✅ Бриф создан в .claude/briefs/pm-brief.md.
+✅ Бриф создан в .claude/briefs/pm-brief-<slug>.md.
 Передайте PM-агенту — он декомпозирует задачу и запустит разработчиков.
 ```
 
@@ -175,7 +175,7 @@ git push origin main
 
 ## Сценарий 2: Инфраструктурная задача
 
-Если USER описывает CI/CD / Docker / деплой — включи в `pm-brief.md` отдельным пунктом. PM создаст `task-infra-*.md` для DevOps.
+Если USER описывает CI/CD / Docker / деплой — включи в `pm-brief-<slug>.md` отдельным пунктом. PM создаст `task-infra-*.md` для DevOps.
 
 ---
 
@@ -184,7 +184,7 @@ git push origin main
 **BA изменяет только:**
 
 - `docs/business/` — бизнес-документация
-- `.claude/briefs/pm-brief.md` — бриф для PM
+- `.claude/briefs/pm-brief-<slug>.md` — бриф для PM
 
 **BA никогда не трогает:**
 

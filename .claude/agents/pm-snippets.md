@@ -123,7 +123,7 @@ Agent(
 Прочитай docs/business/modules/<модуль>.md + docs/business/user-flows.md.
 
 Mode: A — Design Direction (pre-feature)
-Brief: .claude/briefs/pm-brief.md (или task: .claude/tasks/task-design-<slug>.md)
+Brief: .claude/briefs/pm-brief-<slug>.md (или task: .claude/tasks/task-design-<slug>.md)
 Output: docs/design/<slug>.md
 
 Invoke skills: frontend-design-direction → design-system (если нужны новые tokens) → accessibility (critical paths).
@@ -315,7 +315,7 @@ Agent(
 Прочитай .claude/knowledge/legal/cross-cutting/citation-rules.md.
 
 mode: brief-check
-brief_file: .claude/briefs/pm-brief.md
+brief_file: .claude/briefs/pm-brief-<slug>.md
 
 Идентифицируй legal touchpoints в brief. Вывод — `.claude/briefs/pm-brief-legal-check.md` с акцентом на Recommendations для AC."""
 )
@@ -903,7 +903,7 @@ cat .claude/tasks/<task>.progress.md
 ```json
 {
   "feature": "Knowledge Base",
-  "brief": ".claude/briefs/pm-brief.md",
+  "brief": ".claude/briefs/pm-brief-<slug>.md",
   "started_at": "2026-05-18T10:00:00Z",
   "phase": "development",
   "active": [
@@ -957,7 +957,7 @@ cat .claude/tasks/<task>.progress.md
 **Top-level:**
 
 - `feature` — название текущей фичи
-- `brief` — путь к pm-brief.md
+- `brief` — путь к pm-brief-<slug>.md
 - `started_at` — когда PM стартовал работу
 - `phase` — `development` / `user-testing` / `merging` / `archived`
 - `active[]` — текущие незавершённые задачи

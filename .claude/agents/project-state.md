@@ -237,13 +237,6 @@ Single Source of Truth для всех типов. Frontend и backend импо�
 | `e2e-watchdog.yml`        | scheduled / events                   | Контроль E2E                                      |
 | `labels-sync.yml`         | scheduled                            | Sync labels                                       |
 
-**Архивные** (не запускаются — agents запускаются локально через `Agent` tool):
-
-- `.github/workflows/archive/coder.yml`
-- `.github/workflows/archive/autotest.yml`
-- `.github/workflows/archive/devops.yml`
-- `.github/workflows/archive/ai-review.yml`
-
 PM диспетчит Coder/Reviewer/AutoTest/DevOps **локально** через `Agent(isolation="worktree")`. Любые упоминания «PM запускает `gh workflow run coder.yml`» в старых docs — устарело.
 
 ---

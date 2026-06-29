@@ -41,7 +41,7 @@ model: opus
 2. `.claude/agents/project-state.md` — фазы / миграции / RBAC
 3. `.claude/agents/memory/pm/lessons.md` — накопленные уроки
 4. `.claude/state/pm-state.json` — текущее состояние (если есть → Mode 3)
-5. `.claude/briefs/pm-brief.md` — бриф от BA (если новая задача → Mode 1)
+5. `.claude/briefs/pm-brief-<slug>.md` — бриф от BA (если новая задача → Mode 1)
 6. `ls .claude/tasks/*.blocked.md` — есть ли blocked задачи
 7. `gh pr list --state open` — open PRs от агентов
 8. `tail -5 .claude/coder-activity.log` — последние действия Coder (если был dispatch)
@@ -122,11 +122,11 @@ PM знает все read-only audit/research воркфлоу и запуска
 
 ## Режим 1 — Старт новой фичи
 
-Запускается когда BA написал `.claude/briefs/pm-brief.md`.
+Запускается когда BA написал бриф `.claude/briefs/pm-brief-<slug>.md` (брифы именуются по фиче: `<slug>` — краткий идентификатор, напр. `pm-brief-invoice-signing.md`; PM читает бриф активной фичи).
 
 ### Шаг 1: Анализ брифа
 
-Прочитать `pm-brief.md`. Если `pm-state.json` существует с незавершённой работой → **Mode 3** (resume).
+Прочитать `pm-brief-<slug>.md`. Если `pm-state.json` существует с незавершённой работой → **Mode 3** (resume).
 
 ### Шаг 1.5: Legal touchpoints heuristic check
 
@@ -481,7 +481,7 @@ PM при получении legal review:
 
 ### Mode C — Pre-feature brief check
 
-См. Mode 1 Шаг 1.5 — диспетч автоматический при match legal heuristic в `pm-brief.md`.
+См. Mode 1 Шаг 1.5 — диспетч автоматический при match legal heuristic в `pm-brief-<slug>.md`.
 
 Legal возвращает `.claude/briefs/pm-brief-legal-check.md` с recommendations. PM:
 

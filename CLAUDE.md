@@ -70,7 +70,7 @@ GHA-воркфлоу агентов в `.github/workflows/archive/` — уста
 | Агент                                          | Роль                                                            |
 | ---------------------------------------------- | --------------------------------------------------------------- |
 | Master (user-сессия)                           | Инфраструктура агентов, мета-работа, лёгкий трек                |
-| BA                                             | Бизнес-анализ → `.claude/briefs/pm-brief.md`                    |
+| BA                                             | Бизнес-анализ → `.claude/briefs/pm-brief-<slug>.md`             |
 | PM                                             | Декомпозиция → параллельный диспетч → мониторинг → User Testing |
 | Coder / AutoTest / DevOps                      | Реализация / E2E-спеки / CI-CD — каждый в своей zone-of-write   |
 | code-reviewer + security-reviewer              | Review; security-reviewer ОБЯЗАТЕЛЕН для auth/finance/RBAC      |
