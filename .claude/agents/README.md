@@ -37,7 +37,7 @@ Multi-agent инфраструктура для CRM Cheeky Cheese IT. Содер
 
 ### Human roles (not LLM agents)
 
-- **BA** (`docs/business/roles/ba.md`) — Business consultant. Writes `.claude/briefs/pm-brief.md` for PM consumption. **Not an LLM agent.** Moved out of `.claude/agents/` in Phase 6 (2026-06-03) per ADR Q5 Option B; no YAML frontmatter. Cross-doc refs (`RULES.md`, `project-state.md`, `contracts.md`) point back to `.claude/agents/`.
+- **BA** (`docs/business/roles/ba.md`) — Business consultant. Writes `.claude/briefs/pm-brief-<slug>.md` for PM consumption. **Not an LLM agent.** Moved out of `.claude/agents/` in Phase 6 (2026-06-03) per ADR Q5 Option B; no YAML frontmatter. Cross-doc refs (`RULES.md`, `project-state.md`, `contracts.md`) point back to `.claude/agents/`.
 
 ### On-demand reference
 
