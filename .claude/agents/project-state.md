@@ -23,7 +23,7 @@ Single source of truth для **factual state of the project**: фазы, миг
 - [x] **PHASE 3**: Проекты (Projects, project_members)
 - [x] **PHASE 4**: Собеседования (Interviews Kanban, dnd-kit)
 - [x] **PHASE 5**: Финансы (transactions, NBU rates, PDF, etherscan; финмодель рефакторена → payout_requests + pending_obligations)
-- [x] **PHASE 6**: Документы (S3/MinIO, `documents` table, PDF inline preview, search/sort, receipt lifecycle)
+- [x] **PHASE 6**: Документы (S3-совместимо: dev MinIO / prod Cloudflare R2; `documents` table, PDF inline preview, search/sort, receipt lifecycle)
 - [x] **PHASE 7**: Профили (`/profile`, `/users/:id`, telegram+phone, **фото S3** через `avatarDocumentId`) + Легенда **per-project** (#150 + #164: `legends` с projectId UNIQUE + `legend_entries` журнал; RBAC: видят/редактируют связанные ADMIN/HR/JUNIOR, субъект исключён)
 - [x] **Контракты + Онбординг** (вне исходного 9-фазного плана): `contract_templates`, `employee_contracts`, `signed_contracts`, ToS (`tos_versions`/`tos_acceptances`), система переменных шаблонов, двухколоночный UA|EN PDF, `/onboarding`
 - [x] **DROP роль**: payment-routing (`dropSharePercent`, `payout_requests`, `pending_obligations`)

@@ -1,3 +1,6 @@
+# Non-blocking warn: lessons.md cap (RULES.md §6.4) — nudge к консолидации, не блокер.
+bash scripts/check-lessons-cap.sh || true
+
 pnpm typecheck
 # Run packages sequentially so each vitest worker gets full CPU budget.
 # Parallel fork-pools (shared + api + web) competed for CPU under load,
