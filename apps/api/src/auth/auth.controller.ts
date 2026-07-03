@@ -18,6 +18,7 @@ import { jwtPayloadSchema, sessionUserSchema, type JwtPayload } from '@crm/share
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { randomBytes } from 'node:crypto'
 import type { Env } from '../config/env'
+import { AuthThrottle } from '../config/throttle-decorators'
 import { UsersService } from '../users/users.service'
 import { AuthService } from './auth.service'
 import { CurrentUser } from './current-user.decorator'
@@ -61,6 +62,7 @@ export class AuthController {
 
   @Get('google/callback')
   @Public()
+  @AuthThrottle()
   async googleCallback(
     @Query('code') code: string,
     @Query('state') state: string,
@@ -142,6 +144,7 @@ export class AuthController {
 
   @Post('google/one-tap')
   @Public()
+  @AuthThrottle()
   @HttpCode(HttpStatus.OK)
   async googleOneTap(
     @Body() body: { credential: string },
@@ -192,6 +195,7 @@ export class AuthController {
   // DEV ONLY — быстрый вход по email без Google OAuth
   @Post('dev-login')
   @Public()
+  @AuthThrottle()
   @HttpCode(HttpStatus.OK)
   async devLogin(@Body() body: { email: string }, @Res({ passthrough: true }) reply: FastifyReply) {
     if (this.isProduction) throw new UnauthorizedException('Not available in production')

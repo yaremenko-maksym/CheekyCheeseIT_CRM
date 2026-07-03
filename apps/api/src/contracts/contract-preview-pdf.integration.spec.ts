@@ -37,7 +37,7 @@ const JWT_SECRET = 'contract-preview-pdf-integration-secret-32c'
 const REQUISITES = '## Реквизиты\n\nООО «Тест», IBAN UA00 0000'
 
 const base: SessionUser = {
-  id: 'cp111111-0000-4000-aa00-000000000001',
+  id: 'c0111111-0000-4000-a000-000000000001',
   email: 'cp-admin@test.spec',
   displayName: 'CP Admin',
   avatarUrl: null,
@@ -46,11 +46,36 @@ const base: SessionUser = {
   legalFullName: null,
 }
 const ADMIN = base
-const ACCOUNTANT: SessionUser = { ...base, id: 'cp-acct', email: 'cp-acct@t', role: 'ACCOUNTANT' }
-const SENIOR: SessionUser = { ...base, id: 'cp-sen', email: 'cp-sen@t', role: 'SENIOR' }
-const JUNIOR: SessionUser = { ...base, id: 'cp-jun', email: 'cp-jun@t', role: 'JUNIOR' }
-const HR: SessionUser = { ...base, id: 'cp-hr', email: 'cp-hr@t', role: 'HR' }
-const DROP: SessionUser = { ...base, id: 'cp-drop', email: 'cp-drop@t', role: 'DROP' }
+const ACCOUNTANT: SessionUser = {
+  ...base,
+  id: 'c0111111-0000-4000-a000-000000000002',
+  email: 'cp-acct@test.spec',
+  role: 'ACCOUNTANT',
+}
+const SENIOR: SessionUser = {
+  ...base,
+  id: 'c0111111-0000-4000-a000-000000000003',
+  email: 'cp-sen@test.spec',
+  role: 'SENIOR',
+}
+const JUNIOR: SessionUser = {
+  ...base,
+  id: 'c0111111-0000-4000-a000-000000000004',
+  email: 'cp-jun@test.spec',
+  role: 'JUNIOR',
+}
+const HR: SessionUser = {
+  ...base,
+  id: 'c0111111-0000-4000-a000-000000000005',
+  email: 'cp-hr@test.spec',
+  role: 'HR',
+}
+const DROP: SessionUser = {
+  ...base,
+  id: 'c0111111-0000-4000-a000-000000000006',
+  email: 'cp-drop@test.spec',
+  role: 'DROP',
+}
 
 // Mocked DatabaseService — only `db.query.companyAccount.findFirst()` is used.
 const dbMock = {
