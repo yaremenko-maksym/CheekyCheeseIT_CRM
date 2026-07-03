@@ -117,7 +117,11 @@ describe('JwtAuthGuard — AC3: algorithm allowlist + payload schema validation'
   })
 
   it('rejects a payload with invalid email', async () => {
-    const badPayload = { id: '00000000-0000-0000-0000-000000000001', email: 'not-email', role: 'ADMIN' }
+    const badPayload = {
+      id: '00000000-0000-0000-0000-000000000001',
+      email: 'not-email',
+      role: 'ADMIN',
+    }
     const token = jwtService.sign(badPayload)
     const guard = new JwtAuthGuard(jwtService, makeReflector(false), undefined)
     await expect(guard.canActivate(makeCtx({ jwt: token }))).rejects.toThrow(UnauthorizedException)
@@ -263,6 +267,40 @@ describe('JwtAuthGuard — AC2: DB role re-hydration + archived user rejection',
     }
 
     // DB should only be called once (second hit comes from in-memory cache).
+    expect(mockFindById).toHaveBeenCalledTimes(1)
+  })
+
+  it('throws 401 on cache-HIT when user was archived within TTL (archivedAt in cached entry)', async () => {
+    // Scenario: user is archived AFTER the first request caches their record.
+    // The cache entry now has archivedAt set. A subsequent request (cache-HIT)
+    // must still be rejected — not served the cached role.
+    const tokenPayload = {
+      id: '00000000-0000-0000-0000-000000000004',
+      email: 'd@b.com',
+      role: 'SENIOR',
+    }
+    const token = jwtService.sign(tokenPayload)
+
+    // First request: DB returns archivedAt set (user was archived).
+    const mockFindById = vi.fn().mockResolvedValue({
+      id: '00000000-0000-0000-0000-000000000004',
+      email: 'd@b.com',
+      role: 'SENIOR',
+      archivedAt: new Date('2026-07-01'),
+    })
+    const mockUsersService = { findById: mockFindById } as unknown as UsersService
+    const guard = new JwtAuthGuard(jwtService, makeReflector(false), mockUsersService)
+
+    // First call — cache miss → DB hit → archivedAt stored in cache → 401.
+    const { ctx: ctx1 } = makeCtxWithRequest({ jwt: token })
+    await expect(guard.canActivate(ctx1)).rejects.toThrow(UnauthorizedException)
+
+    // Second call — cache HIT (entry still within TTL) → must also 401.
+    // DB should NOT be called again (the cache-HIT path handles rejection).
+    const { ctx: ctx2 } = makeCtxWithRequest({ jwt: token })
+    await expect(guard.canActivate(ctx2)).rejects.toThrow(UnauthorizedException)
+
+    // Only 1 DB call — the second rejection came from the cache.
     expect(mockFindById).toHaveBeenCalledTimes(1)
   })
 })
