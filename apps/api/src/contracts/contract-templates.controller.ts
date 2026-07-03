@@ -157,13 +157,14 @@ export class ContractTemplatesController {
    * using the calling user's current profile data. This lets the onboarding
    * wizard show a personalised preview before the user signs.
    *
-   * Auth: any authenticated user (no role restriction). ADMIN will always see
-   * `onboardingDate = today` with their own profile data — they bypass the
-   * gate anyway so this endpoint is for non-ADMIN previewing their own MSA.
+   * Auth: ADMIN or HR only (SEC-12). ADMIN manages templates; HR manages
+   * onboarding flows. Other roles (JUNIOR / SENIOR / ACCOUNTANT / DROP) do
+   * not need access to raw template markdown — they use the signed PDF path.
    *
    * No throttle: read-only, cheap query, no side-effects.
    */
   @Get('preview-rendered/:templateId')
+  @Roles('ADMIN', 'HR')
   async previewRendered(
     @Param('templateId', ParseUUIDPipe) templateId: string,
     @CurrentUser() user: SessionUser,
