@@ -247,30 +247,30 @@ describe('TeamsService.create — AC1: role validation (SEC-02 HIGH)', () => {
     ).rejects.toThrow(BadRequestException)
   })
 
-  it('AC1d: throws ForbiddenException when caller role is not ADMIN or HR', async () => {
+  it('AC1d: throws ForbiddenException when caller role is not ADMIN (create is ADMIN-only per HIGH-2 fix)', async () => {
+    // HIGH-2 (security-review #328): POST /api/teams is ADMIN-only.
+    // HR uses POST /api/users (HrCreateSeniorDialog) — a separate, safe workflow.
+    // Verify that SENIOR and HR are both rejected.
     const db = makeDb()
     const service = makeService(db)
 
     await expect(
       service.create('Team X', seniorUser.id, [hrUser.id], accUser.id, seniorUser),
     ).rejects.toThrow(ForbiddenException)
+
+    await expect(
+      service.create('Team X', seniorUser.id, [hrUser.id], accUser.id, hrUser),
+    ).rejects.toThrow(ForbiddenException)
   })
 
-  it('AC1e: HR self-scoping — HR caller must be present in hrIds', async () => {
-    // HR tries to create a team where they are NOT in hrIds → should be rejected
-    const otherHrId = 'other-hr-0000-0000-0000-000000000099'
-    const db = makeDb({
-      userLookups: {
-        [seniorUser.id]: makeDbUser(seniorUser.id, 'SENIOR'),
-        [otherHrId]: makeDbUser(otherHrId, 'HR'), // only "other" HR in hrIds, not hrUser itself
-        [accUser.id]: makeDbUser(accUser.id, 'ACCOUNTANT'),
-      },
-    })
+  it('AC1e: HR self-scoping guard is superseded — HR gets 403 at ADMIN-only role gate', async () => {
+    // HIGH-2 (security-review #328): HR is blocked before reaching any self-scoping
+    // check. Test documents that the ForbiddenException fires regardless of hrIds.
+    const db = makeDb()
     const service = makeService(db)
 
     await expect(
-      // hrUser creates a team but does NOT include themselves in hrIds
-      service.create('Team X', seniorUser.id, [otherHrId], accUser.id, hrUser),
+      service.create('Team X', seniorUser.id, [hrUser.id], accUser.id, hrUser),
     ).rejects.toThrow(ForbiddenException)
   })
 
@@ -307,20 +307,14 @@ describe('TeamsService.create — AC1: role validation (SEC-02 HIGH)', () => {
     ).resolves.toBeDefined()
   })
 
-  it('AC1h: valid create by HR when they include themselves in hrIds', async () => {
-    const db = makeDb({
-      userLookups: {
-        [seniorUser.id]: makeDbUser(seniorUser.id, 'SENIOR'),
-        [hrUser.id]: makeDbUser(hrUser.id, 'HR'),
-        [accUser.id]: makeDbUser(accUser.id, 'ACCOUNTANT'),
-      },
-      activeMembers: [],
-    })
+  it('AC1h: HR caller is always forbidden — create is ADMIN-only (HIGH-2 fix)', async () => {
+    // HIGH-2 (security-review #328): Previously HR could create by including
+    // themselves in hrIds. Now blocked at the ADMIN-only gate — no DB access needed.
+    const db = makeDb()
     const service = makeService(db)
 
-    // HR creates team and includes themselves
     await expect(
       service.create('Team X', seniorUser.id, [hrUser.id], accUser.id, hrUser),
-    ).resolves.toBeDefined()
+    ).rejects.toThrow(ForbiddenException)
   })
 })

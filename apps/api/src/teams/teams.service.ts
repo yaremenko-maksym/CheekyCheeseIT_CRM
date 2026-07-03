@@ -207,12 +207,16 @@ export class TeamsService {
     accountantId: string | null,
     currentUser: SessionUser,
   ) {
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') {
+    // HIGH-2 (security-review #328): POST /api/teams is ADMIN-only.
+    // HR creates senior+team via POST /api/users (HrCreateSeniorDialog) — that is
+    // the established HR workflow and is NOT this endpoint. Restricting to ADMIN
+    // eliminates the HR-BOLA vector without breaking any existing HR UX.
+    if (currentUser.role !== 'ADMIN') {
       throw new ForbiddenException()
     }
 
     // SEC-02 (HIGH): validate roles of all supplied member IDs before any INSERT.
-    // Without this check an HR could supply a victim SENIOR's id in hrIds
+    // Without this check a caller could supply a victim SENIOR's id in hrIds
     // (or a non-SENIOR in seniorId) and gain getHrSeniorIds-based access to
     // that SENIOR's projects/documents (BOLA). Pattern follows createDropTeam.
     await this.assertUserRole(seniorId, 'SENIOR')
@@ -221,15 +225,6 @@ export class TeamsService {
     }
     if (accountantId !== null) {
       await this.assertUserRole(accountantId, 'ACCOUNTANT')
-    }
-
-    // BIZ-09 (MED): HR self-scoping — when the caller is HR they MUST be
-    // included in hrIds. This prevents an HR from binding a victim SENIOR to a
-    // team that the HR does not actually belong to.
-    if (currentUser.role === 'HR' && !hrIds.includes(currentUser.id)) {
-      throw new ForbiddenException(
-        'HR-вызывающий должен быть включён в список hrIds создаваемой команды',
-      )
     }
 
     // Dual-active-senior guard: a SENIOR may only belong to ONE active team at
@@ -350,22 +345,6 @@ export class TeamsService {
       seniorSharePercentOverride?: number | null | undefined
     },
   ) {
-    const overrideTouched =
-      extra !== undefined &&
-      Object.prototype.hasOwnProperty.call(extra, 'seniorSharePercentOverride')
-
-    // SEC-04 (MED): seniorSharePercentOverride gates separately from general
-    // team-update RBAC. The override is snapshotted into
-    // transactions.senior_share_percent at income-creation time, so it has
-    // direct financial impact. Mirrors the project-level override guard in
-    // ProjectsService (~:610-618). HR may update name/notes/telegram but
-    // CANNOT touch the financial override.
-    if (overrideTouched && currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
-      throw new ForbiddenException(
-        'Изменение доли синьора на уровне команды доступно только ADMIN и ACCOUNTANT',
-      )
-    }
-
     // ACCOUNTANT is allowed to set the override but not REQUIRED to be a team
     // member (they have cross-team financial authority). For all other general
     // mutations we still require ADMIN or HR.
@@ -389,6 +368,34 @@ export class TeamsService {
       throw new ForbiddenException()
     }
 
+    // HIGH-1 (security-review #328): gate on REAL VALUE CHANGE, not key presence.
+    // The controller always calls updateTeamSchema.parse() which produces an
+    // object that carries `seniorSharePercentOverride` as a key even when the
+    // client body omitted it (zod .optional() yields `undefined`, not absent).
+    // Object.prototype.hasOwnProperty therefore always returns true, causing HR
+    // to receive 403 when editing only name/notes.  Fix: compare incoming value
+    // against the stored value and only block when it actually changes.
+    const incomingOverride =
+      extra !== undefined &&
+      Object.prototype.hasOwnProperty.call(extra, 'seniorSharePercentOverride')
+        ? (extra.seniorSharePercentOverride ?? null)
+        : undefined // key absent → no override intent
+
+    const storedOverride = team.seniorSharePercentOverride ?? null
+    const overrideChanged = incomingOverride !== undefined && incomingOverride !== storedOverride
+
+    // SEC-04 (MED): seniorSharePercentOverride gates separately from general
+    // team-update RBAC. The override is snapshotted into
+    // transactions.senior_share_percent at income-creation time, so it has
+    // direct financial impact. Mirrors the project-level override guard in
+    // ProjectsService (~:610-618). HR may update name/notes/telegram but
+    // CANNOT change the financial override.
+    if (overrideChanged && currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+      throw new ForbiddenException(
+        'Изменение доли синьора на уровне команды доступно только ADMIN и ACCOUNTANT',
+      )
+    }
+
     const [updated] = await this.db.db
       .update(teams)
       .set({
@@ -396,9 +403,7 @@ export class TeamsService {
         ...(telegram !== undefined ? { telegram } : {}),
         ...(telegramChannel !== undefined ? { telegramChannel } : {}),
         ...(notes !== undefined ? { notes } : {}),
-        ...(overrideTouched
-          ? { seniorSharePercentOverride: extra!.seniorSharePercentOverride ?? null }
-          : {}),
+        ...(incomingOverride !== undefined ? { seniorSharePercentOverride: incomingOverride } : {}),
         updatedAt: new Date(),
       })
       .where(eq(teams.id, id))
@@ -407,17 +412,15 @@ export class TeamsService {
     // SEC-04 audit: record when seniorSharePercentOverride changes so there is
     // a traceable history of financial-impact edits. Written after UPDATE so
     // the audit row is only created when the DB write succeeded.
-    if (overrideTouched) {
-      const before = team.seniorSharePercentOverride ?? null
-      const after = extra!.seniorSharePercentOverride ?? null
-      if (before !== after) {
-        await this.teamAuditLogService.record({
-          actorId: currentUser.id,
-          targetId: id,
-          action: 'team_updated',
-          changes: { seniorSharePercentOverride: { before, after } },
-        })
-      }
+    if (overrideChanged) {
+      await this.teamAuditLogService.record({
+        actorId: currentUser.id,
+        targetId: id,
+        action: 'team_updated',
+        changes: {
+          seniorSharePercentOverride: { before: storedOverride, after: incomingOverride },
+        },
+      })
     }
 
     return updated
@@ -778,15 +781,25 @@ export class TeamsService {
     userId: string,
     expectedRole: 'DROP' | 'SENIOR' | 'HR' | 'ACCOUNTANT',
     tx?: DrizzleTx,
+    genericMessage = false,
   ): Promise<void> {
+    // MED (security-review #328): callers that are reachable by non-ADMIN users
+    // (e.g. rotateSenior, addSeniorToDropTeam) should pass genericMessage=true
+    // so that the error message does not leak whether a userId exists or what
+    // role it holds — an information oracle usable for user enumeration.
     const handle = tx ?? this.db.db
     const u = await handle
       .select()
       .from(users)
       .where(eq(users.id, userId))
       .then((rows) => rows[0])
-    if (!u) throw new BadRequestException(`Пользователь ${userId} не найден`)
-    if (u.role !== expectedRole) {
+    if (!u || u.role !== expectedRole) {
+      if (genericMessage) {
+        throw new BadRequestException(
+          'Указанный пользователь не найден или имеет неподходящую роль',
+        )
+      }
+      if (!u) throw new BadRequestException(`Пользователь ${userId} не найден`)
       throw new BadRequestException(`Ожидалась роль ${expectedRole}, получено ${u.role}`)
     }
   }
@@ -991,7 +1004,7 @@ export class TeamsService {
         if (!isHrHere) throw new ForbiddenException()
       }
 
-      await this.assertUserRole(newSeniorId, 'SENIOR', tx)
+      await this.assertUserRole(newSeniorId, 'SENIOR', tx, true)
 
       // Reject if new senior already has an active team membership.
       const otherMembership = await tx
@@ -1059,7 +1072,7 @@ export class TeamsService {
     }
     if (team.archivedAt) throw new BadRequestException('Команда архивирована')
 
-    await this.assertUserRole(seniorId, 'SENIOR', tx)
+    await this.assertUserRole(seniorId, 'SENIOR', tx, true)
 
     const existingSenior = await handle
       .select()
