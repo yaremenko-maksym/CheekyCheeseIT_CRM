@@ -149,7 +149,7 @@ describe('RBAC guards — restore and hardDelete controller endpoints', () => {
   // JwtAuthGuard reads the JWT from the `jwt` cookie (not Authorization header).
   function jwtCookie(role: string) {
     const token = makeToken(
-      { id: 'user-1', role, displayName: 'Test', email: 't@t.com', seniorSharePercent: 26 },
+      { id: 'd0c00000-0000-4000-a000-000000000001', role, displayName: 'Test', email: 'test-user@test.spec', seniorSharePercent: 26 },
       jwtService,
     )
     return { Cookie: `jwt=${token}` }
