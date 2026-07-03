@@ -1603,10 +1603,13 @@ export class TransactionsService {
     const confirmationNote = `Manual payout confirmation by ${currentUser.id} at ${now.toISOString()} (method=${method})`
 
     await this.db.db.transaction(async (dbtx) => {
-      // 1) Flip PAYOUT to PAID + record who/when confirmed. For CRYPTO method
-      //    also stamp the txHash on the PAYOUT row so the senior-side audit
-      //    matches the new credit row.
-      await dbtx
+      // BIZ-02 (HIGH): atomic claim — flip PAYOUT→PAID ONLY when the row is
+      // still PENDING_PAYMENT (conditional UPDATE with WHERE status predicate).
+      // The UPDATE takes a row-level lock and re-evaluates the predicate
+      // against the committed row, so exactly ONE concurrent caller wins.
+      // If zero rows are returned the row was already claimed by a concurrent
+      // winner → throw before any INSERT runs, preventing a double credit.
+      const claimed = await dbtx
         .update(transactions)
         .set({
           status: 'PAID',
@@ -1615,7 +1618,16 @@ export class TransactionsService {
           updatedAt: now,
           ...(method === 'CRYPTO' && recordedTxHash ? { txHash: recordedTxHash } : {}),
         })
-        .where(eq(transactions.id, payoutTxId))
+        .where(and(eq(transactions.id, payoutTxId), eq(transactions.status, 'PENDING_PAYMENT')))
+        .returning({ id: transactions.id })
+
+      if (claimed.length === 0) {
+        // The row was already confirmed by a concurrent call — bail out before
+        // inserting a PAYOUT_CONFIRMED so no double credit occurs.
+        throw new BadRequestException(
+          'Payout is not pending payment (already confirmed by a concurrent request)',
+        )
+      }
 
       // 2) Insert the PAYOUT_CONFIRMED row crediting the chosen admin. The
       //    inputs (amount/currency/projectId/payoutRequestId) snapshot the

@@ -191,7 +191,13 @@ export class BalanceService {
         // omitted their actual income. Count PAID SENIOR_INCOME, consistent with
         // getTotalEarned.income. The never-emitted branches are kept untouched so
         // there is no double-count (SENIOR_INCOME is a distinct type).
-        platformIncome += converted
+        //
+        // BIZ-04 (MED): SENIOR_INCOME.amount is the GROSS project income, NOT the
+        // senior's cut. The senior's share is amount × (seniorSharePercent / 100).
+        // Without this multiplication the balance inflates by ~4× (DEFAULT_SENIOR_SHARE_PERCENT=26%).
+        // Mirrors the authoritative pattern in getSeniorSummary (transactions.service.ts).
+        const pct = (tx.seniorSharePercent ?? 26) / 100
+        platformIncome += converted * pct
       } else if (tx.type === 'EXPENSE' && tx.senderId === seniorId) {
         expenses += converted
       }
@@ -287,7 +293,11 @@ export class BalanceService {
           (tx.receiverId === targetUserId ||
             (tx.receiverId == null && tx.senderId === targetUserId))
         ) {
-          add('income', converted)
+          // BIZ-04 (MED): apply seniorSharePercent — SENIOR_INCOME.amount is GROSS;
+          // the senior's actual cut is amount × (seniorSharePercent / 100).
+          // Mirrors getSeniorBalance and getSeniorSummary authoritative pattern.
+          const pct = (tx.seniorSharePercent ?? 26) / 100
+          add('income', converted * pct)
         }
       } else if (role === 'DROP') {
         if (tx.type === 'PAYOUT_DROP' && recipient === targetUserId) {

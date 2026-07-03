@@ -170,9 +170,15 @@ function makeService(initial: Partial<MockState> = {}) {
       const dbtx = {
         update: (_table: unknown) => ({
           set: (patch: Record<string, unknown>) => ({
-            where: async (_predicate: unknown) => {
-              state.updates.push({ id: 'payout-tx-1', set: patch })
-            },
+            where: (_predicate: unknown) => ({
+              // BIZ-02 fix: confirmPayout now calls .returning() after .where()
+              // to implement the atomic conditional claim. The mock returns a
+              // single-element array to simulate "1 row updated" (success).
+              returning: async (_fields: unknown) => {
+                state.updates.push({ id: 'payout-tx-1', set: patch })
+                return [{ id: 'payout-tx-1' }]
+              },
+            }),
           }),
         }),
         insert: (_table: unknown) => ({

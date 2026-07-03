@@ -210,6 +210,14 @@ export class PendingSettlementService {
       }
       senderId = payer.id
       senderLabel = payer.displayName
+      // BIZ-03 (HIGH): currency of ADMIN_PERSONAL payment must match obligation
+      // currency (always USDT). Without this check a UAH/EUR bank transfer would
+      // close a USDT debt at face value — ~40× distortion at market rate.
+      if (funding.currency !== obligation.currency) {
+        throw new BadRequestException(
+          `Валюта расчёта (${funding.currency}) должна совпадать с валютой обязательства (${obligation.currency})`,
+        )
+      }
       currency = funding.currency
     } else if (debitsCompanyAccount) {
       // COMPANY_ACCOUNT: USDT-only account (the schema refine + this force keep
