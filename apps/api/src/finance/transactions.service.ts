@@ -1629,6 +1629,29 @@ export class TransactionsService {
         )
       }
 
+      // BIZ-02 cross-path (HIGH): when this PAYOUT is linked to a payout_request,
+      // flip the request's status PENDING→PAID atomically in the SAME transaction.
+      // This closes the race with `payPayoutRequest` which gates on
+      // `payout_requests.status === 'PENDING'` before calling `applyPayoutPaidCascade`.
+      // Without this flip, `payPayoutRequest` can still pass its gate AFTER
+      // `confirmPayout` has committed, producing a second credit.
+      //
+      // 0 rows returned = payout_request already PAID (race with payPayoutRequest) —
+      // still valid here because the PAYOUT row was already claimed above (the
+      // primary race guard). We just ensure the request is also marked PAID.
+      if (payoutTx.payoutRequestId) {
+        await dbtx
+          .update(payoutRequests)
+          .set({ status: 'PAID', updatedAt: now })
+          .where(
+            and(
+              eq(payoutRequests.id, payoutTx.payoutRequestId),
+              eq(payoutRequests.status, 'PENDING'),
+            ),
+          )
+          .returning({ id: payoutRequests.id })
+      }
+
       // 2) Insert the PAYOUT_CONFIRMED row crediting the chosen admin. The
       //    inputs (amount/currency/projectId/payoutRequestId) snapshot the
       //    PAYOUT row so a later edit to PAYOUT (out of scope here — PAYOUT
@@ -2475,7 +2498,12 @@ export class TransactionsService {
         //   null (manual ADMIN_USDT / CASH) → NOT counted (money landed off the
         //                     company account). The auditNote records the manual
         //                     method when present.
-        await dbtx
+        // BIZ-02 defense-in-depth (HIGH): the payout_requests atomic claim above
+        // already prevents the primary double-pay race. This UPDATE adds a
+        // per-transaction status guard so that even if `confirmPayout` has raced
+        // in on the PAYOUT row between claim and this UPDATE, the cascade stops
+        // gracefully instead of flipping an already-PAID row to PAID again.
+        const payoutClaimed = await dbtx
           .update(transactions)
           .set({
             status: 'PAID',
@@ -2484,16 +2512,28 @@ export class TransactionsService {
             updatedAt: new Date(),
             ...(auditNote ? { notes: auditNote } : {}),
           })
-          .where(and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')))
+          .where(
+            and(
+              eq(transactions.payoutRequestId, requestId),
+              eq(transactions.type, 'PAYOUT'),
+              eq(transactions.status, 'PENDING_PAYMENT'),
+            ),
+          )
+          .returning({ id: transactions.id })
 
-        // Re-fetch the PAYOUT id (the UPDATE above doesn't return rows in
-        // drizzle's current Postgres flavour without `.returning()` chaining).
-        // Captured here so the invoice trigger can run AFTER commit (best-effort).
-        const [payoutRow] = await dbtx
-          .select({ id: transactions.id })
-          .from(transactions)
-          .where(and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')))
-          .limit(1)
+        if (payoutClaimed.length === 0) {
+          // The PAYOUT row was already claimed by a concurrent confirmPayout.
+          // The payout_requests guard above ensured we're the sole winner on
+          // the payout_request — throw so this tx rolls back cleanly. The
+          // duplicate confirmPayout path will surface the already-confirmed
+          // PAYOUT to the UI on its own re-fetch.
+          throw new BadRequestException(
+            'PAYOUT transaction already claimed by a concurrent confirmation',
+          )
+        }
+
+        // payoutClaimed[0] carries the PAYOUT id — use it directly.
+        const [payoutRow] = payoutClaimed
 
         // Drop role - phase 2 (AC3). Resolve whether the linked SENIOR_INCOMEs
         // belong to a drop-project. Senior-projects (project.dropId === null)
@@ -3632,6 +3672,10 @@ export class TransactionsService {
       }
       senderId = payer.id
       senderLabel = payer.displayName
+      // Currency audit (LOW): SALARY has no fixed-currency obligation — unlike
+      // settleByCompany (which guards against currency mismatch with a
+      // pending_obligation), SALARY rows carry no locked currency at creation
+      // (the PENDING row is denomination-neutral). Any currency is valid here.
       currency = data.currency
     }
 

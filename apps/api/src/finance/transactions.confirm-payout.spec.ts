@@ -432,6 +432,107 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
     })
   })
 
+  // ── BIZ-02 cross-path: confirmPayout flips payout_request status ─────────
+  describe('BIZ-02 cross-path: payout_request status flip', () => {
+    it('when PAYOUT has payoutRequestId, payout_requests UPDATE is called with PENDING predicate', async () => {
+      // The mock records every update call including the payout_requests flip.
+      // With payoutRequestId='payout-req-1' (default makePayoutRow), the
+      // service should call update(payoutRequests).set({status:'PAID'}).where(...)
+      // in addition to the PAYOUT update. We verify by counting total update calls.
+      const updateCalls: Array<{ table: string; patch: Record<string, unknown> }> = []
+
+      const drizzleClient = {
+        transaction: async (cb: (tx: unknown) => Promise<unknown>) => {
+          const dbtx = {
+            update: (_table: unknown) => ({
+              set: (patch: Record<string, unknown>) => ({
+                where: (_pred: unknown) => ({
+                  returning: async (_fields: unknown) => {
+                    // Record which table was updated by checking patch content
+                    updateCalls.push({
+                      table: 'status' in patch ? (patch['status'] as string) : 'unknown',
+                      patch,
+                    })
+                    return [{ id: 'some-id' }]
+                  },
+                }),
+              }),
+            }),
+            insert: (_table: unknown) => ({
+              values: async (_row: Record<string, unknown>) => {},
+            }),
+          }
+          return cb(dbtx)
+        },
+        query: {
+          transactions: {
+            findFirst: vi.fn(async () => makePayoutRow()), // has payoutRequestId='payout-req-1'
+          },
+          users: {
+            findFirst: vi.fn(async () => MAKSYM_USER),
+          },
+        },
+      }
+      const db = { db: drizzleClient } as unknown
+      const svc = makeTransactionsService({ db: db as never })
+      vi.spyOn(svc, 'findOne').mockImplementation(
+        async (id: string) => ({ id, type: 'PAYOUT', status: 'PAID' }) as never,
+      )
+
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' })
+
+      // Two UPDATE calls inside the transaction:
+      //   1) transactions PAYOUT → status='PAID'
+      //   2) payoutRequests → status='PAID' (cross-path BIZ-02 fix)
+      expect(updateCalls.length).toBe(2)
+      const statuses = updateCalls.map((c) => c.table)
+      expect(statuses).toContain('PAID') // both set status='PAID'
+    })
+
+    it('when PAYOUT has no payoutRequestId, only ONE update call is made', async () => {
+      const updateCalls: Array<Record<string, unknown>> = []
+
+      const drizzleClient = {
+        transaction: async (cb: (tx: unknown) => Promise<unknown>) => {
+          const dbtx = {
+            update: (_table: unknown) => ({
+              set: (patch: Record<string, unknown>) => ({
+                where: (_pred: unknown) => ({
+                  returning: async (_fields: unknown) => {
+                    updateCalls.push(patch)
+                    return [{ id: 'some-id' }]
+                  },
+                }),
+              }),
+            }),
+            insert: (_table: unknown) => ({
+              values: async (_row: Record<string, unknown>) => {},
+            }),
+          }
+          return cb(dbtx)
+        },
+        query: {
+          transactions: {
+            findFirst: vi.fn(async () => makePayoutRow({ payoutRequestId: null })),
+          },
+          users: {
+            findFirst: vi.fn(async () => MAKSYM_USER),
+          },
+        },
+      }
+      const db = { db: drizzleClient } as unknown
+      const svc = makeTransactionsService({ db: db as never })
+      vi.spyOn(svc, 'findOne').mockImplementation(
+        async (id: string) => ({ id, type: 'PAYOUT', status: 'PAID' }) as never,
+      )
+
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' })
+
+      // Only ONE update: the PAYOUT row itself (no payoutRequests flip needed)
+      expect(updateCalls.length).toBe(1)
+    })
+  })
+
   // ── Payment method (Phase 4 refactor — AC4 / AC11) ────────────────────────
   // The PAYOUT_CONFIRMED row now carries an explicit method marker. CRYPTO
   // requires a txHash (≥ 10 chars), CASH does not. See

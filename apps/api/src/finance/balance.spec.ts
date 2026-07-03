@@ -576,6 +576,27 @@ describe('BalanceService.getSeniorBalance — SENIOR_INCOME (#10)', () => {
     expect(result.breakdown.paid_income).toBe(200)
   })
 
+  it('SENIOR_INCOME with null seniorSharePercent (settleByCompany NET row) → used as-is, not multiplied', async () => {
+    // settleByCompany writes the NET senior share directly with seniorSharePercent=null.
+    // If we applied 26% we would under-count (bug BIZ-04 defense).
+    const svc = makeService({
+      transactions: [
+        makeTx({
+          type: 'SENIOR_INCOME',
+          status: 'PAID',
+          amount: '400',
+          currency: 'USD',
+          receiverId: SENIOR_A,
+          seniorSharePercent: null, // NET — already the senior's cut
+        }),
+      ],
+    })
+    const result = await svc.getSeniorBalance(SENIOR_A, 'USD')
+    // 400 used as-is (no pct multiplication)
+    expect(result.balance).toBeCloseTo(400)
+    expect(result.breakdown.platform_income).toBeCloseTo(400)
+  })
+
   it("does not leak another senior's SENIOR_INCOME", async () => {
     const svc = makeService({
       transactions: [

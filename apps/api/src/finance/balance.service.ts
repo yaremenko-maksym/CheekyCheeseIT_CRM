@@ -192,12 +192,15 @@ export class BalanceService {
         // getTotalEarned.income. The never-emitted branches are kept untouched so
         // there is no double-count (SENIOR_INCOME is a distinct type).
         //
-        // BIZ-04 (MED): SENIOR_INCOME.amount is the GROSS project income, NOT the
-        // senior's cut. The senior's share is amount × (seniorSharePercent / 100).
-        // Without this multiplication the balance inflates by ~4× (DEFAULT_SENIOR_SHARE_PERCENT=26%).
-        // Mirrors the authoritative pattern in getSeniorSummary (transactions.service.ts).
-        const pct = (tx.seniorSharePercent ?? 26) / 100
-        platformIncome += converted * pct
+        // BIZ-04 (MED): Two semantics for SENIOR_INCOME.amount:
+        //   seniorSharePercent NOT NULL → row created by createSeniorIncome with
+        //     GROSS project income; the senior's cut = amount × (pct / 100).
+        //   seniorSharePercent NULL → row created by settleByCompany, which already
+        //     writes the NET senior share directly; use amount as-is (no multiply).
+        // Mirrors the authoritative getSeniorSummary pattern (transactions.service.ts)
+        // but guards NULL explicitly to avoid applying 26% to already-net rows.
+        platformIncome +=
+          tx.seniorSharePercent !== null ? converted * (tx.seniorSharePercent / 100) : converted
       } else if (tx.type === 'EXPENSE' && tx.senderId === seniorId) {
         expenses += converted
       }
@@ -293,11 +296,12 @@ export class BalanceService {
           (tx.receiverId === targetUserId ||
             (tx.receiverId == null && tx.senderId === targetUserId))
         ) {
-          // BIZ-04 (MED): apply seniorSharePercent — SENIOR_INCOME.amount is GROSS;
-          // the senior's actual cut is amount × (seniorSharePercent / 100).
-          // Mirrors getSeniorBalance and getSeniorSummary authoritative pattern.
-          const pct = (tx.seniorSharePercent ?? 26) / 100
-          add('income', converted * pct)
+          // BIZ-04 (MED): two-semantic rule — same as getSeniorBalance:
+          //   seniorSharePercent NOT NULL → GROSS row (createSeniorIncome); apply pct.
+          //   seniorSharePercent NULL → NET row (settleByCompany); use amount as-is.
+          const seniorShare =
+            tx.seniorSharePercent !== null ? converted * (tx.seniorSharePercent / 100) : converted
+          add('income', seniorShare)
         }
       } else if (role === 'DROP') {
         if (tx.type === 'PAYOUT_DROP' && recipient === targetUserId) {

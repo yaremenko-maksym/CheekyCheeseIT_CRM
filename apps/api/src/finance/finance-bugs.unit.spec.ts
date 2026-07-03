@@ -10,9 +10,8 @@
  * AC4 (BIZ-05): signInvoice PAYOUT renders same amount/currency as autoCreateForPayout.
  */
 import { BadRequestException } from '@nestjs/common'
-import { describe, expect, it, vi, type MockedFunction } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
-import { transactions, pendingObligations, users } from '../database/schema'
 import { PendingSettlementService } from './pending-settlement.service'
 import type { InvoicesService } from '../invoices/invoices.service'
 import { BalanceService } from './balance.service'
@@ -24,16 +23,6 @@ const SENIOR_ID = 'aaaa0001-0000-4000-8000-000000000001'
 const ADMIN_ID = 'bbbb0001-0000-4000-8000-000000000002'
 const OBLIGATION_ID = 'cccc0001-0000-4000-8000-000000000003'
 const SOURCE_TX_ID = 'dddd0001-0000-4000-8000-000000000004'
-
-const seniorUser: SessionUser = {
-  id: SENIOR_ID,
-  role: 'SENIOR',
-  displayName: 'Senior',
-  email: 's@test.spec',
-  avatarUrl: null,
-  avatarDocumentId: null,
-  seniorSharePercent: 26,
-}
 
 const adminUser: SessionUser = {
   id: ADMIN_ID,
@@ -55,40 +44,6 @@ const fakeRates = {
 const fakeNbu = {
   getRates: vi.fn().mockResolvedValue(fakeRates),
 } as unknown as NbuCurrencyService
-
-// ── Helper: build a minimal mock DatabaseService ─────────────────────────
-function makeDbStub(overrides: Record<string, unknown> = {}): DatabaseService {
-  return {
-    db: {
-      query: {
-        transactions: { findFirst: vi.fn(), findMany: vi.fn() },
-        users: { findFirst: vi.fn(), findMany: vi.fn() },
-        pendingObligations: { findFirst: vi.fn(), findMany: vi.fn() },
-        projects: { findFirst: vi.fn(), findMany: vi.fn() },
-        teamMembers: { findMany: vi.fn().mockResolvedValue([]) },
-        companyAccount: { findFirst: vi.fn() },
-        payoutRequests: { findFirst: vi.fn() },
-      },
-      insert: vi
-        .fn()
-        .mockReturnValue({
-          values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([]) }),
-        }),
-      update: vi
-        .fn()
-        .mockReturnValue({
-          set: vi
-            .fn()
-            .mockReturnValue({
-              where: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([]) }),
-            }),
-        }),
-      delete: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
-      transaction: vi.fn(),
-      ...overrides,
-    },
-  } as unknown as DatabaseService
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AC2 — BIZ-03: settleByCompany ADMIN_PERSONAL currency guard
@@ -294,12 +249,15 @@ describe('AC3 — BIZ-04: getSeniorBalance applies seniorSharePercent to SENIOR_
     expect(te.breakdown['income']).toBeCloseTo(bal.breakdown['platform_income'] as number, 2)
   })
 
-  it('AC3-d: SENIOR_INCOME with null seniorSharePercent falls back to DEFAULT 26%', async () => {
+  it('AC3-d: SENIOR_INCOME with null seniorSharePercent is treated as NET (already senior share) — used as-is', async () => {
+    // seniorSharePercent=null indicates a row from settleByCompany which writes
+    // the NET senior share directly (not gross). The amount must NOT be
+    // multiplied by any percentage. If we applied 26% we would under-count.
     const rowWithNullShare = { ...seniorIncomeRow, seniorSharePercent: null }
     const svc = makeBalanceService([rowWithNullShare])
     const result = await svc.getTotalEarned(SENIOR_ID, 'USDT')
-    // Should still apply 26% (DEFAULT_SENIOR_SHARE_PERCENT)
-    expect(result.breakdown['income']).toBeCloseTo(EXPECTED_SHARE, 2)
+    // GROSS=1000 with null pct → NET amount used as-is (1000), no multiplication
+    expect(result.breakdown['income']).toBeCloseTo(GROSS, 2)
   })
 })
 

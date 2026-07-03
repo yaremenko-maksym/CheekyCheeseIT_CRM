@@ -256,7 +256,7 @@ describe('confirmPayout — BIZ-02 double-credit idempotency (real DB)', () => {
       ),
     })
     const confirmedForThisPayout = confirmed.filter(
-      (tx) => tx.createdBy === ADMIN.id || tx.createdBy === ADMIN.id,
+      (tx) => tx.createdBy === ADMIN.id || tx.createdBy === ADMIN2.id,
     )
     // The key invariant: only 1 PAYOUT_CONFIRMED was inserted
     expect(

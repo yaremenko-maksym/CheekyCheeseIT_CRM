@@ -237,6 +237,9 @@ export class InvoicesService {
     // tolerated as the linked income count is bounded by the number of
     // active projects per senior (typically ≤ 6). The N+1 query is
     // acceptable here — caching would over-engineer for the expected fanout.
+    // parseFloat aggregation is display-only (PDF label) — not used for money
+    // movement. Floating-point drift is bounded to sub-cent amounts and has no
+    // financial side-effect. signInvoice PAYOUT branch mirrors this exactly.
     const aggregatedAmount = linkedIncomes
       .reduce((sum, row) => sum + parseFloat(row.amount), 0)
       .toString()
@@ -802,6 +805,11 @@ export class InvoicesService {
       // Aggregate amount + currency from linked incomes — mirrors autoCreateForPayout
       // so the re-rendered PDF uses the same values as the COMPANY-signed original.
       if (linkedIncomes.length > 0) {
+        // parseFloat aggregation is display-only (PDF label) — not used for
+        // money movement. Mirrors autoCreateForPayout's approach exactly so
+        // the re-rendered invoice shows the same figure as the signed original.
+        // Floating-point drift is bounded to sub-cent amounts on the amounts
+        // we deal with (≤ 6 decimal places) and has no financial side-effect.
         payoutAggregatedAmount = linkedIncomes
           .reduce((sum, row) => sum + parseFloat(row.amount), 0)
           .toString()
