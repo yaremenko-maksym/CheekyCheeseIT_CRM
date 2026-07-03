@@ -815,7 +815,38 @@ export class UsersService {
     return updated
   }
 
-  async changeRole(id: string, role: User['role']): Promise<User> {
+  async changeRole(id: string, role: User['role'], actorId: string): Promise<User> {
+    // SEC-03 (MED): privilege-escalation guards. These mirror the protections in
+    // adminUpdateUser and createUser so that the lightweight PATCH /:id/role
+    // endpoint cannot be used to bypass them.
+
+    // (1) ADMIN pool is fixed — elevation to ADMIN is always forbidden here.
+    if (role === 'ADMIN') {
+      throw new ForbiddenException('Назначение роли ADMIN запрещено — пул фиксирован')
+    }
+
+    // (2) DROP must be created via the dedicated POST /users/drops endpoint
+    // which provisions the associated drop-team atomically. Routing through
+    // changeRole would leave the user without a team (broken invariant).
+    if (role === 'DROP') {
+      throw new ForbiddenException('Изменение роли на DROP — через POST /api/users/drops')
+    }
+
+    const existing = await this.findById(id)
+    if (!existing) throw new NotFoundException('User not found')
+
+    // (3) Cannot change the role of any ADMIN (even to a lower role) unless
+    // the actor is editing their own record — and even then self-demotion is
+    // blocked by rule (4). Mirrors adminUpdateUser :410.
+    if (existing.role === 'ADMIN' && actorId !== existing.id) {
+      throw new ForbiddenException('Нельзя изменить роль другого администратора')
+    }
+
+    // (4) An ADMIN cannot demote themselves via this endpoint.
+    if (existing.role === 'ADMIN' && actorId === existing.id) {
+      throw new ForbiddenException('Администратор не может сменить собственную роль')
+    }
+
     const rows = await this.db.db
       .update(users)
       .set({ role, updatedAt: new Date() })
