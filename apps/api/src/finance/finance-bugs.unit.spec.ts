@@ -9,6 +9,7 @@
  * AC3 (BIZ-04): getSeniorBalance + getTotalEarned apply share % to SENIOR_INCOME.
  * AC4 (BIZ-05): signInvoice PAYOUT renders same amount/currency as autoCreateForPayout.
  */
+import { BadRequestException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { PendingSettlementService } from './pending-settlement.service'
@@ -137,15 +138,14 @@ function makeSettlementService(overrides: Record<string, unknown> = {}) {
   return { svc, db }
 }
 
-describe('AC2 — BIZ-03: settleByCompany ADMIN_PERSONAL currency follows the payment choice', () => {
-  // ADMIN_PERSONAL: the admin pays from their personal account in whatever
-  // currency they choose — the obligation is in USDT but the paying admin
-  // may transfer USD / EUR / UAH from their own pocket. The currency guard
-  // (obligation.currency match) is enforced only on the COMPANY_ACCOUNT path,
-  // where we debit a USDT ledger and a mismatch would cause ~40× distortion.
-  // The integration spec (senior-settle-owner.integration.spec.ts) is the
-  // ground truth: it sends currency='USD' for ADMIN_PERSONAL and expects success.
-  it('AC2-a: ADMIN_PERSONAL with currency=UAH when obligation is USDT → succeeds (any currency allowed)', async () => {
+describe('AC2 — BIZ-03: settleByCompany ADMIN_PERSONAL currency guard (USD/USDT ok; UAH/EUR blocked)', () => {
+  // BIZ-03 root cause: the SENIOR_INCOME row stores the chosen currency label.
+  // Downstream balance computation converts via convertToBase using that label.
+  //   USD/USDT → 1:1 short-circuit → correct amount ✅
+  //   UAH      → divides by usdUah (~40) → ~40× undercount ✗
+  //   EUR      → triangulation via UAH → similar distortion ✗
+  // So ADMIN_PERSONAL allows USD + USDT only; UAH/EUR throw BadRequest.
+  it('AC2-a: ADMIN_PERSONAL with currency=UAH when obligation is USDT → BadRequest (no UAH settlement)', async () => {
     const { svc } = makeSettlementService()
     await expect(
       svc.settleByCompany(OBLIGATION_ID, adminUser, {
@@ -153,10 +153,10 @@ describe('AC2 — BIZ-03: settleByCompany ADMIN_PERSONAL currency follows the pa
         payerAdminId: ADMIN_ID,
         currency: 'UAH',
       }),
-    ).resolves.toBeDefined()
+    ).rejects.toThrow(BadRequestException)
   })
 
-  it('AC2-b: ADMIN_PERSONAL with currency=EUR when obligation is USDT → succeeds (any currency allowed)', async () => {
+  it('AC2-b: ADMIN_PERSONAL with currency=EUR when obligation is USDT → BadRequest (no EUR settlement)', async () => {
     const { svc } = makeSettlementService()
     await expect(
       svc.settleByCompany(OBLIGATION_ID, adminUser, {
@@ -164,7 +164,7 @@ describe('AC2 — BIZ-03: settleByCompany ADMIN_PERSONAL currency follows the pa
         payerAdminId: ADMIN_ID,
         currency: 'EUR',
       }),
-    ).resolves.toBeDefined()
+    ).rejects.toThrow(BadRequestException)
   })
 
   it('AC2-c: ADMIN_PERSONAL with currency=USDT when obligation is USDT → succeeds', async () => {
@@ -174,6 +174,19 @@ describe('AC2 — BIZ-03: settleByCompany ADMIN_PERSONAL currency follows the pa
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_ID,
         currency: 'USDT',
+      }),
+    ).resolves.toBeDefined()
+  })
+
+  it('AC2-d: ADMIN_PERSONAL with currency=USD → succeeds (USD⇄USDT 1:1 in convertToBase)', async () => {
+    // This mirrors the pre-existing senior-settle-owner integration spec which
+    // sends currency='USD' for ADMIN_PERSONAL and expects success.
+    const { svc } = makeSettlementService()
+    await expect(
+      svc.settleByCompany(OBLIGATION_ID, adminUser, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_ID,
+        currency: 'USD',
       }),
     ).resolves.toBeDefined()
   })

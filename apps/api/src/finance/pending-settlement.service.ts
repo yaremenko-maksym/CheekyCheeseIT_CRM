@@ -210,12 +210,21 @@ export class PendingSettlementService {
       }
       senderId = payer.id
       senderLabel = payer.displayName
-      // ADMIN_PERSONAL: the admin pays from their personal account in whatever
-      // currency they choose — the currency label follows the payment choice.
-      // No obligation-currency match required here; the obligation is denominated
-      // in USDT but the admin may settle in USD/EUR/UAH from their own pocket.
-      // (BIZ-03 currency guard applies to COMPANY_ACCOUNT path only, where we
-      // debit a USDT ledger and mismatched currency would cause ~40× distortion.)
+      // BIZ-03 (HIGH): ADMIN_PERSONAL settles a USDT obligation from the admin's
+      // personal account. The SENIOR_INCOME row carries the chosen currency, and
+      // downstream (getSeniorBalance / getTotalEarned / summary) converts it via
+      // convertToBase using the currency LABEL — not a fixed USDT amount. So:
+      //   • USD/USDT → convertToBase short-circuits 1:1 → correct $-amount ✅
+      //   • UAH      → convertToBase divides by usdUah (~40) → ~40× undercount ✗
+      //   • EUR      → further triangulation → similar distortion ✗
+      // Allow only USD and USDT (equivalent to the USDT obligation value 1:1).
+      // UAH/EUR are rejected with a clear message; if multi-currency settlement
+      // is ever needed the amount must be converted to USDT before recording.
+      if (funding.currency !== 'USD' && funding.currency !== 'USDT') {
+        throw new BadRequestException(
+          `Закрытие USDT-обязательства в ${funding.currency} не поддерживается без конверсии суммы. Используйте USD или USDT.`,
+        )
+      }
       currency = funding.currency
     } else if (debitsCompanyAccount) {
       // COMPANY_ACCOUNT: USDT-only account (the schema refine + this force keep
