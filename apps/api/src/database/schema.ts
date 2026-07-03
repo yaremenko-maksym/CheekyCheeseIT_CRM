@@ -600,6 +600,16 @@ export const pendingObligations = pgTable(
     index('idx_pending_obligations_creditor').on(t.creditorUserId),
     index('idx_pending_obligations_status').on(t.status),
     index('idx_pending_obligations_source').on(t.sourceTransactionId),
+    // BIZ-11 (2026-07-03): one PENDING obligation per source transaction.
+    // Prevents a double-pending-obligation race when two concurrent income flows
+    // both try to create an obligation for the same source transaction.
+    // Partial (WHERE status='PENDING') so PAID/CANCELLED rows are unaffected —
+    // a source tx can have one PAID + one new PENDING at different lifecycle stages.
+    // Enforced at service layer too (PendingSettlementService), but the DB constraint
+    // is the authoritative race-safe guard.
+    uniqueIndex('uq_pending_obligations_source_pending')
+      .on(t.sourceTransactionId)
+      .where(sql`${t.status} = 'PENDING'`),
   ],
 )
 
@@ -719,21 +729,22 @@ export const invoiceSignatures = pgTable(
 // `contract_templates.target_role` enforces the latter).
 //
 // Templates carry `is_active` semantics: at most one row per (target_role)
-// can have `is_active=true` (partial unique index). Publishing a new version
-// atomically deactivates the previous one (service layer). Signed contracts
-// freeze the template body via `body_markdown_snapshot` + `variables_filled`
-// JSONB at the moment of signing — they are immutable audit trail.
+// can have `is_active=true`. Partial unique index `uq_contract_templates_active_role`
+// (declared in the builder below) + atomic deactivation in ContractTemplatesService.publish
+// enforce this invariant. Signed contracts freeze the template body via
+// `body_markdown_snapshot` + `variables_filled` JSONB at the moment of signing — immutable.
 //
-// `contract_number` (CHK-<seq>-<year>) is generated server-side via
-// `contract_number_seq` (PostgreSQL SEQUENCE). Monotonic, gaps possible on
-// rollback but harmless.
+// `contract_number` (CHK-<6 hex>) is generated server-side with retry-on-collision.
+// Monotonic uniqueness enforced by `signed_contracts.contract_number` UNIQUE constraint.
 
 export const contractTemplates = pgTable(
   'contract_templates',
   {
     id: uuid('id').defaultRandom().primaryKey(),
-    // CHECK constraint `<> 'ADMIN'` + partial unique index `is_active=true`
-    // live in migration 0027 — kept out of Drizzle to keep the builder clean.
+    // target_role must not be 'ADMIN' — enforced at service layer
+    // (ContractTemplatesService.publish throws CANNOT_PUBLISH_ADMIN_CONTRACT_TEMPLATE
+    // before reaching the DB). Code-only invariant; no DB CHECK here (would require
+    // a raw sql() expression and makes drizzle-kit push harder to reason about).
     targetRole: roleEnum('target_role').notNull(),
     version: integer('version').notNull(),
     bodyMarkdown: text('body_markdown').notNull(),
@@ -750,7 +761,16 @@ export const contractTemplates = pgTable(
       .default(sql`'[]'::jsonb`),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [unique('contract_templates_target_role_version_unique').on(t.targetRole, t.version)],
+  (t) => [
+    unique('contract_templates_target_role_version_unique').on(t.targetRole, t.version),
+    // BIZ-11 (2026-07-03): one active template per target_role.
+    // ContractTemplatesService.publish atomically deactivates the previous active
+    // row before inserting a new one (service-layer enforcement). This partial unique
+    // index is the DB-level safety net for concurrent publish calls.
+    uniqueIndex('uq_contract_templates_active_role')
+      .on(t.targetRole, t.isActive)
+      .where(sql`${t.isActive} = true`),
+  ],
 )
 
 export const signedContracts = pgTable(
@@ -782,18 +802,30 @@ export const signedContracts = pgTable(
   (t) => [index('signed_contracts_user_id_idx').on(t.userId)],
 )
 
-export const tosVersions = pgTable('tos_versions', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  version: integer('version').notNull().unique(),
-  bodyMarkdown: text('body_markdown').notNull(),
-  // Partial unique index `WHERE is_active = true` lives in migration 0027
-  // (one row globally active).
-  isActive: boolean('is_active').notNull().default(false),
-  createdByUserId: uuid('created_by_user_id')
-    .notNull()
-    .references(() => users.id),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-})
+export const tosVersions = pgTable(
+  'tos_versions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    version: integer('version').notNull().unique(),
+    bodyMarkdown: text('body_markdown').notNull(),
+    // BIZ-11 (2026-07-03): at most one globally active ToS version at a time.
+    // Partial unique index declared in the builder below (was previously noted as
+    // "lives in migration 0027" — phantom comment, no such migration file exists;
+    // project uses drizzle-kit push). TosService.publish atomically deactivates
+    // the previous active row; this index is the DB-level safety net for races.
+    isActive: boolean('is_active').notNull().default(false),
+    createdByUserId: uuid('created_by_user_id')
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // Enforce at most one active ToS globally.
+    uniqueIndex('uq_tos_versions_active')
+      .on(t.isActive)
+      .where(sql`${t.isActive} = true`),
+  ],
+)
 
 export const tosAcceptances = pgTable(
   'tos_acceptances',
@@ -826,9 +858,11 @@ export const tosAcceptances = pgTable(
 //   DRAFT → READY_TO_SIGN → SIGNED  (admin can revert SIGNED → DRAFT)
 //   CANCELLED — terminal (archived / fired employee).
 //
-// Constraints in migration 0001_employee_contracts.sql (not in Drizzle builder):
+// Invariants:
 //   - Partial unique index `employee_contracts_one_per_user` WHERE status != 'CANCELLED'
-//   - Trigger `employee_contracts_check_user_not_admin` — no ADMIN in user_id
+//     declared in the Drizzle builder below (BIZ-11, 2026-07-03).
+//   - No ADMIN in user_id — enforced at service layer (EmployeeContractsService checks
+//     userRole !== 'ADMIN' before creating a contract; no DB trigger, code-only invariant).
 
 export const employeeContractStatusEnum = pgEnum('employee_contract_status', [
   'DRAFT',
@@ -863,7 +897,17 @@ export const employeeContracts = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [index('employee_contracts_user_status_idx').on(t.userId, t.status)],
+  (t) => [
+    index('employee_contracts_user_status_idx').on(t.userId, t.status),
+    // BIZ-11 (2026-07-03): one non-CANCELLED contract per user.
+    // Prevents duplicate active contracts for the same employee (race in admin UI).
+    // CANCELLED rows are excluded so that a re-issued contract after termination
+    // is valid (the old CANCELLED row doesn't block a new DRAFT).
+    // Partial (WHERE status != 'CANCELLED') mirrors the lifecycle rule documented above.
+    uniqueIndex('employee_contracts_one_per_user')
+      .on(t.userId)
+      .where(sql`${t.status} != 'CANCELLED'`),
+  ],
 )
 
 // ---------------------------------------------------------------------------

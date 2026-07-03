@@ -37,6 +37,24 @@ import { ContractTemplatesService } from './contract-templates.service'
  * ADMIN users from appearing as the employee (user_id field).
  * Service also guards at the application level for fast 400.
  */
+
+/** Postgres SQLSTATE for a unique-constraint violation. */
+const PG_UNIQUE_VIOLATION = '23505'
+
+/**
+ * True when `err` (or any error in its `.cause` chain) is a Postgres
+ * unique-constraint violation (SQLSTATE 23505). Drizzle-orm wraps query
+ * failures so the original pg error lives on `.cause`; this walks the chain.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  let cur: unknown = err
+  for (let depth = 0; cur != null && depth < 8; depth += 1) {
+    if ((cur as { code?: unknown }).code === PG_UNIQUE_VIOLATION) return true
+    cur = (cur as { cause?: unknown }).cause
+  }
+  return false
+}
+
 @Injectable()
 export class EmployeeContractsService {
   constructor(
@@ -75,16 +93,29 @@ export class EmployeeContractsService {
       throw new NotFoundException(`No active contract template for role ${user.role}`)
     }
 
-    const [created] = await this.db.db
-      .insert(employeeContracts)
-      .values({
-        userId,
-        sourceTemplateId: template.id,
-        bodyMarkdown: template.bodyMarkdown,
-        status: 'DRAFT',
-        createdByUserId: viewer.id,
-      })
-      .returning()
+    let created: typeof employeeContracts.$inferSelect | undefined
+    try {
+      ;[created] = await this.db.db
+        .insert(employeeContracts)
+        .values({
+          userId,
+          sourceTemplateId: template.id,
+          bodyMarkdown: template.bodyMarkdown,
+          status: 'DRAFT',
+          createdByUserId: viewer.id,
+        })
+        .returning()
+    } catch (err: unknown) {
+      if (isUniqueViolation(err)) {
+        // Race: another concurrent request created the contract between our
+        // findFirst check and this insert. Return the now-existing row.
+        const raced = await this.db.db.query.employeeContracts.findFirst({
+          where: (tbl, { eq, and, ne }) => and(eq(tbl.userId, userId), ne(tbl.status, 'CANCELLED')),
+        })
+        if (raced) return raced
+      }
+      throw err
+    }
 
     if (!created) throw new Error('Failed to create employee contract')
     return created

@@ -758,6 +758,14 @@ const OTHER_RESUME_ID = '40000001-0000-4000-d000-000000000002'
 const DROP_OWN_CONTRACT_ID = '50000001-0000-4000-e000-000000000001'
 const OTHER_CONTRACT_ID = '50000001-0000-4000-e000-000000000002'
 
+/**
+ * IDs of pre-existing non-CANCELLED employee_contracts that were temporarily
+ * set to CANCELLED in beforeAll (to allow our own spec contracts to be inserted
+ * under the `employee_contracts_one_per_user` partial unique index).
+ * Restored to their original status in afterAll.
+ */
+const preExistingContractsCancelled: Array<{ id: string; originalStatus: string }> = []
+
 describe('DROP list() self-scope (IDOR) — real-Postgres integration', () => {
   let app: NestFastifyApplication
   let jwt: JwtService
@@ -839,6 +847,43 @@ describe('DROP list() self-scope (IDOR) — real-Postgres integration', () => {
     // chosen so the contract is visible to a non-ADMIN owner (DRAFT is hidden,
     // SIGNED needs a signed_contracts row). DROP_ACTOR.id is also a valid
     // created_by_user_id (FK → users) since it is a seeded user.
+    //
+    // Constraint note: the partial unique index `employee_contracts_one_per_user`
+    // (WHERE status != 'CANCELLED') introduced in BIZ-11 means each user may have
+    // at most ONE non-CANCELLED contract at a time. If seed data already left a
+    // non-CANCELLED row for DROP_ACTOR or OTHER_USER, our INSERT ON CONFLICT DO
+    // NOTHING would silently no-op and the test would fail to find the spec row.
+    // Solution: temporarily CANCEL any pre-existing non-CANCELLED contract for
+    // these two users before inserting our spec rows, and restore in afterAll.
+    const existingForDrop = await db.query.employeeContracts.findFirst({
+      where: (tbl, { eq, and, ne }) =>
+        and(eq(tbl.userId, DROP_ACTOR.id), ne(tbl.status, 'CANCELLED')),
+    })
+    if (existingForDrop && existingForDrop.id !== DROP_OWN_CONTRACT_ID) {
+      preExistingContractsCancelled.push({
+        id: existingForDrop.id,
+        originalStatus: existingForDrop.status,
+      })
+      await db
+        .update(employeeContracts)
+        .set({ status: 'CANCELLED' })
+        .where(eq(employeeContracts.id, existingForDrop.id))
+    }
+    const existingForOther = await db.query.employeeContracts.findFirst({
+      where: (tbl, { eq, and, ne }) =>
+        and(eq(tbl.userId, OTHER_USER_ID), ne(tbl.status, 'CANCELLED')),
+    })
+    if (existingForOther && existingForOther.id !== OTHER_CONTRACT_ID) {
+      preExistingContractsCancelled.push({
+        id: existingForOther.id,
+        originalStatus: existingForOther.status,
+      })
+      await db
+        .update(employeeContracts)
+        .set({ status: 'CANCELLED' })
+        .where(eq(employeeContracts.id, existingForOther.id))
+    }
+
     const [tpl] = await db.select({ id: contractTemplates.id }).from(contractTemplates).limit(1)
 
     if (tpl) {
@@ -880,6 +925,14 @@ describe('DROP list() self-scope (IDOR) — real-Postgres integration', () => {
         .delete(employeeContracts)
         .where(inArray(employeeContracts.id, [DROP_OWN_CONTRACT_ID, OTHER_CONTRACT_ID]))
       await db.delete(documents).where(inArray(documents.id, [DROP_OWN_RESUME_ID, OTHER_RESUME_ID]))
+      // Restore any pre-existing contracts that were temporarily CANCELLED to make
+      // room for our spec rows under the employee_contracts_one_per_user constraint.
+      for (const { id, originalStatus } of preExistingContractsCancelled) {
+        await db
+          .update(employeeContracts)
+          .set({ status: originalStatus as 'DRAFT' | 'READY_TO_SIGN' | 'SIGNED' })
+          .where(eq(employeeContracts.id, id))
+      }
     } catch {
       // Non-fatal cleanup failure — rows are run-id-tagged and harmless.
     }

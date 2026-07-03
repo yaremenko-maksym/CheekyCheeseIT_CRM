@@ -3817,6 +3817,7 @@ export class TransactionsService {
       return
     }
 
+    const hrAccountantFailures: string[] = []
     for (const emp of employees) {
       if (!emp.monthlySalary) continue
 
@@ -3833,27 +3834,46 @@ export class TransactionsService {
       // `uq_transactions_salary_receiver_month` (WHERE type='SALARY' AND
       // salary_month IS NOT NULL). A duplicate is silently ignored — idempotent,
       // race-free, no read round-trip per employee (also kills the N+1).
-      await this.db.db
-        .insert(transactions)
-        .values({
-          type: 'SALARY',
-          status: 'PENDING',
-          amount: emp.monthlySalary,
-          currency: 'USD',
-          senderId: null,
-          senderLabel: 'CheekyCheeseIT',
-          receiverId: emp.id,
-          salaryMonth: month,
-          fundingSource: null,
-          createdBy: admin.id,
-        })
-        .onConflictDoNothing({
-          target: [transactions.receiverId, transactions.salaryMonth],
-          // `where` (NOT targetWhere) — drizzle-orm 0.36 onConflictDoNothing emits
-          // this as the conflict-target predicate, matching the partial index's
-          // WHERE. Must match `uq_transactions_salary_receiver_month` exactly.
-          where: sql`${transactions.type} = 'SALARY' AND ${transactions.salaryMonth} IS NOT NULL`,
-        })
+      //
+      // MED-1: per-employee try/catch — a DB error on one employee (e.g. transient
+      // lock or network issue) must NOT abort the loop; remaining employees still
+      // get their salary reminder. Failures are collected and logged after the loop
+      // so the cron does not silently skip employees.
+      try {
+        await this.db.db
+          .insert(transactions)
+          .values({
+            type: 'SALARY',
+            status: 'PENDING',
+            amount: emp.monthlySalary,
+            currency: 'USD',
+            senderId: null,
+            senderLabel: 'CheekyCheeseIT',
+            receiverId: emp.id,
+            salaryMonth: month,
+            fundingSource: null,
+            createdBy: admin.id,
+          })
+          .onConflictDoNothing({
+            target: [transactions.receiverId, transactions.salaryMonth],
+            // `where` (NOT targetWhere) — drizzle-orm 0.36 onConflictDoNothing emits
+            // this as the conflict-target predicate, matching the partial index's
+            // WHERE. Must match `uq_transactions_salary_receiver_month` exactly.
+            where: sql`${transactions.type} = 'SALARY' AND ${transactions.salaryMonth} IS NOT NULL`,
+          })
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        this.logger.error(
+          `createMonthlySalaries: failed for employee ${emp.id} (${emp.email}) month=${month} — ${msg}`,
+          err instanceof Error ? err.stack : undefined,
+        )
+        hrAccountantFailures.push(emp.id)
+      }
+    }
+    if (hrAccountantFailures.length > 0) {
+      this.logger.error(
+        `createMonthlySalaries: ${hrAccountantFailures.length} HR/ACCOUNTANT salary(ies) failed for month=${month}. Failed employee ids: ${hrAccountantFailures.join(', ')}`,
+      )
     }
 
     // Create PENDING salary for JUNIORs on active projects.
@@ -3869,6 +3889,7 @@ export class TransactionsService {
       },
     })
 
+    const juniorFailures: string[] = []
     for (const member of activeMembers) {
       const user = (member as typeof member & { user: typeof users.$inferSelect | null }).user
       const project = (
@@ -3890,28 +3911,44 @@ export class TransactionsService {
       // Audit 2026-06-27 (LOW #5): idempotent, race-free salary creation — see the
       // HR/ACCOUNTANT loop above. ON CONFLICT DO NOTHING against the partial
       // unique index replaces the find-then-insert TOCTOU + N+1 read.
-      await this.db.db
-        .insert(transactions)
-        .values({
-          type: 'SALARY',
-          status: 'PENDING',
-          amount: String(salaryAmount),
-          currency: 'USD',
-          senderId: null,
-          senderLabel: 'CheekyCheeseIT',
-          receiverId: user.id,
-          projectId: project.id,
-          salaryMonth: month,
-          fundingSource: null,
-          createdBy: admin.id,
-        })
-        .onConflictDoNothing({
-          target: [transactions.receiverId, transactions.salaryMonth],
-          // `where` (NOT targetWhere) — drizzle-orm 0.36 onConflictDoNothing emits
-          // this as the conflict-target predicate, matching the partial index's
-          // WHERE. Must match `uq_transactions_salary_receiver_month` exactly.
-          where: sql`${transactions.type} = 'SALARY' AND ${transactions.salaryMonth} IS NOT NULL`,
-        })
+      //
+      // MED-1: per-member try/catch — see HR/ACCOUNTANT loop above for rationale.
+      try {
+        await this.db.db
+          .insert(transactions)
+          .values({
+            type: 'SALARY',
+            status: 'PENDING',
+            amount: String(salaryAmount),
+            currency: 'USD',
+            senderId: null,
+            senderLabel: 'CheekyCheeseIT',
+            receiverId: user.id,
+            projectId: project.id,
+            salaryMonth: month,
+            fundingSource: null,
+            createdBy: admin.id,
+          })
+          .onConflictDoNothing({
+            target: [transactions.receiverId, transactions.salaryMonth],
+            // `where` (NOT targetWhere) — drizzle-orm 0.36 onConflictDoNothing emits
+            // this as the conflict-target predicate, matching the partial index's
+            // WHERE. Must match `uq_transactions_salary_receiver_month` exactly.
+            where: sql`${transactions.type} = 'SALARY' AND ${transactions.salaryMonth} IS NOT NULL`,
+          })
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        this.logger.error(
+          `createMonthlySalaries: failed for junior ${user.id} (${user.email}) project=${project.id} month=${month} — ${msg}`,
+          err instanceof Error ? err.stack : undefined,
+        )
+        juniorFailures.push(user.id)
+      }
+    }
+    if (juniorFailures.length > 0) {
+      this.logger.error(
+        `createMonthlySalaries: ${juniorFailures.length} JUNIOR salary(ies) failed for month=${month}. Failed employee ids: ${juniorFailures.join(', ')}`,
+      )
     }
   }
 
