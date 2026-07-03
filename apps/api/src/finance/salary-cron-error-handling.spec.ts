@@ -11,7 +11,7 @@ import { SalaryCronService } from './salary-cron.service'
  *      — an unhandled rejection would silently terminate the cron context.
  *   2. Per-row errors in createMonthlySalaries must NOT abort the whole
  *      cycle — failures are collected/logged and processing continues for
- *      the remaining employees.
+ *      the remaining employees (MED-1).
  *
  * These are unit tests: no real DB, only stub TransactionsService.
  */
@@ -59,5 +59,31 @@ describe('SalaryCronService — error handling (AC1)', () => {
     expect(loggerErrorSpy).not.toHaveBeenCalled()
     // At minimum one log call for "done".
     expect(loggerLogSpy).toHaveBeenCalled()
+  })
+
+  it('MED-1: cron resolves even when createMonthlySalaries partially logs per-employee errors', async () => {
+    // Simulate MED-1 scenario: createMonthlySalaries itself does not throw
+    // (the per-employee try/catch inside it absorbed the failures), but it
+    // did call Logger.error for the failing employees. The outer cron must
+    // still resolve successfully — scheduler is never terminated.
+    const txService = {
+      createMonthlySalaries: vi.fn().mockImplementation(async () => {
+        // Mimic internal per-employee error logging (as MED-1 fix does).
+        new Logger('TransactionsService').error('createMonthlySalaries: failed for employee emp-1')
+      }),
+    } as unknown as TransactionsService
+
+    const cron = new SalaryCronService(txService)
+
+    // Must resolve even though internal errors were logged.
+    await expect(cron.handleMonthlySalaries()).resolves.toBeUndefined()
+
+    // Logger.error was called (from within createMonthlySalaries stub) but
+    // the cron's own outer catch should NOT have fired (createMonthlySalaries resolved).
+    // The cron-level error message contains "cron will retry" — must NOT appear.
+    const cronLevelError = loggerErrorSpy.mock.calls.find((args) =>
+      String(args[0]).includes('cron will retry'),
+    )
+    expect(cronLevelError).toBeUndefined()
   })
 })

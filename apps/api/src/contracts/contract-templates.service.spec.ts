@@ -1,4 +1,5 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common'
+import { ConflictException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import { ContractTemplatesService } from './contract-templates.service'
 import type { DatabaseService } from '../database/database.service'
@@ -341,6 +342,45 @@ describe('ContractTemplatesService', () => {
       })
 
       expect(txInsertValues).toHaveBeenCalledWith(expect.objectContaining({ customVariables: [] }))
+    })
+
+    it('MED-2: throws ConflictException (409) when concurrent publish hits unique violation', async () => {
+      // Simulate race: tx.insert throws a PG 23505 because another concurrent
+      // publish already inserted an active row for the same role between our
+      // deactivate UPDATE and this INSERT.
+      const pgUniqueError = Object.assign(new Error('unique violation'), { code: '23505' })
+
+      const mockDb = makeDb({ maxVersion: 1 })
+      mockDb.db.transaction.mockImplementation(async (fn) => {
+        const tx = {
+          select: vi.fn().mockReturnValue({
+            from: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({
+                execute: vi.fn().mockResolvedValue([{ max: 1 }]),
+              }),
+            }),
+          }),
+          update: vi.fn().mockReturnValue({
+            set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
+          }),
+          insert: vi.fn().mockReturnValue({
+            values: vi.fn().mockReturnValue({
+              returning: vi.fn().mockRejectedValue(pgUniqueError),
+            }),
+          }),
+        }
+        return fn(tx as never)
+      })
+
+      const service = new ContractTemplatesService(mockDb as unknown as DatabaseService)
+
+      await expect(
+        service.publish({
+          targetRole: 'SENIOR',
+          bodyMarkdown: '# body',
+          createdByUserId: 'admin-1',
+        }),
+      ).rejects.toThrow(ConflictException)
     })
   })
 })
