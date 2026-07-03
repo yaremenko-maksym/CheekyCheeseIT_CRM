@@ -21,11 +21,11 @@ import { Pool } from 'pg'
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa \
  *     pnpm --filter @crm/api test -- schema-constraints.integration
  *
- * Each test:
- *   - Inserts prerequisite rows.
- *   - Attempts to insert a second row that would violate the partial unique index.
- *   - Expects a PostgreSQL unique-violation error (code '23505').
- *   - Cleans up its own rows in afterAll.
+ * Isolation contract:
+ *   - This spec ONLY inserts/modifies rows owned by ADMIN_USER_ID (its own fixture user).
+ *   - It NEVER permanently mutates shared seed rows (rows with other created_by_user_id).
+ *   - When a test temporarily deactivates existing active rows to set up its scenario,
+ *     it records the affected IDs and restores them in afterAll.
  */
 
 const SPEC_TAG = 'schema-constraints-spec'
@@ -40,6 +40,10 @@ const EMP_B_ID = 'cc000000-0000-4000-a000-000000000003'
 
 let pool: Pool | null = null
 let dbAvailable = false
+
+// IDs of shared-seed rows temporarily deactivated by this spec — restored in afterAll.
+const deactivatedContractTemplateIds: string[] = []
+const deactivatedTosVersionIds: string[] = []
 
 /**
  * Run a raw SQL query and return rows.
@@ -95,7 +99,6 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
     // 1. employee_contracts referencing our users
     await query(`DELETE FROM employee_contracts WHERE user_id = ANY($1)`, [[EMP_A_ID, EMP_B_ID]])
     // 2. pending_obligations seeded by this spec (via tag on source tx)
-    // We seed source transactions tagged for this spec.
     await query(
       `DELETE FROM pending_obligations
        WHERE source_transaction_id IN (
@@ -108,7 +111,18 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
     await query(`DELETE FROM contract_templates WHERE created_by_user_id = $1`, [ADMIN_USER_ID])
     // 4. tos_versions seeded by this spec
     await query(`DELETE FROM tos_versions WHERE created_by_user_id = $1`, [ADMIN_USER_ID])
-    // 5. our fixture users
+    // 5. Restore any shared-seed rows that were temporarily deactivated by this spec.
+    if (deactivatedContractTemplateIds.length > 0) {
+      await query(`UPDATE contract_templates SET is_active = true WHERE id = ANY($1)`, [
+        deactivatedContractTemplateIds,
+      ])
+    }
+    if (deactivatedTosVersionIds.length > 0) {
+      await query(`UPDATE tos_versions SET is_active = true WHERE id = ANY($1)`, [
+        deactivatedTosVersionIds,
+      ])
+    }
+    // 6. our fixture users
     await query(`DELETE FROM users WHERE id = ANY($1)`, [[ADMIN_USER_ID, EMP_A_ID, EMP_B_ID]])
 
     await pool?.end()
@@ -119,7 +133,6 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
   it('pending_obligations: rejects a second PENDING obligation for the same source_transaction_id', async () => {
     if (!dbAvailable) return
 
-    // Check that the constraint exists first.
     const idxRows = await query(
       `SELECT indexname FROM pg_indexes
        WHERE tablename = 'pending_obligations'
@@ -133,7 +146,6 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
       return
     }
 
-    // We need a real source transaction in the DB (FK).
     const [txRow] = await query<{ id: string }>(
       `INSERT INTO transactions (type, status, amount, currency, sender_label, created_by)
        VALUES ('SENIOR_INCOME', 'PAID', '1000', 'USDT', $1, $2)
@@ -142,7 +154,6 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
     )
     const sourceTxId = txRow!.id
 
-    // Creditor: EMP_A_ID
     await query(
       `INSERT INTO pending_obligations
          (creditor_user_id, debtor_type, source_transaction_id, amount, currency, status)
@@ -150,7 +161,6 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
       [EMP_A_ID, sourceTxId],
     )
 
-    // Second PENDING row on the same source → must violate the partial unique index.
     await expectPgError('23505', () =>
       query(
         `INSERT INTO pending_obligations
@@ -160,7 +170,6 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
       ),
     )
 
-    // Cleanup source rows used in this test.
     await query(`DELETE FROM pending_obligations WHERE source_transaction_id = $1`, [sourceTxId])
     await query(`DELETE FROM transactions WHERE id = $1`, [sourceTxId])
   }, 20_000)
@@ -184,7 +193,6 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
     )
     const sourceTxId = txRow!.id
 
-    // First: PENDING — should succeed.
     await query(
       `INSERT INTO pending_obligations
          (creditor_user_id, debtor_type, source_transaction_id, amount, currency, status)
@@ -192,12 +200,10 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
       [EMP_A_ID, sourceTxId],
     )
 
-    // Transition the first to PAID.
     await query(`UPDATE pending_obligations SET status = 'PAID' WHERE source_transaction_id = $1`, [
       sourceTxId,
     ])
 
-    // Second PENDING on the same source is now allowed (first is no longer PENDING).
     await expect(
       query(
         `INSERT INTO pending_obligations
@@ -207,7 +213,6 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
       ),
     ).resolves.toBeDefined()
 
-    // Cleanup.
     await query(`DELETE FROM pending_obligations WHERE source_transaction_id = $1`, [sourceTxId])
     await query(`DELETE FROM transactions WHERE id = $1`, [sourceTxId])
   }, 20_000)
@@ -230,7 +235,6 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
       return
     }
 
-    // We need a contract_templates row to satisfy the FK.
     const [tmplRow] = await query<{ id: string }>(
       `INSERT INTO contract_templates (target_role, version, body_markdown, is_active, created_by_user_id)
        VALUES ('SENIOR', 9999, '# spec template', false, $1)
@@ -239,7 +243,6 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
     )
     const templateId = tmplRow!.id
 
-    // First DRAFT contract for EMP_A — should succeed.
     await query(
       `INSERT INTO employee_contracts
          (user_id, source_template_id, body_markdown, status, created_by_user_id)
@@ -247,7 +250,6 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
       [EMP_A_ID, templateId, ADMIN_USER_ID],
     )
 
-    // Second non-CANCELLED contract for same user → must fail.
     await expectPgError('23505', () =>
       query(
         `INSERT INTO employee_contracts
@@ -257,10 +259,8 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
       ),
     )
 
-    // CANCELLED status is allowed (outside the partial index predicate).
     await query(`UPDATE employee_contracts SET status = 'CANCELLED' WHERE user_id = $1`, [EMP_A_ID])
 
-    // Now a new DRAFT is allowed again after the previous was CANCELLED.
     await expect(
       query(
         `INSERT INTO employee_contracts
@@ -270,9 +270,7 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
       ),
     ).resolves.toBeDefined()
 
-    // Cleanup.
-    await query(`DELETE FROM employee_contracts WHERE user_id = $1`, [EMP_A_ID])
-    await query(`DELETE FROM contract_templates WHERE id = $1`, [templateId])
+    // Cleanup handled in afterAll (DELETE by user_id / created_by_user_id).
   }, 20_000)
 
   // ── 3. contract_templates: one active per target_role ──────────────────────
@@ -293,13 +291,18 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
       return
     }
 
-    // Deactivate any existing active templates for DROP role (may exist from seed)
-    // to avoid false-positive FK issues with our fixture.
-    await query(
-      `UPDATE contract_templates SET is_active = false
-       WHERE target_role = 'DROP' AND created_by_user_id != $1`,
+    // Temporarily deactivate any existing active templates for DROP role (shared seed rows).
+    // IDs are recorded and restored in afterAll — never permanently mutated.
+    const existingActive = await query<{ id: string }>(
+      `UPDATE contract_templates
+       SET is_active = false
+       WHERE target_role = 'DROP' AND is_active = true AND created_by_user_id != $1
+       RETURNING id`,
       [ADMIN_USER_ID],
     )
+    for (const row of existingActive) {
+      deactivatedContractTemplateIds.push(row.id)
+    }
 
     const [r1] = await query<{ id: string }>(
       `INSERT INTO contract_templates (target_role, version, body_markdown, is_active, created_by_user_id)
@@ -307,9 +310,8 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
        RETURNING id`,
       [ADMIN_USER_ID],
     )
-    const t1Id = r1!.id
+    expect(r1).toBeDefined()
 
-    // Second active row for same role → must fail.
     await expectPgError('23505', () =>
       query(
         `INSERT INTO contract_templates (target_role, version, body_markdown, is_active, created_by_user_id)
@@ -318,20 +320,16 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
       ),
     )
 
-    // Inactive row for same role is allowed.
     const [r2] = await query<{ id: string }>(
       `INSERT INTO contract_templates (target_role, version, body_markdown, is_active, created_by_user_id)
        VALUES ('DROP', 9003, '# inactive', false, $1)
        RETURNING id`,
       [ADMIN_USER_ID],
     )
-    const t2Id = r2!.id
+    expect(r2).toBeDefined()
 
-    // Cleanup.
-    await query(`DELETE FROM contract_templates WHERE id = ANY($1)`, [[t1Id, t2Id]])
-    // Restore previously deactivated templates.
-    // NOTE: this restore is best-effort; the pre-existing templates were already inactive
-    // in prod-like QA DBs (only one active per role), so this is safe.
+    // r1, r2 deleted in afterAll (DELETE WHERE created_by_user_id = ADMIN_USER_ID).
+    // deactivatedContractTemplateIds restored in afterAll.
   }, 20_000)
 
   // ── 4. tos_versions: single globally active row ────────────────────────────
@@ -350,12 +348,18 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
       return
     }
 
-    // Deactivate any existing active tos row from other seeds.
-    await query(
-      `UPDATE tos_versions SET is_active = false
-       WHERE is_active = true AND created_by_user_id != $1`,
+    // Temporarily deactivate any existing active ToS versions (shared seed rows).
+    // IDs are recorded and restored in afterAll — never permanently mutated.
+    const existingActive = await query<{ id: string }>(
+      `UPDATE tos_versions
+       SET is_active = false
+       WHERE is_active = true AND created_by_user_id != $1
+       RETURNING id`,
       [ADMIN_USER_ID],
     )
+    for (const row of existingActive) {
+      deactivatedTosVersionIds.push(row.id)
+    }
 
     const [v1] = await query<{ id: string }>(
       `INSERT INTO tos_versions (version, body_markdown, is_active, created_by_user_id)
@@ -363,9 +367,8 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
        RETURNING id`,
       [ADMIN_USER_ID],
     )
-    const v1Id = v1!.id
+    expect(v1).toBeDefined()
 
-    // Second active tos row → must fail.
     await expectPgError('23505', () =>
       query(
         `INSERT INTO tos_versions (version, body_markdown, is_active, created_by_user_id)
@@ -374,16 +377,15 @@ describe('schema domain constraints (partial unique indexes, real DB)', () => {
       ),
     )
 
-    // Inactive row is allowed.
     const [v2] = await query<{ id: string }>(
       `INSERT INTO tos_versions (version, body_markdown, is_active, created_by_user_id)
        VALUES (99903, '# tos spec 3', false, $1)
        RETURNING id`,
       [ADMIN_USER_ID],
     )
-    const v2Id = v2!.id
+    expect(v2).toBeDefined()
 
-    // Cleanup.
-    await query(`DELETE FROM tos_versions WHERE id = ANY($1)`, [[v1Id, v2Id]])
+    // v1, v2 deleted in afterAll (DELETE WHERE created_by_user_id = ADMIN_USER_ID).
+    // deactivatedTosVersionIds restored in afterAll.
   }, 20_000)
 })
