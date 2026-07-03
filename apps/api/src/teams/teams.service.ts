@@ -614,6 +614,17 @@ export class TeamsService {
     if (!user) throw new NotFoundException('User not found')
     if (user.role === 'ADMIN') throw new BadRequestException('Admin cannot be a team member')
 
+    // SEC-02 (HIGH) addMember vector: HR adding an arbitrary SENIOR via
+    // POST /teams/:id/members is the same BOLA class as the create() vector —
+    // HR gains getHrSeniorIds-based scope over a senior they had no prior
+    // relationship with. The legitimate way to assign a SENIOR to a team is
+    // via POST /api/teams (create, ADMIN-only) or rotateSenior. Restrict
+    // SENIOR additions through addMember to ADMIN-only; HR may still add
+    // JUNIOR / HR / ACCOUNTANT members (their established recruiting workflow).
+    if (user.role === 'SENIOR' && currentUser.role !== 'ADMIN') {
+      throw new ForbiddenException('Добавление синьора в команду доступно только ADMIN')
+    }
+
     // Prevent adding a second SENIOR
     if (user.role === 'SENIOR') {
       const hasSenior = team.members.some((m) => m.user?.role === 'SENIOR')

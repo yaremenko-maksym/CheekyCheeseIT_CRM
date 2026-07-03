@@ -25,7 +25,7 @@
  * TDD: RED tests written first, then production code patched.
  */
 
-import { ForbiddenException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type * as schema from '../database/schema'
@@ -245,11 +245,9 @@ function makeCreateDb(userRoles: Record<string, string>) {
   const txFn = vi.fn().mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
     const fakeTx = {
       insert: vi.fn().mockReturnValue({
-        values: vi
-          .fn()
-          .mockReturnValue({
-            returning: vi.fn().mockResolvedValue([{ id: TEAM_ID, name: 'T', type: 'SENIOR' }]),
-          }),
+        values: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([{ id: TEAM_ID, name: 'T', type: 'SENIOR' }]),
+        }),
       }),
     }
     return cb(fakeTx)
@@ -330,5 +328,166 @@ describe('TeamsService.create — MED: no role oracle leakage to non-ADMIN calle
 
     // CRITICAL: no DB select must have been called (no oracle)
     expect(selectFn).not.toHaveBeenCalled()
+  })
+})
+
+// ── SEC-02 addMember vector: HR cannot attach arbitrary SENIOR ────────────
+
+/**
+ * Builds a minimal DbSvc mock for TeamsService.addMember.
+ *
+ * `teamHasSenior` controls whether the team already has an active SENIOR.
+ * `targetUserRole` is the role of the userId being added.
+ */
+function makeAddMemberDb(opts: {
+  callerIsHrOfTeam?: boolean
+  targetUserRole: string
+  teamHasSenior?: boolean
+}) {
+  const { callerIsHrOfTeam = true, targetUserRole, teamHasSenior = false } = opts
+
+  const MEMBER_ID = 'cccccccc-0000-4000-cc00-000000000099'
+
+  const hrMember = callerIsHrOfTeam
+    ? [
+        {
+          id: 'member-hr',
+          teamId: TEAM_ID,
+          userId: HR_ID,
+          leftAt: null,
+          joinedAt: new Date(),
+          user: { id: HR_ID, role: 'HR', displayName: 'HR', email: 'hr@x', avatarUrl: null },
+        },
+      ]
+    : []
+
+  const seniorMember = teamHasSenior
+    ? [
+        {
+          id: 'member-senior',
+          teamId: TEAM_ID,
+          userId: SENIOR_ID,
+          leftAt: null,
+          joinedAt: new Date(),
+          user: {
+            id: SENIOR_ID,
+            role: 'SENIOR',
+            displayName: 'Sr',
+            email: 'sr@x',
+            avatarUrl: null,
+          },
+        },
+      ]
+    : []
+
+  const team = {
+    id: TEAM_ID,
+    name: 'Alpha Team',
+    type: 'SENIOR',
+    telegram: null,
+    telegramChannel: null,
+    notes: null,
+    seniorSharePercentOverride: null,
+    archivedAt: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    members: [...hrMember, ...seniorMember],
+  }
+
+  const targetUser = {
+    id: MEMBER_ID,
+    role: targetUserRole,
+    displayName: 'Target',
+    email: 'target@x',
+    avatarUrl: null,
+    avatarDocumentId: null,
+    techStack: null,
+    phone: null,
+    telegram: null,
+  }
+
+  // findFirst: first call = team, second call = target user, third = existing member check
+  let findFirstCallCount = 0
+  const findFirstFn = vi.fn().mockImplementation(() => {
+    const n = findFirstCallCount++
+    if (n === 0) return Promise.resolve(team)
+    if (n === 1) return Promise.resolve(targetUser)
+    return Promise.resolve(undefined) // no existing member
+  })
+
+  const insertValues = vi.fn().mockResolvedValue(undefined)
+  const insertFn = vi.fn().mockReturnValue({ values: insertValues })
+
+  const dbSvc: DbSvc = {
+    db: {
+      query: {
+        teams: { findFirst: findFirstFn },
+        users: { findFirst: findFirstFn },
+        teamMembers: { findFirst: findFirstFn },
+        // fetchAllProjects is called when target user is JUNIOR
+        projects: { findMany: vi.fn().mockResolvedValue([]) },
+      },
+      insert: insertFn,
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }),
+      }),
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue([]),
+          innerJoin: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue([]),
+          }),
+        }),
+      }),
+      delete: vi.fn(),
+    } as unknown as NodePgDatabase<typeof schema>,
+  }
+
+  return { dbSvc }
+}
+
+function makeAddMemberService(dbSvc: DbSvc) {
+  const auditLog = { record: vi.fn() } as unknown as TeamAuditLogService
+  return new TeamsService(dbSvc as never, {} as never, auditLog)
+}
+
+describe('TeamsService.addMember — SEC-02 HIGH: HR cannot attach arbitrary SENIOR', () => {
+  it('AM-a: HR caller adding a SENIOR → ForbiddenException', async () => {
+    const { dbSvc } = makeAddMemberDb({ targetUserRole: 'SENIOR' })
+    const service = makeAddMemberService(dbSvc)
+
+    await expect(service.addMember(TEAM_ID, 'target-user-id', hrUser)).rejects.toThrow(
+      ForbiddenException,
+    )
+  })
+
+  it('AM-b: ADMIN caller adding a SENIOR to a team with no existing SENIOR → resolves', async () => {
+    const { dbSvc } = makeAddMemberDb({ targetUserRole: 'SENIOR', teamHasSenior: false })
+    const service = makeAddMemberService(dbSvc)
+
+    await expect(service.addMember(TEAM_ID, 'target-user-id', adminUser)).resolves.toBeUndefined()
+  })
+
+  it('AM-c: HR caller adding a JUNIOR → resolves (HR recruiting workflow not broken)', async () => {
+    const { dbSvc } = makeAddMemberDb({ targetUserRole: 'JUNIOR' })
+    const service = makeAddMemberService(dbSvc)
+
+    await expect(service.addMember(TEAM_ID, 'target-user-id', hrUser)).resolves.toBeUndefined()
+  })
+
+  it('AM-d: HR caller adding an HR member → resolves', async () => {
+    const { dbSvc } = makeAddMemberDb({ targetUserRole: 'HR' })
+    const service = makeAddMemberService(dbSvc)
+
+    await expect(service.addMember(TEAM_ID, 'target-user-id', hrUser)).resolves.toBeUndefined()
+  })
+
+  it('AM-e: ADMIN adding a second SENIOR to a team that already has one → BadRequestException', async () => {
+    const { dbSvc } = makeAddMemberDb({ targetUserRole: 'SENIOR', teamHasSenior: true })
+    const service = makeAddMemberService(dbSvc)
+
+    await expect(service.addMember(TEAM_ID, 'target-user-id', adminUser)).rejects.toThrow(
+      BadRequestException,
+    )
   })
 })
