@@ -234,6 +234,97 @@ describe('AC1: verifyDeposit — direct txHash lookup (no 10k-window dependency)
     expect(result.confirmed).toBe(false)
   })
 
+  it('eth_getLogs URL: no topic1 filter (assert URL has no topic1 and has correct address)', async () => {
+    // REGRESSION TEST for HIGH finding: topic1=0x000...000 would filter
+    // only mint events, blocking all real deposits (non-zero from).
+    // This test captures the actual eth_getLogs URL and asserts:
+    //   (a) no topic1 parameter present
+    //   (b) address= equals the USDT contract (not the company wallet)
+    const capturedUrls: string[] = []
+    // @ts-expect-error — test stub
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      capturedUrls.push(url as string)
+      const idx = capturedUrls.length - 1
+      const responses = [
+        // eth_getTransactionByHash
+        {
+          jsonrpc: '2.0',
+          result: {
+            hash: TX_HASH,
+            blockNumber: '0x12c',
+            from: '0x9999999999999999999999999999999999999999',
+            to: USDT_CONTRACT,
+          },
+        },
+        // eth_getTransactionReceipt
+        {
+          jsonrpc: '2.0',
+          result: { transactionHash: TX_HASH, blockNumber: '0x12c', status: '0x1' },
+        },
+        // eth_getLogs
+        {
+          jsonrpc: '2.0',
+          result: [
+            {
+              transactionHash: TX_HASH,
+              blockNumber: '0x12c',
+              address: USDT_CONTRACT,
+              topics: [
+                TRANSFER_TOPIC,
+                '0x0000000000000000000000009999999999999999999999999999999999999999',
+                `0x000000000000000000000000${COMPANY_WALLET.replace('0x', '').toLowerCase()}`,
+              ],
+              data: `0x${BigInt(500 * 1_000_000)
+                .toString(16)
+                .padStart(64, '0')}`,
+            },
+          ],
+        },
+        // eth_blockNumber
+        { jsonrpc: '2.0', result: '0x138' },
+      ]
+      const body = responses[idx] ?? { jsonrpc: '2.0', result: null }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(body) })
+    })
+
+    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+
+    // Find the eth_getLogs call (3rd call, index 2)
+    const logsUrl = capturedUrls.find((u) => u.includes('eth_getLogs'))
+    expect(logsUrl).toBeDefined()
+    // MUST NOT have topic1 — topic1=zero-address filters mint-only, blocking real deposits
+    expect(logsUrl).not.toContain('topic1')
+    expect(logsUrl).not.toContain('topic0_1_opr')
+    // MUST filter by USDT contract address
+    expect(logsUrl?.toLowerCase()).toContain(USDT_CONTRACT.toLowerCase())
+    // Result must confirm the deposit (from is non-zero sender 0x9999...)
+    expect(result.confirmed).toBe(true)
+    expect(result.toMatches).toBe(true)
+    expect(result.amountUsdt).toBe(500)
+  })
+
+  it('real deposit with non-zero from address → toMatches=true, confirmed=true', async () => {
+    // Explicit test: the depositor (from) is a non-zero address (0x9999...).
+    // If topic1 filtering were present this tx would be invisible to eth_getLogs
+    // and toMatches would be false. With correct topic0-only filtering it works.
+    mockDirectLookup({
+      txFound: true,
+      receiptStatus: '0x1',
+      transfers: [{ to: COMPANY_WALLET, value: '1000' }],
+      currentBlock: 312, // 12 confirmations
+    })
+    // The from address in mockTransferLogs is always 0x9999... (non-zero)
+
+    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+
+    expect(result.found).toBe(true)
+    expect(result.toMatches).toBe(true)
+    expect(result.confirmed).toBe(true)
+    expect(result.amountUsdt).toBe(1000)
+    // Sanity: receipt success
+    expect((result as { onChainSuccess?: boolean }).onChainSuccess).toBe(true)
+  })
+
   it('AbortController timeout — fetch times out → graceful found=false', async () => {
     // @ts-expect-error — test stub
     globalThis.fetch = vi

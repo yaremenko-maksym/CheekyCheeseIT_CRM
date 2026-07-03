@@ -170,6 +170,39 @@ describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () =>
     const logged = loggerErrorSpy.mock.calls.length > 0 || loggerWarnSpy.mock.calls.length > 0
     expect(logged).toBe(true)
   })
+  it('MED: prev-day fallback result is cached — next failure uses cache not hardcoded', async () => {
+    // Call 1: today fails (empty), prev-day succeeds with known rates.
+    // Verifies that the prev-day success is stored in lastKnownGood so a
+    // subsequent total failure returns the cached rate, not the hardcoded 41.5.
+    let callCount = 0
+    // @ts-expect-error — test stub
+    globalThis.fetch = vi.fn().mockImplementation(() => {
+      callCount++
+      const body: unknown =
+        callCount === 1
+          ? [] // today: empty → try prev-day
+          : callCount === 2
+            ? [
+                { r030: 0, txt: 'USD', rate: 38.5, cc: 'USD', exchangedate: '02.07.2026' },
+                { r030: 0, txt: 'EUR', rate: 42.0, cc: 'EUR', exchangedate: '02.07.2026' },
+              ]
+            : (() => {
+                throw new Error('ECONNREFUSED')
+              })() // subsequent: network down
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) })
+    })
+
+    const r1 = await svc.getRates()
+    expect(r1.stale).toBe(true) // prev-day result = stale
+    expect(parseFloat(r1.usdUah)).toBeCloseTo(38.5, 4)
+
+    // Call 2: total network failure — must return cached 38.5, NOT hardcoded 41.5
+    mockNbuNetworkError()
+    const r2 = await svc.getRates()
+    expect(r2.stale).toBe(true)
+    expect(parseFloat(r2.usdUah)).toBeCloseTo(38.5, 4)
+    expect(parseFloat(r2.eurUah)).toBeCloseTo(42.0, 4)
+  })
 })
 
 describe('AC3: AbortController timeout on NBU fetch', () => {

@@ -221,14 +221,20 @@ export class EtherscanService {
     }
 
     // ── Step 3: eth_getLogs — USDT Transfer events for this tx ───────────────
-    // Filter to the USDT contract + Transfer topic. This returns ONLY Transfer
-    // events emitted by the USDT contract in this tx — no window dependency.
+    // Filter to the USDT contract + Transfer topic (topic0 only).
+    // SECURITY NOTE: Do NOT add topic1 (from-address) filter here.
+    //   ERC-20 Transfer topics: topic0=event_sig, topic1=from, topic2=to.
+    //   topic1 == zero address filters ONLY mint events (from == 0x0).
+    //   Real deposits always have a non-zero sender — adding topic1=0x000...000
+    //   would make every real deposit return an empty logs array and
+    //   toMatches=false, silently blocking ALL legitimate deposits.
+    //   We filter by transactionHash in code, then match topics[2] (to-address)
+    //   against the expected company wallet for defence-in-depth.
     const logsRes = await this.fetchWithTimeout(
       `${base}&action=eth_getLogs` +
         `&fromBlock=${txBlockHex}&toBlock=${txBlockHex}` +
         `&address=${USDT_CONTRACT}` +
-        `&topic0=${ERC20_TRANSFER_TOPIC}` +
-        `&topic0_1_opr=and&topic1=0x0000000000000000000000000000000000000000000000000000000000000000`,
+        `&topic0=${ERC20_TRANSFER_TOPIC}`,
     )
     // Etherscan eth_getLogs returns ALL Transfer events in the block for this
     // contract, not just for our tx — filter by transactionHash.

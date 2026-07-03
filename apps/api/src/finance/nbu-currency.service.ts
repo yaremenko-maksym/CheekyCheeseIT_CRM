@@ -16,7 +16,13 @@ export interface ExchangeRateResult {
   /** AC3 (BIZ-10): true when rates come from a fallback (cached or hardcoded),
    *  i.e. the live NBU API call failed or returned empty data.
    *  Optional for backward-compat with existing mocks; NbuCurrencyService always
-   *  populates it. Callers should surface this state to operators / dashboards. */
+   *  populates it. All stale paths are logged via Logger.error/warn in the service.
+   *
+   *  TODO (deferred with financial conversion): once UAH→USDT conversion is
+   *  wired into transactions.service, consumers MUST check `stale === true` and
+   *  surface a warning to operators before applying the rate to payout amounts.
+   *  Current callers (transactions.service ~:1958 etc.) do not block on stale —
+   *  acceptable pre-conversion since rates only affect display, not ledger entries. */
   stale?: boolean
 }
 
@@ -82,11 +88,16 @@ export class NbuCurrencyService {
       this.logger.warn(
         `NBU API unavailable for ${dateStr}, using previous-day rates (${prev}) — stale=true`,
       )
-      return this.buildResult(attempt2, dateStr, true)
+      // MED fix: cache prev-day result so a subsequent API failure can use
+      // lastKnownGood instead of making 2 more HTTP calls then falling to hardcoded.
+      // buildResult with stale=true skips the cache update, so we update it here.
+      const prevResult = this.buildResult(attempt2, prev, false) // cache as fresh prev-day
+      void prevResult // side-effect: updates this.lastKnownGood
+      return { ...prevResult, date: dateStr, stale: true }
     }
 
     // Both attempts failed — use last-known-good cache or hardcoded constant
-    return this.buildStallbackResult(dateStr)
+    return this.buildFallbackResult(dateStr)
   }
 
   // ── Private helpers ─────────────────────────────────────────────────────────
@@ -142,12 +153,21 @@ export class NbuCurrencyService {
       stale: effectiveStale,
     }
 
-    // Cache the good result for future fallback (only when not stale)
+    // Cache the good result for future fallback (only when not stale and sanity passes)
     if (!effectiveStale) {
-      this.lastKnownGood = {
-        usdUah: result.usdUah,
-        usdtUah: result.usdtUah,
-        eurUah: result.eurUah,
+      const usdNum = parseFloat(result.usdUah)
+      const eurNum = parseFloat(result.eurUah)
+      // MED: sanity-check — defence against corrupt API responses with 0 or Inf rates
+      if (usdNum > 0 && isFinite(usdNum) && eurNum > 0 && isFinite(eurNum)) {
+        this.lastKnownGood = {
+          usdUah: result.usdUah,
+          usdtUah: result.usdtUah,
+          eurUah: result.eurUah,
+        }
+      } else {
+        this.logger.warn(
+          `NBU API returned invalid rates (usd=${result.usdUah}, eur=${result.eurUah}) — not caching`,
+        )
       }
     }
 
@@ -159,7 +179,7 @@ export class NbuCurrencyService {
    * Prefers last-known-good cache over the hardcoded constant.
    * Always logs — no silent fallback (AC3).
    */
-  private buildStallbackResult(date: string): ExchangeRateResult {
+  private buildFallbackResult(date: string): ExchangeRateResult {
     if (this.lastKnownGood) {
       this.logger.error(
         'NBU API completely unavailable — returning last-known-good cached rates (stale=true)',
