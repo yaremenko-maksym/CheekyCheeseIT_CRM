@@ -191,7 +191,16 @@ export class BalanceService {
         // omitted their actual income. Count PAID SENIOR_INCOME, consistent with
         // getTotalEarned.income. The never-emitted branches are kept untouched so
         // there is no double-count (SENIOR_INCOME is a distinct type).
-        platformIncome += converted
+        //
+        // BIZ-04 (MED): Two semantics for SENIOR_INCOME.amount:
+        //   seniorSharePercent NOT NULL → row created by createSeniorIncome with
+        //     GROSS project income; the senior's cut = amount × (pct / 100).
+        //   seniorSharePercent NULL → row created by settleByCompany, which already
+        //     writes the NET senior share directly; use amount as-is (no multiply).
+        // Mirrors the authoritative getSeniorSummary pattern (transactions.service.ts)
+        // but guards NULL explicitly to avoid applying 26% to already-net rows.
+        platformIncome +=
+          tx.seniorSharePercent !== null ? converted * (tx.seniorSharePercent / 100) : converted
       } else if (tx.type === 'EXPENSE' && tx.senderId === seniorId) {
         expenses += converted
       }
@@ -287,7 +296,12 @@ export class BalanceService {
           (tx.receiverId === targetUserId ||
             (tx.receiverId == null && tx.senderId === targetUserId))
         ) {
-          add('income', converted)
+          // BIZ-04 (MED): two-semantic rule — same as getSeniorBalance:
+          //   seniorSharePercent NOT NULL → GROSS row (createSeniorIncome); apply pct.
+          //   seniorSharePercent NULL → NET row (settleByCompany); use amount as-is.
+          const seniorShare =
+            tx.seniorSharePercent !== null ? converted * (tx.seniorSharePercent / 100) : converted
+          add('income', seniorShare)
         }
       } else if (role === 'DROP') {
         if (tx.type === 'PAYOUT_DROP' && recipient === targetUserId) {

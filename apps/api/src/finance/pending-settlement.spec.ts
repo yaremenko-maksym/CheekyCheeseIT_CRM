@@ -688,10 +688,12 @@ describe('PendingSettlementService.settleByCompanySourceTransaction', () => {
 // source-transaction-id) so neither path drifts.
 describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSONAL)', () => {
   const COMPANY_FUNDING = { fundingSource: 'COMPANY_ACCOUNT' as const, currency: 'USDT' as const }
+  // BIZ-03 fix: ADMIN_PERSONAL currency must match obligation.currency (USDT).
+  // Using USD here would trigger the new currency-guard → BadRequestException.
   const ADMIN_FUNDING = {
     fundingSource: 'ADMIN_PERSONAL' as const,
     payerAdminId: ADMIN_PAYER_2_ID,
-    currency: 'USD' as const,
+    currency: 'USDT' as const,
   }
 
   // ── COMPANY_ACCOUNT (explicit) ──────────────────────────────────────────────
@@ -732,7 +734,8 @@ describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSO
     // Sender = the paying admin partner; currency follows the choice.
     expect(row['senderId']).toBe(ADMIN_PAYER_2_ID)
     expect(row['senderLabel']).toBe('Kostya')
-    expect(row['currency']).toBe('USD')
+    // BIZ-03 fix: ADMIN_FUNDING.currency is now USDT (matches obligation.currency).
+    expect(row['currency']).toBe('USDT')
     expect(row['receiverId']).toBe(SENIOR_ID)
   })
 
@@ -759,14 +762,15 @@ describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSO
 
   it('ADMIN_PERSONAL defaults payerAdminId to the calling ADMIN when omitted', async () => {
     const { svc, getInsertsFor } = makeService()
+    // BIZ-03 fix: currency must match obligation.currency (USDT). EUR would throw.
     await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, adminUser, {
       fundingSource: 'ADMIN_PERSONAL',
-      currency: 'EUR',
+      currency: 'USDT',
     })
     const row = getInsertsFor(transactions)[0]!
     // adminUser.id === ADMIN_PAYER_ID; resolves to an ADMIN → sender = caller.
     expect(row['senderId']).toBe(ADMIN_PAYER_ID)
-    expect(row['currency']).toBe('EUR')
+    expect(row['currency']).toBe('USDT')
     expect(row['fundingSource']).toBeNull()
   })
 
@@ -806,7 +810,8 @@ describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSO
     const row = getInsertsFor(transactions)[0]!
     expect(row['senderId']).toBe(ADMIN_PAYER_2_ID)
     expect(row['fundingSource']).toBeNull()
-    expect(row['currency']).toBe('USD')
+    // BIZ-03 fix: ADMIN_FUNDING.currency is now USDT (matches obligation.currency).
+    expect(row['currency']).toBe('USDT')
   })
 
   it('settleByCompany (obligation id) with no funding arg keeps legacy COMPANY_ACCOUNT behaviour', async () => {

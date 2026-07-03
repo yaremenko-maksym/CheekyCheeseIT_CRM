@@ -237,6 +237,9 @@ export class InvoicesService {
     // tolerated as the linked income count is bounded by the number of
     // active projects per senior (typically ≤ 6). The N+1 query is
     // acceptable here — caching would over-engineer for the expected fanout.
+    // parseFloat aggregation is display-only (PDF label) — not used for money
+    // movement. Floating-point drift is bounded to sub-cent amounts and has no
+    // financial side-effect. signInvoice PAYOUT branch mirrors this exactly.
     const aggregatedAmount = linkedIncomes
       .reduce((sum, row) => sum + parseFloat(row.amount), 0)
       .toString()
@@ -770,6 +773,13 @@ export class InvoicesService {
     let projectName: string | null = null
     let projectNames: string[] | null = null
     let contractNumber: string | null = null
+    // BIZ-05 (MED): For PAYOUT rows, amount/currency must come from the
+    // aggregated linked income rows (exactly as autoCreateForPayout does),
+    // NOT from tx.amount/tx.currency (which is the payableAmount in USDT).
+    // Using tx.amount would produce a different amount in the re-rendered PDF
+    // than what the COMPANY signed, making the counterparty-signed copy inconsistent.
+    let payoutAggregatedAmount: string | null = null
+    let payoutAggregatedCurrency: string | null = null
     if (tx.type === 'PAYOUT' && tx.payoutRequestId) {
       const linkedIncomes = await this.db.db.query.transactions.findMany({
         where: and(
@@ -792,6 +802,19 @@ export class InvoicesService {
         counterpartyRow.role === 'ADMIN'
           ? null
           : await this.lookupContractNumber(counterpartyRow.id, counterpartyRow.role)
+      // Aggregate amount + currency from linked incomes — mirrors autoCreateForPayout
+      // so the re-rendered PDF uses the same values as the COMPANY-signed original.
+      if (linkedIncomes.length > 0) {
+        // parseFloat aggregation is display-only (PDF label) — not used for
+        // money movement. Mirrors autoCreateForPayout's approach exactly so
+        // the re-rendered invoice shows the same figure as the signed original.
+        // Floating-point drift is bounded to sub-cent amounts on the amounts
+        // we deal with (≤ 6 decimal places) and has no financial side-effect.
+        payoutAggregatedAmount = linkedIncomes
+          .reduce((sum, row) => sum + parseFloat(row.amount), 0)
+          .toString()
+        payoutAggregatedCurrency = linkedIncomes[0]!.currency ?? tx.currency
+      }
     } else if (tx.type === 'SENIOR_INCOME' && tx.projectId) {
       const project = await this.db.db.query.projects.findFirst({
         where: eq(projects.id, tx.projectId),
@@ -804,8 +827,14 @@ export class InvoicesService {
       // PAYOUT rows render with the SENIOR_INCOME template (АКТ ВЫПОЛНЕННЫХ
       // РАБОТ) — same legal document, just aggregated content.
       type: (tx.type === 'PAYOUT' ? 'SENIOR_INCOME' : tx.type) as 'SENIOR_INCOME' | 'SALARY',
-      amount: tx.amount,
-      currency: tx.currency,
+      // BIZ-05: Use aggregated linked income amount/currency for PAYOUT rows,
+      // falling back to tx.amount/tx.currency only when no linked incomes found
+      // (defensive — should never happen in production).
+      amount: tx.type === 'PAYOUT' ? (payoutAggregatedAmount ?? tx.amount) : tx.amount,
+      currency:
+        tx.type === 'PAYOUT'
+          ? ((payoutAggregatedCurrency ?? tx.currency) as typeof tx.currency)
+          : tx.currency,
       projectName,
       projectNames,
       contractNumber,

@@ -40,6 +40,8 @@ interface MockTransactionRow {
   receiverLabel?: string | null
   recipientId?: string | null
   projectId?: string | null
+  /** BIZ-04: the senior's share percentage stored per-row (null → default 26). */
+  seniorSharePercent?: number | null
 }
 
 interface MockObligationRow {
@@ -68,6 +70,7 @@ function makeTx(overrides: Partial<MockTransactionRow>): MockTransactionRow {
     receiverLabel: null,
     recipientId: null,
     projectId: null,
+    seniorSharePercent: null,
     type: 'TOV_INCOME',
     ...overrides,
   }
@@ -506,6 +509,9 @@ describe('BalanceService.getSeniorBalance — SENIOR_INCOME (#10)', () => {
   const SENIOR_A = 'senior-a-id'
 
   it('counts PAID SENIOR_INCOME as real platform income', async () => {
+    // BIZ-04 fix: SENIOR_INCOME.amount is GROSS. The senior's share is
+    // amount × (seniorSharePercent / 100). With seniorSharePercent=26:
+    // 740 × 0.26 = 192.4.
     const svc = makeService({
       transactions: [
         makeTx({
@@ -514,12 +520,13 @@ describe('BalanceService.getSeniorBalance — SENIOR_INCOME (#10)', () => {
           amount: '740',
           currency: 'USD',
           receiverId: SENIOR_A,
+          seniorSharePercent: 26,
         }),
       ],
     })
     const result = await svc.getSeniorBalance(SENIOR_A, 'USD')
-    expect(result.balance).toBe(740)
-    expect(result.breakdown.platform_income).toBe(740)
+    expect(result.balance).toBeCloseTo(192.4)
+    expect(result.breakdown.platform_income).toBeCloseTo(192.4)
   })
 
   it('ignores NON-PAID SENIOR_INCOME (only settled money counts)', async () => {
@@ -540,6 +547,9 @@ describe('BalanceService.getSeniorBalance — SENIOR_INCOME (#10)', () => {
   })
 
   it('does NOT double-count: SENIOR_INCOME stacks with SENIOR_PAID but is a distinct credit', async () => {
+    // BIZ-04 fix: SENIOR_INCOME 300 × 26% = 78 (senior's share of gross).
+    // SENIOR_PAID 200 is a direct credit (no pct applied — it's already net).
+    // Total: 78 + 200 = 278.
     const svc = makeService({
       transactions: [
         makeTx({
@@ -548,6 +558,7 @@ describe('BalanceService.getSeniorBalance — SENIOR_INCOME (#10)', () => {
           amount: '300',
           currency: 'USD',
           receiverId: SENIOR_A,
+          seniorSharePercent: 26,
         }),
         makeTx({
           type: 'SENIOR_PAID',
@@ -559,10 +570,31 @@ describe('BalanceService.getSeniorBalance — SENIOR_INCOME (#10)', () => {
       ],
     })
     const result = await svc.getSeniorBalance(SENIOR_A, 'USD')
-    // 300 platform + 200 paid = 500 — each counted once.
-    expect(result.balance).toBe(500)
-    expect(result.breakdown.platform_income).toBe(300)
+    // 78 platform (300 × 0.26) + 200 paid = 278 — each type counted once.
+    expect(result.balance).toBeCloseTo(278)
+    expect(result.breakdown.platform_income).toBeCloseTo(78)
     expect(result.breakdown.paid_income).toBe(200)
+  })
+
+  it('SENIOR_INCOME with null seniorSharePercent (settleByCompany NET row) → used as-is, not multiplied', async () => {
+    // settleByCompany writes the NET senior share directly with seniorSharePercent=null.
+    // If we applied 26% we would under-count (bug BIZ-04 defense).
+    const svc = makeService({
+      transactions: [
+        makeTx({
+          type: 'SENIOR_INCOME',
+          status: 'PAID',
+          amount: '400',
+          currency: 'USD',
+          receiverId: SENIOR_A,
+          seniorSharePercent: null, // NET — already the senior's cut
+        }),
+      ],
+    })
+    const result = await svc.getSeniorBalance(SENIOR_A, 'USD')
+    // 400 used as-is (no pct multiplication)
+    expect(result.balance).toBeCloseTo(400)
+    expect(result.breakdown.platform_income).toBeCloseTo(400)
   })
 
   it("does not leak another senior's SENIOR_INCOME", async () => {
