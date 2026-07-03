@@ -9,17 +9,13 @@ import { CompanyAccountController } from './company-account.controller'
  * trigger excessive Etherscan API calls (rate-limit abuse). A RelaxableThrottle
  * decorator must be present on the handler.
  *
- * We check via NestJS's metadata system: @Throttle() stores its config on the
- * method descriptor's metadata under the ThrottlerModule key. If the decorator
- * is absent the metadata will be undefined.
+ * We check via NestJS's metadata system: @Throttle() stores its per-key config
+ * on the method descriptor as individual metadata entries:
+ *   THROTTLER:LIMITdefault  — limit Resolvable (function)
+ *   THROTTLER:TTLdefault    — ttl Resolvable (function)
  *
- * Note: We test the PRESENCE of the throttle metadata (structural assertion),
- * not the actual throttling behaviour (that is covered by
- * contracts/throttle.integration.spec.ts for other endpoints).
+ * If the decorator is absent those keys will be absent from the descriptor.
  */
-
-// NestJS @Throttle() stores config under this metadata key (ThrottlerGuard reads it)
-const THROTTLER_METADATA_KEY = 'THROTTLE_METADATA:global'
 
 describe('AC4: CompanyAccountController.getDepositStatus — @RelaxableThrottle present', () => {
   it('getDepositStatus has throttle metadata on its handler', () => {
@@ -28,25 +24,27 @@ describe('AC4: CompanyAccountController.getDepositStatus — @RelaxableThrottle 
 
     expect(descriptor).toBeDefined()
 
-    // @Throttle() decorates the handler; Reflect.getMetadata reads its config.
-    // 'THROTTLE_METADATA:global' is the key NestJS ThrottlerModule uses internally.
-    // If the decorator is absent this returns undefined.
-    const meta = Reflect.getMetadata(THROTTLER_METADATA_KEY, descriptor!.value as object)
+    // @Throttle() via RelaxableThrottle writes per-key metadata entries.
+    // THROTTLER:LIMITdefault is the presence-sentinel for the 'default' throttler key.
+    const limitMeta = Reflect.getMetadata('THROTTLER:LIMITdefault', descriptor!.value as object)
+    const ttlMeta = Reflect.getMetadata('THROTTLER:TTLdefault', descriptor!.value as object)
 
-    expect(meta).toBeDefined()
-    expect(meta).toMatchObject({
-      limit: expect.any(Function),
-      ttl: expect.any(Function),
-    })
+    expect(limitMeta).toBeDefined()
+    expect(ttlMeta).toBeDefined()
+    // Both must be Resolvable functions (RelaxableThrottle uses () => ... callbacks)
+    expect(typeof limitMeta).toBe('function')
+    expect(typeof ttlMeta).toBe('function')
   })
 
   it('getDepositStatus throttle limit function returns a positive number', () => {
     const prototype = CompanyAccountController.prototype
     const descriptor = Object.getOwnPropertyDescriptor(prototype, 'getDepositStatus')!
-    const meta = Reflect.getMetadata(THROTTLER_METADATA_KEY, descriptor.value as object)
+    const limitFn = Reflect.getMetadata(
+      'THROTTLER:LIMITdefault',
+      descriptor.value as object,
+    ) as () => number
 
-    // The limit callback (Resolvable<number>) must return a positive number
-    const limit = (meta as { limit: () => number }).limit()
+    const limit = limitFn()
     expect(typeof limit).toBe('number')
     expect(limit).toBeGreaterThan(0)
   })

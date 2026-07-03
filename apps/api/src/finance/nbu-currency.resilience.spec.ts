@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Logger } from '@nestjs/common'
 import { NbuCurrencyService } from './nbu-currency.service'
 
 /**
@@ -60,15 +61,15 @@ function mockNbuTimeout() {
 
 describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () => {
   let svc: NbuCurrencyService
-  let errorSpy: ReturnType<typeof vi.spyOn>
-  let warnSpy: ReturnType<typeof vi.spyOn>
+  // NestJS Logger writes to process.stdout/stderr — NOT through console.error/warn.
+  // Spy on Logger.prototype.error and Logger.prototype.warn instead.
+  let loggerErrorSpy: ReturnType<typeof vi.spyOn>
+  let loggerWarnSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
     svc = makeService()
-    // Spy on logger methods (the service uses NestJS Logger internally)
-    // We spy on console.error / console.warn as NestJS Logger pipes through them in test env
-    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    loggerErrorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {})
+    loggerWarnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
   })
 
   afterEach(() => {
@@ -89,6 +90,7 @@ describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () =>
   })
 
   it('AC3: 200-OK with empty body → stale=true + error/warn logged', async () => {
+    // Both today + prev-day calls return empty — fetch is called twice
     mockNbuEmpty()
 
     const result = await svc.getRates()
@@ -96,18 +98,18 @@ describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () =>
     // Must be marked stale — not silently returning hardcoded value
     expect(result.stale).toBe(true)
     // Must log error or warn — no silent fallback
-    const logged = errorSpy.mock.calls.length > 0 || warnSpy.mock.calls.length > 0
+    const logged = loggerErrorSpy.mock.calls.length > 0 || loggerWarnSpy.mock.calls.length > 0
     expect(logged).toBe(true)
   })
 
   it('AC3: network failure → stale=true + error logged', async () => {
-    // First call fails, second (previous-day fallback) also fails
+    // Both attempts (today + prev-day) fail with network error
     mockNbuNetworkError()
 
     const result = await svc.getRates()
 
     expect(result.stale).toBe(true)
-    expect(errorSpy.mock.calls.length + warnSpy.mock.calls.length).toBeGreaterThan(0)
+    expect(loggerErrorSpy.mock.calls.length + loggerWarnSpy.mock.calls.length).toBeGreaterThan(0)
   })
 
   it('AC3: fetch timeout → stale=true (not silent hardcode)', async () => {
@@ -165,7 +167,7 @@ describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () =>
     expect(parseFloat(result.usdUah)).toBeGreaterThan(0)
     expect(parseFloat(result.eurUah)).toBeGreaterThan(0)
     // Logging required
-    const logged = errorSpy.mock.calls.length > 0 || warnSpy.mock.calls.length > 0
+    const logged = loggerErrorSpy.mock.calls.length > 0 || loggerWarnSpy.mock.calls.length > 0
     expect(logged).toBe(true)
   })
 })
